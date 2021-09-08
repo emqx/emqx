@@ -66,18 +66,21 @@ gateway_insta(get, #{bindings := #{name := Name0}}) ->
     Name = binary_to_existing_atom(Name0),
     case emqx_gateway:lookup(Name) of
         #{config := _Config} ->
-            %% FIXME: Got the parsed config, but we should return rawconfig to
-            %% frontend
-            RawConf = emqx_config:fill_defaults(
-                        emqx_config:get_root_raw([<<"gateway">>])
-                       ),
-            {200, emqx_map_lib:deep_get([<<"gateway">>, Name0], RawConf)};
+            GwCfs = filled_raw_confs([<<"gateway">>, Name0]),
+            NGwCfs = GwCfs#{<<"listeners">> =>
+                             emqx_gateway_http:mapping_listener_m2l(
+                               Name0, maps:get(<<"listeners">>, GwCfs, #{})
+                              )
+                           },
+            {200, NGwCfs};
         undefined ->
             return_http_error(404, <<"Gateway not found">>)
     end;
-gateway_insta(put, #{body := RawConfsIn,
+gateway_insta(put, #{body := RawConfsIn0,
                      bindings := #{name := Name}
                     }) ->
+    RawConfsIn = maps:without([<<"authentication">>,
+                               <<"listeners">>], RawConfsIn0),
     %% FIXME: Cluster Consistence ??
     case emqx_gateway:update_rawconf(Name, RawConfsIn) of
         ok ->
@@ -91,6 +94,12 @@ gateway_insta(put, #{body := RawConfsIn,
 gateway_insta_stats(get, _Req) ->
     return_http_error(401, <<"Implement it later (maybe 5.1)">>).
 
+filled_raw_confs(Path) ->
+    RawConf = emqx_config:fill_defaults(
+                emqx_config:get_root_raw(Path)
+               ),
+    Confs = emqx_map_lib:deep_get(Path, RawConf),
+    emqx_map_lib:jsonable_map(Confs).
 
 %%--------------------------------------------------------------------
 %% Swagger defines
@@ -199,8 +208,13 @@ schema_gateway_overview_list() ->
   <<"enable">> => true,
   <<"enable_stats">> => true,<<"heartbeat">> => <<"30s">>,
   <<"idle_timeout">> => <<"30s">>,
-  <<"listeners">> =>
-      #{<<"udp">> => #{<<"default">> => #{<<"bind">> => 5683}}},
+  <<"listeners">> => [
+      #{<<"id">> => <<"coap:udp:default">>,
+        <<"type">> => <<"udp">>,
+        <<"running">> => true,
+        <<"acceptors">> => 8,<<"bind">> => 5683,
+        <<"max_conn_rate">> => 1000,
+        <<"max_connections">> => 10240}],
   <<"mountpoint">> => <<>>,<<"notify_type">> => <<"qos">>,
   <<"publish_qos">> => <<"qos1">>,
   <<"subscribe_qos">> => <<"qos0">>}
@@ -212,12 +226,13 @@ schema_gateway_overview_list() ->
   <<"handler">> =>
       #{<<"address">> => <<"http://127.0.0.1:9001">>},
   <<"idle_timeout">> => <<"30s">>,
-  <<"listeners">> =>
-      #{<<"tcp">> =>
-            #{<<"default">> =>
-                  #{<<"acceptors">> => 8,<<"bind">> => 7993,
-                    <<"max_conn_rate">> => 1000,
-                    <<"max_connections">> => 10240}}},
+  <<"listeners">> => [
+      #{<<"id">> => <<"exproto:tcp:default">>,
+        <<"type">> => <<"tcp">>,
+        <<"running">> => true,
+        <<"acceptors">> => 8,<<"bind">> => 7993,
+        <<"max_conn_rate">> => 1000,
+        <<"max_connections">> => 10240}],
   <<"mountpoint">> => <<>>,
   <<"server">> => #{<<"bind">> => 9100}}
 ).
@@ -229,8 +244,11 @@ schema_gateway_overview_list() ->
   <<"idle_timeout">> => <<"30s">>,
   <<"lifetime_max">> => <<"86400s">>,
   <<"lifetime_min">> => <<"1s">>,
-  <<"listeners">> =>
-      #{<<"udp">> => #{<<"default">> => #{<<"bind">> => 5783}}},
+  <<"listeners">> => [
+      #{<<"id">> => <<"lwm2m:udp:default">>,
+        <<"type">> => <<"udp">>,
+        <<"running">> => true,
+        <<"bind">> => 5783}],
   <<"mountpoint">> => <<"lwm2m/%e/">>,
   <<"qmode_time_windonw">> => 22,
   <<"translators">> =>
@@ -251,11 +269,12 @@ schema_gateway_overview_list() ->
   <<"enable">> => true,
   <<"enable_qos3">> => true,<<"enable_stats">> => true,
   <<"gateway_id">> => 1,<<"idle_timeout">> => <<"30s">>,
-  <<"listeners">> =>
-      #{<<"udp">> =>
-            #{<<"default">> =>
-                  #{<<"bind">> => 1884,<<"max_conn_rate">> => 1000,
-                    <<"max_connections">> => 10240000}}},
+  <<"listeners">> => [
+      #{<<"id">> => <<"mqttsn:udp:default">>,
+        <<"type">> => <<"udp">>,
+        <<"running">> => true,
+        <<"bind">> => 1884,<<"max_conn_rate">> => 1000,
+                    <<"max_connections">> => 10240000}],
   <<"mountpoint">> => <<>>,
   <<"predefined">> =>
       [#{<<"id">> => 1,
@@ -279,12 +298,13 @@ schema_gateway_overview_list() ->
       #{<<"max_body_length">> => 8192,<<"max_headers">> => 10,
         <<"max_headers_length">> => 1024},
   <<"idle_timeout">> => <<"30s">>,
-  <<"listeners">> =>
-      #{<<"tcp">> =>
-            #{<<"default">> =>
-                  #{<<"acceptors">> => 16,<<"active_n">> => 100,
-                    <<"bind">> => 61613,<<"max_conn_rate">> => 1000,
-                    <<"max_connections">> => 1024000}}},
+  <<"listeners">> => [
+      #{<<"id">> => <<"stomp:tcp:default">>,
+        <<"type">> => <<"tcp">>,
+        <<"running">> => true,
+        <<"acceptors">> => 16,<<"active_n">> => 100,
+        <<"bind">> => 61613,<<"max_conn_rate">> => 1000,
+        <<"max_connections">> => 1024000}],
   <<"mountpoint">> => <<>>}
 ).
 
@@ -312,10 +332,12 @@ schema_gateway_stats() ->
 
 properties_gateway_overview() ->
     ListenerProps =
-        [ {name, string,
-           <<"Listener Name">>}
-        , {status, string,
-           <<"Listener Status">>, [<<"activing">>, <<"inactived">>]}
+        [ {id, string,
+           <<"Listener ID">>}
+        , {running, boolean,
+           <<"Listener Running status">>}
+        , {type, string,
+           <<"Listener Type">>, [<<"tcp">>, <<"ssl">>, <<"udp">>, <<"dtls">>]}
         ],
     emqx_mgmt_util:properties(
       [ {name, string,
@@ -323,9 +345,13 @@ properties_gateway_overview() ->
       , {status, string,
          <<"Gateway Status">>,
          [<<"running">>, <<"stopped">>, <<"unloaded">>]}
+      , {created_at, string,
+         <<>>}
       , {started_at, string,
          <<>>}
-      , {max_connection, integer, <<>>}
-      , {current_connection, integer, <<>>}
+      , {stopped_at, string,
+         <<>>}
+      , {max_connections, integer, <<>>}
+      , {current_connections, integer, <<>>}
       , {listeners, {array, object}, ListenerProps}
       ]).

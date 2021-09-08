@@ -153,7 +153,7 @@ start_listener(GwName, Ctx, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     end.
 
 start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
-    Name = name(GwName, LisName, Type),
+    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     NCfg = Cfg#{
              ctx => Ctx,
              frame_mod => emqx_exproto_frame,
@@ -171,9 +171,6 @@ do_start_listener(udp, Name, ListenOn, Opts, MFA) ->
     esockd:open_udp(Name, ListenOn, Opts, MFA);
 do_start_listener(dtls, Name, ListenOn, Opts, MFA) ->
     esockd:open_dtls(Name, ListenOn, Opts, MFA).
-
-name(GwName, LisName, Type) ->
-    list_to_atom(lists:concat([GwName, ":", Type, ":", LisName])).
 
 merge_default_by_type(Type, Options) when Type =:= tcp;
                                           Type =:= ssl ->
@@ -209,5 +206,5 @@ stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     StopRet.
 
 stop_listener(GwName, Type, LisName, ListenOn, _SocketOpts, _Cfg) ->
-    Name = name(GwName, LisName, Type),
+    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     esockd:close(Name, ListenOn).

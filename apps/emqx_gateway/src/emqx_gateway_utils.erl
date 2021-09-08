@@ -28,8 +28,11 @@
 
 -export([ apply/2
         , format_listenon/1
+        , parse_listenon/1
         , unix_ts_to_rfc3339/1
         , unix_ts_to_rfc3339/2
+        , listener_id/3
+        , parse_listener_id/1
         ]).
 
 -export([ stringfy/1
@@ -111,6 +114,38 @@ format_listenon({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~s:~w", [Addr, Port]);
 format_listenon({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
+
+parse_listenon(Port) when is_integer(Port) ->
+    Port;
+parse_listenon(Str) when is_binary(Str) ->
+    parse_listenon(binary_to_list(Str));
+parse_listenon(Str) when is_list(Str) ->
+    case emqx_schema:to_ip_port(Str) of
+        {ok, R} -> R;
+        {error, _} ->
+            error({invalid_listenon_name, Str})
+    end.
+
+listener_id(GwName, Type, LisName) ->
+    binary_to_atom(
+      <<(bin(GwName))/binary, ":",
+        (bin(Type))/binary,   ":",
+        (bin(LisName))/binary
+      >>).
+
+parse_listener_id(Id) ->
+    try
+        [GwName, Type, Name] = binary:split(bin(Id), <<":">>, [global]),
+        {binary_to_existing_atom(GwName), binary_to_existing_atom(Type),
+         binary_to_atom(Name)}
+    catch
+        _ : _ -> error({invalid_listener_id, Id})
+    end.
+
+bin(A) when is_atom(A) ->
+    atom_to_binary(A);
+bin(L) when is_list(L); is_binary(L) ->
+    iolist_to_binary(L).
 
 unix_ts_to_rfc3339(Keys, Map) when is_list(Keys) ->
     lists:foldl(fun(K, Acc) -> unix_ts_to_rfc3339(K, Acc) end, Map, Keys);

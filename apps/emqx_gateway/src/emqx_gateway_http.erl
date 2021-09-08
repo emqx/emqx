@@ -24,6 +24,12 @@
 -export([ gateways/1
         ]).
 
+%% Mgmt APIs - listeners
+-export([ listeners/1
+        , listener/2
+        , mapping_listener_m2l/2
+        ]).
+
 %% Mgmt APIs - clients
 -export([ lookup_client/3
         , lookup_client/4
@@ -42,8 +48,8 @@
         #{ name := binary()
          , status := running | stopped | unloaded
          , started_at => binary()
-         , max_connection => integer()
-         , current_connect => integer()
+         , max_connections => integer()
+         , current_connections => integer()
          , listeners => []
          }.
 
@@ -68,8 +74,10 @@ gateways(Status) ->
                                      created_at,
                                      started_at,
                                      stopped_at], GwInfo0),
-                GwInfo1#{listeners => get_listeners_status(GwName, Config)}
-
+                GwInfo1#{
+                  max_connections => max_connections_count(Config),
+                  current_connections => current_connections_count(GwName),
+                  listeners => get_listeners_status(GwName, Config)}
         end
     end, emqx_gateway_registry:list()),
     case Status of
@@ -79,23 +87,77 @@ gateways(Status) ->
     end.
 
 %% @private
+max_connections_count(Config) ->
+    Listeners = emqx_gateway_utils:normalize_config(Config),
+    lists:foldl(fun({_, _, _, SocketOpts, _}, Acc) ->
+        Acc + proplists:get_value(max_connections, SocketOpts, 0)
+    end, 0, Listeners).
+
+%% @private
+current_connections_count(GwName) ->
+    try
+        InfoTab = emqx_gateway_cm:tabname(info, GwName),
+        ets:info(InfoTab, size)
+    catch _ : _ ->
+        0
+    end.
+
+%% @private
 get_listeners_status(GwName, Config) ->
     Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:map(fun({Type, LisName, ListenOn, _, _}) ->
-        Name0 = listener_name(GwName, Type, LisName),
+        Name0 = emqx_gateway_utils:listener_id(GwName, Type, LisName),
         Name = {Name0, ListenOn},
+        LisO = #{id => Name0, type => Type},
         case catch esockd:listener(Name) of
             _Pid when is_pid(_Pid) ->
-                #{Name0 => <<"activing">>};
+                LisO#{running => true};
             _ ->
-                #{Name0 => <<"inactived">>}
-
+                LisO#{running => false}
         end
     end, Listeners).
 
-%% @private
-listener_name(GwName, Type, LisName) ->
-    list_to_atom(lists:concat([GwName, ":", Type, ":", LisName])).
+%%--------------------------------------------------------------------
+%% Mgmt APIs - listeners
+%%--------------------------------------------------------------------
+
+listeners(GwName) when is_atom (GwName) ->
+    listeners(atom_to_binary(GwName));
+listeners(GwName) ->
+    RawConf = emqx_config:fill_defaults(
+                emqx_config:get_root_raw([<<"gateway">>])),
+    Listeners = emqx_map_lib:jsonable_map(
+                  emqx_map_lib:deep_get(
+                    [<<"gateway">>, GwName, <<"listeners">>], RawConf)),
+    mapping_listener_m2l(GwName, Listeners).
+
+listener(_GwName, _ListenerId) ->
+    ok.
+
+mapping_listener_m2l(GwName, Listeners0) ->
+    Listeners = maps:to_list(Listeners0),
+    lists:append([listener(GwName, Type, maps:to_list(Conf))
+                  || {Type, Conf} <- Listeners]).
+
+listener(GwName, Type, Conf) ->
+    [begin
+         ListenerId = emqx_gateway_utils:listener_id(GwName, Type, LName),
+         Running = is_running(ListenerId, LConf),
+         LConf#{
+           id => ListenerId,
+           type => Type,
+           running => Running
+          }
+     end || {LName, LConf} <- Conf, is_map(LConf)].
+
+is_running(ListenerId, #{<<"bind">> := ListenOn0}) ->
+    ListenOn = emqx_gateway_utils:parse_listenon(ListenOn0),
+    try esockd:listener({ListenerId, ListenOn}) of
+        Pid when is_pid(Pid)->
+            true
+    catch _:_ ->
+        false
+    end.
 
 %%--------------------------------------------------------------------
 %% Mgmt APIs - clients
@@ -145,7 +207,7 @@ list_client_subscriptions(GwName, ClientId) ->
     with_channel(GwName, ClientId,
         fun(Pid) ->
             Subs = emqx_gateway_conn:call(
-                     Pid, 
+                     Pid,
                      subscriptions, ?DEFAULT_CALL_TIMEOUT),
             {ok, lists:map(fun({Topic, SubOpts}) ->
                      SubOpts#{topic => Topic}
