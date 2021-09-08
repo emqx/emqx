@@ -76,31 +76,41 @@
 namespace() -> undefined.
 
 roots() ->
-    [{"zones",
+    [ {"listeners",
+      sc(ref("listeners"),
+         #{ desc => "MQTT listeners identified by their protocol type and assigned names"
+          })
+     },
+     {"zones",
       sc(map("name", ref("zone")),
-         #{ desc => "A zone is a set of configs grouped by the zone `$name`. <br>"
-                    "The `$name` can be set to a listner's `zone` config for "
-                    "flexible configuration mapping. <br>"
-                    "NOTE: A builtin zone named `default` is auto created "
+         #{ desc => "A zone is a set of configs grouped by the zone <code>name</code>. <br>"
+                    "For flexible configuration mapping, the <code>name</code> "
+                    "can be set to a listener's <code>zone</code> config . <br>"
+                    "NOTE: A builtin zone named <code>default</code> is auto created "
                     "and can not be deleted."
           })},
-     "mqtt",
-     "flapping_detect",
+     {"mqtt",
+      sc(ref("mqtt"),
+         #{ desc => "Global MQTT configuration.<br>"
+                    "The configs here work as default values which can be overriden "
+                    "in <code>zone</code> configs"
+          })},
+     "rate_limit",
      "force_shutdown",
      "force_gc",
      "conn_congestion",
-     "rate_limit",
      "quota",
-     {"listeners",
-      sc(ref("listeners"),
-         #{ desc => "MQTT listeners identified by their protocol type and assigned names. "
-                    "The listeners enabled by default are named with 'default'"})
-     },
      "broker",
-     "plugins",
+     "plugins", %% TODO: move to emqx_machine_schema
      "stats",
      "sysmon",
      "alarm",
+     {"authentication",
+      sc(hoconsc:lazy(hoconsc:array(map())),
+         #{ desc => "Default authentication configs for all MQTT listeners.<br>"
+                    "For per-listener overrides see <code>authentication</code> "
+                    "in listener configs"
+          })},
      {"authentication",
       sc(hoconsc:lazy(hoconsc:array(map())),
          #{ desc => "Default authentication configs for all MQTT listeners.<br>"

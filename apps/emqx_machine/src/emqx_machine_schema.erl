@@ -59,13 +59,32 @@
 namespace() -> undefined.
 
 roots() ->
-    %% This is a temp workaround to define part of authorization config
-    %% in emqx_schema and part of it in emqx_authz_schema but then
-    %% merged here in this module
-    %% The proper fix should be to make connection (channel, session) state
-    %% extendable by e.g. allow hooks be stateful.
-    ["cluster", "node", "rpc", "log", "authorization"] ++
-    lists:keydelete("authorization", 1, lists:flatmap(fun roots/1, ?MERGED_CONFIGS)).
+    lists:flatmap(fun roots/1, ?MERGED_CONFIGS) ++
+    [ {"node",
+       sc(hoconsc:ref("node"),
+          #{ desc => "Node name, cookie, config & data directories "
+                     "and the Eralng virtual machine (beam) boot parameters."
+           })}
+    , {"cluster",
+       sc(hoconsc:ref("cluster"),
+          #{ desc => "EMQ X nodes can form a cluster to scale up the total capacity.<br>"
+                     "Here holds the configs to instruct how individual nodes "
+                     "can discover each other, also the database replication "
+                     "role of this node etc."
+           })}
+    , {"log",
+       sc(hoconsc:ref("log"),
+          #{ desc => "Configure logging backends (to console or to file), "
+                     "and logging level for each logger backend."
+           })}
+    , {"rpc",
+       sc(hoconsc:ref("rpc"),
+          #{ desc => "EMQ X uses a library called <code>gen_rpc</code> for "
+                     "inter-broker RPCs.<br>Most of the time the default config "
+                     "should work, but in case you need to do performance "
+                     "fine-turning or experiment a bit, this is where to look."
+           })}
+    ].
 
 fields("cluster") ->
     [ {"name",
@@ -738,5 +757,4 @@ to_atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8).
 
 roots(Module) ->
-    lists:map(fun({_BinName, Root}) -> Root end,
-              maps:to_list(hocon_schema:roots(Module))).
+    lists:map(fun({_BinName, Root}) -> Root end, hocon_schema:roots(Module)).

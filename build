@@ -69,6 +69,10 @@ make_rel() {
         echo "gpb should not be included in the release"
         exit 1
     fi
+    local conf_doc
+    conf_doc="$(pwd)/_build/${PROFILE}/rel/emqx/etc/emqx-config-doc.html"
+    echo "===< Generating config document $conf_doc"
+	./_build/"$PROFILE"/rel/emqx/bin/emqx cold_eval "file:write_file('$conf_doc', hocon_schema_html:gen(emqx_machine_schema, \"EMQ X ${PKG_VSN}\"))"
 }
 
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup
