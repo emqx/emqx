@@ -50,8 +50,9 @@ start(Config) ->
     Parent = self(),
     {Host, Port} = maps:get(server, Config),
     Mountpoint = maps:get(receive_mountpoint, Config, undefined),
-    Subscriptions = maps:get(subscriptions, Config, []),
-    Handlers = make_hdlr(Parent, Mountpoint),
+    Subscriptions = maps:get(subscriptions, Config),
+    Vars = emqx_bridge_msg:make_pub_vars(Mountpoint, Subscriptions),
+    Handlers = make_hdlr(Parent, Vars),
     Config1 = Config#{
         msg_handler => Handlers,
         host => Host,
@@ -59,7 +60,7 @@ start(Config) ->
         force_ping => true,
         proto_ver => maps:get(proto_ver, Config, v4)
     },
-    case emqtt:start_link(without_config(Config1)) of
+    case emqtt:start_link(process_config(Config1)) of
         {ok, Pid} ->
             case emqtt:connect(Pid) of
                 {ok, _} ->
@@ -156,25 +157,35 @@ handle_puback(#{packet_id := PktId, reason_code := RC}, Parent)
 handle_puback(#{packet_id := PktId, reason_code := RC}, _Parent) ->
     ?LOG(warning, "Publish ~p to remote node falied, reason_code: ~p", [PktId, RC]).
 
-handle_publish(Msg, Mountpoint) ->
-    emqx_broker:publish(emqx_bridge_msg:to_broker_msg(Msg, Mountpoint)).
+handle_publish(Msg, undefined) ->
+    ?LOG(error, "Cannot publish to local broker as 'bridge.mqtt.<name>.in' not configured, msg: ~p", [Msg]);
+handle_publish(Msg, Vars) ->
+    ?LOG(debug, "Publish to local broker, msg: ~p, vars: ~p", [Msg, Vars]),
+    emqx_broker:publish(emqx_bridge_msg:to_broker_msg(Msg, Vars)).
 
 handle_disconnected(Reason, Parent) ->
     Parent ! {disconnected, self(), Reason}.
 
-make_hdlr(Parent, Mountpoint) ->
+make_hdlr(Parent, Vars) ->
     #{puback => {fun ?MODULE:handle_puback/2, [Parent]},
-      publish => {fun ?MODULE:handle_publish/2, [Mountpoint]},
+      publish => {fun ?MODULE:handle_publish/2, [Vars]},
       disconnected => {fun ?MODULE:handle_disconnected/2, [Parent]}
      }.
 
-subscribe_remote_topics(ClientPid, Subscriptions) ->
-    lists:foreach(fun(#{subscribe_remote_topic := FromTopic, subscribe_qos := QoS}) ->
-        case emqtt:subscribe(ClientPid, FromTopic, QoS) of
-            {ok, _, _} -> ok;
-            Error -> throw(Error)
-        end
-    end, Subscriptions).
+subscribe_remote_topics(_ClientPid, undefined) -> ok;
+subscribe_remote_topics(ClientPid, #{subscribe_remote_topic := FromTopic, subscribe_qos := QoS}) ->
+    case emqtt:subscribe(ClientPid, FromTopic, QoS) of
+        {ok, _, _} -> ok;
+        Error -> throw(Error)
+    end.
 
-without_config(Config) ->
-    maps:without([conn_type, address, receive_mountpoint, subscriptions], Config).
+process_config(#{name := Name, clientid_prefix := Prefix} = Config) ->
+    Conf0 = maps:without([conn_type, address, receive_mountpoint, subscriptions, name], Config),
+    Conf0#{clientid => iolist_to_binary([str(Prefix), str(Name)])}.
+
+str(A) when is_atom(A) ->
+    atom_to_list(A);
+str(B) when is_binary(B) ->
+    binary_to_list(B);
+str(S) when is_list(S) ->
+    S.

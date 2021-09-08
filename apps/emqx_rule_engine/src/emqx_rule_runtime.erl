@@ -222,6 +222,7 @@ do_compare('<=', L, R) -> L =< R;
 do_compare('>=', L, R) -> L >= R;
 do_compare('<>', L, R) -> L /= R;
 do_compare('!=', L, R) -> L /= R;
+do_compare('~=', T, F) -> emqx_topic:match(T, F);
 do_compare('=~', T, F) -> emqx_topic:match(T, F).
 
 number(Bin) ->

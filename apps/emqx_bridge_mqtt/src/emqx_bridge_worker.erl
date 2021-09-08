@@ -90,13 +90,9 @@
         ]).
 
 -export([ get_forwards/1
-        , ensure_forward_present/2
-        , ensure_forward_absent/2
         ]).
 
 -export([ get_subscriptions/1
-        , ensure_subscription_present/3
-        , ensure_subscription_absent/2
         ]).
 
 %% Internal
@@ -183,45 +179,23 @@ get_forwards(Name) -> gen_statem:call(name(Name), get_forwards, timer:seconds(10
 -spec get_subscriptions(id()) -> [{emqx_topic:topic(), qos()}].
 get_subscriptions(Name) -> gen_statem:call(name(Name), get_subscriptions).
 
-%% @doc Add a new forward (local topic subscription).
--spec ensure_forward_present(id(), topic()) -> ok.
-ensure_forward_present(Name, Topic) ->
-    gen_statem:call(name(Name), {ensure_forward_present, topic(Topic)}).
-
-%% @doc Ensure a forward topic is deleted.
--spec ensure_forward_absent(id(), topic()) -> ok.
-ensure_forward_absent(Name, Topic) ->
-    gen_statem:call(name(Name), {ensure_forward_absent, topic(Topic)}).
-
-%% @doc Ensure subscribed to remote topic.
-%% NOTE: only applicable when connection module is emqx_bridge_mqtt
-%%       return `{error, no_remote_subscription_support}' otherwise.
--spec ensure_subscription_present(id(), topic(), qos()) -> ok | {error, any()}.
-ensure_subscription_present(Name, Topic, QoS) ->
-    gen_statem:call(name(Name), {ensure_subscription_present, topic(Topic), QoS}).
-
-%% @doc Ensure unsubscribed from remote topic.
-%% NOTE: only applicable when connection module is emqx_bridge_mqtt
--spec ensure_subscription_absent(id(), topic()) -> ok.
-ensure_subscription_absent(Name, Topic) ->
-    gen_statem:call(name(Name), {ensure_subscription_absent, topic(Topic)}).
-
 callback_mode() -> [state_functions].
 
 %% @doc Config should be a map().
-init(Opts) ->
+init(#{name := Name} = ConnectOpts) ->
+    ?LOG(info, "starting bridge worker for ~p", [Name]),
     erlang:process_flag(trap_exit, true),
-    ConnectOpts = maps:get(config, Opts),
     ConnectModule = conn_type(maps:get(conn_type, ConnectOpts)),
-    Forwards = maps:get(forwards, Opts, []),
-    Queue = open_replayq(maps:get(replayq, Opts, #{})),
-    State = init_state(Opts),
+    Forwards = maps:get(forwards, ConnectOpts, #{}),
+    Queue = open_replayq(Name, maps:get(replayq, ConnectOpts, #{})),
+    State = init_state(ConnectOpts),
     self() ! idle,
-    {ok, idle, State#{connect_module => ConnectModule,
-                      connect_opts => pre_process_opts(ConnectOpts),
-                      forwards => Forwards,
-                      replayq => Queue
-                     }}.
+    {ok, idle, State#{
+        connect_module => ConnectModule,
+        connect_opts => pre_process_opts(ConnectOpts),
+        forwards => Forwards,
+        replayq => Queue
+    }}.
 
 init_state(Opts) ->
     IfRecordMetrics = maps:get(if_record_metrics, Opts, true),
@@ -241,27 +215,29 @@ init_state(Opts) ->
       if_record_metrics => IfRecordMetrics,
       name => Name}.
 
-open_replayq(QCfg) ->
+open_replayq(Name, QCfg) ->
     Dir = maps:get(dir, QCfg, undefined),
     SegBytes = maps:get(seg_bytes, QCfg, ?DEFAULT_SEG_BYTES),
     MaxTotalSize = maps:get(max_total_size, QCfg, ?DEFAULT_MAX_TOTAL_SIZE),
     QueueConfig = case Dir =:= undefined orelse Dir =:= "" of
         true -> #{mem_only => true};
-        false -> #{dir => Dir, seg_bytes => SegBytes, max_total_size => MaxTotalSize}
+        false -> #{dir => filename:join([Dir, node(), Name]),
+                   seg_bytes => SegBytes, max_total_size => MaxTotalSize}
     end,
     replayq:open(QueueConfig#{sizer => fun emqx_bridge_msg:estimate_size/1,
                               marshaller => fun ?MODULE:msg_marshaller/1}).
 
 pre_process_opts(#{subscriptions := InConf, forwards := OutConf} = ConnectOpts) ->
-    ConnectOpts#{subscriptions => [pre_process_in_out(In) || In <- InConf],
-                 forwards => [pre_process_in_out(Out) || Out <- OutConf]}.
+    ConnectOpts#{subscriptions => pre_process_in_out(InConf),
+                 forwards => pre_process_in_out(OutConf)}.
 
-pre_process_in_out(Conf) ->
-    Conf1 = pre_process_conf(publish_local_topic, Conf),
-    Conf2 = pre_process_conf(publish_remote_topic, Conf1),
-    Conf3 = pre_process_conf(publish_payload, Conf2),
-    Conf4 = pre_process_conf(publish_qos, Conf3),
-    pre_process_conf(publish_retain, Conf4).
+pre_process_in_out(undefined) -> undefined;
+pre_process_in_out(Conf) when is_map(Conf) ->
+    Conf1 = pre_process_conf(local_topic, Conf),
+    Conf2 = pre_process_conf(remote_topic, Conf1),
+    Conf3 = pre_process_conf(payload, Conf2),
+    Conf4 = pre_process_conf(qos, Conf3),
+    pre_process_conf(retain, Conf4).
 
 pre_process_conf(Key, Conf) ->
     case maps:find(Key, Conf) of
@@ -350,19 +326,7 @@ common(_StateName, {call, From}, ensure_stopped, #{connection := Conn,
 common(_StateName, {call, From}, get_forwards, #{forwards := Forwards}) ->
     {keep_state_and_data, [{reply, From, Forwards}]};
 common(_StateName, {call, From}, get_subscriptions, #{connection := Connection}) ->
-    {keep_state_and_data, [{reply, From, maps:get(subscriptions, Connection, [])}]};
-common(_StateName, {call, From}, {ensure_forward_present, Topic}, State) ->
-    {Result, NewState} = do_ensure_forward_present(Topic, State),
-    {keep_state, NewState, [{reply, From, Result}]};
-common(_StateName, {call, From}, {ensure_subscription_present, Topic, QoS}, State) ->
-    {Result, NewState} = do_ensure_subscription_present(Topic, QoS, State),
-    {keep_state, NewState, [{reply, From, Result}]};
-common(_StateName, {call, From}, {ensure_forward_absent, Topic}, State) ->
-    {Result, NewState} = do_ensure_forward_absent(Topic, State),
-    {keep_state, NewState, [{reply, From, Result}]};
-common(_StateName, {call, From}, {ensure_subscription_absent, Topic}, State) ->
-    {Result, NewState} = do_ensure_subscription_absent(Topic, State),
-    {keep_state, NewState, [{reply, From, Result}]};
+    {keep_state_and_data, [{reply, From, maps:get(subscriptions, Connection, #{})}]};
 common(_StateName, info, {deliver, _, Msg},
        State = #{replayq := Q, if_record_metrics := IfRecordMetric}) ->
     Msgs = collect([Msg]),
@@ -379,75 +343,15 @@ common(StateName, Type, Content, #{name := Name} = State) ->
           [Name, Type, StateName, Content]),
     {keep_state, State}.
 
-do_ensure_forward_present(Topic, #{forwards := Forwards, name := Name} = State) ->
-    case is_local_sub_present(Topic, Forwards) of
-        true ->
-            {ok, State};
-        false ->
-            R = subscribe_local_topic(Topic, Name),
-            {R, State#{forwards => [Topic | Forwards]}}
-    end.
-
-do_ensure_subscription_present(_Topic, _QoS, #{connection := undefined} = State) ->
-    {{error, no_connection}, State};
-do_ensure_subscription_present(_Topic, _QoS, #{connect_module := emqx_bridge_rpc} = State) ->
-    {{error, no_remote_subscription_support}, State};
-do_ensure_subscription_present(Topic, QoS, #{connect_module := ConnectModule,
-                                          connection := Conn} = State) ->
-    case is_remote_sub_present(Topic, maps:get(subscriptions, Conn, [])) of
-        true ->
-            {ok, State};
-        false ->
-            case ConnectModule:ensure_subscribed(Conn, Topic, QoS) of
-                {error, Error} ->
-                    {{error, Error}, State};
-                Conn1 ->
-                    {ok, State#{connection => Conn1}}
-            end
-    end.
-
-do_ensure_forward_absent(Topic, #{forwards := Forwards} = State) ->
-    case is_local_sub_present(Topic, Forwards) of
-        true ->
-            R = do_unsubscribe(Topic),
-            {R, State#{forwards => lists:delete(Topic, Forwards)}};
-        false ->
-            {ok, State}
-    end.
-do_ensure_subscription_absent(_Topic, #{connection := undefined} = State) ->
-    {{error, no_connection}, State};
-do_ensure_subscription_absent(_Topic, #{connect_module := emqx_bridge_rpc} = State) ->
-    {{error, no_remote_subscription_support}, State};
-do_ensure_subscription_absent(Topic, #{connect_module := ConnectModule,
-                                       connection := Conn} = State) ->
-    case is_remote_sub_present(Topic, maps:get(subscriptions, Conn, [])) of
-        true ->
-            case ConnectModule:ensure_unsubscribed(Conn, Topic) of
-                {error, Error} ->
-                    {{error, Error}, State};
-                Conn1 ->
-                    {ok, State#{connection => Conn1}}
-            end;
-        false ->
-            {ok, State}
-    end.
-
-is_local_sub_present(Topic, Configs) ->
-    is_topic_present(subscribe_local_topic, Topic, Configs).
-is_remote_sub_present(Topic, Configs) ->
-    is_topic_present(subscribe_remote_topic, Topic, Configs).
-
-is_topic_present(Type, Topic, Configs) ->
-    lists:any(fun(Conf) ->
-            Topic == maps:get(Type, Conf, undefined)
-        end, Configs).
-
 do_connect(#{forwards := Forwards,
              connect_module := ConnectModule,
              connect_opts := ConnectOpts,
              inflight := Inflight,
              name := Name} = State) ->
-    ok = subscribe_local_topics(Forwards, Name),
+    case Forwards of
+        undefined -> ok;
+        #{subscribe_local_topic := Topic} -> subscribe_local_topic(Topic, Name)
+    end,
     case ConnectModule:start(ConnectOpts) of
         {ok, Conn} ->
             ?tp(info, connected, #{name => Name, inflight => length(Inflight)}),
@@ -503,16 +407,18 @@ pop_and_send_loop(#{replayq := Q, connect_module := Module} = State, N) ->
     end.
 
 %% Assert non-empty batch because we have a is_empty check earlier.
+do_send(#{forwards := undefined}, _QAckRef, Batch) ->
+    ?LOG(error, "cannot forward messages to remote broker as 'bridge.mqtt.<name>.in' not configured, msg: ~p", [Batch]);
 do_send(#{inflight := Inflight,
           connect_module := Module,
           connection := Connection,
           mountpoint := Mountpoint,
           forwards := Forwards,
           if_record_metrics := IfRecordMetrics} = State, QAckRef, [_ | _] = Batch) ->
-    Vars = make_export_variables(Mountpoint, Forwards),
+    Vars = emqx_bridge_msg:make_pub_vars(Mountpoint, Forwards),
     ExportMsg = fun(Message) ->
                     bridges_metrics_inc(IfRecordMetrics, 'bridge.mqtt.message_sent'),
-                    emqx_bridge_msg:to_export(Module, Vars, Message)
+                    emqx_bridge_msg:to_remote_msg(Module, Message, Vars)
                 end,
     case Module:send(Connection, [ExportMsg(M) || M <- Batch]) of
         {ok, Refs} ->
@@ -523,15 +429,6 @@ do_send(#{inflight := Inflight,
             ?LOG(info, "mqtt_bridge_produce_failed ~p", [Reason]),
             {error, State}
     end.
-
-make_export_variables(Mountpoint, #{
-        publish_remote_topic := PubTopic,
-        publish_payload := PayloadTmpl,
-        publish_qos := PubQoS,
-        publish_retain := PubRetain}) ->
-    #{topic => PubTopic, payload => PayloadTmpl,
-      qos => PubQoS, retain => PubRetain,
-      mountpoint => Mountpoint}.
 
 %% map as set, ack-reference -> 1
 map_set(Ref) when is_reference(Ref) ->
@@ -578,9 +475,6 @@ drop_acked_batches(Q, [#{send_ack_ref := Refs,
             All
     end.
 
-subscribe_local_topics(Topics, Name) ->
-    lists:foreach(fun(Topic) -> subscribe_local_topic(Topic, Name) end, Topics).
-
 subscribe_local_topic(Topic, Name) ->
     do_subscribe(Topic, Name).
 
@@ -597,13 +491,8 @@ validate(RawTopic) ->
 
 do_subscribe(RawTopic, Name) ->
     TopicFilter = validate(RawTopic),
-    {Topic, SubOpts} = emqx_topic:parse(TopicFilter, #{qos => ?QOS_1}),
+    {Topic, SubOpts} = emqx_topic:parse(TopicFilter, #{qos => ?QOS_2}),
     emqx_broker:subscribe(Topic, Name, SubOpts).
-
-do_unsubscribe(RawTopic) ->
-    TopicFilter = validate(RawTopic),
-    {Topic, _SubOpts} = emqx_topic:parse(TopicFilter),
-    emqx_broker:unsubscribe(Topic).
 
 disconnect(#{connection := Conn,
              connect_module := Module
@@ -622,7 +511,7 @@ format_mountpoint(undefined) ->
 format_mountpoint(Prefix) ->
     binary:replace(iolist_to_binary(Prefix), <<"${node}">>, atom_to_binary(node(), utf8)).
 
-name(Id) -> list_to_atom(lists:concat([?MODULE, "_", Id])).
+name(Id) -> list_to_atom(str(Id)).
 
 register_metrics() ->
     lists:foreach(fun emqx_metrics:ensure/1,
@@ -657,3 +546,10 @@ conn_type(mqtt) ->
     emqx_bridge_mqtt;
 conn_type(Mod) when is_atom(Mod) ->
     Mod.
+
+str(A) when is_atom(A) ->
+    atom_to_list(A);
+str(B) when is_binary(B) ->
+    binary_to_list(B);
+str(S) when is_list(S) ->
+    S.

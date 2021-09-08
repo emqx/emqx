@@ -65,6 +65,5 @@ drop_bridge(Name) ->
         ok ->
             supervisor:delete_child(?MODULE, Name);
         {error, Error} ->
-            ?LOG(error, "Delete bridge failed, error : ~p", [Error]),
             {error, Error}
     end.
