@@ -1857,8 +1857,7 @@ list_authenticator(ConfKeyPath, AuthenticatorID) ->
 
 update_authenticator(ConfKeyPath, ChainName0, AuthenticatorID, Config) ->
     ChainName = to_atom(ChainName0),
-    case update_config(ConfKeyPath,
-                                  {update_authenticator, ChainName, AuthenticatorID, Config}) of
+    case update_config(ConfKeyPath, {update_authenticator, ChainName, AuthenticatorID, Config}) of
         {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
                raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
@@ -1963,25 +1962,56 @@ fill_defaults(Config) ->
 
 serialize_error({not_found, {authenticator, ID}}) ->
     {404, #{code => <<"NOT_FOUND">>,
-            message => list_to_binary(io_lib:format("Authenticator '~s' does not exist", [ID]))}};
+            message => list_to_binary(
+                io_lib:format("Authenticator '~s' does not exist", [ID])
+            )}};
+
 serialize_error({not_found, {listener, ID}}) ->
     {404, #{code => <<"NOT_FOUND">>,
-            message => list_to_binary(io_lib:format("Listener '~s' does not exist", [ID]))}};
+            message => list_to_binary(
+                io_lib:format("Listener '~s' does not exist", [ID])
+            )}};
+
+serialize_error({not_found, {chain, ?GLOBAL}}) ->
+    {500, #{code => <<"INTERNAL_SERVER_ERROR">>,
+            message => <<"Authentication status is abnormal">>}};
+
+serialize_error({not_found, {chain, Name}}) ->
+    {400, #{code => <<"BAD_REQUEST">>,
+            message => list_to_binary(
+                io_lib:format("No authentication has been create for listener '~s'", [Name])
+            )}};
+
 serialize_error({already_exists, {authenticator, ID}}) ->
     {409, #{code => <<"ALREADY_EXISTS">>,
             message => list_to_binary(
                 io_lib:format("Authenticator '~s' already exist", [ID])
             )}};
+
+serialize_error(no_available_provider) ->
+    {400, #{code => <<"BAD_REQUEST">>,
+            message => <<"Unsupported authentication type">>}};
+
+serialize_error(change_of_authentication_type_is_not_allowed) ->
+    {400, #{code => <<"BAD_REQUEST">>,
+            message => <<"Change of authentication type is not allowed">>}};
+
+serialize_error(unsupported_operation) ->
+    {400, #{code => <<"BAD_REQUEST">>,
+            message => <<"Operation not supported in this authentication type">>}};
+
 serialize_error({missing_parameter, Name}) ->
     {400, #{code => <<"MISSING_PARAMETER">>,
             message => list_to_binary(
                 io_lib:format("The input parameter '~p' that is mandatory for processing this request is not supplied", [Name])
             )}};
+
 serialize_error({invalid_parameter, Name}) ->
     {400, #{code => <<"INVALID_PARAMETER">>,
             message => list_to_binary(
                 io_lib:format("The value of input parameter '~p' is invalid", [Name])
             )}};
+
 serialize_error(Reason) ->
     {400, #{code => <<"BAD_REQUEST">>,
             message => list_to_binary(io_lib:format("~p", [Reason]))}}.

@@ -484,7 +484,7 @@ handle_call({update_authenticator, ChainName, AuthenticatorID, Config}, _From, S
                                     {error, Reason}
                             end;
                         false ->
-                            {error, mechanism_or_backend_change_is_not_alloed}
+                            {error, change_of_authentication_type_is_not_allowed}
                     end
             end
         end,
@@ -679,7 +679,7 @@ call_authenticator(ChainName, AuthenticatorID, Func, Args) ->
                         true ->
                             erlang:apply(Provider, Func, Args ++ [State]);
                         false ->
-                            {error, unsupported_feature}
+                            {error, unsupported_operation}
                     end
             end
         end,
