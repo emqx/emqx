@@ -127,6 +127,16 @@ listener_name(Protocol, Port) ->
 
 authorize_appid(Req) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
+        {basic, Username, Password} ->
+            case emqx_dashboard_admin:check(Username, Password) of
+                ok ->
+                    ok;
+                {error, _} ->
+                    {401, #{<<"WWW-Authenticate">> =>
+                                <<"Basic Realm=\"minirest-server\"">>},
+                          #{code => <<"ERROR_USERNAME_OR_PWD">>,
+                            message => <<"Check your username and password">>}}
+            end;
         {bearer, Token} ->
             case emqx_dashboard_admin:verify_token(Token) of
                 ok ->
@@ -135,8 +145,7 @@ authorize_appid(Req) ->
                     {401, #{<<"WWW-Authenticate">> =>
                             <<"Bearer Realm=\"minirest-server\"">>},
                         #{code => <<"TOKEN_TIME_OUT">>,
-                          message => <<"POST '/login', get your new token">>}
-                    };
+                          message => <<"POST '/login', get your new token">>}};
                 {error, not_found} ->
                     {401, #{<<"WWW-Authenticate">> =>
                         <<"Bearer Realm=\"minirest-server\"">>},
@@ -145,7 +154,7 @@ authorize_appid(Req) ->
             end;
         _ ->
             {401, #{<<"WWW-Authenticate">> =>
-                    <<"Bearer Realm=\"minirest-server\"">>},
-                  #{code => <<"UNAUTHORIZED">>,
-                    message => <<"POST '/login'">>}}
+                        <<"Basic Realm=\"minirest-server\"">>},
+                  #{code => <<"ERROR_USERNAME_OR_PWD">>,
+                    message => <<"Check your username and password">>}}
     end.
