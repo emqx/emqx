@@ -1962,9 +1962,11 @@ serialize_error({not_found, {authenticator, ID}}) ->
 serialize_error({not_found, {listener, ID}}) ->
     {404, #{code => <<"NOT_FOUND">>,
             message => list_to_binary(io_lib:format("Listener '~s' does not exist", [ID]))}};
-serialize_error(name_has_be_used) ->
+serialize_error({already_exists, {authenticator, ID}}) ->
     {409, #{code => <<"ALREADY_EXISTS">>,
-            message => <<"Name has be used">>}};
+            message => list_to_binary(
+                io_lib:format("Authenticator '~s' already exist", [ID])
+            )}};
 serialize_error({missing_parameter, Name}) ->
     {400, #{code => <<"MISSING_PARAMETER">>,
             message => list_to_binary(
@@ -1977,7 +1979,7 @@ serialize_error({invalid_parameter, Name}) ->
             )}};
 serialize_error(Reason) ->
     {400, #{code => <<"BAD_REQUEST">>,
-            message => list_to_binary(io_lib:format("Todo: ~p", [Reason]))}}.
+            message => list_to_binary(io_lib:format("~p", [Reason]))}}.
 
 to_list(M) when is_map(M) ->
     [M];
