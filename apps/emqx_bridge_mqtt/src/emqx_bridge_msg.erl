@@ -18,9 +18,8 @@
 
 -export([ to_binary/1
         , from_binary/1
-        , to_export/3
-        , to_broker_msgs/1
-        , to_broker_msg/1
+        , make_pub_vars/2
+        , to_remote_msg/3
         , to_broker_msg/2
         , estimate_size/1
         ]).
@@ -44,6 +43,12 @@
     payload := binary()
 }.
 
+make_pub_vars(_, undefined) -> undefined;
+make_pub_vars(Mountpoint, #{payload := _, qos := _, retain := _, remote_topic := Topic} = Conf) ->
+    Conf#{topic => Topic, mountpoint => Mountpoint};
+make_pub_vars(Mountpoint, #{payload := _, qos := _, retain := _, local_topic := Topic} = Conf) ->
+    Conf#{topic => Topic, mountpoint => Mountpoint}.
+
 %% @doc Make export format:
 %% 1. Mount topic to a prefix
 %% 2. Fix QoS to 1
@@ -51,37 +56,52 @@
 %% Shame that we have to know the callback module here
 %% would be great if we can get rid of #mqtt_msg{} record
 %% and use #message{} in all places.
--spec to_export(emqx_bridge_rpc | emqx_bridge_worker, variables(), msg())
+-spec to_remote_msg(emqx_bridge_rpc | emqx_bridge_worker, msg(), variables())
         -> exp_msg().
-to_export(emqx_bridge_mqtt, Vars, #message{flags = Flags0} = Msg) ->
+to_remote_msg(emqx_bridge_mqtt, #message{flags = Flags0} = Msg, Vars) ->
     Retain0 = maps:get(retain, Flags0, false),
     MapMsg = maps:put(retain, Retain0, emqx_message:to_map(Msg)),
-    to_export(emqx_bridge_mqtt, Vars, MapMsg);
-to_export(emqx_bridge_mqtt, #{topic := TopicToken, payload := PayloadToken,
-        qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint},
-        MapMsg) when is_map(MapMsg) ->
+    to_remote_msg(emqx_bridge_mqtt, MapMsg, Vars);
+to_remote_msg(emqx_bridge_mqtt, MapMsg, #{topic := TopicToken, payload := PayloadToken,
+        qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) when is_map(MapMsg) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = replace_vars_in_str(PayloadToken, MapMsg),
-    QoS = replace_vars(QoSToken, MapMsg),
-    Retain = replace_vars(RetainToken, MapMsg),
+    QoS = replace_simple_var(QoSToken, MapMsg),
+    Retain = replace_simple_var(RetainToken, MapMsg),
     #mqtt_msg{qos = QoS,
               retain = Retain,
               topic = topic(Mountpoint, Topic),
               props = #{},
               payload = Payload};
-to_export(_Module, #{mountpoint := Mountpoint},
-          #message{topic = Topic} = Msg) ->
+to_remote_msg(_Module, #message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
     Msg#message{topic = topic(Mountpoint, Topic)}.
 
+%% published from remote node over a MQTT connection
+to_broker_msg(#{dup := Dup, properties := Props} = MapMsg,
+            #{topic := TopicToken, payload := PayloadToken,
+              qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) ->
+    Topic = replace_vars_in_str(TopicToken, MapMsg),
+    Payload = replace_vars_in_str(PayloadToken, MapMsg),
+    QoS = replace_simple_var(QoSToken, MapMsg),
+    Retain = replace_simple_var(RetainToken, MapMsg),
+    set_headers(Props,
+        emqx_message:set_flags(#{dup => Dup, retain => Retain},
+            emqx_message:make(bridge, QoS, topic(Mountpoint, Topic), Payload))).
+
+%% Replace a string contains vars to another string in which the placeholders are replace by the
+%% corresponding values. For example, given "a: ${var}", if the var=1, the result string will be:
+%% "a: 1".
 replace_vars_in_str(Tokens, Data) when is_list(Tokens) ->
     emqx_plugin_libs_rule:proc_tmpl(Tokens, Data, #{return => full_binary});
 replace_vars_in_str(Val, _Data) ->
     Val.
 
-replace_vars(Tokens, Data) when is_list(Tokens) ->
+%% Replace a simple var to its value. For example, given "${var}", if the var=1, then the result
+%% value will be an integer 1.
+replace_simple_var(Tokens, Data) when is_list(Tokens) ->
     [Var] = emqx_plugin_libs_rule:proc_tmpl(Tokens, Data, #{return => rawlist}),
     Var;
-replace_vars(Val, _Data) ->
+replace_simple_var(Val, _Data) ->
     Val.
 
 %% @doc Make `binary()' in order to make iodata to be persisted on disk.
@@ -97,22 +117,6 @@ from_binary(Bin) -> binary_to_term(Bin).
 -spec estimate_size(msg()) -> integer().
 estimate_size(#message{topic = Topic, payload = Payload}) ->
     size(Topic) + size(Payload).
-
-%% @doc By message/batch receiver, transform received batch into
-%% messages to deliver to local brokers.
-to_broker_msgs(Batch) -> lists:map(fun to_broker_msg/1, Batch).
-
-to_broker_msg(#message{} = Msg) ->
-    %% internal format from another EMQX node via rpc
-    Msg;
-to_broker_msg(Msg) ->
-    to_broker_msg(Msg, undefined).
-to_broker_msg(#{qos := QoS, dup := Dup, retain := Retain, topic := Topic,
-                properties := Props, payload := Payload}, Mountpoint) ->
-    %% published from remote node over a MQTT connection
-    set_headers(Props,
-        emqx_message:set_flags(#{dup => Dup, retain => Retain},
-            emqx_message:make(bridge, QoS, topic(Mountpoint, Topic), Payload))).
 
 set_headers(undefined, Msg) ->
     Msg;
