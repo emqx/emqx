@@ -52,13 +52,13 @@ all() ->
 %     JWS = generate_jws('hmac-based', Payload, <<"abcdef">>),
 %     ClientInfo = #{username => <<"myuser">>,
 % 			       password => JWS},
-%     ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
 
-%     Payload1 = #{<<"username">> => <<"myuser">>, <<"superuser">> => true},
+%     Payload1 = #{<<"username">> => <<"myuser">>, <<"is_superuser">> => true},
 %     JWS1 = generate_jws('hmac-based', Payload1, <<"abcdef">>),
 %     ClientInfo1 = #{username => <<"myuser">>,
 % 			        password => JWS1},
-%     ?assertEqual({stop, {ok, #{superuser => true}}}, ?AUTH:authenticate(ClientInfo1, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => true}}}, ?AUTH:authenticate(ClientInfo1, ignored)),
 
 %     BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
 %     ClientInfo2 = ClientInfo#{password => BadJWS},
@@ -68,11 +68,11 @@ all() ->
 %     Config2 = Config#{secret => base64:encode(<<"abcdef">>),
 %                       secret_base64_encoded => true},
 %     ?assertMatch({ok, _}, ?AUTH:update_authenticator(?CHAIN, ID, Config2)),
-%     ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
 
 %     Config3 = Config#{verify_claims => [{<<"username">>, <<"${mqtt-username}">>}]},
 %     ?assertMatch({ok, _}, ?AUTH:update_authenticator(?CHAIN, ID, Config3)),
-%     ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
 %     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo#{username => <<"otheruser">>}, ok)),
 
 %     %% Expiration
@@ -86,14 +86,14 @@ all() ->
 %                 , <<"exp">> => erlang:system_time(second) + 60},
 %     JWS4 = generate_jws('hmac-based', Payload4, <<"abcdef">>),
 %     ClientInfo4 = ClientInfo#{password => JWS4},
-%     ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo4, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo4, ignored)),
 
 %     %% Issued At
 %     Payload5 = #{ <<"username">> => <<"myuser">>
 %                 , <<"iat">> => erlang:system_time(second) - 60},
 %     JWS5 = generate_jws('hmac-based', Payload5, <<"abcdef">>),
 %     ClientInfo5 = ClientInfo#{password => JWS5},
-%     ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo5, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo5, ignored)),
 
 %     Payload6 = #{ <<"username">> => <<"myuser">>
 %                 , <<"iat">> => erlang:system_time(second) + 60},
@@ -106,7 +106,7 @@ all() ->
 %                 , <<"nbf">> => erlang:system_time(second) - 60},
 %     JWS7 = generate_jws('hmac-based', Payload7, <<"abcdef">>),
 %     ClientInfo7 = ClientInfo#{password => JWS7},
-%     ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo7, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo7, ignored)),
 
 %     Payload8 = #{ <<"username">> => <<"myuser">>
 %                 , <<"nbf">> => erlang:system_time(second) + 60},
@@ -134,7 +134,7 @@ all() ->
 %     JWS = generate_jws('public-key', Payload, PrivateKey),
 %     ClientInfo = #{username => <<"myuser">>,
 % 			       password => JWS},
-%     ?assertEqual({stop, {ok, #{superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
+%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
 %     ?assertEqual({stop, {error, not_authorized}}, ?AUTH:authenticate(ClientInfo#{password => <<"badpassword">>}, ignored)),
 
 %     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID)),

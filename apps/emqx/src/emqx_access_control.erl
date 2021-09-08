@@ -29,9 +29,9 @@
 -spec(authenticate(emqx_types:clientinfo()) ->
     {ok, map()} | {ok, map(), binary()} | {continue, map()} | {continue, binary(), map()} | {error, term()}).
 authenticate(Credential) ->
-    case run_hooks('client.authenticate', [Credential], {ok, #{superuser => false}}) of
+    case run_hooks('client.authenticate', [Credential], {ok, #{is_superuser => false}}) of
         ok ->
-            {ok, #{superuser => false}};
+            {ok, #{is_superuser => false}};
         Other ->
             Other
     end.

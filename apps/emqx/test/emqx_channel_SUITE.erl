@@ -144,7 +144,7 @@ init_per_suite(Config) ->
     %% Access Control Meck
     ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_access_control, authenticate,
-                     fun(_) -> {ok, #{superuser => false}} end),
+                     fun(_) -> {ok, #{is_superuser => false}} end),
     ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end),
     %% Broker Meck
     ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),

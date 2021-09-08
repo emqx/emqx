@@ -161,16 +161,16 @@ authenticate(Credential, #{'_unique' := Unique,
     try
         Request = generate_request(Credential, State),
         case emqx_resource:query(Unique, {Method, Request, RequestTimeout}) of
-            {ok, 204, _Headers} -> {ok, #{superuser => false}};
+            {ok, 204, _Headers} -> {ok, #{is_superuser => false}};
             {ok, 200, Headers, Body} ->
                 ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
                 case safely_parse_body(ContentType, Body) of
                     {ok, NBody} ->
                         %% TODO: Return by user property
-                        {ok, #{superuser => maps:get(<<"superuser">>, NBody, false),
+                        {ok, #{is_superuser => maps:get(<<"is_superuser">>, NBody, false),
                                user_property => NBody}};
                     {error, _Reason} ->
-                        {ok, #{superuser => false}}
+                        {ok, #{is_superuser => false}}
                 end;
             {error, _Reason} ->
                 ignore

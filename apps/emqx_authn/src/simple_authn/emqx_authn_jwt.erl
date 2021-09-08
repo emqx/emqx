@@ -249,7 +249,7 @@ verify(JWS, [JWK | More], VerifyClaims) ->
             Claims = emqx_json:decode(Payload, [return_maps]),
             case verify_claims(Claims, VerifyClaims) of
                 ok ->
-                    {ok, #{superuser => maps:get(<<"superuser">>, Claims, false)}};
+                    {ok, #{is_superuser => maps:get(<<"is_superuser">>, Claims, false)}};
                 {error, Reason} ->
                     {error, Reason}
             end;

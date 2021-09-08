@@ -18,7 +18,7 @@
 
 -define(AUTHN, emqx_authentication).
 
--define(GLOBAL, <<"mqtt:global">>).
+-define(GLOBAL, 'mqtt:global').
 
 -define(RE_PLACEHOLDER, "\\$\\{[a-z0-9\\-]+\\}").
 

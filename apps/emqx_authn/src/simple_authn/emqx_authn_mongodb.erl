@@ -64,6 +64,7 @@ common_fields() ->
     , {selector,                fun selector/1}
     , {password_hash_field,     fun password_hash_field/1}
     , {salt_field,              fun salt_field/1}
+    , {is_superuser_field,      fun is_superuser_field/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           fun salt_position/1}
     ] ++ emqx_authn_schema:common_fields().
@@ -83,6 +84,10 @@ password_hash_field(_) -> undefined.
 salt_field(type) -> binary();
 salt_field(nullable) -> true;
 salt_field(_) -> undefined.
+
+is_superuser_field(type) -> binary();
+is_superuser_field(nullable) -> true;
+is_superuser_field(_) -> undefined.
 
 password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};
 password_hash_algorithm(default) -> sha256;
@@ -109,6 +114,7 @@ create(#{ selector := Selector
     State = maps:with([ collection
                       , password_hash_field
                       , salt_field
+                      , is_superuser_field
                       , password_hash_algorithm
                       , salt_position
                       , '_unique'], Config),
@@ -149,7 +155,7 @@ authenticate(#{password := Password} = Credential,
             Doc ->
                 case check_password(Password, Doc, State) of
                     ok ->
-                        {ok, #{superuser => superuser(Doc, State)}};
+                        {ok, #{is_superuser => is_superuser(Doc, State)}};
                     {error, {cannot_find_password_hash_field, PasswordHashField}} ->
                         ?LOG(error, "['~s'] Can't find password hash field: ~s", [Unique, PasswordHashField]),
                         {error, bad_username_or_password};
@@ -230,9 +236,9 @@ check_password(Password,
             end
     end.
 
-superuser(Doc, #{superuser_field := SuperuserField}) ->
-    maps:get(SuperuserField, Doc, false);
-superuser(_, _) ->
+is_superuser(Doc, #{is_superuser_field := IsSuperuserField}) ->
+    maps:get(IsSuperuserField, Doc, false);
+is_superuser(_, _) ->
     false.
 
 hash(Algorithm, Password, Salt, prefix) ->
