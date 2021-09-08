@@ -280,7 +280,7 @@ flatten_listeners(Conf0) ->
                       || {Type, Conf} <- maps:to_list(Conf0)])).
 
 do_flatten_listeners(Type, Conf0) ->
-    [{listener_id(Type, Name), Conf} || {Name, Conf} <- maps:to_list(Conf0)].
+    [{listener_id(Type, Name), maps:remove(authentication, Conf)} || {Name, Conf} <- maps:to_list(Conf0)].
 
 esockd_opts(Type, Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
