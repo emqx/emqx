@@ -355,6 +355,16 @@ case "$1" in
         ;;
 esac
 
+IS_NO_CONNECTION_COMMAND='no'
+case "$1" in
+    cold_eval)
+        IS_NO_CONNECTION_COMMAND='yes'
+        ;;
+    *)
+        ;;
+esac
+
+
 ## Possible ways to configure emqx node name:
 ## 1. configure node.name in emqx.conf
 ## 2. override with environment variable EMQX_NODE_NAME
@@ -362,18 +372,17 @@ esac
 ## or long name (with '@') e.g. 'emqx@example.net' or 'emqx@127.0.0.1'
 NAME="${EMQX_NODE_NAME:-}"
 if [ -z "$NAME" ]; then
-    if [ "$IS_BOOT_COMMAND" = 'no' ]; then
+    if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+        # for boot commands, inspect emqx.conf for node name
+        NAME="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
+    elif [ "$IS_NO_CONNECTION_COMMAND" = 'yes' ]; then
+        # this command requires no connection to the target beam node, do nothing
+        :
+    else
         # for non-boot commands, inspect vm.<time>.args for node name
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
-        if [ -z "$LATEST_VM_ARGS" ]; then
-            echoerr "no_vm_arg_file_found_for $1 in $CONFIGS_DIR/"
-            exit 1
-        fi
         NAME="$(grep -E '^-s?name' "$LATEST_VM_ARGS" | awk '{print $2}')"
-    else
-        # for boot commands, inspect emqx.conf for node name
-        NAME="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
     fi
 fi
 
@@ -396,13 +405,12 @@ COOKIE="${EMQX_NODE_COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         COOKIE="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
+    elif [ "$IS_NO_CONNECTION_COMMAND" = 'yes' ]; then
+        # this command requires no connection to the target beam node, do nothing
+        COOKIE="whatever"
     else
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
-        if [ -z "$LATEST_VM_ARGS" ]; then
-            echoerr "no_vm_arg_file_found_for $1 in $CONFIGS_DIR/"
-            exit 1
-        fi
         COOKIE="$(grep -E '^-setcookie' "$LATEST_VM_ARGS" | awk '{print $2}')"
     fi
 fi

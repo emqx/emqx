@@ -297,7 +297,7 @@ sc_meta(Type, Meta) ->
     hoconsc:mk(Type, Meta).
 
 map(Name, Type) ->
-    hoconsc: map(Name, Type).
+    hoconsc:map(Name, Type).
 
 ref(StructName) ->
     ref(?MODULE, StructName).
