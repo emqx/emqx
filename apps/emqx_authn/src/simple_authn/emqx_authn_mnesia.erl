@@ -158,13 +158,13 @@ authenticate(#{password := Password} = Credential,
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [] ->
             ignore;
-        [#user_info{password_hash = PasswordHash, salt = Salt0, is_superuser = Superuser}] ->
+        [#user_info{password_hash = PasswordHash, salt = Salt0, is_superuser = IsSuperuser}] ->
             Salt = case Algorithm of
                        bcrypt -> PasswordHash;
                        _ -> Salt0
                    end,
             case PasswordHash =:= hash(Algorithm, Password, Salt) of
-                true -> {ok, #{is_superuser => Superuser}};
+                true -> {ok, #{is_superuser => IsSuperuser}};
                 false -> {error, bad_username_or_password}
             end
     end.
@@ -197,9 +197,9 @@ add_user(#{user_id := UserID,
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
                     {PasswordHash, Salt} = hash(Password, State),
-                    Superuser = maps:get(is_superuser, UserInfo, false),
-                    insert_user(UserGroup, UserID, PasswordHash, Salt, Superuser),
-                    {ok, #{user_id => UserID, is_superuser => Superuser}};
+                    IsSuperuser = maps:get(is_superuser, UserInfo, false),
+                    insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
+                    {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
                 [_] ->
                     {error, already_exist}
             end
@@ -225,8 +225,8 @@ update_user(UserID, UserInfo,
                     {error, not_found};
                 [#user_info{ password_hash = PasswordHash
                            , salt = Salt
-                           , is_superuser = Superuser}] ->
-                    NSuperuser = maps:get(is_superuser, UserInfo, Superuser),
+                           , is_superuser = IsSuperuser}] ->
+                    NSuperuser = maps:get(is_superuser, UserInfo, IsSuperuser),
                     {NPasswordHash, NSalt} = case maps:get(password, UserInfo, undefined) of
                                                  undefined ->
                                                      {PasswordHash, Salt};
@@ -290,8 +290,8 @@ import(UserGroup, [#{<<"user_id">> := UserID,
                      <<"password_hash">> := PasswordHash} = UserInfo | More])
   when is_binary(UserID) andalso is_binary(PasswordHash) ->
     Salt = maps:get(<<"salt">>, UserInfo, <<>>),
-    Superuser = maps:get(<<"is_superuser">>, UserInfo, false),
-    insert_user(UserGroup, UserID, PasswordHash, Salt, Superuser),
+    IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
+    insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
     import(UserGroup, More);
 import(_UserGroup, [_ | _More]) ->
     {error, bad_format}.
@@ -305,8 +305,8 @@ import(UserGroup, File, Seq) ->
                 {ok, #{user_id := UserID,
                        password_hash := PasswordHash} = UserInfo} ->
                     Salt = maps:get(salt, UserInfo, <<>>),
-                    Superuser = maps:get(is_superuser, UserInfo, false),
-                    insert_user(UserGroup, UserID, PasswordHash, Salt, Superuser),
+                    IsSuperuser = maps:get(is_superuser, UserInfo, false),
+                    insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
                     import(UserGroup, File, Seq);
                 {error, Reason} ->
                     {error, Reason}
@@ -368,11 +368,11 @@ hash(Password, #{password_hash_algorithm := Algorithm} = State) ->
     PasswordHash = hash(Algorithm, Password, Salt),
     {PasswordHash, Salt}.
 
-insert_user(UserGroup, UserID, PasswordHash, Salt, Superuser) ->
+insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
      UserInfo = #user_info{user_id = {UserGroup, UserID},
                            password_hash = PasswordHash,
                            salt = Salt,
-                           is_superuser = Superuser},
+                           is_superuser = IsSuperuser},
     mnesia:write(?TAB, UserInfo, write).
 
 delete_user2(UserInfo) ->
@@ -400,5 +400,5 @@ to_binary(B) when is_binary(B) ->
 to_binary(L) when is_list(L) ->
     iolist_to_binary(L).
 
-serialize_user_info(#user_info{user_id = {_, UserID}, is_superuser = Superuser}) ->
-    #{user_id => UserID, is_superuser => Superuser}.
+serialize_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) ->
+    #{user_id => UserID, is_superuser => IsSuperuser}.

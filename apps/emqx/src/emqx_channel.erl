@@ -1320,8 +1320,8 @@ do_authenticate(#{auth_method := AuthMethod} = Credential, #channel{clientinfo =
 
 do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
     case emqx_access_control:authenticate(Credential) of
-        {ok, #{is_superuser := Superuser}} ->
-            {ok, #{}, Channel#channel{clientinfo = ClientInfo#{is_superuser => Superuser}}};
+        {ok, #{is_superuser := IsSuperuser}} ->
+            {ok, #{}, Channel#channel{clientinfo = ClientInfo#{is_superuser => IsSuperuser}}};
         {error, Reason} ->
             {error, emqx_reason_codes:connack_error(Reason)}
     end.

@@ -73,6 +73,7 @@
                      },
                      password_hash_field => <<"password_hash">>,
                      salt_field => <<"salt">>,
+                     is_superuser_field => <<"is_superuser">>,
                      password_hash_algorithm => <<"sha256">>,
                      salt_position => <<"prefix">>
                     }).
@@ -1398,6 +1399,10 @@ definitions() ->
                 type => string,
                 example => <<"salt">>
             },
+            is_superuser_field => #{
+                type => string,
+                example => <<"is_superuser">>
+            },
             password_hash_algorithm => #{
                 type => string,
                 enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
@@ -1882,10 +1887,10 @@ move_authenitcator(ConfKeyPath, ChainName0, AuthenticatorID, Position) ->
 
 add_user(ChainName0, AuthenticatorID, #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo) ->
     ChainName = to_atom(ChainName0),
-    Superuser = maps:get(<<"is_superuser">>, UserInfo, false),
+    IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
     case ?AUTHN:add_user(ChainName, AuthenticatorID, #{ user_id => UserID
                                                       , password => Password
-                                                      , is_superuser => Superuser}) of
+                                                      , is_superuser => IsSuperuser}) of
         {ok, User} ->
             {201, User};
         {error, Reason} ->
