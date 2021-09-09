@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_mqtt_tests).
+-module(emqx_connector_mqtt_tests).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -37,7 +37,7 @@ send_and_ack_test() ->
     try
         Max = 1,
         Batch = lists:seq(1, Max),
-        {ok, Conn} = emqx_connector_mqtt_mod:start(#{address => "127.0.0.1:1883"}),
+        {ok, Conn} = emqx_connector_mqtt_mod:start(#{server => {{127,0,0,1}, 1883}}),
     %     %% return last packet id as batch reference
         {ok, _AckRef} = emqx_connector_mqtt_mod:send(Conn, Batch),
 

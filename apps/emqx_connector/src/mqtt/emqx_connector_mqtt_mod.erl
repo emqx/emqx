@@ -50,7 +50,7 @@ start(Config) ->
     Parent = self(),
     {Host, Port} = maps:get(server, Config),
     Mountpoint = maps:get(receive_mountpoint, Config, undefined),
-    Subscriptions = maps:get(subscriptions, Config),
+    Subscriptions = maps:get(subscriptions, Config, undefined),
     Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Subscriptions),
     Handlers = make_hdlr(Parent, Vars),
     Config1 = Config#{
