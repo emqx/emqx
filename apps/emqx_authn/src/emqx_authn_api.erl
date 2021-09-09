@@ -37,7 +37,7 @@
 
 -define(EXAMPLE_1, #{mechanism => <<"password-based">>,
                      backend => <<"built-in-database">>,
-                     query => <<"SELECT password_hash from built-in-database WHERE username = ${username}">>,
+                     user_id_type => <<"username">>,
                      password_hash_algorithm => #{
                          name => <<"sha256">>
                      }}).
@@ -1193,10 +1193,10 @@ definitions() ->
                 enum => [<<"built-in-database">>],
                 example => <<"built-in-database">>
             },
-            query => #{
+            user_id_type => #{
                 type => string,
-                default => <<"SELECT password_hash from built-in-database WHERE username = ${username}">>,
-                example => <<"SELECT password_hash from built-in-database WHERE username = ${username}">>
+                enum => [<<"username">>, <<"clientid">>],
+                example => <<"username">>
             },
             password_hash_algorithm => minirest:ref(<<"PasswordHashAlgorithm">>)
         }
