@@ -84,7 +84,7 @@ fields(http_post) ->
     , {enable, #{type => boolean(),
                  default => true}}
     , {url, #{type => url()}}
-    , {method,  #{type => hoconsc:enum([post, put]),
+    , {method,  #{type => post,
                   default => get}}
     , {headers, #{type => map(),
                   default => #{ <<"accept">> => <<"application/json">>
