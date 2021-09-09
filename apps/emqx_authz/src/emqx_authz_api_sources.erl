@@ -304,7 +304,7 @@ sources(get, _) ->
                                   {ok, Rules} = file:consult(Path),
                                   lists:append(AccIn, [#{type => file,
                                                          enable => true,
-                                                         rules => [ io_lib:format("~p", [R])|| R <- Rules],
+                                                         rules => [ iolist_to_binary(io_lib:format("~p", [R])) || R <- Rules],
                                                          annotations => #{status => healthy}
                                                         }]);
                               (#{type := _Type, annotations := #{id := Id}} = Source, AccIn) ->
@@ -372,7 +372,7 @@ source(get, #{bindings := #{type := Type}}) ->
             {ok, Rules} = file:consult(Path),
             {200, #{type => file,
                     enable => true,
-                    rules => Rules,
+                    rules => [ iolist_to_binary(io_lib:format("~p", [R])) || R <- Rules],
                     annotations => #{status => healthy}
                    }
             };
