@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_msg).
+-module(emqx_connector_mqtt_msg).
 
 -export([ to_binary/1
         , from_binary/1
@@ -28,7 +28,6 @@
 
 -include_lib("emqx/include/emqx.hrl").
 
--include_lib("emqx_bridge_mqtt/include/emqx_bridge_mqtt.hrl").
 -include_lib("emqtt/include/emqtt.hrl").
 
 
@@ -56,13 +55,13 @@ make_pub_vars(Mountpoint, #{payload := _, qos := _, retain := _, local_topic := 
 %% Shame that we have to know the callback module here
 %% would be great if we can get rid of #mqtt_msg{} record
 %% and use #message{} in all places.
--spec to_remote_msg(emqx_bridge_rpc | emqx_bridge_worker, msg(), variables())
+-spec to_remote_msg(emqx_bridge_rpc | emqx_connector_mqtt_mod, msg(), variables())
         -> exp_msg().
-to_remote_msg(emqx_bridge_mqtt, #message{flags = Flags0} = Msg, Vars) ->
+to_remote_msg(emqx_connector_mqtt_mod, #message{flags = Flags0} = Msg, Vars) ->
     Retain0 = maps:get(retain, Flags0, false),
     MapMsg = maps:put(retain, Retain0, emqx_message:to_map(Msg)),
-    to_remote_msg(emqx_bridge_mqtt, MapMsg, Vars);
-to_remote_msg(emqx_bridge_mqtt, MapMsg, #{topic := TopicToken, payload := PayloadToken,
+    to_remote_msg(emqx_connector_mqtt_mod, MapMsg, Vars);
+to_remote_msg(emqx_connector_mqtt_mod, MapMsg, #{topic := TopicToken, payload := PayloadToken,
         qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) when is_map(MapMsg) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = replace_vars_in_str(PayloadToken, MapMsg),

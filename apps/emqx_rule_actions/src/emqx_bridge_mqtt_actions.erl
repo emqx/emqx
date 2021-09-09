@@ -411,7 +411,7 @@ test_resource_status(PoolName) ->
     IsConnected = fun(Worker) ->
                           case ecpool_worker:client(Worker) of
                               {ok, Bridge} ->
-                                  try emqx_bridge_worker:status(Bridge) of
+                                  try emqx_connector_mqtt_worker:status(Bridge) of
                                       connected -> true;
                                       _ -> false
                                   catch _Error:_Reason ->
@@ -524,7 +524,7 @@ connect(Options = #{disk_cache := DiskCache, ecpool_worker_id := Id, pool_name :
             end
     end,
     Options2 = maps:without([ecpool_worker_id, pool_name, append], Options1),
-    emqx_bridge_worker:start_link(Options2#{name => name(Pool, Id)}).
+    emqx_connector_mqtt_worker:start_link(Options2#{name => name(Pool, Id)}).
 name(Pool, Id) ->
     list_to_atom(atom_to_list(Pool) ++ ":" ++ integer_to_list(Id)).
 pool_name(ResId) ->

@@ -16,7 +16,7 @@
 
 %% @doc This module implements EMQX Bridge transport layer on top of MQTT protocol
 
--module(emqx_bridge_mqtt).
+-module(emqx_connector_mqtt_mod).
 
 -export([ start/1
         , send/2
@@ -51,7 +51,7 @@ start(Config) ->
     {Host, Port} = maps:get(server, Config),
     Mountpoint = maps:get(receive_mountpoint, Config, undefined),
     Subscriptions = maps:get(subscriptions, Config),
-    Vars = emqx_bridge_msg:make_pub_vars(Mountpoint, Subscriptions),
+    Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Subscriptions),
     Handlers = make_hdlr(Parent, Vars),
     Config1 = Config#{
         msg_handler => Handlers,
@@ -161,7 +161,7 @@ handle_publish(Msg, undefined) ->
     ?LOG(error, "cannot publish to local broker as 'bridge.mqtt.<name>.in' not configured, msg: ~p", [Msg]);
 handle_publish(Msg, Vars) ->
     ?LOG(debug, "publish to local broker, msg: ~p, vars: ~p", [Msg, Vars]),
-    emqx_broker:publish(emqx_bridge_msg:to_broker_msg(Msg, Vars)).
+    emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars)).
 
 handle_disconnected(Reason, Parent) ->
     Parent ! {disconnected, self(), Reason}.

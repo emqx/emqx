@@ -1,0 +1,78 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+-module(emqx_connector_mqtt_schema).
+
+-include_lib("typerefl/include/types.hrl").
+
+-behaviour(hocon_schema).
+
+-export([ roots/0
+        , fields/1]).
+
+roots() ->
+    [{config, #{type => hoconsc:ref(?MODULE, "config")}}].
+
+fields("config") ->
+    [ {server, hoconsc:mk(emqx_schema:ip_port(), #{default => "127.0.0.1:1883"})}
+    , {reconnect_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
+    , {proto_ver, fun proto_ver/1}
+    , {bridge_mode, hoconsc:mk(boolean(), #{default => true})}
+    , {clientid_prefix, hoconsc:mk(string(), #{default => ""})}
+    , {username, hoconsc:mk(string())}
+    , {password, hoconsc:mk(string())}
+    , {clean_start, hoconsc:mk(boolean(), #{default => true})}
+    , {keepalive, hoconsc:mk(integer(), #{default => 300})}
+    , {retry_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
+    , {max_inflight, hoconsc:mk(integer(), #{default => 32})}
+    , {replayq, hoconsc:mk(hoconsc:ref(?MODULE, "replayq"))}
+    , {in, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "in")), #{default => []})}
+    , {out, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "out")), #{default => []})}
+    ] ++ emqx_connector_schema_lib:ssl_fields();
+
+fields("in") ->
+    [ {subscribe_remote_topic, #{type => binary(), nullable => false}}
+    , {local_topic, hoconsc:mk(binary(), #{default => <<"${topic}">>})}
+    , {subscribe_qos, hoconsc:mk(qos(), #{default => 1})}
+    ] ++ common_inout_confs();
+
+fields("out") ->
+    [ {subscribe_local_topic, #{type => binary(), nullable => false}}
+    , {remote_topic, hoconsc:mk(binary(), #{default => <<"${topic}">>})}
+    ] ++ common_inout_confs();
+
+fields("replayq") ->
+    [ {dir, hoconsc:union([boolean(), string()])}
+    , {seg_bytes, hoconsc:mk(emqx_schema:bytesize(), #{default => "100MB"})}
+    , {offload, hoconsc:mk(boolean(), #{default => false})}
+    , {max_total_bytes, hoconsc:mk(emqx_schema:bytesize(), #{default => "1024MB"})}
+    ].
+
+common_inout_confs() ->
+    [{id, #{type => binary(), nullable => false}}] ++ publish_confs().
+
+publish_confs() ->
+    [ {qos, hoconsc:mk(qos(), #{default => <<"${qos}">>})}
+    , {retain, hoconsc:mk(hoconsc:union([boolean(), binary()]), #{default => <<"${retain}">>})}
+    , {payload, hoconsc:mk(binary(), #{default => <<"${payload}">>})}
+    ].
+
+qos() ->
+    hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2), binary()]).
+
+proto_ver(type) -> hoconsc:enum([v3, v4, v5]);
+proto_ver(default) -> v4;
+proto_ver(_) -> undefined.

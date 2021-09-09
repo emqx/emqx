@@ -84,7 +84,7 @@ make eunit ct
 ### common test の一部を実行する
 
 ```bash
-make apps/emqx_bridge_mqtt-ct
+make apps/emqx_bridge-ct
 ```
 
 ### Dialyzer

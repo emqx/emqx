@@ -272,7 +272,6 @@ relx_apps(ReleaseType) ->
     , emqx_bridge
     , emqx_rule_engine
     , emqx_rule_actions
-    , emqx_bridge_mqtt
     , emqx_modules
     , emqx_management
     , emqx_dashboard
