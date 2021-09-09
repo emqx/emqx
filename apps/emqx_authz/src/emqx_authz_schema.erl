@@ -116,24 +116,24 @@ fields(http_post) ->
 fields(mongo_single) ->
     connector_fields(mongo, single) ++
     [ {collection, #{type => atom()}}
-    , {find, #{type => map()}}
+    , {selector, #{type => map()}}
     ];
 fields(mongo_rs) ->
     connector_fields(mongo, rs) ++
     [ {collection, #{type => atom()}}
-    , {find, #{type => map()}}
+    , {selector, #{type => map()}}
     ];
 fields(mongo_sharded) ->
     connector_fields(mongo, sharded) ++
     [ {collection, #{type => atom()}}
-    , {find, #{type => map()}}
+    , {selector, #{type => map()}}
     ];
 fields(mysql) ->
     connector_fields(mysql) ++
-    [ {sql, query()} ];
+    [ {query, query()} ];
 fields(pgsql) ->
     connector_fields(pgsql) ++
-    [ {sql, query()} ];
+    [ {query, query()} ];
 fields(redis_single) ->
     connector_fields(redis, single) ++
     [ {cmd, query()} ];

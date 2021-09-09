@@ -290,7 +290,7 @@ init_source(#{enable := true,
     end;
 init_source(#{enable := true,
               type := DB,
-              sql := SQL
+              query := SQL
              } = Source) when DB =:= mysql;
                               DB =:= pgsql ->
     Mod = authz_module(DB),
@@ -298,7 +298,7 @@ init_source(#{enable := true,
         {error, Reason} -> error({load_config_error, Reason});
         Id -> Source#{annotations =>
                       #{id => Id,
-                        sql => Mod:parse_query(SQL)
+                        query => Mod:parse_query(SQL)
                        }
                    }
     end;

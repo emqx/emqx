@@ -118,7 +118,7 @@ definitions() ->
         required => [ type
                     , enable
                     , collection
-                    , find
+                    , selector
                     , mongo_type
                     , server
                     , pool_size
@@ -140,7 +140,7 @@ definitions() ->
                 example => true
             },
             collection => #{type => string},
-            find => #{type => object},
+            selector => #{type => object},
             mongo_type => #{type => string,
                             enum => [<<"single">>],
                             example => <<"single">>},
@@ -173,7 +173,7 @@ definitions() ->
         required => [ type
                     , enable
                     , collection
-                    , find
+                    , selector
                     , mongo_type
                     , servers
                     , replica_set_name
@@ -196,7 +196,7 @@ definitions() ->
                 example => true
             },
             collection => #{type => string},
-            find => #{type => object},
+            selector => #{type => object},
             mongo_type => #{type => string,
                             enum => [<<"rs">>],
                             example => <<"rs">>},
@@ -231,7 +231,7 @@ definitions() ->
         required => [ type
                     , enable
                     , collection
-                    , find
+                    , selector
                     , mongo_type
                     , servers
                     , pool_size
@@ -253,7 +253,7 @@ definitions() ->
                 example => true
             },
             collection => #{type => string},
-            find => #{type => object},
+            selector => #{type => object},
             mongo_type => #{type => string,
                             enum => [<<"sharded">>],
                             example => <<"sharded">>},
@@ -286,7 +286,7 @@ definitions() ->
         type => object,
         required => [ type
                     , enable
-                    , sql
+                    , query
                     , server
                     , database
                     , pool_size
@@ -305,7 +305,7 @@ definitions() ->
                 type => boolean,
                 example => true
             },
-            sql => #{type => string},
+            query => #{type => string},
             server => #{type => string,
                         example => <<"127.0.0.1:3306">>
                        },
@@ -323,7 +323,7 @@ definitions() ->
         type => object,
         required => [ type
                     , enable
-                    , sql
+                    , query
                     , server
                     , database
                     , pool_size
@@ -342,7 +342,7 @@ definitions() ->
                 type => boolean,
                 example => true
             },
-            sql => #{type => string},
+            query => #{type => string},
             server => #{type => string,
                         example => <<"127.0.0.1:5432">>
                        },
