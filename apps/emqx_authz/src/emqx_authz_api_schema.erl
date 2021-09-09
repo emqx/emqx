@@ -95,7 +95,7 @@ definitions() ->
             },
             method => #{
                 type => string,
-                enum => [<<"get">>, <<"post">>, <<"put">>],
+                enum => [<<"get">>, <<"post">>],
                 example => <<"get">>
             },
             headers => #{type => object},
