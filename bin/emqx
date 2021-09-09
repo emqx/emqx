@@ -114,7 +114,7 @@ relx_usage() {
             echo "                      don't make it permanent"
             ;;
         *)
-            echo "Usage: $REL_NAME {start|start_boot <file>|ertspath|foreground|stop|pid|ping|console|console_clean|console_boot <file>|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|ctl|rpc|rpcterms|eval|cold_eval|root_dir}"
+            echo "Usage: $REL_NAME {start|start_boot <file>|ertspath|foreground|stop|pid|ping|console|console_clean|console_boot <file>|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|ctl|rpc|rpcterms|eval|root_dir}"
             ;;
     esac
 }
@@ -137,7 +137,6 @@ check_user() {
         exec su - "$RUNNER_USER" -c "$CMD"
     fi
 }
-
 
 # Make sure the user running this script is the owner and/or su to that user
 check_user "$@"
@@ -355,16 +354,6 @@ case "$1" in
         ;;
 esac
 
-IS_NO_CONNECTION_COMMAND='no'
-case "$1" in
-    cold_eval)
-        IS_NO_CONNECTION_COMMAND='yes'
-        ;;
-    *)
-        ;;
-esac
-
-
 ## Possible ways to configure emqx node name:
 ## 1. configure node.name in emqx.conf
 ## 2. override with environment variable EMQX_NODE_NAME
@@ -375,9 +364,6 @@ if [ -z "$NAME" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         # for boot commands, inspect emqx.conf for node name
         NAME="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
-    elif [ "$IS_NO_CONNECTION_COMMAND" = 'yes' ]; then
-        # this command requires no connection to the target beam node, do nothing
-        :
     else
         # for non-boot commands, inspect vm.<time>.args for node name
         # shellcheck disable=SC2012,SC2086
@@ -405,9 +391,6 @@ COOKIE="${EMQX_NODE_COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         COOKIE="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
-    elif [ "$IS_NO_CONNECTION_COMMAND" = 'yes' ]; then
-        # this command requires no connection to the target beam node, do nothing
-        COOKIE="whatever"
     else
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
@@ -713,10 +696,6 @@ case "$1" in
 
         shift
         relx_nodetool "eval" "$@"
-        ;;
-    cold_eval)
-        shift;
-        "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" cold_eval "$@"
         ;;
     *)
         relx_usage "$1"

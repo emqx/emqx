@@ -89,7 +89,7 @@ roots(high) ->
        sc(map("name", ref("zone")),
           #{ desc => "A zone is a set of configs grouped by the zone <code>name</code>. <br>"
                      "For flexible configuration mapping, the <code>name</code> "
-                     "can be set to a listener's <code>zone</code> config . <br>"
+                     "can be set to a listener's <code>zone</code> config.<br>"
                      "NOTE: A builtin zone named <code>default</code> is auto created "
                      "and can not be deleted."
            })}

@@ -24,8 +24,6 @@ main(Args) ->
         ["hocon" | Rest] ->
             %% forward the call to hocon_cli
             hocon_cli:main(Rest);
-        ["cold_eval" | Rest] ->
-            code_eval(Rest);
         _ ->
             do(Args)
     end.
@@ -133,16 +131,6 @@ do(Args) ->
             io:format("Usage: nodetool chkconfig|getpid|ping|stop|rpc|rpc_infinity|rpcterms|eval|cold_eval [Terms] [RPC]\n")
     end,
     net_kernel:stop().
-
-code_eval(Args) ->
-    Parsed = parse_eval_args(Args),
-    case erl_eval:exprs(Parsed, []) of
-        {value, Value, _} ->
-            io:format ("~p~n", [Value]);
-        Other ->
-            io:format("cold_eval_failed_with: ~p~n", [Other]),
-            halt(1)
-    end.
 
 parse_eval_args(Args) ->
     % shells may process args into more than one, and end up stripping
