@@ -37,11 +37,11 @@ send_and_ack_test() ->
     try
         Max = 1,
         Batch = lists:seq(1, Max),
-        {ok, Conn} = emqx_bridge_mqtt:start(#{address => "127.0.0.1:1883"}),
+        {ok, Conn} = emqx_connector_mqtt_mod:start(#{address => "127.0.0.1:1883"}),
     %     %% return last packet id as batch reference
-        {ok, _AckRef} = emqx_bridge_mqtt:send(Conn, Batch),
+        {ok, _AckRef} = emqx_connector_mqtt_mod:send(Conn, Batch),
 
-        ok = emqx_bridge_mqtt:stop(Conn)
+        ok = emqx_connector_mqtt_mod:stop(Conn)
     after
         meck:unload(emqtt)
     end.

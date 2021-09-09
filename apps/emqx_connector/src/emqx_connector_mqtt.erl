@@ -18,6 +18,16 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
+-behaviour(supervisor).
+
+%% API and callbacks for supervisor
+-export([ start_link/0
+        , init/1
+        , create_bridge/1
+        , drop_bridge/1
+        , bridges/0
+        ]).
+
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
         , on_stop/2
@@ -36,55 +46,42 @@ roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, "config")}}].
 
 fields("config") ->
-    [ {server, hoconsc:mk(emqx_schema:ip_port(), #{default => "127.0.0.1:1883"})}
-    , {reconnect_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
-    , {proto_ver, fun proto_ver/1}
-    , {bridge_mode, hoconsc:mk(boolean(), #{default => true})}
-    , {clientid_prefix, hoconsc:mk(string(), #{default => ""})}
-    , {username, hoconsc:mk(string())}
-    , {password, hoconsc:mk(string())}
-    , {clean_start, hoconsc:mk(boolean(), #{default => true})}
-    , {keepalive, hoconsc:mk(integer(), #{default => 300})}
-    , {retry_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
-    , {max_inflight, hoconsc:mk(integer(), #{default => 32})}
-    , {replayq, hoconsc:mk(hoconsc:ref(?MODULE, "replayq"))}
-    , {in, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "in")), #{default => []})}
-    , {out, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "out")), #{default => []})}
-    ] ++ emqx_connector_schema_lib:ssl_fields();
+    emqx_connector_mqtt_schema:fields("config").
 
-fields("in") ->
-    [ {subscribe_remote_topic, #{type => binary(), nullable => false}}
-    , {local_topic, hoconsc:mk(binary(), #{default => <<"${topic}">>})}
-    , {subscribe_qos, hoconsc:mk(qos(), #{default => 1})}
-    ] ++ common_inout_confs();
+%% ===================================================================
+%% supervisor APIs
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-fields("out") ->
-    [ {subscribe_local_topic, #{type => binary(), nullable => false}}
-    , {remote_topic, hoconsc:mk(binary(), #{default => <<"${topic}">>})}
-    ] ++ common_inout_confs();
+init([]) ->
+    SupFlag = #{strategy => one_for_one,
+                intensity => 100,
+                period => 10},
+    {ok, {SupFlag, []}}.
 
-fields("replayq") ->
-    [ {dir, hoconsc:union([boolean(), string()])}
-    , {seg_bytes, hoconsc:mk(emqx_schema:bytesize(), #{default => "100MB"})}
-    , {offload, hoconsc:mk(boolean(), #{default => false})}
-    , {max_total_bytes, hoconsc:mk(emqx_schema:bytesize(), #{default => "1024MB"})}
-    ].
+bridge_spec(Config) ->
+    #{id => maps:get(name, Config),
+      start => {emqx_connector_mqtt_worker, start_link, [Config]},
+      restart => permanent,
+      shutdown => 5000,
+      type => worker,
+      modules => [emqx_connector_mqtt_worker]}.
 
-common_inout_confs() ->
-    [{id, #{type => binary(), nullable => false}}] ++ publish_confs().
+-spec(bridges() -> [{node(), map()}]).
+bridges() ->
+    [{Name, emqx_connector_mqtt_worker:status(Name)}
+     || {Name, _Pid, _, _} <- supervisor:which_children(?MODULE)].
 
-publish_confs() ->
-    [ {qos, hoconsc:mk(qos(), #{default => <<"${qos}">>})}
-    , {retain, hoconsc:mk(hoconsc:union([boolean(), binary()]), #{default => <<"${retain}">>})}
-    , {payload, hoconsc:mk(binary(), #{default => <<"${payload}">>})}
-    ].
+create_bridge(Config) ->
+    supervisor:start_child(?MODULE, bridge_spec(Config)).
 
-qos() ->
-    hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2), binary()]).
-
-proto_ver(type) -> hoconsc:enum([v3, v4, v5]);
-proto_ver(default) -> v4;
-proto_ver(_) -> undefined.
+drop_bridge(Name) ->
+    case supervisor:terminate_child(?MODULE, Name) of
+        ok ->
+            supervisor:delete_child(?MODULE, Name);
+        {error, Error} ->
+            {error, Error}
+    end.
 
 %% ===================================================================
 on_start(InstId, Conf) ->
@@ -105,7 +102,7 @@ on_start(InstId, Conf) ->
 
 on_stop(InstId, #{}) ->
     logger:info("stopping mqtt connector: ~p", [InstId]),
-    case emqx_bridge_mqtt_sup:drop_bridge(InstId) of
+    case ?MODULE:drop_bridge(InstId) of
         ok -> ok;
         {error, not_found} -> ok;
         {error, Reason} ->
@@ -124,7 +121,7 @@ on_query(InstId, {publish_to_remote, Msg}, _AfterQuery, _State) ->
     logger:debug("publish to remote node, connector: ~p, msg: ~p", [InstId, Msg]).
 
 on_health_check(_InstId, #{sub_bridges := NameList} = State) ->
-    Results = [{Name, emqx_bridge_worker:ping(Name)} || Name <- NameList],
+    Results = [{Name, emqx_connector_mqtt_worker:ping(Name)} || Name <- NameList],
     case lists:all(fun({_, pong}) -> true; ({_, _}) -> false end, Results) of
         true -> {ok, State};
         false -> {error, {some_sub_bridge_down, Results}, State}
@@ -155,7 +152,7 @@ create_channel(#{subscribe_local_topic := _, id := BridgeId} = OutConf, NamePref
         subscriptions => undefined, forwards => OutConf}).
 
 create_sub_bridge(#{name := Name} = Conf) ->
-    case emqx_bridge_mqtt_sup:create_bridge(Conf) of
+    case ?MODULE:create_bridge(Conf) of
         {ok, _Pid} ->
             start_sub_bridge(Name);
         {error, {already_started, _Pid}} ->
@@ -165,7 +162,7 @@ create_sub_bridge(#{name := Name} = Conf) ->
     end.
 
 start_sub_bridge(Name) ->
-    case emqx_bridge_worker:ensure_started(Name) of
+    case emqx_connector_mqtt_worker:ensure_started(Name) of
         ok -> {ok, Name};
         {error, Reason} -> {error, Reason}
     end.

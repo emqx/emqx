@@ -19,7 +19,7 @@
 %% to remote MQTT node/cluster via `connection' transport layer.
 %% In case `REMOTE' is also an EMQX node, `connection' is recommended to be
 %% the `gen_rpc' based implementation `emqx_bridge_rpc'. Otherwise `connection'
-%% has to be `emqx_bridge_mqtt'.
+%% has to be `emqx_connector_mqtt_mod'.
 %%
 %% ```
 %% +------+                        +--------+
@@ -59,7 +59,7 @@
 %% NOTES:
 %% * Local messages are all normalised to QoS-1 when exporting to remote
 
--module(emqx_bridge_worker).
+-module(emqx_connector_mqtt_worker).
 -behaviour(gen_statem).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -106,7 +106,7 @@
 -type id() :: atom() | string() | pid().
 -type qos() :: emqx_mqtt_types:qos().
 -type config() :: map().
--type batch() :: [emqx_bridge_msg:exp_msg()].
+-type batch() :: [emqx_connector_mqtt_msg:exp_msg()].
 -type ack_ref() :: term().
 -type topic() :: emqx_topic:topic().
 
@@ -222,7 +222,7 @@ open_replayq(Name, QCfg) ->
         false -> #{dir => filename:join([Dir, node(), Name]),
                    seg_bytes => SegBytes, max_total_size => MaxTotalSize}
     end,
-    replayq:open(QueueConfig#{sizer => fun emqx_bridge_msg:estimate_size/1,
+    replayq:open(QueueConfig#{sizer => fun emqx_connector_mqtt_msg:estimate_size/1,
                               marshaller => fun ?MODULE:msg_marshaller/1}).
 
 pre_process_opts(#{subscriptions := InConf, forwards := OutConf} = ConnectOpts) ->
@@ -412,10 +412,10 @@ do_send(#{inflight := Inflight,
           mountpoint := Mountpoint,
           connect_opts := #{forwards := Forwards},
           if_record_metrics := IfRecordMetrics} = State, QAckRef, [_ | _] = Batch) ->
-    Vars = emqx_bridge_msg:make_pub_vars(Mountpoint, Forwards),
+    Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Forwards),
     ExportMsg = fun(Message) ->
                     bridges_metrics_inc(IfRecordMetrics, 'bridge.mqtt.message_sent'),
-                    emqx_bridge_msg:to_remote_msg(Module, Message, Vars)
+                    emqx_connector_mqtt_msg:to_remote_msg(Module, Message, Vars)
                 end,
     ?LOG(debug, "publish to remote broker, msg: ~p, vars: ~p", [Batch, Vars]),
     case Module:send(Connection, [ExportMsg(M) || M <- Batch]) of
@@ -501,8 +501,8 @@ disconnect(State) ->
         State.
 
 %% Called only when replayq needs to dump it to disk.
-msg_marshaller(Bin) when is_binary(Bin) -> emqx_bridge_msg:from_binary(Bin);
-msg_marshaller(Msg) -> emqx_bridge_msg:to_binary(Msg).
+msg_marshaller(Bin) when is_binary(Bin) -> emqx_connector_mqtt_msg:from_binary(Bin);
+msg_marshaller(Msg) -> emqx_connector_mqtt_msg:to_binary(Msg).
 
 format_mountpoint(undefined) ->
     undefined;
@@ -541,7 +541,7 @@ is_sensitive(_) -> false.
 conn_type(rpc) ->
     emqx_bridge_rpc;
 conn_type(mqtt) ->
-    emqx_bridge_mqtt;
+    emqx_connector_mqtt_mod;
 conn_type(Mod) when is_atom(Mod) ->
     Mod.
 
