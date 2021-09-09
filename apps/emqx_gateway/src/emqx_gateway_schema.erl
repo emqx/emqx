@@ -96,7 +96,6 @@ fields(lwm2m_structs) ->
     , {lifetime_max, sc(duration())}
     , {qmode_time_windonw, sc(integer())}
     , {auto_observe, sc(boolean())}
-    , {mountpoint, sc(string())}
     , {update_msg_publish_condition, sc(union([always, contains_object_list]))}
     , {translators, sc(ref(translators))}
     , {listeners, sc(ref(udp_listener_group))}
@@ -270,7 +269,7 @@ gateway_common_options() ->
     [ {enable, sc(boolean(), true)}
     , {enable_stats, sc(boolean(), true)}
     , {idle_timeout, sc(duration(), <<"30s">>)}
-    , {mountpoint, sc(binary(), undefined)}
+    , {mountpoint, sc(binary(), <<>>)}
     , {clientinfo_override, sc(ref(clientinfo_override))}
     , {authentication,  sc(hoconsc:lazy(map()))}
     ].
