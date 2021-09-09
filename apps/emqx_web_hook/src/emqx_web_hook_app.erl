@@ -64,7 +64,7 @@ translate_env() ->
                                  SNI0 -> SNI0
                              end,
                        TLSOpts = lists:filter(fun({_K, V}) ->
-                                                V /= <<>> andalso V /= undefined andalso V /= "" andalso true
+                                                V /= <<>> andalso V /= undefined andalso V /= ""
                                               end, [{keyfile, KeyFile},
                                                     {certfile, CertFile},
                                                     {cacertfile, CACertFile},

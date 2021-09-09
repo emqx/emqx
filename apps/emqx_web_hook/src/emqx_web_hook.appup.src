@@ -8,7 +8,7 @@
      {load_module, emqx_web_hook, brutal_purge, soft_purge, []},
      {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, []}
     ]},
-    {<<"4.3.[3-4]">>, [
+    {<<"4.3.[3-5]">>, [
       {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, []}
     ]},
     {<<".*">>, []}
@@ -20,7 +20,7 @@
      {load_module, emqx_web_hook, brutal_purge, soft_purge, []},
      {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, []}
     ]},
-    {<<"4.3.[3-4]">>, [
+    {<<"4.3.[3-5]">>, [
       {load_module, emqx_web_hook_actions, brutal_purge, soft_purge, []}
     ]},
     {<<".*">>, []}

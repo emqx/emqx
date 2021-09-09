@@ -65,7 +65,10 @@ save_files_return_opts(Options, Dir) ->
                   false -> verify_none;
                   _ -> verify_peer
              end,
-    SNI = Get(<<"server_name_indication">>),
+    SNI = case Get(<<"server_name_indication">>) of
+              undefined -> undefined;
+              SNI0 -> ensure_str(SNI0)
+          end,
     Versions = emqx_tls_lib:integral_versions(Get(<<"tls_versions">>)),
     Ciphers = emqx_tls_lib:integral_ciphers(Versions, Get(<<"ciphers">>)),
     filter([{keyfile, Key}, {certfile, Cert}, {cacertfile, CA},
@@ -81,6 +84,7 @@ save_file(Param, SubDir) ->
 
 filter([]) -> [];
 filter([{_, ""} | T]) -> filter(T);
+filter([{_, undefined} | T]) -> filter(T);
 filter([H | T]) -> [H | filter(T)].
 
 do_save_file(#{<<"filename">> := FileName, <<"file">> := Content}, Dir)
