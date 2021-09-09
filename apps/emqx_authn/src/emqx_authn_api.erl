@@ -1550,7 +1550,8 @@ definitions() ->
             enable_pipelining => #{
                 type => boolean,
                 default => true
-            }
+            },
+            ssl => minirest:ref(<<"SSL">>)
         }
     },
 
@@ -1583,6 +1584,10 @@ definitions() ->
             },
             certificate => #{
                 type => string
+            },
+            endpoint => #{
+                type => string,
+                example => <<"http://localhost:80">>
             },
             verify_claims => #{
                 type => object,
