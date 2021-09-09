@@ -35,10 +35,10 @@ description() ->
 
 authorize(Client, PubSub, Topic,
             #{collection := Collection,
-              find := Find,
+              selector := Selector,
               annotations := #{id := ResourceID}
              }) ->
-    case emqx_resource:query(ResourceID, {find, Collection, replvar(Find, Client), #{}}) of
+    case emqx_resource:query(ResourceID, {find, Collection, replvar(Selector, Client), #{}}) of
         {error, Reason} ->
             ?LOG(error, "[AuthZ] Query mongo error: ~p", [Reason]),
             nomatch;
@@ -57,7 +57,7 @@ do_authorize(Client, PubSub, Topic, [Rule | Tail]) ->
         nomatch -> do_authorize(Client, PubSub, Topic, Tail)
     end.
 
-replvar(Find, #{clientid := Clientid,
+replvar(Selector, #{clientid := Clientid,
                 username := Username,
                 peerhost := IpAddress
                }) ->
@@ -76,7 +76,7 @@ replvar(Find, #{clientid := Clientid,
                   maps:put(K, V3, AccIn);
               _Fun(K, V, AccIn) -> maps:put(K, V, AccIn)
           end,
-    maps:fold(Fun, #{}, Find).
+    maps:fold(Fun, #{}, Selector).
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B;

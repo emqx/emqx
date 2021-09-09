@@ -53,7 +53,7 @@ init_per_suite(Config) ->
                <<"database">> => <<"mqtt">>,
                <<"ssl">> => #{<<"enable">> => false},
                <<"collection">> => <<"fake">>,
-               <<"find">> => #{<<"a">> => <<"b">>}
+               <<"selector">> => #{<<"a">> => <<"b">>}
               }],
     {ok, _} = emqx_authz:update(replace, Rules),
     Config.
