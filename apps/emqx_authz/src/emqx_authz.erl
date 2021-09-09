@@ -198,6 +198,7 @@ post_config_update({{replace_once, Type}, #{type := Type} = Source}, _NewSources
     {Index, OldSource} = find_source_by_type(Type, OldInitedSources),
     case maps:get(type, OldSource, undefined) of
        undefined -> ok;
+       file -> ok;
        _ ->
             #{annotations := #{id := Id}} = OldSource,
             ok = emqx_resource:remove(Id)

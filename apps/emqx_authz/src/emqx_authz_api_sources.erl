@@ -304,7 +304,7 @@ sources(get, _) ->
                                   {ok, Rules} = file:consult(Path),
                                   lists:append(AccIn, [#{type => file,
                                                          enable => true,
-                                                         rules => [ iolist_to_binary(io_lib:format("~p", [R])) || R <- Rules],
+                                                         rules => [ iolist_to_binary(io_lib:format("~p.", [R])) || R <- Rules],
                                                          annotations => #{status => healthy}
                                                         }]);
                               (#{type := _Type, annotations := #{id := Id}} = Source, AccIn) ->
@@ -372,7 +372,7 @@ source(get, #{bindings := #{type := Type}}) ->
             {ok, Rules} = file:consult(Path),
             {200, #{type => file,
                     enable => true,
-                    rules => [ iolist_to_binary(io_lib:format("~p", [R])) || R <- Rules],
+                    rules => [ iolist_to_binary(io_lib:format("~p.", [R])) || R <- Rules],
                     annotations => #{status => healthy}
                    }
             };
@@ -395,7 +395,7 @@ source(get, #{bindings := #{type := Type}}) ->
             end,
             {200, read_cert(NSource2)}
     end;
-source(put, #{bindings := #{type := file}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
+source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
     {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""),
                                 erlang:list_to_bitstring([<<Rule/binary, "\n">> || Rule <- Rules])
                                ),
