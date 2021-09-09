@@ -36,48 +36,51 @@ roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, "config")}}].
 
 fields("config") ->
-    [ {server, emqx_schema:t(emqx_schema:ip_port(), undefined, "127.0.0.1:1883")}
-    , {reconnect_interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "30s")}
+    [ {server, hoconsc:mk(emqx_schema:ip_port(), #{default => "127.0.0.1:1883"})}
+    , {reconnect_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
     , {proto_ver, fun proto_ver/1}
-    , {bridge_mode, emqx_schema:t(boolean(), undefined, true)}
-    , {clientid_prefix, emqx_schema:t(string(), undefined, "")}
-    , {username, emqx_schema:t(string())}
-    , {password, emqx_schema:t(string())}
-    , {clean_start, emqx_schema:t(boolean(), undefined, true)}
-    , {keepalive, emqx_schema:t(integer(), undefined, 300)}
-    , {retry_interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "30s")}
-    , {max_inflight, emqx_schema:t(integer(), undefined, 32)}
-    , {replayq, emqx_schema:t(hoconsc:ref(?MODULE, "replayq"))}
-    , {in, hoconsc:array(hoconsc:ref(?MODULE, "in"))}
-    , {out, hoconsc:array(hoconsc:ref(?MODULE, "out"))}
+    , {bridge_mode, hoconsc:mk(boolean(), #{default => true})}
+    , {clientid_prefix, hoconsc:mk(string(), #{default => ""})}
+    , {username, hoconsc:mk(string())}
+    , {password, hoconsc:mk(string())}
+    , {clean_start, hoconsc:mk(boolean(), #{default => true})}
+    , {keepalive, hoconsc:mk(integer(), #{default => 300})}
+    , {retry_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
+    , {max_inflight, hoconsc:mk(integer(), #{default => 32})}
+    , {replayq, hoconsc:mk(hoconsc:ref(?MODULE, "replayq"))}
+    , {in, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "in")), #{default => []})}
+    , {out, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "out")), #{default => []})}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("in") ->
     [ {subscribe_remote_topic, #{type => binary(), nullable => false}}
-    , {local_topic, emqx_schema:t(binary(), undefined, <<"${topic}">>)}
-    , {subscribe_qos, emqx_schema:t(hoconsc:union([0, 1, 2, binary()]), undefined, 1)}
+    , {local_topic, hoconsc:mk(binary(), #{default => <<"${topic}">>})}
+    , {subscribe_qos, hoconsc:mk(qos(), #{default => 1})}
     ] ++ common_inout_confs();
 
 fields("out") ->
     [ {subscribe_local_topic, #{type => binary(), nullable => false}}
-    , {remote_topic, emqx_schema:t(binary(), undefined, <<"${topic}">>)}
+    , {remote_topic, hoconsc:mk(binary(), #{default => <<"${topic}">>})}
     ] ++ common_inout_confs();
 
 fields("replayq") ->
     [ {dir, hoconsc:union([boolean(), string()])}
-    , {seg_bytes, emqx_schema:t(emqx_schema:bytesize(), undefined, "100MB")}
-    , {offload, emqx_schema:t(boolean(), undefined, false)}
-    , {max_total_bytes, emqx_schema:t(emqx_schema:bytesize(), undefined, "1024MB")}
+    , {seg_bytes, hoconsc:mk(emqx_schema:bytesize(), #{default => "100MB"})}
+    , {offload, hoconsc:mk(boolean(), #{default => false})}
+    , {max_total_bytes, hoconsc:mk(emqx_schema:bytesize(), #{default => "1024MB"})}
     ].
 
 common_inout_confs() ->
     [{id, #{type => binary(), nullable => false}}] ++ publish_confs().
 
 publish_confs() ->
-    [ {qos, emqx_schema:t(hoconsc:union([0, 1, 2, binary()]), undefined, <<"${qos}">>)}
-    , {retain, emqx_schema:t(hoconsc:union([boolean(), binary()]), undefined, <<"${retain}">>)}
-    , {payload, emqx_schema:t(binary(), undefined, <<"${payload}">>)}
+    [ {qos, hoconsc:mk(qos(), #{default => <<"${qos}">>})}
+    , {retain, hoconsc:mk(hoconsc:union([boolean(), binary()]), #{default => <<"${retain}">>})}
+    , {payload, hoconsc:mk(binary(), #{default => <<"${payload}">>})}
     ].
+
+qos() ->
+    hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2), binary()]).
 
 proto_ver(type) -> hoconsc:enum([v3, v4, v5]);
 proto_ver(default) -> v4;
