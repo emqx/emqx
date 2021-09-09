@@ -1877,10 +1877,15 @@ delete_authenticator(ConfKeyPath, ChainName0, AuthenticatorID) ->
 
 move_authenitcator(ConfKeyPath, ChainName0, AuthenticatorID, Position) ->
     ChainName = to_atom(ChainName0),
-    case update_config(ConfKeyPath, {move_authenticator, ChainName, AuthenticatorID, Position}) of
-        {ok, _} ->
-            {204};
-        {error, {_, _, Reason}} ->
+    case parse_position(Position) of
+        {ok, NPosition} ->
+            case update_config(ConfKeyPath, {move_authenticator, ChainName, AuthenticatorID, NPosition}) of
+                {ok, _} ->
+                    {204};
+                {error, {_, _, Reason}} ->
+                    serialize_error(Reason)
+            end;
+        {error, Reason} ->
             serialize_error(Reason)
     end.
 
@@ -2015,6 +2020,15 @@ serialize_error({invalid_parameter, Name}) ->
 serialize_error(Reason) ->
     {400, #{code => <<"BAD_REQUEST">>,
             message => list_to_binary(io_lib:format("~p", [Reason]))}}.
+
+parse_position(<<"top">>) ->
+    {ok, top};
+parse_position(<<"bottom">>) ->
+    {ok, bottom};
+parse_position(<<"before:", Before/binary>>) ->
+    {ok, {before, Before}};
+parse_position(_) ->
+    {error, {invalid_parameter, position}}.
 
 to_list(M) when is_map(M) ->
     [M];

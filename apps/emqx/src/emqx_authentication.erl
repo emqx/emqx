@@ -78,6 +78,14 @@
 -define(VER_1, <<"1">>).
 -define(VER_2, <<"2">>).
 
+-type chain_name() :: atom().
+-type authenticator_id() :: binary().
+-type position() :: top | bottom | {before, authenticator_id()}.
+-type update_request() :: {create_authenticator, chain_name(), map()}
+                        | {delete_authenticator, chain_name(), authenticator_id()}
+                        | {update_authenticator, chain_name(), authenticator_id(), map()}
+                        | {move_authenitcator, chain_name(), authenticator_id(), position()}.
+
 -type config() :: #{atom() => term()}.
 -type state() :: #{atom() => term()}.
 -type extra() :: #{is_superuser := boolean(),
@@ -159,6 +167,8 @@ authentication(_) -> undefined.
 %% Callbacks of config handler
 %%------------------------------------------------------------------------------
 
+-spec pre_config_update(update_request(), emqx_config:raw_config())
+    -> {ok, map() | list()} | {error, term()}.
 pre_config_update(UpdateReq, OldConfig) ->
     case do_pre_config_update(UpdateReq, to_list(OldConfig)) of
         {error, Reason} -> {error, Reason};
@@ -185,22 +195,22 @@ do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}
         {error, Reason} -> {error, Reason};
         {ok, Part1, [Found | Part2]} ->
             case Position of
-                <<"top">> ->
+                top ->
                     {ok, [Found | Part1] ++ Part2};
-                <<"bottom">> ->
+                bottom ->
                     {ok, Part1 ++ Part2 ++ [Found]};
-                <<"before:", Before/binary>> ->
+                {before, Before} ->
                     case split_by_id(Before, Part1 ++ Part2) of
                         {error, Reason} ->
                             {error, Reason};
                         {ok, NPart1, [NFound | NPart2]} ->
                             {ok, NPart1 ++ [Found, NFound | NPart2]}
-                    end;
-                _ ->
-                    {error, {invalid_parameter, position}}
+                    end
             end
     end.
 
+-spec post_config_update(update_request, map() | list(), emqx_config:raw_config(), emqx_config:app_envs())
+    -> ok | {ok, map()} | {error, term()}.
 post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs) ->
     do_post_config_update(UpdateReq, check_config(to_list(NewConfig)), OldConfig, AppEnvs).
 
@@ -220,13 +230,7 @@ do_post_config_update({update_authenticator, ChainName, AuthenticatorID, _Config
     update_authenticator(ChainName, AuthenticatorID, NConfig);
 
 do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}, _NewConfig, _OldConfig, _AppEnvs) ->
-    NPosition = case Position of
-                    <<"top">> -> top;
-                    <<"bottom">> -> bottom;
-                    <<"before:", Before/binary>> ->
-                        {before, Before}
-                end,
-    move_authenticator(ChainName, AuthenticatorID, NPosition).
+    move_authenticator(ChainName, AuthenticatorID, Position).
 
 check_config(Config) ->
     #{authentication := CheckedConfig} = hocon_schema:check_plain(emqx_authentication,
