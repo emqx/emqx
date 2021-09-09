@@ -182,7 +182,6 @@ basic_config(#{
         replayq := ReplayQ,
         ssl := #{enable := EnableSsl} = Ssl}) ->
     #{
-        conn_type => mqtt,
         replayq => ReplayQ,
         %% connection opts
         server => Server,

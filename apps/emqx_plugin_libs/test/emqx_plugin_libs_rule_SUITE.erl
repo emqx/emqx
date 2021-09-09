@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_rule_utils_SUITE).
+-module(emqx_plugin_libs_rule_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).

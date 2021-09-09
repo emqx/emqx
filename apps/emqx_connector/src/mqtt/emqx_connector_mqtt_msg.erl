@@ -19,7 +19,7 @@
 -export([ to_binary/1
         , from_binary/1
         , make_pub_vars/2
-        , to_remote_msg/3
+        , to_remote_msg/2
         , to_broker_msg/2
         , estimate_size/1
         ]).
@@ -55,13 +55,13 @@ make_pub_vars(Mountpoint, #{payload := _, qos := _, retain := _, local_topic := 
 %% Shame that we have to know the callback module here
 %% would be great if we can get rid of #mqtt_msg{} record
 %% and use #message{} in all places.
--spec to_remote_msg(emqx_bridge_rpc | emqx_connector_mqtt_mod, msg(), variables())
+-spec to_remote_msg(msg(), variables())
         -> exp_msg().
-to_remote_msg(emqx_connector_mqtt_mod, #message{flags = Flags0} = Msg, Vars) ->
+to_remote_msg(#message{flags = Flags0} = Msg, Vars) ->
     Retain0 = maps:get(retain, Flags0, false),
     MapMsg = maps:put(retain, Retain0, emqx_message:to_map(Msg)),
-    to_remote_msg(emqx_connector_mqtt_mod, MapMsg, Vars);
-to_remote_msg(emqx_connector_mqtt_mod, MapMsg, #{topic := TopicToken, payload := PayloadToken,
+    to_remote_msg(MapMsg, Vars);
+to_remote_msg(MapMsg, #{topic := TopicToken, payload := PayloadToken,
         qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) when is_map(MapMsg) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = replace_vars_in_str(PayloadToken, MapMsg),
@@ -72,7 +72,7 @@ to_remote_msg(emqx_connector_mqtt_mod, MapMsg, #{topic := TopicToken, payload :=
               topic = topic(Mountpoint, Topic),
               props = #{},
               payload = Payload};
-to_remote_msg(_Module, #message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
+to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
     Msg#message{topic = topic(Mountpoint, Topic)}.
 
 %% published from remote node over a MQTT connection
