@@ -298,15 +298,15 @@ move_source_api() ->
     {"/authorization/sources/:type/move", Metadata, move_source}.
 
 sources(get, _) ->
-    Sources = lists:foldl(fun (#{enable := false} = Source, AccIn) ->
-                                  lists:append(AccIn, [Source#{annotations => #{status => unhealthy}}]);
-                              (#{type := file, path := Path}, AccIn) ->
+    Sources = lists:foldl(fun (#{type := file, enable := Enable, path := Path}, AccIn) ->
                                   {ok, Rules} = file:consult(Path),
                                   lists:append(AccIn, [#{type => file,
-                                                         enable => true,
+                                                         enable => Enable,
                                                          rules => [ iolist_to_binary(io_lib:format("~p.", [R])) || R <- Rules],
                                                          annotations => #{status => healthy}
                                                         }]);
+                              (#{enable := false} = Source, AccIn) ->
+                                  lists:append(AccIn, [Source#{annotations => #{status => unhealthy}}]);
                               (#{type := _Type, annotations := #{id := Id}} = Source, AccIn) ->
                                   NSource0 = case maps:get(server, Source, undefined) of
                                                  undefined -> Source;
@@ -367,15 +367,15 @@ sources(put, #{body := Body}) when is_list(Body) ->
 source(get, #{bindings := #{type := Type}}) ->
     case emqx_authz:lookup(Type) of
         {error, Reason} -> {404, #{messgae => atom_to_binary(Reason)}};
-        #{enable := false} = Source -> {200, Source#{annotations => #{status => unhealthy}}};
-        #{type := file, path := Path}->
+        #{type := file, enable := Enable, path := Path}->
             {ok, Rules} = file:consult(Path),
             {200, #{type => file,
-                    enable => true,
+                    enable => Enable,
                     rules => [ iolist_to_binary(io_lib:format("~p.", [R])) || R <- Rules],
                     annotations => #{status => healthy}
                    }
             };
+        #{enable := false} = Source -> {200, Source#{annotations => #{status => unhealthy}}};
         #{annotations := #{id := Id}} = Source ->
             NSource0 = case maps:get(server, Source, undefined) of
                            undefined -> Source;
@@ -486,7 +486,7 @@ write_cert(Source) -> Source.
 write_file(Filename, Bytes) ->
     ok = filelib:ensure_dir(Filename),
     case file:write_file(Filename, Bytes) of
-       ok -> {ok, Filename};
+       ok -> {ok, iolist_to_binary(Filename)};
        {error, Reason} ->
            ?LOG(error, "Write File ~p Error: ~p", [Filename, Reason]),
            error(Reason)
