@@ -155,12 +155,12 @@ handle_puback(#{packet_id := PktId, reason_code := RC}, Parent)
        RC =:= ?RC_NO_MATCHING_SUBSCRIBERS ->
     Parent ! {batch_ack, PktId}, ok;
 handle_puback(#{packet_id := PktId, reason_code := RC}, _Parent) ->
-    ?LOG(warning, "Publish ~p to remote node falied, reason_code: ~p", [PktId, RC]).
+    ?LOG(warning, "publish ~p to remote node falied, reason_code: ~p", [PktId, RC]).
 
 handle_publish(Msg, undefined) ->
-    ?LOG(error, "Cannot publish to local broker as 'bridge.mqtt.<name>.in' not configured, msg: ~p", [Msg]);
+    ?LOG(error, "cannot publish to local broker as 'bridge.mqtt.<name>.in' not configured, msg: ~p", [Msg]);
 handle_publish(Msg, Vars) ->
-    ?LOG(debug, "Publish to local broker, msg: ~p, vars: ~p", [Msg, Vars]),
+    ?LOG(debug, "publish to local broker, msg: ~p, vars: ~p", [Msg, Vars]),
     emqx_broker:publish(emqx_bridge_msg:to_broker_msg(Msg, Vars)).
 
 handle_disconnected(Reason, Parent) ->
@@ -179,13 +179,5 @@ subscribe_remote_topics(ClientPid, #{subscribe_remote_topic := FromTopic, subscr
         Error -> throw(Error)
     end.
 
-process_config(#{name := Name, clientid_prefix := Prefix} = Config) ->
-    Conf0 = maps:without([conn_type, address, receive_mountpoint, subscriptions, name], Config),
-    Conf0#{clientid => iolist_to_binary([str(Prefix), str(Name)])}.
-
-str(A) when is_atom(A) ->
-    atom_to_list(A);
-str(B) when is_binary(B) ->
-    binary_to_list(B);
-str(S) when is_list(S) ->
-    S.
+process_config(Config) ->
+    maps:without([conn_type, address, receive_mountpoint, subscriptions, name], Config).

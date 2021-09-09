@@ -40,7 +40,7 @@ fields("config") ->
     , {reconnect_interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "30s")}
     , {proto_ver, fun proto_ver/1}
     , {bridge_mode, emqx_schema:t(boolean(), undefined, true)}
-    , {clientid_prefix, emqx_schema:t(string())}
+    , {clientid_prefix, emqx_schema:t(string(), undefined, "")}
     , {username, emqx_schema:t(string())}
     , {password, emqx_schema:t(string())}
     , {clean_start, emqx_schema:t(boolean(), undefined, true)}
@@ -137,14 +137,18 @@ check_channel_id_dup(Confs) ->
     Confs.
 
 %% this is an `in` bridge
-create_channel(#{subscribe_remote_topic := _, id := BridgeId} = InConf, NamePrefix, BasicConf) ->
+create_channel(#{subscribe_remote_topic := _, id := BridgeId} = InConf, NamePrefix,
+        #{clientid_prefix := ClientPrefix} = BasicConf) ->
     logger:info("creating 'in' channel for: ~p", [BridgeId]),
     create_sub_bridge(BasicConf#{name => bridge_name(NamePrefix, BridgeId),
+        clientid => clientid(ClientPrefix, BridgeId),
         subscriptions => InConf, forwards => undefined});
 %% this is an `out` bridge
-create_channel(#{subscribe_local_topic := _, id := BridgeId} = OutConf, NamePrefix, BasicConf) ->
+create_channel(#{subscribe_local_topic := _, id := BridgeId} = OutConf, NamePrefix,
+        #{clientid_prefix := ClientPrefix} = BasicConf) ->
     logger:info("creating 'out' channel for: ~p", [BridgeId]),
     create_sub_bridge(BasicConf#{name => bridge_name(NamePrefix, BridgeId),
+        clientid => clientid(ClientPrefix, BridgeId),
         subscriptions => undefined, forwards => OutConf}).
 
 create_sub_bridge(#{name := Name} = Conf) ->
@@ -199,6 +203,9 @@ basic_config(#{
 
 bridge_name(Prefix, Id) ->
     list_to_atom(str(Prefix) ++ ":" ++ str(Id)).
+
+clientid(Prefix, Id) ->
+    list_to_binary(str(Prefix) ++ str(Id)).
 
 str(A) when is_atom(A) ->
     atom_to_list(A);
