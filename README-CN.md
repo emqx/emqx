@@ -90,7 +90,7 @@ make eunit ct
 ### 执行部分应用的 common tests
 
 ```bash
-make apps/emqx_bridge-ct
+make apps/emqx_retainer-ct
 ```
 
 ### 静态分析(Dialyzer)
