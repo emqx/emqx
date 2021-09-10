@@ -206,7 +206,7 @@ t_update_config(_) ->
     ?assertMatch({ok, _}, update_config([authentication], {update_authenticator, Global, ID1, #{}})),
     ?assertMatch({ok, #{id := ID1, state := #{mark := 2}}}, ?AUTHN:lookup_authenticator(Global, ID1)),
 
-    ?assertMatch({ok, _}, update_config([authentication], {move_authenticator, Global, ID2, <<"top">>})),
+    ?assertMatch({ok, _}, update_config([authentication], {move_authenticator, Global, ID2, top})),
     ?assertMatch({ok, [#{id := ID2}, #{id := ID1}]}, ?AUTHN:list_authenticators(Global)),
 
     ?assertMatch({ok, _}, update_config([authentication], {delete_authenticator, Global, ID1})),
@@ -223,7 +223,7 @@ t_update_config(_) ->
     ?assertMatch({ok, _}, update_config(ConfKeyPath, {update_authenticator, ListenerID, ID1, #{}})),
     ?assertMatch({ok, #{id := ID1, state := #{mark := 2}}}, ?AUTHN:lookup_authenticator(ListenerID, ID1)),
 
-    ?assertMatch({ok, _}, update_config(ConfKeyPath, {move_authenticator, ListenerID, ID2, <<"top">>})),
+    ?assertMatch({ok, _}, update_config(ConfKeyPath, {move_authenticator, ListenerID, ID2, top})),
     ?assertMatch({ok, [#{id := ID2}, #{id := ID1}]}, ?AUTHN:list_authenticators(ListenerID)),
 
     ?assertMatch({ok, _}, update_config(ConfKeyPath, {delete_authenticator, ListenerID, ID1})),

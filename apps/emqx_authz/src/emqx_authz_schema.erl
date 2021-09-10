@@ -66,7 +66,7 @@ fields(http_get) ->
                               },
                   converter => fun (Headers0) ->
                                     Headers1 = maps:fold(fun(K0, V, AccIn) ->
-                                                           K1 = iolist_to_binary(string:to_lower(binary_to_list(K0))),
+                                                           K1 = iolist_to_binary(string:to_lower(to_list(K0))),
                                                            maps:put(K1, V, AccIn)
                                                         end, #{}, Headers0),
                                     maps:merge(#{ <<"accept">> => <<"application/json">>
@@ -177,3 +177,8 @@ connector_fields(DB, Fields) ->
     , {enable, #{type => boolean(),
                  default => true}}
     ] ++ Mod:fields(Fields).
+
+to_list(A) when is_atom(A) ->
+    atom_to_list(A);
+to_list(B) when is_binary(B) ->
+    binary_to_list(B).
