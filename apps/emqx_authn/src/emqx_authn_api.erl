@@ -1636,6 +1636,7 @@ definitions() ->
             },
             salt_rounds => #{
                 type => integer,
+                description => <<"Only valid when the name field is set to bcrypt">>,
                 default => 10
             }
         }

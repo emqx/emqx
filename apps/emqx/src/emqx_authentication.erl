@@ -84,7 +84,18 @@
 -type update_request() :: {create_authenticator, chain_name(), map()}
                         | {delete_authenticator, chain_name(), authenticator_id()}
                         | {update_authenticator, chain_name(), authenticator_id(), map()}
-                        | {move_authenitcator, chain_name(), authenticator_id(), position()}.
+                        | {move_authenticator, chain_name(), authenticator_id(), position()}.
+-type authn_type() :: atom() | {atom(), atom()}.
+-type provider() :: module().
+
+-type chain() :: #{name := chain_name(),
+                   authenticators := [authenticator()]}.
+
+-type authenticator() :: #{id := authenticator_id(),
+                           provider := provider(),
+                           enable := boolean(),
+                           state := map()}.
+
 
 -type config() :: #{atom() => term()}.
 -type state() :: #{atom() => term()}.
@@ -136,7 +147,12 @@
 -callback update_user(UserID, UserInfo, State)
     -> {ok, User}
      | {error, term()}
-    when UserID::binary, UserInfo::map(), State::state(), User::user_info().
+    when UserID::binary(), UserInfo::map(), State::state(), User::user_info().
+
+-callback lookup_user(UserID, UserInfo, State)
+    -> {ok, User}
+     | {error, term()}
+    when UserID::binary(), UserInfo::map(), State::state(), User::user_info().
 
 -callback list_users(State)
     -> {ok, Users}
@@ -146,6 +162,7 @@
                     , add_user/2
                     , delete_user/2
                     , update_user/3
+                    , lookup_user/3
                     , list_users/1
                     ]).
 
@@ -273,6 +290,7 @@ do_authenticate([#authenticator{provider = Provider, state = State} | More], Cre
 %% APIs
 %%------------------------------------------------------------------------------
 
+-spec initialize_authentication(chain_name(), [#{binary() => term()}]) -> ok.
 initialize_authentication(_, []) ->
     ok;
 initialize_authentication(ChainName, AuthenticatorsConfig) ->
@@ -287,43 +305,56 @@ initialize_authentication(ChainName, AuthenticatorsConfig) ->
         end
     end, CheckedConfig).
 
+-spec start_link() -> {ok, pid()} | ignore | {error, term()}.
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+-spec stop() -> ok.
 stop() ->
     gen_server:stop(?MODULE).
 
+-spec get_refs() -> {ok, Refs} when Refs :: [{authn_type(), module()}].
 get_refs() ->
     gen_server:call(?MODULE, get_refs).
 
+-spec add_provider(authn_type(), module()) -> ok.
 add_provider(AuthNType, Provider) ->
     gen_server:call(?MODULE, {add_provider, AuthNType, Provider}).
 
+-spec remove_provider(authn_type()) -> ok.
 remove_provider(AuthNType) ->
     gen_server:call(?MODULE, {remove_provider, AuthNType}).
 
+-spec create_chain(chain_name()) -> {ok, chain()} | {error, term()}.
 create_chain(Name) ->
     gen_server:call(?MODULE, {create_chain, Name}).
 
+-spec delete_chain(chain_name()) -> ok | {error, term()}.
 delete_chain(Name) ->
     gen_server:call(?MODULE, {delete_chain, Name}).
 
+-spec lookup_chain(chain_name()) -> {ok, chain()} | {error, term()}.
 lookup_chain(Name) ->
     gen_server:call(?MODULE, {lookup_chain, Name}).
 
+-spec list_chains() -> {ok, [chain()]}.
 list_chains() ->
     Chains = ets:tab2list(?CHAINS_TAB),
     {ok, [serialize_chain(Chain) || Chain <- Chains]}.
 
+-spec create_authenticator(chain_name(), config()) -> {ok, authenticator()} | {error, term()}.
 create_authenticator(ChainName, Config) ->
     gen_server:call(?MODULE, {create_authenticator, ChainName, Config}).
 
+-spec delete_authenticator(chain_name(), authenticator_id()) -> ok | {error, term()}.
 delete_authenticator(ChainName, AuthenticatorID) ->
     gen_server:call(?MODULE, {delete_authenticator, ChainName, AuthenticatorID}).
 
+-spec update_authenticator(chain_name(), authenticator_id(), config()) -> {ok, authenticator()} | {error, term()}.
 update_authenticator(ChainName, AuthenticatorID, Config) ->
     gen_server:call(?MODULE, {update_authenticator, ChainName, AuthenticatorID, Config}).
 
+-spec lookup_authenticator(chain_name(), authenticator_id()) -> {ok, authenticator()} | {error, term()}.
 lookup_authenticator(ChainName, AuthenticatorID) ->
     case ets:lookup(?CHAINS_TAB, ChainName) of
         [] ->
@@ -337,6 +368,7 @@ lookup_authenticator(ChainName, AuthenticatorID) ->
             end
     end.
 
+-spec list_authenticators(chain_name()) -> {ok, [authenticator()]} | {error, term()}.
 list_authenticators(ChainName) ->
     case ets:lookup(?CHAINS_TAB, ChainName) of
         [] ->
@@ -345,28 +377,36 @@ list_authenticators(ChainName) ->
             {ok, serialize_authenticators(Authenticators)}
     end.
 
+-spec move_authenticator(chain_name(), authenticator_id(), position()) -> ok | {error, term()}.
 move_authenticator(ChainName, AuthenticatorID, Position) ->
     gen_server:call(?MODULE, {move_authenticator, ChainName, AuthenticatorID, Position}).
 
+-spec import_users(chain_name(), authenticator_id(), binary()) -> ok | {error, term()}.
 import_users(ChainName, AuthenticatorID, Filename) ->
     gen_server:call(?MODULE, {import_users, ChainName, AuthenticatorID, Filename}).
 
+-spec add_user(chain_name(), authenticator_id(), user_info()) -> {ok, user_info()} | {error, term()}.
 add_user(ChainName, AuthenticatorID, UserInfo) ->
     gen_server:call(?MODULE, {add_user, ChainName, AuthenticatorID, UserInfo}).
 
+-spec delete_user(chain_name(), authenticator_id(), binary()) -> ok | {error, term()}.
 delete_user(ChainName, AuthenticatorID, UserID) ->
     gen_server:call(?MODULE, {delete_user, ChainName, AuthenticatorID, UserID}).
 
+-spec update_user(chain_name(), authenticator_id(), binary(), map()) -> {ok, user_info()} | {error, term()}.
 update_user(ChainName, AuthenticatorID, UserID, NewUserInfo) ->
     gen_server:call(?MODULE, {update_user, ChainName, AuthenticatorID, UserID, NewUserInfo}).
 
+-spec lookup_user(chain_name(), authenticator_id(), binary()) -> {ok, user_info()} | {error, term()}.
 lookup_user(ChainName, AuthenticatorID, UserID) ->
     gen_server:call(?MODULE, {lookup_user, ChainName, AuthenticatorID, UserID}).
 
 %% TODO: Support pagination
+-spec list_users(chain_name(), authenticator_id()) -> {ok, [user_info()]} | {error, term()}.
 list_users(ChainName, AuthenticatorID) ->
     gen_server:call(?MODULE, {list_users, ChainName, AuthenticatorID}).
 
+-spec generate_id(config()) -> authenticator_id().
 generate_id(#{mechanism := Mechanism0, backend := Backend0}) ->
     Mechanism = atom_to_binary(Mechanism0),
     Backend = atom_to_binary(Backend0),
