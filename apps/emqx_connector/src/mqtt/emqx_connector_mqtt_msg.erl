@@ -55,7 +55,7 @@ make_pub_vars(Mountpoint, #{payload := _, qos := _, retain := _, local_topic := 
 %% Shame that we have to know the callback module here
 %% would be great if we can get rid of #mqtt_msg{} record
 %% and use #message{} in all places.
--spec to_remote_msg(msg(), variables())
+-spec to_remote_msg(msg() | map(), variables())
         -> exp_msg().
 to_remote_msg(#message{flags = Flags0} = Msg, Vars) ->
     Retain0 = maps:get(retain, Flags0, false),
