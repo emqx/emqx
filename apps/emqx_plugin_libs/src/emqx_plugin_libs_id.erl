@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_rule_id).
+-module(emqx_plugin_libs_id).
 
 -export([gen/0, gen/1]).
 

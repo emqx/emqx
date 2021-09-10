@@ -457,21 +457,21 @@ write_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
     CertPath = filename:join([emqx:get_config([node, data_dir]), "certs"]),
     CaCert = case maps:is_key(<<"cacertfile">>, SSL) of
                  true ->
-                     {ok, CaCertFile} = write_file(filename:join([CertPath, "cacert-" ++ emqx_rule_id:gen() ++".pem"]),
+                     {ok, CaCertFile} = write_file(filename:join([CertPath, "cacert-" ++ emqx_plugin_libs_id:gen() ++".pem"]),
                                                  maps:get(<<"cacertfile">>, SSL)),
                      CaCertFile;
                  false -> ""
              end,
     Cert =   case maps:is_key(<<"certfile">>, SSL) of
                  true ->
-                     {ok, CertFile} = write_file(filename:join([CertPath, "cert-" ++ emqx_rule_id:gen() ++".pem"]),
+                     {ok, CertFile} = write_file(filename:join([CertPath, "cert-" ++ emqx_plugin_libs_id:gen() ++".pem"]),
                                                  maps:get(<<"certfile">>, SSL)),
                      CertFile;
                  false -> ""
              end,
     Key =    case maps:is_key(<<"keyfile">>, SSL) of
                  true ->
-                     {ok, KeyFile}  = write_file(filename:join([CertPath, "key-" ++ emqx_rule_id:gen() ++".pem"]),
+                     {ok, KeyFile}  = write_file(filename:join([CertPath, "key-" ++ emqx_plugin_libs_id:gen() ++".pem"]),
                                                  maps:get(<<"keyfile">>, SSL)),
                      KeyFile;
                  false -> ""

@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_rule_id_SUITE).
+-module(emqx_plugin_libs_id_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -24,5 +24,5 @@
 all() -> emqx_ct:all(?MODULE).
 
 t_gen(_) ->
-    ?assertEqual(10, length(emqx_rule_id:gen(10))),
-    ?assertEqual(20, length(emqx_rule_id:gen(20))).
+    ?assertEqual(10, length(emqx_plugin_libs_id:gen(10))),
+    ?assertEqual(20, length(emqx_plugin_libs_id:gen(20))).

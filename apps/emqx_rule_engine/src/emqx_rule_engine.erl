@@ -507,7 +507,7 @@ rule_id() ->
     gen_id("rule:", fun emqx_rule_registry:get_rule/1).
 
 gen_id(Prefix, TestFun) ->
-    Id = iolist_to_binary([Prefix, emqx_rule_id:gen()]),
+    Id = iolist_to_binary([Prefix, emqx_plugin_libs_id:gen()]),
     case TestFun(Id) of
         not_found -> Id;
         _Res -> gen_id(Prefix, TestFun)

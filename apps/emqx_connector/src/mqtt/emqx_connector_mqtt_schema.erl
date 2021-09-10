@@ -31,7 +31,6 @@ fields("config") ->
     , {reconnect_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
     , {proto_ver, fun proto_ver/1}
     , {bridge_mode, hoconsc:mk(boolean(), #{default => true})}
-    , {clientid_prefix, hoconsc:mk(string(), #{default => ""})}
     , {username, hoconsc:mk(string())}
     , {password, hoconsc:mk(string())}
     , {clean_start, hoconsc:mk(boolean(), #{default => true})}
@@ -39,17 +38,17 @@ fields("config") ->
     , {retry_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
     , {max_inflight, hoconsc:mk(integer(), #{default => 32})}
     , {replayq, hoconsc:mk(hoconsc:ref(?MODULE, "replayq"))}
-    , {in, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "in")), #{default => []})}
-    , {out, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "out")), #{default => []})}
+    , {message_in, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "message_in")), #{default => []})}
+    , {message_out, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "message_out")), #{default => []})}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 
-fields("in") ->
+fields("message_in") ->
     [ {subscribe_remote_topic, #{type => binary(), nullable => false}}
     , {local_topic, hoconsc:mk(binary(), #{default => <<"${topic}">>})}
     , {subscribe_qos, hoconsc:mk(qos(), #{default => 1})}
     ] ++ common_inout_confs();
 
-fields("out") ->
+fields("message_out") ->
     [ {subscribe_local_topic, #{type => binary(), nullable => false}}
     , {remote_topic, hoconsc:mk(binary(), #{default => <<"${topic}">>})}
     ] ++ common_inout_confs();

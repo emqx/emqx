@@ -26,7 +26,7 @@ It is intended to be used by the emqx_bridges and all other resources that need 
 
 # The Demo
 
-The data_bridge for mysql
+The bridge for mysql
 
 ---
 ## The callback module 'emqx_mysql_connector'
