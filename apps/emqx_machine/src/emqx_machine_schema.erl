@@ -42,8 +42,7 @@
 %% The list can not be made a dynamic read at run-time as it is used
 %% by nodetool to generate app.<time>.config before EMQ X is started
 -define(MERGED_CONFIGS,
-        [ emqx_schema
-        , emqx_bridge_schema
+        [ emqx_bridge_schema
         , emqx_retainer_schema
         , emqx_statsd_schema
         , emqx_authz_schema
@@ -59,13 +58,42 @@
 namespace() -> undefined.
 
 roots() ->
-    %% This is a temp workaround to define part of authorization config
-    %% in emqx_schema and part of it in emqx_authz_schema but then
-    %% merged here in this module
-    %% The proper fix should be to make connection (channel, session) state
-    %% extendable by e.g. allow hooks be stateful.
-    ["cluster", "node", "rpc", "log", "authorization"] ++
-    lists:keydelete("authorization", 1, lists:flatmap(fun roots/1, ?MERGED_CONFIGS)).
+    %% authorization configs are merged in THIS schema's "authorization" fields
+    lists:keydelete("authorization", 1, emqx_schema:roots(high)) ++
+    [ {"node",
+       sc(hoconsc:ref("node"),
+          #{ desc => "Node name, cookie, config & data directories "
+                     "and the Eralng virtual machine (beam) boot parameters."
+           })}
+    , {"cluster",
+       sc(hoconsc:ref("cluster"),
+          #{ desc => "EMQ X nodes can form a cluster to scale up the total capacity.<br>"
+                     "Here holds the configs to instruct how individual nodes "
+                     "can discover each other, also the database replication "
+                     "role of this node etc."
+           })}
+    , {"log",
+       sc(hoconsc:ref("log"),
+          #{ desc => "Configure logging backends (to console or to file), "
+                     "and logging level for each logger backend."
+           })}
+    , {"rpc",
+       sc(hoconsc:ref("rpc"),
+          #{ desc => "EMQ X uses a library called <code>gen_rpc</code> for "
+                     "inter-broker RPCs.<br>Most of the time the default config "
+                     "should work, but in case you need to do performance "
+                     "fine-turning or experiment a bit, this is where to look."
+           })}
+    , {"authorization",
+       sc(hoconsc:ref("authorization"),
+          #{ desc => "In EMQ X, MQTT client access control can be just a few "
+                     "lines of text based rules, or delegated to an external "
+                     "HTTP API, or base externa database query results."
+           })}
+    ] ++
+    emqx_schema:roots(medium) ++
+    emqx_schema:roots(low) ++
+    lists:flatmap(fun roots/1, ?MERGED_CONFIGS).
 
 fields("cluster") ->
     [ {"name",
@@ -381,7 +409,7 @@ fields("rpc") ->
 fields("log") ->
     [ {"console_handler", ref("console_handler")}
     , {"file_handlers",
-       sc(ref("file_handlers"),
+       sc(map(name, ref("log_file_handler")),
           #{})}
     , {"error_logger",
        sc(atom(),
@@ -395,12 +423,6 @@ fields("console_handler") ->
           #{ default => false
            })}
     ] ++ log_handler_common_confs();
-
-fields("file_handlers") ->
-    [ {"$name",
-       sc(ref("log_file_handler"),
-          #{})}
-    ];
 
 fields("log_file_handler") ->
     [ {"file",
@@ -701,6 +723,8 @@ keys(Parent, Conf) ->
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 
+map(Name, Type) -> hoconsc:map(Name, Type).
+
 ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 options(static, Conf) ->
@@ -742,5 +766,4 @@ to_atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8).
 
 roots(Module) ->
-    lists:map(fun({_BinName, Root}) -> Root end,
-              maps:to_list(hocon_schema:roots(Module))).
+    lists:map(fun({_BinName, Root}) -> Root end, hocon_schema:roots(Module)).
