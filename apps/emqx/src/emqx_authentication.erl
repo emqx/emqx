@@ -226,7 +226,7 @@ do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}
             end
     end.
 
--spec post_config_update(update_request, map() | list(), emqx_config:raw_config(), emqx_config:app_envs())
+-spec post_config_update(update_request(), map() | list(), emqx_config:raw_config(), emqx_config:app_envs())
     -> ok | {ok, map()} | {error, term()}.
 post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs) ->
     do_post_config_update(UpdateReq, check_config(to_list(NewConfig)), OldConfig, AppEnvs).

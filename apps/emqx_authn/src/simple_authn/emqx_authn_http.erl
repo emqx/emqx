@@ -214,7 +214,7 @@ default_headers_no_content_type() ->
 
 transform_header_name(Headers) ->
     maps:fold(fun(K0, V, Acc) ->
-                  K = list_to_binary(string:to_lower(binary_to_list(K0))),
+                  K = list_to_binary(string:to_lower(to_list(K0))),
                   maps:put(K, V, Acc)
               end, #{}, Headers).
 
@@ -301,3 +301,8 @@ parse_body(<<"application/x-www-form-urlencoded">>, Body) ->
     {ok, maps:from_list(cow_qs:parse_qs(Body))};
 parse_body(ContentType, _) ->
     {error, {unsupported_content_type, ContentType}}.
+
+to_list(A) when is_atom(A) ->
+    atom_to_list(A);
+to_list(B) when is_binary(B) ->
+    binary_to_list(B).
