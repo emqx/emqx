@@ -92,10 +92,7 @@
                   }).
 -define(SOURCE6, #{<<"type">> => <<"file">>,
                    <<"enable">> => true,
-                   <<"rules">> =>
-                        [<<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.">>,
-                         <<"{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
-                        ]
+                   <<"rules">> => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
                   }).
 
 all() ->
