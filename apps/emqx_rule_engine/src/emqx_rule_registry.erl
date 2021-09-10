@@ -223,7 +223,7 @@ remove_rules(Rules) ->
 
 insert_rules([]) -> ok;
 insert_rules(Rules) ->
-    _ =  emqx_rule_utils:cluster_call(?MODULE, load_hooks_for_rule, [Rules]),
+    _ =  emqx_plugin_libs_rule:cluster_call(?MODULE, load_hooks_for_rule, [Rules]),
     [mnesia:write(?RULE_TAB, Rule, write) ||Rule <- Rules].
 
 %% @private
@@ -241,7 +241,7 @@ delete_rules(Rules = [Rule|_]) when is_record(Rule, rule) ->
     delete_rules_unload_hooks(Rules).
 
 delete_rules_unload_hooks(Rules) ->
-    _ =  emqx_rule_utils:cluster_call(?MODULE, unload_hooks_for_rule, [Rules]),
+    _ =  emqx_plugin_libs_rule:cluster_call(?MODULE, unload_hooks_for_rule, [Rules]),
     [mnesia:delete_object(?RULE_TAB, Rule, write) ||Rule <- Rules].
 
 load_hooks_for_rule(Rules) ->
