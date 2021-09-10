@@ -7,13 +7,20 @@ defmodule EmqxReleaseHelper.Applications do
     overlay %{release_type: release_type} do
       copy "etc/certs", "etc/certs"
 
-      template "etc/emqx.conf", "etc/emqx.conf"
       template "etc/ssl_dist.conf", "etc/ssl_dist.conf"
       template "etc/emqx_#{release_type}/vm.args", "etc/vm.args"
     end
   end
 
   application :emqx_machine do
+    start_type :permanent
+
+		overlay do
+			template "etc/emqx.conf.all", "etc/emqx.conf"
+		end
+  end
+
+  application :emqx_gateway do
     start_type :permanent
   end
 
