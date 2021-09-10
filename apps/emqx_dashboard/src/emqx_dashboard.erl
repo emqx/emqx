@@ -20,9 +20,7 @@
 
 
 -export([ start_listeners/0
-        , stop_listeners/0
-        , start_listener/1
-        , stop_listener/1]).
+        , stop_listeners/0]).
 
 %% Authorization
 -export([authorize_appid/1]).
@@ -36,15 +34,8 @@
 %%--------------------------------------------------------------------
 
 start_listeners() ->
-    lists:foreach(fun start_listener/1, listeners()).
-
-stop_listeners() ->
-    lists:foreach(fun stop_listener/1, listeners()).
-
-start_listener({Proto, Port, Options}) ->
     {ok, _} = application:ensure_all_started(minirest),
     Authorization = {?MODULE, authorize_appid},
-    RanchOptions = ranch_opts(Port, Options),
     GlobalSpec = #{
         openapi => "3.0.0",
         info => #{title => "EMQ X Dashboard API", version => "5.0.0"},
@@ -56,19 +47,33 @@ start_listener({Proto, Port, Options}) ->
                     type => apiKey,
                     name => "authorization",
                     in => header}}}},
-    Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
-                {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}}],
-    Minirest = #{
-        protocol => Proto,
+    Dispatch = [
+        {"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
+        {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
+        {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
+    ],
+    BaseMinirest = #{
         base_path => ?BASE_PATH,
         modules => minirest_api:find_api_modules(apps()),
         authorization => Authorization,
         security => [#{application => []}],
         swagger_global_spec => GlobalSpec,
-        dispatch => Dispatch},
-    MinirestOptions = maps:merge(Minirest, RanchOptions),
-    {ok, _} = minirest:start(listener_name(Proto), MinirestOptions),
-    ?ULOG("Start ~p listener on ~p successfully.~n", [listener_name(Proto), Port]).
+        dispatch => Dispatch
+    },
+    [begin
+        Minirest = maps:put(protocol, Protocol, BaseMinirest),
+        {ok, _} = minirest:start(Name, RanchOptions, Minirest),
+        ?ULOG("Start listener ~s on ~p successfully.~n", [Name, Port])
+    end || {Name, Protocol, Port, RanchOptions} <- listeners()].
+
+stop_listeners() ->
+    [begin
+        ok = minirest:stop(Name),
+        ?ULOG("Stop listener ~s on ~p successfully.~n", [Name, Port])
+    end || {Name, _, Port, _} <- listeners()].
+
+%%--------------------------------------------------------------------
+%% internal
 
 apps() ->
     [App || {App, _, _} <- application:loaded_applications(),
@@ -77,52 +82,79 @@ apps() ->
             _ -> false
         end].
 
-ranch_opts(Port, Options0) ->
-    Options = lists:foldl(
-                  fun
-                      ({K, _V}, Acc) when K =:= max_connections orelse K =:= num_acceptors -> Acc;
-                      ({inet6, true}, Acc) -> [inet6 | Acc];
-                      ({inet6, false}, Acc) -> Acc;
-                      ({ipv6_v6only, true}, Acc) -> [{ipv6_v6only, true} | Acc];
-                      ({ipv6_v6only, false}, Acc) -> Acc;
-                      ({K, V}, Acc)->
-                          [{K, V} | Acc]
-                  end, [], Options0),
-    maps:from_list([{port, Port} | Options]).
-
-stop_listener({Proto, Port, _}) ->
-    ?ULOG("Stop dashboard listener on ~s successfully.~n", [format(Port)]),
-    minirest:stop(listener_name(Proto)).
-
 listeners() ->
-    [{Protocol, Port, maps:to_list(maps:without([protocol, port], Map))}
-        || Map = #{protocol := Protocol,port := Port}
-        <- emqx_config:get([emqx_dashboard, listeners], [])].
+    [begin
+        Protocol = maps:get(protocol, ListenerOptions, http),
+        Port = maps:get(port, ListenerOptions, 18083),
+        Name = listener_name(Protocol, Port),
+        RanchOptions = ranch_opts(maps:without([protocol], ListenerOptions)),
+        {Name, Protocol, Port, RanchOptions}
+    end || ListenerOptions <- emqx_config:get([emqx_dashboard, listeners], [])].
 
-listener_name(Proto) ->
-    list_to_atom(atom_to_list(Proto) ++ ":dashboard").
+ranch_opts(RanchOptions) ->
+    Keys = [ {ack_timeout, handshake_timeout}
+            , connection_type
+            , max_connections
+            , num_acceptors
+            , shutdown
+            , socket],
+    {S, R} = lists:foldl(fun key_take/2, {RanchOptions, #{}}, Keys),
+    R#{socket_opts => maps:fold(fun key_only/3, [], S)}.
+
+
+key_take({K, K1}, {All, R})  ->
+    case maps:get(K, All, undefined) of
+        undefined ->
+            {All, R};
+        V ->
+            {maps:remove(K, All), R#{K1 => V}}
+    end;
+key_take(K, {All, R})  ->
+    case maps:get(K, All, undefined) of
+        undefined ->
+            {All, R};
+        V ->
+            {maps:remove(K, All), R#{K => V}}
+    end.
+
+key_only(K , true , S)  -> [K | S];
+key_only(_K, false, S)  -> S;
+key_only(K , V    , S)  -> [{K, V} | S].
+
+listener_name(Protocol, Port) ->
+    Name = "dashboard:" ++ atom_to_list(Protocol) ++ ":" ++ integer_to_list(Port),
+    list_to_atom(Name).
 
 authorize_appid(Req) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {basic, Username, Password} ->
-            case emqx_dashboard_admin:check(iolist_to_binary(Username),
-                                            iolist_to_binary(Password)) of
+            case emqx_dashboard_admin:check(Username, Password) of
                 ok ->
                     ok;
                 {error, _} ->
                     {401, #{<<"WWW-Authenticate">> =>
-                              <<"Basic Realm=\"minirest-server\"">>},
-                            <<"UNAUTHORIZED">>}
+                                <<"Basic Realm=\"minirest-server\"">>},
+                          #{code => <<"ERROR_USERNAME_OR_PWD">>,
+                            message => <<"Check your username and password">>}}
+            end;
+        {bearer, Token} ->
+            case emqx_dashboard_admin:verify_token(Token) of
+                ok ->
+                    ok;
+                {error, token_timeout} ->
+                    {401, #{<<"WWW-Authenticate">> =>
+                            <<"Bearer Realm=\"minirest-server\"">>},
+                        #{code => <<"TOKEN_TIME_OUT">>,
+                          message => <<"POST '/login', get your new token">>}};
+                {error, not_found} ->
+                    {401, #{<<"WWW-Authenticate">> =>
+                        <<"Bearer Realm=\"minirest-server\"">>},
+                        #{code => <<"BAD_TOKEN">>,
+                          message => <<"POST '/login'">>}}
             end;
         _ ->
             {401, #{<<"WWW-Authenticate">> =>
-                      <<"Basic Realm=\"minirest-server\"">>},
-                    <<"UNAUTHORIZED">>}
+                        <<"Basic Realm=\"minirest-server\"">>},
+                  #{code => <<"ERROR_USERNAME_OR_PWD">>,
+                    message => <<"Check your username and password">>}}
     end.
-
-format(Port) when is_integer(Port) ->
-    io_lib:format("0.0.0.0:~w", [Port]);
-format({Addr, Port}) when is_list(Addr) ->
-    io_lib:format("~s:~w", [Addr, Port]);
-format({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).

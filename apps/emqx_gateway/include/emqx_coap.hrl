@@ -22,13 +22,6 @@
 -define(DEFAULT_MAX_AGE, 60).
 -define(MAXIMUM_MAX_AGE, 4294967295).
 
--define(EMPTY_RESULT, #{}).
--define(TRANSFER_RESULT(Keys, From, Value, R1),
-        begin
-            R2 = maps:with(Keys, R1),
-            R2#{From => Value}
-        end).
-
 -type coap_message_id() :: 1 .. ?MAX_MESSAGE_ID.
 -type message_type() :: con | non | ack | reset.
 -type max_age() :: 1 .. ?MAXIMUM_MAX_AGE.
@@ -61,7 +54,7 @@
                             , uri_path => list(binary())
                             , content_format => 0 .. 65535
                             , max_age => non_neg_integer()
-                            , uri_query => list(binary())
+                            , uri_query => list(binary()) | map()
                             , 'accept' => 0 .. 65535
                             , location_query => list(binary())
                             , proxy_uri => binary()
@@ -80,7 +73,4 @@
                       , options = #{}
                       , payload = <<>>}).
 
--record(coap_content, {etag, max_age = ?DEFAULT_MAX_AGE, format, location_path = [], payload = <<>>}).
-
 -type emqx_coap_message() :: #coap_message{}.
--type coap_content() :: #coap_content{}.

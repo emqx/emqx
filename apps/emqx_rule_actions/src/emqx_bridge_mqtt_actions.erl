@@ -22,7 +22,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_rule_engine/include/rule_actions.hrl").
 
--import(emqx_rule_utils, [str/1]).
+-import(emqx_plugin_libs_rule, [str/1]).
 
 -export([ on_resource_create/2
         , on_get_resource_status/2
@@ -411,7 +411,7 @@ test_resource_status(PoolName) ->
     IsConnected = fun(Worker) ->
                           case ecpool_worker:client(Worker) of
                               {ok, Bridge} ->
-                                  try emqx_bridge_worker:status(Bridge) of
+                                  try emqx_connector_mqtt_worker:status(Bridge) of
                                       connected -> true;
                                       _ -> false
                                   catch _Error:_Reason ->
@@ -443,10 +443,10 @@ on_action_create_data_to_mqtt_broker(ActId, Opts = #{<<"pool">> := PoolName,
                                                      <<"forward_topic">> := ForwardTopic,
                                                      <<"payload_tmpl">> := PayloadTmpl}) ->
     ?LOG(info, "Initiating Action ~p.", [?FUNCTION_NAME]),
-    PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
+    PayloadTks = emqx_plugin_libs_rule:preproc_tmpl(PayloadTmpl),
     TopicTks = case ForwardTopic == <<"">> of
         true -> undefined;
-        false -> emqx_rule_utils:preproc_tmpl(ForwardTopic)
+        false -> emqx_plugin_libs_rule:preproc_tmpl(ForwardTopic)
     end,
     Opts.
 
@@ -461,7 +461,7 @@ on_action_data_to_mqtt_broker(Msg, _Env =
                                 }}) ->
     Topic1 = case TopicTks =:= undefined of
         true -> Topic;
-        false -> emqx_rule_utils:proc_tmpl(TopicTks, Msg)
+        false -> emqx_plugin_libs_rule:proc_tmpl(TopicTks, Msg)
     end,
     BrokerMsg = #message{id = Id,
                          qos = QoS,
@@ -480,7 +480,7 @@ format_data([], Msg) ->
     emqx_json:encode(Msg);
 
 format_data(Tokens, Msg) ->
-    emqx_rule_utils:proc_tmpl(Tokens, Msg).
+    emqx_plugin_libs_rule:proc_tmpl(Tokens, Msg).
 
 subscriptions(Subscriptions) ->
     scan_binary(<<"[", Subscriptions/binary, "].">>).
@@ -506,7 +506,7 @@ connect(Options) when is_list(Options) ->
 connect(Options = #{disk_cache := DiskCache, ecpool_worker_id := Id, pool_name := Pool}) ->
     Options0 = case DiskCache of
                    true ->
-                       DataDir = filename:join([emqx_config:get([node, data_dir]), replayq, Pool, integer_to_list(Id)]),
+                       DataDir = filename:join([emqx:get_config([node, data_dir]), replayq, Pool, integer_to_list(Id)]),
                        QueueOption = #{replayq_dir => DataDir},
                        Options#{queue => QueueOption};
                    false ->
@@ -524,7 +524,7 @@ connect(Options = #{disk_cache := DiskCache, ecpool_worker_id := Id, pool_name :
             end
     end,
     Options2 = maps:without([ecpool_worker_id, pool_name, append], Options1),
-    emqx_bridge_worker:start_link(Options2#{name => name(Pool, Id)}).
+    emqx_connector_mqtt_worker:start_link(Options2#{name => name(Pool, Id)}).
 name(Pool, Id) ->
     list_to_atom(atom_to_list(Pool) ++ ":" ++ integer_to_list(Id)).
 pool_name(ResId) ->

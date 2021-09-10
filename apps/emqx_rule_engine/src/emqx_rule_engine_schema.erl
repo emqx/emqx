@@ -20,10 +20,13 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0
+-export([ namespace/0
+        , roots/0
         , fields/1]).
 
-structs() -> ["emqx_rule_engine"].
+namespace() -> rule_engine.
 
-fields("emqx_rule_engine") ->
-    [{ignore_sys_message, emqx_schema:t(boolean(), undefined, true)}].
+roots() -> ["rule_engine"].
+
+fields("rule_engine") ->
+    [{ignore_sys_message, hoconsc:mk(boolean(), #{default => true})}].

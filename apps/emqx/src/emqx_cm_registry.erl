@@ -47,10 +47,6 @@
 -define(TAB, emqx_channel_registry).
 -define(LOCK, {?MODULE, cleanup_down}).
 
--define(CM_SHARD, emqx_cm_shard).
-
--rlog_shard({?CM_SHARD, ?TAB}).
-
 -record(channel, {chid, pid}).
 
 %% @doc Start the global channel registry.
@@ -65,7 +61,7 @@ start_link() ->
 %% @doc Is the global registry enabled?
 -spec(is_enabled() -> boolean()).
 is_enabled() ->
-    emqx_config:get([broker, enable_session_registry]).
+    emqx:get_config([broker, enable_session_registry]).
 
 %% @doc Register a global channel.
 -spec(register_channel(emqx_types:clientid()
@@ -106,6 +102,7 @@ record(ClientId, ChanPid) ->
 init([]) ->
     ok = ekka_mnesia:create_table(?TAB, [
                 {type, bag},
+                {rlog_shard, ?CM_SHARD},
                 {ram_copies, [node()]},
                 {record_name, channel},
                 {attributes, record_info(fields, channel)},

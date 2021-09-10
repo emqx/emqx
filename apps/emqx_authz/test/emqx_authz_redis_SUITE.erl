@@ -21,6 +21,7 @@
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -29,35 +30,44 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_schema, fields, fun("authorization") ->
+                                             meck:passthrough(["authorization"]) ++
+                                             emqx_authz_schema:fields("authorization");
+                                        (F) -> meck:passthrough([F])
+                                     end),
+
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end ),
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
+    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
 
-    ok = emqx_config:update([zones, default, authorization, cache, enable], false),
-    ok = emqx_config:update([zones, default, authorization, enable], true),
-    Rules = [#{ <<"config">> => #{
-                    <<"server">> => <<"127.0.0.1:27017">>,
-                    <<"pool_size">> => 1,
-                    <<"database">> => 0,
-                    <<"password">> => <<"ee">>,
-                    <<"auto_reconnect">> => true,
-                    <<"ssl">> => #{<<"enable">> => false}
-                },
-                <<"cmd">> => <<"HGETALL mqtt_authz:%u">>,
-                <<"type">> => <<"redis">> }],
-    emqx_authz:update(replace, Rules),
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
+    Rules = [#{<<"type">> => <<"redis">>,
+               <<"server">> => <<"127.0.0.1:27017">>,
+               <<"pool_size">> => 1,
+               <<"database">> => 0,
+               <<"password">> => <<"ee">>,
+               <<"auto_reconnect">> => true,
+               <<"ssl">> => #{<<"enable">> => false},
+               <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
+              }],
+    {ok, _} = emqx_authz:update(replace, Rules),
     Config.
 
 end_per_suite(_Config) ->
-    ok = emqx_authz:update(replace, []),
+    {ok, _} = emqx_authz:update(replace, []),
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
-    meck:unload(emqx_resource).
+    meck:unload(emqx_resource),
+    meck:unload(emqx_schema),
+    ok.
 
--define(RULE1, [<<"test/%u">>, <<"publish">>]).
--define(RULE2, [<<"test/%c">>, <<"publish">>]).
--define(RULE3, [<<"#">>, <<"subscribe">>]).
+-define(SOURCE1, [<<"test/%u">>, <<"publish">>]).
+-define(SOURCE2, [<<"test/%c">>, <<"publish">>]).
+-define(SOURCE3, [<<"#">>, <<"subscribe">>]).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -68,7 +78,7 @@ t_authz(_) ->
                    username => <<"username">>,
                    peerhost => {127,0,0,1},
                    zone => default,
-                   listener => mqtt_tcp
+                   listener => {tcp, default}
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, []} end),
@@ -79,7 +89,7 @@ t_authz(_) ->
                  emqx_access_control:authorize(ClientInfo, publish, <<"#">>)),
 
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?RULE1 ++ ?RULE2} end),
+    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?SOURCE1 ++ ?SOURCE2} end),
     % nomatch
     ?assertEqual(deny,
         emqx_access_control:authorize(ClientInfo, subscribe, <<"+">>)),
@@ -92,7 +102,7 @@ t_authz(_) ->
     ?assertEqual(allow,
         emqx_access_control:authorize(ClientInfo, publish, <<"test/clientid">>)),
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?RULE3} end),
+    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?SOURCE3} end),
 
     ?assertEqual(allow,
         emqx_access_control:authorize(ClientInfo, subscribe, <<"#">>)),

@@ -19,13 +19,18 @@
 
 -behaviour(hocon_schema).
 
--export([ structs/0
+-export([ namespace/0
+        , roots/0
         , fields/1]).
 
-structs() -> ["prometheus"].
+namespace() -> "prometheus".
+
+roots() -> ["prometheus"].
 
 fields("prometheus") ->
-    [ {push_gateway_server, emqx_schema:t(string())}
-    , {interval, emqx_schema:t(emqx_schema:duration_ms(), undefined, "15s")}
-    , {enable, emqx_schema:t(boolean(), undefined, false)}
+    [ {push_gateway_server, sc(string(), #{})}
+    , {interval, sc(emqx_schema:duration_ms(), #{default => "15s"})}
+    , {enable, sc(boolean(), #{default => false})}
     ].
+
+sc(Type, Meta) -> hoconsc:mk(Type, Meta).

@@ -14,15 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(APP, emqx_lwm2m).
+-define(LWAPP, emqx_lwm2m).
 
--record(coap_mqtt_auth, { clientid
-                        , username
-                        , password
-                        }).
--record(lwm2m_context, { epn
-                       , location
-                       }).
 
 -define(OMA_ALTER_PATH_RT, <<"\"oma.lwm2m\"">>).
 
@@ -42,7 +35,7 @@
 -define(ERR_NOT_FOUND,          <<"Not Found">>).
 -define(ERR_UNAUTHORIZED,       <<"Unauthorized">>).
 -define(ERR_BAD_REQUEST,        <<"Bad Request">>).
-
+-define(REG_PREFIX, <<"rd">>).
 
 -define(LWM2M_FORMAT_PLAIN_TEXT, 0).
 -define(LWM2M_FORMAT_LINK,       40).

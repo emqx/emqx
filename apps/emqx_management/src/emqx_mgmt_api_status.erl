@@ -29,11 +29,12 @@ status_api() ->
     Metadata = #{
         get => #{
             security => [],
-            responses => #{
-                <<"200">> => #{description => <<"running">>}}}},
+            responses => #{<<"200">> => #{description => <<"running">>}}
+        }
+    },
     {Path, Metadata, running_status}.
 
-running_status(get, _Request) ->
+running_status(get, _Params) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
     AppStatus =
         case lists:keysearch(emqx, 1, application:which_applications()) of

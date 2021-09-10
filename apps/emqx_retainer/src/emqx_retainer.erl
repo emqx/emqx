@@ -19,9 +19,7 @@
 -behaviour(gen_server).
 
 -include("emqx_retainer.hrl").
--include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
-
 
 -export([start_link/0]).
 
@@ -37,7 +35,8 @@
 -export([ get_expiry_time/1
         , update_config/1
         , clean/0
-        , delete/1]).
+        , delete/1
+        , page_read/3]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -56,8 +55,6 @@
                   , wait_quotas := list()
                   }.
 
--rlog_shard({?RETAINER_SHARD, ?TAB}).
-
 -define(DEF_MAX_PAYLOAD_SIZE, (1024 * 1024)).
 -define(DEF_EXPIRY_INTERVAL, 0).
 
@@ -66,6 +63,8 @@
 -callback delete_message(context(), topic()) -> ok.
 -callback store_retained(context(), message()) -> ok.
 -callback read_message(context(), topic()) -> {ok, list()}.
+-callback page_read(context(), topic(), non_neg_integer(), non_neg_integer()) ->
+    {ok, list()}.
 -callback match_messages(context(), topic(), cursor()) -> {ok, list(), cursor()}.
 -callback clear_expired(context()) -> ok.
 -callback clean(context()) -> ok.
@@ -73,9 +72,11 @@
 %%--------------------------------------------------------------------
 %% Hook API
 %%--------------------------------------------------------------------
+-spec on_session_subscribed(_, _, emqx_types:subopts(), _) -> any().
 on_session_subscribed(_, _, #{share := ShareName}, _) when ShareName =/= undefined ->
     ok;
-on_session_subscribed(_, Topic, #{rh := Rh, is_new := IsNew}, Context) ->
+on_session_subscribed(_, Topic, #{rh := Rh} = Opts, Context) ->
+    IsNew = maps:get(is_new, Opts, true),
     case Rh =:= 0 orelse (Rh =:= 1 andalso IsNew) of
         true -> dispatch(Context, Topic);
         _ -> ok
@@ -129,7 +130,7 @@ deliver(Result, #{context_id := Id} = Context, Pid, Topic, Cursor) ->
         false ->
             ok;
         _ ->
-            #{msg_deliver_quota := MaxDeliverNum} = emqx_config:get([?APP, flow_control]),
+            #{msg_deliver_quota := MaxDeliverNum} = emqx:get_config([?APP, flow_control]),
             case MaxDeliverNum of
                 0 ->
                     _ = [Pid ! {deliver, Topic, Msg} || Msg <- Result],
@@ -150,7 +151,7 @@ get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' :
                          timestamp = Ts}) ->
     Ts + Interval * 1000;
 get_expiry_time(#message{timestamp = Ts}) ->
-    Interval = emqx_config:get([?APP, msg_expiry_interval], ?DEF_EXPIRY_INTERVAL),
+    Interval = emqx:get_config([?APP, msg_expiry_interval], ?DEF_EXPIRY_INTERVAL),
     case Interval of
         0 -> 0;
         _ -> Ts + Interval
@@ -166,6 +167,9 @@ clean() ->
 delete(Topic) ->
     gen_server:call(?MODULE, {?FUNCTION_NAME, Topic}).
 
+page_read(Topic, Page, Limit) ->
+    gen_server:call(?MODULE, {?FUNCTION_NAME, Topic, Page, Limit}).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -173,7 +177,7 @@ delete(Topic) ->
 init([]) ->
     init_shared_context(),
     State = new_state(),
-    #{enable := Enable} = Cfg = emqx_config:get([?APP]),
+    #{enable := Enable} = Cfg = emqx:get_config([?APP]),
     {ok,
      case Enable of
          true ->
@@ -183,8 +187,8 @@ init([]) ->
      end}.
 
 handle_call({update_config, Conf}, _, State) ->
-    State2 = update_config(State, Conf),
-    emqx_config:put([?APP], Conf),
+    {ok, Config} = emqx:update_config([?APP], Conf),
+    State2 = update_config(State, maps:get(config, Config)),
     {reply, ok, State2};
 
 handle_call({wait_semaphore, Id}, From, #{wait_quotas := Waits} = State) ->
@@ -198,6 +202,11 @@ handle_call({delete, Topic}, _, #{context := Context} = State) ->
     delete_message(Context, Topic),
     {reply, ok, State};
 
+handle_call({page_read, Topic, Page, Limit}, _, #{context := Context} = State) ->
+    Mod = get_backend_module(),
+    Result = Mod:page_read(Context, Topic, Page, Limit),
+    {reply, Result, State};
+
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
@@ -209,7 +218,7 @@ handle_cast(Msg, State) ->
 handle_info(clear_expired, #{context := Context} = State) ->
     Mod = get_backend_module(),
     Mod:clear_expired(Context),
-    Interval = emqx_config:get([?APP, msg_clear_interval], ?DEF_EXPIRY_INTERVAL),
+    Interval = emqx:get_config([?APP, msg_clear_interval], ?DEF_EXPIRY_INTERVAL),
     {noreply, State#{clear_timer := add_timer(Interval, clear_expired)}, hibernate};
 
 handle_info(release_deliver_quota, #{context := Context, wait_quotas := Waits} = State) ->
@@ -225,7 +234,7 @@ handle_info(release_deliver_quota, #{context := Context, wait_quotas := Waits} =
                           end,
                           Waits2)
     end,
-    Interval = emqx_config:get([?APP, flow_control, quota_release_interval]),
+    Interval = emqx:get_config([?APP, flow_control, quota_release_interval]),
     {noreply, State#{release_quota_timer := add_timer(Interval, release_deliver_quota),
                      wait_quotas := []}};
 
@@ -258,7 +267,7 @@ new_context(Id) ->
     #{context_id => Id}.
 
 is_too_big(Size) ->
-    Limit = emqx_config:get([?APP, max_payload_size], ?DEF_MAX_PAYLOAD_SIZE),
+    Limit = emqx:get_config([?APP, max_payload_size], ?DEF_MAX_PAYLOAD_SIZE),
     Limit > 0 andalso (Size > Limit).
 
 %% @private
@@ -332,7 +341,7 @@ insert_shared_context(Key, Term) ->
 
 -spec get_msg_deliver_quota() -> non_neg_integer().
 get_msg_deliver_quota() ->
-    emqx_config:get([?APP, flow_control, msg_deliver_quota]).
+    emqx:get_config([?APP, flow_control, msg_deliver_quota]).
 
 -spec update_config(state(), hocons:config()) -> state().
 update_config(#{clear_timer := ClearTimer,
@@ -342,7 +351,7 @@ update_config(#{clear_timer := ClearTimer,
       flow_control := #{quota_release_interval := QuotaInterval},
       msg_clear_interval := ClearInterval} = Conf,
 
-    #{config := OldConfig} = emqx_config:get([?APP]),
+    #{config := OldConfig} = emqx:get_config([?APP]),
 
     case Enable of
         true ->
@@ -416,7 +425,7 @@ check_timer(Timer, _, _) ->
 
 -spec get_backend_module() -> backend().
 get_backend_module() ->
-    #{type := Backend} = emqx_config:get([?APP, config]),
+    #{type := Backend} = emqx:get_config([?APP, config]),
     ModName = if Backend =:= built_in_database ->
                       mnesia;
                  true ->
@@ -434,9 +443,9 @@ create_resource(Context, #{type := DB} = Config) ->
            ResourceID,
            list_to_existing_atom(io_lib:format("~s_~s", [emqx_connector, DB])),
            Config) of
-        {ok, _} ->
+        {ok, already_created} ->
             Context#{resource_id => ResourceID};
-        {error, already_created} ->
+        {ok, _} ->
             Context#{resource_id => ResourceID};
         {error, Reason} ->
             error({load_config_error, Reason})

@@ -32,7 +32,7 @@
 -reflect_type([url/0]).
 -typerefl_from_string({url/0, emqx_http_lib, uri_parse}).
 
--export([ structs/0
+-export([ roots/0
         , fields/1
         , validations/0]).
 
@@ -47,10 +47,8 @@
 
 %%=====================================================================
 %% Hocon schema
-structs() -> [""].
-
-fields("") ->
-    [{config, #{type => hoconsc:ref(?MODULE, config)}}];
+roots() ->
+    [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
     [ {base_url,          fun base_url/1}
@@ -60,9 +58,7 @@ fields(config) ->
     , {pool_type,         fun pool_type/1}
     , {pool_size,         fun pool_size/1}
     , {enable_pipelining, fun enable_pipelining/1}
-    , {ssl_opts,          #{type => hoconsc:ref(?MODULE, ssl_opts),
-                            default => #{}}}
-    ];
+    ] ++ emqx_connector_schema_lib:ssl_fields();
 
 fields(ssl_opts) ->
     [ {cacertfile, fun cacertfile/1}
@@ -202,12 +198,11 @@ check_ssl_opts(Conf) ->
 
 check_ssl_opts(URLFrom, Conf) ->
     #{schema := Scheme} = hocon_schema:get_value(URLFrom, Conf),
-    SSLOpts = hocon_schema:get_value("ssl_opts", Conf),
-    case {Scheme, maps:size(SSLOpts)} of
-        {http, 0} -> true;
-        {http, _} -> false;
-        {https, 0} -> false;
-        {https, _} -> true
+    SSL= hocon_schema:get_value("ssl", Conf),
+    case {Scheme, maps:get(enable, SSL, false)} of
+        {http, false} -> true;
+        {https, true} -> true;
+        {_, _} -> false
     end.
 
 update_path(BasePath, {Path, Headers}) ->

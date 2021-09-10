@@ -25,7 +25,7 @@
 all() -> emqx_ct:all(?MODULE).
 
 t_check_pub(_) ->
-    OldConf = emqx_config:get([zones]),
+    OldConf = emqx:get_config([zones]),
     emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_1),
     emqx_config:put_zone_conf(default, [mqtt, retain_available], false),
     timer:sleep(50),
@@ -39,7 +39,7 @@ t_check_pub(_) ->
     emqx_config:put([zones], OldConf).
 
 t_check_sub(_) ->
-    OldConf = emqx_config:get([zones]),
+    OldConf = emqx:get_config([zones]),
     SubOpts = #{rh  => 0,
                 rap => 0,
                 nl  => 0,

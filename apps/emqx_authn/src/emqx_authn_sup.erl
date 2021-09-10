@@ -26,4 +26,5 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok, {{one_for_one, 10, 10}, []}}.
+    ChildSpecs = [],
+    {ok, {{one_for_one, 10, 10}, ChildSpecs}}.

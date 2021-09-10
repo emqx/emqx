@@ -40,9 +40,6 @@ start() ->
     ok = set_backtrace_depth(),
     ok = print_otp_version_warning(),
 
-    %% need to load some app envs
-    %% TODO delete it once emqx boot does not depend on modules envs
-    _ = load_modules(),
     ok = load_config_files(),
 
     ok = ensure_apps_started(),
@@ -79,14 +76,6 @@ print_vsn() -> ok.
 print_vsn() ->
     ?ULOG("~s ~s is running now!~n", [emqx_app:get_description(), emqx_app:get_release()]).
 -endif. % TEST
-
--ifndef(EMQX_ENTERPRISE).
-load_modules() ->
-    application:load(emqx_modules).
--else.
-load_modules() ->
-    ok.
--endif.
 
 load_config_files() ->
     %% the app env 'config_files' for 'emqx` app should be set
@@ -131,7 +120,7 @@ start_one_app(App) ->
             ?SLOG(debug, #{msg => "started_apps", apps => Apps});
         {error, Reason} ->
             ?SLOG(critical, #{msg => "failed_to_start_app", app => App, reason => Reason}),
-            error({faile_to_start_app, App, Reason})
+            error({failed_to_start_app, App, Reason})
     end.
 
 %% list of app names which should be rebooted when:
@@ -142,7 +131,6 @@ reboot_apps() ->
     , esockd
     , ranch
     , cowboy
-    , ekka
     , emqx
     , emqx_prometheus
     , emqx_modules
@@ -152,12 +140,10 @@ reboot_apps() ->
     , emqx_statsd
     , emqx_resource
     , emqx_rule_engine
-    , emqx_data_bridge
+    , emqx_bridge
     , emqx_bridge_mqtt
     , emqx_plugin_libs
-    , emqx_config_helper
     , emqx_management
-    , emqx_release_helper
     , emqx_retainer
     , emqx_exhook
     , emqx_rule_actions

@@ -16,69 +16,105 @@
 
 -module(emqx_gateway).
 
+-behaviour(emqx_config_handler).
+
 -include("include/emqx_gateway.hrl").
 
-%% APIs
+%% callbacks for emqx_config_handler
+-export([ pre_config_update/2
+        , post_config_update/4
+        ]).
+
+%% Gateway APIs
 -export([ registered_gateway/0
-        , create/4
-        , remove/1
+        , load/2
+        , unload/1
         , lookup/1
-        , update/1
+        , update/2
         , start/1
         , stop/1
         , list/0
         ]).
 
+-export([update_rawconf/2]).
+
+%%--------------------------------------------------------------------
+%% APIs
+%%--------------------------------------------------------------------
+
 -spec registered_gateway() ->
-    [{gateway_type(), emqx_gateway_registry:descriptor()}].
+    [{gateway_name(), emqx_gateway_registry:descriptor()}].
 registered_gateway() ->
     emqx_gateway_registry:list().
 
 %%--------------------------------------------------------------------
-%% Gateway Instace APIs
+%% Gateway APIs
 
--spec list() -> [instance()].
+-spec list() -> [gateway()].
 list() ->
-    lists:append(lists:map(
-      fun({_, Insta}) -> Insta end,
-      emqx_gateway_sup:list_gateway_insta()
-     )).
+    emqx_gateway_sup:list_gateway_insta().
 
--spec create(gateway_type(), binary(), binary(), map())
+-spec load(gateway_name(), emqx_config:config())
     -> {ok, pid()}
      | {error, any()}.
-create(Type, Name, Descr, RawConf) ->
-    Insta = #{ id => clacu_insta_id(Type, Name)
-             , type => Type
-             , name => Name
-             , descr => Descr
-             , rawconf => RawConf
-             },
-    emqx_gateway_sup:create_gateway_insta(Insta).
+load(Name, Config) ->
+    Gateway = #{ name => Name
+               , descr => undefined
+               , config => Config
+               },
+    emqx_gateway_sup:load_gateway(Gateway).
 
--spec remove(instance_id()) -> ok | {error, any()}.
-remove(InstaId) ->
-    emqx_gateway_sup:remove_gateway_insta(InstaId).
+-spec unload(gateway_name()) -> ok | {error, not_found}.
+unload(Name) ->
+    emqx_gateway_sup:unload_gateway(Name).
 
--spec lookup(instance_id()) -> instance() | undefined.
-lookup(InstaId) ->
-    emqx_gateway_sup:lookup_gateway_insta(InstaId).
+-spec lookup(gateway_name()) -> gateway() | undefined.
+lookup(Name) ->
+    emqx_gateway_sup:lookup_gateway(Name).
 
--spec update(instance()) -> ok | {error, any()}.
-update(NewInsta) ->
-    emqx_gateway_sup:update_gateway_insta(NewInsta).
+-spec update(gateway_name(), emqx_config:config()) -> ok | {error, any()}.
+update(Name, Config) ->
+    emqx_gateway_sup:update_gateway(Name, Config).
 
--spec start(instance_id()) -> ok | {error, any()}.
-start(InstaId) ->
-    emqx_gateway_sup:start_gateway_insta(InstaId).
+-spec start(gateway_name()) -> ok | {error, any()}.
+start(Name) ->
+    emqx_gateway_sup:start_gateway_insta(Name).
 
--spec stop(instance_id()) -> ok | {error, any()}.
-stop(InstaId) ->
-    emqx_gateway_sup:stop_gateway_insta(InstaId).
+-spec stop(gateway_name()) -> ok | {error, any()}.
+stop(Name) ->
+    emqx_gateway_sup:stop_gateway_insta(Name).
+
+-spec update_rawconf(binary(), emqx_config:raw_config())
+    -> ok
+     | {error, any()}.
+update_rawconf(RawName, RawConfDiff) ->
+    case emqx:update_config([gateway], {RawName, RawConfDiff}) of
+        {ok, _Result} -> ok;
+        {error, Reason} -> {error, Reason}
+    end.
+
+%%--------------------------------------------------------------------
+%% Config Handler
+
+-spec pre_config_update(emqx_config:update_request(),
+                        emqx_config:raw_config()) ->
+    {ok, emqx_config:update_request()} | {error, term()}.
+pre_config_update({RawName, RawConfDiff}, RawConf) ->
+    {ok, emqx_map_lib:deep_merge(RawConf, #{RawName => RawConfDiff})}.
+
+-spec post_config_update(emqx_config:update_request(), emqx_config:config(),
+                         emqx_config:config(), emqx_config:app_envs())
+    -> ok | {ok, Result::any()} | {error, Reason::term()}.
+post_config_update({RawName, _}, NewConfig, OldConfig, _AppEnvs) ->
+    GwName = binary_to_existing_atom(RawName),
+    SubConf = maps:get(GwName, NewConfig),
+    case maps:get(GwName, OldConfig, undefined) of
+        undefined ->
+            emqx_gateway:load(GwName, SubConf);
+        _ ->
+            emqx_gateway:update(GwName, SubConf)
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
-
-clacu_insta_id(Type, Name) when is_binary(Name) ->
-    list_to_atom(lists:concat([Type, "#", binary_to_list(Name)])).

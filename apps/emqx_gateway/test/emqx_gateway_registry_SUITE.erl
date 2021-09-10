@@ -23,7 +23,7 @@
 
 -define(CONF_DEFAULT, <<"""
 gateway: {
-    stomp.1 {}
+    stomp {}
 }
 """>>).
 
@@ -49,21 +49,15 @@ end_per_suite(_Cfg) ->
 t_load_unload(_) ->
     OldCnt = length(emqx_gateway_registry:list()),
     RgOpts = [{cbkmod, ?MODULE}],
-    GwOpts = [paramsin],
-    ok = emqx_gateway_registry:load(test, RgOpts, GwOpts),
+    ok = emqx_gateway_registry:reg(test, RgOpts),
     ?assertEqual(OldCnt+1, length(emqx_gateway_registry:list())),
 
     #{cbkmod := ?MODULE,
-      rgopts := RgOpts,
-      gwopts := GwOpts,
-      state  := #{gwstate := 1}} = emqx_gateway_registry:lookup(test),
+      rgopts := RgOpts} = emqx_gateway_registry:lookup(test),
 
-    {error, already_existed} = emqx_gateway_registry:load(test, [{cbkmod, ?MODULE}], GwOpts),
+    {error, already_existed} = emqx_gateway_registry:reg(test, [{cbkmod, ?MODULE}]),
 
-    ok = emqx_gateway_registry:unload(test),
+    ok = emqx_gateway_registry:unreg(test),
     undefined = emqx_gateway_registry:lookup(test),
     OldCnt = length(emqx_gateway_registry:list()),
     ok.
-
-init([paramsin]) ->
-    {ok, _GwState = #{gwstate => 1}}.

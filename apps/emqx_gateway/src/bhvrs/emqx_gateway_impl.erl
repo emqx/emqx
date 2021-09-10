@@ -22,29 +22,21 @@
 -type reason() :: any().
 
 %% @doc
--callback init(Options :: list()) -> {error, reason()} | {ok, GwState :: state()}.
-
-%% @doc
--callback on_insta_create(Insta :: instance(),
-                          Ctx :: emqx_gateway_ctx:context(),
-                          GwState :: state()
-                         )
+-callback on_gateway_load(Gateway :: gateway(),
+                          Ctx :: emqx_gateway_ctx:context())
     -> {error, reason()}
-     | {ok, [GwInstaPid :: pid()], GwInstaState :: state()}
+     | {ok, [ChildPid :: pid()], GwState :: state()}
      %% TODO: v0.2 The child spec is better for restarting child process
-     | {ok, [Childspec :: supervisor:child_spec()], GwInstaState :: state()}.
+     | {ok, [Childspec :: supervisor:child_spec()], GwState :: state()}.
 
 %% @doc
--callback on_insta_update(NewInsta :: instance(),
-                          OldInsta :: instance(),
-                          GwInstaState :: state(),
-                          GwState :: state())
+-callback on_gateway_update(Config :: emqx_config:config(),
+                            Gateway :: gateway(),
+                            GwState :: state())
     -> ok
-     | {ok, [GwInstaPid :: pid()], GwInstaState :: state()}
-     | {ok, [Childspec :: supervisor:child_spec()], GwInstaState :: state()}
+     | {ok, [ChildPid :: pid()], NGwState :: state()}
+     | {ok, [Childspec :: supervisor:child_spec()], NGwState :: state()}
      | {error, reason()}.
 
 %% @doc
--callback on_insta_destroy(Insta :: instance(),
-                           GwInstaState :: state(),
-                           GwState :: state()) -> ok.
+-callback on_gateway_unload(Gateway :: gateway(), GwState :: state()) -> ok.

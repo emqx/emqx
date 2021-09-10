@@ -51,26 +51,20 @@
               , servers/0
              ]).
 
--export([structs/0, fields/1]).
+-export([roots/0, fields/1]).
 
-structs() -> [ssl_on, ssl_off].
+roots() -> ["ssl"].
 
-fields(ssl_on) ->
-    [ {enable, #{type => true}}
+fields("ssl") ->
+    [ {enable, #{type => boolean(), default => false}}
     , {cacertfile, fun cacertfile/1}
     , {keyfile, fun keyfile/1}
     , {certfile, fun certfile/1}
     , {verify, fun verify/1}
-    ];
-
-fields(ssl_off) ->
-    [ {enable, #{type => false}} ].
+    ].
 
 ssl_fields() ->
-    [ {ssl, #{type => hoconsc:union(
-                       [ hoconsc:ref(?MODULE, ssl_on)
-                       , hoconsc:ref(?MODULE, ssl_off)
-                       ]),
+    [ {ssl, #{type => hoconsc:ref(?MODULE, "ssl"),
               default => #{<<"enable">> => false}
              }
       }
@@ -142,7 +136,9 @@ to_ip_port(Str) ->
          _ -> {error, Str}
      end.
 
-ip_port_to_string({Ip, Port}) ->
+ip_port_to_string({Ip, Port}) when is_list(Ip) ->
+    iolist_to_binary([Ip, ":", integer_to_list(Port)]);
+ip_port_to_string({Ip, Port}) when is_tuple(Ip) ->
     iolist_to_binary([inet:ntoa(Ip), ":", integer_to_list(Port)]).
 
 to_servers(Str) ->

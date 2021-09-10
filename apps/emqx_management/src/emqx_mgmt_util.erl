@@ -24,15 +24,26 @@
         , batch_operation/3
         ]).
 
--export([ request_body_schema/1
-        , request_body_array_schema/1
-        , response_schema/1
-        , response_schema/2
-        , response_array_schema/2
-        , response_error_schema/1
-        , response_error_schema/2
-        , response_page_schema/1
-        , response_batch_schema/1]).
+-export([ bad_request/0
+        , bad_request/1
+        , properties/1
+        , page_params/0
+        , schema/1
+        , schema/2
+        , object_schema/1
+        , object_schema/2
+        , array_schema/1
+        , array_schema/2
+        , object_array_schema/1
+        , object_array_schema/2
+        , page_schema/1
+        , page_object_schema/1
+        , error_schema/1
+        , error_schema/2
+        , batch_schema/1
+        ]).
+
+
 
 -export([urldecode/1]).
 
@@ -90,76 +101,69 @@ urldecode(S) ->
 
 %%%==============================================================================================
 %% schema util
+schema(Ref) when is_atom(Ref) ->
+    json_content_schema(minirest:ref(atom_to_binary(Ref, utf8)));
+schema(SchemaOrDesc) ->
+    json_content_schema(SchemaOrDesc).
+schema(Ref, Desc) when is_atom(Ref) ->
+    json_content_schema(minirest:ref(atom_to_binary(Ref, utf8)), Desc);
+schema(Schema, Desc) ->
+    json_content_schema(Schema, Desc).
 
-request_body_array_schema(Schema) when is_map(Schema) ->
-    json_content_schema("", #{type => array, items => Schema});
-request_body_array_schema(Ref) when is_atom(Ref) ->
-    request_body_array_schema(atom_to_binary(Ref, utf8));
-request_body_array_schema(Ref) when is_binary(Ref) ->
-    json_content_schema("", #{type => array, items => minirest:ref(Ref)}).
+object_schema(Properties) when is_map(Properties) ->
+    json_content_schema(#{type => object, properties => Properties}).
+object_schema(Properties, Desc) when is_map(Properties) ->
+    json_content_schema(#{type => object, properties => Properties}, Desc).
 
-request_body_schema(Schema) when is_map(Schema) ->
-    json_content_schema("", Schema);
-request_body_schema(Ref) when is_atom(Ref) ->
-    request_body_schema(atom_to_binary(Ref));
-request_body_schema(Ref) when is_binary(Ref) ->
-    json_content_schema("", minirest:ref(Ref)).
+array_schema(Ref) when is_atom(Ref) ->
+    json_content_schema(#{type => array, items => minirest:ref(atom_to_binary(Ref, utf8))}).
+array_schema(Ref, Desc) when is_atom(Ref) ->
+    json_content_schema(#{type => array, items => minirest:ref(atom_to_binary(Ref, utf8))}, Desc);
+array_schema(Schema, Desc) ->
+    json_content_schema(#{type => array, items => Schema}, Desc).
 
-response_array_schema(Description, Schema) when is_map(Schema) ->
-    json_content_schema(Description, #{type => array, items => Schema});
-response_array_schema(Description, Ref) when is_atom(Ref) ->
-    response_array_schema(Description, atom_to_binary(Ref, utf8));
-response_array_schema(Description, Ref) when is_binary(Ref) ->
-    json_content_schema(Description, #{type => array, items => minirest:ref(Ref)}).
+object_array_schema(Properties) when is_map(Properties) ->
+    json_content_schema(#{type => array, items => #{type => object, properties => Properties}}).
+object_array_schema(Properties, Desc) ->
+    json_content_schema(#{type => array, items => #{type => object, properties => Properties}}, Desc).
 
-response_schema(Description) ->
-    json_content_schema(Description).
-
-response_schema(Description, Schema) when is_map(Schema) ->
-    json_content_schema(Description, Schema);
-response_schema(Description, Ref) when is_atom(Ref) ->
-    response_schema(Description, atom_to_binary(Ref, utf8));
-response_schema(Description, Ref) when is_binary(Ref) ->
-    json_content_schema(Description, minirest:ref(Ref)).
-
-%% @doc default code is RESOURCE_NOT_FOUND
-response_error_schema(Description) ->
-    response_error_schema(Description, ['RESOURCE_NOT_FOUND']).
-
-response_error_schema(Description, Enum) ->
-    Schema = #{
-        type => object,
-        properties => #{
-            code => #{
-                type => string,
-                enum => Enum},
-            message => #{
-                type => string}}},
-    json_content_schema(Description, Schema).
-
-response_page_schema(Def) when is_atom(Def) ->
-    response_page_schema(atom_to_binary(Def, utf8));
-response_page_schema(Def) when is_binary(Def) ->
-    Schema = #{
+page_schema(Ref) when is_atom(Ref) ->
+    page_schema(minirest:ref(atom_to_binary(Ref, utf8)));
+page_schema(Schema) ->
+    Schema1 = #{
         type => object,
         properties => #{
             meta => #{
                 type => object,
-                properties => #{
-                    page => #{
-                        type => integer},
-                    limit => #{
-                        type => integer},
-                    count => #{
-                        type => integer}}},
+                properties => properties([{page, integer},
+                                          {limit, integer},
+                                          {count, integer}])
+            },
             data => #{
                 type => array,
-                items => minirest:ref(Def)}}},
-    json_content_schema("", Schema).
+                items => Schema
+            }
+        }
+    },
+    json_content_schema(Schema1).
 
-response_batch_schema(DefName) when is_atom(DefName) ->
-    response_batch_schema(atom_to_binary(DefName, utf8));
-response_batch_schema(DefName) when is_binary(DefName) ->
+page_object_schema(Properties) when is_map(Properties) ->
+    page_schema(#{type => object, properties => Properties}).
+
+error_schema(Description) ->
+    error_schema(Description, ['RESOURCE_NOT_FOUND']).
+
+error_schema(Description, Enum) ->
+    Schema = #{
+        type => object,
+        properties => properties([{code, string, <<>>, Enum},
+                                  {message, string}])
+    },
+    json_content_schema(Schema, Description).
+
+batch_schema(DefName) when is_atom(DefName) ->
+    batch_schema(atom_to_binary(DefName, utf8));
+batch_schema(DefName) when is_binary(DefName) ->
     Schema = #{
         type => object,
         properties => #{
@@ -179,22 +183,17 @@ response_batch_schema(DefName) when is_binary(DefName) ->
                         data => minirest:ref(DefName),
                         reason => #{
                             type => <<"string">>}}}}}},
-    json_content_schema("", Schema).
+    json_content_schema(Schema).
 
-json_content_schema(Description, Schema) ->
-    Content =
-        #{content => #{
-            'application/json' => #{
-                schema => Schema}}},
-    case Description of
-        "" ->
-            Content;
-        _ ->
-            maps:merge(#{description => Description}, Content)
-    end.
-
-json_content_schema(Description) ->
-    #{description => Description}.
+json_content_schema(Schema) when is_map(Schema) ->
+    #{content => #{'application/json' => #{schema => Schema}}};
+json_content_schema(Desc) when is_binary(Desc) ->
+    #{description => Desc}.
+json_content_schema(Schema, Desc) ->
+    #{
+        content => #{'application/json' => #{schema => Schema}},
+        description => Desc
+    }.
 
 %%%==============================================================================================
 batch_operation(Module, Function, ArgsList) ->
@@ -213,3 +212,49 @@ batch_operation(Module, Function, [Args | ArgsList], Failed) ->
         {error ,Reason} ->
             batch_operation(Module, Function, ArgsList, [{Args, Reason} | Failed])
     end.
+
+properties(Props) ->
+    properties(Props, #{}).
+properties([], Acc) ->
+    Acc;
+properties([Key| Props], Acc) when is_atom(Key) ->
+    properties(Props, maps:put(Key, #{type => string}, Acc));
+properties([{Key, Type} | Props], Acc) ->
+    properties(Props, maps:put(Key, #{type => Type}, Acc));
+properties([{Key, object, Props1} | Props], Acc) ->
+    properties(Props, maps:put(Key, #{type => object,
+                                      properties => properties(Props1)}, Acc));
+properties([{Key, {array, object}, Props1} | Props], Acc) ->
+    properties(Props, maps:put(Key, #{type => array,
+                                      items => #{type => object,
+                                                 properties => properties(Props1)
+                                                }}, Acc));
+properties([{Key, {array, Type}, Desc} | Props], Acc) ->
+    properties(Props, maps:put(Key, #{type => array,
+                                      items => #{type => Type},
+                                      description => Desc}, Acc));
+properties([{Key, Type, Desc} | Props], Acc) ->
+    properties(Props, maps:put(Key, #{type => Type, description => Desc}, Acc));
+properties([{Key, Type, Desc, Enum} | Props], Acc) ->
+    properties(Props, maps:put(Key, #{type => Type,
+                                      description => Desc,
+                                      enum => Enum}, Acc)).
+page_params() ->
+    [#{
+        name => page,
+        in => query,
+        description => <<"Page">>,
+        schema => #{type => integer, default => 1}
+    },
+    #{
+        name => limit,
+        in => query,
+        description => <<"Page size">>,
+        schema => #{type => integer, default => emqx_mgmt:max_row_limit()}
+    }].
+
+bad_request() ->
+    bad_request(<<"Bad Request">>).
+bad_request(Desc) ->
+    object_schema(properties([{message, string}, {code, string}]), Desc).
+

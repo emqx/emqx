@@ -102,8 +102,8 @@
           idle_timer :: maybe(reference()),
           %% Zone name
           zone :: atom(),
-          %% Listener Name
-          listener :: atom()
+          %% Listener Type and Name
+          listener :: {Type::atom(), Name::atom()}
         }).
 
 -type(state() :: #state{}).
@@ -135,7 +135,9 @@
                             , system_code_change/4
                             ]}).
 
--spec(start_link(esockd:transport(), esockd:socket(), emqx_channel:opts())
+-spec(start_link(esockd:transport(),
+                 esockd:socket() | {pid(), quicer:connection_handler()},
+                 emqx_channel:opts())
       -> {ok, pid()}).
 start_link(Transport, Socket, Options) ->
     Args = [self(), Transport, Socket, Options],
@@ -463,15 +465,15 @@ handle_msg({Passive, _Sock}, State)
     NState1 = check_oom(run_gc(InStats, NState)),
     handle_info(activate_socket, NState1);
 
-handle_msg(Deliver = {deliver, _Topic, _Msg}, #state{zone = Zone,
-        listener = Listener} = State) ->
-    ActiveN = get_active_n(Zone, Listener),
+handle_msg(Deliver = {deliver, _Topic, _Msg}, #state{
+        listener = {Type, Listener}} = State) ->
+    ActiveN = get_active_n(Type, Listener),
     Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 
 %% Something sent
-handle_msg({inet_reply, _Sock, ok}, State = #state{zone = Zone, listener = Listener}) ->
-    case emqx_pd:get_counter(outgoing_pubs) > get_active_n(Zone, Listener) of
+handle_msg({inet_reply, _Sock, ok}, State = #state{listener = {Type, Listener}}) ->
+    case emqx_pd:get_counter(outgoing_pubs) > get_active_n(Type, Listener) of
         true ->
             Pubs = emqx_pd:reset_counter(outgoing_pubs),
             Bytes = emqx_pd:reset_counter(outgoing_bytes),
@@ -820,8 +822,8 @@ activate_socket(State = #state{sockstate = closed}) ->
 activate_socket(State = #state{sockstate = blocked}) ->
     {ok, State};
 activate_socket(State = #state{transport = Transport, socket = Socket,
-        zone = Zone, listener = Listener}) ->
-    ActiveN = get_active_n(Zone, Listener),
+        listener = {Type, Listener}}) ->
+    ActiveN = get_active_n(Type, Listener),
     case Transport:setopts(Socket, [{active, ActiveN}]) of
         ok -> {ok, State#state{sockstate = running}};
         Error -> Error
@@ -904,8 +906,6 @@ get_state(Pid) ->
     maps:from_list(lists:zip(record_info(fields, state),
                              tl(tuple_to_list(State)))).
 
-get_active_n(Zone, Listener) ->
-    case emqx_config:get([zones, Zone, listeners, Listener, type]) of
-        quic -> 100;
-        _ -> emqx_config:get_listener_conf(Zone, Listener, [tcp, active_n])
-    end.
+get_active_n(quic, _Listener) -> 100;
+get_active_n(Type, Listener) ->
+    emqx_config:get_listener_conf(Type, Listener, [tcp, active_n]).

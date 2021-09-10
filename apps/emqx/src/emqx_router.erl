@@ -68,7 +68,6 @@
 -type(dest() :: node() | {group(), node()}).
 
 -define(ROUTE_TAB, emqx_route).
--rlog_shard({?ROUTE_SHARD, ?ROUTE_TAB}).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -77,6 +76,7 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?ROUTE_TAB, [
                 {type, bag},
+                {rlog_shard, ?ROUTE_SHARD},
                 {ram_copies, [node()]},
                 {record_name, route},
                 {attributes, record_info(fields, route)},
@@ -250,7 +250,7 @@ delete_trie_route(Route = #route{topic = Topic}) ->
 %% @private
 -spec(maybe_trans(function(), list(any())) -> ok | {error, term()}).
 maybe_trans(Fun, Args) ->
-    case emqx_config:get([broker, perf, route_lock_type]) of
+    case emqx:get_config([broker, perf, route_lock_type]) of
         key ->
             trans(Fun, Args);
         global ->

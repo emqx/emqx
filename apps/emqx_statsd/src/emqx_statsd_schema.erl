@@ -6,23 +6,26 @@
 
 -export([to_ip_port/1]).
 
--export([ structs/0
+-export([ namespace/0
+        , roots/0
         , fields/1]).
 
 -typerefl_from_string({ip_port/0, emqx_statsd_schema, to_ip_port}).
 
-structs() -> ["statsd"].
+namespace() -> "statsd".
+
+roots() -> ["statsd"].
 
 fields("statsd") ->
-    [ {enable, emqx_schema:t(boolean(), undefined, false)}
+    [ {enable, hoconsc:mk(boolean(), #{default => false})}
     , {server, fun server/1}
     , {sample_time_interval, fun duration_ms/1}
     , {flush_time_interval,  fun duration_ms/1}
     ].
 
 server(type) -> emqx_schema:ip_port();
-server(default) -> "127.0.0.1:8125";
 server(nullable) -> false;
+server(default) -> "127.0.0.1:8125";
 server(_) -> undefined.
 
 duration_ms(type) -> emqx_schema:duration_ms();

@@ -79,8 +79,8 @@ groups() ->
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
-    emqx_config:put_listener_conf(default, mqtt_ssl, [ssl, verify], verify_peer),
-    emqx_listeners:restart_listener('default:mqtt_ssl'),
+    emqx_config:put_listener_conf(ssl, default, [ssl, verify], verify_peer),
+    emqx_listeners:restart_listener('ssl:default'),
     Config.
 
 end_per_suite(_Config) ->
@@ -114,8 +114,8 @@ t_cm(_) ->
     emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000).
 
 t_cm_registry(_) ->
-    Info = supervisor:which_children(emqx_cm_sup),
-    {_, Pid, _, _} = lists:keyfind(registry, 1, Info),
+    Children = supervisor:which_children(emqx_cm_sup),
+    {_, Pid, _, _} = lists:keyfind(emqx_cm_registry, 1, Children),
     ignored = gen_server:call(Pid, <<"Unexpected call">>),
     gen_server:cast(Pid, <<"Unexpected cast">>),
     Pid ! <<"Unexpected info">>.

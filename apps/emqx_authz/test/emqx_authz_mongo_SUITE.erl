@@ -22,6 +22,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
+
 all() ->
     emqx_ct:all(?MODULE).
 
@@ -29,43 +31,50 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_schema, fields, fun("authorization") ->
+                                             meck:passthrough(["authorization"]) ++
+                                             emqx_authz_schema:fields("authorization");
+                                        (F) -> meck:passthrough([F])
+                                     end),
+
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
+    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
-    ok = emqx_config:update([zones, default, authorization, cache, enable], false),
-    ok = emqx_config:update([zones, default, authorization, enable], true),
-    Rules = [#{ <<"config">> => #{
-                        <<"mongo_type">> => <<"single">>,
-                        <<"server">> => <<"127.0.0.1:27017">>,
-                        <<"pool_size">> => 1,
-                        <<"database">> => <<"mqtt">>,
-                        <<"ssl">> => #{<<"enable">> => false}},
-                <<"principal">> => <<"all">>,
-                <<"collection">> => <<"fake">>,
-                <<"find">> => #{<<"a">> => <<"b">>},
-                <<"type">> => <<"mongo">>}
-            ],
-    ok = emqx_authz:update(replace, Rules),
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
+    Rules = [#{<<"type">> => <<"mongo">>,
+               <<"mongo_type">> => <<"single">>,
+               <<"server">> => <<"127.0.0.1:27017">>,
+               <<"pool_size">> => 1,
+               <<"database">> => <<"mqtt">>,
+               <<"ssl">> => #{<<"enable">> => false},
+               <<"collection">> => <<"fake">>,
+               <<"find">> => #{<<"a">> => <<"b">>}
+              }],
+    {ok, _} = emqx_authz:update(replace, Rules),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_authz:update(replace, []),
+    {ok, _} = emqx_authz:update(replace, []),
     emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
     meck:unload(emqx_resource),
+    meck:unload(emqx_schema),
     ok.
 
--define(RULE1,[#{<<"topics">> => [<<"#">>],
+-define(SOURCE1,[#{<<"topics">> => [<<"#">>],
                  <<"permission">> => <<"deny">>,
                  <<"action">> => <<"all">>}]).
--define(RULE2,[#{<<"topics">> => [<<"eq #">>],
+-define(SOURCE2,[#{<<"topics">> => [<<"eq #">>],
                  <<"permission">> => <<"allow">>,
                  <<"action">> => <<"all">>}]).
--define(RULE3,[#{<<"topics">> => [<<"test/%c">>],
+-define(SOURCE3,[#{<<"topics">> => [<<"test/%c">>],
                  <<"permission">> => <<"allow">>,
                  <<"action">> => <<"subscribe">>}]).
--define(RULE4,[#{<<"topics">> => [<<"test/%u">>],
+-define(SOURCE4,[#{<<"topics">> => [<<"test/%u">>],
                  <<"permission">> => <<"allow">>,
                  <<"action">> => <<"publish">>}]).
 
@@ -78,34 +87,34 @@ t_authz(_) ->
                     username => <<"test">>,
                     peerhost => {127,0,0,1},
                     zone => default,
-                    listener => mqtt_tcp
+                    listener => {tcp, default}
                    },
     ClientInfo2 = #{clientid => <<"test_clientid">>,
                     username => <<"test_username">>,
                     peerhost => {192,168,0,10},
                     zone => default,
-                    listener => mqtt_tcp
+                    listener => {tcp, default}
                    },
     ClientInfo3 = #{clientid => <<"test_clientid">>,
                     username => <<"fake_username">>,
                     peerhost => {127,0,0,1},
                     zone => default,
-                    listener => mqtt_tcp
+                    listener => {tcp, default}
                    },
 
     meck:expect(emqx_resource, query, fun(_, _) -> [] end),
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)), % nomatch
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"#">>)), % nomatch
 
-    meck:expect(emqx_resource, query, fun(_, _) -> ?RULE1 ++ ?RULE2 end),
+    meck:expect(emqx_resource, query, fun(_, _) -> ?SOURCE1 ++ ?SOURCE2 end),
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"+">>)),
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"+">>)),
 
-    meck:expect(emqx_resource, query, fun(_, _) -> ?RULE2 ++ ?RULE1 end),
+    meck:expect(emqx_resource, query, fun(_, _) -> ?SOURCE2 ++ ?SOURCE1 end),
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)),
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"+">>)),
 
-    meck:expect(emqx_resource, query, fun(_, _) -> ?RULE3 ++ ?RULE4 end),
+    meck:expect(emqx_resource, query, fun(_, _) -> ?SOURCE3 ++ ?SOURCE4 end),
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo2, subscribe, <<"test/test_clientid">>)),
     ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo2, publish,   <<"test/test_clientid">>)),
     ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo2, subscribe, <<"test/test_username">>)),

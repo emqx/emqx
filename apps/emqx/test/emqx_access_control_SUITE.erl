@@ -33,7 +33,7 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 t_authenticate(_) ->
-    ?assertMatch(ok, emqx_access_control:authenticate(clientinfo())).
+    ?assertMatch({ok, _}, emqx_access_control:authenticate(clientinfo())).
 
 t_authorize(_) ->
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
@@ -46,7 +46,7 @@ t_authorize(_) ->
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->
     maps:merge(#{zone       => default,
-                 listener   => mqtt_tcp,
+                 listener   => {tcp, default},
                  protocol   => mqtt,
                  peerhost   => {127,0,0,1},
                  clientid   => <<"clientid">>,

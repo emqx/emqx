@@ -20,18 +20,22 @@
 
 -include_lib("emqx/include/logger.hrl").
 
-
 -export([start/2, stop/1]).
+
+-define(CONF_CALLBACK_MODULE, emqx_gateway).
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_gateway_sup:start_link(),
     emqx_gateway_cli:load(),
     load_default_gateway_applications(),
-    create_gateway_by_default(),
+    load_gateway_by_default(),
+    emqx_config_handler:add_handler([gateway], ?CONF_CALLBACK_MODULE),
     {ok, Sup}.
 
 stop(_State) ->
     emqx_gateway_cli:unload(),
+    %% XXX: No api now
+    %emqx_config_handler:remove_handler([gateway], ?MODULE),
     ok.
 
 %%--------------------------------------------------------------------
@@ -40,56 +44,43 @@ stop(_State) ->
 load_default_gateway_applications() ->
     Apps = gateway_type_searching(),
     ?LOG(info, "Starting the default gateway types: ~p", [Apps]),
-    lists:foreach(fun load/1, Apps).
+    lists:foreach(fun reg/1, Apps).
 
 gateway_type_searching() ->
     %% FIXME: Hardcoded apps
     [emqx_stomp_impl, emqx_sn_impl, emqx_exproto_impl,
      emqx_coap_impl, emqx_lwm2m_impl].
 
-load(Mod) ->
+reg(Mod) ->
     try
-        Mod:load(),
-        ?LOG(info, "Load ~s gateway application successfully!", [Mod])
+        Mod:reg(),
+        ?LOG(info, "Register ~s gateway application successfully!", [Mod])
     catch
-        Class : Reason ->
-            ?LOG(error, "Load ~s gateway application failed: {~p, ~p}",
-                        [Mod, Class, Reason])
+        Class : Reason : Stk ->
+            ?LOG(error, "Failed to register ~s gateway application: {~p, ~p}\n"
+                        "Stacktrace: ~0p",
+                        [Mod, Class, Reason, Stk])
     end.
 
-create_gateway_by_default() ->
-    create_gateway_by_default(zipped_confs()).
+load_gateway_by_default() ->
+    load_gateway_by_default(confs()).
 
-create_gateway_by_default([]) ->
+load_gateway_by_default([]) ->
     ok;
-create_gateway_by_default([{Type, Name, Confs}|More]) ->
+load_gateway_by_default([{Type, Confs}|More]) ->
     case emqx_gateway_registry:lookup(Type) of
         undefined ->
-            ?LOG(error, "Skip to start ~s#~s: not_registred_type",
-                        [Type, Name]);
+            ?LOG(error, "Skip to load ~s gateway, because it is not registered",
+                        [Type]);
         _ ->
-            case emqx_gateway:create(Type,
-                                     atom_to_binary(Name, utf8),
-                                     <<>>,
-                                     Confs) of
+            case emqx_gateway:load(Type, Confs) of
                 {ok, _} ->
-                    ?LOG(debug, "Start ~s#~s successfully!", [Type, Name]);
+                    ?LOG(debug, "Load ~s gateway successfully!", [Type]);
                 {error, Reason} ->
-                    ?LOG(error, "Start ~s#~s failed: ~0p",
-                                [Type, Name, Reason])
+                    ?LOG(error, "Failed to load ~s gateway: ~0p", [Type, Reason])
             end
     end,
-    create_gateway_by_default(More).
+    load_gateway_by_default(More).
 
-zipped_confs() ->
-    All = maps:to_list(
-            maps:without(exclude_options(), emqx_config:get([gateway]))),
-    lists:append(lists:foldr(
-      fun({Type, Gws}, Acc) ->
-        {Names, Confs} = lists:unzip(maps:to_list(Gws)),
-        Types = [ Type || _ <- lists:seq(1, length(Names))],
-        [lists:zip3(Types, Names, Confs) | Acc]
-      end, [], All)).
-
-exclude_options() ->
-   [lwm2m_xml_dir].
+confs() ->
+    maps:to_list(emqx:get_config([gateway], #{})).

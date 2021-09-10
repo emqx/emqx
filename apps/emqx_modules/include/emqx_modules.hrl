@@ -3,11 +3,3 @@
 
 %% Interval for reporting telemetry data, Default: 7d
 -define(REPORT_INTERVAR, 604800).
-
--define(BASE_TOPICS, [<<"$event/client_connected">>,
-                      <<"$event/client_disconnected">>,
-                      <<"$event/session_subscribed">>,
-                      <<"$event/session_unsubscribed">>,
-                      <<"$event/message_delivered">>,
-                      <<"$event/message_acked">>,
-                      <<"$event/message_dropped">>]).

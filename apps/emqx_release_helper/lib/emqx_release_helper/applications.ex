@@ -20,6 +20,18 @@ defmodule EmqxReleaseHelper.Applications do
 		end
   end
 
+  application :emqx_bridge do
+    start_type :permanent
+  end
+
+  application :emqx_auto_subscribe do
+    start_type :permanent
+  end
+
+  application :emqx_exhook do
+    start_type :permanent
+  end
+
   application :emqx_gateway do
     start_type :permanent
   end
@@ -66,11 +78,6 @@ defmodule EmqxReleaseHelper.Applications do
   end
 
   application :emqx_statsd do
-    start_type :permanent
-    overlay :application
-  end
-
-  application :emqx_bridge_mqtt do
     start_type :permanent
     overlay :application
   end

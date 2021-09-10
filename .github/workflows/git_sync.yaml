@@ -1,9 +1,10 @@
 name: Sync to enterprise
 
 on:
+  schedule:
+    - cron:  '0 */6 * * *'
   push:
     branches:
-      - master
       - main-v*
 
 jobs:

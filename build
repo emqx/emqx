@@ -65,6 +65,10 @@ log() {
 make_rel() {
     # shellcheck disable=SC1010
     ./rebar3 as "$PROFILE" do release,tar
+    if [ "$(find "_build/$PROFILE/rel/emqx/lib/" -name 'gpb-*' -type d)" != "" ]; then
+        echo "gpb should not be included in the release"
+        exit 1
+    fi
 }
 
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup
@@ -128,7 +132,7 @@ make_docker() {
 
     docker build --no-cache \
        --build-arg PKG_VSN="$PKG_VSN"  \
-       --build-arg BUILD_FROM=emqx/build-env:erl23.2.7.2-emqx-2-alpine \
+       --build-arg BUILD_FROM="emqx/build-env:erl${OTP:-23.2.7.2-emqx-2}-alpine" \
        --build-arg EMQX_NAME="$PROFILE" \
        --tag "emqx/$PROFILE:$PKG_VSN" \
        -f deploy/docker/Dockerfile .

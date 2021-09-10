@@ -23,19 +23,17 @@
 
 -define(HEARTBEAT, <<$\n>>).
 
--define(CONF_DEFAULT, <<"""
-gateway: {
-    stomp.1: {
-        clientinfo_override: {
-            username: \"${Packet.headers.login}\"
-            password: \"${Packet.headers.passcode}\"
-        }
-        listener.tcp.1: {
-            bind: 61613
-        }
-    }
+-define(CONF_DEFAULT, <<"
+gateway.stomp {
+  clientinfo_override {
+    username = \"${Packet.headers.login}\"
+    password = \"${Packet.headers.passcode}\"
+  }
+  listeners.tcp.default {
+    bind = 61613
+  }
 }
-""">>).
+">>).
 
 all() -> emqx_ct:all(?MODULE).
 

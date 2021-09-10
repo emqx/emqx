@@ -48,7 +48,7 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_pingreq_before_connected,
     TestCase =/= t_ws_non_check_origin
     ->
-    emqx_channel_SUITE:set_default_zone_conf(),
+    emqx_channel_SUITE:set_test_listenser_confs(),
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
     ok = meck:expect(cowboy_req, header, fun(_, _, _) -> <<>> end),
@@ -119,7 +119,7 @@ t_info(_) ->
      } = SockInfo.
 
 set_ws_opts(Key, Val) ->
-    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, Key], Val).
+    emqx_config:put_listener_conf(ws, default, [websocket, Key], Val).
 
 t_header(_) ->
     ok = meck:expect(cowboy_req, header,
@@ -127,7 +127,7 @@ t_header(_) ->
            (<<"x-forwarded-port">>, _, _) -> <<"1000">> end),
     set_ws_opts(proxy_address_header, <<"x-forwarded-for">>),
     set_ws_opts(proxy_port_header, <<"x-forwarded-port">>),
-    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default, listener => mqtt_ws}]),
+    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default, listener => {ws, default}}]),
     WsPid = spawn(fun() ->
         receive {call, From, info} ->
             gen_server:reply(From, ?ws_conn:info(St))
@@ -222,8 +222,8 @@ t_ws_sub_protocols_mqtt_equivalents(_) ->
         start_ws_client(#{protocols => [<<"not-mqtt">>]})).
 
 t_ws_check_origin(_) ->
-    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, check_origin_enable], true),
-    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, check_origins],
+    emqx_config:put_listener_conf(ws, default, [websocket, check_origin_enable], true),
+    emqx_config:put_listener_conf(ws, default, [websocket, check_origins],
         [<<"http://localhost:18083">>]),
     {ok, _} = application:ensure_all_started(gun),
     ?assertMatch({gun_upgrade, _},
@@ -234,8 +234,8 @@ t_ws_check_origin(_) ->
                           headers => [{<<"origin">>, <<"http://localhost:18080">>}]})).
 
 t_ws_non_check_origin(_) ->
-    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, check_origin_enable], false),
-    emqx_config:put_listener_conf(default, mqtt_ws, [websocket, check_origins], []),
+    emqx_config:put_listener_conf(ws, default, [websocket, check_origin_enable], false),
+    emqx_config:put_listener_conf(ws, default, [websocket, check_origins], []),
     {ok, _} = application:ensure_all_started(gun),
     ?assertMatch({gun_upgrade, _},
         start_ws_client(#{protocols => [<<"mqtt">>],
@@ -245,7 +245,7 @@ t_ws_non_check_origin(_) ->
                           headers => [{<<"origin">>, <<"http://localhost:18080">>}]})).
 
 t_init(_) ->
-    Opts = #{listener => mqtt_ws, zone => default},
+    Opts = #{listener => {ws, default}, zone => default},
     ok = meck:expect(cowboy_req, parse_header, fun(_, req) -> undefined end),
     ok = meck:expect(cowboy_req, reply, fun(_, Req) -> Req end),
     {ok, req, _} = ?ws_conn:init(req, Opts),
@@ -438,7 +438,7 @@ t_shutdown(_) ->
 
 st() -> st(#{}).
 st(InitFields) when is_map(InitFields) ->
-    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default, listener => mqtt_ws}]),
+    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default, listener => {ws, default}}]),
     maps:fold(fun(N, V, S) -> ?ws_conn:set_field(N, V, S) end,
               ?ws_conn:set_field(channel, channel(), St),
               InitFields
@@ -459,7 +459,7 @@ channel(InitFields) ->
                  expiry_interval => 0
                 },
     ClientInfo = #{zone       => default,
-                   listener   => mqtt_ws,
+                   listener   => {ws, default},
                    protocol   => mqtt,
                    peerhost   => {127,0,0,1},
                    clientid   => <<"clientid">>,
@@ -472,7 +472,7 @@ channel(InitFields) ->
     maps:fold(fun(Field, Value, Channel) ->
                       emqx_channel:set_field(Field, Value, Channel)
               end,
-              emqx_channel:init(ConnInfo, #{zone => default, listener => mqtt_ws}),
+              emqx_channel:init(ConnInfo, #{zone => default, listener => {ws, default}}),
               maps:merge(#{clientinfo => ClientInfo,
                            session    => Session,
                            conn_state => connected

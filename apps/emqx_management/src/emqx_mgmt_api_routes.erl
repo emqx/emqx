@@ -26,80 +26,67 @@
 -export([ routes/2
         , route/2]).
 
+-export([query/4]).
+
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
-api_spec() ->
-    {
-        [routes_api(), route_api()],
-        [route_schema()]
-    }.
+-define(ROUTES_QS_SCHEMA, [{<<"topic">>, binary}, {<<"node">>, atom}]).
 
-route_schema() ->
-    #{
-        route => #{
-            type => object,
-            properties => #{
-                topic => #{
-                    type => string},
-                node => #{
-                    type => string,
-                    example => node()}}}}.
+-import(emqx_mgmt_util, [ object_schema/2
+                        , object_array_schema/2
+                        , error_schema/2
+                        , properties/1
+                        , page_params/0
+                        ]).
+
+api_spec() ->
+    {[routes_api(), route_api()], []}.
+
+properties() ->
+    properties([
+        {topic, string},
+        {node, string}
+    ]).
 
 routes_api() ->
     Metadata = #{
         get => #{
             description => <<"EMQ X routes">>,
-            parameters => [
-                #{
-                    name => page,
-                    in => query,
-                    description => <<"Page">>,
-                    schema => #{type => integer, default => 1}
-                },
-                #{
-                    name => limit,
-                    in => query,
-                    description => <<"Page size">>,
-                    schema => #{type => integer, default => emqx_mgmt:max_row_limit()}
-                }],
+            parameters => [topic_param(query) , node_param()] ++ page_params(),
             responses => #{
-                <<"200">> =>
-                    emqx_mgmt_util:response_array_schema("List route info", route)}}},
+                <<"200">> => object_array_schema(properties(), <<"List route info">>)
+            }
+        }
+    },
     {"/routes", Metadata, routes}.
 
 route_api() ->
     Metadata = #{
         get => #{
             description => <<"EMQ X routes">>,
-            parameters => [#{
-                name => topic,
-                in => path,
-                required => true,
-                description => <<"topic">>,
-                schema => #{type => string}
-            }],
+            parameters => [topic_param(path)],
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Route info">>, route),
+                    object_schema(properties(), <<"Route info">>),
                 <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Topic not found">>, [?TOPIC_NOT_FOUND])
-            }}},
+                    error_schema(<<"Topic not found">>, [?TOPIC_NOT_FOUND])
+            }
+        }
+    },
     {"/routes/:topic", Metadata, route}.
 
 %%%==============================================================================================
 %% parameters trans
-routes(get, Request) ->
-    Params = cowboy_req:parse_qs(Request),
-    list(Params).
+routes(get, #{query_string := Qs}) ->
+    list(generate_topic(Qs)).
 
-route(get, Request) ->
-    Topic = cowboy_req:binding(topic, Request),
-    lookup(#{topic => Topic}).
+route(get, #{bindings := Bindings}) ->
+    lookup(generate_topic(Bindings)).
 
 %%%==============================================================================================
 %% api apply
 list(Params) ->
-    Response = emqx_mgmt_api:paginate(emqx_route, Params, fun format/1),
+    Response = emqx_mgmt_api:node_query(node(), Params, emqx_route, ?ROUTES_QS_SCHEMA, {?MODULE, query}),
     {200, Response}.
 
 lookup(#{topic := Topic}) ->
@@ -112,7 +99,41 @@ lookup(#{topic := Topic}) ->
 
 %%%==============================================================================================
 %% internal
+generate_topic(Params = #{<<"topic">> := Topic}) ->
+    Params#{<<"topic">> => uri_string:percent_decode(Topic)};
+generate_topic(Params = #{topic := Topic}) ->
+    Params#{topic => uri_string:percent_decode(Topic)};
+generate_topic(Params) -> Params.
+
+query(Tab, {Qs, _}, Start, Limit) ->
+    Ms = qs2ms(Qs, [{{route, '_', '_'}, [], ['$_']}]),
+    emqx_mgmt_api:select_table(Tab, Ms, Start, Limit, fun format/1).
+
+qs2ms([], Res) -> Res;
+qs2ms([{topic,'=:=', T} | Qs], [{{route, _, N}, [], ['$_']}]) ->
+    qs2ms(Qs, [{{route, T, N}, [], ['$_']}]);
+qs2ms([{node,'=:=', N} | Qs], [{{route, T, _}, [], ['$_']}]) ->
+    qs2ms(Qs, [{{route, T, N}, [], ['$_']}]).
+
 format(#route{topic = Topic, dest = {_, Node}}) ->
     #{topic => Topic, node => Node};
 format(#route{topic = Topic, dest = Node}) ->
     #{topic => Topic, node => Node}.
+
+topic_param(In) ->
+    #{
+        name => topic,
+        in => In,
+        required => In == path,
+        description => <<"Topic string, url encoding">>,
+        schema => #{type => string}
+    }.
+
+node_param()->
+    #{
+        name => node,
+        in => query,
+        required => false,
+        description => <<"Node">>,
+        schema => #{type => string}
+    }.

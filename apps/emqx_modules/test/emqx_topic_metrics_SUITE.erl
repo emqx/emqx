@@ -19,6 +19,10 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+
+-define(TOPIC, <<"""
+topic_metrics: []""">>).
+
 -include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_ct:all(?MODULE).
@@ -26,6 +30,7 @@ all() -> emqx_ct:all(?MODULE).
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([emqx_modules]),
+    ok = emqx_config:init_load(emqx_modules_schema, ?TOPIC),
     Config.
 
 end_per_suite(_Config) ->
@@ -43,7 +48,7 @@ t_nonexistent_topic_metrics(_) ->
     ?assertEqual({error, invalid_metric}, emqx_topic_metrics:inc(<<"a/b/c">>, 'invalid.metrics')),
     ?assertEqual({error, invalid_metric}, emqx_topic_metrics:rate(<<"a/b/c">>, 'invalid.metrics')),
     % ?assertEqual({error, invalid_metric}, emqx_topic_metrics:rates(<<"a/b/c">>, 'invalid.metrics')),
-    emqx_topic_metrics:unregister(<<"a/b/c">>),
+    emqx_topic_metrics:deregister(<<"a/b/c">>),
     emqx_topic_metrics:disable().
 
 t_topic_metrics(_) ->
@@ -60,7 +65,7 @@ t_topic_metrics(_) ->
     ?assertEqual(1, emqx_topic_metrics:val(<<"a/b/c">>, 'messages.in')),
     ?assert(emqx_topic_metrics:rate(<<"a/b/c">>, 'messages.in') =:= 0),
     % ?assert(emqx_topic_metrics:rates(<<"a/b/c">>, 'messages.in') =:= #{long => 0,medium => 0,short => 0}),
-    emqx_topic_metrics:unregister(<<"a/b/c">>),
+    emqx_topic_metrics:deregister(<<"a/b/c">>),
     emqx_topic_metrics:disable().
 
 t_hook(_) ->
@@ -91,5 +96,5 @@ t_hook(_) ->
     ?assertEqual(1, emqx_topic_metrics:val(<<"a/b/c">>, 'messages.out')),
     ?assertEqual(1, emqx_topic_metrics:val(<<"a/b/c">>, 'messages.qos0.out')),
     ?assertEqual(1, emqx_topic_metrics:val(<<"a/b/c">>, 'messages.dropped')),
-    emqx_topic_metrics:unregister(<<"a/b/c">>),
+    emqx_topic_metrics:deregister(<<"a/b/c">>),
     emqx_topic_metrics:disable().

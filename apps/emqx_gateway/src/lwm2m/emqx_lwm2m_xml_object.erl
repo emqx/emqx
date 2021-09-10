@@ -16,8 +16,8 @@
 
 -module(emqx_lwm2m_xml_object).
 
--include("emqx_lwm2m.hrl").
 -include_lib("xmerl/include/xmerl.hrl").
+-include("emqx_lwm2m.hrl").
 
 -export([ get_obj_def/2
         , get_object_id/1
@@ -38,8 +38,6 @@ get_obj_def(ObjectIdInt, true) ->
 get_obj_def(ObjectNameStr, false) ->
     emqx_lwm2m_xml_object_db:find_name(ObjectNameStr).
 
-
-
 get_object_id(ObjDefinition) ->
     [#xmlText{value=ObjectId}] = xmerl_xpath:string("ObjectID/text()", ObjDefinition),
     ObjectId.
@@ -48,14 +46,12 @@ get_object_name(ObjDefinition) ->
     [#xmlText{value=ObjectName}] = xmerl_xpath:string("Name/text()", ObjDefinition),
     ObjectName.
 
-
 get_object_and_resource_id(ResourceNameBinary, ObjDefinition) ->
     ResourceNameString = binary_to_list(ResourceNameBinary),
     [#xmlText{value=ObjectId}] = xmerl_xpath:string("ObjectID/text()", ObjDefinition),
     [#xmlAttribute{value=ResourceId}] = xmerl_xpath:string("Resources/Item/Name[.=\""++ResourceNameString++"\"]/../@ID", ObjDefinition),
     ?LOG(debug, "get_object_and_resource_id ObjectId=~p, ResourceId=~p", [ObjectId, ResourceId]),
     {ObjectId, ResourceId}.
-
 
 get_resource_type(ResourceIdInt, ObjDefinition) ->
     ResourceIdString = integer_to_list(ResourceIdInt),

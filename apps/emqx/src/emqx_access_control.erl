@@ -27,30 +27,36 @@
 %%--------------------------------------------------------------------
 
 -spec(authenticate(emqx_types:clientinfo()) ->
-    ok | {ok, binary()} | {continue, map()} | {continue, binary(), map()} | {error, term()}).
+    {ok, map()} | {ok, map(), binary()} | {continue, map()} | {continue, binary(), map()} | {error, term()}).
 authenticate(Credential) ->
-    run_hooks('client.authenticate', [Credential], ok).
+    case run_hooks('client.authenticate', [Credential], {ok, #{is_superuser => false}}) of
+        ok ->
+            {ok, #{is_superuser => false}};
+        Other ->
+            Other
+    end.
 
 %% @doc Check Authorization
 -spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
       -> allow | deny.
-authorize(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
-    case emqx_authz_cache:is_enabled(Zone) of
+authorize(ClientInfo, PubSub, Topic) ->
+    case emqx_authz_cache:is_enabled() of
         true  -> check_authorization_cache(ClientInfo, PubSub, Topic);
         false -> do_authorize(ClientInfo, PubSub, Topic)
     end.
 
-check_authorization_cache(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
-    case emqx_authz_cache:get_authz_cache(Zone, PubSub, Topic) of
+check_authorization_cache(ClientInfo, PubSub, Topic) ->
+    case emqx_authz_cache:get_authz_cache(PubSub, Topic) of
         not_found ->
             AuthzResult = do_authorize(ClientInfo, PubSub, Topic),
-            emqx_authz_cache:put_authz_cache(Zone, PubSub, Topic, AuthzResult),
+            emqx_authz_cache:put_authz_cache(PubSub, Topic, AuthzResult),
             AuthzResult;
         AuthzResult -> AuthzResult
     end.
 
 do_authorize(ClientInfo, PubSub, Topic) ->
-    case run_hooks('client.authorize', [ClientInfo, PubSub, Topic], allow) of
+    NoMatch = emqx:get_config([authorization, no_match], allow),
+    case run_hooks('client.authorize', [ClientInfo, PubSub, Topic], NoMatch) of
         allow  -> allow;
         _Other -> deny
     end.

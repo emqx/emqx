@@ -17,7 +17,7 @@ defmodule EMQXUmbrella.MixProject do
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:jsx, "~> 3.1", override: true},
       {:gun, github: "emqx/gun", tag: "1.3.4", override: true},
-      {:hocon, github: "emqx/hocon", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.17.0", override: true},
       {:cuttlefish,
        github: "emqx/cuttlefish",
        manager: :rebar3,
@@ -37,7 +37,7 @@ defmodule EMQXUmbrella.MixProject do
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.5.1", override: true},
       {:gen_coap, github: "emqx/gen_coap", tag: "v0.3.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.14.0", override: true},
-      {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.2.1", override: true}
+      {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.4.0", override: true}
       | (enable_bcrypt() && [{:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.0"}]) || []
     ]
   end

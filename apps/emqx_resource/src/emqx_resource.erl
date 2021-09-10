@@ -155,19 +155,19 @@ query_failed({_, {OnFailed, Args}}) ->
 %% APIs for resource instances
 %% =================================================================================
 -spec create(instance_id(), resource_type(), resource_config()) ->
-    {ok, resource_data()} | {error, Reason :: term()}.
+    {ok, resource_data() |'already_created'} | {error, Reason :: term()}.
 create(InstId, ResourceType, Config) ->
-    ?CLUSTER_CALL(create_local, [InstId, ResourceType, Config], {ok, _}).
+    cluster_call(create_local, [InstId, ResourceType, Config]).
 
 -spec create_local(instance_id(), resource_type(), resource_config()) ->
-    {ok, resource_data()} | {error, Reason :: term()}.
+    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create_local(InstId, ResourceType, Config) ->
     call_instance(InstId, {create, InstId, ResourceType, Config}).
 
 -spec create_dry_run(instance_id(), resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run(InstId, ResourceType, Config) ->
-    ?CLUSTER_CALL(create_dry_run_local, [InstId, ResourceType, Config]).
+    cluster_call(create_dry_run_local, [InstId, ResourceType, Config]).
 
 -spec create_dry_run_local(instance_id(), resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
@@ -177,7 +177,7 @@ create_dry_run_local(InstId, ResourceType, Config) ->
 -spec update(instance_id(), resource_type(), resource_config(), term()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 update(InstId, ResourceType, Config, Params) ->
-    ?CLUSTER_CALL(update_local, [InstId, ResourceType, Config, Params], {ok, _}).
+    cluster_call(update_local, [InstId, ResourceType, Config, Params]).
 
 -spec update_local(instance_id(), resource_type(), resource_config(), term()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
@@ -186,7 +186,7 @@ update_local(InstId, ResourceType, Config, Params) ->
 
 -spec remove(instance_id()) -> ok | {error, Reason :: term()}.
 remove(InstId) ->
-    ?CLUSTER_CALL(remove_local, [InstId]).
+    cluster_call(remove_local, [InstId]).
 
 -spec remove_local(instance_id()) -> ok | {error, Reason :: term()}.
 remove_local(InstId) ->
@@ -285,7 +285,7 @@ check_config(ResourceType, RawConfigTerm) ->
     end.
 
 -spec check_and_create(instance_id(), resource_type(), raw_resource_config()) ->
-    {ok, resource_data()} | {error, term()}.
+    {ok, resource_data() |'already_created'} | {error, term()}.
 check_and_create(InstId, ResourceType, RawConfig) ->
     check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> create(InstId, ResourceType, InstConf) end).
@@ -335,3 +335,9 @@ safe_apply(Func, Args) ->
 
 str(S) when is_binary(S) -> binary_to_list(S);
 str(S) when is_list(S) -> S.
+
+cluster_call(Func, Args) ->
+    case emqx_cluster_rpc:multicall(?MODULE, Func, Args) of
+        {ok, _TxnId, Result} -> Result;
+        Failed -> Failed
+    end.

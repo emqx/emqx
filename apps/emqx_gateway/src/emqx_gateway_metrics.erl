@@ -18,7 +18,7 @@
 
 -behaviour(gen_server).
 
--include("include/emqx_gateway.hrl").
+-include_lib("emqx_gateway/include/emqx_gateway.hrl").
 
 
 %% APIs
@@ -47,36 +47,36 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link(Type) ->
-    gen_server:start_link(?MODULE, [Type], []).
+start_link(GwName) ->
+    gen_server:start_link(?MODULE, [GwName], []).
 
--spec inc(gateway_type(), atom()) -> ok.
-inc(Type, Name) ->
-    inc(Type, Name, 1).
+-spec inc(gateway_name(), atom()) -> ok.
+inc(GwName, Name) ->
+    inc(GwName, Name, 1).
 
--spec inc(gateway_type(), atom(), integer()) -> ok.
-inc(Type, Name, Oct) ->
-    ets:update_counter(tabname(Type), Name, {2, Oct}, {Name, 0}),
+-spec inc(gateway_name(), atom(), integer()) -> ok.
+inc(GwName, Name, Oct) ->
+    ets:update_counter(tabname(GwName), Name, {2, Oct}, {Name, 0}),
     ok.
 
--spec dec(gateway_type(), atom()) -> ok.
-dec(Type, Name) ->
-    inc(Type, Name, -1).
+-spec dec(gateway_name(), atom()) -> ok.
+dec(GwName, Name) ->
+    inc(GwName, Name, -1).
 
--spec dec(gateway_type(), atom(), non_neg_integer()) -> ok.
-dec(Type, Name, Oct) ->
-    inc(Type, Name, -Oct).
+-spec dec(gateway_name(), atom(), non_neg_integer()) -> ok.
+dec(GwName, Name, Oct) ->
+    inc(GwName, Name, -Oct).
 
-tabname(Type) ->
-    list_to_atom(lists:concat([emqx_gateway_, Type, '_metrics'])).
+tabname(GwName) ->
+    list_to_atom(lists:concat([emqx_gateway_, GwName, '_metrics'])).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Type]) ->
+init([GwName]) ->
     TabOpts = [public, {write_concurrency, true}],
-    ok = emqx_tables:new(tabname(Type), [set|TabOpts]),
+    ok = emqx_tables:new(tabname(GwName), [set|TabOpts]),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->

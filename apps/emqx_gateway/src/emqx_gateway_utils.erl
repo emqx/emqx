@@ -17,6 +17,8 @@
 %% @doc Utils funcs for emqx-gateway
 -module(emqx_gateway_utils).
 
+-include("emqx_gateway.hrl").
+
 -export([ childspec/2
         , childspec/3
         , childspec/4
@@ -26,9 +28,17 @@
 
 -export([ apply/2
         , format_listenon/1
+        , parse_listenon/1
+        , unix_ts_to_rfc3339/1
+        , unix_ts_to_rfc3339/2
+        , listener_id/3
+        , parse_listener_id/1
         ]).
 
--export([ normalize_rawconf/1
+-export([ stringfy/1
+        ]).
+
+-export([ normalize_config/1
         ]).
 
 %% Common Envs
@@ -105,36 +115,109 @@ format_listenon({Addr, Port}) when is_list(Addr) ->
 format_listenon({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
 
--type listener() :: #{}.
+parse_listenon(Port) when is_integer(Port) ->
+    Port;
+parse_listenon(Str) when is_binary(Str) ->
+    parse_listenon(binary_to_list(Str));
+parse_listenon(Str) when is_list(Str) ->
+    case emqx_schema:to_ip_port(Str) of
+        {ok, R} -> R;
+        {error, _} ->
+            error({invalid_listenon_name, Str})
+    end.
 
--type rawconf() ::
-        #{ clientinfo_override => #{}
-         , authenticators      := list()
-         , listeners           => listener()
-         , atom()              => any()
-         }.
+listener_id(GwName, Type, LisName) ->
+    binary_to_atom(
+      <<(bin(GwName))/binary, ":",
+        (bin(Type))/binary,   ":",
+        (bin(LisName))/binary
+      >>).
 
--spec normalize_rawconf(rawconf())
+parse_listener_id(Id) ->
+    try
+        [GwName, Type, Name] = binary:split(bin(Id), <<":">>, [global]),
+        {binary_to_existing_atom(GwName), binary_to_existing_atom(Type),
+         binary_to_atom(Name)}
+    catch
+        _ : _ -> error({invalid_listener_id, Id})
+    end.
+
+bin(A) when is_atom(A) ->
+    atom_to_binary(A);
+bin(L) when is_list(L); is_binary(L) ->
+    iolist_to_binary(L).
+
+unix_ts_to_rfc3339(Keys, Map) when is_list(Keys) ->
+    lists:foldl(fun(K, Acc) -> unix_ts_to_rfc3339(K, Acc) end, Map, Keys);
+unix_ts_to_rfc3339(Key, Map) ->
+    case maps:get(Key, Map, undefined) of
+        undefined -> Map;
+        Ts ->
+          Map#{Key =>
+               emqx_rule_funcs:unix_ts_to_rfc3339(Ts, <<"millisecond">>)}
+    end.
+
+unix_ts_to_rfc3339(Ts) ->
+    emqx_rule_funcs:unix_ts_to_rfc3339(Ts, <<"millisecond">>).
+
+-spec stringfy(term()) -> binary().
+stringfy(T) ->
+    iolist_to_binary(io_lib:format("~0p", [T])).
+
+-spec normalize_config(emqx_config:config())
     -> list({ Type :: udp | tcp | ssl | dtls
+            , Name :: atom()
             , ListenOn :: esockd:listen_on()
             , SocketOpts :: esockd:option()
             , Cfg :: map()
             }).
-normalize_rawconf(RawConf = #{listener := LisMap}) ->
-    Cfg0 = maps:without([listener], RawConf),
+normalize_config(RawConf) ->
+    LisMap = maps:get(listeners, RawConf, #{}),
+    Cfg0 = maps:without([listeners], RawConf),
     lists:append(maps:fold(fun(Type, Liss, AccIn1) ->
         Listeners =
-            maps:fold(fun(_Name, Confs, AccIn2) ->
+            maps:fold(fun(Name, Confs, AccIn2) ->
                 ListenOn   = maps:get(bind, Confs),
-                SocketOpts = esockd:parse_opt(maps:to_list(Confs)),
+                SocketOpts = esockd_opts(Type, Confs),
                 RemainCfgs = maps:without(
-                               [bind] ++ proplists:get_keys(SocketOpts),
-                               Confs),
+                               [bind, tcp, ssl, udp, dtls]
+                               ++ proplists:get_keys(SocketOpts), Confs),
                 Cfg = maps:merge(Cfg0, RemainCfgs),
-                [{Type, ListenOn, SocketOpts, Cfg}|AccIn2]
+                [{Type, Name, ListenOn, SocketOpts, Cfg}|AccIn2]
             end, [], Liss),
             [Listeners|AccIn1]
     end, [], LisMap)).
+
+esockd_opts(Type, Opts0) ->
+    Opts1 = maps:with([acceptors, max_connections, max_conn_rate,
+                       proxy_protocol, proxy_protocol_timeout], Opts0),
+    Opts2 = Opts1#{access_rules => esockd_access_rules(maps:get(access_rules, Opts0, []))},
+    maps:to_list(case Type of
+        tcp  -> Opts2#{tcp_options => sock_opts(tcp, Opts0)};
+        ssl  -> Opts2#{tcp_options => sock_opts(tcp, Opts0),
+                       ssl_options => ssl_opts(ssl, Opts0)};
+        udp  -> Opts2#{udp_options => sock_opts(udp, Opts0)};
+        dtls -> Opts2#{udp_options => sock_opts(udp, Opts0),
+                       dtls_options => ssl_opts(dtls, Opts0)}
+    end).
+
+esockd_access_rules(StrRules) ->
+    Access = fun(S) ->
+        [A, CIDR] = string:tokens(S, " "),
+        {list_to_atom(A), case CIDR of "all" -> all; _ -> CIDR end}
+    end,
+    [Access(R) || R <- StrRules].
+
+ssl_opts(Name, Opts) ->
+    maps:to_list(
+        emqx_tls_lib:drop_tls13_for_old_otp(
+            maps:without([enable],
+                maps:get(Name, Opts, #{})))).
+
+sock_opts(Name, Opts) ->
+    maps:to_list(
+        maps:without([active_n],
+            maps:get(Name, Opts, #{}))).
 
 %%--------------------------------------------------------------------
 %% Envs
@@ -192,5 +275,6 @@ default_subopts() ->
     #{rh  => 0, %% Retain Handling
       rap => 0, %% Retain as Publish
       nl  => 0, %% No Local
-      qos => 0  %% QoS
+      qos => 0, %% QoS
+      is_new => true
      }.

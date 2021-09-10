@@ -21,12 +21,15 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
--export([ structs/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -36,14 +39,14 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-structs() -> [""].
+namespace() -> "authn:password-based:mongodb".
 
-fields("") ->
-    [ {config, {union, [ hoconsc:t(standalone)
-                       , hoconsc:t('replica-set')
-                       , hoconsc:t('sharded-cluster')
+roots() ->
+    [ {config, {union, [ hoconsc:mk(standalone)
+                       , hoconsc:mk('replica-set')
+                       , hoconsc:mk('sharded-cluster')
                        ]}}
-    ];
+    ].
 
 fields(standalone) ->
     common_fields() ++ emqx_connector_mongo:fields(single);
@@ -55,16 +58,16 @@ fields('sharded-cluster') ->
     common_fields() ++ emqx_connector_mongo:fields(sharded).
 
 common_fields() ->
-    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,               {enum, ['password-based']}}
-    , {server_type,             {enum, [mongodb]}}
+    [ {mechanism,               {enum, ['password-based']}}
+    , {backend,                 {enum, [mongodb]}}
     , {collection,              fun collection/1}
     , {selector,                fun selector/1}
     , {password_hash_field,     fun password_hash_field/1}
     , {salt_field,              fun salt_field/1}
+    , {is_superuser_field,      fun is_superuser_field/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           fun salt_position/1}
-    ].
+    ] ++ emqx_authn_schema:common_fields().
 
 collection(type) -> binary();
 collection(nullable) -> false;
@@ -82,6 +85,10 @@ salt_field(type) -> binary();
 salt_field(nullable) -> true;
 salt_field(_) -> undefined.
 
+is_superuser_field(type) -> binary();
+is_superuser_field(nullable) -> true;
+is_superuser_field(_) -> undefined.
+
 password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};
 password_hash_algorithm(default) -> sha256;
 password_hash_algorithm(_) -> undefined.
@@ -94,6 +101,12 @@ salt_position(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
+refs() ->
+    [ hoconsc:ref(?MODULE, standalone)
+    , hoconsc:ref(?MODULE, 'replica-set')
+    , hoconsc:ref(?MODULE, 'sharded-cluster')
+    ].
+
 create(#{ selector := Selector
         , '_unique' := Unique
         } = Config) ->
@@ -101,14 +114,15 @@ create(#{ selector := Selector
     State = maps:with([ collection
                       , password_hash_field
                       , salt_field
+                      , is_superuser_field
                       , password_hash_algorithm
                       , salt_position
                       , '_unique'], Config),
     NState = State#{selector => NSelector},
     case emqx_resource:create_local(Unique, emqx_connector_mongo, Config) of
-        {ok, _} ->
+        {ok, already_created} ->
             {ok, NState};
-        {error, already_created} ->
+        {ok, _} ->
             {ok, NState};
         {error, Reason} ->
             {error, Reason}
@@ -140,7 +154,8 @@ authenticate(#{password := Password} = Credential,
                 ignore;
             Doc ->
                 case check_password(Password, Doc, State) of
-                    ok -> ok;
+                    ok ->
+                        {ok, #{is_superuser => is_superuser(Doc, State)}};
                     {error, {cannot_find_password_hash_field, PasswordHashField}} ->
                         ?LOG(error, "['~s'] Can't find password hash field: ~s", [Unique, PasswordHashField]),
                         {error, bad_username_or_password};
@@ -220,6 +235,11 @@ check_password(Password,
                 false -> {error, bad_username_or_password}
             end
     end.
+
+is_superuser(Doc, #{is_superuser_field := IsSuperuserField}) ->
+    maps:get(IsSuperuserField, Doc, false);
+is_superuser(_, _) ->
+    false.
 
 hash(Algorithm, Password, Salt, prefix) ->
     emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>);

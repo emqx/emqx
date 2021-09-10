@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -17,19 +17,22 @@
 -ifndef(EMQX_GATEWAY_HRL).
 -define(EMQX_GATEWAY_HRL, 1).
 
--type instance_id()  :: atom().
--type gateway_type() :: atom().
+-type gateway_name() :: atom().
 
-%% @doc The Gateway Instace defination
--type instance() ::
-        #{ id      := instance_id()
-         , type    := gateway_type()
-         , name    := binary()
+-type listener() :: #{}.
+
+%% @doc The Gateway defination
+-type gateway() ::
+        #{ name    := gateway_name()
          , descr   => binary() | undefined
-         %% Appears only in creating or detailed info
-         , rawconf => map()
-         %% Appears only in getting instance status/info
-         , status  => stopped | running
+         %% Appears only in getting gateway info
+         , status  => stopped | running | unloaded
+         %% Timestamp in millisecond
+         , created_at => integer()
+         %% Timestamp in millisecond
+         , started_at => integer()
+         %% Appears only in getting gateway info
+         , config => emqx_config:config()
          }.
 
 -endif.

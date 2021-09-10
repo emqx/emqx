@@ -21,24 +21,52 @@
 -include("emqx_coap.hrl").
 
 %% API
--export([new/0, transfer_result/3]).
+-export([ new/0
+        , process_subscribe/4]).
 
--export([ received/3
-        , reply/4
-        , reply/5
-        , ack/3
-        , piggyback/4
+-export([ info/1
+        , info/2
+        , stats/1
+        ]).
+
+-export([ handle_request/2
+        , handle_response/2
+        , handle_out/2
+        , set_reply/2
         , deliver/3
-        , timeout/3]).
+        , timeout/2]).
 
 -export_type([session/0]).
 
 -record(session, { transport_manager :: emqx_coap_tm:manager()
                  , observe_manager :: emqx_coap_observe_res:manager()
-                 , next_msg_id :: coap_message_id()
+                 , created_at :: pos_integer()
                  }).
 
 -type session() :: #session{}.
+
+%% steal from emqx_session
+-define(INFO_KEYS, [subscriptions,
+                    upgrade_qos,
+                    retry_interval,
+                    await_rel_timeout,
+                    created_at
+                   ]).
+
+-define(STATS_KEYS, [subscriptions_cnt,
+                     subscriptions_max,
+                     inflight_cnt,
+                     inflight_max,
+                     mqueue_len,
+                     mqueue_max,
+                     mqueue_dropped,
+                     next_pkt_id,
+                     awaiting_rel_cnt,
+                     awaiting_rel_max
+                    ]).
+
+-import(emqx_coap_medium, [iter/3]).
+-import(emqx_coap_channel, [metrics_inc/2]).
 
 %%%-------------------------------------------------------------------
 %%% API
@@ -48,125 +76,147 @@ new() ->
     _ = emqx_misc:rand_seed(),
     #session{ transport_manager = emqx_coap_tm:new()
             , observe_manager = emqx_coap_observe_res:new_manager()
-            , next_msg_id = rand:uniform(?MAX_MESSAGE_ID)}.
+            , created_at = erlang:system_time(millisecond)}.
+
+%%--------------------------------------------------------------------
+%% Info, Stats
+%%--------------------------------------------------------------------
+%% @doc Compatible with emqx_session
+%% do we need use inflight and mqueue in here?
+-spec(info(session()) -> emqx_types:infos()).
+info(Session) ->
+    maps:from_list(info(?INFO_KEYS, Session)).
+
+info(Keys, Session) when is_list(Keys) ->
+    [{Key, info(Key, Session)} || Key <- Keys];
+info(subscriptions, #session{observe_manager = OM}) ->
+    emqx_coap_observe_res:subscriptions(OM);
+info(subscriptions_cnt, #session{observe_manager = OM}) ->
+    erlang:length(emqx_coap_observe_res:subscriptions(OM));
+info(subscriptions_max, _) ->
+    infinity;
+info(upgrade_qos, _) ->
+    ?QOS_0;
+info(inflight, _) ->
+    emqx_inflight:new();
+info(inflight_cnt, _) ->
+    0;
+info(inflight_max, _) ->
+    0;
+info(retry_interval, _) ->
+    infinity;
+info(mqueue, _) ->
+    emqx_mqueue:init(#{max_len => 0, store_qos0 => false});
+info(mqueue_len, #session{transport_manager = TM}) ->
+    maps:size(TM);
+info(mqueue_max, _) ->
+    0;
+info(mqueue_dropped, _) ->
+    0;
+info(next_pkt_id, _) ->
+    0;
+info(awaiting_rel, _) ->
+    #{};
+info(awaiting_rel_cnt, _) ->
+    0;
+info(awaiting_rel_max, _) ->
+    infinity;
+info(await_rel_timeout, _) ->
+    infinity;
+info(created_at, #session{created_at = CreatedAt}) ->
+    CreatedAt.
+
+%% @doc Get stats of the session.
+-spec(stats(session()) -> emqx_types:stats()).
+stats(Session) -> info(?STATS_KEYS, Session).
 
 %%%-------------------------------------------------------------------
 %%% Process Message
 %%%-------------------------------------------------------------------
-received(#coap_message{type = ack} = Msg, Cfg, Session) ->
-    handle_response(Msg, Cfg, Session);
+handle_request(Msg, Session) ->
+    call_transport_manager(?FUNCTION_NAME,
+                           Msg,
+                           Session).
 
-received(#coap_message{type = reset} = Msg, Cfg, Session) ->
-    handle_response(Msg, Cfg, Session);
+handle_response(Msg, Session) ->
+    call_transport_manager(?FUNCTION_NAME, Msg, Session).
 
-received(#coap_message{method = Method} = Msg, Cfg, Session) when is_atom(Method) ->
-    handle_request(Msg, Cfg, Session);
+handle_out(Msg, Session) ->
+    call_transport_manager(?FUNCTION_NAME, Msg, Session).
 
-received(Msg, Cfg, Session) ->
-    handle_response(Msg, Cfg, Session).
+set_reply(Msg, #session{transport_manager = TM} = Session) ->
+    TM2 = emqx_coap_tm:set_reply(Msg, TM),
+    Session#session{transport_manager = TM2}.
 
-reply(Req, Method, Cfg, Session) ->
-    reply(Req, Method, <<>>, Cfg, Session).
-
-reply(Req, Method, Payload, Cfg, Session) ->
-    Response = emqx_coap_message:response(Method, Payload, Req),
-    handle_out(Response, Cfg, Session).
-
-ack(Req, Cfg, Session) ->
-    piggyback(Req, <<>>, Cfg, Session).
-
-piggyback(Req, Payload, Cfg, Session) ->
-    Response = emqx_coap_message:ack(Req),
-    Response2 = emqx_coap_message:set_payload(Payload, Response),
-    handle_out(Response2, Cfg, Session).
-
-deliver(Delivers, Cfg, Session) ->
-    Fun = fun({_, Topic, Message},
-              #{out := OutAcc,
-                session := #session{observe_manager = OM,
-                                    next_msg_id = MsgId} = SAcc} = Acc) ->
-                  case emqx_coap_observe_res:res_changed(Topic, OM) of
+deliver(Delivers, Ctx, #session{observe_manager = OM,
+                                transport_manager = TM} = Session) ->
+    Fun = fun({_, Topic, Message}, {OutAcc, OMAcc, TMAcc} = Acc) ->
+                  case emqx_coap_observe_res:res_changed(Topic, OMAcc) of
                       undefined ->
+                          metrics_inc('delivery.dropped', Ctx),
+                          metrics_inc('delivery.dropped.no_subid', Ctx),
                           Acc;
                       {Token, SeqId, OM2} ->
-                          Msg = mqtt_to_coap(Message, MsgId, Token, SeqId, Cfg),
-                          SAcc2 = SAcc#session{next_msg_id = next_msg_id(MsgId),
-                                               observe_manager = OM2},
-                          #{out := Out} = Result = call_transport_manager(handle_out, Msg, Cfg, SAcc2),
-                          Result#{out := [Out | OutAcc]}
+                          metrics_inc('messages.delivered', Ctx),
+                          Msg = mqtt_to_coap(Message, Token, SeqId),
+                          #{out := Out, tm := TM2} = emqx_coap_tm:handle_out(Msg, TMAcc),
+                          {Out ++ OutAcc, OM2, TM2}
                   end
           end,
-    lists:foldl(Fun,
-                #{out => [],
-                  session => Session},
-                Delivers).
+    {Outs, OM2, TM2} = lists:foldl(Fun, {[], OM, TM}, lists:reverse(Delivers)),
 
-timeout(Timer, Cfg, Session) ->
-    call_transport_manager(?FUNCTION_NAME, Timer, Cfg, Session).
+    #{out => lists:reverse(Outs),
+      session => Session#session{observe_manager = OM2,
+                                 transport_manager = TM2}}.
 
-transfer_result(From, Value, Result) ->
-    ?TRANSFER_RESULT([out, subscribe], From, Value, Result).
+timeout(Timer, Session) ->
+    call_transport_manager(?FUNCTION_NAME, Timer, Session).
 
 %%%-------------------------------------------------------------------
 %%% Internal functions
 %%%-------------------------------------------------------------------
-handle_request(Msg, Cfg, Session) ->
-    call_transport_manager(?FUNCTION_NAME, Msg, Cfg, Session).
-
-handle_response(Msg, Cfg, Session) ->
-    call_transport_manager(?FUNCTION_NAME, Msg, Cfg, Session).
-
-handle_out(Msg, Cfg, Session) ->
-    call_transport_manager(?FUNCTION_NAME, Msg, Cfg, Session).
-
 call_transport_manager(Fun,
                        Msg,
-                       Cfg,
                        #session{transport_manager = TM} = Session) ->
-    try
-        Result = emqx_coap_tm:Fun(Msg, Cfg, TM),
-        {ok, _, Session2} = emqx_misc:pipeline([fun process_tm/2,
-                                                fun process_subscribe/2],
-                                               Result,
-                                               Session),
-        emqx_coap_channel:transfer_result(session, Session2, Result)
-    catch Type:Reason:Stack ->
-            ?ERROR("process transmission with, message:~p failed~n
-Type:~p,Reason:~p~n,StackTrace:~p~n", [Msg, Type, Reason, Stack]),
-            #{out => emqx_coap_message:response({error, internal_server_error}, Msg)}
-    end.
+    Result = emqx_coap_tm:Fun(Msg, TM),
+    iter([tm, fun process_tm/4, fun process_session/3],
+         Result,
+         Session).
 
-process_tm(#{tm := TM}, Session) ->
-    {ok, Session#session{transport_manager = TM}};
-process_tm(_, Session) ->
-    {ok, Session}.
+process_tm(TM, Result, Session, Cursor) ->
+    iter(Cursor, Result, Session#session{transport_manager = TM}).
 
-process_subscribe(#{subscribe := Sub}, #session{observe_manager = OM} =  Session) ->
+process_session(_, Result, Session) ->
+    Result#{session => Session}.
+
+process_subscribe(Sub, Msg, Result,
+                  #session{observe_manager = OM} = Session) ->
     case Sub of
         undefined ->
-            {ok, Session};
+            Result;
         {Topic, Token} ->
-            OM2 = emqx_coap_observe_res:insert(Topic, Token, OM),
-            {ok, Session#session{observe_manager = OM2}};
+            {SeqId, OM2} = emqx_coap_observe_res:insert(Topic, Token, OM),
+            Replay = emqx_coap_message:piggyback({ok, content}, Msg),
+            Replay2 = Replay#coap_message{options = #{observe => SeqId}},
+            Result#{reply => Replay2,
+                    session => Session#session{observe_manager = OM2}};
         Topic ->
             OM2 = emqx_coap_observe_res:remove(Topic, OM),
-            {ok, Session#session{observe_manager = OM2}}
-    end;
-process_subscribe(_, Session) ->
-    {ok, Session}.
+            Replay = emqx_coap_message:piggyback({ok, nocontent}, Msg),
+            Result#{reply => Replay,
+                    session => Session#session{observe_manager = OM2}}
+    end.
 
-mqtt_to_coap(MQTT, MsgId, Token, SeqId, Cfg) ->
+mqtt_to_coap(MQTT, Token, SeqId) ->
     #message{payload = Payload} = MQTT,
-    #coap_message{type = get_notify_type(MQTT, Cfg),
+    #coap_message{type = get_notify_type(MQTT),
                   method = {ok, content},
-                  id = MsgId,
                   token = Token,
                   payload = Payload,
-                  options = #{observe => SeqId,
-                              max_age => get_max_age(MQTT)}}.
+                  options = #{observe => SeqId}}.
 
-get_notify_type(#message{qos = Qos}, #{notify_type := Type}) ->
-    case Type of
+get_notify_type(#message{qos = Qos}) ->
+    case emqx:get_config([gateway, coap, notify_qos], non) of
         qos ->
             case Qos of
                 ?QOS_0 ->
@@ -177,19 +227,3 @@ get_notify_type(#message{qos = Qos}, #{notify_type := Type}) ->
         Other ->
             Other
     end.
-
--spec get_max_age(#message{}) -> max_age().
-get_max_age(#message{headers = #{properties := #{'Message-Expiry-Interval' := 0}}}) ->
-    ?MAXIMUM_MAX_AGE;
-get_max_age(#message{headers = #{properties := #{'Message-Expiry-Interval' := Interval}},
-                     timestamp = Ts}) ->
-    Now = erlang:system_time(millisecond),
-    Diff = (Now - Ts + Interval * 1000) / 1000,
-    erlang:max(1, erlang:floor(Diff));
-get_max_age(_) ->
-    ?DEFAULT_MAX_AGE.
-
-next_msg_id(MsgId) when MsgId >= ?MAX_MESSAGE_ID ->
-    1;
-next_msg_id(MsgId) ->
-    MsgId + 1.

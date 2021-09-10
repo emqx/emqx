@@ -96,11 +96,6 @@
 
 -define(T_CALL, 10000).
 
--rlog_shard({?RULE_ENGINE_SHARD, ?RULE_TAB}).
--rlog_shard({?RULE_ENGINE_SHARD, ?ACTION_TAB}).
--rlog_shard({?RULE_ENGINE_SHARD, ?RES_TAB}).
--rlog_shard({?RULE_ENGINE_SHARD, ?RES_TYPE_TAB}).
-
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
@@ -112,6 +107,7 @@ mnesia(boot) ->
     StoreProps = [{ets, [{read_concurrency, true}]}],
     %% Rule table
     ok = ekka_mnesia:create_table(?RULE_TAB, [
+                {rlog_shard, ?RULE_ENGINE_SHARD},
                 {disc_copies, [node()]},
                 {record_name, rule},
                 {index, [#rule.for]},
@@ -119,6 +115,7 @@ mnesia(boot) ->
                 {storage_properties, StoreProps}]),
     %% Rule action table
     ok = ekka_mnesia:create_table(?ACTION_TAB, [
+                {rlog_shard, ?RULE_ENGINE_SHARD},
                 {ram_copies, [node()]},
                 {record_name, action},
                 {index, [#action.for, #action.app]},
@@ -126,6 +123,7 @@ mnesia(boot) ->
                 {storage_properties, StoreProps}]),
     %% Resource table
     ok = ekka_mnesia:create_table(?RES_TAB, [
+                {rlog_shard, ?RULE_ENGINE_SHARD},
                 {disc_copies, [node()]},
                 {record_name, resource},
                 {index, [#resource.type]},
@@ -133,6 +131,7 @@ mnesia(boot) ->
                 {storage_properties, StoreProps}]),
     %% Resource type table
     ok = ekka_mnesia:create_table(?RES_TYPE_TAB, [
+                {rlog_shard, ?RULE_ENGINE_SHARD},
                 {ram_copies, [node()]},
                 {record_name, resource_type},
                 {index, [#resource_type.provider]},
@@ -186,7 +185,7 @@ get_rules_ordered_by_ts() ->
 -spec(get_rules_for(Topic :: binary()) -> list(emqx_rule_engine:rule())).
 get_rules_for(Topic) ->
     [Rule || Rule = #rule{for = For} <- get_rules(),
-             emqx_rule_utils:can_topic_match_oneof(Topic, For)].
+             emqx_plugin_libs_rule:can_topic_match_oneof(Topic, For)].
 
 -spec(get_rules_with_same_event(Topic :: binary()) -> list(emqx_rule_engine:rule())).
 get_rules_with_same_event(Topic) ->
@@ -222,7 +221,7 @@ remove_rules(Rules) ->
 
 %% @private
 insert_rule(Rule) ->
-    _ = ?CLUSTER_CALL(load_hooks_for_rule, [Rule]),
+    _ =  emqx_plugin_libs_rule:cluster_call(?MODULE, load_hooks_for_rule, [Rule]),
     mnesia:write(?RULE_TAB, Rule, write).
 
 %% @private
@@ -232,7 +231,7 @@ delete_rule(RuleId) when is_binary(RuleId) ->
         not_found -> ok
     end;
 delete_rule(Rule) ->
-    _ = ?CLUSTER_CALL(unload_hooks_for_rule, [Rule]),
+    _ =  emqx_plugin_libs_rule:cluster_call(?MODULE, unload_hooks_for_rule, [Rule]),
     mnesia:delete_object(?RULE_TAB, Rule, write).
 
 load_hooks_for_rule(#rule{for = Topics}) ->
@@ -477,10 +476,11 @@ code_change(_OldVsn, State, _Extra) ->
 
 get_all_records(Tab) ->
     %mnesia:dirty_match_object(Tab, mnesia:table_info(Tab, wild_pattern)).
-    %% Wrapping ets to a r/o transaction to avoid reading inconsistent
+    %% Wrapping ets to a transaction to avoid reading inconsistent
+    %% ( nest cluster_call transaction, no a r/o transaction)
     %% data during shard bootstrap
     {atomic, Ret} =
-        ekka_mnesia:ro_transaction(?RULE_ENGINE_SHARD,
+        ekka_mnesia:transaction(?RULE_ENGINE_SHARD,
                                    fun() ->
                                            ets:tab2list(Tab)
                                    end),

@@ -20,147 +20,157 @@
 
 -export([api_spec/0]).
 
--export([ listeners/2
-        , listener/2
-        , node_listener/2
-        , node_listeners/2
+-export([ list_listeners/2
+        , crud_listeners_by_id/2
+        , list_listeners_on_node/2
+        , crud_listener_by_id_on_node/2
         , manage_listeners/2
-        , manage_nodes_listeners/2]).
+        , jsonable_resp/2
+        ]).
 
 -export([format/1]).
 
 -include_lib("emqx/include/emqx.hrl").
 
+-define(NODE_LISTENER_NOT_FOUND, <<"Node name or listener id not found">>).
+-define(LISTENER_NOT_FOUND, <<"Listener id not found">>).
+
 api_spec() ->
     {
         [
-            listeners_api(),
-            listener_api(),
-            nodes_listeners_api(),
-            nodes_listener_api(),
-            manage_listeners_api(),
-            manage_nodes_listeners_api()
+            api_list_listeners(),
+            api_list_update_listeners_by_id(),
+            api_manage_listeners(),
+            api_list_listeners_on_node(),
+            api_get_update_listener_by_id_on_node(),
+            api_manage_listeners_on_node()
         ],
-        [listener_schema()]
+        []
     }.
 
-listener_schema() ->
-    #{
-        listener => #{
-        type => object,
-        properties => #{
-            node => #{
-                type => string,
-                description => <<"Node">>,
-                example => node()},
-            id => #{
-                type => string,
-                description => <<"Identifier">>},
-            acceptors => #{
-                type => integer,
-                description => <<"Number of Acceptor process">>},
-            max_conn => #{
-                type => integer,
-                description => <<"Maximum number of allowed connection">>},
-            type => #{
-                type => string,
-                description => <<"Listener type">>},
-            listen_on => #{
-                type => string,
-                description => <<"Listening port">>},
-            running => #{
-                type => boolean,
-                description => <<"Open or close">>},
-            auth => #{
-                type => boolean,
-                description => <<"Has auth">>}}}}.
+-define(TYPES, [tcp, ssl, ws, wss, quic]).
+req_schema() ->
+    Schema = [emqx_mgmt_api_configs:gen_schema(
+        emqx:get_raw_config([listeners, T, default], #{}))
+     || T <- ?TYPES],
+    #{oneOf => Schema}.
 
-listeners_api() ->
+resp_schema() ->
+    #{oneOf := Schema} = req_schema(),
+    AddMetadata = fun(Prop) ->
+        Prop#{running => #{type => boolean},
+              id => #{type => string},
+              node => #{type => string}}
+    end,
+    Schema1 = [S#{properties => AddMetadata(Prop)}
+               || S = #{properties := Prop} <- Schema],
+    #{oneOf => Schema1}.
+
+api_list_listeners() ->
     Metadata = #{
         get => #{
-            description => <<"List listeners in cluster">>,
+            description => <<"List listeners from all nodes in the cluster">>,
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:response_array_schema(<<"List all listeners">>, listener)}}},
-    {"/listeners", Metadata, listeners}.
+                    emqx_mgmt_util:array_schema(resp_schema(), <<"List listeners successfully">>)}}},
+    {"/listeners", Metadata, list_listeners}.
 
-listener_api() ->
+api_list_update_listeners_by_id() ->
     Metadata = #{
         get => #{
-            description => <<"List listeners by listener ID">>,
+            description => <<"List listeners by a given Id from all nodes in the cluster">>,
             parameters => [param_path_id()],
             responses => #{
                 <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Listener id not found">>, ['BAD_LISTENER_ID']),
+                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
                 <<"200">> =>
-                    emqx_mgmt_util:response_array_schema(<<"List listener info ok">>, listener)}}},
-    {"/listeners/:id", Metadata, listener}.
-
-manage_listeners_api() ->
-    Metadata = #{
-        get => #{
-            description => <<"Restart listeners in cluster">>,
-            parameters => [
-                param_path_id(),
-                param_path_operation()],
-            responses => #{
-                <<"500">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Operation  Failed">>, ['INTERNAL_ERROR']),
-                <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Listener id not found">>,
-                        ['BAD_LISTENER_ID']),
-                <<"400">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Listener id not found">>,
-                        ['BAD_REQUEST']),
-                <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Operation success">>)}}},
-    {"/listeners/:id/:operation", Metadata, manage_listeners}.
-
-manage_nodes_listeners_api() ->
-    Metadata = #{
+                    emqx_mgmt_util:array_schema(resp_schema(), <<"List listeners successfully">>)}},
         put => #{
-            description => <<"Restart listeners in cluster">>,
-            parameters => [
-                param_path_node(),
-                param_path_id(),
-                param_path_operation()],
-            responses => #{
-                <<"500">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Operation Failed">>, ['INTERNAL_ERROR']),
-                <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Bad node or Listener id not found">>,
-                        ['BAD_NODE_NAME','BAD_LISTENER_ID']),
-                <<"400">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Listener id not found">>,
-                        ['BAD_REQUEST']),
-                <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Operation success">>)}}},
-    {"/node/:node/listeners/:id/:operation", Metadata, manage_nodes_listeners}.
-
-nodes_listeners_api() ->
-    Metadata = #{
-        get => #{
-            description => <<"Get listener info in one node">>,
-            parameters => [param_path_node(), param_path_id()],
+            description => <<"Create or update a listener by a given Id to all nodes in the cluster">>,
+            parameters => [param_path_id()],
+            requestBody => emqx_mgmt_util:schema(req_schema(), <<"Listener Config">>),
             responses => #{
                 <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Node name or listener id not found">>,
-                        ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),
+                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Get listener info ok">>, listener)}}},
-    {"/nodes/:node/listeners/:id", Metadata, node_listener}.
+                    emqx_mgmt_util:array_schema(resp_schema(), <<"Create or update listener successfully">>)}},
+        delete => #{
+            description => <<"Delete a listener by a given Id to all nodes in the cluster">>,
+            parameters => [param_path_id()],
+            responses => #{
+                <<"404">> =>
+                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
+                <<"200">> =>
+                    emqx_mgmt_util:schema(<<"Delete listener successfully">>)}}
+    },
+    {"/listeners/:id", Metadata, crud_listeners_by_id}.
 
-nodes_listener_api() ->
+api_list_listeners_on_node() ->
     Metadata = #{
         get => #{
             description => <<"List listeners in one node">>,
             parameters => [param_path_node()],
             responses => #{
+                <<"200">> => emqx_mgmt_util:schema(resp_schema(), <<"List listeners successfully">>)}}},
+    {"/nodes/:node/listeners", Metadata, list_listeners_on_node}.
+
+api_get_update_listener_by_id_on_node() ->
+    Metadata = #{
+        get => #{
+            description => <<"Get a listener by a given Id on a specific node">>,
+            parameters => [param_path_node(), param_path_id()],
+            responses => #{
                 <<"404">> =>
-                    emqx_mgmt_util:response_error_schema(<<"Listener id not found">>),
+                    emqx_mgmt_util:error_schema(?NODE_LISTENER_NOT_FOUND,
+                        ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),
                 <<"200">> =>
-                    emqx_mgmt_util:response_schema(<<"Get listener info ok">>, listener)}}},
-    {"/nodes/:node/listeners", Metadata, node_listeners}.
+                    emqx_mgmt_util:schema(resp_schema(), <<"Get listener successfully">>)}},
+        put => #{
+            description => <<"Create or update a listener by a given Id on a specific node">>,
+            parameters => [param_path_node(), param_path_id()],
+            requestBody => emqx_mgmt_util:schema(req_schema(), <<"Listener Config">>),
+            responses => #{
+                <<"404">> =>
+                    emqx_mgmt_util:error_schema(?NODE_LISTENER_NOT_FOUND,
+                        ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),
+                <<"200">> =>
+                    emqx_mgmt_util:schema(resp_schema(), <<"Get listener successfully">>)}},
+        delete => #{
+            description => <<"Delete a listener by a given Id to all nodes in the cluster">>,
+            parameters => [param_path_node(), param_path_id()],
+            responses => #{
+                <<"404">> =>
+                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
+                <<"200">> =>
+                    emqx_mgmt_util:schema(<<"Delete listener successfully">>)}}
+    },
+    {"/nodes/:node/listeners/:id", Metadata, crud_listener_by_id_on_node}.
+
+api_manage_listeners() ->
+    Metadata = #{
+        post => #{
+            description => <<"Restart listeners on all nodes in the cluster">>,
+            parameters => [
+                param_path_id(),
+                param_path_operation()],
+            responses => #{
+                <<"500">> => emqx_mgmt_util:error_schema(<<"Operation Failed">>, ['INTERNAL_ERROR']),
+                <<"200">> => emqx_mgmt_util:schema(<<"Operation success">>)}}},
+    {"/listeners/:id/operation/:operation", Metadata, manage_listeners}.
+
+api_manage_listeners_on_node() ->
+    Metadata = #{
+        put => #{
+            description => <<"Restart listeners on all nodes in the cluster">>,
+            parameters => [
+                param_path_node(),
+                param_path_id(),
+                param_path_operation()],
+            responses => #{
+                <<"500">> => emqx_mgmt_util:error_schema(<<"Operation Failed">>, ['INTERNAL_ERROR']),
+                <<"200">> => emqx_mgmt_util:schema(<<"Operation success">>)}}},
+    {"/nodes/:node/listeners/:id/operation/:operation", Metadata, manage_listeners}.
+
 %%%==============================================================================================
 %% parameters
 param_path_node() ->
@@ -173,13 +183,11 @@ param_path_node() ->
     }.
 
 param_path_id() ->
-    {Example,_} = hd(emqx_mgmt:list_listeners(node())),
     #{
         name => id,
         in => path,
         schema => #{type => string},
-        required => true,
-        example => Example
+        required => true
     }.
 
 param_path_operation()->
@@ -195,118 +203,102 @@ param_path_operation()->
 
 %%%==============================================================================================
 %% api
-listeners(get, _Request) ->
-    list().
-
-listener(get, Request) ->
-    ID = binary_to_atom(cowboy_req:binding(id, Request)),
-    get_listeners(#{id => ID}).
-
-node_listeners(get, Request) ->
-    Node = binary_to_atom(cowboy_req:binding(node, Request)),
-    get_listeners(#{node => Node}).
-
-node_listener(get, Request) ->
-    Node = binary_to_atom(cowboy_req:binding(node, Request)),
-    ID = binary_to_atom(cowboy_req:binding(id, Request)),
-    get_listeners(#{node => Node, id => ID}).
-
-manage_listeners(_, Request) ->
-    ID = binary_to_atom(cowboy_req:binding(id, Request)),
-    Operation = binary_to_atom(cowboy_req:binding(operation, Request)),
-    manage(Operation, #{id => ID}).
-
-manage_nodes_listeners(_, Request) ->
-    Node = binary_to_atom(cowboy_req:binding(node, Request)),
-    ID = binary_to_atom(cowboy_req:binding(id, Request)),
-    Operation = binary_to_atom(cowboy_req:binding(operation, Request)),
-    manage(Operation, #{id => ID, node => Node}).
-
-%%%==============================================================================================
-
-%% List listeners in the cluster.
-list() ->
+list_listeners(get, _Request) ->
     {200, format(emqx_mgmt:list_listeners())}.
 
-get_listeners(Param) ->
-    case list_listener(Param) of
-        {error, not_found} ->
-            ID = maps:get(id, Param),
-            Reason = list_to_binary(io_lib:format("Error listener id ~p", [ID])),
-            {404, #{code => 'BAD_LISTENER_ID', message => Reason}};
-        {error, nodedown} ->
-            Node = maps:get(node, Param),
-            Reason = list_to_binary(io_lib:format("Node ~p rpc failed", [Node])),
-            Response = #{code => 'BAD_NODE_NAME', message => Reason},
-            {404, Response};
+crud_listeners_by_id(get, #{bindings := #{id := Id}}) ->
+    case [L || L = #{id := Id0} <- emqx_mgmt:list_listeners(),
+            atom_to_binary(Id0, latin1) =:= Id] of
         [] ->
-            ID = maps:get(id, Param),
-            Reason = list_to_binary(io_lib:format("Error listener id ~p", [ID])),
-            {404, #{code => 'BAD_LISTENER_ID', message => Reason}};
-        Data ->
-            {200, Data}
+            {400, #{code => 'RESOURCE_NOT_FOUND', message => ?LISTENER_NOT_FOUND}};
+        Listeners ->
+            {200, format(Listeners)}
+    end;
+crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Conf}) ->
+    return_listeners(emqx_mgmt:update_listener(Id, Conf));
+crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
+    Results = emqx_mgmt:remove_listener(Id),
+    case lists:filter(fun({error, _}) -> true; (_) -> false end, Results) of
+        [] -> {200};
+        Errors -> {500, #{code => 'UNKNOW_ERROR', message => err_msg(Errors)}}
     end.
 
-manage(Operation0, Param) ->
-    OperationMap = #{start => start_listener, stop => stop_listener, restart => restart_listener},
-    Operation = maps:get(Operation0, OperationMap),
-    case list_listener(Param) of
-        {error, not_found} ->
-            ID = maps:get(id, Param),
-            Reason = list_to_binary(io_lib:format("Error listener id ~p", [ID])),
-            {404, #{code => 'BAD_LISTENER_ID', message => Reason}};
-        {error, nodedown} ->
-            Node = maps:get(node, Param),
-            Reason = list_to_binary(io_lib:format("Node ~p rpc failed", [Node])),
-            Response = #{code => 'BAD_NODE_NAME', message => Reason},
-            {404, Response};
-        [] ->
-            ID = maps:get(id, Param),
-            Reason = list_to_binary(io_lib:format("Error listener id ~p", [ID])),
-            {404, #{code => 'RESOURCE_NOT_FOUND', message => Reason}};
-        ListenersOrSingleListener ->
-            manage_(Operation, ListenersOrSingleListener)
+list_listeners_on_node(get, #{bindings := #{node := Node}}) ->
+    case emqx_mgmt:list_listeners(atom(Node)) of
+        {error, Reason} ->
+            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}};
+        Listener ->
+            {200, format(Listener)}
     end.
 
-manage_(Operation, Listener) when is_map(Listener) ->
-    manage_(Operation, [Listener]);
-manage_(Operation, Listeners) when is_list(Listeners) ->
-    Results = [emqx_mgmt:manage_listener(Operation, Listener) || Listener <- Listeners],
-    case lists:filter(fun(Result) -> Result =/= ok end, Results) of
-        [] ->
-            {200};
-        Errors ->
-            case lists:filter(fun({error, {already_started, _}}) -> false; (_) -> true end, Results) of
-                [] ->
-                    ID = maps:get(id, hd(Listeners)),
-                    Message = list_to_binary(io_lib:format("Already Started: ~s", [ID])),
-                    {400, #{code => 'BAD_REQUEST', message => Message}};
-                _ ->
-                    case lists:filter(fun({error,not_found}) -> false; (_) -> true end, Results) of
-                        [] ->
-                            ID = maps:get(id, hd(Listeners)),
-                            Message = list_to_binary(io_lib:format("Already Stopped: ~s", [ID])),
-                            {400, #{code => 'BAD_REQUEST', message => Message}};
-                        _ ->
-                            Reason = list_to_binary(io_lib:format("~p", [Errors])),
-                            {500, #{code => 'UNKNOW_ERROR', message => Reason}}
-                    end
-            end
+crud_listener_by_id_on_node(get, #{bindings := #{id := Id, node := Node}}) ->
+    case emqx_mgmt:get_listener(atom(Node), atom(Id)) of
+        {error, not_found} ->
+            {404, #{code => 'RESOURCE_NOT_FOUND', message => ?NODE_LISTENER_NOT_FOUND}};
+        {error, Reason} ->
+            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}};
+        Listener ->
+            {200, format(Listener)}
+    end;
+crud_listener_by_id_on_node(put, #{bindings := #{id := Id, node := Node, body := Conf}}) ->
+    return_listeners(emqx_mgmt:update_listener(atom(Node), Id, Conf));
+crud_listener_by_id_on_node(delete, #{bindings := #{id := Id, node := Node}}) ->
+    case emqx_mgmt:remove_listener(atom(Node), Id) of
+        ok -> {200};
+        {error, Reason} -> {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}}
+    end.
+
+manage_listeners(_, #{bindings := #{id := Id, operation := Oper, node := Node}}) ->
+    {_, Result} = do_manage_listeners(Node, Id, Oper),
+    Result;
+
+manage_listeners(_, #{bindings := #{id := Id, operation := Oper}}) ->
+    Results = [do_manage_listeners(Node, Id, Oper) || Node <- ekka_mnesia:running_nodes()],
+    case lists:filter(fun({_, {200}}) -> false; (_) -> true end, Results) of
+        [] -> {200};
+        Errors -> {500, #{code => 'UNKNOW_ERROR', message => manage_listeners_err(Errors)}}
     end.
 
 %%%==============================================================================================
-%% util function
-list_listener(Params) ->
-    format(list_listener_(Params)).
+%% util functions
 
-list_listener_(#{node := Node, id := Identifier}) ->
-    emqx_mgmt:get_listener(Node, Identifier);
-list_listener_(#{id := Identifier}) ->
-    emqx_mgmt:list_listeners_by_id(Identifier);
-list_listener_(#{node := Node}) ->
-    emqx_mgmt:list_listeners(Node);
-list_listener_(#{}) ->
-    emqx_mgmt:list_listeners().
+do_manage_listeners(Node, Id, Oper) ->
+    Param = #{node => atom(Node), id => atom(Id)},
+    {Node, do_manage_listeners2(Oper, Param)}.
+
+do_manage_listeners2(<<"start">>, Param) ->
+    case emqx_mgmt:manage_listener(start_listener, Param) of
+        ok -> {200};
+        {error, {already_started, _}} -> {200};
+        {error, Reason} ->
+            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}}
+    end;
+do_manage_listeners2(<<"stop">>, Param) ->
+    case emqx_mgmt:manage_listener(stop_listener, Param) of
+        ok -> {200};
+        {error, not_found} -> {200};
+        {error, Reason} ->
+            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}}
+    end;
+do_manage_listeners2(<<"restart">>, Param) ->
+    case emqx_mgmt:manage_listener(restart_listener, Param) of
+        ok -> {200};
+        {error, not_found} -> do_manage_listeners2(<<"start">>, Param);
+        {error, Reason} ->
+            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}}
+    end.
+
+return_listeners(Listeners) ->
+    Results = format(Listeners),
+    case lists:filter(fun({error, _}) -> true; (_) -> false end, Results) of
+        [] -> {200, Results};
+        Errors -> {500, #{code => 'UNKNOW_ERROR', message => manage_listeners_err(Errors)}}
+    end.
+
+manage_listeners_err(Errors) ->
+    list_to_binary(lists:foldl(fun({Node, Err}, Str) ->
+            err_msg_str(#{node => Node, error => Err}) ++ "; " ++ Str
+        end, "", Errors)).
 
 format(Listeners) when is_list(Listeners) ->
     [format(Listener) || Listener <- Listeners];
@@ -314,17 +306,11 @@ format(Listeners) when is_list(Listeners) ->
 format({error, Reason}) ->
     {error, Reason};
 
-format({ID, Conf}) ->
-    #{
-        id              => ID,
-        node            => maps:get(node, Conf),
-        acceptors       => maps:get(acceptors, Conf),
-        max_conn        => maps:get(max_connections, Conf),
-        type            => maps:get(type, Conf),
-        listen_on       => list_to_binary(esockd:to_string(maps:get(bind, Conf))),
-        running         => trans_running(Conf),
-        auth            => maps:get(enable, maps:get(auth, Conf))
-    }.
+format(#{node := _Node, id := _Id} = Conf) when is_map(Conf) ->
+    emqx_map_lib:jsonable_map(Conf#{
+            running => trans_running(Conf)
+        }, fun ?MODULE:jsonable_resp/2).
+
 trans_running(Conf) ->
     case maps:get(running, Conf) of
         {error, _} ->
@@ -332,3 +318,22 @@ trans_running(Conf) ->
         Running ->
             Running
     end.
+
+jsonable_resp(bind, Port) when is_integer(Port) ->
+    {bind, Port};
+jsonable_resp(bind, {Addr, Port}) when is_tuple(Addr); is_integer(Port)->
+    {bind, inet:ntoa(Addr) ++ ":" ++ integer_to_list(Port)};
+jsonable_resp(user_lookup_fun, _) ->
+    drop;
+jsonable_resp(K, V) ->
+    {K, V}.
+
+atom(B) when is_binary(B) -> binary_to_atom(B, utf8);
+atom(S) when is_list(S) -> list_to_atom(S);
+atom(A) when is_atom(A) -> A.
+
+err_msg(Reason) ->
+    list_to_binary(err_msg_str(Reason)).
+
+err_msg_str(Reason) ->
+    io_lib:format("~p", [Reason]).

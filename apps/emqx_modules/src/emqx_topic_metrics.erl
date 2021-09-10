@@ -37,12 +37,17 @@
         , disable/0
         ]).
 
--export([ metrics/1
+-export([ max_limit/0]).
+
+-export([ metrics/0
+        , metrics/1
         , register/1
-        , unregister/1
-        , unregister_all/0
+        , deregister/1
+        , deregister_all/0
         , is_registered/1
         , all_registered_topics/0
+        , reset/0
+        , reset/1
         ]).
 
 %% gen_server callbacks
@@ -92,6 +97,9 @@
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+max_limit() ->
+    ?MAX_TOPICS.
+
 enable() ->
     emqx_hooks:put('message.publish',   {?MODULE, on_message_publish, []}),
     emqx_hooks:put('message.dropped',   {?MODULE, on_message_dropped, []}),
@@ -100,7 +108,8 @@ enable() ->
 disable() ->
     emqx_hooks:del('message.publish',   {?MODULE, on_message_publish}),
     emqx_hooks:del('message.dropped',   {?MODULE, on_message_dropped}),
-    emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered}).
+    emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered}),
+    deregister_all().
 
 on_message_publish(#message{topic = Topic, qos = QoS}) ->
     case is_registered(Topic) of
@@ -137,82 +146,106 @@ on_message_dropped(#message{topic = Topic}, _, _) ->
     end.
 
 start_link() ->
-    Opts = emqx_config:get([topic_metrics], #{}),
+    Opts = emqx:get_config([topic_metrics], []),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
 
 stop() ->
     gen_server:stop(?MODULE).
 
+metrics() ->
+    [format(TopicMetrics) || TopicMetrics <- ets:tab2list(?TAB)].
+
 metrics(Topic) ->
     case ets:lookup(?TAB, Topic) of
         [] ->
             {error, topic_not_found};
-        [{Topic, CRef}] ->
-            lists:foldl(fun(Metric, Acc) ->
-                            [{to_count(Metric), counters:get(CRef, metric_idx(Metric))},
-                             {to_rate(Metric), rate(Topic, Metric)} | Acc]
-                        end, [], ?TOPIC_METRICS)
+        [TopicMetrics] ->
+            format(TopicMetrics)
     end.
 
 register(Topic) when is_binary(Topic) ->
     gen_server:call(?MODULE, {register, Topic}).
 
-unregister(Topic) when is_binary(Topic) ->
-    gen_server:call(?MODULE, {unregister, Topic}).
+deregister(Topic) when is_binary(Topic) ->
+    gen_server:call(?MODULE, {deregister, Topic}).
 
-unregister_all() ->
-    gen_server:call(?MODULE, {unregister, all}).
+deregister_all() ->
+    gen_server:call(?MODULE, {deregister, all}).
 
 is_registered(Topic) ->
     ets:member(?TAB, Topic).
 
 all_registered_topics() ->
-    [Topic || {Topic, _CRef} <- ets:tab2list(?TAB)].
+    [Topic || {Topic, _} <- ets:tab2list(?TAB)].
+
+reset(Topic) ->
+    case is_registered(Topic) of
+        true ->
+            gen_server:call(?MODULE, {reset, Topic});
+        false ->
+            {error, topic_not_found}
+    end.
+
+reset() ->
+    gen_server:call(?MODULE, {reset, all}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([_Opts]) ->
+init([Opts]) ->
     erlang:process_flag(trap_exit, true),
     ok = emqx_tables:new(?TAB, [{read_concurrency, true}]),
     erlang:send_after(timer:seconds(?TICKING_INTERVAL), self(), ticking),
-    {ok, #state{speeds = #{}}, hibernate}.
+    Fun =
+        fun(#{topic := Topic}, CurrentSpeeds) ->
+            case do_register(Topic, CurrentSpeeds) of
+                {ok, NSpeeds} ->
+                    NSpeeds;
+                {error, already_existed} ->
+                    CurrentSpeeds;
+                {error, quota_exceeded} ->
+                    error("max topic metrics quota exceeded")
+            end
+        end,
+    {ok, #state{speeds = lists:foldl(Fun, #{}, Opts)}, hibernate}.
 
 handle_call({register, Topic}, _From, State = #state{speeds = Speeds}) ->
-    case is_registered(Topic) of
-        true ->
-            {reply, {error, already_existed}, State};
-        false ->
-            case number_of_registered_topics() < ?MAX_TOPICS of
-                true ->
-                    CRef = counters:new(counters_size(), [write_concurrency]),
-                    true = ets:insert(?TAB, {Topic, CRef}),
-                    [counters:put(CRef, Idx, 0) || Idx <- lists:seq(1, counters_size())],
-                    NSpeeds = lists:foldl(fun(Metric, Acc) ->
-                                              maps:put({Topic, Metric}, #speed{}, Acc)
-                                          end, Speeds, ?TOPIC_METRICS),
-                    {reply, ok, State#state{speeds = NSpeeds}};
-                false ->
-                    {reply, {error, quota_exceeded}, State}
-            end
+    case do_register(Topic, Speeds) of
+        {ok, NSpeeds} ->
+            {reply, ok, State#state{speeds = NSpeeds}};
+        Error ->
+            {reply, Error, State}
     end;
 
-handle_call({unregister, all}, _From, State) ->
-    [delete_counters(Topic) || {Topic, _CRef} <- ets:tab2list(?TAB)],
+handle_call({deregister, all}, _From, State) ->
+    true = ets:delete_all_objects(?TAB),
+    update_config([]),
     {reply, ok, State#state{speeds = #{}}};
 
-handle_call({unregister, Topic}, _From, State = #state{speeds = Speeds}) ->
+handle_call({deregister, Topic}, _From, State = #state{speeds = Speeds}) ->
     case is_registered(Topic) of
         false ->
-            {reply, ok, State};
+            {reply, {error, topic_not_found}, State};
         true ->
-            ok = delete_counters(Topic),
+            true = ets:delete(?TAB, Topic),
             NSpeeds = lists:foldl(fun(Metric, Acc) ->
                                       maps:remove({Topic, Metric}, Acc)
                                   end, Speeds, ?TOPIC_METRICS),
+            remove_topic_config(Topic),
             {reply, ok, State#state{speeds = NSpeeds}}
     end;
+
+handle_call({reset, all}, _From, State = #state{speeds = Speeds}) ->
+    Fun =
+        fun(T, NSpeeds) ->
+            reset_topic(T, NSpeeds)
+        end,
+    {reply, ok, State#state{speeds = lists:foldl(Fun, Speeds, ets:tab2list(?TAB))}};
+
+handle_call({reset, Topic}, _From, State = #state{speeds = Speeds}) ->
+    NSpeeds = reset_topic(Topic, Speeds),
+    {reply, ok, State#state{speeds = NSpeeds}};
 
 handle_call({get_rates, Topic, Metric}, _From, State = #state{speeds = Speeds}) ->
     case is_registered(Topic) of
@@ -249,9 +282,82 @@ handle_info(Info, State) ->
 terminate(_Reason, _State) ->
     ok.
 
+reset_topic({Topic, Data}, Speeds) ->
+    CRef = maps:get(counter_ref, Data),
+    ok = reset_counter(CRef),
+    ResetTime = emqx_rule_funcs:now_rfc3339(),
+    true = ets:insert(?TAB, {Topic, Data#{reset_time => ResetTime}}),
+    Fun =
+        fun(Metric, CurrentSpeeds) ->
+            maps:put({Topic, Metric}, #speed{}, CurrentSpeeds)
+        end,
+    lists:foldl(Fun, Speeds, ?TOPIC_METRICS);
+reset_topic(Topic, Speeds) ->
+    T = hd(ets:lookup(?TAB, Topic)),
+    reset_topic(T, Speeds).
+
 %%------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------
+do_register(Topic, Speeds) ->
+    case is_registered(Topic) of
+        true ->
+            {error, already_existed};
+        false ->
+            case number_of_registered_topics() < ?MAX_TOPICS of
+                true ->
+                    CreateTime = emqx_rule_funcs:now_rfc3339(),
+                    CRef = counters:new(counters_size(), [write_concurrency]),
+                    ok = reset_counter(CRef),
+                    Data = #{
+                        counter_ref => CRef,
+                        create_time => CreateTime},
+                    true = ets:insert(?TAB, {Topic, Data}),
+                    NSpeeds = lists:foldl(fun(Metric, Acc) ->
+                                              maps:put({Topic, Metric}, #speed{}, Acc)
+                                          end, Speeds, ?TOPIC_METRICS),
+                    add_topic_config(Topic),
+                    {ok, NSpeeds};
+                false ->
+                    {error, quota_exceeded}
+            end
+    end.
+
+format({Topic, Data}) ->
+    CRef = maps:get(counter_ref, Data),
+    Fun =
+        fun(Key, Metrics) ->
+            CounterKey = to_count(Key),
+            Counter    = counters:get(CRef, metric_idx(Key)),
+            RateKey    = to_rate(Key),
+            Rate       = emqx_rule_funcs:float(rate(Topic, Key), 4),
+            maps:put(RateKey, Rate, maps:put(CounterKey, Counter, Metrics))
+        end,
+    Metrics = lists:foldl(Fun, #{}, ?TOPIC_METRICS),
+    CreateTime = maps:get(create_time, Data),
+    TopicMetrics = #{
+        topic => Topic,
+        metrics => Metrics,
+        create_time => CreateTime
+    },
+    case maps:get(reset_time, Data, undefined) of
+        undefined ->
+            TopicMetrics;
+        ResetTime ->
+            TopicMetrics#{reset_time => ResetTime}
+    end.
+
+remove_topic_config(Topic) when is_binary(Topic) ->
+    Topics = emqx_config:get_raw([<<"topic_metrics">>], []) -- [#{<<"topic">> => Topic}],
+    update_config(Topics).
+
+add_topic_config(Topic) when is_binary(Topic) ->
+    Topics = emqx_config:get_raw([<<"topic_metrics">>], []) ++ [#{<<"topic">> => Topic}],
+    update_config(lists:usort(Topics)).
+
+update_config(Topics) when is_list(Topics) ->
+    {ok, _} = emqx:update_config([topic_metrics], Topics),
+    ok.
 
 try_inc(Topic, Metric) ->
     _ = inc(Topic, Metric),
@@ -277,7 +383,8 @@ val(Topic, Metric) ->
     case ets:lookup(?TAB, Topic) of
         [] ->
             {error, topic_not_found};
-        [{Topic, CRef}] ->
+        [{Topic, Data}] ->
+            CRef = maps:get(counter_ref, Data),
             case metric_idx(Metric) of
                 {error, invalid_metric} ->
                     {error, invalid_metric};
@@ -344,14 +451,14 @@ to_rate('messages.qos2.out') ->
 to_rate('messages.dropped') ->
     'messages.dropped.rate'.
 
-delete_counters(Topic) ->
-    true = ets:delete(?TAB, Topic),
+reset_counter(CRef) ->
+    [counters:put(CRef, Idx, 0) || Idx <- lists:seq(1, counters_size())],
     ok.
 
 get_counters(Topic) ->
     case ets:lookup(?TAB, Topic) of
         [] -> {error, topic_not_found};
-        [{Topic, CRef}] -> CRef
+        [{Topic, Data}] -> maps:get(counter_ref, Data)
     end.
 
 counters_size() ->

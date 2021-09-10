@@ -19,12 +19,15 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
--export([ structs/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -34,14 +37,14 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-structs() -> [""].
+namespace() -> "authn:jwt".
 
-fields("") ->
-    [ {config, {union, [ hoconsc:t('hmac-based')
-                       , hoconsc:t('public-key')
-                       , hoconsc:t('jwks')
+roots() ->
+    [ {config, {union, [ hoconsc:mk('hmac-based')
+                       , hoconsc:mk('public-key')
+                       , hoconsc:mk('jwks')
                        ]}}
-    ];
+    ].
 
 fields('hmac-based') ->
     [ {use_jwks,              {enum, [false]}}
@@ -80,12 +83,11 @@ fields(ssl_disable) ->
     [ {enable, #{type => false}} ].
 
 common_fields() ->
-    [ {name,            fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,       {enum, [jwt]}}
+    [ {mechanism,       {enum, [jwt]}}
     , {verify_claims,   fun verify_claims/1}
-    ].
+    ] ++ emqx_authn_schema:common_fields().
 
-secret(type) -> string();
+secret(type) -> binary();
 secret(_) -> undefined.
 
 secret_base64_encoded(type) -> boolean();
@@ -132,6 +134,12 @@ verify_claims(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
+refs() ->
+   [ hoconsc:ref(?MODULE, 'hmac-based')
+   , hoconsc:ref(?MODULE, 'public-key')
+   , hoconsc:ref(?MODULE, 'jwks')
+   ].
+
 create(#{verify_claims := VerifyClaims} = Config) ->
     create2(Config#{verify_claims => handle_verify_claims(VerifyClaims)}).
 
@@ -169,7 +177,7 @@ authenticate(Credential = #{password := JWT}, #{jwk := JWK,
            end,
     VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
     case verify(JWT, JWKs, VerifyClaims) of
-        ok -> ok;
+        {ok, Extra} -> {ok, Extra};
         {error, invalid_signature} -> ignore;
         {error, {claims, _}} -> {error, bad_username_or_password}
     end.
@@ -239,7 +247,12 @@ verify(JWS, [JWK | More], VerifyClaims) ->
     try jose_jws:verify(JWK, JWS) of
         {true, Payload, _JWS} ->
             Claims = emqx_json:decode(Payload, [return_maps]),
-            verify_claims(Claims, VerifyClaims);
+            case verify_claims(Claims, VerifyClaims) of
+                ok ->
+                    {ok, #{is_superuser => maps:get(<<"is_superuser">>, Claims, false)}};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
         {false, _, _} ->
             verify(JWS, More, VerifyClaims)
     catch

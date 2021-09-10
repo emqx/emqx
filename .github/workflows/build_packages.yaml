@@ -20,8 +20,8 @@ jobs:
     container: ${{ matrix.container }}
 
     outputs:
-      profiles: ${{ steps.set_profile.outputs.profiles}}
-      old_vsns: ${{ steps.set_profile.outputs.old_vsns}}
+      profiles: ${{ steps.set_profile.outputs.profiles }}
+      old_vsns: ${{ steps.set_profile.outputs.old_vsns }}
 
     steps:
       - uses: actions/checkout@v2
@@ -44,6 +44,11 @@ jobs:
             echo "::set-output name=old_vsns::$old_vsns"
             echo "::set-output name=profiles::[\"emqx\", \"emqx-edge\"]"
           fi
+      - name: get otp version
+        id: get_otp_version
+        run: |
+          otp="$(erl -eval '{ok, Version} = file:read_file(filename:join([code:root_dir(), "releases", erlang:system_info(otp_release), "OTP_VERSION"])), io:fwrite(Version), halt().' -noshell)"
+          echo "::set-output name=otp::$otp"
       - name: set get token
         if: endsWith(github.repository, 'enterprise')
         run: |
@@ -54,12 +59,13 @@ jobs:
         run: |
           make ensure-rebar3
           ./rebar3 as default get-deps
+          rm -rf rebar.lock
       - name: gen zip file
-        run: zip -ryq source.zip source/* source/.[^.]*
+        run: zip -ryq source-${{ steps.get_otp_version.outputs.otp }}.zip source/* source/.[^.]*
       - uses: actions/upload-artifact@v2
         with:
-          name: source
-          path: source.zip
+          name: source-${{ steps.get_otp_version.outputs.otp }}
+          path: source-${{ steps.get_otp_version.outputs.otp }}.zip
 
   windows:
     runs-on: windows-2019
@@ -77,19 +83,21 @@ jobs:
     steps:
     - uses: actions/download-artifact@v2
       with:
-        name: source
+        name: source-23.2.7.2-emqx-2
         path: .
     - name: unzip source code
-      run: Expand-Archive -Path source.zip -DestinationPath ./
+      run: Expand-Archive -Path source-23.2.7.2-emqx-2.zip -DestinationPath ./
     - uses: ilammy/msvc-dev-cmd@v1
-    - uses: gleam-lang/setup-erlang@v1.1.0
+    - uses: gleam-lang/setup-erlang@v1.1.2
       id: install_erlang
+      ## gleam-lang/setup-erlang does not yet support the installation of otp24 on windows
       with:
-        otp-version: 24.0.5
+        otp-version: 23.2
     - name: build
       env:
         PYTHON: python
         DIAGNOSTIC: 1
+      working-directory: source
       run: |
         $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
 
@@ -101,9 +109,9 @@ jobs:
         else {
           $pkg_name = "${{ matrix.profile }}-windows-$($version -replace '/').zip"
           }
-        cd source
-        ## We do not build/release bcrypt for windows package
+        ## We do not build/release bcrypt and quic for windows package
         Remove-Item -Recurse -Force -Path _build/default/lib/bcrypt/
+        Remove-Item -Recurse -Force -Path _build/default/lib/quicer/
         if (Test-Path rebar.lock) {
             Remove-Item -Force -Path rebar.lock
         }
@@ -118,8 +126,8 @@ jobs:
         Get-FileHash -Path "_packages/${{ matrix.profile }}/$pkg_name" | Format-List | grep 'Hash' | awk '{print $3}'  > _packages/${{ matrix.profile }}/$pkg_name.sha256
     - name: run emqx
       timeout-minutes: 1
+      working-directory: source
       run: |
-        cd source
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
         Start-Sleep -s 5
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
@@ -128,7 +136,7 @@ jobs:
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-23.2.7.2-emqx-2
         path: source/_packages/${{ matrix.profile }}/.
 
   mac:
@@ -140,7 +148,7 @@ jobs:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
-        erl_otp:
+        otp:
           - 24.0.5-emqx-1
         exclude:
           - profile: emqx-edge
@@ -148,10 +156,10 @@ jobs:
     steps:
     - uses: actions/download-artifact@v2
       with:
-        name: source
+        name: source-${{ matrix.otp }}
         path: .
     - name: unzip source code
-      run: unzip -q source.zip
+      run: unzip -q source-${{ matrix.otp }}.zip
     - name: prepare
       run: |
         brew update
@@ -162,7 +170,7 @@ jobs:
       id: cache
       with:
         path: ~/.kerl
-        key: erl${{ matrix.erl_otp }}-macos10.15
+        key: erl${{ matrix.otp }}-macos10.15
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
@@ -171,25 +179,25 @@ jobs:
         OTP_GITHUB_URL: https://github.com/emqx/otp
       run: |
         kerl update releases
-        kerl build ${{ matrix.erl_otp }}
-        kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
+        kerl build ${{ matrix.otp }}
+        kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
     - name: build
+      working-directory: source
       run: |
-        . $HOME/.kerl/${{ matrix.erl_otp }}/activate
-        cd source
+        . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
         make ${{ matrix.profile }}-zip
     - name: test
+      working-directory: source
       run: |
-        cd source
         pkg_name=$(basename _packages/${{ matrix.profile }}/${{ matrix.profile }}-*.zip)
         unzip -q _packages/${{ matrix.profile }}/$pkg_name
         # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
         for i in {1..10}; do
-          if curl -fs 127.0.0.1:8081/api/v5/status > /dev/null; then
+          if curl -fs 127.0.0.1:18083/api/v5/status > /dev/null; then
             ready='yes'
             break
           fi
@@ -207,7 +215,7 @@ jobs:
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: source/_packages/${{ matrix.profile }}/.
 
   linux:
@@ -219,12 +227,6 @@ jobs:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
-        erl_otp:
-          - 23.2.7.2-emqx-2
-          - 24.0.5-emqx-1
-        arch:
-          - amd64
-          - arm64
         os:
           - ubuntu20.04
           - ubuntu18.04
@@ -237,6 +239,12 @@ jobs:
           - centos6
           - raspbian10
           # - raspbian9
+        arch:
+          - amd64
+          - arm64
+        otp:
+          - 23.2.7.2-emqx-2
+          - 24.0.5-emqx-1
         exclude:
         - os: centos6
           arch: arm64
@@ -265,10 +273,10 @@ jobs:
         platforms: all
     - uses: actions/download-artifact@v2
       with:
-        name: source
+        name: source-${{ matrix.otp }}
         path: .
     - name: unzip source code
-      run: unzip -q source.zip
+      run: unzip -q source-${{ matrix.otp }}.zip
     - name: downloads old emqx zip packages
       env:
         PROFILE: ${{ matrix.profile }}
@@ -298,7 +306,7 @@ jobs:
         done
     - name: build emqx packages
       env:
-        ERL_OTP: erl${{ matrix.erl_otp }}
+        ERL_OTP: erl${{ matrix.otp }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
@@ -327,7 +335,7 @@ jobs:
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: source/_packages/${{ matrix.profile }}/.
 
   docker:
@@ -338,67 +346,74 @@ jobs:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
-        erl_otp:
+        otp:
           - 24.0.5-emqx-1
 
     steps:
     - uses: actions/download-artifact@v2
       with:
-        name: source
+        name: source-${{ matrix.otp }}
         path: .
     - name: unzip source code
-      run: unzip -q source.zip
+      run: unzip -q source-${{ matrix.otp }}.zip
+    - name: get version
+      id: version
+      working-directory: source
+      run: echo "::set-output name=version::$(./pkg-vsn.sh)"
     - uses: docker/setup-buildx-action@v1
     - uses: docker/setup-qemu-action@v1
       with:
         image: tonistiigi/binfmt:latest
         platforms: all
-    - name: build emqx docker image
+    - uses: docker/build-push-action@v2
       if: github.event_name != 'release'
-      env:
-        ERL_OTP: erl${{ matrix.erl_otp }}
-        PROFILE: ${{ matrix.profile }}
-      working-directory: source
-      run: |
-        PKG_VSN="$(./pkg-vsn.sh)"
-        docker buildx build --no-cache \
-           --platform=linux/amd64,linux/arm64 \
-           --build-arg PKG_VSN=$PKG_VSN  \
-           --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-alpine  \
-           --build-arg RUN_FROM=alpine:3.14 \
-           --build-arg EMQX_NAME=$PROFILE \
-           --tag emqx/$PROFILE:$PKG_VSN \
-           -f deploy/docker/Dockerfile .
+      with:
+        push: false
+        pull: true
+        no-cache: true
+        platforms: linux/amd64,linux/arm64
+        tags: emqx/${{ matrix.profile }}:${{ steps.version.outputs.version }}
+        build-args: |
+          PKG_VSN=${{ steps.version.outputs.version }}
+          BUILD_FROM=emqx/build-env:erl${{ matrix.otp }}-alpine
+          RUN_FROM=alpine:3.14
+          EMQX_NAME=${{ matrix.profile }}
+        file: source/deploy/docker/Dockerfile
+        context: source
     - uses: docker/login-action@v1
       if: github.event_name == 'release'
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
-    - name: build emqx docker image
+    - uses: docker/build-push-action@v2
       if: github.event_name == 'release'
-      env:
-        ERL_OTP: erl${{ matrix.erl_otp }}
-        PROFILE: ${{ matrix.profile }}
-      working-directory: source
-      run: |
-        PKG_VSN="$(./pkg-vsn.sh)"
-        docker buildx build --no-cache \
-           --platform=linux/amd64,linux/arm64 \
-           --build-arg PKG_VSN=$PKG_VSN  \
-           --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-alpine  \
-           --build-arg RUN_FROM=alpine:3.14 \
-           --build-arg EMQX_NAME=$PROFILE \
-           --tag emqx/$PROFILE:$PKG_VSN \
-           -f deploy/docker/Dockerfile \
-           --push .
+      with:
+        push: true
+        pull: true
+        no-cache: true
+        platforms: linux/amd64,linux/arm64
+        tags: emqx/${{ matrix.profile }}:${{ steps.version.outputs.version }}
+        build-args: |
+          PKG_VSN=${{ steps.version.outputs.version }}
+          BUILD_FROM=emqx/build-env:erl${{ matrix.otp }}-alpine
+          RUN_FROM=alpine:3.14
+          EMQX_NAME=${{ matrix.profile }}
+        file: source/deploy/docker/Dockerfile
+        context: source
 
   delete-artifact:
+
     runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        otp:
+          - 23.2.7.2-emqx-2
+          - 24.0.5-emqx-1
     needs: [prepare, mac, linux, docker]
     steps:
     - uses: geekyeggo/delete-artifact@v1
       with:
-        name: source
+        name: source-${{ matrix.otp }}
 
   upload:
     runs-on: ubuntu-20.04
@@ -410,6 +425,8 @@ jobs:
     strategy:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        otp:
+          - 24.0.5-emqx-1
 
     steps:
     - uses: actions/checkout@v2
@@ -420,7 +437,7 @@ jobs:
         echo 'EOF' >> $GITHUB_ENV
     - uses: actions/download-artifact@v2
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: ./_packages/${{ matrix.profile }}
     - name: install dos2unix
       run: sudo apt-get update && sudo apt install -y dos2unix

@@ -20,147 +20,101 @@
 
 -include("emqx_mgmt.hrl").
 
--rest_api(#{name   => list_banned,
-            method => 'GET',
-            path   => "/banned/",
-            func   => list,
-            descr  => "List banned"}).
+-behaviour(minirest_api).
 
--rest_api(#{name   => create_banned,
-            method => 'POST',
-            path   => "/banned/",
-            func   => create,
-            descr  => "Create banned"}).
+-export([api_spec/0]).
 
--rest_api(#{name   => delete_banned,
-            method => 'DELETE',
-            path   => "/banned/:as/:who",
-            func   => delete,
-            descr  => "Delete banned"}).
-
--export([ list/2
-        , create/2
-        , delete/2
+-export([ banned/2
+        , delete_banned/2
         ]).
 
-list(_Bindings, Params) ->
-    emqx_mgmt:return({ok, emqx_mgmt_api:paginate(emqx_banned, Params, fun format/1)}).
+-import(emqx_mgmt_util, [ page_params/0
+                        , schema/1
+                        , object_schema/1
+                        , page_object_schema/1
+                        , properties/1
+                        , error_schema/1
+                        ]).
 
-create(_Bindings, Params) ->
-    case pipeline([fun ensure_required/1,
-                   fun validate_params/1], Params) of
-        {ok, NParams} ->
-            {ok, Banned} = pack_banned(NParams),
-            ok = emqx_mgmt:create_banned(Banned),
-            emqx_mgmt:return({ok, maps:from_list(Params)});
-        {error, Code, Message} ->
-            emqx_mgmt:return({error, Code, Message})
+-export([format/1]).
+
+-define(TAB, emqx_banned).
+
+api_spec() ->
+    {[banned_api(), delete_banned_api()], []}.
+
+-define(BANNED_TYPES, [clientid, username, peerhost]).
+
+properties() ->
+    properties([
+        {as, string, <<"Banned type clientid, username, peerhost">>, [clientid, username, peerhost]},
+        {who, string, <<"Client info as banned type">>},
+        {by, integer, <<"Commander">>},
+        {reason, string, <<"Banned reason">>},
+        {at, integer, <<"Create banned time. Nullable, rfc3339, default is now">>},
+        {until, string, <<"Cancel banned time. Nullable, rfc3339, default is now + 5 minute">>}
+    ]).
+
+banned_api() ->
+    Path = "/banned",
+    MetaData = #{
+        get => #{
+            description => <<"List banned">>,
+            parameters => page_params(),
+            responses => #{
+                <<"200">> =>
+                    page_object_schema(properties())}},
+        post => #{
+            description => <<"Create banned">>,
+            'requestBody' => object_schema(properties()),
+            responses => #{
+                <<"200">> => schema(<<"Create success">>)}}},
+    {Path, MetaData, banned}.
+
+delete_banned_api() ->
+    Path = "/banned/:as/:who",
+    MetaData = #{
+        delete => #{
+            description => <<"Delete banned">>,
+            parameters => [
+                #{
+                    name => as,
+                    in => path,
+                    required => true,
+                    description => <<"Banned type">>,
+                    schema => #{type => string, enum => ?BANNED_TYPES}
+                },
+                #{
+                    name => who,
+                    in => path,
+                    required => true,
+                    description => <<"Client info as banned type">>,
+                    schema => #{type => string}
+                }
+            ],
+            responses => #{
+                <<"200">> => schema(<<"Delete banned success">>),
+                <<"404">> => error_schema(<<"Banned not found">>)}}},
+    {Path, MetaData, delete_banned}.
+
+banned(get, #{query_string := Params}) ->
+    Response = emqx_mgmt_api:paginate(?TAB, Params, fun format/1),
+    {200, Response};
+banned(post, #{body := Body}) ->
+    _ = emqx_banned:create(emqx_banned:parse(Body)),
+    {200}.
+
+delete_banned(delete, #{bindings := Params}) ->
+    case emqx_banned:look_up(Params) of
+        [] ->
+            As0 = maps:get(as, Params),
+            Who0 = maps:get(who, Params),
+            Message = list_to_binary(io_lib:format("~p: ~p not found", [As0, Who0])),
+            {404, #{code => 'RESOURCE_NOT_FOUND', message => Message}};
+        _ ->
+            ok = emqx_banned:delete(Params),
+            {200}
     end.
 
-delete(#{as := As, who := Who}, _) ->
-    Params = [{<<"who">>, bin(emqx_mgmt_util:urldecode(Who))},
-              {<<"as">>, bin(emqx_mgmt_util:urldecode(As))}],
-    case pipeline([fun ensure_required/1,
-                   fun validate_params/1], Params) of
-        {ok, NParams} ->
-            do_delete(proplists:get_value(<<"as">>, NParams), proplists:get_value(<<"who">>, NParams)),
-            emqx_mgmt:return();
-        {error, Code, Message} ->
-            emqx_mgmt:return({error, Code, Message})
-    end.
-
-pipeline([], Params) ->
-    {ok, Params};
-pipeline([Fun|More], Params) ->
-    case Fun(Params) of
-        {ok, NParams} ->
-            pipeline(More, NParams);
-        {error, Code, Message} ->
-            {error, Code, Message}
-    end.
-
-%% Plugs
-ensure_required(Params) when is_list(Params) ->
-    #{required_params := RequiredParams, message := Msg} = required_params(),
-    AllIncluded = lists:all(fun(Key) ->
-                      lists:keymember(Key, 1, Params)
-                  end, RequiredParams),
-    case AllIncluded of
-        true -> {ok, Params};
-        false ->
-            {error, ?ERROR7, Msg}
-    end.
-
-validate_params(Params) ->
-    #{enum_values := AsEnums, message := Msg} = enum_values(as),
-    case lists:member(proplists:get_value(<<"as">>, Params), AsEnums) of
-        true -> {ok, Params};
-        false ->
-            {error, ?ERROR8, Msg}
-    end.
-
-pack_banned(Params) ->
-    Now = erlang:system_time(second),
-    do_pack_banned(Params, #{by => <<"user">>, at => Now, until => Now + 300}).
-
-do_pack_banned([], #{who := Who,  by := By, reason := Reason, at := At, until := Until}) ->
-    {ok, #banned{who = Who, by = By, reason = Reason, at = At, until = Until}};
-do_pack_banned([{<<"who">>, Who} | Params], Banned) ->
-    case lists:keytake(<<"as">>, 1, Params) of
-        {value, {<<"as">>, <<"peerhost">>}, Params2} ->
-            {ok, IPAddress} = inet:parse_address(str(Who)),
-            do_pack_banned(Params2, Banned#{who => {peerhost, IPAddress}});
-        {value, {<<"as">>, <<"clientid">>}, Params2} ->
-            do_pack_banned(Params2, Banned#{who => {clientid, Who}});
-        {value, {<<"as">>, <<"username">>}, Params2} ->
-            do_pack_banned(Params2, Banned#{who => {username, Who}})
-    end;
-do_pack_banned([P1 = {<<"as">>, _}, P2 | Params], Banned) ->
-    do_pack_banned([P2, P1 | Params], Banned);
-do_pack_banned([{<<"by">>, By} | Params], Banned) ->
-    do_pack_banned(Params, Banned#{by => By});
-do_pack_banned([{<<"reason">>, Reason} | Params], Banned) ->
-    do_pack_banned(Params, Banned#{reason => Reason});
-do_pack_banned([{<<"at">>, At} | Params], Banned) ->
-    do_pack_banned(Params, Banned#{at => At});
-do_pack_banned([{<<"until">>, Until} | Params], Banned) ->
-    do_pack_banned(Params, Banned#{until => Until});
-do_pack_banned([_P | Params], Banned) -> %% ignore other params
-    do_pack_banned(Params, Banned).
-
-do_delete(<<"peerhost">>, Who) ->
-    {ok, IPAddress} = inet:parse_address(str(Who)),
-    emqx_mgmt:delete_banned({peerhost, IPAddress});
-do_delete(<<"username">>, Who) ->
-    emqx_mgmt:delete_banned({username, bin(Who)});
-do_delete(<<"clientid">>, Who) ->
-    emqx_mgmt:delete_banned({clientid, bin(Who)}).
-
-required_params() ->
-    #{required_params => [<<"who">>, <<"as">>],
-      message => <<"missing mandatory params: ['who', 'as']">> }.
-
-enum_values(as) ->
-    #{enum_values => [<<"clientid">>, <<"username">>, <<"peerhost">>],
-      message => <<"value of 'as' must be one of: ['clientid', 'username', 'peerhost']">> }.
-
-%% Internal Functions
-
-format(BannedList) when is_list(BannedList) ->
-    [format(Ban) || Ban <- BannedList];
-format(#banned{who = {As, Who}, by = By, reason = Reason, at = At, until = Until}) ->
-    #{who => case As of
-                 peerhost -> bin(inet:ntoa(Who));
-                 _ -> Who
-             end,
-      as => As, by => By, reason => Reason, at => At, until => Until}.
-
-bin(L) when is_list(L) ->
-    list_to_binary(L);
-bin(B) when is_binary(B) ->
-    B.
-
-str(B) when is_binary(B) ->
-    binary_to_list(B);
-str(L) when is_list(L) ->
-    L.
+format(Banned) ->
+    emqx_banned:format(Banned).

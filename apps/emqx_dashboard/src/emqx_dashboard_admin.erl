@@ -18,20 +18,13 @@
 
 -module(emqx_dashboard_admin).
 
--behaviour(gen_server).
-
 -include("emqx_dashboard.hrl").
-
--rlog_shard({?DASHBOARD_SHARD, mqtt_admin}).
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
-
-%% API Function Exports
--export([start_link/0]).
 
 %% mqtt_admin api
 -export([ add_user/3
@@ -45,14 +38,12 @@
         , check/2
         ]).
 
-%% gen_server Function Exports
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
+-export([ sign_token/2
+        , verify_token/1
+        , destroy_token_by_username/2
         ]).
+
+-export([add_default_user/0]).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -61,6 +52,7 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(mqtt_admin, [
                 {type, set},
+                {rlog_shard, ?DASHBOARD_SHARD},
                 {disc_copies, [node()]},
                 {record_name, mqtt_admin},
                 {attributes, record_info(fields, mqtt_admin)},
@@ -72,10 +64,6 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
@@ -170,35 +158,32 @@ check(Username, Password) ->
         [#mqtt_admin{password = <<Salt:4/binary, Hash/binary>>}] ->
             case Hash =:= md5_hash(Salt, Password) of
                 true  -> ok;
-                false -> {error, <<"Password Error">>}
+                false -> {error, <<"PASSWORD_ERROR">>}
             end;
         [] ->
-            {error, <<"Username Not Found">>}
+            {error, <<"USERNAME_ERROR">>}
     end.
 
 %%--------------------------------------------------------------------
-%% gen_server callbacks
-%%--------------------------------------------------------------------
+%% token
+sign_token(Username, Password) ->
+    case check(Username, Password) of
+        ok ->
+            emqx_dashboard_token:sign(Username, Password);
+        Error ->
+            Error
+    end.
 
-init([]) ->
-    %% Add default admin user
-    _ = add_default_user(binenv(default_username), binenv(default_password)),
-    {ok, state}.
+verify_token(Token) ->
+    emqx_dashboard_token:verify(Token).
 
-handle_call(_Req, _From, State) ->
-    {reply, error, State}.
-
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
-handle_info(_Msg, State) ->
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+destroy_token_by_username(Username, Token) ->
+    case emqx_dashboard_token:lookup(Token) of
+        {ok, #mqtt_admin_jwt{username = Username}} ->
+            emqx_dashboard_token:destroy(Token);
+        _ ->
+            {error, not_found}
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -216,8 +201,11 @@ salt() ->
     Salt = rand:uniform(16#ffffffff),
     <<Salt:32>>.
 
+add_default_user() ->
+    add_default_user(binenv(default_username), binenv(default_password)).
+
 binenv(Key) ->
-    iolist_to_binary(emqx_config:get([emqx_dashboard, Key], "")).
+    iolist_to_binary(emqx:get_config([emqx_dashboard, Key], "")).
 
 add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY(Password) ->
     igonre;

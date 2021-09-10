@@ -99,7 +99,7 @@
 
 -type(channel() :: #channel{}).
 
--type(opts() :: #{zone := atom(), listener := atom(), atom() => term()}).
+-type(opts() :: #{zone := atom(), listener := {Type::atom(), Name::atom()}, atom() => term()}).
 
 -type(conn_state() :: idle | connecting | connected | reauthenticating | disconnected).
 
@@ -202,18 +202,19 @@ caps(#channel{clientinfo = #{zone := Zone}}) ->
 
 -spec(init(emqx_types:conninfo(), opts()) -> channel()).
 init(ConnInfo = #{peername := {PeerHost, _Port},
-                  sockname := {_Host, SockPort}}, #{zone := Zone, listener := Listener}) ->
+                  sockname := {_Host, SockPort}},
+     #{zone := Zone, listener := {Type, Listener}}) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Protocol = maps:get(protocol, ConnInfo, mqtt),
-    MountPoint = case get_mqtt_conf(Zone, mountpoint) of
+    MountPoint = case emqx_config:get_listener_conf(Type, Listener, [mountpoint]) of
         <<>> -> undefined;
         MP -> MP
     end,
-    QuotaPolicy = emqx_config:get_listener_conf(Zone, Listener,[rate_limit, quota], []),
+    QuotaPolicy = emqx_config:get_zone_conf(Zone, [quota], #{}),
     ClientInfo = set_peercert_infos(
                    Peercert,
                    #{zone         => Zone,
-                     listener     => Listener,
+                     listener     => emqx_listeners:listener_id(Type, Listener),
                      protocol     => Protocol,
                      peerhost     => PeerHost,
                      sockport     => SockPort,
@@ -222,7 +223,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                      mountpoint   => MountPoint,
                      is_bridge    => false,
                      is_superuser => false
-                    }, Zone, Listener),
+                    }, Zone),
     {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
     #channel{conninfo   = NConnInfo,
              clientinfo = NClientInfo,
@@ -243,12 +244,12 @@ quota_policy(RawPolicy) ->
              erlang:trunc(hocon_postprocess:duration(StrWind) / 1000)}}
      || {Name, [StrCount, StrWind]} <- maps:to_list(RawPolicy)].
 
-set_peercert_infos(NoSSL, ClientInfo, _, _)
+set_peercert_infos(NoSSL, ClientInfo, _)
   when NoSSL =:= nossl;
        NoSSL =:= undefined ->
     ClientInfo#{username => undefined};
 
-set_peercert_infos(Peercert, ClientInfo, Zone, _Listener) ->
+set_peercert_infos(Peercert, ClientInfo, Zone) ->
     {DN, CN} = {esockd_peercert:subject(Peercert),
                 esockd_peercert:common_name(Peercert)},
     PeercetAs = fun(Key) ->
@@ -425,7 +426,7 @@ handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{session = S
     end;
 
 handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-          Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
+          Channel = #channel{clientinfo = ClientInfo}) ->
     case emqx_packet:check(Packet) of
         ok ->
             TopicFilters0 = parse_topic_filters(TopicFilters),
@@ -434,7 +435,7 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
             HasAuthzDeny = lists:any(fun({_TopicFilter, ReasonCode}) ->
                     ReasonCode =:= ?RC_NOT_AUTHORIZED
                 end, TupleTopicFilters0),
-            DenyAction = emqx_config:get_zone_conf(Zone, [authorization, deny_action]),
+            DenyAction = emqx:get_config([authorization, deny_action], ignore),
             case DenyAction =:= disconnect andalso HasAuthzDeny of
                 true -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel);
                 false ->
@@ -536,8 +537,7 @@ process_connect(AckProps, Channel = #channel{conninfo = ConnInfo,
 %% Process Publish
 %%--------------------------------------------------------------------
 
-process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
-                Channel = #channel{clientinfo = #{zone := Zone}}) ->
+process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
     case pipeline([fun check_quota_exceeded/2,
                    fun process_alias/2,
                    fun check_pub_alias/2,
@@ -550,7 +550,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
         {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s.",
                  [Topic, emqx_reason_codes:text(Rc)]),
-            case emqx_config:get_zone_conf(Zone, [authorization, deny_action]) of
+            case emqx:get_config([authorization, deny_action], ignore) of
                 ignore ->
                     case QoS of
                        ?QOS_0 -> {ok, NChannel};
@@ -955,9 +955,8 @@ handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
     AllPendings = lists:append(Delivers, Pendings),
     disconnect_and_shutdown(takeovered, AllPendings, Channel);
 
-handle_call(list_authz_cache, #channel{clientinfo = #{zone := Zone}}
-        = Channel) ->
-    {reply, emqx_authz_cache:list_authz_cache(Zone), Channel};
+handle_call(list_authz_cache, Channel) ->
+    {reply, emqx_authz_cache:list_authz_cache(), Channel};
 
 handle_call({quota, Policy}, Channel) ->
     Zone = info(zone, Channel),
@@ -1299,14 +1298,17 @@ authenticate(?AUTH_PACKET(_, #{'Authentication-Method' := AuthMethod} = Properti
             {error, ?RC_BAD_AUTHENTICATION_METHOD}
     end.
 
-do_authenticate(#{auth_method := AuthMethod} = Credential, Channel) ->
+do_authenticate(#{auth_method := AuthMethod} = Credential, #channel{clientinfo = ClientInfo} = Channel) ->
     Properties = #{'Authentication-Method' => AuthMethod},
     case emqx_access_control:authenticate(Credential) of
-        ok ->
-            {ok, Properties, Channel#channel{auth_cache = #{}}};
-        {ok, AuthData} ->
+        {ok, Result} ->
+            {ok, Properties,
+             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(is_superuser, Result, false)},
+                             auth_cache = #{}}};
+        {ok, Result, AuthData} ->
             {ok, Properties#{'Authentication-Data' => AuthData},
-             Channel#channel{auth_cache = #{}}};
+             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(is_superuser, Result, false)},
+                             auth_cache = #{}}};
         {continue, AuthCache} ->
             {continue, Properties, Channel#channel{auth_cache = AuthCache}};
         {continue, AuthData, AuthCache} ->
@@ -1316,10 +1318,10 @@ do_authenticate(#{auth_method := AuthMethod} = Credential, Channel) ->
             {error, emqx_reason_codes:connack_error(Reason)}
     end;
 
-do_authenticate(Credential, Channel) ->
+do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
     case emqx_access_control:authenticate(Credential) of
-        ok ->
-            {ok, #{}, Channel};
+        {ok, #{is_superuser := IsSuperuser}} ->
+            {ok, #{}, Channel#channel{clientinfo = ClientInfo#{is_superuser => IsSuperuser}}};
         {error, Reason} ->
             {error, emqx_reason_codes:connack_error(Reason)}
     end.
@@ -1417,9 +1419,7 @@ check_pub_alias(_Packet, _Channel) -> ok.
 
 check_pub_authz(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
               #channel{clientinfo = ClientInfo}) ->
-    case is_authz_enabled(ClientInfo) andalso
-         emqx_access_control:authorize(ClientInfo, publish, Topic) of
-        false -> ok;
+    case emqx_access_control:authorize(ClientInfo, publish, Topic) of
         allow -> ok;
         deny  -> {error, ?RC_NOT_AUTHORIZED}
     end.
@@ -1440,8 +1440,10 @@ check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos    = QoS,
 check_sub_authzs(TopicFilters, Channel) ->
     check_sub_authzs(TopicFilters, Channel, []).
 
-check_sub_authzs([ TopicFilter = {Topic, _} | More] , Channel, Acc) ->
-    case check_sub_authz(Topic, Channel) of
+check_sub_authzs([ TopicFilter = {Topic, _} | More],
+                 Channel = #channel{clientinfo = ClientInfo},
+                 Acc) ->
+    case emqx_access_control:authorize(ClientInfo, subscribe, Topic) of
         allow ->
             check_sub_authzs(More, Channel, [ {TopicFilter, 0} | Acc]);
         deny ->
@@ -1449,13 +1451,6 @@ check_sub_authzs([ TopicFilter = {Topic, _} | More] , Channel, Acc) ->
     end;
 check_sub_authzs([], _Channel, Acc) ->
     lists:reverse(Acc).
-
-check_sub_authz(TopicFilter, #channel{clientinfo = ClientInfo}) ->
-    case is_authz_enabled(ClientInfo) andalso
-         emqx_access_control:authorize(ClientInfo, subscribe, TopicFilter) of
-        false  -> allow;
-        Result -> Result
-    end.
 
 %%--------------------------------------------------------------------
 %% Check Sub Caps
@@ -1617,11 +1612,6 @@ maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
             {ok, ensure_timer(expire_timer, I, Channel)};
         _ -> shutdown(Reason, Channel)
     end.
-
-%%--------------------------------------------------------------------
-%% Is Authorization enabled?
-is_authz_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
-    (not IsSuperuser) andalso emqx_config:get_zone_conf(Zone, [authorization, enable]).
 
 %%--------------------------------------------------------------------
 %% Parse Topic Filters

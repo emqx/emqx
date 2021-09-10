@@ -16,7 +16,7 @@ bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
 
 quicer() ->
-    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.7"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.8"}}}.
 
 deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
@@ -127,8 +127,7 @@ test_plugins() ->
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    %, {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "2.0.0"}}}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {branch, "hocon"}}}
+    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "2.1.0"}}}
     , meck
     ].
 
@@ -267,12 +266,12 @@ relx_apps(ReleaseType) ->
     , emqx_connector
     , emqx_authn
     , emqx_authz
+    , emqx_auto_subscribe
     , emqx_gateway
     , emqx_exhook
-    , emqx_data_bridge
+    , emqx_bridge
     , emqx_rule_engine
     , emqx_rule_actions
-    , emqx_bridge_mqtt
     , emqx_modules
     , emqx_management
     , emqx_dashboard
@@ -340,6 +339,7 @@ relx_overlay(ReleaseType) ->
     , {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"} %% for relup
     , {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"} %% for relup
     , {copy, "apps/emqx_gateway/src/lwm2m/lwm2m_xml", "etc/lwm2m_xml"}
+    , {copy, "apps/emqx_authz/etc/acl.conf", "etc/acl.conf"}
     , {template, "bin/emqx.cmd", "bin/emqx.cmd"}
     , {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"}
     , {copy, "bin/nodetool", "bin/nodetool"}
@@ -380,7 +380,10 @@ emqx_etc_overlay_common() ->
     ].
 
 get_vsn() ->
-    PkgVsn = os:cmd("./pkg-vsn.sh"),
+    %% to make it compatible to Linux and Windows,
+    %% we must use bash to execute the bash file
+    %% because "./" will not be recognized as an internal or external command
+    PkgVsn = os:cmd("bash pkg-vsn.sh"),
     re:replace(PkgVsn, "\n", "", [{return ,list}]).
 
 maybe_dump(Config) ->
@@ -397,10 +400,7 @@ is_debug(VarName) ->
     end.
 
 provide_bcrypt_dep() ->
-    case os:type() of
-        {win32, _} -> false;
-        _ -> true
-    end.
+    not is_win32().
 
 provide_bcrypt_release(ReleaseType) ->
     provide_bcrypt_dep() andalso ReleaseType =:= cloud.

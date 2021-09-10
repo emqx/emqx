@@ -50,30 +50,31 @@ is_cmd(Fun) ->
 %% Cmds
 
 gateway(["list"]) ->
-    lists:foreach(fun(#{id := InstaId, name := Name, type := Type}) ->
-        %% FIXME: Get the real running status
-        emqx_ctl:print("Gateway(~s, name=~s, type=~s, status=running~n",
-                       [InstaId, Name, Type])
+    lists:foreach(fun(#{name := Name} = Gateway) ->
+        %% TODO: More infos: listeners?, connected?
+        Status = maps:get(status, Gateway, stopped),
+        emqx_ctl:print("Gateway(name=~s, status=~s)~n",
+                       [Name, Status])
     end, emqx_gateway:list());
 
-gateway(["lookup", GatewayInstaId]) ->
-    case emqx_gateway:lookup(atom(GatewayInstaId)) of
+gateway(["lookup", Name]) ->
+    case emqx_gateway:lookup(atom(Name)) of
         undefined ->
             emqx_ctl:print("undefined~n");
         Info ->
             emqx_ctl:print("~p~n", [Info])
     end;
 
-gateway(["stop", GatewayInstaId]) ->
-    case emqx_gateway:stop(atom(GatewayInstaId)) of
+gateway(["stop", Name]) ->
+    case emqx_gateway:stop(atom(Name)) of
         ok ->
             emqx_ctl:print("ok~n");
         {error, Reason} ->
             emqx_ctl:print("Error: ~p~n", [Reason])
     end;
 
-gateway(["start", GatewayInstaId]) ->
-    case emqx_gateway:start(atom(GatewayInstaId)) of
+gateway(["start", Name]) ->
+    case emqx_gateway:start(atom(Name)) of
         ok ->
             emqx_ctl:print("ok~n");
         {error, Reason} ->
@@ -83,61 +84,67 @@ gateway(["start", GatewayInstaId]) ->
 gateway(_) ->
     %% TODO: create/remove APIs
     emqx_ctl:usage([ {"gateway list",
-                        "List all created gateway instances"}
-                   , {"gateway lookup <GatewayId>",
-                        "Looup a gateway detailed informations"}
-                   , {"gateway stop   <GatewayId>",
-                        "Stop a gateway instance and release all resources"}
-                   , {"gateway start  <GatewayId>",
+                        "List all gateway"}
+                   , {"gateway lookup <Name>",
+                        "Lookup a gateway detailed informations"}
+                   , {"gateway stop   <Name>",
+                        "Stop a gateway instance"}
+                   , {"gateway start  <Name>",
                         "Start a gateway instance"}
                    ]).
 
 'gateway-registry'(["list"]) ->
     lists:foreach(
-      fun({GwType, #{cbkmod := CbMod}}) ->
-        emqx_ctl:print("Registered Type: ~s, Callback Module: ~s~n", [GwType, CbMod])
+      fun({Name, #{cbkmod := CbMod}}) ->
+        emqx_ctl:print("Registered Name: ~s, Callback Module: ~s~n", [Name, CbMod])
       end,
     emqx_gateway_registry:list());
 
 'gateway-registry'(_) ->
     emqx_ctl:usage([ {"gateway-registry list",
-                        "List all registered gateway types"}
+                        "List all registered gateways"}
                    ]).
 
-'gateway-clients'(["list", Type]) ->
-    InfoTab = emqx_gateway_cm:tabname(info, Type),
-    dump(InfoTab, client);
+'gateway-clients'(["list", Name]) ->
+    %% FIXME: page me. for example: --limit 100 --page 10 ???
+    InfoTab = emqx_gateway_cm:tabname(info, Name),
+    case ets:info(InfoTab) of
+        undefined ->
+            emqx_ctl:print("Bad Gateway Name.~n");
+        _ ->
+        dump(InfoTab, client)
+    end;
 
-'gateway-clients'(["lookup", Type, ClientId]) ->
-    ChanTab = emqx_gateway_cm:tabname(chan, Type),
+'gateway-clients'(["lookup", Name, ClientId]) ->
+    ChanTab = emqx_gateway_cm:tabname(chan, Name),
     case ets:lookup(ChanTab, bin(ClientId)) of
         [] -> emqx_ctl:print("Not Found.~n");
         [Chann] ->
-            InfoTab = emqx_gateway_cm:tabname(info, Type),
+            InfoTab = emqx_gateway_cm:tabname(info, Name),
             [ChannInfo] = ets:lookup(InfoTab, Chann),
             print({client, ChannInfo})
     end;
 
-'gateway-clients'(["kick", Type, ClientId]) ->
-    case emqx_gateway_cm:kick_session(Type, bin(ClientId)) of
+'gateway-clients'(["kick", Name, ClientId]) ->
+    case emqx_gateway_cm:kick_session(Name, bin(ClientId)) of
         ok -> emqx_ctl:print("ok~n");
         _ -> emqx_ctl:print("Not Found.~n")
     end;
 
 'gateway-clients'(_) ->
-    emqx_ctl:usage([ {"gateway-clients list   <Type>",
-                        "List all clients for a type of gateway"}
-                   , {"gateway-clients lookup <Type> <ClientId>",
+    emqx_ctl:usage([ {"gateway-clients list   <Name>",
+                        "List all clients for a gateway"}
+                   , {"gateway-clients lookup <Name> <ClientId>",
                         "Lookup the Client Info for specified client"}
-                   , {"gateway-clients kick   <Type> <ClientId>",
+                   , {"gateway-clients kick   <Name> <ClientId>",
                         "Kick out a client"}
                    ]).
 
-'gateway-metrics'([GatewayType]) ->
-    Tab = emqx_gateway_metrics:tabname(GatewayType),
+'gateway-metrics'([Name]) ->
+    Tab = emqx_gateway_metrics:tabname(Name),
     case ets:info(Tab) of
         undefined ->
-            emqx_ctl:print("Bad Gateway Type.~n");
+            emqx_ctl:print("Bad Gateway Name.~n");
         _ ->
             lists:foreach(
               fun({K, V}) ->
@@ -146,8 +153,8 @@ gateway(_) ->
     end;
 
 'gateway-metrics'(_) ->
-    emqx_ctl:usage([ {"gateway-metrics <Type>",
-                        "List all metrics for a type of gateway"}
+    emqx_ctl:usage([ {"gateway-metrics <Name>",
+                        "List all metrics for a gateway"}
                    ]).
 
 atom(Id) ->
@@ -190,7 +197,7 @@ print({client, {_, Infos, Stats}}) ->
               keepalive => SafeGet(keepalive, ConnInfo),
               subscriptions_cnt => StatsGet(subscriptions_cnt),
               send_msg => StatsGet(send_msg),
-              connected => SafeGet(conn_state, ClientInfo) == connected,
+              connected => SafeGet(conn_state, Infos) == connected,
               created_at => ConnectedAt,
               connected_at => ConnectedAt
             },

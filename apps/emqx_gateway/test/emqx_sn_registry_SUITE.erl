@@ -26,8 +26,6 @@
 -define(PREDEF_TOPICS, [#{id => 1, topic => <<"/predefined/topic/name/hello">>},
                         #{id => 2, topic => <<"/predefined/topic/name/nice">>}]).
 
--define(INSTA_ID, 'mqttsn#1').
-
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
@@ -45,7 +43,7 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(_TestCase, Config) ->
-    {ok, Pid} = ?REGISTRY:start_link(?INSTA_ID, ?PREDEF_TOPICS),
+    {ok, Pid} = ?REGISTRY:start_link('mqttsn', ?PREDEF_TOPICS),
     {Tab, Pid} = ?REGISTRY:lookup_name(Pid),
     [{reg, {Tab, Pid}} | Config].
 

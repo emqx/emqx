@@ -24,20 +24,11 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    ekka_mnesia:start(),
-    emqx_mgmt_auth:mnesia(boot),
-    emqx_ct_helpers:start_apps([emqx_management], fun set_special_configs/1),
+    emqx_mgmt_api_test_util:init_suite(),
     Config.
 
 end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([emqx_management]).
-
-set_special_configs(emqx_management) ->
-    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
-        applications =>[#{id => "admin", secret => "public"}]}),
-    ok;
-set_special_configs(_App) ->
-    ok.
+    emqx_mgmt_api_test_util:end_suite().
 
 t_list_listeners(_) ->
     Path = emqx_mgmt_api_test_util:api_path(["listeners"]),
@@ -61,14 +52,14 @@ t_get_node_listeners(_) ->
     get_api(Path).
 
 t_manage_listener(_) ->
-    ID = "default:mqtt_tcp",
+    ID = "tcp:default",
     manage_listener(ID, "stop", false),
     manage_listener(ID, "start", true),
     manage_listener(ID, "restart", true).
 
 manage_listener(ID, Operation, Running) ->
-    Path = emqx_mgmt_api_test_util:api_path(["listeners", ID, Operation]),
-    {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path),
+    Path = emqx_mgmt_api_test_util:api_path(["listeners", ID, "operation", Operation]),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(post, Path),
     timer:sleep(500),
     GetPath = emqx_mgmt_api_test_util:api_path(["listeners", ID]),
     {ok, ListenersResponse} = emqx_mgmt_api_test_util:request_api(get, GetPath),
@@ -115,11 +106,8 @@ comparison_listener(Local, Response) ->
     ?assertEqual(maps:get(id, Local), binary_to_atom(maps:get(<<"id">>, Response))),
     ?assertEqual(maps:get(node, Local), binary_to_atom(maps:get(<<"node">>, Response))),
     ?assertEqual(maps:get(acceptors, Local), maps:get(<<"acceptors">>, Response)),
-    ?assertEqual(maps:get(max_conn, Local), maps:get(<<"max_conn">>, Response)),
-    ?assertEqual(maps:get(listen_on, Local), maps:get(<<"listen_on">>, Response)),
-    ?assertEqual(maps:get(running, Local), maps:get(<<"running">>, Response)),
-    ?assertEqual(maps:get(auth, Local), maps:get(<<"auth">>, Response)).
+    ?assertEqual(maps:get(running, Local), maps:get(<<"running">>, Response)).
 
 
-listener_stats(Listener, Stats) ->
-    ?assertEqual(maps:get(<<"running">>, Listener), Stats).
+listener_stats(Listener, ExpectedStats) ->
+    ?assertEqual(ExpectedStats, maps:get(<<"running">>, Listener)).

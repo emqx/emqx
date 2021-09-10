@@ -186,7 +186,6 @@ case $1 in
       echo "ERROR: EVAL expects an expression as argument" >&2
       exit 1
     fi
-    generate_config
     eval_elixir "$2"
     ;;
 

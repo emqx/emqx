@@ -44,36 +44,17 @@ authorize(Client, PubSub, Topic,
             nomatch;
         [] -> nomatch;
         Rows ->
-            do_authorize(Client, PubSub, Topic, Rows)
+            Rules = [ emqx_authz_rule:compile({Permission, all, Action, Topics})
+                     || #{<<"topics">> := Topics, <<"permission">> := Permission, <<"action">> := Action} <- Rows],
+            do_authorize(Client, PubSub, Topic, Rules)
     end.
 
 do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
 do_authorize(Client, PubSub, Topic, [Rule | Tail]) ->
-    case match(Client, PubSub, Topic, Rule) of
+    case emqx_authz_rule:match(Client, PubSub, Topic, Rule) of
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Tail)
-    end.
-
-match(Client, PubSub, Topic,
-      #{<<"topics">> := Topics,
-        <<"permission">> := Permission,
-        <<"action">> := Action
-       }) ->
-    Rule = #{<<"permission">> => Permission,
-             <<"topics">> => Topics,
-             <<"action">> => Action
-            },
-    #{simple_rule :=
-      #{permission := NPermission} = NRule
-     } = hocon_schema:check_plain(
-            emqx_authz_schema,
-            #{<<"simple_rule">> => Rule},
-            #{atom_key => true},
-            [simple_rule]),
-    case emqx_authz:match(Client, PubSub, Topic, emqx_authz:init_rule(NRule)) of
-        true -> {matched, NPermission};
-        false -> nomatch
     end.
 
 replvar(Find, #{clientid := Clientid,

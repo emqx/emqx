@@ -21,7 +21,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
@@ -44,15 +43,22 @@
 %% gen_server callbacks
 -export([ enable/0
         , disable/0
+        , set_max_delayed_messages/1
+        , update_config/1
+        , list/1
+        , get_delayed_message/1
+        , delete_delayed_message/1
         ]).
 
--record(delayed_message, {key, msg}).
+-record(delayed_message, {key, delayed, msg}).
+
+%% sync ms with record change
+-define(QUERY_MS(Id), [{{delayed_message, {'_', Id}, '_', '_'}, [], ['$_']}]).
+-define(DELETE_MS(Id), [{{delayed_message, {'$1', Id}, '_', '_'}, [], ['$1']}]).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 -define(MAX_INTERVAL, 4294967).
-
--rlog_shard({?MOD_DELAYED_SHARD, ?TAB}).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -76,19 +82,19 @@ on_message_publish(Msg = #message{
                             timestamp = Ts
                            }) ->
     [Delay, Topic1] = binary:split(Topic, <<"/">>),
-    PubAt = case binary_to_integer(Delay) of
+    {PubAt, Delayed} = case binary_to_integer(Delay) of
                 Interval when Interval < ?MAX_INTERVAL ->
-                    Interval + erlang:round(Ts / 1000);
+                    {Interval + erlang:round(Ts / 1000), Interval};
                 Timestamp ->
                     %% Check malicious timestamp?
                     case (Timestamp - erlang:round(Ts / 1000)) > ?MAX_INTERVAL of
                         true  -> error(invalid_delayed_timestamp);
-                        false -> Timestamp
+                        false -> {Timestamp, Timestamp - erlang:round(Ts / 1000)}
                     end
             end,
     PubMsg = Msg#message{topic = Topic1},
     Headers = PubMsg#message.headers,
-    case store(#delayed_message{key = {PubAt, Id}, msg = PubMsg}) of
+    case store(#delayed_message{key = {PubAt, Id}, delayed = Delayed, msg = PubMsg}) of
         ok -> ok;
         {error, Error} ->
             ?LOG(error, "Store delayed message fail: ~p", [Error])
@@ -104,7 +110,7 @@ on_message_publish(Msg) ->
 
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
-    Opts = emqx_config:get([delayed], #{}),
+    Opts = emqx:get_config([delayed], #{}),
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
 
 -spec(store(#delayed_message{}) -> ok | {error, atom()}).
@@ -117,6 +123,68 @@ enable() ->
 disable() ->
     gen_server:call(?SERVER, disable).
 
+set_max_delayed_messages(Max) ->
+    gen_server:call(?SERVER, {set_max_delayed_messages, Max}).
+
+list(Params) ->
+    emqx_mgmt_api:paginate(?TAB, Params, fun format_delayed/1).
+
+format_delayed(Delayed) ->
+    format_delayed(Delayed, false).
+
+format_delayed(#delayed_message{key = {ExpectTimeStamp, Id}, delayed = Delayed,
+            msg = #message{topic = Topic,
+                           from = From,
+                           headers = #{username := Username},
+                           qos = Qos,
+                           timestamp = PublishTimeStamp,
+                           payload = Payload}}, WithPayload) ->
+    PublishTime = to_rfc3339(PublishTimeStamp div 1000),
+    ExpectTime = to_rfc3339(ExpectTimeStamp),
+    RemainingTime = ExpectTimeStamp - erlang:system_time(second),
+    Result = #{
+        id => emqx_guid:to_hexstr(Id),
+        publish_at => PublishTime,
+        delayed_interval => Delayed,
+        delayed_remaining => RemainingTime,
+        expected_at => ExpectTime,
+        topic => Topic,
+        qos => Qos,
+        from_clientid => From,
+        from_username => Username
+    },
+    case WithPayload of
+        true ->
+            Result#{payload => base64:encode(Payload)};
+        _ ->
+            Result
+    end.
+
+to_rfc3339(Timestamp) ->
+    list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
+
+get_delayed_message(Id0) ->
+    Id = emqx_guid:from_hexstr(Id0),
+    case ets:select(?TAB, ?QUERY_MS(Id)) of
+        [] ->
+            {error, not_found};
+        Rows ->
+            Message = hd(Rows),
+            {ok, format_delayed(Message, true)}
+    end.
+
+delete_delayed_message(Id0) ->
+    Id = emqx_guid:from_hexstr(Id0),
+    case ets:select(?TAB, ?DELETE_MS(Id)) of
+        [] ->
+            {error, not_found};
+        Rows ->
+            Timestamp = hd(Rows),
+            ekka_mnesia:dirty_delete(?TAB, {Timestamp, Id})
+    end.
+update_config(Config) ->
+    {ok, _} = emqx:update_config([delayed], Config).
+
 %%--------------------------------------------------------------------
 %% gen_server callback
 %%--------------------------------------------------------------------
@@ -127,6 +195,9 @@ init([Opts]) ->
            ensure_publish_timer(#{timer => undefined,
                                   publish_at => 0,
                                   max_delayed_messages => MaxDelayedMessages}))}.
+
+handle_call({set_max_delayed_messages, Max}, _From, State) ->
+    {reply, ok, State#{max_delayed_messages => Max}};
 
 handle_call({store, DelayedMsg = #delayed_message{key = Key}},
             _From, State = #{max_delayed_messages := 0}) ->
@@ -179,13 +250,8 @@ handle_info(Info, State) ->
 terminate(_Reason, #{timer := TRef}) ->
     emqx_misc:cancel_timer(TRef).
 
-code_change({down, Vsn}, State, _Extra) when Vsn =:= "4.3.0" ->
-    NState = maps:with([timer, publish_at], State),
-    {ok, NState};
-
-code_change(Vsn, State, _Extra) when Vsn =:= "4.3.0" ->
-    NState = ensure_stats_event(State),
-    {ok, NState}.
+code_change(_Vsn, State, _Extra) ->
+    {ok, State}.
 
 %%--------------------------------------------------------------------
 %% Internal functions

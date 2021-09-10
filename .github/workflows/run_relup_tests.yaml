@@ -1,0 +1,130 @@
+name: Release Upgrade Tests
+
+on:
+  push:
+    tags:
+      - v*
+      - e*
+  pull_request:
+
+jobs:
+  relup_test:
+    strategy:
+      matrix:
+        container:
+          - "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
+          - "emqx/build-env:erl24.0.5-emqx-1-ubuntu20.04"
+
+    runs-on: ubuntu-20.04
+    container: ${{ matrix.container }}
+
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/setup-python@v2
+      with:
+        python-version: '3.8'
+        architecture: 'x64'
+    - uses: actions/checkout@v2
+      with:
+        repository: emqx/paho.mqtt.testing
+        ref: develop-4.0
+        path: paho.mqtt.testing
+    - uses: actions/checkout@v2
+      with:
+        repository: terry-xiaoyu/one_more_emqx
+        ref: master
+        path: one_more_emqx
+    - uses: actions/checkout@v2
+      with:
+        repository: emqx/emqtt-bench
+        ref: master
+        path: emqtt-bench
+    - uses: actions/checkout@v2
+      with:
+        repository: hawk/lux
+        ref: lux-2.6
+        path: lux
+    - uses: actions/checkout@v2
+      with:
+        repository: ${{ github.repository }}
+        path: emqx
+        fetch-depth: 0
+    - name: prepare
+      run: |
+        if make -C emqx emqx-ee --dry-run > /dev/null 2>&1; then
+          echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+          git config --global credential.helper store
+          echo "${{ secrets.CI_GIT_TOKEN }}" >> emqx/scripts/git-token
+          echo "PROFILE=emqx-ee" >> $GITHUB_ENV
+        else
+          echo "PROFILE=emqx" >> $GITHUB_ENV
+        fi
+    - name: get version
+      run: |
+        set -e -x -u
+        cd emqx
+        if [ $PROFILE = "emqx" ];then
+            broker="emqx-ce"
+            edition='opensource'
+        else
+            broker="emqx-ee"
+            edition='enterprise'
+        fi
+        echo "BROKER=$broker" >> $GITHUB_ENV
+
+        vsn="$(./pkg-vsn.sh)"
+        echo "VSN=$vsn" >> $GITHUB_ENV
+
+        pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
+        if [ $PROFILE = "emqx" ]; then
+            old_vsns="$(git tag -l "v$pre_vsn.[0-9]" | xargs echo -n | sed "s/v$vsn//")"
+        else
+            old_vsns="$(git tag -l "e$pre_vsn.[0-9]" | xargs echo -n | sed "s/e$vsn//")"
+        fi
+        echo "OLD_VSNS=$old_vsns" >> $GITHUB_ENV
+    - name: download emqx
+      run: |
+        set -e -x -u
+        mkdir -p emqx/_upgrade_base
+        cd emqx/_upgrade_base
+        old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
+        for old_vsn in ${old_vsns[@]}; do
+          wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$old_vsn/$PROFILE-ubuntu20.04-${old_vsn#[e|v]}-amd64.zip
+        done
+    - name: build emqx
+      run: make -C emqx ${PROFILE}-zip
+    - name: build emqtt-bench
+      run: make -C emqtt-bench
+    - name: build lux
+      run: |
+        set -e -u -x
+        cd lux
+        autoconf
+        ./configure
+        make
+        make install
+    - name: run relup test
+      timeout-minutes: 20
+      run: |
+        set -e -x -u
+        if [ -n "$OLD_VSNS" ]; then
+            mkdir -p packages
+            cp emqx/_packages/${PROFILE}/*.zip packages
+            cp emqx/_upgrade_base/*.zip packages
+            lux \
+            --case_timeout infinity \
+            --var PROFILE=$PROFILE \
+            --var PACKAGE_PATH=$(pwd)/packages \
+            --var BENCH_PATH=$(pwd)/emqtt-bench \
+            --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
+            --var VSN="$VSN" \
+            --var OLD_VSNS="$OLD_VSNS" \
+            emqx/.ci/fvt_tests/relup.lux
+        fi
+    - uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: lux_logs
+        path: lux_logs

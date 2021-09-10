@@ -28,7 +28,7 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--export([pre_config_update/2]).
+-export([post_config_update/4]).
 
 -export([ start_link/0
         , stop/0
@@ -84,9 +84,6 @@
 -define(ACTIVATED_ALARM, emqx_activated_alarm).
 
 -define(DEACTIVATED_ALARM, emqx_deactivated_alarm).
-
--rlog_shard({?COMMON_SHARD, ?ACTIVATED_ALARM}).
--rlog_shard({?COMMON_SHARD, ?DEACTIVATED_ALARM}).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -151,14 +148,9 @@ get_alarms(activated) ->
 get_alarms(deactivated) ->
     gen_server:call(?MODULE, {get_alarms, deactivated}).
 
-pre_config_update(#{<<"validity_period">> := Period0} = NewConf, OldConf) ->
-    ?MODULE ! {update_timer, hocon_postprocess:duration(Period0)},
-    merge(OldConf, NewConf);
-pre_config_update(NewConf, OldConf) ->
-    merge(OldConf, NewConf).
-
-merge(undefined, New) -> New;
-merge(Old, New) -> maps:merge(Old, New).
+post_config_update(_, #{validity_period := Period0}, _OldConf, _AppEnv) ->
+    ?MODULE ! {update_timer, Period0},
+    ok.
 
 format(#activated_alarm{name = Name, message = Message, activate_at = At, details = Details}) ->
     Now = erlang:system_time(microsecond),
@@ -166,7 +158,8 @@ format(#activated_alarm{name = Name, message = Message, activate_at = At, detail
         node => node(),
         name => Name,
         message => Message,
-        duration => Now - At,
+        duration => (Now - At) div 1000, %% to millisecond
+        activate_at => to_rfc3339(At),
         details => Details
     };
 format(#deactivated_alarm{name = Name, message = Message, activate_at = At, details = Details,
@@ -176,10 +169,15 @@ format(#deactivated_alarm{name = Name, message = Message, activate_at = At, deta
         name => Name,
         message => Message,
         duration => DAt - At,
+        activate_at => to_rfc3339(At),
+        deactivate_at => to_rfc3339(DAt),
         details => Details
     };
 format(_) ->
     {error, unknow_alarm}.
+
+to_rfc3339(Timestamp) ->
+    list_to_binary(calendar:system_time_to_rfc3339(Timestamp div 1000, [{unit, millisecond}])).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -187,7 +185,7 @@ format(_) ->
 
 init([]) ->
     deactivate_all_alarms(),
-    emqx_config_handler:add_handler([alarm], ?MODULE),
+    ok = emqx_config_handler:add_handler([alarm], ?MODULE),
     {ok, #state{timer = ensure_timer(undefined, get_validity_period())}}.
 
 %% suppress dialyzer warning due to dirty read/write race condition.
@@ -204,7 +202,7 @@ handle_call({activate_alarm, Name, Details}, _From, State) ->
                                      message = normalize_message(Name, Details),
                                      activate_at = erlang:system_time(microsecond)},
             ekka_mnesia:dirty_write(?ACTIVATED_ALARM, Alarm),
-            do_actions(activate, Alarm, emqx_config:get([alarm, actions])),
+            do_actions(activate, Alarm, emqx:get_config([alarm, actions])),
             {reply, ok, State}
     end;
 
@@ -263,6 +261,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    ok = emqx_config_handler:remove_handler([alarm]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -273,11 +272,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 get_validity_period() ->
-    emqx_config:get([alarm, validity_period]).
+    emqx:get_config([alarm, validity_period]).
 
 deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name,
         details = Details0, message = Msg0}) ->
-    SizeLimit = emqx_config:get([alarm, size_limit]),
+    SizeLimit = emqx:get_config([alarm, size_limit]),
     case SizeLimit > 0 andalso (mnesia:table_info(?DEACTIVATED_ALARM, size) >= SizeLimit) of
         true ->
             case mnesia:dirty_first(?DEACTIVATED_ALARM) of
@@ -294,7 +293,7 @@ deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name
                     erlang:system_time(microsecond)),
     ekka_mnesia:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
     ekka_mnesia:dirty_delete(?ACTIVATED_ALARM, Name),
-    do_actions(deactivate, DeActAlarm, emqx_config:get([alarm, actions])).
+    do_actions(deactivate, DeActAlarm, emqx:get_config([alarm, actions])).
 
 make_deactivated_alarm(ActivateAt, Name, Details, Message, DeActivateAt) ->
     #deactivated_alarm{

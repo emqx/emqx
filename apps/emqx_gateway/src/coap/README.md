@@ -1,190 +1,443 @@
 
 # Table of Contents
 
-1.  [EMQX 5.0 CoAP Gateway](#org6feb6de)
-2.  [CoAP Message Processing Flow](#org8458c1a)
-    1.  [Request Timing Diagram](#orgeaa4f53)
-        1.  [Transport && Transport Manager](#org88207b8)
-        2.  [Resource](#orgb32ce94)
-3.  [Resource](#org8956f90)
-    1.  [MQTT Resource](#orge8c21b1)
-    2.  [PubSub Resource](#org68ddce7)
-4.  [Heartbeat](#orgffdfecd)
-5.  [Command](#org43004c2)
-6.  [MQTT QOS <=> CoAP non/con](#org0157b5c)
+1.  [EMQX 5.0 CoAP Gateway](#org61e5bb8)
+    1.  [Features](#orgeddbc94)
+        1.  [PubSub Handler](#orgfc7be2d)
+        2.  [MQTT Handler](#org55be508)
+        3.  [Heartbeat](#org3d1a32e)
+        4.  [Query String](#org9a6b996)
+    2.  [Implementation](#org9985dfe)
+        1.  [Request/Response flow](#orge94210c)
+    3.  [Example](#ref_example)
 
 
 
-<a id="org6feb6de"></a>
+<a id="org61e5bb8"></a>
 
 # EMQX 5.0 CoAP Gateway
 
-emqx-coap is a CoAP Gateway for EMQ X Broker. 
-It translates CoAP messages into MQTT messages and make it possible to communiate between CoAP clients and MQTT clients.
+emqx-coap is a CoAP Gateway for EMQ X Broker. It translates CoAP messages into MQTT messages and make it possible to communiate between CoAP clients and MQTT clients.
 
 
-<a id="org8458c1a"></a>
+<a id="orgeddbc94"></a>
 
-# CoAP Message Processing Flow
+## Features
 
-
-<a id="orgeaa4f53"></a>
-
-## Request Timing Diagram
-
-
-    ,------.          ,------------.          ,-----------------.          ,---------.          ,--------.
-    |client|          |coap_gateway|          |transport_manager|          |transport|          |resource|
-    `--+---'          `-----+------'          `--------+--------'          `----+----'          `---+----'
-       |                    |                          |                        |                   |
-       | ------------------->                          |                        |                   |
-       |                    |                          |                        |                   |
-       |                    |                          |                        |                   |
-       |                    | ------------------------>|                        |                   |
-       |                    |                          |                        |                   |
-       |                    |                          |                        |                   |
-       |                    |                          |----------------------->|                   |
-       |                    |                          |                        |                   |
-       |                    |                          |                        |                   |
-       |                    |                          |                        |------------------>|
-       |                    |                          |                        |                   |
-       |                    |                          |                        |                   |
-       |                    |                          |                        |<------------------|
-       |                    |                          |                        |                   |
-       |                    |                          |                        |                   |
-       |                    |                          |<-----------------------|                   |
-       |                    |                          |                        |                   |
-       |                    |                          |                        |                   |
-       |                    | <------------------------|                        |                   |
-       |                    |                          |                        |                   |
-       |                    |                          |                        |                   |
-       | <-------------------                          |                        |                   |
-    ,--+---.          ,-----+------.          ,--------+--------.          ,----+----.          ,---+----.
-    |client|          |coap_gateway|          |transport_manager|          |transport|          |resource|
-    `------'          `------------'          `-----------------'          `---------'          `--------'
+-   Partially achieves [Publish-Subscribe Broker for the Constrained Application Protocol (CoAP)](https://datatracker.ietf.org/doc/html/draft-ietf-core-coap-pubsub-09)
+    we called this as ps handler, include following functions:
+    -   Publish
+    -   Subscribe
+    -   UnSubscribe
+-   Long connection and authorization verification called as MQTT handler
 
 
-<a id="org88207b8"></a>
+<a id="orgfc7be2d"></a>
 
-### Transport && Transport Manager
+### PubSub Handler
 
-Transport is a module that manages the life cycle and behaviour of CoAP messages\
-And the transport manager is to manage all transport which in this gateway
+1.  Publish
 
+    Method: POST\
+    URI Schema: ps/{+topic}{?q\*}\
+    q\*: [Shared Options](#orgc50043b)\
+    Response:
 
-<a id="orgb32ce94"></a>
+    -   2.04 "Changed" when success
+    -   4.00 "Bad Request" when error
+    -   4.01 "Unauthorized" when with wrong auth uri query
 
-### Resource
+2.  Subscribe
 
-The Resource is a behaviour that must implement GET/PUT/POST/DELETE method\
-Different Resources can have different implementations of this four method\
-Each gateway can only use one Resource module to process CoAP Request Message
+    Method: GET
+    Options:
 
+    -   Observer = 0
 
-<a id="org8956f90"></a>
+    URI Schema: ps/{+topic}{?q\*}\
+    q\*: see [Shared Options](#orgc50043b)\
+    Response:
 
-# Resource
+    -   2.05 "Content" when success
+    -   4.00 "Bad Request" when error
+    -   4.01 "Unauthorized" when with wrong auth uri query
 
-
-<a id="orge8c21b1"></a>
-
-## MQTT Resource
-
-The MQTT Resource is a simple CoAP to MQTT adapter, the implementation of each method is as follows:
-
--   use uri path as topic
--   GET: subscribe the topic
--   PUT: publish message to this topic
--   POST: like PUT
--   DELETE: unsubscribe the topic
-
-
-<a id="org68ddce7"></a>
-
-## PubSub Resource
-
-The PubSub Resource like the MQTT Resource, but has a retained topic's message database\
-This Resource is shared, only can has one instance. The implementation:
-
--   use uri path as topic
--   GET:
-    -   GET with observe = 0: subscribe the topic
-    -   GET with observe = 1: unsubscribe the topic
-    -   GET without observe: read lastest message from the message database, key is the topic
--   PUT:
-    insert message into the message database, key is the topic
--   POST:
-    like PUT, but will publish the message
--   DELETE:
-    delete message from the database, key is topic
-
-
-<a id="orgffdfecd"></a>
-
-# Heartbeat
-
-At present, the CoAP gateway only supports UDP/DTLS connection, don't support UDP over TCP and UDP over WebSocket.
-Because UDP is connectionless, so the client needs to send heartbeat ping to the server interval. Otherwise, the server will close related resources
-Use ****POST with empty uri path**** as a heartbeat ping
-
-example: 
 ```
-coap-client -m post coap://127.0.0.1
+          Client1   Client2                                          Broker
+        |          |                   Subscribe                   |
+        |          | ----- GET /ps/topic1 Observe:0 Token:XX ----> |
+        |          |                                               |
+        |          | <---------- 2.05 Content Observe:10---------- |
+        |          |                                               |
+        |          |                                               |
+        |          |                    Publish                    |
+        | ---------|----------- PUT /ps/topic1 "1033.3"  --------> |
+        |          |                    Notify                     |
+        |          | <---------- 2.05 Content Observe:11 --------- |
+        |          |                                               |
 ```
 
-<a id="org43004c2"></a>
+3.  UnSubscribe
 
-# Command
+    Method : GET
+    Options:
 
-Command is means the operation which outside the CoAP protocol, like authorization
-The Command format:
+    -   Observe = 1
 
-1.  use ****POST**** method
-2.  uri path is empty
-3.  query string is like ****action=comandX&argX=valuex&argY=valueY****
+    URI Schema: ps/{+topic}{?q\*}\
+    q\*: see [Shared Options](#orgc50043b)\
+    Response:
 
-example:
-1. connect:
+    -   2.07 "No Content" when success
+    -   4.00 "Bad Request" when error
+    -   4.01 "Unauthorized" when with wrong auth uri query
+
+
+<a id="org55be508"></a>
+
+### MQTT Handler
+
+   Establishing a connection is optional. If the CoAP client needs to use connection-based operations, it must first establish a connection.
+At the same time, the connectionless mode and the connected mode cannot be mixed.
+In connection mode, the Publish/Subscribe/UnSubscribe sent by the client must be has Token and ClientId in query string.
+If the Token and Clientid is wrong/miss, EMQ X will reset the request.
+The communication token is the data carried in the response payload after the client successfully establishes a connection.
+After obtaining the token, the client's subsequent request must attach "token=Token" to the Query String
+ClientId is necessary when there is a connection, and is a unique identifier defined by the client.
+The server manages the client through the ClientId. If the ClientId is wrong, EMQ X will reset the request.
+
+1.  Create a Connection
+
+    Method: POST
+    URI Schema: mqtt/connection{?q\*}
+    q\*:
+
+    -   clientid := client uid
+    -   username
+    -   password
+
+    Response:
+
+    -   2.01 "Created" when success
+    -   4.00 "Bad Request" when error
+    -   4.01 "Unauthorized" wrong username or password
+
+    Payload: Token if success
+
+2.  Close a Connection
+
+    Method : DELETE
+    URI Schema: mqtt/connection{?q\*}
+    q\*:
+
+    -   clientid := client uid
+    -   token
+
+    Resonse:
+
+    -   2.01 "Deleted" when success
+    -   4.00 "Bad Request" when error
+    -   4.01 "Unauthorized" wrong clientid or token
+
+
+<a id="org3d1a32e"></a>
+
+### Heartbeat
+
+The Coap client can maintain the "connection" with the server through the heartbeat,
+regardless of whether it is authenticated or not,
+so that the server will not release related resources
+Method : PUT
+URI Schema: mqtt/connection{?q\*}
+q\*:
+
+-   clientid if authenticated
+-   token if authenticated
+
+Response:
+
+-   2.01 "Changed" when success
+-   4.00 "Bad Request" when error
+-   4.01 "Unauthorized" wrong clientid or token
+
+
+<a id="org9a6b996"></a>
+
+### Query String
+
+CoAP gateway uses some options in query string to conversion between MQTT CoAP.
+
+1.  Shared Options <a id="orgc50043b"></a>
+
+    -   clientid
+    -   token
+
+2.  Connect Options
+
+    -   username
+    -   password
+
+3.  Publish
+
+    <table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+    <colgroup>
+    <col  class="org-left" />
+
+    <col  class="org-left" />
+
+    <col  class="org-left" />
+    </colgroup>
+    <thead>
+    <tr>
+    <th scope="col" class="org-left">Option</th>
+    <th scope="col" class="org-left">Type</th>
+    <th scope="col" class="org-left">Default</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    <tr>
+    <td class="org-left">retain</td>
+    <td class="org-left">boolean</td>
+    <td class="org-left">false</td>
+    </tr>
+
+
+    <tr>
+    <td class="org-left">qos</td>
+    <td class="org-left">MQTT Qos</td>
+    <td class="org-left">See <a href="#org0345c3e">here</a></td>
+    </tr>
+
+
+    <tr>
+    <td class="org-left">expiry</td>
+    <td class="org-left">Message Expiry Interval</td>
+    <td class="org-left">0(Never expiry)</td>
+    </tr>
+    </tbody>
+    </table>
+
+4.  Subscribe
+
+    <table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+    <colgroup>
+    <col  class="org-left" />
+
+    <col  class="org-left" />
+
+    <col  class="org-right" />
+    </colgroup>
+    <thead>
+    <tr>
+    <th scope="col" class="org-left">Option</th>
+    <th scope="col" class="org-left">Type</th>
+    <th scope="col" class="org-right">Default</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    <tr>
+    <td class="org-left">qos</td>
+    <td class="org-left">MQTT Qos</td>
+    <td class="org-right">See <a href="#org2325c7d">here</a></td>
+    </tr>
+
+
+    <tr>
+    <td class="org-left">nl</td>
+    <td class="org-left">MQTT Subscribe No Local</td>
+    <td class="org-right">0</td>
+    </tr>
+
+
+    <tr>
+    <td class="org-left">rh</td>
+    <td class="org-left">MQTT Subscribe Retain Handing</td>
+    <td class="org-right">0</td>
+    </tr>
+    </tbody>
+    </table>
+
+5.  MQTT Qos <=> CoAP non/con
+
+    1.notif_type
+    Control the type of notify messages when the observed object has changed.Can be:
+
+    -   non
+    -   con
+    -   qos
+        in this value, MQTT Qos0 -> non, Qos1/Qos2 -> con
+
+    2.subscribe_qos <a id="org2325c7d"></a>
+    Control the qos of subscribe.Can be:
+
+    -   qos0
+    -   qos1
+    -   qos2
+    -   coap
+        in this value, CoAP non -> qos0, con -> qos1
+
+    3.publish_qos <a id="org0345c3e"></a>
+    like subscribe_qos, but control the qos of the publish MQTT message
+
+
+<a id="org9985dfe"></a>
+
+## Implementation
+
+
+<a id="orge94210c"></a>
+
+### Request/Response flow
+
+![img](./doc/flow.png)
+
+1.  Authorization check
+
+    Check whether the clientid and token in the query string match the current connection
+
+2.  Session
+
+    Manager the "Transport Manager" "Observe Resouces Manger" and next message id
+
+3.  Transport Mnager
+
+    Manager "Transport" create/close/dispatch
+
+4.  Observe resources Mnager
+
+    Mnager observe topic and token
+
+5.  Transport
+
+    ![img](./doc/transport.png)
+
+    1.  Shared State
+
+        ![img](./doc/shared_state.png)
+
+6.  Handler
+
+    1.  pubsub
+
+        <table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+        <colgroup>
+        <col  class="org-left" />
+
+        <col  class="org-right" />
+
+        <col  class="org-left" />
+        </colgroup>
+        <thead>
+        <tr>
+        <th scope="col" class="org-left">Method</th>
+        <th scope="col" class="org-right">Observe</th>
+        <th scope="col" class="org-left">Action</th>
+        </tr>
+        </thead>
+
+        <tbody>
+        <tr>
+        <td class="org-left">GET</td>
+        <td class="org-right">0</td>
+        <td class="org-left">subscribe and reply result</td>
+        </tr>
+
+
+        <tr>
+        <td class="org-left">GET</td>
+        <td class="org-right">1</td>
+        <td class="org-left">unsubscribe and reply result</td>
+        </tr>
+
+
+        <tr>
+        <td class="org-left">POST</td>
+        <td class="org-right">X</td>
+        <td class="org-left">publish and reply result</td>
+        </tr>
+        </tbody>
+        </table>
+
+    2.  mqtt
+
+        <table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+        <colgroup>
+        <col  class="org-left" />
+
+        <col  class="org-left" />
+        </colgroup>
+        <thead>
+        <tr>
+        <th scope="col" class="org-left">Method</th>
+        <th scope="col" class="org-left">Action</th>
+        </tr>
+        </thead>
+
+        <tbody>
+        <tr>
+        <td class="org-left">PUT</td>
+        <td class="org-left">reply result</td>
+        </tr>
+
+
+        <tr>
+        <td class="org-left">POST</td>
+        <td class="org-left">return create connection action</td>
+        </tr>
+
+
+        <tr>
+        <td class="org-left">DELETE</td>
+        <td class="org-left">return close connection action</td>
+        </tr>
+        </tbody>
+        </table>
+
+<a id="ref_example"></a>
+
+## Example
+1. Create Connection
 ```
-coap-client -m post coap://127.0.0.1?action=connect&clientid=XXX&username=XXX&password=XXX
+coap-client -m post -e "" "coap://127.0.0.1/mqtt/connection?clientid=123&username=admin&password=public"
 ```
-2. disconnect:
+Server will return token **X** in payload
+
+2. Update Connection
 ```
-coap-client -m post coap://127.0.0.1?action=disconnect
+coap-client -m put -e "" "coap://127.0.0.1/mqtt/connection?clientid=123&token=X"
 ```
 
-<a id="org0157b5c"></a>
+3. Publish
+```
+coap-client -m post -e "Hellow" "obstoken" "coap://127.0.0.1/ps/coap/test?clientid=123&username=admin&password=public"
+```
+if you want to publish with auth, you must first establish a connection, and then post publish request on the same socket, so libcoap client can't simulation publish with a token
 
-# MQTT QOS <=> CoAP non/con
+```
+coap-client -m post -e "Hellow" "coap://127.0.0.1/ps/coap/test?clientid=123&token=X"
+```
 
-CoAP gateway uses some options to control the conversion between MQTT qos and coap non/con:
+4. Subscribe
+```
+coap-client -m get -s 60 -O 6,0x00 -o - -T "obstoken" "coap://127.0.0.1/ps/coap/test?clientid=123&username=admin&password=public"
+```
+**Or**
 
-1.notify_type
-Control the type of notify messages when the observed object has changed.Can be:
+```
+coap-client -m get -s 60 -O 6,0x00 -o - -T "obstoken" "coap://127.0.0.1/ps/coap/test?clientid=123&token=X"
+```
+5. Close Connection
+```
+coap-client -m delete -e "" "coap://127.0.0.1/mqtt/connection?clientid=123&token=X
+```
 
--   non
--   con
--   qos
-    in this value, MQTT QOS0 -> non, QOS1/QOS2 -> con
-
-2.subscribe_qos
-Control the qos of subscribe.Can be:
-
--   qos0
--   qos1
--   qos2
--   coap
-    in this value, CoAP non -> qos0, con -> qos1
-
-3.publish_qos
-like subscribe_qos, but control the qos of the publish MQTT message
-
-License
--------
-
-Apache License Version 2.0
-
-Author
-------
-
-EMQ X Team.

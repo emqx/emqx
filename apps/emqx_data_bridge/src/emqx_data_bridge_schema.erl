@@ -1,6 +1,6 @@
 -module(emqx_data_bridge_schema).
 
--export([structs/0, fields/1]).
+-export([roots/0, fields/1]).
 
 %%======================================================================================
 %% Hocon Schema Definitions
@@ -8,7 +8,7 @@
 -define(TYPES, [mysql, pgsql, mongo, redis, ldap]).
 -define(BRIDGES, [hoconsc:ref(?MODULE, T) || T <- ?TYPES]).
 
-structs() -> ["emqx_data_bridge"].
+roots() -> ["emqx_data_bridge"].
 
 fields("emqx_data_bridge") ->
     [{bridges, #{type => hoconsc:array(hoconsc:union(?BRIDGES)),
@@ -22,5 +22,5 @@ fields(ldap)  -> connector_fields(ldap).
 
 connector_fields(DB) ->
     Mod = list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
-    [{name, hoconsc:t(typerefl:binary())},
-     {type, #{type => DB}}] ++ Mod:fields("").
+    [{name, hoconsc:mk(typerefl:binary())},
+     {type, #{type => DB}}] ++ Mod:roots().

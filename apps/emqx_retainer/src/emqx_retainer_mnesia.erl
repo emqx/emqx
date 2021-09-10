@@ -24,16 +24,15 @@
 -include_lib("stdlib/include/qlc.hrl").
 
 
--export([delete_message/2
+-export([ delete_message/2
         , store_retained/2
         , read_message/2
+        , page_read/4
         , match_messages/3
         , clear_expired/1
         , clean/1]).
 
 -export([create_resource/1]).
-
--rlog_shard({?RETAINER_SHARD, ?TAB}).
 
 -record(retained, {topic, msg, expiry_time}).
 
@@ -55,6 +54,7 @@ create_resource(#{storage_type := StorageType}) ->
                   {dets, [{auto_save, 1000}]}],
     ok = ekka_mnesia:create_table(?TAB, [
                 {type, set},
+                {rlog_shard, ?RETAINER_SHARD},
                 {Copies, [node()]},
                 {record_name, retained},
                 {attributes, record_info(fields, retained)},
@@ -129,8 +129,21 @@ delete_message(_, Topic) ->
 read_message(_, Topic) ->
     {ok, read_messages(Topic)}.
 
+page_read(_, Topic, Page, Limit) ->
+    Cursor = make_cursor(Topic),
+    case Page > 1 of
+        true ->
+            _ = qlc:next_answers(Cursor, (Page - 1) * Limit),
+            ok;
+        _ ->
+            ok
+    end,
+    Rows = qlc:next_answers(Cursor, Limit),
+    qlc:delete_cursor(Cursor),
+    {ok, Rows}.
+
 match_messages(_, Topic, Cursor) ->
-    MaxReadNum = emqx_config:get([?APP, flow_control, max_read_number]),
+    MaxReadNum = emqx:get_config([?APP, flow_control, max_read_number]),
     case Cursor of
         undefined ->
             case MaxReadNum of
@@ -152,34 +165,28 @@ clean(_) ->
 sort_retained([]) -> [];
 sort_retained([Msg]) -> [Msg];
 sort_retained(Msgs)  ->
-    lists:sort(fun(#message{timestamp = Ts1}, #message{timestamp = Ts2}) ->
-                       Ts1 =< Ts2 end,
-               Msgs).
+    lists:sort(fun compare_message/2, Msgs).
 
-%%--------------------------------------------------------------------
-%% Internal funcs
-%%--------------------------------------------------------------------
+compare_message(M1, M2) ->
+    M1#message.timestamp =< M2#message.timestamp.
+
 topic2tokens(Topic) ->
     emqx_topic:words(Topic).
 
 -spec start_batch_read(topic(), pos_integer()) -> batch_read_result().
 start_batch_read(Topic, MaxReadNum) ->
-    Ms = make_match_spec(Topic),
-    TabQH = ets:table(?TAB, [{traverse, {select, Ms}}]),
-    QH = qlc:q([E || E <- TabQH]),
-    Cursor = qlc:cursor(QH),
+    Cursor = make_cursor(Topic),
     batch_read_messages(Cursor, MaxReadNum).
 
 -spec batch_read_messages(emqx_retainer_storage:cursor(), pos_integer()) -> batch_read_result().
 batch_read_messages(Cursor, MaxReadNum) ->
     Answers = qlc:next_answers(Cursor, MaxReadNum),
-    Orders = sort_retained(Answers),
-    case erlang:length(Orders) < MaxReadNum of
+    case erlang:length(Answers) < MaxReadNum of
         true ->
             qlc:delete_cursor(Cursor),
-            {ok, Orders, undefined};
+            {ok, Answers, undefined};
         _ ->
-            {ok, Orders, Cursor}
+            {ok, Answers, Cursor}
     end.
 
 -spec(read_messages(emqx_types:topic())
@@ -217,17 +224,31 @@ condition(Ws) ->
         _ -> (Ws1 -- ['#']) ++ '_'
     end.
 
--spec make_match_spec(topic()) -> ets:match_spec().
-make_match_spec(Filter) ->
+-spec make_match_spec(undefined | topic()) -> ets:match_spec().
+make_match_spec(Topic) ->
     NowMs = erlang:system_time(millisecond),
-    Cond = condition(emqx_topic:words(Filter)),
+    Cond =
+        case Topic of
+            undefined ->
+                '_';
+            _ ->
+                condition(emqx_topic:words(Topic))
+        end,
     MsHd = #retained{topic = Cond, msg = '$2', expiry_time = '$3'},
     [{MsHd, [{'=:=', '$3', 0}], ['$2']},
      {MsHd, [{'>', '$3', NowMs}], ['$2']}].
 
+-spec make_cursor(undefined | topic()) -> qlc:query_cursor().
+make_cursor(Topic) ->
+    Ms = make_match_spec(Topic),
+    TabQH = ets:table(?TAB, [{traverse, {select, Ms}}]),
+    QH = qlc:q([E || E <- TabQH]),
+    QH2 = qlc:sort(QH, {order, fun compare_message/2}),
+    qlc:cursor(QH2).
+
 -spec is_table_full() -> boolean().
 is_table_full() ->
-    #{max_retained_messages := Limit} = emqx_config:get([?APP, config]),
+    #{max_retained_messages := Limit} = emqx:get_config([?APP, config]),
     Limit > 0 andalso (table_size() >= Limit).
 
 -spec table_size() -> non_neg_integer().

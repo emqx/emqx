@@ -21,13 +21,16 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
--export([ structs/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         , validations/0
         ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -37,13 +40,13 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-structs() -> [""].
+namespace() -> "authn:password-based:http-server".
 
-fields("") ->
-    [ {config, {union, [ hoconsc:t(get)
-                       , hoconsc:t(post)
+roots() ->
+    [ {config, {union, [ hoconsc:ref(?MODULE, get)
+                       , hoconsc:ref(?MODULE, post)
                        ]}}
-    ];
+    ].
 
 fields(get) ->
     [ {method,          #{type => get,
@@ -58,15 +61,15 @@ fields(post) ->
     ] ++ common_fields().
 
 common_fields() ->
-    [ {name,            fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,       {enum, ['password-based']}}
-    , {server_type,     {enum, ['http-server']}}
+    [ {mechanism,       {enum, ['password-based']}}
+    , {backend,         {enum, ['http-server']}}
     , {url,             fun url/1}
-    , {form_data,       fun form_data/1}
+    , {body,            fun body/1}
     , {request_timeout, fun request_timeout/1}
-    ] ++ maps:to_list(maps:without([ base_url
-                                   , pool_type],
-                      maps:from_list(emqx_connector_http:fields(config)))).
+    ] ++ emqx_authn_schema:common_fields()
+    ++ maps:to_list(maps:without([ base_url
+                                 , pool_type],
+                    maps:from_list(emqx_connector_http:fields(config)))).
 
 validations() ->
     [ {check_ssl_opts, fun check_ssl_opts/1}
@@ -89,16 +92,15 @@ headers(_) -> undefined.
 headers_no_content_type(type) -> map();
 headers_no_content_type(converter) ->
     fun(Headers) ->
-       maps:merge(default_headers_no_content_type(), transform_header_name(Headers)) 
+       maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
     end;
 headers_no_content_type(default) -> default_headers_no_content_type();
 headers_no_content_type(_) -> undefined.
 
-%% TODO: Using map()
-form_data(type) -> map();
-form_data(nullable) -> false;
-form_data(validate) -> [fun check_form_data/1];
-form_data(_) -> undefined.
+body(type) -> map();
+body(nullable) -> false;
+body(validate) -> [fun check_body/1];
+body(_) -> undefined.
 
 request_timeout(type) -> non_neg_integer();
 request_timeout(default) -> 5000;
@@ -108,10 +110,15 @@ request_timeout(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
+refs() ->
+    [ hoconsc:ref(?MODULE, get)
+    , hoconsc:ref(?MODULE, post)
+    ].
+
 create(#{ method := Method
         , url := URL
         , headers := Headers
-        , form_data := FormData
+        , body := Body
         , request_timeout := RequestTimeout
         , '_unique' := Unique
         } = Config) ->
@@ -120,8 +127,8 @@ create(#{ method := Method
     State = #{ method          => Method
              , path            => Path
              , base_query      => cow_qs:parse_qs(list_to_binary(Query))
-             , headers         => normalize_headers(Headers)
-             , form_data       => maps:to_list(FormData)
+             , headers         => maps:to_list(Headers)
+             , body            => maps:to_list(Body)
              , request_timeout => RequestTimeout
              , '_unique'       => Unique
              },
@@ -129,9 +136,9 @@ create(#{ method := Method
                                     emqx_connector_http,
                                     Config#{base_url => maps:remove(query, URIMap),
                                             pool_type => random}) of
-        {ok, _} ->
+        {ok, already_created} ->
             {ok, State};
-        {error, already_created} ->
+        {ok, _} ->
             {ok, State};
         {error, Reason} ->
             {error, Reason}
@@ -154,15 +161,16 @@ authenticate(Credential, #{'_unique' := Unique,
     try
         Request = generate_request(Credential, State),
         case emqx_resource:query(Unique, {Method, Request, RequestTimeout}) of
-            {ok, 204, _Headers} -> ok;
+            {ok, 204, _Headers} -> {ok, #{is_superuser => false}};
             {ok, 200, Headers, Body} ->
                 ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
                 case safely_parse_body(ContentType, Body) of
-                    {ok, _NBody} ->
+                    {ok, NBody} ->
                         %% TODO: Return by user property
-                        ok;
+                        {ok, #{is_superuser => maps:get(<<"is_superuser">>, NBody, false),
+                               user_property => NBody}};
                     {error, _Reason} ->
-                        ok
+                        {ok, #{is_superuser => false}}
                 end;
             {error, _Reason} ->
                 ignore
@@ -187,10 +195,10 @@ check_url(URL) ->
         {error, _} -> false
     end.
 
-check_form_data(FormData) ->
+check_body(Body) ->
     lists:any(fun({_, V}) ->
                   not is_binary(V)
-              end, maps:to_list(FormData)).
+              end, maps:to_list(Body)).
 
 default_headers() ->
     maps:put(<<"content-type">>,
@@ -230,24 +238,21 @@ parse_url(URL) ->
             URIMap
     end.
 
-normalize_headers(Headers) ->
-    [{atom_to_binary(K), V} || {K, V} <- maps:to_list(Headers)].
-
 generate_request(Credential, #{method := Method,
                                path := Path,
                                base_query := BaseQuery,
                                headers := Headers,
-                               form_data := FormData0}) ->
-    FormData = replace_placeholders(FormData0, Credential),
+                               body := Body0}) ->
+    Body = replace_placeholders(Body0, Credential),
     case Method of
         get ->
-            NPath = append_query(Path, BaseQuery ++ FormData),
+            NPath = append_query(Path, BaseQuery ++ Body),
             {NPath, Headers};
         post ->
             NPath = append_query(Path, BaseQuery),
             ContentType = proplists:get_value(<<"content-type">>, Headers),
-            Body = serialize_body(ContentType, FormData),
-            {NPath, Headers, Body}
+            NBody = serialize_body(ContentType, Body),
+            {NPath, Headers, NBody}
     end.
 
 replace_placeholders(KVs, Credential) ->
@@ -277,10 +282,10 @@ qs([], Acc) ->
 qs([{K, V} | More], Acc) ->
     qs(More, [["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)] | Acc]).
 
-serialize_body(<<"application/json">>, FormData) ->
-    emqx_json:encode(FormData);
-serialize_body(<<"application/x-www-form-urlencoded">>, FormData) ->
-    qs(FormData).
+serialize_body(<<"application/json">>, Body) ->
+    emqx_json:encode(Body);
+serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
+    qs(Body).
 
 safely_parse_body(ContentType, Body) ->
     try parse_body(ContentType, Body) of
@@ -291,8 +296,8 @@ safely_parse_body(ContentType, Body) ->
     end.
 
 parse_body(<<"application/json">>, Body) ->
-    {ok, emqx_json:decode(Body)};
+    {ok, emqx_json:decode(Body, [return_maps])};
 parse_body(<<"application/x-www-form-urlencoded">>, Body) ->
-    {ok, cow_qs:parse_qs(Body)};
+    {ok, maps:from_list(cow_qs:parse_qs(Body))};
 parse_body(ContentType, _) ->
     {error, {unsupported_content_type, ContentType}}.

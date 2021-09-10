@@ -44,6 +44,8 @@
 
 -type conn_state() :: idle | connecting | connected | disconnected | atom().
 
+-type gen_server_from() :: {pid(), Tag :: term()}.
+
 -type reply() :: {outgoing, emqx_gateway_frame:packet()}
                | {outgoing, [emqx_gateway_frame:packet()]}
                | {event, conn_state() | updated}
@@ -71,9 +73,15 @@
      | {shutdown, Reason :: any(), channel()}.
 
 %% @doc Handle the custom gen_server:call/2 for its connection process
--callback handle_call(Req :: any(), channel())
+-callback handle_call(Req :: any(), From :: gen_server_from(), channel())
     -> {reply, Reply :: any(), channel()}
+     %% Reply to caller and trigger an event(s)
+     | {reply, Reply :: any(),
+        EventOrEvents :: tuple() | list(tuple()), channel()}
+     | {noreply, channel()}
+     | {noreply, EventOrEvents :: tuple() | list(tuple()), channel()}
      | {shutdown, Reason :: any(), Reply :: any(), channel()}
+     %% Shutdown the process, reply to caller and write a packet to client
      | {shutdown, Reason :: any(), Reply :: any(),
         emqx_gateway_frame:frame(), channel()}.
 
@@ -94,4 +102,3 @@
 
 %% @doc The callback for process terminated
 -callback terminate(any(), channel()) -> ok.
-

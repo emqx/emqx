@@ -62,5 +62,5 @@ unlock(ClientId) ->
 
 -spec(strategy() -> local | leader | quorum | all).
 strategy() ->
-    emqx_config:get([broker, session_locking_strategy]).
+    emqx:get_config([broker, session_locking_strategy]).
 

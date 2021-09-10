@@ -18,9 +18,11 @@
 
 -behavior(minirest_api).
 
--import(emqx_mgmt_util, [ response_schema/1
-                        , response_schema/2
-                        , request_body_schema/1
+-import(emqx_mgmt_util, [ schema/1
+                        , object_schema/1
+                        , object_schema/2
+                        , properties/1
+                        , bad_request/0
                         ]).
 
 % -export([cli/1]).
@@ -34,96 +36,38 @@
 -export([api_spec/0]).
 
 api_spec() ->
-    {[status_api(), data_api()], schemas()}.
+    {[status_api(), data_api()], []}.
 
-schemas() ->
-    [#{broker_info => #{
-        type => object,
-        properties => #{
-            emqx_version => #{
-                type => string,
-                description => <<"EMQ X Version">>},
-            license => #{
-                type => object,
-                properties => #{
-                    edition => #{type => string}
-                },
-                description => <<"EMQ X License">>},
-            os_name => #{
-                type => string,
-                description => <<"OS Name">>},
-            os_version => #{
-                type => string,
-                description => <<"OS Version">>},
-            otp_version => #{
-                type => string,
-                description => <<"Erlang/OTP Version">>},
-            up_time => #{
-                type => integer,
-                description => <<"EMQ X Runtime">>},
-            uuid => #{
-                type => string,
-                description => <<"EMQ X UUID">>},
-            nodes_uuid => #{
-                type => array,
-                items => #{type => string},
-                description => <<"EMQ X Cluster Nodes UUID">>},
-            active_plugins => #{
-                type => array,
-                items => #{type => string},
-                description => <<"EMQ X Active Plugins">>},
-            active_modules => #{
-                type => array,
-                items => #{type => string},
-                description => <<"EMQ X Active Modules">>},
-            num_clients => #{
-                type => integer,
-                description => <<"EMQ X Current Connections">>},
-            messages_received => #{
-                type => integer,
-                description => <<"EMQ X Current Received Message">>},
-            messages_sent => #{
-                type => integer,
-                description => <<"EMQ X Current Sent Message">>}
-        }
-    }}].
+properties() ->
+    properties([
+        {emqx_version, string, <<"EMQ X Version">>},
+        {license, object, [{edition, string, <<"EMQ X License">>}]},
+        {os_name, string, <<"OS Name">>},
+        {os_version, string, <<"OS Version">>},
+        {otp_version, string, <<"Erlang/OTP Version">>},
+        {up_time, string, <<"EMQ X Runtime">>},
+        {uuid, string, <<"EMQ X UUID">>},
+        {nodes_uuid, string, <<"EMQ X Cluster Nodes UUID">>},
+        {active_plugins, {array, string}, <<"EMQ X Active Plugins">>},
+        {active_modules, {array, string}, <<"EMQ X Active Modules">>},
+        {num_clients, integer, <<"EMQ X Current Connections">>},
+        {messages_received, integer, <<"EMQ X Current Received Message">>},
+        {messages_sent, integer, <<"EMQ X Current Sent Message">>}
+    ]).
 
 status_api() ->
+    Props = properties([{enable, boolean}]),
     Metadata = #{
         get => #{
             description => "Get telemetry status",
-            responses => #{
-                <<"200">> => response_schema(<<"Bad Request">>,
-                    #{
-                        type => object,
-                        properties => #{enable => #{type => boolean}}
-                    }
-                )
-            }
+            responses => #{<<"200">> => object_schema(Props)}
         },
         put => #{
             description => "Enable or disbale telemetry",
-            'requestBody' => request_body_schema(#{
-                type => object,
-                properties => #{
-                    enable => #{
-                        type => boolean
-                    }
-                }
-            }),
+            'requestBody' => object_schema(Props),
             responses => #{
-                <<"200">> =>
-                    response_schema(<<"Enable or disbale telemetry successfully">>),
-                <<"400">> =>
-                    response_schema(<<"Bad Request">>,
-                        #{
-                            type => object,
-                            properties => #{
-                                message => #{type => string},
-                                code => #{type => string}
-                            }
-                        }
-                    )
+                <<"200">> => schema(<<"Enable or disbale telemetry successfully">>),
+                <<"400">> => bad_request()
             }
         }
     },
@@ -133,7 +77,7 @@ data_api() ->
     Metadata = #{
         get => #{
             responses => #{
-                <<"200">> => response_schema(<<"Get telemetry data">>, <<"broker_info">>)
+                <<"200">> => object_schema(properties(), <<"Get telemetry data">>)
             }
         }
     },
@@ -142,13 +86,11 @@ data_api() ->
 %%--------------------------------------------------------------------
 %% HTTP API
 %%--------------------------------------------------------------------
-status(get, _Request) ->
+status(get, _Params) ->
     {200, get_telemetry_status()};
 
-status(put, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Params = emqx_json:decode(Body, [return_maps]),
-    Enable = maps:get(<<"enable">>, Params),
+status(put, #{body := Body}) ->
+    Enable = maps:get(<<"enable">>, Body),
     case Enable =:= emqx_telemetry:get_status() of
         true ->
             Reason = case Enable of

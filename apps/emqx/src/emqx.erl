@@ -55,6 +55,18 @@
 -export([ set_debug_secret/1
         ]).
 
+%% Configs APIs
+-export([ get_config/1
+        , get_config/2
+        , get_raw_config/1
+        , get_raw_config/2
+        , update_config/2
+        , update_config/3
+        , remove_config/1
+        , remove_config/2
+        , reset_config/2
+        ]).
+
 -define(APP, ?MODULE).
 
 %% @hidden Path to the file which has debug_info encryption secret in it.
@@ -184,3 +196,53 @@ run_hook(HookPoint, Args) ->
 -spec(run_fold_hook(emqx_hooks:hookpoint(), list(any()), any()) -> any()).
 run_fold_hook(HookPoint, Args, Acc) ->
     emqx_hooks:run_fold(HookPoint, Args, Acc).
+
+-spec get_config(emqx_map_lib:config_key_path()) -> term().
+get_config(KeyPath) ->
+    emqx_config:get(KeyPath).
+
+-spec get_config(emqx_map_lib:config_key_path(), term()) -> term().
+get_config(KeyPath, Default) ->
+    emqx_config:get(KeyPath, Default).
+
+-spec get_raw_config(emqx_map_lib:config_key_path()) -> term().
+get_raw_config(KeyPath) ->
+    emqx_config:get_raw(KeyPath).
+
+-spec get_raw_config(emqx_map_lib:config_key_path(), term()) -> term().
+get_raw_config(KeyPath, Default) ->
+    emqx_config:get_raw(KeyPath, Default).
+
+-spec update_config(emqx_map_lib:config_key_path(), emqx_config:update_request()) ->
+    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
+update_config(KeyPath, UpdateReq) ->
+    update_config(KeyPath, UpdateReq, #{}).
+
+-spec update_config(emqx_map_lib:config_key_path(), emqx_config:update_request(),
+             emqx_config:update_opts()) ->
+    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
+update_config([RootName | _] = KeyPath, UpdateReq, Opts) ->
+    emqx_config_handler:update_config(emqx_config:get_schema_mod(RootName), KeyPath,
+        {{update, UpdateReq}, Opts}).
+
+-spec remove_config(emqx_map_lib:config_key_path()) ->
+    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
+remove_config(KeyPath) ->
+    remove_config(KeyPath, #{}).
+
+-spec remove_config(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
+    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
+remove_config([RootName | _] = KeyPath, Opts) ->
+    emqx_config_handler:update_config(emqx_config:get_schema_mod(RootName),
+        KeyPath, {remove, Opts}).
+
+-spec reset_config(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
+    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
+reset_config([RootName | _] = KeyPath, Opts) ->
+    case emqx_config:get_default_value(KeyPath) of
+        {ok, Default} ->
+            emqx_config_handler:update_config(emqx_config:get_schema_mod(RootName), KeyPath,
+                {{update, Default}, Opts});
+        {error, _} = Error ->
+            Error
+    end.

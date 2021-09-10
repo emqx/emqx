@@ -19,8 +19,9 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
--type server() :: string().
+-type server() :: emqx_schema:ip_port().
 -reflect_type([server/0]).
+-typerefl_from_string({server/0, emqx_connector_schema_lib, to_ip_port}).
 
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
@@ -32,19 +33,18 @@
 
 -export([connect/1]).
 
--export([structs/0, fields/1]).
+-export([roots/0, fields/1]).
 
 -export([mongo_query/5]).
 %%=====================================================================
-structs() -> [""].
-
-fields("") ->
+roots() ->
     [ {config, #{type => hoconsc:union(
                           [ hoconsc:ref(?MODULE, single)
                           , hoconsc:ref(?MODULE, rs)
                           , hoconsc:ref(?MODULE, sharded)
                           ])}}
-    ];
+    ].
+
 fields(single) ->
     [ {mongo_type, #{type => single,
                      default => single}}
@@ -62,7 +62,8 @@ fields(sharded) ->
     , {servers, fun servers/1}
     ] ++ mongo_fields();
 fields(topology) ->
-    [ {max_overflow, fun emqx_connector_schema_lib:pool_size/1}
+    [ {pool_size, fun emqx_connector_schema_lib:pool_size/1}
+    , {max_overflow, fun emqx_connector_schema_lib:pool_size/1}
     , {overflow_ttl, fun duration/1}
     , {overflow_check_period, fun duration/1}
     , {local_threshold_ms, fun duration/1}
@@ -81,6 +82,8 @@ mongo_fields() ->
     , {auth_source, #{type => binary(),
                       nullable => true}}
     , {database, fun emqx_connector_schema_lib:database/1}
+    , {topology, #{type => hoconsc:ref(?MODULE, topology),
+                   nullable => true}}
     ] ++
     emqx_connector_schema_lib:ssl_fields().
 
@@ -92,7 +95,7 @@ on_start(InstId, Config = #{server := Server,
                             mongo_type := single}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type, single},
-            {hosts, [Server]}
+            {hosts, [emqx_connector_schema_lib:ip_port_to_string(Server)]}
             ],
     do_start(InstId, Opts, Config);
 
@@ -101,14 +104,17 @@ on_start(InstId, Config = #{servers := Servers,
                             replica_set_name := RsName}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type,  {rs, RsName}},
-            {hosts, Servers}],
+            {hosts, [emqx_connector_schema_lib:ip_port_to_string(S)
+                     || S <- Servers]}
+           ],
     do_start(InstId, Opts, Config);
 
 on_start(InstId, Config = #{servers := Servers,
                             mongo_type := sharded}) ->
     logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
     Opts = [{type, sharded},
-            {hosts, Servers}
+            {hosts, [emqx_connector_schema_lib:ip_port_to_string(S)
+                     || S <- Servers]}
             ],
     do_start(InstId, Opts, Config).
 
@@ -170,9 +176,10 @@ do_start(InstId, Opts0, Config = #{mongo_type := Type,
                       ];
                   false -> [{ssl, false}]
               end,
+    Topology= maps:get(topology, Config, #{}),
     Opts = Opts0 ++
            [{pool_size, PoolSize},
-            {options, init_topology_options(maps:to_list(Config), [])},
+            {options, init_topology_options(maps:to_list(Topology), [])},
             {worker_options, init_worker_options(maps:to_list(Config), SslOpts)}],
     %% test the connection
     TestOpts = case maps:is_key(server, Config) of
@@ -235,15 +242,8 @@ init_worker_options([_ | R], Acc) ->
     init_worker_options(R, Acc);
 init_worker_options([], Acc) -> Acc.
 
-host_port(HostPort) ->
-    case string:split(HostPort, ":") of
-        [Host, Port] ->
-            {ok, Host1} = inet:parse_address(Host),
-            [{host, Host1}, {port, list_to_integer(Port)}];
-        [Host] ->
-            {ok, Host1} = inet:parse_address(Host),
-            [{host, Host1}]
-    end.
+host_port({Host, Port}) ->
+    [{host, Host}, {port, Port}].
 
 server(type) -> server();
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];

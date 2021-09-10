@@ -76,8 +76,6 @@
 -define(NACK(Reason), {shared_sub_nack, Reason}).
 -define(NO_ACK, no_ack).
 
--rlog_shard({?SHARED_SUB_SHARD, ?TAB}).
-
 -record(state, {pmon}).
 
 -record(emqx_shared_subscription, {group, topic, subpid}).
@@ -89,6 +87,7 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
                 {type, bag},
+                {rlog_shard, ?SHARED_SUB_SHARD},
                 {ram_copies, [node()]},
                 {record_name, emqx_shared_subscription},
                 {attributes, record_info(fields, emqx_shared_subscription)}]);
@@ -136,11 +135,11 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
 
 -spec(strategy() -> strategy()).
 strategy() ->
-    emqx_config:get([broker, shared_subscription_strategy]).
+    emqx:get_config([broker, shared_subscription_strategy]).
 
 -spec(ack_enabled() -> boolean()).
 ack_enabled() ->
-    emqx_config:get([broker, shared_dispatch_ack_enabled]).
+    emqx:get_config([broker, shared_dispatch_ack_enabled]).
 
 do_dispatch(SubPid, Topic, Msg, _Type) when SubPid =:= self() ->
     %% Deadlock otherwise

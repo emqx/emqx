@@ -36,9 +36,9 @@ emqx_test(){
             "zip")
                 packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.zip)
                 unzip -q "${PACKAGE_PATH}/${packagename}"
-                export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60 \
+                export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60 \
                     EMQX_MQTT__MAX_TOPIC_ALIAS=10
-                [[ $(arch) == *arm* || $(arch) == aarch64 ]] && export EMQX_ZONES__DEFAULT__LISTENERS__MQTT_QUIC__ENABLED=false
+                [[ $(arch) == *arm* || $(arch) == aarch64 ]] && export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
                 # sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
                 echo "running ${packagename} start"
@@ -48,7 +48,7 @@ emqx_test(){
                     exit 1
                 fi
                 IDLE_TIME=0
-                while ! curl http://localhost:8081/api/v5/status >/dev/null 2>&1; do
+                while ! curl http://localhost:18083/api/v5/status >/dev/null 2>&1; do
                     if [ $IDLE_TIME -gt 10 ]
                     then
                         echo "emqx running error"
@@ -91,6 +91,12 @@ emqx_test(){
             ;;
             "rpm")
                 packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.rpm)
+
+                if [[ "${ARCH}" == "amd64" && $(rpm -E '%{rhel}') == 7 ]] ;
+                then
+                    # EMQX OTP requires openssl11 to have TLS1.3 support
+                    yum install -y openssl11;
+                fi
                 rpm -ivh "${PACKAGE_PATH}/${packagename}"
                 if ! rpm -q emqx | grep -q emqx; then
                     echo "package install error"
@@ -119,15 +125,14 @@ run_test(){
     if [ -f "$emqx_env_vars" ];
     then
         tee -a "$emqx_env_vars" <<EOF
-export EMQX_ZONE__EXTERNAL__SERVER_KEEPALIVE=60
+export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60
 export EMQX_MQTT__MAX_TOPIC_ALIAS=10
 export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
-export EMQX_LOG__FILE_HANDLERS__EMQX_LOG__LEVEL=debug
-export EMQX_LOG__PRIMARY_LEVEL=debug
+export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
 EOF
         ## for ARM, due to CI env issue, skip start of quic listener for the moment
         [[ $(arch) == *arm* || $(arch) == aarch64 ]] && tee -a "$emqx_env_vars" <<EOF
-export EMQX_ZONES__DEFAULT__LISTENERS__MQTT_QUIC__ENABLED=false
+export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
 EOF
     else
         echo "Error: cannot locate emqx_vars"
@@ -140,7 +145,7 @@ EOF
         exit 1
     fi
     IDLE_TIME=0
-    while ! curl http://localhost:8081/api/v5/status >/dev/null 2>&1; do
+    while ! curl http://localhost:18083/api/v5/status >/dev/null 2>&1; do
         if [ $IDLE_TIME -gt 10 ]
         then
             echo "emqx running error"
@@ -169,7 +174,7 @@ EOF
             exit 1
         fi
         IDLE_TIME=0
-        while ! curl http://localhost:8081/api/v5/status >/dev/null 2>&1; do
+        while ! curl http://localhost:18083/api/v5/status >/dev/null 2>&1; do
             if [ $IDLE_TIME -gt 10 ]
             then
                 echo "emqx service error"

@@ -26,6 +26,7 @@
 -define(COMMON_SHARD, emqx_common_shard).
 -define(SHARED_SUB_SHARD, emqx_shared_sub_shard).
 -define(MOD_DELAYED_SHARD, emqx_delayed_shard).
+-define(CM_SHARD, emqx_cm_shard).
 
 %%--------------------------------------------------------------------
 %% Banner
@@ -125,8 +126,7 @@
 -record(banned, {
           who    :: {clientid,  binary()}
                   | {peerhost, inet:ip_address()}
-                  | {username,   binary()}
-                  | {ip_address, inet:ip_address()},
+                  | {username,   binary()},
           by     :: binary(),
           reason :: binary(),
           at     :: integer(),
@@ -134,3 +134,19 @@
         }).
 
 -endif.
+
+%%--------------------------------------------------------------------
+%% Authentication
+%%--------------------------------------------------------------------
+
+-record(authenticator,
+        { id :: binary()
+        , provider :: module()
+        , enable :: boolean()
+        , state :: map()
+        }).
+
+-record(chain,
+        { name :: atom()
+        , authenticators :: [#authenticator{}]
+        }).

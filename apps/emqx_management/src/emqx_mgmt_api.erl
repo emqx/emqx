@@ -22,19 +22,19 @@
 
 %% first_next query APIs
 -export([ params2qs/2
-        , node_query/4
-        , cluster_query/3
+        , node_query/5
+        , cluster_query/4
         , traverse_table/5
         , select_table/5
         ]).
 
--export([do_query/5]).
+-export([do_query/6]).
 
 paginate(Tables, Params, RowFun) ->
     Qh = query_handle(Tables),
     Count = count(Tables),
-    Page = page(Params),
-    Limit = limit(Params),
+    Page = b2i(page(Params)),
+    Limit = b2i(limit(Params)),
     Cursor = qlc:cursor(Qh),
     case Page > 1 of
         true  ->
@@ -64,27 +64,28 @@ count(Tables) ->
 count(Table, Nodes) ->
     lists:sum([rpc_call(Node, ets, info, [Table, size], 5000) || Node <- Nodes]).
 
+page(Params) when is_map(Params) ->
+    maps:get(<<"page">>, Params, 1);
 page(Params) ->
-    binary_to_integer(proplists:get_value(<<"page">>, Params, <<"1">>)).
+    proplists:get_value(<<"page">>, Params, <<"1">>).
 
+limit(Params) when is_map(Params) ->
+    maps:get(<<"limit">>, Params, emqx_mgmt:max_row_limit());
 limit(Params) ->
-    case proplists:get_value(<<"limit">>, Params) of
-        undefined -> emqx_mgmt:max_row_limit();
-        Size      -> binary_to_integer(Size)
-    end.
+    proplists:get_value(<<"limit">>, Params, emqx_mgmt:max_row_limit()).
 
 %%--------------------------------------------------------------------
 %% Node Query
 %%--------------------------------------------------------------------
 
-node_query(Node, Params, {Tab, QsSchema}, QueryFun) ->
+node_query(Node, Params, Tab, QsSchema, QueryFun) ->
     {CodCnt, Qs} = params2qs(Params, QsSchema),
-    Limit = limit(Params),
-    Page  = page(Params),
+    Limit = b2i(limit(Params)),
+    Page  = b2i(page(Params)),
     Start = if Page > 1 -> (Page-1) * Limit;
                true -> 0
             end,
-    {_, Rows} = do_query(Node, Qs, QueryFun, Start, Limit+1),
+    {_, Rows} = do_query(Node, Tab, Qs, QueryFun, Start, Limit+1),
     Meta = #{page => Page, limit => Limit},
     NMeta = case CodCnt =:= 0 of
                 true -> Meta#{count => count(Tab)};
@@ -93,10 +94,11 @@ node_query(Node, Params, {Tab, QsSchema}, QueryFun) ->
     #{meta => NMeta, data => lists:sublist(Rows, Limit)}.
 
 %% @private
-do_query(Node, Qs, {M,F}, Start, Limit) when Node =:= node() ->
-    M:F(Qs, Start, Limit);
-do_query(Node, Qs, QueryFun, Start, Limit) ->
-    rpc_call(Node, ?MODULE, do_query, [Node, Qs, QueryFun, Start, Limit], 50000).
+do_query(Node, Tab, Qs, {M,F}, Start, Limit) when Node =:= node() ->
+    M:F(Tab, Qs, Start, Limit);
+do_query(Node, Tab, Qs, QueryFun, Start, Limit) ->
+    rpc_call(Node, ?MODULE, do_query,
+             [Node, Tab, Qs, QueryFun, Start, Limit], 50000).
 
 %% @private
 rpc_call(Node, M, F, A, T) ->
@@ -109,15 +111,15 @@ rpc_call(Node, M, F, A, T) ->
 %% Cluster Query
 %%--------------------------------------------------------------------
 
-cluster_query(Params, {Tab, QsSchema}, QueryFun) ->
+cluster_query(Params, Tab, QsSchema, QueryFun) ->
     {CodCnt, Qs} = params2qs(Params, QsSchema),
-    Limit = limit(Params),
-    Page  = page(Params),
+    Limit = b2i(limit(Params)),
+    Page  = b2i(page(Params)),
     Start = if Page > 1 -> (Page-1) * Limit;
                true -> 0
             end,
     Nodes = ekka_mnesia:running_nodes(),
-    Rows = do_cluster_query(Nodes, Qs, QueryFun, Start, Limit+1, []),
+    Rows = do_cluster_query(Nodes, Tab, Qs, QueryFun, Start, Limit+1, []),
     Meta = #{page => Page, limit => Limit},
     NMeta = case CodCnt =:= 0 of
                 true -> Meta#{count => count(Tab, Nodes)};
@@ -126,13 +128,13 @@ cluster_query(Params, {Tab, QsSchema}, QueryFun) ->
     #{meta => NMeta, data => lists:sublist(Rows, Limit)}.
 
 %% @private
-do_cluster_query([], _, _, _, _, Acc) ->
+do_cluster_query([], _, _, _, _, _, Acc) ->
     lists:append(lists:reverse(Acc));
-do_cluster_query([Node|Nodes], Qs, QueryFun, Start, Limit, Acc) ->
-    {NStart, Rows} = do_query(Node, Qs, QueryFun, Start, Limit),
+do_cluster_query([Node|Nodes], Tab, Qs, QueryFun, Start, Limit, Acc) ->
+    {NStart, Rows} = do_query(Node, Tab, Qs, QueryFun, Start, Limit),
     case Limit - length(Rows) of
         Rest when Rest > 0 ->
-            do_cluster_query(Nodes, Qs, QueryFun, NStart, Limit, [Rows|Acc]);
+            do_cluster_query(Nodes, Tab, Qs, QueryFun, NStart, Limit, [Rows|Acc]);
         0 ->
             lists:append(lists:reverse([Rows|Acc]))
     end.
@@ -199,6 +201,8 @@ select_n_by_one({Rows0, Cons}, Start, Limit, Acc) ->
             select_n_by_one(ets:select(Cons), 0, NLimit, [Got|Acc])
     end.
 
+params2qs(Params, QsSchema) when is_map(Params) ->
+    params2qs(maps:to_list(Params), QsSchema);
 params2qs(Params, QsSchema) ->
     {Qs, Fuzzy} = pick_params_to_qs(Params, QsSchema, [], []),
     {length(Qs) + length(Fuzzy), {Qs, Fuzzy}}.
@@ -285,6 +289,7 @@ to_type_(V, atom) -> to_atom(V);
 to_type_(V, integer) -> to_integer(V);
 to_type_(V, timestamp) -> to_timestamp(V);
 to_type_(V, ip) -> aton(V);
+to_type_(V, ip_port) -> to_ip_port(V);
 to_type_(V, _) -> V.
 
 to_atom(A) when is_atom(A) ->
@@ -304,6 +309,12 @@ to_timestamp(B) when is_binary(B) ->
 
 aton(B) when is_binary(B) ->
     list_to_tuple([binary_to_integer(T) || T <- re:split(B, "[.]")]).
+
+to_ip_port(IPAddress) ->
+    [IP0, Port0] = string:tokens(binary_to_list(IPAddress), ":"),
+    {ok, IP} = inet:parse_address(IP0),
+    Port = list_to_integer(Port0),
+    {IP, Port}.
 
 %%--------------------------------------------------------------------
 %% EUnits
@@ -342,3 +353,9 @@ params2qs_test() ->
     {0, {[], []}} = params2qs([{not_a_predefined_params, val}], Schema).
 
 -endif.
+
+
+b2i(Bin) when is_binary(Bin) ->
+    binary_to_integer(Bin);
+b2i(Any) ->
+    Any.

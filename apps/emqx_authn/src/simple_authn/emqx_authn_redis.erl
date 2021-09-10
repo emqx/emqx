@@ -21,12 +21,15 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
--export([ structs/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -36,14 +39,14 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-structs() -> [""].
+namespace() -> "authn:password-based:redis".
 
-fields("") ->
-    [ {config, {union, [ hoconsc:t(standalone)
-                       , hoconsc:t(cluster)
-                       , hoconsc:t(sentinel)
+roots() ->
+    [ {config, {union, [ hoconsc:mk(standalone)
+                       , hoconsc:mk(cluster)
+                       , hoconsc:mk(sentinel)
                        ]}}
-    ];
+    ].
 
 fields(standalone) ->
     common_fields() ++ emqx_connector_redis:fields(single);
@@ -55,13 +58,12 @@ fields(sentinel) ->
     common_fields() ++ emqx_connector_redis:fields(sentinel).
 
 common_fields() ->
-    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,               {enum, ['password-based']}}
-    , {server_type,             {enum, [redis]}}
+    [ {mechanism,               {enum, ['password-based']}}
+    , {backend,                 {enum, [redis]}}
     , {query,                   fun query/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           fun salt_position/1}
-    ].
+    ] ++ emqx_authn_schema:common_fields().
 
 query(type) -> string();
 query(nullable) -> false;
@@ -79,6 +81,12 @@ salt_position(_) -> undefined.
 %% APIs
 %%------------------------------------------------------------------------------
 
+refs() ->
+    [ hoconsc:ref(?MODULE, standalone)
+    , hoconsc:ref(?MODULE, cluster)
+    , hoconsc:ref(?MODULE, sentinel)
+    ].
+
 create(#{ query := Query
         , '_unique' := Unique
         } = Config) ->
@@ -89,9 +97,9 @@ create(#{ query := Query
                           , '_unique'], Config),
         NState = State#{query => NQuery},
         case emqx_resource:create_local(Unique, emqx_connector_redis, Config) of
-            {ok, _} ->
+            {ok, already_created} ->
                 {ok, NState};
-            {error, already_created} ->
+            {ok, _} ->
                 {ok, NState};
             {error, Reason} ->
                 {error, Reason}
@@ -124,7 +132,13 @@ authenticate(#{password := Password} = Credential,
         NKey = binary_to_list(iolist_to_binary(replace_placeholders(Key, Credential))),
         case emqx_resource:query(Unique, {cmd, [Command, NKey | Fields]}) of
             {ok, Values} ->
-                check_password(Password, merge(Fields, Values), State);
+                Selected = merge(Fields, Values),
+                case check_password(Password, Selected, State) of
+                   ok ->
+                       {ok, #{is_superuser => maps:get("is_superuser", Selected, false)}};
+                   {error, Reason} ->
+                       {error, Reason}
+                end;
             {error, Reason} ->
                 ?LOG(error, "['~s'] Query failed: ~p", [Unique, Reason]),
                 ignore
@@ -166,11 +180,11 @@ check_fields(["password_hash" | More], false) ->
     check_fields(More, true);
 check_fields(["salt" | More], HasPassHash) ->
     check_fields(More, HasPassHash);
-% check_fields(["is_superuser" | More], HasPassHash) ->
-%     check_fields(More, HasPassHash);
+check_fields(["is_superuser" | More], HasPassHash) ->
+    check_fields(More, HasPassHash);
 check_fields([Field | _], _) ->
     error({unsupported_field, Field}).
-    
+
 parse_key(Key) ->
     Tokens = re:split(Key, "(" ++ ?RE_PLACEHOLDER ++ ")", [{return, binary}, group, trim]),
     parse_key(Tokens, []).

@@ -17,33 +17,33 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([ structs/0
+-export([ roots/0
         , fields/1]).
 
-structs() -> ["emqx_dashboard"].
+roots() -> ["emqx_dashboard"].
 
 fields("emqx_dashboard") ->
     [ {listeners, hoconsc:array(hoconsc:union([hoconsc:ref(?MODULE, "http"),
                                                hoconsc:ref(?MODULE, "https")]))}
     , {default_username, fun default_username/1}
     , {default_password, fun default_password/1}
-    , {sample_interval, emqx_schema:t(emqx_schema:duration_s(), undefined, "10s")}
+    , {sample_interval, sc(emqx_schema:duration_s(), #{default => "10s"})}
+    , {token_expired_time, sc(emqx_schema:duration(), #{default => "30m"})}
     ];
 
 fields("http") ->
     [ {"protocol", hoconsc:enum([http, https])}
-    , {"port", emqx_schema:t(integer(), undefined, 8081)}
-    , {"num_acceptors", emqx_schema:t(integer(), undefined, 4)}
-    , {"max_connections", emqx_schema:t(integer(), undefined, 512)}
-    , {"backlog", emqx_schema:t(integer(), undefined, 1024)}
-    , {"send_timeout", emqx_schema:t(emqx_schema:duration(), undefined, "15s")}
-    , {"send_timeout_close", emqx_schema:t(boolean(), undefined, true)}
-    , {"inet6", emqx_schema:t(boolean(), undefined, false)}
-    , {"ipv6_v6only", emqx_schema:t(boolean(), undefined, false)}
+    , {"port", hoconsc:mk(integer(), #{default => 18083})}
+    , {"num_acceptors", sc(integer(), #{default => 4})}
+    , {"max_connections", sc(integer(), #{default => 512})}
+    , {"backlog", sc(integer(), #{default => 1024})}
+    , {"send_timeout", sc(emqx_schema:duration(), #{default => "5s"})}
+    , {"inet6", sc(boolean(), #{default => false})}
+    , {"ipv6_v6only", sc(boolean(), #{dfeault => false})}
     ];
 
 fields("https") ->
-    emqx_schema:ssl(#{enable => true}) ++ fields("http").
+    proplists:delete("fail_if_no_peer_cert", emqx_schema:ssl(#{})) ++ fields("http").
 
 default_username(type) -> string();
 default_username(default) -> "admin";
@@ -54,3 +54,5 @@ default_password(type) -> string();
 default_password(default) -> "public";
 default_password(nullable) -> false;
 default_password(_) -> undefined.
+
+sc(Type, Meta) -> hoconsc:mk(Type, Meta).

@@ -13,27 +13,51 @@
 -type permission() :: allow | deny.
 -type url() :: emqx_http_lib:uri_map().
 
--export([ structs/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         ]).
 
-structs() -> ["authorization"].
+namespace() -> authz.
+
+%% @doc authorization schema is not exported
+%% but directly used by emqx_schema
+roots() -> [].
 
 fields("authorization") ->
-    [ {rules, rules()}
-    ];
-fields(http) ->
-    [ {principal, principal()}
-    , {type, #{type => http}}
-    , {enable, #{type => boolean(),
-                 default => true}}
-    , {config, #{type => hoconsc:union([ hoconsc:ref(?MODULE, http_get)
-                                       , hoconsc:ref(?MODULE, http_post)
-                                       ])}
+    [ {sources, #{type => union_array(
+                    [ hoconsc:ref(?MODULE, file)
+                    , hoconsc:ref(?MODULE, http_get)
+                    , hoconsc:ref(?MODULE, http_post)
+                    , hoconsc:ref(?MODULE, mongo_single)
+                    , hoconsc:ref(?MODULE, mongo_rs)
+                    , hoconsc:ref(?MODULE, mongo_sharded)
+                    , hoconsc:ref(?MODULE, mysql)
+                    , hoconsc:ref(?MODULE, pgsql)
+                    , hoconsc:ref(?MODULE, redis_single)
+                    , hoconsc:ref(?MODULE, redis_sentinel)
+                    , hoconsc:ref(?MODULE, redis_cluster)
+                    ])}
       }
     ];
+fields(file) ->
+    [ {type, #{type => file}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    , {path, #{type => string(),
+               validator => fun(S) -> case filelib:is_file(S) of
+                                        true -> ok;
+                                        _ -> {error, "File does not exist"}
+                                      end
+                            end
+              }}
+    ];
 fields(http_get) ->
-    [ {url, #{type => url()}}
+    [ {type, #{type => http}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    , {url, #{type => url()}}
+    , {method,  #{type => get, default => get }}
     , {headers, #{type => map(),
                   default => #{ <<"accept">> => <<"application/json">>
                               , <<"cache-control">> => <<"no-cache">>
@@ -53,11 +77,15 @@ fields(http_get) ->
                                end
                  }
       }
-    , {method,  #{type => get, default => get }}
     , {request_timeout,  #{type => timeout(), default => 30000 }}
     ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
 fields(http_post) ->
-    [ {url, #{type => url()}}
+    [ {type, #{type => http}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    , {url, #{type => url()}}
+    , {method,  #{type => hoconsc:enum([post, put]),
+                  default => get}}
     , {headers, #{type => map(),
                   default => #{ <<"accept">> => <<"application/json">>
                               , <<"cache-control">> => <<"no-cache">>
@@ -79,64 +107,42 @@ fields(http_post) ->
                                end
                  }
       }
-    , {method,  #{type => hoconsc:enum([post, put]),
-                  default => get}}
+    , {request_timeout,  #{type => timeout(), default => 30000 }}
     , {body, #{type => map(),
                nullable => true
               }
       }
     ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
-fields(mongo) ->
-    connector_fields(mongo) ++
+fields(mongo_single) ->
+    connector_fields(mongo, single) ++
     [ {collection, #{type => atom()}}
     , {find, #{type => map()}}
     ];
-fields(redis) ->
-    connector_fields(redis) ++
-    [ {cmd, query()} ];
+fields(mongo_rs) ->
+    connector_fields(mongo, rs) ++
+    [ {collection, #{type => atom()}}
+    , {find, #{type => map()}}
+    ];
+fields(mongo_sharded) ->
+    connector_fields(mongo, sharded) ++
+    [ {collection, #{type => atom()}}
+    , {find, #{type => map()}}
+    ];
 fields(mysql) ->
     connector_fields(mysql) ++
     [ {sql, query()} ];
 fields(pgsql) ->
     connector_fields(pgsql) ++
     [ {sql, query()} ];
-fields(simple_rule) ->
-    [ {permission,   #{type => permission()}}
-    , {action,   #{type => action()}}
-    , {topics,   #{type => union_array(
-                             [ binary()
-                             , hoconsc:ref(?MODULE, eq_topic)
-                             ]
-                            )}}
-    , {principal, principal()}
-    ];
-fields(username) ->
-    [{username, #{type => binary()}}];
-fields(clientid) ->
-    [{clientid, #{type => binary()}}];
-fields(ipaddress) ->
-    [{ipaddress, #{type => string()}}];
-fields(andlist) ->
-    [{'and', #{type => union_array(
-                         [ hoconsc:ref(?MODULE, username)
-                         , hoconsc:ref(?MODULE, clientid)
-                         , hoconsc:ref(?MODULE, ipaddress)
-                         ])
-              }
-     }
-    ];
-fields(orlist) ->
-    [{'or', #{type => union_array(
-                         [ hoconsc:ref(?MODULE, username)
-                         , hoconsc:ref(?MODULE, clientid)
-                         , hoconsc:ref(?MODULE, ipaddress)
-                         ])
-              }
-     }
-    ];
-fields(eq_topic) ->
-    [{eq, #{type => binary()}}].
-
+fields(redis_single) ->
+    connector_fields(redis, single) ++
+    [ {cmd, query()} ];
+fields(redis_sentinel) ->
+    connector_fields(redis, sentinel) ++
+    [ {cmd, query()} ];
+fields(redis_cluster) ->
+    connector_fields(redis, cluster) ++
+    [ {cmd, query()} ].
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -144,29 +150,6 @@ fields(eq_topic) ->
 
 union_array(Item) when is_list(Item) ->
     hoconsc:array(hoconsc:union(Item)).
-
-rules() ->
-    #{type => union_array(
-                [ hoconsc:ref(?MODULE, simple_rule)
-                , hoconsc:ref(?MODULE, http)
-                , hoconsc:ref(?MODULE, mysql)
-                , hoconsc:ref(?MODULE, pgsql)
-                , hoconsc:ref(?MODULE, redis)
-                , hoconsc:ref(?MODULE, mongo)
-                ])
-    }.
-
-principal() ->
-    #{default => all,
-      type => hoconsc:union(
-                [ all
-                , hoconsc:ref(?MODULE, username)
-                , hoconsc:ref(?MODULE, clientid)
-                , hoconsc:ref(?MODULE, ipaddress)
-                , hoconsc:ref(?MODULE, andlist)
-                , hoconsc:ref(?MODULE, orlist)
-                ])
-     }.
 
 query() ->
     #{type => binary(),
@@ -179,6 +162,8 @@ query() ->
      }.
 
 connector_fields(DB) ->
+    connector_fields(DB, config).
+connector_fields(DB, Fields) ->
     Mod0 = io_lib:format("~s_~s",[emqx_connector, DB]),
     Mod = try
               list_to_existing_atom(Mod0)
@@ -188,8 +173,7 @@ connector_fields(DB) ->
               Error ->
                   erlang:error(Error)
           end,
-    [ {principal, principal()}
-    , {type, #{type => DB}}
+    [ {type, #{type => DB}}
     , {enable, #{type => boolean(),
                  default => true}}
-    ] ++ Mod:fields("").
+    ] ++ Mod:fields(Fields).

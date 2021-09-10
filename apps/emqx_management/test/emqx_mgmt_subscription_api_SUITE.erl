@@ -24,29 +24,20 @@
 -define(USERNAME, <<"api_username">>).
 
 %% notice: integer topic for sort response
--define(TOPIC1, <<"0000">>).
--define(TOPIC2, <<"0001">>).
+-define(TOPIC1, <<"/t/0000">>).
+-define(TOPIC2, <<"/t/0001">>).
 
+-define(TOPIC_SORT, #{?TOPIC1 => 1, ?TOPIC2 => 2}).
 
 all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    ekka_mnesia:start(),
-    emqx_mgmt_auth:mnesia(boot),
-    emqx_ct_helpers:start_apps([emqx_management], fun set_special_configs/1),
+    emqx_mgmt_api_test_util:init_suite(),
     Config.
 
-
 end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([emqx_management]).
-
-set_special_configs(emqx_management) ->
-    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
-        applications =>[#{id => "admin", secret => "public"}]}),
-    ok;
-set_special_configs(_App) ->
-    ok.
+    emqx_mgmt_api_test_util:end_suite().
 
 t_subscription_api(_) ->
     {ok, Client} = emqtt:start_link(#{username => ?USERNAME, clientid => ?CLIENTID}),
@@ -64,11 +55,24 @@ t_subscription_api(_) ->
     ?assertEqual(length(Subscriptions), 2),
     Sort =
         fun(#{<<"topic">> := T1}, #{<<"topic">> := T2}) ->
-            binary_to_integer(T1) =< binary_to_integer(T2)
+            maps:get(T1, ?TOPIC_SORT) =< maps:get(T2, ?TOPIC_SORT)
         end,
     [Subscriptions1, Subscriptions2]  = lists:sort(Sort, Subscriptions),
     ?assertEqual(maps:get(<<"topic">>, Subscriptions1), ?TOPIC1),
     ?assertEqual(maps:get(<<"topic">>, Subscriptions2), ?TOPIC2),
     ?assertEqual(maps:get(<<"clientid">>, Subscriptions1), ?CLIENTID),
     ?assertEqual(maps:get(<<"clientid">>, Subscriptions2), ?CLIENTID),
+
+    QsTopic = "topic=" ++ <<"%2Ft%2F0001">>,
+    Headers = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, ResponseTopic1} = emqx_mgmt_api_test_util:request_api(get, Path, QsTopic, Headers),
+    DataTopic1 = emqx_json:decode(ResponseTopic1, [return_maps]),
+    Meta1 = maps:get(<<"meta">>, DataTopic1),
+    ?assertEqual(1, maps:get(<<"page">>, Meta1)),
+    ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, Meta1)),
+    ?assertEqual(1, maps:get(<<"count">>, Meta1)),
+    Subscriptions_qs1 = maps:get(<<"data">>, DataTopic1),
+    ?assertEqual(length(Subscriptions_qs1), 1),
+
+
     emqtt:disconnect(Client).

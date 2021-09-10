@@ -20,11 +20,14 @@
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 
 -type server() :: tuple().
+
 -reflect_type([server/0]).
+
 -typerefl_from_string({server/0, ?MODULE, to_server}).
+
 -export([to_server/1]).
 
--export([structs/0, fields/1]).
+-export([roots/0, fields/1]).
 
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
@@ -41,16 +44,15 @@
 -export([cmd/3]).
 
 %%=====================================================================
-structs() -> [""].
-
-fields("") ->
+roots() ->
     [ {config, #{type => hoconsc:union(
                   [ hoconsc:ref(?MODULE, cluster)
                   , hoconsc:ref(?MODULE, single)
                   , hoconsc:ref(?MODULE, sentinel)
                   ])}
       }
-    ];
+    ].
+
 fields(single) ->
     [ {server, #{type => server()}}
     , {redis_type, #{type => hoconsc:enum([single]),

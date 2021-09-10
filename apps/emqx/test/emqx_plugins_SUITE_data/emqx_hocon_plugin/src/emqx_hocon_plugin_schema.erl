@@ -2,11 +2,11 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([structs/0, fields/1]).
+-export([roots/0, fields/1]).
 
 -behaviour(hocon_schema).
 
-structs() -> ["emqx_hocon_plugin"].
+roots() -> ["emqx_hocon_plugin"].
 
 fields("emqx_hocon_plugin") ->
     [{name, fun name/1}].

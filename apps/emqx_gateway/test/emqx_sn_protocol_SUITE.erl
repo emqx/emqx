@@ -51,29 +51,28 @@
 -define(CLIENTID, iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-",
                                     integer_to_list(erlang:system_time())])).
 
--define(CONF_DEFAULT, <<"""
-gateway: {
-    mqttsn.1: {
-        gateway_id: 1
-        broadcast: true
-        enable_stats: true
-        enable_qos3: true
-        predefined: [
-            {id: 1, topic: \"/predefined/topic/name/hello\"},
-            {id: 2, topic: \"/predefined/topic/name/nice\"}
-        ]
-        clientinfo_override: {
-            username: \"user1\"
-            password: \"pw123\"
-        }
-        listener.udp.1: {
-            bind: 1884
-            max_connections: 10240000
-            max_conn_rate: 1000
-        }
+-define(CONF_DEFAULT, <<"
+gateway.mqttsn {
+  gateway_id = 1
+  broadcast = true
+  enable_qos3 = true
+  predefined = [
+    { id = 1,
+      topic = \"/predefined/topic/name/hello\"
+    },
+    { id = 2,
+      topic = \"/predefined/topic/name/nice\"
     }
+  ]
+  clientinfo_override {
+    username = \"user1\"
+    password = \"pw123\"
+  }
+  listeners.udp.default {
+    bind = 1884
+  }
 }
-""">>).
+">>).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -90,35 +89,6 @@ init_per_suite(Config) ->
 end_per_suite(_) ->
     emqx_ct_helpers:stop_apps([emqx_gateway]).
 
-set_special_confs(emqx_gateway) ->
-    emqx_config:put(
-      [gateway],
-      #{ mqttsn =>
-         #{'1' =>
-            #{broadcast => true,
-              clientinfo_override =>
-                  #{password => "pw123",
-                    username => "user1"
-                   },
-              enable_qos3 => true,
-              enable_stats => true,
-              gateway_id => 1,
-              idle_timeout => 30000,
-              listener =>
-                  #{udp =>
-                        #{'1' =>
-                              #{acceptors => 8,active_n => 100,backlog => 1024,bind => 1884,
-                                high_watermark => 1048576,max_conn_rate => 1000,
-                                max_connections => 10240000,send_timeout => 15000,
-                                send_timeout_close => true}}},
-              predefined =>
-                  [#{id => ?PREDEF_TOPIC_ID1, topic => ?PREDEF_TOPIC_NAME1},
-                   #{id => ?PREDEF_TOPIC_ID2, topic => ?PREDEF_TOPIC_NAME2}]}}
-       });
-
-set_special_confs(_App) ->
-    ok.
-
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
@@ -127,7 +97,7 @@ set_special_confs(_App) ->
 %% Connect
 
 t_connect(_) ->
-    SockName = {'mqttsn#1:udp', 1884},
+    SockName = {'mqttsn:udp:default', 1884},
     ?assertEqual(true, lists:keymember(SockName, 1, esockd:listeners())),
 
     {ok, Socket} = gen_udp:open(0, [binary]),
@@ -1024,7 +994,7 @@ t_will_case06(_) ->
 
     receive
         {deliver, WillTopic, #message{payload = WillMsg}} -> ok;
-        Msg -> ct:print("recevived --- unex: ~p", [Msg])
+        Msg -> ct:print("received --- unex: ~p", [Msg])
     after
         1000 -> ct:fail(wait_willmsg_timeout)
     end,

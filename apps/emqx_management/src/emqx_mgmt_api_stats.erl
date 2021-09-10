@@ -29,83 +29,43 @@ stats_schema() ->
         type => array,
         items => #{
             type => object,
-            properties => maps:put('node', #{type => string, description => <<"Node">>}, properties())
+            properties => emqx_mgmt_util:properties([{'node', string} | properties()])
         }
     },
     Stat = #{
         type => object,
-        properties => properties()
+        properties => emqx_mgmt_util:properties(properties())
     },
     StatsInfo =#{
-        oneOf => [ minirest:ref(<<"stats">>)
-                 , minirest:ref(<<"stat">>)
+        oneOf => [ minirest:ref(stats)
+                 , minirest:ref(stat)
                  ]
     },
     [#{stats => Stats, stat => Stat, stats_info => StatsInfo}].
 
 properties() ->
-    #{
-        'connections.count' => #{
-            type => integer,
-            description => <<"Number of current connections">>},
-        'connections.max' => #{
-            type => integer,
-            description => <<"Historical maximum number of connections">>},
-        'channels.count' => #{
-            type => integer,
-            description => <<"sessions.count">>},
-        'channels.max' => #{
-            type => integer,
-            description => <<"session.max">>},
-        'sessions.count' => #{
-            type => integer,
-            description => <<"Number of current sessions">>},
-        'sessions.max' => #{
-            type => integer,
-            description => <<"Historical maximum number of sessions">>},
-        'topics.count' => #{
-            type => integer,
-            description => <<"Number of current topics">>},
-        'topics.max' => #{
-            type => integer,
-            description => <<"Historical maximum number of topics">>},
-        'suboptions.count' => #{
-            type => integer,
-            description => <<"subscriptions.count">>},
-        'suboptions.max' => #{
-            type => integer,
-            description => <<"subscriptions.max">>},
-        'subscribers.count' => #{
-            type => integer,
-            description => <<"Number of current subscribers">>},
-        'subscribers.max' => #{
-            type => integer,
-            description => <<"Historical maximum number of subscribers">>},
-        'subscriptions.count' => #{
-            type => integer,
-            description => <<"Number of current subscriptions, including shared subscriptions">>},
-        'subscriptions.max' => #{
-            type => integer,
-            description => <<"Historical maximum number of subscriptions">>},
-        'subscriptions.shared.count' => #{
-            type => integer,
-            description => <<"Number of current shared subscriptions">>},
-        'subscriptions.shared.max' => #{
-            type => integer,
-            description => <<"Historical maximum number of shared subscriptions">>},
-        'routes.count' => #{
-            type => integer,
-            description => <<"Number of current routes">>},
-        'routes.max' => #{
-            type => integer,
-            description => <<"Historical maximum number of routes">>},
-        'retained.count' => #{
-            type => integer,
-            description => <<"Number of currently retained messages">>},
-        'retained.max' => #{
-            type => integer,
-            description => <<"Historical maximum number of retained messages">>}
-    }.
+    [
+        {'channels.count',             integer, <<"sessions.count">>},
+        {'channels.max',               integer, <<"session.max">>},
+        {'connections.count',          integer, <<"Number of current connections">>},
+        {'connections.max',            integer, <<"Historical maximum number of connections">>},
+        {'retained.count',             integer, <<"Number of currently retained messages">>},
+        {'retained.max',               integer, <<"Historical maximum number of retained messages">>},
+        {'routes.count',               integer, <<"Number of current routes">>},
+        {'routes.max',                 integer, <<"Historical maximum number of routes">>},
+        {'sessions.count',             integer, <<"Number of current sessions">>},
+        {'sessions.max',               integer, <<"Historical maximum number of sessions">>},
+        {'suboptions.count',           integer, <<"subscriptions.count">>},
+        {'suboptions.max',             integer, <<"subscriptions.max">>},
+        {'subscribers.count',          integer, <<"Number of current subscribers">>},
+        {'subscribers.max',            integer, <<"Historical maximum number of subscribers">>},
+        {'subscriptions.count',        integer, <<"Number of current subscriptions, including shared subscriptions">>},
+        {'subscriptions.max',          integer, <<"Historical maximum number of subscriptions">>},
+        {'subscriptions.shared.count', integer, <<"Number of current shared subscriptions">>},
+        {'subscriptions.shared.max',   integer, <<"Historical maximum number of shared subscriptions">>},
+        {'topics.count',               integer, <<"Number of current topics">>},
+        {'topics.max',                 integer, <<"Historical maximum number of topics">>}
+    ].
 
 stats_api() ->
     Metadata = #{
@@ -130,9 +90,8 @@ stats_api() ->
 
 %%%==============================================================================================
 %% api apply
-list(get, Request) ->
-    Params = cowboy_req:parse_qs(Request),
-    case proplists:get_value(<<"aggregate">>, Params, undefined) of
+list(get, #{query_string := Qs}) ->
+    case maps:get(<<"aggregate">>, Qs, undefined) of
         <<"true">> ->
             {200, emqx_mgmt:get_stats()};
         _ ->

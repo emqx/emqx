@@ -19,98 +19,56 @@
 
 -behaviour(minirest_api).
 
+-import(emqx_mgmt_util, [ object_schema/1
+                        , object_schema/2
+                        , object_array_schema/1
+                        , object_array_schema/2
+                        , properties/1
+                        ]).
+
 -export([api_spec/0]).
 
 -export([ publish/2
         , publish_batch/2]).
 
 api_spec() ->
-    {
-        [publish_api(), publish_bulk_api()],
-        [message_schema()]
-    }.
+    {[publish_api(), publish_bulk_api()], []}.
 
 publish_api() ->
-    Schema = #{
-        type => object,
-        properties => maps:without([id], message_properties())
-    },
     MeteData = #{
         post => #{
             description => <<"Publish">>,
-            'requestBody' => emqx_mgmt_util:request_body_schema(Schema),
+            'requestBody' => object_schema(maps:without([id], properties())),
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_schema(<<"publish ok">>, message)}}},
+                <<"200">> => object_schema(properties(), <<"publish ok">>)}}},
     {"/publish", MeteData, publish}.
 
 publish_bulk_api() ->
-    Schema = #{
-        type => object,
-        properties => maps:without([id], message_properties())
-    },
     MeteData = #{
         post => #{
             description => <<"publish">>,
-            'requestBody' => emqx_mgmt_util:request_body_array_schema(Schema),
+            'requestBody' => object_array_schema(maps:without([id], properties())),
             responses => #{
-                <<"200">> => emqx_mgmt_util:response_array_schema(<<"publish ok">>, message)}}},
+                <<"200">> => object_array_schema(properties(), <<"publish ok">>)}}},
     {"/publish/bulk", MeteData, publish_batch}.
 
-message_schema() ->
-    #{
-        message => #{
-            type => object,
-            properties => message_properties()
-        }
-    }.
+properties() ->
+    properties([
+        {id, string, <<"Message Id">>},
+        {topic, string, <<"Topic">>},
+        {qos, integer, <<"QoS">>, [0, 1, 2]},
+        {payload, string, <<"Topic">>},
+        {from, string, <<"Message from">>},
+        {retain, boolean, <<"Retain message flag, nullable, default false">>}
+    ]).
 
-message_properties() ->
-    #{
-        id => #{
-            type => string,
-            description => <<"Message ID">>},
-        topic => #{
-            type => string,
-            description => <<"Topic">>},
-        qos => #{
-            type => integer,
-            enum => [0, 1, 2],
-            description => <<"Qos">>},
-        payload => #{
-            type => string,
-            description => <<"Topic">>},
-        from => #{
-            type => string,
-            description => <<"Message from">>},
-        flag => #{
-            type => <<"object">>,
-            description => <<"Message flag">>,
-            properties => #{
-                sys => #{
-                    type => boolean,
-                    default => false,
-                    description => <<"System message flag, nullable, default false">>},
-                dup => #{
-                    type => boolean,
-                    default => false,
-                    description => <<"Dup message flag, nullable, default false">>},
-                retain => #{
-                    type => boolean,
-                    default => false,
-                    description => <<"Retain message flag, nullable, default false">>}
-            }
-        }
-    }.
-
-publish(post, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Message = message(emqx_json:decode(Body, [return_maps])),
+publish(post, #{body := Body}) ->
+    Message = message(Body),
     _ = emqx_mgmt:publish(Message),
     {200, format_message(Message)}.
 
-publish_batch(post, Request) ->
-    {ok, Body, _} = cowboy_req:read_body(Request),
-    Messages = messages(emqx_json:decode(Body, [return_maps])),
+publish_batch(post, #{body := Body}) ->
+    Messages = messages(Body),
     _ = [emqx_mgmt:publish(Message) || Message <- Messages],
     {200, format_message(Messages)}.
 
@@ -119,19 +77,8 @@ message(Map) ->
     QoS     = maps:get(<<"qos">>, Map, 0),
     Topic   = maps:get(<<"topic">>, Map),
     Payload = maps:get(<<"payload">>, Map),
-    Flags   = flags(Map),
-    emqx_message:make(From, QoS, Topic, Payload, Flags, #{}).
-
-flags(Map) ->
-    Flags   = maps:get(<<"flags">>, Map, #{}),
-    Retain  = maps:get(<<"retain">>, Flags, false),
-    Sys     = maps:get(<<"sys">>, Flags, false),
-    Dup     = maps:get(<<"dup">>, Flags, false),
-    #{
-        retain => Retain,
-        sys => Sys,
-        dup => Dup
-    }.
+    Retain = maps:get(<<"retain">>, Map, false),
+    emqx_message:make(From, QoS, Topic, Payload, #{retain => Retain}, #{}).
 
 messages(List) ->
     [message(MessageMap) || MessageMap <- List].
@@ -144,7 +91,7 @@ format_message(#message{id = ID, qos = Qos, from = From, topic = Topic, payload 
         qos => Qos,
         topic => Topic,
         payload => Payload,
-        flag => Flags,
+        retain => maps:get(retain, Flags, false),
         from => to_binary(From)
     }.
 

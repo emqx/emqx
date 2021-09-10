@@ -14,7 +14,18 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--record(mqtt_admin, {username, password, tags, role = undefined}).
+-record(mqtt_admin, {
+    username             :: binary(),
+    password             :: binary(),
+    tags                 :: list() | binary(),
+    role = undefined     :: atom()
+    }).
+
+-record(mqtt_admin_jwt, {
+    token               :: binary(),
+    username            :: binary(),
+    exptime             :: integer()
+    }).
 
 -type(mqtt_admin() :: #mqtt_admin{}).
 
