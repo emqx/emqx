@@ -26,7 +26,9 @@
 
 %% Mgmt APIs - listeners
 -export([ listeners/1
-        , listener/2
+        , listener/1
+        , remove_listener/1
+        , update_listener/2
         , mapping_listener_m2l/2
         ]).
 
@@ -42,6 +44,12 @@
 
 %% Utils for http, swagger, etc.
 -export([ return_http_error/2
+        , with_gateway/2
+        , checks/2
+        , schema_bad_request/0
+        , schema_not_found/0
+        , schema_internal_error/0
+        , schema_no_content/0
         ]).
 
 -type gateway_summary() ::
@@ -108,7 +116,7 @@ get_listeners_status(GwName, Config) ->
     lists:map(fun({Type, LisName, ListenOn, _, _}) ->
         Name0 = emqx_gateway_utils:listener_id(GwName, Type, LisName),
         Name = {Name0, ListenOn},
-        LisO = #{id => Name0, type => Type},
+        LisO = #{id => Name0, type => Type, name => LisName},
         case catch esockd:listener(Name) of
             _Pid when is_pid(_Pid) ->
                 LisO#{running => true};
@@ -121,7 +129,8 @@ get_listeners_status(GwName, Config) ->
 %% Mgmt APIs - listeners
 %%--------------------------------------------------------------------
 
-listeners(GwName) when is_atom (GwName) ->
+-spec listeners(atom() | binary()) -> list().
+listeners(GwName) when is_atom(GwName) ->
     listeners(atom_to_binary(GwName));
 listeners(GwName) ->
     RawConf = emqx_config:fill_defaults(
@@ -131,8 +140,27 @@ listeners(GwName) ->
                     [<<"gateway">>, GwName, <<"listeners">>], RawConf)),
     mapping_listener_m2l(GwName, Listeners).
 
-listener(_GwName, _ListenerId) ->
-    ok.
+-spec listener(binary()) -> {ok, map()} | {error, not_found} | {error, any()}.
+listener(ListenerId) ->
+    {GwName, Type, LName} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    RootConf = emqx_config:fill_defaults(
+                 emqx_config:get_root_raw([<<"gateway">>])),
+    try
+        Path = [<<"gateway">>, GwName, <<"listeners">>, Type, LName],
+        LConf = emqx_map_lib:deep_get(Path, RootConf),
+        Running = is_running(binary_to_existing_atom(ListenerId), LConf),
+        {ok, emqx_map_lib:jsonable_map(
+               LConf#{
+                 id => ListenerId,
+                 type => Type,
+                 name => LName,
+                 running => Running})}
+    catch
+        error : {config_not_found, _} ->
+            {error, not_found};
+        _Class : Reason ->
+            {error, Reason}
+    end.
 
 mapping_listener_m2l(GwName, Listeners0) ->
     Listeners = maps:to_list(Listeners0),
@@ -146,6 +174,7 @@ listener(GwName, Type, Conf) ->
          LConf#{
            id => ListenerId,
            type => Type,
+           name => LName,
            running => Running
           }
      end || {LName, LConf} <- Conf, is_map(LConf)].
@@ -158,6 +187,28 @@ is_running(ListenerId, #{<<"bind">> := ListenOn0}) ->
     catch _:_ ->
         false
     end.
+
+-spec remove_listener(binary()) -> ok | {error, not_found} | {error, any()}.
+remove_listener(ListenerId) ->
+    {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    LConf = emqx:get_raw_config(
+              [<<"gateway">>, GwName, <<"listeners">>, Type]
+             ),
+    NLConf = maps:remove(Name, LConf),
+    emqx_gateway:update_rawconf(
+      GwName,
+      #{<<"listeners">> => #{Type => NLConf}}
+     ).
+
+-spec update_listener(binary(), map()) -> ok | {error, any()}.
+update_listener(ListenerId, NewConf0) ->
+    {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    NewConf = maps:without([<<"id">>, <<"name">>,
+                            <<"type">>, <<"running">>], NewConf0),
+    emqx_gateway:update_rawconf(
+      GwName,
+      #{<<"listeners">> => #{Type => #{Name => NewConf}}
+       }).
 
 %%--------------------------------------------------------------------
 %% Mgmt APIs - clients
@@ -256,9 +307,60 @@ return_http_error(Code, Msg) ->
               })
     }.
 
-codestr(404) -> 'RESOURCE_NOT_FOUND';
+codestr(400) -> 'BAD_REQUEST';
 codestr(401) -> 'NOT_SUPPORTED_NOW';
+codestr(404) -> 'RESOURCE_NOT_FOUND';
 codestr(500) -> 'UNKNOW_ERROR'.
+
+-spec with_gateway(binary(), function()) -> any().
+with_gateway(GwName0, Fun) ->
+    try
+        GwName = try
+                     binary_to_existing_atom(GwName0)
+                 catch _ : _ -> error(badname)
+                 end,
+        case emqx_gateway:lookup(GwName) of
+            undefined ->
+                return_http_error(404, "Gateway not load");
+            Gateway ->
+                Fun(GwName, Gateway)
+        end
+    catch
+        error : badname ->
+            return_http_error(404, "Bad gateway name");
+        error : {miss_param, K} ->
+            return_http_error(400, [K, " is required"]);
+        error : {invalid_listener_id, Id} ->
+            return_http_error(400, ["invalid listener id: ", Id]);
+        Class : Reason : Stk ->
+            ?LOG(error, "Uncatched error: {~p, ~p}, stacktrace: ~0p",
+                        [Class, Reason, Stk]),
+            return_http_error(500, {Class, Reason, Stk})
+    end.
+
+-spec checks(list(), map()) -> ok.
+checks([], _) ->
+    ok;
+checks([K|Ks], Map) ->
+    case maps:is_key(K, Map) of
+        true -> checks(Ks, Map);
+        false ->
+            error({miss_param, K})
+    end.
+
+%%--------------------------------------------------------------------
+%% common schemas
+
+schema_bad_request() ->
+    emqx_mgmt_util:error_schema(
+      <<"Some Params missed">>, ['PARAMETER_MISSED']).
+schema_internal_error() ->
+    emqx_mgmt_util:error_schema(
+      <<"Ineternal Server Error">>, ['INTERNAL_SERVER_ERROR']).
+schema_not_found() ->
+    emqx_mgmt_util:error_schema(<<"Resource Not Found">>).
+schema_no_content() ->
+    #{description => <<"No Content">>}.
 
 %%--------------------------------------------------------------------
 %% Internal funcs

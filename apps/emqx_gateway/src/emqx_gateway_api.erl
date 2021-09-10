@@ -20,6 +20,11 @@
 
 -import(emqx_gateway_http,
         [ return_http_error/2
+        , with_gateway/2
+        , schema_bad_request/0
+        , schema_not_found/0
+        , schema_internal_error/0
+        , schema_no_content/0
         ]).
 
 %% minirest behaviour callbacks
@@ -55,44 +60,34 @@ gateway(get, Request) ->
     {200, emqx_gateway_http:gateways(Status)}.
 
 gateway_insta(delete, #{bindings := #{name := Name0}}) ->
-    Name = binary_to_existing_atom(Name0),
-    case emqx_gateway:unload(Name) of
-        ok ->
-            {204};
-        {error, not_found} ->
-            return_http_error(404, <<"Gateway not found">>)
-    end;
+    with_gateway(Name0, fun(GwName, _) ->
+        _ = emqx_gateway:unload(GwName),
+        {204}
+    end);
 gateway_insta(get, #{bindings := #{name := Name0}}) ->
-    Name = binary_to_existing_atom(Name0),
-    case emqx_gateway:lookup(Name) of
-        #{config := _Config} ->
-            GwCfs = filled_raw_confs([<<"gateway">>, Name0]),
-            NGwCfs = GwCfs#{<<"listeners">> =>
-                             emqx_gateway_http:mapping_listener_m2l(
-                               Name0, maps:get(<<"listeners">>, GwCfs, #{})
-                              )
-                           },
-            {200, NGwCfs};
-        undefined ->
-            return_http_error(404, <<"Gateway not found">>)
-    end;
-gateway_insta(put, #{body := RawConfsIn0,
-                     bindings := #{name := Name}
+    with_gateway(Name0, fun(_, _) ->
+        GwConf = filled_raw_confs([<<"gateway">>, Name0]),
+        LisConf = maps:get(<<"listeners">>, GwConf, #{}),
+        NLisConf = emqx_gateway_http:mapping_listener_m2l(Name0, LisConf),
+        {200, GwConf#{<<"listeners">> => NLisConf}}
+    end);
+gateway_insta(put, #{body := GwConf0,
+                     bindings := #{name := Name0}
                     }) ->
-    RawConfsIn = maps:without([<<"authentication">>,
-                               <<"listeners">>], RawConfsIn0),
-    %% FIXME: Cluster Consistence ??
-    case emqx_gateway:update_rawconf(Name, RawConfsIn) of
-        ok ->
-            {200};
-        {error, not_found} ->
-            return_http_error(404, <<"Gateway not found">>);
-        {error, Reason} ->
-            return_http_error(500, Reason)
-    end.
+    with_gateway(Name0, fun(_, _) ->
+        GwConf = maps:without([<<"authentication">>, <<"listeners">>], GwConf0),
+        case emqx_gateway:update_rawconf(Name0, GwConf) of
+            ok ->
+                {200};
+            {error, not_found} ->
+                return_http_error(404, "Gateway not found");
+            {error, Reason} ->
+                return_http_error(500, Reason)
+        end
+    end).
 
 gateway_insta_stats(get, _Req) ->
-    return_http_error(401, <<"Implement it later (maybe 5.1)">>).
+    return_http_error(401, "Implement it later (maybe 5.1)").
 
 filled_raw_confs(Path) ->
     RawConf = emqx_config:fill_defaults(
@@ -131,7 +126,9 @@ swagger("/gateway/:name", get) ->
     #{ description => <<"Get the gateway configurations">>
      , parameters => params_gateway_name_in_path()
      , responses =>
-        #{ <<"404">> => schema_not_found()
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
          , <<"200">> => schema_gateway_conf()
          }
       };
@@ -139,7 +136,9 @@ swagger("/gateway/:name", delete) ->
     #{ description => <<"Delete/Unload the gateway">>
      , parameters => params_gateway_name_in_path()
      , responses =>
-        #{ <<"404">> => schema_not_found()
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
          , <<"204">> => schema_no_content()
          }
       };
@@ -148,7 +147,9 @@ swagger("/gateway/:name", put) ->
      , parameters => params_gateway_name_in_path()
      , requestBody => schema_gateway_conf()
      , responses =>
-        #{ <<"404">> => schema_not_found()
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
          , <<"200">> => schema_no_content()
          }
      };
@@ -156,7 +157,9 @@ swagger("/gateway/:name/stats", get) ->
     #{ description => <<"Get gateway Statistic">>
      , parameters => params_gateway_name_in_path()
      , responses =>
-        #{ <<"404">> => schema_not_found()
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
          , <<"200">> => schema_gateway_stats()
          }
      }.
@@ -180,12 +183,6 @@ params_gateway_status_in_qs() ->
 
 %%--------------------------------------------------------------------
 %% schemas
-
-schema_not_found() ->
-    emqx_mgmt_util:error_schema(<<"Gateway not found or unloaded">>).
-
-schema_no_content() ->
-    #{description => <<"No Content">>}.
 
 schema_gateway_overview_list() ->
     emqx_mgmt_util:array_schema(
