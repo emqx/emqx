@@ -200,7 +200,7 @@ remove_listener(ListenerId) ->
       #{<<"listeners">> => #{Type => NLConf}}
      ).
 
--spec update_listener(binary(), map()) -> ok | {error, any()}.
+-spec update_listener(atom() | binary(), map()) -> ok | {error, any()}.
 update_listener(ListenerId, NewConf0) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
     NewConf = maps:without([<<"id">>, <<"name">>,
@@ -299,7 +299,7 @@ with_channel(GwName, ClientId, Fun) ->
 %% Utils
 %%--------------------------------------------------------------------
 
--spec return_http_error(integer(), binary()) -> {integer(), binary()}.
+-spec return_http_error(integer(), any()) -> {integer(), binary()}.
 return_http_error(Code, Msg) ->
     {Code, emqx_json:encode(
              #{code => codestr(Code),

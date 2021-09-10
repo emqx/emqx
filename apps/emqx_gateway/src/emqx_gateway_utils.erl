@@ -33,7 +33,6 @@
         , unix_ts_to_rfc3339/2
         , listener_id/3
         , parse_listener_id/1
-        , parse_listener_id2/1
         ]).
 
 -export([ stringfy/1
@@ -134,6 +133,8 @@ listener_id(GwName, Type, LisName) ->
         (bin(LisName))/binary
       >>).
 
+parse_listener_id(Id) when is_atom(Id) ->
+    parse_listener_id(atom_to_binary(Id));
 parse_listener_id(Id) ->
     try
         [GwName, Type, Name] = binary:split(bin(Id), <<":">>, [global]),
@@ -141,12 +142,6 @@ parse_listener_id(Id) ->
     catch
         _ : _ -> error({invalid_listener_id, Id})
     end.
-
-parse_listener_id2(Id) ->
-    {GwName, Type, Name} = parse_listener_id(Id),
-    {binary_to_existing_atom(GwName),
-     binary_to_existing_atom(Type),
-     binary_to_atom(Name)}.
 
 bin(A) when is_atom(A) ->
     atom_to_binary(A);
