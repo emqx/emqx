@@ -484,7 +484,7 @@ definitions() ->
                 type => array,
                 items => #{
                   type => string,
-                  example => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.">>
+                  example => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
                 }
             },
             path => #{
