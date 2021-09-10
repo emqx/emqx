@@ -9,7 +9,7 @@ labels: "Feature, needs-triage"
 <!-- Please only use this template for submitting enhancement requests -->
 <!-- Note, lacking of information will delay the handling of issue
      See our github issue handling flow here:
-     https://github.com/emqx/emqx/blob/master/.github/ISSUE_TEMPLATE/asserts/issue-handling.png
+     https://github.com/emqx/emqx/blob/master/.github/ISSUE_TEMPLATE/assets/issue-handling.png
 -->
 
 
