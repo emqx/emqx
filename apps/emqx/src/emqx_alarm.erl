@@ -408,6 +408,8 @@ normalize_message(high_cpu_usage, #{usage := Usage}) ->
     list_to_binary(io_lib:format("~s cpu usage", [Usage]));
 normalize_message(too_many_processes, #{usage := Usage}) ->
     list_to_binary(io_lib:format("~s process usage", [Usage]));
+normalize_message(cluster_rpc_apply_failed, #{tnx_id := TnxId}) ->
+    list_to_binary(io_lib:format("cluster_rpc_apply_failed:~w", [TnxId]));
 normalize_message(partition, #{occurred := Node}) ->
     list_to_binary(io_lib:format("Partition occurs at node ~s", [Node]));
 normalize_message(<<"resource", _/binary>>, #{type := Type, id := ID}) ->

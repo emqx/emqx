@@ -29,7 +29,7 @@
 
 -record(cluster_rpc_commit, {
     node :: node(),
-    tnx_id :: pos_integer()
+    tnx_id :: pos_integer() | '$1'
 }).
 
 -endif.
