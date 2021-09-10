@@ -92,7 +92,7 @@ make eunit ct
 Examples
 
 ```bash
-make apps/emqx_bridge-ct
+make apps/emqx_retainer-ct
 ```
 
 ### Dialyzer
