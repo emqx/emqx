@@ -93,8 +93,10 @@ t_commit_crash_test(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     {M, F, A} = {?MODULE, no_exist_function, []},
-    Error = emqx_cluster_rpc:multicall(M, F, A),
-    ?assertEqual({error, {crash,error,undef}}, Error),
+    {error, {error, Meta}} = emqx_cluster_rpc:multicall(M, F, A),
+    ?assertEqual(undef, maps:get(reason, Meta)),
+    ?assertEqual(error, maps:get(exception, Meta)),
+    ?assertEqual(true, maps:is_key(stacktrace, Meta)),
     ?assertEqual({atomic, []}, emqx_cluster_rpc:status()),
     ok.
 
