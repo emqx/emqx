@@ -310,6 +310,27 @@ fields("node") ->
        sc(ref("cluster_call"),
           #{}
          )}
+    , {"etc_dir",
+       sc(string(),
+          #{
+             converter => fun(EtcDir) ->
+                case filename:absname(EtcDir) =:= EtcDir of
+                   true -> 
+                      unicode:characters_to_list(EtcDir);
+                   false ->
+                      unicode:characters_to_list(filename:join([code:lib_dir(), "..", EtcDir]))
+                end
+              end,
+             validator => fun(Path) ->
+                case filelib:is_dir(Path) of
+                   true -> 
+                      ok;
+                   false -> 
+                      error({not_dir, Path})
+                end
+               end
+            }
+         )}
     ];
 
 fields("cluster_call") ->
