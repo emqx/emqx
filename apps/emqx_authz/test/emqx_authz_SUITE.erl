@@ -61,120 +61,141 @@ init_per_testcase(_, Config) ->
     Config.
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
-                 <<"config">> => #{
-                    <<"url">> => <<"https://fake.com:443/">>,
-                    <<"headers">> => #{},
-                    <<"method">> => <<"get">>,
-                    <<"request_timeout">> => 5000}
-                }).
+                   <<"enable">> => true,
+                   <<"url">> => <<"https://fake.com:443/">>,
+                   <<"headers">> => #{},
+                   <<"method">> => <<"get">>,
+                   <<"request_timeout">> => 5000
+                  }).
 -define(SOURCE2, #{<<"type">> => <<"mongo">>,
-                 <<"config">> => #{
-                        <<"mongo_type">> => <<"single">>,
-                        <<"server">> => <<"127.0.0.1:27017">>,
-                        <<"pool_size">> => 1,
-                        <<"database">> => <<"mqtt">>,
-                        <<"ssl">> => #{<<"enable">> => false}},
-                 <<"collection">> => <<"fake">>,
-                 <<"find">> => #{<<"a">> => <<"b">>}
-                }).
+                   <<"enable">> => true,
+                   <<"mongo_type">> => <<"single">>,
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"ssl">> => #{<<"enable">> => false},
+                   <<"collection">> => <<"fake">>,
+                   <<"find">> => #{<<"a">> => <<"b">>}
+                  }).
 -define(SOURCE3, #{<<"type">> => <<"mysql">>,
-                 <<"config">> => #{
-                     <<"server">> => <<"127.0.0.1:27017">>,
-                     <<"pool_size">> => 1,
-                     <<"database">> => <<"mqtt">>,
-                     <<"username">> => <<"xx">>,
-                     <<"password">> => <<"ee">>,
-                     <<"auto_reconnect">> => true,
-                     <<"ssl">> => #{<<"enable">> => false}},
-                 <<"sql">> => <<"abcb">>
-                }).
+                   <<"enable">> => true,
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"username">> => <<"xx">>,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
+                   <<"sql">> => <<"abcb">>
+                  }).
 -define(SOURCE4, #{<<"type">> => <<"pgsql">>,
-                 <<"config">> => #{
-                     <<"server">> => <<"127.0.0.1:27017">>,
-                     <<"pool_size">> => 1,
-                     <<"database">> => <<"mqtt">>,
-                     <<"username">> => <<"xx">>,
-                     <<"password">> => <<"ee">>,
-                     <<"auto_reconnect">> => true,
-                     <<"ssl">> => #{<<"enable">> => false}},
-                 <<"sql">> => <<"abcb">>
-                }).
+                   <<"enable">> => true,
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"username">> => <<"xx">>,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
+                   <<"sql">> => <<"abcb">>
+                  }).
 -define(SOURCE5, #{<<"type">> => <<"redis">>,
-                 <<"config">> => #{
-                     <<"server">> => <<"127.0.0.1:27017">>,
-                     <<"pool_size">> => 1,
-                     <<"database">> => 0,
-                     <<"password">> => <<"ee">>,
-                     <<"auto_reconnect">> => true,
-                     <<"ssl">> => #{<<"enable">> => false}},
-                 <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
-                }).
+                   <<"enable">> => true,
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => 0,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
+                   <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
+                  }).
+-define(SOURCE6, #{<<"type">> => <<"file">>,
+                   <<"enable">> => true,
+                   <<"path">> => emqx_ct_helpers:deps_path(emqx_authz, "etc/acl.conf")
+                  }).
+
 
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
 
 t_update_source(_) ->
-    {ok, _} = emqx_authz:update(replace, [?SOURCE2]),
+    {ok, _} = emqx_authz:update(replace, [?SOURCE3]),
+    {ok, _} = emqx_authz:update(head, [?SOURCE2]),
     {ok, _} = emqx_authz:update(head, [?SOURCE1]),
-    {ok, _} = emqx_authz:update(tail, [?SOURCE3]),
+    {ok, _} = emqx_authz:update(tail, [?SOURCE4]),
+    {ok, _} = emqx_authz:update(tail, [?SOURCE5]),
+    {ok, _} = emqx_authz:update(tail, [?SOURCE6]),
 
-    ?assertMatch([#{type := http}, #{type := mongo}, #{type := mysql}], emqx:get_config([authorization, sources], [])),
+    ?assertMatch([ #{type := http,  enable := true}
+                 , #{type := mongo, enable := true}
+                 , #{type := mysql, enable := true}
+                 , #{type := pgsql, enable := true}
+                 , #{type := redis, enable := true}
+                 , #{type := file,  enable := true}
+                 ], emqx:get_config([authorization, sources], [])),
 
-    [#{annotations := #{id := Id1}, type := http},
-     #{annotations := #{id := Id2}, type := mongo},
-     #{annotations := #{id := Id3}, type := mysql}
-    ] = emqx_authz:lookup(),
+    {ok, _} = emqx_authz:update({replace_once, http},  ?SOURCE1#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({replace_once, mongo}, ?SOURCE2#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({replace_once, mysql}, ?SOURCE3#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({replace_once, pgsql}, ?SOURCE4#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({replace_once, redis}, ?SOURCE5#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({replace_once, file},  ?SOURCE6#{<<"enable">> := false}),
 
-    {ok, _} = emqx_authz:update({replace_once, Id1}, ?SOURCE5),
-    {ok, _} = emqx_authz:update({replace_once, Id3}, ?SOURCE4),
-    ?assertMatch([#{type := redis}, #{type := mongo}, #{type := pgsql}], emqx:get_config([authorization, sources], [])),
-
-    [#{annotations := #{id := Id1}, type := redis},
-     #{annotations := #{id := Id2}, type := mongo},
-     #{annotations := #{id := Id3}, type := pgsql}
-    ] = emqx_authz:lookup(),
+    ?assertMatch([ #{type := http,  enable := false}
+                 , #{type := mongo, enable := false}
+                 , #{type := mysql, enable := false}
+                 , #{type := pgsql, enable := false}
+                 , #{type := redis, enable := false}
+                 , #{type := file,  enable := false}
+                 ], emqx:get_config([authorization, sources], [])),
 
     {ok, _} = emqx_authz:update(replace, []).
 
 t_move_source(_) ->
-    {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5]),
-    [#{annotations := #{id := Id1}},
-     #{annotations := #{id := Id2}},
-     #{annotations := #{id := Id3}},
-     #{annotations := #{id := Id4}},
-     #{annotations := #{id := Id5}}
-    ] = emqx_authz:lookup(),
-
-    {ok, _} = emqx_authz:move(Id4, <<"top">>),
-    ?assertMatch([#{annotations := #{id := Id4}},
-                  #{annotations := #{id := Id1}},
-                  #{annotations := #{id := Id2}},
-                  #{annotations := #{id := Id3}},
-                  #{annotations := #{id := Id5}}
+    {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
+    ?assertMatch([ #{type := http}
+                 , #{type := mongo}
+                 , #{type := mysql}
+                 , #{type := pgsql}
+                 , #{type := redis}
+                 , #{type := file}
                  ], emqx_authz:lookup()),
 
-    {ok, _} = emqx_authz:move(Id1, <<"bottom">>),
-    ?assertMatch([#{annotations := #{id := Id4}},
-                  #{annotations := #{id := Id2}},
-                  #{annotations := #{id := Id3}},
-                  #{annotations := #{id := Id5}},
-                  #{annotations := #{id := Id1}}
+    {ok, _} = emqx_authz:move(pgsql, <<"top">>),
+    ?assertMatch([ #{type := pgsql}
+                 , #{type := http}
+                 , #{type := mongo}
+                 , #{type := mysql}
+                 , #{type := redis}
+                 , #{type := file}
                  ], emqx_authz:lookup()),
 
-    {ok, _} = emqx_authz:move(Id3, #{<<"before">> => Id4}),
-    ?assertMatch([#{annotations := #{id := Id3}},
-                  #{annotations := #{id := Id4}},
-                  #{annotations := #{id := Id2}},
-                  #{annotations := #{id := Id5}},
-                  #{annotations := #{id := Id1}}
+    {ok, _} = emqx_authz:move(http, <<"bottom">>),
+    ?assertMatch([ #{type := pgsql}
+                 , #{type := mongo}
+                 , #{type := mysql}
+                 , #{type := redis}
+                 , #{type := file}
+                 , #{type := http}
                  ], emqx_authz:lookup()),
 
-    {ok, _} = emqx_authz:move(Id2, #{<<"after">> => Id1}),
-    ?assertMatch([#{annotations := #{id := Id3}},
-                  #{annotations := #{id := Id4}},
-                  #{annotations := #{id := Id5}},
-                  #{annotations := #{id := Id1}},
-                  #{annotations := #{id := Id2}}
+    {ok, _} = emqx_authz:move(mysql, #{<<"before">> => pgsql}),
+    ?assertMatch([ #{type := mysql}
+                 , #{type := pgsql}
+                 , #{type := mongo}
+                 , #{type := redis}
+                 , #{type := file}
+                 , #{type := http}
                  ], emqx_authz:lookup()),
+
+    {ok, _} = emqx_authz:move(mongo, #{<<"after">> => http}),
+    ?assertMatch([ #{type := mysql}
+                 , #{type := pgsql}
+                 , #{type := redis}
+                 , #{type := file}
+                 , #{type := http}
+                 , #{type := mongo}
+                 ], emqx_authz:lookup()),
+
     ok.

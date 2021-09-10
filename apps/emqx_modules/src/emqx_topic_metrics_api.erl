@@ -94,7 +94,7 @@ topic_metrics_api() ->
             responses => #{
                 <<"200">> => schema(<<"Create topic metrics success">>),
                 <<"409">> => error_schema(<<"Topic metrics max limit">>, [?EXCEED_LIMIT]),
-                <<"400">> => error_schema(<<"Topic metrics already exist">>, [?BAD_REQUEST])
+                <<"400">> => error_schema(<<"Topic metrics already exist or bad topic">>, [?BAD_REQUEST])
             }
         }
     },
@@ -137,6 +137,8 @@ topic_metrics(put, #{body := #{<<"topic">> := Topic, <<"action">> := <<"reset">>
     reset(Topic);
 topic_metrics(put, #{body := #{<<"action">> := <<"reset">>}}) ->
     reset();
+topic_metrics(post, #{body := #{<<"topic">> := <<>>}}) ->
+    {400, 'BAD_REQUEST', <<"Topic can not be empty">>};
 topic_metrics(post, #{body := #{<<"topic">> := Topic}}) ->
     register(Topic).
 

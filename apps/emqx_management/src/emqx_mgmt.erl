@@ -90,6 +90,10 @@
         , list_listeners_by_id/1
         , get_listener/2
         , manage_listener/2
+        , update_listener/2
+        , update_listener/3
+        , remove_listener/1
+        , remove_listener/2
         ]).
 
 %% Alarms
@@ -473,25 +477,24 @@ list_listeners() ->
     lists:append([list_listeners(Node) || Node <- ekka_mnesia:running_nodes()]).
 
 list_listeners(Node) when Node =:= node() ->
-    [{Id, maps:put(node, Node, Conf)} || {Id, Conf} <- emqx_listeners:list()];
+    [Conf#{node => Node, id => Id} || {Id, Conf} <- emqx_listeners:list()];
 
 list_listeners(Node) ->
     rpc_call(Node, list_listeners, [Node]).
 
-list_listeners_by_id(Identifier) ->
-    listener_id_filter(Identifier, list_listeners()).
+list_listeners_by_id(Id) ->
+    listener_id_filter(Id, list_listeners()).
 
-get_listener(Node, Identifier) ->
-    case listener_id_filter(Identifier, list_listeners(Node)) of
+get_listener(Node, Id) ->
+    case listener_id_filter(Id, list_listeners(Node)) of
         [] ->
             {error, not_found};
         [Listener] ->
             Listener
     end.
 
-listener_id_filter(Identifier, Listeners) ->
-    Filter =
-        fun({Id, _}) -> Id =:= Identifier end,
+listener_id_filter(Id, Listeners) ->
+    Filter = fun(#{id := Id0}) -> Id0 =:= Id end,
     lists:filter(Filter, Listeners).
 
 -spec manage_listener(Operation :: start_listener|stop_listener|restart_listener, Param :: map()) ->
@@ -500,6 +503,33 @@ manage_listener(Operation, #{id := ID, node := Node}) when Node =:= node()->
     erlang:apply(emqx_listeners, Operation, [ID]);
 manage_listener(Operation, Param = #{node := Node}) ->
     rpc_call(Node, manage_listener, [Operation, Param]).
+
+update_listener(Id, Config) ->
+    [update_listener(Node, Id, Config) || Node <- ekka_mnesia:running_nodes()].
+
+update_listener(Node, Id, Config) when Node =:= node() ->
+    {Type, Name} = emqx_listeners:parse_listener_id(Id),
+    case emqx:update_config([listeners, Type, Name], Config, #{}) of
+        {ok, #{raw_config := RawConf}} ->
+            RawConf#{node => Node, id => Id, running => true};
+        {error, Reason} ->
+            error(Reason)
+    end;
+update_listener(Node, Id, Config) ->
+    rpc_call(Node, update_listener, [Node, Id, Config]).
+
+remove_listener(Id) ->
+    [remove_listener(Node, Id) || Node <- ekka_mnesia:running_nodes()].
+
+remove_listener(Node, Id) when Node =:= node() ->
+    {Type, Name} = emqx_listeners:parse_listener_id(Id),
+    case emqx:remove_config([listeners, Type, Name], #{}) of
+        {ok, _} -> ok;
+        {error, Reason} ->
+            error(Reason)
+    end;
+remove_listener(Node, Id) ->
+    rpc_call(Node, remove_listener, [Node, Id]).
 
 %%--------------------------------------------------------------------
 %% Get Alarms

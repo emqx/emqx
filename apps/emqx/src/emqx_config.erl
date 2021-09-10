@@ -87,15 +87,21 @@
 -type update_request() :: term().
 -type update_cmd() :: {update, update_request()} | remove.
 -type update_opts() :: #{
-        %% fill the default values into the rawconf map
-        rawconf_with_defaults => boolean()
+        %% rawconf_with_defaults:
+        %%   fill the default values into the `raw_config` field of the return value
+        %%   defaults to `false`
+        rawconf_with_defaults => boolean(),
+        %% persistent:
+        %%   save the updated config to the emqx_override.conf file
+        %%   defaults to `true`
+        persistent => boolean()
     }.
 -type update_args() :: {update_cmd(), Opts :: update_opts()}.
 -type update_stage() :: pre_config_update | post_config_update.
 -type update_error() :: {update_stage(), module(), term()} | {save_configs, term()} | term().
 -type update_result() :: #{
-    config := emqx_config:config(),
-    raw_config := emqx_config:raw_config(),
+    config => emqx_config:config(),
+    raw_config => emqx_config:raw_config(),
     post_config_update => #{module() => any()}
 }.
 
@@ -235,7 +241,7 @@ put_raw(KeyPath, Config) -> do_put(?RAW_CONF, KeyPath, Config).
 %% in the rear of the list overrides prior values.
 -spec init_load(module(), [string()] | binary() | hocon:config()) -> ok.
 init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
-    ParseOptions = #{format => richmap},
+    ParseOptions = #{format => map},
     Parser = case is_binary(Conf) of
               true -> fun hocon:binary/2;
               false -> fun hocon:files/2
@@ -249,19 +255,17 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
                           }),
             error(failed_to_load_hocon_conf)
     end;
-init_load(SchemaMod, RawRichConf) when is_map(RawRichConf) ->
-    %% check with richmap for line numbers in error reports (future enhancement)
-    Opts = #{return_plain => true,
-             nullable => true
-            },
-    %% this call throws exception in case of check failure
-    {_AppEnvs, CheckedConf} = hocon_schema:map_translate(SchemaMod, RawRichConf, Opts),
+init_load(SchemaMod, RawConf0) when is_map(RawConf0) ->
     ok = save_schema_mod_and_names(SchemaMod),
-    ok = save_to_config_map(emqx_map_lib:unsafe_atom_key_map(normalize_conf(CheckedConf)),
-            normalize_conf(hocon_schema:richmap_to_map(RawRichConf))).
+    %% override part of the input conf using emqx_override.conf
+    RawConf = merge_with_override_conf(RawConf0),
+    %% check and save configs
+    {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf),
+    ok = save_to_config_map(maps:with(get_atom_root_names(), CheckedConf),
+            maps:with(get_root_names(), RawConf)).
 
-normalize_conf(Conf) ->
-    maps:with(get_root_names(bin), Conf).
+merge_with_override_conf(RawConf) ->
+    maps:merge(RawConf, maps:with(maps:keys(RawConf), read_override_conf())).
 
 -spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().
@@ -277,7 +281,7 @@ check_config(SchemaMod, RawConf) ->
 
 -spec fill_defaults(raw_config()) -> map().
 fill_defaults(RawConf) ->
-    RootNames = get_root_names(bin),
+    RootNames = get_root_names(),
     maps:fold(fun(Key, Conf, Acc) ->
             SubMap = #{Key => Conf},
             WithDefaults = case lists:member(Key, RootNames) of
@@ -320,8 +324,8 @@ get_schema_mod(RootName) ->
 get_root_names() ->
     maps:get(names, persistent_term:get(?PERSIS_SCHEMA_MODS, #{names => []})).
 
-get_root_names(bin) ->
-    maps:keys(get_schema_mod()).
+get_atom_root_names() ->
+    [atom(N) || N <- get_root_names()].
 
 -spec save_configs(app_envs(), config(), raw_config(), raw_config()) -> ok | {error, term()}.
 save_configs(_AppEnvs, Conf, RawConf, OverrideConf) ->
@@ -344,14 +348,19 @@ save_to_config_map(Conf, RawConf) ->
     ?MODULE:put_raw(RawConf).
 
 -spec save_to_override_conf(raw_config()) -> ok | {error, term()}.
+save_to_override_conf(undefined) ->
+    ok;
 save_to_override_conf(RawConf) ->
-    FileName = emqx_override_conf_name(),
-    ok = filelib:ensure_dir(FileName),
-    case file:write_file(FileName, jsx:prettify(jsx:encode(RawConf))) of
-        ok -> ok;
-        {error, Reason} ->
-            logger:error("write to ~s failed, ~p", [FileName, Reason]),
-            {error, Reason}
+    case emqx_override_conf_name() of
+        undefined -> ok;
+        FileName ->
+            ok = filelib:ensure_dir(FileName),
+            case file:write_file(FileName, jsx:prettify(jsx:encode(RawConf))) of
+                ok -> ok;
+                {error, Reason} ->
+                    logger:error("write to ~s failed, ~p", [FileName, Reason]),
+                    {error, Reason}
+            end
     end.
 
 load_hocon_file(FileName, LoadType) ->
@@ -363,7 +372,7 @@ load_hocon_file(FileName, LoadType) ->
     end.
 
 emqx_override_conf_name() ->
-    application:get_env(emqx, override_conf_file, "emqx_override.conf").
+    application:get_env(emqx, override_conf_file, undefined).
 
 do_get(Type, KeyPath) ->
     Ref = make_ref(),
@@ -412,14 +421,7 @@ do_deep_put(?RAW_CONF, KeyPath, Map, Value) ->
 
 root_names_from_conf(RawConf) ->
     Keys = maps:keys(RawConf),
-    StrNames = [str(K) || K <- Keys],
-    AtomNames = lists:foldl(fun(K, Acc) ->
-            try [atom(K) | Acc]
-            catch error:badarg -> Acc
-            end
-        end, [], Keys),
-    PossibleNames = StrNames ++ AtomNames,
-    [Name || Name <- get_root_names(), lists:member(Name, PossibleNames)].
+    [Name || Name <- get_root_names(), lists:member(Name, Keys)].
 
 atom(Bin) when is_binary(Bin) ->
     binary_to_existing_atom(Bin, latin1);
@@ -427,13 +429,6 @@ atom(Str) when is_list(Str) ->
     list_to_existing_atom(Str);
 atom(Atom) when is_atom(Atom) ->
     Atom.
-
-str(Bin) when is_binary(Bin) ->
-    binary_to_list(Bin);
-str(Str) when is_list(Str) ->
-    Str;
-str(Atom) when is_atom(Atom) ->
-    atom_to_list(Atom).
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);

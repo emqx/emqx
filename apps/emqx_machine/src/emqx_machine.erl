@@ -140,7 +140,7 @@ reboot_apps() ->
     , emqx_statsd
     , emqx_resource
     , emqx_rule_engine
-    , emqx_data_bridge
+    , emqx_bridge
     , emqx_bridge_mqtt
     , emqx_plugin_libs
     , emqx_management

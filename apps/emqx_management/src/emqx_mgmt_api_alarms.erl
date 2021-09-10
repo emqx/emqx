@@ -22,8 +22,10 @@
 
 -export([alarms/2]).
 
--export([ query_activated/3
-        , query_deactivated/3]).
+%% internal export (for query)
+-export([ query/4
+        ]).
+
 %% notice: from emqx_alarms
 -define(ACTIVATED_ALARM, emqx_activated_alarm).
 -define(DEACTIVATED_ALARM, emqx_deactivated_alarm).
@@ -42,7 +44,9 @@ properties() ->
         {name, string, <<"Alarm name">>},
         {message, string, <<"Alarm readable information">>},
         {details, object},
-        {duration, integer, <<"Alarms duration time; UNIX time stamp">>}
+        {duration, integer, <<"Alarms duration time; UNIX time stamp, millisecond">>},
+        {activate_at, string, <<"Alarms activate time, RFC 3339">>},
+        {deactivate_at, string, <<"Nullable, alarms deactivate time, RFC 3339">>}
     ]).
 
 alarms_api() ->
@@ -69,14 +73,12 @@ alarms_api() ->
 %%%==============================================================================================
 %% parameters trans
 alarms(get, #{query_string := Qs}) ->
-    {Table, Function} =
+    Table =
         case maps:get(<<"activated">>, Qs, <<"true">>) of
-            <<"true">> ->
-                {?ACTIVATED_ALARM, query_activated};
-            <<"false">> ->
-                {?DEACTIVATED_ALARM, query_deactivated}
+            <<"true">> -> ?ACTIVATED_ALARM;
+            <<"false">> -> ?DEACTIVATED_ALARM
         end,
-    Response = emqx_mgmt_api:cluster_query(Qs, {Table, []}, {?MODULE, Function}),
+    Response = emqx_mgmt_api:cluster_query(Qs, Table, [], {?MODULE, query}),
     {200, Response};
 
 alarms(delete, _Params) ->
@@ -85,13 +87,8 @@ alarms(delete, _Params) ->
 
 %%%==============================================================================================
 %% internal
-query_activated(_, Start, Limit) ->
-    query(?ACTIVATED_ALARM, Start, Limit).
 
-query_deactivated(_, Start, Limit) ->
-    query(?DEACTIVATED_ALARM, Start, Limit).
-
-query(Table, Start, Limit) ->
+query(Table, _QsSpec, Start, Limit) ->
     Ms = [{'$1',[],['$1']}],
     emqx_mgmt_api:select_table(Table, Ms, Start, Limit, fun format_alarm/1).
 

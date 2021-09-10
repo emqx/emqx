@@ -159,6 +159,7 @@ format(#activated_alarm{name = Name, message = Message, activate_at = At, detail
         name => Name,
         message => Message,
         duration => (Now - At) div 1000, %% to millisecond
+        activate_at => to_rfc3339(At),
         details => Details
     };
 format(#deactivated_alarm{name = Name, message = Message, activate_at = At, details = Details,
@@ -168,10 +169,15 @@ format(#deactivated_alarm{name = Name, message = Message, activate_at = At, deta
         name => Name,
         message => Message,
         duration => DAt - At,
+        activate_at => to_rfc3339(At),
+        deactivate_at => to_rfc3339(DAt),
         details => Details
     };
 format(_) ->
     {error, unknow_alarm}.
+
+to_rfc3339(Timestamp) ->
+    list_to_binary(calendar:system_time_to_rfc3339(Timestamp div 1000, [{unit, millisecond}])).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

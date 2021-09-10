@@ -188,7 +188,7 @@ gen_schema(_Conf) ->
     #{type => string}.
 
 with_default_value(Type, Value) ->
-    Type#{example => emqx_map_lib:jsonable_value(Value)}.
+    Type#{example => emqx_map_lib:binary_string(Value)}.
 
 path_join(Path) ->
     path_join(Path, "/").

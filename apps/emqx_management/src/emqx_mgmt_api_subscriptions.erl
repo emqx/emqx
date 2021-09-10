@@ -29,7 +29,7 @@
 
 -export([subscriptions/2]).
 
--export([ query/3
+-export([ query/4
         , format/1
         ]).
 
@@ -37,6 +37,7 @@
         [ {<<"clientid">>, binary}
         , {<<"topic">>, binary}
         , {<<"share">>, binary}
+        , {<<"share_group">>, binary}
         , {<<"qos">>, integer}
         , {<<"match_topic">>, binary}]}).
 
@@ -87,21 +88,21 @@ parameters() ->
             schema => #{type => integer, enum => [0, 1, 2]}
         },
         #{
-            name => share,
+            name => share_group,
             in => query,
-            description => <<"Shared subscription">>,
-            schema => #{type => boolean}
+            description => <<"Shared subscription group name">>,
+            schema => #{type => string}
         },
         #{
             name => topic,
             in => query,
-            description => <<"Topic">>,
+            description => <<"Topic, url encoding">>,
             schema => #{type => string}
         }
         #{
             name => match_topic,
             in => query,
-            description => <<"Match topic string">>,
+            description => <<"Match topic string, url encoding">>,
             schema => #{type => string}
         } | page_params()
     ].
@@ -110,11 +111,14 @@ subscriptions(get, #{query_string := Params}) ->
     list(Params).
 
 list(Params) ->
+    {Tab, QuerySchema} = ?SUBS_QS_SCHEMA,
     case maps:get(<<"node">>, Params, undefined) of
         undefined ->
-            {200, emqx_mgmt_api:cluster_query(Params, ?SUBS_QS_SCHEMA, ?query_fun)};
+            {200, emqx_mgmt_api:cluster_query(Params, Tab,
+                                              QuerySchema, ?query_fun)};
         Node ->
-            {200, emqx_mgmt_api:node_query(binary_to_atom(Node, utf8), Params, ?SUBS_QS_SCHEMA, ?query_fun)}
+            {200, emqx_mgmt_api:node_query(binary_to_atom(Node, utf8), Params,
+                                           Tab, QuerySchema, ?query_fun)}
     end.
 
 format(Items) when is_list(Items) ->
@@ -144,14 +148,14 @@ format({_Subscriber, Topic, Options}) ->
 %% Query Function
 %%--------------------------------------------------------------------
 
-query({Qs, []}, Start, Limit) ->
+query(Tab, {Qs, []}, Start, Limit) ->
     Ms = qs2ms(Qs),
-    emqx_mgmt_api:select_table(emqx_suboption, Ms, Start, Limit, fun format/1);
+    emqx_mgmt_api:select_table(Tab, Ms, Start, Limit, fun format/1);
 
-query({Qs, Fuzzy}, Start, Limit) ->
+query(Tab, {Qs, Fuzzy}, Start, Limit) ->
     Ms = qs2ms(Qs),
     MatchFun = match_fun(Ms, Fuzzy),
-    emqx_mgmt_api:traverse_table(emqx_suboption, MatchFun, Start, Limit, fun format/1).
+    emqx_mgmt_api:traverse_table(Tab, MatchFun, Start, Limit, fun format/1).
 
 match_fun(Ms, Fuzzy) ->
     MsC = ets:match_spec_compile(Ms),
@@ -183,7 +187,7 @@ update_ms(clientid, X, {{Pid, Topic}, Opts}) ->
     {{Pid, Topic}, Opts#{subid => X}};
 update_ms(topic, X, {{Pid, _Topic}, Opts}) ->
     {{Pid, X}, Opts};
-update_ms(share, X, {{Pid, Topic}, Opts}) ->
+update_ms(share_group, X, {{Pid, Topic}, Opts}) ->
     {{Pid, Topic}, Opts#{share => X}};
 update_ms(qos, X, {{Pid, Topic}, Opts}) ->
     {{Pid, Topic}, Opts#{qos => X}}.

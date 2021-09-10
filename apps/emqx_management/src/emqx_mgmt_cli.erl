@@ -73,8 +73,9 @@ status(_) ->
 %% @doc Query broker
 
 broker([]) ->
-    Funs = [sysdescr, version, uptime, datetime],
-    [emqx_ctl:print("~-10s: ~s~n", [Fun, emqx_sys:Fun()]) || Fun <- Funs];
+    Funs = [sysdescr, version, datetime],
+    [emqx_ctl:print("~-10s: ~s~n", [Fun, emqx_sys:Fun()]) || Fun <- Funs],
+    emqx_ctl:print("~-10s: ~p~n", [uptime, emqx_sys:uptime()]);
 
 broker(["stats"]) ->
     [emqx_ctl:print("~-30s: ~w~n", [Stat, Val]) || {Stat, Val} <- lists:sort(emqx_stats:getstats())];
@@ -286,7 +287,7 @@ vm(["io"]) ->
     [emqx_ctl:print("io/~-21s: ~w~n", [Key, proplists:get_value(Key, IoInfo)]) || Key <- [max_fds, active_fds]];
 
 vm(["ports"]) ->
-    [emqx_ctl:print("ports/~-16s: ~w~n", [Name, erlang:system_info(Key)]) || {Name, Key} <- [{count, port_count}, {limit, port_limit}]];
+    [emqx_ctl:print("ports/~-18s: ~w~n", [Name, erlang:system_info(Key)]) || {Name, Key} <- [{count, port_count}, {limit, port_limit}]];
 
 vm(_) ->
     emqx_ctl:usage([{"vm all",     "Show info of Erlang VM"},
@@ -412,26 +413,28 @@ trace_off(Who, Name) ->
 %% @doc Listeners Command
 
 listeners([]) ->
-    lists:foreach(fun({{Protocol, ListenOn}, _Pid}) ->
-                Info = [{listen_on,      {string, format_listen_on(ListenOn)}},
-                        {acceptors,      esockd:get_acceptors({Protocol, ListenOn})},
-                        {max_conns,      esockd:get_max_connections({Protocol, ListenOn})},
-                        {current_conn,   esockd:get_current_connections({Protocol, ListenOn})},
-                        {shutdown_count, esockd:get_shutdown_count({Protocol, ListenOn})}
-                       ],
-                    emqx_ctl:print("~s~n", [Protocol]),
+    lists:foreach(fun({ID, Conf}) ->
+                {Host, Port}    = maps:get(bind, Conf),
+                Acceptors       = maps:get(acceptors, Conf),
+                ProxyProtocol   = maps:get(proxy_protocol, Conf, undefined),
+                Running         = maps:get(running, Conf),
+                CurrentConns    = case emqx_listeners:current_conns(ID, {Host, Port}) of
+                                      {error, _} -> [];
+                                      CC         -> [{current_conn, CC}]
+                                  end,
+                MaxConn         = case emqx_listeners:max_conns(ID, {Host, Port}) of
+                                      {error, _} -> [];
+                                      MC         -> [{max_conns, MC}]
+                                  end,
+                Info = [
+                    {listen_on,         {string, format_listen_on(Port)}},
+                    {acceptors,         Acceptors},
+                    {proxy_protocol,    ProxyProtocol},
+                    {running,           Running}
+                ] ++ CurrentConns ++ MaxConn,
+                emqx_ctl:print("~s~n", [ID]),
                 lists:foreach(fun indent_print/1, Info)
-            end, esockd:listeners()),
-    lists:foreach(fun({Protocol, Opts}) ->
-                Port = proplists:get_value(port, Opts),
-                Info = [{listen_on,      {string, format_listen_on(Port)}},
-                        {acceptors,      maps:get(num_acceptors, proplists:get_value(transport_options, Opts, #{}), 0)},
-                        {max_conns,      proplists:get_value(max_connections, Opts)},
-                        {current_conn,   proplists:get_value(all_connections, Opts)},
-                        {shutdown_count, []}],
-                    emqx_ctl:print("~s~n", [Protocol]),
-                lists:foreach(fun indent_print/1, Info)
-            end, ranch:info());
+            end, emqx_listeners:list());
 
 listeners(["stop", ListenerId]) ->
     case emqx_listeners:stop_listener(list_to_atom(ListenerId)) of

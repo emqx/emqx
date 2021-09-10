@@ -21,12 +21,15 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -36,17 +39,19 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
+namespace() -> "authn:password-based:mysql".
+
 roots() -> [config].
 
 fields(config) ->
-    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,               {enum, ['password-based']}}
-    , {server_type,             {enum, [mysql]}}
+    [ {mechanism,               {enum, ['password-based']}}
+    , {backend,                 {enum, [mysql]}}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           fun salt_position/1}
     , {query,                   fun query/1}
     , {query_timeout,           fun query_timeout/1}
-    ] ++ emqx_connector_schema_lib:relational_db_fields()
+    ] ++ emqx_authn_schema:common_fields()
+    ++ emqx_connector_schema_lib:relational_db_fields()
     ++ emqx_connector_schema_lib:ssl_fields().
 
 password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};
@@ -68,6 +73,9 @@ query_timeout(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+   [hoconsc:ref(?MODULE, config)].
 
 create(#{ password_hash_algorithm := Algorithm
         , salt_position := SaltPosition
@@ -115,7 +123,7 @@ authenticate(#{password := Password} = Credential,
                 Selected = maps:from_list(lists:zip(Columns, Rows)),
                 case check_password(Password, Selected, State) of
                     ok ->
-                        {ok, #{superuser => maps:get(<<"superuser">>, Selected, false)}};
+                        {ok, #{is_superuser => maps:get(<<"is_superuser">>, Selected, false)}};
                     {error, Reason} ->
                         {error, Reason}
                 end;

@@ -91,6 +91,12 @@ emqx_test(){
             ;;
             "rpm")
                 packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.rpm)
+
+                if [[ "${ARCH}" == "amd64" && $(rpm -E '%{rhel}') == 7 ]] ;
+                then
+                    # EMQX OTP requires openssl11 to have TLS1.3 support
+                    yum install -y openssl11;
+                fi
                 rpm -ivh "${PACKAGE_PATH}/${packagename}"
                 if ! rpm -q emqx | grep -q emqx; then
                     echo "package install error"
@@ -126,7 +132,7 @@ export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
 EOF
         ## for ARM, due to CI env issue, skip start of quic listener for the moment
         [[ $(arch) == *arm* || $(arch) == aarch64 ]] && tee -a "$emqx_env_vars" <<EOF
-export EMQX_ZONES__DEFAULT__LISTENERS__MQTT_QUIC__ENABLED=false
+export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
 EOF
     else
         echo "Error: cannot locate emqx_vars"

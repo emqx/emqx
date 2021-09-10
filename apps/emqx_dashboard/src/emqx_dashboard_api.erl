@@ -49,6 +49,8 @@
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
+-define(ERROR_USERNAME_OR_PWD, 'ERROR_USERNAME_OR_PWD').
+
 api_spec() ->
     {[ login_api()
      , logout_api()
@@ -164,14 +166,18 @@ login(post, #{body := Params}) ->
         {ok, Token} ->
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
             {200, #{token => Token, version => Version, license => #{edition => ?RELEASE}}};
-        {error, Code} ->
-            {401, #{code => Code, message => <<"Auth filed">>}}
+        {error, _} ->
+            {401, #{code => ?ERROR_USERNAME_OR_PWD, message => <<"Auth filed">>}}
     end.
 
-logout(_, #{body := Params}) ->
-    Username = maps:get(<<"username">>, Params),
-    emqx_dashboard_admin:destroy_token_by_username(Username),
-    {200}.
+logout(_, #{body := #{<<"username">> := Username},
+            headers := #{<<"authorization">> := <<"Bearer ", Token/binary>>}}) ->
+    case emqx_dashboard_admin:destroy_token_by_username(Username, Token) of
+        ok ->
+            200;
+        _R ->
+            {401, 'BAD_TOKEN_OR_USERNAME', <<"Ensure your token & username">>}
+    end.
 
 users(get, _Request) ->
     {200, [row(User) || User <- emqx_dashboard_admin:all_users()]};
@@ -233,7 +239,7 @@ parameters() ->
 unauthorized_request() ->
     object_schema(
         properties([{message, string},
-                    {code, string, <<"Resp Code">>, ['PASSWORD_ERROR','USERNAME_ERROR']}
+                    {code, string, <<"Resp Code">>, [?ERROR_USERNAME_OR_PWD]}
                    ]),
         <<"Unauthorized">>
     ).

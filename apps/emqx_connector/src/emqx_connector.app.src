@@ -13,7 +13,8 @@
     epgsql,
     mysql,
     mongodb,
-    emqx
+    emqx,
+    emqtt
    ]},
   {env,[]},
   {modules, []},

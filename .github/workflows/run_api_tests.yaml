@@ -1,0 +1,102 @@
+name: API Test Suite
+
+on:
+  push:
+    tags:
+      - e*
+      - v*
+    pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
+    steps:
+    - uses: actions/checkout@v2
+    - name: zip emqx-broker
+      if: endsWith(github.repository, 'emqx')
+      run: |
+        make emqx-zip
+    - name: zip emqx-broker
+      if: endsWith(github.repository, 'enterprise')
+      run: |
+        echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+        git config --global credential.helper store
+        make emqx-ee-zip
+    - uses: actions/upload-artifact@v2
+      with:
+        name: emqx-broker
+        path: _packages/**/*.zip
+  api-test:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        script_name:
+          - api_metrics
+          - api_subscriptions
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        repository: emqx/emqx-fvt
+        path: .
+    - uses: actions/setup-java@v1
+      with:
+        java-version: '8.0.282' # The JDK version to make available on the path.
+        java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
+        architecture: x64 # (x64 or x86) - defaults to x64
+    - uses: actions/download-artifact@v2
+      with:
+        name: emqx-broker
+        path: .
+    - name: start emqx-broker
+      env:
+        EMQX_LISTENERS__WSS__DEFAULT__BIND: "0.0.0.0:8085"
+      run: |
+        unzip ./emqx/*.zip
+        ./emqx/bin/emqx start
+    - name: install jmeter
+      timeout-minutes: 10
+      env:
+          JMETER_VERSION: 5.3
+      run: |
+        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
+        cd /tmp && tar -xvf apache-jmeter.tgz
+        echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
+        echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
+        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-2.0.2-jar-with-dependencies.jar
+        ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
+    - name: run ${{ matrix.script_name }}
+      run: |
+        /opt/jmeter/bin/jmeter.sh \
+          -Jjmeter.save.saveservice.output_format=xml -n \
+          -t .ci/api-test-suite/${{ matrix.script_name }}.jmx \
+          -Demqx_ip="127.0.0.1" \
+          -l jmeter_logs/${{ matrix.script_name }}.jtl \
+          -j jmeter_logs/logs/${{ matrix.script_name }}.log
+    - name: check test logs
+      run: |
+        if cat jmeter_logs/${{ matrix.script_name }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
+           grep -A 5 -B 3 '<failure>true</failure>' jmeter_logs/${{ matrix.script_name }}.jtl > jmeter_logs/${{ matrix.script_name }}_err_api.txt
+          echo "check logs failed"
+          exit 1
+        fi
+    - uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: jmeter_logs
+        path: ./jmeter_logs
+    - uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: jmeter_logs
+        path: emqx/log 
+  delete-package:
+    runs-on: ubuntu-20.04
+    needs: api-test
+    if: always()
+    steps:
+    - uses: geekyeggo/delete-artifact@v1
+      with:
+        name: emqx-broker

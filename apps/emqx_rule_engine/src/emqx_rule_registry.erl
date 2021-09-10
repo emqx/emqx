@@ -185,7 +185,7 @@ get_rules_ordered_by_ts() ->
 -spec(get_rules_for(Topic :: binary()) -> list(emqx_rule_engine:rule())).
 get_rules_for(Topic) ->
     [Rule || Rule = #rule{for = For} <- get_rules(),
-             emqx_rule_utils:can_topic_match_oneof(Topic, For)].
+             emqx_plugin_libs_rule:can_topic_match_oneof(Topic, For)].
 
 -spec(get_rules_with_same_event(Topic :: binary()) -> list(emqx_rule_engine:rule())).
 get_rules_with_same_event(Topic) ->
@@ -220,6 +220,7 @@ remove_rules(Rules) ->
     gen_server:call(?REGISTRY, {remove_rules, Rules}, ?T_CALL).
 
 %% @private
+
 insert_rules([]) -> ok;
 insert_rules(Rules) ->
     _ =  emqx_rule_utils:cluster_call(?MODULE, load_hooks_for_rule, [Rules]),

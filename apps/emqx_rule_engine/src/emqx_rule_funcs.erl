@@ -503,26 +503,26 @@ do_get_subbits(Bits, Sz, Len, <<"bits">>, <<"signed">>, <<"little">>) ->
 %%------------------------------------------------------------------------------
 
 str(Data) ->
-    emqx_rule_utils:bin(Data).
+    emqx_plugin_libs_rule:bin(Data).
 
 str_utf8(Data) ->
-    emqx_rule_utils:utf8_bin(Data).
+    emqx_plugin_libs_rule:utf8_bin(Data).
 
 bool(Data) ->
-    emqx_rule_utils:bool(Data).
+    emqx_plugin_libs_rule:bool(Data).
 
 int(Data) ->
-    emqx_rule_utils:int(Data).
+    emqx_plugin_libs_rule:int(Data).
 
 float(Data) ->
-    emqx_rule_utils:float(Data).
+    emqx_plugin_libs_rule:float(Data).
 
 float(Data, Decimals) when Decimals > 0 ->
     Data1 = ?MODULE:float(Data),
     list_to_float(float_to_list(Data1, [{decimals, Decimals}])).
 
 map(Data) ->
-    emqx_rule_utils:map(Data).
+    emqx_plugin_libs_rule:map(Data).
 
 bin2hexstr(Bin) when is_binary(Bin) ->
     emqx_misc:bin2hexstr_A_F(Bin).
@@ -730,7 +730,7 @@ mget(Key, Map, Default) ->
         {ok, Val} -> Val;
         error when is_atom(Key) ->
             %% the map may have an equivalent binary-form key
-            BinKey = emqx_rule_utils:bin(Key),
+            BinKey = emqx_plugin_libs_rule:bin(Key),
             case maps:find(BinKey, Map) of
                 {ok, Val} -> Val;
                 error -> Default
@@ -754,7 +754,7 @@ mput(Key, Val, Map) ->
         {ok, _} -> maps:put(Key, Val, Map);
         error when is_atom(Key) ->
             %% the map may have an equivalent binary-form key
-            BinKey = emqx_rule_utils:bin(Key),
+            BinKey = emqx_plugin_libs_rule:bin(Key),
             case maps:find(BinKey, Map) of
                 {ok, _} -> maps:put(BinKey, Val, Map);
                 error -> maps:put(Key, Val, Map)
@@ -853,7 +853,7 @@ unix_ts_to_rfc3339(Epoch) ->
     unix_ts_to_rfc3339(Epoch, <<"second">>).
 
 unix_ts_to_rfc3339(Epoch, Unit) when is_integer(Epoch) ->
-    emqx_rule_utils:bin(
+    emqx_plugin_libs_rule:bin(
         calendar:system_time_to_rfc3339(
             Epoch, [{unit, time_unit(Unit)}])).
 

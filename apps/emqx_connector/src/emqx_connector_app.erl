@@ -21,6 +21,7 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
+    emqx_connector_mqtt_worker:register_metrics(),
     emqx_connector_sup:start_link().
 
 stop(_State) ->

@@ -65,6 +65,10 @@ log() {
 make_rel() {
     # shellcheck disable=SC1010
     ./rebar3 as "$PROFILE" do release,tar
+    if [ "$(find "_build/$PROFILE/rel/emqx/lib/" -name 'gpb-*' -type d)" != "" ]; then
+        echo "gpb should not be included in the release"
+        exit 1
+    fi
 }
 
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup

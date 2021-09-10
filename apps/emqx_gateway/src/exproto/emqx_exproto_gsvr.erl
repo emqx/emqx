@@ -22,8 +22,9 @@
 -include("src/exproto/include/emqx_exproto.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-
 -define(IS_QOS(X), (X =:= 0 orelse X =:= 1 orelse X =:= 2)).
+
+-define(DEFAULT_CALL_TIMEOUT, 5000).
 
 %% gRPC server callbacks
 -export([ send/2
@@ -96,7 +97,7 @@ publish(Req, Md) ->
 subscribe(Req = #{conn := Conn, topic := Topic, qos := Qos}, Md)
   when ?IS_QOS(Qos) ->
     ?LOG(debug, "Recv ~p function with request ~0p", [?FUNCTION_NAME, Req]),
-    {ok, response(call(Conn, {subscribe, Topic, Qos})), Md};
+    {ok, response(call(Conn, {subscribe_from_client, Topic, Qos})), Md};
 
 subscribe(Req, Md) ->
     ?LOG(debug, "Recv ~p function with request ~0p", [?FUNCTION_NAME, Req]),
@@ -107,7 +108,7 @@ subscribe(Req, Md) ->
      | {error, grpc_cowboy_h:error_response()}.
 unsubscribe(Req = #{conn := Conn, topic := Topic}, Md) ->
     ?LOG(debug, "Recv ~p function with request ~0p", [?FUNCTION_NAME, Req]),
-    {ok, response(call(Conn, {unsubscribe, Topic})), Md}.
+    {ok, response(call(Conn, {unsubscribe_from_client, Topic})), Md}.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
@@ -117,18 +118,22 @@ to_pid(ConnStr) ->
     binary_to_term(base64:decode(ConnStr)).
 
 call(ConnStr, Req) ->
-    case catch to_pid(ConnStr) of
-        {'EXIT', {badarg, _}} ->
-            {error, ?RESP_PARAMS_TYPE_ERROR,
-                    <<"The conn type error">>};
-        Pid when is_pid(Pid) ->
-            case erlang:is_process_alive(Pid) of
-                true ->
-                    emqx_gateway_conn:call(Pid, Req);
-                false ->
-                    {error, ?RESP_CONN_PROCESS_NOT_ALIVE,
-                            <<"Connection process is not alive">>}
-            end
+    try
+        Pid = to_pid(ConnStr),
+        emqx_gateway_conn:call(Pid, Req, ?DEFAULT_CALL_TIMEOUT)
+    catch
+        exit : badarg ->
+            {error, ?RESP_PARAMS_TYPE_ERROR, <<"The conn type error">>};
+        exit : noproc ->
+            {error, ?RESP_CONN_PROCESS_NOT_ALIVE,
+             <<"Connection process is not alive">>};
+        exit : timeout ->
+            {error, ?RESP_UNKNOWN, <<"Connection is not answered">>};
+        Class : Reason : Stk->
+            ?LOG(error, "Call ~p crashed: {~0p, ~0p}, "
+                        "stacktrace: ~0p",
+                        [Class, Reason, Stk]),
+            {error, ?RESP_UNKNOWN, <<"Unkwown crashs">>}
     end.
 
 %%--------------------------------------------------------------------
