@@ -170,10 +170,14 @@ login(post, #{body := Params}) ->
             {401, #{code => ?ERROR_USERNAME_OR_PWD, message => <<"Auth filed">>}}
     end.
 
-logout(_, #{body := Params}) ->
-    Username = maps:get(<<"username">>, Params),
-    emqx_dashboard_admin:destroy_token_by_username(Username),
-    {200}.
+logout(_, #{body := #{<<"username">> := Username},
+            headers := #{<<"authorization">> := <<"Bearer ", Token/binary>>}}) ->
+    case emqx_dashboard_admin:destroy_token_by_username(Username, Token) of
+        ok ->
+            200;
+        _R ->
+            {401, 'BAD_TOKEN_OR_USERNAME', <<"Ensure your token & username">>}
+    end.
 
 users(get, _Request) ->
     {200, [row(User) || User <- emqx_dashboard_admin:all_users()]};

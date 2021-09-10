@@ -22,6 +22,7 @@
 
 -export([ sign/2
         , verify/1
+        , lookup/1
         , destroy/1
         , destroy_by_username/1
         ]).
@@ -121,14 +122,15 @@ do_verify(Token)->
 
 do_destroy(Token) ->
     Fun = fun mnesia:delete/1,
-    ekka_mnesia:transaction(?DASHBOARD_SHARD, Fun, [{?TAB, Token}]).
+    {atomic, ok} = ekka_mnesia:transaction(?DASHBOARD_SHARD, Fun, [{?TAB, Token}]),
+    ok.
 
 do_destroy_by_username(Username) ->
     gen_server:cast(?MODULE, {destroy, Username}).
 
 %%--------------------------------------------------------------------
 %% jwt internal util function
-
+-spec(lookup(Token :: binary()) -> {ok, #mqtt_admin_jwt{}} | {error, not_found}).
 lookup(Token) ->
     case mnesia:dirty_read(?TAB, Token) of
         [JWT] -> {ok, JWT};
