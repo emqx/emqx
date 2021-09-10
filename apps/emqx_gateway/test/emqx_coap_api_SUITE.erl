@@ -62,12 +62,6 @@ end_per_suite(Config) ->
     emqx_mgmt_api_test_util:end_suite([emqx_gateway]),
     Config.
 
-set_special_configs(emqx_gatewway) ->
-    ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT);
-
-set_special_configs(_) ->
-    ok.
-
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
@@ -187,17 +181,6 @@ split_segments(Path, Char, Acc) ->
 make_segment(Seg) ->
     list_to_binary(emqx_http_lib:uri_decode(Seg)).
 
-
-get_coap_path(Options) ->
-    get_path(Options, <<>>).
-
-get_coap_query(Options) ->
-    proplists:get_value(uri_query, Options, []).
-
-get_coap_observe(Options) ->
-    get_observe(Options).
-
-
 get_path([], Acc) ->
     %?LOGT("get_path Acc=~p", [Acc]),
     Acc;
@@ -206,13 +189,6 @@ get_path([{uri_path, Path1}|T], Acc) ->
     get_path(T, join_path(Path1, Acc));
 get_path([{_, _}|T], Acc) ->
     get_path(T, Acc).
-
-get_observe([]) ->
-    undefined;
-get_observe([{observe, V}|_T]) ->
-    V;
-get_observe([{_, _}|T]) ->
-    get_observe(T).
 
 join_path([], Acc) -> Acc;
 join_path([<<"/">>|T], Acc) ->
