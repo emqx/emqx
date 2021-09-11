@@ -2,10 +2,10 @@ name: API Test Suite
 
 on:
   push:
-    tags:
-      - e*
-      - v*
-    pull_request:
+   tags:
+     - e*
+     - v*
+  pull_request:
 
 jobs:
   build:
@@ -36,6 +36,9 @@ jobs:
         script_name:
           - api_metrics
           - api_subscriptions
+          - api_clients
+          - api_routes
+          - api_publish
     steps:
     - uses: actions/checkout@v2
       with:
