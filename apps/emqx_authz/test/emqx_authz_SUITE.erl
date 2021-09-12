@@ -75,7 +75,7 @@ init_per_testcase(_, Config) ->
                    <<"database">> => <<"mqtt">>,
                    <<"ssl">> => #{<<"enable">> => false},
                    <<"collection">> => <<"fake">>,
-                   <<"find">> => #{<<"a">> => <<"b">>}
+                   <<"selector">> => #{<<"a">> => <<"b">>}
                   }).
 -define(SOURCE3, #{<<"type">> => <<"mysql">>,
                    <<"enable">> => true,
@@ -86,7 +86,7 @@ init_per_testcase(_, Config) ->
                    <<"password">> => <<"ee">>,
                    <<"auto_reconnect">> => true,
                    <<"ssl">> => #{<<"enable">> => false},
-                   <<"sql">> => <<"abcb">>
+                   <<"query">> => <<"abcb">>
                   }).
 -define(SOURCE4, #{<<"type">> => <<"pgsql">>,
                    <<"enable">> => true,
@@ -97,7 +97,7 @@ init_per_testcase(_, Config) ->
                    <<"password">> => <<"ee">>,
                    <<"auto_reconnect">> => true,
                    <<"ssl">> => #{<<"enable">> => false},
-                   <<"sql">> => <<"abcb">>
+                   <<"query">> => <<"abcb">>
                   }).
 -define(SOURCE5, #{<<"type">> => <<"redis">>,
                    <<"enable">> => true,

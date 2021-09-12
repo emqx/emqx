@@ -89,7 +89,8 @@ on_start(InstId, Conf) ->
     NamePrefix = binary_to_list(InstId),
     BasicConf = basic_config(Conf),
     InitRes = {ok, #{name_prefix => NamePrefix, baisc_conf => BasicConf, sub_bridges => []}},
-    InOutConfigs = check_channel_id_dup(maps:get(in, Conf, []) ++ maps:get(out, Conf, [])),
+    InOutConfigs = check_channel_id_dup(maps:get(message_in, Conf, [])
+                                        ++ maps:get(message_out, Conf, [])),
     lists:foldl(fun
             (_InOutConf, {error, Reason}) ->
                 {error, Reason};
@@ -110,7 +111,7 @@ on_stop(InstId, #{}) ->
     end.
 
 %% TODO: let the emqx_resource trigger on_query/4 automatically according to the
-%%  `in` and `out` config
+%%  `message_in` and `message_out` config
 on_query(InstId, {create_channel, Conf}, _AfterQuery, #{name_prefix := Prefix,
         baisc_conf := BasicConf}) ->
     logger:debug("create channel to connector: ~p, conf: ~p", [InstId, Conf]),
@@ -136,19 +137,19 @@ check_channel_id_dup(Confs) ->
         end, Confs),
     Confs.
 
-%% this is an `in` bridge
-create_channel(#{subscribe_remote_topic := _, id := BridgeId} = InConf, NamePrefix,
-        #{clientid_prefix := ClientPrefix} = BasicConf) ->
-    logger:info("creating 'in' channel for: ~p", [BridgeId]),
-    create_sub_bridge(BasicConf#{name => bridge_name(NamePrefix, BridgeId),
-        clientid => clientid(ClientPrefix, BridgeId),
+%% this is an `message_in` bridge
+create_channel(#{subscribe_remote_topic := _, id := Id} = InConf, NamePrefix, BasicConf) ->
+    logger:info("creating 'message_in' channel for: ~p", [Id]),
+    create_sub_bridge(BasicConf#{
+        name => bridge_name(NamePrefix, Id),
+        clientid => clientid(Id),
         subscriptions => InConf, forwards => undefined});
-%% this is an `out` bridge
-create_channel(#{subscribe_local_topic := _, id := BridgeId} = OutConf, NamePrefix,
-        #{clientid_prefix := ClientPrefix} = BasicConf) ->
-    logger:info("creating 'out' channel for: ~p", [BridgeId]),
-    create_sub_bridge(BasicConf#{name => bridge_name(NamePrefix, BridgeId),
-        clientid => clientid(ClientPrefix, BridgeId),
+%% this is an `message_out` bridge
+create_channel(#{subscribe_local_topic := _, id := Id} = OutConf, NamePrefix, BasicConf) ->
+    logger:info("creating 'message_out' channel for: ~p", [Id]),
+    create_sub_bridge(BasicConf#{
+        name => bridge_name(NamePrefix, Id),
+        clientid => clientid(Id),
         subscriptions => undefined, forwards => OutConf}).
 
 create_sub_bridge(#{name := Name} = Conf) ->
@@ -172,7 +173,6 @@ basic_config(#{
         reconnect_interval := ReconnIntv,
         proto_ver := ProtoVer,
         bridge_mode := BridgeMod,
-        clientid_prefix := ClientIdPrefix,
         username := User,
         password := Password,
         clean_start := CleanStart,
@@ -188,7 +188,6 @@ basic_config(#{
         reconnect_interval => ReconnIntv,
         proto_ver => ProtoVer,
         bridge_mode => BridgeMod,
-        clientid_prefix => ClientIdPrefix,
         username => User,
         password => Password,
         clean_start => CleanStart,
@@ -203,8 +202,8 @@ basic_config(#{
 bridge_name(Prefix, Id) ->
     list_to_atom(str(Prefix) ++ ":" ++ str(Id)).
 
-clientid(Prefix, Id) ->
-    list_to_binary(str(Prefix) ++ str(Id)).
+clientid(Id) ->
+    list_to_binary(str(Id) ++ ":" ++ emqx_plugin_libs_id:gen(4)).
 
 str(A) when is_atom(A) ->
     atom_to_list(A);

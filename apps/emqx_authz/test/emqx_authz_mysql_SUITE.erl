@@ -55,7 +55,7 @@ init_per_suite(Config) ->
                <<"password">> => <<"ee">>,
                <<"auto_reconnect">> => true,
                <<"ssl">> => #{<<"enable">> => false},
-               <<"sql">> => <<"abcb">>
+               <<"query">> => <<"abcb">>
               }],
     {ok, _} = emqx_authz:update(replace, Rules),
     Config.

@@ -66,7 +66,7 @@ fields(http_get) ->
                               },
                   converter => fun (Headers0) ->
                                     Headers1 = maps:fold(fun(K0, V, AccIn) ->
-                                                           K1 = iolist_to_binary(string:to_lower(binary_to_list(K0))),
+                                                           K1 = iolist_to_binary(string:to_lower(to_list(K0))),
                                                            maps:put(K1, V, AccIn)
                                                         end, #{}, Headers0),
                                     maps:merge(#{ <<"accept">> => <<"application/json">>
@@ -84,7 +84,7 @@ fields(http_post) ->
     , {enable, #{type => boolean(),
                  default => true}}
     , {url, #{type => url()}}
-    , {method,  #{type => hoconsc:enum([post, put]),
+    , {method,  #{type => post,
                   default => get}}
     , {headers, #{type => map(),
                   default => #{ <<"accept">> => <<"application/json">>
@@ -116,24 +116,24 @@ fields(http_post) ->
 fields(mongo_single) ->
     connector_fields(mongo, single) ++
     [ {collection, #{type => atom()}}
-    , {find, #{type => map()}}
+    , {selector, #{type => map()}}
     ];
 fields(mongo_rs) ->
     connector_fields(mongo, rs) ++
     [ {collection, #{type => atom()}}
-    , {find, #{type => map()}}
+    , {selector, #{type => map()}}
     ];
 fields(mongo_sharded) ->
     connector_fields(mongo, sharded) ++
     [ {collection, #{type => atom()}}
-    , {find, #{type => map()}}
+    , {selector, #{type => map()}}
     ];
 fields(mysql) ->
     connector_fields(mysql) ++
-    [ {sql, query()} ];
+    [ {query, query()} ];
 fields(pgsql) ->
     connector_fields(pgsql) ++
-    [ {sql, query()} ];
+    [ {query, query()} ];
 fields(redis_single) ->
     connector_fields(redis, single) ++
     [ {cmd, query()} ];
@@ -177,3 +177,8 @@ connector_fields(DB, Fields) ->
     , {enable, #{type => boolean(),
                  default => true}}
     ] ++ Mod:fields(Fields).
+
+to_list(A) when is_atom(A) ->
+    atom_to_list(A);
+to_list(B) when is_binary(B) ->
+    binary_to_list(B).

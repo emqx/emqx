@@ -100,13 +100,15 @@ t_lookup_cmd_read(Config) ->
     %% step 1, device register ...
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=600&lwm2m=1", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>,
                                           payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
                             [],
                             MsgId1),
     #coap_message{method = Method1} = test_recv_coap_response(UdpSock),
     ?assertEqual({ok,created}, Method1),
+
+    timer:sleep(100),
     test_recv_mqtt_response(RespTopic),
 
     %% step2,  send a READ command to device
@@ -122,8 +124,8 @@ t_lookup_cmd_read(Config) ->
     CommandJson = emqx_json:encode(Command),
     ?LOGT("CommandJson=~p", [CommandJson]),
     test_mqtt_broker:publish(CommandTopic, CommandJson, 0),
-    timer:sleep(50),
 
+    timer:sleep(200),
     no_received_request(Epn, <<"/3/0/0">>, <<"read">>),
 
     Request2 = test_recv_coap_request(UdpSock),
@@ -131,8 +133,8 @@ t_lookup_cmd_read(Config) ->
     timer:sleep(50),
 
     test_send_coap_response(UdpSock, "127.0.0.1", ?PORT, {ok, content}, #coap_content{content_format = <<"text/plain">>, payload = <<"EMQ">>}, Request2, true),
-    timer:sleep(100),
 
+    timer:sleep(200),
     normal_received_request(Epn, <<"/3/0/0">>, <<"read">>).
 
 t_lookup_cmd_discover(Config) ->
@@ -158,6 +160,7 @@ t_lookup_cmd_discover(Config) ->
     CommandJson = emqx_json:encode(Command),
     test_mqtt_broker:publish(CommandTopic, CommandJson, 0),
 
+    timer:sleep(200),
     no_received_request(Epn, <<"/3/0/7">>, <<"discover">>),
 
     timer:sleep(50),
@@ -172,7 +175,7 @@ t_lookup_cmd_discover(Config) ->
                             #coap_content{content_format = <<"application/link-format">>, payload = PayloadDiscover},
                             Request2,
                             true),
-    timer:sleep(100),
+    timer:sleep(200),
     discover_received_request(Epn, <<"/3/0/7">>, <<"discover">>).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

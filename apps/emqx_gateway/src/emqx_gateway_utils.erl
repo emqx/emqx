@@ -133,11 +133,12 @@ listener_id(GwName, Type, LisName) ->
         (bin(LisName))/binary
       >>).
 
+parse_listener_id(Id) when is_atom(Id) ->
+    parse_listener_id(atom_to_binary(Id));
 parse_listener_id(Id) ->
     try
         [GwName, Type, Name] = binary:split(bin(Id), <<":">>, [global]),
-        {binary_to_existing_atom(GwName), binary_to_existing_atom(Type),
-         binary_to_atom(Name)}
+        {GwName, Type, Name}
     catch
         _ : _ -> error({invalid_listener_id, Id})
     end.
@@ -161,6 +162,8 @@ unix_ts_to_rfc3339(Ts) ->
     emqx_rule_funcs:unix_ts_to_rfc3339(Ts, <<"millisecond">>).
 
 -spec stringfy(term()) -> binary().
+stringfy(T) when is_list(T); is_binary(T) ->
+    iolist_to_binary(T);
 stringfy(T) ->
     iolist_to_binary(io_lib:format("~0p", [T])).
 

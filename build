@@ -62,13 +62,29 @@ log() {
     echo "===< $msg"
 }
 
+docgen() {
+    local conf_doc_html libs_dir1 libs_dir2
+    conf_doc_html="$(pwd)/_build/${PROFILE}/rel/emqx/etc/emqx-config-doc.html"
+    echo "===< Generating config document $conf_doc_html"
+    libs_dir1="$(find "_build/default/lib/" -maxdepth 2 -name ebin -type d)"
+    libs_dir2="$(find "_build/$PROFILE/lib/" -maxdepth 2 -name ebin -type d)"
+    # shellcheck disable=SC2086
+    erl -noshell -pa $libs_dir1 $libs_dir2 -eval "file:write_file('$conf_doc_html', hocon_schema_html:gen(emqx_machine_schema, \"EMQ X ${PKG_VSN}\")), halt(0)."
+    local conf_doc_markdown
+    conf_doc_markdown="$(pwd)/_build/${PROFILE}/rel/emqx/etc/emqx-config-doc.md"
+    echo "===< Generating config document $conf_doc_markdown"
+    # shellcheck disable=SC2086
+    erl -noshell -pa $libs_dir1 $libs_dir2 -eval "file:write_file('$conf_doc_markdown', hocon_schema_doc:gen(emqx_machine_schema)), halt(0)."
+}
+
 make_rel() {
     # shellcheck disable=SC1010
     ./rebar3 as "$PROFILE" do release,tar
-    if [ "$(find "_build/$PROFILE/rel/emqx/lib/" -name 'gpb-*' -type d)" != "" ]; then
+    if [ "$(find "_build/$PROFILE/rel/emqx/lib/" -maxdepth 1 -name 'gpb-*' -type d)" != "" ]; then
         echo "gpb should not be included in the release"
         exit 1
     fi
+    docgen
 }
 
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup

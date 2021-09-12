@@ -14,6 +14,11 @@ ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 # shellcheck disable=SC1090
 . "$ROOT_DIR"/releases/emqx_vars
 
+# defined in emqx_vars
+export RUNNER_ROOT_DIR
+export RUNNER_ETC_DIR
+export REL_VSN
+
 RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
 REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
@@ -133,7 +138,6 @@ check_user() {
     fi
 }
 
-
 # Make sure the user running this script is the owner and/or su to that user
 check_user "$@"
 ES=$?
@@ -198,18 +202,12 @@ relx_gen_id() {
 # Control a node
 relx_nodetool() {
     command="$1"; shift
-    export RUNNER_ROOT_DIR
-    export REL_VSN
-
     ERL_FLAGS="$ERL_FLAGS $EPMD_ARG" \
     "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" "$NAME_TYPE" "$NAME" \
                                 -setcookie "$COOKIE" "$command" "$@"
 }
 
 call_hocon() {
-    export RUNNER_ROOT_DIR
-    export RUNNER_ETC_DIR
-    export REL_VSN
     "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" hocon "$@" \
         || die "call_hocon_failed: $*" $?
 }
@@ -217,8 +215,6 @@ call_hocon() {
 # Run an escript in the node's environment
 relx_escript() {
     shift; scriptpath="$1"; shift
-    export RUNNER_ROOT_DIR
-
     "$ERTS_DIR/bin/escript" "$ROOTDIR/$scriptpath" "$@"
 }
 
@@ -365,18 +361,14 @@ esac
 ## or long name (with '@') e.g. 'emqx@example.net' or 'emqx@127.0.0.1'
 NAME="${EMQX_NODE_NAME:-}"
 if [ -z "$NAME" ]; then
-    if [ "$IS_BOOT_COMMAND" = 'no' ]; then
+    if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+        # for boot commands, inspect emqx.conf for node name
+        NAME="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
+    else
         # for non-boot commands, inspect vm.<time>.args for node name
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
-        if [ -z "$LATEST_VM_ARGS" ]; then
-            echoerr "no_vm_arg_file_found_for $1 in $CONFIGS_DIR/"
-            exit 1
-        fi
         NAME="$(grep -E '^-s?name' "$LATEST_VM_ARGS" | awk '{print $2}')"
-    else
-        # for boot commands, inspect emqx.conf for node name
-        NAME="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
     fi
 fi
 
@@ -402,10 +394,6 @@ if [ -z "$COOKIE" ]; then
     else
         # shellcheck disable=SC2012,SC2086
         LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
-        if [ -z "$LATEST_VM_ARGS" ]; then
-            echoerr "no_vm_arg_file_found_for $1 in $CONFIGS_DIR/"
-            exit 1
-        fi
         COOKIE="$(grep -E '^-setcookie' "$LATEST_VM_ARGS" | awk '{print $2}')"
     fi
 fi

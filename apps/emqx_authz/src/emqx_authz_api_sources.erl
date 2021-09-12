@@ -32,9 +32,8 @@
 -define(EXAMPLE_FILE,
         #{type=> file,
           enable => true,
-          rules => [<<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.">>,
-                    <<"{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
-                   ]}).
+          rules => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
+                   }).
 
 -define(EXAMPLE_RETURNED_REDIS,
         maps:put(annotations, #{status => healthy}, ?EXAMPLE_REDIS)
@@ -350,9 +349,7 @@ sources(put, #{body := Body}) when is_list(Body) ->
     NBody = [ begin
                 case Source of
                     #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable} ->
-                        {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]),
-                                                    erlang:list_to_bitstring([<<Rule/binary, "\n">> || Rule <- Rules])
-                                                   ),
+                        {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
                         #{type => file, enable => Enable, path => Filename};
                     _ -> write_cert(Source)
                 end
@@ -396,9 +393,7 @@ source(get, #{bindings := #{type := Type}}) ->
             {200, read_cert(NSource2)}
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
-    {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""),
-                                erlang:list_to_bitstring([<<Rule/binary, "\n">> || Rule <- Rules])
-                               ),
+    {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
     case emqx_authz:update({replace_once, file}, #{type => file, enable => Enable, path => Filename}) of
         {ok, _} -> {204};
         {error, Reason} ->
@@ -457,21 +452,21 @@ write_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
     CertPath = filename:join([emqx:get_config([node, data_dir]), "certs"]),
     CaCert = case maps:is_key(<<"cacertfile">>, SSL) of
                  true ->
-                     {ok, CaCertFile} = write_file(filename:join([CertPath, "cacert-" ++ emqx_rule_id:gen() ++".pem"]),
+                     {ok, CaCertFile} = write_file(filename:join([CertPath, "cacert-" ++ emqx_plugin_libs_id:gen() ++".pem"]),
                                                  maps:get(<<"cacertfile">>, SSL)),
                      CaCertFile;
                  false -> ""
              end,
     Cert =   case maps:is_key(<<"certfile">>, SSL) of
                  true ->
-                     {ok, CertFile} = write_file(filename:join([CertPath, "cert-" ++ emqx_rule_id:gen() ++".pem"]),
+                     {ok, CertFile} = write_file(filename:join([CertPath, "cert-" ++ emqx_plugin_libs_id:gen() ++".pem"]),
                                                  maps:get(<<"certfile">>, SSL)),
                      CertFile;
                  false -> ""
              end,
     Key =    case maps:is_key(<<"keyfile">>, SSL) of
                  true ->
-                     {ok, KeyFile}  = write_file(filename:join([CertPath, "key-" ++ emqx_rule_id:gen() ++".pem"]),
+                     {ok, KeyFile}  = write_file(filename:join([CertPath, "key-" ++ emqx_plugin_libs_id:gen() ++".pem"]),
                                                  maps:get(<<"keyfile">>, SSL)),
                      KeyFile;
                  false -> ""

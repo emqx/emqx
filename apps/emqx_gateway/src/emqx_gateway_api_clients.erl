@@ -36,6 +36,11 @@
 
 -import(emqx_gateway_http,
         [ return_http_error/2
+        , with_gateway/2
+        , schema_bad_request/0
+        , schema_not_found/0
+        , schema_internal_error/0
+        , schema_no_content/0
         ]).
 
 %%--------------------------------------------------------------------
@@ -71,102 +76,103 @@ apis() ->
 -define(query_fun, {?MODULE, query}).
 -define(format_fun, {?MODULE, format_channel_info}).
 
-clients(get, #{ bindings := #{name := GwName0}
+clients(get, #{ bindings := #{name := Name0}
               , query_string := Qs
               }) ->
-    GwName = binary_to_existing_atom(GwName0),
-    TabName = emqx_gateway_cm:tabname(info, GwName),
-    case maps:get(<<"node">>, Qs, undefined) of
-        undefined ->
-            Response = emqx_mgmt_api:cluster_query(
-                         Qs, TabName,
-                         ?CLIENT_QS_SCHEMA, ?query_fun
-                        ),
-            {200, Response};
-        Node1 ->
-            Node = binary_to_atom(Node1, utf8),
-            ParamsWithoutNode = maps:without([<<"node">>], Qs),
-            Response = emqx_mgmt_api:node_query(
-                         Node, ParamsWithoutNode,
-                         TabName, ?CLIENT_QS_SCHEMA, ?query_fun
-                        ),
-            {200, Response}
-    end.
+    with_gateway(Name0, fun(GwName, _) ->
+        TabName = emqx_gateway_cm:tabname(info, GwName),
+        case maps:get(<<"node">>, Qs, undefined) of
+            undefined ->
+                Response = emqx_mgmt_api:cluster_query(
+                             Qs, TabName,
+                             ?CLIENT_QS_SCHEMA, ?query_fun
+                            ),
+                {200, Response};
+            Node1 ->
+                Node = binary_to_atom(Node1, utf8),
+                ParamsWithoutNode = maps:without([<<"node">>], Qs),
+                Response = emqx_mgmt_api:node_query(
+                             Node, ParamsWithoutNode,
+                             TabName, ?CLIENT_QS_SCHEMA, ?query_fun
+                            ),
+                {200, Response}
+        end
+    end).
 
-clients_insta(get, #{ bindings := #{name := GwName0,
+clients_insta(get, #{ bindings := #{name := Name0,
                                     clientid := ClientId0}
                     }) ->
-    GwName = binary_to_existing_atom(GwName0),
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
-
-    case emqx_gateway_http:lookup_client(GwName, ClientId,
-                                         {?MODULE, format_channel_info}) of
-        [ClientInfo] ->
-            {200, ClientInfo};
-        [ClientInfo|_More] ->
-            ?LOG(warning, "More than one client info was returned on ~s",
-                          [ClientId]),
-            {200, ClientInfo};
-        [] ->
-            return_http_error(404, <<"Gateway or ClientId not found">>)
-
-    end;
-
-clients_insta(delete, #{ bindings := #{name := GwName0,
+    with_gateway(Name0, fun(GwName, _) ->
+        case emqx_gateway_http:lookup_client(GwName, ClientId,
+                                             {?MODULE, format_channel_info}) of
+            [ClientInfo] ->
+                {200, ClientInfo};
+            [ClientInfo|_More] ->
+                ?LOG(warning, "More than one client info was returned on ~s",
+                              [ClientId]),
+                {200, ClientInfo};
+            [] ->
+                return_http_error(404, "Client not found")
+        end
+    end);
+clients_insta(delete, #{ bindings := #{name := Name0,
                                        clientid := ClientId0}
                        }) ->
-    GwName = binary_to_existing_atom(GwName0),
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
-    _ = emqx_gateway_http:kickout_client(GwName, ClientId),
-    {200}.
+    with_gateway(Name0, fun(GwName, _) ->
+        _ = emqx_gateway_http:kickout_client(GwName, ClientId),
+        {200}
+    end).
 
 %% FIXME:
 %% List the subscription without mountpoint, but has SubOpts,
 %% for example, share group ...
-subscriptions(get, #{ bindings := #{name := GwName0,
+subscriptions(get, #{ bindings := #{name := Name0,
                                     clientid := ClientId0}
                     }) ->
-    GwName = binary_to_existing_atom(GwName0),
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
-    case emqx_gateway_http:list_client_subscriptions(GwName, ClientId) of
-        {error, Reason} ->
-            return_http_error(404, Reason);
-        {ok, Subs} ->
-            {200, Subs}
-    end;
+    with_gateway(Name0, fun(GwName, _) ->
+        case emqx_gateway_http:list_client_subscriptions(GwName, ClientId) of
+            {error, Reason} ->
+                return_http_error(500, Reason);
+            {ok, Subs} ->
+                {200, Subs}
+        end
+    end);
 
 %% Create the subscription without mountpoint
-subscriptions(post, #{ bindings := #{name := GwName0,
+subscriptions(post, #{ bindings := #{name := Name0,
                                      clientid := ClientId0},
                        body := Body
                     }) ->
-    GwName = binary_to_existing_atom(GwName0),
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
-
-    case {maps:get(<<"topic">>, Body, undefined), subopts(Body)} of
-        {undefined, _} ->
-            %% FIXME: more reasonable error code??
-            return_http_error(404, <<"Request paramter missed: topic">>);
-        {Topic, QoS} ->
-            case emqx_gateway_http:client_subscribe(GwName, ClientId, Topic, QoS) of
-                {error, Reason} ->
-                    return_http_error(404, Reason);
-                ok ->
-                    {200}
-            end
-    end;
+    with_gateway(Name0, fun(GwName, _) ->
+        case {maps:get(<<"topic">>, Body, undefined), subopts(Body)} of
+            {undefined, _} ->
+                return_http_error(400, "Miss topic property");
+            {Topic, QoS} ->
+                case emqx_gateway_http:client_subscribe(GwName, ClientId, Topic, QoS) of
+                    {error, Reason} ->
+                        return_http_error(404, Reason);
+                    ok ->
+                        {200}
+                end
+        end
+    end);
 
 %% Remove the subscription without mountpoint
-subscriptions(delete, #{ bindings := #{name := GwName0,
+subscriptions(delete, #{ bindings := #{name := Name0,
                                        clientid := ClientId0,
                                        topic := Topic0
                                       }
                        }) ->
-    GwName = binary_to_existing_atom(GwName0),
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
     Topic = emqx_mgmt_util:urldecode(Topic0),
-    _ = emqx_gateway_http:client_unsubscribe(GwName, ClientId, Topic),
-    {200}.
+    with_gateway(Name0, fun(GwName, _) ->
+        _ = emqx_gateway_http:client_unsubscribe(GwName, ClientId, Topic),
+        {200}
+    end).
 
 %%--------------------------------------------------------------------
 %% Utils
@@ -379,7 +385,9 @@ swagger("/gateway/:name/clients", get) ->
     #{ description => <<"Get the gateway clients">>
      , parameters => params_client_query()
      , responses =>
-        #{ <<"404">> => schema_not_found()
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
          , <<"200">> => schema_clients_list()
        }
      };
@@ -387,7 +395,9 @@ swagger("/gateway/:name/clients/:clientid", get) ->
     #{ description => <<"Get the gateway client infomation">>
      , parameters => params_client_insta()
      , responses =>
-        #{ <<"404">> => schema_not_found()
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
          , <<"200">> => schema_client()
        }
      };
@@ -395,7 +405,9 @@ swagger("/gateway/:name/clients/:clientid", delete) ->
     #{ description => <<"Kick out the gateway client">>
      , parameters => params_client_insta()
      , responses =>
-        #{ <<"404">> => schema_not_found()
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
          , <<"204">> => schema_no_content()
        }
      };
@@ -403,7 +415,9 @@ swagger("/gateway/:name/clients/:clientid/subscriptions", get) ->
     #{ description => <<"Get the gateway client subscriptions">>
      , parameters => params_client_insta()
      , responses =>
-        #{ <<"404">> => schema_not_found()
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
          , <<"200">> => schema_subscription_list()
        }
      };
@@ -412,7 +426,9 @@ swagger("/gateway/:name/clients/:clientid/subscriptions", post) ->
      , parameters => params_client_insta()
      , requestBody => schema_subscription()
      , responses =>
-        #{ <<"404">> => schema_not_found()
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
          , <<"200">> => schema_no_content()
        }
      };
@@ -420,7 +436,9 @@ swagger("/gateway/:name/clients/:clientid/subscriptions/:topic", delete) ->
     #{ description => <<"Unsubscribe the topic for client">>
      , parameters => params_topic_name_in_path() ++ params_client_insta()
      , responses =>
-        #{ <<"404">> => schema_not_found()
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
          , <<"204">> => schema_no_content()
        }
      }.
@@ -482,12 +500,6 @@ queries(Ls) ->
 
 %%--------------------------------------------------------------------
 %% schemas
-
-schema_not_found() ->
-    emqx_mgmt_util:error_schema(<<"Gateway not found or unloaded">>).
-
-schema_no_content() ->
-    #{description => <<"No Content">>}.
 
 schema_clients_list() ->
     emqx_mgmt_util:page_schema(

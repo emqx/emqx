@@ -50,16 +50,16 @@ namespace() -> gateway.
 roots() -> [gateway].
 
 fields(gateway) ->
-    [{stomp, sc(ref(stomp_structs))},
-     {mqttsn, sc(ref(mqttsn_structs))},
-     {coap, sc(ref(coap_structs))},
-     {lwm2m, sc(ref(lwm2m_structs))},
-     {exproto, sc(ref(exproto_structs))}
+    [{stomp, sc(ref(stomp))},
+     {mqttsn, sc(ref(mqttsn))},
+     {coap, sc(ref(coap))},
+     {lwm2m, sc(ref(lwm2m))},
+     {exproto, sc(ref(exproto))}
     ];
 
-fields(stomp_structs) ->
+fields(stomp) ->
     [ {frame, sc(ref(stomp_frame))}
-    , {listeners, sc(ref(tcp_listener_group))}
+    , {listeners, sc(ref(tcp_listeners))}
     ] ++ gateway_common_options();
 
 fields(stomp_frame) ->
@@ -68,12 +68,12 @@ fields(stomp_frame) ->
     , {max_body_length, sc(integer(), 8192)}
     ];
 
-fields(mqttsn_structs) ->
+fields(mqttsn) ->
     [ {gateway_id, sc(integer())}
     , {broadcast, sc(boolean())}
     , {enable_qos3, sc(boolean())}
     , {predefined, hoconsc:array(ref(mqttsn_predefined))}
-    , {listeners, sc(ref(udp_listener_group))}
+    , {listeners, sc(ref(udp_listeners))}
     ] ++ gateway_common_options();
 
 fields(mqttsn_predefined) ->
@@ -81,34 +81,34 @@ fields(mqttsn_predefined) ->
     , {topic, sc(binary())}
     ];
 
-fields(coap_structs) ->
+fields(coap) ->
     [ {heartbeat, sc(duration(), <<"30s">>)}
     , {connection_required, sc(boolean(), false)}
-    , {notify_type, sc(union([non, con, qos]), qos)}
-    , {subscribe_qos, sc(union([qos0, qos1, qos2, coap]), coap)}
-    , {publish_qos, sc(union([qos0, qos1, qos2, coap]), coap)}
-    , {listeners, sc(ref(udp_listener_group))}
+    , {notify_type, sc(hoconsc:union([non, con, qos]), qos)}
+    , {subscribe_qos, sc(hoconsc:union([qos0, qos1, qos2, coap]), coap)}
+    , {publish_qos, sc(hoconsc:union([qos0, qos1, qos2, coap]), coap)}
+    , {listeners, sc(ref(udp_listeners))}
     ] ++ gateway_common_options();
 
-fields(lwm2m_structs) ->
+fields(lwm2m) ->
     [ {xml_dir, sc(binary())}
     , {lifetime_min, sc(duration())}
     , {lifetime_max, sc(duration())}
     , {qmode_time_windonw, sc(integer())}
     , {auto_observe, sc(boolean())}
-    , {update_msg_publish_condition, sc(union([always, contains_object_list]))}
+    , {update_msg_publish_condition, sc(hoconsc:union([always, contains_object_list]))}
     , {translators, sc(ref(translators))}
-    , {listeners, sc(ref(udp_listener_group))}
+    , {listeners, sc(ref(udp_listeners))}
     ] ++ gateway_common_options();
 
-fields(exproto_structs) ->
+fields(exproto) ->
     [ {server, sc(ref(exproto_grpc_server))}
     , {handler, sc(ref(exproto_grpc_handler))}
-    , {listeners, sc(ref(udp_tcp_listener_group))}
+    , {listeners, sc(ref(udp_tcp_listeners))}
     ] ++ gateway_common_options();
 
 fields(exproto_grpc_server) ->
-    [ {bind, sc(union(ip_port(), integer()))}
+    [ {bind, sc(hoconsc:union([ip_port(), integer()]))}
       %% TODO: ssl options
     ];
 
@@ -136,62 +136,45 @@ fields(translator) ->
     , {qos, sc(range(0, 2))}
     ];
 
-fields(udp_listener_group) ->
-    [ {udp, sc(ref(udp_listener))}
-    , {dtls, sc(ref(dtls_listener))}
+fields(udp_listeners) ->
+    [ {udp, sc(map(name, ref(udp_listener)))}
+    , {dtls, sc(map(name, ref(dtls_listener)))}
     ];
 
-fields(tcp_listener_group) ->
-    [ {tcp, sc(ref(tcp_listener))}
-    , {ssl, sc(ref(ssl_listener))}
+fields(tcp_listeners) ->
+    [ {tcp, sc(map(name, ref(tcp_listener)))}
+    , {ssl, sc(map(name, ref(ssl_listener)))}
     ];
 
-fields(udp_tcp_listener_group) ->
-    [ {udp, sc(ref(udp_listener))}
-    , {dtls, sc(ref(dtls_listener))}
-    , {tcp, sc(ref(tcp_listener))}
-    , {ssl, sc(ref(ssl_listener))}
+fields(udp_tcp_listeners) ->
+    [ {udp, sc(map(name, ref(udp_listener)))}
+    , {dtls, sc(map(name, ref(dtls_listener)))}
+    , {tcp, sc(map(name, ref(tcp_listener)))}
+    , {ssl, sc(map(name, ref(ssl_listener)))}
     ];
 
 fields(tcp_listener) ->
-    [ {"$name", sc(ref(tcp_listener_settings))}];
-
-fields(ssl_listener) ->
-    [ {"$name", sc(ref(ssl_listener_settings))}];
-
-fields(udp_listener) ->
-    [ {"$name", sc(ref(udp_listener_settings))}];
-
-fields(dtls_listener) ->
-    [ {"$name", sc(ref(dtls_listener_settings))}];
-
-fields(tcp_listener_settings) ->
     [
      %% some special confs for tcp listener
-    ] ++ tcp_opts()
-      ++ proxy_protocol_opts()
-      ++ common_listener_opts();
+    ] ++
+    tcp_opts() ++
+    proxy_protocol_opts() ++
+    common_listener_opts();
 
-fields(ssl_listener_settings) ->
-    [
-     %% some special confs for ssl listener
-    ] ++ tcp_opts()
-      ++ ssl_opts()
-      ++ proxy_protocol_opts()
-      ++ common_listener_opts();
+fields(ssl_listener) ->
+    fields(tcp_listener) ++
+    ssl_opts();
 
-fields(udp_listener_settings) ->
+fields(udp_listener) ->
     [
      %% some special confs for udp listener
-    ] ++ udp_opts()
-      ++ common_listener_opts();
+    ] ++
+    udp_opts() ++
+    common_listener_opts();
 
-fields(dtls_listener_settings) ->
-    [
-     %% some special confs for dtls listener
-    ] ++ udp_opts()
-      ++ dtls_opts()
-      ++ common_listener_opts();
+fields(dtls_listener) ->
+    fields(udp_listener) ++
+    dtls_opts();
 
 fields(udp_opts) ->
     [ {active_n, sc(integer(), 100)}
@@ -218,11 +201,7 @@ fields(dtls_listener_ssl_opts) ->
             lists:keyreplace("versions", 1, Base, {"versions", DtlsVers}),
             {"ciphers", Ciphers}
          )
-     );
-
-fields(ExtraField) ->
-    Mod = list_to_atom(ExtraField++"_schema"),
-    Mod:fields(ExtraField).
+     ).
 
 default_ciphers() ->
     ["ECDHE-ECDSA-AES256-GCM-SHA384",
@@ -286,16 +265,16 @@ common_listener_opts() ->
     ].
 
 tcp_opts() ->
-    [{tcp, sc(ref(emqx_schema, "tcp_opts"), #{})}].
+    [{tcp, sc_meta(ref(emqx_schema, "tcp_opts"), #{})}].
 
 udp_opts() ->
-    [{udp, sc(ref(udp_opts), #{})}].
+    [{udp, sc_meta(ref(udp_opts), #{})}].
 
 ssl_opts() ->
-    [{ssl, sc(ref(emqx_schema, "listener_ssl_opts"), #{})}].
+    [{ssl, sc_meta(ref(emqx_schema, "listener_ssl_opts"), #{})}].
 
 dtls_opts() ->
-    [{dtls, sc(ref(dtls_listener_ssl_opts), #{})}].
+    [{dtls, sc_meta(ref(dtls_listener_ssl_opts), #{})}].
 
 proxy_protocol_opts() ->
     [ {proxy_protocol, sc(boolean())}
@@ -308,18 +287,20 @@ default_dtls_vsns() ->
 dtls_vsn(<<"dtlsv1.2">>) -> 'dtlsv1.2';
 dtls_vsn(<<"dtlsv1">>) -> 'dtlsv1'.
 
-%%--------------------------------------------------------------------
-%% Helpers
-
-%% types
-
-sc(Type) -> #{type => Type}.
+sc(Type) ->
+    sc_meta(Type, #{}).
 
 sc(Type, Default) ->
-    hoconsc:mk(Type, #{default => Default}).
+    sc_meta(Type, #{default => Default}).
 
-ref(Field) ->
-    hoconsc:ref(?MODULE, Field).
+sc_meta(Type, Meta) ->
+    hoconsc:mk(Type, Meta).
+
+map(Name, Type) ->
+    hoconsc:map(Name, Type).
+
+ref(StructName) ->
+    ref(?MODULE, StructName).
 
 ref(Mod, Field) ->
     hoconsc:ref(Mod, Field).

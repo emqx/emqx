@@ -117,39 +117,42 @@ do(Args) ->
                     io:format("~p\n", [Other])
             end;
         ["eval" | ListOfArgs] ->
-            % shells may process args into more than one, and end up stripping
-            % spaces, so this converts all of that to a single string to parse
-            String = binary_to_list(
-                      list_to_binary(
-                        join(ListOfArgs," ")
-                      )
-                    ),
-
-            % then just as a convenience to users, if they forgot a trailing
-            % '.' add it for them.
-            Normalized =
-              case lists:reverse(String) of
-                [$. | _] -> String;
-                R -> lists:reverse([$. | R])
-              end,
-
-            % then scan and parse the string
-            {ok, Scanned, _} = erl_scan:string(Normalized),
-            {ok, Parsed } = erl_parse:parse_exprs(Scanned),
-
+            Parsed = parse_eval_args(ListOfArgs),
             % and evaluate it on the remote node
             case rpc:call(TargetNode, erl_eval, exprs, [Parsed, [] ]) of
                 {value, Value, _} ->
-                    io:format ("~p\n",[Value]);
+                    io:format ("~p~n",[Value]);
                 {badrpc, Reason} ->
-                    io:format("RPC to ~p failed: ~p\n", [TargetNode, Reason]),
+                    io:format("RPC to ~p failed: ~p~n", [TargetNode, Reason]),
                     halt(1)
             end;
         Other ->
-            io:format("Other: ~p\n", [Other]),
-            io:format("Usage: nodetool {genconfig, chkconfig|getpid|ping|stop|rpc|rpc_infinity|rpcterms|eval [Terms]} [RPC]\n")
+            io:format("Other: ~p~n", [Other]),
+            io:format("Usage: nodetool chkconfig|getpid|ping|stop|rpc|rpc_infinity|rpcterms|eval|cold_eval [Terms] [RPC]\n")
     end,
     net_kernel:stop().
+
+parse_eval_args(Args) ->
+    % shells may process args into more than one, and end up stripping
+    % spaces, so this converts all of that to a single string to parse
+    String = binary_to_list(
+                list_to_binary(
+                join(Args," ")
+                )
+            ),
+
+    % then just as a convenience to users, if they forgot a trailing
+    % '.' add it for them.
+    Normalized =
+        case lists:reverse(String) of
+        [$. | _] -> String;
+        R -> lists:reverse([$. | R])
+        end,
+
+    % then scan and parse the string
+    {ok, Scanned, _} = erl_scan:string(Normalized),
+    {ok, Parsed } = erl_parse:parse_exprs(Scanned),
+    Parsed.
 
 do_with_ret(Args, Name, Handler) ->
     {arity, Arity} = erlang:fun_info(Handler, arity),
