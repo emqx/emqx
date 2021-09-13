@@ -4,13 +4,8 @@ on: [pull_request]
 
 jobs:
   check_deps_integrity:
-    strategy:
-      matrix:
-        container:
-          - "emqx/build-env:erl24.0.5-emqx-1-ubuntu20.04"
-
     runs-on: ubuntu-20.04
-    container: ${{ matrix.container }}
+    container: "ghcr.io/emqx/emqx-builder-helper/5.0:24.0.5-emqx-1-ubuntu20.04"
 
     steps:
       - uses: actions/checkout@v2

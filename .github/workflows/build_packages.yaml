@@ -12,12 +12,12 @@ jobs:
   prepare:
     strategy:
       matrix:
-        container:
-          - "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
-          - "emqx/build-env:erl24.0.5-emqx-1-ubuntu20.04"
+        otp:
+          - "23.2.7.2-emqx-2"
+          - "24.0.5-emqx-1"
 
     runs-on: ubuntu-20.04
-    container: ${{ matrix.container }}
+    container: "ghcr.io/emqx/emqx-builder-helper/5.0:${{ matrix.otp }}-ubuntu20.04"
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles }}
@@ -306,7 +306,7 @@ jobs:
         done
     - name: build emqx packages
       env:
-        ERL_OTP: erl${{ matrix.otp }}
+        OTP: ${{ matrix.otp }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
@@ -316,7 +316,7 @@ jobs:
         -v $(pwd):/emqx \
         --workdir /emqx \
         --platform linux/$ARCH \
-        emqx/build-env:$ERL_OTP-$SYSTEM \
+        ghcr.io/emqx/emqx-builder-helper/5.0:$OTP-$SYSTEM \
         bash -euc "make $PROFILE-zip || cat rebar3.crashdump; \
                    make $PROFILE-pkg || cat rebar3.crashdump; \
                    EMQX_NAME=$PROFILE && .ci/build_packages/tests.sh"
@@ -375,7 +375,7 @@ jobs:
         tags: emqx/${{ matrix.profile }}:${{ steps.version.outputs.version }}
         build-args: |
           PKG_VSN=${{ steps.version.outputs.version }}
-          BUILD_FROM=emqx/build-env:erl${{ matrix.otp }}-alpine
+          BUILD_FROM=ghcr.io/emqx/emqx-builder-helper/5.0:${{ matrix.otp }}-alpine3.14
           RUN_FROM=alpine:3.14
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
@@ -395,7 +395,7 @@ jobs:
         tags: emqx/${{ matrix.profile }}:${{ steps.version.outputs.version }}
         build-args: |
           PKG_VSN=${{ steps.version.outputs.version }}
-          BUILD_FROM=emqx/build-env:erl${{ matrix.otp }}-alpine
+          BUILD_FROM=ghcr.io/emqx/emqx-builder-helper/5.0:${{ matrix.otp }}-alpine3.14
           RUN_FROM=alpine:3.14
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
