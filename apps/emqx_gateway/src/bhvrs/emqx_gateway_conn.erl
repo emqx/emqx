@@ -20,7 +20,6 @@
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-
 %% API
 -export([ start_link/3
         , stop/1
@@ -47,7 +46,6 @@
 
 %% Internal callback
 -export([wakeup_from_hib/2, recvloop/2]).
-
 
 -record(state, {
           %% TCP/SSL/UDP/DTLS Wrapped Socket
@@ -226,6 +224,9 @@ esockd_send(Data, #state{socket = {udp, _SockPid, Sock},
 esockd_send(Data, #state{socket = {esockd_transport, Sock}}) ->
     esockd_transport:async_send(Sock, Data).
 
+is_datadram_socket({esockd_transport, _}) -> false;
+is_datadram_socket({udp, _, _}) -> true.
+
 %%--------------------------------------------------------------------
 %% callbacks
 %%--------------------------------------------------------------------
@@ -393,6 +394,10 @@ append_msg(Q, Msg) ->
 
 handle_msg({'$gen_call', From, Req}, State) ->
     case handle_call(From, Req, State) of
+        {noreply, NState} ->
+            {ok, NState};
+        {noreply, Msgs, NState} ->
+            {ok, next_msgs(Msgs), NState};
         {reply, Reply, NState} ->
             gen_server:reply(From, Reply),
             {ok, NState};
@@ -544,10 +549,14 @@ handle_call(_From, info, State) ->
 handle_call(_From, stats, State) ->
     {reply, stats(State), State};
 
-handle_call(_From, Req, State = #state{
+handle_call(From, Req, State = #state{
                                    chann_mod = ChannMod,
                                    channel = Channel}) ->
-    case ChannMod:handle_call(Req, Channel) of
+    case ChannMod:handle_call(Req, From, Channel) of
+        {noreply, NChannel} ->
+            {noreply, State#state{channel = NChannel}};
+        {noreply, Msgs, NChannel} ->
+            {noreply, Msgs, State#state{channel = NChannel}};
         {reply, Reply, NChannel} ->
             {reply, Reply, State#state{channel = NChannel}};
         {reply, Reply, Msgs, NChannel} ->
@@ -558,8 +567,6 @@ handle_call(_From, Req, State = #state{
             NState = State#state{channel = NChannel},
             ok = handle_outgoing(Packet, NState),
             shutdown(Reason, Reply, NState)
-
-
     end.
 
 %%--------------------------------------------------------------------
@@ -678,8 +685,20 @@ with_channel(Fun, Args, State = #state{
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
 
-handle_outgoing(Packets, State) when is_list(Packets) ->
-    send(lists:map(serialize_and_inc_stats_fun(State), Packets), State);
+handle_outgoing(_Packets = [], _State) ->
+    ok;
+handle_outgoing(Packets,
+                State = #state{socket = Socket}) when is_list(Packets) ->
+    case is_datadram_socket(Socket) of
+        false ->
+            send(
+              lists:map(serialize_and_inc_stats_fun(State), Packets),
+              State);
+        _ ->
+            lists:foreach(fun(Packet) ->
+                handle_outgoing(Packet, State)
+            end, Packets)
+    end;
 
 handle_outgoing(Packet, State) ->
     send((serialize_and_inc_stats_fun(State))(Packet), State).
@@ -816,7 +835,7 @@ inc_incoming_stats(Ctx, FrameMod, Packet) ->
             ok
     end,
     Name = list_to_atom(
-             lists:concat(["packets.", FrameMod:type(Packet), ".recevied"])),
+             lists:concat(["packets.", FrameMod:type(Packet), ".received"])),
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 inc_outgoing_stats(Ctx, FrameMod, Packet) ->

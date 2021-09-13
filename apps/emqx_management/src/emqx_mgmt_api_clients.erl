@@ -35,7 +35,7 @@
         , unsubscribe/2
         , subscribe_batch/2]).
 
--export([ query/3
+-export([ query/4
         , format_channel_info/1]).
 
 %% for batch operation
@@ -45,7 +45,7 @@
     [ {<<"node">>, atom}
     , {<<"username">>, binary}
     , {<<"zone">>, atom}
-    , {<<"ip_address">>, ip}
+    , {<<"ip_address">>, ip_port}
     , {<<"conn_state">>, atom}
     , {<<"clean_start">>, atom}
     , {<<"proto_name">>, binary}
@@ -420,14 +420,17 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
 %% api apply
 
 list(Params) ->
+    {Tab, QuerySchema} = ?CLIENT_QS_SCHEMA,
     case maps:get(<<"node">>, Params, undefined) of
         undefined ->
-            Response = emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?query_fun),
+            Response = emqx_mgmt_api:cluster_query(Params, Tab,
+                                                   QuerySchema, ?query_fun),
             {200, Response};
         Node1 ->
             Node = binary_to_atom(Node1, utf8),
             ParamsWithoutNode = maps:without([<<"node">>], Params),
-            Response = emqx_mgmt_api:node_query(Node, ParamsWithoutNode, ?CLIENT_QS_SCHEMA, ?query_fun),
+            Response = emqx_mgmt_api:node_query(Node, ParamsWithoutNode,
+                                                Tab, QuerySchema, ?query_fun),
             {200, Response}
     end.
 
@@ -492,8 +495,123 @@ subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
     ArgList = [[ClientID, Topic, Qos]|| #{topic := Topic, qos := Qos} <- Topics],
     emqx_mgmt_util:batch_operation(?MODULE, do_subscribe, ArgList).
 
-%%%==============================================================================================
+%%--------------------------------------------------------------------
 %% internal function
+
+do_subscribe(ClientID, Topic0, Qos) ->
+    {Topic, Opts} = emqx_topic:parse(Topic0),
+    TopicTable = [{Topic, Opts#{qos => Qos}}],
+    case emqx_mgmt:subscribe(ClientID, TopicTable) of
+        {error, Reason} ->
+            {error, Reason};
+        {subscribe, Subscriptions} ->
+            case proplists:is_defined(Topic, Subscriptions) of
+                true ->
+                    ok;
+                false ->
+                    {error, unknow_error}
+            end
+    end.
+
+do_unsubscribe(ClientID, Topic) ->
+    case emqx_mgmt:unsubscribe(ClientID, Topic) of
+        {error, Reason} ->
+            {error, Reason};
+        Res ->
+            Res
+    end.
+%%--------------------------------------------------------------------
+%% Query Functions
+
+query(Tab, {Qs, []}, Start, Limit) ->
+    Ms = qs2ms(Qs),
+    emqx_mgmt_api:select_table(Tab, Ms, Start, Limit,
+                               fun format_channel_info/1);
+
+query(Tab, {Qs, Fuzzy}, Start, Limit) ->
+    Ms = qs2ms(Qs),
+    MatchFun = match_fun(Ms, Fuzzy),
+    emqx_mgmt_api:traverse_table(Tab, MatchFun, Start, Limit,
+                                 fun format_channel_info/1).
+
+%%--------------------------------------------------------------------
+%% QueryString to Match Spec
+
+-spec qs2ms(list()) -> ets:match_spec().
+qs2ms(Qs) ->
+    {MtchHead, Conds} = qs2ms(Qs, 2, {#{}, []}),
+    [{{'$1', MtchHead, '_'}, Conds, ['$_']}].
+
+qs2ms([], _, {MtchHead, Conds}) ->
+    {MtchHead, lists:reverse(Conds)};
+
+qs2ms([{Key, '=:=', Value} | Rest], N, {MtchHead, Conds}) ->
+    NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(Key, Value)),
+    qs2ms(Rest, N, {NMtchHead, Conds});
+qs2ms([Qs | Rest], N, {MtchHead, Conds}) ->
+    Holder = binary_to_atom(iolist_to_binary(["$", integer_to_list(N)]), utf8),
+    NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(element(1, Qs), Holder)),
+    NConds = put_conds(Qs, Holder, Conds),
+    qs2ms(Rest, N+1, {NMtchHead, NConds}).
+
+put_conds({_, Op, V}, Holder, Conds) ->
+    [{Op, Holder, V} | Conds];
+put_conds({_, Op1, V1, Op2, V2}, Holder, Conds) ->
+    [{Op2, Holder, V2},
+        {Op1, Holder, V1} | Conds].
+
+ms(clientid, X) ->
+    #{clientinfo => #{clientid => X}};
+ms(username, X) ->
+    #{clientinfo => #{username => X}};
+ms(zone, X) ->
+    #{clientinfo => #{zone => X}};
+ms(conn_state, X) ->
+    #{conn_state => X};
+ms(ip_address, X) ->
+    #{conninfo => #{peername => X}};
+ms(clean_start, X) ->
+    #{conninfo => #{clean_start => X}};
+ms(proto_name, X) ->
+    #{conninfo => #{proto_name => X}};
+ms(proto_ver, X) ->
+    #{conninfo => #{proto_ver => X}};
+ms(connected_at, X) ->
+    #{conninfo => #{connected_at => X}};
+ms(created_at, X) ->
+    #{session => #{created_at => X}}.
+
+%%--------------------------------------------------------------------
+%% Match funcs
+
+match_fun(Ms, Fuzzy) ->
+    MsC = ets:match_spec_compile(Ms),
+    REFuzzy = lists:map(fun({K, like, S}) ->
+        {ok, RE} = re:compile(S),
+        {K, like, RE}
+                        end, Fuzzy),
+    fun(Rows) ->
+        case ets:match_spec_run(Rows, MsC) of
+            [] -> [];
+            Ls ->
+                lists:filter(fun(E) ->
+                    run_fuzzy_match(E, REFuzzy)
+                             end, Ls)
+        end
+    end.
+
+run_fuzzy_match(_, []) ->
+    true;
+run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE}|Fuzzy]) ->
+    Val = case maps:get(Key, ClientInfo, "") of
+              undefined -> "";
+              V -> V
+          end,
+    re:run(Val, RE, [{capture, none}]) == match andalso run_fuzzy_match(E, Fuzzy).
+
+%%--------------------------------------------------------------------
+%% format funcs
+
 format_channel_info({_, ClientInfo, ClientStats}) ->
     Fun =
         fun
@@ -546,116 +664,8 @@ peer_to_binary(Addr) ->
     list_to_binary(inet:ntoa(Addr)).
 
 format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
-    #{
-        access => PubSub,
-        topic => Topic,
-        result => AuthzResult,
-        updated_time => Timestamp
-    }.
-
-do_subscribe(ClientID, Topic0, Qos) ->
-    {Topic, Opts} = emqx_topic:parse(Topic0),
-    TopicTable = [{Topic, Opts#{qos => Qos}}],
-    case emqx_mgmt:subscribe(ClientID, TopicTable) of
-        {error, Reason} ->
-            {error, Reason};
-        {subscribe, Subscriptions} ->
-            case proplists:is_defined(Topic, Subscriptions) of
-                true ->
-                    ok;
-                false ->
-                    {error, unknow_error}
-            end
-    end.
-
-do_unsubscribe(ClientID, Topic) ->
-    case emqx_mgmt:unsubscribe(ClientID, Topic) of
-        {error, Reason} ->
-            {error, Reason};
-        Res ->
-            Res
-    end.
-%%%==============================================================================================
-%% Query Functions
-
-query({Qs, []}, Start, Limit) ->
-    Ms = qs2ms(Qs),
-    emqx_mgmt_api:select_table(emqx_channel_info, Ms, Start, Limit, fun format_channel_info/1);
-
-query({Qs, Fuzzy}, Start, Limit) ->
-    Ms = qs2ms(Qs),
-    MatchFun = match_fun(Ms, Fuzzy),
-    emqx_mgmt_api:traverse_table(emqx_channel_info, MatchFun, Start, Limit, fun format_channel_info/1).
-
-%%%==============================================================================================
-%% QueryString to Match Spec
--spec qs2ms(list()) -> ets:match_spec().
-qs2ms(Qs) ->
-    {MtchHead, Conds} = qs2ms(Qs, 2, {#{}, []}),
-    [{{'$1', MtchHead, '_'}, Conds, ['$_']}].
-
-qs2ms([], _, {MtchHead, Conds}) ->
-    {MtchHead, lists:reverse(Conds)};
-
-qs2ms([{Key, '=:=', Value} | Rest], N, {MtchHead, Conds}) ->
-    NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(Key, Value)),
-    qs2ms(Rest, N, {NMtchHead, Conds});
-qs2ms([Qs | Rest], N, {MtchHead, Conds}) ->
-    Holder = binary_to_atom(iolist_to_binary(["$", integer_to_list(N)]), utf8),
-    NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(element(1, Qs), Holder)),
-    NConds = put_conds(Qs, Holder, Conds),
-    qs2ms(Rest, N+1, {NMtchHead, NConds}).
-
-put_conds({_, Op, V}, Holder, Conds) ->
-    [{Op, Holder, V} | Conds];
-put_conds({_, Op1, V1, Op2, V2}, Holder, Conds) ->
-    [{Op2, Holder, V2},
-        {Op1, Holder, V1} | Conds].
-
-ms(clientid, X) ->
-    #{clientinfo => #{clientid => X}};
-ms(username, X) ->
-    #{clientinfo => #{username => X}};
-ms(zone, X) ->
-    #{clientinfo => #{zone => X}};
-ms(ip_address, X) ->
-    #{clientinfo => #{peerhost => X}};
-ms(conn_state, X) ->
-    #{conn_state => X};
-ms(clean_start, X) ->
-    #{conninfo => #{clean_start => X}};
-ms(proto_name, X) ->
-    #{conninfo => #{proto_name => X}};
-ms(proto_ver, X) ->
-    #{conninfo => #{proto_ver => X}};
-ms(connected_at, X) ->
-    #{conninfo => #{connected_at => X}};
-ms(created_at, X) ->
-    #{session => #{created_at => X}}.
-
-%%%==============================================================================================
-%% Match funcs
-match_fun(Ms, Fuzzy) ->
-    MsC = ets:match_spec_compile(Ms),
-    REFuzzy = lists:map(fun({K, like, S}) ->
-        {ok, RE} = re:compile(S),
-        {K, like, RE}
-                        end, Fuzzy),
-    fun(Rows) ->
-        case ets:match_spec_run(Rows, MsC) of
-            [] -> [];
-            Ls ->
-                lists:filter(fun(E) ->
-                    run_fuzzy_match(E, REFuzzy)
-                             end, Ls)
-        end
-    end.
-
-run_fuzzy_match(_, []) ->
-    true;
-run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE}|Fuzzy]) ->
-    Val = case maps:get(Key, ClientInfo, "") of
-              undefined -> "";
-              V -> V
-          end,
-    re:run(Val, RE, [{capture, none}]) == match andalso run_fuzzy_match(E, Fuzzy).
+    #{ access => PubSub,
+       topic => Topic,
+       result => AuthzResult,
+       updated_time => Timestamp
+     }.

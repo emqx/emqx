@@ -100,14 +100,10 @@ parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>,
     StrictMode andalso validate_header(Type, Dup, QoS, Retain),
     Header = #mqtt_packet_header{type   = Type,
                                  dup    = bool(Dup),
-                                 qos    = QoS,
+                                 qos    = fixqos(Type, QoS),
                                  retain = bool(Retain)
                                 },
-    Header1 = case fixqos(Type, QoS) of
-                  QoS      -> Header;
-                  FixedQoS -> Header#mqtt_packet_header{qos = FixedQoS}
-              end,
-    parse_remaining_len(Rest, Header1, Options);
+    parse_remaining_len(Rest, Header, Options);
 
 parse(Bin, {{len, #{hdr := Header,
                     len := {Multiplier, Length}}

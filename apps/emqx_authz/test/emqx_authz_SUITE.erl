@@ -62,58 +62,58 @@ init_per_testcase(_, Config) ->
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                      <<"url">> => <<"https://fake.com:443/">>,
-                      <<"headers">> => #{},
-                      <<"method">> => <<"get">>,
-                      <<"request_timeout">> => 5000}
+                   <<"url">> => <<"https://fake.com:443/">>,
+                   <<"headers">> => #{},
+                   <<"method">> => <<"get">>,
+                   <<"request_timeout">> => 5000
                   }).
 -define(SOURCE2, #{<<"type">> => <<"mongo">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                          <<"mongo_type">> => <<"single">>,
-                          <<"server">> => <<"127.0.0.1:27017">>,
-                          <<"pool_size">> => 1,
-                          <<"database">> => <<"mqtt">>,
-                          <<"ssl">> => #{<<"enable">> => false}},
+                   <<"mongo_type">> => <<"single">>,
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"ssl">> => #{<<"enable">> => false},
                    <<"collection">> => <<"fake">>,
-                   <<"find">> => #{<<"a">> => <<"b">>}
+                   <<"selector">> => #{<<"a">> => <<"b">>}
                   }).
 -define(SOURCE3, #{<<"type">> => <<"mysql">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                       <<"server">> => <<"127.0.0.1:27017">>,
-                       <<"pool_size">> => 1,
-                       <<"database">> => <<"mqtt">>,
-                       <<"username">> => <<"xx">>,
-                       <<"password">> => <<"ee">>,
-                       <<"auto_reconnect">> => true,
-                       <<"ssl">> => #{<<"enable">> => false}},
-                   <<"sql">> => <<"abcb">>
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"username">> => <<"xx">>,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
+                   <<"query">> => <<"abcb">>
                   }).
 -define(SOURCE4, #{<<"type">> => <<"pgsql">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                       <<"server">> => <<"127.0.0.1:27017">>,
-                       <<"pool_size">> => 1,
-                       <<"database">> => <<"mqtt">>,
-                       <<"username">> => <<"xx">>,
-                       <<"password">> => <<"ee">>,
-                       <<"auto_reconnect">> => true,
-                       <<"ssl">> => #{<<"enable">> => false}},
-                   <<"sql">> => <<"abcb">>
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"username">> => <<"xx">>,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
+                   <<"query">> => <<"abcb">>
                   }).
 -define(SOURCE5, #{<<"type">> => <<"redis">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                       <<"server">> => <<"127.0.0.1:27017">>,
-                       <<"pool_size">> => 1,
-                       <<"database">> => 0,
-                       <<"password">> => <<"ee">>,
-                       <<"auto_reconnect">> => true,
-                       <<"ssl">> => #{<<"enable">> => false}},
+                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => 0,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
                    <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
                   }).
+-define(SOURCE6, #{<<"type">> => <<"file">>,
+                   <<"enable">> => true,
+                   <<"path">> => emqx_ct_helpers:deps_path(emqx_authz, "etc/acl.conf")
+                  }).
+
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -125,12 +125,14 @@ t_update_source(_) ->
     {ok, _} = emqx_authz:update(head, [?SOURCE1]),
     {ok, _} = emqx_authz:update(tail, [?SOURCE4]),
     {ok, _} = emqx_authz:update(tail, [?SOURCE5]),
+    {ok, _} = emqx_authz:update(tail, [?SOURCE6]),
 
     ?assertMatch([ #{type := http,  enable := true}
                  , #{type := mongo, enable := true}
                  , #{type := mysql, enable := true}
                  , #{type := pgsql, enable := true}
                  , #{type := redis, enable := true}
+                 , #{type := file,  enable := true}
                  ], emqx:get_config([authorization, sources], [])),
 
     {ok, _} = emqx_authz:update({replace_once, http},  ?SOURCE1#{<<"enable">> := false}),
@@ -138,23 +140,26 @@ t_update_source(_) ->
     {ok, _} = emqx_authz:update({replace_once, mysql}, ?SOURCE3#{<<"enable">> := false}),
     {ok, _} = emqx_authz:update({replace_once, pgsql}, ?SOURCE4#{<<"enable">> := false}),
     {ok, _} = emqx_authz:update({replace_once, redis}, ?SOURCE5#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({replace_once, file},  ?SOURCE6#{<<"enable">> := false}),
 
     ?assertMatch([ #{type := http,  enable := false}
                  , #{type := mongo, enable := false}
                  , #{type := mysql, enable := false}
                  , #{type := pgsql, enable := false}
                  , #{type := redis, enable := false}
+                 , #{type := file,  enable := false}
                  ], emqx:get_config([authorization, sources], [])),
 
     {ok, _} = emqx_authz:update(replace, []).
 
 t_move_source(_) ->
-    {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5]),
+    {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
     ?assertMatch([ #{type := http}
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := pgsql}
                  , #{type := redis}
+                 , #{type := file}
                  ], emqx_authz:lookup()),
 
     {ok, _} = emqx_authz:move(pgsql, <<"top">>),
@@ -163,6 +168,7 @@ t_move_source(_) ->
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := redis}
+                 , #{type := file}
                  ], emqx_authz:lookup()),
 
     {ok, _} = emqx_authz:move(http, <<"bottom">>),
@@ -170,6 +176,7 @@ t_move_source(_) ->
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := redis}
+                 , #{type := file}
                  , #{type := http}
                  ], emqx_authz:lookup()),
 
@@ -178,6 +185,7 @@ t_move_source(_) ->
                  , #{type := pgsql}
                  , #{type := mongo}
                  , #{type := redis}
+                 , #{type := file}
                  , #{type := http}
                  ], emqx_authz:lookup()),
 
@@ -185,6 +193,7 @@ t_move_source(_) ->
     ?assertMatch([ #{type := mysql}
                  , #{type := pgsql}
                  , #{type := redis}
+                 , #{type := file}
                  , #{type := http}
                  , #{type := mongo}
                  ], emqx_authz:lookup()),

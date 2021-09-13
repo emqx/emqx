@@ -185,7 +185,7 @@ get_rules_ordered_by_ts() ->
 -spec(get_rules_for(Topic :: binary()) -> list(emqx_rule_engine:rule())).
 get_rules_for(Topic) ->
     [Rule || Rule = #rule{for = For} <- get_rules(),
-             emqx_rule_utils:can_topic_match_oneof(Topic, For)].
+             emqx_plugin_libs_rule:can_topic_match_oneof(Topic, For)].
 
 -spec(get_rules_with_same_event(Topic :: binary()) -> list(emqx_rule_engine:rule())).
 get_rules_with_same_event(Topic) ->
@@ -220,31 +220,45 @@ remove_rules(Rules) ->
     gen_server:call(?REGISTRY, {remove_rules, Rules}, ?T_CALL).
 
 %% @private
-insert_rule(Rule) ->
-    _ =  emqx_rule_utils:cluster_call(?MODULE, load_hooks_for_rule, [Rule]),
-    mnesia:write(?RULE_TAB, Rule, write).
+
+insert_rules([]) -> ok;
+insert_rules(Rules) ->
+    _ =  emqx_plugin_libs_rule:cluster_call(?MODULE, load_hooks_for_rule, [Rules]),
+    [mnesia:write(?RULE_TAB, Rule, write) ||Rule <- Rules].
 
 %% @private
-delete_rule(RuleId) when is_binary(RuleId) ->
-    case get_rule(RuleId) of
-        {ok, Rule} -> delete_rule(Rule);
-        not_found -> ok
-    end;
-delete_rule(Rule) ->
-    _ =  emqx_rule_utils:cluster_call(?MODULE, unload_hooks_for_rule, [Rule]),
-    mnesia:delete_object(?RULE_TAB, Rule, write).
+delete_rules([]) -> ok;
+delete_rules(Rules = [R|_]) when is_binary(R) ->
+    RuleRecs =
+        lists:foldl(fun(RuleId, Acc) ->
+            case get_rule(RuleId) of
+                {ok, Rule} ->  [Rule|Acc];
+                not_found -> Acc
+            end
+                    end, [], Rules),
+    delete_rules_unload_hooks(RuleRecs);
+delete_rules(Rules = [Rule|_]) when is_record(Rule, rule) ->
+    delete_rules_unload_hooks(Rules).
 
-load_hooks_for_rule(#rule{for = Topics}) ->
-    lists:foreach(fun emqx_rule_events:load/1, Topics).
+delete_rules_unload_hooks(Rules) ->
+    _ =  emqx_plugin_libs_rule:cluster_call(?MODULE, unload_hooks_for_rule, [Rules]),
+    [mnesia:delete_object(?RULE_TAB, Rule, write) ||Rule <- Rules].
 
-unload_hooks_for_rule(#rule{id = Id, for = Topics}) ->
-    lists:foreach(fun(Topic) ->
+load_hooks_for_rule(Rules) ->
+    lists:foreach(fun(#rule{for = Topics}) ->
+        lists:foreach(fun emqx_rule_events:load/1, Topics)
+                  end, Rules).
+
+unload_hooks_for_rule(Rules) ->
+    lists:foreach(fun(#rule{id = Id, for = Topics}) ->
+        lists:foreach(fun(Topic) ->
             case get_rules_with_same_event(Topic) of
                 [#rule{id = Id}] -> %% we are now deleting the last rule
                     emqx_rule_events:unload(Topic);
                 _ -> ok
             end
-        end, Topics).
+                      end, Topics)
+                  end, Rules).
 
 %%------------------------------------------------------------------------------
 %% Action Management
@@ -445,11 +459,11 @@ init([]) ->
     {ok, #{}}.
 
 handle_call({add_rules, Rules}, _From, State) ->
-    trans(fun lists:foreach/2, [fun insert_rule/1, Rules]),
+    trans(fun insert_rules/1, [Rules]),
     {reply, ok, State};
 
 handle_call({remove_rules, Rules}, _From, State) ->
-    trans(fun lists:foreach/2, [fun delete_rule/1, Rules]),
+    trans(fun delete_rules/1, [Rules]),
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->

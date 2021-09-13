@@ -103,11 +103,7 @@ flatten_options([{OptId, OptVal} | T], Acc) ->
                         false ->
                             [encode_option(OptId, OptVal) | Acc];
                         _ ->
-                            lists:foldl(fun(undefined, InnerAcc) ->
-                                                InnerAcc;
-                                           (E, InnerAcc) ->
-                                                [encode_option(OptId, E) | InnerAcc]
-                                        end, Acc, OptVal)
+                            try_encode_repeatable(OptId, OptVal) ++ Acc
                     end);
 
 flatten_options([], Acc) ->
@@ -140,6 +136,19 @@ encode_option_list([], _LastNum, Acc, <<>>) ->
     Acc;
 encode_option_list([], _, Acc, Payload) ->
     <<Acc/binary, 16#FF, Payload/binary>>.
+
+try_encode_repeatable(uri_query, Val) when is_map(Val) ->
+    maps:fold(fun(K, V, Acc) ->
+                      [encode_option(uri_query, <<K/binary, $=, V/binary>>) | Acc]
+              end,
+              [], Val);
+
+try_encode_repeatable(K, Val) ->
+    lists:foldr(fun(undefined, Acc) ->
+                        Acc;
+                   (E, Acc) ->
+                        [encode_option(K, E) | Acc]
+                end, [], Val).
 
 %% RFC 7252
 encode_option(if_match, OptVal) -> {?OPTION_IF_MATCH, OptVal};
@@ -188,6 +197,8 @@ content_format_to_code(<<"application/octet-stream">>) -> 42;
 content_format_to_code(<<"application/exi">>) -> 47;
 content_format_to_code(<<"application/json">>) -> 50;
 content_format_to_code(<<"application/cbor">>) -> 60;
+content_format_to_code(<<"application/vnd.oma.lwm2m+tlv">>) -> 11542;
+content_format_to_code(<<"application/vnd.oma.lwm2m+json">>) -> 11543;
 content_format_to_code(_) -> 42. %% use octet-stream as default
 
 method_to_class_code(get) -> {0, 01};
@@ -235,12 +246,7 @@ parse(<<?VERSION:2, Type:2, TKL:4, Class:3, Code:5, MsgId:16, Token:TKL/binary, 
       ParseState) ->
     {Options, Payload} = decode_option_list(Tail),
     Options2 = maps:fold(fun(K, V, Acc) ->
-                                 case is_repeatable_option(K) of
-                                     true ->
-                                         Acc#{K => lists:reverse(V)};
-                                     _ ->
-                                         Acc#{K => V}
-                                 end
+                                 Acc#{K => get_option_val(K, V)}
                          end,
                          #{},
                          Options),
@@ -254,6 +260,24 @@ parse(<<?VERSION:2, Type:2, TKL:4, Class:3, Code:5, MsgId:16, Token:TKL/binary, 
                   },
      <<>>,
      ParseState}.
+
+get_option_val(uri_query, V) ->
+    KVList = lists:foldl(fun(E, Acc) ->
+                                 [Key, Val] = re:split(E, "="),
+                                 [{Key, Val} | Acc]
+
+                         end,
+                         [],
+                         V),
+    maps:from_list(KVList);
+
+get_option_val(K, V) ->
+    case is_repeatable_option(K) of
+        true ->
+            lists:reverse(V);
+        _ ->
+            V
+    end.
 
 -spec decode_type(X) -> message_type()
               when X :: 0 .. 3.
@@ -359,6 +383,8 @@ content_code_to_format(42) -> <<"application/octet-stream">>;
 content_code_to_format(47) -> <<"application/exi">>;
 content_code_to_format(50) -> <<"application/json">>;
 content_code_to_format(60) -> <<"application/cbor">>;
+content_code_to_format(11542) -> <<"application/vnd.oma.lwm2m+tlv">>;
+content_code_to_format(11543) -> <<"application/vnd.oma.lwm2m+json">>;
 content_code_to_format(_) -> <<"application/octet-stream">>. %% use octet as default
 
 %% RFC 7252

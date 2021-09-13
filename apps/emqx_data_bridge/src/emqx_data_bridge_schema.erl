@@ -14,13 +14,12 @@ fields("emqx_data_bridge") ->
     [{bridges, #{type => hoconsc:array(hoconsc:union(?BRIDGES)),
                  default => []}}];
 
-fields(mysql) -> connector_fields(mysql);
-fields(pgsql) -> connector_fields(pgsql);
-fields(mongo) -> connector_fields(mongo);
-fields(redis) -> connector_fields(redis);
-fields(ldap)  -> connector_fields(ldap).
+fields(mysql) -> connector_fields(emqx_connector_mysql, mysql);
+fields(pgsql) -> connector_fields(emqx_connector_pgsql, pgsql);
+fields(mongo) -> connector_fields(emqx_connector_mongo, mongo);
+fields(redis) -> connector_fields(emqx_connector_redis, redis);
+fields(ldap)  -> connector_fields(emqx_connector_ldap, ldap).
 
-connector_fields(DB) ->
-    Mod = list_to_existing_atom(io_lib:format("~s_~s",[emqx_connector, DB])),
-    [{name, hoconsc:t(typerefl:binary())},
-     {type, #{type => DB}}] ++ Mod:roots().
+connector_fields(ConnectModule, DB) ->
+    [{name, hoconsc:mk(typerefl:binary())},
+     {type, #{type => DB}}] ++ ConnectModule:roots().

@@ -40,7 +40,7 @@
 
 -export([ sign_token/2
         , verify_token/1
-        , destroy_token_by_username/1
+        , destroy_token_by_username/2
         ]).
 
 -export([add_default_user/0]).
@@ -177,8 +177,13 @@ sign_token(Username, Password) ->
 verify_token(Token) ->
     emqx_dashboard_token:verify(Token).
 
-destroy_token_by_username(Username) ->
-    emqx_dashboard_token:destroy_by_username(Username).
+destroy_token_by_username(Username, Token) ->
+    case emqx_dashboard_token:lookup(Token) of
+        {ok, #mqtt_admin_jwt{username = Username}} ->
+            emqx_dashboard_token:destroy(Token);
+        _ ->
+            {error, not_found}
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions

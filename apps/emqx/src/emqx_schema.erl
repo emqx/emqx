@@ -49,6 +49,10 @@
 -typerefl_from_string({cipher/0, emqx_schema, to_erl_cipher_suite}).
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 
+-export([ validate_heap_size/1
+        , parse_user_lookup_fun/1
+        ]).
+
 % workaround: prevent being recognized as unused functions
 -export([to_duration/1, to_duration_s/1, to_duration_ms/1,
          to_bytesize/1, to_wordsize/1,
@@ -65,204 +69,571 @@
                 cipher/0,
                 comma_separated_atoms/0]).
 
--export([roots/0, fields/1]).
--export([t/1, t/3, t/4, ref/1]).
+-export([namespace/0, roots/0, roots/1, fields/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([ssl/1]).
 
+namespace() -> undefined.
+
 roots() ->
-    ["zones", "mqtt", "flapping_detect", "force_shutdown", "force_gc",
-     "conn_congestion", "rate_limit", "quota", "listeners", "broker", "plugins",
-     "stats", "sysmon", "alarm", "authorization"].
+    %% TODO change config importance to a field metadata
+    roots(high) ++ roots(medium) ++ roots(low).
+
+roots(high) ->
+    [ {"listeners",
+      sc(ref("listeners"),
+         #{ desc => "MQTT listeners identified by their protocol type and assigned names"
+          })
+      }
+    , {"zones",
+       sc(map("name", ref("zone")),
+          #{ desc => "A zone is a set of configs grouped by the zone <code>name</code>. <br>"
+                     "For flexible configuration mapping, the <code>name</code> "
+                     "can be set to a listener's <code>zone</code> config.<br>"
+                     "NOTE: A builtin zone named <code>default</code> is auto created "
+                     "and can not be deleted."
+           })}
+    , {"mqtt",
+       sc(ref("mqtt"),
+         #{ desc => "Global MQTT configuration.<br>"
+                    "The configs here work as default values which can be overriden "
+                    "in <code>zone</code> configs"
+          })}
+    , {"authentication",
+      sc(hoconsc:lazy(hoconsc:array(map())),
+         #{ desc => "Default authentication configs for all MQTT listeners.<br>"
+                    "For per-listener overrides see <code>authentication</code> "
+                    "in listener configs"
+          })}
+    , {"authorization",
+       sc(ref("authorization"),
+          #{})}
+    ];
+roots(medium) ->
+    [ {"broker",
+       sc(ref("broker"),
+         #{})}
+    , {"rate_limit",
+       sc(ref("rate_limit"),
+          #{})}
+    , {"force_shutdown",
+       sc(ref("force_shutdown"),
+          #{})}
+    ];
+roots(low) ->
+    [ {"force_gc",
+       sc(ref("force_gc"),
+          #{})}
+   , {"conn_congestion",
+       sc(ref("conn_congestion"),
+          #{})}
+   , {"quota",
+       sc(ref("quota"),
+          #{})}
+   , {"plugins", %% TODO: move to emqx_machine_schema
+       sc(ref("plugins"),
+          #{})}
+   , {"stats",
+       sc(ref("stats"),
+          #{})}
+   , {"sysmon",
+       sc(ref("sysmon"),
+          #{})}
+   , {"alarm",
+       sc(ref("alarm"),
+          #{})}
+   , {"flapping_detect",
+       sc(ref("flapping_detect"),
+          #{})}
+    ].
 
 fields("stats") ->
-    [ {"enable", t(boolean(), undefined, true)}
+    [ {"enable",
+       sc(boolean(),
+          #{ default => true
+           })}
     ];
 
 fields("authorization") ->
-    [ {"no_match", t(union(allow, deny), undefined, allow)}
-    , {"deny_action", t(union(ignore, disconnect), undefined, ignore)}
-    , {"cache", ref("authorization_cache")}
+    [ {"no_match",
+       sc(union(allow, deny),
+          #{ default => allow
+           })}
+    , {"deny_action",
+       sc(union(ignore, disconnect),
+          #{ default => ignore
+           })}
+    , {"cache",
+       sc(ref(?MODULE, "cache"),
+          #{
+           })}
     ];
 
-fields("authorization_cache") ->
-    [ {"enable", t(boolean(), undefined, true)}
-    , {"max_size", t(range(1, 1048576), undefined, 32)}
-    , {"ttl", t(duration(), undefined, "1m")}
+fields("cache") ->
+    [ {"enable",
+       sc(boolean(),
+          #{ default => true
+           })
+      }
+    , {"max_size",
+       sc(range(1, 1048576),
+          #{ default => 32
+           })
+      }
+    , {"ttl",
+       sc(duration(),
+          #{ default => "1m"
+           })
+      }
     ];
 
 fields("mqtt") ->
-    [ {"idle_timeout", maybe_infinity(duration(), "15s")}
-    , {"max_packet_size", t(bytesize(), undefined, "1MB")}
-    , {"max_clientid_len", t(range(23, 65535), undefined, 65535)}
-    , {"max_topic_levels", t(range(1, 65535), undefined, 65535)}
-    , {"max_qos_allowed", t(range(0, 2), undefined, 2)}
-    , {"max_topic_alias", t(range(0, 65535), undefined, 65535)}
-    , {"retain_available", t(boolean(), undefined, true)}
-    , {"wildcard_subscription", t(boolean(), undefined, true)}
-    , {"shared_subscription", t(boolean(), undefined, true)}
-    , {"ignore_loop_deliver", t(boolean(), undefined, false)}
-    , {"strict_mode", t(boolean(), undefined, false)}
-    , {"response_information", t(string(), undefined, "")}
-    , {"server_keepalive", maybe_disabled(integer())}
-    , {"keepalive_backoff", t(float(), undefined, 0.75)}
-    , {"max_subscriptions", maybe_infinity(range(1, inf))}
-    , {"upgrade_qos", t(boolean(), undefined, false)}
-    , {"max_inflight", t(range(1, 65535), undefined, 32)}
-    , {"retry_interval", t(duration(), undefined, "30s")}
-    , {"max_awaiting_rel", maybe_infinity(integer(), 100)}
-    , {"await_rel_timeout", t(duration(), undefined, "300s")}
-    , {"session_expiry_interval", t(duration(), undefined, "2h")}
-    , {"max_mqueue_len", maybe_infinity(range(0, inf), 1000)}
-    , {"mqueue_priorities", maybe_disabled(map())}
-    , {"mqueue_default_priority", t(union(highest, lowest), undefined, lowest)}
-    , {"mqueue_store_qos0", t(boolean(), undefined, true)}
-    , {"use_username_as_clientid", t(boolean(), undefined, false)}
-    , {"peer_cert_as_username", maybe_disabled(union([cn, dn, crt, pem, md5]))}
-    , {"peer_cert_as_clientid", maybe_disabled(union([cn, dn, crt, pem, md5]))}
+    [ {"idle_timeout",
+       sc(hoconsc:union([infinity, duration()]),
+          #{ default => "15s"
+           })}
+    , {"max_packet_size",
+       sc(bytesize(),
+          #{ default => "1MB"
+           })}
+    , {"max_clientid_len",
+       sc(range(23, 65535),
+          #{ default => 65535
+           })}
+    , {"max_topic_levels",
+       sc(range(1, 65535),
+          #{ default => 65535
+           })}
+    , {"max_qos_allowed",
+       sc(range(0, 2),
+          #{ default => 2
+           })}
+    , {"max_topic_alias",
+       sc(range(0, 65535),
+          #{ default => 65535
+          })}
+    , {"retain_available",
+       sc(boolean(),
+          #{ default => true
+           })}
+    , {"wildcard_subscription",
+       sc(boolean(),
+          #{ default => true
+           })}
+    , {"shared_subscription",
+       sc(boolean(),
+          #{ default => true
+           })}
+    , {"ignore_loop_deliver",
+       sc(boolean(),
+          #{ default => false
+           })}
+    , {"strict_mode",
+       sc(boolean(),
+          #{default => false
+           })
+      }
+    , {"response_information",
+       sc(string(),
+          #{default => ""
+           })
+      }
+    , {"server_keepalive",
+       sc(hoconsc:union([integer(), disabled]),
+          #{ default => disabled
+           })
+      }
+    , {"keepalive_backoff",
+       sc(float(),
+          #{default => 0.75
+           })
+      }
+    , {"max_subscriptions",
+       sc(hoconsc:union([range(1, inf), infinity]),
+          #{ default => infinity
+           })
+      }
+    , {"upgrade_qos",
+       sc(boolean(),
+          #{ default => false
+           })
+      }
+    , {"max_inflight",
+       sc(range(1, 65535),
+          #{ default => 32
+           })
+      }
+    , {"retry_interval",
+       sc(duration(),
+          #{default => "30s"
+           })
+      }
+    , {"max_awaiting_rel",
+       sc(hoconsc:union([integer(), infinity]),
+          #{ default => 100
+           })
+      }
+    , {"await_rel_timeout",
+       sc(duration(),
+          #{ default => "300s"
+           })
+      }
+    , {"session_expiry_interval",
+       sc(duration(),
+          #{ default => "2h"
+           })
+      }
+    , {"max_mqueue_len",
+       sc(hoconsc:union([range(0, inf), infinity]),
+          #{ default => 1000
+           })
+      }
+    , {"mqueue_priorities",
+       sc(hoconsc:union([map(), disabled]),
+          #{ default => disabled
+           })
+      }
+    , {"mqueue_default_priority",
+       sc(union(highest, lowest),
+          #{ default => lowest
+           })
+      }
+    , {"mqueue_store_qos0",
+       sc(boolean(),
+          #{ default => true
+           })
+      }
+    , {"use_username_as_clientid",
+       sc(boolean(),
+          #{ default => false
+           })
+      }
+    , {"peer_cert_as_username",
+       sc(hoconsc:union([disabled, cn, dn, crt, pem, md5]),
+          #{ default => disabled
+           })}
+    , {"peer_cert_as_clientid",
+       sc(hoconsc:union([disabled, cn, dn, crt, pem, md5]),
+          #{ default => disabled
+           })}
     ];
 
-fields("zones") ->
-    [ {"$name", ref("zone_settings")}];
-
-fields("zone_settings") ->
-    Fields = ["mqtt", "stats", "authorization", "flapping_detect", "force_shutdown",
+fields("zone") ->
+    Fields = ["mqtt", "stats", "flapping_detect", "force_shutdown",
               "conn_congestion", "rate_limit", "quota", "force_gc"],
-    [{F, ref("strip_default:" ++ F)} || F <- Fields];
+    [{F, ref(emqx_zone_schema, F)} || F <- Fields];
 
 fields("rate_limit") ->
-    [ {"max_conn_rate", maybe_infinity(integer(), 1000)}
-    , {"conn_messages_in", maybe_infinity(comma_separated_list())}
-    , {"conn_bytes_in", maybe_infinity(comma_separated_list())}
+    [ {"max_conn_rate",
+       sc(hoconsc:union([infinity, integer()]),
+          #{ default => 1000
+           })
+      }
+    , {"conn_messages_in",
+       sc(hoconsc:union([infinity, comma_separated_list()]),
+          #{ default => infinity
+           })
+       }
+    , {"conn_bytes_in",
+       sc(hoconsc:union([infinity, comma_separated_list()]),
+          #{ default => infinity
+           })
+       }
     ];
 
 fields("quota") ->
-    [ {"conn_messages_routing", maybe_infinity(comma_separated_list())}
-    , {"overall_messages_routing", maybe_infinity(comma_separated_list())}
+    [ {"conn_messages_routing",
+       sc(hoconsc:union([infinity, comma_separated_list()]),
+          #{ default => infinity
+           })
+       }
+    , {"overall_messages_routing",
+       sc(hoconsc:union([infinity, comma_separated_list()]),
+          #{ default => infinity
+           })
+      }
     ];
 
 fields("flapping_detect") ->
-    [ {"enable", t(boolean(), undefined, false)}
-    , {"max_count", t(integer(), undefined, 15)}
-    , {"window_time", t(duration(), undefined, "1m")}
-    , {"ban_time", t(duration(), undefined, "5m")}
+    [ {"enable",
+       sc(boolean(),
+          #{ default => false
+           })}
+    , {"max_count",
+       sc(integer(),
+          #{ default => 15
+           })}
+    , {"window_time",
+       sc(duration(),
+          #{ default => "1m"
+           })}
+    , {"ban_time",
+       sc(duration(),
+          #{ default => "5m"
+           })}
     ];
 
 fields("force_shutdown") ->
-    [ {"enable", t(boolean(), undefined, true)}
-    , {"max_message_queue_len", t(range(0, inf), undefined, 1000)}
-    , {"max_heap_size", t(wordsize(), undefined, "32MB", undefined,
-        fun(Siz) ->
-            MaxSiz = case erlang:system_info(wordsize) of
-                8 -> % arch_64
-                    (1 bsl 59) - 1;
-                4 -> % arch_32
-                    (1 bsl 27) - 1
-            end,
-            case Siz > MaxSiz of
-                true ->
-                    error(io_lib:format("force_shutdown_policy: heap-size ~s is too large", [Siz]));
-                false ->
-                    ok
-            end
-        end)}
+    [ {"enable",
+       sc(boolean(),
+          #{ default => true})}
+    , {"max_message_queue_len",
+       sc(range(0, inf),
+          #{ default => 1000
+           })}
+    , {"max_heap_size",
+       sc(wordsize(),
+          #{ default => "32MB",
+             validator => fun ?MODULE:validate_heap_size/1
+           })}
     ];
 
 fields("conn_congestion") ->
-    [ {"enable_alarm", t(boolean(), undefined, false)}
-    , {"min_alarm_sustain_duration", t(duration(), undefined, "1m")}
+    [ {"enable_alarm",
+       sc(boolean(),
+          #{ default => false
+           })}
+    , {"min_alarm_sustain_duration",
+       sc(duration(),
+          #{ default => "1m"
+           })}
     ];
 
 fields("force_gc") ->
-    [ {"enable", t(boolean(), undefined, true)}
-    , {"count", t(range(0, inf), undefined, 16000)}
-    , {"bytes", t(bytesize(), undefined, "16MB")}
+    [ {"enable",
+       sc(boolean(),
+          #{ default => true
+           })}
+    , {"count",
+       sc(range(0, inf),
+          #{ default => 16000
+           })}
+    , {"bytes",
+       sc(bytesize(),
+          #{ default => "16MB"
+           })}
     ];
 
 fields("listeners") ->
-    [ {"tcp", ref("t_tcp_listeners")}
-    , {"ssl", ref("t_ssl_listeners")}
-    , {"ws", ref("t_ws_listeners")}
-    , {"wss", ref("t_wss_listeners")}
-    , {"quic", ref("t_quic_listeners")}
-    ];
-
-fields("t_tcp_listeners") ->
-    [ {"$name", ref("mqtt_tcp_listener")}
-    ];
-fields("t_ssl_listeners") ->
-    [ {"$name", ref("mqtt_ssl_listener")}
-    ];
-fields("t_ws_listeners") ->
-    [ {"$name", ref("mqtt_ws_listener")}
-    ];
-fields("t_wss_listeners") ->
-    [ {"$name", ref("mqtt_wss_listener")}
-    ];
-fields("t_quic_listeners") ->
-    [ {"$name", ref("mqtt_quic_listener")}
+    [ {"tcp",
+       sc(map(name, ref("mqtt_tcp_listener")),
+          #{ desc => "TCP listeners"
+           , nullable => {true, recursive}
+           })
+      }
+    , {"ssl",
+       sc(map(name, ref("mqtt_ssl_listener")),
+          #{ desc => "SSL listeners"
+           , nullable => {true, recursive}
+           })
+      }
+    , {"ws",
+       sc(map(name, ref("mqtt_ws_listener")),
+          #{ desc => "HTTP websocket listeners"
+           , nullable => {true, recursive}
+           })
+      }
+    , {"wss",
+       sc(map(name, ref("mqtt_wss_listener")),
+          #{ desc => "HTTPS websocket listeners"
+           , nullable => {true, recursive}
+           })
+      }
+    , {"quic",
+       sc(map(name, ref("mqtt_quic_listener")),
+          #{ desc => "QUIC listeners"
+           , nullable => {true, recursive}
+           })
+      }
     ];
 
 fields("mqtt_tcp_listener") ->
-    [ {"tcp", ref("tcp_opts")}
+    [ {"tcp",
+       sc(ref("tcp_opts"),
+          #{ desc => "TCP listener options"
+           })
+      }
     ] ++ mqtt_listener();
 
 fields("mqtt_ssl_listener") ->
-    [ {"tcp", ref("tcp_opts")}
-    , {"ssl", ref("ssl_opts")}
+    [ {"tcp",
+       sc(ref("tcp_opts"),
+          #{})
+      }
+    , {"ssl",
+       sc(ref("listener_ssl_opts"),
+          #{})
+      }
     ] ++ mqtt_listener();
 
 fields("mqtt_ws_listener") ->
-    [ {"tcp", ref("tcp_opts")}
-    , {"websocket", ref("ws_opts")}
+    [ {"tcp",
+       sc(ref("tcp_opts"),
+          #{})
+      }
+    , {"websocket",
+       sc(ref("ws_opts"),
+          #{})
+      }
     ] ++ mqtt_listener();
 
 fields("mqtt_wss_listener") ->
-    [ {"tcp", ref("tcp_opts")}
-    , {"ssl", ref("ssl_opts")}
-    , {"websocket", ref("ws_opts")}
+    [ {"tcp",
+       sc(ref("tcp_opts"),
+          #{})
+      }
+    , {"ssl",
+       sc(ref("listener_ssl_opts"),
+          #{})
+      }
+    , {"websocket",
+       sc(ref("ws_opts"),
+          #{})
+      }
     ] ++ mqtt_listener();
 
 fields("mqtt_quic_listener") ->
-    [ {"enabled", t(boolean(), undefined, true)}
-    , {"certfile", t(string(), undefined, undefined)}
-    , {"keyfile", t(string(), undefined, undefined)}
-    , {"ciphers", t(comma_separated_list(), undefined, "TLS_AES_256_GCM_SHA384,"
-                    "TLS_AES_128_GCM_SHA256,TLS_CHACHA20_POLY1305_SHA256")}
-    , {"idle_timeout", t(duration(), undefined, "15s")}
+    [ {"enabled",
+       sc(boolean(),
+          #{ default => true
+           })
+      }
+    , {"certfile",
+       sc(string(),
+          #{})
+      }
+    , {"keyfile",
+       sc(string(),
+          #{})
+      }
+    , {"ciphers",
+       sc(comma_separated_list(),
+          #{ default => "TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256,"
+                        "TLS_CHACHA20_POLY1305_SHA256"
+           })}
+    , {"idle_timeout",
+       sc(duration(),
+          #{ default => "15s"
+           })
+      }
     ] ++ base_listener();
 
 fields("ws_opts") ->
-    [ {"mqtt_path", t(string(), undefined, "/mqtt")}
-    , {"mqtt_piggyback", t(union(single, multiple), undefined, multiple)}
-    , {"compress", t(boolean(), undefined, false)}
-    , {"idle_timeout", t(duration(), undefined, "15s")}
-    , {"max_frame_size", maybe_infinity(integer())}
-    , {"fail_if_no_subprotocol", t(boolean(), undefined, true)}
-    , {"supported_subprotocols", t(comma_separated_list(), undefined,
-        "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5")}
-    , {"check_origin_enable", t(boolean(), undefined, false)}
-    , {"allow_origin_absence", t(boolean(), undefined, true)}
-    , {"check_origins", t(hoconsc:array(binary()), undefined, [])}
-    , {"proxy_address_header", t(string(), undefined, "x-forwarded-for")}
-    , {"proxy_port_header", t(string(), undefined, "x-forwarded-port")}
-    , {"deflate_opts", ref("deflate_opts")}
+    [ {"mqtt_path",
+       sc(string(),
+          #{ default => "/mqtt"
+           })
+      }
+    , {"mqtt_piggyback",
+       sc(hoconsc:union([single, multiple]),
+          #{ default => multiple
+           })
+      }
+    , {"compress",
+       sc(boolean(),
+          #{ default => false
+           })
+      }
+    , {"idle_timeout",
+       sc(duration(),
+          #{ default => "15s"
+           })
+      }
+    , {"max_frame_size",
+       sc(hoconsc:union([infinity, integer()]),
+          #{ default => infinity
+           })
+      }
+    , {"fail_if_no_subprotocol",
+       sc(boolean(),
+          #{ default => true
+           })
+      }
+    , {"supported_subprotocols",
+       sc(comma_separated_list(),
+          #{ default => "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5"
+           })
+      }
+    , {"check_origin_enable",
+       sc(boolean(),
+          #{ default => false
+           })
+      }
+    , {"allow_origin_absence",
+       sc(boolean(),
+          #{ default => true
+           })
+      }
+    , {"check_origins",
+       sc(hoconsc:array(binary()),
+          #{ default => []
+           })
+      }
+    , {"proxy_address_header",
+       sc(string(),
+          #{ default => "x-forwarded-for"
+           })
+      }
+    , {"proxy_port_header",
+       sc(string(),
+          #{ default => "x-forwarded-port"
+           })
+      }
+    , {"deflate_opts",
+       sc(ref("deflate_opts"),
+          #{})
+      }
     ];
 
 fields("tcp_opts") ->
-    [ {"active_n", t(integer(), undefined, 100)}
-    , {"backlog", t(integer(), undefined, 1024)}
-    , {"send_timeout", t(duration(), undefined, "15s")}
-    , {"send_timeout_close", t(boolean(), undefined, true)}
-    , {"recbuf", t(bytesize())}
-    , {"sndbuf", t(bytesize())}
-    , {"buffer", t(bytesize())}
-    , {"high_watermark", t(bytesize(), undefined, "1MB")}
-    , {"nodelay", t(boolean(), undefined, false)}
-    , {"reuseaddr", t(boolean(), undefined, true)}
+    [ {"active_n",
+       sc(integer(),
+          #{ default => 100
+           })
+      }
+    , {"backlog",
+       sc(integer(),
+          #{ default => 1024
+           })
+      }
+    , {"send_timeout",
+       sc(duration(),
+          #{ default => "15s"
+           })
+      }
+    , {"send_timeout_close",
+       sc(boolean(),
+          #{ default => true
+           })
+      }
+    , {"recbuf",
+       sc(bytesize(),
+          #{})
+      }
+    , {"sndbuf",
+       sc(bytesize(),
+          #{})
+      }
+    , {"buffer",
+       sc(bytesize(),
+          #{})
+      }
+    , {"high_watermark",
+       sc(bytesize(),
+          #{ default => "1MB"})
+      }
+    , {"nodelay",
+       sc(boolean(),
+          #{ default => false})
+      }
+    , {"reuseaddr",
+       sc(boolean(),
+          #{ default => true
+           })
+      }
     ];
 
-fields("ssl_opts") ->
+fields("listener_ssl_opts") ->
     ssl(#{handshake_timeout => "15s"
         , depth => 10
         , reuse_sessions => true
@@ -271,82 +642,241 @@ fields("ssl_opts") ->
         });
 
 fields("deflate_opts") ->
-    [ {"level", t(union([none, default, best_compression, best_speed]))}
-    , {"mem_level", t(range(1, 9), undefined, 8)}
-    , {"strategy", t(union([default, filtered, huffman_only, rle]))}
-    , {"server_context_takeover", t(union(takeover, no_takeover))}
-    , {"client_context_takeover", t(union(takeover, no_takeover))}
-    , {"server_max_window_bits", t(range(8, 15), undefined, 15)}
-    , {"client_max_window_bits", t(range(8, 15), undefined, 15)}
+    [ {"level",
+       sc(hoconsc:union([none, default, best_compression, best_speed]),
+          #{})
+      }
+    , {"mem_level",
+       sc(range(1, 9),
+          #{ default => 8
+           })
+      }
+    , {"strategy",
+       sc(hoconsc:union([default, filtered, huffman_only, rle]),
+          #{})
+      }
+    , {"server_context_takeover",
+       sc(hoconsc:union([takeover, no_takeover]),
+          #{})
+      }
+    , {"client_context_takeover",
+       sc(hoconsc:union([takeover, no_takeover]),
+          #{})
+      }
+    , {"server_max_window_bits",
+       sc(range(8, 15),
+          #{ default => 15
+           })
+      }
+    , {"client_max_window_bits",
+       sc(range(8, 15),
+          #{ default => 15
+           })
+      }
     ];
 
 fields("plugins") ->
-    [ {"expand_plugins_dir", t(string())}
+    [ {"expand_plugins_dir",
+       sc(string(),
+          #{})
+      }
     ];
 
 fields("broker") ->
-    [ {"sys_msg_interval", maybe_disabled(duration(), "1m")}
-    , {"sys_heartbeat_interval", maybe_disabled(duration(), "30s")}
-    , {"enable_session_registry", t(boolean(), undefined, true)}
-    , {"session_locking_strategy", t(union([local, leader, quorum, all]), undefined, quorum)}
-    , {"shared_subscription_strategy", t(union(random, round_robin), undefined, round_robin)}
-    , {"shared_dispatch_ack_enabled", t(boolean(), undefined, false)}
-    , {"route_batch_clean", t(boolean(), undefined, true)}
-    , {"perf", ref("perf")}
+    [ {"sys_msg_interval",
+       sc(hoconsc:union([disabled, duration()]),
+          #{ default => "1m"
+           })
+      }
+    , {"sys_heartbeat_interval",
+       sc(hoconsc:union([disabled, duration()]),
+          #{ default => "30s"
+           })
+      }
+    , {"enable_session_registry",
+       sc(boolean(),
+          #{ default => true
+           })
+      }
+    , {"session_locking_strategy",
+       sc(hoconsc:union([local, leader, quorum, all]),
+          #{ default => quorum
+           })
+      }
+    , {"shared_subscription_strategy",
+       sc(hoconsc:union([random, round_robin]),
+          #{ default => round_robin
+           })
+      }
+    , {"shared_dispatch_ack_enabled",
+       sc(boolean(),
+          #{ default => false
+           })
+      }
+    , {"route_batch_clean",
+       sc(boolean(),
+          #{ default => true
+           })}
+    , {"perf",
+       sc(ref("broker_perf"),
+          #{ desc => "Broker performance tuning pamaters"
+           })
+      }
     ];
 
-fields("perf") ->
-    [ {"route_lock_type", t(union([key, tab, global]), undefined, key)}
-    , {"trie_compaction", t(boolean(), undefined, true)}
+fields("broker_perf") ->
+    [ {"route_lock_type",
+       sc(hoconsc:union([key, tab, global]),
+          #{ default => key
+           })}
+    , {"trie_compaction",
+       sc(boolean(),
+          #{ default => true
+           })}
     ];
 
 fields("sysmon") ->
-    [ {"vm", ref("sysmon_vm")}
-    , {"os", ref("sysmon_os")}
+    [ {"vm",
+       sc(ref("sysmon_vm"),
+          #{})
+      }
+    , {"os",
+       sc(ref("sysmon_os"),
+          #{})
+      }
     ];
 
 fields("sysmon_vm") ->
-    [ {"process_check_interval", t(duration(), undefined, "30s")}
-    , {"process_high_watermark", t(percent(), undefined, "80%")}
-    , {"process_low_watermark", t(percent(), undefined, "60%")}
-    , {"long_gc", maybe_disabled(duration())}
-    , {"long_schedule", maybe_disabled(duration(), "240ms")}
-    , {"large_heap", maybe_disabled(bytesize(), "32MB")}
-    , {"busy_dist_port", t(boolean(), undefined, true)}
-    , {"busy_port", t(boolean(), undefined, true)}
+    [ {"process_check_interval",
+       sc(duration(),
+          #{ default => "30s"
+           })
+      }
+    , {"process_high_watermark",
+       sc(percent(),
+          #{ default => "80%"
+           })
+      }
+    , {"process_low_watermark",
+       sc(percent(),
+          #{ default => "60%"
+           })
+      }
+    , {"long_gc",
+       sc(hoconsc:union([disabled, duration()]),
+          #{})
+      }
+    , {"long_schedule",
+       sc(hoconsc:union([disabled, duration()]),
+          #{ default => "240ms"
+           })
+      }
+    , {"large_heap",
+       sc(hoconsc:union([disabled, bytesize()]),
+          #{default => "32MB"})
+      }
+    , {"busy_dist_port",
+       sc(boolean(),
+          #{ default => true
+           })
+      }
+    , {"busy_port",
+       sc(boolean(),
+          #{ default => true
+           })}
     ];
 
 fields("sysmon_os") ->
-    [ {"cpu_check_interval", t(duration(), undefined, "60s")}
-    , {"cpu_high_watermark", t(percent(), undefined, "80%")}
-    , {"cpu_low_watermark", t(percent(), undefined, "60%")}
-    , {"mem_check_interval", maybe_disabled(duration(), "60s")}
-    , {"sysmem_high_watermark", t(percent(), undefined, "70%")}
-    , {"procmem_high_watermark", t(percent(), undefined, "5%")}
+    [ {"cpu_check_interval",
+       sc(duration(),
+          #{ default => "60s"})
+      }
+    , {"cpu_high_watermark",
+       sc(percent(),
+          #{ default => "80%"
+           })
+      }
+    , {"cpu_low_watermark",
+       sc(percent(),
+          #{ default => "60%"
+           })
+      }
+    , {"mem_check_interval",
+       sc(hoconsc:union([disabled, duration()]),
+          #{ default => "60s"
+           })}
+    , {"sysmem_high_watermark",
+       sc(percent(),
+          #{ default => "70%"
+           })
+      }
+    , {"procmem_high_watermark",
+       sc(percent(),
+          #{ default => "5%"
+           })
+      }
     ];
 
 fields("alarm") ->
-    [ {"actions", t(hoconsc:array(atom()), undefined, [log, publish])}
-    , {"size_limit", t(integer(), undefined, 1000)}
-    , {"validity_period", t(duration(), undefined, "24h")}
-    ];
-
-fields("strip_default:" ++ Name) ->
-    strip_default(fields(Name)).
+    [ {"actions",
+       sc(hoconsc:array(atom()),
+          #{ default => [log, publish]
+           })
+      }
+    , {"size_limit",
+       sc(integer(),
+          #{ default => 1000
+           })
+      }
+    , {"validity_period",
+       sc(duration(),
+          #{ default => "24h"
+           })
+      }
+    ].
 
 mqtt_listener() ->
     base_listener() ++
-    [ {"access_rules", t(hoconsc:array(string()))}
-    , {"proxy_protocol", t(boolean(), undefined, false)}
-    , {"proxy_protocol_timeout", t(duration())}
+    [ {"access_rules",
+       sc(hoconsc:array(string()),
+          #{})
+      }
+    , {"proxy_protocol",
+       sc(boolean(),
+          #{ default => false
+           })
+      }
+    , {"proxy_protocol_timeout",
+       sc(duration(),
+          #{})
+      }
+    , {"authentication",
+       sc(hoconsc:lazy(hoconsc:array(map())),
+          #{})
+      }
     ].
 
 base_listener() ->
-    [ {"bind", hoconsc:t(union(ip_port(), integer()), #{nullable => false})}
-    , {"acceptors", t(integer(), undefined, 16)}
-    , {"max_connections", maybe_infinity(integer(), infinity)}
-    , {"mountpoint", t(binary(), undefined, <<>>)}
-    , {"zone", t(atom(), undefined, default)}
+    [ {"bind",
+       sc(hoconsc:union([ip_port(), integer()]),
+          #{ nullable => false
+           })}
+    , {"acceptors",
+       sc(integer(),
+          #{ default => 16
+           })}
+    , {"max_connections",
+       sc(hoconsc:union([infinity, integer()]),
+          #{ default => infinity
+           })}
+    , {"mountpoint",
+       sc(binary(),
+          #{ default => <<>>
+           })}
+    , {"zone",
+       sc(atom(),
+          #{ default => 'default'
+           })}
     ].
 
 %% utils
@@ -372,43 +902,101 @@ conf_get(Key, Conf, Default) ->
 filter(Opts) ->
     [{K, V} || {K, V} <- Opts, V =/= undefined].
 
-%% generate a ssl field.
-%% ssl(#{"verify" => verify_peer}) will return:
-%%  [ {"cacertfile", t(string(), undefined, undefined)}
-%%  , {"certfile", t(string(), undefined, undefined)}
-%%  , {"keyfile", t(string(), undefined, undefined)}
-%%  , {"verify", t(union(verify_peer, verify_none), undefined, verify_peer)}
-%%  , {"server_name_indication", undefined, undefined)}
-%%  ...]
 ssl(Defaults) ->
     D = fun (Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
-    [ {"enable", t(boolean(), undefined, D("enable"))}
-    , {"cacertfile", t(string(), undefined, D("cacertfile"))}
-    , {"certfile", t(string(), undefined, D("certfile"))}
-    , {"keyfile", t(string(), undefined, D("keyfile"))}
-    , {"verify", t(union(verify_peer, verify_none), undefined, D("verify"))}
-    , {"fail_if_no_peer_cert", t(boolean(), undefined, D("fail_if_no_peer_cert"))}
-    , {"secure_renegotiate", t(boolean(), undefined, D("secure_renegotiate"))}
-    , {"reuse_sessions", t(boolean(), undefined, D("reuse_sessions"))}
-    , {"honor_cipher_order", t(boolean(), undefined, D("honor_cipher_order"))}
-    , {"handshake_timeout", t(duration(), undefined, D("handshake_timeout"))}
-    , {"depth", t(integer(), undefined, D("depth"))}
-    , {"password", hoconsc:t(string(), #{default => D("key_password"),
-                                         sensitive => true
-                                        })}
-    , {"dhfile", t(string(), undefined, D("dhfile"))}
-    , {"server_name_indication", t(union(disable, string()), undefined,
-                                   D("server_name_indication"))}
-    , {"versions", #{ type => list(atom())
-                    , default => maps:get(versions, Defaults, default_tls_vsns())
-                    , converter => fun (Vsns) -> [tls_vsn(V) || V <- Vsns] end
-                    }}
-    , {"ciphers", t(hoconsc:array(string()), undefined, D("ciphers"))}
-    , {"user_lookup_fun", t(any(), undefined, {fun emqx_psk:lookup/3, <<>>})}
+    [ {"enable",
+       sc(boolean(),
+          #{ default => D("enable")
+           })
+      }
+    , {"cacertfile",
+       sc(string(),
+          #{ default => D("cacertfile")
+           })
+      }
+    , {"certfile",
+       sc(string(),
+          #{ default => D("certfile")
+           })
+      }
+    , {"keyfile",
+       sc(string(),
+          #{ default => D("keyfile")
+           })
+      }
+    , {"verify",
+       sc(hoconsc:union([verify_peer, verify_none]),
+          #{ default => D("verify")
+           })
+      }
+    , {"fail_if_no_peer_cert",
+       sc(boolean(),
+          #{ default => D("fail_if_no_peer_cert")
+           })
+      }
+    , {"secure_renegotiate",
+       sc(boolean(),
+          #{ default => D("secure_renegotiate")
+           })
+      }
+    , {"reuse_sessions",
+       sc(boolean(),
+          #{ default => D("reuse_sessions")
+           })
+      }
+    , {"honor_cipher_order",
+       sc(boolean(),
+          #{ default => D("honor_cipher_order")
+           })
+      }
+    , {"handshake_timeout",
+       sc(duration(),
+          #{ default => D("handshake_timeout")
+           })
+      }
+    , {"depth",
+       sc(integer(),
+          #{default => D("depth")
+           })
+      }
+    , {"password",
+       sc(string(),
+          #{ default => D("key_password")
+           , sensitive => true
+           })
+      }
+    , {"dhfile",
+       sc(string(),
+          #{ default => D("dhfile")
+           })
+      }
+    , {"server_name_indication",
+       sc(hoconsc:union([disable, string()]),
+          #{ default => D("server_name_indication")
+           })
+      }
+    , {"versions",
+       sc(typerefl:alias("string", list(atom())),
+          #{ default => maps:get(versions, Defaults, default_tls_vsns())
+           , converter => fun (Vsns) -> [tls_vsn(iolist_to_binary(V)) || V <- Vsns] end
+           })
+      }
+    , {"ciphers",
+       sc(hoconsc:array(string()),
+          #{ default => D("ciphers")
+           })
+      }
+    , {"user_lookup_fun",
+       sc(typerefl:alias("string", any()),
+          #{ default => "emqx_psk:lookup"
+           , converter => fun ?MODULE:parse_user_lookup_fun/1
+           })
+      }
     ].
 
 %% on erl23.2.7.2-emqx-2, sufficient_crypto_support('tlsv1.3') -> false
 default_tls_vsns() -> [<<"tlsv1.2">>, <<"tlsv1.1">>, <<"tlsv1">>].
+
 tls_vsn(<<"tlsv1.3">>) -> 'tlsv1.3';
 tls_vsn(<<"tlsv1.2">>) -> 'tlsv1.2';
 tls_vsn(<<"tlsv1.1">>) -> 'tlsv1.1';
@@ -451,40 +1039,13 @@ ceiling(X) ->
 
 %% types
 
-t(Type) -> hoconsc:t(Type).
+sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 
-t(Type, Mapping, Default) ->
-    hoconsc:t(Type, #{mapping => Mapping, default => Default}).
+map(Name, Type) -> hoconsc:map(Name, Type).
 
-t(Type, Mapping, Default, OverrideEnv) ->
-    hoconsc:t(Type, #{ mapping => Mapping
-                     , default => Default
-                     , override_env => OverrideEnv
-                     }).
+ref(Field) -> hoconsc:ref(?MODULE, Field).
 
-t(Type, Mapping, Default, OverrideEnv, Validator) ->
-    hoconsc:t(Type, #{ mapping => Mapping
-                     , default => Default
-                     , override_env => OverrideEnv
-                     , validator => Validator
-                     }).
-
-ref(Field) -> hoconsc:t(hoconsc:ref(?MODULE, Field)).
-
-maybe_disabled(T) ->
-    maybe_sth(disabled, T, disabled).
-
-maybe_disabled(T, Default) ->
-    maybe_sth(disabled, T, Default).
-
-maybe_infinity(T) ->
-    maybe_sth(infinity, T, infinity).
-
-maybe_infinity(T, Default) ->
-    maybe_sth(infinity, T, Default).
-
-maybe_sth(What, Type, Default) ->
-    t(union([What, Type]), undefined, Default).
+ref(Module, Field) -> hoconsc:ref(Module, Field).
 
 to_duration(Str) ->
     case hocon_postprocess:duration(Str) of
@@ -545,22 +1106,26 @@ to_erl_cipher_suite(Str) ->
         Cipher -> Cipher
     end.
 
-strip_default(Fields) ->
-    [do_strip_default(F) || F <- Fields].
-
-do_strip_default({Name, #{type := {ref, Ref}}}) ->
-    {Name, nullable_no_def(ref("strip_default:" ++ Ref))};
-do_strip_default({Name, #{type := {ref, _Mod, Ref}}}) ->
-    {Name, nullable_no_def(ref("strip_default:" ++ Ref))};
-do_strip_default({Name, Type}) ->
-    {Name, nullable_no_def(Type)}.
-
-nullable_no_def(Type) when is_map(Type) ->
-    Type#{default => undefined, nullable => true}.
-
 to_atom(Atom) when is_atom(Atom) ->
     Atom;
 to_atom(Str) when is_list(Str) ->
     list_to_atom(Str);
 to_atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8).
+
+validate_heap_size(Siz) ->
+    MaxSiz = case erlang:system_info(wordsize) of
+                 8 -> % arch_64
+                     (1 bsl 59) - 1;
+                 4 -> % arch_32
+                     (1 bsl 27) - 1
+             end,
+    case Siz > MaxSiz of
+        true -> error(io_lib:format("force_shutdown_policy: heap-size ~s is too large", [Siz]));
+        false -> ok
+    end.
+parse_user_lookup_fun(StrConf) ->
+    [ModStr, FunStr] = string:tokens(StrConf, ":"),
+    Mod = list_to_atom(ModStr),
+    Fun = list_to_atom(FunStr),
+    {fun Mod:Fun/3, <<>>}.

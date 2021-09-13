@@ -214,7 +214,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
     ClientInfo = set_peercert_infos(
                    Peercert,
                    #{zone         => Zone,
-                     listener     => Listener,
+                     listener     => emqx_listeners:listener_id(Type, Listener),
                      protocol     => Protocol,
                      peerhost     => PeerHost,
                      sockport     => SockPort,
@@ -223,7 +223,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                      mountpoint   => MountPoint,
                      is_bridge    => false,
                      is_superuser => false
-                    }, Zone, Listener),
+                    }, Zone),
     {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
     #channel{conninfo   = NConnInfo,
              clientinfo = NClientInfo,
@@ -244,12 +244,12 @@ quota_policy(RawPolicy) ->
              erlang:trunc(hocon_postprocess:duration(StrWind) / 1000)}}
      || {Name, [StrCount, StrWind]} <- maps:to_list(RawPolicy)].
 
-set_peercert_infos(NoSSL, ClientInfo, _, _)
+set_peercert_infos(NoSSL, ClientInfo, _)
   when NoSSL =:= nossl;
        NoSSL =:= undefined ->
     ClientInfo#{username => undefined};
 
-set_peercert_infos(Peercert, ClientInfo, Zone, _Listener) ->
+set_peercert_infos(Peercert, ClientInfo, Zone) ->
     {DN, CN} = {esockd_peercert:subject(Peercert),
                 esockd_peercert:common_name(Peercert)},
     PeercetAs = fun(Key) ->
@@ -1303,11 +1303,11 @@ do_authenticate(#{auth_method := AuthMethod} = Credential, #channel{clientinfo =
     case emqx_access_control:authenticate(Credential) of
         {ok, Result} ->
             {ok, Properties,
-             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(superuser, Result, false)},
+             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(is_superuser, Result, false)},
                              auth_cache = #{}}};
         {ok, Result, AuthData} ->
             {ok, Properties#{'Authentication-Data' => AuthData},
-             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(superuser, Result, false)},
+             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(is_superuser, Result, false)},
                              auth_cache = #{}}};
         {continue, AuthCache} ->
             {continue, Properties, Channel#channel{auth_cache = AuthCache}};
@@ -1320,8 +1320,8 @@ do_authenticate(#{auth_method := AuthMethod} = Credential, #channel{clientinfo =
 
 do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
     case emqx_access_control:authenticate(Credential) of
-        {ok, #{superuser := Superuser}} ->
-            {ok, #{}, Channel#channel{clientinfo = ClientInfo#{is_superuser => Superuser}}};
+        {ok, #{is_superuser := IsSuperuser}} ->
+            {ok, #{}, Channel#channel{clientinfo = ClientInfo#{is_superuser => IsSuperuser}}};
         {error, Reason} ->
             {error, emqx_reason_codes:connack_error(Reason)}
     end.

@@ -58,16 +58,7 @@ fields(config) ->
     , {pool_type,         fun pool_type/1}
     , {pool_size,         fun pool_size/1}
     , {enable_pipelining, fun enable_pipelining/1}
-    , {ssl_opts,          #{type => hoconsc:ref(?MODULE, ssl_opts),
-                            default => #{}}}
-    ];
-
-fields(ssl_opts) ->
-    [ {cacertfile, fun cacertfile/1}
-    , {keyfile,    fun keyfile/1}
-    , {certfile,   fun certfile/1}
-    , {verify,     fun verify/1}
-    ].
+    ] ++ emqx_connector_schema_lib:ssl_fields().
 
 validations() ->
     [ {check_ssl_opts, fun check_ssl_opts/1} ].
@@ -103,23 +94,6 @@ pool_size(_) -> undefined.
 enable_pipelining(type) -> boolean();
 enable_pipelining(default) -> true;
 enable_pipelining(_) -> undefined.
-
-cacertfile(type) -> string();
-cacertfile(nullable) -> true;
-cacertfile(_) -> undefined.
-
-keyfile(type) -> string();
-keyfile(nullable) -> true;
-keyfile(_) -> undefined.
-
-%% TODO: certfile is required
-certfile(type) -> string();
-certfile(nullable) -> true;
-certfile(_) -> undefined.
-
-verify(type) -> boolean();
-verify(default) -> false;
-verify(_) -> undefined.
 
 %% ===================================================================
 on_start(InstId, #{base_url := #{scheme := Scheme,
@@ -200,12 +174,11 @@ check_ssl_opts(Conf) ->
 
 check_ssl_opts(URLFrom, Conf) ->
     #{schema := Scheme} = hocon_schema:get_value(URLFrom, Conf),
-    SSLOpts = hocon_schema:get_value("ssl_opts", Conf),
-    case {Scheme, maps:size(SSLOpts)} of
-        {http, 0} -> true;
-        {http, _} -> false;
-        {https, 0} -> false;
-        {https, _} -> true
+    SSL= hocon_schema:get_value("ssl", Conf),
+    case {Scheme, maps:get(enable, SSL, false)} of
+        {http, false} -> true;
+        {https, true} -> true;
+        {_, _} -> false
     end.
 
 update_path(BasePath, {Path, Headers}) ->

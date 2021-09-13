@@ -101,44 +101,20 @@ banned(get, #{query_string := Params}) ->
     Response = emqx_mgmt_api:paginate(?TAB, Params, fun format/1),
     {200, Response};
 banned(post, #{body := Body}) ->
-    Banned = trans_param(Body),
-    _ = emqx_banned:create(Banned),
+    _ = emqx_banned:create(emqx_banned:parse(Body)),
     {200}.
 
 delete_banned(delete, #{bindings := Params}) ->
-    Who = trans_who(Params),
-    case emqx_banned:look_up(Who) of
+    case emqx_banned:look_up(Params) of
         [] ->
             As0 = maps:get(as, Params),
             Who0 = maps:get(who, Params),
             Message = list_to_binary(io_lib:format("~p: ~p not found", [As0, Who0])),
             {404, #{code => 'RESOURCE_NOT_FOUND', message => Message}};
         _ ->
-            ok = emqx_banned:delete(Who),
+            ok = emqx_banned:delete(Params),
             {200}
     end.
-
-trans_param(Params) ->
-    Who    = trans_who(Params),
-    By     = maps:get(<<"by">>, Params, <<"mgmt_api">>),
-    Reason = maps:get(<<"reason">>, Params, <<"">>),
-    At     = maps:get(<<"at">>, Params, erlang:system_time(second)),
-    Until  = maps:get(<<"until">>, Params, At + 5 * 60),
-    #banned{
-        who    = Who,
-        by     = By,
-        reason = Reason,
-        at     = At,
-        until  = Until
-    }.
-
-trans_who(#{as := As, who := Who}) ->
-    trans_who(#{<<"as">> => As, <<"who">> => Who});
-trans_who(#{<<"as">> := <<"peerhost">>, <<"who">> := Peerhost0}) ->
-    {ok, Peerhost} = inet:parse_address(binary_to_list(Peerhost0)),
-    {peerhost, Peerhost};
-trans_who(#{<<"as">> := As, <<"who">> := Who}) ->
-    {binary_to_atom(As, utf8), Who}.
 
 format(Banned) ->
     emqx_banned:format(Banned).

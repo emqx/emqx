@@ -18,7 +18,7 @@
 
 -behaviour(gen_server).
 
--include("include/emqx_gateway.hrl").
+-include_lib("emqx_gateway/include/emqx_gateway.hrl").
 
 
 %% APIs

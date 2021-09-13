@@ -21,23 +21,30 @@
 -define(BASE_PATH, "/api/v5").
 
 init_suite() ->
+    init_suite([]).
+
+init_suite(Apps) ->
     ekka_mnesia:start(),
     application:load(emqx_management),
-    emqx_ct_helpers:start_apps([emqx_dashboard], fun set_special_configs/1).
+    emqx_ct_helpers:start_apps(Apps ++ [emqx_dashboard], fun set_special_configs/1).
+
 
 end_suite() ->
+    end_suite([]).
+
+end_suite(Apps) ->
     application:unload(emqx_management),
-    emqx_ct_helpers:stop_apps([emqx_dashboard]).
+    emqx_ct_helpers:stop_apps(Apps ++ [emqx_dashboard]).
 
 set_special_configs(emqx_dashboard) ->
     Config = #{
-        default_username => <<"admin">>,
-        default_password => <<"public">>,
-        listeners => [#{
-            protocol => http,
-            port => 18083
-        }]
-    },
+               default_username => <<"admin">>,
+               default_password => <<"public">>,
+               listeners => [#{
+                               protocol => http,
+                               port => 18083
+                              }]
+              },
     emqx_config:put([emqx_dashboard], Config),
     ok;
 set_special_configs(_App) ->
@@ -53,7 +60,7 @@ request_api(Method, Url, QueryParams, Auth) ->
     request_api(Method, Url, QueryParams, Auth, []).
 
 request_api(Method, Url, QueryParams, Auth, [])
-    when (Method =:= options) orelse
+  when (Method =:= options) orelse
          (Method =:= get) orelse
          (Method =:= put) orelse
          (Method =:= head) orelse

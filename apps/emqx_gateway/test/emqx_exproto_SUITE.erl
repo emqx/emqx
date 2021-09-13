@@ -55,20 +55,19 @@ metrics() ->
 init_per_group(GrpName, Cfg) ->
     put(grpname, GrpName),
     Svrs = emqx_exproto_echo_svr:start(),
-    emqx_ct_helpers:start_apps([emqx_authn, emqx_gateway], fun set_special_cfg/1),
+    emqx_ct_helpers:start_apps([emqx_gateway], fun set_special_cfg/1),
     emqx_logger:set_log_level(debug),
     [{servers, Svrs}, {listener_type, GrpName} | Cfg].
 
 end_per_group(_, Cfg) ->
-    emqx_ct_helpers:stop_apps([emqx_gateway, emqx_authn]),
+    emqx_ct_helpers:stop_apps([emqx_gateway]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
 set_special_cfg(emqx_gateway) ->
     LisType = get(grpname),
     emqx_config:put(
       [gateway, exproto],
-      #{authentication => #{enable => false},
-        server => #{bind => 9100},
+      #{server => #{bind => 9100},
         handler => #{address => "http://127.0.0.1:9001"},
         listeners => listener_confs(LisType)
        });
@@ -77,7 +76,7 @@ set_special_cfg(_App) ->
 
 listener_confs(Type) ->
     Default = #{bind => 7993, acceptors => 8},
-    #{Type => #{'1' => maps:merge(Default, maps:from_list(socketopts(Type)))}}.
+    #{Type => #{'default' => maps:merge(Default, socketopts(Type))}}.
 
 %%--------------------------------------------------------------------
 %% Tests cases
@@ -361,11 +360,11 @@ open(udp) ->
     {ok, Sock} = gen_udp:open(0, ?TCPOPTS),
     {udp, Sock};
 open(ssl) ->
-    SslOpts = client_ssl_opts(),
+    SslOpts = maps:to_list(client_ssl_opts()),
     {ok, SslSock} = ssl:connect("127.0.0.1", 7993, ?TCPOPTS ++ SslOpts),
     {ssl, SslSock};
 open(dtls) ->
-    SslOpts = client_ssl_opts(),
+    SslOpts = maps:to_list(client_ssl_opts()),
     {ok, SslSock} = ssl:connect("127.0.0.1", 7993, ?DTLSOPTS ++ SslOpts),
     {dtls, SslSock}.
 
@@ -401,51 +400,56 @@ close({dtls, Sock}) ->
 %% Server-Opts
 
 socketopts(tcp) ->
-    [{tcp_options, tcp_opts()}];
+    #{tcp => tcp_opts()};
 socketopts(ssl) ->
-    [{tcp_options, tcp_opts()},
-     {ssl_options, ssl_opts()}];
+    #{tcp => tcp_opts(),
+      ssl => ssl_opts()};
 socketopts(udp) ->
-    [{udp_options, udp_opts()}];
+    #{udp => udp_opts()};
 socketopts(dtls) ->
-    [{udp_options, udp_opts()},
-     {dtls_options, dtls_opts()}].
+    #{udp => udp_opts(),
+      dtls => dtls_opts()}.
 
 tcp_opts() ->
-    [{send_timeout, 15000},
-     {send_timeout_close, true},
-     {backlog, 100},
-     {nodelay, true} | udp_opts()].
+    maps:merge(
+      udp_opts(),
+      #{send_timeout => 15000,
+        send_timeout_close => true,
+        backlog => 100,
+        nodelay => true}
+    ).
 
 udp_opts() ->
-    [{recbuf, 1024},
-     {sndbuf, 1024},
-     {buffer, 1024},
-     {reuseaddr, true}].
+    #{recbuf => 1024,
+      sndbuf => 1024,
+      buffer => 1024,
+      reuseaddr => true}.
 
 ssl_opts() ->
     Certs = certs("key.pem", "cert.pem", "cacert.pem"),
-    [{versions, emqx_tls_lib:default_versions()},
-     {ciphers, emqx_tls_lib:default_ciphers()},
-     {verify, verify_peer},
-     {fail_if_no_peer_cert, true},
-     {secure_renegotiate, false},
-     {reuse_sessions, true},
-     {honor_cipher_order, true}]++Certs.
+    maps:merge(
+      Certs,
+      #{versions => emqx_tls_lib:default_versions(),
+        ciphers => emqx_tls_lib:default_ciphers(),
+        verify => verify_peer,
+        fail_if_no_peer_cert => true,
+        secure_renegotiate => false,
+        reuse_sessions => true,
+        honor_cipher_order => true}
+     ).
 
 dtls_opts() ->
-    Opts = ssl_opts(),
-    lists:keyreplace(versions, 1, Opts, {versions, ['dtlsv1.2', 'dtlsv1']}).
+    maps:merge(ssl_opts(), #{versions => ['dtlsv1.2', 'dtlsv1']}).
 
 %%--------------------------------------------------------------------
 %% Client-Opts
 
 client_ssl_opts() ->
-    certs( "client-key.pem", "client-cert.pem", "cacert.pem" ).
+    certs("client-key.pem", "client-cert.pem", "cacert.pem").
 
-certs( Key, Cert, CACert ) ->
+certs(Key, Cert, CACert) ->
     CertsPath = emqx_ct_helpers:deps_path(emqx, "etc/certs"),
-    [ { keyfile,    filename:join([ CertsPath, Key    ]) },
-      { certfile,   filename:join([ CertsPath, Cert   ]) },
-      { cacertfile, filename:join([ CertsPath, CACert ]) } ].
+    #{keyfile    => filename:join([ CertsPath, Key   ]),
+      certfile   => filename:join([ CertsPath, Cert  ]),
+      cacertfile => filename:join([ CertsPath, CACert])}.
 

@@ -18,7 +18,7 @@ marp: true
 
 The [emqx_resource](https://github.com/emqx/emqx/tree/master/apps/emqx_resource) is a behavior that manages configuration specs and runtime states for resources like mysql or redis backends.
 
-It is intended to be used by the emqx_data_bridges and all other resources that need CRUD operations to their configs, and need to initialize the states when creating.
+It is intended to be used by the emqx_bridges and all other resources that need CRUD operations to their configs, and need to initialize the states when creating.
 
 ---
 
@@ -26,7 +26,7 @@ It is intended to be used by the emqx_data_bridges and all other resources that 
 
 # The Demo
 
-The data_bridge for mysql
+The bridge for mysql
 
 ---
 ## The callback module 'emqx_mysql_connector'
@@ -55,10 +55,10 @@ on_health_check/2
 
 ```
 ---
-## Start the emqx_data_bridge
+## Start the emqx_bridge
 
 ```
-application:ensure_all_started(emqx_data_bridge).
+application:ensure_all_started(emqx_bridge).
 ```
 
 ---

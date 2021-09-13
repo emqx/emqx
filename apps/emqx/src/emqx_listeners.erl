@@ -26,6 +26,8 @@
         , restart/0
         , stop/0
         , is_running/1
+        , current_conns/2
+        , max_conns/2
         ]).
 
 -export([ start_listener/1
@@ -48,7 +50,7 @@
 %% @doc List configured listeners.
 -spec(list() -> [{ListenerId :: atom(), ListenerConf :: map()}]).
 list() ->
-    [{listener_id(ZoneName, LName), LConf} || {ZoneName, LName, LConf} <- do_list()].
+    [{listener_id(Type, LName), LConf} || {Type, LName, LConf} <- do_list()].
 
 do_list() ->
     Listeners = maps:to_list(emqx:get_config([listeners], #{})),
@@ -62,7 +64,7 @@ list(Type, Conf) ->
 
 -spec is_running(ListenerId :: atom()) -> boolean() | {error, no_found}.
 is_running(ListenerId) ->
-    case lists:filtermap(fun({_Zone, Id, #{running := IsRunning}}) ->
+    case lists:filtermap(fun({_Type, Id, #{running := IsRunning}}) ->
                                  Id =:= ListenerId andalso {true, IsRunning}
                          end, do_list()) of
         [IsRunning] -> IsRunning;
@@ -88,6 +90,28 @@ is_running(Type, ListenerId, _Conf) when Type =:= ws; Type =:= wss ->
 is_running(quic, _ListenerId, _Conf)->
     %% TODO: quic support
     {error, no_found}.
+
+current_conns(ID, ListenOn) ->
+    {Type, Name} = parse_listener_id(ID),
+    current_conns(Type, Name, ListenOn).
+
+current_conns(Type, Name, ListenOn) when Type == tcl; Type == ssl ->
+    esockd:get_current_connections({listener_id(Type, Name), ListenOn});
+current_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
+    proplists:get_value(all_connections, ranch:info(listener_id(Type, Name)));
+current_conns(_, _, _) ->
+    {error, not_support}.
+
+max_conns(ID, ListenOn) ->
+    {Type, Name} = parse_listener_id(ID),
+    max_conns(Type, Name, ListenOn).
+
+max_conns(Type, Name, ListenOn) when Type == tcl; Type == ssl ->
+    esockd:get_max_connections({listener_id(Type, Name), ListenOn});
+max_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
+    proplists:get_value(max_connections, ranch:info(listener_id(Type, Name)));
+max_conns(_, _, _) ->
+    {error, not_support}.
 
 %% @doc Start all listeners.
 -spec(start() -> ok).
@@ -228,11 +252,15 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
             {ok, {skipped, quic_app_missing}}
     end.
 
+delete_authentication(Type, ListenerName, _Conf) ->
+    emqx_authentication:delete_chain(listener_id(Type, ListenerName)).
+
 %% Update the listeners at runtime
 post_config_update(_Req, NewListeners, OldListeners, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Updated}
         = diff_listeners(NewListeners, OldListeners),
     perform_listener_changes(fun stop_listener/3, Removed),
+    perform_listener_changes(fun delete_authentication/3, Removed),
     perform_listener_changes(fun start_listener/3, Added),
     perform_listener_changes(fun restart_listener/3, Updated).
 
@@ -252,7 +280,7 @@ flatten_listeners(Conf0) ->
                       || {Type, Conf} <- maps:to_list(Conf0)])).
 
 do_flatten_listeners(Type, Conf0) ->
-    [{listener_id(Type, Name), Conf} || {Name, Conf} <- maps:to_list(Conf0)].
+    [{listener_id(Type, Name), maps:remove(authentication, Conf)} || {Name, Conf} <- maps:to_list(Conf0)].
 
 esockd_opts(Type, Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),

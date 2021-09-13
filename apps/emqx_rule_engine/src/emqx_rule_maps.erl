@@ -85,7 +85,7 @@ general_find({key, Key}, Map, _OrgData, Handler) when is_map(Map) ->
         {ok, Val} -> Handler({found, {{key, Key}, Val}});
         error when is_atom(Key) ->
             %% the map may have an equivalent binary-form key
-            BinKey = emqx_rule_utils:bin(Key),
+            BinKey = emqx_plugin_libs_rule:bin(Key),
             case maps:find(BinKey, Map) of
                 {ok, Val} -> Handler({equivalent, {{key, BinKey}, Val}});
                 error -> Handler(not_found)

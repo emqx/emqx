@@ -594,5 +594,6 @@ printable_maps(Headers) ->
         end, #{}, Headers).
 
 ignore_sys_message(#message{flags = Flags}) ->
+    ConfigRootKey = emqx_rule_engine_schema:namespace(),
     maps:get(sys, Flags, false) andalso
-      emqx:get_config([emqx_rule_engine, ignore_sys_message]).
+      emqx:get_config([ConfigRootKey, ignore_sys_message]).

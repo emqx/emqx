@@ -20,10 +20,15 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
--export([ roots/0, fields/1 ]).
+-export([ namespace/0
+        , roots/0
+        , fields/1
+        ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -46,7 +51,7 @@
         { user_id :: {user_group(), user_id()}
         , password_hash :: binary()
         , salt :: binary()
-        , superuser :: boolean()
+        , is_superuser :: boolean()
         }).
 
 -reflect_type([ user_id_type/0 ]).
@@ -79,15 +84,16 @@ mnesia(copy) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
+namespace() -> "authn:password-based:builtin-db".
+
 roots() -> [config].
 
 fields(config) ->
-    [ {name,                    fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,               {enum, ['password-based']}}
-    , {server_type,             {enum, ['built-in-database']}}
+    [ {mechanism,               {enum, ['password-based']}}
+    , {backend,                 {enum, ['built-in-database']}}
     , {user_id_type,            fun user_id_type/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
-    ];
+    ] ++ emqx_authn_schema:common_fields();
 
 fields(bcrypt) ->
     [ {name, {enum, [bcrypt]}}
@@ -102,7 +108,8 @@ user_id_type(type) -> user_id_type();
 user_id_type(default) -> username;
 user_id_type(_) -> undefined.
 
-password_hash_algorithm(type) -> {union, [hoconsc:ref(bcrypt), hoconsc:ref(other_algorithms)]};
+password_hash_algorithm(type) -> hoconsc:union([hoconsc:ref(?MODULE, bcrypt),
+                                                hoconsc:ref(?MODULE, other_algorithms)]);
 password_hash_algorithm(default) -> #{<<"name">> => sha256};
 password_hash_algorithm(_) -> undefined.
 
@@ -113,6 +120,9 @@ salt_rounds(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+   [hoconsc:ref(?MODULE, config)].
 
 create(#{ user_id_type := Type
         , password_hash_algorithm := #{name := bcrypt,
@@ -148,13 +158,13 @@ authenticate(#{password := Password} = Credential,
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [] ->
             ignore;
-        [#user_info{password_hash = PasswordHash, salt = Salt0, superuser = Superuser}] ->
+        [#user_info{password_hash = PasswordHash, salt = Salt0, is_superuser = IsSuperuser}] ->
             Salt = case Algorithm of
                        bcrypt -> PasswordHash;
                        _ -> Salt0
                    end,
             case PasswordHash =:= hash(Algorithm, Password, Salt) of
-                true -> {ok, #{superuser => Superuser}};
+                true -> {ok, #{is_superuser => IsSuperuser}};
                 false -> {error, bad_username_or_password}
             end
     end.
@@ -187,9 +197,9 @@ add_user(#{user_id := UserID,
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
                     {PasswordHash, Salt} = hash(Password, State),
-                    Superuser = maps:get(superuser, UserInfo, false),
-                    insert_user(UserGroup, UserID, PasswordHash, Salt, Superuser),
-                    {ok, #{user_id => UserID, superuser => Superuser}};
+                    IsSuperuser = maps:get(is_superuser, UserInfo, false),
+                    insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
+                    {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
                 [_] ->
                     {error, already_exist}
             end
@@ -215,8 +225,8 @@ update_user(UserID, UserInfo,
                     {error, not_found};
                 [#user_info{ password_hash = PasswordHash
                            , salt = Salt
-                           , superuser = Superuser}] ->
-                    NSuperuser = maps:get(superuser, UserInfo, Superuser),
+                           , is_superuser = IsSuperuser}] ->
+                    NSuperuser = maps:get(is_superuser, UserInfo, IsSuperuser),
                     {NPasswordHash, NSalt} = case maps:get(password, UserInfo, undefined) of
                                                  undefined ->
                                                      {PasswordHash, Salt};
@@ -224,7 +234,7 @@ update_user(UserID, UserInfo,
                                                      hash(Password, State)
                                              end,
                     insert_user(UserGroup, UserID, NPasswordHash, NSalt, NSuperuser),
-                    {ok, #{user_id => UserID, superuser => NSuperuser}}
+                    {ok, #{user_id => UserID, is_superuser => NSuperuser}}
             end
         end).
 
@@ -280,8 +290,8 @@ import(UserGroup, [#{<<"user_id">> := UserID,
                      <<"password_hash">> := PasswordHash} = UserInfo | More])
   when is_binary(UserID) andalso is_binary(PasswordHash) ->
     Salt = maps:get(<<"salt">>, UserInfo, <<>>),
-    Superuser = maps:get(<<"superuser">>, UserInfo, false),
-    insert_user(UserGroup, UserID, PasswordHash, Salt, Superuser),
+    IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
+    insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
     import(UserGroup, More);
 import(_UserGroup, [_ | _More]) ->
     {error, bad_format}.
@@ -295,8 +305,8 @@ import(UserGroup, File, Seq) ->
                 {ok, #{user_id := UserID,
                        password_hash := PasswordHash} = UserInfo} ->
                     Salt = maps:get(salt, UserInfo, <<>>),
-                    Superuser = maps:get(superuser, UserInfo, false),
-                    insert_user(UserGroup, UserID, PasswordHash, Salt, Superuser),
+                    IsSuperuser = maps:get(is_superuser, UserInfo, false),
+                    insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
                     import(UserGroup, File, Seq);
                 {error, Reason} ->
                     {error, Reason}
@@ -331,10 +341,10 @@ get_user_info_by_seq([PasswordHash | More1], [<<"password_hash">> | More2], Acc)
     get_user_info_by_seq(More1, More2, Acc#{password_hash => PasswordHash});
 get_user_info_by_seq([Salt | More1], [<<"salt">> | More2], Acc) ->
     get_user_info_by_seq(More1, More2, Acc#{salt => Salt});
-get_user_info_by_seq([<<"true">> | More1], [<<"superuser">> | More2], Acc) ->
-    get_user_info_by_seq(More1, More2, Acc#{superuser => true});
-get_user_info_by_seq([<<"false">> | More1], [<<"superuser">> | More2], Acc) ->
-    get_user_info_by_seq(More1, More2, Acc#{superuser => false});
+get_user_info_by_seq([<<"true">> | More1], [<<"is_superuser">> | More2], Acc) ->
+    get_user_info_by_seq(More1, More2, Acc#{is_superuser => true});
+get_user_info_by_seq([<<"false">> | More1], [<<"is_superuser">> | More2], Acc) ->
+    get_user_info_by_seq(More1, More2, Acc#{is_superuser => false});
 get_user_info_by_seq(_, _, _) ->
     {error, bad_format}.
 
@@ -358,11 +368,11 @@ hash(Password, #{password_hash_algorithm := Algorithm} = State) ->
     PasswordHash = hash(Algorithm, Password, Salt),
     {PasswordHash, Salt}.
 
-insert_user(UserGroup, UserID, PasswordHash, Salt, Superuser) ->
+insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
      UserInfo = #user_info{user_id = {UserGroup, UserID},
                            password_hash = PasswordHash,
                            salt = Salt,
-                           superuser = Superuser},
+                           is_superuser = IsSuperuser},
     mnesia:write(?TAB, UserInfo, write).
 
 delete_user2(UserInfo) ->
@@ -390,5 +400,5 @@ to_binary(B) when is_binary(B) ->
 to_binary(L) when is_list(L) ->
     iolist_to_binary(L).
 
-serialize_user_info(#user_info{user_id = {_, UserID}, superuser = Superuser}) ->
-    #{user_id => UserID, superuser => Superuser}.
+serialize_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) ->
+    #{user_id => UserID, is_superuser => IsSuperuser}.

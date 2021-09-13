@@ -19,21 +19,32 @@
 -behavior(minirest_api).
 
 -include("emqx_authz.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -define(EXAMPLE_REDIS,
         #{type=> redis,
-          config => #{server => <<"127.0.0.1:3306">>,
-                      redis_type => single,
-                      pool_size => 1,
-                      auto_reconnect => true
-                     },
+          enable => true,
+          server => <<"127.0.0.1:3306">>,
+          redis_type => single,
+          pool_size => 1,
+          auto_reconnect => true,
           cmd => <<"HGETALL mqtt_authz">>}).
+-define(EXAMPLE_FILE,
+        #{type=> file,
+          enable => true,
+          rules => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
+                   }).
+
 -define(EXAMPLE_RETURNED_REDIS,
         maps:put(annotations, #{status => healthy}, ?EXAMPLE_REDIS)
         ).
+-define(EXAMPLE_RETURNED_FILE,
+        maps:put(annotations, #{status => healthy}, ?EXAMPLE_FILE)
+        ).
 
--define(EXAMPLE_RETURNED_RULES,
-        #{sources => [?EXAMPLE_RETURNED_REDIS
+-define(EXAMPLE_RETURNED,
+        #{sources => [ ?EXAMPLE_RETURNED_REDIS
+                     , ?EXAMPLE_RETURNED_FILE
                      ]
         }).
 
@@ -55,24 +66,6 @@ sources_api() ->
     Metadata = #{
         get => #{
             description => "List authorization sources",
-            parameters => [
-                #{
-                    name => page,
-                    in => query,
-                    schema => #{
-                       type => integer
-                    },
-                    required => false
-                },
-                #{
-                    name => limit,
-                    in => query,
-                    schema => #{
-                       type => integer
-                    },
-                    required => false
-                }
-            ],
             responses => #{
                 <<"200">> => #{
                     description => <<"OK">>,
@@ -90,7 +83,7 @@ sources_api() ->
                             examples => #{
                                 sources => #{
                                     summary => <<"Sources">>,
-                                    value => jsx:encode(?EXAMPLE_RETURNED_RULES)
+                                    value => jsx:encode(?EXAMPLE_RETURNED)
                                 }
                             }
                          }
@@ -108,6 +101,10 @@ sources_api() ->
                             redis => #{
                                 summary => <<"Redis">>,
                                 value => jsx:encode(?EXAMPLE_REDIS)
+                            },
+                            file => #{
+                                summary => <<"File">>,
+                                value => jsx:encode(?EXAMPLE_FILE)
                             }
                        }
                     }
@@ -130,7 +127,11 @@ sources_api() ->
                         examples => #{
                             redis => #{
                                 summary => <<"Redis">>,
-                                value => jsx:encode([?EXAMPLE_REDIS])
+                                value => jsx:encode(?EXAMPLE_REDIS)
+                            },
+                            file => #{
+                                summary => <<"File">>,
+                                value => jsx:encode(?EXAMPLE_FILE)
                             }
                         }
                     }
@@ -165,9 +166,13 @@ source_api() ->
                         'application/json' => #{
                             schema => minirest:ref(<<"returned_sources">>),
                             examples => #{
-                                sources => #{
-                                    summary => <<"Sources">>,
+                                redis => #{
+                                    summary => <<"Redis">>,
                                     value => jsx:encode(?EXAMPLE_RETURNED_REDIS)
+                                },
+                                file => #{
+                                    summary => <<"File">>,
+                                    value => jsx:encode(?EXAMPLE_RETURNED_FILE)
                                 }
                             }
                          }
@@ -196,6 +201,10 @@ source_api() ->
                             redis => #{
                                 summary => <<"Redis">>,
                                 value => jsx:encode(?EXAMPLE_REDIS)
+                            },
+                            file => #{
+                                summary => <<"File">>,
+                                value => jsx:encode(?EXAMPLE_FILE)
                             }
                        }
                     }
@@ -287,53 +296,65 @@ move_source_api() ->
     },
     {"/authorization/sources/:type/move", Metadata, move_source}.
 
-sources(get, #{query_string := Query}) ->
-    Sources = lists:foldl(fun (#{type := _Type, enable := true, config := #{server := Server} = Config, annotations := #{id := Id}} = Source, AccIn) ->
-                                NSource = case emqx_resource:health_check(Id) of
-                                    ok ->
-                                        Source#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
-                                                annotations => #{id => Id,
-                                                                 status => healthy}};
-                                    _ ->
-                                        Source#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
-                                                annotations => #{id => Id,
-                                                                 status => unhealthy}}
-                                end,
-                                lists:append(AccIn, [NSource]);
-                            (#{type := _Type, enable := true, annotations := #{id := Id}} = Source, AccIn) ->
-                                NSource = case emqx_resource:health_check(Id) of
-                                    ok ->
-                                        Source#{annotations => #{status => healthy}};
-                                    _ ->
-                                        Source#{annotations => #{status => unhealthy}}
-                                end,
-                                lists:append(AccIn, [NSource]);
-                            (Source, AccIn) ->
-                                lists:append(AccIn, [Source])
+sources(get, _) ->
+    Sources = lists:foldl(fun (#{type := file, enable := Enable, path := Path}, AccIn) ->
+                                  {ok, Rules} = file:consult(Path),
+                                  lists:append(AccIn, [#{type => file,
+                                                         enable => Enable,
+                                                         rules => [ iolist_to_binary(io_lib:format("~p.", [R])) || R <- Rules],
+                                                         annotations => #{status => healthy}
+                                                        }]);
+                              (#{enable := false} = Source, AccIn) ->
+                                  lists:append(AccIn, [Source#{annotations => #{status => unhealthy}}]);
+                              (#{type := _Type, annotations := #{id := Id}} = Source, AccIn) ->
+                                  NSource0 = case maps:get(server, Source, undefined) of
+                                                 undefined -> Source;
+                                                 Server ->
+                                                     Source#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}
+                                             end,
+                                  NSource1 = case maps:get(servers, Source, undefined) of
+                                                 undefined -> NSource0;
+                                                 Servers ->
+                                                     NSource0#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}
+                                             end,
+                                  NSource2 = case emqx_resource:health_check(Id) of
+                                                 ok ->
+                                                     NSource1#{annotations => #{status => healthy}};
+                                                 _ ->
+                                                     NSource1#{annotations => #{status => unhealthy}}
+                                             end,
+                                  lists:append(AccIn, [read_cert(NSource2)]);
+                              (Source, AccIn) ->
+                                  lists:append(AccIn, [Source#{annotations => #{status => healthy}}])
                         end, [], emqx_authz:lookup()),
-    case maps:is_key(<<"page">>, Query) andalso maps:is_key(<<"limit">>, Query) of
-        true ->
-            Page = maps:get(<<"page">>, Query),
-            Limit = maps:get(<<"limit">>, Query),
-            Index = (binary_to_integer(Page) - 1) * binary_to_integer(Limit),
-            {_, Sources1} = lists:split(Index, Sources),
-            case binary_to_integer(Limit) < length(Sources1) of
-                true ->
-                    {Sources2, _} = lists:split(binary_to_integer(Limit), Sources1),
-                    {200, #{sources => Sources2}};
-                false -> {200, #{sources => Sources1}}
-            end;
-        false -> {200, #{sources => Sources}}
-    end;
-sources(post, #{body := RawConfig}) ->
-    case emqx_authz:update(head, [RawConfig]) of
+    {200, #{sources => Sources}};
+sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) when is_list(Rules) ->
+    {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]),
+                                erlang:list_to_bitstring([<<Rule/binary, "\n">> || Rule <- Rules])
+                               ),
+    case emqx_authz:update(head, [#{type => file, enable => Enable, path => Filename}]) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
     end;
-sources(put, #{body := RawConfig}) ->
-    case emqx_authz:update(replace, RawConfig) of
+sources(post, #{body := Body}) when is_map(Body) ->
+    case emqx_authz:update(head, [write_cert(Body)]) of
+        {ok, _} -> {204};
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    messgae => atom_to_binary(Reason)}}
+    end;
+sources(put, #{body := Body}) when is_list(Body) ->
+    NBody = [ begin
+                case Source of
+                    #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable} ->
+                        {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
+                        #{type => file, enable => Enable, path => Filename};
+                    _ -> write_cert(Source)
+                end
+              end || Source <- Body],
+    case emqx_authz:update(replace, NBody) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
@@ -343,29 +364,44 @@ sources(put, #{body := RawConfig}) ->
 source(get, #{bindings := #{type := Type}}) ->
     case emqx_authz:lookup(Type) of
         {error, Reason} -> {404, #{messgae => atom_to_binary(Reason)}};
-        #{enable := false} = Source -> {200, Source};
-        #{type := file} = Source -> {200, Source};
-        #{config := #{server := Server,
-                      annotations := #{id := Id}
-                     } = Config} = Source ->
-            case emqx_resource:health_check(Id) of
+        #{type := file, enable := Enable, path := Path}->
+            {ok, Rules} = file:consult(Path),
+            {200, #{type => file,
+                    enable => Enable,
+                    rules => [ iolist_to_binary(io_lib:format("~p.", [R])) || R <- Rules],
+                    annotations => #{status => healthy}
+                   }
+            };
+        #{enable := false} = Source -> {200, Source#{annotations => #{status => unhealthy}}};
+        #{annotations := #{id := Id}} = Source ->
+            NSource0 = case maps:get(server, Source, undefined) of
+                           undefined -> Source;
+                           Server ->
+                               Source#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}
+                       end,
+            NSource1 = case maps:get(servers, Source, undefined) of
+                           undefined -> NSource0;
+                           Servers ->
+                               NSource0#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}
+                       end,
+            NSource2 = case emqx_resource:health_check(Id) of
                 ok ->
-                    {200, Source#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
-                                  annotations => #{status => healthy}}};
+                    NSource1#{annotations => #{status => healthy}};
                 _ ->
-                    {200, Source#{config => Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)},
-                                  annotations => #{status => unhealthy}}}
-            end;
-        #{config := #{annotations := #{id := Id}}} = Source ->
-            case emqx_resource:health_check(Id) of
-                ok ->
-                    {200, Source#{annotations => #{status => healthy}}};
-                _ ->
-                    {200, Source#{annotations => #{status => unhealthy}}}
-            end
+                    NSource1#{annotations => #{status => unhealthy}}
+            end,
+            {200, read_cert(NSource2)}
     end;
-source(put, #{bindings := #{type := Type}, body := RawConfig}) ->
-    case emqx_authz:update({replace_once, Type}, RawConfig) of
+source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
+    {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
+    case emqx_authz:update({replace_once, file}, #{type => file, enable => Enable, path => Filename}) of
+        {ok, _} -> {204};
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    messgae => atom_to_binary(Reason)}}
+    end;
+source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
+    case emqx_authz:update({replace_once, Type}, write_cert(Body)) of
         {ok, _} -> {204};
         {error, not_found_source} ->
             {404, #{code => <<"NOT_FOUND">>,
@@ -390,4 +426,63 @@ move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     messgae => atom_to_binary(Reason)}}
+    end.
+
+read_cert(#{ssl := #{enable := true} = SSL} = Source) ->
+    CaCert = case file:read_file(maps:get(cacertfile, SSL, "")) of
+                 {ok, CaCert0} -> CaCert0;
+                 _ -> ""
+             end,
+    Cert =   case file:read_file(maps:get(certfile, SSL, "")) of
+                 {ok, Cert0} -> Cert0;
+                 _ -> ""
+             end,
+    Key =   case file:read_file(maps:get(keyfile, SSL, "")) of
+                 {ok, Key0} -> Key0;
+                 _ -> ""
+             end,
+    Source#{ssl => SSL#{cacertfile => CaCert,
+                        certfile => Cert,
+                        keyfile => Key
+                       }
+           };
+read_cert(Source) -> Source.
+
+write_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
+    CertPath = filename:join([emqx:get_config([node, data_dir]), "certs"]),
+    CaCert = case maps:is_key(<<"cacertfile">>, SSL) of
+                 true ->
+                     {ok, CaCertFile} = write_file(filename:join([CertPath, "cacert-" ++ emqx_plugin_libs_id:gen() ++".pem"]),
+                                                 maps:get(<<"cacertfile">>, SSL)),
+                     CaCertFile;
+                 false -> ""
+             end,
+    Cert =   case maps:is_key(<<"certfile">>, SSL) of
+                 true ->
+                     {ok, CertFile} = write_file(filename:join([CertPath, "cert-" ++ emqx_plugin_libs_id:gen() ++".pem"]),
+                                                 maps:get(<<"certfile">>, SSL)),
+                     CertFile;
+                 false -> ""
+             end,
+    Key =    case maps:is_key(<<"keyfile">>, SSL) of
+                 true ->
+                     {ok, KeyFile}  = write_file(filename:join([CertPath, "key-" ++ emqx_plugin_libs_id:gen() ++".pem"]),
+                                                 maps:get(<<"keyfile">>, SSL)),
+                     KeyFile;
+                 false -> ""
+             end,
+    Source#{<<"ssl">> => SSL#{<<"cacertfile">> => CaCert,
+                              <<"certfile">> => Cert,
+                              <<"keyfile">> => Key
+                             }
+           };
+write_cert(Source) -> Source.
+
+write_file(Filename, Bytes) ->
+    ok = filelib:ensure_dir(Filename),
+    case file:write_file(Filename, Bytes) of
+       ok -> {ok, iolist_to_binary(Filename)};
+       {error, Reason} ->
+           ?LOG(error, "Write File ~p Error: ~p", [Filename, Reason]),
+           error(Reason)
     end.

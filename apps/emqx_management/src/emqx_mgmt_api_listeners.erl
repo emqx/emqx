@@ -111,7 +111,7 @@ api_list_listeners_on_node() ->
             description => <<"List listeners in one node">>,
             parameters => [param_path_node()],
             responses => #{
-                <<"200">> => emqx_mgmt_util:object_schema(resp_schema(), <<"List listeners successfully">>)}}},
+                <<"200">> => emqx_mgmt_util:schema(resp_schema(), <<"List listeners successfully">>)}}},
     {"/nodes/:node/listeners", Metadata, list_listeners_on_node}.
 
 api_get_update_listener_by_id_on_node() ->
@@ -124,7 +124,7 @@ api_get_update_listener_by_id_on_node() ->
                     emqx_mgmt_util:error_schema(?NODE_LISTENER_NOT_FOUND,
                         ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),
                 <<"200">> =>
-                    emqx_mgmt_util:object_schema(resp_schema(), <<"Get listener successfully">>)}},
+                    emqx_mgmt_util:schema(resp_schema(), <<"Get listener successfully">>)}},
         put => #{
             description => <<"Create or update a listener by a given Id on a specific node">>,
             parameters => [param_path_node(), param_path_id()],
@@ -134,7 +134,7 @@ api_get_update_listener_by_id_on_node() ->
                     emqx_mgmt_util:error_schema(?NODE_LISTENER_NOT_FOUND,
                         ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),
                 <<"200">> =>
-                    emqx_mgmt_util:object_schema(resp_schema(), <<"Get listener successfully">>)}},
+                    emqx_mgmt_util:schema(resp_schema(), <<"Get listener successfully">>)}},
         delete => #{
             description => <<"Delete a listener by a given Id to all nodes in the cluster">>,
             parameters => [param_path_node(), param_path_id()],

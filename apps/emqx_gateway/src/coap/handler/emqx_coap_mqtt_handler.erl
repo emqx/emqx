@@ -18,23 +18,24 @@
 
 -include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
 
--export([handle_request/3]).
+-export([handle_request/4]).
 -import(emqx_coap_message, [response/2, response/3]).
+-import(emqx_coap_medium, [reply/2]).
 
-handle_request([<<"connection">>], #coap_message{method = Method} = Msg, _) ->
+handle_request([<<"connection">>], #coap_message{method = Method} = Msg, _Ctx, _CInfo) ->
     handle_method(Method, Msg);
 
-handle_request(_, Msg, _) ->
-    ?REPLY({error, bad_request}, Msg).
+handle_request(_, Msg, _, _) ->
+    reply({error, bad_request}, Msg).
 
 handle_method(put, Msg) ->
-    ?REPLY({ok, changed}, Msg);
+    reply({ok, changed}, Msg);
 
-handle_method(post, _) ->
-    #{connection => open};
+handle_method(post, Msg) ->
+    #{connection => {open, Msg}};
 
-handle_method(delete, _) ->
-    #{connection => close};
+handle_method(delete, Msg) ->
+    #{connection => {close, Msg}};
 
 handle_method(_, Msg) ->
-    ?REPLY({error, method_not_allowed}, Msg).
+    reply({error, method_not_allowed}, Msg).

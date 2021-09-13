@@ -83,9 +83,7 @@ mongo_fields() ->
                       nullable => true}}
     , {database, fun emqx_connector_schema_lib:database/1}
     , {topology, #{type => hoconsc:ref(?MODULE, topology),
-                   default => #{}}}
-                   %% TODO: Does the ref type support nullable=ture ?
-                   % nullable => true}}
+                   nullable => true}}
     ] ++
     emqx_connector_schema_lib:ssl_fields().
 
@@ -178,7 +176,7 @@ do_start(InstId, Opts0, Config = #{mongo_type := Type,
                       ];
                   false -> [{ssl, false}]
               end,
-    Topology= maps:get(topology, Config, #{}), 
+    Topology= maps:get(topology, Config, #{}),
     Opts = Opts0 ++
            [{pool_size, PoolSize},
             {options, init_topology_options(maps:to_list(Topology), [])},
@@ -244,15 +242,8 @@ init_worker_options([_ | R], Acc) ->
     init_worker_options(R, Acc);
 init_worker_options([], Acc) -> Acc.
 
-host_port(HostPort) ->
-    case string:split(HostPort, ":") of
-        [Host, Port] ->
-            {ok, Host1} = inet:parse_address(Host),
-            [{host, Host1}, {port, list_to_integer(Port)}];
-        [Host] ->
-            {ok, Host1} = inet:parse_address(Host),
-            [{host, Host1}]
-    end.
+host_port({Host, Port}) ->
+    [{host, Host}, {port, Port}].
 
 server(type) -> server();
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];

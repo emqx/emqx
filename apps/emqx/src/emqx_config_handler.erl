@@ -39,6 +39,7 @@
          code_change/3]).
 
 -define(MOD, {mod}).
+-define(WKEY, '?').
 
 -define(ATOM_CONF_PATH(PATH, EXP, EXP_ON_FAIL),
     try [safe_atom(Key) || Key <- PATH] of
@@ -80,11 +81,11 @@ update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
 
 -spec add_handler(emqx_config:config_key_path(), handler_name()) -> ok.
 add_handler(ConfKeyPath, HandlerName) ->
-    gen_server:call(?MODULE, {add_child, ConfKeyPath, HandlerName}).
+    gen_server:call(?MODULE, {add_handler, ConfKeyPath, HandlerName}).
 
 -spec remove_handler(emqx_config:config_key_path()) -> ok.
 remove_handler(ConfKeyPath) ->
-    gen_server:call(?MODULE, {remove_child, ConfKeyPath}).
+    gen_server:call(?MODULE, {remove_handler, ConfKeyPath}).
 
 %%============================================================================
 
@@ -92,15 +93,18 @@ remove_handler(ConfKeyPath) ->
 init(_) ->
     {ok, #{handlers => #{?MOD => ?MODULE}}}.
 
-handle_call({add_child, ConfKeyPath, HandlerName}, _From,
-            State = #{handlers := Handlers}) ->
-    {reply, ok, State#{handlers =>
-        emqx_map_lib:deep_put(ConfKeyPath, Handlers, #{?MOD => HandlerName})}};
+handle_call({add_handler, ConfKeyPath, HandlerName}, _From, State = #{handlers := Handlers}) ->
+    case deep_put_handler(ConfKeyPath, Handlers, HandlerName) of
+        {ok, NewHandlers} ->
+            {reply, ok, State#{handlers => NewHandlers}};
+        Error ->
+            {reply, Error, State}
+    end;
 
-handle_call({remove_child, ConfKeyPath}, _From,
+handle_call({remove_handler, ConfKeyPath}, _From,
             State = #{handlers := Handlers}) ->
     {reply, ok, State#{handlers =>
-        emqx_map_lib:deep_remove(ConfKeyPath, Handlers)}};
+        emqx_map_lib:deep_remove(ConfKeyPath ++ [?MOD], Handlers)}};
 
 handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
             #{handlers := Handlers} = State) ->
@@ -134,17 +138,40 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-process_update_request(ConfKeyPath, _Handlers, {remove, _Opts}) ->
+deep_put_handler([], Handlers, Mod) when is_map(Handlers) ->
+    {ok, Handlers#{?MOD => Mod}};
+deep_put_handler([], _Handlers, Mod) ->
+    {ok, #{?MOD => Mod}};
+deep_put_handler([?WKEY | KeyPath], Handlers, Mod) ->
+    deep_put_handler2(?WKEY, KeyPath, Handlers, Mod);
+deep_put_handler([Key | KeyPath], Handlers, Mod) ->
+    case maps:find(?WKEY, Handlers) of
+        error ->
+            deep_put_handler2(Key, KeyPath, Handlers, Mod);
+        {ok, _SubHandlers} ->
+            {error, {cannot_override_a_wildcard_path, [?WKEY | KeyPath]}}
+    end.
+
+deep_put_handler2(Key, KeyPath, Handlers, Mod) ->
+    SubHandlers = maps:get(Key, Handlers, #{}),
+    case deep_put_handler(KeyPath, SubHandlers, Mod) of
+        {ok, SubHandlers1} ->
+            {ok, Handlers#{Key => SubHandlers1}};
+        Error ->
+            Error
+    end.
+
+process_update_request(ConfKeyPath, _Handlers, {remove, Opts}) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     BinKeyPath = bin_path(ConfKeyPath),
     NewRawConf = emqx_map_lib:deep_remove(BinKeyPath, OldRawConf),
-    OverrideConf = emqx_map_lib:deep_remove(BinKeyPath, emqx_config:read_override_conf()),
+    OverrideConf = remove_from_override_config(BinKeyPath, Opts),
     {ok, NewRawConf, OverrideConf};
-process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, _Opts}) ->
+process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, Opts}) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     case do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq) of
         {ok, NewRawConf} ->
-            OverrideConf = update_override_config(NewRawConf),
+            OverrideConf = update_override_config(NewRawConf, Opts),
             {ok, NewRawConf, OverrideConf};
         Error -> Error
     end.
@@ -153,7 +180,7 @@ do_update_config([], Handlers, OldRawConf, UpdateReq) ->
     call_pre_config_update(Handlers, OldRawConf, UpdateReq);
 do_update_config([ConfKey | ConfKeyPath], Handlers, OldRawConf, UpdateReq) ->
     SubOldRawConf = get_sub_config(bin(ConfKey), OldRawConf),
-    SubHandlers = maps:get(ConfKey, Handlers, #{}),
+    SubHandlers = get_sub_handlers(ConfKey, Handlers),
     case do_update_config(ConfKeyPath, SubHandlers, SubOldRawConf, UpdateReq) of
         {ok, NewUpdateReq} ->
             call_pre_config_update(Handlers, OldRawConf, #{bin(ConfKey) => NewUpdateReq});
@@ -184,13 +211,19 @@ do_post_config_update([ConfKey | ConfKeyPath], Handlers, OldConf, NewConf, AppEn
         Result) ->
     SubOldConf = get_sub_config(ConfKey, OldConf),
     SubNewConf = get_sub_config(ConfKey, NewConf),
-    SubHandlers = maps:get(ConfKey, Handlers, #{}),
+    SubHandlers = get_sub_handlers(ConfKey, Handlers),
     case do_post_config_update(ConfKeyPath, SubHandlers, SubOldConf, SubNewConf, AppEnvs,
             UpdateArgs, Result) of
         {ok, Result1} ->
             call_post_config_update(Handlers, OldConf, NewConf, AppEnvs, up_req(UpdateArgs),
                 Result1);
         Error -> Error
+    end.
+
+get_sub_handlers(ConfKey, Handlers) ->
+    case maps:find(ConfKey, Handlers) of
+        error -> maps:get(?WKEY, Handlers, #{});
+        {ok, SubHandlers} -> SubHandlers
     end.
 
 get_sub_config(ConfKey, Conf) when is_map(Conf) ->
@@ -237,7 +270,15 @@ merge_to_old_config(UpdateReq, RawConf) when is_map(UpdateReq), is_map(RawConf) 
 merge_to_old_config(UpdateReq, _RawConf) ->
     {ok, UpdateReq}.
 
-update_override_config(RawConf) ->
+remove_from_override_config(_BinKeyPath, #{persistent := false}) ->
+    undefined;
+remove_from_override_config(BinKeyPath, _Opts) ->
+    OldConf = emqx_config:read_override_conf(),
+    emqx_map_lib:deep_remove(BinKeyPath, OldConf).
+
+update_override_config(_RawConf, #{persistent := false}) ->
+    undefined;
+update_override_config(RawConf, _Opts) ->
     OldConf = emqx_config:read_override_conf(),
     maps:merge(OldConf, RawConf).
 

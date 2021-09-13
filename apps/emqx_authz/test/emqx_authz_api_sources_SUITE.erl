@@ -39,57 +39,60 @@
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                      <<"url">> => <<"https://fake.com:443/">>,
-                      <<"headers">> => #{},
-                      <<"method">> => <<"get">>,
-                      <<"request_timeout">> => 5000}
+                   <<"url">> => <<"https://fake.com:443/">>,
+                   <<"headers">> => #{},
+                   <<"method">> => <<"get">>,
+                   <<"request_timeout">> => 5000
                   }).
 -define(SOURCE2, #{<<"type">> => <<"mongo">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                          <<"mongo_type">> => <<"single">>,
-                          <<"server">> => <<"127.0.0.1:27017">>,
-                          <<"pool_size">> => 1,
-                          <<"database">> => <<"mqtt">>,
-                          <<"ssl">> => #{<<"enable">> => false}},
+                   <<"mongo_type">> => <<"sharded">>,
+                   <<"servers">> => [<<"127.0.0.1:27017">>,
+                                     <<"192.168.0.1:27017">>
+                                    ],
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"ssl">> => #{<<"enable">> => false},
                    <<"collection">> => <<"fake">>,
-                   <<"find">> => #{<<"a">> => <<"b">>}
+                   <<"selector">> => #{<<"a">> => <<"b">>}
                   }).
 -define(SOURCE3, #{<<"type">> => <<"mysql">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                       <<"server">> => <<"127.0.0.1:27017">>,
-                       <<"pool_size">> => 1,
-                       <<"database">> => <<"mqtt">>,
-                       <<"username">> => <<"xx">>,
-                       <<"password">> => <<"ee">>,
-                       <<"auto_reconnect">> => true,
-                       <<"ssl">> => #{<<"enable">> => false}},
-                   <<"sql">> => <<"abcb">>
+                   <<"server">> => <<"127.0.0.1:3306">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"username">> => <<"xx">>,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
+                   <<"query">> => <<"abcb">>
                   }).
 -define(SOURCE4, #{<<"type">> => <<"pgsql">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                       <<"server">> => <<"127.0.0.1:27017">>,
-                       <<"pool_size">> => 1,
-                       <<"database">> => <<"mqtt">>,
-                       <<"username">> => <<"xx">>,
-                       <<"password">> => <<"ee">>,
-                       <<"auto_reconnect">> => true,
-                       <<"ssl">> => #{<<"enable">> => false}},
-                   <<"sql">> => <<"abcb">>
+                   <<"server">> => <<"127.0.0.1:5432">>,
+                   <<"pool_size">> => 1,
+                   <<"database">> => <<"mqtt">>,
+                   <<"username">> => <<"xx">>,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
+                   <<"query">> => <<"abcb">>
                   }).
 -define(SOURCE5, #{<<"type">> => <<"redis">>,
                    <<"enable">> => true,
-                   <<"config">> => #{
-                       <<"server">> => <<"127.0.0.1:27017">>,
-                       <<"pool_size">> => 1,
-                       <<"database">> => 0,
-                       <<"password">> => <<"ee">>,
-                       <<"auto_reconnect">> => true,
-                       <<"ssl">> => #{<<"enable">> => false}},
+                   <<"servers">> => [<<"127.0.0.1:6379">>,
+                                     <<"127.0.0.1:6380">>
+                                    ],
+                   <<"pool_size">> => 1,
+                   <<"database">> => 0,
+                   <<"password">> => <<"ee">>,
+                   <<"auto_reconnect">> => true,
+                   <<"ssl">> => #{<<"enable">> => false},
                    <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
+                  }).
+-define(SOURCE6, #{<<"type">> => <<"file">>,
+                   <<"enable">> => true,
+                   <<"rules">> => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
                   }).
 
 all() ->
@@ -144,6 +147,26 @@ set_special_configs(emqx_authz) ->
 set_special_configs(_App) ->
     ok.
 
+init_per_testcase(t_api, Config) ->
+    meck:new(emqx_plugin_libs_id, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_plugin_libs_id, gen, fun() -> "fake" end),
+
+    meck:new(emqx, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx, get_config, fun([node, data_dir]) ->
+                                          % emqx_ct_helpers:deps_path(emqx_authz, "test");
+                                          {data_dir, Data} = lists:keyfind(data_dir, 1, Config),
+                                          Data;
+                                     (C) -> meck:passthrough([C])
+                                  end),
+    Config;
+init_per_testcase(_, Config) -> Config.
+
+end_per_testcase(t_api, _Config) ->
+    meck:unload(emqx_plugin_libs_id),
+    meck:unload(emqx),
+    ok;
+end_per_testcase(_, _Config) -> ok.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -152,33 +175,44 @@ t_api(_) ->
     {ok, 200, Result1} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual([], get_sources(Result1)),
 
-    lists:foreach(fun(_) ->
-                        {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE1)
-                  end, lists:seq(1, 20)),
+    {ok, 204, _} = request(put, uri(["authorization", "sources"]), [?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE1),
+
     {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
-    ?assertEqual(20, length(get_sources(Result2))),
-
-    lists:foreach(fun(Page) ->
-                          Query = "?page=" ++ integer_to_list(Page) ++ "&&limit=10",
-                          Url = uri(["authorization/sources" ++ Query]),
-                          {ok, 200, Result} = request(get, Url, []),
-                          ?assertEqual(10, length(get_sources(Result)))
-                  end, lists:seq(1, 2)),
-
-    {ok, 204, _} = request(put, uri(["authorization", "sources"]), [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4]),
-
-    {ok, 200, Result3} = request(get, uri(["authorization", "sources"]), []),
-    Sources = get_sources(Result3),
+    Sources = get_sources(Result2),
     ?assertMatch([ #{<<"type">> := <<"http">>}
                  , #{<<"type">> := <<"mongo">>}
                  , #{<<"type">> := <<"mysql">>}
                  , #{<<"type">> := <<"pgsql">>}
+                 , #{<<"type">> := <<"redis">>}
+                 , #{<<"type">> := <<"file">>}
                  ], Sources),
+    ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]))),
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]),  ?SOURCE1#{<<"enable">> := false}),
+    {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
+    ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result3)),
 
-    {ok, 200, Result4} = request(get, uri(["authorization", "sources", "http"]), []),
-    ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result4)),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "mongo"]),
+                           ?SOURCE2#{<<"ssl">> := #{
+                                         <<"enable">> => true,
+                                         <<"cacertfile">> => <<"fake cacert file">>,
+                                         <<"certfile">> => <<"fake cert file">>,
+                                         <<"keyfile">> => <<"fake key file">>,
+                                         <<"verify">> => false
+                                        }}),
+    {ok, 200, Result4} = request(get, uri(["authorization", "sources", "mongo"]), []),
+    ?assertMatch(#{<<"type">> := <<"mongo">>,
+                   <<"ssl">> := #{<<"enable">> := true,
+                                  <<"cacertfile">> := <<"fake cacert file">>,
+                                  <<"certfile">> := <<"fake cert file">>,
+                                  <<"keyfile">> := <<"fake key file">>,
+                                  <<"verify">> := false
+                                 }
+                  }, jsx:decode(Result4)),
+    ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "cacert-fake.pem"]))),
+    ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "cert-fake.pem"]))),
+    ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "key-fake.pem"]))),
 
     lists:foreach(fun(#{<<"type">> := Type}) ->
                     {ok, 204, _} = request(delete, uri(["authorization", "sources", binary_to_list(Type)]), [])

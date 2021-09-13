@@ -20,12 +20,15 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
+-behaviour(emqx_authentication).
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         ]).
 
--export([ create/1
+-export([ refs/0
+        , create/1
         , update/2
         , authenticate/2
         , destroy/1
@@ -50,7 +53,7 @@
         , stored_key
         , server_key
         , salt
-        , superuser
+        , is_superuser
         }).
 
 %%------------------------------------------------------------------------------
@@ -74,19 +77,16 @@ mnesia(copy) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
+namespace() -> "authn:scram:builtin-db".
+
 roots() -> [config].
 
 fields(config) ->
-    [ {name,            fun emqx_authn_schema:authenticator_name/1}
-    , {mechanism,       {enum, [scram]}}
-    , {server_type,     fun server_type/1}
+    [ {mechanism,       {enum, [scram]}}
+    , {backend,         {enum, ['built-in-database']}}
     , {algorithm,       fun algorithm/1}
     , {iteration_count, fun iteration_count/1}
-    ].
-
-server_type(type) -> hoconsc:enum(['built-in-database']);
-server_type(default) -> 'built-in-database';
-server_type(_) -> undefined.
+    ] ++ emqx_authn_schema:common_fields().
 
 algorithm(type) -> hoconsc:enum([sha256, sha512]);
 algorithm(default) -> sha256;
@@ -99,6 +99,9 @@ iteration_count(_) -> undefined.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+refs() ->
+   [hoconsc:ref(?MODULE, config)].
 
 create(#{ algorithm := Algorithm
         , iteration_count := IterationCount
@@ -144,9 +147,9 @@ add_user(#{user_id := UserID,
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
-                    Superuser = maps:get(superuser, UserInfo, false),
-                    add_user(UserID, Password, Superuser, State),
-                    {ok, #{user_id => UserID, superuser => Superuser}};
+                    IsSuperuser = maps:get(is_superuser, UserInfo, false),
+                    add_user(UserID, Password, IsSuperuser, State),
+                    {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
                 [_] ->
                     {error, already_exist}
             end
@@ -170,8 +173,8 @@ update_user(UserID, User,
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
                     {error, not_found};
-                [#user_info{superuser = Superuser} = UserInfo] ->
-                    UserInfo1 = UserInfo#user_info{superuser = maps:get(superuser, User, Superuser)},
+                [#user_info{is_superuser = IsSuperuser} = UserInfo] ->
+                    UserInfo1 = UserInfo#user_info{is_superuser = maps:get(is_superuser, User, IsSuperuser)},
                     UserInfo2 = case maps:get(password, User, undefined) of
                                     undefined ->
                                         UserInfo1;
@@ -226,36 +229,36 @@ check_client_first_message(Bin, _Cache, #{iteration_count := IterationCount} = S
             {error, not_authorized}
     end.
 
-check_client_final_message(Bin, #{superuser := Superuser} = Cache, #{algorithm := Alg}) ->
+check_client_final_message(Bin, #{is_superuser := IsSuperuser} = Cache, #{algorithm := Alg}) ->
     case esasl_scram:check_client_final_message(
              Bin,
              Cache#{algorithm => Alg}
          ) of
         {ok, ServerFinalMessage} ->
-            {ok, #{superuser => Superuser}, ServerFinalMessage};
+            {ok, #{is_superuser => IsSuperuser}, ServerFinalMessage};
         {error, _Reason} ->
             {error, not_authorized}
     end.
 
-add_user(UserID, Password, Superuser, State) ->
+add_user(UserID, Password, IsSuperuser, State) ->
     {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(Password, State),
-    UserInfo = #user_info{user_id    = UserID,
-                          stored_key = StoredKey,
-                          server_key = ServerKey,
-                          salt       = Salt,
-                          superuser  = Superuser},
+    UserInfo = #user_info{user_id      = UserID,
+                          stored_key   = StoredKey,
+                          server_key   = ServerKey,
+                          salt         = Salt,
+                          is_superuser = IsSuperuser},
     mnesia:write(?TAB, UserInfo, write).
 
 retrieve(UserID, #{user_group := UserGroup}) ->
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
-        [#user_info{stored_key = StoredKey,
-                    server_key = ServerKey,
-                    salt       = Salt,
-                    superuser  = Superuser}] ->
+        [#user_info{stored_key   = StoredKey,
+                    server_key   = ServerKey,
+                    salt         = Salt,
+                    is_superuser = IsSuperuser}] ->
             {ok, #{stored_key => StoredKey,
                    server_key => ServerKey,
                    salt => Salt,
-                   superuser => Superuser}};
+                   is_superuser => IsSuperuser}};
         [] ->
             {error, not_found}
     end.
@@ -270,5 +273,5 @@ trans(Fun, Args) ->
         {aborted, Reason} -> {error, Reason}
     end.
 
-serialize_user_info(#user_info{user_id = {_, UserID}, superuser = Superuser}) ->
-    #{user_id => UserID, superuser => Superuser}.
+serialize_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) ->
+    #{user_id => UserID, is_superuser => IsSuperuser}.

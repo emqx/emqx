@@ -83,11 +83,11 @@ all() ->
 
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_ct_helpers:start_apps([emqx_authn, emqx_gateway]),
+    emqx_ct_helpers:start_apps([emqx_gateway]),
     Config.
 
 end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([emqx_gateway, emqx_authn]).
+    emqx_ct_helpers:stop_apps([emqx_gateway]).
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -994,7 +994,7 @@ t_will_case06(_) ->
 
     receive
         {deliver, WillTopic, #message{payload = WillMsg}} -> ok;
-        Msg -> ct:print("recevived --- unex: ~p", [Msg])
+        Msg -> ct:print("received --- unex: ~p", [Msg])
     after
         1000 -> ct:fail(wait_willmsg_timeout)
     end,

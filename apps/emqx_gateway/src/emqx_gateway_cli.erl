@@ -51,7 +51,7 @@ is_cmd(Fun) ->
 
 gateway(["list"]) ->
     lists:foreach(fun(#{name := Name} = Gateway) ->
-        %% XXX: More infos: listeners?, connected?
+        %% TODO: More infos: listeners?, connected?
         Status = maps:get(status, Gateway, stopped),
         emqx_ctl:print("Gateway(name=~s, status=~s)~n",
                        [Name, Status])
@@ -106,6 +106,7 @@ gateway(_) ->
                    ]).
 
 'gateway-clients'(["list", Name]) ->
+    %% FIXME: page me. for example: --limit 100 --page 10 ???
     InfoTab = emqx_gateway_cm:tabname(info, Name),
     case ets:info(InfoTab) of
         undefined ->

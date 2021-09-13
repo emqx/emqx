@@ -25,7 +25,7 @@
         , post_config_update/4
         ]).
 
-%% APIs
+%% Gateway APIs
 -export([ registered_gateway/0
         , load/2
         , unload/1
@@ -48,7 +48,7 @@ registered_gateway() ->
     emqx_gateway_registry:list().
 
 %%--------------------------------------------------------------------
-%% Gateway Instace APIs
+%% Gateway APIs
 
 -spec list() -> [gateway()].
 list() ->
@@ -96,7 +96,8 @@ update_rawconf(RawName, RawConfDiff) ->
 %%--------------------------------------------------------------------
 %% Config Handler
 
--spec pre_config_update(emqx_config:update_request(), emqx_config:raw_config()) ->
+-spec pre_config_update(emqx_config:update_request(),
+                        emqx_config:raw_config()) ->
     {ok, emqx_config:update_request()} | {error, term()}.
 pre_config_update({RawName, RawConfDiff}, RawConf) ->
     {ok, emqx_map_lib:deep_merge(RawConf, #{RawName => RawConfDiff})}.
@@ -117,4 +118,3 @@ post_config_update({RawName, _}, NewConfig, OldConfig, _AppEnvs) ->
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
-
