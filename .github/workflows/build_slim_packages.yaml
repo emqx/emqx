@@ -14,14 +14,13 @@ jobs:
 
     strategy:
       matrix:
-        erl_otp:
-        - erl24.0.5-emqx-1
-
+        otp:
+        - 24.0.5-emqx-1
         os:
         - ubuntu20.04
         - centos7
 
-    container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
+    container: "ghcr.io/emqx/emqx-builder-helper/5.0:${{ matrix.otp }}-${{ matrix.os }}"
 
     steps:
     - uses: actions/checkout@v1
@@ -58,7 +57,7 @@ jobs:
 
     strategy:
       matrix:
-        erl_otp:
+        otp:
         - 24.0.5-emqx-1
 
     steps:
@@ -83,7 +82,7 @@ jobs:
       id: cache
       with:
         path: ~/.kerl
-        key: erl${{ matrix.erl_otp }}-macos10.15
+        key: erl${{ matrix.otp }}-macos10.15
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
@@ -92,11 +91,11 @@ jobs:
         OTP_GITHUB_URL: https://github.com/emqx/otp
       run: |
         kerl update releases
-        kerl build ${{ matrix.erl_otp }}
-        kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
+        kerl build ${{ matrix.otp }}
+        kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
     - name: build
       run: |
-        . $HOME/.kerl/${{ matrix.erl_otp }}/activate
+        . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
         make ${EMQX_NAME}-zip

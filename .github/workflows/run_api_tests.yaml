@@ -10,7 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder-helper/5.0:23.2.7.2-emqx-2-ubuntu20.04"
+
     steps:
     - uses: actions/checkout@v2
     - name: zip emqx-broker
@@ -27,6 +28,7 @@ jobs:
       with:
         name: emqx-broker
         path: _packages/**/*.zip
+
   api-test:
     needs: build
     runs-on: ubuntu-latest
@@ -94,6 +96,7 @@ jobs:
       with:
         name: jmeter_logs
         path: ./jmeter_logs
+
   delete-package:
     runs-on: ubuntu-20.04
     needs: api-test
