@@ -55,6 +55,7 @@
         , filter/2
         , fold/3
         , highest/1
+        , shift/1
         ]).
 
 -export_type([q/0]).
@@ -170,6 +171,14 @@ out({pqueue, [{P, Q} | Queues]}) ->
            end,
     {R, NewQ}.
 
+-spec(shift(pqueue()) -> pqueue()).
+shift(Q = {queue, _, _, _}) ->
+    Q;
+shift({pqueue, []}) ->
+    {pqueue, []}; %% Shouldn't happen?
+shift({pqueue, [Hd|Rest]}) ->
+    {pqueue, Rest ++ [Hd]}. %% Let's hope there are not many priorities.
+
 -spec(out_p(pqueue()) -> {empty | {value, any(), priority()}, pqueue()}).
 out_p({queue, _, _, _}       = Q) -> add_p(out(Q), 0);
 out_p({pqueue, [{P, _} | _]} = Q) -> add_p(out(Q), maybe_negate_priority(P)).
@@ -266,4 +275,3 @@ r2f([X,Y|R], L) -> {queue, [X,Y], lists:reverse(R, []), L}.
 
 maybe_negate_priority(infinity) -> infinity;
 maybe_negate_priority(P)        -> -P.
-
