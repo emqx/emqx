@@ -87,15 +87,19 @@ pre_config_update({move, Type, <<"top">>}, Conf) when is_list(Conf) ->
     {Index, _} = find_source_by_type(Type),
     {List1, List2} = lists:split(Index, Conf),
     NConf = [lists:nth(Index, Conf)] ++ lists:droplast(List1) ++ List2,
-    ok = check_dup_types(NConf),
-    {ok, NConf};
+    case check_dup_types(NConf) of
+        ok -> {ok, NConf};
+        Error -> Error
+    end;
 
 pre_config_update({move, Type, <<"bottom">>}, Conf) when is_list(Conf) ->
     {Index, _} = find_source_by_type(Type),
     {List1, List2} = lists:split(Index, Conf),
     NConf = lists:droplast(List1) ++ List2 ++ [lists:nth(Index, Conf)],
-    ok = check_dup_types(NConf),
-    {ok, NConf};
+    case check_dup_types(NConf) of
+        ok -> {ok, NConf};
+        Error -> Error
+    end;
 
 pre_config_update({move, Type, #{<<"before">> := Before}}, Conf) when is_list(Conf) ->
     {Index1, _} = find_source_by_type(Type),
@@ -107,8 +111,10 @@ pre_config_update({move, Type, #{<<"before">> := Before}}, Conf) when is_list(Co
     NConf = lists:delete(Conf1, lists:droplast(List1))
          ++ [Conf1] ++ [Conf2]
          ++ lists:delete(Conf1, List2),
-    ok = check_dup_types(NConf),
-    {ok, NConf};
+    case check_dup_types(NConf) of
+        ok -> {ok, NConf};
+        Error -> Error
+    end;
 
 pre_config_update({move, Type, #{<<"after">> := After}}, Conf) when is_list(Conf) ->
     {Index1, _} = find_source_by_type(Type),
@@ -119,28 +125,38 @@ pre_config_update({move, Type, #{<<"after">> := After}}, Conf) when is_list(Conf
     NConf = lists:delete(Conf1, List1)
          ++ [Conf1]
          ++ lists:delete(Conf1, List2),
-    ok = check_dup_types(NConf),
-    {ok, NConf};
+    case check_dup_types(NConf) of
+        ok -> {ok, NConf};
+        Error -> Error
+    end;
 
 pre_config_update({head, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
     NConf = Sources ++ Conf,
-    ok = check_dup_types(NConf),
-    {ok, Sources ++ Conf};
+    case check_dup_types(NConf) of
+        ok -> {ok, Sources ++ Conf};
+        Error -> Error
+    end;
 pre_config_update({tail, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
     NConf = Conf ++ Sources,
-    ok = check_dup_types(NConf),
-    {ok, Conf ++ Sources};
+    case check_dup_types(NConf) of
+        ok -> {ok, Conf ++ Sources};
+        Error -> Error
+    end;
 pre_config_update({{replace_once, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
     {Index, _} = find_source_by_type(Type),
     {List1, List2} = lists:split(Index, Conf),
     NConf = lists:droplast(List1) ++ [Source] ++ List2,
-    ok = check_dup_types(NConf),
-    {ok, NConf};
+    case check_dup_types(NConf) of
+        ok -> {ok, NConf};
+        Error -> Error
+    end;
 pre_config_update({{delete_once, Type}, _Source}, Conf) when is_list(Conf) ->
     {_, Source} = find_source_by_type(Type),
     NConf = lists:delete(Source, Conf),
-    ok = check_dup_types(NConf),
-    {ok, NConf};
+    case check_dup_types(NConf) of
+        ok -> {ok, NConf};
+        Error -> Error
+    end;
 pre_config_update({_, Sources}, _Conf) when is_list(Sources)->
     %% overwrite the entire config!
     {ok, Sources}.
@@ -249,7 +265,7 @@ check_dup_types(Sources, [T0 | Tail]) ->
                      end, 0, Sources) > 1 of
         true ->
            ?LOG(error, "The type is duplicated in the Authorization source"),
-           {error, authz_source_dup};
+           {error, 'The type is duplicated in the Authorization source'};
         false -> check_dup_types(Sources, Tail)
     end.
 
