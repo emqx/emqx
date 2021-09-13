@@ -151,8 +151,9 @@ pre_config_update({{replace_once, Type}, Source}, Conf) when is_map(Source), is_
         Error -> Error
     end;
 pre_config_update({{delete_once, Type}, _Source}, Conf) when is_list(Conf) ->
-    {_, Source} = find_source_by_type(Type),
-    NConf = lists:delete(Source, Conf),
+    {Index, _} = find_source_by_type(Type),
+    {List1, List2} = lists:split(Index, Conf),
+    NConf = lists:droplast(List1)  ++ List2,
     case check_dup_types(NConf) of
         ok -> {ok, NConf};
         Error -> Error

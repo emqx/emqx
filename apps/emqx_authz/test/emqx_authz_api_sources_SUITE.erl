@@ -219,6 +219,7 @@ t_api(_) ->
                   end, Sources),
     {ok, 200, Result5} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual([], get_sources(Result5)),
+    ?assertEqual([], emqx:get_config([authorization, sources])),
     ok.
 
 t_move_source(_) ->

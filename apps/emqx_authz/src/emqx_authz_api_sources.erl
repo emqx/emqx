@@ -336,11 +336,8 @@ sources(get, _) ->
                                   lists:append(AccIn, [Source#{annotations => #{status => healthy}}])
                         end, [], emqx_authz:lookup()),
     {200, #{sources => Sources}};
-sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) when is_list(Rules) ->
-    {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]),
-                                erlang:list_to_bitstring([<<Rule/binary, "\n">> || Rule <- Rules])
-                               ),
-
+sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
+    {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
     update_config(head, [#{type => file, enable => true, path => Filename}]);
 sources(post, #{body := Body}) when is_map(Body) ->
     update_config(head, [write_cert(Body)]);
