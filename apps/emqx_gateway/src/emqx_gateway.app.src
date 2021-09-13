@@ -3,7 +3,7 @@
   {vsn, "0.1.0"},
   {registered, []},
   {mod, {emqx_gateway_app, []}},
-  {applications, [kernel, stdlib, grpc, lwm2m_coap, emqx]},
+  {applications, [kernel, stdlib, grpc, emqx]},
   {env, []},
   {modules, []},
   {licenses, ["Apache 2.0"]},
