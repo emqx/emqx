@@ -298,11 +298,11 @@ move_source_api() ->
 
 sources(get, _) ->
     Sources = lists:foldl(fun (#{type := file, enable := Enable, path := Path}, AccIn) ->
-                                  case file:consult(Path) of
+                                  case file:read_file(Path) of
                                       {ok, Rules} ->
                                           lists:append(AccIn, [#{type => file,
                                                                  enable => Enable,
-                                                                 rules => iolist_to_binary([io_lib:format("~p.\n", [R]) || R <- Rules]),
+                                                                 rules => Rules,
                                                                  annotations => #{status => healthy}
                                                                 }]);
                                       {error, _} ->
@@ -356,11 +356,11 @@ source(get, #{bindings := #{type := Type}}) ->
     case emqx_authz:lookup(Type) of
         {error, Reason} -> {404, #{message => atom_to_binary(Reason)}};
         #{type := file, enable := Enable, path := Path}->
-            case file:consult(Path) of
+            case file:read_file(Path) of
                 {ok, Rules} ->
                     {200, #{type => file,
                             enable => Enable,
-                            rules => iolist_to_binary([io_lib:format("~p.\n", [R]) || R <- Rules]),
+                            rules => Rules,
                             annotations => #{status => healthy}
                            }
                     };
@@ -476,8 +476,18 @@ write_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
            };
 write_cert(Source) -> Source.
 
-write_file(Filename, Bytes) ->
+write_file(Filename, Bytes0) ->
     ok = filelib:ensure_dir(Filename),
+    case file:read_file(Filename) of
+        {ok, Bytes1} ->
+            case crypto:hash(md5, Bytes1) =:= crypto:hash(md5, Bytes0) of
+                true -> {ok,iolist_to_binary(Filename)};
+                false -> do_write_file(Filename, Bytes0)
+            end;
+        _ -> do_write_file(Filename, Bytes0)
+    end.
+
+do_write_file(Filename, Bytes) ->
     case file:write_file(Filename, Bytes) of
        ok -> {ok, iolist_to_binary(Filename)};
        {error, Reason} ->
