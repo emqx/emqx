@@ -93,7 +93,7 @@ plugins(HasElixir) ->
       %% emqx main project does not require port-compiler
       %% pin at root level for deterministic
     , {pc, {git, "https://github.com/emqx/port_compiler.git", {tag, "v1.11.1"}}}
-    | [ rebar_mix || HasElixir ]
+    | [ {rebar_mix, "v0.4.0"} || HasElixir ]
     ]
     %% test plugins are concatenated to default profile plugins
     %% otherwise rebar3 test profile runs are super slow
