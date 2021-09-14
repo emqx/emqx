@@ -158,7 +158,7 @@
 -define(CLUSTER_CALL(Func, Args), ?CLUSTER_CALL(Func, Args, ok)).
 
 -define(CLUSTER_CALL(Func, Args, ResParttern),
-    fun() -> case rpc:multicall(ekka_mnesia:running_nodes(), ?MODULE, Func, Args, 5000) of
+    fun() -> case rpc:multicall(ekka_mnesia:running_nodes(), ?MODULE, Func, Args, 30000) of
         {ResL, []} ->
             case lists:filter(fun(ResParttern) -> false; (_) -> true end, ResL) of
                 [] -> ResL;

@@ -22,9 +22,11 @@
    {"4.3.3",
     [ {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
     , {load_module, emqx_rule_actions, brutal_purge, soft_purge, []}
+    , {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
     ]},
    {"4.3.4",
     [ {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
+    , {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
     ]},
    {<<".*">>, []}
  ],
@@ -51,9 +53,11 @@
    {"4.3.3",
     [ {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
     , {load_module, emqx_rule_actions, brutal_purge, soft_purge, []}
+    , {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
     ]},
    {"4.3.4",
     [ {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
+    , {load_module, emqx_rule_registry, brutal_purge, soft_purge, []}
     ]},
    {<<".*">>, []}
  ]
