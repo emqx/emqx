@@ -40,8 +40,8 @@
 -export([ check_config/2
         , check_and_create/3
         , check_and_create_local/3
-        , check_and_update/4
-        , check_and_update_local/4
+        , check_and_recreate/4
+        , check_and_recreate_local/4
         , resource_type_from_str/1
         ]).
 
@@ -50,10 +50,10 @@
 %% todo: replicate operations
 -export([ create/3 %% store the config and start the instance
         , create_local/3
-        , create_dry_run/3 %% run start/2, health_check/2 and stop/1 sequentially
-        , create_dry_run_local/3
-        , update/4 %% update the config, stop the old instance and start the new one
-        , update_local/4
+        , create_dry_run/2 %% run start/2, health_check/2 and stop/1 sequentially
+        , create_dry_run_local/2
+        , recreate/4 %% this will do create_dry_run, stop the old instance and start a new one
+        , recreate_local/4
         , remove/1 %% remove the config and stop the instance
         , remove_local/1
         ]).
@@ -164,25 +164,26 @@ create(InstId, ResourceType, Config) ->
 create_local(InstId, ResourceType, Config) ->
     call_instance(InstId, {create, InstId, ResourceType, Config}).
 
--spec create_dry_run(instance_id(), resource_type(), resource_config()) ->
+-spec create_dry_run(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
-create_dry_run(InstId, ResourceType, Config) ->
-    cluster_call(create_dry_run_local, [InstId, ResourceType, Config]).
+create_dry_run(ResourceType, Config) ->
+    cluster_call(create_dry_run_local, [ResourceType, Config]).
 
--spec create_dry_run_local(instance_id(), resource_type(), resource_config()) ->
+-spec create_dry_run_local(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
-create_dry_run_local(InstId, ResourceType, Config) ->
+create_dry_run_local(ResourceType, Config) ->
+    InstId = emqx_plugin_libs_id:gen(16),
     call_instance(InstId, {create_dry_run, InstId, ResourceType, Config}).
 
--spec update(instance_id(), resource_type(), resource_config(), term()) ->
+-spec recreate(instance_id(), resource_type(), resource_config(), term()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
-update(InstId, ResourceType, Config, Params) ->
-    cluster_call(update_local, [InstId, ResourceType, Config, Params]).
+recreate(InstId, ResourceType, Config, Params) ->
+    cluster_call(recreate_local, [InstId, ResourceType, Config, Params]).
 
--spec update_local(instance_id(), resource_type(), resource_config(), term()) ->
+-spec recreate_local(instance_id(), resource_type(), resource_config(), term()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
-update_local(InstId, ResourceType, Config, Params) ->
-    call_instance(InstId, {update, InstId, ResourceType, Config, Params}).
+recreate_local(InstId, ResourceType, Config, Params) ->
+    call_instance(InstId, {recreate, InstId, ResourceType, Config, Params}).
 
 -spec remove(instance_id()) -> ok | {error, Reason :: term()}.
 remove(InstId) ->
@@ -296,17 +297,17 @@ check_and_create_local(InstId, ResourceType, RawConfig) ->
     check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> create_local(InstId, ResourceType, InstConf) end).
 
--spec check_and_update(instance_id(), resource_type(), raw_resource_config(), term()) ->
+-spec check_and_recreate(instance_id(), resource_type(), raw_resource_config(), term()) ->
     {ok, resource_data()} | {error, term()}.
-check_and_update(InstId, ResourceType, RawConfig, Params) ->
+check_and_recreate(InstId, ResourceType, RawConfig, Params) ->
     check_and_do(ResourceType, RawConfig,
-        fun(InstConf) -> update(InstId, ResourceType, InstConf, Params) end).
+        fun(InstConf) -> recreate(InstId, ResourceType, InstConf, Params) end).
 
--spec check_and_update_local(instance_id(), resource_type(), raw_resource_config(), term()) ->
+-spec check_and_recreate_local(instance_id(), resource_type(), raw_resource_config(), term()) ->
     {ok, resource_data()} | {error, term()}.
-check_and_update_local(InstId, ResourceType, RawConfig, Params) ->
+check_and_recreate_local(InstId, ResourceType, RawConfig, Params) ->
     check_and_do(ResourceType, RawConfig,
-        fun(InstConf) -> update_local(InstId, ResourceType, InstConf, Params) end).
+        fun(InstConf) -> recreate_local(InstId, ResourceType, InstConf, Params) end).
 
 check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
     case check_config(ResourceType, RawConfig) of
