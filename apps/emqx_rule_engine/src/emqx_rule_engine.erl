@@ -475,10 +475,10 @@ may_update_rule_params(Rule = #rule{enabled = OldEnb, actions = Actions, state =
          Params = #{enabled := NewEnb}) ->
     State = case {OldEnb, NewEnb} of
         {false, true} ->
-            refresh_rule(Rule),
+            _ = ?CLUSTER_CALL(refresh_rule, [Rule]),
             force_changed;
         {true, false} ->
-            clear_actions(Actions),
+            _ = ?CLUSTER_CALL(clear_actions, [Actions]),
             force_changed;
         _NoChange -> OldState
     end,
@@ -637,7 +637,7 @@ refresh_actions(Actions, Pred) ->
                 true ->
                     {ok, #action{module = Mod, on_create = Create}}
                         = emqx_rule_registry:find_action(ActName),
-                    _ = ?CLUSTER_CALL(init_action, [Mod, Create, Id, with_resource_params(Args)]),
+                    _ = init_action(Mod, Create, Id, with_resource_params(Args)),
                     refresh_actions(Fallbacks, Pred);
                 false -> ok
             end

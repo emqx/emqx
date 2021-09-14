@@ -1,5 +1,5 @@
 %% -*-: erlang -*-
-{"4.3.4",
+{"4.3.5",
  [ {"4.3.0",
     [ {load_module, emqx_rule_funcs, brutal_purge, soft_purge, []}
     , {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
@@ -22,6 +22,9 @@
    {"4.3.3",
     [ {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
     , {load_module, emqx_rule_actions, brutal_purge, soft_purge, []}
+    ]},
+   {"4.3.4",
+    [ {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
     ]},
    {<<".*">>, []}
  ],
@@ -48,6 +51,9 @@
    {"4.3.3",
     [ {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
     , {load_module, emqx_rule_actions, brutal_purge, soft_purge, []}
+    ]},
+   {"4.3.4",
+    [ {load_module, emqx_rule_engine, brutal_purge, soft_purge, []}
     ]},
    {<<".*">>, []}
  ]
