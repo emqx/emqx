@@ -302,7 +302,7 @@ sources(get, _) ->
                                       {ok, Rules} ->
                                           lists:append(AccIn, [#{type => file,
                                                                  enable => Enable,
-                                                                 rules => iolist_to_binary([io_lib:format("~p.", [R]) || R <- Rules]),
+                                                                 rules => iolist_to_binary([io_lib:format("~p.\n", [R]) || R <- Rules]),
                                                                  annotations => #{status => healthy}
                                                                 }]);
                                       {error, _} ->
@@ -360,7 +360,7 @@ source(get, #{bindings := #{type := Type}}) ->
                 {ok, Rules} ->
                     {200, #{type => file,
                             enable => Enable,
-                            rules => iolist_to_binary([io_lib:format("~p.", [R]) || R <- Rules]),
+                            rules => iolist_to_binary([io_lib:format("~p.\n", [R]) || R <- Rules]),
                             annotations => #{status => healthy}
                            }
                     };
