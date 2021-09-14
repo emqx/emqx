@@ -60,7 +60,7 @@ initialize() ->
 providers() ->
     [ {{'password-based', 'built-in-database'}, emqx_authn_mnesia}
     , {{'password-based', mysql}, emqx_authn_mysql}
-    , {{'password-based', posgresql}, emqx_authn_pgsql}
+    , {{'password-based', postgresql}, emqx_authn_pgsql}
     , {{'password-based', mongodb}, emqx_authn_mongodb}
     , {{'password-based', redis}, emqx_authn_redis}
     , {{'password-based', 'http-server'}, emqx_authn_http}
