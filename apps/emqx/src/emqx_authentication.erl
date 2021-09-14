@@ -202,7 +202,7 @@ do_pre_config_update({create_authenticator, _ChainName, Config}, OldConfig) ->
         NConfig ->
             {ok, OldConfig ++ [NConfig]}
     catch
-        error:{convert_cert_option, _} = Reason ->
+        error:{save_cert_to_file, _} = Reason ->
             {error, Reason}
     end;
 do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldConfig) ->
@@ -220,7 +220,7 @@ do_pre_config_update({update_authenticator, _ChainName, AuthenticatorID, Config}
         NewConfig ->
             {ok, NewConfig}
     catch
-        error:{convert_cert_option, _} = Reason ->
+        error:{save_cert_to_file, _} = Reason ->
             {error, Reason}
     end;
 do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}, OldConfig) ->

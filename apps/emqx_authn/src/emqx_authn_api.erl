@@ -2024,6 +2024,16 @@ serialize_error(unsupported_operation) ->
     {400, #{code => <<"BAD_REQUEST">>,
             message => <<"Operation not supported in this authentication type">>}};
 
+serialize_error({save_cert_to_file, invalid_certificate}) ->
+    {400, #{code => <<"BAD_REQUEST">>,
+            message => <<"Invalid certificate">>}};
+
+serialize_error({save_cert_to_file, {_, Reason}}) ->
+    {500, #{code => <<"INTERNAL_SERVER_ERROR">>,
+            message => list_to_binary(
+                io_lib:format("Cannot save certificate to file due to '~p'", [Reason])
+            )}};
+
 serialize_error({missing_parameter, Name}) ->
     {400, #{code => <<"MISSING_PARAMETER">>,
             message => list_to_binary(
