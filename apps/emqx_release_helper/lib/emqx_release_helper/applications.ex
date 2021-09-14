@@ -34,6 +34,10 @@ defmodule EmqxReleaseHelper.Applications do
 
   application :emqx_gateway do
     start_type :permanent
+
+    overlay do
+      copy "src/lwm2m/lwm2m_xml", "etc/lwm2m_xml"
+    end
   end
 
   application :emqx_connector do
@@ -52,11 +56,6 @@ defmodule EmqxReleaseHelper.Applications do
     start_type :permanent
   end
 
-  application :emqx_data_bridge do
-    start_type :permanent
-    overlay :application
-  end
-
   application :emqx_authn do
     start_type :permanent
     overlay :application
@@ -65,6 +64,10 @@ defmodule EmqxReleaseHelper.Applications do
   application :emqx_authz do
     start_type :permanent
     overlay :application
+
+    overlay do
+      template "etc/acl.conf", "etc/acl.conf"
+    end
   end
 
   application :emqx_dashboard do

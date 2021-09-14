@@ -28,7 +28,7 @@ defmodule EMQXRuleEngine.MixProject do
     [
       {:emqx, in_umbrella: true, runtime: false},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.2.1"},
-      {:ekka, github: "emqx/ekka", tag: "0.10.2"}
+      {:ekka, github: "emqx/ekka", tag: "0.10.8"}
     ]
   end
 end

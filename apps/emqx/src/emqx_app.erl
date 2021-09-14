@@ -48,6 +48,7 @@
 start(_Type, _Args) ->
     ok = maybe_load_config(),
     %% Load application first for ekka_mnesia scanner
+    mnesia:change_table_copy_type(schema, node(), disc_copies),
     ekka:start(),
     ok = ekka_rlog:wait_for_shards(?EMQX_SHARDS, infinity),
     ok = maybe_start_quicer(),

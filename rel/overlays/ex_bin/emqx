@@ -25,10 +25,55 @@ export RELEASE_BOOT_SCRIPT="${RELEASE_BOOT_SCRIPT:-"start"}"
 export RELEASE_BOOT_SCRIPT_CLEAN="${RELEASE_BOOT_SCRIPT_CLEAN:-"start_clean"}"
 export RELEASE_SYS_CONFIG="${RELEASE_SYS_CONFIG:-"$REL_VSN_DIR/sys"}"
 
+# defined in emqx_vars
+export RUNNER_ROOT_DIR
+export RUNNER_ETC_DIR
+
 export SCHEMA_MOD=emqx_machine_schema
 export CONFIGS_DIR="$RUNNER_DATA_DIR/configs"
-export NAME='emqx'
-export NAME_TYPE='-sname'
+export MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia"
+
+set_name () {
+  IS_BOOT_COMMAND='no'
+  case "$1" in
+    start|start_iex|daemon|daemon_iex)
+      IS_BOOT_COMMAND='yes'
+      ;;
+  esac
+
+  ## Possible ways to configure emqx node name:
+  ## 1. configure node.name in emqx.conf
+  ## 2. override with environment variable EMQX_NODE_NAME
+  ## Node name is either short-name (without '@'), e.g. 'emqx'
+  ## or long name (with '@') e.g. 'emqx@example.net' or 'emqx@127.0.0.1'
+  NAME="${EMQX_NODE_NAME:-}"
+  if [ -z "$NAME" ]; then
+    if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+      # for boot commands, inspect emqx.conf for node name
+      NAME="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
+    else
+      # for non-boot commands, inspect vm.<time>.args for node name
+      # shellcheck disable=SC2012,SC2086
+      LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
+      NAME="$(grep -E '^-s?name' "$LATEST_VM_ARGS" | awk '{print $2}')"
+    fi
+  fi
+
+  [ -z "$NAME" ] && NAME='emqx'
+
+  case "$NAME" in
+    *@*)
+      NAME_TYPE='-name'
+     ;;
+    *)
+      NAME_TYPE='-sname'
+  esac
+  SHORT_NAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
+  export ESCRIPT_NAME="$SHORT_NAME"
+
+	export NAME_TYPE
+	export NAME
+}
 
 SED_REPLACE="sed -i "
 case $(sed --help 2>&1) in
@@ -71,48 +116,41 @@ generate_config () {
   RELEASE_SYS_CONFIG="$CONFIGS_DIR/app.$NOW_TIME.config"
   RELEASE_VM_ARGS="$CONFIGS_DIR/vm.$NOW_TIME.args"
 
-  # TODO: migrate vm.args logic
-
-  # local CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
-  # local HOCON_GEN_ARG_FILE="$CONFIGS_DIR/vm.$NOW_TIME.args"
-  # CONFIG_ARGS="--erl-config $CONF_FILE --vm-args $HOCON_GEN_ARG_FILE"
-
-  # ## Merge hocon generated *.args into the vm.args
-  # TMP_ARG_FILE="$CONFIGS_DIR/vm.args.tmp"
-  # cp "$RUNNER_ETC_DIR/vm.args" "$TMP_ARG_FILE"
-  # echo "" >> "$TMP_ARG_FILE"
-  # echo "-pa ${REL_DIR}/consolidated" >> "$TMP_ARG_FILE"
-  # ## read lines from generated vm.<time>.args file
-  # ## drop comment lines, and empty lines using sed
-  # ## pipe the lines to a while loop
-  # sed '/^#/d' "$HOCON_GEN_ARG_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
-  #     ## in the loop, split the 'key[:space:]value' pair
-  #     ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
-  #     ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
-  #     ## use the key to look up in vm.args file for the value
-  #     TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" || true | awk '{print $NF}')
-  #     ## compare generated (to override) value to original (to be overriden) value
-  #     if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
-  #         ## if they are different
-  #         if [ -n "$TMP_ARG_VALUE" ]; then
-  #             ## if the old value is present, replace it with generated value
-  #             sh -c "$SED_REPLACE 's|^$ARG_KEY.*$|$ARG_LINE|' $TMP_ARG_FILE"
-  #         else
-  #             ## otherwise append generated value to the end
-  #             echo "$ARG_LINE" >> "$TMP_ARG_FILE"
-  #         fi
-  #     fi
-  # done
-  # echo "$name_type $node_name" >> "$TMP_ARG_FILE"
-  # ## rename the generated vm.<time>.args file
-  # mv -f "$TMP_ARG_FILE" "$HOCON_GEN_ARG_FILE"
+  ## Merge hocon generated *.args into the vm.args
+  TMP_ARG_FILE="$CONFIGS_DIR/vm.args.tmp"
+  cp "$RUNNER_ETC_DIR/vm.args" "$TMP_ARG_FILE"
+  echo "" >> "$TMP_ARG_FILE"
+  echo "-pa ${REL_VSN_DIR}/consolidated" >> "$TMP_ARG_FILE"
+  ## read lines from generated vm.<time>.args file
+  ## drop comment lines, and empty lines using sed
+  ## pipe the lines to a while loop
+  sed '/^#/d' "$RELEASE_VM_ARGS" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
+      ## in the loop, split the 'key[:space:]value' pair
+      ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
+      ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
+      ## use the key to look up in vm.args file for the value
+      TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" || true | awk '{print $NF}')
+      ## compare generated (to override) value to original (to be overriden) value
+      if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
+          ## if they are different
+          if [ -n "$TMP_ARG_VALUE" ]; then
+              ## if the old value is present, replace it with generated value
+              sh -c "$SED_REPLACE 's|^$ARG_KEY.*$|$ARG_LINE|' $TMP_ARG_FILE"
+          else
+              ## otherwise append generated value to the end
+              echo "$ARG_LINE" >> "$TMP_ARG_FILE"
+          fi
+      fi
+  done
+  echo "$name_type $node_name" >> "$TMP_ARG_FILE"
+  ## rename the generated vm.<time>.args file
+  mv -f "$TMP_ARG_FILE" "$RELEASE_VM_ARGS"
 
  #  # # shellcheck disable=SC2086
   # if ! relx_nodetool chkconfig $CONFIG_ARGS; then
   #     die "failed_to_check_config $CONFIG_ARGS"
   # fi
 }
-
 
 release_distribution () {
   case $RELEASE_DISTRIBUTION in
@@ -148,7 +186,7 @@ start () {
   exec "$REL_VSN_DIR/$REL_EXEC" \
        --cookie "$RELEASE_COOKIE" \
        $(release_distribution "$RELEASE_NODE") \
-       --erl "-mode $RELEASE_MODE" \
+       --erl "-mode $RELEASE_MODE -mnesia dir \"${MNESIA_DATA_DIR}\"" \
        --erl-config "$RELEASE_SYS_CONFIG" \
        --boot "$REL_VSN_DIR/$RELEASE_BOOT_SCRIPT" \
        --boot-var RELEASE_LIB "$RELEASE_ROOT/lib" \
@@ -163,6 +201,8 @@ eval_elixir () {
     --boot-var RELEASE_LIB "$RELEASE_ROOT/lib" \
     --vm-args "$RELEASE_VM_ARGS" --eval "$1"
 }
+
+set_name "$1"
 
 case $1 in
   start)
