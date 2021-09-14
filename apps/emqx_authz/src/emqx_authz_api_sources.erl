@@ -357,7 +357,7 @@ sources(put, #{body := Body}) when is_list(Body) ->
 
 source(get, #{bindings := #{type := Type}}) ->
     case emqx_authz:lookup(Type) of
-        {error, Reason} -> {404, #{messgae => atom_to_binary(Reason)}};
+        {error, Reason} -> {404, #{message => atom_to_binary(Reason)}};
         #{type := file, enable := Enable, path := Path}->
             case file:consult(Path) of
                 {ok, Rules} ->
@@ -369,7 +369,7 @@ source(get, #{bindings := #{type := Type}}) ->
                     };
                 {error, Reason} ->
                     {400, #{code => <<"BAD_REQUEST">>,
-                            messgae => atom_to_binary(Reason)}}
+                            message => atom_to_binary(Reason)}}
             end;
         #{enable := false} = Source -> {200, Source#{annotations => #{status => unhealthy}}};
         #{annotations := #{id := Id}} = Source ->
@@ -397,7 +397,7 @@ source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    messgae => atom_to_binary(Reason)}}
+                    message => atom_to_binary(Reason)}}
     end;
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
     update_config({replace_once, Type}, write_cert(Body));
@@ -409,10 +409,10 @@ move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
         {ok, _} -> {204};
         {error, not_found_source} ->
             {404, #{code => <<"NOT_FOUND">>,
-                    messgae => <<"source ", Type/binary, " not found">>}};
+                    message => <<"source ", Type/binary, " not found">>}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    messgae => atom_to_binary(Reason)}}
+                    message => atom_to_binary(Reason)}}
     end.
 
 update_config(Cmd, Sources) ->
@@ -420,13 +420,13 @@ update_config(Cmd, Sources) ->
         {ok, _} -> {204};
         {error, {pre_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    messgae => atom_to_binary(Reason)}};
+                    message => atom_to_binary(Reason)}};
         {error, {post_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    messgae => atom_to_binary(Reason)}};
+                    message => atom_to_binary(Reason)}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    messgae => atom_to_binary(Reason)}}
+                    message => atom_to_binary(Reason)}}
     end.
 
 read_cert(#{ssl := #{enable := true} = SSL} = Source) ->
