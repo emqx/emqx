@@ -252,13 +252,13 @@ t_convert_cert_options(_) ->
                   , {<<"certfile">>, "cert.pem"}
                   , {<<"cacertfile">>, "cacert.pem"}
                   ]),
-    NCerts = ?AUTHN:convert_cert_options(Certs),
+    #{<<"ssl">> := NCerts} = ?AUTHN:convert_certs(#{<<"ssl">> => Certs}),
     ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts), maps:get(<<"keyfile">>, Certs))),
 
     Certs2 = certs([ {<<"keyfile">>, "key.pem"}
                    , {<<"certfile">>, "cert.pem"}
                    ]),
-    NCerts2 = ?AUTHN:convert_cert_options(Certs2, NCerts),
+    #{<<"ssl">> := NCerts2} = ?AUTHN:convert_certs(#{<<"ssl">> => Certs2}, #{<<"ssl">> => NCerts}),
     ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts2), maps:get(<<"keyfile">>, Certs2))),
     ?assertEqual(maps:get(<<"keyfile">>, NCerts), maps:get(<<"keyfile">>, NCerts2)),
     ?assertEqual(maps:get(<<"certfile">>, NCerts), maps:get(<<"certfile">>, NCerts2)),
@@ -267,7 +267,7 @@ t_convert_cert_options(_) ->
                    , {<<"certfile">>, "client-cert.pem"}
                    , {<<"cacertfile">>, "cacert.pem"}
                    ]),
-    NCerts3 = ?AUTHN:convert_cert_options(Certs3, NCerts2),
+    #{<<"ssl">> := NCerts3} = ?AUTHN:convert_certs(#{<<"ssl">> => Certs3}, #{<<"ssl">> => NCerts2}),
     ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts3), maps:get(<<"keyfile">>, Certs3))),
     ?assertNotEqual(maps:get(<<"keyfile">>, NCerts2), maps:get(<<"keyfile">>, NCerts3)),
     ?assertNotEqual(maps:get(<<"certfile">>, NCerts2), maps:get(<<"certfile">>, NCerts3)).

@@ -1835,23 +1835,20 @@ find_listener(ListenerID) ->
             {ok, {Type, Name}}
     end.
 
-% convert_tls_options(Config)->
-
 create_authenticator(ConfKeyPath, ChainName0, Config) ->
     ChainName = to_atom(ChainName0),
-    % {NConfig, Certs} = convert_tls_options(Config),
     case update_config(ConfKeyPath, {create_authenticator, ChainName, Config}) of
         {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
                raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
-            {200, maps:put(id, ID, fill_defaults(AuthenticatorConfig))};
+            {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
         {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end.
 
 list_authenticators(ConfKeyPath) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
-    NAuthenticators = [maps:put(id, ?AUTHN:generate_id(AuthenticatorConfig), AuthenticatorConfig)
+    NAuthenticators = [maps:put(id, ?AUTHN:generate_id(AuthenticatorConfig), convert_certs(AuthenticatorConfig))
                         || AuthenticatorConfig <- AuthenticatorsConfig],
     {200, NAuthenticators}.
 
@@ -1859,7 +1856,7 @@ list_authenticator(ConfKeyPath, AuthenticatorID) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
     case find_config(AuthenticatorID, AuthenticatorsConfig) of
         {ok, AuthenticatorConfig} ->
-            {200, AuthenticatorConfig#{id => AuthenticatorID}};
+            {200, maps:put(id, AuthenticatorID, convert_certs(AuthenticatorConfig))};
         {error, Reason} ->
             serialize_error(Reason)
     end.
@@ -1870,7 +1867,7 @@ update_authenticator(ConfKeyPath, ChainName0, AuthenticatorID, Config) ->
         {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
                raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
-            {200, maps:put(id, ID, fill_defaults(AuthenticatorConfig))};
+            {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
         {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end.
@@ -1973,6 +1970,19 @@ fill_defaults(Config) ->
     #{<<"authentication">> := CheckedConfig} = hocon_schema:check_plain(
         ?AUTHN, #{<<"authentication">> => Config}, #{nullable => true, no_conversion => true}),
     CheckedConfig.
+
+convert_certs(#{<<"ssl">> := SSLOpts} = Config) ->
+    NSSLOpts = lists:foldl(fun(K, Acc) ->
+                               case maps:get(K, Acc, undefined) of
+                                   undefined -> Acc;
+                                   Filename ->
+                                       {ok, Bin} = file:read_file(Filename),
+                                       Acc#{K => Bin}
+                               end
+                           end, SSLOpts, [<<"certfile">>, <<"keyfile">>, <<"cacertfile">>]),
+    Config#{<<"ssl">> => NSSLOpts};
+convert_certs(Config) ->
+    Config.
 
 serialize_error({not_found, {authenticator, ID}}) ->
     {404, #{code => <<"NOT_FOUND">>,
