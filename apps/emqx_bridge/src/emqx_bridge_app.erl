@@ -17,29 +17,15 @@
 
 -behaviour(application).
 
--behaviour(emqx_config_handler).
-
--export([start/2, stop/1, pre_config_update/2]).
+-export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_bridge_sup:start_link(),
     ok = emqx_bridge:load_bridges(),
-    emqx_config_handler:add_handler(emqx_bridge:config_key_path(), ?MODULE),
+    emqx_config_handler:add_handler(emqx_bridge:config_key_path(), emqx_bridge),
     {ok, Sup}.
 
 stop(_State) ->
     ok.
 
 %% internal functions
-pre_config_update({update, Bridge = #{<<"name">> := Name}}, OldConf) ->
-    {ok, [Bridge | remove_bridge(Name, OldConf)]};
-pre_config_update({delete, Name}, OldConf) ->
-    {ok, remove_bridge(Name, OldConf)};
-pre_config_update(NewConf, _OldConf) when is_list(NewConf) ->
-    %% overwrite the entire config!
-    {ok, NewConf}.
-
-remove_bridge(_Name, undefined) ->
-    [];
-remove_bridge(Name, OldConf) ->
-    [B || B = #{<<"name">> := Name0} <- OldConf, Name0 =/= Name].

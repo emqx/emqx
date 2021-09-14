@@ -75,7 +75,7 @@ load_bridges(Configs) ->
 %% emqx_resource:check_and_create_local(ResourceId, ResourceType, Config, #{keep_retry => true}).
 load_bridge(Name, Type, Config) ->
     case emqx_resource:create_local(
-            emqx_bridge:name_to_resource_id(Name),
+            emqx_bridge:resource_id(Type, Name),
             emqx_bridge:resource_type(Type), Config) of
         {ok, already_created} -> ok;
         {ok, _} -> ok;
