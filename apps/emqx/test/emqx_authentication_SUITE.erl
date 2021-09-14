@@ -92,6 +92,19 @@ end_per_suite(_) ->
     emqx_ct_helpers:stop_apps([]),
     ok.
 
+init_per_testcase(_, Config) ->
+    meck:new(emqx, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx, get_config, fun([node, data_dir]) ->
+                                          {data_dir, Data} = lists:keyfind(data_dir, 1, Config),
+                                          Data;
+                                     (C) -> meck:passthrough([C])
+                                  end),
+    Config.
+
+end_per_testcase(_, _Config) ->
+    meck:unload(emqx),
+    ok.
+
 t_chain(_) ->
     % CRUD of authentication chain
     ChainName = 'test',
@@ -203,7 +216,7 @@ t_update_config(_) ->
     ?assertMatch({ok, _}, update_config([authentication], {create_authenticator, Global, AuthenticatorConfig2})),
     ?assertMatch({ok, #{id := ID2, state := #{mark := 1}}}, ?AUTHN:lookup_authenticator(Global, ID2)),
 
-    ?assertMatch({ok, _}, update_config([authentication], {update_authenticator, Global, ID1, #{}})),
+    ?assertMatch({ok, _}, update_config([authentication], {update_authenticator, Global, ID1, AuthenticatorConfig1#{enable => false}})),
     ?assertMatch({ok, #{id := ID1, state := #{mark := 2}}}, ?AUTHN:lookup_authenticator(Global, ID1)),
 
     ?assertMatch({ok, _}, update_config([authentication], {move_authenticator, Global, ID2, top})),
@@ -220,7 +233,7 @@ t_update_config(_) ->
     ?assertMatch({ok, _}, update_config(ConfKeyPath, {create_authenticator, ListenerID, AuthenticatorConfig2})),
     ?assertMatch({ok, #{id := ID2, state := #{mark := 1}}}, ?AUTHN:lookup_authenticator(ListenerID, ID2)),
 
-    ?assertMatch({ok, _}, update_config(ConfKeyPath, {update_authenticator, ListenerID, ID1, #{}})),
+    ?assertMatch({ok, _}, update_config(ConfKeyPath, {update_authenticator, ListenerID, ID1, AuthenticatorConfig1#{enable => false}})),
     ?assertMatch({ok, #{id := ID1, state := #{mark := 2}}}, ?AUTHN:lookup_authenticator(ListenerID, ID1)),
 
     ?assertMatch({ok, _}, update_config(ConfKeyPath, {move_authenticator, ListenerID, ID2, top})),
@@ -234,5 +247,41 @@ t_update_config(_) ->
     ?AUTHN:remove_provider(AuthNType2),
     ok.
 
+t_convert_cert_options(_) ->
+    Certs = certs([ {<<"keyfile">>, "key.pem"}
+                  , {<<"certfile">>, "cert.pem"}
+                  , {<<"cacertfile">>, "cacert.pem"}
+                  ]),
+    NCerts = ?AUTHN:convert_cert_options(Certs),
+    ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts), maps:get(<<"keyfile">>, Certs))),
+
+    Certs2 = certs([ {<<"keyfile">>, "key.pem"}
+                   , {<<"certfile">>, "cert.pem"}
+                   ]),
+    NCerts2 = ?AUTHN:convert_cert_options(Certs2, NCerts),
+    ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts2), maps:get(<<"keyfile">>, Certs2))),
+    ?assertEqual(maps:get(<<"keyfile">>, NCerts), maps:get(<<"keyfile">>, NCerts2)),
+    ?assertEqual(maps:get(<<"certfile">>, NCerts), maps:get(<<"certfile">>, NCerts2)),
+
+    Certs3 = certs([ {<<"keyfile">>, "client-key.pem"}
+                   , {<<"certfile">>, "client-cert.pem"}
+                   , {<<"cacertfile">>, "cacert.pem"}
+                   ]),
+    NCerts3 = ?AUTHN:convert_cert_options(Certs3, NCerts2),
+    ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts3), maps:get(<<"keyfile">>, Certs3))),
+    ?assertNotEqual(maps:get(<<"keyfile">>, NCerts2), maps:get(<<"keyfile">>, NCerts3)),
+    ?assertNotEqual(maps:get(<<"certfile">>, NCerts2), maps:get(<<"certfile">>, NCerts3)).
+
 update_config(Path, ConfigRequest) ->
     emqx:update_config(Path, ConfigRequest, #{rawconf_with_defaults => true}).
+
+certs(Certs) ->
+    CertsPath = emqx_ct_helpers:deps_path(emqx, "etc/certs"),
+    lists:foldl(fun({Key, Filename}, Acc) ->
+                    {ok, Bin} = file:read_file(filename:join([CertsPath, Filename])),
+                    Acc#{Key => Bin}
+                end, #{}, Certs).
+
+diff_cert(CertFile, CertPem2) ->
+    {ok, CertPem1} = file:read_file(CertFile),
+    ?AUTHN:diff_cert(CertPem1, CertPem2).

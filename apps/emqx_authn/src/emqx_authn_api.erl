@@ -1835,8 +1835,11 @@ find_listener(ListenerID) ->
             {ok, {Type, Name}}
     end.
 
+% convert_tls_options(Config)->
+
 create_authenticator(ConfKeyPath, ChainName0, Config) ->
     ChainName = to_atom(ChainName0),
+    % {NConfig, Certs} = convert_tls_options(Config),
     case update_config(ConfKeyPath, {create_authenticator, ChainName, Config}) of
         {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
                raw_config := AuthenticatorsConfig}} ->

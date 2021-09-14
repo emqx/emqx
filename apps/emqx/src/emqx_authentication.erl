@@ -73,6 +73,11 @@
         , code_change/3
         ]).
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 -define(CHAINS_TAB, emqx_authn_chains).
 
 -define(VER_1, <<"1">>).
@@ -193,20 +198,31 @@ pre_config_update(UpdateReq, OldConfig) ->
     end.
 
 do_pre_config_update({create_authenticator, _ChainName, Config}, OldConfig) ->
-    {ok, OldConfig ++ [Config]};
+    try convert_cert_options(Config) of
+        NConfig ->
+            {ok, OldConfig ++ [NConfig]}
+    catch
+        error:{convert_cert_option, _} = Reason ->
+            {error, Reason}
+    end;
 do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldConfig) ->
     NewConfig = lists:filter(fun(OldConfig0) ->
                                 AuthenticatorID =/= generate_id(OldConfig0)
                              end, OldConfig),
     {ok, NewConfig};
 do_pre_config_update({update_authenticator, _ChainName, AuthenticatorID, Config}, OldConfig) ->
-    NewConfig = lists:map(fun(OldConfig0) ->
+    try lists:map(fun(OldConfig0) ->
                               case AuthenticatorID =:= generate_id(OldConfig0) of
-                                  true -> maps:merge(OldConfig0, Config);
+                                  true -> convert_cert_options(Config, OldConfig0);
                                   false -> OldConfig0
                               end
-                          end, OldConfig),
-    {ok, NewConfig};
+                          end, OldConfig) of
+        NewConfig ->
+            {ok, NewConfig}
+    catch
+        error:{convert_cert_option, _} = Reason ->
+            {error, Reason}
+    end;
 do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}, OldConfig) ->
     case split_by_id(AuthenticatorID, OldConfig) of
         {error, Reason} -> {error, Reason};
@@ -600,6 +616,83 @@ reply(Reply, State) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+convert_cert_options(Config) ->
+    Keys = maps:keys(filter_empty(maps:with([<<"certfile">>, <<"keyfile">>, <<"cacertfile">>], Config))),
+    lists:foldl(fun(Key, Acc) ->
+                    convert_cert_option(Key, Acc)
+                end, Config, Keys).
+
+convert_cert_options(NewConfig, OldConfig) ->
+    Keys = [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>],
+    NewCerts = maps:with(Keys, NewConfig),
+    OldCerts = maps:fold(fun(K, V, Acc) ->
+                             {ok, Bin} = file:read_file(V),
+                             Acc#{K => Bin}
+                         end, #{}, maps:with(Keys, OldConfig)),
+    Diff = diff_certs(NewCerts, OldCerts),
+    lists:foldl(fun({identical, K}, Acc) ->
+                    Acc#{K => maps:get(K, OldConfig)};
+                   ({T, K}, Acc) when T =:= added orelse T =:= changed ->
+                    convert_cert_option(K, Acc)
+                end, NewConfig, Diff).
+
+convert_cert_option(Key, Config) ->
+    PemBin = maps:get(Key, Config),
+    case public_key:pem_decode(PemBin) =/= [] of
+        true ->
+            Filename = to_bin(filename:join([emqx:get_config([node, data_dir]), "certs/authn", generate_filename(Key)])),
+            case filelib:ensure_dir(Filename) of
+                ok ->
+                    case file:write_file(Filename, PemBin) of
+                        ok -> Config#{Key => Filename};
+                        {error, Reason} -> error({convert_cert_option, {write_file, Reason}})
+                    end;
+                {error, Reason} ->
+                    error({convert_cert_option, {ensure_dir, Reason}})
+            end;
+        false ->
+            error({convert_cert_option, invalid_certificate})
+    end.
+
+generate_filename(Key) ->
+    Prefix = case Key of
+                 <<"keyfile">> -> "key-";
+                 <<"certfile">> -> "cert-";
+                 <<"cacertfile">> -> "cacert-"
+             end,
+    Prefix ++ emqx_plugin_libs_id:gen() ++ ".pem".
+
+filter_empty(L) when is_list(L) ->
+    [I || I <- L, I =/= "" andalso I =/= undefined];
+filter_empty(M) when is_map(M) ->
+    maps:from_list(filter_empty(maps:to_list(M))).
+
+diff_certs(NewCerts0, OldCerts0) ->
+    NewCerts = filter_empty(NewCerts0),
+    OldCerts = filter_empty(OldCerts0),
+    Diff = lists:foldl(fun({OldK, OldPem}, Acc) ->
+                    case maps:find(OldK, NewCerts) of
+                        error ->
+                            Acc;
+                        {ok, NewPem} ->
+                            case diff_cert(NewPem, OldPem) of
+                                true ->
+                                    [{changed, OldK} | Acc];
+                                false ->
+                                    [{identical, OldK} | Acc]
+                            end
+                    end
+                end,
+                [], maps:to_list(OldCerts)),
+    Added = [{added, K} || K <- maps:keys(maps:without(maps:keys(OldCerts), NewCerts))],
+    Diff ++ Added.
+
+diff_cert(Pem1, Pem2) ->
+    cal_md5_for_cert(Pem1) =/= cal_md5_for_cert(Pem2).
+
+cal_md5_for_cert(Pem) ->
+    crypto:hash(md5, term_to_binary(public_key:pem_decode(Pem))).
+
 split_by_id(ID, AuthenticatorsConfig) ->
     case lists:foldl(
              fun(C, {P1, P2, F0}) ->
@@ -777,3 +870,6 @@ to_list(M) when is_map(M) ->
     [M];
 to_list(L) when is_list(L) ->
     L.
+
+to_bin(B) when is_binary(B) -> B;
+to_bin(L) when is_list(L) -> list_to_binary(L).
