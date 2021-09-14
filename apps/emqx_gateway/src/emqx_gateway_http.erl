@@ -171,12 +171,13 @@ listener(GwName, Type, Conf) ->
     [begin
          ListenerId = emqx_gateway_utils:listener_id(GwName, Type, LName),
          Running = is_running(ListenerId, LConf),
-         LConf#{
-           id => ListenerId,
-           type => Type,
-           name => LName,
-           running => Running
-          }
+         bind2str(
+           LConf#{
+             id => ListenerId,
+             type => Type,
+             name => LName,
+             running => Running
+            })
      end || {LName, LConf} <- Conf, is_map(LConf)].
 
 is_running(ListenerId, #{<<"bind">> := ListenOn0}) ->
@@ -187,6 +188,15 @@ is_running(ListenerId, #{<<"bind">> := ListenOn0}) ->
     catch _:_ ->
         false
     end.
+
+bind2str(LConf = #{bind := Bind}) when is_integer(Bind) ->
+    maps:put(bind, integer_to_binary(Bind), LConf);
+bind2str(LConf = #{<<"bind">> := Bind}) when is_integer(Bind) ->
+    maps:put(<<"bind">>, integer_to_binary(Bind), LConf);
+bind2str(LConf = #{bind := Bind}) when is_binary(Bind) ->
+    LConf;
+bind2str(LConf = #{<<"bind">> := Bind}) when is_binary(Bind) ->
+    LConf.
 
 -spec remove_listener(binary()) -> ok | {error, not_found} | {error, any()}.
 remove_listener(ListenerId) ->

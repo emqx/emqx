@@ -81,6 +81,7 @@ listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
         end
     end).
 
+%% FIXME: not working
 listeners_insta(delete, #{bindings := #{name := Name0, id := ListenerId0}}) ->
     ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(_GwName, _) ->
@@ -301,7 +302,6 @@ raw_properties_common_listener() ->
        <<"Listener type. Enum: tcp, udp, ssl, dtls">>,
        [<<"tcp">>, <<"ssl">>, <<"udp">>, <<"dtls">>]}
     , {running, boolean, <<"Listener running status">>}
-    %% FIXME:
     , {bind, string, <<"Listener bind address or port">>}
     , {acceptors, integer, <<"Listener acceptors number">>}
     , {access_rules, {array, string}, <<"Listener Access rules for client">>}
