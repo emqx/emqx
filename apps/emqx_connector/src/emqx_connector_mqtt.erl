@@ -89,8 +89,8 @@ on_start(InstId, Conf) ->
     NamePrefix = binary_to_list(InstId),
     BasicConf = basic_config(Conf),
     InitRes = {ok, #{name_prefix => NamePrefix, baisc_conf => BasicConf, sub_bridges => []}},
-    InOutConfigs = check_channel_id_dup(maps:get(message_in, Conf, [])
-                                        ++ maps:get(message_out, Conf, [])),
+    InOutConfigs = check_channel_id_dup(maps:get(ingress_channels, Conf, [])
+                                        ++ maps:get(egress_channels, Conf, [])),
     lists:foldl(fun
             (_InOutConf, {error, Reason}) ->
                 {error, Reason};
@@ -108,7 +108,7 @@ on_stop(InstId, #{sub_bridges := NameList}) ->
         end, NameList).
 
 %% TODO: let the emqx_resource trigger on_query/4 automatically according to the
-%%  `message_in` and `message_out` config
+%%  `ingress_channels` and `egress_channels` config
 on_query(_InstId, {create_channel, Conf}, _AfterQuery, #{name_prefix := Prefix,
         baisc_conf := BasicConf}) ->
     create_channel(Conf, Prefix, BasicConf);
@@ -133,21 +133,21 @@ check_channel_id_dup(Confs) ->
         end, Confs),
     Confs.
 
-%% this is an `message_in` bridge
+%% this is an `ingress_channels` bridge
 create_channel(#{subscribe_remote_topic := RemoteT, local_topic := LocalT, id := Id} = InConf,
         NamePrefix, BasicConf) ->
     Name = bridge_name(NamePrefix, Id),
-    logger:info("creating 'message_in' channel ~p, remote ~s -> local ~s",
+    logger:info("creating ingress channel ~p, remote ~s -> local ~s",
         [Name, RemoteT, LocalT]),
     create_sub_bridge(BasicConf#{
         name => Name,
         clientid => clientid(Id),
         subscriptions => InConf, forwards => undefined});
-%% this is an `message_out` bridge
+%% this is an `egress_channels` bridge
 create_channel(#{subscribe_local_topic := LocalT, remote_topic := RemoteT, id := Id} = OutConf,
         NamePrefix, BasicConf) ->
     Name = bridge_name(NamePrefix, Id),
-    logger:info("creating 'message_out' channel ~p, local ~s -> remote ~s",
+    logger:info("creating egress channel ~p, local ~s -> remote ~s",
         [Name, LocalT, RemoteT]),
     create_sub_bridge(BasicConf#{
         name => bridge_name(NamePrefix, Id),

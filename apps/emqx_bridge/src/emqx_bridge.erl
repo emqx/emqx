@@ -154,8 +154,8 @@ update_bridge(Type, Name, Conf) ->
     %%
     %% - if the connection related configs like `username` is updated, we should restart/start
     %% or stop bridges according to the change.
-    %% - if the connection related configs are not update, but channel configs `message_in` or
-    %% `message_out` are changed, then we should not restart the bridge, we only restart/start
+    %% - if the connection related configs are not update, but channel configs `ingress_channels` or
+    %% `egress_channels` are changed, then we should not restart the bridge, we only restart/start
     %% the channels.
     %%
     logger:info("update ~p bridge ~p use config: ~p", [Type, Name, Conf]),
