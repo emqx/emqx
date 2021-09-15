@@ -137,6 +137,7 @@ restart_bridge(Type, Name) ->
     emqx_resource:restart(resource_id(Type, Name)).
 
 create_bridge(Type, Name, Conf) ->
+    logger:info("create ~p bridge ~p use config: ~p", [Type, Name, Conf]),
     ResId = resource_id(Type, Name),
     case emqx_resource:create(ResId,
             emqx_bridge:resource_type(Type), Conf) of
@@ -157,10 +158,12 @@ update_bridge(Type, Name, Conf) ->
     %% `message_out` are changed, then we should not restart the bridge, we only restart/start
     %% the channels.
     %%
+    logger:info("update ~p bridge ~p use config: ~p", [Type, Name, Conf]),
     emqx_resource:recreate(resource_id(Type, Name),
         emqx_bridge:resource_type(Type), Conf).
 
 remove_bridge(Type, Name, _Conf) ->
+    logger:info("remove ~p bridge ~p", [Type, Name]),
     case emqx_resource:remove(resource_id(Type, Name)) of
         ok -> ok;
         {error, not_found} -> ok;
@@ -174,8 +177,9 @@ diff_confs(NewConfs, OldConfs) ->
 
 flatten_confs(Conf0) ->
     maps:from_list(
-        lists:append([do_flatten_confs(Type, Conf)
-                      || {Type, Conf} <- maps:to_list(Conf0)])).
+        lists:flatmap(fun({Type, Conf}) ->
+                do_flatten_confs(Type, Conf)
+            end, maps:to_list(Conf0))).
 
 do_flatten_confs(Type, Conf0) ->
     [{{Type, Name}, Conf} || {Name, Conf} <- maps:to_list(Conf0)].
