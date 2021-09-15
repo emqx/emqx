@@ -1,0 +1,70 @@
+@startuml
+
+new: tag "#needs-triage"
+
+new_waiting: untag '#needs-triage'
+new_waiting: tag '#triage/wait'
+new_waiting --> accepted: pass 2nd review
+
+accepted: auto tag '#triage/accepted'
+accepted: untag '#needs-triage'
+accepted: issue is ready to be worked on
+accepted: in backlog, need planning
+
+assigned: update type tag (#support | #bug | #feature)
+assigned: tag '#triage/accepted'
+assigned: untag '#new, new_waiting'
+assigned: update assignee
+assigned: update priority
+
+InProgress: Update with link to the PR
+InProgress: Update release tag
+InProgress: Patch testing with issue reporter
+
+needs_information: tag '#triage/needs-information', notify reporter
+
+stale: untag '#triage/wait'
+stale: tag '#stale' and notify reporter
+
+closed: github close issue
+closed: converted to discussion
+
+[*]--> new: created
+
+new --> accepted: pass 1st review
+new --> closed: If the issue is a topic \nfor discussion(not for bug or support)
+new --> new_waiting: lack of info
+
+new_waiting --> stale:  7 days no updates
+stale ---> closed: 14 days no updates
+stale ---> new_waiting: updated info
+closed --> [*]
+
+accepted -down--> assigned: priority review
+
+accepted --> needs_information: need more information\n to proceeed
+needs_information --> accepted:  updates
+assigned --> InProgress: In sprint run\n or\n start to work on
+InProgress --> closed: issue is solved
+InProgress --->InProgress: More info is required from issuer reporter
+needs_information -----> stale: no updates \n after 14 days
+
+note left of new_waiting
+  next review: 5 days
+end note
+
+note right of accepted
+  using priority tag
+  - #priority/critical-urgent
+  - #priority/important-soon
+  - #priority/important-longterm
+  - #priority/backlog
+  - #priority/awaiting-more-evidence
+  using area tag
+  - #area/lb
+  - #area/acl
+  - #area/config
+  ...
+end note
+
+@enduml
