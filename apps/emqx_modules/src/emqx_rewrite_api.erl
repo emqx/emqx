@@ -35,7 +35,7 @@ api_spec() ->
     {[rewrite_api()], []}.
 
 properties() ->
-    properties([{action, string, <<"Node">>, [subscribe, publish]},
+    properties([{action, string, <<"Action">>, [subscribe, publish, all]},
                 {source_topic, string, <<"Topic">>},
                 {re, string, <<"Regular expressions">>},
                 {dest_topic, string, <<"Destination topic">>}]).
