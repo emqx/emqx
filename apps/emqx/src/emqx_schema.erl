@@ -1093,9 +1093,18 @@ to_bar_separated_list(Str) ->
 to_ip_port(Str) ->
     case string:tokens(Str, ":") of
         [Ip, Port] ->
+            PortVal = list_to_integer(Port),
             case inet:parse_address(Ip) of
-                {ok, R} -> {ok, {R, list_to_integer(Port)}};
-                _ -> {error, Str}
+                {ok, R} ->
+                    {ok, {R, PortVal}};
+                _ ->
+                    %% check is a rfc1035's hostname
+                    case inet_parse:domain(Ip) of
+                        true ->
+                            {ok, {Ip, PortVal}};
+                        _ ->
+                            {error, Str}
+                    end
             end;
         _ -> {error, Str}
     end.
