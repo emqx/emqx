@@ -213,12 +213,11 @@ user(delete, #{bindings := #{username := Username}}) ->
         true -> {400, #{code => <<"CONNOT_DELETE_ADMIN">>,
                         message => <<"Cannot delete admin">>}};
         false ->
-            case emqx_dashboard_admin:lookup_user(Username) of
-                [] ->
+            case emqx_dashboard_admin:remove_user(Username) of
+                {error, not_found} ->
                     Message = list_to_binary(io_lib:format("Username [~p] not exist", [Username])),
                     {404, 'NOT_FOUND', Message};
-                _ ->
-                    _ = emqx_dashboard_admin:remove_user(Username),
+                ok ->
                     200
             end
     end.

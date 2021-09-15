@@ -91,12 +91,12 @@ add_user_(Admin = #mqtt_admin{username = Username}) ->
 -spec(remove_user(binary()) -> ok | {error, any()}).
 remove_user(Username) when is_binary(Username) ->
     Trans = fun() ->
-                    case lookup_user(Username) of
+                case lookup_user(Username) of
                     [] ->
-                        mnesia:abort(<<"Username Not Found">>);
-                    _  -> ok
-                    end,
-                    mnesia:delete({mqtt_admin, Username})
+                        mnesia:abort(not_found);
+                    _  ->
+                        mnesia:delete({mqtt_admin, Username})
+                end
             end,
     return(ekka_mnesia:transaction(?DASHBOARD_SHARD, Trans)).
 
