@@ -23,6 +23,7 @@
         , list_local_bridges/1
         , crud_bridges_cluster/2
         , crud_bridges/3
+        , manage_bridges/2
         ]).
 
 -define(TYPES, [mqtt]).
@@ -113,14 +114,24 @@ crud_bridges_apis() ->
 operation_apis() ->
     Metadata = #{
         post => #{
-            description => <<"Restart bridges on all nodes in the cluster">>,
+            description => <<"Start/Stop/Restart bridges on a specific node">>,
             parameters => [
+                param_path_node(),
                 param_path_id(),
                 param_path_operation()],
             responses => #{
                 <<"500">> => emqx_mgmt_util:error_schema(<<"Operation Failed">>, ['INTERNAL_ERROR']),
                 <<"200">> => emqx_mgmt_util:schema(<<"Operation success">>)}}},
-    {"/bridges/:id/operation/:operation", Metadata, manage_bridges}.
+    {"/nodes/:node/bridges/:id/operation/:operation", Metadata, manage_bridges}.
+
+param_path_node() ->
+    #{
+        name => node,
+        in => path,
+        schema => #{type => string},
+        required => true,
+        example => node()
+    }.
 
 param_path_id() ->
     #{
@@ -192,6 +203,20 @@ crud_bridges(_, delete, #{bindings := #{id := Id}}) ->
                 {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
         end).
 
+manage_bridges(post, #{bindings := #{node := Node, id := Id, operation := Op}}) ->
+    OperFun =
+        fun (<<"start">>) -> start_bridge;
+            (<<"stop">>) -> stop_bridge;
+            (<<"restart">>) -> restart_bridge
+        end,
+    ?TRY_PARSE_ID(Id,
+        case rpc_call(binary_to_atom(Node, latin1), emqx_bridge, OperFun(Op),
+                [BridgeType, BridgeName]) of
+            ok -> {200};
+            {error, Reason} ->
+                {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
+        end).
+
 format_resp(#{id := Id, raw_config := RawConf, resource_data := #{mod := Mod, status := Status}}) ->
     IsConnected = fun(started) -> true; (_) -> false end,
     RawConf#{
@@ -202,7 +227,12 @@ format_resp(#{id := Id, raw_config := RawConf, resource_data := #{mod := Mod, st
     }.
 
 rpc_call(Node, Fun, Args) ->
-    case rpc:call(Node, ?MODULE, Fun, Args) of
+    rpc_call(Node, ?MODULE, Fun, Args).
+
+rpc_call(Node, Mod, Fun, Args) when Node =:= node() ->
+    apply(Mod, Fun, Args);
+rpc_call(Node, Mod, Fun, Args) ->
+    case rpc:call(Node, Mod, Fun, Args) of
         {badrpc, Reason} -> {error, Reason};
         Res -> Res
     end.
