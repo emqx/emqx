@@ -2,9 +2,9 @@ name: API Test Suite
 
 on:
   push:
-    tags:
-      - e*
-      - v*
+   tags:
+     - e*
+     - v*
   pull_request:
 
 jobs:
@@ -13,6 +13,8 @@ jobs:
     container: "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
     steps:
     - uses: actions/checkout@v2
+      with:
+        repository: emqx/emqx
     - name: zip emqx-broker
       if: endsWith(github.repository, 'emqx')
       run: |
@@ -39,6 +41,10 @@ jobs:
           - api_clients
           - api_routes
           - api_publish
+          - api_user
+          - api_login
+          - api_banned
+          - api_alarms
     steps:
     - uses: actions/checkout@v2
       with:
@@ -90,11 +96,6 @@ jobs:
       with:
         name: jmeter_logs
         path: ./jmeter_logs
-    - uses: actions/upload-artifact@v1
-      if: failure()
-      with:
-        name: jmeter_logs
-        path: emqx/log 
   delete-package:
     runs-on: ubuntu-20.04
     needs: api-test
