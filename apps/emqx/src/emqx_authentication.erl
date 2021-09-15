@@ -666,7 +666,7 @@ generate_filename(Key) ->
                  <<"certfile">> -> "cert-";
                  <<"cacertfile">> -> "cacert-"
              end,
-    to_bin(filename:join([emqx:get_config([node, data_dir]), "certs/authn", Prefix ++ emqx_misc:gen() ++ ".pem"])).
+    to_bin(filename:join([emqx:get_config([node, data_dir]), "certs/authn", Prefix ++ emqx_misc:gen_id() ++ ".pem"])).
 
 diff_certs(NewSSLOpts, OldSSLOpts) ->
     Keys = [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>],

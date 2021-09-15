@@ -45,8 +45,8 @@
         , index_of/2
         , maybe_parse_ip/1
         , ipv6_probe/1
-        , gen/0
-        , gen/1
+        , gen_id/0
+        , gen_id/1
         ]).
 
 -export([ bin2hexstr_A_F/1
@@ -302,12 +302,12 @@ hexchar2int(I) when I >= $0 andalso I =< $9 -> I - $0;
 hexchar2int(I) when I >= $A andalso I =< $F -> I - $A + 10;
 hexchar2int(I) when I >= $a andalso I =< $f -> I - $a + 10.
 
--spec(gen() -> list()).
-gen() ->
-    gen(?SHORT).
+-spec(gen_id() -> list()).
+gen_id() ->
+    gen_id(?SHORT).
 
--spec(gen(integer()) -> list()).
-gen(Len) ->
+-spec(gen_id(integer()) -> list()).
+gen_id(Len) ->
     BitLen = Len * 4,
     <<R:BitLen>> = crypto:strong_rand_bytes(Len div 2),
     int_to_hex(R, Len).
