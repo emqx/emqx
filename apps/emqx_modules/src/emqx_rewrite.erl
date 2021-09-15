@@ -95,7 +95,9 @@ compile(Rules) ->
             publish ->
                 {[{Topic, MP, Dest} | Acc1], Acc2};
             subscribe ->
-                {Acc1, [{Topic, MP, Dest} | Acc2]}
+                {Acc1, [{Topic, MP, Dest} | Acc2]};
+            all ->
+                {[{Topic, MP, Dest} | Acc1], [{Topic, MP, Dest} | Acc2]}
         end
     end, {[], []}, Rules).
 

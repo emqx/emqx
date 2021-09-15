@@ -45,7 +45,7 @@ fields("delayed") ->
     ];
 
 fields("rewrite") ->
-    [ {action, hoconsc:enum([publish, subscribe])}
+    [ {action, hoconsc:enum([publish, subscribe, all])}
     , {source_topic, sc(binary(), #{})}
     , {re, sc(binary(), #{})}
     , {dest_topic, sc(binary(), #{})}
