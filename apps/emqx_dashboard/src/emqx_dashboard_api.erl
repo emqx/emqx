@@ -34,6 +34,7 @@
                         , object_schema/1
                         , object_schema/2
                         , object_array_schema/1
+                        , error_schema/1
                         , bad_request/0
                         , properties/1
                         ]).
@@ -128,6 +129,7 @@ user_api() ->
             parameters => parameters(),
             responses => #{
                 <<"200">> => schema(<<"Delete User successfully">>),
+                <<"404">> => error_schema(<<"Username not found">>),
                 <<"400">> => bad_request()
             }
         },
@@ -211,8 +213,14 @@ user(delete, #{bindings := #{username := Username}}) ->
         true -> {400, #{code => <<"CONNOT_DELETE_ADMIN">>,
                         message => <<"Cannot delete admin">>}};
         false ->
-            _ = emqx_dashboard_admin:remove_user(Username),
-            {200}
+            case emqx_dashboard_admin:lookup_user(Username) of
+                [] ->
+                    Message = list_to_binary(io_lib:format("Username [~p] not exist", [Username])),
+                    {404, 'NOT_FOUND', Message};
+                _ ->
+                    _ = emqx_dashboard_admin:remove_user(Username),
+                    200
+            end
     end.
 
 change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->
