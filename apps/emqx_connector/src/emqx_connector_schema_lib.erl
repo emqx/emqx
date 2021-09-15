@@ -107,15 +107,15 @@ auto_reconnect(default) -> true;
 auto_reconnect(_) -> undefined.
 
 cacertfile(type) -> string();
-cacertfile(default) -> "";
+cacertfile(nullable) -> true;
 cacertfile(_) -> undefined.
 
 keyfile(type) -> string();
-keyfile(default) -> "";
+keyfile(nullable) -> true;
 keyfile(_) -> undefined.
 
 certfile(type) -> string();
-certfile(default) -> "";
+certfile(nullable) -> true;
 certfile(_) -> undefined.
 
 verify(type) -> boolean();
