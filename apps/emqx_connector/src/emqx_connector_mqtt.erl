@@ -168,7 +168,7 @@ create_sub_bridge(#{name := Name} = Conf) ->
         {ok, _Pid} ->
             start_sub_bridge(Name);
         {error, {already_started, _Pid}} ->
-            ok;
+            {ok, Name};
         {error, Reason} ->
             {error, Reason}
     end.

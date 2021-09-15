@@ -149,7 +149,7 @@ create_bridge(Type, Name, Conf) ->
             {error, Reason}
     end.
 
-update_bridge(Type, Name, Conf) ->
+update_bridge(Type, Name, {_OldConf, Conf}) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
     %%
     %% - if the connection related configs like `username` is updated, we should restart/start
@@ -160,7 +160,7 @@ update_bridge(Type, Name, Conf) ->
     %%
     logger:info("update ~p bridge ~p use config: ~p", [Type, Name, Conf]),
     emqx_resource:recreate(resource_id(Type, Name),
-        emqx_bridge:resource_type(Type), Conf).
+        emqx_bridge:resource_type(Type), Conf, []).
 
 remove_bridge(Type, Name, _Conf) ->
     logger:info("remove ~p bridge ~p", [Type, Name]),
