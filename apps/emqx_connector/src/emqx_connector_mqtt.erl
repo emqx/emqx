@@ -101,20 +101,21 @@ on_start(InstId, Conf) ->
                 end
         end, InitRes, InOutConfigs).
 
-on_stop(InstId, #{}) ->
+on_stop(InstId, #{sub_bridges := NameList}) ->
     logger:info("stopping mqtt connector: ~p", [InstId]),
-    case ?MODULE:drop_bridge(InstId) of
-        ok -> ok;
-        {error, not_found} -> ok;
-        {error, Reason} ->
-            logger:error("stop bridge failed, error: ~p", [Reason])
-    end.
+    lists:foreach(fun(Name) ->
+            case ?MODULE:drop_bridge(Name) of
+                ok -> ok;
+                {error, not_found} -> ok;
+                {error, Reason} ->
+                    logger:error("stop channel ~p failed, error: ~p", [Name, Reason])
+            end
+        end, NameList).
 
 %% TODO: let the emqx_resource trigger on_query/4 automatically according to the
 %%  `message_in` and `message_out` config
-on_query(InstId, {create_channel, Conf}, _AfterQuery, #{name_prefix := Prefix,
+on_query(_InstId, {create_channel, Conf}, _AfterQuery, #{name_prefix := Prefix,
         baisc_conf := BasicConf}) ->
-    logger:debug("create channel to connector: ~p, conf: ~p", [InstId, Conf]),
     create_channel(Conf, Prefix, BasicConf);
 on_query(InstId, {publish_to_local, Msg}, _AfterQuery, _State) ->
     logger:debug("publish to local node, connector: ~p, msg: ~p", [InstId, Msg]);
@@ -139,14 +140,16 @@ check_channel_id_dup(Confs) ->
 
 %% this is an `message_in` bridge
 create_channel(#{subscribe_remote_topic := _, id := Id} = InConf, NamePrefix, BasicConf) ->
-    logger:info("creating 'message_in' channel for: ~p", [Id]),
+    Name = bridge_name(NamePrefix, Id),
+    logger:info("creating 'message_in' channel ~p", [Name]),
     create_sub_bridge(BasicConf#{
-        name => bridge_name(NamePrefix, Id),
+        name => Name,
         clientid => clientid(Id),
         subscriptions => InConf, forwards => undefined});
 %% this is an `message_out` bridge
 create_channel(#{subscribe_local_topic := _, id := Id} = OutConf, NamePrefix, BasicConf) ->
-    logger:info("creating 'message_out' channel for: ~p", [Id]),
+    Name = bridge_name(NamePrefix, Id),
+    logger:info("creating 'message_out' channel ~p", [Name]),
     create_sub_bridge(BasicConf#{
         name => bridge_name(NamePrefix, Id),
         clientid => clientid(Id),
