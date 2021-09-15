@@ -104,12 +104,7 @@ on_start(InstId, Conf) ->
 on_stop(InstId, #{sub_bridges := NameList}) ->
     logger:info("stopping mqtt connector: ~p", [InstId]),
     lists:foreach(fun(Name) ->
-            case ?MODULE:drop_bridge(Name) of
-                ok -> ok;
-                {error, not_found} -> ok;
-                {error, Reason} ->
-                    logger:error("stop channel ~p failed, error: ~p", [Name, Reason])
-            end
+            remove_channel(Name)
         end, NameList).
 
 %% TODO: let the emqx_resource trigger on_query/4 automatically according to the
@@ -139,21 +134,34 @@ check_channel_id_dup(Confs) ->
     Confs.
 
 %% this is an `message_in` bridge
-create_channel(#{subscribe_remote_topic := _, id := Id} = InConf, NamePrefix, BasicConf) ->
+create_channel(#{subscribe_remote_topic := RemoteT, local_topic := LocalT, id := Id} = InConf,
+        NamePrefix, BasicConf) ->
     Name = bridge_name(NamePrefix, Id),
-    logger:info("creating 'message_in' channel ~p", [Name]),
+    logger:info("creating 'message_in' channel ~p, remote ~s -> local ~s",
+        [Name, RemoteT, LocalT]),
     create_sub_bridge(BasicConf#{
         name => Name,
         clientid => clientid(Id),
         subscriptions => InConf, forwards => undefined});
 %% this is an `message_out` bridge
-create_channel(#{subscribe_local_topic := _, id := Id} = OutConf, NamePrefix, BasicConf) ->
+create_channel(#{subscribe_local_topic := LocalT, remote_topic := RemoteT, id := Id} = OutConf,
+        NamePrefix, BasicConf) ->
     Name = bridge_name(NamePrefix, Id),
-    logger:info("creating 'message_out' channel ~p", [Name]),
+    logger:info("creating 'message_out' channel ~p, local ~s -> remote ~s",
+        [Name, LocalT, RemoteT]),
     create_sub_bridge(BasicConf#{
         name => bridge_name(NamePrefix, Id),
         clientid => clientid(Id),
         subscriptions => undefined, forwards => OutConf}).
+
+remove_channel(BridgeName) ->
+    logger:info("removing channel ~p", [BridgeName]),
+    case ?MODULE:drop_bridge(BridgeName) of
+        ok -> ok;
+        {error, not_found} -> ok;
+        {error, Reason} ->
+            logger:error("stop channel ~p failed, error: ~p", [BridgeName, Reason])
+    end.
 
 create_sub_bridge(#{name := Name} = Conf) ->
     case ?MODULE:create_bridge(Conf) of
@@ -206,7 +214,7 @@ bridge_name(Prefix, Id) ->
     list_to_atom(str(Prefix) ++ ":" ++ str(Id)).
 
 clientid(Id) ->
-    list_to_binary(str(Id) ++ ":" ++ emqx_plugin_libs_id:gen(4)).
+    list_to_binary(str(Id) ++ ":" ++ emqx_plugin_libs_id:gen(16)).
 
 str(A) when is_atom(A) ->
     atom_to_list(A);

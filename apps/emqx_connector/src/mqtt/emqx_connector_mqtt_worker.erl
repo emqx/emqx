@@ -183,7 +183,7 @@ callback_mode() -> [state_functions].
 
 %% @doc Config should be a map().
 init(#{name := Name} = ConnectOpts) ->
-    ?LOG(info, "starting bridge worker for ~p", [Name]),
+    ?LOG(debug, "starting bridge worker for ~p", [Name]),
     erlang:process_flag(trap_exit, true),
     Queue = open_replayq(Name, maps:get(replayq, ConnectOpts, #{})),
     State = init_state(ConnectOpts),
