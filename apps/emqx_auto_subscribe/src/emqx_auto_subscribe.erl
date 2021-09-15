@@ -38,7 +38,7 @@ max_limit() ->
     ?MAX_AUTO_SUBSCRIBE.
 
 list() ->
-    emqx:get_config([auto_subscribe, topics], []).
+    format(emqx:get_config([auto_subscribe, topics], [])).
 
 update(Topics) ->
     update_(Topics).
@@ -67,6 +67,17 @@ on_client_connected(_, _, _) ->
 
 %%--------------------------------------------------------------------
 %% internal
+
+format(Rules) when is_list(Rules) ->
+    [format(Rule) || Rule <- Rules];
+format(Rule = #{topic := Topic}) when is_map(Rule) ->
+    #{
+        topic   => Topic,
+        qos     => maps:get(qos, Rule, 0),
+        rh      => maps:get(rh, Rule, 0),
+        rap     => maps:get(rap, Rule, 0),
+        nl      => maps:get(nl, Rule, 0)
+    }.
 
 update_(Topics) when length(Topics) =< ?MAX_AUTO_SUBSCRIBE ->
     {ok, _} = emqx:update_config([auto_subscribe, topics], Topics),
