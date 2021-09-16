@@ -40,8 +40,10 @@
         , stop/0
         ]).
 
--export([ add_provider/2
-        , remove_provider/1
+-export([ register_provider/2
+        , register_providers/1
+        , deregister_provider/1
+        , deregister_providers/1
         , create_chain/1
         , delete_chain/1
         , lookup_chain/1
@@ -334,13 +336,27 @@ stop() ->
 get_refs() ->
     gen_server:call(?MODULE, get_refs).
 
--spec add_provider(authn_type(), module()) -> ok.
-add_provider(AuthNType, Provider) ->
-    gen_server:call(?MODULE, {add_provider, AuthNType, Provider}).
+%% @doc Register authentication providers.
+%% A provider is a tuple of `AuthNType' the module which implements
+%% the authenticator callbacks.
+%% For example, ``[{{'password-based', redis}, emqx_authn_redis}]''
+%% NOTE: Later registered provider may override earlier registered if they
+%% happen to clash the same `AuthNType'.
+-spec register_providers([{authn_type(), module()}]) -> ok.
+register_providers(Providers) ->
+    gen_server:call(?MODULE, {register_providers, Providers}).
 
--spec remove_provider(authn_type()) -> ok.
-remove_provider(AuthNType) ->
-    gen_server:call(?MODULE, {remove_provider, AuthNType}).
+-spec register_provider(authn_type(), module()) -> ok.
+register_provider(AuthNType, Provider) ->
+    register_providers([{AuthNType, Provider}]).
+
+-spec deregister_providers([authn_type()]) -> ok.
+deregister_providers(AuthNTypes) when is_list(AuthNTypes) ->
+    gen_server:call(?MODULE, {deregister_providers, AuthNTypes}).
+
+-spec deregister_provider(authn_type()) -> ok.
+deregister_provider(AuthNType) ->
+    deregister_providers([AuthNType]).
 
 -spec create_chain(chain_name()) -> {ok, chain()} | {error, term()}.
 create_chain(Name) ->
@@ -447,11 +463,20 @@ init(_Opts) ->
     ok = emqx_config_handler:add_handler([listeners, '?', '?', authentication], ?MODULE),
     {ok, #{hooked => false, providers => #{}}}.
 
-handle_call({add_provider, AuthNType, Provider}, _From, #{providers := Providers} = State) ->
-    reply(ok, State#{providers := Providers#{AuthNType => Provider}});
+handle_call({register_providers, Providers}, _From,
+            #{providers := Reg0} = State) ->
+    case lists:filter(fun({T, _}) -> maps:is_key(T, Reg0) end, Providers) of
+        [] ->
+            Reg = lists:foldl(fun({AuthNType, Module}, Pin) ->
+                                      Pin#{AuthNType => Module}
+                              end, Reg0, Providers),
+            reply(ok, State#{providers := Reg});
+        Clashes ->
+            reply({error, {authentication_type_clash, Clashes}}, State)
+    end;
 
-handle_call({remove_provider, AuthNType}, _From, #{providers := Providers} = State) ->
-    reply(ok, State#{providers := maps:remove(AuthNType, Providers)});
+handle_call({deregister_providers, AuthNTypes}, _From, #{providers := Providers} = State) ->
+    reply(ok, State#{providers := maps:without(AuthNTypes, Providers)});
 
 handle_call(get_refs, _From, #{providers := Providers} = State) ->
     Refs = lists:foldl(fun({_, Provider}, Acc) ->
