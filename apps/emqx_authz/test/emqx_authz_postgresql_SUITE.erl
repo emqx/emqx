@@ -13,7 +13,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authz_pgsql_SUITE).
+-module(emqx_authz_postgresql_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -47,7 +47,7 @@ init_per_suite(Config) ->
 
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
-    Rules = [#{<<"type">> => <<"pgsql">>,
+    Rules = [#{<<"type">> => <<"postgresql">>,
                <<"server">> => <<"127.0.0.1:27017">>,
                <<"pool_size">> => 1,
                <<"database">> => <<"mqtt">>,

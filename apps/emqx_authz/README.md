@@ -26,7 +26,7 @@ authz:{
            sql: "select ipaddress, username, clientid, action, permission, topic from mqtt_authz where ipaddr = '%a' or username = '%u' or clientid = '%c'"
        },
        {
-           type: pgsql
+           type: postgresql
            config: {
               server: "127.0.0.1:5432"
               database: mqtt
@@ -96,7 +96,7 @@ Sample data in the default configuration:
 INSERT INTO mqtt_authz (ipaddress, username, clientid, action, permission, topic) VALUES ('127.0.0.1', '', '', 'subscribe', 'allow', '$SYS/#');
 ```
 
-#### Pgsql
+#### PostgreSQL
 
 Create Example Table
 
