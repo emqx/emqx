@@ -149,7 +149,7 @@ spec:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:
           - name: emqx-data
-            mountPath: "/opt/emqx/data/mnesia"
+            mountPath: "/opt/emqx/data"
           - name: emqx-acl
             mountPath: "/opt/emqx/etc/acl.conf"
             subPath: "acl.conf"
