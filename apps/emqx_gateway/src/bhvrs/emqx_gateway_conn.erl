@@ -81,10 +81,13 @@
           %% Frame Module
           frame_mod  :: atom(),
           %% Channel Module
-          chann_mod  :: atom()
+          chann_mod  :: atom(),
+          %% Listener Tag
+          listener :: listener() | undefined
         }).
 
--type(state() :: #state{}).
+-type listener() :: {GwName :: atom(), LisType :: atom(), LisName :: atom()}.
+-type state() :: #state{}.
 
 -define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
@@ -279,7 +282,8 @@ init_state(WrappedSock, Peername, Options, FrameMod, ChannMod) ->
            idle_timer   = IdleTimer,
            oom_policy   = OomPolicy,
            frame_mod    = FrameMod,
-           chann_mod    = ChannMod
+           chann_mod    = ChannMod,
+           listener     = maps:get(listener, Options, undefined)
           }.
 
 run_loop(Parent, State = #state{socket   = Socket,

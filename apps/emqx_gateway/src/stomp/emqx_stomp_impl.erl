@@ -106,6 +106,7 @@ start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
     Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     NCfg = Cfg#{
              ctx => Ctx,
+             listener => {GwName, Type, LisName},   %% Used for authn
              frame_mod => emqx_stomp_frame,
              chann_mod => emqx_stomp_channel
             },
