@@ -33,7 +33,7 @@ fields("authorization") ->
                     , hoconsc:ref(?MODULE, mongo_rs)
                     , hoconsc:ref(?MODULE, mongo_sharded)
                     , hoconsc:ref(?MODULE, mysql)
-                    , hoconsc:ref(?MODULE, pgsql)
+                    , hoconsc:ref(?MODULE, postgresql)
                     , hoconsc:ref(?MODULE, redis_single)
                     , hoconsc:ref(?MODULE, redis_sentinel)
                     , hoconsc:ref(?MODULE, redis_cluster)
@@ -131,9 +131,12 @@ fields(mongo_sharded) ->
 fields(mysql) ->
     connector_fields(mysql) ++
     [ {query, query()} ];
-fields(pgsql) ->
-    connector_fields(pgsql) ++
-    [ {query, query()} ];
+fields(postgresql) ->
+    [ {type, #{type => postgresql}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    , {query, query()}
+    ] ++ emqx_connector_pgsql:fields(config);
 fields(redis_single) ->
     connector_fields(redis, single) ++
     [ {cmd, query()} ];

@@ -39,7 +39,7 @@
 -export([post_config_update/4, pre_config_update/2]).
 
 -define(CONF_KEY_PATH, [authorization, sources]).
--define(SOURCE_TYPES, [file, http, mongo, mysql, pgsql, redis]).
+-define(SOURCE_TYPES, [file, http, mongo, mysql, postgresql, redis]).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
@@ -309,7 +309,7 @@ init_source(#{enable := true,
               type := DB,
               query := SQL
              } = Source) when DB =:= mysql;
-                              DB =:= pgsql ->
+                              DB =:= postgresql ->
     Mod = authz_module(DB),
     case create_resource(Source) of
         {error, Reason} -> error({load_config_error, Reason});
@@ -407,6 +407,8 @@ create_resource(#{type := DB} = Source) ->
 authz_module(Type) ->
     list_to_existing_atom("emqx_authz_" ++ atom_to_list(Type)).
 
+connector_module(postgresql) ->
+    emqx_connector_pgsql;
 connector_module(Type) ->
     list_to_existing_atom("emqx_connector_" ++ atom_to_list(Type)).
 

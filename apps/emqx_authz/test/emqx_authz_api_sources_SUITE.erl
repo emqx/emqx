@@ -67,7 +67,7 @@
                    <<"ssl">> => #{<<"enable">> => false},
                    <<"query">> => <<"abcb">>
                   }).
--define(SOURCE4, #{<<"type">> => <<"pgsql">>,
+-define(SOURCE4, #{<<"type">> => <<"postgresql">>,
                    <<"enable">> => true,
                    <<"server">> => <<"127.0.0.1:5432">>,
                    <<"pool_size">> => 1,
@@ -183,7 +183,7 @@ t_api(_) ->
     ?assertMatch([ #{<<"type">> := <<"http">>}
                  , #{<<"type">> := <<"mongo">>}
                  , #{<<"type">> := <<"mysql">>}
-                 , #{<<"type">> := <<"pgsql">>}
+                 , #{<<"type">> := <<"postgresql">>}
                  , #{<<"type">> := <<"redis">>}
                  , #{<<"type">> := <<"file">>}
                  ], Sources),
@@ -227,13 +227,13 @@ t_move_source(_) ->
     ?assertMatch([ #{type := http}
                  , #{type := mongo}
                  , #{type := mysql}
-                 , #{type := pgsql}
+                 , #{type := postgresql}
                  , #{type := redis}
                  ], emqx_authz:lookup()),
 
-    {ok, 204, _} = request(post, uri(["authorization", "sources", "pgsql", "move"]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "postgresql", "move"]),
                            #{<<"position">> => <<"top">>}),
-    ?assertMatch([ #{type := pgsql}
+    ?assertMatch([ #{type := postgresql}
                  , #{type := http}
                  , #{type := mongo}
                  , #{type := mysql}
@@ -242,7 +242,7 @@ t_move_source(_) ->
 
     {ok, 204, _} = request(post, uri(["authorization", "sources", "http", "move"]),
                            #{<<"position">> => <<"bottom">>}),
-    ?assertMatch([ #{type := pgsql}
+    ?assertMatch([ #{type := postgresql}
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := redis}
@@ -250,9 +250,9 @@ t_move_source(_) ->
                  ], emqx_authz:lookup()),
 
     {ok, 204, _} = request(post, uri(["authorization", "sources", "mysql", "move"]),
-                           #{<<"position">> => #{<<"before">> => <<"pgsql">>}}),
+                           #{<<"position">> => #{<<"before">> => <<"postgresql">>}}),
     ?assertMatch([ #{type := mysql}
-                 , #{type := pgsql}
+                 , #{type := postgresql}
                  , #{type := mongo}
                  , #{type := redis}
                  , #{type := http}
@@ -261,7 +261,7 @@ t_move_source(_) ->
     {ok, 204, _} = request(post, uri(["authorization", "sources", "mongo", "move"]),
                            #{<<"position">> => #{<<"after">> => <<"http">>}}),
     ?assertMatch([ #{type := mysql}
-                 , #{type := pgsql}
+                 , #{type := postgresql}
                  , #{type := redis}
                  , #{type := http}
                  , #{type := mongo}
