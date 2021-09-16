@@ -535,7 +535,7 @@ tr_override_conf_fie(Conf) ->
     DataDir = conf_get("node.data_dir", Conf),
     %% assert, this config is not nullable
     [_ | _] = DataDir,
-    filename:join([DataDir, "emqx_override.conf"]).
+    filename:join([DataDir, "emqx_overrides.conf"]).
 
 tr_cluster__discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),

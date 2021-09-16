@@ -92,7 +92,7 @@
         %%   defaults to `false`
         rawconf_with_defaults => boolean(),
         %% persistent:
-        %%   save the updated config to the emqx_override.conf file
+        %%   save the updated config to the emqx_overrides.conf file
         %%   defaults to `true`
         persistent => boolean()
     }.
@@ -257,7 +257,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     end;
 init_load(SchemaMod, RawConf0) when is_map(RawConf0) ->
     ok = save_schema_mod_and_names(SchemaMod),
-    %% override part of the input conf using emqx_override.conf
+    %% override part of the input conf using emqx_overrides.conf
     RawConf = merge_with_override_conf(RawConf0),
     %% check and save configs
     {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf),
