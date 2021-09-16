@@ -44,7 +44,7 @@
 
 -type(options() :: #{strict_mode => boolean(),
                      max_size => 1..?MAX_PACKET_SIZE,
-                     version => emqx_types:version()
+                     version => emqx_types:proto_ver()
                     }).
 
 -type(parse_state() :: {none, options()} | {cont_state(), options()}).
@@ -490,7 +490,7 @@ serialize_pkt(Packet, #{version := Ver, max_size := MaxSize}) ->
 -spec(serialize(emqx_types:packet()) -> iodata()).
 serialize(Packet) -> serialize(Packet, ?MQTT_PROTO_V4).
 
--spec(serialize(emqx_types:packet(), emqx_types:version()) -> iodata()).
+-spec(serialize(emqx_types:packet(), emqx_types:proto_ver()) -> iodata()).
 serialize(#mqtt_packet{header   = Header,
                        variable = Variable,
                        payload  = Payload}, Ver) ->
