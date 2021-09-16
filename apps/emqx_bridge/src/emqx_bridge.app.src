@@ -1,3 +1,4 @@
+%% -*- mode: erlang -*-
 {application, emqx_bridge,
  [{description, "An OTP application"},
   {vsn, "0.1.0"},

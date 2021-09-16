@@ -1,3 +1,4 @@
+%% -*- mode: erlang -*-
 {application, emqx_mini_plugin,
  [{description, "An EMQ X plugin for testcase"},
   {vsn, "0.1"},

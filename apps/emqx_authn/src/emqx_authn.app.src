@@ -1,3 +1,4 @@
+%% -*- mode: erlang -*-
 {application, emqx_authn,
  [{description, "EMQ X Authentication"},
   {vsn, "0.1.0"},
