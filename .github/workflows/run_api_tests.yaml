@@ -13,8 +13,6 @@ jobs:
     container: "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
     steps:
     - uses: actions/checkout@v2
-      with:
-        repository: emqx/emqx
     - name: zip emqx-broker
       if: endsWith(github.repository, 'emqx')
       run: |
