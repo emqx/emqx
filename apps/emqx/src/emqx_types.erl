@@ -20,7 +20,7 @@
 -include("emqx_mqtt.hrl").
 -include("types.hrl").
 
--export_type([ ver/0
+-export_type([ proto_ver/0
              , qos/0
              , qos_name/0
              ]).
@@ -91,11 +91,11 @@
 
 -export_type([oom_policy/0]).
 
--type(ver() :: ?MQTT_PROTO_V3
-             | ?MQTT_PROTO_V4
-             | ?MQTT_PROTO_V5
-             | non_neg_integer()
-             | binary() % For lwm2m, mqtt-sn...
+-type(proto_ver() :: ?MQTT_PROTO_V3
+                   | ?MQTT_PROTO_V4
+                   | ?MQTT_PROTO_V5
+                   | non_neg_integer()
+                   | binary() % For lwm2m, mqtt-sn...
      ).
 
 -type(qos() :: ?QOS_0 | ?QOS_1 | ?QOS_2).
@@ -116,7 +116,7 @@
                       peercert := nossl | undefined | esockd_peercert:peercert(),
                       conn_mod := module(),
                       proto_name => binary(),
-                      proto_ver => ver(),
+                      proto_ver => proto_ver(),
                       clean_start => boolean(),
                       clientid => clientid(),
                       username => username(),
@@ -187,12 +187,12 @@
 -type(message() :: #message{}).
 -type(flag() :: sys | dup | retain | atom()).
 -type(flags() :: #{flag() := boolean()}).
--type(headers() :: #{proto_ver => ver(),
-                     protocol => protocol(),
-                     username => username(),
-                     peerhost => peerhost(),
+-type(headers() :: #{proto_ver  => proto_ver(),
+                     protocol   => protocol(),
+                     username   => username(),
+                     peerhost   => peerhost(),
                      properties => properties(),
-                     atom() => term()}).
+                     atom()     => term()}).
 
 -type(banned() :: #banned{}).
 -type(deliver() :: {deliver, topic(), message()}).
