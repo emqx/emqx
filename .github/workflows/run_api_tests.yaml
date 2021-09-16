@@ -2,9 +2,9 @@ name: API Test Suite
 
 on:
   push:
-   tags:
-     - e*
-     - v*
+    tags:
+      - e*
+      - v*
   pull_request:
 
 jobs:
