@@ -46,8 +46,8 @@
 %% for test suite
 -export([ unix_ts_to_rfc3339_bin/1
         , unix_ts_to_rfc3339_bin/2
-        , rfc3339_to_unix_ts_int/1
-        , rfc3339_to_unix_ts_int/2
+        , time_string_to_unix_ts_int/1
+        , time_string_to_unix_ts_int/2
         ]).
 
 
@@ -106,9 +106,9 @@ properties(client) ->
         {clean_start,       boolean, <<"Indicate whether the client is using a brand new session">>},
         {clientid,          string , <<"Client identifier">>},
         {connected,         boolean, <<"Whether the client is connected">>},
-        {connected_at,      string , <<"Client connection time">>},
-        {created_at,        string , <<"Session creation time">>},
-        {disconnected_at,   string , <<"Client offline time, This field is only valid and returned when connected is false">>},
+        {connected_at,      string , <<"Client connection time, rfc3339">>},
+        {created_at,        string , <<"Session creation time, rfc3339">>},
+        {disconnected_at,   string , <<"Client offline time, This field is only valid and returned when connected is false, rfc3339">>},
         {expiry_interval,   integer, <<"Session expiration interval, with the unit of second">>},
         {heap_size,         integer, <<"Process heap size with the unit of byte">>},
         {inflight_cnt,      integer, <<"Current length of inflight">>},
@@ -238,28 +238,28 @@ clients_api() ->
                     name => gte_created_at,
                     in => query,
                     required => false,
-                    description => <<"Search client session creation time by greater than or equal method, rfc3339">>,
+                    description => <<"Search client session creation time by greater than or equal method, rfc3339 or timestamp(millisecond)">>,
                     schema => #{type => string}
                 },
                 #{
                     name => lte_created_at,
                     in => query,
                     required => false,
-                    description => <<"Search client session creation time by less than or equal method, rfc3339">>,
+                    description => <<"Search client session creation time by less than or equal method, rfc3339 or timestamp(millisecond)">>,
                     schema => #{type => string}
                 },
                 #{
                     name => gte_connected_at,
                     in => query,
                     required => false,
-                    description => <<"Search client connection creation time by greater than or equal method, rfc3339">>,
+                    description => <<"Search client connection creation time by greater than or equal method, rfc3339 or timestamp(millisecond)">>,
                     schema => #{type => string}
                 },
                 #{
                     name => lte_connected_at,
                     in => query,
                     required => false,
-                    description => <<"Search client connection creation time by less than or equal method, rfc3339">>,
+                    description => <<"Search client connection creation time by less than or equal method, rfc3339 or timestamp(millisecond) ">>,
                     schema => #{type => string}
                 }
             ],
@@ -532,22 +532,25 @@ do_unsubscribe(ClientID, Topic) ->
     end.
 
 %%--------------------------------------------------------------------
-%% QueryString Generation (rfc3339 to timestamp)
+%% QueryString Generation (try rfc3339 to timestamp or keep timestamp)
+
+time_keys() ->
+    [ <<"gte_created_at">>
+    , <<"lte_created_at">>
+    , <<"gte_connected_at">>
+    , <<"lte_connected_at">>].
 
 generate_qs(Qs) ->
-    TimeKeys = [ <<"gte_created_at">>
-               , <<"lte_created_at">>
-               , <<"gte_connected_at">>
-               , <<"lte_connected_at">>],
     Fun =
-        fun
-            (Key, NQs) ->
+        fun (Key, NQs) ->
                 case NQs of
-                    #{Key := Rfc3339Time} -> NQs#{Key => rfc3339_to_unix_ts_int(Rfc3339Time)};
-                    #{}                   -> NQs
+                    %% TimeString likes "2021-01-01T00:00:00.000+08:00" (in rfc3339)
+                    %% or "1609430400000" (in millisecond)
+                    #{Key := TimeString} -> NQs#{Key => time_string_to_unix_ts_int(TimeString)};
+                    #{}                  -> NQs
                 end
         end,
-    lists:foldl(Fun, Qs, TimeKeys).
+    lists:foldl(Fun, Qs, time_keys()).
 
 %%--------------------------------------------------------------------
 %% Query Functions
@@ -717,8 +720,13 @@ unix_ts_to_rfc3339_bin(TimeStamp) ->
 unix_ts_to_rfc3339_bin(TimeStamp, Unit) when is_integer(TimeStamp) ->
     list_to_binary(calendar:system_time_to_rfc3339(TimeStamp, [{unit, Unit}])).
 
-rfc3339_to_unix_ts_int(DateTime) ->
-    rfc3339_to_unix_ts_int(DateTime, millisecond).
+time_string_to_unix_ts_int(DateTime) ->
+    time_string_to_unix_ts_int(DateTime, millisecond).
 
-rfc3339_to_unix_ts_int(DateTime, Unit) when is_binary(DateTime) ->
-    calendar:rfc3339_to_system_time(binary_to_list(DateTime), [{unit, Unit}]).
+time_string_to_unix_ts_int(DateTime, Unit) when is_binary(DateTime) ->
+    try binary_to_integer(DateTime) of
+        TimeStamp when is_integer(TimeStamp) -> TimeStamp
+    catch
+        error:badarg ->
+            calendar:rfc3339_to_system_time(binary_to_list(DateTime), [{unit, Unit}])
+    end.
