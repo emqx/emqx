@@ -334,7 +334,7 @@ stop() ->
 
 -spec get_refs() -> {ok, Refs} when Refs :: [{authn_type(), module()}].
 get_refs() ->
-    gen_server:call(?MODULE, get_refs).
+    call(get_refs).
 
 %% @doc Register authentication providers.
 %% A provider is a tuple of `AuthNType' the module which implements
@@ -344,7 +344,7 @@ get_refs() ->
 %% happen to clash the same `AuthNType'.
 -spec register_providers([{authn_type(), module()}]) -> ok.
 register_providers(Providers) ->
-    gen_server:call(?MODULE, {register_providers, Providers}).
+    call({register_providers, Providers}).
 
 -spec register_provider(authn_type(), module()) -> ok.
 register_provider(AuthNType, Provider) ->
@@ -352,7 +352,7 @@ register_provider(AuthNType, Provider) ->
 
 -spec deregister_providers([authn_type()]) -> ok.
 deregister_providers(AuthNTypes) when is_list(AuthNTypes) ->
-    gen_server:call(?MODULE, {deregister_providers, AuthNTypes}).
+    call({deregister_providers, AuthNTypes}).
 
 -spec deregister_provider(authn_type()) -> ok.
 deregister_provider(AuthNType) ->
@@ -360,15 +360,15 @@ deregister_provider(AuthNType) ->
 
 -spec create_chain(chain_name()) -> {ok, chain()} | {error, term()}.
 create_chain(Name) ->
-    gen_server:call(?MODULE, {create_chain, Name}).
+    call({create_chain, Name}).
 
 -spec delete_chain(chain_name()) -> ok | {error, term()}.
 delete_chain(Name) ->
-    gen_server:call(?MODULE, {delete_chain, Name}).
+    call({delete_chain, Name}).
 
 -spec lookup_chain(chain_name()) -> {ok, chain()} | {error, term()}.
 lookup_chain(Name) ->
-    gen_server:call(?MODULE, {lookup_chain, Name}).
+    call({lookup_chain, Name}).
 
 -spec list_chains() -> {ok, [chain()]}.
 list_chains() ->
@@ -377,15 +377,15 @@ list_chains() ->
 
 -spec create_authenticator(chain_name(), config()) -> {ok, authenticator()} | {error, term()}.
 create_authenticator(ChainName, Config) ->
-    gen_server:call(?MODULE, {create_authenticator, ChainName, Config}).
+    call({create_authenticator, ChainName, Config}).
 
 -spec delete_authenticator(chain_name(), authenticator_id()) -> ok | {error, term()}.
 delete_authenticator(ChainName, AuthenticatorID) ->
-    gen_server:call(?MODULE, {delete_authenticator, ChainName, AuthenticatorID}).
+    call({delete_authenticator, ChainName, AuthenticatorID}).
 
 -spec update_authenticator(chain_name(), authenticator_id(), config()) -> {ok, authenticator()} | {error, term()}.
 update_authenticator(ChainName, AuthenticatorID, Config) ->
-    gen_server:call(?MODULE, {update_authenticator, ChainName, AuthenticatorID, Config}).
+    call({update_authenticator, ChainName, AuthenticatorID, Config}).
 
 -spec lookup_authenticator(chain_name(), authenticator_id()) -> {ok, authenticator()} | {error, term()}.
 lookup_authenticator(ChainName, AuthenticatorID) ->
@@ -412,32 +412,32 @@ list_authenticators(ChainName) ->
 
 -spec move_authenticator(chain_name(), authenticator_id(), position()) -> ok | {error, term()}.
 move_authenticator(ChainName, AuthenticatorID, Position) ->
-    gen_server:call(?MODULE, {move_authenticator, ChainName, AuthenticatorID, Position}).
+    call({move_authenticator, ChainName, AuthenticatorID, Position}).
 
 -spec import_users(chain_name(), authenticator_id(), binary()) -> ok | {error, term()}.
 import_users(ChainName, AuthenticatorID, Filename) ->
-    gen_server:call(?MODULE, {import_users, ChainName, AuthenticatorID, Filename}).
+    call({import_users, ChainName, AuthenticatorID, Filename}).
 
 -spec add_user(chain_name(), authenticator_id(), user_info()) -> {ok, user_info()} | {error, term()}.
 add_user(ChainName, AuthenticatorID, UserInfo) ->
-    gen_server:call(?MODULE, {add_user, ChainName, AuthenticatorID, UserInfo}).
+    call({add_user, ChainName, AuthenticatorID, UserInfo}).
 
 -spec delete_user(chain_name(), authenticator_id(), binary()) -> ok | {error, term()}.
 delete_user(ChainName, AuthenticatorID, UserID) ->
-    gen_server:call(?MODULE, {delete_user, ChainName, AuthenticatorID, UserID}).
+    call({delete_user, ChainName, AuthenticatorID, UserID}).
 
 -spec update_user(chain_name(), authenticator_id(), binary(), map()) -> {ok, user_info()} | {error, term()}.
 update_user(ChainName, AuthenticatorID, UserID, NewUserInfo) ->
-    gen_server:call(?MODULE, {update_user, ChainName, AuthenticatorID, UserID, NewUserInfo}).
+    call({update_user, ChainName, AuthenticatorID, UserID, NewUserInfo}).
 
 -spec lookup_user(chain_name(), authenticator_id(), binary()) -> {ok, user_info()} | {error, term()}.
 lookup_user(ChainName, AuthenticatorID, UserID) ->
-    gen_server:call(?MODULE, {lookup_user, ChainName, AuthenticatorID, UserID}).
+    call({lookup_user, ChainName, AuthenticatorID, UserID}).
 
 %% TODO: Support pagination
 -spec list_users(chain_name(), authenticator_id()) -> {ok, [user_info()]} | {error, term()}.
 list_users(ChainName, AuthenticatorID) ->
-    gen_server:call(?MODULE, {list_users, ChainName, AuthenticatorID}).
+    call({list_users, ChainName, AuthenticatorID}).
 
 -spec generate_id(config()) -> authenticator_id().
 generate_id(#{mechanism := Mechanism0, backend := Backend0}) ->
@@ -901,3 +901,5 @@ to_list(L) when is_list(L) ->
 
 to_bin(B) when is_binary(B) -> B;
 to_bin(L) when is_list(L) -> list_to_binary(L).
+
+call(Call) -> gen_server:call(?MODULE, Call, infinity).
