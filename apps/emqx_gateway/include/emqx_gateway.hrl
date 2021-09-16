@@ -19,8 +19,6 @@
 
 -type gateway_name() :: atom().
 
--type listener() :: #{}.
-
 %% @doc The Gateway defination
 -type gateway() ::
         #{ name    := gateway_name()

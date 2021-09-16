@@ -30,7 +30,7 @@
         #{ %% Gateway Name
            gwname := gateway_name()
            %% Autenticator
-         , auth   := emqx_authn:chain_id() | undefined
+         , auth   := emqx_authentication:chain_name() | undefined
            %% The ConnectionManager PID
          , cm     := pid()
          }.
@@ -66,12 +66,8 @@
      | {error, any()}.
 authenticate(_Ctx = #{auth := undefined}, ClientInfo) ->
     {ok, mountpoint(ClientInfo)};
-authenticate(_Ctx = #{auth := ChainId}, ClientInfo0) ->
-    ClientInfo = ClientInfo0#{
-                   zone => default,
-                   listener => {tcp, default},
-                   chain_id => ChainId
-                  },
+authenticate(_Ctx = #{auth := _ChainName}, ClientInfo0) ->
+    ClientInfo = ClientInfo0#{zone => default},
     case emqx_access_control:authenticate(ClientInfo) of
         {ok, _} ->
             {ok, mountpoint(ClientInfo)};
