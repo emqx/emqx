@@ -199,12 +199,15 @@ pre_config_update(UpdateReq, OldConfig) ->
         {ok, NewConfig} -> {ok, may_to_map(NewConfig)}
     end.
 
-do_pre_config_update({create_authenticator, _ChainName, Config}, OldConfig) ->
-    try convert_certs(Config) of
-        NConfig ->
-            {ok, OldConfig ++ [NConfig]}
+do_pre_config_update({create_authenticator, ChainName, Config}, OldConfig) ->
+    try 
+        CertsDir = certs_dir([to_bin(ChainName), generate_id(Config)]),
+        NConfig = convert_certs(CertsDir, Config),
+        {ok, OldConfig ++ [NConfig]}
     catch
         error:{save_cert_to_file, _} = Reason ->
+            {error, Reason};
+        error:{missing_parameter, _} = Reason ->
             {error, Reason}
     end;
 do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldConfig) ->
@@ -212,17 +215,21 @@ do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldCon
                                 AuthenticatorID =/= generate_id(OldConfig0)
                              end, OldConfig),
     {ok, NewConfig};
-do_pre_config_update({update_authenticator, _ChainName, AuthenticatorID, Config}, OldConfig) ->
-    try lists:map(fun(OldConfig0) ->
-                              case AuthenticatorID =:= generate_id(OldConfig0) of
-                                  true -> convert_certs(Config, OldConfig0);
-                                  false -> OldConfig0
-                              end
-                          end, OldConfig) of
-        NewConfig ->
-            {ok, NewConfig}
+do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
+    try 
+        CertsDir = certs_dir([to_bin(ChainName), AuthenticatorID]),
+        NewConfig = lists:map(
+                        fun(OldConfig0) ->
+                            case AuthenticatorID =:= generate_id(OldConfig0) of
+                                true -> convert_certs(CertsDir, Config, OldConfig0);
+                                false -> OldConfig0
+                            end
+                        end, OldConfig),
+        {ok, NewConfig}
     catch
         error:{save_cert_to_file, _} = Reason ->
+            {error, Reason};
+         error:{missing_parameter, _} = Reason ->
             {error, Reason}
     end;
 do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}, OldConfig) ->
@@ -254,8 +261,16 @@ do_post_config_update({create_authenticator, ChainName, Config}, _NewConfig, _Ol
     _ = create_chain(ChainName),
     create_authenticator(ChainName, NConfig);
 
-do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewConfig, _OldConfig, _AppEnvs) ->
-    delete_authenticator(ChainName, AuthenticatorID);
+do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewConfig, OldConfig, _AppEnvs) ->
+    case delete_authenticator(ChainName, AuthenticatorID) of
+        ok ->
+            [Config] = [Config0 || Config0 <- OldConfig, AuthenticatorID == generate_id(Config0)],
+            CertsDir = certs_dir([to_bin(ChainName), AuthenticatorID]),
+            clear_certs(CertsDir, Config),
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end;
 
 do_post_config_update({update_authenticator, ChainName, AuthenticatorID, _Config}, NewConfig, _OldConfig, _AppEnvs) ->
     [Config] = lists:filter(fun(NewConfig0) ->
@@ -449,7 +464,9 @@ generate_id(#{mechanism := Mechanism}) ->
 generate_id(#{<<"mechanism">> := Mechanism, <<"backend">> := Backend}) ->
     <<Mechanism/binary, ":", Backend/binary>>;
 generate_id(#{<<"mechanism">> := Mechanism}) ->
-    Mechanism.
+    Mechanism;
+generate_id(_) ->
+    error({missing_parameter, mechanism}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -642,33 +659,45 @@ reply(Reply, State) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-convert_certs(#{<<"ssl">> := SSLOpts} = Config) ->
+certs_dir(Dirs) when is_list(Dirs) ->
+    to_bin(filename:join([emqx:get_config([node, data_dir]), "certs/authn"] ++ Dirs)).
+
+convert_certs(CertsDir, #{<<"ssl">> := SSLOpts} = Config) ->
     NSSLOPts = lists:foldl(fun(K, Acc) ->
                                case maps:get(K, Acc, undefined) of
                                    undefined -> Acc;
                                    PemBin ->
-                                       CertFile = generate_filename(K),
+                                       CertFile = generate_filename(CertsDir, K),
                                        ok = save_cert_to_file(CertFile, PemBin),
                                        Acc#{K => CertFile}
                                end
                            end, SSLOpts, [<<"certfile">>, <<"keyfile">>, <<"cacertfile">>]),
     Config#{<<"ssl">> => NSSLOPts};
-convert_certs(Config) ->
+convert_certs(_CertsDir, Config) ->
     Config.
 
-convert_certs(#{<<"ssl">> := NewSSLOpts} = NewConfig, OldConfig) ->
+convert_certs(CertsDir, #{<<"ssl">> := NewSSLOpts} = NewConfig, OldConfig) ->
     OldSSLOpts = maps:get(<<"ssl">>, OldConfig, #{}),
     Diff = diff_certs(NewSSLOpts, OldSSLOpts),
     NSSLOpts = lists:foldl(fun({identical, K}, Acc) ->
                                Acc#{K => maps:get(K, OldSSLOpts)};
                               ({_, K}, Acc) ->
-                               CertFile = generate_filename(K),
+                               CertFile = generate_filename(CertsDir, K),
                                ok = save_cert_to_file(CertFile, maps:get(K, NewSSLOpts)),
                                Acc#{K => CertFile}
                            end, NewSSLOpts, Diff),
     NewConfig#{<<"ssl">> => NSSLOpts};
-convert_certs(NewConfig, _OldConfig) ->
+convert_certs(_CertsDir, NewConfig, _OldConfig) ->
     NewConfig.
+
+clear_certs(CertsDir, #{<<"ssl">> := SSLOpts}) ->
+    lists:foreach(
+        fun({_, Filename}) ->
+            _ = file:delete(filename:join([CertsDir, Filename]))
+        end,
+        maps:to_list(maps:with([<<"certfile">>, <<"keyfile">>, <<"cacertfile">>], SSLOpts)));
+clear_certs(_CertsDir, _Config) ->
+    ok.
 
 save_cert_to_file(Filename, PemBin) ->
     case public_key:pem_decode(PemBin) =/= [] of
@@ -686,13 +715,13 @@ save_cert_to_file(Filename, PemBin) ->
             error({save_cert_to_file, invalid_certificate})
     end.
 
-generate_filename(Key) ->
+generate_filename(CertsDir, Key) ->
     Prefix = case Key of
                  <<"keyfile">> -> "key-";
                  <<"certfile">> -> "cert-";
                  <<"cacertfile">> -> "cacert-"
              end,
-    to_bin(filename:join([emqx:get_config([node, data_dir]), "certs/authn", Prefix ++ emqx_misc:gen_id() ++ ".pem"])).
+    to_bin(filename:join([CertsDir, Prefix ++ emqx_misc:gen_id() ++ ".pem"])).
 
 diff_certs(NewSSLOpts, OldSSLOpts) ->
     Keys = [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>],
@@ -900,6 +929,7 @@ to_list(L) when is_list(L) ->
     L.
 
 to_bin(B) when is_binary(B) -> B;
-to_bin(L) when is_list(L) -> list_to_binary(L).
+to_bin(L) when is_list(L) -> list_to_binary(L);
+to_bin(A) when is_atom(A) -> atom_to_binary(A).
 
 call(Call) -> gen_server:call(?MODULE, Call, infinity).

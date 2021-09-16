@@ -1589,6 +1589,11 @@ definitions() ->
                 type => string,
                 example => <<"http://localhost:80">>
             },
+            refresh_interval => #{
+                type => integer,
+                default => 300,
+                example => 300
+            },
             verify_claims => #{
                 type => object,
                 additionalProperties => #{
