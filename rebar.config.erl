@@ -260,6 +260,7 @@ relx_apps(ReleaseType) ->
     , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
+    , {esasl, load}
     , observer_cli
     , emqx_http_lib
     , emqx_resource
