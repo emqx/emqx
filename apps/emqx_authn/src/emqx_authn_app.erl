@@ -45,17 +45,20 @@ stop(_State) ->
 %%------------------------------------------------------------------------------
 
 add_providers() ->
-    _ = [?AUTHN:add_provider(AuthNType, Provider) || {AuthNType, Provider} <- providers()], ok.
+    lists:foreach(fun(AuthNType, Provider}) ->
+                          ?AUTHN:add_provider(AuthNType, Provider)
+                  end, providers()).
 
 remove_providers() ->
-    _ = [?AUTHN:remove_provider(AuthNType) || {AuthNType, _} <- providers()], ok.
+    lists:foreach(fun({AuthNType, _}) ->
+                          ?AUTHN:remove_provider(AuthNType)
+                  end, providers()).
 
 initialize() ->
     ?AUTHN:initialize_authentication(?GLOBAL, emqx:get_raw_config([authentication], [])),
     lists:foreach(fun({ListenerID, ListenerConfig}) ->
                       ?AUTHN:initialize_authentication(ListenerID, maps:get(authentication, ListenerConfig, []))
-                  end, emqx_listeners:list()),
-    ok.
+                  end, emqx_listeners:list()).
 
 providers() ->
     [ {{'password-based', 'built-in-database'}, emqx_authn_mnesia}
