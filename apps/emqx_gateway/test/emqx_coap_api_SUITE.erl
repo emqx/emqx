@@ -25,20 +25,19 @@
 
 -define(CONF_DEFAULT, <<"
 gateway.coap {
-              idle_timeout = 30s
-              enable_stats = false
-              mountpoint = \"\"
-              notify_type = qos
-              connection_required = true
-              subscribe_qos = qos1
-              publish_qos = qos1
-              authentication = undefined
-
-              listeners.udp.default {
-                                     bind = 5683
-                                    }
-             }
-                        ">>).
+  idle_timeout = 30s
+  enable_stats = false
+  mountpoint = \"\"
+  notify_type = qos
+  connection_required = true
+  subscribe_qos = qos1
+  publish_qos = qos1
+  authentication = undefined
+  listeners.udp.default {
+    bind = 5683
+  }
+}
+">>).
 
 -define(HOST, "127.0.0.1").
 -define(PORT, 5683).

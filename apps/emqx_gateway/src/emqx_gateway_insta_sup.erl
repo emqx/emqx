@@ -100,11 +100,17 @@ init([Gateway, Ctx, _GwDscrptr]) ->
                status = stopped,
                created_at = erlang:system_time(millisecond)
               },
-    case cb_gateway_load(State) of
-        {error, Reason} ->
-            {stop, {load_gateway_failure, Reason}};
-        {ok, NState} ->
-            {ok, NState}
+    case maps:get(enable, Config, true) of
+        false ->
+            ?LOG(info, "Skipp to start ~s gateway due to disabled", [GwName]),
+            {ok, State};
+        true ->
+            case cb_gateway_load(State) of
+                {error, Reason} ->
+                    {stop, {load_gateway_failure, Reason}};
+                {ok, NState} ->
+                    {ok, NState}
+            end
     end.
 
 handle_call(info, _From, State) ->
@@ -235,10 +241,12 @@ do_init_authn([], Names) ->
     Names;
 do_init_authn([{_ChainName, _AuthConf = #{enable := false}}|More], Names) ->
     do_init_authn(More, Names);
-do_init_authn([{ChainName, AuthConf}|More], Names) ->
+do_init_authn([{ChainName, AuthConf}|More], Names) when is_map(AuthConf) ->
     _ = application:ensure_all_started(emqx_authn),
     do_create_authn_chain(ChainName, AuthConf),
-    do_init_authn(More, [ChainName|Names]).
+    do_init_authn(More, [ChainName|Names]);
+do_init_authn([_BadConf|More], Names) ->
+    do_init_authn(More, Names).
 
 authns(GwName, Config) ->
     Listeners = maps:to_list(maps:get(listeners, Config, #{})),
@@ -358,39 +366,33 @@ cb_gateway_load(State = #state{name = GwName,
                                ctx = Ctx}) ->
 
     Gateway = detailed_gateway_info(State),
-
-    case maps:get(enable, Config, true) of
-        false ->
-            ?LOG(info, "Skipp to start ~s gateway due to disabled", [GwName]);
-        true ->
-            try
-                AuthnNames = init_authn(GwName, Config),
-                NCtx = Ctx#{auth => AuthnNames},
-                #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
-                case CbMod:on_gateway_load(Gateway, NCtx) of
-                    {error, Reason} ->
-                        do_deinit_authn(AuthnNames),
-                        throw({callback_return_error, Reason});
-                    {ok, ChildPidOrSpecs, GwState} ->
-                        ChildPids = start_child_process(ChildPidOrSpecs),
-                        {ok, State#state{
-                               ctx = NCtx,
-                               authns = AuthnNames,
-                               status = running,
-                               child_pids = ChildPids,
-                               gw_state = GwState,
-                               stopped_at = undefined,
-                               started_at = erlang:system_time(millisecond)
-                              }}
-                end
-            catch
-                Class : Reason1 : Stk ->
-                    ?LOG(error, "Failed to load ~s gateway (~0p, ~0p) "
-                                "crashed: {~p, ~p}, stacktrace: ~0p",
-                                 [GwName, Gateway, Ctx,
-                                  Class, Reason1, Stk]),
-                    {error, {Class, Reason1, Stk}}
-            end
+    try
+        AuthnNames = init_authn(GwName, Config),
+        NCtx = Ctx#{auth => AuthnNames},
+        #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
+        case CbMod:on_gateway_load(Gateway, NCtx) of
+            {error, Reason} ->
+                do_deinit_authn(AuthnNames),
+                throw({callback_return_error, Reason});
+            {ok, ChildPidOrSpecs, GwState} ->
+                ChildPids = start_child_process(ChildPidOrSpecs),
+                {ok, State#state{
+                       ctx = NCtx,
+                       authns = AuthnNames,
+                       status = running,
+                       child_pids = ChildPids,
+                       gw_state = GwState,
+                       stopped_at = undefined,
+                       started_at = erlang:system_time(millisecond)
+                      }}
+        end
+    catch
+        Class : Reason1 : Stk ->
+            ?LOG(error, "Failed to load ~s gateway (~0p, ~0p) "
+                        "crashed: {~p, ~p}, stacktrace: ~0p",
+                         [GwName, Gateway, Ctx,
+                          Class, Reason1, Stk]),
+            {error, {Class, Reason1, Stk}}
     end.
 
 cb_gateway_update(Config,
