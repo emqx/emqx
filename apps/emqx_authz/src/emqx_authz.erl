@@ -39,7 +39,7 @@
 -export([post_config_update/4, pre_config_update/2]).
 
 -define(CONF_KEY_PATH, [authorization, sources]).
--define(SOURCE_TYPES, [file, http, mongodb, mysql, postgresql, redis]).
+-define(SOURCE_TYPES, [file, http, mongodb, mysql, postgresql, redis, 'built-in-database']).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
@@ -297,6 +297,9 @@ init_source(#{enable := true,
         {error, Reason} -> error({load_config_error, Reason});
         Id -> Source#{annotations => #{id => Id}}
     end;
+init_source(#{enable := true,
+              type := 'built-in-database'
+             } = Source) -> Source;
 init_source(#{enable := true,
               type := DB
              } = Source) when DB =:= redis;

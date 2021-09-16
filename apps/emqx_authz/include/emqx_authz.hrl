@@ -19,6 +19,15 @@
 
 -type(sources() :: [map()]).
 
+-define(ACL_SHARDED, emqx_acl_sharded).
+
+-define(ACL_TABLE, emqx_acl).
+
+-record(emqx_acl, {
+          who :: username() | clientid() | all,
+          rules :: [ {permission(), action(), emqx_topic:topic()} ]
+         }).
+
 -define(APP, emqx_authz).
 
 -define(ALLOW_DENY(A), ((A =:= allow) orelse (A =:= <<"allow">>) orelse

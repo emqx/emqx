@@ -147,7 +147,15 @@ source_api() ->
                     name => type,
                     in => path,
                     schema => #{
-                       type => string
+                       type => string,
+                        enum => [ <<"file">>
+                                , <<"http">>
+                                , <<"mongodb">>
+                                , <<"mysql">>
+                                , <<"postgresql">>
+                                , <<"redis">>
+                                , <<"built-in-database">>
+                                ]
                     },
                     required => true
                 }
@@ -181,7 +189,15 @@ source_api() ->
                     name => type,
                     in => path,
                     schema => #{
-                       type => string
+                       type => string,
+                        enum => [ <<"file">>
+                                , <<"http">>
+                                , <<"mongodb">>
+                                , <<"mysql">>
+                                , <<"postgresql">>
+                                , <<"redis">>
+                                , <<"built-in-database">>
+                                ]
                     },
                     required => true
                 }
@@ -216,7 +232,15 @@ source_api() ->
                     name => type,
                     in => path,
                     schema => #{
-                       type => string
+                       type => string,
+                        enum => [ <<"file">>
+                                , <<"http">>
+                                , <<"mongodb">>
+                                , <<"mysql">>
+                                , <<"postgresql">>
+                                , <<"redis">>
+                                , <<"built-in-database">>
+                                ]
                     },
                     required => true
                 }
@@ -238,7 +262,15 @@ move_source_api() ->
                     name => type,
                     in => path,
                     schema => #{
-                        type => string
+                        type => string,
+                        enum => [ <<"file">>
+                                , <<"http">>
+                                , <<"mongodb">>
+                                , <<"mysql">>
+                                , <<"postgresql">>
+                                , <<"redis">>
+                                , <<"built-in-database">>
+                                ]
                     },
                     required => true
                 }
