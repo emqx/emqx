@@ -116,9 +116,15 @@ init(ConnInfo = #{peername := {PeerHost, _},
     Registry = maps:get(registry, Option),
     GwId = maps:get(gateway_id, Option),
     EnableQoS3 = maps:get(enable_qos3, Option, true),
+    ListenerId = case maps:get(listener, Option, undefined) of
+                     undefined -> undefined;
+                     {GwName, Type, LisName} ->
+                         emqx_gateway_utils:listener_id(GwName, Type, LisName)
+                 end,
     ClientInfo = set_peercert_infos(
                    Peercert,
                    #{ zone => default
+                    , listener => ListenerId
                     , protocol => 'mqtt-sn'
                     , peerhost => PeerHost
                     , sockport => SockPort

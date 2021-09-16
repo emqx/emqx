@@ -33,7 +33,7 @@ gateway.lwm2m {
   xml_dir = \"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml\"
   lifetime_min = 1s
   lifetime_max = 86400s
-  qmode_time_windonw = 22
+  qmode_time_window = 22
   auto_observe = false
   mountpoint = \"lwm2m/%u\"
   update_msg_publish_condition = contains_object_list

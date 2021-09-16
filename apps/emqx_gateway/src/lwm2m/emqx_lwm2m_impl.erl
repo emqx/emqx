@@ -102,6 +102,7 @@ start_listener(GwName, Ctx, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
 start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
     Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     NCfg = Cfg#{ ctx => Ctx
+               , listener => {GwName, Type, LisName}
                , frame_mod => emqx_coap_frame
                , chann_mod => emqx_lwm2m_channel
                },
