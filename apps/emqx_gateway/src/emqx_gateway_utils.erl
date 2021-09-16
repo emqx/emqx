@@ -226,11 +226,7 @@ sock_opts(Name, Opts) ->
 %% Envs
 
 active_n(Options) ->
-    maps:get(
-      active_n,
-      maps:get(listener, Options, #{active_n => ?ACTIVE_N}),
-      ?ACTIVE_N
-     ).
+    maps:get(active_n, Options, ?ACTIVE_N).
 
 -spec idle_timeout(map()) -> pos_integer().
 idle_timeout(Options) ->

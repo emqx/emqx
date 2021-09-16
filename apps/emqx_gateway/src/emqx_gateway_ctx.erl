@@ -29,8 +29,8 @@
 -type context() ::
         #{ %% Gateway Name
            gwname := gateway_name()
-           %% Autenticator
-         , auth   := emqx_authentication:chain_name() | undefined
+           %% Authentication chains
+         , auth   := [emqx_authentication:chain_name()] | undefined
            %% The ConnectionManager PID
          , cm     := pid()
          }.

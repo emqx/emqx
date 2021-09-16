@@ -121,6 +121,7 @@ start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
     Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     NCfg = Cfg#{
              ctx => Ctx,
+             listene => {GwName, Type, LisName},
              frame_mod => emqx_sn_frame,
              chann_mod => emqx_sn_channel
             },
@@ -138,13 +139,13 @@ merge_default(Options) ->
     end.
 
 stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
-    StopRet = stop_listener(GwName, LisName, Type, ListenOn, SocketOpts, Cfg),
+    StopRet = stop_listener(GwName, Type, LisName, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
         ok -> ?ULOG("Gateway ~s:~s:~s on ~s stopped.~n",
                     [GwName, Type, LisName, ListenOnStr]);
         {error, Reason} ->
-            ?ELOG("Failed to stop gatewat ~s:~s:~s on ~s: ~0p~n",
+            ?ELOG("Failed to stop gateway ~s:~s:~s on ~s: ~0p~n",
                   [GwName, Type, LisName, ListenOnStr, Reason])
     end,
     StopRet.
