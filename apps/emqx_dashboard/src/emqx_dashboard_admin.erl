@@ -139,7 +139,10 @@ update_pwd(Username, Fun) ->
 
 
 -spec(lookup_user(binary()) -> [mqtt_admin()]).
-lookup_user(Username) when is_binary(Username) -> mnesia:dirty_read(mqtt_admin, Username).
+lookup_user(Username) when is_binary(Username) ->
+    Trans = fun() -> mnesia:read(mqtt_admin, Username) end,
+    {atomic ,Users} = ekka_mnesia:transaction(?DASHBOARD_SHARD, Trans),
+    Users.
 
 -spec(all_users() -> [#mqtt_admin{}]).
 all_users() -> ets:tab2list(mqtt_admin).
