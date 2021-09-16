@@ -93,6 +93,11 @@
 -define(MAX_LEN_INFINITY, 0).
 -define(INFO_KEYS, [store_qos0, max_len, len, dropped]).
 
+-record(shift_opts, {
+          multiplier :: non_neg_integer(),
+          base       :: integer()
+         }).
+
 -record(mqueue, {
           store_qos0 = false              :: boolean(),
           max_len    = ?MAX_LEN_INFINITY  :: count(),
@@ -100,7 +105,10 @@
           dropped    = 0                  :: count(),
           p_table    = ?NO_PRIORITY_TABLE :: p_table(),
           default_p  = ?LOWEST_PRIORITY   :: priority(),
-          q          = ?PQUEUE:new()      :: pq()
+          q          = ?PQUEUE:new()      :: pq(),
+          shift_opts                      :: #shift_opts{},
+          last_prio                       :: non_neg_integer() | undefined,
+          p_credit                        :: non_neg_integer() | undefined
          }).
 
 -type(mqueue() :: #mqueue{}).
@@ -114,7 +122,8 @@ init(Opts = #{max_len := MaxLen0, store_qos0 := QoS_0}) ->
     #mqueue{max_len = MaxLen,
             store_qos0 = QoS_0,
             p_table = get_opt(priorities, Opts, ?NO_PRIORITY_TABLE),
-            default_p = get_priority_opt(Opts)
+            default_p = get_priority_opt(Opts),
+            shift_opts = get_shift_opt(Opts)
            }.
 
 -spec(info(mqueue()) -> emqx_types:infos()).
@@ -173,9 +182,24 @@ in(Msg = #message{topic = Topic}, MQ = #mqueue{default_p = Dp,
 out(MQ = #mqueue{len = 0, q = Q}) ->
     0 = ?PQUEUE:len(Q), %% assert, in this case, ?PQUEUE:len should be very cheap
     {empty, MQ};
-out(MQ = #mqueue{q = Q, len = Len}) ->
+out(MQ = #mqueue{q = Q, len = Len, last_prio = undefined, shift_opts = ShiftOpts}) ->
+    {{value, Val, Prio}, Q1} = ?PQUEUE:out_p(Q), %% Shouldn't fail, since we've checked the length
+    MQ1 = MQ#mqueue{
+            q = Q1,
+            len = Len - 1,
+            last_prio = Prio,
+            p_credit = get_credits(Prio, ShiftOpts)
+           },
+    {{value, Val}, MQ1};
+out(MQ = #mqueue{q = Q, p_credit = 0}) ->
+    MQ1 = MQ#mqueue{
+            q         = ?PQUEUE:shift(Q),
+            last_prio = undefined
+           },
+    out(MQ1);
+out(MQ = #mqueue{q = Q, len = Len, p_credit = Cnt}) ->
     {R, Q1} = ?PQUEUE:out(Q),
-    {R, MQ#mqueue{q = Q1, len = Len - 1}}.
+    {R, MQ#mqueue{q = Q1, len = Len - 1, p_credit = Cnt - 1}}.
 
 get_opt(Key, Opts, Default) ->
     case maps:get(Key, Opts, Default) of
@@ -196,3 +220,35 @@ get_priority_opt(Opts) ->
 %% while the highest 'infinity' is a [{infinity, queue:queue()}]
 get_priority(_Topic, ?NO_PRIORITY_TABLE, _) -> ?LOWEST_PRIORITY;
 get_priority(Topic, PTab, Dp) -> maps:get(Topic, PTab, Dp).
+
+get_credits(?HIGHEST_PRIORITY, Opts) ->
+    Infinity = 1000000,
+    get_credits(Infinity, Opts);
+get_credits(Prio, #shift_opts{multiplier = Mult, base = Base}) ->
+    (Prio + Base + 1) * Mult - 1.
+
+get_shift_opt(Opts) ->
+    %% Using 10 as a multiplier by default. This is needed to minimize
+    %% overhead of ?PQUEUE:rotate
+    Mult = maps:get(shift_multiplier, Opts, 10),
+    true = is_integer(Mult) andalso Mult > 0,
+    Min = case Opts of
+              #{p_table := PTab} ->
+                  case maps:size(PTab) of
+                      0 -> 0;
+                      _ -> lists:min(maps:values(PTab))
+                  end;
+              _ ->
+                  ?LOWEST_PRIORITY
+          end,
+    %% `mqueue' module supports negative priorities, but we don't want
+    %% the counter to be negative, so all priorities should be shifted
+    %% by a constant, if negative priorities are used:
+    Base = case Min < 0 of
+               true  -> -Min;
+               false -> 0
+           end,
+    #shift_opts{
+       multiplier = Mult,
+       base       = Base
+      }.

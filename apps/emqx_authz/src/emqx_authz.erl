@@ -392,7 +392,7 @@ gen_id(Type) ->
 
 create_resource(#{type := DB,
                   annotations := #{id := ResourceID}} = Source) ->
-    case emqx_resource:update(ResourceID, connector_module(DB), Source, []) of
+    case emqx_resource:recreate(ResourceID, connector_module(DB), Source, []) of
         {ok, _} -> ResourceID;
         {error, Reason} -> {error, Reason}
     end;

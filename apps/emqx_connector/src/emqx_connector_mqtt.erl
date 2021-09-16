@@ -89,8 +89,8 @@ on_start(InstId, Conf) ->
     NamePrefix = binary_to_list(InstId),
     BasicConf = basic_config(Conf),
     InitRes = {ok, #{name_prefix => NamePrefix, baisc_conf => BasicConf, sub_bridges => []}},
-    InOutConfigs = check_channel_id_dup(maps:get(message_in, Conf, [])
-                                        ++ maps:get(message_out, Conf, [])),
+    InOutConfigs = check_channel_id_dup(maps:get(ingress_channels, Conf, [])
+                                        ++ maps:get(egress_channels, Conf, [])),
     lists:foldl(fun
             (_InOutConf, {error, Reason}) ->
                 {error, Reason};
@@ -101,20 +101,16 @@ on_start(InstId, Conf) ->
                 end
         end, InitRes, InOutConfigs).
 
-on_stop(InstId, #{}) ->
+on_stop(InstId, #{sub_bridges := NameList}) ->
     logger:info("stopping mqtt connector: ~p", [InstId]),
-    case ?MODULE:drop_bridge(InstId) of
-        ok -> ok;
-        {error, not_found} -> ok;
-        {error, Reason} ->
-            logger:error("stop bridge failed, error: ~p", [Reason])
-    end.
+    lists:foreach(fun(Name) ->
+            remove_channel(Name)
+        end, NameList).
 
 %% TODO: let the emqx_resource trigger on_query/4 automatically according to the
-%%  `message_in` and `message_out` config
-on_query(InstId, {create_channel, Conf}, _AfterQuery, #{name_prefix := Prefix,
+%%  `ingress_channels` and `egress_channels` config
+on_query(_InstId, {create_channel, Conf}, _AfterQuery, #{name_prefix := Prefix,
         baisc_conf := BasicConf}) ->
-    logger:debug("create channel to connector: ~p, conf: ~p", [InstId, Conf]),
     create_channel(Conf, Prefix, BasicConf);
 on_query(InstId, {publish_to_local, Msg}, _AfterQuery, _State) ->
     logger:debug("publish to local node, connector: ~p, msg: ~p", [InstId, Msg]);
@@ -137,27 +133,42 @@ check_channel_id_dup(Confs) ->
         end, Confs),
     Confs.
 
-%% this is an `message_in` bridge
-create_channel(#{subscribe_remote_topic := _, id := Id} = InConf, NamePrefix, BasicConf) ->
-    logger:info("creating 'message_in' channel for: ~p", [Id]),
+%% this is an `ingress_channels` bridge
+create_channel(#{subscribe_remote_topic := RemoteT, local_topic := LocalT, id := Id} = InConf,
+        NamePrefix, BasicConf) ->
+    Name = bridge_name(NamePrefix, Id),
+    logger:info("creating ingress channel ~p, remote ~s -> local ~s",
+        [Name, RemoteT, LocalT]),
     create_sub_bridge(BasicConf#{
-        name => bridge_name(NamePrefix, Id),
+        name => Name,
         clientid => clientid(Id),
         subscriptions => InConf, forwards => undefined});
-%% this is an `message_out` bridge
-create_channel(#{subscribe_local_topic := _, id := Id} = OutConf, NamePrefix, BasicConf) ->
-    logger:info("creating 'message_out' channel for: ~p", [Id]),
+%% this is an `egress_channels` bridge
+create_channel(#{subscribe_local_topic := LocalT, remote_topic := RemoteT, id := Id} = OutConf,
+        NamePrefix, BasicConf) ->
+    Name = bridge_name(NamePrefix, Id),
+    logger:info("creating egress channel ~p, local ~s -> remote ~s",
+        [Name, LocalT, RemoteT]),
     create_sub_bridge(BasicConf#{
         name => bridge_name(NamePrefix, Id),
         clientid => clientid(Id),
         subscriptions => undefined, forwards => OutConf}).
+
+remove_channel(BridgeName) ->
+    logger:info("removing channel ~p", [BridgeName]),
+    case ?MODULE:drop_bridge(BridgeName) of
+        ok -> ok;
+        {error, not_found} -> ok;
+        {error, Reason} ->
+            logger:error("stop channel ~p failed, error: ~p", [BridgeName, Reason])
+    end.
 
 create_sub_bridge(#{name := Name} = Conf) ->
     case ?MODULE:create_bridge(Conf) of
         {ok, _Pid} ->
             start_sub_bridge(Name);
         {error, {already_started, _Pid}} ->
-            ok;
+            {ok, Name};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -203,7 +214,7 @@ bridge_name(Prefix, Id) ->
     list_to_atom(str(Prefix) ++ ":" ++ str(Id)).
 
 clientid(Id) ->
-    list_to_binary(str(Id) ++ ":" ++ emqx_plugin_libs_id:gen(4)).
+    list_to_binary(str(Id) ++ ":" ++ emqx_plugin_libs_id:gen(16)).
 
 str(A) when is_atom(A) ->
     atom_to_list(A);
