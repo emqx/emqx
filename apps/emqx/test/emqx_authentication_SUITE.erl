@@ -211,12 +211,12 @@ t_update_config(Config) when is_list(Config) ->
     ok = register_provider(?config("auth1"), ?MODULE),
     ok = register_provider(?config("auth2"), ?MODULE),
     Global = ?config(global),
-    AuthenticatorConfig1 = #{mechanism => 'password-based',
-                             backend => 'built-in-database',
-                             enable => true},
-    AuthenticatorConfig2 = #{mechanism => 'password-based',
-                             backend => mysql,
-                             enable => true},
+    AuthenticatorConfig1 = #{<<"mechanism">> => <<"password-based">>,
+                             <<"backend">> => <<"built-in-database">>,
+                             <<"enable">> => true},
+    AuthenticatorConfig2 = #{<<"mechanism">> => <<"password-based">>,
+                             <<"backend">> => <<"mysql">>,
+                             <<"enable">> => true},
     ID1 = <<"password-based:built-in-database">>,
     ID2 = <<"password-based:mysql">>,
 
@@ -227,7 +227,7 @@ t_update_config(Config) when is_list(Config) ->
     ?assertMatch({ok, _}, update_config([authentication], {create_authenticator, Global, AuthenticatorConfig2})),
     ?assertMatch({ok, #{id := ID2, state := #{mark := 1}}}, ?AUTHN:lookup_authenticator(Global, ID2)),
 
-    ?assertMatch({ok, _}, update_config([authentication], {update_authenticator, Global, ID1, AuthenticatorConfig1#{enable => false}})),
+    ?assertMatch({ok, _}, update_config([authentication], {update_authenticator, Global, ID1, AuthenticatorConfig1#{<<"enable">> => false}})),
     ?assertMatch({ok, #{id := ID1, state := #{mark := 2}}}, ?AUTHN:lookup_authenticator(Global, ID1)),
 
     ?assertMatch({ok, _}, update_config([authentication], {move_authenticator, Global, ID2, top})),
@@ -244,7 +244,7 @@ t_update_config(Config) when is_list(Config) ->
     ?assertMatch({ok, _}, update_config(ConfKeyPath, {create_authenticator, ListenerID, AuthenticatorConfig2})),
     ?assertMatch({ok, #{id := ID2, state := #{mark := 1}}}, ?AUTHN:lookup_authenticator(ListenerID, ID2)),
 
-    ?assertMatch({ok, _}, update_config(ConfKeyPath, {update_authenticator, ListenerID, ID1, AuthenticatorConfig1#{enable => false}})),
+    ?assertMatch({ok, _}, update_config(ConfKeyPath, {update_authenticator, ListenerID, ID1, AuthenticatorConfig1#{<<"enable">> => false}})),
     ?assertMatch({ok, #{id := ID1, state := #{mark := 2}}}, ?AUTHN:lookup_authenticator(ListenerID, ID1)),
 
     ?assertMatch({ok, _}, update_config(ConfKeyPath, {move_authenticator, ListenerID, ID2, top})),

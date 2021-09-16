@@ -264,7 +264,7 @@ do_post_config_update({create_authenticator, ChainName, Config}, _NewConfig, _Ol
 do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewConfig, OldConfig, _AppEnvs) ->
     case delete_authenticator(ChainName, AuthenticatorID) of
         ok ->
-            [Config] = [Config0 || Config0 <- OldConfig, AuthenticatorID == generate_id(Config0)],
+            [Config] = [Config0 || Config0 <- to_list(OldConfig), AuthenticatorID == generate_id(Config0)],
             CertsDir = certs_dir([to_bin(ChainName), AuthenticatorID]),
             clear_certs(CertsDir, Config),
             ok;
@@ -456,11 +456,11 @@ list_users(ChainName, AuthenticatorID) ->
 
 -spec generate_id(config()) -> authenticator_id().
 generate_id(#{mechanism := Mechanism0, backend := Backend0}) ->
-    Mechanism = atom_to_binary(Mechanism0),
-    Backend = atom_to_binary(Backend0),
+    Mechanism = to_bin(Mechanism0),
+    Backend = to_bin(Backend0),
     <<Mechanism/binary, ":", Backend/binary>>;
 generate_id(#{mechanism := Mechanism}) ->
-    atom_to_binary(Mechanism);
+    to_bin(Mechanism);
 generate_id(#{<<"mechanism">> := Mechanism, <<"backend">> := Backend}) ->
     <<Mechanism/binary, ":", Backend/binary>>;
 generate_id(#{<<"mechanism">> := Mechanism}) ->
