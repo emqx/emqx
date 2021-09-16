@@ -266,8 +266,9 @@ do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}
     move_authenticator(ChainName, AuthenticatorID, Position).
 
 check_config(Config) ->
-    #{authentication := CheckedConfig} = hocon_schema:check_plain(emqx_authentication,
-        #{<<"authentication">> => Config}, #{nullable => true, atom_key => true}),
+    #{authentication := CheckedConfig} =
+        hocon_schema:check_plain(?MODULE, #{<<"authentication">> => Config},
+                                 #{nullable => true, atom_key => true}),
     CheckedConfig.
 
 %%------------------------------------------------------------------------------
@@ -476,7 +477,7 @@ handle_call({delete_chain, Name}, _From, State) ->
         [#chain{authenticators = Authenticators}] ->
             _ = [do_delete_authenticator(Authenticator) || Authenticator <- Authenticators],
             true = ets:delete(?CHAINS_TAB, Name),
-            reply(ok, may_unhook(State))
+            reply(ok, maybe_unhook(State))
     end;
 
 handle_call({lookup_chain, Name}, _From, State) ->
@@ -506,7 +507,7 @@ handle_call({create_authenticator, ChainName, Config}, _From, #{providers := Pro
             end
         end,
     Reply = update_chain(ChainName, UpdateFun),
-    reply(Reply, may_hook(State));
+    reply(Reply, maybe_hook(State));
 
 handle_call({delete_authenticator, ChainName, AuthenticatorID}, _From, State) ->
     UpdateFun = 
@@ -521,7 +522,7 @@ handle_call({delete_authenticator, ChainName, AuthenticatorID}, _From, State) ->
             end
         end,
     Reply = update_chain(ChainName, UpdateFun),
-    reply(Reply, may_unhook(State));
+    reply(Reply, maybe_unhook(State));
 
 handle_call({update_authenticator, ChainName, AuthenticatorID, Config}, _From, State) ->
     UpdateFun =
@@ -726,30 +727,30 @@ global_chain(stomp) ->
 global_chain(_) ->
     'unknown:global'.
 
-may_hook(#{hooked := false} = State) ->
+maybe_hook(#{hooked := false} = State) ->
     case lists:any(fun(#chain{authenticators = []}) -> false;
                       (_) -> true
                    end, ets:tab2list(?CHAINS_TAB)) of
         true ->
-            _ = emqx:hook('client.authenticate', {emqx_authentication, authenticate, []}),
+            _ = emqx:hook('client.authenticate', {?MODULE, authenticate, []}),
             State#{hooked => true};
         false ->
             State
     end;
-may_hook(State) ->
+maybe_hook(State) ->
     State.
 
-may_unhook(#{hooked := true} = State) ->
+maybe_unhook(#{hooked := true} = State) ->
     case lists:all(fun(#chain{authenticators = []}) -> true;
                       (_) -> false
                    end, ets:tab2list(?CHAINS_TAB)) of
         true ->
-            _ = emqx:unhook('client.authenticate', {emqx_authentication, authenticate, []}),
+            _ = emqx:unhook('client.authenticate', {?MODULE, authenticate, []}),
             State#{hooked => false};
         false ->
             State
     end;
-may_unhook(State) ->
+maybe_unhook(State) ->
     State.
 
 do_create_authenticator(ChainName, AuthenticatorID, #{enable := Enable} = Config, Providers) ->
@@ -773,7 +774,7 @@ do_create_authenticator(ChainName, AuthenticatorID, #{enable := Enable} = Config
 do_delete_authenticator(#authenticator{provider = Provider, state = State}) ->
     _ = Provider:destroy(State),
     ok.
-    
+
 replace_authenticator(ID, Authenticator, Authenticators) ->
     lists:keyreplace(ID, #authenticator.id, Authenticators, Authenticator).
 
