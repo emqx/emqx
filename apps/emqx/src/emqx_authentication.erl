@@ -272,10 +272,7 @@ do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewCo
             {error, Reason}
     end;
 
-do_post_config_update({update_authenticator, ChainName, AuthenticatorID, _Config}, NewConfig, _OldConfig, _AppEnvs) ->
-    [Config] = lists:filter(fun(NewConfig0) ->
-                                AuthenticatorID =:= generate_id(NewConfig0)
-                            end, NewConfig),
+do_post_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, _NewConfig, _OldConfig, _AppEnvs) ->
     NConfig = check_config(Config),
     update_authenticator(ChainName, AuthenticatorID, NConfig);
 
