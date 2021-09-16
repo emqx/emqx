@@ -1,3 +1,4 @@
+%% -*- mode: erlang -*-
 {application, emqx,
  [{id, "emqx"},
   {description, "EMQ X Core"},

@@ -1,3 +1,4 @@
+%% -*- mode: erlang -*-
 {application, emqx_hocon_plugin,
  [{description, "An EMQ X plugin for hocon testcase"},
   {vsn, "0.1"},
