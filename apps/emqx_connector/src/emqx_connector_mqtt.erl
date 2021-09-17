@@ -28,6 +28,8 @@
         , bridges/0
         ]).
 
+-export([on_message_received/2]).
+
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
         , on_stop/2
@@ -84,6 +86,12 @@ drop_bridge(Name) ->
     end.
 
 %% ===================================================================
+%% When use this bridge as a data source, ?MODULE:on_message_received/2 will be called
+%% if the bridge received msgs from the remote broker.
+on_message_received(Msg, ChannelName) ->
+    emqx:run_hook(ChannelName, [Msg]).
+
+%% ===================================================================
 on_start(InstId, Conf) ->
     logger:info("starting mqtt connector: ~p, ~p", [InstId, Conf]),
     NamePrefix = binary_to_list(InstId),
@@ -112,10 +120,9 @@ on_stop(InstId, #{channels := NameList}) ->
 on_query(_InstId, {create_channel, Conf}, _AfterQuery, #{name_prefix := Prefix,
         baisc_conf := BasicConf}) ->
     create_channel(Conf, Prefix, BasicConf);
-on_query(InstId, {publish_to_local, Msg}, _AfterQuery, _State) ->
-    logger:debug("publish to local node, connector: ~p, msg: ~p", [InstId, Msg]);
-on_query(InstId, {publish_to_remote, Msg}, _AfterQuery, _State) ->
-    logger:debug("publish to remote node, connector: ~p, msg: ~p", [InstId, Msg]).
+on_query(_InstId, {send_to_remote, ChannelName, Msg}, _AfterQuery, _State) ->
+    logger:debug("send msg to remote node on channel: ~p, msg: ~p", [ChannelName, Msg]),
+    emqx_connector_mqtt_worker:send_to_remote(ChannelName, Msg).
 
 on_health_check(_InstId, #{channels := NameList} = State) ->
     Results = [{Name, emqx_connector_mqtt_worker:ping(Name)} || Name <- NameList],
@@ -124,25 +131,30 @@ on_health_check(_InstId, #{channels := NameList} = State) ->
         false -> {error, {some_channel_down, Results}, State}
     end.
 
-create_channel({{ingress_channels, Id}, #{subscribe_remote_topic := RemoteT,
-        local_topic := LocalT} = Conf}, NamePrefix, BasicConf) ->
+create_channel({{ingress_channels, Id}, #{subscribe_remote_topic := RemoteT} = Conf},
+        NamePrefix, BasicConf) ->
+    LocalT = maps:get(local_topic, Conf, undefined),
     Name = ingress_channel_name(NamePrefix, Id),
-    logger:info("creating ingress channel ~p, remote ~s -> local ~s",
-        [Name, RemoteT, LocalT]),
+    logger:info("creating ingress channel ~p, remote ~s -> local ~s", [Name, RemoteT, LocalT]),
     do_create_channel(BasicConf#{
         name => Name,
         clientid => clientid(Name),
-        subscriptions => Conf, forwards => undefined});
+        subscriptions => Conf#{
+            local_topic => LocalT,
+            on_message_received => {fun ?MODULE:on_message_received/2, [Name]}
+        },
+        forwards => undefined});
 
-create_channel({{egress_channels, Id}, #{subscribe_local_topic := LocalT,
-        remote_topic := RemoteT} = Conf}, NamePrefix, BasicConf) ->
+create_channel({{egress_channels, Id}, #{remote_topic := RemoteT} = Conf},
+        NamePrefix, BasicConf) ->
+    LocalT = maps:get(subscribe_local_topic, Conf, undefined),
     Name = egress_channel_name(NamePrefix, Id),
-    logger:info("creating egress channel ~p, local ~s -> remote ~s",
-        [Name, LocalT, RemoteT]),
+    logger:info("creating egress channel ~p, local ~s -> remote ~s", [Name, LocalT, RemoteT]),
     do_create_channel(BasicConf#{
         name => Name,
         clientid => clientid(Name),
-        subscriptions => undefined, forwards => Conf}).
+        subscriptions => undefined,
+        forwards => Conf#{subscribe_local_topic => LocalT}}).
 
 remove_channel(ChannelName) ->
     logger:info("removing channel ~p", [ChannelName]),
