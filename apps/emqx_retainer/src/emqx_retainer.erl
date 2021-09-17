@@ -187,8 +187,9 @@ init([]) ->
      end}.
 
 handle_call({update_config, Conf}, _, State) ->
-    {ok, Config} = emqx:update_config([?APP], Conf),
-    State2 = update_config(State, maps:get(config, Config)),
+    OldConf = emqx:get_config([?APP]),
+    {ok, #{config := NewConf}} = emqx:update_config([?APP], Conf),
+    State2 = update_config(State, NewConf, OldConf),
     {reply, ok, State2};
 
 handle_call({wait_semaphore, Id}, From, #{wait_quotas := Waits} = State) ->
@@ -343,34 +344,43 @@ insert_shared_context(Key, Term) ->
 get_msg_deliver_quota() ->
     emqx:get_config([?APP, flow_control, msg_deliver_quota]).
 
--spec update_config(state(), hocons:config()) -> state().
-update_config(#{clear_timer := ClearTimer,
-                release_quota_timer := QuotaTimer} = State, Conf) ->
-    #{enable := Enable,
-      config := Config,
+-spec update_config(state(), hocons:config(), hocons:config()) -> state().
+update_config(State, Conf, OldConf) ->
+    update_config(maps:get(enable, Conf),
+                  maps:get(enable, OldConf),
+                  State,
+                  Conf,
+                  OldConf).
+
+-spec update_config(boolean(), boolean(), state(), hocons:config(), hocons:config()) -> state().
+update_config(false, _, State, _, _) ->
+    disable_retainer(State);
+
+update_config(true, false, State, NewConf, _) ->
+    enable_retainer(State, NewConf);
+
+update_config(true, true,
+              #{clear_timer := ClearTimer,
+                release_quota_timer := QuotaTimer} = State, NewConf, OldConf) ->
+    #{config := Cfg,
       flow_control := #{quota_release_interval := QuotaInterval},
-      msg_clear_interval := ClearInterval} = Conf,
+      msg_clear_interval := ClearInterval} = NewConf,
 
-    #{config := OldConfig} = emqx:get_config([?APP]),
+    #{config := OldCfg} = OldConf,
 
-    case Enable of
-        true ->
-            StorageType = maps:get(type, Config),
-            OldStrorageType = maps:get(type, OldConfig),
-            case OldStrorageType of
-                StorageType ->
-                    State#{clear_timer := check_timer(ClearTimer,
-                                                      ClearInterval,
-                                                      clear_expired),
-                           release_quota_timer := check_timer(QuotaTimer,
-                                                              QuotaInterval,
-                                                              release_deliver_quota)};
-                _ ->
-                    State2 = disable_retainer(State),
-                    enable_retainer(State2, Conf)
-            end;
+    StorageType = maps:get(type, Cfg),
+    OldStrorageType = maps:get(type, OldCfg),
+    case OldStrorageType of
+        StorageType ->
+            State#{clear_timer := check_timer(ClearTimer,
+                                              ClearInterval,
+                                              clear_expired),
+                   release_quota_timer := check_timer(QuotaTimer,
+                                                      QuotaInterval,
+                                                      release_deliver_quota)};
         _ ->
-            disable_retainer(State)
+            State2 = disable_retainer(State),
+            enable_retainer(State2, NewConf)
     end.
 
 -spec enable_retainer(state(), hocon:config()) -> state().
