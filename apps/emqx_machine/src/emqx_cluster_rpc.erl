@@ -101,9 +101,9 @@ multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNu
                 end
         end,
     End = erlang:monotonic_time(),
-    MinDelay = erlang:convert_time_unit(Begin - End, native, millisecond) + 50,
+    MinDelay = erlang:convert_time_unit(End - Begin, native, millisecond) + 50,
     %% Fail after 3 attempts.
-    RetryTimeout = 3 * max(MinDelay, get_retry_ms()),
+    RetryTimeout = ceil(3 * max(MinDelay, get_retry_ms())),
     OkOrFailed =
         case InitRes of
             {ok, _TnxId, _} when RequireNum =:= 1 ->
@@ -334,9 +334,9 @@ log_and_alarm(false, Res, Meta) ->
     emqx_alarm:activate(cluster_rpc_apply_failed, NotOkMeta#{result => ?TO_BIN(Res)}).
 
 wait_for_all_nodes_commit(TnxId, Delay, Remain) ->
-    ok = timer:sleep(Delay),
     case lagging_node(TnxId) of
         [_ | _] when Remain > 0 ->
+            ok = timer:sleep(Delay),
             wait_for_all_nodes_commit(TnxId, Delay, Remain - Delay);
         [] -> ok;
         Nodes -> {error, Nodes}
