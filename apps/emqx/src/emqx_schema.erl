@@ -904,9 +904,10 @@ filter(Opts) ->
 
 ssl(Defaults) ->
     D = fun (Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
+    Df = fun (Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
     [ {"enable",
        sc(boolean(),
-          #{ default => D("enable")
+          #{ default => Df("enable", false)
            })
       }
     , {"cacertfile",
@@ -926,37 +927,58 @@ ssl(Defaults) ->
       }
     , {"verify",
        sc(hoconsc:union([verify_peer, verify_none]),
-          #{ default => D("verify")
+          #{ default => Df("verify", verify_none)
            })
       }
     , {"fail_if_no_peer_cert",
        sc(boolean(),
-          #{ default => D("fail_if_no_peer_cert")
+          #{ default => Df("fail_if_no_peer_cert", false)
            })
       }
     , {"secure_renegotiate",
        sc(boolean(),
-          #{ default => D("secure_renegotiate")
+          #{ default => Df("secure_renegotiate", true)
+           , desc => """
+SSL parameter renegotiation is a feature that allows a client and a server 
+to renegotiate the parameters of the SSL connection on the fly. 
+RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation, 
+you drop support for the insecure renegotiation, prone to MitM attacks.
+"""
+           })
+      }
+    , {"client_renegotiation",
+       sc(boolean(),
+          #{ default => Df("client_renegotiation", true)
+           , desc => """
+In protocols that support client-initiated renegotiation, 
+the cost of resources of such an operation is higher for the server than the client. 
+This can act as a vector for denial of service attacks. 
+The SSL application already takes measures to counter-act such attempts, 
+but client-initiated renegotiation can be strictly disabled by setting this option to false. 
+The default value is true. Note that disabling renegotiation can result in 
+long-lived connections becoming unusable due to limits on 
+the number of messages the underlying cipher suite can encipher.
+"""
            })
       }
     , {"reuse_sessions",
        sc(boolean(),
-          #{ default => D("reuse_sessions")
+          #{ default => Df("reuse_sessions", true)
            })
       }
     , {"honor_cipher_order",
        sc(boolean(),
-          #{ default => D("honor_cipher_order")
+          #{ default => Df("honor_cipher_order", true)
            })
       }
     , {"handshake_timeout",
        sc(duration(),
-          #{ default => D("handshake_timeout")
+          #{ default => Df("handshake_timeout", "15s")
            })
       }
     , {"depth",
        sc(integer(),
-          #{default => D("depth")
+          #{default => Df("depth", 10)
            })
       }
     , {"password",
