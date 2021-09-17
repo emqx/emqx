@@ -5,9 +5,9 @@
 %%======================================================================================
 %% Hocon Schema Definitions
 
-roots() -> ["bridges"].
+roots() -> [bridges].
 
-fields("bridges") ->
+fields(bridges) ->
     [{mqtt, hoconsc:mk(hoconsc:map(name, hoconsc:ref(?MODULE, "mqtt_bridge")))}];
 
 fields("mqtt_bridge") ->
