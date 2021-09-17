@@ -40,8 +40,10 @@
         , stop/0
         ]).
 
--export([ add_provider/2
-        , remove_provider/1
+-export([ register_provider/2
+        , register_providers/1
+        , deregister_provider/1
+        , deregister_providers/1
         , create_chain/1
         , delete_chain/1
         , lookup_chain/1
@@ -266,8 +268,9 @@ do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}
     move_authenticator(ChainName, AuthenticatorID, Position).
 
 check_config(Config) ->
-    #{authentication := CheckedConfig} = hocon_schema:check_plain(emqx_authentication,
-        #{<<"authentication">> => Config}, #{nullable => true, atom_key => true}),
+    #{authentication := CheckedConfig} =
+        hocon_schema:check_plain(?MODULE, #{<<"authentication">> => Config},
+                                 #{nullable => true, atom_key => true}),
     CheckedConfig.
 
 %%------------------------------------------------------------------------------
@@ -331,27 +334,41 @@ stop() ->
 
 -spec get_refs() -> {ok, Refs} when Refs :: [{authn_type(), module()}].
 get_refs() ->
-    gen_server:call(?MODULE, get_refs).
+    call(get_refs).
 
--spec add_provider(authn_type(), module()) -> ok.
-add_provider(AuthNType, Provider) ->
-    gen_server:call(?MODULE, {add_provider, AuthNType, Provider}).
+%% @doc Register authentication providers.
+%% A provider is a tuple of `AuthNType' the module which implements
+%% the authenticator callbacks.
+%% For example, ``[{{'password-based', redis}, emqx_authn_redis}]''
+%% NOTE: Later registered provider may override earlier registered if they
+%% happen to clash the same `AuthNType'.
+-spec register_providers([{authn_type(), module()}]) -> ok.
+register_providers(Providers) ->
+    call({register_providers, Providers}).
 
--spec remove_provider(authn_type()) -> ok.
-remove_provider(AuthNType) ->
-    gen_server:call(?MODULE, {remove_provider, AuthNType}).
+-spec register_provider(authn_type(), module()) -> ok.
+register_provider(AuthNType, Provider) ->
+    register_providers([{AuthNType, Provider}]).
+
+-spec deregister_providers([authn_type()]) -> ok.
+deregister_providers(AuthNTypes) when is_list(AuthNTypes) ->
+    call({deregister_providers, AuthNTypes}).
+
+-spec deregister_provider(authn_type()) -> ok.
+deregister_provider(AuthNType) ->
+    deregister_providers([AuthNType]).
 
 -spec create_chain(chain_name()) -> {ok, chain()} | {error, term()}.
 create_chain(Name) ->
-    gen_server:call(?MODULE, {create_chain, Name}).
+    call({create_chain, Name}).
 
 -spec delete_chain(chain_name()) -> ok | {error, term()}.
 delete_chain(Name) ->
-    gen_server:call(?MODULE, {delete_chain, Name}).
+    call({delete_chain, Name}).
 
 -spec lookup_chain(chain_name()) -> {ok, chain()} | {error, term()}.
 lookup_chain(Name) ->
-    gen_server:call(?MODULE, {lookup_chain, Name}).
+    call({lookup_chain, Name}).
 
 -spec list_chains() -> {ok, [chain()]}.
 list_chains() ->
@@ -360,15 +377,15 @@ list_chains() ->
 
 -spec create_authenticator(chain_name(), config()) -> {ok, authenticator()} | {error, term()}.
 create_authenticator(ChainName, Config) ->
-    gen_server:call(?MODULE, {create_authenticator, ChainName, Config}).
+    call({create_authenticator, ChainName, Config}).
 
 -spec delete_authenticator(chain_name(), authenticator_id()) -> ok | {error, term()}.
 delete_authenticator(ChainName, AuthenticatorID) ->
-    gen_server:call(?MODULE, {delete_authenticator, ChainName, AuthenticatorID}).
+    call({delete_authenticator, ChainName, AuthenticatorID}).
 
 -spec update_authenticator(chain_name(), authenticator_id(), config()) -> {ok, authenticator()} | {error, term()}.
 update_authenticator(ChainName, AuthenticatorID, Config) ->
-    gen_server:call(?MODULE, {update_authenticator, ChainName, AuthenticatorID, Config}).
+    call({update_authenticator, ChainName, AuthenticatorID, Config}).
 
 -spec lookup_authenticator(chain_name(), authenticator_id()) -> {ok, authenticator()} | {error, term()}.
 lookup_authenticator(ChainName, AuthenticatorID) ->
@@ -395,32 +412,32 @@ list_authenticators(ChainName) ->
 
 -spec move_authenticator(chain_name(), authenticator_id(), position()) -> ok | {error, term()}.
 move_authenticator(ChainName, AuthenticatorID, Position) ->
-    gen_server:call(?MODULE, {move_authenticator, ChainName, AuthenticatorID, Position}).
+    call({move_authenticator, ChainName, AuthenticatorID, Position}).
 
 -spec import_users(chain_name(), authenticator_id(), binary()) -> ok | {error, term()}.
 import_users(ChainName, AuthenticatorID, Filename) ->
-    gen_server:call(?MODULE, {import_users, ChainName, AuthenticatorID, Filename}).
+    call({import_users, ChainName, AuthenticatorID, Filename}).
 
 -spec add_user(chain_name(), authenticator_id(), user_info()) -> {ok, user_info()} | {error, term()}.
 add_user(ChainName, AuthenticatorID, UserInfo) ->
-    gen_server:call(?MODULE, {add_user, ChainName, AuthenticatorID, UserInfo}).
+    call({add_user, ChainName, AuthenticatorID, UserInfo}).
 
 -spec delete_user(chain_name(), authenticator_id(), binary()) -> ok | {error, term()}.
 delete_user(ChainName, AuthenticatorID, UserID) ->
-    gen_server:call(?MODULE, {delete_user, ChainName, AuthenticatorID, UserID}).
+    call({delete_user, ChainName, AuthenticatorID, UserID}).
 
 -spec update_user(chain_name(), authenticator_id(), binary(), map()) -> {ok, user_info()} | {error, term()}.
 update_user(ChainName, AuthenticatorID, UserID, NewUserInfo) ->
-    gen_server:call(?MODULE, {update_user, ChainName, AuthenticatorID, UserID, NewUserInfo}).
+    call({update_user, ChainName, AuthenticatorID, UserID, NewUserInfo}).
 
 -spec lookup_user(chain_name(), authenticator_id(), binary()) -> {ok, user_info()} | {error, term()}.
 lookup_user(ChainName, AuthenticatorID, UserID) ->
-    gen_server:call(?MODULE, {lookup_user, ChainName, AuthenticatorID, UserID}).
+    call({lookup_user, ChainName, AuthenticatorID, UserID}).
 
 %% TODO: Support pagination
 -spec list_users(chain_name(), authenticator_id()) -> {ok, [user_info()]} | {error, term()}.
 list_users(ChainName, AuthenticatorID) ->
-    gen_server:call(?MODULE, {list_users, ChainName, AuthenticatorID}).
+    call({list_users, ChainName, AuthenticatorID}).
 
 -spec generate_id(config()) -> authenticator_id().
 generate_id(#{mechanism := Mechanism0, backend := Backend0}) ->
@@ -446,11 +463,20 @@ init(_Opts) ->
     ok = emqx_config_handler:add_handler([listeners, '?', '?', authentication], ?MODULE),
     {ok, #{hooked => false, providers => #{}}}.
 
-handle_call({add_provider, AuthNType, Provider}, _From, #{providers := Providers} = State) ->
-    reply(ok, State#{providers := Providers#{AuthNType => Provider}});
+handle_call({register_providers, Providers}, _From,
+            #{providers := Reg0} = State) ->
+    case lists:filter(fun({T, _}) -> maps:is_key(T, Reg0) end, Providers) of
+        [] ->
+            Reg = lists:foldl(fun({AuthNType, Module}, Pin) ->
+                                      Pin#{AuthNType => Module}
+                              end, Reg0, Providers),
+            reply(ok, State#{providers := Reg});
+        Clashes ->
+            reply({error, {authentication_type_clash, Clashes}}, State)
+    end;
 
-handle_call({remove_provider, AuthNType}, _From, #{providers := Providers} = State) ->
-    reply(ok, State#{providers := maps:remove(AuthNType, Providers)});
+handle_call({deregister_providers, AuthNTypes}, _From, #{providers := Providers} = State) ->
+    reply(ok, State#{providers := maps:without(AuthNTypes, Providers)});
 
 handle_call(get_refs, _From, #{providers := Providers} = State) ->
     Refs = lists:foldl(fun({_, Provider}, Acc) ->
@@ -476,7 +502,7 @@ handle_call({delete_chain, Name}, _From, State) ->
         [#chain{authenticators = Authenticators}] ->
             _ = [do_delete_authenticator(Authenticator) || Authenticator <- Authenticators],
             true = ets:delete(?CHAINS_TAB, Name),
-            reply(ok, may_unhook(State))
+            reply(ok, maybe_unhook(State))
     end;
 
 handle_call({lookup_chain, Name}, _From, State) ->
@@ -506,7 +532,7 @@ handle_call({create_authenticator, ChainName, Config}, _From, #{providers := Pro
             end
         end,
     Reply = update_chain(ChainName, UpdateFun),
-    reply(Reply, may_hook(State));
+    reply(Reply, maybe_hook(State));
 
 handle_call({delete_authenticator, ChainName, AuthenticatorID}, _From, State) ->
     UpdateFun = 
@@ -521,7 +547,7 @@ handle_call({delete_authenticator, ChainName, AuthenticatorID}, _From, State) ->
             end
         end,
     Reply = update_chain(ChainName, UpdateFun),
-    reply(Reply, may_unhook(State));
+    reply(Reply, maybe_unhook(State));
 
 handle_call({update_authenticator, ChainName, AuthenticatorID, Config}, _From, State) ->
     UpdateFun =
@@ -726,30 +752,30 @@ global_chain(stomp) ->
 global_chain(_) ->
     'unknown:global'.
 
-may_hook(#{hooked := false} = State) ->
+maybe_hook(#{hooked := false} = State) ->
     case lists:any(fun(#chain{authenticators = []}) -> false;
                       (_) -> true
                    end, ets:tab2list(?CHAINS_TAB)) of
         true ->
-            _ = emqx:hook('client.authenticate', {emqx_authentication, authenticate, []}),
+            _ = emqx:hook('client.authenticate', {?MODULE, authenticate, []}),
             State#{hooked => true};
         false ->
             State
     end;
-may_hook(State) ->
+maybe_hook(State) ->
     State.
 
-may_unhook(#{hooked := true} = State) ->
+maybe_unhook(#{hooked := true} = State) ->
     case lists:all(fun(#chain{authenticators = []}) -> true;
                       (_) -> false
                    end, ets:tab2list(?CHAINS_TAB)) of
         true ->
-            _ = emqx:unhook('client.authenticate', {emqx_authentication, authenticate, []}),
+            _ = emqx:unhook('client.authenticate', {?MODULE, authenticate, []}),
             State#{hooked => false};
         false ->
             State
     end;
-may_unhook(State) ->
+maybe_unhook(State) ->
     State.
 
 do_create_authenticator(ChainName, AuthenticatorID, #{enable := Enable} = Config, Providers) ->
@@ -773,7 +799,7 @@ do_create_authenticator(ChainName, AuthenticatorID, #{enable := Enable} = Config
 do_delete_authenticator(#authenticator{provider = Provider, state = State}) ->
     _ = Provider:destroy(State),
     ok.
-    
+
 replace_authenticator(ID, Authenticator, Authenticators) ->
     lists:keyreplace(ID, #authenticator.id, Authenticators, Authenticator).
 
@@ -875,3 +901,5 @@ to_list(L) when is_list(L) ->
 
 to_bin(B) when is_binary(B) -> B;
 to_bin(L) when is_list(L) -> list_to_binary(L).
+
+call(Call) -> gen_server:call(?MODULE, Call, infinity).
