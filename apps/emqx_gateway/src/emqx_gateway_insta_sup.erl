@@ -95,6 +95,7 @@ init([Gateway, Ctx, _GwDscrptr]) ->
     State = #state{
                ctx = Ctx,
                name = GwName,
+               authns = [],
                config = Config,
                child_pids = [],
                status = stopped,

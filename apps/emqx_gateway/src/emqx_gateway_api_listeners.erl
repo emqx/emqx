@@ -20,12 +20,12 @@
 
 -import(emqx_gateway_http,
         [ return_http_error/2
-        , with_gateway/2
-        , checks/2
         , schema_bad_request/0
         , schema_not_found/0
         , schema_internal_error/0
         , schema_no_content/0
+        , with_gateway/2
+        , checks/2
         ]).
 
 %% minirest behaviour callbacks
@@ -47,6 +47,7 @@ apis() ->
     [ {"/gateway/:name/listeners", listeners}
     , {"/gateway/:name/listeners/:id", listeners_insta}
     ].
+
 %%--------------------------------------------------------------------
 %% http handlers
 

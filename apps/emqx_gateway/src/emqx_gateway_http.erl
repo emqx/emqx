@@ -32,6 +32,11 @@
         , mapping_listener_m2l/2
         ]).
 
+-export([ authn/1
+        , update_authn/2
+        , remove_authn/1
+        ]).
+
 %% Mgmt APIs - clients
 -export([ lookup_client/3
         , lookup_client/4
@@ -219,6 +224,26 @@ update_listener(ListenerId, NewConf0) ->
       GwName,
       #{<<"listeners">> => #{Type => #{Name => NewConf}}
        }).
+
+-spec authn(gateway_name()) -> map() | undefined.
+authn(GwName) ->
+    case emqx_map_lib:deep_get(
+           authentication,
+           emqx:get_config([gateway, GwName]),
+           undefined)  of
+        undefined -> undefined;
+        AuthConf -> emqx_map_lib:jsonable_map(AuthConf)
+    end.
+
+-spec update_authn(gateway_name(), map()) -> ok | {error, any()}.
+update_authn(GwName, AuthConf) ->
+    emqx_gateway:update_rawconf(
+      atom_to_binary(GwName),
+      #{authentication => AuthConf}).
+
+-spec remove_authn(gateway_name()) -> ok | {error, any()}.
+remove_authn(_GwName) ->
+    {error, not_supported_now}.
 
 %%--------------------------------------------------------------------
 %% Mgmt APIs - clients

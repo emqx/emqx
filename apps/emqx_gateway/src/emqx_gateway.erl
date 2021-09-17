@@ -20,11 +20,6 @@
 
 -include("include/emqx_gateway.hrl").
 
-%% callbacks for emqx_config_handler
--export([ pre_config_update/2
-        , post_config_update/4
-        ]).
-
 %% Gateway APIs
 -export([ registered_gateway/0
         , load/2
@@ -35,8 +30,6 @@
         , stop/1
         , list/0
         ]).
-
--export([update_rawconf/2]).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -83,37 +76,6 @@ start(Name) ->
 -spec stop(gateway_name()) -> ok | {error, any()}.
 stop(Name) ->
     emqx_gateway_sup:stop_gateway_insta(Name).
-
--spec update_rawconf(binary(), emqx_config:raw_config())
-    -> ok
-     | {error, any()}.
-update_rawconf(RawName, RawConfDiff) ->
-    case emqx:update_config([gateway], {RawName, RawConfDiff}) of
-        {ok, _Result} -> ok;
-        {error, Reason} -> {error, Reason}
-    end.
-
-%%--------------------------------------------------------------------
-%% Config Handler
-
--spec pre_config_update(emqx_config:update_request(),
-                        emqx_config:raw_config()) ->
-    {ok, emqx_config:update_request()} | {error, term()}.
-pre_config_update({RawName, RawConfDiff}, RawConf) ->
-    {ok, emqx_map_lib:deep_merge(RawConf, #{RawName => RawConfDiff})}.
-
--spec post_config_update(emqx_config:update_request(), emqx_config:config(),
-                         emqx_config:config(), emqx_config:app_envs())
-    -> ok | {ok, Result::any()} | {error, Reason::term()}.
-post_config_update({RawName, _}, NewConfig, OldConfig, _AppEnvs) ->
-    GwName = binary_to_existing_atom(RawName),
-    SubConf = maps:get(GwName, NewConfig),
-    case maps:get(GwName, OldConfig, undefined) of
-        undefined ->
-            emqx_gateway:load(GwName, SubConf);
-        _ ->
-            emqx_gateway:update(GwName, SubConf)
-    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs

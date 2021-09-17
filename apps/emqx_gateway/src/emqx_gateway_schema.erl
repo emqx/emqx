@@ -50,11 +50,11 @@ namespace() -> gateway.
 roots() -> [gateway].
 
 fields(gateway) ->
-    [{stomp, sc(ref(stomp))},
-     {mqttsn, sc(ref(mqttsn))},
-     {coap, sc(ref(coap))},
-     {lwm2m, sc(ref(lwm2m))},
-     {exproto, sc(ref(exproto))}
+    [{stomp,   sc_meta(ref(stomp)  , #{nullable => {true, recursively}})},
+     {mqttsn,  sc_meta(ref(mqttsn) , #{nullable => {true, recursively}})},
+     {coap,    sc_meta(ref(coap)   , #{nullable => {true, recursively}})},
+     {lwm2m,   sc_meta(ref(lwm2m)  , #{nullable => {true, recursively}})},
+     {exproto, sc_meta(ref(exproto), #{nullable => {true, recursively}})}
     ];
 
 fields(stomp) ->
