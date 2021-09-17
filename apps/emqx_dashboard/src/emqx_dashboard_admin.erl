@@ -91,7 +91,7 @@ add_user_(Admin = #mqtt_admin{username = Username}) ->
 -spec(remove_user(binary()) -> ok | {error, any()}).
 remove_user(Username) when is_binary(Username) ->
     Trans = fun() ->
-                case lookup_user(Username) of
+                case mnesia:read(mqtt_admin, Username) of
                     [] ->
                         mnesia:abort(not_found);
                     _  ->
@@ -139,10 +139,7 @@ update_pwd(Username, Fun) ->
 
 
 -spec(lookup_user(binary()) -> [mqtt_admin()]).
-lookup_user(Username) when is_binary(Username) ->
-    Trans = fun() -> mnesia:read(mqtt_admin, Username) end,
-    {atomic ,Users} = ekka_mnesia:transaction(?DASHBOARD_SHARD, Trans),
-    Users.
+lookup_user(Username) when is_binary(Username) ->  mnesia:dirty_read(mqtt_admin, Username).
 
 -spec(all_users() -> [#mqtt_admin{}]).
 all_users() -> ets:tab2list(mqtt_admin).
