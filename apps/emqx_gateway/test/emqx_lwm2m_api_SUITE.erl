@@ -24,7 +24,7 @@
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 
 -include_lib("emqx_gateway/src/lwm2m/include/emqx_lwm2m.hrl").
--include_lib("lwm2m_coap/include/coap.hrl").
+-include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -52,6 +52,14 @@ gateway.lwm2m {
 
 -define(assertExists(Map, Key),
         ?assertNotEqual(maps:get(Key, Map, undefined), undefined)).
+
+-record(coap_content, {content_format, payload = <<>>}).
+
+-import(emqx_lwm2m_SUITE, [ request/4, response/3, test_send_coap_response/7
+                          , test_recv_coap_request/1, test_recv_coap_response/1
+                          , test_send_coap_request/6, test_recv_mqtt_response/1
+                          , std_register/5, reslove_uri/1, split_path/1, split_query/1
+                          , join_path/2, sprintf/2]).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -214,107 +222,3 @@ discover_received_request(ClientId, Path, Action) ->
     ?assertExists(Res, <<"path">>),
     ?assertExists(Res, <<"name">>),
     ?assertExists(Res, <<"operations">>).
-
-test_recv_mqtt_response(RespTopic) ->
-    receive
-        {publish, #{topic := RespTopic, payload := RM}} ->
-            ?LOGT("test_recv_mqtt_response Response=~p", [RM]),
-            RM
-    after 1000 -> timeout_test_recv_mqtt_response
-    end.
-
-test_send_coap_request(UdpSock, Method, Uri, Content, Options, MsgId) ->
-    is_record(Content, coap_content) orelse error("Content must be a #coap_content!"),
-    is_list(Options) orelse error("Options must be a list"),
-    case resolve_uri(Uri) of
-        {coap, {IpAddr, Port}, Path, Query} ->
-            Request0 = lwm2m_coap_message:request(con, Method, Content, [{uri_path, Path}, {uri_query, Query} | Options]),
-            Request = Request0#coap_message{id = MsgId},
-            ?LOGT("send_coap_request Request=~p", [Request]),
-            RequestBinary = lwm2m_coap_message_parser:encode(Request),
-            ?LOGT("test udp socket send to ~p:~p, data=~p", [IpAddr, Port, RequestBinary]),
-            ok = gen_udp:send(UdpSock, IpAddr, Port, RequestBinary);
-        {SchemeDiff, ChIdDiff, _, _} ->
-            error(lists:flatten(io_lib:format("scheme ~s or ChId ~s does not match with socket", [SchemeDiff, ChIdDiff])))
-    end.
-
-test_recv_coap_response(UdpSock) ->
-    {ok, {Address, Port, Packet}} = gen_udp:recv(UdpSock, 0, 2000),
-    Response = lwm2m_coap_message_parser:decode(Packet),
-    ?LOGT("test udp receive from ~p:~p, data1=~p, Response=~p", [Address, Port, Packet, Response]),
-    #coap_message{type = ack, method = Method, id=Id, token = Token, options = Options, payload = Payload} = Response,
-    ?LOGT("receive coap response Method=~p, Id=~p, Token=~p, Options=~p, Payload=~p", [Method, Id, Token, Options, Payload]),
-    Response.
-
-test_recv_coap_request(UdpSock) ->
-    case gen_udp:recv(UdpSock, 0, 2000) of
-        {ok, {_Address, _Port, Packet}} ->
-            Request = lwm2m_coap_message_parser:decode(Packet),
-            #coap_message{type = con, method = Method, id=Id, token = Token, payload = Payload, options = Options} = Request,
-            ?LOGT("receive coap request Method=~p, Id=~p, Token=~p, Options=~p, Payload=~p", [Method, Id, Token, Options, Payload]),
-            Request;
-        {error, Reason} ->
-            ?LOGT("test_recv_coap_request failed, Reason=~p", [Reason]),
-            timeout_test_recv_coap_request
-    end.
-
-test_send_coap_response(UdpSock, Host, Port, Code, Content, Request, Ack) ->
-    is_record(Content, coap_content) orelse error("Content must be a #coap_content!"),
-    is_list(Host) orelse error("Host is not a string"),
-
-    {ok, IpAddr} = inet:getaddr(Host, inet),
-    Response = lwm2m_coap_message:response(Code, Content, Request),
-    Response2 = case Ack of
-                    true -> Response#coap_message{type = ack};
-                    false -> Response
-                end,
-    ?LOGT("test_send_coap_response Response=~p", [Response2]),
-    ok = gen_udp:send(UdpSock, IpAddr, Port, lwm2m_coap_message_parser:encode(Response2)).
-
-std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic) ->
-    test_send_coap_request( UdpSock,
-                            post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1", [?PORT, Epn]),
-                            #coap_content{content_format = <<"text/plain">>, payload = ObjectList},
-                            [],
-                            MsgId1),
-    #coap_message{method = {ok,created}} = test_recv_coap_response(UdpSock),
-    test_recv_mqtt_response(RespTopic),
-    timer:sleep(100).
-
-resolve_uri(Uri) ->
-    {ok, #{scheme := Scheme,
-           host := Host,
-           port := PortNo,
-           path := Path} = URIMap} = emqx_http_lib:uri_parse(Uri),
-    Query = maps:get(query, URIMap, ""),
-    {ok, PeerIP} = inet:getaddr(Host, inet),
-    {Scheme, {PeerIP, PortNo}, split_path(Path), split_query(Query)}.
-
-split_path([]) -> [];
-split_path([$/]) -> [];
-split_path([$/ | Path]) -> split_segments(Path, $/, []).
-
-split_query([]) -> [];
-split_query(Path) -> split_segments(Path, $&, []).
-
-split_segments(Path, Char, Acc) ->
-    case string:rchr(Path, Char) of
-        0 ->
-            [make_segment(Path) | Acc];
-        N when N > 0 ->
-            split_segments(string:substr(Path, 1, N-1), Char,
-                [make_segment(string:substr(Path, N+1)) | Acc])
-    end.
-
-make_segment(Seg) ->
-    list_to_binary(emqx_http_lib:uri_decode(Seg)).
-
-join_path([], Acc) -> Acc;
-join_path([<<"/">>|T], Acc) ->
-    join_path(T, Acc);
-join_path([H|T], Acc) ->
-    join_path(T, <<Acc/binary, $/, H/binary>>).
-
-sprintf(Format, Args) ->
-    lists:flatten(io_lib:format(Format, Args)).

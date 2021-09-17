@@ -24,7 +24,7 @@
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 
 -include_lib("emqx_gateway/src/lwm2m/include/emqx_lwm2m.hrl").
--include_lib("lwm2m_coap/include/coap.hrl").
+-include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -49,6 +49,8 @@ gateway.lwm2m {
   }
 }
 ">>).
+
+-record(coap_content, {content_format, payload = <<>>}).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -199,7 +201,7 @@ case01_register(Config) ->
     ack = Type,
     {ok, created} = Method,
     RspId = MsgId,
-    Location = proplists:get_value(location_path, Opts),
+    Location = maps:get(location_path, Opts),
     ?assertNotEqual(undefined, Location),
 
     %% checkpoint 2 - verify subscribed topics
@@ -247,7 +249,7 @@ case01_register_additional_opts(Config) ->
     Type = ack,
     Method = {ok, created},
     RspId = MsgId,
-    Location = proplists:get_value(location_path, Opts),
+    Location = maps:get(location_path, Opts),
     ?assertNotEqual(undefined, Location),
 
     %% checkpoint 2 - verify subscribed topics
@@ -318,14 +320,14 @@ case01_register_report(Config) ->
     Type = ack,
     Method = {ok, created},
     RspId = MsgId,
-    Location = proplists:get_value(location_path, Opts),
+    Location = maps:get(location_path, Opts),
     ?assertNotEqual(undefined, Location),
 
     timer:sleep(50),
     true = lists:member(SubTopic, test_mqtt_broker:get_subscrbied_topics()),
 
     ReadResult = emqx_json:encode(#{
-                                <<"msgType">> => <<"register">>,
+                                    <<"msgType">> => <<"register">>,
                                 <<"data">> => #{
                                     <<"alternatePath">> => <<"/">>,
                                     <<"ep">> => list_to_binary(Epn),
@@ -376,7 +378,7 @@ case02_update_deregister(Config) ->
     ?assertEqual({ok,created}, Method),
 
     ?LOGT("Options got: ~p", [Opts]),
-    Location = proplists:get_value(location_path, Opts),
+    Location = maps:get(location_path, Opts),
     Register = emqx_json:encode(#{
                               <<"msgType">> => <<"register">>,
                               <<"data">> => #{
@@ -1334,7 +1336,7 @@ case31_execute_error(Config) ->
     ?assertEqual(<<"2,7">>, Payload2),
     timer:sleep(50),
 
-    test_send_coap_response(UdpSock, "127.0.0.1", ?PORT, {error, uauthorized}, #coap_content{}, Request2, true),
+    test_send_coap_response(UdpSock, "127.0.0.1", ?PORT, {error, unauthorized}, #coap_content{}, Request2, true),
     timer:sleep(100),
 
     ReadResult = emqx_json:encode(#{
@@ -1432,10 +1434,10 @@ case50_write_attribute(Config) ->
     #coap_message{method = Method2, options=Options2, payload=Payload2} = Request2,
     ?LOGT("got options: ~p", [Options2]),
     Path2 = get_coap_path(Options2),
-    Query2 = lists:sort(get_coap_query(Options2)),
+    Query2 = lists:sort(maps:to_list(get_coap_query(Options2))),
     ?assertEqual(put, Method2),
     ?assertEqual(<<"/3/0/9">>, Path2),
-    ?assertEqual(lists:sort([<<"pmax=5">>,<<"lt=5">>,<<"pmin=1">>]), Query2),
+    ?assertEqual(lists:sort([{<<"pmax">>, <<"5">>},{<<"lt">>, <<"5">>},{<<"pmin">>,<<"1">>}]), Query2),
     ?assertEqual(<<>>, Payload2),
     timer:sleep(50),
 
@@ -1446,7 +1448,7 @@ case50_write_attribute(Config) ->
                             #coap_content{},
                             Request2,
                             true),
-    timer:sleep(100),
+                 timer:sleep(100),
 
     ReadResult = emqx_json:encode(#{
                                     <<"requestID">> => CmdId, <<"cacheID">> => CmdId,
@@ -1742,7 +1744,7 @@ server_cache_mode(Config, RegOption) ->
     #coap_message{type = ack, method = Method1, options = Opts} = test_recv_coap_response(UdpSock),
     ?assertEqual({ok,created}, Method1),
     ?LOGT("Options got: ~p", [Opts]),
-    Location = proplists:get_value(location_path, Opts),
+    Location = maps:get(location_path, Opts),
     test_recv_mqtt_response(RespTopic),
 
     %% server not in PSM mode
@@ -1836,10 +1838,10 @@ test_send_coap_request(UdpSock, Method, Uri, Content, Options, MsgId) ->
     is_list(Options) orelse error("Options must be a list"),
     case resolve_uri(Uri) of
         {coap, {IpAddr, Port}, Path, Query} ->
-            Request0 = lwm2m_coap_message:request(con, Method, Content, [{uri_path, Path}, {uri_query, Query} | Options]),
+            Request0 = request(con, Method, Content, [{uri_path, Path}, {uri_query, Query} | Options]),
             Request = Request0#coap_message{id = MsgId},
             ?LOGT("send_coap_request Request=~p", [Request]),
-            RequestBinary = lwm2m_coap_message_parser:encode(Request),
+            RequestBinary = emqx_coap_frame:serialize_pkt(Request, undefined),
             ?LOGT("test udp socket send to ~p:~p, data=~p", [IpAddr, Port, RequestBinary]),
             ok = gen_udp:send(UdpSock, IpAddr, Port, RequestBinary);
         {SchemeDiff, ChIdDiff, _, _} ->
@@ -1848,7 +1850,7 @@ test_send_coap_request(UdpSock, Method, Uri, Content, Options, MsgId) ->
 
 test_recv_coap_response(UdpSock) ->
     {ok, {Address, Port, Packet}} = gen_udp:recv(UdpSock, 0, 2000),
-    Response = lwm2m_coap_message_parser:decode(Packet),
+    {ok, Response, _, _} = emqx_coap_frame:parse(Packet, undefined),
     ?LOGT("test udp receive from ~p:~p, data1=~p, Response=~p", [Address, Port, Packet, Response]),
     #coap_message{type = ack, method = Method, id=Id, token = Token, options = Options, payload = Payload} = Response,
     ?LOGT("receive coap response Method=~p, Id=~p, Token=~p, Options=~p, Payload=~p", [Method, Id, Token, Options, Payload]),
@@ -1857,7 +1859,7 @@ test_recv_coap_response(UdpSock) ->
 test_recv_coap_request(UdpSock) ->
     case gen_udp:recv(UdpSock, 0, 2000) of
         {ok, {_Address, _Port, Packet}} ->
-            Request = lwm2m_coap_message_parser:decode(Packet),
+            {ok, Request, _, _} = emqx_coap_frame:parse(Packet, undefined),
             #coap_message{type = con, method = Method, id=Id, token = Token, payload = Payload, options = Options} = Request,
             ?LOGT("receive coap request Method=~p, Id=~p, Token=~p, Options=~p, Payload=~p", [Method, Id, Token, Options, Payload]),
             Request;
@@ -1871,32 +1873,32 @@ test_send_coap_response(UdpSock, Host, Port, Code, Content, Request, Ack) ->
     is_list(Host) orelse error("Host is not a string"),
 
     {ok, IpAddr} = inet:getaddr(Host, inet),
-    Response = lwm2m_coap_message:response(Code, Content, Request),
+    Response = response(Code, Content, Request),
     Response2 = case Ack of
                     true -> Response#coap_message{type = ack};
                     false -> Response
                 end,
     ?LOGT("test_send_coap_response Response=~p", [Response2]),
-    ok = gen_udp:send(UdpSock, IpAddr, Port, lwm2m_coap_message_parser:encode(Response2)).
+    ok = gen_udp:send(UdpSock, IpAddr, Port, emqx_coap_frame:serialize_pkt(Response2, undefined)).
 
 test_send_empty_ack(UdpSock, Host, Port, Request) ->
     is_list(Host) orelse error("Host is not a string"),
     {ok, IpAddr} = inet:getaddr(Host, inet),
-    EmptyACK = lwm2m_coap_message:ack(Request),
+    EmptyACK = emqx_coap_message:ack(Request),
     ?LOGT("test_send_empty_ack EmptyACK=~p", [EmptyACK]),
-    ok = gen_udp:send(UdpSock, IpAddr, Port, lwm2m_coap_message_parser:encode(EmptyACK)).
+    ok = gen_udp:send(UdpSock, IpAddr, Port, emqx_coap_frame:serialize_pkt(EmptyACK, undefined)).
 
 test_send_coap_observe_ack(UdpSock, Host, Port, Code, Content, Request) ->
     is_record(Content, coap_content) orelse error("Content must be a #coap_content!"),
     is_list(Host) orelse error("Host is not a string"),
 
     {ok, IpAddr} = inet:getaddr(Host, inet),
-    Response = lwm2m_coap_message:response(Code, Content, Request),
-    Response1 = lwm2m_coap_message:set(observe, 0, Response),
+    Response = response(Code, Content, Request),
+    Response1 = emqx_coap_message:set(observe, 0, Response),
     Response2 = Response1#coap_message{type = ack},
 
     ?LOGT("test_send_coap_observe_ack Response=~p", [Response2]),
-    ResponseBinary = lwm2m_coap_message_parser:encode(Response2),
+    ResponseBinary = emqx_coap_frame:serialize_pkt(Response2, undefined),
     ok = gen_udp:send(UdpSock, IpAddr, Port, ResponseBinary).
 
 test_send_coap_notif(UdpSock, Host, Port, Content, ObSeq, Request) ->
@@ -1904,10 +1906,10 @@ test_send_coap_notif(UdpSock, Host, Port, Content, ObSeq, Request) ->
     is_list(Host) orelse error("Host is not a string"),
 
     {ok, IpAddr} = inet:getaddr(Host, inet),
-    Notif = lwm2m_coap_message:response({ok, content}, Content, Request),
-    NewNotif = lwm2m_coap_message:set(observe, ObSeq, Notif),
+    Notif = response({ok, content}, Content, Request),
+    NewNotif = emqx_coap_message:set(observe, ObSeq, Notif),
     ?LOGT("test_send_coap_notif Response=~p", [NewNotif]),
-    NotifBinary = lwm2m_coap_message_parser:encode(NewNotif),
+    NotifBinary = emqx_coap_frame:serialize_pkt(NewNotif, undefined),
     ?LOGT("test udp socket send to ~p:~p, data=~p", [IpAddr, Port, NotifBinary]),
     ok = gen_udp:send(UdpSock, IpAddr, Port, NotifBinary).
 
@@ -1952,30 +1954,18 @@ make_segment(Seg) ->
 
 
 get_coap_path(Options) ->
-    get_path(Options, <<>>).
+    Seps = maps:get(uri_path, Options, []),
+    lists:foldl(fun(Sep, Acc) ->
+                        <<Acc/binary, $/, Sep/binary>>
+                end,
+                <<>>,
+                Seps).
 
 get_coap_query(Options) ->
-    proplists:get_value(uri_query, Options, []).
+    maps:get(uri_query, Options, #{}).
 
 get_coap_observe(Options) ->
-    get_observe(Options).
-
-
-get_path([], Acc) ->
-    %?LOGT("get_path Acc=~p", [Acc]),
-    Acc;
-get_path([{uri_path, Path1}|T], Acc) ->
-    %?LOGT("Path=~p, Acc=~p", [Path1, Acc]),
-    get_path(T, join_path(Path1, Acc));
-get_path([{_, _}|T], Acc) ->
-    get_path(T, Acc).
-
-get_observe([]) ->
-    undefined;
-get_observe([{observe, V}|_T]) ->
-    V;
-get_observe([{_, _}|T]) ->
-    get_observe(T).
+    maps:get(observe, Options, undefined).
 
 join_path([], Acc) -> Acc;
 join_path([<<"/">>|T], Acc) ->
@@ -1985,3 +1975,10 @@ join_path([H|T], Acc) ->
 
 sprintf(Format, Args) ->
     lists:flatten(io_lib:format(Format, Args)).
+
+response(Code, #coap_content{content_format = Format, payload = Payload}, Req) ->
+    #coap_message{options = Opts} = Msg = emqx_coap_message:response(Code, Payload, Req),
+    Msg#coap_message{options = Opts#{content_format => Format}}.
+
+request(Type, Method, #coap_content{content_format = Format, payload = Payload}, Opts) ->
+    emqx_coap_message:request(Type, Method, Payload, [{content_format, Format} | Opts]).
