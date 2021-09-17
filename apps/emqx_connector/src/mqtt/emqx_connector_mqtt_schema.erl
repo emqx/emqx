@@ -38,8 +38,8 @@ fields("config") ->
     , {retry_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
     , {max_inflight, hoconsc:mk(integer(), #{default => 32})}
     , {replayq, hoconsc:mk(hoconsc:ref(?MODULE, "replayq"))}
-    , {ingress_channels, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "ingress_channels")), #{default => []})}
-    , {egress_channels, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "egress_channels")), #{default => []})}
+    , {ingress_channels, hoconsc:mk(hoconsc:map(id, hoconsc:ref(?MODULE, "ingress_channels")), #{default => []})}
+    , {egress_channels, hoconsc:mk(hoconsc:map(id, hoconsc:ref(?MODULE, "egress_channels")), #{default => []})}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("ingress_channels") ->
@@ -61,9 +61,6 @@ fields("replayq") ->
     ].
 
 common_inout_confs() ->
-    [{id, #{type => binary(), nullable => false}}] ++ publish_confs().
-
-publish_confs() ->
     [ {qos, hoconsc:mk(qos(), #{default => <<"${qos}">>})}
     , {retain, hoconsc:mk(hoconsc:union([boolean(), binary()]), #{default => <<"${retain}">>})}
     , {payload, hoconsc:mk(binary(), #{default => <<"${payload}">>})}
