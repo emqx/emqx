@@ -27,9 +27,11 @@ start(_StartType, _StartArgs) ->
     emqx_gateway_cli:load(),
     load_default_gateway_applications(),
     load_gateway_by_default(),
+    emqx_gateway_conf:load(),
     {ok, Sup}.
 
 stop(_State) ->
+    emqx_gateway_conf:unload(),
     emqx_gateway_cli:unload(),
     ok.
 

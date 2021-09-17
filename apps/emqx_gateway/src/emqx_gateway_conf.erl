@@ -132,7 +132,7 @@ pre_config_update({load_gateway, GwName, Conf}, RawConf) ->
         undefined ->
             {ok, emqx_map_lib:deep_merge(RawConf, #{GwName => Conf})};
         _ ->
-            {error, alredy_exist}
+            {error, already_exist}
     end;
 pre_config_update({update_gateway, GwName, Conf}, RawConf) ->
     case maps:get(GwName, RawConf, undefined) of
@@ -155,7 +155,7 @@ pre_config_update({add_listener, GwName, {LType, LName}, Conf}, RawConf) ->
                    RawConf,
                    #{GwName => #{<<"listeners">> => NListener}})};
         _ ->
-            {error, alredy_exist}
+            {error, already_exist}
     end;
 pre_config_update({update_listener, GwName, {LType, LName}, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
@@ -181,7 +181,7 @@ pre_config_update({add_authn, GwName, Conf}, RawConf) ->
                    RawConf,
                    #{GwName => #{<<"authentication">> => Conf}})};
         _ ->
-            {error, alredy_exist}
+            {error, already_exist}
     end;
 pre_config_update({add_authn, GwName, {LType, LName}, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
@@ -198,7 +198,7 @@ pre_config_update({add_authn, GwName, {LType, LName}, Conf}, RawConf) ->
                                    #{LType => #{LName => NListener}}}},
                     {ok, emqx_map_lib:deep_merge(RawConf, NGateway)};
                 _ ->
-                    {error, alredy_exist}
+                    {error, already_exist}
             end
     end;
 pre_config_update({update_authn, GwName, Conf}, RawConf) ->
@@ -251,10 +251,15 @@ pre_config_update(UnknownReq, _RawConf) ->
 post_config_update(Req, NewConfig, OldConfig, _AppEnvs) ->
     [_Tag, GwName0|_] = tuple_to_list(Req),
     GwName = binary_to_existing_atom(GwName0),
-    SubConf = maps:get(GwName, NewConfig),
-    case maps:get(GwName, OldConfig, undefined) of
-        undefined ->
-            emqx_gateway:load(GwName, SubConf);
-        _ ->
-            emqx_gateway:update(GwName, SubConf)
+
+    case {maps:get(GwName, NewConfig, undefined),
+          maps:get(GwName, OldConfig, undefined)} of
+        {undefined, undefined} ->
+            ok; %% nothing to change
+        {undefined, Old} when is_map(Old) ->
+            emqx_gateway:unload(GwName);
+        {New, undefined} when is_map(New)  ->
+            emqx_gateway:load(GwName, New);
+        {New, Old} when is_map(New), is_map(Old) ->
+            emqx_gateway:update(GwName, New)
     end.
