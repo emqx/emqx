@@ -71,7 +71,7 @@
 
 -export_type([mqueue/0, options/0]).
 
--type(topic() :: emqx_topic:topic()).
+-type(topic() :: emqx_types:topic()).
 -type(priority() :: infinity | integer()).
 -type(pq() :: emqx_pqueue:q()).
 -type(count() :: non_neg_integer()).
