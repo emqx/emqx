@@ -214,7 +214,7 @@ bridge_name(Prefix, Id) ->
     list_to_atom(str(Prefix) ++ ":" ++ str(Id)).
 
 clientid(Id) ->
-    list_to_binary(str(Id) ++ ":" ++ emqx_plugin_libs_id:gen(16)).
+    list_to_binary(str(Id) ++ ":" ++ emqx_misc:gen_id(16)).
 
 str(A) when is_atom(A) ->
     atom_to_list(A);
