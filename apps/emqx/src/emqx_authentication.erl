@@ -281,8 +281,7 @@ do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}
 
 check_config(Config) ->
     #{authentication := CheckedConfig} =
-        hocon_schema:check_plain(?MODULE, #{<<"authentication">> => Config},
-                                 #{nullable => true, atom_key => true}),
+        hocon_schema:check_plain(?MODULE, #{<<"authentication">> => Config}, #{atom_key => true}),
     CheckedConfig.
 
 %%------------------------------------------------------------------------------

@@ -70,15 +70,12 @@ common_fields() ->
     ] ++ emqx_authn_schema:common_fields().
 
 collection(type) -> binary();
-collection(nullable) -> false;
 collection(_) -> undefined.
 
 selector(type) -> map();
-selector(nullable) -> false;
 selector(_) -> undefined.
 
 password_hash_field(type) -> binary();
-password_hash_field(nullable) -> false;
 password_hash_field(_) -> undefined.
 
 salt_field(type) -> binary();

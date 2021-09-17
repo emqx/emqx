@@ -66,7 +66,6 @@ common_fields() ->
     ] ++ emqx_authn_schema:common_fields().
 
 query(type) -> string();
-query(nullable) -> false;
 query(_) -> undefined.
 
 password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};

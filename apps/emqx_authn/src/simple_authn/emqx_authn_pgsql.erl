@@ -59,7 +59,6 @@ password_hash_algorithm(default) -> sha256;
 password_hash_algorithm(_) -> undefined.
 
 query(type) -> string();
-query(nullable) -> false;
 query(_) -> undefined.
 
 %%------------------------------------------------------------------------------
