@@ -659,8 +659,12 @@ reply(Reply, State) ->
 certs_dir(Dirs) when is_list(Dirs) ->
     to_bin(filename:join([emqx:get_config([node, data_dir]), "certs/authn"] ++ Dirs)).
 
-convert_certs(CertsDir, #{<<"ssl">> := SSLOpts} = Config) ->
-    NSSLOPts = lists:foldl(fun(K, Acc) ->
+convert_certs(CertsDir, Config) ->
+    case maps:get(<<"ssl">>, Config, undefined) of
+        undefined ->
+            Config;
+        SSLOpts ->
+            NSSLOPts = lists:foldl(fun(K, Acc) ->
                                case maps:get(K, Acc, undefined) of
                                    undefined -> Acc;
                                    PemBin ->
@@ -669,32 +673,37 @@ convert_certs(CertsDir, #{<<"ssl">> := SSLOpts} = Config) ->
                                        Acc#{K => CertFile}
                                end
                            end, SSLOpts, [<<"certfile">>, <<"keyfile">>, <<"cacertfile">>]),
-    Config#{<<"ssl">> => NSSLOPts};
-convert_certs(_CertsDir, Config) ->
-    Config.
+            Config#{<<"ssl">> => NSSLOPts}
+    end.
 
-convert_certs(CertsDir, #{<<"ssl">> := NewSSLOpts} = NewConfig, OldConfig) ->
-    OldSSLOpts = maps:get(<<"ssl">>, OldConfig, #{}),
-    Diff = diff_certs(NewSSLOpts, OldSSLOpts),
-    NSSLOpts = lists:foldl(fun({identical, K}, Acc) ->
-                               Acc#{K => maps:get(K, OldSSLOpts)};
-                              ({_, K}, Acc) ->
-                               CertFile = generate_filename(CertsDir, K),
-                               ok = save_cert_to_file(CertFile, maps:get(K, NewSSLOpts)),
-                               Acc#{K => CertFile}
-                           end, NewSSLOpts, Diff),
-    NewConfig#{<<"ssl">> => NSSLOpts};
-convert_certs(_CertsDir, NewConfig, _OldConfig) ->
-    NewConfig.
+convert_certs(CertsDir, NewConfig, OldConfig) ->
+    case maps:get(<<"ssl">>, NewConfig, undefined) of
+        undefined ->
+            NewConfig;
+        NewSSLOpts ->
+            OldSSLOpts = maps:get(<<"ssl">>, OldConfig, #{}),
+            Diff = diff_certs(NewSSLOpts, OldSSLOpts),
+            NSSLOpts = lists:foldl(fun({identical, K}, Acc) ->
+                                    Acc#{K => maps:get(K, OldSSLOpts)};
+                                    ({_, K}, Acc) ->
+                                    CertFile = generate_filename(CertsDir, K),
+                                    ok = save_cert_to_file(CertFile, maps:get(K, NewSSLOpts)),
+                                    Acc#{K => CertFile}
+                                end, NewSSLOpts, Diff),
+            NewConfig#{<<"ssl">> => NSSLOpts}
+    end.
 
-clear_certs(CertsDir, #{<<"ssl">> := SSLOpts}) ->
-    lists:foreach(
-        fun({_, Filename}) ->
-            _ = file:delete(filename:join([CertsDir, Filename]))
-        end,
-        maps:to_list(maps:with([<<"certfile">>, <<"keyfile">>, <<"cacertfile">>], SSLOpts)));
-clear_certs(_CertsDir, _Config) ->
-    ok.
+clear_certs(CertsDir, Config) ->
+    case maps:get(<<"ssl">>, Config, undefined) of
+        undefined ->
+            ok;
+        SSLOpts ->
+            lists:foreach(
+                fun({_, Filename}) ->
+                    _ = file:delete(filename:join([CertsDir, Filename]))
+                end,
+                maps:to_list(maps:with([<<"certfile">>, <<"keyfile">>, <<"cacertfile">>], SSLOpts)))
+    end.
 
 save_cert_to_file(Filename, PemBin) ->
     case public_key:pem_decode(PemBin) =/= [] of
