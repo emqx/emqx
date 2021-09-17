@@ -86,19 +86,19 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 
--spec(make(emqx_topic:topic(), emqx_types:payload()) -> emqx_types:message()).
+-spec(make(emqx_types:topic(), emqx_types:payload()) -> emqx_types:message()).
 make(Topic, Payload) ->
     make(undefined, Topic, Payload).
 
 -spec(make(emqx_types:clientid(),
-           emqx_topic:topic(),
+           emqx_types:topic(),
            emqx_types:payload()) -> emqx_types:message()).
 make(From, Topic, Payload) ->
     make(From, ?QOS_0, Topic, Payload).
 
 -spec(make(emqx_types:clientid(),
            emqx_types:qos(),
-           emqx_topic:topic(),
+           emqx_types:topic(),
            emqx_types:payload()) -> emqx_types:message()).
 make(From, QoS, Topic, Payload) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
     Now = erlang:system_time(millisecond),
@@ -112,7 +112,7 @@ make(From, QoS, Topic, Payload) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
 
 -spec(make(emqx_types:clientid(),
            emqx_types:qos(),
-           emqx_topic:topic(),
+           emqx_types:topic(),
            emqx_types:payload(),
            emqx_types:flags(),
            emqx_types:headers()) -> emqx_types:message()).
@@ -133,7 +133,7 @@ make(From, QoS, Topic, Payload, Flags, Headers)
 -spec(make(MsgId :: binary(),
            emqx_types:clientid(),
            emqx_types:qos(),
-           emqx_topic:topic(),
+           emqx_types:topic(),
            emqx_types:payload(),
            emqx_types:flags(),
            emqx_types:headers()) -> emqx_types:message()).

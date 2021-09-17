@@ -326,7 +326,7 @@ init_source(#{enable := false} = Source) ->Source.
 %%--------------------------------------------------------------------
 
 %% @doc Check AuthZ
--spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_topic:topic(), allow | deny, sources())
+-spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_types:topic(), allow | deny, sources())
       -> {stop, allow} | {ok, deny}).
 authorize(#{username := Username,
             peerhost := IpAddress

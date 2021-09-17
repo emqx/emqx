@@ -108,7 +108,7 @@
 -type config() :: map().
 -type batch() :: [emqx_connector_mqtt_msg:exp_msg()].
 -type ack_ref() :: term().
--type topic() :: emqx_topic:topic().
+-type topic() :: emqx_types:topic().
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -176,7 +176,7 @@ ping(Name) ->
 get_forwards(Name) -> gen_statem:call(name(Name), get_forwards, timer:seconds(1000)).
 
 %% @doc Return all subscriptions (subscription over mqtt connection to remote broker).
--spec get_subscriptions(id()) -> [{emqx_topic:topic(), qos()}].
+-spec get_subscriptions(id()) -> [{emqx_types:topic(), qos()}].
 get_subscriptions(Name) -> gen_statem:call(name(Name), get_subscriptions).
 
 callback_mode() -> [state_functions].

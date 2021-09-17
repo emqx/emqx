@@ -78,7 +78,7 @@ lookup_subid(SubPid) when is_pid(SubPid) ->
 lookup_subpid(SubId) ->
     emqx_tables:lookup_value(?SUBID, SubId).
 
--spec(get_sub_shard(pid(), emqx_topic:topic()) -> non_neg_integer()).
+-spec(get_sub_shard(pid(), emqx_types:topic()) -> non_neg_integer()).
 get_sub_shard(SubPid, Topic) ->
     case create_seq(Topic) of
         Seq when Seq =< ?SHARD -> 0;
@@ -90,11 +90,11 @@ shards_num() ->
     %% Dynamic sharding later...
     ets:lookup_element(?HELPER, shards, 2).
 
--spec(create_seq(emqx_topic:topic()) -> emqx_sequence:seqid()).
+-spec(create_seq(emqx_types:topic()) -> emqx_sequence:seqid()).
 create_seq(Topic) ->
     emqx_sequence:nextval(?SUBSEQ, Topic).
 
--spec(reclaim_seq(emqx_topic:topic()) -> emqx_sequence:seqid()).
+-spec(reclaim_seq(emqx_types:topic()) -> emqx_sequence:seqid()).
 reclaim_seq(Topic) ->
     emqx_sequence:reclaim(?SUBSEQ, Topic).
 

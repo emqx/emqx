@@ -68,7 +68,7 @@ list_authz_cache() ->
     map_authz_cache(fun(Cache) -> Cache end).
 
 %% We'll cleanup the cache before replacing an expired authz.
--spec get_authz_cache(emqx_types:pubsub(), emqx_topic:topic()) ->
+-spec get_authz_cache(emqx_types:pubsub(), emqx_types:topic()) ->
     authz_result() | not_found.
 get_authz_cache(PubSub, Topic) ->
     case erlang:get(cache_k(PubSub, Topic)) of
@@ -85,7 +85,7 @@ get_authz_cache(PubSub, Topic) ->
 
 %% If the cache get full, and also the latest one
 %%   is expired, then delete all the cache entries
--spec put_authz_cache(emqx_types:pubsub(), emqx_topic:topic(), authz_result())
+-spec put_authz_cache(emqx_types:pubsub(), emqx_types:topic(), authz_result())
     -> ok.
 put_authz_cache(PubSub, Topic, AuthzResult) ->
     MaxSize = get_cache_max_size(), true = (MaxSize =/= 0),
