@@ -109,9 +109,9 @@ t_no_connection_nack(_) ->
 
     ExpProp = [{properties, #{'Session-Expiry-Interval' => timer:seconds(30)}}],
     {ok, SubConnPid1} = emqtt:start_link([{clientid, Subscriber1}] ++ ExpProp),
-    {ok, _Props} = emqtt:connect(SubConnPid1),
+    {ok, _Props1} = emqtt:connect(SubConnPid1),
     {ok, SubConnPid2} = emqtt:start_link([{clientid, Subscriber2}] ++ ExpProp),
-    {ok, _Props} = emqtt:connect(SubConnPid2),
+    {ok, _Props2} = emqtt:connect(SubConnPid2),
     emqtt:subscribe(SubConnPid1, ShareTopic, QoS),
     emqtt:subscribe(SubConnPid1, ShareTopic, QoS),
 
