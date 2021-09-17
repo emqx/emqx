@@ -43,13 +43,15 @@ fields("config") ->
     ] ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("ingress_channels") ->
-    [ {subscribe_remote_topic, #{type => binary(), nullable => false}}
-    , {local_topic, hoconsc:mk(binary(), #{default => <<"${topic}">>})}
+    %% the message maybe subscribed by rules, in this case 'local_topic' is not necessary
+    [ {subscribe_remote_topic, hoconsc:mk(binary(), #{nullable => false})}
+    , {local_topic, hoconsc:mk(binary())}
     , {subscribe_qos, hoconsc:mk(qos(), #{default => 1})}
     ] ++ common_inout_confs();
 
 fields("egress_channels") ->
-    [ {subscribe_local_topic, #{type => binary(), nullable => false}}
+    %% the message maybe sent from rules, in this case 'subscribe_local_topic' is not necessary
+    [ {subscribe_local_topic, hoconsc:mk(binary())}
     , {remote_topic, hoconsc:mk(binary(), #{default => <<"${topic}">>})}
     ] ++ common_inout_confs();
 

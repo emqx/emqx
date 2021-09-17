@@ -159,9 +159,15 @@ handle_puback(#{packet_id := PktId, reason_code := RC}, _Parent) ->
 
 handle_publish(Msg, undefined) ->
     ?LOG(error, "cannot publish to local broker as 'bridge.mqtt.<name>.in' not configured, msg: ~p", [Msg]);
-handle_publish(Msg, Vars) ->
+handle_publish(Msg, #{on_message_received := {OnMsgRcvdFunc, Args}} = Vars) ->
     ?LOG(debug, "publish to local broker, msg: ~p, vars: ~p", [Msg, Vars]),
-    emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars)).
+    emqx_metrics:inc('bridge.mqtt.message_received_from_remote', 1),
+    _ = erlang:apply(OnMsgRcvdFunc, [Msg, Args]),
+    case maps:get(local_topic, Vars, undefined) of
+        undefined -> ok;
+        _Topic ->
+            emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars))
+    end.
 
 handle_disconnected(Reason, Parent) ->
     Parent ! {disconnected, self(), Reason}.
