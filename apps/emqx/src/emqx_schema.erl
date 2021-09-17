@@ -1191,7 +1191,7 @@ default_ciphers(psk) ->
 keys(Parent, Conf) ->
     [binary_to_list(B) || B <- maps:keys(conf_get(Parent, Conf, #{}))].
 
--spec ceiling(float()) -> integer().
+-spec ceiling(number()) -> integer().
 ceiling(X) ->
     T = erlang:trunc(X),
     case (X - T) of
@@ -1218,13 +1218,15 @@ to_duration(Str) ->
 
 to_duration_s(Str) ->
     case hocon_postprocess:duration(Str) of
-        I when is_integer(I) -> {ok, ceiling(I / 1000)};
+        I when is_number(I) -> {ok, ceiling(I / 1000)};
         _ -> {error, Str}
     end.
 
+-spec to_duration_ms(Input) -> {ok, integer()} | {error, Input}
+              when Input :: string() | binary().
 to_duration_ms(Str) ->
     case hocon_postprocess:duration(Str) of
-        I when is_integer(I) -> {ok, ceiling(I)};
+        I when is_number(I) -> {ok, ceiling(I)};
         _ -> {error, Str}
     end.
 

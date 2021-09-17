@@ -34,7 +34,7 @@ fields("config") ->
     , {username, hoconsc:mk(string())}
     , {password, hoconsc:mk(string())}
     , {clean_start, hoconsc:mk(boolean(), #{default => true})}
-    , {keepalive, hoconsc:mk(integer(), #{default => 300})}
+    , {keepalive, hoconsc:mk(emqx_schema:duration_s(), #{default => "300s"})}
     , {retry_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
     , {max_inflight, hoconsc:mk(integer(), #{default => 32})}
     , {replayq, hoconsc:mk(hoconsc:ref(?MODULE, "replayq"))}
