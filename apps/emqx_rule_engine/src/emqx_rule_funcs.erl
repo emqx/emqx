@@ -265,7 +265,7 @@ payload(Path) ->
 
 %% @doc Check if a topic_filter contains a specific topic
 %% TopicFilters = [{<<"t/a">>, #{qos => 0}].
--spec(contains_topic(emqx_mqtt_types:topic_filters(), emqx_types:topic())
+-spec(contains_topic(emqx_types:topic_filters(), emqx_types:topic())
         -> true | false).
 contains_topic(TopicFilters, Topic) ->
     case find_topic_filter(Topic, TopicFilters, fun eq/2) of
@@ -278,7 +278,7 @@ contains_topic(TopicFilters, Topic, QoS) ->
         _ -> false
     end.
 
--spec(contains_topic_match(emqx_mqtt_types:topic_filters(), emqx_types:topic())
+-spec(contains_topic_match(emqx_types:topic_filters(), emqx_types:topic())
         -> true | false).
 contains_topic_match(TopicFilters, Topic) ->
     case find_topic_filter(Topic, TopicFilters, fun emqx_topic:match/2) of

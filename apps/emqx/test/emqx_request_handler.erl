@@ -20,8 +20,8 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
--type qos() :: emqx_mqtt_types:qos_name() | emqx_mqtt_types:qos().
--type topic() :: emqx_topic:topic().
+-type qos() :: emqx_types:qos_name() | emqx_types:qos().
+-type topic() :: emqx_types:topic().
 -type handler() :: fun((CorrData :: binary(), ReqPayload :: binary()) -> RspPayload :: binary()).
 
 -spec start_link(topic(), qos(), handler(), emqtt:options()) ->

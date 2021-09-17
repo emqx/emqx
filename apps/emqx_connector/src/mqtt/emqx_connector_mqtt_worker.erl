@@ -104,7 +104,7 @@
              ]).
 
 -type id() :: atom() | string() | pid().
--type qos() :: emqx_mqtt_types:qos().
+-type qos() :: emqx_types:qos().
 -type config() :: map().
 -type batch() :: [emqx_connector_mqtt_msg:exp_msg()].
 -type ack_ref() :: term().
