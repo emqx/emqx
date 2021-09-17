@@ -29,15 +29,17 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Conf) ->
-    emqx_ct_helpers:start_apps([]),
+    emqx_ct_helpers:start_apps([emqx_gateway]),
     Conf.
 
 end_per_suite(_Conf) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_ct_helpers:stop_apps([emqx_gateway]).
 
 init_per_testcase(_CaseName, Conf) ->
     emqx_gateway_conf:unload(),
     emqx_config:put([gateway], #{}),
+    emqx_config:put_raw([gateway], #{}),
+    emqx_config:init_load(emqx_gateway_schema, <<"gateway {}">>),
     emqx_gateway_conf:load(),
     Conf.
 
@@ -45,9 +47,48 @@ init_per_testcase(_CaseName, Conf) ->
 %% Cases
 %%--------------------------------------------------------------------
 
-t_load_gateway(_) ->
-    ok = emqx_gateway_conf:load_gateway(stomp, #{listeners => #{ tcp => #{default => #{bind => 7993}}}}),
+-define(CONF_STOMP1, #{listeners => #{tcp => #{default => #{bind => 61613}}}}).
+-define(CONF_STOMP2, #{listeners => #{tcp => #{default => #{bind => 61614}}}}).
 
-    A = emqx:get_config([gateway, stomp]),
-    io:format(standard_error, "-~p~n", [A]),
+t_load_remove_gateway(_) ->
+    ok = emqx_gateway_conf:load_gateway(stomp, ?CONF_STOMP1),
+    {error, {pre_config_update, emqx_gateway_conf, already_exist}} =
+        emqx_gateway_conf:load_gateway(stomp, ?CONF_STOMP1),
+    assert_confs(?CONF_STOMP1, emqx:get_config([gateway, stomp])),
+
+    ok = emqx_gateway_conf:update_gateway(stomp, ?CONF_STOMP2),
+    assert_confs(?CONF_STOMP2, emqx:get_config([gateway, stomp])),
+
+    ok = emqx_gateway_conf:remove_gateway(stomp),
+    ok = emqx_gateway_conf:remove_gateway(stomp),
+
+    {error, {pre_config_update, emqx_gateway_conf, not_found}} =
+        emqx_gateway_conf:update_gateway(stomp, ?CONF_STOMP2),
+
+    ?assertException(error, {config_not_found, [gateway,stomp]},
+                     emqx:get_config([gateway, stomp])),
     ok.
+
+%%--------------------------------------------------------------------
+%% Utils
+
+assert_confs(Expected, Effected) ->
+    case do_assert_confs(Expected, Effected) of
+        false ->
+            io:format(standard_error, "Expected config: ~p,\n"
+                                      "Effected config: ~p",
+                                      [Expected, Effected]),
+            exit(conf_not_match);
+        true ->
+            ok
+    end.
+
+do_assert_confs(Expected, Effected) when is_map(Expected),
+                                      is_map(Effected) ->
+    Ks1 = maps:keys(Expected),
+    lists:all(fun(K) ->
+        do_assert_confs(maps:get(K, Expected),
+                        maps:get(K, Effected, undefined))
+    end, Ks1);
+do_assert_confs(Expected, Effected) ->
+    Expected =:= Effected.
