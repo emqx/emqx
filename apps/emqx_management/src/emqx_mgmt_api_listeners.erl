@@ -33,6 +33,7 @@
 -include_lib("emqx/include/emqx.hrl").
 
 -define(NODE_LISTENER_NOT_FOUND, <<"Node name or listener id not found">>).
+-define(NODE_NOT_FOUND_OR_DOWN, <<"Node not found or Down">>).
 -define(LISTENER_NOT_FOUND, <<"Listener id not found">>).
 
 api_spec() ->
@@ -111,7 +112,12 @@ api_list_listeners_on_node() ->
             description => <<"List listeners in one node">>,
             parameters => [param_path_node()],
             responses => #{
-                <<"200">> => emqx_mgmt_util:schema(resp_schema(), <<"List listeners successfully">>)}}},
+                <<"404">> =>
+                    emqx_mgmt_util:error_schema(?NODE_NOT_FOUND_OR_DOWN, ['RESOURCE_NOT_FOUND']),
+                <<"500">> =>
+                    emqx_mgmt_util:error_schema(<<"Operation Failed">>, ['INTERNAL_ERROR']),
+                <<"200">> =>
+                    emqx_mgmt_util:schema(resp_schema(), <<"List listeners successfully">>)}}},
     {"/nodes/:node/listeners", Metadata, list_listeners_on_node}.
 
 api_get_update_listener_by_id_on_node() ->
@@ -225,6 +231,8 @@ crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
 
 list_listeners_on_node(get, #{bindings := #{node := Node}}) ->
     case emqx_mgmt:list_listeners(atom(Node)) of
+        {error, nodedown} ->
+            {404, #{code => 'RESOURCE_NOT_FOUND', message => ?NODE_NOT_FOUND_OR_DOWN}};
         {error, Reason} ->
             {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}};
         Listener ->
