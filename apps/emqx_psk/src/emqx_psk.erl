@@ -148,15 +148,15 @@ is_enable() ->
 boot_file() ->
     emqx_config:get([psk, boot_file], undefined).
 
-delimiter() ->
-    emqx_config:get([psk, delimiter], ?DEFAULT_DELIMITER).
+separator() ->
+    emqx_config:get([psk, separator], ?DEFAULT_DELIMITER).
 
 import_psks(SrcFile) ->
     case file:open(SrcFile, [read, raw, binary, read_ahead]) of
         {error, Reason} ->
             {error, Reason};
         {ok, Io} ->
-            case Result = import_psks(Io, delimiter()) of
+            case Result = import_psks(Io, separator()) of
                 ok -> ignore;
                 {error, Reason} ->
                     ?LOG("Failed to import psk from ~s due to ~p", [SrcFile, Reason])

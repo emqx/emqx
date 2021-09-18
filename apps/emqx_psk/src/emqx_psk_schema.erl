@@ -29,7 +29,7 @@ roots() -> [].
 fields("psk") ->
     [ {enable,    fun enable/1}
     , {boot_file, fun boot_file/1}
-    , {delimiter, fun delimiter/1}
+    , {separator, fun separator/1}
     ].
 
 enable(type) -> boolean();
@@ -40,6 +40,6 @@ boot_file(type) -> binary();
 boot_file(nullable) -> true;
 boot_file(_) -> undefined.
 
-delimiter(type) -> binary();
-delimiter(default) -> <<":">>;
-delimiter(_) -> undefined.
+separator(type) -> binary();
+separator(default) -> <<":">>;
+separator(_) -> undefined.
