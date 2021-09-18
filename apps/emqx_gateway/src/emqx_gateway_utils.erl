@@ -117,13 +117,18 @@ format_listenon({Addr, Port}) when is_tuple(Addr) ->
 
 parse_listenon(Port) when is_integer(Port) ->
     Port;
+parse_listenon(IpPort) when is_tuple(IpPort) ->
+    IpPort;
 parse_listenon(Str) when is_binary(Str) ->
     parse_listenon(binary_to_list(Str));
 parse_listenon(Str) when is_list(Str) ->
-    case emqx_schema:to_ip_port(Str) of
-        {ok, R} -> R;
-        {error, _} ->
-            error({invalid_listenon_name, Str})
+    try list_to_integer(Str)
+    catch _ : _ ->
+        case emqx_schema:to_ip_port(Str) of
+            {ok, R} -> R;
+            {error, _} ->
+                error({invalid_listenon_name, Str})
+        end
     end.
 
 listener_id(GwName, Type, LisName) ->

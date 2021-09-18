@@ -62,13 +62,13 @@ gateway(get, Request) ->
 gateway(post, Request) ->
     Body = maps:get(body, Request, #{}),
     try
-        Name0 = maps:get(<<"name">>, Request),
+        Name0 = maps:get(<<"name">>, Body),
         GwName = binary_to_existing_atom(Name0),
         case emqx_gateway_registry:lookup(GwName) of
             undefined -> error(badarg);
             _ ->
                 GwConf = maps:without([<<"name">>], Body),
-                case emqx_gateway:update_rawconf(Name0,  GwConf) of
+                case emqx_gateway_conf:load_gateway(GwName,  GwConf) of
                     ok ->
                         {204};
                     {error, Reason} ->
@@ -97,9 +97,9 @@ gateway_insta(get, #{bindings := #{name := Name0}}) ->
 gateway_insta(put, #{body := GwConf0,
                      bindings := #{name := Name0}
                     }) ->
-    with_gateway(Name0, fun(_, _) ->
+    with_gateway(Name0, fun(GwName, _) ->
         GwConf = maps:without([<<"authentication">>, <<"listeners">>], GwConf0),
-        case emqx_gateway:update_rawconf(Name0, GwConf) of
+        case emqx_gateway_conf:update_gateway(GwName, GwConf) of
             ok ->
                 {200};
             {error, Reason} ->

@@ -27,12 +27,14 @@
 %% Mgmt APIs - listeners
 -export([ listeners/1
         , listener/1
+        , add_listener/2
         , remove_listener/1
         , update_listener/2
         , mapping_listener_m2l/2
         ]).
 
 -export([ authn/1
+        , add_authn/2
         , update_authn/2
         , remove_authn/1
         ]).
@@ -203,47 +205,47 @@ bind2str(LConf = #{bind := Bind}) when is_binary(Bind) ->
 bind2str(LConf = #{<<"bind">> := Bind}) when is_binary(Bind) ->
     LConf.
 
--spec remove_listener(binary()) -> ok | {error, not_found} | {error, any()}.
-remove_listener(ListenerId) ->
+-spec add_listener(atom() | binary(), map()) -> ok | {error, any()}.
+add_listener(ListenerId, NewConf0) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    LConf = emqx:get_raw_config(
-              [<<"gateway">>, GwName, <<"listeners">>, Type]
-             ),
-    NLConf = maps:remove(Name, LConf),
-    emqx_gateway:update_rawconf(
-      GwName,
-      #{<<"listeners">> => #{Type => NLConf}}
-     ).
+    NewConf = maps:without([<<"id">>, <<"name">>,
+                            <<"type">>, <<"running">>], NewConf0),
+    emqx_gateway_conf:add_listener(GwName, {Type, Name}, NewConf).
 
 -spec update_listener(atom() | binary(), map()) -> ok | {error, any()}.
 update_listener(ListenerId, NewConf0) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+
     NewConf = maps:without([<<"id">>, <<"name">>,
                             <<"type">>, <<"running">>], NewConf0),
-    emqx_gateway:update_rawconf(
-      GwName,
-      #{<<"listeners">> => #{Type => #{Name => NewConf}}
-       }).
+    emqx_gateway_conf:update_listener(GwName, {Type, Name}, NewConf).
+
+-spec remove_listener(binary()) -> ok | {error, not_found} | {error, any()}.
+remove_listener(ListenerId) ->
+    {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    emqx_gateway_conf:remove_listener(GwName, {Type, Name}).
 
 -spec authn(gateway_name()) -> map() | undefined.
 authn(GwName) ->
     case emqx_map_lib:deep_get(
-           authentication,
+           [authentication],
            emqx:get_config([gateway, GwName]),
            undefined)  of
         undefined -> undefined;
         AuthConf -> emqx_map_lib:jsonable_map(AuthConf)
     end.
 
+-spec add_authn(gateway_name(), map()) -> ok | {error, any()}.
+add_authn(GwName, AuthConf) ->
+    emqx_gateway_conf:add_authn(GwName, AuthConf).
+
 -spec update_authn(gateway_name(), map()) -> ok | {error, any()}.
 update_authn(GwName, AuthConf) ->
-    emqx_gateway:update_rawconf(
-      atom_to_binary(GwName),
-      #{authentication => AuthConf}).
+    emqx_gateway_conf:update_authn(GwName, AuthConf).
 
 -spec remove_authn(gateway_name()) -> ok | {error, any()}.
-remove_authn(_GwName) ->
-    {error, not_supported_now}.
+remove_authn(GwName) ->
+    emqx_gateway_conf:remove_authn(GwName).
 
 %%--------------------------------------------------------------------
 %% Mgmt APIs - clients

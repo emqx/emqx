@@ -70,8 +70,7 @@ listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
             undefined ->
                 ListenerId = emqx_gateway_utils:listener_id(
                                GwName, Type, LName),
-                case emqx_gateway_http:update_listener(
-                       ListenerId, LConf) of
+                case emqx_gateway_http:add_listener(ListenerId, LConf) of
                     ok ->
                        {204};
                     {error, Reason} ->

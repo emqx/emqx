@@ -72,8 +72,7 @@ authn(put, #{bindings := #{name := Name0},
 authn(post, #{bindings := #{name := Name0},
               body := Body}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        %% Exitence checking?
-        case emqx_gateway_http:update_authn(GwName, Body) of
+        case emqx_gateway_http:add_authn(GwName, Body) of
             ok -> {204};
             {error, Reason} ->
                 return_http_error(500, Reason)

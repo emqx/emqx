@@ -115,6 +115,7 @@ update(Req) ->
     res(emqx:update_config([gateway], Req)).
 
 res({ok, _Result}) -> ok;
+res({error, {pre_config_update,emqx_gateway_conf,Reason}}) -> {error, Reason};
 res({error, Reason}) -> {error, Reason}.
 
 bin({LType, LName}) ->
