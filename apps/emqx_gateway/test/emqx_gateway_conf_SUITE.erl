@@ -29,6 +29,8 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Conf) ->
+    %% FIXME: Magic line. for saving gateway schema name for emqx_config
+    emqx_config:init_load(emqx_gateway_schema, <<"gateway {}">>),
     emqx_ct_helpers:start_apps([emqx_gateway]),
     Conf.
 
@@ -36,41 +38,195 @@ end_per_suite(_Conf) ->
     emqx_ct_helpers:stop_apps([emqx_gateway]).
 
 init_per_testcase(_CaseName, Conf) ->
-    emqx_gateway_conf:unload(),
-    emqx_config:put([gateway], #{}),
-    emqx_config:put_raw([gateway], #{}),
-    emqx_config:init_load(emqx_gateway_schema, <<"gateway {}">>),
-    emqx_gateway_conf:load(),
+    _ = emqx_gateway_conf:remove_gateway(stomp),
     Conf.
 
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
 
--define(CONF_STOMP1, #{listeners => #{tcp => #{default => #{bind => 61613}}}}).
--define(CONF_STOMP2, #{listeners => #{tcp => #{default => #{bind => 61614}}}}).
+-define(CONF_STOMP_BAISC_1,
+        #{ <<"idle_timeout">> => <<"10s">>,
+           <<"mountpoint">> => <<"t/">>,
+           <<"frame">> =>
+           #{ <<"max_headers">> => 20,
+              <<"max_headers_length">> => 2000,
+              <<"max_body_length">> => 2000
+            }
+         }).
+-define(CONF_STOMP_BAISC_2,
+        #{ <<"idle_timeout">> => <<"20s">>,
+           <<"mountpoint">> => <<"t2/">>,
+           <<"frame">> =>
+           #{ <<"max_headers">> => 30,
+              <<"max_headers_length">> => 3000,
+              <<"max_body_length">> => 3000
+            }
+         }).
+-define(CONF_STOMP_LISTENER_1,
+        #{ <<"bind">> => <<"61613">>
+         }).
+-define(CONF_STOMP_LISTENER_2,
+        #{ <<"bind">> => <<"61614">>
+         }).
+-define(CONF_STOMP_AUTHN_1,
+        #{ <<"mechanism">> => <<"password-based">>,
+           <<"backend">> => <<"built-in-database">>,
+           <<"user_id_type">> => <<"clientid">>
+         }).
+-define(CONF_STOMP_AUTHN_2,
+        #{ <<"mechanism">> => <<"password-based">>,
+           <<"backend">> => <<"built-in-database">>,
+           <<"user_id_type">> => <<"username">>
+         }).
 
 t_load_remove_gateway(_) ->
-    ok = emqx_gateway_conf:load_gateway(stomp, ?CONF_STOMP1),
-    {error, {pre_config_update, emqx_gateway_conf, already_exist}} =
-        emqx_gateway_conf:load_gateway(stomp, ?CONF_STOMP1),
-    assert_confs(?CONF_STOMP1, emqx:get_config([gateway, stomp])),
+    StompConf1 = compose(?CONF_STOMP_BAISC_1,
+                         ?CONF_STOMP_AUTHN_1,
+                         ?CONF_STOMP_LISTENER_1
+                        ),
+    StompConf2 = compose(?CONF_STOMP_BAISC_2,
+                         ?CONF_STOMP_AUTHN_1,
+                         ?CONF_STOMP_LISTENER_1),
 
-    ok = emqx_gateway_conf:update_gateway(stomp, ?CONF_STOMP2),
-    assert_confs(?CONF_STOMP2, emqx:get_config([gateway, stomp])),
+    ok = emqx_gateway_conf:load_gateway(stomp, StompConf1),
+    {error, {pre_config_update, emqx_gateway_conf, already_exist}} =
+        emqx_gateway_conf:load_gateway(stomp, StompConf1),
+    assert_confs(StompConf1, emqx:get_raw_config([gateway, stomp])),
+
+    ok = emqx_gateway_conf:update_gateway(stomp, StompConf2),
+    assert_confs(StompConf2, emqx:get_raw_config([gateway, stomp])),
 
     ok = emqx_gateway_conf:remove_gateway(stomp),
     ok = emqx_gateway_conf:remove_gateway(stomp),
 
     {error, {pre_config_update, emqx_gateway_conf, not_found}} =
-        emqx_gateway_conf:update_gateway(stomp, ?CONF_STOMP2),
+        emqx_gateway_conf:update_gateway(stomp, StompConf2),
 
-    ?assertException(error, {config_not_found, [gateway,stomp]},
-                     emqx:get_config([gateway, stomp])),
+    ?assertException(error, {config_not_found, [gateway, stomp]},
+                     emqx:get_raw_config([gateway, stomp])),
+    ok.
+
+t_load_remove_authn(_) ->
+    StompConf = compose_listener(?CONF_STOMP_BAISC_1, ?CONF_STOMP_LISTENER_1),
+
+    ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
+    assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
+
+    ok = emqx_gateway_conf:add_authn(<<"stomp">>, ?CONF_STOMP_AUTHN_1),
+    assert_confs(
+      maps:put(<<"authentication">>, ?CONF_STOMP_AUTHN_1, StompConf),
+      emqx:get_raw_config([gateway, stomp])),
+
+    ok = emqx_gateway_conf:update_authn(<<"stomp">>, ?CONF_STOMP_AUTHN_2),
+    assert_confs(
+      maps:put(<<"authentication">>, ?CONF_STOMP_AUTHN_2, StompConf),
+      emqx:get_raw_config([gateway, stomp])),
+
+    ok = emqx_gateway_conf:remove_authn(<<"stomp">>),
+
+    {error, {pre_config_update, emqx_gateway_conf, not_found}} =
+        emqx_gateway_conf:update_authn(<<"stomp">>, ?CONF_STOMP_AUTHN_2),
+
+    ?assertException(
+       error, {config_not_found, [gateway, stomp, authentication]},
+       emqx:get_raw_config([gateway, stomp, authentication])
+      ),
+    ok.
+
+t_load_remove_listeners(_) ->
+    StompConf = compose_authn(?CONF_STOMP_BAISC_1, ?CONF_STOMP_AUTHN_1),
+
+    ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
+    assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
+
+    ok = emqx_gateway_conf:add_listener(
+           <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_LISTENER_1),
+    assert_confs(
+      maps:merge(StompConf, listener(?CONF_STOMP_LISTENER_1)),
+      emqx:get_raw_config([gateway, stomp])),
+
+    ok = emqx_gateway_conf:update_listener(
+           <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_LISTENER_2),
+    assert_confs(
+      maps:merge(StompConf, listener(?CONF_STOMP_LISTENER_2)),
+      emqx:get_raw_config([gateway, stomp])),
+
+    ok = emqx_gateway_conf:remove_listener(
+           <<"stomp">>, {<<"tcp">>, <<"default">>}),
+
+    {error, {pre_config_update, emqx_gateway_conf, not_found}} =
+        emqx_gateway_conf:update_listener(
+          <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_LISTENER_2),
+
+    ?assertException(
+       error, {config_not_found, [gateway, stomp, listeners, tcp, default]},
+       emqx:get_raw_config([gateway, stomp, listeners, tcp, default])
+      ),
+    ok.
+
+t_load_remove_listener_authn(_) ->
+    StompConf  = compose_listener(
+                   ?CONF_STOMP_BAISC_1,
+                   ?CONF_STOMP_LISTENER_1
+                  ),
+    StompConf1 = compose_listener_authn(
+                   ?CONF_STOMP_BAISC_1,
+                   ?CONF_STOMP_LISTENER_1,
+                   ?CONF_STOMP_AUTHN_1
+                  ),
+    StompConf2 = compose_listener_authn(
+                   ?CONF_STOMP_BAISC_1,
+                   ?CONF_STOMP_LISTENER_1,
+                   ?CONF_STOMP_AUTHN_2
+                 ),
+
+    ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
+    assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
+
+    ok = emqx_gateway_conf:add_authn(
+           <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_AUTHN_1),
+    assert_confs(StompConf1, emqx:get_raw_config([gateway, stomp])),
+
+    ok = emqx_gateway_conf:update_authn(
+           <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_AUTHN_2),
+    assert_confs(StompConf2, emqx:get_raw_config([gateway, stomp])),
+
+    ok = emqx_gateway_conf:remove_authn(
+           <<"stomp">>, {<<"tcp">>, <<"default">>}),
+
+    {error, {pre_config_update, emqx_gateway_conf, not_found}} =
+        emqx_gateway_conf:update_authn(
+          <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_AUTHN_2),
+
+    Path = [gateway, stomp, listeners, tcp, default, authentication],
+    ?assertException(
+       error, {config_not_found, Path},
+       emqx:get_raw_config(Path)
+      ),
     ok.
 
 %%--------------------------------------------------------------------
 %% Utils
+
+compose(Basic, Authn, Listener) ->
+    maps:merge(
+      maps:merge(Basic, #{<<"authentication">> => Authn}),
+      listener(Listener)).
+
+compose_listener(Basic, Listener) ->
+    maps:merge(Basic, listener(Listener)).
+
+compose_authn(Basic, Authn) ->
+    maps:merge(Basic, #{<<"authentication">> => Authn}).
+
+compose_listener_authn(Basic, Listener, Authn) ->
+    maps:merge(
+      Basic,
+      listener(maps:put(<<"authentication">>, Authn, Listener))).
+
+listener(L) ->
+  #{<<"listeners">> => #{<<"tcp">> => #{<<"default">> => L}}}.
 
 assert_confs(Expected, Effected) ->
     case do_assert_confs(Expected, Effected) of
@@ -84,7 +240,7 @@ assert_confs(Expected, Effected) ->
     end.
 
 do_assert_confs(Expected, Effected) when is_map(Expected),
-                                      is_map(Effected) ->
+                                         is_map(Effected) ->
     Ks1 = maps:keys(Expected),
     lists:all(fun(K) ->
         do_assert_confs(maps:get(K, Expected),

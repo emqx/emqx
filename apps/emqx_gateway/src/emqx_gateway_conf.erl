@@ -43,6 +43,7 @@
         ]).
 
 -type atom_or_bin() :: atom() | binary().
+-type ok_or_err() :: ok_or_err().
 -type listener_ref() :: {ListenerType :: atom_or_bin(),
                          ListenerName :: atom_or_bin()}.
 
@@ -61,60 +62,63 @@ unload() ->
 %%--------------------------------------------------------------------
 %% APIs
 
--spec load_gateway(atom_or_bin(), map()) -> ok | {error, any()}.
+-spec load_gateway(atom_or_bin(), map()) -> ok_or_err().
 load_gateway(GwName, Conf) ->
-    res(emqx:update_config([gateway],
-                           {?FUNCTION_NAME, bin(GwName), Conf})).
+    update({?FUNCTION_NAME, bin(GwName), Conf}).
 
--spec update_gateway(atom_or_bin(), map()) -> ok | {error, any()}.
+-spec update_gateway(atom_or_bin(), map()) -> ok_or_err().
 update_gateway(GwName, Conf) ->
-    res(emqx:update_config([gateway],
-                           {?FUNCTION_NAME, bin(GwName), Conf})).
+    update({?FUNCTION_NAME, bin(GwName), Conf}).
 
--spec remove_gateway(atom_or_bin()) -> ok | {error, any()}.
+-spec remove_gateway(atom_or_bin()) -> ok_or_err().
 remove_gateway(GwName) ->
-    res(emqx:update_config([gateway],
-                           {?FUNCTION_NAME, bin(GwName)})).
+    update({?FUNCTION_NAME, bin(GwName)}).
 
--spec add_listener(atom_or_bin(), listener_ref(), map()) -> ok | {error, any()}.
+-spec add_listener(atom_or_bin(), listener_ref(), map()) -> ok_or_err().
 add_listener(GwName, ListenerRef, Conf) ->
-    res(emqx:update_config([gateway],
-                           {?FUNCTION_NAME, bin(GwName), ListenerRef, Conf})).
+    update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef), Conf}).
 
--spec update_listener(atom_or_bin(), listener_ref(), map()) -> ok | {error, any()}.
+-spec update_listener(atom_or_bin(), listener_ref(), map()) -> ok_or_err().
 update_listener(GwName, ListenerRef, Conf) ->
-    res(emqx:update_config([gateway],
-                           {?FUNCTION_NAME, bin(GwName), ListenerRef, Conf})).
+    update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef), Conf}).
 
--spec remove_listener(atom_or_bin(), listener_ref()) -> ok | {error, any()}.
+-spec remove_listener(atom_or_bin(), listener_ref()) -> ok_or_err().
 remove_listener(GwName, ListenerRef) ->
-    res(emqx:update_config([gateway],
-                           {?FUNCTION_NAME, bin(GwName), ListenerRef})).
+    update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef)}).
 
+-spec add_authn(atom_or_bin(), map()) -> ok_or_err().
 add_authn(GwName, Conf) ->
-    res(emqx:update_config([gateway],
-                           {?FUNCTION_NAME, bin(GwName), Conf})).
+    update({?FUNCTION_NAME, bin(GwName), Conf}).
+
+-spec add_authn(atom_or_bin(), listener_ref(), map()) -> ok_or_err().
 add_authn(GwName, ListenerRef, Conf) ->
-    res(emqx:update_config([gateway],
-                           {?FUNCTION_NAME, bin(GwName), ListenerRef, Conf})).
+    update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef), Conf}).
 
+-spec update_authn(atom_or_bin(), map()) -> ok_or_err().
 update_authn(GwName, Conf) ->
-    res(emqx:update_config([gateway],
-                           {?FUNCTION_NAME, bin(GwName), Conf})).
-update_authn(GwName, ListenerRef, Conf) ->
-    res(emqx:update_config([gateway],
-                           {?FUNCTION_NAME, bin(GwName), ListenerRef, Conf})).
+    update({?FUNCTION_NAME, bin(GwName), Conf}).
 
+-spec update_authn(atom_or_bin(), listener_ref(), map()) -> ok_or_err().
+update_authn(GwName, ListenerRef, Conf) ->
+    update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef), Conf}).
+
+-spec remove_authn(atom_or_bin()) -> ok_or_err().
 remove_authn(GwName) ->
-    res(emqx:update_config([gateway],
-                           {?FUNCTION_NAME, bin(GwName)})).
+    update({?FUNCTION_NAME, bin(GwName)}).
+
+-spec remove_authn(atom_or_bin(), listener_ref()) -> ok_or_err().
 remove_authn(GwName, ListenerRef) ->
-    res(emqx:update_config([gateway],
-                           {?FUNCTION_NAME, bin(GwName), ListenerRef})).
+    update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef)}).
+
+%% @private
+update(Req) ->
+    res(emqx:update_config([gateway], Req)).
 
 res({ok, _Result}) -> ok;
 res({error, Reason}) -> {error, Reason}.
 
+bin({LType, LName}) ->
+    {bin(LType), bin(LName)};
 bin(A) when is_atom(A) ->
     atom_to_binary(A);
 bin(B) when is_binary(B) ->
