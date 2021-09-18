@@ -82,8 +82,8 @@ definitions() ->
         properties => #{
             type => #{
                 type => string,
-                enum => [<<"http">>],
-                example => <<"http">>
+                enum => [<<"http-server">>],
+                example => <<"http-server">>
             },
             enable => #{
                 type => boolean,

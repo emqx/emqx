@@ -46,7 +46,7 @@ init_per_suite(Config) ->
 
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
-    Rules = [#{<<"type">> => <<"http">>,
+    Rules = [#{<<"type">> => <<"http-server">>,
                <<"url">> => <<"https://fake.com:443/">>,
                <<"headers">> => #{},
                <<"method">> => <<"get">>,

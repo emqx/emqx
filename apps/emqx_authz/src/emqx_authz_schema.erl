@@ -53,7 +53,7 @@ fields(file) ->
               }}
     ];
 fields(http_get) ->
-    [ {type, #{type => http}}
+    [ {type, #{type => 'http-server'}}
     , {enable, #{type => boolean(),
                  default => true}}
     , {url, #{type => url()}}
@@ -80,7 +80,7 @@ fields(http_get) ->
     , {request_timeout,  #{type => timeout(), default => 30000 }}
     ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
 fields(http_post) ->
-    [ {type, #{type => http}}
+    [ {type, #{type => 'http-server'}}
     , {enable, #{type => boolean(),
                  default => true}}
     , {url, #{type => url()}}

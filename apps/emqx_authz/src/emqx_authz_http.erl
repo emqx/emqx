@@ -34,7 +34,7 @@ description() ->
     "AuthZ with http".
 
 authorize(Client, PubSub, Topic,
-            #{type := http,
+            #{type := 'http-server',
               url := #{path := Path} = Url,
               headers := Headers,
               method := Method,

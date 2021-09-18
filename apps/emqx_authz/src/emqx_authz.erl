@@ -39,7 +39,7 @@
 -export([post_config_update/4, pre_config_update/2]).
 
 -define(CONF_KEY_PATH, [authorization, sources]).
--define(SOURCE_TYPES, [file, http, mongo, mysql, postgresql, redis]).
+-define(SOURCE_TYPES, [file, 'http-server', mongo, mysql, postgresql, redis]).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
@@ -289,7 +289,7 @@ init_source(#{enable := true,
             end,
     Source#{annotations => #{rules => Rules}};
 init_source(#{enable := true,
-              type := http,
+              type := 'http-server',
               url := Url
              } = Source) ->
     NSource= maps:put(base_url, maps:remove(query, Url), Source),
@@ -387,6 +387,8 @@ find_action_in_hooks() ->
     [Action] = [Action || {callback,{?MODULE, authorize, _} = Action, _, _} <- Callbacks ],
     Action.
 
+gen_id('http-server') ->
+    gen_id(http);
 gen_id(Type) ->
     iolist_to_binary([io_lib:format("~s_~s",[?APP, Type])]).
 
@@ -404,9 +406,13 @@ create_resource(#{type := DB} = Source) ->
         {error, Reason} -> {error, Reason}
     end.
 
+authz_module('http-server') ->
+    authz_module(http);
 authz_module(Type) ->
     list_to_existing_atom("emqx_authz_" ++ atom_to_list(Type)).
 
+connector_module('http-server') ->
+    emqx_connector_http;
 connector_module(postgresql) ->
     emqx_connector_pgsql;
 connector_module(Type) ->

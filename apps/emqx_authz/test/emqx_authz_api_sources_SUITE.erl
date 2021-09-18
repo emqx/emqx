@@ -37,7 +37,7 @@
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
 
--define(SOURCE1, #{<<"type">> => <<"http">>,
+-define(SOURCE1, #{<<"type">> => <<"http-server">>,
                    <<"enable">> => true,
                    <<"url">> => <<"https://fake.com:443/">>,
                    <<"headers">> => #{},
@@ -180,7 +180,7 @@ t_api(_) ->
 
     {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
     Sources = get_sources(Result2),
-    ?assertMatch([ #{<<"type">> := <<"http">>}
+    ?assertMatch([ #{<<"type">> := <<"http-server">>}
                  , #{<<"type">> := <<"mongo">>}
                  , #{<<"type">> := <<"mysql">>}
                  , #{<<"type">> := <<"postgresql">>}
@@ -189,9 +189,9 @@ t_api(_) ->
                  ], Sources),
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]))),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]),  ?SOURCE1#{<<"enable">> := false}),
-    {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
-    ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result3)),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "http-server"]),  ?SOURCE1#{<<"enable">> := false}),
+    {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http-server"]), []),
+    ?assertMatch(#{<<"type">> := <<"http-server">>, <<"enable">> := false}, jsx:decode(Result3)),
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "mongo"]),
                            ?SOURCE2#{<<"ssl">> := #{
@@ -224,7 +224,7 @@ t_api(_) ->
 
 t_move_source(_) ->
     {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5]),
-    ?assertMatch([ #{type := http}
+    ?assertMatch([ #{type := 'http-server'}
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := postgresql}
@@ -234,19 +234,19 @@ t_move_source(_) ->
     {ok, 204, _} = request(post, uri(["authorization", "sources", "postgresql", "move"]),
                            #{<<"position">> => <<"top">>}),
     ?assertMatch([ #{type := postgresql}
-                 , #{type := http}
+                 , #{type := 'http-server'}
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := redis}
                  ], emqx_authz:lookup()),
 
-    {ok, 204, _} = request(post, uri(["authorization", "sources", "http", "move"]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "http-server", "move"]),
                            #{<<"position">> => <<"bottom">>}),
     ?assertMatch([ #{type := postgresql}
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := redis}
-                 , #{type := http}
+                 , #{type := 'http-server'}
                  ], emqx_authz:lookup()),
 
     {ok, 204, _} = request(post, uri(["authorization", "sources", "mysql", "move"]),
@@ -255,15 +255,15 @@ t_move_source(_) ->
                  , #{type := postgresql}
                  , #{type := mongo}
                  , #{type := redis}
-                 , #{type := http}
+                 , #{type := 'http-server'}
                  ], emqx_authz:lookup()),
 
     {ok, 204, _} = request(post, uri(["authorization", "sources", "mongo", "move"]),
-                           #{<<"position">> => #{<<"after">> => <<"http">>}}),
+                           #{<<"position">> => #{<<"after">> => <<"http-server">>}}),
     ?assertMatch([ #{type := mysql}
                  , #{type := postgresql}
                  , #{type := redis}
-                 , #{type := http}
+                 , #{type := 'http-server'}
                  , #{type := mongo}
                  ], emqx_authz:lookup()),
 

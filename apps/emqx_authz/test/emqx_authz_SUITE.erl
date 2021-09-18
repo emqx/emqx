@@ -60,7 +60,7 @@ init_per_testcase(_, Config) ->
     {ok, _} = emqx_authz:update(replace, []),
     Config.
 
--define(SOURCE1, #{<<"type">> => <<"http">>,
+-define(SOURCE1, #{<<"type">> => <<"http-server">>,
                    <<"enable">> => true,
                    <<"url">> => <<"https://fake.com:443/">>,
                    <<"headers">> => #{},
@@ -127,7 +127,7 @@ t_update_source(_) ->
     {ok, _} = emqx_authz:update(tail, [?SOURCE5]),
     {ok, _} = emqx_authz:update(tail, [?SOURCE6]),
 
-    ?assertMatch([ #{type := http,  enable := true}
+    ?assertMatch([ #{type := 'http-server',  enable := true}
                  , #{type := mongo, enable := true}
                  , #{type := mysql, enable := true}
                  , #{type := postgresql, enable := true}
@@ -135,14 +135,14 @@ t_update_source(_) ->
                  , #{type := file,  enable := true}
                  ], emqx:get_config([authorization, sources], [])),
 
-    {ok, _} = emqx_authz:update({replace_once, http},  ?SOURCE1#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({replace_once, 'http-server'},  ?SOURCE1#{<<"enable">> := false}),
     {ok, _} = emqx_authz:update({replace_once, mongo}, ?SOURCE2#{<<"enable">> := false}),
     {ok, _} = emqx_authz:update({replace_once, mysql}, ?SOURCE3#{<<"enable">> := false}),
     {ok, _} = emqx_authz:update({replace_once, postgresql}, ?SOURCE4#{<<"enable">> := false}),
     {ok, _} = emqx_authz:update({replace_once, redis}, ?SOURCE5#{<<"enable">> := false}),
     {ok, _} = emqx_authz:update({replace_once, file},  ?SOURCE6#{<<"enable">> := false}),
 
-    ?assertMatch([ #{type := http,  enable := false}
+    ?assertMatch([ #{type := 'http-server',  enable := false}
                  , #{type := mongo, enable := false}
                  , #{type := mysql, enable := false}
                  , #{type := postgresql, enable := false}
@@ -154,7 +154,7 @@ t_update_source(_) ->
 
 t_move_source(_) ->
     {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
-    ?assertMatch([ #{type := http}
+    ?assertMatch([ #{type := 'http-server'}
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := postgresql}
@@ -164,20 +164,20 @@ t_move_source(_) ->
 
     {ok, _} = emqx_authz:move(postgresql, <<"top">>),
     ?assertMatch([ #{type := postgresql}
-                 , #{type := http}
+                 , #{type := 'http-server'}
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := redis}
                  , #{type := file}
                  ], emqx_authz:lookup()),
 
-    {ok, _} = emqx_authz:move(http, <<"bottom">>),
+    {ok, _} = emqx_authz:move('http-server', <<"bottom">>),
     ?assertMatch([ #{type := postgresql}
                  , #{type := mongo}
                  , #{type := mysql}
                  , #{type := redis}
                  , #{type := file}
-                 , #{type := http}
+                 , #{type := 'http-server'}
                  ], emqx_authz:lookup()),
 
     {ok, _} = emqx_authz:move(mysql, #{<<"before">> => postgresql}),
@@ -186,15 +186,15 @@ t_move_source(_) ->
                  , #{type := mongo}
                  , #{type := redis}
                  , #{type := file}
-                 , #{type := http}
+                 , #{type := 'http-server'}
                  ], emqx_authz:lookup()),
 
-    {ok, _} = emqx_authz:move(mongo, #{<<"after">> => http}),
+    {ok, _} = emqx_authz:move(mongo, #{<<"after">> => 'http-server'}),
     ?assertMatch([ #{type := mysql}
                  , #{type := postgresql}
                  , #{type := redis}
                  , #{type := file}
-                 , #{type := http}
+                 , #{type := 'http-server'}
                  , #{type := mongo}
                  ], emqx_authz:lookup()),
 
