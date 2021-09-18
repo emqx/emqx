@@ -90,7 +90,7 @@ t_load_remove_gateway(_) ->
                          ?CONF_STOMP_LISTENER_1),
 
     ok = emqx_gateway_conf:load_gateway(stomp, StompConf1),
-    {error, {pre_config_update, emqx_gateway_conf, already_exist}} =
+    {error, already_exist} =
         emqx_gateway_conf:load_gateway(stomp, StompConf1),
     assert_confs(StompConf1, emqx:get_raw_config([gateway, stomp])),
 
@@ -100,7 +100,7 @@ t_load_remove_gateway(_) ->
     ok = emqx_gateway_conf:remove_gateway(stomp),
     ok = emqx_gateway_conf:remove_gateway(stomp),
 
-    {error, {pre_config_update, emqx_gateway_conf, not_found}} =
+    {error, not_found} =
         emqx_gateway_conf:update_gateway(stomp, StompConf2),
 
     ?assertException(error, {config_not_found, [gateway, stomp]},
@@ -125,7 +125,7 @@ t_load_remove_authn(_) ->
 
     ok = emqx_gateway_conf:remove_authn(<<"stomp">>),
 
-    {error, {pre_config_update, emqx_gateway_conf, not_found}} =
+    {error, not_found} =
         emqx_gateway_conf:update_authn(<<"stomp">>, ?CONF_STOMP_AUTHN_2),
 
     ?assertException(
@@ -155,7 +155,7 @@ t_load_remove_listeners(_) ->
     ok = emqx_gateway_conf:remove_listener(
            <<"stomp">>, {<<"tcp">>, <<"default">>}),
 
-    {error, {pre_config_update, emqx_gateway_conf, not_found}} =
+    {error, not_found} =
         emqx_gateway_conf:update_listener(
           <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_LISTENER_2),
 
@@ -195,7 +195,7 @@ t_load_remove_listener_authn(_) ->
     ok = emqx_gateway_conf:remove_authn(
            <<"stomp">>, {<<"tcp">>, <<"default">>}),
 
-    {error, {pre_config_update, emqx_gateway_conf, not_found}} =
+    {error, not_found} =
         emqx_gateway_conf:update_authn(
           <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_AUTHN_2),
 
