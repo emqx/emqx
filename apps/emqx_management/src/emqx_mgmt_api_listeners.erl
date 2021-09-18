@@ -248,8 +248,13 @@ crud_listener_by_id_on_node(get, #{bindings := #{id := Id, node := Node}}) ->
         Listener ->
             {200, format(Listener)}
     end;
-crud_listener_by_id_on_node(put, #{bindings := #{id := Id, node := Node, body := Conf}}) ->
-    return_listeners(emqx_mgmt:update_listener(atom(Node), Id, Conf));
+crud_listener_by_id_on_node(put, #{bindings := #{id := Id, node := Node}, body := Conf}) ->
+    case emqx_mgmt:update_listener(atom(Node), Id, Conf) of
+        {error, Reason} ->
+            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}};
+        Listener ->
+            {200, format(Listener)}
+    end;
 crud_listener_by_id_on_node(delete, #{bindings := #{id := Id, node := Node}}) ->
     case emqx_mgmt:remove_listener(atom(Node), Id) of
         ok -> {200};
