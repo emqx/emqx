@@ -216,7 +216,7 @@ fields(cluster_etcd) ->
     ];
 
 fields(etcd_ssl_opts) ->
-    emqx_schema:ssl(#{});
+    emqx_schema:ssl_opts_schema(#{}, false);
 
 fields(cluster_k8s) ->
     [ {"apiserver",

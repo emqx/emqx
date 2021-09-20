@@ -61,6 +61,7 @@ fields("ssl") ->
     , {keyfile, fun keyfile/1}
     , {certfile, fun certfile/1}
     , {verify, fun verify/1}
+    , {server_name_indicator, fun server_name_indicator/1}
     ].
 
 ssl_fields() ->
@@ -150,3 +151,19 @@ to_servers(Str) ->
                      [{host, Ip}, {port, list_to_integer(Port)}]
              end
          end, string:tokens(Str, " , "))}.
+
+server_name_indicator(type) -> string();
+server_name_indicator(default) -> disable;
+server_name_indicator(desc) ->
+"""Specify the host name to be used in TLS Server Name Indication extension.<br>
+For instance, when connecting to \"server.example.net\", the genuine server 
+which accedpts the connection and performs TSL handshake may differ from the 
+host the TLS client initially connects to, e.g. when connecting to an IP address 
+or when the host has multiple resolvable DNS records <br>
+If not specified, it will default to the host name string which is used 
+to establish the connection, unless it is IP addressed used.<br>
+The host name is then also used in the host name verification of the peer 
+certificate.<br> The special value 'disable' prevents the Server Name
+Indication extension from being sent and disables the hostname 
+verification check.""";
+server_name_indicator(_) -> undefined.

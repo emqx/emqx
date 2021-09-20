@@ -23,6 +23,7 @@
 -dialyzer(no_fail_call).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -type duration() :: integer().
 -type duration_s() :: integer().
@@ -71,7 +72,7 @@
 
 -export([namespace/0, roots/0, roots/1, fields/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
--export([ssl/1]).
+-export([ssl_opts_schema/2, ciphers_schema/1, default_ciphers/1]).
 
 namespace() -> undefined.
 
@@ -461,7 +462,7 @@ fields("mqtt_ssl_listener") ->
           #{})
       }
     , {"ssl",
-       sc(ref("listener_ssl_opts"),
+       sc(ref("ssl_opts"),
           #{})
       }
     ] ++ mqtt_listener();
@@ -483,7 +484,7 @@ fields("mqtt_wss_listener") ->
           #{})
       }
     , {"ssl",
-       sc(ref("listener_ssl_opts"),
+       sc(ref("wss_ssl_opts"),
           #{})
       }
     , {"websocket",
@@ -498,6 +499,7 @@ fields("mqtt_quic_listener") ->
           #{ default => true
            })
       }
+      %% TODO: ensure cacertfile is configurable
     , {"certfile",
        sc(string(),
           #{})
@@ -506,11 +508,7 @@ fields("mqtt_quic_listener") ->
        sc(string(),
           #{})
       }
-    , {"ciphers",
-       sc(comma_separated_list(),
-          #{ default => "TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256,"
-                        "TLS_CHACHA20_POLY1305_SHA256"
-           })}
+    , {"ciphers", ciphers_schema(quic)}
     , {"idle_timeout",
        sc(duration(),
           #{ default => "15s"
@@ -633,13 +631,21 @@ fields("tcp_opts") ->
       }
     ];
 
-fields("listener_ssl_opts") ->
-    ssl(#{handshake_timeout => "15s"
-        , depth => 10
-        , reuse_sessions => true
-        , versions => default_tls_vsns()
-        , ciphers => default_ciphers()
-        });
+fields("ssl_opts") ->
+    ssl_opts_schema(
+      #{ depth => 10
+       , reuse_sessions => true
+       , versions => tcp
+       , ciphers => tcp_all
+       }, false);
+
+fields("wss_ssl_opts") ->
+    ssl_opts_schema(
+      #{ depth => 10
+       , reuse_sessions => true
+       , versions => tcp
+       , ciphers => tcp_all
+       }, true);
 
 fields("deflate_opts") ->
     [ {"level",
@@ -902,7 +908,10 @@ conf_get(Key, Conf, Default) ->
 filter(Opts) ->
     [{K, V} || {K, V} <- Opts, V =/= undefined].
 
-ssl(Defaults) ->
+%% @doc This function defines the SSL opts only for TLS server (listners).
+%% When it's for ranch listener, an extra field `handshake_timeout' is added.
+-spec ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
+ssl_opts_schema(Defaults, IsRanchListener) ->
     D = fun (Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun (Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
     [ {"enable",
@@ -933,6 +942,14 @@ ssl(Defaults) ->
     , {"fail_if_no_peer_cert",
        sc(boolean(),
           #{ default => Df("fail_if_no_peer_cert", false)
+           , desc =>
+"""
+Used together with {verify, verify_peer} by an TLS/DTLS server. 
+If set to true, the server fails if the client does not have a 
+certificate to send, that is, sends an empty certificate. 
+If set to false, it fails only if the client sends an invalid 
+certificate (an empty certificate is considered valid).
+"""
            })
       }
     , {"secure_renegotiate",
@@ -971,11 +988,6 @@ the number of messages the underlying cipher suite can encipher.
           #{ default => Df("honor_cipher_order", true)
            })
       }
-    , {"handshake_timeout",
-       sc(duration(),
-          #{ default => Df("handshake_timeout", "15s")
-           })
-      }
     , {"depth",
        sc(integer(),
           #{default => Df("depth", 10)
@@ -983,50 +995,118 @@ the number of messages the underlying cipher suite can encipher.
       }
     , {"password",
        sc(string(),
-          #{ default => D("key_password")
-           , sensitive => true
+          #{ sensitive => true
+           , nullable => true
+           , desc =>
+"""String containing the user's password. Only used if the private 
+keyfile is password-protected."""
            })
       }
     , {"dhfile",
        sc(string(),
           #{ default => D("dhfile")
-           })
-      }
-    , {"server_name_indication",
-       sc(hoconsc:union([disable, string()]),
-          #{ default => D("server_name_indication")
+           , nullable => true
+           , desc =>
+"""Path to a file containing PEM-encoded Diffie Hellman parameters 
+to be used by the server if a cipher suite using Diffie Hellman 
+key exchange is negotiated. If not specified, default parameters 
+are used.<br>
+NOTE: The dhfile option is not supported by TLS 1.3."""
            })
       }
     , {"versions",
-       sc(typerefl:alias("string", list(atom())),
-          #{ default => maps:get(versions, Defaults, default_tls_vsns())
-           , converter => fun (Vsns) -> [tls_vsn(iolist_to_binary(V)) || V <- Vsns] end
+       sc(hoconsc:array(typerefl:atom()),
+          #{ default => default_tls_vsns(maps:get(versions, Defaults, tcp))
+           , desc =>
+"""All TLS/DTLS versions to be supported.<br>
+NOTE: PSK ciphers are suppresed by 'tlsv1.3' version config<br>
+In case PSK cipher suites are intended, make sure to configured
+<code>['tlsv1.2', 'tlsv1.1']</code> here<br>.
+"""
            })
       }
-    , {"ciphers",
-       sc(hoconsc:array(string()),
-          #{ default => D("ciphers")
-           })
-      }
-    , {"user_lookup_fun",
+    , {"ciphers", ciphers_schema(D("ciphers"))}
+    , {user_lookup_fun,
        sc(typerefl:alias("string", any()),
           #{ default => "emqx_psk:lookup"
            , converter => fun ?MODULE:parse_user_lookup_fun/1
            })
       }
+    | [ {"handshake_timeout",
+         sc(duration(),
+            #{ default => Df("handshake_timeout", "15s")
+             , desc => "Maximum time duration allowed for the handshake to complete"
+             })}
+       || IsRanchListener]
     ].
 
-%% on erl23.2.7.2-emqx-2, sufficient_crypto_support('tlsv1.3') -> false
-default_tls_vsns() -> [<<"tlsv1.2">>, <<"tlsv1.1">>, <<"tlsv1">>].
+default_tls_vsns(dtls) ->
+    [<<"dtlsv1.2">>, <<"dtlsv1">>];
+default_tls_vsns(tcp) ->
+    [<<"tlsv1.3">>, <<"tlsv1.2">>, <<"tlsv1.1">>, <<"tlsv1">>].
 
-tls_vsn(<<"tlsv1.3">>) -> 'tlsv1.3';
-tls_vsn(<<"tlsv1.2">>) -> 'tlsv1.2';
-tls_vsn(<<"tlsv1.1">>) -> 'tlsv1.1';
-tls_vsn(<<"tlsv1">>) -> 'tlsv1'.
+-spec ciphers_schema(quic | dtls | tcp_all | undefined) -> hocon_schema:field_schema().
+ciphers_schema(Default) ->
+    sc(hoconsc:union([string(), hoconsc:array(string())]),
+       #{ default => default_ciphers(Default)
+        , converter => fun(Ciphers) when is_binary(Ciphers) ->
+                               binary:split(Ciphers, <<",">>, [global]);
+                          (Ciphers) when is_list(Ciphers) ->
+                               Ciphers
+                       end
+        , validator => fun validate_ciphers/1
+        , desc =>
+"""TLS cipher suite names separated by comma, or as an array of strings 
+<code>\"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256\"</code> or 
+<code>[\"TLS_AES_256_GCM_SHA384\",\"TLS_AES_128_GCM_SHA256\"]</code].
+<br>
+Ciphers (and their ordering) define the way in which the 
+client and server encrypts information over the wire. 
+Selecting a good cipher suite is critical for the 
+application's data security, confidentiality and performance. 
+The names should be in OpenSSL sting format (not RFC format). 
+Default values and examples proveded by EMQ X config 
+documentation are all in OpenSSL format.<br>
 
-default_ciphers() -> [
-    "TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", "TLS_CHACHA20_POLY1305_SHA256",
-    "TLS_AES_128_CCM_SHA256", "TLS_AES_128_CCM_8_SHA256", "ECDHE-ECDSA-AES256-GCM-SHA384",
+NOTE: Certain cipher suites are only compatible with 
+specific TLS <code>versions</code> ('tlsv1.1', 'tlsv1.2' or 'tlsv1.3') 
+incompatible cipher suites will be silently dropped. 
+For instance, if only 'tlsv1.3' is given in the <code>versions</code>, 
+configuring cipher suites for other versions will have no effect.
+<br>
+
+NOTE: PSK ciphers are suppresed by 'tlsv1.3' version config<br>
+If PSK cipher suites are intended, 'tlsv1.3' should be disabled from <code>versions</code>.<br>
+PSK cipher suites: <code>\"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,
+RSA-PSK-AES128-GCM-SHA256,RSA-PSK-AES128-CBC-SHA256,
+RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA,
+RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA\"</code><br>
+""" ++ case Default of
+           quic -> "NOTE: QUIC listener supports only 'tlsv1.3' ciphers<br>";
+           _ -> ""
+       end}).
+
+default_ciphers(undefined) ->
+    default_ciphers(tcp_all);
+default_ciphers(quic) -> [
+    "TLS_AES_256_GCM_SHA384",
+    "TLS_AES_128_GCM_SHA256",
+    "TLS_CHACHA20_POLY1305_SHA256"
+    ];
+default_ciphers(tcp_all) ->
+    default_ciphers('tlsv1.3') ++
+    default_ciphers('tlsv1.2') ++
+    default_ciphers(psk);
+default_ciphers(dtls) ->
+    %% as of now, dtls does not support tlsv1.3 ciphers
+    default_ciphers('tlsv1.2') ++ default_ciphers('psk');
+default_ciphers('tlsv1.3') ->
+    ["TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256",
+     "TLS_CHACHA20_POLY1305_SHA256", "TLS_AES_128_CCM_SHA256",
+     "TLS_AES_128_CCM_8_SHA256"]
+    ++ default_ciphers('tlsv1.2');
+default_ciphers('tlsv1.2') -> [
+    "ECDHE-ECDSA-AES256-GCM-SHA384",
     "ECDHE-RSA-AES256-GCM-SHA384", "ECDHE-ECDSA-AES256-SHA384", "ECDHE-RSA-AES256-SHA384",
     "ECDHE-ECDSA-DES-CBC3-SHA", "ECDH-ECDSA-AES256-GCM-SHA384", "ECDH-RSA-AES256-GCM-SHA384",
     "ECDH-ECDSA-AES256-SHA384", "ECDH-RSA-AES256-SHA384", "DHE-DSS-AES256-GCM-SHA384",
@@ -1039,10 +1119,12 @@ default_ciphers() -> [
     "ECDH-ECDSA-AES256-SHA", "ECDH-RSA-AES256-SHA", "AES256-SHA", "ECDHE-ECDSA-AES128-SHA",
     "ECDHE-RSA-AES128-SHA", "DHE-DSS-AES128-SHA", "ECDH-ECDSA-AES128-SHA",
     "ECDH-RSA-AES128-SHA", "AES128-SHA"
-    ] ++ psk_ciphers().
-
-psk_ciphers() -> [
-        "PSK-AES128-CBC-SHA", "PSK-AES256-CBC-SHA", "PSK-3DES-EDE-CBC-SHA", "PSK-RC4-SHA"
+    ];
+default_ciphers(psk) ->
+    [ "RSA-PSK-AES256-GCM-SHA384","RSA-PSK-AES256-CBC-SHA384",
+      "RSA-PSK-AES128-GCM-SHA256","RSA-PSK-AES128-CBC-SHA256",
+      "RSA-PSK-AES256-CBC-SHA","RSA-PSK-AES128-CBC-SHA",
+      "RSA-PSK-DES-CBC3-SHA","RSA-PSK-RC4-SHA"
     ].
 
 %% @private return a list of keys in a parent field
@@ -1160,3 +1242,17 @@ parse_user_lookup_fun(StrConf) ->
     Mod = list_to_atom(ModStr),
     Fun = list_to_atom(FunStr),
     {fun Mod:Fun/3, <<>>}.
+
+validate_ciphers(Ciphers) ->
+    All = ssl:cipher_suites(all, 'tlsv1.3', openssl) ++
+          ssl:cipher_suites(all, 'tlsv1.2', openssl), %% includes older version ciphers
+    lists:foreach(
+        fun(Cipher) ->
+                case lists:member(Cipher, All) of
+                    true ->
+                        ok;
+                    false ->
+                        ?tp(error, bad_tls_cipher_suite, #{ciphers => Cipher}),
+                        error({bad_tls_cipher_suite, Cipher})
+                end
+        end, Ciphers).

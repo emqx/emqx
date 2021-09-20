@@ -1,0 +1,108 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+-module(emqx_schema_tests).
+
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+ssl_opts_dtls_test() ->
+    Sc = emqx_schema:ssl_opts_schema(#{versions => dtls,
+                                           ciphers => dtls}, false),
+    Checked = validate(Sc, #{<<"versions">> => [<<"dtlsv1.2">>, <<"dtlsv1">>]}),
+    ?assertMatch(#{versions := ['dtlsv1.2', 'dtlsv1'],
+                   ciphers := ["ECDHE-ECDSA-AES256-GCM-SHA384" | _]
+                  }, Checked).
+
+ssl_opts_tls_1_3_test() ->
+    Sc = emqx_schema:ssl_opts_schema(#{}, false),
+    Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.3">>]}),
+    ?assertNot(maps:is_key(handshake_timeout, Checked)),
+    ?assertMatch(#{versions := ['tlsv1.3'],
+                   ciphers := [_ | _]
+                  }, Checked).
+
+ssl_opts_tls_for_ranch_test() ->
+    Sc = emqx_schema:ssl_opts_schema(#{}, true),
+    Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.3">>]}),
+    ?assertMatch(#{versions := ['tlsv1.3'],
+                   ciphers := [_ | _],
+                   handshake_timeout := _
+                  }, Checked).
+
+ssl_opts_cipher_array_test() ->
+    Sc = emqx_schema:ssl_opts_schema(#{}, false),
+    Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.3">>],
+                             <<"ciphers">> => [<<"TLS_AES_256_GCM_SHA384">>,
+                                               <<"ECDHE-ECDSA-AES256-GCM-SHA384">>]}),
+    ?assertMatch(#{versions := ['tlsv1.3'],
+                   ciphers := ["TLS_AES_256_GCM_SHA384", "ECDHE-ECDSA-AES256-GCM-SHA384"]
+                  }, Checked).
+
+ssl_opts_cipher_comma_separated_string_test() ->
+    Sc = emqx_schema:ssl_opts_schema(#{}, false),
+    Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.3">>],
+                             <<"ciphers">> => <<"TLS_AES_256_GCM_SHA384,ECDHE-ECDSA-AES256-GCM-SHA384">>}),
+    ?assertMatch(#{versions := ['tlsv1.3'],
+                   ciphers := ["TLS_AES_256_GCM_SHA384", "ECDHE-ECDSA-AES256-GCM-SHA384"]
+                  }, Checked).
+
+ssl_opts_tls_psk_test() ->
+    Sc = emqx_schema:ssl_opts_schema(#{}, false),
+    Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.2">>]}),
+    ?assertMatch(#{versions := ['tlsv1.2']}, Checked),
+    #{ciphers := Ciphers} = Checked,
+    PskCiphers = emqx_schema:default_ciphers(psk),
+    lists:foreach(fun(Cipher) ->
+                          ?assert(lists:member(Cipher, Ciphers))
+                  end, PskCiphers).
+
+bad_cipher_test() ->
+    ok = snabbkaffe:start_trace(),
+    Sc = emqx_schema:ssl_opts_schema(#{}, false),
+    ?assertThrow({_Sc, [{validation_error, _Error}]},
+              [validate(Sc, #{<<"versions">> => [<<"tlsv1.2">>],
+                        <<"ciphers">> => [<<"foo">>]})]),
+    Trace = snabbkaffe:collect_trace(),
+    ?assertEqual(1, length(?of_kind(bad_tls_cipher_suite, Trace))),
+    snabbkaffe:stop(),
+    ok.
+
+validate(Schema, Data0) ->
+    Sc = #{ roots => [ssl_opts]
+          , fields => #{ssl_opts => Schema}
+          },
+    Data = Data0#{ cacertfile => <<"cacertfile">>
+                 , certfile => <<"certfile">>
+                 , keyfile => <<"keyfile">>
+                 },
+    #{ssl_opts := Checked} =
+        hocon_schema:check_plain(Sc, #{<<"ssl_opts">> => Data},
+                                 #{atom_key => true}),
+    Checked.
+
+ciperhs_schema_test() ->
+    Sc = emqx_schema:ciphers_schema(undefined),
+    ?assertMatch(
+       #{type := {union, [_, {array, _}]},
+         default := [_ | _],
+         converter := Converter,
+         validator := Validator
+        } when is_function(Converter) andalso is_function(Validator),
+       Sc),
+    WSc = #{roots => [{ciphers, Sc}]},
+    ?assertThrow({_, [{validation_error, _}]},
+                 hocon_schema:check_plain(WSc, #{<<"ciphers">> => <<"foo,bar">>})).
