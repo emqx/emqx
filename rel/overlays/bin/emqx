@@ -20,7 +20,6 @@ export RELEASE_NODE="${RELEASE_NODE:-"$RELEASE_NAME"}"
 export RELEASE_TMP="${RELEASE_TMP:-"$RELEASE_ROOT/tmp"}"
 export RELEASE_VM_ARGS="${RELEASE_VM_ARGS:-"$REL_VSN_DIR/vm.args"}"
 export RELEASE_REMOTE_VM_ARGS="${RELEASE_REMOTE_VM_ARGS:-"$REL_VSN_DIR/remote.vm.args"}"
-export RELEASE_DISTRIBUTION="${RELEASE_DISTRIBUTION:-"sname"}"
 export RELEASE_BOOT_SCRIPT="${RELEASE_BOOT_SCRIPT:-"start"}"
 export RELEASE_BOOT_SCRIPT_CLEAN="${RELEASE_BOOT_SCRIPT_CLEAN:-"start_clean"}"
 export RELEASE_SYS_CONFIG="${RELEASE_SYS_CONFIG:-"$REL_VSN_DIR/sys"}"
@@ -28,6 +27,7 @@ export RELEASE_SYS_CONFIG="${RELEASE_SYS_CONFIG:-"$REL_VSN_DIR/sys"}"
 # defined in emqx_vars
 export RUNNER_ROOT_DIR
 export RUNNER_ETC_DIR
+export ERTS_VSN
 
 export SCHEMA_MOD=emqx_machine_schema
 export CONFIGS_DIR="$RUNNER_DATA_DIR/configs"
@@ -50,7 +50,7 @@ set_name () {
   if [ -z "$NAME" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
       # for boot commands, inspect emqx.conf for node name
-      NAME="$(call_hocon -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
+      NAME="$(call_hocon -s $SCHEMA_MOD -c $RUNNER_ETC_DIR/emqx.conf get node.name | tr -d \")"
     else
       # for non-boot commands, inspect vm.<time>.args for node name
       # shellcheck disable=SC2012,SC2086
@@ -86,10 +86,6 @@ rand () {
   dd count=1 bs=2 if=/dev/urandom 2> /dev/null | od -x | awk 'NR==1{print $2}'
 }
 
-call_hocon () {
-  eval_elixir "EmqxConfigHelper.hocon_cli(\"$1 $2 $3 $4 $5 $6 $7 $8 $9\")"
-}
-
 generate_config () {
   local name_type="$NAME_TYPE"
   local node_name="$NAME"
@@ -110,7 +106,7 @@ generate_config () {
   ## ths command populates two files: app.<time>.config and vm.<time>.args
   ## disable SC2086 to allow EMQX_LICENSE_CONF_OPTION to split
   # shellcheck disable=SC2086
-  call_hocon -v -t "$NOW_TIME" -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf $EMQX_LICENSE_CONF_OPTION -d "$RUNNER_DATA_DIR"/configs generate
+  call_hocon -v -t $NOW_TIME -s $SCHEMA_MOD -c $RUNNER_ETC_DIR/emqx.conf $EMQX_LICENSE_CONF_OPTION -d $RUNNER_DATA_DIR/configs generate
 
   ## filenames are per-hocon convention
   RELEASE_SYS_CONFIG="$CONFIGS_DIR/app.$NOW_TIME.config"
@@ -152,27 +148,10 @@ generate_config () {
   # fi
 }
 
-release_distribution () {
-  case $RELEASE_DISTRIBUTION in
-    none)
-      ;;
-
-    name | sname)
-      echo "--$RELEASE_DISTRIBUTION $1"
-      ;;
-
-    *)
-      echo "ERROR: Expected sname, name, or none in RELEASE_DISTRIBUTION, got: $RELEASE_DISTRIBUTION" >&2
-      exit 1
-      ;;
-  esac
-}
-
 rpc () {
   # TODO: remote vm args
   exec "$REL_VSN_DIR/elixir" \
        --hidden --cookie "$RELEASE_COOKIE" \
-       $(release_distribution "rpc-$(rand)-$RELEASE_NODE") \
        --boot "$REL_VSN_DIR/$RELEASE_BOOT_SCRIPT_CLEAN" \
        --boot-var RELEASE_LIB "$RELEASE_ROOT/lib" \
        --vm-args "$RELEASE_REMOTE_VM_ARGS" \
@@ -185,7 +164,6 @@ start () {
   shift
   exec "$REL_VSN_DIR/$REL_EXEC" \
        --cookie "$RELEASE_COOKIE" \
-       $(release_distribution "$RELEASE_NODE") \
        --erl "-mode $RELEASE_MODE -mnesia dir \"${MNESIA_DATA_DIR}\"" \
        --erl-config "$RELEASE_SYS_CONFIG" \
        --boot "$REL_VSN_DIR/$RELEASE_BOOT_SCRIPT" \
@@ -193,13 +171,19 @@ start () {
        --vm-args "$RELEASE_VM_ARGS" "$@"
 }
 
-eval_elixir () {
-  "$REL_VSN_DIR/elixir" \
-    --cookie "$RELEASE_COOKIE" \
-    --erl-config "$RELEASE_SYS_CONFIG" \
-    --boot "$REL_VSN_DIR/$RELEASE_BOOT_SCRIPT_CLEAN" \
-    --boot-var RELEASE_LIB "$RELEASE_ROOT/lib" \
-    --vm-args "$RELEASE_VM_ARGS" --eval "$1"
+call_hocon() {
+  nodetool hocon "$@"
+}
+
+nodetool () {
+  command="$1"; shift
+  "$RUNNER_ROOT_DIR/erts-$ERTS_VSN/bin/erl" \
+			+B -noshell \
+      -boot "$REL_VSN_DIR/$RELEASE_BOOT_SCRIPT_CLEAN" \
+      -boot_var RELEASE_LIB "$RELEASE_ROOT/lib" \
+			-run escript start \
+			-extra "$RUNNER_ROOT_DIR/bin/nodetool" \
+			"$command" "$@"
 }
 
 set_name "$1"
@@ -226,14 +210,18 @@ case $1 in
       echo "ERROR: EVAL expects an expression as argument" >&2
       exit 1
     fi
-    eval_elixir "$2"
+    exec "$REL_VSN_DIR/elixir" \
+      --cookie "$RELEASE_COOKIE" \
+      --erl-config "$RELEASE_SYS_CONFIG" \
+      --boot "$REL_VSN_DIR/$RELEASE_BOOT_SCRIPT_CLEAN" \
+      --boot-var RELEASE_LIB "$RELEASE_ROOT/lib" \
+      --vm-args "$RELEASE_VM_ARGS" --eval "$2"
     ;;
 
   remote)
     generate_config
     exec "$REL_VSN_DIR/iex" \
          --werl --hidden --cookie "$RELEASE_COOKIE" \
-         $(release_distribution "rem-$(rand)-$RELEASE_NODE") \
          --boot "$REL_VSN_DIR/$RELEASE_BOOT_SCRIPT_CLEAN" \
          --boot-var RELEASE_LIB "$RELEASE_ROOT/lib" \
          --vm-args "$RELEASE_REMOTE_VM_ARGS" \

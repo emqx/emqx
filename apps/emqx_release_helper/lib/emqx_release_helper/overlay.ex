@@ -14,8 +14,8 @@ defmodule EmqxReleaseHelper.Overlay do
     copy "bin/install_upgrade.escript", "bin/install_upgrade.escript"
 
     copy "bin/node_dump", "bin/node_dump"
-    copy "bin/nodetool", "bin/nodetool"
-    copy "bin/nodetool", "bin/nodetool-#{release_version}"
+    # copy "bin/nodetool", "bin/nodetool"
+    # copy "bin/nodetool", "bin/nodetool-#{release_version}"
 
     # copy "bin/emqx", "bin/emqx"
     # copy "bin/emqx_ctl", "bin/emqx_ctl"
