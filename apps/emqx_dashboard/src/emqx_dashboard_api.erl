@@ -29,135 +29,132 @@
 -behaviour(minirest_api).
 
 -include("emqx_dashboard.hrl").
+-include_lib("typerefl/include/types.hrl").
+-import(hoconsc, [mk/2, ref/2, array/1, enum/1]).
 
--import(emqx_mgmt_util, [ schema/1
-                        , object_schema/1
-                        , object_schema/2
-                        , object_array_schema/1
-                        , bad_request/0
-                        , properties/1
-                        ]).
-
--export([api_spec/0]).
-
--export([ login/2
-        , logout/2
-        , users/2
-        , user/2
-        , change_pwd/2
-        ]).
+-export([api_spec/0, fields/1, paths/0, schema/1, namespace/0]).
+-export([login/2, logout/2, users/2, user/2, change_pwd/2]).
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
-
 -define(ERROR_USERNAME_OR_PWD, 'ERROR_USERNAME_OR_PWD').
 
+namespace() -> "dashboard".
+
 api_spec() ->
-    {[ login_api()
-     , logout_api()
-     , users_api()
-     , user_api()
-     , change_pwd_api()
-     ],
-    []}.
+    emqx_dashboard_swagger:spec(?MODULE).
 
-login_api() ->
-    AuthProps = properties([{username, string, <<"Username">>},
-                            {password, string, <<"Password">>}]),
+paths() -> ["/login", "/logout", "/users",
+    "/users/:username", "/users/:username/change_pwd"].
 
-    TokenProps = properties([{token, string, <<"JWT Token">>},
-                             {license, object, [{edition, string, <<"License">>, [community, enterprise]}]},
-                             {version, string}]),
-    Metadata = #{
+schema("/login") ->
+    #{
+        operationId => login,
         post => #{
-            tags => [dashboard],
+            tags => [<<"dashboard">>],
             description => <<"Dashboard Auth">>,
-            'requestBody' => object_schema(AuthProps),
+            summary => <<"Dashboard Auth">>,
+            requestBody =>
+            [
+                {username, mk(binary(),
+                    #{desc => <<"The User for which to create the token.">>,
+                        maxLength => 100, example => <<"admin">>})},
+                {password, mk(binary(),
+                    #{desc => "password", example => "public"})}
+            ],
             responses => #{
-                <<"200">> =>
-                    object_schema(TokenProps, <<"Dashboard Auth successfully">>),
-                <<"401">> => unauthorized_request()
+                200 => [
+                    {token, mk(string(), #{desc => <<"JWT Token">>})},
+                    {license, [{edition,
+                        mk(enum([community, enterprise]), #{desc => <<"license">>,
+                            example => "community"})}]},
+                    {version, mk(string(), #{desc => <<"version">>, example => <<"5.0.0">>})}],
+                401 => [
+                    {code, mk(string(), #{example => 'ERROR_USERNAME_OR_PWD'})},
+                    {message, mk(string(), #{example => "Unauthorized"})}]
             },
             security => []
-        }
-    },
-    {"/login", Metadata, login}.
-
-logout_api() ->
-    LogoutProps = properties([{username, string, <<"Username">>}]),
-    Metadata = #{
+        }};
+schema("/logout") ->
+    #{
+        operationId => logout,
         post => #{
-            tags => [dashboard],
-            description => <<"Dashboard Auth">>,
-            'requestBody' => object_schema(LogoutProps),
+            tags => [<<"dashboard">>],
+            description => <<"Dashboard User logout">>,
+            requestBody => [
+                {username, mk(binary(),
+                    #{desc => <<"The User for which to create the token.">>,
+                        maxLength => 100, example => <<"admin">>})}
+            ],
             responses => #{
-                <<"200">> => schema(<<"Dashboard Auth successfully">>)
+                200 => <<"Dashboard logout successfully">>
             }
         }
-    },
-    {"/logout", Metadata, logout}.
-
-users_api() ->
-    BaseProps = properties([{username, string, <<"Username">>},
-                            {password, string, <<"Password">>},
-                            {tag, string, <<"Tag">>}]),
-    Metadata = #{
+    };
+schema("/users") ->
+    #{
+        operationId => users,
         get => #{
-            tags => [dashboard],
+            tags => [<<"dashboard">>],
             description => <<"Get dashboard users">>,
             responses => #{
-                <<"200">> => object_array_schema(maps:without([password], BaseProps))
-            }
-        },
-        post => #{
-            tags => [dashboard],
-            description => <<"Create dashboard users">>,
-            'requestBody' => object_schema(BaseProps),
-            responses => #{
-                <<"200">> => schema(<<"Create Users successfully">>),
-                <<"400">> => bad_request()
+                200 => mk(array(ref(?MODULE, user)),
+                    #{desc => "User lists"})
             }
         }
-    },
-    {"/users", Metadata, users}.
+    };
 
-user_api() ->
-    Metadata = #{
-        delete => #{
-            tags => [dashboard],
-            description => <<"Delete dashboard users">>,
-            parameters => parameters(),
-            responses => #{
-                <<"200">> => schema(<<"Delete User successfully">>),
-                <<"400">> => bad_request()
-            }
-        },
+schema("/users/:username") ->
+    #{
+        operationId => user,
         put => #{
-            tags => [dashboard],
+            tags => [<<"dashboard">>],
             description => <<"Update dashboard users">>,
-            parameters => parameters(),
-            'requestBody' => object_schema(properties([{tag, string, <<"Tag">>}])),
+            parameters => [{username, mk(binary(),
+                #{in => path, example => <<"admin">>})}],
+            requestBody => [{tag, mk(binary(), #{desc => <<"Tag">>})}],
             responses => #{
-                <<"200">> => schema(<<"Update Users successfully">>),
-                <<"400">> => bad_request()
-            }
-        }
-    },
-    {"/users/:username", Metadata, user}.
-
-change_pwd_api() ->
-    Metadata = #{
+                200 => <<"Update User successfully">>,
+                400 => [{code, mk(string(), #{example => 'UPDATE_FAIL'})},
+                    {message, mk(string(), #{example => "Update Failed unknown"})}]}},
+        delete => #{
+            tags => [<<"dashboard">>],
+            description => <<"Delete dashboard users">>,
+            parameters => [{username, mk(binary(),
+                #{in => path, example => <<"admin">>})}],
+            responses => #{
+                200 => <<"Delete User successfully">>,
+                400 => [
+                    {code, mk(string(), #{example => 'CANNOT_DELETE_ADMIN'})},
+                    {message, mk(string(), #{example => "CANNOT DELETE ADMIN"})}]}}
+    };
+schema("/users/:username/change_pwd") ->
+    #{
+        operationId => change_pwd,
         put => #{
-            tags => [dashboard],
+            tags => [<<"dashboard">>],
             description => <<"Update dashboard users password">>,
-            parameters => parameters(),
-            'requestBody' => object_schema(properties([old_pwd, new_pwd])),
+            parameters => [{username, mk(binary(),
+                #{in => path, required => true, example => <<"admin">>})}],
+            requestBody => [
+                {old_pwd, mk(binary(), #{required => true})},
+                {new_pwd, mk(binary(), #{required => true})}
+            ],
             responses => #{
-                <<"200">> => schema(<<"Update Users password successfully">>),
-                <<"400">> => bad_request()
-            }
-        }
-    },
-    {"/users/:username/change_pwd", Metadata, change_pwd}.
+                200 => <<"Update user password successfully">>,
+                400 => [
+                    {code, mk(string(), #{example => 'UPDATE_FAIL'})},
+                    {message, mk(string(), #{example => "Failed Reason"})}]}}
+    }.
+
+fields(user) ->
+    [
+        {tag,
+            mk(string(),
+                #{desc => <<"tag">>, example => "administrator"})},
+        {username,
+            mk(string(),
+                #{desc => <<"username">>, example => "emqx"})}
+    ].
 
 login(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),
@@ -171,7 +168,7 @@ login(post, #{body := Params}) ->
     end.
 
 logout(_, #{body := #{<<"username">> := Username},
-            headers := #{<<"authorization">> := <<"Bearer ", Token/binary>>}}) ->
+    headers := #{<<"authorization">> := <<"Bearer ", Token/binary>>}}) ->
     case emqx_dashboard_admin:destroy_token_by_username(Username, Token) of
         ok ->
             200;
@@ -187,9 +184,9 @@ users(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
     case ?EMPTY(Username) orelse ?EMPTY(Password) of
-        true  ->
+        true ->
             {400, #{code => <<"CREATE_USER_FAIL">>,
-                    message => <<"Username or password undefined">>}};
+                message => <<"Username or password undefined">>}};
         false ->
             case emqx_dashboard_admin:add_user(Username, Password, Tag) of
                 ok -> {200};
@@ -208,8 +205,8 @@ user(put, #{bindings := #{username := Username}, body := Params}) ->
 
 user(delete, #{bindings := #{username := Username}}) ->
     case Username == <<"admin">> of
-        true -> {400, #{code => <<"CONNOT_DELETE_ADMIN">>,
-                        message => <<"Cannot delete admin">>}};
+        true -> {400, #{code => <<"CANNOT_DELETE_ADMIN">>,
+            message => <<"Cannot delete admin">>}};
         false ->
             _ = emqx_dashboard_admin:remove_user(Username),
             {200}
@@ -226,20 +223,3 @@ change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->
 
 row(#mqtt_admin{username = Username, tags = Tag}) ->
     #{username => Username, tag => Tag}.
-
-parameters() ->
-    [#{
-        name => username,
-        in => path,
-        required => true,
-        schema => #{type => string},
-        example => <<"admin">>
-    }].
-
-unauthorized_request() ->
-    object_schema(
-        properties([{message, string},
-                    {code, string, <<"Resp Code">>, [?ERROR_USERNAME_OR_PWD]}
-                   ]),
-        <<"Unauthorized">>
-    ).

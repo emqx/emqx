@@ -156,11 +156,11 @@ fields("stats") ->
 
 fields("authorization") ->
     [ {"no_match",
-       sc(union(allow, deny),
+       sc(hoconsc:union([allow, deny]),
           #{ default => allow
            })}
     , {"deny_action",
-       sc(union(ignore, disconnect),
+       sc(hoconsc:union([ignore, disconnect]),
           #{ default => ignore
            })}
     , {"cache",
@@ -939,9 +939,9 @@ ssl(Defaults) ->
        sc(boolean(),
           #{ default => Df("secure_renegotiate", true)
            , desc => """
-SSL parameter renegotiation is a feature that allows a client and a server 
-to renegotiate the parameters of the SSL connection on the fly. 
-RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation, 
+SSL parameter renegotiation is a feature that allows a client and a server
+to renegotiate the parameters of the SSL connection on the fly.
+RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation,
 you drop support for the insecure renegotiation, prone to MitM attacks.
 """
            })
@@ -950,13 +950,13 @@ you drop support for the insecure renegotiation, prone to MitM attacks.
        sc(boolean(),
           #{ default => Df("client_renegotiation", true)
            , desc => """
-In protocols that support client-initiated renegotiation, 
-the cost of resources of such an operation is higher for the server than the client. 
-This can act as a vector for denial of service attacks. 
-The SSL application already takes measures to counter-act such attempts, 
-but client-initiated renegotiation can be strictly disabled by setting this option to false. 
-The default value is true. Note that disabling renegotiation can result in 
-long-lived connections becoming unusable due to limits on 
+In protocols that support client-initiated renegotiation,
+the cost of resources of such an operation is higher for the server than the client.
+This can act as a vector for denial of service attacks.
+The SSL application already takes measures to counter-act such attempts,
+but client-initiated renegotiation can be strictly disabled by setting this option to false.
+The default value is true. Note that disabling renegotiation can result in
+long-lived connections becoming unusable due to limits on
 the number of messages the underlying cipher suite can encipher.
 """
            })
