@@ -103,18 +103,18 @@ mnesia(copy) ->
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec(subscribe(emqx_topic:group(), emqx_topic:topic(), pid()) -> ok).
+-spec(subscribe(emqx_types:group(), emqx_types:topic(), pid()) -> ok).
 subscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
     gen_server:call(?SERVER, {subscribe, Group, Topic, SubPid}).
 
--spec(unsubscribe(emqx_topic:group(), emqx_topic:topic(), pid()) -> ok).
+-spec(unsubscribe(emqx_types:group(), emqx_types:topic(), pid()) -> ok).
 unsubscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
     gen_server:call(?SERVER, {unsubscribe, Group, Topic, SubPid}).
 
 record(Group, Topic, SubPid) ->
     #emqx_shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
 
--spec(dispatch(emqx_topic:group(), emqx_topic:topic(), emqx_types:delivery())
+-spec(dispatch(emqx_types:group(), emqx_types:topic(), emqx_types:delivery())
       -> emqx_types:deliver_result()).
 dispatch(Group, Topic, Delivery) ->
     dispatch(Group, Topic, Delivery, _FailedSubs = []).

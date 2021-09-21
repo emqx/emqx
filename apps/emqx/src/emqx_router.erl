@@ -98,19 +98,19 @@ start_link(Pool, Id) ->
 %% Route APIs
 %%--------------------------------------------------------------------
 
--spec(add_route(emqx_topic:topic()) -> ok | {error, term()}).
+-spec(add_route(emqx_types:topic()) -> ok | {error, term()}).
 add_route(Topic) when is_binary(Topic) ->
     add_route(Topic, node()).
 
--spec(add_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
+-spec(add_route(emqx_types:topic(), dest()) -> ok | {error, term()}).
 add_route(Topic, Dest) when is_binary(Topic) ->
     call(pick(Topic), {add_route, Topic, Dest}).
 
--spec(do_add_route(emqx_topic:topic()) -> ok | {error, term()}).
+-spec(do_add_route(emqx_types:topic()) -> ok | {error, term()}).
 do_add_route(Topic) when is_binary(Topic) ->
     do_add_route(Topic, node()).
 
--spec(do_add_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
+-spec(do_add_route(emqx_types:topic(), dest()) -> ok | {error, term()}).
 do_add_route(Topic, Dest) when is_binary(Topic) ->
     Route = #route{topic = Topic, dest = Dest},
     case lists:member(Route, lookup_routes(Topic)) of
@@ -125,7 +125,7 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
     end.
 
 %% @doc Match routes
--spec(match_routes(emqx_topic:topic()) -> [emqx_types:route()]).
+-spec(match_routes(emqx_types:topic()) -> [emqx_types:route()]).
 match_routes(Topic) when is_binary(Topic) ->
     case match_trie(Topic) of
         [] -> lookup_routes(Topic);
@@ -140,27 +140,27 @@ match_trie(Topic) ->
         false -> emqx_trie:match(Topic)
     end.
 
--spec(lookup_routes(emqx_topic:topic()) -> [emqx_types:route()]).
+-spec(lookup_routes(emqx_types:topic()) -> [emqx_types:route()]).
 lookup_routes(Topic) ->
     ets:lookup(?ROUTE_TAB, Topic).
 
--spec(has_routes(emqx_topic:topic()) -> boolean()).
+-spec(has_routes(emqx_types:topic()) -> boolean()).
 has_routes(Topic) when is_binary(Topic) ->
     ets:member(?ROUTE_TAB, Topic).
 
--spec(delete_route(emqx_topic:topic()) -> ok | {error, term()}).
+-spec(delete_route(emqx_types:topic()) -> ok | {error, term()}).
 delete_route(Topic) when is_binary(Topic) ->
     delete_route(Topic, node()).
 
--spec(delete_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
+-spec(delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}).
 delete_route(Topic, Dest) when is_binary(Topic) ->
     call(pick(Topic), {delete_route, Topic, Dest}).
 
--spec(do_delete_route(emqx_topic:topic()) -> ok | {error, term()}).
+-spec(do_delete_route(emqx_types:topic()) -> ok | {error, term()}).
 do_delete_route(Topic) when is_binary(Topic) ->
     do_delete_route(Topic, node()).
 
--spec(do_delete_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
+-spec(do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}).
 do_delete_route(Topic, Dest) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
@@ -169,12 +169,12 @@ do_delete_route(Topic, Dest) ->
         false -> delete_direct_route(Route)
     end.
 
--spec(topics() -> list(emqx_topic:topic())).
+-spec(topics() -> list(emqx_types:topic())).
 topics() ->
     mnesia:dirty_all_keys(?ROUTE_TAB).
 
 %% @doc Print routes to a topic
--spec(print_routes(emqx_topic:topic()) -> ok).
+-spec(print_routes(emqx_types:topic()) -> ok).
 print_routes(Topic) ->
     lists:foreach(fun(#route{topic = To, dest = Dest}) ->
                       io:format("~s -> ~s~n", [To, Dest])

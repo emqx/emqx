@@ -77,7 +77,7 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 
 %% @doc Insert a topic filter into the trie.
--spec(insert(emqx_topic:topic()) -> ok).
+-spec(insert(emqx_types:topic()) -> ok).
 insert(Topic) when is_binary(Topic) ->
     {TopicKey, PrefixKeys} = make_keys(Topic),
     case mnesia:wread({?TRIE, TopicKey}) of
@@ -86,7 +86,7 @@ insert(Topic) when is_binary(Topic) ->
     end.
 
 %% @doc Delete a topic filter from the trie.
--spec(delete(emqx_topic:topic()) -> ok).
+-spec(delete(emqx_types:topic()) -> ok).
 delete(Topic) when is_binary(Topic) ->
     {TopicKey, PrefixKeys} = make_keys(Topic),
     case [] =/= mnesia:wread({?TRIE, TopicKey}) of
@@ -95,7 +95,7 @@ delete(Topic) when is_binary(Topic) ->
     end.
 
 %% @doc Find trie nodes that matchs the topic name.
--spec(match(emqx_topic:topic()) -> list(emqx_topic:topic())).
+-spec(match(emqx_types:topic()) -> list(emqx_types:topic())).
 match(Topic) when is_binary(Topic) ->
     Words = emqx_topic:words(Topic),
     case emqx_topic:wildcard(Words) of
