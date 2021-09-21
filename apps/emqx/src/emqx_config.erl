@@ -355,7 +355,7 @@ save_to_override_conf(RawConf) ->
         undefined -> ok;
         FileName ->
             ok = filelib:ensure_dir(FileName),
-            case file:write_file(FileName, jsx:prettify(jsx:encode(RawConf))) of
+            case file:write_file(FileName, hocon_pp:do(RawConf, #{})) of
                 ok -> ok;
                 {error, Reason} ->
                     logger:error("write to ~s failed, ~p", [FileName, Reason]),
@@ -424,7 +424,7 @@ root_names_from_conf(RawConf) ->
     [Name || Name <- get_root_names(), lists:member(Name, Keys)].
 
 atom(Bin) when is_binary(Bin) ->
-    binary_to_existing_atom(Bin, latin1);
+    binary_to_existing_atom(Bin, utf8);
 atom(Str) when is_list(Str) ->
     list_to_existing_atom(Str);
 atom(Atom) when is_atom(Atom) ->
