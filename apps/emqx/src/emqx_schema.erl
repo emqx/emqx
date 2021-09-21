@@ -72,7 +72,7 @@
 
 -export([namespace/0, roots/0, roots/1, fields/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
--export([ssl_opts_schema/2, ciphers_schema/1, default_ciphers/1]).
+-export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1, default_ciphers/1]).
 
 namespace() -> undefined.
 
@@ -462,7 +462,7 @@ fields("mqtt_ssl_listener") ->
           #{})
       }
     , {"ssl",
-       sc(ref("ssl_opts"),
+       sc(ref("listener_ssl_opts"),
           #{})
       }
     ] ++ mqtt_listener();
@@ -484,7 +484,7 @@ fields("mqtt_wss_listener") ->
           #{})
       }
     , {"ssl",
-       sc(ref("wss_ssl_opts"),
+       sc(ref("listener_wss_opts"),
           #{})
       }
     , {"websocket",
@@ -631,21 +631,23 @@ fields("tcp_opts") ->
       }
     ];
 
-fields("ssl_opts") ->
-    ssl_opts_schema(
+fields("listener_ssl_opts") ->
+    server_ssl_opts_schema(
       #{ depth => 10
        , reuse_sessions => true
        , versions => tcp
        , ciphers => tcp_all
        }, false);
 
-fields("wss_ssl_opts") ->
-    ssl_opts_schema(
+fields("listener_wss_opts") ->
+    server_ssl_opts_schema(
       #{ depth => 10
        , reuse_sessions => true
        , versions => tcp
        , ciphers => tcp_all
        }, true);
+fields(ssl_client_opts) ->
+    client_ssl_opts_schema(#{});
 
 fields("deflate_opts") ->
     [ {"level",
@@ -908,10 +910,10 @@ conf_get(Key, Conf, Default) ->
 filter(Opts) ->
     [{K, V} || {K, V} <- Opts, V =/= undefined].
 
-%% @doc This function defines the SSL opts only for TLS server (listners).
-%% When it's for ranch listener, an extra field `handshake_timeout' is added.
--spec ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
-ssl_opts_schema(Defaults, IsRanchListener) ->
+%% @private This function defines the SSL opts which are commonly used by
+%% SSL listener and client.
+-spec common_ssl_opts_schema(map()) -> hocon_schema:field_schema().
+common_ssl_opts_schema(Defaults) ->
     D = fun (Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun (Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
     [ {"enable",
@@ -939,53 +941,9 @@ ssl_opts_schema(Defaults, IsRanchListener) ->
           #{ default => Df("verify", verify_none)
            })
       }
-    , {"fail_if_no_peer_cert",
-       sc(boolean(),
-          #{ default => Df("fail_if_no_peer_cert", false)
-           , desc =>
-"""
-Used together with {verify, verify_peer} by an TLS/DTLS server. 
-If set to true, the server fails if the client does not have a 
-certificate to send, that is, sends an empty certificate. 
-If set to false, it fails only if the client sends an invalid 
-certificate (an empty certificate is considered valid).
-"""
-           })
-      }
-    , {"secure_renegotiate",
-       sc(boolean(),
-          #{ default => Df("secure_renegotiate", true)
-           , desc => """
-SSL parameter renegotiation is a feature that allows a client and a server 
-to renegotiate the parameters of the SSL connection on the fly. 
-RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation, 
-you drop support for the insecure renegotiation, prone to MitM attacks.
-"""
-           })
-      }
-    , {"client_renegotiation",
-       sc(boolean(),
-          #{ default => Df("client_renegotiation", true)
-           , desc => """
-In protocols that support client-initiated renegotiation, 
-the cost of resources of such an operation is higher for the server than the client. 
-This can act as a vector for denial of service attacks. 
-The SSL application already takes measures to counter-act such attempts, 
-but client-initiated renegotiation can be strictly disabled by setting this option to false. 
-The default value is true. Note that disabling renegotiation can result in 
-long-lived connections becoming unusable due to limits on 
-the number of messages the underlying cipher suite can encipher.
-"""
-           })
-      }
     , {"reuse_sessions",
        sc(boolean(),
           #{ default => Df("reuse_sessions", true)
-           })
-      }
-    , {"honor_cipher_order",
-       sc(boolean(),
-          #{ default => Df("honor_cipher_order", true)
            })
       }
     , {"depth",
@@ -1000,18 +958,6 @@ the number of messages the underlying cipher suite can encipher.
            , desc =>
 """String containing the user's password. Only used if the private 
 keyfile is password-protected."""
-           })
-      }
-    , {"dhfile",
-       sc(string(),
-          #{ default => D("dhfile")
-           , nullable => true
-           , desc =>
-"""Path to a file containing PEM-encoded Diffie Hellman parameters 
-to be used by the server if a cipher suite using Diffie Hellman 
-key exchange is negotiated. If not specified, default parameters 
-are used.<br>
-NOTE: The dhfile option is not supported by TLS 1.3."""
            })
       }
     , {"versions",
@@ -1032,6 +978,71 @@ In case PSK cipher suites are intended, make sure to configured
            , converter => fun ?MODULE:parse_user_lookup_fun/1
            })
       }
+    , {"secure_renegotiate",
+       sc(boolean(),
+          #{ default => Df("secure_renegotiate", true)
+           , desc => """
+SSL parameter renegotiation is a feature that allows a client and a server 
+to renegotiate the parameters of the SSL connection on the fly. 
+RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation, 
+you drop support for the insecure renegotiation, prone to MitM attacks.
+"""
+           })
+      }
+    ].
+
+%% @doc Make schema for SSL listener options.
+%% When it's for ranch listener, an extra field `handshake_timeout' is added.
+-spec server_ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
+server_ssl_opts_schema(Defaults, IsRanchListener) ->
+    D = fun (Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
+    Df = fun (Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
+    common_ssl_opts_schema(Defaults) ++
+    [ {"dhfile",
+       sc(string(),
+          #{ default => D("dhfile")
+           , nullable => true
+           , desc =>
+"""Path to a file containing PEM-encoded Diffie Hellman parameters 
+to be used by the server if a cipher suite using Diffie Hellman 
+key exchange is negotiated. If not specified, default parameters 
+are used.<br>
+NOTE: The dhfile option is not supported by TLS 1.3."""
+           })
+      }
+    , {"fail_if_no_peer_cert",
+       sc(boolean(),
+          #{ default => Df("fail_if_no_peer_cert", false)
+           , desc =>
+"""
+Used together with {verify, verify_peer} by an TLS/DTLS server. 
+If set to true, the server fails if the client does not have a 
+certificate to send, that is, sends an empty certificate. 
+If set to false, it fails only if the client sends an invalid 
+certificate (an empty certificate is considered valid).
+"""
+           })
+      }
+    , {"honor_cipher_order",
+       sc(boolean(),
+          #{ default => Df("honor_cipher_order", true)
+           })
+      }
+    , {"client_renegotiation",
+       sc(boolean(),
+          #{ default => Df("client_renegotiation", true)
+           , desc => """
+In protocols that support client-initiated renegotiation, 
+the cost of resources of such an operation is higher for the server than the client. 
+This can act as a vector for denial of service attacks. 
+The SSL application already takes measures to counter-act such attempts, 
+but client-initiated renegotiation can be strictly disabled by setting this option to false. 
+The default value is true. Note that disabling renegotiation can result in 
+long-lived connections becoming unusable due to limits on 
+the number of messages the underlying cipher suite can encipher.
+"""
+           })
+      }
     | [ {"handshake_timeout",
          sc(duration(),
             #{ default => Df("handshake_timeout", "15s")
@@ -1039,6 +1050,29 @@ In case PSK cipher suites are intended, make sure to configured
              })}
        || IsRanchListener]
     ].
+
+%% @doc Make schema for SSL client.
+-spec client_ssl_opts_schema(map()) -> hocon_schema:field_schema().
+client_ssl_opts_schema(Defaults) ->
+    common_ssl_opts_schema(Defaults) ++
+    [ { "server_name_indication",
+        sc(hoconsc:union([disable, string()]),
+           #{ default => disable
+            , desc =>
+"""Specify the host name to be used in TLS Server Name Indication extension.<br>
+For instance, when connecting to \"server.example.net\", the genuine server 
+which accedpts the connection and performs TSL handshake may differ from the 
+host the TLS client initially connects to, e.g. when connecting to an IP address 
+or when the host has multiple resolvable DNS records <br>
+If not specified, it will default to the host name string which is used 
+to establish the connection, unless it is IP addressed used.<br>
+The host name is then also used in the host name verification of the peer 
+certificate.<br> The special value 'disable' prevents the Server Name
+Indication extension from being sent and disables the hostname 
+verification check."""
+            })}
+    ].
+
 
 default_tls_vsns(dtls) ->
     [<<"dtlsv1.2">>, <<"dtlsv1">>];

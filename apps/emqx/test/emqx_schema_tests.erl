@@ -20,7 +20,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 ssl_opts_dtls_test() ->
-    Sc = emqx_schema:ssl_opts_schema(#{versions => dtls,
+    Sc = emqx_schema:server_ssl_opts_schema(#{versions => dtls,
                                            ciphers => dtls}, false),
     Checked = validate(Sc, #{<<"versions">> => [<<"dtlsv1.2">>, <<"dtlsv1">>]}),
     ?assertMatch(#{versions := ['dtlsv1.2', 'dtlsv1'],
@@ -28,7 +28,7 @@ ssl_opts_dtls_test() ->
                   }, Checked).
 
 ssl_opts_tls_1_3_test() ->
-    Sc = emqx_schema:ssl_opts_schema(#{}, false),
+    Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.3">>]}),
     ?assertNot(maps:is_key(handshake_timeout, Checked)),
     ?assertMatch(#{versions := ['tlsv1.3'],
@@ -36,7 +36,7 @@ ssl_opts_tls_1_3_test() ->
                   }, Checked).
 
 ssl_opts_tls_for_ranch_test() ->
-    Sc = emqx_schema:ssl_opts_schema(#{}, true),
+    Sc = emqx_schema:server_ssl_opts_schema(#{}, true),
     Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.3">>]}),
     ?assertMatch(#{versions := ['tlsv1.3'],
                    ciphers := [_ | _],
@@ -44,7 +44,7 @@ ssl_opts_tls_for_ranch_test() ->
                   }, Checked).
 
 ssl_opts_cipher_array_test() ->
-    Sc = emqx_schema:ssl_opts_schema(#{}, false),
+    Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.3">>],
                              <<"ciphers">> => [<<"TLS_AES_256_GCM_SHA384">>,
                                                <<"ECDHE-ECDSA-AES256-GCM-SHA384">>]}),
@@ -53,7 +53,7 @@ ssl_opts_cipher_array_test() ->
                   }, Checked).
 
 ssl_opts_cipher_comma_separated_string_test() ->
-    Sc = emqx_schema:ssl_opts_schema(#{}, false),
+    Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.3">>],
                              <<"ciphers">> => <<"TLS_AES_256_GCM_SHA384,ECDHE-ECDSA-AES256-GCM-SHA384">>}),
     ?assertMatch(#{versions := ['tlsv1.3'],
@@ -61,7 +61,7 @@ ssl_opts_cipher_comma_separated_string_test() ->
                   }, Checked).
 
 ssl_opts_tls_psk_test() ->
-    Sc = emqx_schema:ssl_opts_schema(#{}, false),
+    Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.2">>]}),
     ?assertMatch(#{versions := ['tlsv1.2']}, Checked),
     #{ciphers := Ciphers} = Checked,
@@ -72,7 +72,7 @@ ssl_opts_tls_psk_test() ->
 
 bad_cipher_test() ->
     ok = snabbkaffe:start_trace(),
-    Sc = emqx_schema:ssl_opts_schema(#{}, false),
+    Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     ?assertThrow({_Sc, [{validation_error, _Error}]},
               [validate(Sc, #{<<"versions">> => [<<"tlsv1.2">>],
                         <<"ciphers">> => [<<"foo">>]})]),

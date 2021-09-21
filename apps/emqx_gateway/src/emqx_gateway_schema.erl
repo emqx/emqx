@@ -163,7 +163,7 @@ fields(tcp_listener) ->
 
 fields(ssl_listener) ->
     fields(tcp_listener) ++
-    [{ssl, sc_meta(hoconsc:ref(emqx_schema, "ssl_opts"),
+    [{ssl, sc_meta(hoconsc:ref(emqx_schema, "listener_ssl_opts"),
                    #{desc => "SSL listener options"})}];
 
 
@@ -188,7 +188,7 @@ fields(udp_opts) ->
     ];
 
 fields(dtls_opts) ->
-    emqx_schema:ssl_opts_schema(
+    emqx_schema:server_ssl_opts_schema(
         #{ depth => 10
          , reuse_sessions => true
          , versions => dtls

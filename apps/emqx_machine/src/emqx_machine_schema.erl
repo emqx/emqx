@@ -211,12 +211,9 @@ fields(cluster_etcd) ->
           #{ default => "1m"
            })}
     , {"ssl",
-       sc(ref(etcd_ssl_opts),
+       sc(hoconsc:ref(emqx_schema, ssl_client_opts),
           #{})}
     ];
-
-fields(etcd_ssl_opts) ->
-    emqx_schema:ssl_opts_schema(#{}, false);
 
 fields(cluster_k8s) ->
     [ {"apiserver",

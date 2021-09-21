@@ -53,19 +53,12 @@
 
 -export([roots/0, fields/1]).
 
-roots() -> ["ssl"].
+roots() -> [].
 
-fields("ssl") ->
-    [ {enable, #{type => boolean(), default => false}}
-    , {cacertfile, fun cacertfile/1}
-    , {keyfile, fun keyfile/1}
-    , {certfile, fun certfile/1}
-    , {verify, fun verify/1}
-    , {server_name_indicator, fun server_name_indicator/1}
-    ].
+fields(_) -> [].
 
 ssl_fields() ->
-    [ {ssl, #{type => hoconsc:ref(?MODULE, "ssl"),
+    [ {ssl, #{type => hoconsc:ref(emqx_schema, ssl_client_opts),
               default => #{<<"enable">> => false}
              }
       }
@@ -107,22 +100,6 @@ auto_reconnect(type) -> boolean();
 auto_reconnect(default) -> true;
 auto_reconnect(_) -> undefined.
 
-cacertfile(type) -> string();
-cacertfile(nullable) -> true;
-cacertfile(_) -> undefined.
-
-keyfile(type) -> string();
-keyfile(nullable) -> true;
-keyfile(_) -> undefined.
-
-certfile(type) -> string();
-certfile(nullable) -> true;
-certfile(_) -> undefined.
-
-verify(type) -> boolean();
-verify(default) -> false;
-verify(_) -> undefined.
-
 servers(type) -> servers();
 servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
 servers(_) -> undefined.
@@ -151,19 +128,3 @@ to_servers(Str) ->
                      [{host, Ip}, {port, list_to_integer(Port)}]
              end
          end, string:tokens(Str, " , "))}.
-
-server_name_indicator(type) -> string();
-server_name_indicator(default) -> disable;
-server_name_indicator(desc) ->
-"""Specify the host name to be used in TLS Server Name Indication extension.<br>
-For instance, when connecting to \"server.example.net\", the genuine server 
-which accedpts the connection and performs TSL handshake may differ from the 
-host the TLS client initially connects to, e.g. when connecting to an IP address 
-or when the host has multiple resolvable DNS records <br>
-If not specified, it will default to the host name string which is used 
-to establish the connection, unless it is IP addressed used.<br>
-The host name is then also used in the host name verification of the peer 
-certificate.<br> The special value 'disable' prevents the Server Name
-Indication extension from being sent and disables the hostname 
-verification check.""";
-server_name_indicator(_) -> undefined.
