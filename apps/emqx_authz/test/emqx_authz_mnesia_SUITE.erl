@@ -54,24 +54,24 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(t_authz, Config) ->
-    mnesia:transaction(fun mnesia:write/1, [#emqx_acl{who = {username, <<"test_username">>},
+    mnesia:transaction(fun ekka_mnesia:dirty_write/1, [#emqx_acl{who = {username, <<"test_username">>},
                                                       rules = [{allow, publish, <<"test/%u">>},
                                                                {allow, subscribe, <<"eq #">>}
                                                               ]
                                                      }]),
-    mnesia:transaction(fun mnesia:write/1, [#emqx_acl{who = {clientid, <<"test_clientid">>},
+    mnesia:transaction(fun ekka_mnesia:dirty_write/1, [#emqx_acl{who = {clientid, <<"test_clientid">>},
                                                       rules = [{allow, publish, <<"test/%c">>},
                                                                {deny, subscribe, <<"eq #">>}
                                                               ]
                                                      }]),
-    mnesia:transaction(fun mnesia:write/1, [#emqx_acl{who = all,
+    mnesia:transaction(fun ekka_mnesia:dirty_write/1, [#emqx_acl{who = all,
                                                       rules = [{deny, all, <<"#">>}]
                                                      }]),
     Config;
 init_per_testcase(_, Config) -> Config.
 
 end_per_testcase(t_authz, Config) ->
-    [ mnesia:dirty_delete(?ACL_TABLE, K) || K <- mnesia:dirty_all_keys(?ACL_TABLE)],
+    [ ekka_mnesia:dirty_delete(?ACL_TABLE, K) || K <- mnesia:dirty_all_keys(?ACL_TABLE)],
     Config;
 end_per_testcase(_, Config) -> Config.
 

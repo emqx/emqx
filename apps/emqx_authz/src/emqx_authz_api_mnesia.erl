@@ -72,14 +72,14 @@
 
 -export([ api_spec/0
         , purge/2
-        , tickets/2
-        , ticket/2
+        , records/2
+        , record/2
         ]).
 
 api_spec() ->
     {[ purge_api()
-     , tickets_api()
-     , ticket_api()
+     , records_api()
+     , record_api()
      ], definitions()}.
 
 definitions() ->
@@ -106,7 +106,7 @@ definitions() ->
             }
         }
     },
-    Ticket = #{
+    Record = #{
         oneOf => [ #{type => object,
                      required => [username, rules],
                      properties => #{
@@ -136,13 +136,13 @@ definitions() ->
                  ]
     },
     [ #{<<"rules">> => Rules}
-    , #{<<"ticket">> => Ticket}
+    , #{<<"record">> => Record}
     ].
 
 purge_api() ->
     Metadata = #{
         delete => #{
-            description => "Purge all tickets",
+            description => "Purge all records",
             responses => #{
                 <<"204">> => #{description => <<"No Content">>},
                 <<"400">> => emqx_mgmt_util:bad_request()
@@ -151,10 +151,10 @@ purge_api() ->
      },
     {"/authorization/sources/built-in-database/purge-all", Metadata, purge}.
 
-tickets_api() ->
+records_api() ->
     Metadata = #{
         get => #{
-            description => "List tickets",
+            description => "List records",
             parameters => [
                 #{
                     name => type,
@@ -173,7 +173,7 @@ tickets_api() ->
                         'application/json' => #{
                             schema => #{
                                 type => array,
-                                items => minirest:ref(<<"ticket">>)
+                                items => minirest:ref(<<"record">>)
                             },
                             examples => #{
                                 username => #{
@@ -195,7 +195,7 @@ tickets_api() ->
             }
         },
         post => #{
-            description => "Add new tickets",
+            description => "Add new records",
             parameters => [
                 #{
                     name => type,
@@ -210,7 +210,7 @@ tickets_api() ->
             requestBody => #{
                 content => #{
                     'application/json' => #{
-                        schema => minirest:ref(<<"ticket">>),
+                        schema => minirest:ref(<<"record">>),
                         examples => #{
                             username => #{
                                 summary => <<"Username">>,
@@ -245,7 +245,7 @@ tickets_api() ->
             requestBody => #{
                 content => #{
                     'application/json' => #{
-                        schema => minirest:ref(<<"ticket">>),
+                        schema => minirest:ref(<<"record">>),
                         examples => #{
                             all => #{
                                 summary => <<"All">>,
@@ -261,12 +261,12 @@ tickets_api() ->
             }
         }
     },
-    {"/authorization/sources/built-in-database/:type", Metadata, tickets}.
+    {"/authorization/sources/built-in-database/:type", Metadata, records}.
 
-ticket_api() ->
+record_api() ->
     Metadata = #{
         get => #{
-            description => "Get ticket info",
+            description => "Get record info",
             parameters => [
                 #{
                     name => type,
@@ -291,7 +291,7 @@ ticket_api() ->
                     description => <<"OK">>,
                     content => #{
                         'application/json' => #{
-                            schema => minirest:ref(<<"ticket">>),
+                            schema => minirest:ref(<<"record">>),
                             examples => #{
                                 username => #{
                                     summary => <<"Username">>,
@@ -313,7 +313,7 @@ ticket_api() ->
             }
         },
         put => #{
-            description => "Update one ticket",
+            description => "Update one record",
             parameters => [
                 #{
                     name => type,
@@ -336,7 +336,7 @@ ticket_api() ->
             requestBody => #{
                 content => #{
                     'application/json' => #{
-                        schema => minirest:ref(<<"ticket">>),
+                        schema => minirest:ref(<<"record">>),
                         examples => #{
                             username => #{
                                 summary => <<"Username">>,
@@ -356,7 +356,7 @@ ticket_api() ->
             }
         },
         delete => #{
-            description => "Delete one ticket",
+            description => "Delete one record",
             parameters => [
                 #{
                     name => type,
@@ -382,13 +382,13 @@ ticket_api() ->
             }
         }
     },
-    {"/authorization/sources/built-in-database/:type/:key", Metadata, ticket}.
+    {"/authorization/sources/built-in-database/:type/:key", Metadata, record}.
 
 purge(delete, _) ->
-    [ mnesia:dirty_delete(?ACL_TABLE, K) || K <- mnesia:dirty_all_keys(?ACL_TABLE)],
+    [ ekka_mnesia:dirty_delete(?ACL_TABLE, K) || K <- mnesia:dirty_all_keys(?ACL_TABLE)],
     {204}.
 
-tickets(get, #{bindings := #{type := <<"username">>}}) ->
+records(get, #{bindings := #{type := <<"username">>}}) ->
     MatchSpec = ets:fun2ms(
                   fun({?ACL_TABLE, {username, Username}, Rules}) ->
                           [{username, Username}, {rules, Rules}]
@@ -399,7 +399,7 @@ tickets(get, #{bindings := #{type := <<"username">>}}) ->
                            permission => Permission
                           } || {Permission, Action, Topic} <- Rules]
              } || [{username, Username}, {rules, Rules}] <- ets:select(?ACL_TABLE, MatchSpec)]};
-tickets(get, #{bindings := #{type := <<"clientid">>}}) ->
+records(get, #{bindings := #{type := <<"clientid">>}}) ->
     MatchSpec = ets:fun2ms(
                   fun({?ACL_TABLE, {clientid, Clientid}, Rules}) ->
                           [{clientid, Clientid}, {rules, Rules}]
@@ -410,7 +410,7 @@ tickets(get, #{bindings := #{type := <<"clientid">>}}) ->
                            permission => Permission
                           } || {Permission, Action, Topic} <- Rules]
              } || [{clientid, Clientid}, {rules, Rules}] <- ets:select(?ACL_TABLE, MatchSpec)]};
-tickets(get, #{bindings := #{type := <<"all">>}}) ->
+records(get, #{bindings := #{type := <<"all">>}}) ->
     MatchSpec = ets:fun2ms(
                   fun({?ACL_TABLE, all, Rules}) ->
                           [{rules, Rules}]
@@ -420,44 +420,44 @@ tickets(get, #{bindings := #{type := <<"all">>}}) ->
                            permission => Permission
                           } || {Permission, Action, Topic} <- Rules]
              } || [{rules, Rules}] <- ets:select(?ACL_TABLE, MatchSpec)]};
-tickets(post, #{bindings := #{type := <<"username">>},
+records(post, #{bindings := #{type := <<"username">>},
                 body := #{<<"username">> := Username, <<"rules">> := Rules}}) ->
-    Ticket = #emqx_acl{
+    Record = #emqx_acl{
                 who = {username, Username},
                 rules = format_rules(Rules)
                },
-    case ret(mnesia:transaction(fun insert/1, [Ticket])) of
+    case ret(mnesia:transaction(fun insert/1, [Record])) of
         ok -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => atom_to_binary(Reason)}}
     end;
-tickets(post, #{bindings := #{type := <<"clientid">>},
+records(post, #{bindings := #{type := <<"clientid">>},
                 body := #{<<"clientid">> := Clientid, <<"rules">> := Rules}}) ->
-    Ticket = #emqx_acl{
+    Record = #emqx_acl{
                 who = {clientid, Clientid},
                 rules = format_rules(Rules)
                },
-    case ret(mnesia:transaction(fun insert/1, [Ticket])) of
+    case ret(mnesia:transaction(fun insert/1, [Record])) of
         ok -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => atom_to_binary(Reason)}}
     end;
-tickets(put, #{bindings := #{type := <<"all">>},
+records(put, #{bindings := #{type := <<"all">>},
                body := #{<<"rules">> := Rules}}) ->
-    Ticket = #emqx_acl{
+    Record = #emqx_acl{
                 who = all,
                 rules = format_rules(Rules)
                },
-    case ret(mnesia:transaction(fun mnesia:write/1, [Ticket])) of
+    case ret(mnesia:transaction(fun ekka_mnesia:dirty_write/1, [Record])) of
         ok -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => atom_to_binary(Reason)}}
     end.
 
-ticket(get, #{bindings := #{type := <<"username">>, key := Key}}) ->
+record(get, #{bindings := #{type := <<"username">>, key := Key}}) ->
     case mnesia:dirty_read(?ACL_TABLE, {username, Key}) of
         [] -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
         [#emqx_acl{who = {username, Username}, rules = Rules}] ->
@@ -468,7 +468,7 @@ ticket(get, #{bindings := #{type := <<"username">>, key := Key}}) ->
                                 } || {Permission, Action, Topic} <- Rules]}
             }
     end;
-ticket(get, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
+record(get, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
     case mnesia:dirty_read(?ACL_TABLE, {clientid, Key}) of
         [] -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
         [#emqx_acl{who = {clientid, Clientid}, rules = Rules}] ->
@@ -479,7 +479,7 @@ ticket(get, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
                                 } || {Permission, Action, Topic} <- Rules]}
             }
     end;
-ticket(put, #{bindings := #{type := <<"username">>, key := Username},
+record(put, #{bindings := #{type := <<"username">>, key := Username},
               body := #{<<"username">> := Username, <<"rules">> := Rules}}) ->
     case ret(mnesia:transaction(fun update/2, [{username, Username}, format_rules(Rules)])) of
         ok -> {204};
@@ -487,7 +487,7 @@ ticket(put, #{bindings := #{type := <<"username">>, key := Username},
             {400, #{code => <<"BAD_REQUEST">>,
                     message => atom_to_binary(Reason)}}
     end;
-ticket(put, #{bindings := #{type := <<"clientid">>, key := Clientid},
+record(put, #{bindings := #{type := <<"clientid">>, key := Clientid},
               body := #{<<"clientid">> := Clientid, <<"rules">> := Rules}}) ->
     case ret(mnesia:transaction(fun update/2, [{clientid, Clientid}, format_rules(Rules)])) of
         ok -> {204};
@@ -495,15 +495,15 @@ ticket(put, #{bindings := #{type := <<"clientid">>, key := Clientid},
             {400, #{code => <<"BAD_REQUEST">>,
                     message => atom_to_binary(Reason)}}
     end;
-ticket(delete, #{bindings := #{type := <<"username">>, key := Key}}) ->
-    case ret(mnesia:transaction(fun mnesia:delete/1, [{?ACL_TABLE, {username, Key}}])) of
+record(delete, #{bindings := #{type := <<"username">>, key := Key}}) ->
+    case ret(mnesia:transaction(fun ekka_mnesia:dirty_delete/1, [{?ACL_TABLE, {username, Key}}])) of
         ok -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => atom_to_binary(Reason)}}
     end;
-ticket(delete, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
-    case ret(mnesia:transaction(fun mnesia:delete/1, [{?ACL_TABLE, {clientid, Key}}])) of
+record(delete, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
+    case ret(mnesia:transaction(fun ekka_mnesia:dirty_delete/1, [{?ACL_TABLE, {clientid, Key}}])) of
         ok -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
@@ -526,16 +526,16 @@ atom(B) when is_binary(B) ->
     end;
 atom(A) when is_atom(A) -> A.
 
-insert(Ticket = #emqx_acl{who = Who}) ->
+insert(Record = #emqx_acl{who = Who}) ->
     case mnesia:read(?ACL_TABLE, Who) of
-        []    -> mnesia:write(Ticket);
+        []    -> ekka_mnesia:dirty_write(Record);
         [_|_] -> mnesia:abort(existed)
     end.
 
 update(Who, Rules) ->
     case mnesia:read(?ACL_TABLE, Who) of
-        [#emqx_acl{} = Ticket] ->
-            mnesia:write(Ticket#emqx_acl{rules = Rules});
+        [#emqx_acl{} = Record] ->
+            ekka_mnesia:dirty_write(Record#emqx_acl{rules = Rules});
         [] -> mnesia:abort(noexisted)
     end.
 
