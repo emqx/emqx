@@ -294,7 +294,8 @@ fill_defaults(RawConf) ->
 -spec fill_defaults(module(), raw_config()) -> map().
 fill_defaults(SchemaMod, RawConf) ->
     hocon_schema:check_plain(SchemaMod, RawConf,
-        #{nullable => true, no_conversion => true}, root_names_from_conf(RawConf)).
+        #{nullable => true, only_fill_defaults => true},
+        root_names_from_conf(RawConf)).
 
 -spec read_override_conf() -> raw_config().
 read_override_conf() ->
