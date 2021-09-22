@@ -114,28 +114,34 @@ fields(http_post) ->
       }
     ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
 fields(mongo_single) ->
-    connector_fields(mongo, single) ++
     [ {collection, #{type => atom()}}
     , {selector, #{type => map()}}
-    ];
+    , {type, #{type => mongodb}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    ] ++ emqx_connector_mongo:fields(single);
 fields(mongo_rs) ->
-    connector_fields(mongo, rs) ++
     [ {collection, #{type => atom()}}
     , {selector, #{type => map()}}
-    ];
+    , {type, #{type => mongodb}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    ] ++ emqx_connector_mongo:fields(rs);
 fields(mongo_sharded) ->
-    connector_fields(mongo, sharded) ++
     [ {collection, #{type => atom()}}
     , {selector, #{type => map()}}
-    ];
+    , {type, #{type => mongodb}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    ] ++ emqx_connector_mongo:fields(sharded);
 fields(mysql) ->
     connector_fields(mysql) ++
     [ {query, query()} ];
 fields(postgresql) ->
-    [ {type, #{type => postgresql}}
+    [ {query, query()}
+    , {type, #{type => postgresql}}
     , {enable, #{type => boolean(),
                  default => true}}
-    , {query, query()}
     ] ++ emqx_connector_pgsql:fields(config);
 fields(redis_single) ->
     connector_fields(redis, single) ++

@@ -132,8 +132,8 @@ definitions() ->
         properties => #{
             type => #{
                 type => string,
-                enum => [<<"mongo">>],
-                example => <<"mongo">>
+                enum => [<<"mongodb">>],
+                example => <<"mongodb">>
             },
             enable => #{
                 type => boolean,
@@ -188,8 +188,8 @@ definitions() ->
         properties => #{
             type => #{
                 type => string,
-                enum => [<<"mongo">>],
-                example => <<"mongo">>
+                enum => [<<"mongodb">>],
+                example => <<"mongodb">>
             },
             enable => #{
                 type => boolean,
@@ -245,8 +245,8 @@ definitions() ->
         properties => #{
             type => #{
                 type => string,
-                enum => [<<"mongo">>],
-                example => <<"mongo">>
+                enum => [<<"mongodb">>],
+                example => <<"mongodb">>
             },
             enable => #{
                 type => boolean,
