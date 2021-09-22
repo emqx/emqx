@@ -17,9 +17,8 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([ roots/0, fields/1,namespace/0]).
+-export([ roots/0, fields/1]).
 -import(hoconsc, [mk/2]).
-namespace() -> <<"remote">>.
 roots() -> ["root"].
 
 fields("root") ->

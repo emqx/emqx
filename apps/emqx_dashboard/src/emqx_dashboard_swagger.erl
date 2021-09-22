@@ -85,11 +85,11 @@ check_parameter([{Name, Type} | Spec], Bindings, QueryStr, BindingsAcc, QueryStr
     Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
     case hocon_schema:field_schema(Type, in) of
         path ->
-            NewBindings = hocon_schema:check_plain(Schema, Bindings, #{atom_key => true}),
+            NewBindings = hocon_schema:check_plain(Schema, Bindings, #{atom_key => true, override_env => false}),
             NewBindingsAcc = maps:merge(BindingsAcc, NewBindings),
             check_parameter(Spec, Bindings, QueryStr, NewBindingsAcc, QueryStrAcc);
         query ->
-            NewQueryStr = hocon_schema:check_plain(Schema, QueryStr),
+            NewQueryStr = hocon_schema:check_plain(Schema, QueryStr, #{override_env => false}),
             NewQueryStrAcc = maps:merge(QueryStrAcc, NewQueryStr),
             check_parameter(Spec, Bindings, QueryStr, BindingsAcc, NewQueryStrAcc)
     end.
@@ -102,7 +102,7 @@ check_requestBody(#{body := Body}, Schema, Module, true) ->
             _ -> Type0
         end,
     NewSchema = ?INIT_SCHEMA#{roots => [{root, Type}]},
-    #{<<"root">> := NewBody} = hocon_schema:check_plain(NewSchema, #{<<"root">> => Body}),
+    #{<<"root">> := NewBody} = hocon_schema:check_plain(NewSchema, #{<<"root">> => Body}, #{override_env => false}),
     NewBody;
 %% TODO not support nest object check yet, please use ref!
 %% RequestBody = [ {per_page, mk(integer(), #{}},

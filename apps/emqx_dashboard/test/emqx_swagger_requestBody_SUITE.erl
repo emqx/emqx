@@ -91,15 +91,15 @@ t_remote_ref(_Config) ->
     Spec = #{
         post => #{parameters => [],
             requestBody => #{<<"content">> => #{<<"application/json">> =>
-            #{<<"schema">> => #{<<"$ref">> => <<"#/components/schemas/remote.ref2">>}}}},
+            #{<<"schema">> => #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref2">>}}}},
             responses => #{<<"200">> => #{description => <<"ok">>}}}},
     Refs = [{emqx_swagger_remote_schema, "ref2"}],
     {_, Components} = validate("/ref/remote", Spec, Refs),
     ExpectComponents = [
-        #{<<"remote.ref2">> => #{<<"properties">> => [
+        #{<<"emqx_swagger_remote_schema.ref2">> => #{<<"properties">> => [
             {<<"page">>, #{description => <<"good page">>,example => 1, maximum => 100,minimum => 1,type => integer}},
-        {<<"another_ref">>, #{<<"$ref">> => <<"#/components/schemas/remote.ref3">>}}], <<"type">> => object}},
-        #{<<"remote.ref3">> => #{<<"properties">> => [
+        {<<"another_ref">>, #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref3">>}}], <<"type">> => object}},
+        #{<<"emqx_swagger_remote_schema.ref3">> => #{<<"properties">> => [
             {<<"ip">>, #{description => <<"IP:Port">>, example => <<"127.0.0.1:80">>,type => string}},
             {<<"version">>, #{description => "a good version", example => <<"1.0.0">>,type => string}}],
             <<"type">> => object}}],

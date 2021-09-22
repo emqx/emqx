@@ -84,7 +84,7 @@ t_raw_remote_ref(_Config) ->
     Path = "/raw/ref/remote",
     Object = #{<<"content">> =>
     #{<<"application/json">> => #{<<"schema">> => #{
-        <<"$ref">> => <<"#/components/schemas/remote.ref1">>}}}},
+        <<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref1">>}}}},
     ExpectRefs = [{emqx_swagger_remote_schema, "ref1"}],
     validate(Path, Object, ExpectRefs),
     ok.
@@ -101,7 +101,7 @@ t_remote_ref(_Config) ->
     Path = "/ref/remote",
     Object = #{<<"content">> =>
     #{<<"application/json">> => #{<<"schema">> => #{
-        <<"$ref">> => <<"#/components/schemas/remote.ref1">>}}}},
+        <<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref1">>}}}},
     ExpectRefs = [{emqx_swagger_remote_schema, "ref1"}],
     validate(Path, Object, ExpectRefs),
     ok.
@@ -159,29 +159,29 @@ t_ref_array_without_key(_Config) ->
 t_hocon_schema_function(_Config) ->
     Path = "/ref/hocon/schema/function",
     Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> =>
-    #{<<"$ref">> => <<"#/components/schemas/remote.root">>}}}},
+    #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.root">>}}}},
     ExpectComponents = [
-        #{<<"remote.ref1">> => #{<<"type">> => object,
+        #{<<"emqx_swagger_remote_schema.ref1">> => #{<<"type">> => object,
             <<"properties">> => [
                 {<<"protocol">>, #{enum => [http, https], type => string}},
                 {<<"port">>, #{default => 18083, example => 100, type => integer}}]
         }},
-        #{<<"remote.ref2">> => #{<<"type">> => object,
+        #{<<"emqx_swagger_remote_schema.ref2">> => #{<<"type">> => object,
             <<"properties">> => [
                 {<<"page">>, #{description => <<"good page">>, example => 1, maximum => 100, minimum => 1, type => integer}},
-                {<<"another_ref">>, #{<<"$ref">> => <<"#/components/schemas/remote.ref3">>}}
+                {<<"another_ref">>, #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref3">>}}
             ]
         }},
-        #{<<"remote.ref3">> => #{<<"type">> => object,
+        #{<<"emqx_swagger_remote_schema.ref3">> => #{<<"type">> => object,
             <<"properties">> => [
                 {<<"ip">>, #{description => <<"IP:Port">>, example => <<"127.0.0.1:80">>,type => string}},
                 {<<"version">>, #{description => "a good version", example => <<"1.0.0">>, type => string}}]
         }},
-        #{<<"remote.root">> => #{required => [<<"default_password">>, <<"default_username">>],
+        #{<<"emqx_swagger_remote_schema.root">> => #{required => [<<"default_password">>, <<"default_username">>],
             <<"properties">> => [{<<"listeners">>, #{items =>
             #{<<"oneOf">> =>
-            [#{<<"$ref">> => <<"#/components/schemas/remote.ref2">>},
-                #{<<"$ref">> => <<"#/components/schemas/remote.ref1">>}]}, type => array}},
+            [#{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref2">>},
+                #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref1">>}]}, type => array}},
                 {<<"default_username">>,
                     #{default => <<"admin">>, example => <<"string example">>, type => string}},
                 {<<"default_password">>, #{default => <<"public">>, example => <<"string example">>, type => string}},
