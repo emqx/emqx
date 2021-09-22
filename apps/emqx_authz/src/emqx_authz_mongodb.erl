@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authz_mongo).
+-module(emqx_authz_mongodb).
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -31,7 +31,7 @@
 -endif.
 
 description() ->
-    "AuthZ with Mongo".
+    "AuthZ with MongoDB".
 
 authorize(Client, PubSub, Topic,
             #{collection := Collection,

@@ -13,7 +13,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authz_mongo_SUITE).
+-module(emqx_authz_mongodb_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -46,7 +46,7 @@ init_per_suite(Config) ->
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
-    Rules = [#{<<"type">> => <<"mongo">>,
+    Rules = [#{<<"type">> => <<"mongodb">>,
                <<"mongo_type">> => <<"single">>,
                <<"server">> => <<"127.0.0.1:27017">>,
                <<"pool_size">> => 1,

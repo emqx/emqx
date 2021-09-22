@@ -39,7 +39,7 @@
 -export([post_config_update/4, pre_config_update/2]).
 
 -define(CONF_KEY_PATH, [authorization, sources]).
--define(SOURCE_TYPES, [file, http, mongo, mysql, postgresql, redis]).
+-define(SOURCE_TYPES, [file, http, mongodb, mysql, postgresql, redis]).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
@@ -300,7 +300,7 @@ init_source(#{enable := true,
 init_source(#{enable := true,
               type := DB
              } = Source) when DB =:= redis;
-                              DB =:= mongo ->
+                              DB =:= mongodb ->
     case create_resource(Source) of
         {error, Reason} -> error({load_config_error, Reason});
         Id -> Source#{annotations => #{id => Id}}
@@ -407,6 +407,8 @@ create_resource(#{type := DB} = Source) ->
 authz_module(Type) ->
     list_to_existing_atom("emqx_authz_" ++ atom_to_list(Type)).
 
+connector_module(mongodb) ->
+    emqx_connector_mongo;
 connector_module(postgresql) ->
     emqx_connector_pgsql;
 connector_module(Type) ->
