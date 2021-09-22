@@ -926,16 +926,39 @@ common_ssl_opts_schema(Defaults) ->
     , {"cacertfile",
        sc(string(),
           #{ default => D("cacertfile")
+           , nullable => true
+           , desc =>
+"""Trusted PEM format CA certificates bundle file.<br>
+The certificates in this file are used to verify the TLS peer's certificates.
+Append new certificates to the file if new CAs are to be trusted.
+There is no need to restart EMQ X to have the updated file loaded, because
+the system regularly checks if file has been updated (and reload).<br>
+NOTE: invalidating (deleting) a certificate from the file will not affect
+already established connections.
+"""
            })
       }
     , {"certfile",
        sc(string(),
           #{ default => D("certfile")
+           , nullable => true
+           , desc =>
+"""PEM format certificates chain file.<br>
+The certificates in this file should be in reversed order of the certificate
+issue chain. That is, the host's certificate should be placed in the beginning
+of the file, followed by the immediate issuer certificate and so on.
+Although the root CA certificate is optional, it should placed at the end of
+the file if it is to be added.
+"""
            })
       }
     , {"keyfile",
        sc(string(),
           #{ default => D("keyfile")
+           , nullable => true
+           , desc =>
+"""PEM format private key file.<br>
+"""
            })
       }
     , {"verify",
