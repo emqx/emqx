@@ -135,7 +135,7 @@ format_delayed(Delayed) ->
 format_delayed(#delayed_message{key = {ExpectTimeStamp, Id}, delayed = Delayed,
             msg = #message{topic = Topic,
                            from = From,
-                           headers = #{username := Username},
+                           headers = Headers,
                            qos = Qos,
                            timestamp = PublishTimeStamp,
                            payload = Payload}}, WithPayload) ->
@@ -151,7 +151,7 @@ format_delayed(#delayed_message{key = {ExpectTimeStamp, Id}, delayed = Delayed,
         topic => Topic,
         qos => Qos,
         from_clientid => From,
-        from_username => Username
+        from_username => maps:get(username, Headers, undefined)
     },
     case WithPayload of
         true ->
@@ -206,9 +206,9 @@ handle_call({store, DelayedMsg = #delayed_message{key = Key}},
     {reply, ok, ensure_publish_timer(Key, State)};
 
 handle_call({store, DelayedMsg = #delayed_message{key = Key}},
-            _From, State = #{max_delayed_messages := Val}) ->
+            _From, State = #{max_delayed_messages := Max}) ->
     Size = mnesia:table_info(?TAB, size),
-    case Size > Val of
+    case Size >= Max of
         true ->
             {reply, {error, max_delayed_messages_full}, State};
         false ->
