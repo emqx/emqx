@@ -102,7 +102,7 @@ fields("cluster") ->
            , default => emqxcl
            })}
     , {"discovery_strategy",
-       sc(union([manual, static, mcast, dns, etcd, k8s]),
+       sc(hoconsc:enum([manual, static, mcast, dns, etcd, k8s]),
           #{ default => manual
            })}
     , {"autoclean",
@@ -122,7 +122,7 @@ fields("cluster") ->
        sc(ref(cluster_mcast),
           #{})}
     , {"proto_dist",
-       sc(union([inet_tcp, inet6_tcp, inet_tls]),
+       sc(hoconsc:enum([inet_tcp, inet6_tcp, inet_tls]),
           #{ mapping => "ekka.proto_dist"
            , default => inet_tcp
            })}
@@ -136,7 +136,7 @@ fields("cluster") ->
        sc(ref(cluster_k8s),
           #{})}
     , {"db_backend",
-        sc(union([mnesia, rlog]),
+        sc(hoconsc:enum([mnesia, rlog]),
           #{ mapping => "ekka.db_backend"
            , default => mnesia
            })}
@@ -224,7 +224,7 @@ fields(cluster_k8s) ->
           #{ default => "emqx"
            })}
     , {"address_type",
-       sc(union([ip, dns, hostname]),
+       sc(hoconsc:enum([ip, dns, hostname]),
           #{})}
     , {"app_name",
        sc(string(),
@@ -242,7 +242,7 @@ fields(cluster_k8s) ->
 
 fields("rlog") ->
     [ {"role",
-       sc(union([core, replicant]),
+       sc(hoconsc:enum([core, replicant]),
           #{ mapping => "ekka.node_role"
            , default => core
            })}
@@ -334,7 +334,7 @@ fields("cluster_call") ->
 
 fields("rpc") ->
     [ {"mode",
-       sc(union(sync, async),
+       sc(hoconsc:enum([sync, async]),
           #{ default => async
            })}
     , {"async_batch_size",
@@ -343,7 +343,7 @@ fields("rpc") ->
            , default => 256
            })}
     , {"port_discovery",
-       sc(union(manual, stateless),
+       sc(hoconsc:enum([manual, stateless]),
           #{ mapping => "gen_rpc.port_discovery"
            , default => stateless
            })}
@@ -434,7 +434,7 @@ fields("log_file_handler") ->
        sc(ref("log_rotation"),
           #{})}
     , {"max_size",
-       sc(union([infinity, emqx_schema:bytesize()]),
+       sc(hoconsc:union([infinity, emqx_schema:bytesize()]),
           #{ default => "10MB"
            })}
     ] ++ log_handler_common_confs();
@@ -464,7 +464,7 @@ fields("log_overload_kill") ->
           #{ default => 20000
            })}
     , {"restart_after",
-       sc(union(emqx_schema:duration(), infinity),
+       sc(hoconsc:union([emqx_schema:duration(), infinity]),
           #{ default => "5s"
            })}
     ];
@@ -582,7 +582,7 @@ log_handler_common_confs() ->
           #{ default => unlimited
            })}
     , {"formatter",
-       sc(union([text, json]),
+       sc(hoconsc:enum([text, json]),
           #{ default => text
            })}
     , {"single_line",
@@ -608,11 +608,11 @@ log_handler_common_confs() ->
        sc(ref("log_burst_limit"),
           #{})}
     , {"supervisor_reports",
-       sc(union([error, progress]),
+       sc(hoconsc:enum([error, progress]),
           #{ default => error
            })}
     , {"max_depth",
-       sc(union([unlimited, integer()]),
+       sc(hoconsc:union([unlimited, integer()]),
           #{ default => 100
            })}
     ].

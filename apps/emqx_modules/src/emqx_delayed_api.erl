@@ -18,22 +18,19 @@
 
 -behavior(minirest_api).
 
--import(emqx_mgmt_util, [ page_params/0
-                        , schema/1
-                        , schema/2
-                        , object_schema/2
-                        , error_schema/2
-                        , page_object_schema/1
-                        , properties/1
-                        ]).
+-include_lib("typerefl/include/types.hrl").
+
+-import(hoconsc, [mk/2, ref/1, ref/2]).
 
 -define(MAX_PAYLOAD_LENGTH, 2048).
 -define(PAYLOAD_TOO_LARGE, 'PAYLOAD_TOO_LARGE').
 
--export([ status/2
-        , delayed_messages/2
-        , delayed_message/2
-        ]).
+-export([status/2
+    , delayed_messages/2
+    , delayed_message/2
+]).
+
+-export([paths/0, fields/1, schema/1]).
 
 %% for rpc
 -export([update_config_/1]).
@@ -49,91 +46,94 @@
 -define(MESSAGE_ID_SCHEMA_ERROR, 'MESSAGE_ID_SCHEMA_ERROR').
 
 api_spec() ->
-    {
-        [status_api(), delayed_messages_api(), delayed_message_api()],
-        []
-    }.
+    emqx_dashboard_swagger:spec(?MODULE).
 
-conf_schema() ->
-    emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([delayed])).
-properties() ->
-    PayloadDesc = io_lib:format("Payload, base64 encode. Payload will be ~p if length large than ~p",
-            [?PAYLOAD_TOO_LARGE, ?MAX_PAYLOAD_LENGTH]),
-    properties([
-        {msgid, integer, <<"Message Id">>},
-        {publish_at, string, <<"Client publish message time, rfc 3339">>},
-        {delayed_interval, integer, <<"Delayed interval, second">>},
-        {delayed_remaining, integer, <<"Delayed remaining, second">>},
-        {expected_at, string, <<"Expect publish time, rfc 3339">>},
-        {topic, string, <<"Topic">>},
-        {qos, string, <<"QoS">>},
-        {payload, string, iolist_to_binary(PayloadDesc)},
-        {from_clientid, string, <<"From ClientId">>},
-        {from_username, string, <<"From Username">>}
-    ]).
+paths() -> ["/mqtt/delayed", "/mqtt/delayed/messages", "/mqtt/delayed/messages/:msgid"].
 
-parameters() ->
-    [#{
-        name => msgid,
-        in => path,
-        schema => #{type => string},
-        required => true
-    }].
-
-status_api() ->
-    Metadata = #{
+schema("/mqtt/delayed") ->
+    #{
+        operationId => status,
         get => #{
+            tags => [<<"mqtt">>],
             description => <<"Get delayed status">>,
+            summary => <<"Get delayed status">>,
             responses => #{
-                <<"200">> => schema(conf_schema())}
-            },
+                200 => ref(emqx_modules_schema, "delayed")
+            }
+        },
         put => #{
+            tags => [<<"mqtt">>],
             description => <<"Enable or disable delayed, set max delayed messages">>,
-            'requestBody' => schema(conf_schema()),
+            requestBody => ref(emqx_modules_schema, "delayed"),
             responses => #{
-                <<"200">> =>
-                    schema(conf_schema(), <<"Enable or disable delayed successfully">>),
-                <<"400">> =>
-                    error_schema(<<"Max limit illegality">>, [?BAD_REQUEST])
+                200 => mk(ref(emqx_modules_schema, "delayed"),
+                    #{desc => <<"Enable or disable delayed successfully">>}),
+                400 => emqx_swagger:error_codes([?BAD_REQUEST], <<"Max limit illegality">>)
             }
         }
-    },
-    {"/mqtt/delayed", Metadata, status}.
+    };
 
-delayed_messages_api() ->
-    Metadata = #{
+schema("/mqtt/delayed/messages/:msgid") ->
+    #{operationId => delayed_messages,
         get => #{
-            description => "List delayed messages",
-            parameters => page_params(),
-            responses => #{
-                <<"200">> => page_object_schema(properties())
-            }
-        }
-    },
-    {"/mqtt/delayed/messages", Metadata, delayed_messages}.
-
-delayed_message_api() ->
-    Metadata = #{
-        get => #{
+            tags => [<<"mqtt">>],
             description => <<"Get delayed message">>,
-            parameters => parameters(),
+            parameters => [{msgid, mk(binary(), #{in => path, desc => <<"delay message ID">>})}],
             responses => #{
-                <<"400">> => error_schema(<<"Message ID Schema error">>, [?MESSAGE_ID_SCHEMA_ERROR]),
-                <<"404">> => error_schema(<<"Message ID not found">>, [?MESSAGE_ID_NOT_FOUND]),
-                <<"200">> => object_schema(maps:without([payload], properties()), <<"Get delayed message success">>)
+                200 => ref("message_without_payload"),
+                400 => emqx_swagger:error_codes([?MESSAGE_ID_SCHEMA_ERROR], <<"Bad MsgId format">>),
+                404 => emqx_swagger:error_codes([?MESSAGE_ID_NOT_FOUND], <<"MsgId not found">>)
             }
         },
         delete => #{
+            tags => [<<"mqtt">>],
             description => <<"Delete delayed message">>,
-            parameters => parameters(),
+            parameters => [{msgid, mk(binary(), #{in => path, desc => <<"delay message ID">>})}],
             responses => #{
-                <<"400">> => error_schema(<<"Message ID Schema error">>, [?MESSAGE_ID_SCHEMA_ERROR]),
-                <<"404">> => error_schema(<<"Message ID not found">>, [?MESSAGE_ID_NOT_FOUND]),
-                <<"200">> => schema(<<"Delete delayed message success">>)
+                200 => <<"Delete delayed message success">>,
+                400 => emqx_swagger:error_codes([?MESSAGE_ID_SCHEMA_ERROR], <<"Bad MsgId format">>),
+                404 => emqx_swagger:error_codes([?MESSAGE_ID_NOT_FOUND], <<"MsgId not found">>)
             }
         }
-    },
-    {"/mqtt/delayed/messages/:msgid", Metadata, delayed_message}.
+    };
+schema("/mqtt/delayed/messages") ->
+    #{
+        operationId => delayed_messages,
+        get => #{
+            tags => [<<"mqtt">>],
+            description => <<"List delayed messages">>,
+            parameters => [ref(emqx_swagger, page), ref(emqx_swagger, limit)],
+            responses => #{
+                200 =>
+                [
+                    {data, mk(hoconsc:array(ref("message")), #{})},
+                    {meta, [
+                        {page, mk(integer(), #{})},
+                        {limit, mk(integer(), #{})},
+                        {count, mk(integer(), #{})}
+                    ]}
+                ]
+            }
+        }
+    }.
+
+fields("message_without_payload") ->
+    [
+        {msgid, mk(integer(), #{desc => <<"Message Id (MQTT message id hash)">>})},
+        {publish_at, mk(binary(), #{desc => <<"Client publish message time, rfc 3339">>})},
+        {delayed_interval, mk(integer(), #{desc => <<"Delayed interval, second">>})},
+        {delayed_remaining, mk(integer(), #{desc => <<"Delayed remaining, second">>})},
+        {expected_at, mk(binary(), #{desc => <<"Expect publish time, rfc 3339">>})},
+        {topic, mk(binary(), #{desc => <<"Topic">>, example => <<"/sys/#">>})},
+        {qos, mk(binary(), #{desc => <<"QoS">>})},
+        {from_clientid, mk(binary(), #{desc => <<"From ClientId">>})},
+        {from_username, mk(binary(), #{desc => <<"From Username">>})}
+    ];
+fields("message") ->
+    PayloadDesc = io_lib:format("Payload, base64 encode. Payload will be ~p if length large than ~p",
+        [?PAYLOAD_TOO_LARGE, ?MAX_PAYLOAD_LENGTH]),
+    fields("message_without_payload") ++
+    [{payload, mk(binary(), #{desc => iolist_to_binary(PayloadDesc)})}].
 
 %%--------------------------------------------------------------------
 %% HTTP API
@@ -210,7 +210,7 @@ generate_max_delayed_messages(Config) ->
 update_config_(Config) ->
     lists:foreach(fun(Node) ->
         update_config_(Node, Config)
-    end, ekka_mnesia:running_nodes()).
+                  end, ekka_mnesia:running_nodes()).
 
 update_config_(Node, Config) when Node =:= node() ->
     _ = emqx_delayed:update_config(Config),
