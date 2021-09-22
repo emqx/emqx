@@ -4,7 +4,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 %% API
--export([spec/1]).
+-export([spec/1, spec/2]).
 -export([translate_req/2]).
 
 -ifdef(TEST).
@@ -24,22 +24,36 @@
 -define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
 -define(TO_COMPONENTS(_M_, _F_), iolist_to_binary([<<"#/components/schemas/">>, ?TO_REF(namespace(_M_), _F_)])).
 
--spec(spec(module()) -> {list({Path, Specs, OperationId, Options}), list(Component)} when
+%% @equiv spec(Module, #{check_schema => false})
+-spec(spec(module()) ->
+    {list({Path, Specs, OperationId, Options}), list(Component)} when
     Path :: string()|binary(),
     Specs :: map(),
     OperationId :: atom(),
     Options :: #{filter => fun((map(),
     #{module => module(), path => string(), method => atom()}) -> map())},
     Component :: map()).
-spec(Module) ->
+spec(Module) -> spec(Module, #{check_schema => false}).
+
+-spec(spec(module(), #{check_schema => boolean()}) ->
+    {list({Path, Specs, OperationId, Options}), list(Component)} when
+    Path :: string()|binary(),
+    Specs :: map(),
+    OperationId :: atom(),
+    Options :: #{filter => fun((map(),
+    #{module => module(), path => string(), method => atom()}) -> map())},
+    Component :: map()).
+spec(Module, Options) ->
     Paths = apply(Module, paths, []),
     {ApiSpec, AllRefs} =
         lists:foldl(fun(Path, {AllAcc, AllRefsAcc}) ->
             {OperationId, Specs, Refs} = parse_spec_ref(Module, Path),
-            {[{Path, Specs, OperationId, ?DEFAULT_FILTER} | AllAcc],
+            CheckSchema = support_check_schema(Options),
+            {[{Path, Specs, OperationId, CheckSchema} | AllAcc],
                     Refs ++ AllRefsAcc}
                     end, {[], []}, Paths),
     {ApiSpec, components(lists:usort(AllRefs))}.
+
 
 -spec(translate_req(#{binding => list(), query_string => list(), body => map()},
     #{module => module(), path => string(), method => atom()}) ->
@@ -58,6 +72,10 @@ translate_req(Request, #{module := Module, path := Path, method := Method}) ->
         #{path := Key, reason := Reason} = ValidErr,
         {400, 'BAD_REQUEST', iolist_to_binary(io_lib:format("~s : ~p", [Key, Reason]))}
     end.
+
+support_check_schema(#{check_schema := true}) -> ?DEFAULT_FILTER;
+support_check_schema(#{check_schema := Func})when is_function(Func, 2) -> #{filter => Func};
+support_check_schema(_) -> #{filter => undefined}.
 
 parse_spec_ref(Module, Path) ->
     Schema =

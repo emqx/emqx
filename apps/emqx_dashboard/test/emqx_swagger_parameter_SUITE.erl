@@ -162,7 +162,13 @@ t_in_mix_trans_error(_Config) ->
     ok.
 
 t_api_spec(_Config) ->
-    emqx_dashboard_swagger:spec(?MODULE),
+    {Spec, _Components} = emqx_dashboard_swagger:spec(?MODULE),
+    Filter = fun(V, S) -> lists:all(fun({_, _, _, #{filter := Filter}}) -> Filter =:= V end, S) end,
+    ?assertEqual(true, Filter(undefined, Spec)),
+    {Spec1, _Components1} = emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}),
+    ?assertEqual(true, Filter(fun emqx_dashboard_swagger:translate_req/2, Spec1)),
+    {Spec2, _Components2} = emqx_dashboard_swagger:spec(?MODULE, #{check_schema => fun emqx_dashboard_swagger:translate_req/2}),
+    ?assertEqual(true, Filter(fun emqx_dashboard_swagger:translate_req/2, Spec2)),
     ok.
 
 validate(Path, ExpectParams) ->
