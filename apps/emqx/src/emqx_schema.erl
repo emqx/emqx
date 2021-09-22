@@ -88,23 +88,26 @@ roots(high) ->
       }
     , {"zones",
        sc(map("name", ref("zone")),
-          #{ desc => "A zone is a set of configs grouped by the zone <code>name</code>. <br>"
-                     "For flexible configuration mapping, the <code>name</code> "
-                     "can be set to a listener's <code>zone</code> config.<br>"
-                     "NOTE: A builtin zone named <code>default</code> is auto created "
-                     "and can not be deleted."
+          #{ desc =>
+"""A zone is a set of configs grouped by the zone <code>name</code>.<br>
+For flexible configuration mapping, the <code>name</code>
+can be set to a listener's <code>zone</code> config.<br>
+NOTE: A builtin zone named <code>default</code> is auto created
+and can not be deleted."""
            })}
     , {"mqtt",
        sc(ref("mqtt"),
-         #{ desc => "Global MQTT configuration.<br>"
-                    "The configs here work as default values which can be overriden "
-                    "in <code>zone</code> configs"
+         #{ desc =>
+"""Global MQTT configuration.<br>
+The configs here work as default values which can be overriden
+in <code>zone</code> configs"""
           })}
     , {"authentication",
       sc(hoconsc:lazy(hoconsc:array(map())),
-         #{ desc => "Default authentication configs for all MQTT listeners.<br>"
-                    "For per-listener overrides see <code>authentication</code> "
-                    "in listener configs"
+         #{ desc =>
+"""Default authentication configs for all MQTT listeners.<br>
+For per-listener overrides see <code>authentication</code>
+in listener configs"""
           })}
     , {"authorization",
        sc(ref("authorization"),
@@ -956,7 +959,7 @@ common_ssl_opts_schema(Defaults) ->
           #{ sensitive => true
            , nullable => true
            , desc =>
-"""String containing the user's password. Only used if the private 
+"""String containing the user's password. Only used if the private
 keyfile is password-protected."""
            })
       }
@@ -967,7 +970,7 @@ keyfile is password-protected."""
 """All TLS/DTLS versions to be supported.<br>
 NOTE: PSK ciphers are suppresed by 'tlsv1.3' version config<br>
 In case PSK cipher suites are intended, make sure to configured
-<code>['tlsv1.2', 'tlsv1.1']</code> here<br>.
+<code>['tlsv1.2', 'tlsv1.1']</code> here.
 """
            })
       }
@@ -982,9 +985,9 @@ In case PSK cipher suites are intended, make sure to configured
        sc(boolean(),
           #{ default => Df("secure_renegotiate", true)
            , desc => """
-SSL parameter renegotiation is a feature that allows a client and a server 
-to renegotiate the parameters of the SSL connection on the fly. 
-RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation, 
+SSL parameter renegotiation is a feature that allows a client and a server
+to renegotiate the parameters of the SSL connection on the fly.
+RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation,
 you drop support for the insecure renegotiation, prone to MitM attacks.
 """
            })
@@ -1003,9 +1006,9 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
           #{ default => D("dhfile")
            , nullable => true
            , desc =>
-"""Path to a file containing PEM-encoded Diffie Hellman parameters 
-to be used by the server if a cipher suite using Diffie Hellman 
-key exchange is negotiated. If not specified, default parameters 
+"""Path to a file containing PEM-encoded Diffie Hellman parameters
+to be used by the server if a cipher suite using Diffie Hellman
+key exchange is negotiated. If not specified, default parameters
 are used.<br>
 NOTE: The dhfile option is not supported by TLS 1.3."""
            })
@@ -1015,10 +1018,10 @@ NOTE: The dhfile option is not supported by TLS 1.3."""
           #{ default => Df("fail_if_no_peer_cert", false)
            , desc =>
 """
-Used together with {verify, verify_peer} by an TLS/DTLS server. 
-If set to true, the server fails if the client does not have a 
-certificate to send, that is, sends an empty certificate. 
-If set to false, it fails only if the client sends an invalid 
+Used together with {verify, verify_peer} by an TLS/DTLS server.
+If set to true, the server fails if the client does not have a
+certificate to send, that is, sends an empty certificate.
+If set to false, it fails only if the client sends an invalid
 certificate (an empty certificate is considered valid).
 """
            })
@@ -1032,13 +1035,13 @@ certificate (an empty certificate is considered valid).
        sc(boolean(),
           #{ default => Df("client_renegotiation", true)
            , desc => """
-In protocols that support client-initiated renegotiation, 
-the cost of resources of such an operation is higher for the server than the client. 
-This can act as a vector for denial of service attacks. 
-The SSL application already takes measures to counter-act such attempts, 
-but client-initiated renegotiation can be strictly disabled by setting this option to false. 
-The default value is true. Note that disabling renegotiation can result in 
-long-lived connections becoming unusable due to limits on 
+In protocols that support client-initiated renegotiation,
+the cost of resources of such an operation is higher for the server than the client.
+This can act as a vector for denial of service attacks.
+The SSL application already takes measures to counter-act such attempts,
+but client-initiated renegotiation can be strictly disabled by setting this option to false.
+The default value is true. Note that disabling renegotiation can result in
+long-lived connections becoming unusable due to limits on
 the number of messages the underlying cipher suite can encipher.
 """
            })
@@ -1060,15 +1063,15 @@ client_ssl_opts_schema(Defaults) ->
            #{ default => disable
             , desc =>
 """Specify the host name to be used in TLS Server Name Indication extension.<br>
-For instance, when connecting to \"server.example.net\", the genuine server 
-which accedpts the connection and performs TSL handshake may differ from the 
-host the TLS client initially connects to, e.g. when connecting to an IP address 
+For instance, when connecting to \"server.example.net\", the genuine server
+which accedpts the connection and performs TSL handshake may differ from the
+host the TLS client initially connects to, e.g. when connecting to an IP address
 or when the host has multiple resolvable DNS records <br>
-If not specified, it will default to the host name string which is used 
+If not specified, it will default to the host name string which is used
 to establish the connection, unless it is IP addressed used.<br>
-The host name is then also used in the host name verification of the peer 
+The host name is then also used in the host name verification of the peer
 certificate.<br> The special value 'disable' prevents the Server Name
-Indication extension from being sent and disables the hostname 
+Indication extension from being sent and disables the hostname
 verification check."""
             })}
     ].
@@ -1090,22 +1093,22 @@ ciphers_schema(Default) ->
                        end
         , validator => fun validate_ciphers/1
         , desc =>
-"""TLS cipher suite names separated by comma, or as an array of strings 
-<code>\"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256\"</code> or 
+"""TLS cipher suite names separated by comma, or as an array of strings
+<code>\"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256\"</code> or
 <code>[\"TLS_AES_256_GCM_SHA384\",\"TLS_AES_128_GCM_SHA256\"]</code].
 <br>
-Ciphers (and their ordering) define the way in which the 
-client and server encrypts information over the wire. 
-Selecting a good cipher suite is critical for the 
-application's data security, confidentiality and performance. 
-The names should be in OpenSSL sting format (not RFC format). 
-Default values and examples proveded by EMQ X config 
+Ciphers (and their ordering) define the way in which the
+client and server encrypts information over the wire.
+Selecting a good cipher suite is critical for the
+application's data security, confidentiality and performance.
+The names should be in OpenSSL sting format (not RFC format).
+Default values and examples proveded by EMQ X config
 documentation are all in OpenSSL format.<br>
 
-NOTE: Certain cipher suites are only compatible with 
-specific TLS <code>versions</code> ('tlsv1.1', 'tlsv1.2' or 'tlsv1.3') 
-incompatible cipher suites will be silently dropped. 
-For instance, if only 'tlsv1.3' is given in the <code>versions</code>, 
+NOTE: Certain cipher suites are only compatible with
+specific TLS <code>versions</code> ('tlsv1.1', 'tlsv1.2' or 'tlsv1.3')
+incompatible cipher suites will be silently dropped.
+For instance, if only 'tlsv1.3' is given in the <code>versions</code>,
 configuring cipher suites for other versions will have no effect.
 <br>
 
