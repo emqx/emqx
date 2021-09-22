@@ -315,23 +315,28 @@ sources(get, _) ->
                               (#{enable := false} = Source, AccIn) ->
                                   lists:append(AccIn, [Source#{annotations => #{status => unhealthy}}]);
                               (#{type := _Type, annotations := #{id := Id}} = Source, AccIn) ->
-                                  NSource0 = case maps:get(server, Source, undefined) of
+                                  NSource0 = case maps:get(url, Source, undefined) of
                                                  undefined -> Source;
-                                                 Server ->
-                                                     Source#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}
+                                                 Url ->
+                                                     Source#{url => iolist_to_binary(emqx_http_lib:normalize(Url))}
                                              end,
-                                  NSource1 = case maps:get(servers, Source, undefined) of
+                                  NSource1 = case maps:get(server, Source, undefined) of
                                                  undefined -> NSource0;
+                                                 Server ->
+                                                     NSource0#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}
+                                             end,
+                                  NSource2 = case maps:get(servers, Source, undefined) of
+                                                 undefined -> NSource1;
                                                  Servers ->
-                                                     NSource0#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}
+                                                     NSource1#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}
                                              end,
-                                  NSource2 = case emqx_resource:health_check(Id) of
+                                  NSource3 = case emqx_resource:health_check(Id) of
                                                  ok ->
-                                                     NSource1#{annotations => #{status => healthy}};
+                                                     NSource2#{annotations => #{status => healthy}};
                                                  _ ->
-                                                     NSource1#{annotations => #{status => unhealthy}}
+                                                     NSource2#{annotations => #{status => unhealthy}}
                                              end,
-                                  lists:append(AccIn, [read_cert(NSource2)]);
+                                  lists:append(AccIn, [read_cert(NSource3)]);
                               (Source, AccIn) ->
                                   lists:append(AccIn, [Source#{annotations => #{status => healthy}}])
                         end, [], emqx_authz:lookup()),
@@ -370,23 +375,28 @@ source(get, #{bindings := #{type := Type}}) ->
             end;
         #{enable := false} = Source -> {200, Source#{annotations => #{status => unhealthy}}};
         #{annotations := #{id := Id}} = Source ->
-            NSource0 = case maps:get(server, Source, undefined) of
+            NSource0 = case maps:get(url, Source, undefined) of
                            undefined -> Source;
-                           Server ->
-                               Source#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}
+                           Url ->
+                               Source#{url => iolist_to_binary(emqx_http_lib:normalize(Url))}
                        end,
-            NSource1 = case maps:get(servers, Source, undefined) of
+            NSource1 = case maps:get(server, Source, undefined) of
                            undefined -> NSource0;
-                           Servers ->
-                               NSource0#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}
+                           Server ->
+                               NSource0#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}
                        end,
-            NSource2 = case emqx_resource:health_check(Id) of
+            NSource2 = case maps:get(servers, Source, undefined) of
+                           undefined -> NSource1;
+                           Servers ->
+                               NSource1#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}
+                       end,
+            NSource3 = case emqx_resource:health_check(Id) of
                 ok ->
-                    NSource1#{annotations => #{status => healthy}};
+                    NSource2#{annotations => #{status => healthy}};
                 _ ->
-                    NSource1#{annotations => #{status => unhealthy}}
+                    NSource2#{annotations => #{status => unhealthy}}
             end,
-            {200, read_cert(NSource2)}
+            {200, read_cert(NSource3)}
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
     {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),

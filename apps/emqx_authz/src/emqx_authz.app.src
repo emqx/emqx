@@ -8,6 +8,7 @@
    [kernel,
     stdlib,
     crypto,
+    emqx_http_lib,
     emqx_connector
    ]},
   {env,[]},
