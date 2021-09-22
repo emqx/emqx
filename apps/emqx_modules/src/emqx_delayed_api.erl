@@ -59,7 +59,7 @@ properties() ->
     PayloadDesc = io_lib:format("Payload, base64 encode. Payload will be ~p if length large than ~p",
             [?PAYLOAD_TOO_LARGE, ?MAX_PAYLOAD_LENGTH]),
     properties([
-        {id, integer, <<"Message Id (MQTT message id hash)">>},
+        {msgid, integer, <<"Message Id">>},
         {publish_at, string, <<"Client publish message time, rfc 3339">>},
         {delayed_interval, integer, <<"Delayed interval, second">>},
         {delayed_remaining, integer, <<"Delayed remaining, second">>},
@@ -73,7 +73,7 @@ properties() ->
 
 parameters() ->
     [#{
-        name => id,
+        name => msgid,
         in => path,
         schema => #{type => string},
         required => true
@@ -129,7 +129,7 @@ delayed_message_api() ->
             }
         }
     },
-    {"/mqtt/delayed/messages/:id", Metadata, delayed_message}.
+    {"/mqtt/delayed/messages/:msgid", Metadata, delayed_message}.
 
 %%--------------------------------------------------------------------
 %% HTTP API
@@ -143,7 +143,7 @@ status(put, #{body := Body}) ->
 delayed_messages(get, #{query_string := Qs}) ->
     {200, emqx_delayed:list(Qs)}.
 
-delayed_message(get, #{bindings := #{id := Id}}) ->
+delayed_message(get, #{bindings := #{msgid := Id}}) ->
     case emqx_delayed:get_delayed_message(Id) of
         {ok, Message} ->
             Payload = maps:get(payload, Message),
@@ -157,7 +157,7 @@ delayed_message(get, #{bindings := #{id := Id}}) ->
             Message = iolist_to_binary(io_lib:format("Message ID ~p not found", [Id])),
             {404, #{code => ?MESSAGE_ID_NOT_FOUND, message => Message}}
     end;
-delayed_message(delete, #{bindings := #{id := Id}}) ->
+delayed_message(delete, #{bindings := #{msgid := Id}}) ->
     _ = emqx_delayed:delete_delayed_message(Id),
     {200}.
 

@@ -143,7 +143,7 @@ format_delayed(#delayed_message{key = {ExpectTimeStamp, Id}, delayed = Delayed,
     ExpectTime = to_rfc3339(ExpectTimeStamp),
     RemainingTime = ExpectTimeStamp - erlang:system_time(second),
     Result = #{
-        id => emqx_guid:to_hexstr(Id),
+        msgid => emqx_guid:to_hexstr(Id),
         publish_at => PublishTime,
         delayed_interval => Delayed,
         delayed_remaining => RemainingTime,
