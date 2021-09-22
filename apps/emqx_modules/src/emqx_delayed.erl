@@ -135,7 +135,7 @@ format_delayed(Delayed) ->
 format_delayed(#delayed_message{key = {ExpectTimeStamp, Id}, delayed = Delayed,
             msg = #message{topic = Topic,
                            from = From,
-                           headers = #{username := Username},
+                           headers = Headers,
                            qos = Qos,
                            timestamp = PublishTimeStamp,
                            payload = Payload}}, WithPayload) ->
@@ -151,7 +151,7 @@ format_delayed(#delayed_message{key = {ExpectTimeStamp, Id}, delayed = Delayed,
         topic => Topic,
         qos => Qos,
         from_clientid => From,
-        from_username => Username
+        from_username => maps:get(username, Headers, undefined)
     },
     case WithPayload of
         true ->
