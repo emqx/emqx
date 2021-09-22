@@ -179,13 +179,22 @@ t_del_stale_mfa(_Config) ->
 t_skip_failed_commit(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
-    {ok, _, ok} = emqx_cluster_rpc:multicall(io, format, ["test~n"], all, 1000),
+    {ok, 1, ok} = emqx_cluster_rpc:multicall(io, format, ["test~n"], all, 1000),
+    {atomic, List1} = emqx_cluster_rpc:status(),
+    Node = node(),
+    ?assertEqual([{Node, 1}, {{Node, ?NODE2}, 1}, {{Node, ?NODE3}, 1}],
+        tnx_ids(List1)),
     {M, F, A} = {?MODULE, failed_on_node, [erlang:whereis(?NODE1)]},
     {ok, _, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
     ok = gen_server:call(?NODE2, skip_failed_commit, 5000),
-    {atomic, List} = emqx_cluster_rpc:status(),
-    ?assertEqual([1, 2, 2], lists:sort(lists:map(fun(#{tnx_id := TnxId}) -> TnxId end, List))),
+    {atomic, List2} = emqx_cluster_rpc:status(),
+    ?assertEqual([{Node, 2}, {{Node, ?NODE2}, 2}, {{Node, ?NODE3}, 1}],
+        tnx_ids(List2)),
     ok.
+
+tnx_ids(Status) ->
+    lists:sort(lists:map(fun(#{tnx_id := TnxId, node := Node}) ->
+        {Node, TnxId} end, Status)).
 
 start() ->
     {ok, Pid1} = emqx_cluster_rpc:start_link(),

@@ -156,11 +156,11 @@ fields("stats") ->
 
 fields("authorization") ->
     [ {"no_match",
-       sc(union(allow, deny),
+       sc(hoconsc:union([allow, deny]),
           #{ default => allow
            })}
     , {"deny_action",
-       sc(union(ignore, disconnect),
+       sc(hoconsc:union([ignore, disconnect]),
           #{ default => ignore
            })}
     , {"cache",
