@@ -206,9 +206,9 @@ handle_call({store, DelayedMsg = #delayed_message{key = Key}},
     {reply, ok, ensure_publish_timer(Key, State)};
 
 handle_call({store, DelayedMsg = #delayed_message{key = Key}},
-            _From, State = #{max_delayed_messages := Val}) ->
+            _From, State = #{max_delayed_messages := Max}) ->
     Size = mnesia:table_info(?TAB, size),
-    case Size > Val of
+    case Size >= Max of
         true ->
             {reply, {error, max_delayed_messages_full}, State};
         false ->
