@@ -407,6 +407,7 @@ create_resource(#{type := DB} = Source) ->
         {error, Reason} -> {error, Reason}
     end.
 
+authz_module('built-in-database') ->emqx_authz_mnesia;
 authz_module(Type) ->
     list_to_existing_atom("emqx_authz_" ++ atom_to_list(Type)).
 

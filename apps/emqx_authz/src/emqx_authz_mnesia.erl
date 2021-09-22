@@ -48,7 +48,29 @@ mnesia(copy) ->
 description() ->
     "AuthZ with Mnesia".
 
-authorize(#{username := _Username,
-            clientid := _Clientid
-           } = _Client, _PubSub, _Topic, #{type := mnesia}) ->
-    ok.
+authorize(#{username := Username,
+            clientid := Clientid
+           } = Client, PubSub, Topic, #{type := 'built-in-database'}) ->
+
+    Rules = case mnesia:dirty_read(?ACL_TABLE, {clientid, Clientid}) of
+                [] -> [];
+                [#emqx_acl{rules = Rules0}] when is_list(Rules0) -> Rules0
+            end
+         ++ case mnesia:dirty_read(?ACL_TABLE, {username, Username}) of
+                [] -> [];
+                [#emqx_acl{rules = Rules1}] when is_list(Rules1) -> Rules1
+            end
+         ++ case mnesia:dirty_read(?ACL_TABLE, all) of
+                [] -> [];
+                [#emqx_acl{rules = Rules2}] when is_list(Rules2) -> Rules2
+            end,
+    do_authorize(Client, PubSub, Topic, Rules).
+
+do_authorize(_Client, _PubSub, _Topic, []) -> nomatch;
+do_authorize(Client, PubSub, Topic, [ {Permission, Action, TopicFilter} | Tail]) ->
+    case emqx_authz_rule:match(Client, PubSub, Topic,
+                               emqx_authz_rule:compile({Permission, all, Action, [TopicFilter]})
+                              ) of
+        {matched, Permission} -> {matched, Permission};
+        nomatch -> do_authorize(Client, PubSub, Topic, Tail)
+    end.
