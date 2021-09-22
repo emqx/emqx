@@ -17,7 +17,6 @@
 -module(emqx_schema_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 ssl_opts_dtls_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{versions => dtls,
@@ -71,14 +70,11 @@ ssl_opts_tls_psk_test() ->
                   end, PskCiphers).
 
 bad_cipher_test() ->
-    ok = snabbkaffe:start_trace(),
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
-    ?assertThrow({_Sc, [{validation_error, _Error}]},
+    Reason = {bad_ciphers, ["foo"]},
+    ?assertThrow({_Sc, [{validation_error, #{reason := Reason}}]},
               [validate(Sc, #{<<"versions">> => [<<"tlsv1.2">>],
                         <<"ciphers">> => [<<"foo">>]})]),
-    Trace = snabbkaffe:collect_trace(),
-    ?assertEqual(1, length(?of_kind(bad_tls_cipher_suite, Trace))),
-    snabbkaffe:stop(),
     ok.
 
 validate(Schema, Data0) ->
@@ -96,13 +92,6 @@ validate(Schema, Data0) ->
 
 ciperhs_schema_test() ->
     Sc = emqx_schema:ciphers_schema(undefined),
-    ?assertMatch(
-       #{type := {union, [_, {array, _}]},
-         default := [_ | _],
-         converter := Converter,
-         validator := Validator
-        } when is_function(Converter) andalso is_function(Validator),
-       Sc),
     WSc = #{roots => [{ciphers, Sc}]},
     ?assertThrow({_, [{validation_error, _}]},
                  hocon_schema:check_plain(WSc, #{<<"ciphers">> => <<"foo,bar">>})).

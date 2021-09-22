@@ -23,7 +23,6 @@
 -dialyzer(no_fail_call).
 
 -include_lib("typerefl/include/types.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -type duration() :: integer().
 -type duration_s() :: integer().
@@ -1084,7 +1083,7 @@ default_tls_vsns(tcp) ->
 
 -spec ciphers_schema(quic | dtls | tcp_all | undefined) -> hocon_schema:field_schema().
 ciphers_schema(Default) ->
-    sc(hoconsc:union([string(), hoconsc:array(string())]),
+    sc(hoconsc:array(string()),
        #{ default => default_ciphers(Default)
         , converter => fun(Ciphers) when is_binary(Ciphers) ->
                                binary:split(Ciphers, <<",">>, [global]);
@@ -1283,13 +1282,7 @@ parse_user_lookup_fun(StrConf) ->
 validate_ciphers(Ciphers) ->
     All = ssl:cipher_suites(all, 'tlsv1.3', openssl) ++
           ssl:cipher_suites(all, 'tlsv1.2', openssl), %% includes older version ciphers
-    lists:foreach(
-        fun(Cipher) ->
-                case lists:member(Cipher, All) of
-                    true ->
-                        ok;
-                    false ->
-                        ?tp(error, bad_tls_cipher_suite, #{ciphers => Cipher}),
-                        error({bad_tls_cipher_suite, Cipher})
-                end
-        end, Ciphers).
+    case lists:filter(fun(Cipher) -> not lists:member(Cipher, All) end, Ciphers) of
+        [] -> ok;
+        Bad -> {error, {bad_ciphers, Bad}}
+    end.
