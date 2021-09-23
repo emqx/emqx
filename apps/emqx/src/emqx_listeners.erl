@@ -46,6 +46,7 @@
 -export([post_config_update/4]).
 
 -define(CONF_KEY_PATH, [listeners]).
+-define(TYPES_STRING, ["tcp","ssl","ws","wss","quic"]).
 
 %% @doc List configured listeners.
 -spec(list() -> [{ListenerId :: atom(), ListenerConf :: map()}]).
@@ -349,11 +350,10 @@ listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).
 
 parse_listener_id(Id) ->
-    try
-        [Type, Name] = string:split(str(Id), ":", leading),
-        {list_to_existing_atom(Type), list_to_atom(Name)}
-    catch
-        _ : _ -> error({invalid_listener_id, Id})
+    [Type, Name] = string:split(str(Id), ":", leading),
+    case lists:member(Type, ?TYPES_STRING) of
+        true -> {list_to_existing_atom(Type), list_to_atom(Name)};
+        false -> {error, {invalid_listener_id, Id}}
     end.
 
 zone(Opts) ->
