@@ -210,15 +210,18 @@ records_api() ->
             requestBody => #{
                 content => #{
                     'application/json' => #{
-                        schema => minirest:ref(<<"record">>),
+                        schema => #{
+                            type => array,
+                            items => minirest:ref(<<"record">>)
+                        },
                         examples => #{
                             username => #{
                                 summary => <<"Username">>,
-                                value => jsx:encode(?EXAMPLE_USERNAME)
+                                value => jsx:encode([?EXAMPLE_USERNAME])
                             },
                             clientid => #{
                                 summary => <<"Clientid">>,
-                                value => jsx:encode(?EXAMPLE_CLIENTID)
+                                value => jsx:encode([?EXAMPLE_CLIENTID])
                             }
                         }
                     }
@@ -421,41 +424,30 @@ records(get, #{bindings := #{type := <<"all">>}}) ->
                           } || {Permission, Action, Topic} <- Rules]
              } || [{rules, Rules}] <- ets:select(?ACL_TABLE, MatchSpec)]};
 records(post, #{bindings := #{type := <<"username">>},
-                body := #{<<"username">> := Username, <<"rules">> := Rules}}) ->
-    Record = #emqx_acl{
-                who = {username, Username},
-                rules = format_rules(Rules)
-               },
-    case ret(mnesia:transaction(fun insert/1, [Record])) of
-        ok -> {204};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
-    end;
+                body := Body}) when is_list(Body) ->
+    lists:foreach(fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
+                      ekka_mnesia:dirty_write(#emqx_acl{
+                                                 who = {username, Username},
+                                                 rules = format_rules(Rules)
+                                                })
+                  end, Body),
+    {204};
 records(post, #{bindings := #{type := <<"clientid">>},
-                body := #{<<"clientid">> := Clientid, <<"rules">> := Rules}}) ->
-    Record = #emqx_acl{
-                who = {clientid, Clientid},
-                rules = format_rules(Rules)
-               },
-    case ret(mnesia:transaction(fun insert/1, [Record])) of
-        ok -> {204};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
-    end;
+                body := Body}) when is_list(Body) ->
+    lists:foreach(fun(#{<<"clientid">> := Clientid, <<"rules">> := Rules}) ->
+                      ekka_mnesia:dirty_write(#emqx_acl{
+                                                 who = {clientid, Clientid},
+                                                 rules = format_rules(Rules)
+                                                })
+                  end, Body),
+    {204};
 records(put, #{bindings := #{type := <<"all">>},
                body := #{<<"rules">> := Rules}}) ->
-    Record = #emqx_acl{
-                who = all,
-                rules = format_rules(Rules)
-               },
-    case ret(mnesia:transaction(fun ekka_mnesia:dirty_write/1, [Record])) of
-        ok -> {204};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
-    end.
+    ekka_mnesia:dirty_write(#emqx_acl{
+                               who = all,
+                               rules = format_rules(Rules)
+                              }),
+    {204}.
 
 record(get, #{bindings := #{type := <<"username">>, key := Key}}) ->
     case mnesia:dirty_read(?ACL_TABLE, {username, Key}) of
@@ -481,34 +473,24 @@ record(get, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
     end;
 record(put, #{bindings := #{type := <<"username">>, key := Username},
               body := #{<<"username">> := Username, <<"rules">> := Rules}}) ->
-    case ret(mnesia:transaction(fun update/2, [{username, Username}, format_rules(Rules)])) of
-        ok -> {204};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
-    end;
+    ekka_mnesia:dirty_write(#emqx_acl{
+                               who = {username, Username},
+                               rules = format_rules(Rules)
+                              }),
+    {204};
 record(put, #{bindings := #{type := <<"clientid">>, key := Clientid},
               body := #{<<"clientid">> := Clientid, <<"rules">> := Rules}}) ->
-    case ret(mnesia:transaction(fun update/2, [{clientid, Clientid}, format_rules(Rules)])) of
-        ok -> {204};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
-    end;
+    ekka_mnesia:dirty_write(#emqx_acl{
+                               who = {clientid, Clientid},
+                               rules = format_rules(Rules)
+                              }),
+    {204};
 record(delete, #{bindings := #{type := <<"username">>, key := Key}}) ->
-    case ret(mnesia:transaction(fun ekka_mnesia:dirty_delete/1, [{?ACL_TABLE, {username, Key}}])) of
-        ok -> {204};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
-    end;
+    ekka_mnesia:dirty_delete({?ACL_TABLE, {username, Key}}),
+    {204};
 record(delete, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
-    case ret(mnesia:transaction(fun ekka_mnesia:dirty_delete/1, [{?ACL_TABLE, {clientid, Key}}])) of
-        ok -> {204};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
-    end.
+    ekka_mnesia:dirty_delete({?ACL_TABLE, {clientid, Key}}),
+    {204}.
 
 format_rules(Rules) when is_list(Rules) ->
     lists:foldl(fun(#{<<"topic">> := Topic,
@@ -525,19 +507,3 @@ atom(B) when is_binary(B) ->
         _ -> binary_to_atom(B)
     end;
 atom(A) when is_atom(A) -> A.
-
-insert(Record = #emqx_acl{who = Who}) ->
-    case mnesia:read(?ACL_TABLE, Who) of
-        []    -> ekka_mnesia:dirty_write(Record);
-        [_|_] -> mnesia:abort(existed)
-    end.
-
-update(Who, Rules) ->
-    case mnesia:read(?ACL_TABLE, Who) of
-        [#emqx_acl{} = Record] ->
-            ekka_mnesia:dirty_write(Record#emqx_acl{rules = Rules});
-        [] -> mnesia:abort(noexisted)
-    end.
-
-ret({atomic, ok})     -> ok;
-ret({aborted, Error}) -> {error, Error}.

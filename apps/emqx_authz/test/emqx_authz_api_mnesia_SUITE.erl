@@ -134,7 +134,7 @@ set_special_configs(_App) ->
 %%------------------------------------------------------------------------------
 
 t_api(_) ->
-    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "username"]), ?EXAMPLE_USERNAME),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "username"]), [?EXAMPLE_USERNAME]),
     {ok, 200, Request1} = request(get, uri(["authorization", "sources", "built-in-database", "username"]), []),
     {ok, 200, Request2} = request(get, uri(["authorization", "sources", "built-in-database", "username", "user1"]), []),
     [#{<<"username">> := <<"user1">>, <<"rules">> := Rules1}] = jsx:decode(Request1),
@@ -149,7 +149,7 @@ t_api(_) ->
     {ok, 204, _} = request(delete, uri(["authorization", "sources", "built-in-database", "username", "user1"]), []),
     {ok, 404, _} = request(get, uri(["authorization", "sources", "built-in-database", "username", "user1"]), []),
 
-    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "clientid"]), ?EXAMPLE_CLIENTID),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "clientid"]), [?EXAMPLE_CLIENTID]),
     {ok, 200, Request4} = request(get, uri(["authorization", "sources", "built-in-database", "clientid"]), []),
     {ok, 200, Request5} = request(get, uri(["authorization", "sources", "built-in-database", "clientid", "client1"]), []),
     [#{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3}] = jsx:decode(Request4),
