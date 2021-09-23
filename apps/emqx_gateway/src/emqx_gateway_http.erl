@@ -34,9 +34,13 @@
         ]).
 
 -export([ authn/1
+        , authn/2
         , add_authn/2
+        , add_authn/3
         , update_authn/2
+        , update_authn/3
         , remove_authn/1
+        , remove_authn/2
         ]).
 
 %% Mgmt APIs - clients
@@ -205,47 +209,69 @@ bind2str(LConf = #{bind := Bind}) when is_binary(Bind) ->
 bind2str(LConf = #{<<"bind">> := Bind}) when is_binary(Bind) ->
     LConf.
 
--spec add_listener(atom() | binary(), map()) -> ok | {error, any()}.
+-spec add_listener(atom() | binary(), map()) -> ok.
 add_listener(ListenerId, NewConf0) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
     NewConf = maps:without([<<"id">>, <<"name">>,
                             <<"type">>, <<"running">>], NewConf0),
-    emqx_gateway_conf:add_listener(GwName, {Type, Name}, NewConf).
+    confexp(emqx_gateway_conf:add_listener(GwName, {Type, Name}, NewConf)).
 
--spec update_listener(atom() | binary(), map()) -> ok | {error, any()}.
+-spec update_listener(atom() | binary(), map()) -> ok.
 update_listener(ListenerId, NewConf0) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
 
     NewConf = maps:without([<<"id">>, <<"name">>,
                             <<"type">>, <<"running">>], NewConf0),
-    emqx_gateway_conf:update_listener(GwName, {Type, Name}, NewConf).
+    confexp(emqx_gateway_conf:update_listener(GwName, {Type, Name}, NewConf)).
 
--spec remove_listener(binary()) -> ok | {error, not_found} | {error, any()}.
+-spec remove_listener(binary()) -> ok.
 remove_listener(ListenerId) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    emqx_gateway_conf:remove_listener(GwName, {Type, Name}).
+    confexp(emqx_gateway_conf:remove_listener(GwName, {Type, Name})).
 
--spec authn(gateway_name()) -> map() | undefined.
+-spec authn(gateway_name()) -> map().
 authn(GwName) ->
-    case emqx_map_lib:deep_get(
-           [authentication],
-           emqx:get_config([gateway, GwName]),
-           undefined)  of
-        undefined -> undefined;
-        AuthConf -> emqx_map_lib:jsonable_map(AuthConf)
-    end.
+    Path = [gateway, GwName, authentication],
+    emqx_map_lib:jsonable_map(emqx:get_config(Path)).
 
--spec add_authn(gateway_name(), map()) -> ok | {error, any()}.
+-spec authn(gateway_name(), binary()) -> map().
+authn(GwName, ListenerId) ->
+    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    Path = [gateway, GwName, listeners, Type, Name, authentication],
+    emqx_map_lib:jsonable_map(emqx:get_config(Path)).
+
+-spec add_authn(gateway_name(), map()) -> ok.
 add_authn(GwName, AuthConf) ->
-    emqx_gateway_conf:add_authn(GwName, AuthConf).
+    confexp(emqx_gateway_conf:add_authn(GwName, AuthConf)).
 
--spec update_authn(gateway_name(), map()) -> ok | {error, any()}.
+-spec add_authn(gateway_name(), binary(), map()) -> ok.
+add_authn(GwName, ListenerId, AuthConf) ->
+    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:add_authn(GwName, {Type, Name}, AuthConf)).
+
+-spec update_authn(gateway_name(), map()) -> ok.
 update_authn(GwName, AuthConf) ->
-    emqx_gateway_conf:update_authn(GwName, AuthConf).
+    confexp(emqx_gateway_conf:update_authn(GwName, AuthConf)).
 
--spec remove_authn(gateway_name()) -> ok | {error, any()}.
+-spec update_authn(gateway_name(), binary(), map()) -> ok.
+update_authn(GwName, ListenerId, AuthConf) ->
+    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:update_authn(GwName, {Type, Name}, AuthConf)).
+
+-spec remove_authn(gateway_name()) -> ok.
 remove_authn(GwName) ->
-    emqx_gateway_conf:remove_authn(GwName).
+    confexp(emqx_gateway_conf:remove_authn(GwName)).
+
+-spec remove_authn(gateway_name(), binary()) -> ok.
+remove_authn(GwName, ListenerId) ->
+    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:remove_authn(GwName, {Type, Name})).
+
+confexp(ok) -> ok;
+confexp({error, not_found}) ->
+    error({update_conf_error, not_found});
+confexp({error, already_exist}) ->
+    error({update_conf_error, already_exist}).
 
 %%--------------------------------------------------------------------
 %% Mgmt APIs - clients
@@ -365,10 +391,22 @@ with_gateway(GwName0, Fun) ->
     catch
         error : badname ->
             return_http_error(404, "Bad gateway name");
+        %% Exceptions from: checks/2
         error : {miss_param, K} ->
             return_http_error(400, [K, " is required"]);
+        %% Exceptions from emqx_gateway_utils:parse_listener_id/1
         error : {invalid_listener_id, Id} ->
             return_http_error(400, ["invalid listener id: ", Id]);
+        %% Exceptions from: emqx:get_config/1
+        error : {config_not_found, Path0} ->
+            Path = lists:concat(
+                     lists:join(".", lists:map(fun to_list/1, Path0))),
+            return_http_error(404, "Resource not found. path: " ++ Path);
+        %% Exceptions from: confexp/1
+        error : {update_conf_error, not_found} ->
+            return_http_error(404, "Resource not found");
+        error : {update_conf_error, already_exist} ->
+            return_http_error(400, "Resource already exist");
         Class : Reason : Stk ->
             ?LOG(error, "Uncatched error: {~p, ~p}, stacktrace: ~0p",
                         [Class, Reason, Stk]),
@@ -384,6 +422,11 @@ checks([K|Ks], Map) ->
         false ->
             error({miss_param, K})
     end.
+
+to_list(A) when is_atom(A) ->
+    atom_to_list(A);
+to_list(B) when is_binary(B) ->
+    binary_to_list(B).
 
 %%--------------------------------------------------------------------
 %% common schemas

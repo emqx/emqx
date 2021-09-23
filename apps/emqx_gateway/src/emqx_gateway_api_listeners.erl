@@ -28,12 +28,15 @@
         , checks/2
         ]).
 
+-import(emqx_gateway_api_authn, [schema_authn/0]).
+
 %% minirest behaviour callbacks
 -export([api_spec/0]).
 
 %% http handlers
 -export([ listeners/2
         , listeners_insta/2
+        , listeners_insta_authn/2
         ]).
 
 %%--------------------------------------------------------------------
@@ -46,6 +49,7 @@ api_spec() ->
 apis() ->
     [ {"/gateway/:name/listeners", listeners}
     , {"/gateway/:name/listeners/:id", listeners_insta}
+    , {"/gateway/:name/listeners/:id/authentication", listeners_insta_authn}
     ].
 
 %%--------------------------------------------------------------------
@@ -70,27 +74,18 @@ listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
             undefined ->
                 ListenerId = emqx_gateway_utils:listener_id(
                                GwName, Type, LName),
-                case emqx_gateway_http:add_listener(ListenerId, LConf) of
-                    ok ->
-                       {204};
-                    {error, Reason} ->
-                        return_http_error(500, Reason)
-                end;
+                ok = emqx_gateway_http:add_listener(ListenerId, LConf),
+                {204};
             _ ->
                 return_http_error(400, "Listener name has occupied")
         end
     end).
 
-%% FIXME: not working
 listeners_insta(delete, #{bindings := #{name := Name0, id := ListenerId0}}) ->
     ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(_GwName, _) ->
-        case emqx_gateway_http:remove_listener(ListenerId) of
-            ok -> {204};
-            {error, not_found} -> {204};
-            {error, Reason} ->
-                return_http_error(500, Reason)
-        end
+        ok = emqx_gateway_http:remove_listener(ListenerId),
+        {204}
     end);
 listeners_insta(get, #{bindings := #{name := Name0, id := ListenerId0}}) ->
     ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
@@ -109,12 +104,38 @@ listeners_insta(put, #{body := LConf,
                       }) ->
     ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(_GwName, _) ->
-        case emqx_gateway_http:update_listener(ListenerId, LConf) of
-            ok ->
-                {204};
-            {error, Reason} ->
-                return_http_error(500, Reason)
-        end
+        ok = emqx_gateway_http:update_listener(ListenerId, LConf),
+        {204}
+    end).
+
+listeners_insta_authn(get, #{bindings := #{name := Name0,
+                                           id := ListenerId0}}) ->
+    ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
+    with_gateway(Name0, fun(GwName, _) ->
+        {200, emqx_gateway_http:authn(GwName, ListenerId)}
+    end);
+listeners_insta_authn(post, #{body := Conf,
+                              bindings := #{name := Name0,
+                                            id := ListenerId0}}) ->
+    ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
+    with_gateway(Name0, fun(GwName, _) ->
+        ok = emqx_gateway_http:add_authn(GwName, ListenerId, Conf),
+        {204}
+    end);
+listeners_insta_authn(put, #{body := Conf,
+                             bindings := #{name := Name0,
+                                           id := ListenerId0}}) ->
+    ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
+    with_gateway(Name0, fun(GwName, _) ->
+        ok = emqx_gateway_http:update_authn(GwName, ListenerId, Conf),
+        {204}
+    end);
+listeners_insta_authn(delete, #{bindings := #{name := Name0,
+                                              id := ListenerId0}}) ->
+    ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
+    with_gateway(Name0, fun(GwName, _) ->
+        ok = emqx_gateway_http:remove_authn(GwName, ListenerId),
+        {204}
     end).
 
 %%--------------------------------------------------------------------
@@ -190,6 +211,52 @@ swagger("/gateway/:name/listeners/:id", put) ->
          , <<"404">> => schema_not_found()
          , <<"500">> => schema_internal_error()
          , <<"200">> => schema_no_content()
+         }
+     };
+swagger("/gateway/:name/listeners/:id/authentication", get) ->
+    #{ description => <<"Get the listener's authentication info">>
+     , parameters => params_gateway_name_in_path()
+                     ++ params_listener_id_in_path()
+     , responses =>
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
+         , <<"200">> => schema_authn()
+         }
+     };
+swagger("/gateway/:name/listeners/:id/authentication", post) ->
+    #{ description => <<"Add authentication for the listener">>
+     , parameters => params_gateway_name_in_path()
+                     ++ params_listener_id_in_path()
+     , requestBody => schema_authn()
+     , responses =>
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
+         , <<"204">> => schema_no_content()
+         }
+     };
+swagger("/gateway/:name/listeners/:id/authentication", put) ->
+    #{ description => <<"Update authentication for the listener">>
+     , parameters => params_gateway_name_in_path()
+                     ++ params_listener_id_in_path()
+     , requestBody => schema_authn()
+     , responses =>
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
+         , <<"204">> => schema_no_content()
+         }
+     };
+swagger("/gateway/:name/listeners/:id/authentication", delete) ->
+    #{ description => <<"Remove authentication for the listener">>
+     , parameters => params_gateway_name_in_path()
+                     ++ params_listener_id_in_path()
+     , responses =>
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
+         , <<"204">> => schema_no_content()
          }
      }.
 
