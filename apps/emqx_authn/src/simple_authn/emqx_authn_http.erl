@@ -77,7 +77,6 @@ validations() ->
     ].
 
 url(type) -> binary();
-url(nullable) -> false;
 url(validator) -> [fun check_url/1];
 url(_) -> undefined.
 
@@ -98,7 +97,6 @@ headers_no_content_type(default) -> default_headers_no_content_type();
 headers_no_content_type(_) -> undefined.
 
 body(type) -> map();
-body(nullable) -> false;
 body(validator) -> [fun check_body/1];
 body(_) -> undefined.
 
