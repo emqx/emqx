@@ -402,7 +402,9 @@ record_api() ->
     {"/authorization/sources/built-in-database/:type/:key", Metadata, record}.
 
 purge(delete, _) ->
-    [ ekka_mnesia:dirty_delete(?ACL_TABLE, K) || K <- mnesia:dirty_all_keys(?ACL_TABLE)],
+    ok = lists:foreach(fun(Key) ->
+                           ok = ekka_mnesia:dirty_delete(?ACL_TABLE, Key)
+                       end, mnesia:dirty_all_keys(?ACL_TABLE)),
     {204}.
 
 records(get, #{bindings := #{type := <<"username">>},
