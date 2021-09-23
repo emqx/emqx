@@ -164,13 +164,17 @@ to_rfc3339(Timestamp) ->
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
 
 get_delayed_message(Id0) ->
-    Id = emqx_guid:from_hexstr(Id0),
-    case ets:select(?TAB, ?QUERY_MS(Id)) of
-        [] ->
-            {error, not_found};
-        Rows ->
-            Message = hd(Rows),
-            {ok, format_delayed(Message, true)}
+    try emqx_guid:from_hexstr(Id0) of
+        Id ->
+            case ets:select(?TAB, ?QUERY_MS(Id)) of
+                [] ->
+                    {error, not_found};
+                Rows ->
+                    Message = hd(Rows),
+                    {ok, format_delayed(Message, true)}
+            end
+    catch
+        error:function_clause -> {error, id_schema_error}
     end.
 
 delete_delayed_message(Id0) ->
