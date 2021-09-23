@@ -42,7 +42,7 @@
                    <<"url">> => <<"https://fake.com:443/">>,
                    <<"headers">> => #{},
                    <<"method">> => <<"get">>,
-                   <<"request_timeout">> => 5000
+                   <<"request_timeout">> => <<"5s">>
                   }).
 -define(SOURCE2, #{<<"type">> => <<"mongodb">>,
                    <<"enable">> => true,

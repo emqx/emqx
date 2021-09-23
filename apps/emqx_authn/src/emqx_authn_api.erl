@@ -91,7 +91,7 @@
                                                      enable => true})).
 
 -define(INSTANCE_EXAMPLE_2, maps:merge(?EXAMPLE_2, #{id => <<"password-based:http-server">>,
-                                                     connect_timeout => 5000,
+                                                     connect_timeout => "5s",
                                                      enable_pipelining => true,
                                                      headers => #{
                                                          <<"accept">> => <<"application/json">>,
@@ -102,8 +102,8 @@
                                                      },
                                                      max_retries => 5,
                                                      pool_size => 8,
-                                                     request_timeout => 5000,
-                                                     retry_interval => 1000,
+                                                     request_timeout => "5s",
+                                                     retry_interval => "1s",
                                                      enable => true})).
 
 -define(INSTANCE_EXAMPLE_3, maps:merge(?EXAMPLE_3, #{id => <<"jwt">>,
@@ -1259,9 +1259,9 @@ definitions() ->
                 example => <<"SELECT password_hash FROM mqtt_user WHERE username = ${mqtt-username}">>
             },
             query_timeout => #{
-                type => integer,
-                description => <<"Query timeout, Unit: Milliseconds">>,
-                default => 5000
+                type => string,
+                description => <<"Query timeout">>,
+                default => "5s"
             }
         }
     },
@@ -1528,16 +1528,16 @@ definitions() ->
                 type => object
             },
             connect_timeout => #{
-                type => integer,
-                default => 5000
+                type => string,
+                default => <<"5s">>
             },
             max_retries => #{
                 type => integer,
                 default => 5
             },
             retry_interval => #{
-                type => integer,
-                default => 1000
+                type => string,
+                default => <<"1s">>
             },
             request_timout => #{
                 type => integer,

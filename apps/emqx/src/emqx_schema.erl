@@ -55,7 +55,7 @@
 
 % workaround: prevent being recognized as unused functions
 -export([to_duration/1, to_duration_s/1, to_duration_ms/1,
-         to_bytesize/1, to_wordsize/1,
+         mk_duration/2, to_bytesize/1, to_wordsize/1,
          to_percent/1, to_comma_separated_list/1,
          to_bar_separated_list/1, to_ip_port/1,
          to_erl_cipher_suite/1,
@@ -1209,6 +1209,15 @@ map(Name, Type) -> hoconsc:map(Name, Type).
 ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 ref(Module, Field) -> hoconsc:ref(Module, Field).
+
+mk_duration(Desc, OverrideMeta) ->
+    DefaultMeta = #{desc => Desc ++ " Time span. A text string with number followed by time units:
+                    `ms` for milli-seconds,
+                    `s` for seconds,
+                    `m` for minutes,
+                    `h` for hours;
+                    or combined representation like `1h5m0s`"},
+    hoconsc:mk(typerefl:alias("string", duration()), maps:merge(DefaultMeta, OverrideMeta)).
 
 to_duration(Str) ->
     case hocon_postprocess:duration(Str) of
