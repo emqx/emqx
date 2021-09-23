@@ -141,29 +141,23 @@ authenticate(#{password := Password} = Credential,
               , selector := Selector0
               , '_unique' := Unique
               } = State) ->
-    try
-        Selector1 = replace_placeholders(Selector0, Credential),
-        Selector2 = normalize_selector(Selector1),
-        case emqx_resource:query(Unique, {find_one, Collection, Selector2, #{}}) of
-            undefined -> ignore;
-            {error, Reason} ->
-                ?LOG(error, "['~s'] Query failed: ~p", [Unique, Reason]),
-                ignore;
-            Doc ->
-                case check_password(Password, Doc, State) of
-                    ok ->
-                        {ok, #{is_superuser => is_superuser(Doc, State)}};
-                    {error, {cannot_find_password_hash_field, PasswordHashField}} ->
-                        ?LOG(error, "['~s'] Can't find password hash field: ~s", [Unique, PasswordHashField]),
-                        {error, bad_username_or_password};
-                    {error, Reason} ->
-                        {error, Reason}
-                end
-        end
-    catch
-        error:Error ->
-            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, Error]),
-            ignore
+    Selector1 = replace_placeholders(Selector0, Credential),
+    Selector2 = normalize_selector(Selector1),
+    case emqx_resource:query(Unique, {find_one, Collection, Selector2, #{}}) of
+        undefined -> ignore;
+        {error, Reason} ->
+            ?LOG(error, "['~s'] Query failed: ~p", [Unique, Reason]),
+            ignore;
+        Doc ->
+            case check_password(Password, Doc, State) of
+                ok ->
+                    {ok, #{is_superuser => is_superuser(Doc, State)}};
+                {error, {cannot_find_password_hash_field, PasswordHashField}} ->
+                    ?LOG(error, "['~s'] Can't find password hash field: ~s", [Unique, PasswordHashField]),
+                    {error, bad_username_or_password};
+                {error, Reason} ->
+                    {error, Reason}
+            end
     end.
 
 destroy(#{'_unique' := Unique}) ->

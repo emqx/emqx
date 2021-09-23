@@ -156,26 +156,20 @@ authenticate(#{auth_method := _}, _) ->
 authenticate(Credential, #{'_unique' := Unique,
                            method := Method,
                            request_timeout := RequestTimeout} = State) ->
-    try
-        Request = generate_request(Credential, State),
-        case emqx_resource:query(Unique, {Method, Request, RequestTimeout}) of
-            {ok, 204, _Headers} -> {ok, #{is_superuser => false}};
-            {ok, 200, Headers, Body} ->
-                ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
-                case safely_parse_body(ContentType, Body) of
-                    {ok, NBody} ->
-                        %% TODO: Return by user property
-                        {ok, #{is_superuser => maps:get(<<"is_superuser">>, NBody, false),
-                               user_property => NBody}};
-                    {error, _Reason} ->
-                        {ok, #{is_superuser => false}}
-                end;
-            {error, _Reason} ->
-                ignore
-        end
-    catch
-        error:Reason ->
-            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, Reason]),
+    Request = generate_request(Credential, State),
+    case emqx_resource:query(Unique, {Method, Request, RequestTimeout}) of
+        {ok, 204, _Headers} -> {ok, #{is_superuser => false}};
+        {ok, 200, Headers, Body} ->
+            ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
+            case safely_parse_body(ContentType, Body) of
+                {ok, NBody} ->
+                    %% TODO: Return by user property
+                    {ok, #{is_superuser => maps:get(<<"is_superuser">>, NBody, false),
+                            user_property => NBody}};
+                {error, _Reason} ->
+                    {ok, #{is_superuser => false}}
+            end;
+        {error, _Reason} ->
             ignore
     end.
 

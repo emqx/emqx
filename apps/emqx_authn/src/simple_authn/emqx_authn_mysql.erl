@@ -114,24 +114,18 @@ authenticate(#{password := Password} = Credential,
                query := Query,
                query_timeout := Timeout,
                '_unique' := Unique} = State) ->
-    try
-        Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
-        case emqx_resource:query(Unique, {sql, Query, Params, Timeout}) of
-            {ok, _Columns, []} -> ignore;
-            {ok, Columns, Rows} ->
-                Selected = maps:from_list(lists:zip(Columns, Rows)),
-                case check_password(Password, Selected, State) of
-                    ok ->
-                        {ok, #{is_superuser => maps:get(<<"is_superuser">>, Selected, false)}};
-                    {error, Reason} ->
-                        {error, Reason}
-                end;
-            {error, _Reason} ->
-                ignore
-        end
-    catch
-        error:Error ->
-            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, Error]),
+    Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
+    case emqx_resource:query(Unique, {sql, Query, Params, Timeout}) of
+        {ok, _Columns, []} -> ignore;
+        {ok, Columns, Rows} ->
+            Selected = maps:from_list(lists:zip(Columns, Rows)),
+            case check_password(Password, Selected, State) of
+                ok ->
+                    {ok, #{is_superuser => maps:get(<<"is_superuser">>, Selected, false)}};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        {error, _Reason} ->
             ignore
     end.
 

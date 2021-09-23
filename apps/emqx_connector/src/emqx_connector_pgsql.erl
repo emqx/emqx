@@ -76,8 +76,8 @@ on_stop(InstId, #{poolname := PoolName}) ->
     logger:info("stopping postgresql connector: ~p", [InstId]),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
-on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := PoolName} = State) ->
-    on_query(InstId, {sql, SQL, []}, AfterQuery, #{poolname := PoolName} = State);
+on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
+    on_query(InstId, {sql, SQL, []}, AfterQuery, State);
 on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := PoolName} = State) ->
     logger:debug("postgresql connector ~p received sql query: ~p, at state: ~p", [InstId, SQL, State]),
     case Result = ecpool:pick_and_do(PoolName, {?MODULE, query, [SQL, Params]}, no_handover) of

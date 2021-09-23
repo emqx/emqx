@@ -303,8 +303,8 @@ authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthRe
 
 do_authenticate([], _) ->
     {stop, {error, not_authorized}};
-do_authenticate([#authenticator{provider = Provider, state = State} | More], Credential) ->
-    case Provider:authenticate(Credential, State) of
+do_authenticate([#authenticator{provider = Provider, state = #{'_unique' := Unique} = State} | More], Credential) ->
+    try Provider:authenticate(Credential, State) of
         ignore ->
             do_authenticate(More, Credential);
         Result ->
@@ -314,6 +314,10 @@ do_authenticate([#authenticator{provider = Provider, state = State} | More], Cre
             %% {continue, AuthData, AuthCache}
             %% {error, Reason}
             {stop, Result}
+    catch
+        error:Reason:Stacktrace ->
+            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, {Reason, Stacktrace}]),
+            do_authenticate(More, Credential)
     end.
 
 %%------------------------------------------------------------------------------

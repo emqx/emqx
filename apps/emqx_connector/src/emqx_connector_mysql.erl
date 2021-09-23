@@ -76,11 +76,13 @@ on_stop(InstId, #{poolname := PoolName}) ->
     logger:info("stopping mysql connector: ~p", [InstId]),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
-on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := PoolName} = State) ->
-    on_query(InstId, {sql, SQL, []}, AfterQuery, #{poolname := PoolName} = State);
-on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := PoolName} = State) ->
+on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
+    on_query(InstId, {sql, SQL, [], default_timeout}, AfterQuery, State);
+on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := _PoolName} = State) ->
+    on_query(InstId, {sql, SQL, Params, default_timeout}, AfterQuery, State);
+on_query(InstId, {sql, SQL, Params, Timeout}, AfterQuery, #{poolname := PoolName} = State) ->
     logger:debug("mysql connector ~p received sql query: ~p, at state: ~p", [InstId, SQL, State]),
-    case Result = ecpool:pick_and_do(PoolName, {mysql, query, [SQL, Params]}, no_handover) of
+    case Result = ecpool:pick_and_do(PoolName, {mysql, query, [SQL, Params, Timeout]}, no_handover) of
         {error, Reason} ->
             logger:debug("mysql connector ~p do sql query failed, sql: ~p, reason: ~p", [InstId, SQL, Reason]),
             emqx_resource:query_failed(AfterQuery);

@@ -127,24 +127,18 @@ authenticate(#{password := Password} = Credential,
              #{ query := {Command, Key, Fields}
               , '_unique' := Unique
               } = State) ->
-    try
-        NKey = binary_to_list(iolist_to_binary(replace_placeholders(Key, Credential))),
-        case emqx_resource:query(Unique, {cmd, [Command, NKey | Fields]}) of
-            {ok, Values} ->
-                Selected = merge(Fields, Values),
-                case check_password(Password, Selected, State) of
-                   ok ->
-                       {ok, #{is_superuser => maps:get("is_superuser", Selected, false)}};
-                   {error, Reason} ->
-                       {error, Reason}
-                end;
-            {error, Reason} ->
-                ?LOG(error, "['~s'] Query failed: ~p", [Unique, Reason]),
-                ignore
-        end
-    catch
-        error:{cannot_get_variable, Placeholder} ->
-            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, {cannot_get_variable, Placeholder}]),
+    NKey = binary_to_list(iolist_to_binary(replace_placeholders(Key, Credential))),
+    case emqx_resource:query(Unique, {cmd, [Command, NKey | Fields]}) of
+        {ok, Values} ->
+            Selected = merge(Fields, Values),
+            case check_password(Password, Selected, State) of
+                ok ->
+                    {ok, #{is_superuser => maps:get("is_superuser", Selected, false)}};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            ?LOG(error, "['~s'] Query failed: ~p", [Unique, Reason]),
             ignore
     end.
 
