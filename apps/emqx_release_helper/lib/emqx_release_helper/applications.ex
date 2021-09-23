@@ -15,9 +15,9 @@ defmodule EmqxReleaseHelper.Applications do
   application :emqx_machine do
     start_type :permanent
 
-		overlay do
-			template "etc/emqx.conf.all", "etc/emqx.conf"
-		end
+    overlay do
+      template "etc/emqx.conf.all", "etc/emqx.conf"
+    end
   end
 
   application :emqx_bridge do
