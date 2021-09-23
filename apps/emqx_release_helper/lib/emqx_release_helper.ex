@@ -14,6 +14,7 @@ defmodule EmqxReleaseHelper do
     config = Map.merge(profile_vars(), release_vars(release))
 
     release
+    |> EmqxReleaseHelper.Script.run(config)
     |> EmqxReleaseHelper.Overlay.run(config)
     |> EmqxReleaseHelper.Applications.run(config)
   end

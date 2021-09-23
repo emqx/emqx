@@ -4,8 +4,7 @@ defmodule EMQXUmbrella.MixProject do
   def project do
     [
       apps_path: "apps",
-      # apps/emqx/include/emqx_release.hrl
-      version: "5.0-pre",
+      version: pkg_vsn(),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       releases: releases()
@@ -59,5 +58,18 @@ defmodule EMQXUmbrella.MixProject do
 
   def project_path do
     Path.expand("..", __ENV__.file)
+  end
+
+  def pkg_vsn do
+    project_path()
+    |> Path.join("pkg-vsn.sh")
+    |> System.cmd([])
+    |> elem(0)
+    |> String.trim()
+    |> String.split("-")
+    |> Enum.reverse()
+    |> tl()
+    |> Enum.reverse()
+    |> Enum.join("-")
   end
 end
