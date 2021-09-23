@@ -4,7 +4,6 @@ defmodule EmqxReleaseHelper.Overlay do
   overlay %{release_version: release_version} do
     mkdir "log"
     mkdir "etc"
-    mkdir "etc/plugins"
     mkdir "data"
     mkdir "data/mnesia"
     mkdir "data/configs"
@@ -14,22 +13,10 @@ defmodule EmqxReleaseHelper.Overlay do
     copy "bin/install_upgrade.escript", "bin/install_upgrade.escript"
 
     copy "bin/node_dump", "bin/node_dump"
-    # copy "bin/nodetool", "bin/nodetool"
-    # copy "bin/nodetool", "bin/nodetool-#{release_version}"
-
-    # copy "bin/emqx", "bin/emqx"
-    # copy "bin/emqx_ctl", "bin/emqx_ctl"
-
-    # for relup
-    copy "bin/emqx", "bin/emqx-#{release_version}"
-    copy "bin/emqx_ctl", "bin/emqx_ctl-#{release_version}"
-
-    copy "bin/install_upgrade.escript", "bin/install_upgrade.escript-#{release_version}"
+    copy "bin/emqx_ctl", "bin/emqx_ctl"
 
     template "data/emqx_vars", "releases/emqx_vars"
     template "data/BUILT_ON", "releases/#{release_version}/BUILT_ON"
-    # template "bin/emqx.cmd", "bin/emqx.cmd"
-    # template "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"
   end
 
   def run(release, config) do

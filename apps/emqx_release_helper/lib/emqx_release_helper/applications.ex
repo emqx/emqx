@@ -100,10 +100,6 @@ defmodule EmqxReleaseHelper.Applications do
     overlay :application
   end
 
-  application :emqx_config_helper do
-    start_type :load
-  end
-
   application :emqx_prometheus, %{release_type: :cloud} do
     start_type :permanent
     overlay :application
