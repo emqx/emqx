@@ -34,6 +34,9 @@
 %% http handlers
 -export([authn/2]).
 
+%% internal export for emqx_gateway_api_listeners module
+-export([schema_authn/0]).
+
 %%--------------------------------------------------------------------
 %% minirest behaviour callbacks
 %%--------------------------------------------------------------------
@@ -50,42 +53,27 @@ apis() ->
 
 authn(get, #{bindings := #{name := Name0}}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        case emqx_gateway_http:authn(GwName) of
-            undefined ->
-                return_http_error(404, "No Authentication");
-            Auth ->
-                {200, Auth}
-        end
+        {200, emqx_gateway_http:authn(GwName)}
     end);
 
 authn(put, #{bindings := #{name := Name0},
              body := Body}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        case emqx_gateway_http:update_authn(GwName, Body) of
-            ok ->
-                {204};
-            {error, Reason} ->
-                return_http_error(500, Reason)
-        end
+        ok = emqx_gateway_http:update_authn(GwName, Body),
+        {204}
     end);
 
 authn(post, #{bindings := #{name := Name0},
               body := Body}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        case emqx_gateway_http:add_authn(GwName, Body) of
-            ok -> {204};
-            {error, Reason} ->
-                return_http_error(500, Reason)
-        end
+        ok = emqx_gateway_http:add_authn(GwName, Body),
+        {204}
     end);
 
 authn(delete, #{bindings := #{name := Name0}}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        case emqx_gateway_http:remove_authn(GwName) of
-            ok -> {204};
-            {error, Reason} ->
-                return_http_error(500, Reason)
-        end
+        ok = emqx_gateway_http:remove_authn(GwName),
+        {204}
     end).
 
 %%--------------------------------------------------------------------
