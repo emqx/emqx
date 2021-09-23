@@ -100,6 +100,15 @@ schema("/users") ->
                 200 => mk(array(ref(?MODULE, user)),
                     #{desc => "User lists"})
             }
+        },
+        post => #{
+            tags => [<<"dashboard">>],
+            description => <<"Create dashboard users">>,
+            requestBody => fields(user_password),
+            responses => #{
+                200 => <<"Create user successfully">>,
+                400 => [{code, mk(string(), #{example => 'CREATE_FAIL'})},
+                    {message, mk(string(), #{example => "Create user failed"})}]}
         }
     };
 
@@ -149,12 +158,14 @@ schema("/users/:username/change_pwd") ->
 fields(user) ->
     [
         {tag,
-            mk(string(),
+            mk(binary(),
                 #{desc => <<"tag">>, example => "administrator"})},
         {username,
-            mk(string(),
+            mk(binary(),
                 #{desc => <<"username">>, example => "emqx"})}
-    ].
+    ];
+fields(user_password) ->
+    fields(user) ++ [{password, mk(binary(), #{desc => "Password"})}].
 
 login(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),
