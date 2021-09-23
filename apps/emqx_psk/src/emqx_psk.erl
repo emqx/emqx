@@ -110,7 +110,7 @@ init(_Opts) ->
         true -> load();
         false -> ok
     end,
-    case boot_file() of
+    case init_file() of
         undefined -> ok;
         BootFile -> import_psks(BootFile)
     end,
@@ -145,8 +145,8 @@ code_change(_OldVsn, State, _Extra) ->
 is_enable() ->
     emqx_config:get([psk, enable]).
 
-boot_file() ->
-    emqx_config:get([psk, boot_file], undefined).
+init_file() ->
+    emqx_config:get([psk, init_file], undefined).
 
 separator() ->
     emqx_config:get([psk, separator], ?DEFAULT_DELIMITER).
