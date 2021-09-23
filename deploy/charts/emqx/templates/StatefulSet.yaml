@@ -114,6 +114,10 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "emqx.fullname" . }}-env
+         {{- if .Values.envFromSecret }}
+            - secretRef:
+                name: {{ .Values.envFromSecret }}
+         {{- end }}
           env:
           - name: EMQX_NAME
             value: {{ .Release.Name }}
