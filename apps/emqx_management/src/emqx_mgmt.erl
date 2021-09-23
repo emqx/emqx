@@ -508,12 +508,16 @@ update_listener(Id, Config) ->
     [update_listener(Node, Id, Config) || Node <- ekka_mnesia:running_nodes()].
 
 update_listener(Node, Id, Config) when Node =:= node() ->
-    {Type, Name} = emqx_listeners:parse_listener_id(Id),
-    case emqx:update_config([listeners, Type, Name], Config, #{}) of
-        {ok, #{raw_config := RawConf}} ->
-            RawConf#{node => Node, id => Id, running => true};
-        {error, Reason} ->
-            error(Reason)
+    case emqx_listeners:parse_listener_id(Id) of
+        {error, {invalid_listener_id, Id}} ->
+            {error, {invalid_listener_id, Id}};
+        {Type, Name} ->
+            case emqx:update_config([listeners, Type, Name], Config, #{}) of
+                {ok, #{raw_config := RawConf}} ->
+                    RawConf#{node => Node, id => Id, running => true};
+                {error, Reason} ->
+                    {error, Reason}
+            end
     end;
 update_listener(Node, Id, Config) ->
     rpc_call(Node, update_listener, [Node, Id, Config]).
