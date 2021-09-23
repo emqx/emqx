@@ -174,7 +174,17 @@ t_api(_) ->
     [#{<<"rules">> := Rules6}] = jsx:decode(Request8),
     ?assertEqual(0, length(Rules6)),
 
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "username"]), [ #{username => N, rules => []} || N <- lists:seq(1, 20) ]),
+    {ok, 200, Request9} = request(get, uri(["authorization", "sources", "built-in-database", "username?page=2&limit=5"]), []),
+    #{<<"data">> := Data1} = jsx:decode(Request9),
+    ?assertEqual(5, length(Data1)),
+
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "clientid"]), [ #{clientid => N, rules => []} || N <- lists:seq(1, 20) ]),
+    {ok, 200, Request10} = request(get, uri(["authorization", "sources", "built-in-database", "clientid?limit=5"]), []),
+    ?assertEqual(5, length(jsx:decode(Request10))),
+
     {ok, 204, _} = request(delete, uri(["authorization", "sources", "built-in-database", "purge-all"]), []),
+    ?assertEqual([], mnesia:dirty_all_keys(?ACL_TABLE)),
 
     ok.
 

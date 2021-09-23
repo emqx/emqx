@@ -118,7 +118,7 @@ definitions() ->
                      }
                    }
                  , #{type => object,
-                     required => [cleitnid, rules],
+                     required => [clientid, rules],
                      properties => #{
                         username => #{
                             type => string,
@@ -164,6 +164,20 @@ records_api() ->
                        enum => [<<"username">>, <<"clientid">>, <<"all">>]
                     },
                     required => true
+                },
+                #{
+                    name => page,
+                    in => query,
+                    required => false,
+                    description => <<"Page Index">>,
+                    schema => #{type => integer}
+                },
+                #{
+                    name => limit,
+                    in => query,
+                    required => false,
+                    description => <<"Page limit">>,
+                    schema => #{type => integer}
                 }
             ],
             responses => #{
@@ -391,28 +405,59 @@ purge(delete, _) ->
     [ ekka_mnesia:dirty_delete(?ACL_TABLE, K) || K <- mnesia:dirty_all_keys(?ACL_TABLE)],
     {204}.
 
-records(get, #{bindings := #{type := <<"username">>}}) ->
+records(get, #{bindings := #{type := <<"username">>},
+               query_string := Qs
+              }) ->
     MatchSpec = ets:fun2ms(
                   fun({?ACL_TABLE, {username, Username}, Rules}) ->
                           [{username, Username}, {rules, Rules}]
                   end),
-    {200, [ #{username => Username,
-              rules => [ #{topic => Topic,
-                           action => Action,
-                           permission => Permission
-                          } || {Permission, Action, Topic} <- Rules]
-             } || [{username, Username}, {rules, Rules}] <- ets:select(?ACL_TABLE, MatchSpec)]};
-records(get, #{bindings := #{type := <<"clientid">>}}) ->
+    Format = fun ([{username, Username}, {rules, Rules}]) ->
+                #{username => Username,
+                  rules => [ #{topic => Topic,
+                               action => Action,
+                               permission => Permission
+                              } || {Permission, Action, Topic} <- Rules]
+                 }
+             end,
+    case Qs of
+        #{<<"limit">> := _, <<"page">> := _} = Page ->
+            {200, emqx_mgmt_api:paginate(?ACL_TABLE, MatchSpec, Page, Format)};
+        #{<<"limit">> := Limit} ->
+            case ets:select(?ACL_TABLE, MatchSpec, binary_to_integer(Limit)) of
+                {Rows, _Continuation} -> {200, [Format(Row) || Row <- Rows ]};
+                '$end_of_table' -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}}
+            end;
+        _ ->
+            {200, [Format(Row) || Row <- ets:select(?ACL_TABLE, MatchSpec)]}
+    end;
+
+records(get, #{bindings := #{type := <<"clientid">>},
+               query_string := Qs
+              }) ->
     MatchSpec = ets:fun2ms(
                   fun({?ACL_TABLE, {clientid, Clientid}, Rules}) ->
                           [{clientid, Clientid}, {rules, Rules}]
                   end),
-    {200, [ #{clientid => Clientid,
-              rules => [ #{topic => Topic,
-                           action => Action,
-                           permission => Permission
-                          } || {Permission, Action, Topic} <- Rules]
-             } || [{clientid, Clientid}, {rules, Rules}] <- ets:select(?ACL_TABLE, MatchSpec)]};
+    Format = fun ([{clientid, Clientid}, {rules, Rules}]) ->
+                #{clientid => Clientid,
+                  rules => [ #{topic => Topic,
+                               action => Action,
+                               permission => Permission
+                              } || {Permission, Action, Topic} <- Rules]
+                 }
+             end,
+    case Qs of
+        #{<<"limit">> := _, <<"page">> := _} = Page ->
+            {200, emqx_mgmt_api:paginate(?ACL_TABLE, MatchSpec, Page, Format)};
+        #{<<"limit">> := Limit} ->
+            case ets:select(?ACL_TABLE, MatchSpec, binary_to_integer(Limit)) of
+                {Rows, _Continuation} -> {200, [Format(Row) || Row <- Rows ]};
+                '$end_of_table' -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}}
+            end;
+        _ ->
+            {200, [Format(Row) || Row <- ets:select(?ACL_TABLE, MatchSpec)]}
+    end;
 records(get, #{bindings := #{type := <<"all">>}}) ->
     MatchSpec = ets:fun2ms(
                   fun({?ACL_TABLE, all, Rules}) ->
