@@ -65,10 +65,10 @@ validations() ->
 
 base_url(type) -> url();
 base_url(nullable) -> false;
-base_url(validate) -> fun (#{query := _Query}) ->
-                              {error, "There must be no query in the base_url"};
+base_url(validator) -> fun(#{query := _Query}) ->
+                           {error, "There must be no query in the base_url"};
                           (_) -> ok
-                      end;
+                       end;
 base_url(_) -> undefined.
 
 connect_timeout(type) -> connect_timeout();

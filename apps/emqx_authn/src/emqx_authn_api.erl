@@ -1589,6 +1589,11 @@ definitions() ->
                 type => string,
                 example => <<"http://localhost:80">>
             },
+            refresh_interval => #{
+                type => integer,
+                default => 300,
+                example => 300
+            },
             verify_claims => #{
                 type => object,
                 additionalProperties => #{
@@ -1835,11 +1840,10 @@ find_listener(ListenerID) ->
             {ok, {Type, Name}}
     end.
 
-create_authenticator(ConfKeyPath, ChainName0, Config) ->
-    ChainName = to_atom(ChainName0),
-    case update_config(ConfKeyPath, {create_authenticator, ChainName, Config}) of
+create_authenticator(ConfKeyPath, ChainName, Config) ->
+    case update_config(ConfKeyPath, {create_authenticator, to_atom(ChainName), Config}) of
         {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
-               raw_config := AuthenticatorsConfig}} ->
+            raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
             {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
         {error, {_, _, Reason}} ->
@@ -1861,9 +1865,8 @@ list_authenticator(ConfKeyPath, AuthenticatorID) ->
             serialize_error(Reason)
     end.
 
-update_authenticator(ConfKeyPath, ChainName0, AuthenticatorID, Config) ->
-    ChainName = to_atom(ChainName0),
-    case update_config(ConfKeyPath, {update_authenticator, ChainName, AuthenticatorID, Config}) of
+update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
+    case update_config(ConfKeyPath, {update_authenticator, to_atom(ChainName), AuthenticatorID, Config}) of
         {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
                raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),

@@ -211,12 +211,12 @@ t_update_config(Config) when is_list(Config) ->
     ok = register_provider(?config("auth1"), ?MODULE),
     ok = register_provider(?config("auth2"), ?MODULE),
     Global = ?config(global),
-    AuthenticatorConfig1 = #{mechanism => 'password-based',
-                             backend => 'built-in-database',
-                             enable => true},
-    AuthenticatorConfig2 = #{mechanism => 'password-based',
-                             backend => mysql,
-                             enable => true},
+    AuthenticatorConfig1 = #{<<"mechanism">> => <<"password-based">>,
+                             <<"backend">> => <<"built-in-database">>,
+                             <<"enable">> => true},
+    AuthenticatorConfig2 = #{<<"mechanism">> => <<"password-based">>,
+                             <<"backend">> => <<"mysql">>,
+                             <<"enable">> => true},
     ID1 = <<"password-based:built-in-database">>,
     ID2 = <<"password-based:mysql">>,
 
@@ -227,7 +227,7 @@ t_update_config(Config) when is_list(Config) ->
     ?assertMatch({ok, _}, update_config([authentication], {create_authenticator, Global, AuthenticatorConfig2})),
     ?assertMatch({ok, #{id := ID2, state := #{mark := 1}}}, ?AUTHN:lookup_authenticator(Global, ID2)),
 
-    ?assertMatch({ok, _}, update_config([authentication], {update_authenticator, Global, ID1, AuthenticatorConfig1#{enable => false}})),
+    ?assertMatch({ok, _}, update_config([authentication], {update_authenticator, Global, ID1, AuthenticatorConfig1#{<<"enable">> => false}})),
     ?assertMatch({ok, #{id := ID1, state := #{mark := 2}}}, ?AUTHN:lookup_authenticator(Global, ID1)),
 
     ?assertMatch({ok, _}, update_config([authentication], {move_authenticator, Global, ID2, top})),
@@ -244,7 +244,7 @@ t_update_config(Config) when is_list(Config) ->
     ?assertMatch({ok, _}, update_config(ConfKeyPath, {create_authenticator, ListenerID, AuthenticatorConfig2})),
     ?assertMatch({ok, #{id := ID2, state := #{mark := 1}}}, ?AUTHN:lookup_authenticator(ListenerID, ID2)),
 
-    ?assertMatch({ok, _}, update_config(ConfKeyPath, {update_authenticator, ListenerID, ID1, AuthenticatorConfig1#{enable => false}})),
+    ?assertMatch({ok, _}, update_config(ConfKeyPath, {update_authenticator, ListenerID, ID1, AuthenticatorConfig1#{<<"enable">> => false}})),
     ?assertMatch({ok, #{id := ID1, state := #{mark := 2}}}, ?AUTHN:lookup_authenticator(ListenerID, ID1)),
 
     ?assertMatch({ok, _}, update_config(ConfKeyPath, {move_authenticator, ListenerID, ID2, top})),
@@ -257,19 +257,22 @@ t_update_config({'end', Config}) ->
     ?AUTHN:deregister_providers([?config("auth1"), ?config("auth2")]),
     ok.
 
-t_convert_cert_options({_, Config}) -> Config;
-t_convert_cert_options(Config) when is_list(Config) ->
+t_convert_certs({_, Config}) -> Config;
+t_convert_certs(Config) when is_list(Config) ->
+    Global = <<"mqtt:global">>,
     Certs = certs([ {<<"keyfile">>, "key.pem"}
                   , {<<"certfile">>, "cert.pem"}
                   , {<<"cacertfile">>, "cacert.pem"}
                   ]),
-    #{<<"ssl">> := NCerts} = ?AUTHN:convert_certs(#{<<"ssl">> => Certs}),
+
+    CertsDir = ?AUTHN:certs_dir([Global, <<"password-based:built-in-database">>]),
+    #{<<"ssl">> := NCerts} = ?AUTHN:convert_certs(CertsDir, #{<<"ssl">> => Certs}),
     ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts), maps:get(<<"keyfile">>, Certs))),
 
     Certs2 = certs([ {<<"keyfile">>, "key.pem"}
                    , {<<"certfile">>, "cert.pem"}
                    ]),
-    #{<<"ssl">> := NCerts2} = ?AUTHN:convert_certs(#{<<"ssl">> => Certs2}, #{<<"ssl">> => NCerts}),
+    #{<<"ssl">> := NCerts2} = ?AUTHN:convert_certs(CertsDir, #{<<"ssl">> => Certs2}, #{<<"ssl">> => NCerts}),
     ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts2), maps:get(<<"keyfile">>, Certs2))),
     ?assertEqual(maps:get(<<"keyfile">>, NCerts), maps:get(<<"keyfile">>, NCerts2)),
     ?assertEqual(maps:get(<<"certfile">>, NCerts), maps:get(<<"certfile">>, NCerts2)),
@@ -278,10 +281,14 @@ t_convert_cert_options(Config) when is_list(Config) ->
                    , {<<"certfile">>, "client-cert.pem"}
                    , {<<"cacertfile">>, "cacert.pem"}
                    ]),
-    #{<<"ssl">> := NCerts3} = ?AUTHN:convert_certs(#{<<"ssl">> => Certs3}, #{<<"ssl">> => NCerts2}),
+    #{<<"ssl">> := NCerts3} = ?AUTHN:convert_certs(CertsDir, #{<<"ssl">> => Certs3}, #{<<"ssl">> => NCerts2}),
     ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts3), maps:get(<<"keyfile">>, Certs3))),
     ?assertNotEqual(maps:get(<<"keyfile">>, NCerts2), maps:get(<<"keyfile">>, NCerts3)),
-    ?assertNotEqual(maps:get(<<"certfile">>, NCerts2), maps:get(<<"certfile">>, NCerts3)).
+    ?assertNotEqual(maps:get(<<"certfile">>, NCerts2), maps:get(<<"certfile">>, NCerts3)),
+
+    ?assertEqual(true, filelib:is_regular(maps:get(<<"keyfile">>, NCerts3))),
+    ?AUTHN:clear_certs(CertsDir, #{<<"ssl">> => NCerts3}),
+    ?assertEqual(false, filelib:is_regular(maps:get(<<"keyfile">>, NCerts3))).
 
 update_config(Path, ConfigRequest) ->
     emqx:update_config(Path, ConfigRequest, #{rawconf_with_defaults => true}).
