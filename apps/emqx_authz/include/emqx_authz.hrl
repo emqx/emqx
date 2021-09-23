@@ -19,15 +19,6 @@
 
 -type(sources() :: [map()]).
 
--define(ACL_SHARDED, emqx_acl_sharded).
-
--define(ACL_TABLE, emqx_acl).
-
--record(emqx_acl, {
-          who :: username() | clientid() | all,
-          rules :: [ {permission(), action(), emqx_topic:topic()} ]
-         }).
-
 -define(APP, emqx_authz).
 
 -define(ALLOW_DENY(A), ((A =:= allow) orelse (A =:= <<"allow">>) orelse
@@ -37,6 +28,20 @@
                     (A =:= publish)   orelse (A =:= <<"publish">>) orelse
                     (A =:= all)       orelse (A =:= <<"all">>)
                    )).
+
+-define(ACL_SHARDED, emqx_acl_sharded).
+
+-define(ACL_TABLE, emqx_acl).
+
+%% To save some space, use an integer for label, 0 for 'all', {1, Username} and {2, ClientId}.
+-define(ACL_TABLE_ALL, 0).
+-define(ACL_TABLE_USERNAME, 1).
+-define(ACL_TABLE_CLIENTID, 2).
+
+-record(emqx_acl, {
+          who :: ?ACL_TABLE_ALL| {?ACL_TABLE_USERNAME, binary()} | {?ACL_TABLE_CLIENTID, binary()},
+          rules :: [ {permission(), action(), emqx_topic:topic()} ]
+         }).
 
 -record(authz_metrics, {
         allow = 'client.authorize.allow',

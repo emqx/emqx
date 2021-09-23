@@ -409,7 +409,7 @@ records(get, #{bindings := #{type := <<"username">>},
                query_string := Qs
               }) ->
     MatchSpec = ets:fun2ms(
-                  fun({?ACL_TABLE, {username, Username}, Rules}) ->
+                  fun({?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}, Rules}) ->
                           [{username, Username}, {rules, Rules}]
                   end),
     Format = fun ([{username, Username}, {rules, Rules}]) ->
@@ -436,7 +436,7 @@ records(get, #{bindings := #{type := <<"clientid">>},
                query_string := Qs
               }) ->
     MatchSpec = ets:fun2ms(
-                  fun({?ACL_TABLE, {clientid, Clientid}, Rules}) ->
+                  fun({?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}, Rules}) ->
                           [{clientid, Clientid}, {rules, Rules}]
                   end),
     Format = fun ([{clientid, Clientid}, {rules, Rules}]) ->
@@ -460,7 +460,7 @@ records(get, #{bindings := #{type := <<"clientid">>},
     end;
 records(get, #{bindings := #{type := <<"all">>}}) ->
     MatchSpec = ets:fun2ms(
-                  fun({?ACL_TABLE, all, Rules}) ->
+                  fun({?ACL_TABLE, ?ACL_TABLE_ALL, Rules}) ->
                           [{rules, Rules}]
                   end),
     {200, [ #{rules => [ #{topic => Topic,
@@ -472,7 +472,7 @@ records(post, #{bindings := #{type := <<"username">>},
                 body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
                       ekka_mnesia:dirty_write(#emqx_acl{
-                                                 who = {username, Username},
+                                                 who = {?ACL_TABLE_USERNAME, Username},
                                                  rules = format_rules(Rules)
                                                 })
                   end, Body),
@@ -481,7 +481,7 @@ records(post, #{bindings := #{type := <<"clientid">>},
                 body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"clientid">> := Clientid, <<"rules">> := Rules}) ->
                       ekka_mnesia:dirty_write(#emqx_acl{
-                                                 who = {clientid, Clientid},
+                                                 who = {?ACL_TABLE_CLIENTID, Clientid},
                                                  rules = format_rules(Rules)
                                                 })
                   end, Body),
@@ -489,15 +489,15 @@ records(post, #{bindings := #{type := <<"clientid">>},
 records(put, #{bindings := #{type := <<"all">>},
                body := #{<<"rules">> := Rules}}) ->
     ekka_mnesia:dirty_write(#emqx_acl{
-                               who = all,
+                               who = ?ACL_TABLE_ALL,
                                rules = format_rules(Rules)
                               }),
     {204}.
 
 record(get, #{bindings := #{type := <<"username">>, key := Key}}) ->
-    case mnesia:dirty_read(?ACL_TABLE, {username, Key}) of
+    case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_USERNAME, Key}) of
         [] -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
-        [#emqx_acl{who = {username, Username}, rules = Rules}] ->
+        [#emqx_acl{who = {?ACL_TABLE_USERNAME, Username}, rules = Rules}] ->
             {200, #{username => Username,
                     rules => [ #{topic => Topic,
                                  action => Action,
@@ -506,9 +506,9 @@ record(get, #{bindings := #{type := <<"username">>, key := Key}}) ->
             }
     end;
 record(get, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
-    case mnesia:dirty_read(?ACL_TABLE, {clientid, Key}) of
+    case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Key}) of
         [] -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
-        [#emqx_acl{who = {clientid, Clientid}, rules = Rules}] ->
+        [#emqx_acl{who = {?ACL_TABLE_CLIENTID, Clientid}, rules = Rules}] ->
             {200, #{clientid => Clientid,
                     rules => [ #{topic => Topic,
                                  action => Action,
@@ -519,22 +519,22 @@ record(get, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
 record(put, #{bindings := #{type := <<"username">>, key := Username},
               body := #{<<"username">> := Username, <<"rules">> := Rules}}) ->
     ekka_mnesia:dirty_write(#emqx_acl{
-                               who = {username, Username},
+                               who = {?ACL_TABLE_USERNAME, Username},
                                rules = format_rules(Rules)
                               }),
     {204};
 record(put, #{bindings := #{type := <<"clientid">>, key := Clientid},
               body := #{<<"clientid">> := Clientid, <<"rules">> := Rules}}) ->
     ekka_mnesia:dirty_write(#emqx_acl{
-                               who = {clientid, Clientid},
+                               who = {?ACL_TABLE_CLIENTID, Clientid},
                                rules = format_rules(Rules)
                               }),
     {204};
 record(delete, #{bindings := #{type := <<"username">>, key := Key}}) ->
-    ekka_mnesia:dirty_delete({?ACL_TABLE, {username, Key}}),
+    ekka_mnesia:dirty_delete({?ACL_TABLE, {?ACL_TABLE_USERNAME, Key}}),
     {204};
 record(delete, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
-    ekka_mnesia:dirty_delete({?ACL_TABLE, {clientid, Key}}),
+    ekka_mnesia:dirty_delete({?ACL_TABLE, {?ACL_TABLE_CLIENTID, Key}}),
     {204}.
 
 format_rules(Rules) when is_list(Rules) ->

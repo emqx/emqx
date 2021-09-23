@@ -52,15 +52,15 @@ authorize(#{username := Username,
             clientid := Clientid
            } = Client, PubSub, Topic, #{type := 'built-in-database'}) ->
 
-    Rules = case mnesia:dirty_read(?ACL_TABLE, {clientid, Clientid}) of
+    Rules = case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}) of
                 [] -> [];
                 [#emqx_acl{rules = Rules0}] when is_list(Rules0) -> Rules0
             end
-         ++ case mnesia:dirty_read(?ACL_TABLE, {username, Username}) of
+         ++ case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}) of
                 [] -> [];
                 [#emqx_acl{rules = Rules1}] when is_list(Rules1) -> Rules1
             end
-         ++ case mnesia:dirty_read(?ACL_TABLE, all) of
+         ++ case mnesia:dirty_read(?ACL_TABLE, ?ACL_TABLE_ALL) of
                 [] -> [];
                 [#emqx_acl{rules = Rules2}] when is_list(Rules2) -> Rules2
             end,
