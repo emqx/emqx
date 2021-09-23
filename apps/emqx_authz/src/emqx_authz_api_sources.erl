@@ -312,29 +312,17 @@ sources(get, _) ->
                                                                  annotations => #{status => unhealthy}
                                                                 }])
                                   end;
+                              (#{type := DB, enable := true} = Source, AccIn) ->
+                                  NSource = case emqx_resource:health_check(emqx_authz:gen_id(DB)) of
+                                      ok ->
+                                          Source#{annotations => #{status => healthy}};
+                                      _ ->
+                                          Source#{annotations => #{status => unhealthy}}
+                                  end,
+                                  lists:append(AccIn, [read_cert(NSource)]);
                               (#{enable := false} = Source, AccIn) ->
-                                  lists:append(AccIn, [Source#{annotations => #{status => unhealthy}}]);
-                              (#{type := _Type, annotations := #{id := Id}} = Source, AccIn) ->
-                                  NSource0 = case maps:get(server, Source, undefined) of
-                                                 undefined -> Source;
-                                                 Server ->
-                                                     Source#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}
-                                             end,
-                                  NSource1 = case maps:get(servers, Source, undefined) of
-                                                 undefined -> NSource0;
-                                                 Servers ->
-                                                     NSource0#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}
-                                             end,
-                                  NSource2 = case emqx_resource:health_check(Id) of
-                                                 ok ->
-                                                     NSource1#{annotations => #{status => healthy}};
-                                                 _ ->
-                                                     NSource1#{annotations => #{status => unhealthy}}
-                                             end,
-                                  lists:append(AccIn, [read_cert(NSource2)]);
-                              (Source, AccIn) ->
-                                  lists:append(AccIn, [Source#{annotations => #{status => healthy}}])
-                        end, [], emqx_authz:lookup()),
+                                  lists:append(AccIn, [Source#{annotations => #{status => unhealthy}}])
+                          end, [], get_raw_sources()),
     {200, #{sources => Sources}};
 sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
     {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
@@ -353,9 +341,9 @@ sources(put, #{body := Body}) when is_list(Body) ->
     update_config(replace, NBody).
 
 source(get, #{bindings := #{type := Type}}) ->
-    case emqx_authz:lookup(Type) of
-        {error, Reason} -> {404, #{message => atom_to_binary(Reason)}};
-        #{type := file, enable := Enable, path := Path}->
+    case get_raw_source(Type) of
+        [] -> {404, #{message => <<"Not found ", Type/binary>>}};
+        [#{type := <<"file">>, enable := Enable, path := Path}] ->
             case file:read_file(Path) of
                 {ok, Rules} ->
                     {200, #{type => file,
@@ -368,25 +356,16 @@ source(get, #{bindings := #{type := Type}}) ->
                     {400, #{code => <<"BAD_REQUEST">>,
                             message => atom_to_binary(Reason)}}
             end;
-        #{enable := false} = Source -> {200, Source#{annotations => #{status => unhealthy}}};
-        #{annotations := #{id := Id}} = Source ->
-            NSource0 = case maps:get(server, Source, undefined) of
-                           undefined -> Source;
-                           Server ->
-                               Source#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}
-                       end,
-            NSource1 = case maps:get(servers, Source, undefined) of
-                           undefined -> NSource0;
-                           Servers ->
-                               NSource0#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}
-                       end,
-            NSource2 = case emqx_resource:health_check(Id) of
+        [#{type := DB, enable := true} = Source] ->
+            NSource = case emqx_resource:health_check(emqx_authz:gen_id(DB)) of
                 ok ->
-                    NSource1#{annotations => #{status => healthy}};
+                    Source#{annotations => #{status => healthy}};
                 _ ->
-                    NSource1#{annotations => #{status => unhealthy}}
+                    Source#{annotations => #{status => unhealthy}}
             end,
-            {200, read_cert(NSource2)}
+            {200, read_cert(NSource)};
+        [#{enable := false} = Source] ->
+            {200, Source#{annotations => #{status => unhealthy}}}
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
     {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
@@ -411,6 +390,18 @@ move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
             {400, #{code => <<"BAD_REQUEST">>,
                     message => atom_to_binary(Reason)}}
     end.
+
+get_raw_sources() ->
+    RawSources = emqx:get_raw_config([authorization, sources]),
+    Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
+    Conf = #{<<"sources">> => RawSources},
+    #{sources := Sources} = hocon_schema:check_plain(Schema, Conf, #{atom_key => true, no_conversion => true}),
+    Sources.
+
+get_raw_source(Type) ->
+    lists:filter(fun (#{type := T}) ->
+                         T =:= Type
+                 end, get_raw_sources()).
 
 update_config(Cmd, Sources) ->
     case emqx_authz:update(Cmd, Sources) of

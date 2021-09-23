@@ -36,6 +36,8 @@
         , authorize/5
         ]).
 
+-export([gen_id/1]).
+
 -export([post_config_update/4, pre_config_update/2]).
 
 -define(CONF_KEY_PATH, [authorization, sources]).
