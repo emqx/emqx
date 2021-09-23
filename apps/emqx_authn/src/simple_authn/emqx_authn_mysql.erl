@@ -63,7 +63,6 @@ salt_position(default) -> prefix;
 salt_position(_) -> undefined.
 
 query(type) -> string();
-query(nullable) -> false;
 query(_) -> undefined.
 
 query_timeout(type) -> integer();

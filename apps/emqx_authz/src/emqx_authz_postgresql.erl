@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authz_pgsql).
+-module(emqx_authz_postgresql).
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -32,7 +32,7 @@
 -endif.
 
 description() ->
-    "AuthZ with pgsql".
+    "AuthZ with postgresql".
 
 parse_query(undefined) ->
     undefined;
@@ -59,7 +59,7 @@ authorize(Client, PubSub, Topic,
         {ok, Columns, Rows} ->
             do_authorize(Client, PubSub, Topic, Columns, Rows);
         {error, Reason} ->
-            ?LOG(error, "[AuthZ] Query pgsql error: ~p~n", [Reason]),
+            ?LOG(error, "[AuthZ] Query postgresql error: ~p~n", [Reason]),
             nomatch
     end.
 

@@ -32,35 +32,31 @@
 start(_StartType, _StartArgs) ->
     ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
-    ok = add_providers(),
+    ok = ?AUTHN:register_providers(providers()),
     ok = initialize(),
     {ok, Sup}.
 
 stop(_State) ->
-    ok = remove_providers(),
+    ok = ?AUTHN:deregister_providers(provider_types()),
     ok.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-add_providers() ->
-    _ = [?AUTHN:add_provider(AuthNType, Provider) || {AuthNType, Provider} <- providers()], ok.
-
-remove_providers() ->
-    _ = [?AUTHN:remove_provider(AuthNType) || {AuthNType, _} <- providers()], ok.
-
 initialize() ->
     ?AUTHN:initialize_authentication(?GLOBAL, emqx:get_raw_config([authentication], [])),
     lists:foreach(fun({ListenerID, ListenerConfig}) ->
                       ?AUTHN:initialize_authentication(ListenerID, maps:get(authentication, ListenerConfig, []))
-                  end, emqx_listeners:list()),
-    ok.
+                  end, emqx_listeners:list()).
+
+provider_types() ->
+    lists:map(fun({Type, _Module}) -> Type end, providers()).
 
 providers() ->
     [ {{'password-based', 'built-in-database'}, emqx_authn_mnesia}
     , {{'password-based', mysql}, emqx_authn_mysql}
-    , {{'password-based', posgresql}, emqx_authn_pgsql}
+    , {{'password-based', postgresql}, emqx_authn_pgsql}
     , {{'password-based', mongodb}, emqx_authn_mongodb}
     , {{'password-based', redis}, emqx_authn_redis}
     , {{'password-based', 'http-server'}, emqx_authn_http}

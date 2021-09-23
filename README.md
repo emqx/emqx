@@ -49,7 +49,7 @@ For 4.3 and later versions.
 git clone https://github.com/emqx/emqx.git
 cd emqx
 make
-_build/emqx/rel/emqx/bin console
+_build/emqx/rel/emqx/bin/emqx console
 ```
 
 For earlier versions, release has to be built from another repo.

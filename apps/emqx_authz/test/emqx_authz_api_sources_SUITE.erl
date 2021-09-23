@@ -44,7 +44,7 @@
                    <<"method">> => <<"get">>,
                    <<"request_timeout">> => 5000
                   }).
--define(SOURCE2, #{<<"type">> => <<"mongo">>,
+-define(SOURCE2, #{<<"type">> => <<"mongodb">>,
                    <<"enable">> => true,
                    <<"mongo_type">> => <<"sharded">>,
                    <<"servers">> => [<<"127.0.0.1:27017">>,
@@ -67,7 +67,7 @@
                    <<"ssl">> => #{<<"enable">> => false},
                    <<"query">> => <<"abcb">>
                   }).
--define(SOURCE4, #{<<"type">> => <<"pgsql">>,
+-define(SOURCE4, #{<<"type">> => <<"postgresql">>,
                    <<"enable">> => true,
                    <<"server">> => <<"127.0.0.1:5432">>,
                    <<"pool_size">> => 1,
@@ -148,8 +148,8 @@ set_special_configs(_App) ->
     ok.
 
 init_per_testcase(t_api, Config) ->
-    meck:new(emqx_plugin_libs_id, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_plugin_libs_id, gen, fun() -> "fake" end),
+    meck:new(emqx_misc, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_misc, gen_id, fun() -> "fake" end),
 
     meck:new(emqx, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx, get_config, fun([node, data_dir]) ->
@@ -162,7 +162,7 @@ init_per_testcase(t_api, Config) ->
 init_per_testcase(_, Config) -> Config.
 
 end_per_testcase(t_api, _Config) ->
-    meck:unload(emqx_plugin_libs_id),
+    meck:unload(emqx_misc),
     meck:unload(emqx),
     ok;
 end_per_testcase(_, _Config) -> ok.
@@ -181,9 +181,9 @@ t_api(_) ->
     {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
     Sources = get_sources(Result2),
     ?assertMatch([ #{<<"type">> := <<"http">>}
-                 , #{<<"type">> := <<"mongo">>}
+                 , #{<<"type">> := <<"mongodb">>}
                  , #{<<"type">> := <<"mysql">>}
-                 , #{<<"type">> := <<"pgsql">>}
+                 , #{<<"type">> := <<"postgresql">>}
                  , #{<<"type">> := <<"redis">>}
                  , #{<<"type">> := <<"file">>}
                  ], Sources),
@@ -193,7 +193,7 @@ t_api(_) ->
     {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result3)),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources", "mongo"]),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "mongodb"]),
                            ?SOURCE2#{<<"ssl">> := #{
                                          <<"enable">> => true,
                                          <<"cacertfile">> => <<"fake cacert file">>,
@@ -201,8 +201,8 @@ t_api(_) ->
                                          <<"keyfile">> => <<"fake key file">>,
                                          <<"verify">> => false
                                         }}),
-    {ok, 200, Result4} = request(get, uri(["authorization", "sources", "mongo"]), []),
-    ?assertMatch(#{<<"type">> := <<"mongo">>,
+    {ok, 200, Result4} = request(get, uri(["authorization", "sources", "mongodb"]), []),
+    ?assertMatch(#{<<"type">> := <<"mongodb">>,
                    <<"ssl">> := #{<<"enable">> := true,
                                   <<"cacertfile">> := <<"fake cacert file">>,
                                   <<"certfile">> := <<"fake cert file">>,
@@ -219,51 +219,52 @@ t_api(_) ->
                   end, Sources),
     {ok, 200, Result5} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual([], get_sources(Result5)),
+    ?assertEqual([], emqx:get_config([authorization, sources])),
     ok.
 
 t_move_source(_) ->
     {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5]),
     ?assertMatch([ #{type := http}
-                 , #{type := mongo}
+                 , #{type := mongodb}
                  , #{type := mysql}
-                 , #{type := pgsql}
+                 , #{type := postgresql}
                  , #{type := redis}
                  ], emqx_authz:lookup()),
 
-    {ok, 204, _} = request(post, uri(["authorization", "sources", "pgsql", "move"]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "postgresql", "move"]),
                            #{<<"position">> => <<"top">>}),
-    ?assertMatch([ #{type := pgsql}
+    ?assertMatch([ #{type := postgresql}
                  , #{type := http}
-                 , #{type := mongo}
+                 , #{type := mongodb}
                  , #{type := mysql}
                  , #{type := redis}
                  ], emqx_authz:lookup()),
 
     {ok, 204, _} = request(post, uri(["authorization", "sources", "http", "move"]),
                            #{<<"position">> => <<"bottom">>}),
-    ?assertMatch([ #{type := pgsql}
-                 , #{type := mongo}
+    ?assertMatch([ #{type := postgresql}
+                 , #{type := mongodb}
                  , #{type := mysql}
                  , #{type := redis}
                  , #{type := http}
                  ], emqx_authz:lookup()),
 
     {ok, 204, _} = request(post, uri(["authorization", "sources", "mysql", "move"]),
-                           #{<<"position">> => #{<<"before">> => <<"pgsql">>}}),
+                           #{<<"position">> => #{<<"before">> => <<"postgresql">>}}),
     ?assertMatch([ #{type := mysql}
-                 , #{type := pgsql}
-                 , #{type := mongo}
+                 , #{type := postgresql}
+                 , #{type := mongodb}
                  , #{type := redis}
                  , #{type := http}
                  ], emqx_authz:lookup()),
 
-    {ok, 204, _} = request(post, uri(["authorization", "sources", "mongo", "move"]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "mongodb", "move"]),
                            #{<<"position">> => #{<<"after">> => <<"http">>}}),
     ?assertMatch([ #{type := mysql}
-                 , #{type := pgsql}
+                 , #{type := postgresql}
                  , #{type := redis}
                  , #{type := http}
-                 , #{type := mongo}
+                 , #{type := mongodb}
                  ], emqx_authz:lookup()),
 
     ok.

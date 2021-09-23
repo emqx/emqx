@@ -18,8 +18,10 @@
 -include_lib("typerefl/include/types.hrl").
 
 -export([ roots/0
-        , fields/1]).
+        , fields/1
+        ,namespace/0]).
 
+namespace() -> <<"dashboard">>.
 roots() -> ["emqx_dashboard"].
 
 fields("emqx_dashboard") ->

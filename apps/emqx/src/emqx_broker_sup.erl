@@ -44,13 +44,13 @@ init([]) ->
                   modules => [emqx_shared_sub]},
 
     %% Authentication
-    AuthN = #{id => authn,
-              start => {emqx_authentication, start_link, []},
-              restart => permanent,
-              shutdown => 2000,
-              type => worker,
-              modules => [emqx_authentication]},
-
+    AuthNSup = #{id => emqx_authentication_sup,
+                 start => {emqx_authentication_sup, start_link, []},
+                 restart => permanent,
+                 shutdown => infinity,
+                 type => supervisor,
+                 modules => [emqx_authentication_sup]},
+   
     %% Broker helper
     Helper = #{id => helper,
                start => {emqx_broker_helper, start_link, []},
@@ -59,5 +59,5 @@ init([]) ->
                type => worker,
                modules => [emqx_broker_helper]},
 
-    {ok, {{one_for_all, 0, 1}, [BrokerPool, SharedSub, AuthN, Helper]}}.
+    {ok, {{one_for_all, 0, 1}, [BrokerPool, SharedSub, AuthNSup, Helper]}}.
 

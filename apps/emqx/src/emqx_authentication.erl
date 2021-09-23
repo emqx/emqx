@@ -40,8 +40,10 @@
         , stop/0
         ]).
 
--export([ add_provider/2
-        , remove_provider/1
+-export([ register_provider/2
+        , register_providers/1
+        , deregister_provider/1
+        , deregister_providers/1
         , create_chain/1
         , delete_chain/1
         , lookup_chain/1
@@ -72,6 +74,11 @@
         , terminate/2
         , code_change/3
         ]).
+
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
 
 -define(CHAINS_TAB, emqx_authn_chains).
 
@@ -192,21 +199,39 @@ pre_config_update(UpdateReq, OldConfig) ->
         {ok, NewConfig} -> {ok, may_to_map(NewConfig)}
     end.
 
-do_pre_config_update({create_authenticator, _ChainName, Config}, OldConfig) ->
-    {ok, OldConfig ++ [Config]};
+do_pre_config_update({create_authenticator, ChainName, Config}, OldConfig) ->
+    try 
+        CertsDir = certs_dir([to_bin(ChainName), generate_id(Config)]),
+        NConfig = convert_certs(CertsDir, Config),
+        {ok, OldConfig ++ [NConfig]}
+    catch
+        error:{save_cert_to_file, _} = Reason ->
+            {error, Reason};
+        error:{missing_parameter, _} = Reason ->
+            {error, Reason}
+    end;
 do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldConfig) ->
     NewConfig = lists:filter(fun(OldConfig0) ->
                                 AuthenticatorID =/= generate_id(OldConfig0)
                              end, OldConfig),
     {ok, NewConfig};
-do_pre_config_update({update_authenticator, _ChainName, AuthenticatorID, Config}, OldConfig) ->
-    NewConfig = lists:map(fun(OldConfig0) ->
-                              case AuthenticatorID =:= generate_id(OldConfig0) of
-                                  true -> maps:merge(OldConfig0, Config);
-                                  false -> OldConfig0
-                              end
-                          end, OldConfig),
-    {ok, NewConfig};
+do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
+    try 
+        CertsDir = certs_dir([to_bin(ChainName), AuthenticatorID]),
+        NewConfig = lists:map(
+                        fun(OldConfig0) ->
+                            case AuthenticatorID =:= generate_id(OldConfig0) of
+                                true -> convert_certs(CertsDir, Config, OldConfig0);
+                                false -> OldConfig0
+                            end
+                        end, OldConfig),
+        {ok, NewConfig}
+    catch
+        error:{save_cert_to_file, _} = Reason ->
+            {error, Reason};
+         error:{missing_parameter, _} = Reason ->
+            {error, Reason}
+    end;
 do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}, OldConfig) ->
     case split_by_id(AuthenticatorID, OldConfig) of
         {error, Reason} -> {error, Reason};
@@ -236,13 +261,18 @@ do_post_config_update({create_authenticator, ChainName, Config}, _NewConfig, _Ol
     _ = create_chain(ChainName),
     create_authenticator(ChainName, NConfig);
 
-do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewConfig, _OldConfig, _AppEnvs) ->
-    delete_authenticator(ChainName, AuthenticatorID);
+do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewConfig, OldConfig, _AppEnvs) ->
+    case delete_authenticator(ChainName, AuthenticatorID) of
+        ok ->
+            [Config] = [Config0 || Config0 <- to_list(OldConfig), AuthenticatorID == generate_id(Config0)],
+            CertsDir = certs_dir([to_bin(ChainName), AuthenticatorID]),
+            clear_certs(CertsDir, Config),
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end;
 
-do_post_config_update({update_authenticator, ChainName, AuthenticatorID, _Config}, NewConfig, _OldConfig, _AppEnvs) ->
-    [Config] = lists:filter(fun(NewConfig0) ->
-                                AuthenticatorID =:= generate_id(NewConfig0)
-                            end, NewConfig),
+do_post_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, _NewConfig, _OldConfig, _AppEnvs) ->
     NConfig = check_config(Config),
     update_authenticator(ChainName, AuthenticatorID, NConfig);
 
@@ -250,8 +280,8 @@ do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}
     move_authenticator(ChainName, AuthenticatorID, Position).
 
 check_config(Config) ->
-    #{authentication := CheckedConfig} = hocon_schema:check_plain(emqx_authentication,
-        #{<<"authentication">> => Config}, #{nullable => true, atom_key => true}),
+    #{authentication := CheckedConfig} =
+        hocon_schema:check_plain(?MODULE, #{<<"authentication">> => Config}, #{atom_key => true}),
     CheckedConfig.
 
 %%------------------------------------------------------------------------------
@@ -315,27 +345,41 @@ stop() ->
 
 -spec get_refs() -> {ok, Refs} when Refs :: [{authn_type(), module()}].
 get_refs() ->
-    gen_server:call(?MODULE, get_refs).
+    call(get_refs).
 
--spec add_provider(authn_type(), module()) -> ok.
-add_provider(AuthNType, Provider) ->
-    gen_server:call(?MODULE, {add_provider, AuthNType, Provider}).
+%% @doc Register authentication providers.
+%% A provider is a tuple of `AuthNType' the module which implements
+%% the authenticator callbacks.
+%% For example, ``[{{'password-based', redis}, emqx_authn_redis}]''
+%% NOTE: Later registered provider may override earlier registered if they
+%% happen to clash the same `AuthNType'.
+-spec register_providers([{authn_type(), module()}]) -> ok.
+register_providers(Providers) ->
+    call({register_providers, Providers}).
 
--spec remove_provider(authn_type()) -> ok.
-remove_provider(AuthNType) ->
-    gen_server:call(?MODULE, {remove_provider, AuthNType}).
+-spec register_provider(authn_type(), module()) -> ok.
+register_provider(AuthNType, Provider) ->
+    register_providers([{AuthNType, Provider}]).
+
+-spec deregister_providers([authn_type()]) -> ok.
+deregister_providers(AuthNTypes) when is_list(AuthNTypes) ->
+    call({deregister_providers, AuthNTypes}).
+
+-spec deregister_provider(authn_type()) -> ok.
+deregister_provider(AuthNType) ->
+    deregister_providers([AuthNType]).
 
 -spec create_chain(chain_name()) -> {ok, chain()} | {error, term()}.
 create_chain(Name) ->
-    gen_server:call(?MODULE, {create_chain, Name}).
+    call({create_chain, Name}).
 
 -spec delete_chain(chain_name()) -> ok | {error, term()}.
 delete_chain(Name) ->
-    gen_server:call(?MODULE, {delete_chain, Name}).
+    call({delete_chain, Name}).
 
 -spec lookup_chain(chain_name()) -> {ok, chain()} | {error, term()}.
 lookup_chain(Name) ->
-    gen_server:call(?MODULE, {lookup_chain, Name}).
+    call({lookup_chain, Name}).
 
 -spec list_chains() -> {ok, [chain()]}.
 list_chains() ->
@@ -344,15 +388,15 @@ list_chains() ->
 
 -spec create_authenticator(chain_name(), config()) -> {ok, authenticator()} | {error, term()}.
 create_authenticator(ChainName, Config) ->
-    gen_server:call(?MODULE, {create_authenticator, ChainName, Config}).
+    call({create_authenticator, ChainName, Config}).
 
 -spec delete_authenticator(chain_name(), authenticator_id()) -> ok | {error, term()}.
 delete_authenticator(ChainName, AuthenticatorID) ->
-    gen_server:call(?MODULE, {delete_authenticator, ChainName, AuthenticatorID}).
+    call({delete_authenticator, ChainName, AuthenticatorID}).
 
 -spec update_authenticator(chain_name(), authenticator_id(), config()) -> {ok, authenticator()} | {error, term()}.
 update_authenticator(ChainName, AuthenticatorID, Config) ->
-    gen_server:call(?MODULE, {update_authenticator, ChainName, AuthenticatorID, Config}).
+    call({update_authenticator, ChainName, AuthenticatorID, Config}).
 
 -spec lookup_authenticator(chain_name(), authenticator_id()) -> {ok, authenticator()} | {error, term()}.
 lookup_authenticator(ChainName, AuthenticatorID) ->
@@ -379,44 +423,46 @@ list_authenticators(ChainName) ->
 
 -spec move_authenticator(chain_name(), authenticator_id(), position()) -> ok | {error, term()}.
 move_authenticator(ChainName, AuthenticatorID, Position) ->
-    gen_server:call(?MODULE, {move_authenticator, ChainName, AuthenticatorID, Position}).
+    call({move_authenticator, ChainName, AuthenticatorID, Position}).
 
 -spec import_users(chain_name(), authenticator_id(), binary()) -> ok | {error, term()}.
 import_users(ChainName, AuthenticatorID, Filename) ->
-    gen_server:call(?MODULE, {import_users, ChainName, AuthenticatorID, Filename}).
+    call({import_users, ChainName, AuthenticatorID, Filename}).
 
 -spec add_user(chain_name(), authenticator_id(), user_info()) -> {ok, user_info()} | {error, term()}.
 add_user(ChainName, AuthenticatorID, UserInfo) ->
-    gen_server:call(?MODULE, {add_user, ChainName, AuthenticatorID, UserInfo}).
+    call({add_user, ChainName, AuthenticatorID, UserInfo}).
 
 -spec delete_user(chain_name(), authenticator_id(), binary()) -> ok | {error, term()}.
 delete_user(ChainName, AuthenticatorID, UserID) ->
-    gen_server:call(?MODULE, {delete_user, ChainName, AuthenticatorID, UserID}).
+    call({delete_user, ChainName, AuthenticatorID, UserID}).
 
 -spec update_user(chain_name(), authenticator_id(), binary(), map()) -> {ok, user_info()} | {error, term()}.
 update_user(ChainName, AuthenticatorID, UserID, NewUserInfo) ->
-    gen_server:call(?MODULE, {update_user, ChainName, AuthenticatorID, UserID, NewUserInfo}).
+    call({update_user, ChainName, AuthenticatorID, UserID, NewUserInfo}).
 
 -spec lookup_user(chain_name(), authenticator_id(), binary()) -> {ok, user_info()} | {error, term()}.
 lookup_user(ChainName, AuthenticatorID, UserID) ->
-    gen_server:call(?MODULE, {lookup_user, ChainName, AuthenticatorID, UserID}).
+    call({lookup_user, ChainName, AuthenticatorID, UserID}).
 
 %% TODO: Support pagination
 -spec list_users(chain_name(), authenticator_id()) -> {ok, [user_info()]} | {error, term()}.
 list_users(ChainName, AuthenticatorID) ->
-    gen_server:call(?MODULE, {list_users, ChainName, AuthenticatorID}).
+    call({list_users, ChainName, AuthenticatorID}).
 
 -spec generate_id(config()) -> authenticator_id().
 generate_id(#{mechanism := Mechanism0, backend := Backend0}) ->
-    Mechanism = atom_to_binary(Mechanism0),
-    Backend = atom_to_binary(Backend0),
+    Mechanism = to_bin(Mechanism0),
+    Backend = to_bin(Backend0),
     <<Mechanism/binary, ":", Backend/binary>>;
 generate_id(#{mechanism := Mechanism}) ->
-    atom_to_binary(Mechanism);
+    to_bin(Mechanism);
 generate_id(#{<<"mechanism">> := Mechanism, <<"backend">> := Backend}) ->
     <<Mechanism/binary, ":", Backend/binary>>;
 generate_id(#{<<"mechanism">> := Mechanism}) ->
-    Mechanism.
+    Mechanism;
+generate_id(_) ->
+    error({missing_parameter, mechanism}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -430,11 +476,20 @@ init(_Opts) ->
     ok = emqx_config_handler:add_handler([listeners, '?', '?', authentication], ?MODULE),
     {ok, #{hooked => false, providers => #{}}}.
 
-handle_call({add_provider, AuthNType, Provider}, _From, #{providers := Providers} = State) ->
-    reply(ok, State#{providers := Providers#{AuthNType => Provider}});
+handle_call({register_providers, Providers}, _From,
+            #{providers := Reg0} = State) ->
+    case lists:filter(fun({T, _}) -> maps:is_key(T, Reg0) end, Providers) of
+        [] ->
+            Reg = lists:foldl(fun({AuthNType, Module}, Pin) ->
+                                      Pin#{AuthNType => Module}
+                              end, Reg0, Providers),
+            reply(ok, State#{providers := Reg});
+        Clashes ->
+            reply({error, {authentication_type_clash, Clashes}}, State)
+    end;
 
-handle_call({remove_provider, AuthNType}, _From, #{providers := Providers} = State) ->
-    reply(ok, State#{providers := maps:remove(AuthNType, Providers)});
+handle_call({deregister_providers, AuthNTypes}, _From, #{providers := Providers} = State) ->
+    reply(ok, State#{providers := maps:without(AuthNTypes, Providers)});
 
 handle_call(get_refs, _From, #{providers := Providers} = State) ->
     Refs = lists:foldl(fun({_, Provider}, Acc) ->
@@ -460,7 +515,7 @@ handle_call({delete_chain, Name}, _From, State) ->
         [#chain{authenticators = Authenticators}] ->
             _ = [do_delete_authenticator(Authenticator) || Authenticator <- Authenticators],
             true = ets:delete(?CHAINS_TAB, Name),
-            reply(ok, may_unhook(State))
+            reply(ok, maybe_unhook(State))
     end;
 
 handle_call({lookup_chain, Name}, _From, State) ->
@@ -490,7 +545,7 @@ handle_call({create_authenticator, ChainName, Config}, _From, #{providers := Pro
             end
         end,
     Reply = update_chain(ChainName, UpdateFun),
-    reply(Reply, may_hook(State));
+    reply(Reply, maybe_hook(State));
 
 handle_call({delete_authenticator, ChainName, AuthenticatorID}, _From, State) ->
     UpdateFun = 
@@ -505,7 +560,7 @@ handle_call({delete_authenticator, ChainName, AuthenticatorID}, _From, State) ->
             end
         end,
     Reply = update_chain(ChainName, UpdateFun),
-    reply(Reply, may_unhook(State));
+    reply(Reply, maybe_unhook(State));
 
 handle_call({update_authenticator, ChainName, AuthenticatorID, Config}, _From, State) ->
     UpdateFun =
@@ -600,6 +655,106 @@ reply(Reply, State) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+certs_dir(Dirs) when is_list(Dirs) ->
+    to_bin(filename:join([emqx:get_config([node, data_dir]), "certs/authn"] ++ Dirs)).
+
+convert_certs(CertsDir, Config) ->
+    case maps:get(<<"ssl">>, Config, undefined) of
+        undefined ->
+            Config;
+        SSLOpts ->
+            NSSLOPts = lists:foldl(fun(K, Acc) ->
+                               case maps:get(K, Acc, undefined) of
+                                   undefined -> Acc;
+                                   PemBin ->
+                                       CertFile = generate_filename(CertsDir, K),
+                                       ok = save_cert_to_file(CertFile, PemBin),
+                                       Acc#{K => CertFile}
+                               end
+                           end, SSLOpts, [<<"certfile">>, <<"keyfile">>, <<"cacertfile">>]),
+            Config#{<<"ssl">> => NSSLOPts}
+    end.
+
+convert_certs(CertsDir, NewConfig, OldConfig) ->
+    case maps:get(<<"ssl">>, NewConfig, undefined) of
+        undefined ->
+            NewConfig;
+        NewSSLOpts ->
+            OldSSLOpts = maps:get(<<"ssl">>, OldConfig, #{}),
+            Diff = diff_certs(NewSSLOpts, OldSSLOpts),
+            NSSLOpts = lists:foldl(fun({identical, K}, Acc) ->
+                                    Acc#{K => maps:get(K, OldSSLOpts)};
+                                    ({_, K}, Acc) ->
+                                    CertFile = generate_filename(CertsDir, K),
+                                    ok = save_cert_to_file(CertFile, maps:get(K, NewSSLOpts)),
+                                    Acc#{K => CertFile}
+                                end, NewSSLOpts, Diff),
+            NewConfig#{<<"ssl">> => NSSLOpts}
+    end.
+
+clear_certs(CertsDir, Config) ->
+    case maps:get(<<"ssl">>, Config, undefined) of
+        undefined ->
+            ok;
+        SSLOpts ->
+            lists:foreach(
+                fun({_, Filename}) ->
+                    _ = file:delete(filename:join([CertsDir, Filename]))
+                end,
+                maps:to_list(maps:with([<<"certfile">>, <<"keyfile">>, <<"cacertfile">>], SSLOpts)))
+    end.
+
+save_cert_to_file(Filename, PemBin) ->
+    case public_key:pem_decode(PemBin) =/= [] of
+        true ->
+            case filelib:ensure_dir(Filename) of
+                ok ->
+                    case file:write_file(Filename, PemBin) of
+                        ok -> ok;
+                        {error, Reason} -> error({save_cert_to_file, {write_file, Reason}})
+                    end;
+                {error, Reason} ->
+                    error({save_cert_to_file, {ensure_dir, Reason}})
+            end;
+        false ->
+            error({save_cert_to_file, invalid_certificate})
+    end.
+
+generate_filename(CertsDir, Key) ->
+    Prefix = case Key of
+                 <<"keyfile">> -> "key-";
+                 <<"certfile">> -> "cert-";
+                 <<"cacertfile">> -> "cacert-"
+             end,
+    to_bin(filename:join([CertsDir, Prefix ++ emqx_misc:gen_id() ++ ".pem"])).
+
+diff_certs(NewSSLOpts, OldSSLOpts) ->
+    Keys = [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>],
+    CertPems = maps:with(Keys, NewSSLOpts),
+    CertFiles = maps:with(Keys, OldSSLOpts),
+    Diff = lists:foldl(fun({K, CertFile}, Acc) ->
+                    case maps:find(K, CertPems) of
+                        error -> Acc;
+                        {ok, PemBin1} ->
+                            {ok, PemBin2} = file:read_file(CertFile),
+                            case diff_cert(PemBin1, PemBin2) of
+                                true ->
+                                    [{changed, K} | Acc];
+                                false ->
+                                    [{identical, K} | Acc]
+                            end
+                    end
+                end,
+                [], maps:to_list(CertFiles)),
+    Added = [{added, K} || K <- maps:keys(maps:without(maps:keys(CertFiles), CertPems))],
+    Diff ++ Added.
+
+diff_cert(Pem1, Pem2) ->
+    cal_md5_for_cert(Pem1) =/= cal_md5_for_cert(Pem2).
+
+cal_md5_for_cert(Pem) ->
+    crypto:hash(md5, term_to_binary(public_key:pem_decode(Pem))).
+
 split_by_id(ID, AuthenticatorsConfig) ->
     case lists:foldl(
              fun(C, {P1, P2, F0}) ->
@@ -631,30 +786,30 @@ global_chain(stomp) ->
 global_chain(_) ->
     'unknown:global'.
 
-may_hook(#{hooked := false} = State) ->
+maybe_hook(#{hooked := false} = State) ->
     case lists:any(fun(#chain{authenticators = []}) -> false;
                       (_) -> true
                    end, ets:tab2list(?CHAINS_TAB)) of
         true ->
-            _ = emqx:hook('client.authenticate', {emqx_authentication, authenticate, []}),
+            _ = emqx:hook('client.authenticate', {?MODULE, authenticate, []}),
             State#{hooked => true};
         false ->
             State
     end;
-may_hook(State) ->
+maybe_hook(State) ->
     State.
 
-may_unhook(#{hooked := true} = State) ->
+maybe_unhook(#{hooked := true} = State) ->
     case lists:all(fun(#chain{authenticators = []}) -> true;
                       (_) -> false
                    end, ets:tab2list(?CHAINS_TAB)) of
         true ->
-            _ = emqx:unhook('client.authenticate', {emqx_authentication, authenticate, []}),
+            _ = emqx:unhook('client.authenticate', {?MODULE, authenticate, []}),
             State#{hooked => false};
         false ->
             State
     end;
-may_unhook(State) ->
+maybe_unhook(State) ->
     State.
 
 do_create_authenticator(ChainName, AuthenticatorID, #{enable := Enable} = Config, Providers) ->
@@ -678,7 +833,7 @@ do_create_authenticator(ChainName, AuthenticatorID, #{enable := Enable} = Config
 do_delete_authenticator(#authenticator{provider = Provider, state = State}) ->
     _ = Provider:destroy(State),
     ok.
-    
+
 replace_authenticator(ID, Authenticator, Authenticators) ->
     lists:keyreplace(ID, #authenticator.id, Authenticators, Authenticator).
 
@@ -777,3 +932,9 @@ to_list(M) when is_map(M) ->
     [M];
 to_list(L) when is_list(L) ->
     L.
+
+to_bin(B) when is_binary(B) -> B;
+to_bin(L) when is_list(L) -> list_to_binary(L);
+to_bin(A) when is_atom(A) -> atom_to_binary(A).
+
+call(Call) -> gen_server:call(?MODULE, Call, infinity).

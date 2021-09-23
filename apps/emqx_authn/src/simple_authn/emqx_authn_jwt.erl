@@ -123,7 +123,7 @@ server_name_indication(_) -> undefined.
 
 verify_claims(type) -> list();
 verify_claims(default) -> #{};
-verify_claims(validate) -> [fun check_verify_claims/1];
+verify_claims(validator) -> [fun do_check_verify_claims/1];
 verify_claims(converter) ->
     fun(VerifyClaims) ->
         maps:to_list(VerifyClaims)
@@ -298,12 +298,8 @@ do_verify_claims(Claims, [{Name, Value} | More]) ->
             {error, {claims, {Name, Value0}}}
     end.
 
-check_verify_claims(Conf) ->
-    Claims = hocon_schema:get_value("verify_claims", Conf),
-    do_check_verify_claims(Claims).
-
 do_check_verify_claims([]) ->
-    false;
+    true;
 do_check_verify_claims([{Name, Expected} | More]) ->
     check_claim_name(Name) andalso
     check_claim_expected(Expected) andalso

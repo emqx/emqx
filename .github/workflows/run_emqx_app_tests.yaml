@@ -8,31 +8,30 @@ on:
   pull_request:
 
 jobs:
-    check_all:
-        strategy:
-          matrix:
-            container:
-              - "emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04"
-              - "emqx/build-env:erl24.0.5-emqx-1-ubuntu20.04"
+  check_all:
+    strategy:
+      matrix:
+        otp:
+          - "23.2.7.2-emqx-2"
+          - "24.0.5-emqx-1"
 
-        runs-on: ubuntu-20.04
-        container: ${{ matrix.container }}
+    runs-on: ubuntu-20.04
+    container: "ghcr.io/emqx/emqx-builder-helper/5.0:${{ matrix.otp }}-ubuntu20.04"
 
-        steps:
-        - uses: actions/checkout@v2
-        - name: run
-          run: |
-            make ensure-rebar3
-            cp rebar3 apps/emqx/
-            cd apps/emqx
-            ./rebar3 xref
-            ./rebar3 dialyzer
-            ./rebar3 eunit -v
-            ./rebar3 ct -v
-            ./rebar3 proper -d test/props
-        - uses: actions/upload-artifact@v1
-          if: failure()
-          with:
-            name: logs
-            path: apps/emqx/_build/test/logs
-
+    steps:
+    - uses: actions/checkout@v2
+    - name: run
+      run: |
+        make ensure-rebar3
+        cp rebar3 apps/emqx/
+        cd apps/emqx
+        ./rebar3 xref
+        ./rebar3 dialyzer
+        ./rebar3 eunit -v
+        ./rebar3 ct -v
+        ./rebar3 proper -d test/props
+    - uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: logs
+        path: apps/emqx/_build/test/logs

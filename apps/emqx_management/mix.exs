@@ -29,7 +29,7 @@ defmodule EMQXManagement.MixProject do
       {:emqx_rule_engine, in_umbrella: true},
       {:ekka, github: "emqx/ekka", tag: "0.10.8"},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.2.1"},
-      {:minirest, github: "emqx/minirest", tag: "1.2.2"}
+      {:minirest, github: "emqx/minirest", tag: "1.2.4"}
     ]
   end
 end

@@ -298,12 +298,20 @@ move_source_api() ->
 
 sources(get, _) ->
     Sources = lists:foldl(fun (#{type := file, enable := Enable, path := Path}, AccIn) ->
-                                  {ok, Rules} = file:consult(Path),
-                                  lists:append(AccIn, [#{type => file,
-                                                         enable => Enable,
-                                                         rules => [ iolist_to_binary(io_lib:format("~p.", [R])) || R <- Rules],
-                                                         annotations => #{status => healthy}
-                                                        }]);
+                                  case file:read_file(Path) of
+                                      {ok, Rules} ->
+                                          lists:append(AccIn, [#{type => file,
+                                                                 enable => Enable,
+                                                                 rules => Rules,
+                                                                 annotations => #{status => healthy}
+                                                                }]);
+                                      {error, _} ->
+                                          lists:append(AccIn, [#{type => file,
+                                                                 enable => Enable,
+                                                                 rules => <<"">>,
+                                                                 annotations => #{status => unhealthy}
+                                                                }])
+                                  end;
                               (#{enable := false} = Source, AccIn) ->
                                   lists:append(AccIn, [Source#{annotations => #{status => unhealthy}}]);
                               (#{type := _Type, annotations := #{id := Id}} = Source, AccIn) ->
@@ -328,23 +336,11 @@ sources(get, _) ->
                                   lists:append(AccIn, [Source#{annotations => #{status => healthy}}])
                         end, [], emqx_authz:lookup()),
     {200, #{sources => Sources}};
-sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) when is_list(Rules) ->
-    {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]),
-                                erlang:list_to_bitstring([<<Rule/binary, "\n">> || Rule <- Rules])
-                               ),
-    case emqx_authz:update(head, [#{type => file, enable => Enable, path => Filename}]) of
-        {ok, _} -> {204};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    messgae => atom_to_binary(Reason)}}
-    end;
+sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
+    {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
+    update_config(head, [#{type => file, enable => true, path => Filename}]);
 sources(post, #{body := Body}) when is_map(Body) ->
-    case emqx_authz:update(head, [write_cert(Body)]) of
-        {ok, _} -> {204};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    messgae => atom_to_binary(Reason)}}
-    end;
+    update_config(head, [write_cert(Body)]);
 sources(put, #{body := Body}) when is_list(Body) ->
     NBody = [ begin
                 case Source of
@@ -354,24 +350,24 @@ sources(put, #{body := Body}) when is_list(Body) ->
                     _ -> write_cert(Source)
                 end
               end || Source <- Body],
-    case emqx_authz:update(replace, NBody) of
-        {ok, _} -> {204};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    messgae => atom_to_binary(Reason)}}
-    end.
+    update_config(replace, NBody).
 
 source(get, #{bindings := #{type := Type}}) ->
     case emqx_authz:lookup(Type) of
-        {error, Reason} -> {404, #{messgae => atom_to_binary(Reason)}};
+        {error, Reason} -> {404, #{message => atom_to_binary(Reason)}};
         #{type := file, enable := Enable, path := Path}->
-            {ok, Rules} = file:consult(Path),
-            {200, #{type => file,
-                    enable => Enable,
-                    rules => [ iolist_to_binary(io_lib:format("~p.", [R])) || R <- Rules],
-                    annotations => #{status => healthy}
-                   }
-            };
+            case file:read_file(Path) of
+                {ok, Rules} ->
+                    {200, #{type => file,
+                            enable => Enable,
+                            rules => Rules,
+                            annotations => #{status => healthy}
+                           }
+                    };
+                {error, Reason} ->
+                    {400, #{code => <<"BAD_REQUEST">>,
+                            message => atom_to_binary(Reason)}}
+            end;
         #{enable := false} = Source -> {200, Source#{annotations => #{status => unhealthy}}};
         #{annotations := #{id := Id}} = Source ->
             NSource0 = case maps:get(server, Source, undefined) of
@@ -398,34 +394,36 @@ source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    messgae => atom_to_binary(Reason)}}
+                    message => atom_to_binary(Reason)}}
     end;
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
-    case emqx_authz:update({replace_once, Type}, write_cert(Body)) of
-        {ok, _} -> {204};
-        {error, not_found_source} ->
-            {404, #{code => <<"NOT_FOUND">>,
-                    messgae => <<"source ", Type/binary, " not found">>}};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    messgae => atom_to_binary(Reason)}}
-    end;
+    update_config({replace_once, Type}, write_cert(Body));
 source(delete, #{bindings := #{type := Type}}) ->
-    case emqx_authz:update({delete_once, Type}, #{}) of
-        {ok, _} -> {204};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    messgae => atom_to_binary(Reason)}}
-    end.
+    update_config({delete_once, Type}, #{}).
+
 move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Position}}) ->
     case emqx_authz:move(Type, Position) of
         {ok, _} -> {204};
         {error, not_found_source} ->
             {404, #{code => <<"NOT_FOUND">>,
-                    messgae => <<"source ", Type/binary, " not found">>}};
+                    message => <<"source ", Type/binary, " not found">>}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    messgae => atom_to_binary(Reason)}}
+                    message => atom_to_binary(Reason)}}
+    end.
+
+update_config(Cmd, Sources) ->
+    case emqx_authz:update(Cmd, Sources) of
+        {ok, _} -> {204};
+        {error, {pre_config_update, emqx_authz, Reason}} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => atom_to_binary(Reason)}};
+        {error, {post_config_update, emqx_authz, Reason}} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => atom_to_binary(Reason)}};
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => atom_to_binary(Reason)}}
     end.
 
 read_cert(#{ssl := #{enable := true} = SSL} = Source) ->
@@ -452,21 +450,21 @@ write_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
     CertPath = filename:join([emqx:get_config([node, data_dir]), "certs"]),
     CaCert = case maps:is_key(<<"cacertfile">>, SSL) of
                  true ->
-                     {ok, CaCertFile} = write_file(filename:join([CertPath, "cacert-" ++ emqx_plugin_libs_id:gen() ++".pem"]),
+                     {ok, CaCertFile} = write_file(filename:join([CertPath, "cacert-" ++ emqx_misc:gen_id() ++".pem"]),
                                                  maps:get(<<"cacertfile">>, SSL)),
                      CaCertFile;
                  false -> ""
              end,
     Cert =   case maps:is_key(<<"certfile">>, SSL) of
                  true ->
-                     {ok, CertFile} = write_file(filename:join([CertPath, "cert-" ++ emqx_plugin_libs_id:gen() ++".pem"]),
+                     {ok, CertFile} = write_file(filename:join([CertPath, "cert-" ++ emqx_misc:gen_id() ++".pem"]),
                                                  maps:get(<<"certfile">>, SSL)),
                      CertFile;
                  false -> ""
              end,
     Key =    case maps:is_key(<<"keyfile">>, SSL) of
                  true ->
-                     {ok, KeyFile}  = write_file(filename:join([CertPath, "key-" ++ emqx_plugin_libs_id:gen() ++".pem"]),
+                     {ok, KeyFile}  = write_file(filename:join([CertPath, "key-" ++ emqx_misc:gen_id() ++".pem"]),
                                                  maps:get(<<"keyfile">>, SSL)),
                      KeyFile;
                  false -> ""
@@ -478,8 +476,18 @@ write_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
            };
 write_cert(Source) -> Source.
 
-write_file(Filename, Bytes) ->
+write_file(Filename, Bytes0) ->
     ok = filelib:ensure_dir(Filename),
+    case file:read_file(Filename) of
+        {ok, Bytes1} ->
+            case crypto:hash(md5, Bytes1) =:= crypto:hash(md5, Bytes0) of
+                true -> {ok,iolist_to_binary(Filename)};
+                false -> do_write_file(Filename, Bytes0)
+            end;
+        _ -> do_write_file(Filename, Bytes0)
+    end.
+
+do_write_file(Filename, Bytes) ->
     case file:write_file(Filename, Bytes) of
        ok -> {ok, iolist_to_binary(Filename)};
        {error, Reason} ->

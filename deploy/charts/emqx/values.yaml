@@ -14,6 +14,13 @@ image:
   # pullSecrets:
   # - myRegistryKeySecretName
 
+
+# The name of a secret in the same kubernetes namespace which contains values to
+# be added to the environment (must be manually created)
+# This can be useful for passwords and logins, etc.
+
+# envFromSecret: "emqx-secrets"
+
 ## Forces the recreation of pods during helm upgrades. This can be useful to update configuration values even if the container image did not change.
 recreatePods: false
 
@@ -128,6 +135,7 @@ ingress:
   ## ingress for EMQX Dashboard
   dashboard:
     enabled: false
+    # ingressClassName: nginx
     annotations: {}
       # kubernetes.io/ingress.class: nginx
       # kubernetes.io/tls-acme: "true"
@@ -139,6 +147,7 @@ ingress:
   ## ingress for EMQX Mgmt API
   mgmt:
     enabled: false
+    # ingressClassName: nginx
     annotations: {}
       # kubernetes.io/ingress.class: nginx
       # kubernetes.io/tls-acme: "true"

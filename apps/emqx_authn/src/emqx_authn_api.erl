@@ -1589,6 +1589,11 @@ definitions() ->
                 type => string,
                 example => <<"http://localhost:80">>
             },
+            refresh_interval => #{
+                type => integer,
+                default => 300,
+                example => 300
+            },
             verify_claims => #{
                 type => object,
                 additionalProperties => #{
@@ -1835,20 +1840,19 @@ find_listener(ListenerID) ->
             {ok, {Type, Name}}
     end.
 
-create_authenticator(ConfKeyPath, ChainName0, Config) ->
-    ChainName = to_atom(ChainName0),
-    case update_config(ConfKeyPath, {create_authenticator, ChainName, Config}) of
+create_authenticator(ConfKeyPath, ChainName, Config) ->
+    case update_config(ConfKeyPath, {create_authenticator, to_atom(ChainName), Config}) of
         {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
-               raw_config := AuthenticatorsConfig}} ->
+            raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
-            {200, maps:put(id, ID, fill_defaults(AuthenticatorConfig))};
+            {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
         {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end.
 
 list_authenticators(ConfKeyPath) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
-    NAuthenticators = [maps:put(id, ?AUTHN:generate_id(AuthenticatorConfig), AuthenticatorConfig)
+    NAuthenticators = [maps:put(id, ?AUTHN:generate_id(AuthenticatorConfig), convert_certs(AuthenticatorConfig))
                         || AuthenticatorConfig <- AuthenticatorsConfig],
     {200, NAuthenticators}.
 
@@ -1856,18 +1860,17 @@ list_authenticator(ConfKeyPath, AuthenticatorID) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
     case find_config(AuthenticatorID, AuthenticatorsConfig) of
         {ok, AuthenticatorConfig} ->
-            {200, AuthenticatorConfig#{id => AuthenticatorID}};
+            {200, maps:put(id, AuthenticatorID, convert_certs(AuthenticatorConfig))};
         {error, Reason} ->
             serialize_error(Reason)
     end.
 
-update_authenticator(ConfKeyPath, ChainName0, AuthenticatorID, Config) ->
-    ChainName = to_atom(ChainName0),
-    case update_config(ConfKeyPath, {update_authenticator, ChainName, AuthenticatorID, Config}) of
+update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
+    case update_config(ConfKeyPath, {update_authenticator, to_atom(ChainName), AuthenticatorID, Config}) of
         {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
                raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
-            {200, maps:put(id, ID, fill_defaults(AuthenticatorConfig))};
+            {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
         {error, {_, _, Reason}} ->
             serialize_error(Reason)
     end.
@@ -1968,8 +1971,21 @@ find_config(AuthenticatorID, AuthenticatorsConfig) ->
 
 fill_defaults(Config) ->
     #{<<"authentication">> := CheckedConfig} = hocon_schema:check_plain(
-        ?AUTHN, #{<<"authentication">> => Config}, #{nullable => true, no_conversion => true}),
+        ?AUTHN, #{<<"authentication">> => Config}, #{no_conversion => true}),
     CheckedConfig.
+
+convert_certs(#{<<"ssl">> := SSLOpts} = Config) ->
+    NSSLOpts = lists:foldl(fun(K, Acc) ->
+                               case maps:get(K, Acc, undefined) of
+                                   undefined -> Acc;
+                                   Filename ->
+                                       {ok, Bin} = file:read_file(Filename),
+                                       Acc#{K => Bin}
+                               end
+                           end, SSLOpts, [<<"certfile">>, <<"keyfile">>, <<"cacertfile">>]),
+    Config#{<<"ssl">> => NSSLOpts};
+convert_certs(Config) ->
+    Config.
 
 serialize_error({not_found, {authenticator, ID}}) ->
     {404, #{code => <<"NOT_FOUND">>,
@@ -2010,6 +2026,16 @@ serialize_error(change_of_authentication_type_is_not_allowed) ->
 serialize_error(unsupported_operation) ->
     {400, #{code => <<"BAD_REQUEST">>,
             message => <<"Operation not supported in this authentication type">>}};
+
+serialize_error({save_cert_to_file, invalid_certificate}) ->
+    {400, #{code => <<"BAD_REQUEST">>,
+            message => <<"Invalid certificate">>}};
+
+serialize_error({save_cert_to_file, {_, Reason}}) ->
+    {500, #{code => <<"INTERNAL_SERVER_ERROR">>,
+            message => list_to_binary(
+                io_lib:format("Cannot save certificate to file due to '~p'", [Reason])
+            )}};
 
 serialize_error({missing_parameter, Name}) ->
     {400, #{code => <<"MISSING_PARAMETER">>,

@@ -1,3 +1,4 @@
+%% -*- mode: erlang -*-
 {application, emqx_prometheus,
  [{description, "Prometheus for EMQ X"},
   {vsn, "5.0.0"}, % strict semver, bump manually!

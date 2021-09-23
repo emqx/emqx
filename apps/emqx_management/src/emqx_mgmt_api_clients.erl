@@ -33,13 +33,23 @@
         , authz_cache/2
         , subscribe/2
         , unsubscribe/2
-        , subscribe_batch/2]).
+        , subscribe_batch/2
+        ]).
 
 -export([ query/4
-        , format_channel_info/1]).
+        , format_channel_info/1
+        ]).
 
 %% for batch operation
 -export([do_subscribe/3]).
+
+%% for test suite
+-export([ unix_ts_to_rfc3339_bin/1
+        , unix_ts_to_rfc3339_bin/2
+        , time_string_to_unix_ts_int/1
+        , time_string_to_unix_ts_int/2
+        ]).
+
 
 -define(CLIENT_QS_SCHEMA, {emqx_channel_info,
     [ {<<"node">>, atom}
@@ -96,9 +106,9 @@ properties(client) ->
         {clean_start,       boolean, <<"Indicate whether the client is using a brand new session">>},
         {clientid,          string , <<"Client identifier">>},
         {connected,         boolean, <<"Whether the client is connected">>},
-        {connected_at,      string , <<"Client connection time">>},
-        {created_at,        string , <<"Session creation time">>},
-        {disconnected_at,   string , <<"Client offline time, This field is only valid and returned when connected is false">>},
+        {connected_at,      string , <<"Client connection time, rfc3339">>},
+        {created_at,        string , <<"Session creation time, rfc3339">>},
+        {disconnected_at,   string , <<"Client offline time, This field is only valid and returned when connected is false, rfc3339">>},
         {expiry_interval,   integer, <<"Session expiration interval, with the unit of second">>},
         {heap_size,         integer, <<"Process heap size with the unit of byte">>},
         {inflight_cnt,      integer, <<"Current length of inflight">>},
@@ -228,28 +238,28 @@ clients_api() ->
                     name => gte_created_at,
                     in => query,
                     required => false,
-                    description => <<"Search client session creation time by less than or equal method">>,
+                    description => <<"Search client session creation time by greater than or equal method, rfc3339 or timestamp(millisecond)">>,
                     schema => #{type => string}
                 },
                 #{
                     name => lte_created_at,
                     in => query,
                     required => false,
-                    description => <<"Search client session creation time by greater than or equal method">>,
+                    description => <<"Search client session creation time by less than or equal method, rfc3339 or timestamp(millisecond)">>,
                     schema => #{type => string}
                 },
                 #{
                     name => gte_connected_at,
                     in => query,
                     required => false,
-                    description => <<"Search client connection creation time by less than or equal method">>,
+                    description => <<"Search client connection creation time by greater than or equal method, rfc3339 or timestamp(millisecond)">>,
                     schema => #{type => string}
                 },
                 #{
                     name => lte_connected_at,
                     in => query,
                     required => false,
-                    description => <<"Search client connection creation time by greater than or equal method">>,
+                    description => <<"Search client connection creation time by less than or equal method, rfc3339 or timestamp(millisecond) ">>,
                     schema => #{type => string}
                 }
             ],
@@ -376,7 +386,7 @@ subscribe_api() ->
 %%%==============================================================================================
 %% parameters trans
 clients(get, #{query_string := Qs}) ->
-    list(Qs).
+    list(generate_qs(Qs)).
 
 client(get, #{bindings := Bindings}) ->
     lookup(Bindings);
@@ -520,6 +530,28 @@ do_unsubscribe(ClientID, Topic) ->
         Res ->
             Res
     end.
+
+%%--------------------------------------------------------------------
+%% QueryString Generation (try rfc3339 to timestamp or keep timestamp)
+
+time_keys() ->
+    [ <<"gte_created_at">>
+    , <<"lte_created_at">>
+    , <<"gte_connected_at">>
+    , <<"lte_connected_at">>].
+
+generate_qs(Qs) ->
+    Fun =
+        fun (Key, NQs) ->
+                case NQs of
+                    %% TimeString likes "2021-01-01T00:00:00.000+08:00" (in rfc3339)
+                    %% or "1609430400000" (in millisecond)
+                    #{Key := TimeString} -> NQs#{Key => time_string_to_unix_ts_int(TimeString)};
+                    #{}                  -> NQs
+                end
+        end,
+    lists:foldl(Fun, Qs, time_keys()).
+
 %%--------------------------------------------------------------------
 %% Query Functions
 
@@ -613,24 +645,17 @@ run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE}|Fuzzy]) -
 %% format funcs
 
 format_channel_info({_, ClientInfo, ClientStats}) ->
-    Fun =
-        fun
-            (_Key, Value, Current) when is_map(Value) ->
-                maps:merge(Current, Value);
-            (Key, Value, Current) ->
-                maps:put(Key, Value, Current)
-        end,
     StatsMap = maps:without([memory, next_pkt_id, total_heap_size],
         maps:from_list(ClientStats)),
-    ClientInfoMap0 = maps:fold(Fun, #{}, ClientInfo),
+    ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo),
     IpAddress      = peer_to_binary(maps:get(peername, ClientInfoMap0)),
     Connected      = maps:get(conn_state, ClientInfoMap0) =:= connected,
     ClientInfoMap1 = maps:merge(StatsMap, ClientInfoMap0),
     ClientInfoMap2 = maps:put(node, node(), ClientInfoMap1),
     ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
     ClientInfoMap  = maps:put(connected, Connected, ClientInfoMap3),
-    RemoveList = [
-          auth_result
+    RemoveList =
+        [ auth_result
         , peername
         , sockname
         , peerhost
@@ -654,7 +679,23 @@ format_channel_info({_, ClientInfo, ClientStats}) ->
         , retry_interval
         , upgrade_qos
     ],
-    maps:without(RemoveList, ClientInfoMap).
+    TimesKeys = [created_at, connected_at, disconnected_at],
+    %% format timestamp to rfc3339
+    lists:foldl(fun result_format_time_fun/2
+               , maps:without(RemoveList, ClientInfoMap)
+               , TimesKeys).
+
+%% format func helpers
+take_maps_from_inner(_Key, Value, Current) when is_map(Value) ->
+    maps:merge(Current, Value);
+take_maps_from_inner(Key, Value, Current) ->
+    maps:put(Key, Value, Current).
+
+result_format_time_fun(Key, NClientInfoMap) ->
+    case NClientInfoMap of
+        #{Key := TimeStamp} -> NClientInfoMap#{Key => unix_ts_to_rfc3339_bin(TimeStamp)};
+        #{}                 -> NClientInfoMap
+    end.
 
 peer_to_binary({Addr, Port}) ->
     AddrBinary = list_to_binary(inet:ntoa(Addr)),
@@ -669,3 +710,23 @@ format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
        result => AuthzResult,
        updated_time => Timestamp
      }.
+
+%%--------------------------------------------------------------------
+%% time format funcs
+
+unix_ts_to_rfc3339_bin(TimeStamp) ->
+    unix_ts_to_rfc3339_bin(TimeStamp, millisecond).
+
+unix_ts_to_rfc3339_bin(TimeStamp, Unit) when is_integer(TimeStamp) ->
+    list_to_binary(calendar:system_time_to_rfc3339(TimeStamp, [{unit, Unit}])).
+
+time_string_to_unix_ts_int(DateTime) ->
+    time_string_to_unix_ts_int(DateTime, millisecond).
+
+time_string_to_unix_ts_int(DateTime, Unit) when is_binary(DateTime) ->
+    try binary_to_integer(DateTime) of
+        TimeStamp when is_integer(TimeStamp) -> TimeStamp
+    catch
+        error:badarg ->
+            calendar:rfc3339_to_system_time(binary_to_list(DateTime), [{unit, Unit}])
+    end.

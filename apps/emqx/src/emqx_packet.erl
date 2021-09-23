@@ -114,7 +114,7 @@ proto_name(#mqtt_packet_connect{proto_name = Name}) ->
     Name.
 
 %% @doc Protocol version of the CONNECT Packet.
--spec(proto_ver(emqx_types:packet()|connect()) -> emqx_types:version()).
+-spec(proto_ver(emqx_types:packet()|connect()) -> emqx_types:proto_ver()).
 proto_ver(?CONNECT_PACKET(ConnPkt)) ->
     proto_ver(ConnPkt);
 proto_ver(#mqtt_packet_connect{proto_ver = Ver}) ->

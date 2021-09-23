@@ -1,0 +1,267 @@
+-module(emqx_swagger_parameter_SUITE).
+-behaviour(minirest_api).
+-behaviour(hocon_schema).
+
+%% API
+-export([paths/0, api_spec/0, schema/1]).
+-export([t_in_path/1, t_in_query/1, t_in_mix/1, t_without_in/1]).
+-export([t_require/1, t_nullable/1, t_method/1, t_api_spec/1]).
+-export([t_in_path_trans/1, t_in_query_trans/1, t_in_mix_trans/1]).
+-export([t_in_path_trans_error/1, t_in_query_trans_error/1, t_in_mix_trans_error/1]).
+-export([all/0, suite/0, groups/0]).
+
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
+-import(hoconsc, [mk/2]).
+
+-define(METHODS, [get, post, put, head, delete, patch, options, trace]).
+
+all() -> [{group, spec}, {group, validation}].
+suite() -> [{timetrap, {minutes, 1}}].
+groups() -> [
+    {spec, [parallel], [t_api_spec, t_in_path, t_in_query, t_in_mix,
+        t_without_in, t_require, t_nullable, t_method]},
+    {validation, [parallel], [t_in_path_trans, t_in_query_trans, t_in_mix_trans,
+        t_in_path_trans_error, t_in_query_trans_error, t_in_mix_trans_error]}
+].
+
+t_in_path(_Config) ->
+    Expect =
+        [#{description => <<"Indicates which sorts of issues to return">>,
+            example => <<"all">>, in => path, name => filter,
+            required => true,
+            schema => #{enum => [assigned, created, mentioned, all], type => string}}
+        ],
+    validate("/test/in/:filter", Expect),
+    ok.
+
+t_in_query(_Config) ->
+    Expect =
+        [#{description => <<"results per page (max 100)">>,
+            example => 1, in => query, name => per_page,
+            schema => #{example => 1, maximum => 100, minimum => 1, type => integer}}],
+    validate("/test/in/query", Expect),
+    ok.
+
+t_in_mix(_Config) ->
+    Expect =
+        [#{description => <<"Indicates which sorts of issues to return">>,
+            example => <<"all">>,in => query,name => filter,
+            schema => #{enum => [assigned,created,mentioned,all],type => string}},
+            #{description => <<"Indicates the state of the issues to return.">>,
+                example => <<"12m">>,in => path,name => state,required => true,
+                schema => #{example => <<"1h">>,type => string}},
+            #{example => 10,in => query,name => per_page, required => false,
+                schema => #{default => 5,example => 1,maximum => 50,minimum => 1, type => integer}},
+            #{in => query,name => is_admin, schema => #{example => true,type => boolean}},
+            #{in => query,name => timeout,
+                schema => #{<<"oneOf">> => [#{enum => [infinity],type => string},
+                    #{example => 30,maximum => 60,minimum => 30, type => integer}]}}],
+    ExpectMeta = #{
+            tags => [tags, good],
+            description => <<"good description">>,
+            summary => <<"good summary">>,
+            security => [],
+            deprecated => true,
+            responses => #{<<"200">> => #{description => <<"ok">>}}},
+    GotSpec = validate("/test/in/mix/:state", Expect),
+    ?assertEqual(ExpectMeta, maps:without([parameters], maps:get(post, GotSpec))),
+    ok.
+
+t_without_in(_Config) ->
+    ?assertThrow({error, <<"missing in:path/query field in parameters">>},
+        emqx_dashboard_swagger:parse_spec_ref(?MODULE, "/test/without/in")),
+    ok.
+
+t_require(_Config) ->
+    ExpectSpec = [#{
+        in => query,name => userid, required => false,
+        schema => #{example => <<"binary example">>, type => string}}],
+    validate("/required/false", ExpectSpec),
+    ok.
+
+t_nullable(_Config) ->
+    NullableFalse = [#{in => query,name => userid, required => true,
+        schema => #{example => <<"binary example">>, type => string}}],
+    NullableTrue = [#{in => query,name => userid,
+        schema => #{example => <<"binary example">>, type => string,
+            nullable => true}}],
+    validate("/nullable/false", NullableFalse),
+    validate("/nullable/true", NullableTrue),
+    ok.
+
+t_method(_Config) ->
+    PathOk = "/method/ok",
+    PathError = "/method/error",
+    {test, Spec, []} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, PathOk),
+    ?assertEqual(lists:sort(?METHODS), lists:sort(maps:keys(Spec))),
+    ?assertThrow({error, #{module := ?MODULE, path := PathError, method := bar}},
+        emqx_dashboard_swagger:parse_spec_ref(?MODULE, PathError)),
+    ok.
+
+t_in_path_trans(_Config) ->
+    Path = "/test/in/:filter",
+    Bindings = #{filter => <<"created">>},
+    Expect = {ok,#{bindings => #{filter => created},
+        body => #{}, query_string => #{}}},
+    ?assertEqual(Expect, trans_parameters(Path, Bindings, #{})),
+    ok.
+
+t_in_query_trans(_Config) ->
+    Path = "/test/in/query",
+    Expect = {ok, #{bindings => #{},body => #{},
+        query_string => #{<<"per_page">> => 100}}},
+    ?assertEqual(Expect, trans_parameters(Path, #{}, #{<<"per_page">> => 100})),
+    ok.
+
+t_in_mix_trans(_Config) ->
+    Path = "/test/in/mix/:state",
+    Bindings = #{
+        state => <<"12m">>,
+        per_page => <<"1">>
+    },
+    Query = #{
+        <<"filter">> => <<"created">>,
+        <<"is_admin">> => true,
+        <<"timeout">> => <<"34">>
+    },
+    Expect = {ok,
+        #{body => #{},
+            bindings => #{state => 720},
+            query_string => #{<<"filter">> => created,<<"is_admin">> => true, <<"per_page">> => 5,<<"timeout">> => 34}}},
+    ?assertEqual(Expect, trans_parameters(Path, Bindings, Query)),
+    ok.
+
+t_in_path_trans_error(_Config) ->
+    Path = "/test/in/:filter",
+    Bindings = #{filter => <<"created1">>},
+    Expect = {400,'BAD_REQUEST', <<"filter : unable_to_convert_to_enum_symbol">>},
+    ?assertEqual(Expect, trans_parameters(Path, Bindings, #{})),
+    ok.
+
+t_in_query_trans_error(_Config) ->
+    Path = "/test/in/query",
+    {400,'BAD_REQUEST', Reason} = trans_parameters(Path, #{}, #{<<"per_page">> => 101}),
+    ?assertNotEqual(nomatch, binary:match(Reason, [<<"per_page">>])),
+    ok.
+
+t_in_mix_trans_error(_Config) ->
+    Path = "/test/in/mix/:state",
+    Bindings = #{
+        state => <<"1d2m">>,
+        per_page => <<"1">>
+    },
+    Query = #{
+        <<"filter">> => <<"cdreated">>,
+        <<"is_admin">> => true,
+        <<"timeout">> => <<"34">>
+    },
+    Expect = {400,'BAD_REQUEST', <<"filter : unable_to_convert_to_enum_symbol">>},
+    ?assertEqual(Expect, trans_parameters(Path, Bindings, Query)),
+    ok.
+
+t_api_spec(_Config) ->
+    {Spec, _Components} = emqx_dashboard_swagger:spec(?MODULE),
+    Filter = fun(V, S) -> lists:all(fun({_, _, _, #{filter := Filter}}) -> Filter =:= V end, S) end,
+    ?assertEqual(true, Filter(undefined, Spec)),
+    {Spec1, _Components1} = emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}),
+    ?assertEqual(true, Filter(fun emqx_dashboard_swagger:translate_req/2, Spec1)),
+    {Spec2, _Components2} = emqx_dashboard_swagger:spec(?MODULE, #{check_schema => fun emqx_dashboard_swagger:translate_req/2}),
+    ?assertEqual(true, Filter(fun emqx_dashboard_swagger:translate_req/2, Spec2)),
+    ok.
+
+validate(Path, ExpectParams) ->
+    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
+    ?assertEqual(test, OperationId),
+    Params = maps:get(parameters, maps:get(post, Spec)),
+    ?assertEqual(ExpectParams, Params),
+    ?assertEqual([], Refs),
+    Spec.
+
+trans_parameters(Path, Bindings, QueryStr) ->
+    Meta = #{module => ?MODULE, method => post, path => Path},
+    Request = #{bindings => Bindings, query_string => QueryStr, body => #{}},
+    emqx_dashboard_swagger:translate_req(Request, Meta).
+
+api_spec() -> emqx_dashboard_swagger:spec(?MODULE).
+
+paths() -> ["/test/in/:filter", "/test/in/query", "/test/in/mix/:state",
+    "/required/false", "/nullable/false", "/nullable/true", "/method/ok"].
+
+schema("/test/in/:filter") ->
+    #{
+        operationId => test,
+        post => #{
+            parameters => [
+                {filter,
+                    mk(hoconsc:enum([assigned, created, mentioned, all]),
+                        #{in => path, desc => <<"Indicates which sorts of issues to return">>, example => "all"})}
+            ],
+            responses => #{200 => <<"ok">>}
+        }
+    };
+schema("/test/in/query") ->
+    #{
+        operationId => test,
+        post => #{
+            parameters => [
+                {per_page,
+                    mk(range(1, 100),
+                        #{in => query, desc => <<"results per page (max 100)">>, example => 1})}
+            ],
+            responses => #{200 => <<"ok">>}
+        }
+    };
+schema("/test/in/mix/:state") ->
+    #{
+        operationId => test,
+        post => #{
+            tags => [tags, good],
+            description => <<"good description">>,
+            summary => <<"good summary">>,
+            security => [],
+            deprecated => true,
+            parameters => [
+                {filter, hoconsc:mk(hoconsc:enum([assigned, created, mentioned, all]),
+                    #{in => query, desc => <<"Indicates which sorts of issues to return">>, example => "all"})},
+                {state, mk(emqx_schema:duration_s(),
+                    #{in => path, required => true, example => "12m", desc => <<"Indicates the state of the issues to return.">>})},
+                {per_page, mk(range(1, 50),
+                    #{in => query, required => false, example => 10, default => 5})},
+                {is_admin, mk(boolean(), #{in => query})},
+                {timeout, mk(hoconsc:union([range(30, 60), infinity]), #{in => query})}
+            ],
+            responses => #{200 => <<"ok">>}
+        }
+    };
+schema("/test/without/in") ->
+    #{
+        operationId => test,
+        post => #{
+            parameters => [
+                {'x-request-id', mk(binary(), #{})}
+            ],
+            responses => #{200 => <<"ok">>}
+        }
+    };
+schema("/required/false") ->
+    to_schema([{'userid', mk(binary(), #{in => query, required => false})}]);
+schema("/nullable/false") ->
+    to_schema([{'userid', mk(binary(), #{in => query, nullable => false})}]);
+schema("/nullable/true") ->
+    to_schema([{'userid', mk(binary(), #{in => query, nullable => true})}]);
+schema("/method/ok") ->
+    Response = #{responses => #{200 => <<"ok">>}},
+    lists:foldl(fun(Method, Acc) ->  Acc#{Method => Response} end,
+        #{operationId => test}, ?METHODS);
+schema("/method/error") ->
+    #{operationId => test, bar => #{200 => <<"ok">>}}.
+to_schema(Params) ->
+    #{
+        operationId => test,
+        post => #{
+            parameters => Params,
+            responses => #{200 => <<"ok">>}
+        }
+    }.

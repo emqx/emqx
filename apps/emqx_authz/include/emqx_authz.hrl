@@ -14,7 +14,7 @@
 
 -type(permission() :: allow | deny).
 
--type(rule() :: {permission(), who(), action(), list(emqx_topic:topic())}).
+-type(rule() :: {permission(), who(), action(), list(emqx_types:topic())}).
 -type(rules() :: [rule()]).
 
 -type(sources() :: [map()]).

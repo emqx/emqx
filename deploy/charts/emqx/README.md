@@ -37,6 +37,7 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `image.repository` | EMQ X Image name |emqx/emqx|
 | `image.pullPolicy`  | The image pull policy  |IfNotPresent|
 | `image.pullSecrets `  | The image pull secrets  |`[]` (does not add image pull secrets to deployed pods)|
+| `envFromSecret` | The name pull a secret in the same kubernetes namespace which contains values that will be added to the environment | nil |
 | `recreatePods` | Forces the recreation of pods during upgrades, which can be useful to always apply the most recent configuration. | false |
 | `persistence.enabled` | Enable EMQX persistence using PVC |false|
 | `persistence.storageClass` | Storage class of backing PVC |`nil` (uses alpha storage class annotation)|
@@ -66,11 +67,13 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `service.externalIPs` |	ExternalIPs for the service |	[] |
 | `service.annotations` |	Service annotations |	{}(evaluated as a template)|
 | `ingress.dashboard.enabled` |	Enable ingress for EMQX Dashboard |	false |
+| `ingress.dashboard.ingressClassName` |	Set the ingress class for EMQX Dashboard |	 |
 | `ingress.dashboard.path` | Ingress path for EMQX Dashboard |	/ |
 | `ingress.dashboard.hosts` | Ingress hosts for EMQX Mgmt API |	dashboard.emqx.local |
 | `ingress.dashboard.tls` | Ingress tls for EMQX Mgmt API |	[] |
 | `ingress.dashboard.annotations` | Ingress annotations for EMQX Mgmt API |	{} |
 | `ingress.mgmt.enabled` |	Enable ingress for EMQX Mgmt API |	false |
+| `ingress.dashboard.ingressClassName` |	Set the ingress class for EMQX Mgmt API |	 |
 | `ingress.mgmt.path` | Ingress path for EMQX Mgmt API |	/ |
 | `ingress.mgmt.hosts` | Ingress hosts for EMQX Mgmt API |	api.emqx.local |
 | `ingress.mgmt.tls` | Ingress tls for EMQX Mgmt API |	[] |

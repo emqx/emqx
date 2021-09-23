@@ -48,8 +48,8 @@ test(#{<<"rawsql">> := Sql, <<"ctx">> := Context}) ->
     end.
 
 test_rule(Sql, Select, Context, EventTopics) ->
-    RuleId = iolist_to_binary(["test_rule", emqx_plugin_libs_id:gen()]),
-    ActInstId = iolist_to_binary(["test_action", emqx_plugin_libs_id:gen()]),
+    RuleId = iolist_to_binary(["test_rule", emqx_misc:gen_id()]),
+    ActInstId = iolist_to_binary(["test_action", emqx_misc:gen_id()]),
     ok = emqx_rule_metrics:create_rule_metrics(RuleId),
     ok = emqx_rule_metrics:create_metrics(ActInstId),
     Rule = #rule{

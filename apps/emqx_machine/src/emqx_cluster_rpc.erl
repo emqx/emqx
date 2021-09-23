@@ -18,7 +18,7 @@
 
 %% API
 -export([start_link/0, mnesia/1]).
--export([multicall/3, multicall/4, query/1, reset/0, status/0]).
+-export([multicall/3, multicall/5, query/1, reset/0, status/0, skip_failed_commit/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
     handle_continue/2, code_change/3]).
@@ -63,8 +63,7 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(cluster_rpc_commit, disc_copies).
 
 start_link() ->
-    RetryMs = application:get_env(emqx_machine, cluster_call_retry_interval, 1000),
-    start_link(node(), ?MODULE, RetryMs).
+    start_link(node(), ?MODULE, get_retry_ms()).
 
 start_link(Node, Name, RetryMs) ->
     gen_server:start_link({local, Name}, ?MODULE, [Node, RetryMs], []).
@@ -76,27 +75,48 @@ start_link(Node, Name, RetryMs) ->
     TnxId :: pos_integer(),
     Reason :: string().
 multicall(M, F, A) ->
-    multicall(M, F, A, timer:minutes(2)).
+    multicall(M, F, A, all, timer:minutes(2)).
 
--spec multicall(Module, Function, Args, Timeout) -> {ok, TnxId, term()} |{error, Reason} when
+-spec multicall(Module, Function, Args, SucceedNum, Timeout) -> {ok, TnxId, term()} |{error, Reason} when
     Module :: module(),
     Function :: atom(),
     Args :: [term()],
+    SucceedNum :: pos_integer() | all,
     TnxId :: pos_integer(),
     Timeout :: timeout(),
     Reason :: string().
-multicall(M, F, A, Timeout) ->
+multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNum >= 1 ->
     MFA = {initiate, {M, F, A}},
-    case ekka_rlog:role() of
-        core -> gen_server:call(?MODULE, MFA, Timeout);
-        replicant ->
-            %% the initiate transaction must happened on core node
-            %% make sure MFA(in the transaction) and the transaction on the same node
-            %% don't need rpc again inside transaction.
-            case ekka_rlog_status:upstream_node(?COMMON_SHARD) of
-                {ok, Node} -> gen_server:call({?MODULE, Node}, MFA, Timeout);
-                disconnected -> {error, disconnected}
-            end
+    Begin = erlang:monotonic_time(),
+    InitRes =
+        case ekka_rlog:role() of
+            core -> gen_server:call(?MODULE, MFA, Timeout);
+            replicant ->
+                %% the initiate transaction must happened on core node
+                %% make sure MFA(in the transaction) and the transaction on the same node
+                %% don't need rpc again inside transaction.
+                case ekka_rlog_status:upstream_node(?COMMON_SHARD) of
+                    {ok, Node} -> gen_server:call({?MODULE, Node}, MFA, Timeout);
+                    disconnected -> {error, disconnected}
+                end
+        end,
+    End = erlang:monotonic_time(),
+    MinDelay = erlang:convert_time_unit(End - Begin, native, millisecond) + 50,
+    %% Fail after 3 attempts.
+    RetryTimeout = ceil(3 * max(MinDelay, get_retry_ms())),
+    OkOrFailed =
+        case InitRes of
+            {ok, _TnxId, _} when RequireNum =:= 1 ->
+                ok;
+            {ok, TnxId, _} when RequireNum =:= all ->
+                wait_for_all_nodes_commit(TnxId, MinDelay, RetryTimeout);
+            {ok, TnxId, _} when is_integer(RequireNum) ->
+                wait_for_nodes_commit(RequireNum, TnxId, MinDelay, RetryTimeout);
+            Error -> Error
+        end,
+    case OkOrFailed of
+        ok -> InitRes;
+        _ -> OkOrFailed
     end.
 
 -spec query(pos_integer()) -> {'atomic', map()} | {'aborted', Reason :: term()}.
@@ -110,8 +130,15 @@ reset() -> gen_server:call(?MODULE, reset).
 status() ->
     transaction(fun trans_status/0, []).
 
+%% Regardless of what MFA is returned, consider it a success),
+%% then move to the next tnxId.
+%% if the next TnxId failed, need call the function again to skip.
+-spec skip_failed_commit(node()) -> pos_integer().
+skip_failed_commit(Node) ->
+    gen_server:call({?MODULE, Node}, skip_failed_commit).
+
 %%%===================================================================
-%%% gen_statem callbacks
+%%% gen_server callbacks
 %%%===================================================================
 
 %% @private
@@ -135,6 +162,8 @@ handle_call({initiate, MFA}, _From, State = #{node := Node}) ->
         {aborted, Reason} ->
             {reply, {error, Reason}, State, {continue, ?CATCH_UP}}
     end;
+handle_call(skip_failed_commit, _From, State) ->
+    {reply, ok, State, catch_up(State, true)};
 handle_call(_, _From, State) ->
     {reply, ok, State, catch_up(State)}.
 
@@ -155,15 +184,17 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-catch_up(#{node := Node, retry_interval := RetryMs} = State) ->
+catch_up(State) -> catch_up(State, false).
+
+catch_up(#{node := Node, retry_interval := RetryMs} = State, SkipResult) ->
     case transaction(fun read_next_mfa/1, [Node]) of
         {atomic, caught_up} -> ?TIMEOUT;
         {atomic, {still_lagging, NextId, MFA}} ->
             {Succeed, _} = apply_mfa(NextId, MFA),
-            case Succeed of
+            case Succeed orelse SkipResult of
                 true ->
                     case transaction(fun commit/2, [Node, NextId]) of
-                        {atomic, ok} -> catch_up(State);
+                        {atomic, ok} -> catch_up(State, false);
                         Error ->
                             ?SLOG(error, #{
                                 msg => "failed to commit applied call",
@@ -275,24 +306,68 @@ trans_query(TnxId) ->
             #{tnx_id => TnxId, mfa => MFA, initiator => InitNode, created_at => CreatedAt}
     end.
 
-apply_mfa(TnxId, {M, F, A} = MFA) ->
-    try
-        Res = erlang:apply(M, F, A),
-        Succeed =
-        case Res of
-             ok ->
-                 ?SLOG(notice, #{msg => "succeeded to apply MFA", tnx_id => TnxId, mfa => MFA, result => Res}),
-                 true;
-            {ok, _} ->
-                ?SLOG(notice, #{msg => "succeeded to apply MFA", tnx_id => TnxId, mfa => MFA, result => Res}),
-                true;
-            _ ->
-                ?SLOG(error, #{msg => "failed to apply MFA", tnx_id => TnxId, mfa => MFA, result => Res}),
-                false
+-define(TO_BIN(_B_), iolist_to_binary(io_lib:format("~p", [_B_]))).
+
+apply_mfa(TnxId, {M, F, A}) ->
+    Res =
+        try erlang:apply(M, F, A)
+        catch
+            Class:Reason:Stacktrace ->
+                {error, #{exception => Class, reason => Reason, stacktrace => Stacktrace}}
         end,
-        {Succeed, Res}
-    catch
-        C : E ->
-            ?SLOG(critical, #{msg => "crash to apply MFA", tnx_id => TnxId, mfa => MFA, exception => C, reason => E}),
-            {false, lists:flatten(io_lib:format("TnxId(~p) apply MFA(~p) crash", [TnxId, MFA]))}
+    Meta = #{tnx_id => TnxId, module => M, function => F, args => ?TO_BIN(A)},
+    IsSuccess = is_success(Res),
+    log_and_alarm(IsSuccess, Res, Meta),
+    {IsSuccess, Res}.
+
+is_success(ok) -> true;
+is_success({ok, _}) -> true;
+is_success(_) -> false.
+
+log_and_alarm(true, Res, Meta) ->
+    OkMeta = Meta#{msg => <<"succeeded to apply MFA">>, result => Res},
+    ?SLOG(debug, OkMeta),
+    emqx_alarm:deactivate(cluster_rpc_apply_failed, OkMeta#{result => ?TO_BIN(Res)});
+log_and_alarm(false, Res, Meta) ->
+    NotOkMeta = Meta#{msg => <<"failed to apply MFA">>, result => Res},
+    ?SLOG(error, NotOkMeta),
+    emqx_alarm:activate(cluster_rpc_apply_failed, NotOkMeta#{result => ?TO_BIN(Res)}).
+
+wait_for_all_nodes_commit(TnxId, Delay, Remain) ->
+    case lagging_node(TnxId) of
+        [_ | _] when Remain > 0 ->
+            ok = timer:sleep(Delay),
+            wait_for_all_nodes_commit(TnxId, Delay, Remain - Delay);
+        [] -> ok;
+        Nodes -> {error, Nodes}
     end.
+
+wait_for_nodes_commit(RequiredNum, TnxId, Delay, Remain) ->
+    ok = timer:sleep(Delay),
+    case length(synced_nodes(TnxId)) >= RequiredNum of
+        true -> ok;
+        false when Remain > 0 ->
+            wait_for_nodes_commit(RequiredNum, TnxId, Delay, Remain - Delay);
+        false ->
+            case lagging_node(TnxId) of
+                [] -> ok; %% All commit but The succeedNum > length(nodes()).
+                Nodes -> {error, Nodes}
+            end
+    end.
+
+lagging_node(TnxId) ->
+    {atomic, Nodes} = transaction(fun commit_status_trans/2, ['<', TnxId]),
+    Nodes.
+
+synced_nodes(TnxId) ->
+    {atomic, Nodes} = transaction(fun commit_status_trans/2, ['>=', TnxId]),
+    Nodes.
+
+commit_status_trans(Operator, TnxId) ->
+    MatchHead = #cluster_rpc_commit{tnx_id = '$1', node = '$2', _ = '_'},
+    Guard = {Operator, '$1', TnxId},
+    Result = '$2',
+    mnesia:select(?CLUSTER_COMMIT, [{MatchHead, [Guard], [Result]}]).
+
+get_retry_ms() ->
+    application:get_env(emqx_machine, cluster_call_retry_interval, 1000).

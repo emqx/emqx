@@ -44,20 +44,20 @@ t_clients(_) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
 
     {ok, C1} = emqtt:start_link(#{username => Username1, clientid => ClientId1}),
-    {ok, _} = emqtt:connect(C1),
+    {ok, _}  = emqtt:connect(C1),
     {ok, C2} = emqtt:start_link(#{username => Username2, clientid => ClientId2}),
-    {ok, _} = emqtt:connect(C2),
+    {ok, _}  = emqtt:connect(C2),
 
     timer:sleep(300),
 
     %% get /clients
-    ClientsPath = emqx_mgmt_api_test_util:api_path(["clients"]),
-    {ok, Clients} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
+    ClientsPath     = emqx_mgmt_api_test_util:api_path(["clients"]),
+    {ok, Clients}   = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
     ClientsResponse = emqx_json:decode(Clients, [return_maps]),
-    ClientsMeta = maps:get(<<"meta">>, ClientsResponse),
-    ClientsPage = maps:get(<<"page">>, ClientsMeta),
-    ClientsLimit = maps:get(<<"limit">>, ClientsMeta),
-    ClientsCount = maps:get(<<"count">>, ClientsMeta),
+    ClientsMeta     = maps:get(<<"meta">>, ClientsResponse),
+    ClientsPage     = maps:get(<<"page">>, ClientsMeta),
+    ClientsLimit    = maps:get(<<"limit">>, ClientsMeta),
+    ClientsCount    = maps:get(<<"count">>, ClientsMeta),
     ?assertEqual(ClientsPage, 1),
     ?assertEqual(ClientsLimit, emqx_mgmt:max_row_limit()),
     ?assertEqual(ClientsCount, 2),
@@ -73,8 +73,8 @@ t_clients(_) ->
     Client2Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId2)]),
     {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client2Path),
     timer:sleep(300),
-    AfterKickoutResponse = emqx_mgmt_api_test_util:request_api(get, Client2Path),
-    ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse),
+    AfterKickoutResponse2 = emqx_mgmt_api_test_util:request_api(get, Client2Path),
+    ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse2),
 
     %% get /clients/:clientid/authz_cache should has no authz cache
     Client1AuthzCachePath = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "authz_cache"]),
@@ -94,4 +94,62 @@ t_clients(_) ->
     UnSubscribePath = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "unsubscribe"]),
     {ok, _} =  emqx_mgmt_api_test_util:request_api(post, UnSubscribePath, "", AuthHeader, SubscribeBody),
     timer:sleep(100),
-    ?assertEqual([], emqx_mgmt:lookup_subscriptions(Client1)).
+    ?assertEqual([], emqx_mgmt:lookup_subscriptions(Client1)),
+
+    %% testcase cleanup, kickout client1
+    {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client1Path),
+    timer:sleep(300),
+    AfterKickoutResponse1 = emqx_mgmt_api_test_util:request_api(get, Client1Path),
+    ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse1).
+
+t_query_clients_with_time(_) ->
+    process_flag(trap_exit, true),
+
+    Username1 = <<"user1">>,
+    ClientId1 = <<"client1">>,
+
+    Username2 = <<"user2">>,
+    ClientId2 = <<"client2">>,
+
+    {ok, C1} = emqtt:start_link(#{username => Username1, clientid => ClientId1}),
+    {ok, _}  = emqtt:connect(C1),
+    {ok, C2} = emqtt:start_link(#{username => Username2, clientid => ClientId2}),
+    {ok, _}  = emqtt:connect(C2),
+
+    timer:sleep(100),
+
+    AuthHeader      = emqx_mgmt_api_test_util:auth_header_(),
+    ClientsPath     = emqx_mgmt_api_test_util:api_path(["clients"]),
+    %% get /clients with time(rfc3339)
+    NowTimeStampInt = erlang:system_time(millisecond),
+    %% Do not uri_encode `=` to `%3D`
+    Rfc3339String   = emqx_http_lib:uri_encode(binary:bin_to_list(emqx_mgmt_api_clients:unix_ts_to_rfc3339_bin(NowTimeStampInt))),
+    TimeStampString = emqx_http_lib:uri_encode(integer_to_list(NowTimeStampInt)),
+
+    LteKeys         = ["lte_created_at=", "lte_connected_at="],
+    GteKeys         = ["gte_created_at=", "gte_connected_at="],
+    LteParamRfc3339 = [Param ++ Rfc3339String   || Param <- LteKeys],
+    LteParamStamp   = [Param ++ TimeStampString || Param <- LteKeys],
+    GteParamRfc3339 = [Param ++ Rfc3339String   || Param <- GteKeys],
+    GteParamStamp   = [Param ++ TimeStampString || Param <- GteKeys],
+
+    RequestResults  = [emqx_mgmt_api_test_util:request_api(get, ClientsPath, Param, AuthHeader)
+                       || Param <- LteParamRfc3339 ++ LteParamStamp ++ GteParamRfc3339 ++ GteParamStamp],
+    DecodedResults  = [emqx_json:decode(Response, [return_maps])
+                       || {ok, Response} <- RequestResults],
+    {LteResponseDecodeds, GteResponseDecodeds} = lists:split(4, DecodedResults),
+    %% EachData :: list()
+    [?assert( emqx_mgmt_api_clients:time_string_to_unix_ts_int(CreatedAt) < NowTimeStampInt)
+     || #{<<"data">> := EachData} <- LteResponseDecodeds,
+        #{<<"created_at">> := CreatedAt}     <- EachData],
+    [?assert(emqx_mgmt_api_clients:time_string_to_unix_ts_int(ConnectedAt) < NowTimeStampInt)
+     || #{<<"data">> := EachData} <- LteResponseDecodeds,
+        #{<<"connected_at">> := ConnectedAt} <- EachData],
+    [?assertEqual(EachData, [])
+     || #{<<"data">> := EachData} <- GteResponseDecodeds],
+
+    %% testcase cleanup, kickout client1 and client2
+    Client1Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1)]),
+    Client2Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId2)]),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client1Path),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client2Path).

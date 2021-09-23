@@ -107,8 +107,8 @@ handle_call({create, InstId, ResourceType, Config}, _From, State) ->
 handle_call({create_dry_run, InstId, ResourceType, Config}, _From, State) ->
     {reply, do_create_dry_run(InstId, ResourceType, Config), State};
 
-handle_call({update, InstId, ResourceType, Config, Params}, _From, State) ->
-    {reply, do_update(InstId, ResourceType, Config, Params), State};
+handle_call({recreate, InstId, ResourceType, Config, Params}, _From, State) ->
+    {reply, do_recreate(InstId, ResourceType, Config, Params), State};
 
 handle_call({remove, InstId}, _From, State) ->
     {reply, do_remove(InstId), State};
@@ -141,8 +141,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 %% suppress the race condition check, as these functions are protected in gproc workers
--dialyzer({nowarn_function, [do_update/4, do_create/3, do_restart/1, do_stop/1, do_health_check/1]}).
-do_update(InstId, ResourceType, NewConfig, Params) ->
+-dialyzer({nowarn_function, [do_recreate/4, do_create/3, do_restart/1, do_stop/1, do_health_check/1]}).
+do_recreate(InstId, ResourceType, NewConfig, Params) ->
     case lookup(InstId) of
         {ok, #{mod := ResourceType, state := ResourceState, config := OldConfig}} ->
             Config = emqx_resource:call_config_merge(ResourceType, OldConfig,

@@ -119,17 +119,17 @@ is_running(Node) ->
 %% PubSub API
 %%--------------------------------------------------------------------
 
--spec(subscribe(emqx_topic:topic() | string()) -> ok).
+-spec(subscribe(emqx_types:topic() | string()) -> ok).
 subscribe(Topic) ->
     emqx_broker:subscribe(iolist_to_binary(Topic)).
 
--spec(subscribe(emqx_topic:topic() | string(), emqx_types:subid() | emqx_types:subopts()) -> ok).
+-spec(subscribe(emqx_types:topic() | string(), emqx_types:subid() | emqx_types:subopts()) -> ok).
 subscribe(Topic, SubId) when is_atom(SubId); is_binary(SubId)->
     emqx_broker:subscribe(iolist_to_binary(Topic), SubId);
 subscribe(Topic, SubOpts) when is_map(SubOpts) ->
     emqx_broker:subscribe(iolist_to_binary(Topic), SubOpts).
 
--spec(subscribe(emqx_topic:topic() | string(),
+-spec(subscribe(emqx_types:topic() | string(),
                 emqx_types:subid() | pid(), emqx_types:subopts()) -> ok).
 subscribe(Topic, SubId, SubOpts) when (is_atom(SubId) orelse is_binary(SubId)), is_map(SubOpts) ->
     emqx_broker:subscribe(iolist_to_binary(Topic), SubId, SubOpts).
@@ -138,7 +138,7 @@ subscribe(Topic, SubId, SubOpts) when (is_atom(SubId) orelse is_binary(SubId)), 
 publish(Msg) ->
     emqx_broker:publish(Msg).
 
--spec(unsubscribe(emqx_topic:topic() | string()) -> ok).
+-spec(unsubscribe(emqx_types:topic() | string()) -> ok).
 unsubscribe(Topic) ->
     emqx_broker:unsubscribe(iolist_to_binary(Topic)).
 
@@ -146,18 +146,18 @@ unsubscribe(Topic) ->
 %% PubSub management API
 %%--------------------------------------------------------------------
 
--spec(topics() -> list(emqx_topic:topic())).
+-spec(topics() -> list(emqx_types:topic())).
 topics() -> emqx_router:topics().
 
--spec(subscribers(emqx_topic:topic() | string()) -> [pid()]).
+-spec(subscribers(emqx_types:topic() | string()) -> [pid()]).
 subscribers(Topic) ->
     emqx_broker:subscribers(iolist_to_binary(Topic)).
 
--spec(subscriptions(pid()) -> [{emqx_topic:topic(), emqx_types:subopts()}]).
+-spec(subscriptions(pid()) -> [{emqx_types:topic(), emqx_types:subopts()}]).
 subscriptions(SubPid) when is_pid(SubPid) ->
     emqx_broker:subscriptions(SubPid).
 
--spec(subscribed(pid() | emqx_types:subid(), emqx_topic:topic() | string()) -> boolean()).
+-spec(subscribed(pid() | emqx_types:subid(), emqx_types:topic() | string()) -> boolean()).
 subscribed(SubPid, Topic) when is_pid(SubPid) ->
     emqx_broker:subscribed(SubPid, iolist_to_binary(Topic));
 subscribed(SubId, Topic) when is_atom(SubId); is_binary(SubId) ->

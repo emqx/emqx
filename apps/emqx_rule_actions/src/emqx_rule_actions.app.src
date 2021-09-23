@@ -1,3 +1,4 @@
+%% -*- mode: erlang -*-
 {application, emqx_rule_actions,
  [{description, "Rule actions"},
   {vsn, "5.0.0"},

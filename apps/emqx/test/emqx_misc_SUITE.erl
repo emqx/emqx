@@ -147,3 +147,7 @@ t_now_to_secs(_) ->
 t_now_to_ms(_) ->
     ?assert(is_integer(emqx_misc:now_to_ms(os:timestamp()))).
 
+t_gen_id(_) ->
+    ?assertEqual(10, length(emqx_misc:gen_id(10))),
+    ?assertEqual(20, length(emqx_misc:gen_id(20))).
+

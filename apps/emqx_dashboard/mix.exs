@@ -27,7 +27,7 @@ defmodule EMQXDashboard.MixProject do
   defp deps do
     [
       {:emqx, in_umbrella: true, runtime: false},
-      {:minirest, github: "emqx/minirest", tag: "1.2.2"}
+      {:minirest, github: "emqx/minirest", tag: "1.2.4"}
     ]
   end
 end

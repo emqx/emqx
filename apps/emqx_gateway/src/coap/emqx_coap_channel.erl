@@ -263,16 +263,7 @@ check_token(true,
     end;
 
 check_token(false, Msg, Channel) ->
-    case emqx_coap_message:get_option(uri_query, Msg) of
-        #{<<"clientid">> := _} ->
-            Reply = emqx_coap_message:piggyback({error, unauthorized}, Msg),
-            {ok, {outgoing, Reply}, Channel};
-        #{<<"token">> := _} ->
-            Reply = emqx_coap_message:piggyback({error, unauthorized}, Msg),
-            {ok, {outgoing, Reply}, Channel};
-        _ ->
-            call_session(handle_request, Msg, Channel)
-    end.
+    call_session(handle_request, Msg, Channel).
 
 try_takeover(idle, DesireId, Msg, Channel) ->
     case emqx_coap_message:get_option(uri_path, Msg, []) of

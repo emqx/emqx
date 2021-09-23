@@ -14,6 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+-ifndef(EMQX_AUTHN_HRL).
+-define(EMQX_AUTHN_HRL, true).
+
 -define(APP, emqx_authn).
 
 -define(AUTHN, emqx_authentication).
@@ -23,3 +26,5 @@
 -define(RE_PLACEHOLDER, "\\$\\{[a-z0-9\\-]+\\}").
 
 -define(AUTH_SHARD, emqx_authn_shard).
+
+-endif.

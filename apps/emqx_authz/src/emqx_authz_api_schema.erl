@@ -46,7 +46,7 @@ definitions() ->
                  , minirest:ref(<<"mongo_rs">>)
                  , minirest:ref(<<"mongo_sharded">>)
                  , minirest:ref(<<"mysql">>)
-                 , minirest:ref(<<"pgsql">>)
+                 , minirest:ref(<<"postgresql">>)
                  , minirest:ref(<<"redis_single">>)
                  , minirest:ref(<<"redis_sentinel">>)
                  , minirest:ref(<<"redis_cluster">>)
@@ -132,8 +132,8 @@ definitions() ->
         properties => #{
             type => #{
                 type => string,
-                enum => [<<"mongo">>],
-                example => <<"mongo">>
+                enum => [<<"mongodb">>],
+                example => <<"mongodb">>
             },
             enable => #{
                 type => boolean,
@@ -188,8 +188,8 @@ definitions() ->
         properties => #{
             type => #{
                 type => string,
-                enum => [<<"mongo">>],
-                example => <<"mongo">>
+                enum => [<<"mongodb">>],
+                example => <<"mongodb">>
             },
             enable => #{
                 type => boolean,
@@ -245,8 +245,8 @@ definitions() ->
         properties => #{
             type => #{
                 type => string,
-                enum => [<<"mongo">>],
-                example => <<"mongo">>
+                enum => [<<"mongodb">>],
+                example => <<"mongodb">>
             },
             enable => #{
                 type => boolean,
@@ -335,8 +335,8 @@ definitions() ->
         properties => #{
             type => #{
                 type => string,
-                enum => [<<"pgsql">>],
-                example => <<"pgsql">>
+                enum => [<<"postgresql">>],
+                example => <<"postgresql">>
             },
             enable => #{
                 type => boolean,
@@ -501,7 +501,7 @@ definitions() ->
     , #{<<"mongo_rs">> => MongoRs}
     , #{<<"mongo_sharded">> => MongoSharded}
     , #{<<"mysql">> => Mysql}
-    , #{<<"pgsql">> => Pgsql}
+    , #{<<"postgresql">> => Pgsql}
     , #{<<"redis_single">> => RedisSingle}
     , #{<<"redis_sentinel">> => RedisSentinel}
     , #{<<"redis_cluster">> => RedisCluster}

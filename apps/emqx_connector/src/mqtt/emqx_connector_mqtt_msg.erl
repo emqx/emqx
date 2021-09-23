@@ -36,17 +36,15 @@
 
 -type variables() :: #{
     mountpoint := undefined | binary(),
-    topic := binary(),
+    remote_topic := binary(),
     qos := original | integer(),
     retain := original | boolean(),
     payload := binary()
 }.
 
 make_pub_vars(_, undefined) -> undefined;
-make_pub_vars(Mountpoint, #{payload := _, qos := _, retain := _, remote_topic := Topic} = Conf) ->
-    Conf#{topic => Topic, mountpoint => Mountpoint};
-make_pub_vars(Mountpoint, #{payload := _, qos := _, retain := _, local_topic := Topic} = Conf) ->
-    Conf#{topic => Topic, mountpoint => Mountpoint}.
+make_pub_vars(Mountpoint, Conf) when is_map(Conf) ->
+    Conf#{mountpoint => Mountpoint}.
 
 %% @doc Make export format:
 %% 1. Mount topic to a prefix
@@ -61,7 +59,7 @@ to_remote_msg(#message{flags = Flags0} = Msg, Vars) ->
     Retain0 = maps:get(retain, Flags0, false),
     MapMsg = maps:put(retain, Retain0, emqx_message:to_map(Msg)),
     to_remote_msg(MapMsg, Vars);
-to_remote_msg(MapMsg, #{topic := TopicToken, payload := PayloadToken,
+to_remote_msg(MapMsg, #{remote_topic := TopicToken, payload := PayloadToken,
         qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) when is_map(MapMsg) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = replace_vars_in_str(PayloadToken, MapMsg),
@@ -77,7 +75,7 @@ to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
 
 %% published from remote node over a MQTT connection
 to_broker_msg(#{dup := Dup, properties := Props} = MapMsg,
-            #{topic := TopicToken, payload := PayloadToken,
+            #{local_topic := TopicToken, payload := PayloadToken,
               qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = replace_vars_in_str(PayloadToken, MapMsg),
@@ -115,6 +113,8 @@ from_binary(Bin) -> binary_to_term(Bin).
 %% Count only the topic length + payload size
 -spec estimate_size(msg()) -> integer().
 estimate_size(#message{topic = Topic, payload = Payload}) ->
+    size(Topic) + size(Payload);
+estimate_size(#{topic := Topic, payload := Payload}) ->
     size(Topic) + size(Payload).
 
 set_headers(undefined, Msg) ->

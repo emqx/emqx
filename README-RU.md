@@ -50,7 +50,7 @@ docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p
 git clone https://github.com/emqx/emqx.git
 cd emqx
 make
-_build/emqx/rel/emqx/bin console
+_build/emqx/rel/emqx/bin/emqx console
 ```
 
 Более ранние релизы могут быть собраны с помощью другого репозитория:

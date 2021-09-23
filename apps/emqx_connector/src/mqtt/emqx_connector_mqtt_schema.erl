@@ -38,18 +38,20 @@ fields("config") ->
     , {retry_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
     , {max_inflight, hoconsc:mk(integer(), #{default => 32})}
     , {replayq, hoconsc:mk(hoconsc:ref(?MODULE, "replayq"))}
-    , {message_in, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "message_in")), #{default => []})}
-    , {message_out, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "message_out")), #{default => []})}
+    , {ingress_channels, hoconsc:mk(hoconsc:map(id, hoconsc:ref(?MODULE, "ingress_channels")), #{default => []})}
+    , {egress_channels, hoconsc:mk(hoconsc:map(id, hoconsc:ref(?MODULE, "egress_channels")), #{default => []})}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 
-fields("message_in") ->
-    [ {subscribe_remote_topic, #{type => binary(), nullable => false}}
-    , {local_topic, hoconsc:mk(binary(), #{default => <<"${topic}">>})}
+fields("ingress_channels") ->
+    %% the message maybe subscribed by rules, in this case 'local_topic' is not necessary
+    [ {subscribe_remote_topic, hoconsc:mk(binary(), #{nullable => false})}
+    , {local_topic, hoconsc:mk(binary())}
     , {subscribe_qos, hoconsc:mk(qos(), #{default => 1})}
     ] ++ common_inout_confs();
 
-fields("message_out") ->
-    [ {subscribe_local_topic, #{type => binary(), nullable => false}}
+fields("egress_channels") ->
+    %% the message maybe sent from rules, in this case 'subscribe_local_topic' is not necessary
+    [ {subscribe_local_topic, hoconsc:mk(binary())}
     , {remote_topic, hoconsc:mk(binary(), #{default => <<"${topic}">>})}
     ] ++ common_inout_confs();
 
@@ -61,9 +63,6 @@ fields("replayq") ->
     ].
 
 common_inout_confs() ->
-    [{id, #{type => binary(), nullable => false}}] ++ publish_confs().
-
-publish_confs() ->
     [ {qos, hoconsc:mk(qos(), #{default => <<"${qos}">>})}
     , {retain, hoconsc:mk(hoconsc:union([boolean(), binary()]), #{default => <<"${retain}">>})}
     , {payload, hoconsc:mk(binary(), #{default => <<"${payload}">>})}

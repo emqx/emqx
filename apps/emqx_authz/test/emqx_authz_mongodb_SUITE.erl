@@ -13,7 +13,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authz_pgsql_SUITE).
+-module(emqx_authz_mongodb_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -39,23 +39,21 @@ init_per_suite(Config) ->
                                      end),
 
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end ),
+    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_authz]),
-
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
-    Rules = [#{<<"type">> => <<"pgsql">>,
+    Rules = [#{<<"type">> => <<"mongodb">>,
+               <<"mongo_type">> => <<"single">>,
                <<"server">> => <<"127.0.0.1:27017">>,
                <<"pool_size">> => 1,
                <<"database">> => <<"mqtt">>,
-               <<"username">> => <<"xx">>,
-               <<"password">> => <<"ee">>,
-               <<"auto_reconnect">> => true,
                <<"ssl">> => #{<<"enable">> => false},
-               <<"query">> => <<"abcb">>
+               <<"collection">> => <<"fake">>,
+               <<"selector">> => #{<<"a">> => <<"b">>}
               }],
     {ok, _} = emqx_authz:update(replace, Rules),
     Config.
@@ -67,14 +65,18 @@ end_per_suite(_Config) ->
     meck:unload(emqx_schema),
     ok.
 
--define(COLUMNS, [ {column, <<"action">>, meck, meck, meck, meck, meck, meck, meck}
-                 , {column, <<"permission">>, meck, meck, meck, meck, meck, meck, meck}
-                 , {column, <<"topic">>, meck, meck, meck, meck, meck, meck, meck}
-                 ]).
--define(SOURCE1, [{<<"all">>, <<"deny">>, <<"#">>}]).
--define(SOURCE2, [{<<"all">>, <<"allow">>, <<"eq #">>}]).
--define(SOURCE3, [{<<"subscribe">>, <<"allow">>, <<"test/%c">>}]).
--define(SOURCE4, [{<<"publish">>, <<"allow">>, <<"test/%u">>}]).
+-define(SOURCE1,[#{<<"topics">> => [<<"#">>],
+                 <<"permission">> => <<"deny">>,
+                 <<"action">> => <<"all">>}]).
+-define(SOURCE2,[#{<<"topics">> => [<<"eq #">>],
+                 <<"permission">> => <<"allow">>,
+                 <<"action">> => <<"all">>}]).
+-define(SOURCE3,[#{<<"topics">> => [<<"test/%c">>],
+                 <<"permission">> => <<"allow">>,
+                 <<"action">> => <<"subscribe">>}]).
+-define(SOURCE4,[#{<<"topics">> => [<<"test/%u">>],
+                 <<"permission">> => <<"allow">>,
+                 <<"action">> => <<"publish">>}]).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -100,19 +102,19 @@ t_authz(_) ->
                     listener => {tcp, default}
                    },
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, []} end),
+    meck:expect(emqx_resource, query, fun(_, _) -> [] end),
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)), % nomatch
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"#">>)), % nomatch
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?SOURCE1 ++ ?SOURCE2} end),
+    meck:expect(emqx_resource, query, fun(_, _) -> ?SOURCE1 ++ ?SOURCE2 end),
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"+">>)),
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"+">>)),
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?SOURCE2 ++ ?SOURCE1} end),
+    meck:expect(emqx_resource, query, fun(_, _) -> ?SOURCE2 ++ ?SOURCE1 end),
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)),
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo2, subscribe, <<"+">>)),
+    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"+">>)),
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?SOURCE3 ++ ?SOURCE4} end),
+    meck:expect(emqx_resource, query, fun(_, _) -> ?SOURCE3 ++ ?SOURCE4 end),
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo2, subscribe, <<"test/test_clientid">>)),
     ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo2, publish,   <<"test/test_clientid">>)),
     ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo2, subscribe, <<"test/test_username">>)),

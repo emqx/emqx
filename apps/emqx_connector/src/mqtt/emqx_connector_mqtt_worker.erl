@@ -87,6 +87,7 @@
         , ensure_stopped/1
         , status/1
         , ping/1
+        , send_to_remote/2
         ]).
 
 -export([ get_forwards/1
@@ -104,11 +105,11 @@
              ]).
 
 -type id() :: atom() | string() | pid().
--type qos() :: emqx_mqtt_types:qos().
+-type qos() :: emqx_types:qos().
 -type config() :: map().
 -type batch() :: [emqx_connector_mqtt_msg:exp_msg()].
 -type ack_ref() :: term().
--type topic() :: emqx_topic:topic().
+-type topic() :: emqx_types:topic().
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -171,19 +172,24 @@ ping(Pid) when is_pid(Pid) ->
 ping(Name) ->
     gen_statem:call(name(Name), ping).
 
+send_to_remote(Pid, Msg) when is_pid(Pid) ->
+    gen_statem:cast(Pid, {send_to_remote, Msg});
+send_to_remote(Name, Msg) ->
+    gen_statem:cast(name(Name), {send_to_remote, Msg}).
+
 %% @doc Return all forwards (local subscriptions).
 -spec get_forwards(id()) -> [topic()].
 get_forwards(Name) -> gen_statem:call(name(Name), get_forwards, timer:seconds(1000)).
 
 %% @doc Return all subscriptions (subscription over mqtt connection to remote broker).
--spec get_subscriptions(id()) -> [{emqx_topic:topic(), qos()}].
+-spec get_subscriptions(id()) -> [{emqx_types:topic(), qos()}].
 get_subscriptions(Name) -> gen_statem:call(name(Name), get_subscriptions).
 
 callback_mode() -> [state_functions].
 
 %% @doc Config should be a map().
 init(#{name := Name} = ConnectOpts) ->
-    ?LOG(info, "starting bridge worker for ~p", [Name]),
+    ?LOG(debug, "starting bridge worker for ~p", [Name]),
     erlang:process_flag(trap_exit, true),
     Queue = open_replayq(Name, maps:get(replayq, ConnectOpts, #{})),
     State = init_state(ConnectOpts),
@@ -194,7 +200,6 @@ init(#{name := Name} = ConnectOpts) ->
     }}.
 
 init_state(Opts) ->
-    IfRecordMetrics = maps:get(if_record_metrics, Opts, true),
     ReconnDelayMs = maps:get(reconnect_interval, Opts, ?DEFAULT_RECONNECT_DELAY_MS),
     StartType = maps:get(start_type, Opts, manual),
     Mountpoint = maps:get(forward_mountpoint, Opts, undefined),
@@ -208,7 +213,6 @@ init_state(Opts) ->
       inflight => [],
       max_inflight => MaxInflightSize,
       connection => undefined,
-      if_record_metrics => IfRecordMetrics,
       name => Name}.
 
 open_replayq(Name, QCfg) ->
@@ -321,17 +325,15 @@ common(_StateName, {call, From}, get_forwards, #{connect_opts := #{forwards := F
     {keep_state_and_data, [{reply, From, Forwards}]};
 common(_StateName, {call, From}, get_subscriptions, #{connection := Connection}) ->
     {keep_state_and_data, [{reply, From, maps:get(subscriptions, Connection, #{})}]};
-common(_StateName, info, {deliver, _, Msg},
-       State = #{replayq := Q, if_record_metrics := IfRecordMetric}) ->
+common(_StateName, info, {deliver, _, Msg}, State = #{replayq := Q}) ->
     Msgs = collect([Msg]),
-    bridges_metrics_inc(IfRecordMetric,
-                        'bridge.mqtt.message_received',
-                        length(Msgs)
-                       ),
     NewQ = replayq:append(Q, Msgs),
     {keep_state, State#{replayq => NewQ}, {next_event, internal, maybe_send}};
 common(_StateName, info, {'EXIT', _, _}, State) ->
     {keep_state, State};
+common(_StateName, cast, {send_to_remote, Msg}, #{replayq := Q} = State) ->
+    NewQ = replayq:append(Q, [Msg]),
+    {keep_state, State#{replayq => NewQ}, {next_event, internal, maybe_send}};
 common(StateName, Type, Content, #{name := Name} = State) ->
     ?LOG(notice, "Bridge ~p discarded ~p type event at state ~p:~p",
           [Name, Type, StateName, Content]),
@@ -401,11 +403,10 @@ do_send(#{connect_opts := #{forwards := undefined}}, _QAckRef, Batch) ->
 do_send(#{inflight := Inflight,
           connection := Connection,
           mountpoint := Mountpoint,
-          connect_opts := #{forwards := Forwards},
-          if_record_metrics := IfRecordMetrics} = State, QAckRef, [_ | _] = Batch) ->
+          connect_opts := #{forwards := Forwards}} = State, QAckRef, [_ | _] = Batch) ->
     Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Forwards),
     ExportMsg = fun(Message) ->
-                    bridges_metrics_inc(IfRecordMetrics, 'bridge.mqtt.message_sent'),
+                    emqx_metrics:inc('bridge.mqtt.message_sent_to_remote'),
                     emqx_connector_mqtt_msg:to_remote_msg(Message, Vars)
                 end,
     ?LOG(debug, "publish to remote broker, msg: ~p, vars: ~p", [Batch, Vars]),
@@ -464,6 +465,8 @@ drop_acked_batches(Q, [#{send_ack_ref := Refs,
             All
     end.
 
+subscribe_local_topic(undefined, _Name) ->
+    ok;
 subscribe_local_topic(Topic, Name) ->
     do_subscribe(Topic, Name).
 
@@ -487,7 +490,7 @@ disconnect(#{connection := Conn} = State) when Conn =/= undefined ->
     emqx_connector_mqtt_mod:stop(Conn),
     State#{connection => undefined};
 disconnect(State) ->
-        State.
+    State.
 
 %% Called only when replayq needs to dump it to disk.
 msg_marshaller(Bin) when is_binary(Bin) -> emqx_connector_mqtt_msg:from_binary(Bin);
@@ -502,19 +505,9 @@ name(Id) -> list_to_atom(str(Id)).
 
 register_metrics() ->
     lists:foreach(fun emqx_metrics:ensure/1,
-                  ['bridge.mqtt.message_sent',
-                   'bridge.mqtt.message_received'
+                  ['bridge.mqtt.message_sent_to_remote',
+                   'bridge.mqtt.message_received_from_remote'
                   ]).
-
-bridges_metrics_inc(true, Metric) ->
-    emqx_metrics:inc(Metric);
-bridges_metrics_inc(_IsRecordMetric, _Metric) ->
-    ok.
-
-bridges_metrics_inc(true, Metric, Value) ->
-    emqx_metrics:inc(Metric, Value);
-bridges_metrics_inc(_IsRecordMetric, _Metric, _Value) ->
-    ok.
 
 obfuscate(Map) ->
     maps:fold(fun(K, V, Acc) ->
