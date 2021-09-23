@@ -19,27 +19,6 @@
 -export([definitions/0]).
 
 definitions() ->
-    RetruenedSources = #{
-        allOf => [ #{type => object,
-                     properties => #{
-                        annotations => #{
-                            type => object,
-                            required => [status],
-                            properties => #{
-                                id => #{
-                                    type => string
-                                },
-                                status => #{
-                                    type => string,
-                                    example => <<"healthy">>
-                                }
-                            }
-                        }
-                     }
-                   }
-                 , minirest:ref(<<"sources">>)
-                 ]
-    },
     Sources = #{
         oneOf => [ minirest:ref(<<"http">>)
                  , minirest:ref(<<"mongo_single">>)
@@ -493,8 +472,7 @@ definitions() ->
             }
         }
     },
-    [ #{<<"returned_sources">> => RetruenedSources}
-    , #{<<"sources">> => Sources}
+    [ #{<<"sources">> => Sources}
     , #{<<"ssl">> => SSL}
     , #{<<"http">> => HTTP}
     , #{<<"mongo_single">> => MongoSingle}

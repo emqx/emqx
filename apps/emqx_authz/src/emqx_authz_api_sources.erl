@@ -35,16 +35,9 @@
           rules => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
                    }).
 
--define(EXAMPLE_RETURNED_REDIS,
-        maps:put(annotations, #{status => healthy}, ?EXAMPLE_REDIS)
-        ).
--define(EXAMPLE_RETURNED_FILE,
-        maps:put(annotations, #{status => healthy}, ?EXAMPLE_FILE)
-        ).
-
 -define(EXAMPLE_RETURNED,
-        #{sources => [ ?EXAMPLE_RETURNED_REDIS
-                     , ?EXAMPLE_RETURNED_FILE
+        #{sources => [ ?EXAMPLE_REDIS
+                     , ?EXAMPLE_FILE
                      ]
         }).
 
@@ -76,7 +69,7 @@ sources_api() ->
                                 required => [sources],
                                 properties => #{sources => #{
                                                   type => array,
-                                                  items => minirest:ref(<<"returned_sources">>)
+                                                  items => minirest:ref(<<"sources">>)
                                                  }
                                                }
                             },
@@ -122,7 +115,7 @@ sources_api() ->
                     'application/json' => #{
                         schema => #{
                             type => array,
-                            items => minirest:ref(<<"returned_sources">>)
+                            items => minirest:ref(<<"sources">>)
                         },
                         examples => #{
                             redis => #{
@@ -164,15 +157,15 @@ source_api() ->
                     description => <<"OK">>,
                     content => #{
                         'application/json' => #{
-                            schema => minirest:ref(<<"returned_sources">>),
+                            schema => minirest:ref(<<"sources">>),
                             examples => #{
                                 redis => #{
                                     summary => <<"Redis">>,
-                                    value => jsx:encode(?EXAMPLE_RETURNED_REDIS)
+                                    value => jsx:encode(?EXAMPLE_REDIS)
                                 },
                                 file => #{
                                     summary => <<"File">>,
-                                    value => jsx:encode(?EXAMPLE_RETURNED_FILE)
+                                    value => jsx:encode(?EXAMPLE_FILE)
                                 }
                             }
                          }
@@ -302,26 +295,16 @@ sources(get, _) ->
                                       {ok, Rules} ->
                                           lists:append(AccIn, [#{type => file,
                                                                  enable => Enable,
-                                                                 rules => Rules,
-                                                                 annotations => #{status => healthy}
+                                                                 rules => Rules
                                                                 }]);
                                       {error, _} ->
                                           lists:append(AccIn, [#{type => file,
                                                                  enable => Enable,
-                                                                 rules => <<"">>,
-                                                                 annotations => #{status => unhealthy}
+                                                                 rules => <<"">>
                                                                 }])
                                   end;
-                              (#{type := DB, enable := true} = Source, AccIn) ->
-                                  NSource = case emqx_resource:health_check(emqx_authz:gen_id(DB)) of
-                                      ok ->
-                                          Source#{annotations => #{status => healthy}};
-                                      _ ->
-                                          Source#{annotations => #{status => unhealthy}}
-                                  end,
-                                  lists:append(AccIn, [read_cert(NSource)]);
-                              (#{enable := false} = Source, AccIn) ->
-                                  lists:append(AccIn, [Source#{annotations => #{status => unhealthy}}])
+                              (Source, AccIn) ->
+                                  lists:append(AccIn, [read_cert(Source)])
                           end, [], get_raw_sources()),
     {200, #{sources => Sources}};
 sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
@@ -348,24 +331,15 @@ source(get, #{bindings := #{type := Type}}) ->
                 {ok, Rules} ->
                     {200, #{type => file,
                             enable => Enable,
-                            rules => Rules,
-                            annotations => #{status => healthy}
+                            rules => Rules
                            }
                     };
                 {error, Reason} ->
                     {400, #{code => <<"BAD_REQUEST">>,
                             message => atom_to_binary(Reason)}}
             end;
-        [#{type := DB, enable := true} = Source] ->
-            NSource = case emqx_resource:health_check(emqx_authz:gen_id(DB)) of
-                ok ->
-                    Source#{annotations => #{status => healthy}};
-                _ ->
-                    Source#{annotations => #{status => unhealthy}}
-            end,
-            {200, read_cert(NSource)};
-        [#{enable := false} = Source] ->
-            {200, Source#{annotations => #{status => unhealthy}}}
+        [Source] ->
+            {200, read_cert(Source)}
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
     {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
