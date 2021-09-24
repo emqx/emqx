@@ -106,14 +106,14 @@ stop() ->
 %%--------------------------------------------------------------------
 
 init(_Opts) ->
-    case get_config(enable) of
-        true -> load();
-        false -> ok
-    end,
-    case get_config(init_file) of
-        undefined -> ok;
-        BootFile -> import_psks(BootFile)
-    end,
+    _ = case get_config(enable) of
+            true -> load();
+            false -> ok
+        end,
+    _ = case get_config(init_file) of
+            undefined -> ok;
+            InitFile -> import_psks(InitFile)
+        end,
     {ok, #{}}.
 
 handle_call({import, SrcFile}, _From, State) ->
