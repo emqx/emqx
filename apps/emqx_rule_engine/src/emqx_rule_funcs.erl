@@ -17,6 +17,8 @@
 -module(emqx_rule_funcs).
 
 -include("rule_engine.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% IoT Funcs
 -export([ msgid/0
@@ -36,6 +38,8 @@
         , contains_topic_match/2
         , contains_topic_match/3
         , null/0
+        , republish/3
+        , republish/4
         ]).
 
 %% Arithmetic Funcs
@@ -304,6 +308,22 @@ find_topic_filter(Filter, TopicFilters, Func) ->
 
 null() ->
     undefined.
+
+republish(Topic, Payload, Qos) ->
+    republish(Topic, Payload, Qos, false).
+
+republish(Topic, Payload, Qos, Retain) ->
+    Msg = #message{
+            id = emqx_guid:gen(),
+            qos = Qos,
+            from = republish_function,
+            flags = #{retain => Retain},
+            headers = #{},
+            topic = Topic,
+            payload = Payload,
+            timestamp = erlang:system_time(millisecond)
+        },
+    emqx_broker:safe_publish(Msg).
 
 %%------------------------------------------------------------------------------
 %% Arithmetic Funcs
