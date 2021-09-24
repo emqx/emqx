@@ -77,7 +77,7 @@ t_get_set_chan_stats(_) ->
 
 t_open_session(_) ->
     ok = meck:new(emqx_connection, [passthrough, no_history]),
-    ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
+    ok = meck:expect(emqx_connection, call, fun(_, _, _) -> ok end),
 
     ClientInfo = #{zone => external,
                    clientid => <<"clientid">>,
@@ -153,14 +153,14 @@ t_open_session_race_condition(_) ->
 
 t_discard_session(_) ->
     ok = meck:new(emqx_connection, [passthrough, no_history]),
-    ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
+    ok = meck:expect(emqx_connection, call, fun(_, _, _) -> ok end),
     ok = emqx_cm:discard_session(<<"clientid">>),
     ok = emqx_cm:register_channel(<<"clientid">>, ?ChanInfo, []),
     ok = emqx_cm:discard_session(<<"clientid">>),
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ok = emqx_cm:register_channel(<<"clientid">>, ?ChanInfo, []),
     ok = emqx_cm:discard_session(<<"clientid">>),
-    ok = meck:expect(emqx_connection, call, fun(_, _) -> error(testing) end),
+    ok = meck:expect(emqx_connection, call, fun(_, _, _) -> error(testing) end),
     ok = emqx_cm:discard_session(<<"clientid">>),
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ok = meck:unload(emqx_connection).
@@ -180,7 +180,7 @@ t_takeover_session(_) ->
 
 t_kick_session(_) ->
     ok = meck:new(emqx_connection, [passthrough, no_history]),
-    ok = meck:expect(emqx_connection, call, fun(_, _) -> test end),
+    ok = meck:expect(emqx_connection, call, fun(_, _, _) -> test end),
     {error, not_found} = emqx_cm:kick_session(<<"clientid">>),
     ok = emqx_cm:register_channel(<<"clientid">>, ?ChanInfo, []),
     test = emqx_cm:kick_session(<<"clientid">>),
