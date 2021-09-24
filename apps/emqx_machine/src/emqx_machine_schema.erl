@@ -54,6 +54,7 @@
         , emqx_rule_engine_schema
         , emqx_exhook_schema
         , emqx_psk_schema
+        , emqx_limiter_schema
         ]).
 
 namespace() -> undefined.
