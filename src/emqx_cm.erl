@@ -88,6 +88,8 @@
 %% Batch drain
 -define(BATCH_SIZE, 100000).
 
+-define(T_TAKEOVER, 15000).
+
 %% Server name
 -define(CM, ?MODULE).
 
@@ -222,7 +224,7 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                       case takeover_session(ClientId) of
                           {ok, ConnMod, ChanPid, Session} ->
                               ok = emqx_session:resume(ClientInfo, Session),
-                              Pendings = ConnMod:call(ChanPid, {takeover, 'end'}),
+                              Pendings = ConnMod:call(ChanPid, {takeover, 'end'}, ?T_TAKEOVER),
                               register_channel_(ClientId, Self, ConnInfo),
                               {ok, #{session  => Session,
                                      present  => true,
@@ -264,7 +266,7 @@ takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
         undefined ->
             {error, not_found};
         ConnMod when is_atom(ConnMod) ->
-            Session = ConnMod:call(ChanPid, {takeover, 'begin'}),
+            Session = ConnMod:call(ChanPid, {takeover, 'begin'}, ?T_TAKEOVER),
             {ok, ConnMod, ChanPid, Session}
     end;
 
@@ -277,24 +279,35 @@ discard_session(ClientId) when is_binary(ClientId) ->
     case lookup_channels(ClientId) of
         [] -> ok;
         ChanPids ->
-            lists:foreach(
-              fun(ChanPid) ->
-                      try
-                          discard_session(ClientId, ChanPid)
-                      catch
-                          _:{noproc,_}:_Stk -> ok;
-                          _:{{shutdown,_},_}:_Stk -> ok;
-                          _:Error:_Stk ->
-                              ?LOG(error, "Failed to discard ~0p: ~0p", [ChanPid, Error])
-                      end
-              end, ChanPids)
+            lists:foreach(fun(Pid) -> do_discard_session(ClientId, Pid) end, ChanPids)
+    end.
+
+do_discard_session(ClientId, Pid) ->
+    try
+        discard_session(ClientId, Pid)
+    catch
+        _ : noproc -> % emqx_ws_connection: call
+            ?LOG(debug, "session_already_gone: ~p", [Pid]),
+            ok;
+        _ : {noproc, _} -> % emqx_connection: gen_server:call
+            ?LOG(debug, "session_already_gone: ~p", [Pid]),
+            ok;
+        _ : {'EXIT', {noproc, _}} -> % rpc_call/3
+            ?LOG(debug, "session_already_gone: ~p", [Pid]),
+            ok;
+        _ : {{shutdown, _}, _} ->
+            ?LOG(debug, "session_already_shutdown: ~p", [Pid]),
+            ok;
+        _ : Error : St ->
+            ?LOG(debug, "failed_to_discard_session: ~p, "
+                        "error: ~p, stacktrace: ~0p", [Pid, Error, St])
     end.
 
 discard_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chann_conn_mod(ClientId, ChanPid) of
         undefined -> ok;
         ConnMod when is_atom(ConnMod) ->
-            ConnMod:call(ChanPid, discard)
+            ConnMod:call(ChanPid, discard, ?T_TAKEOVER)
     end;
 
 discard_session(ClientId, ChanPid) ->
@@ -317,7 +330,7 @@ kick_session(ClientId) ->
 kick_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chan_info(ClientId, ChanPid) of
         #{conninfo := #{conn_mod := ConnMod}} ->
-            ConnMod:call(ChanPid, kick);
+            ConnMod:call(ChanPid, kick, ?T_TAKEOVER);
         undefined ->
             {error, not_found}
     end;
@@ -361,7 +374,7 @@ lookup_channels(local, ClientId) ->
 
 %% @private
 rpc_call(Node, Fun, Args) ->
-    case rpc:call(Node, ?MODULE, Fun, Args) of
+    case rpc:call(Node, ?MODULE, Fun, Args, 2 * ?T_TAKEOVER) of
         {badrpc, Reason} -> error(Reason);
         Res -> Res
     end.
