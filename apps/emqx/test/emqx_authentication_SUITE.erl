@@ -236,6 +236,9 @@ t_update_config(Config) when is_list(Config) ->
     ?assertMatch({ok, _}, update_config([authentication], {delete_authenticator, Global, ID1})),
     ?assertEqual({error, {not_found, {authenticator, ID1}}}, ?AUTHN:lookup_authenticator(Global, ID1)),
 
+    ?assertMatch({ok, _}, update_config([authentication], {delete_authenticator, Global, ID2})),
+    ?assertEqual({error, {not_found, {authenticator, ID2}}}, ?AUTHN:lookup_authenticator(Global, ID2)),
+
     ListenerID = 'tcp:default',
     ConfKeyPath = [listeners, tcp, default, authentication],
     ?assertMatch({ok, _}, update_config(ConfKeyPath, {create_authenticator, ListenerID, AuthenticatorConfig1})),
