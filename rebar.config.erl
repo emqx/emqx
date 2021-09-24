@@ -272,7 +272,6 @@ relx_apps(ReleaseType) ->
     , emqx_exhook
     , emqx_bridge
     , emqx_rule_engine
-    , emqx_rule_actions
     , emqx_modules
     , emqx_management
     , emqx_dashboard
