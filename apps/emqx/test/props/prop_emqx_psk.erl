@@ -33,7 +33,7 @@ prop_lookup() ->
     ?ALL({ClientPSKID, UserState},
          {client_pskid(), user_state()},
          begin
-             case emqx_psk:lookup(psk, ClientPSKID, UserState) of
+             case emqx_tls_psk:lookup(psk, ClientPSKID, UserState) of
                  {ok, _Result} -> true;
                  error -> true;
                  _Other -> false

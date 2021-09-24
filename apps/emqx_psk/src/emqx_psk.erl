@@ -106,11 +106,11 @@ stop() ->
 %%--------------------------------------------------------------------
 
 init(_Opts) ->
-    case is_enable() of
+    case get_config(enable) of
         true -> load();
         false -> ok
     end,
-    case init_file() of
+    case get_config(init_file) of
         undefined -> ok;
         BootFile -> import_psks(BootFile)
     end,
@@ -142,13 +142,11 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-is_enable() ->
-    emqx_config:get([psk, enable]).
-
-init_file() ->
-    emqx_config:get([psk, init_file], undefined).
-
-separator() ->
+get_config(enable) ->
+    emqx_config:get([psk, enable]);
+get_config(init_file) ->
+    emqx_config:get([psk, init_file], undefined);
+get_config(separator) ->
     emqx_config:get([psk, separator], ?DEFAULT_DELIMITER).
 
 import_psks(SrcFile) ->
@@ -156,10 +154,10 @@ import_psks(SrcFile) ->
         {error, Reason} ->
             {error, Reason};
         {ok, Io} ->
-            case Result = import_psks(Io, separator()) of
+            case Result = import_psks(Io, get_config(separator)) of
                 ok -> ignore;
                 {error, Reason} ->
-                    ?LOG("Failed to import psk from ~s due to ~p", [SrcFile, Reason])
+                    ?LOG(warning, "Failed to import psk from ~s due to ~p", [SrcFile, Reason])
             end,
             _ = file:close(Io),
             Result
