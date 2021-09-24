@@ -52,7 +52,8 @@ fields(file) ->
                                         true -> ok;
                                         _ -> {error, "File does not exist"}
                                       end
-                            end
+                            end,
+               desc => "Path to the file which contains the ACL rules."
               }}
     ];
 fields(http_get) ->
