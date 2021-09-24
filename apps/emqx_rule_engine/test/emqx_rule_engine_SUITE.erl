@@ -79,8 +79,8 @@ groups() ->
        t_create_existing_rule,
        t_update_rule,
        t_disable_rule,
-       t_get_rules_for,
-       t_get_rules_for_2,
+       t_get_rules_for_topic,
+       t_get_rules_for_topic_2,
        t_get_rules_with_same_event,
        t_add_get_remove_action,
        t_add_get_remove_actions,
@@ -650,12 +650,12 @@ t_disable_rule(_Config) ->
     ?assert(DAt3 < Now3),
     ok = emqx_rule_engine:delete_rule(<<"simple_rule_2">>).
 
-t_get_rules_for(_Config) ->
-    Len0 = length(emqx_rule_registry:get_rules_for(<<"simple/topic">>)),
+t_get_rules_for_topic(_Config) ->
+    Len0 = length(emqx_rule_registry:get_rules_for_topic(<<"simple/topic">>)),
     ok = emqx_rule_registry:add_rules(
             [make_simple_rule(<<"rule-debug-1">>),
              make_simple_rule(<<"rule-debug-2">>)]),
-    ?assertEqual(Len0+2, length(emqx_rule_registry:get_rules_for(<<"simple/topic">>))),
+    ?assertEqual(Len0+2, length(emqx_rule_registry:get_rules_for_topic(<<"simple/topic">>))),
     ok = emqx_rule_registry:remove_rules([<<"rule-debug-1">>, <<"rule-debug-2">>]),
     ok.
 
@@ -672,8 +672,8 @@ t_get_rules_ordered_by_ts(_Config) ->
         #rule{id = <<"rule-debug-2">>}
     ], emqx_rule_registry:get_rules_ordered_by_ts()).
 
-t_get_rules_for_2(_Config) ->
-    Len0 = length(emqx_rule_registry:get_rules_for(<<"simple/1">>)),
+t_get_rules_for_topic_2(_Config) ->
+    Len0 = length(emqx_rule_registry:get_rules_for_topic(<<"simple/1">>)),
     ok = emqx_rule_registry:add_rules(
             [make_simple_rule(<<"rule-debug-1">>, <<"select * from \"simple/#\"">>, [<<"simple/#">>]),
              make_simple_rule(<<"rule-debug-2">>, <<"select * from \"simple/+\"">>, [<<"simple/+">>]),
@@ -682,7 +682,7 @@ t_get_rules_for_2(_Config) ->
              make_simple_rule(<<"rule-debug-5">>, <<"select * from \"simple/2,simple/+,simple/3\"">>, [<<"simple/2">>,<<"simple/+">>, <<"simple/3">>]),
              make_simple_rule(<<"rule-debug-6">>, <<"select * from \"simple/2,simple/3,simple/4\"">>, [<<"simple/2">>,<<"simple/3">>, <<"simple/4">>])
              ]),
-    ?assertEqual(Len0+4, length(emqx_rule_registry:get_rules_for(<<"simple/1">>))),
+    ?assertEqual(Len0+4, length(emqx_rule_registry:get_rules_for_topic(<<"simple/1">>))),
     ok = emqx_rule_registry:remove_rules([<<"rule-debug-1">>, <<"rule-debug-2">>,<<"rule-debug-3">>, <<"rule-debug-4">>,<<"rule-debug-5">>, <<"rule-debug-6">>]),
     ok.
 

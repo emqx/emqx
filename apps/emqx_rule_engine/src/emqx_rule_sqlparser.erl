@@ -18,7 +18,7 @@
 
 -include("rule_engine.hrl").
 
--export([parse_select/1]).
+-export([parse/1]).
 
 -export([ select_fields/1
         , select_is_foreach/1
@@ -50,12 +50,12 @@
 
 %% Dialyzer gives up on the generated code.
 %% probably due to stack depth, or inlines.
--dialyzer({nowarn_function, [parse_select/1]}).
+-dialyzer({nowarn_function, [parse/1]}).
 
 %% Parse one select statement.
--spec(parse_select(string() | binary())
+-spec(parse(string() | binary())
       -> {ok, select()} | {parse_error, term()} | {lex_error, term()}).
-parse_select(Sql) ->
+parse(Sql) ->
     try case rulesql:parsetree(Sql) of
             {ok, {select, Clauses}} ->
                 {ok, #select{

@@ -14,21 +14,19 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_rule_locker).
+%% Define the default actions.
+-module(emqx_rule_outputs).
+-include_lib("emqx/include/logger.hrl").
 
--export([start_link/0]).
-
--export([ lock/1
-        , unlock/1
+-export([ console/2
+        , get_selected_data/2
         ]).
 
-start_link() ->
-    ekka_locker:start_link(?MODULE).
+-spec console(map(), map()) -> any().
+console(Selected, #{metadata := #{rule_id := RuleId}} = Envs) ->
+    ?ULOG("[rule output] ~s~n"
+          "\tOutput Data: ~p~n"
+          "\tEnvs: ~p~n", [RuleId, Selected, Envs]).
 
--spec(lock(binary()) -> ekka_locker:lock_result()).
-lock(Id) ->
-    ekka_locker:acquire(?MODULE, Id, local).
-
--spec(unlock(binary()) -> {boolean(), [node()]}).
-unlock(Id) ->
-    ekka_locker:release(?MODULE, Id, local).
+get_selected_data(Selected, _Envs) ->
+     Selected.

@@ -38,7 +38,7 @@ end_per_testcase(_TestCase, Config) ->
 % t_start_link(_) ->
 %     error('TODO').
 
-% t_get_rules_for(_) ->
+% t_get_rules_for_topic(_) ->
 %     error('TODO').
 
 % t_add_rules(_) ->
