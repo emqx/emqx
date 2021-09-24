@@ -146,7 +146,6 @@ reboot_apps() ->
     , emqx_management
     , emqx_retainer
     , emqx_exhook
-    , emqx_rule_actions
     , emqx_authn
     , emqx_authz
     ].

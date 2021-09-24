@@ -26,5 +26,4 @@ start(_Type, _Args) ->
     emqx_rule_engine_sup:start_link().
 
 stop(_State) ->
-    ok = emqx_rule_events:unload(),
-    ok = emqx_rule_engine_cli:unload().
+    ok = emqx_rule_events:unload().
