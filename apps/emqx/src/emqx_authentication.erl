@@ -303,7 +303,7 @@ authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthRe
 
 do_authenticate([], _) ->
     {stop, {error, not_authorized}};
-do_authenticate([#authenticator{provider = Provider, state = #{'_unique' := Unique} = State} | More], Credential) ->
+do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | More], Credential) ->
     try Provider:authenticate(Credential, State) of
         ignore ->
             do_authenticate(More, Credential);
@@ -316,7 +316,7 @@ do_authenticate([#authenticator{provider = Provider, state = #{'_unique' := Uniq
             {stop, Result}
     catch
         error:Reason:Stacktrace ->
-            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, {Reason, Stacktrace}]),
+            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [ID, {Reason, Stacktrace}]),
             do_authenticate(More, Credential)
     end.
 
