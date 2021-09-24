@@ -25,8 +25,8 @@ defmodule EMQX.MixProject do
 
   defp deps do
     [
-      {:gproc, "~> 0.9"},
-      {:recon, "~> 2.5"},
+      {:gproc, "0.9.0"},
+      {:recon, "2.5.2"},
       {:cowboy, github: "emqx/cowboy", tag: "2.8.2"},
       {:esockd, github: "emqx/esockd", tag: "5.8.0"},
       {:ekka, github: "emqx/ekka", tag: "0.10.8"},

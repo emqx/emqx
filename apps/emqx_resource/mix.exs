@@ -24,8 +24,8 @@ defmodule EMQXResource.MixProject do
 
   defp deps do
     [
-      {:jsx, "~> 3.1"},
-      {:gproc, "~> 0.9"},
+      {:jsx, "3.1.0"},
+      {:gproc, "0.9.0"},
       {:hocon, github: "emqx/hocon"}
     ]
   end

@@ -23,7 +23,7 @@ defmodule EMQXReleaseHelper.MixProject do
 
   defp deps do
     [
-      {:bbmustache, "~> 1.12"}
+      {:bbmustache, "1.12.1"}
     ]
   end
 end

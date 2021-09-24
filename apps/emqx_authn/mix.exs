@@ -32,7 +32,7 @@ defmodule EMQXAuthn.MixProject do
       {:esasl, github: "emqx/esasl", tag: "0.1.0"},
       {:epgsql, github: "epgsql/epgsql", tag: "4.4.0"},
       {:mysql, github: "emqx/mysql-otp", tag: "1.7.1"},
-      {:jose, "~> 1.11"}
+      {:jose, "1.11.2"}
     ]
   end
 end
