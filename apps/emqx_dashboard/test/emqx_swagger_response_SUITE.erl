@@ -12,7 +12,7 @@
 
 -export([all/0, suite/0, groups/0]).
 -export([paths/0, api_spec/0, schema/1, fields/1]).
--export([t_simple_binary/1, t_object/1, t_nest_object/1, t_empty/1,
+-export([t_simple_binary/1, t_object/1, t_nest_object/1, t_empty/1, t_error/1,
     t_raw_local_ref/1, t_raw_remote_ref/1, t_hocon_schema_function/1,
     t_local_ref/1, t_remote_ref/1, t_bad_ref/1, t_none_ref/1, t_nest_ref/1,
     t_ref_array_with_key/1, t_ref_array_without_key/1, t_api_spec/1]).
@@ -21,7 +21,7 @@ all() -> [{group, spec}].
 suite() -> [{timetrap, {minutes, 1}}].
 groups() -> [
     {spec, [parallel], [
-        t_api_spec, t_simple_binary, t_object, t_nest_object,
+        t_api_spec, t_simple_binary, t_object, t_nest_object, t_error,
         t_raw_local_ref, t_raw_remote_ref, t_empty, t_hocon_schema_function,
         t_local_ref, t_remote_ref, t_bad_ref, t_none_ref,
         t_ref_array_with_key, t_ref_array_without_key, t_nest_ref]}
@@ -46,6 +46,33 @@ t_object(_config) ->
             <<"type">> => object}}}},
     ExpectRefs = [{?MODULE, good_ref}],
     validate(Path, Object, ExpectRefs),
+    ok.
+
+t_error(_Config) ->
+    Path = "/error",
+    Error400 = #{<<"content">> =>
+    #{<<"application/json">> => #{<<"schema">> => #{<<"type">> => object,
+        <<"properties">> =>
+        [
+            {<<"code">>, #{enum => ['Bad1','Bad2'], type => string}},
+            {<<"message">>, #{description => <<"Details description of the error.">>,
+                example => <<"Bad request desc">>, type => string}}]
+    }}}},
+    Error404 = #{<<"content">> =>
+    #{<<"application/json">> => #{<<"schema">> => #{<<"type">> => object,
+        <<"properties">> =>
+        [
+            {<<"code">>, #{enum => ['Not-Found'], type => string}},
+            {<<"message">>, #{description => <<"Details description of the error.">>,
+                example => <<"Error code to troubleshoot problems.">>, type => string}}]
+    }}}},
+    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
+    ?assertEqual(test, OperationId),
+    Response = maps:get(responses, maps:get(get, Spec)),
+    ?assertEqual(Error400, maps:get(<<"400">>, Response)),
+    ?assertEqual(Error404, maps:get(<<"404">>, Response)),
+    ?assertEqual(#{}, maps:without([<<"400">>, <<"404">>], Response)),
+    ?assertEqual([], Refs),
     ok.
 
 t_nest_object(_Config) ->
@@ -255,7 +282,15 @@ schema("/ref/array/with/key") ->
 schema("/ref/array/without/key") ->
     to_schema(mk(hoconsc:array(hoconsc:ref(?MODULE, good_ref)), #{}));
 schema("/ref/hocon/schema/function") ->
-    to_schema(mk(hoconsc:ref(emqx_swagger_remote_schema, "root"), #{})).
+    to_schema(mk(hoconsc:ref(emqx_swagger_remote_schema, "root"), #{}));
+schema("/error") ->
+    #{
+        operationId => test,
+        get => #{responses => #{
+            400 => emqx_dashboard_swagger:error_codes(['Bad1', 'Bad2'], <<"Bad request desc">>),
+            404 => emqx_dashboard_swagger:error_codes(['Not-Found'])
+        }}
+    }.
 
 validate(Path, ExpectObject, ExpectRefs) ->
     {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),

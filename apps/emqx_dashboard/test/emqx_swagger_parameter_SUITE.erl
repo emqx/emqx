@@ -4,7 +4,7 @@
 
 %% API
 -export([paths/0, api_spec/0, schema/1, fields/1]).
--export([t_in_path/1, t_in_query/1, t_in_mix/1, t_without_in/1, t_ref/1]).
+-export([t_in_path/1, t_in_query/1, t_in_mix/1, t_without_in/1, t_ref/1, t_public_ref/1]).
 -export([t_require/1, t_nullable/1, t_method/1, t_api_spec/1]).
 -export([t_in_path_trans/1, t_in_query_trans/1, t_in_mix_trans/1, t_ref_trans/1]).
 -export([t_in_path_trans_error/1, t_in_query_trans_error/1, t_in_mix_trans_error/1]).
@@ -21,7 +21,7 @@ all() -> [{group, spec}, {group, validation}].
 suite() -> [{timetrap, {minutes, 1}}].
 groups() -> [
     {spec, [parallel], [t_api_spec, t_in_path, t_ref, t_in_query, t_in_mix,
-        t_without_in, t_require, t_nullable, t_method]},
+        t_without_in, t_require, t_nullable, t_method, t_public_ref]},
     {validation, [parallel], [t_in_path_trans, t_ref_trans, t_in_query_trans, t_in_mix_trans,
         t_in_path_trans_error, t_in_query_trans_error, t_in_mix_trans_error]}
 ].
@@ -54,6 +54,29 @@ t_ref(_Config) ->
     Params = maps:get(parameters, maps:get(post, Spec)),
     ?assertEqual(Expect, Params),
     ?assertEqual([{?MODULE, page, parameter}], Refs),
+    ok.
+
+t_public_ref(_Config) ->
+    Path = "/test/in/ref/public",
+    Expect = [
+        #{<<"$ref">> => <<"#/components/parameters/public.page">>},
+        #{<<"$ref">> => <<"#/components/parameters/public.limit">>}
+        ],
+    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
+    ?assertEqual(test, OperationId),
+    Params = maps:get(parameters, maps:get(post, Spec)),
+    ?assertEqual(Expect, Params),
+    ?assertEqual([
+        {emqx_dashboard_swagger, limit, parameter},
+        {emqx_dashboard_swagger, page, parameter}
+    ], Refs),
+    ExpectRefs = [
+        #{<<"public.limit">> => #{description => <<"Results per page(max 100)">>, example => 50,in => query,name => limit,
+            schema => #{default => 100,example => 1,maximum => 100, minimum => 1,type => integer}}},
+        #{<<"public.page">> => #{description => <<"Page number of the results to fetch.">>,
+            example => 1,in => query,name => page,
+            schema => #{default => 1,example => 100,type => integer}}}],
+    ?assertEqual(ExpectRefs, emqx_dashboard_swagger:components(Refs)),
     ok.
 
 t_in_mix(_Config) ->
@@ -250,6 +273,17 @@ schema("/test/in/ref") ->
         operationId => test,
         post => #{
             parameters => [hoconsc:ref(?MODULE, page)],
+            responses => #{200 => <<"ok">>}
+        }
+    };
+schema("/test/in/ref/public") ->
+    #{
+        operationId => test,
+        post => #{
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, page),
+                hoconsc:ref(emqx_dashboard_swagger, limit)
+            ],
             responses => #{200 => <<"ok">>}
         }
     };

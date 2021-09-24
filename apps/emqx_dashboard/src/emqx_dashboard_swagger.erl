@@ -6,6 +6,11 @@
 %% API
 -export([spec/1, spec/2]).
 -export([translate_req/2]).
+-export([namespace/0, fields/1]).
+-export([error_codes/1, error_codes/2]).
+-define(MAX_ROW_LIMIT, 100).
+
+%% API
 
 -ifdef(TEST).
 -compile(export_all).
@@ -72,6 +77,30 @@ translate_req(Request, #{module := Module, path := Path, method := Method}) ->
         #{path := Key, reason := Reason} = ValidErr,
         {400, 'BAD_REQUEST', iolist_to_binary(io_lib:format("~s : ~p", [Key, Reason]))}
     end.
+
+namespace() -> "public".
+
+fields(page) ->
+    Desc = <<"Page number of the results to fetch.">>,
+    Meta = #{in => query, desc => Desc, default => 1, example => 1},
+    [{page, hoconsc:mk(integer(), Meta)}];
+fields(limit) ->
+    Desc = iolist_to_binary([<<"Results per page(max ">>,
+        integer_to_binary(?MAX_ROW_LIMIT), <<")">>]),
+    Meta = #{in => query, desc => Desc, default => ?MAX_ROW_LIMIT, example => 50},
+    [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}].
+
+error_codes(Codes) ->
+    error_codes(Codes, <<"Error code to troubleshoot problems.">>).
+
+error_codes(Codes = [_ | _], MsgExample) ->
+    [
+        {code, hoconsc:mk(hoconsc:enum(Codes))},
+        {message, hoconsc:mk(string(), #{
+            desc => <<"Details description of the error.">>,
+            example => MsgExample
+        })}
+    ].
 
 support_check_schema(#{check_schema := true}) -> ?DEFAULT_FILTER;
 support_check_schema(#{check_schema := Func})when is_function(Func, 2) -> #{filter => Func};

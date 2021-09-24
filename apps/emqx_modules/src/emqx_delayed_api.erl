@@ -68,7 +68,7 @@ schema("/mqtt/delayed") ->
             responses => #{
                 200 => mk(ref(emqx_modules_schema, "delayed"),
                     #{desc => <<"Enable or disable delayed successfully">>}),
-                400 => emqx_swagger:error_codes([?BAD_REQUEST], <<"Max limit illegality">>)
+                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Max limit illegality">>)
             }
         }
     };
@@ -81,8 +81,8 @@ schema("/mqtt/delayed/messages/:msgid") ->
             parameters => [{msgid, mk(binary(), #{in => path, desc => <<"delay message ID">>})}],
             responses => #{
                 200 => ref("message_without_payload"),
-                400 => emqx_swagger:error_codes([?MESSAGE_ID_SCHEMA_ERROR], <<"Bad MsgId format">>),
-                404 => emqx_swagger:error_codes([?MESSAGE_ID_NOT_FOUND], <<"MsgId not found">>)
+                400 => emqx_dashboard_swagger:error_codes([?MESSAGE_ID_SCHEMA_ERROR], <<"Bad MsgId format">>),
+                404 => emqx_dashboard_swagger:error_codes([?MESSAGE_ID_NOT_FOUND], <<"MsgId not found">>)
             }
         },
         delete => #{
@@ -91,8 +91,8 @@ schema("/mqtt/delayed/messages/:msgid") ->
             parameters => [{msgid, mk(binary(), #{in => path, desc => <<"delay message ID">>})}],
             responses => #{
                 200 => <<"Delete delayed message success">>,
-                400 => emqx_swagger:error_codes([?MESSAGE_ID_SCHEMA_ERROR], <<"Bad MsgId format">>),
-                404 => emqx_swagger:error_codes([?MESSAGE_ID_NOT_FOUND], <<"MsgId not found">>)
+                400 => emqx_dashboard_swagger:error_codes([?MESSAGE_ID_SCHEMA_ERROR], <<"Bad MsgId format">>),
+                404 => emqx_dashboard_swagger:error_codes([?MESSAGE_ID_NOT_FOUND], <<"MsgId not found">>)
             }
         }
     };
@@ -102,7 +102,7 @@ schema("/mqtt/delayed/messages") ->
         get => #{
             tags => [<<"mqtt">>],
             description => <<"List delayed messages">>,
-            parameters => [ref(emqx_swagger, page), ref(emqx_swagger, limit)],
+            parameters => [ref(emqx_dashboard_swagger, page), ref(emqx_dashboard_swagger, limit)],
             responses => #{
                 200 =>
                 [
