@@ -188,8 +188,8 @@ check_url(URL) ->
     end.
 
 check_body(Body) ->
-    lists:any(fun({_, V}) ->
-                  not is_binary(V)
+    lists:all(fun({_, V}) ->
+                  is_binary(V)
               end, maps:to_list(Body)).
 
 default_headers() ->
