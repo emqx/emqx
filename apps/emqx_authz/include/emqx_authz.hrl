@@ -49,6 +49,12 @@
         ignore = 'client.authorize.ignore'
     }).
 
+-define(CMD_REPLCAE, replace).
+-define(CMD_DELETE, delete).
+-define(CMD_PREPEND, prepend).
+-define(CMD_APPEND, append).
+-define(CMD_MOVE, move).
+
 -define(METRICS(Type), tl(tuple_to_list(#Type{}))).
 -define(METRICS(Type, K), #Type{}#Type.K).
 

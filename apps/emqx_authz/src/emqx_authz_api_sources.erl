@@ -353,7 +353,7 @@ sources(put, #{body := Body}) when is_list(Body) ->
                     _ -> write_cert(Source)
                 end
               end || Source <- Body],
-    update_config(replace, NBody).
+    update_config(?CMD_REPLCAE, NBody).
 
 source(get, #{bindings := #{type := Type}}) ->
     case get_raw_source(Type) of
@@ -375,16 +375,16 @@ source(get, #{bindings := #{type := Type}}) ->
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
     {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
-    case emqx_authz:update({replace_once, file}, #{type => file, enable => Enable, path => Filename}) of
+    case emqx_authz:update({?CMD_REPLCAE, file}, #{type => file, enable => Enable, path => Filename}) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => bin(Reason)}}
     end;
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
-    update_config({replace_once, Type}, write_cert(Body));
+    update_config({?CMD_REPLCAE, Type}, write_cert(Body));
 source(delete, #{bindings := #{type := Type}}) ->
-    update_config({delete_once, Type}, #{}).
+    update_config({?CMD_DELETE, Type}, #{}).
 
 move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Position}}) ->
     case emqx_authz:move(Type, Position) of

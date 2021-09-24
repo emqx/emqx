@@ -64,50 +64,50 @@ move(Type, Cmd) ->
     move(Type, Cmd, #{}).
 
 move(Type, #{<<"before">> := Before}, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {move, type(Type), #{<<"before">> => type(Before)}}, Opts);
+    emqx:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), #{<<"before">> => type(Before)}}, Opts);
 move(Type, #{<<"after">> := After}, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {move, type(Type), #{<<"after">> => type(After)}}, Opts);
+    emqx:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), #{<<"after">> => type(After)}}, Opts);
 move(Type, Position, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {move, type(Type), Position}, Opts).
+    emqx:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), Position}, Opts).
 
 update(Cmd, Sources) ->
     update(Cmd, Sources, #{}).
 
-update({replace_once, Type}, Sources, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {{replace_once, type(Type)}, Sources}, Opts);
-update({delete_once, Type}, Sources, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {{delete_once, type(Type)}, Sources}, Opts);
+update({replace, Type}, Sources, Opts) ->
+    emqx:update_config(?CONF_KEY_PATH, {{replace, type(Type)}, Sources}, Opts);
+update({delete, Type}, Sources, Opts) ->
+    emqx:update_config(?CONF_KEY_PATH, {{delete, type(Type)}, Sources}, Opts);
 update(Cmd, Sources, Opts) ->
     emqx:update_config(?CONF_KEY_PATH, {Cmd, Sources}, Opts).
 
-do_update({move, Type, <<"top">>}, Conf) when is_list(Conf) ->
+do_update({?CMD_MOVE, Type, <<"top">>}, Conf) when is_list(Conf) ->
     {Source, Front, Rear} = take(Type, Conf),
     [Source | Front] ++ Rear;
-do_update({move, Type, <<"bottom">>}, Conf) when is_list(Conf) ->
+do_update({?CMD_MOVE, Type, <<"bottom">>}, Conf) when is_list(Conf) ->
     {Source, Front, Rear} = take(Type, Conf),
     Front ++ Rear ++ [Source];
-do_update({move, Type, #{<<"before">> := Before}}, Conf) when is_list(Conf) ->
+do_update({?CMD_MOVE, Type, #{<<"before">> := Before}}, Conf) when is_list(Conf) ->
     {S1, Front1, Rear1} = take(Type, Conf),
     {S2, Front2, Rear2} = take(Before, Front1 ++ Rear1),
     Front2 ++ [S1, S2] ++ Rear2;
-do_update({move, Type, #{<<"after">> := After}}, Conf) when is_list(Conf) ->
+do_update({?CMD_MOVE, Type, #{<<"after">> := After}}, Conf) when is_list(Conf) ->
     {S1, Front1, Rear1} = take(Type, Conf),
     {S2, Front2, Rear2} = take(After, Front1 ++ Rear1),
     Front2 ++ [S2, S1] ++ Rear2;
-do_update({head, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
+do_update({?CMD_PREPEND, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
     NConf = Sources ++ Conf,
     ok = check_dup_types(NConf),
     NConf;
-do_update({tail, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
+do_update({?CMD_APPEND, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
     NConf = Conf ++ Sources,
     ok = check_dup_types(NConf),
     NConf;
-do_update({{replace_once, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
+do_update({{replace, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
     {_Old, Front, Rear} = take(Type, Conf),
     NConf = Front ++ [Source | Rear],
     ok = check_dup_types(NConf),
     NConf;
-do_update({{delete_once, Type}, _Source}, Conf) when is_list(Conf) ->
+do_update({{delete, Type}, _Source}, Conf) when is_list(Conf) ->
     {_Old, Front, Rear} = take(Type, Conf),
     NConf = Front ++ Rear,
     NConf;
@@ -125,27 +125,27 @@ post_config_update(Cmd, NewSources, _OldSource, _AppEnvs) ->
     ok = do_post_update(Cmd, NewSources),
     ok = emqx_authz_cache:drain_cache().
 
-do_post_update({move, _Type, _Where} = Cmd, _NewSources) ->
+do_post_update({?CMD_MOVE, _Type, _Where} = Cmd, _NewSources) ->
     InitedSources = lookup(),
     MovedSources = do_update(Cmd, InitedSources),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [MovedSources]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({head, Sources}, _NewSources) ->
+do_post_update({?CMD_PREPEND, Sources}, _NewSources) ->
     InitedSources = init_sources(check_sources(Sources)),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [InitedSources ++ lookup()]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({tail, Sources}, _NewSources) ->
+do_post_update({?CMD_APPEND, Sources}, _NewSources) ->
     InitedSources = init_sources(check_sources(Sources)),
     emqx_hooks:put('client.authorize', {?MODULE, authorize, [lookup() ++ InitedSources]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({{replace_once, Type}, #{type := Type} = Source}, _NewSources) when is_map(Source) ->
+do_post_update({{replace, Type}, #{type := Type} = Source}, _NewSources) when is_map(Source) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     ok = ensure_resource_deleted(OldSource),
     InitedSources = init_sources(check_sources([Source])),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Front ++ InitedSources ++ Rear]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({{delete_once, Type}, _Source}, _NewSources) ->
+do_post_update({{delete, Type}, _Source}, _NewSources) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     ok = ensure_resource_deleted(OldSource),
