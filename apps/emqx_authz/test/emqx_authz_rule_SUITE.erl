@@ -22,11 +22,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(SOURCE1, {deny,  all, all, ["#"]}).
+-define(SOURCE1, {deny,  all}).
 -define(SOURCE2, {allow, {ipaddr,  "127.0.0.1"}, all, [{eq, "#"}, {eq, "+"}]}).
 -define(SOURCE3, {allow, {ipaddrs, ["127.0.0.1", "192.168.1.0/24"]}, subscribe, ["%c"]}).
--define(SOURCE4, {allow, {'and', [{clientid, "^test?"}, {username, "^test?"}]}, publish, ["topic/test"]}).
--define(SOURCE5, {allow, {'or',  [{username, "^test"},  {clientid, "test?"}]},  publish, ["%u", "%c"]}).
+-define(SOURCE4, {allow, {'and', [{client, "test"}, {user, "test"}]}, publish, ["topic/test"]}).
+-define(SOURCE5, {allow, {'or',  [{username, {re, "^test"}},  {clientid, {re, "test?"}}]},  publish, ["%u", "%c"]}).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -52,7 +52,7 @@ t_compile(_) ->
                }, emqx_authz_rule:compile(?SOURCE3)),
 
     ?assertMatch({allow,
-                  {'and', [{clientid, {re_pattern, _, _, _, _}}, {username, {re_pattern, _, _, _, _}}]},
+                  {'and', [{clientid, {eq, <<"test">>}}, {username, {eq, <<"test">>}}]},
                   publish,
                   [[<<"topic">>, <<"test">>]]
                  }, emqx_authz_rule:compile(?SOURCE4)),
