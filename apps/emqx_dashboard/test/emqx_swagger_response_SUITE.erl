@@ -175,7 +175,7 @@ t_hocon_schema_function(_Config) ->
         #{<<"emqx_swagger_remote_schema.ref3">> => #{<<"type">> => object,
             <<"properties">> => [
                 {<<"ip">>, #{description => <<"IP:Port">>, example => <<"127.0.0.1:80">>,type => string}},
-                {<<"version">>, #{description => "a good version", example => <<"1.0.0">>, type => string}}]
+                {<<"version">>, #{description => <<"a good version">>, example => <<"1.0.0">>, type => string}}]
         }},
         #{<<"emqx_swagger_remote_schema.root">> => #{required => [<<"default_password">>, <<"default_username">>],
             <<"properties">> => [{<<"listeners">>, #{items =>
