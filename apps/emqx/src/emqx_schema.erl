@@ -71,7 +71,7 @@
 
 -export([namespace/0, roots/0, roots/1, fields/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
--export([ssl/1]).
+-export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1, default_ciphers/1]).
 
 namespace() -> undefined.
 
@@ -87,23 +87,26 @@ roots(high) ->
       }
     , {"zones",
        sc(map("name", ref("zone")),
-          #{ desc => "A zone is a set of configs grouped by the zone <code>name</code>. <br>"
-                     "For flexible configuration mapping, the <code>name</code> "
-                     "can be set to a listener's <code>zone</code> config.<br>"
-                     "NOTE: A builtin zone named <code>default</code> is auto created "
-                     "and can not be deleted."
+          #{ desc =>
+"""A zone is a set of configs grouped by the zone <code>name</code>.<br>
+For flexible configuration mapping, the <code>name</code>
+can be set to a listener's <code>zone</code> config.<br>
+NOTE: A builtin zone named <code>default</code> is auto created
+and can not be deleted."""
            })}
     , {"mqtt",
        sc(ref("mqtt"),
-         #{ desc => "Global MQTT configuration.<br>"
-                    "The configs here work as default values which can be overriden "
-                    "in <code>zone</code> configs"
+         #{ desc =>
+"""Global MQTT configuration.<br>
+The configs here work as default values which can be overriden
+in <code>zone</code> configs"""
           })}
     , {"authentication",
       sc(hoconsc:lazy(hoconsc:array(map())),
-         #{ desc => "Default authentication configs for all MQTT listeners.<br>"
-                    "For per-listener overrides see <code>authentication</code> "
-                    "in listener configs"
+         #{ desc =>
+"""Default authentication configs for all MQTT listeners.<br>
+For per-listener overrides see <code>authentication</code>
+in listener configs"""
           })}
     , {"authorization",
        sc(ref("authorization"),
@@ -483,7 +486,7 @@ fields("mqtt_wss_listener") ->
           #{})
       }
     , {"ssl",
-       sc(ref("listener_ssl_opts"),
+       sc(ref("listener_wss_opts"),
           #{})
       }
     , {"websocket",
@@ -498,6 +501,7 @@ fields("mqtt_quic_listener") ->
           #{ default => true
            })
       }
+      %% TODO: ensure cacertfile is configurable
     , {"certfile",
        sc(string(),
           #{})
@@ -506,11 +510,7 @@ fields("mqtt_quic_listener") ->
        sc(string(),
           #{})
       }
-    , {"ciphers",
-       sc(comma_separated_list(),
-          #{ default => "TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256,"
-                        "TLS_CHACHA20_POLY1305_SHA256"
-           })}
+    , {"ciphers", ciphers_schema(quic)}
     , {"idle_timeout",
        sc(duration(),
           #{ default => "15s"
@@ -634,12 +634,22 @@ fields("tcp_opts") ->
     ];
 
 fields("listener_ssl_opts") ->
-    ssl(#{handshake_timeout => "15s"
-        , depth => 10
-        , reuse_sessions => true
-        , versions => default_tls_vsns()
-        , ciphers => default_ciphers()
-        });
+    server_ssl_opts_schema(
+      #{ depth => 10
+       , reuse_sessions => true
+       , versions => tcp
+       , ciphers => tcp_all
+       }, false);
+
+fields("listener_wss_opts") ->
+    server_ssl_opts_schema(
+      #{ depth => 10
+       , reuse_sessions => true
+       , versions => tcp
+       , ciphers => tcp_all
+       }, true);
+fields(ssl_client_opts) ->
+    client_ssl_opts_schema(#{});
 
 fields("deflate_opts") ->
     [ {"level",
@@ -902,7 +912,10 @@ conf_get(Key, Conf, Default) ->
 filter(Opts) ->
     [{K, V} || {K, V} <- Opts, V =/= undefined].
 
-ssl(Defaults) ->
+%% @private This function defines the SSL opts which are commonly used by
+%% SSL listener and client.
+-spec common_ssl_opts_schema(map()) -> hocon_schema:field_schema().
+common_ssl_opts_schema(Defaults) ->
     D = fun (Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun (Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
     [ {"enable",
@@ -913,16 +926,39 @@ ssl(Defaults) ->
     , {"cacertfile",
        sc(string(),
           #{ default => D("cacertfile")
+           , nullable => true
+           , desc =>
+"""Trusted PEM format CA certificates bundle file.<br>
+The certificates in this file are used to verify the TLS peer's certificates.
+Append new certificates to the file if new CAs are to be trusted.
+There is no need to restart EMQ X to have the updated file loaded, because
+the system regularly checks if file has been updated (and reload).<br>
+NOTE: invalidating (deleting) a certificate from the file will not affect
+already established connections.
+"""
            })
       }
     , {"certfile",
        sc(string(),
           #{ default => D("certfile")
+           , nullable => true
+           , desc =>
+"""PEM format certificates chain file.<br>
+The certificates in this file should be in reversed order of the certificate
+issue chain. That is, the host's certificate should be placed in the beginning
+of the file, followed by the immediate issuer certificate and so on.
+Although the root CA certificate is optional, it should placed at the end of
+the file if it is to be added.
+"""
            })
       }
     , {"keyfile",
        sc(string(),
           #{ default => D("keyfile")
+           , nullable => true
+           , desc =>
+"""PEM format private key file.<br>
+"""
            })
       }
     , {"verify",
@@ -930,50 +966,9 @@ ssl(Defaults) ->
           #{ default => Df("verify", verify_none)
            })
       }
-    , {"fail_if_no_peer_cert",
-       sc(boolean(),
-          #{ default => Df("fail_if_no_peer_cert", false)
-           })
-      }
-    , {"secure_renegotiate",
-       sc(boolean(),
-          #{ default => Df("secure_renegotiate", true)
-           , desc => """
-SSL parameter renegotiation is a feature that allows a client and a server 
-to renegotiate the parameters of the SSL connection on the fly. 
-RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation, 
-you drop support for the insecure renegotiation, prone to MitM attacks.
-"""
-           })
-      }
-    , {"client_renegotiation",
-       sc(boolean(),
-          #{ default => Df("client_renegotiation", true)
-           , desc => """
-In protocols that support client-initiated renegotiation, 
-the cost of resources of such an operation is higher for the server than the client. 
-This can act as a vector for denial of service attacks. 
-The SSL application already takes measures to counter-act such attempts, 
-but client-initiated renegotiation can be strictly disabled by setting this option to false. 
-The default value is true. Note that disabling renegotiation can result in 
-long-lived connections becoming unusable due to limits on 
-the number of messages the underlying cipher suite can encipher.
-"""
-           })
-      }
     , {"reuse_sessions",
        sc(boolean(),
           #{ default => Df("reuse_sessions", true)
-           })
-      }
-    , {"honor_cipher_order",
-       sc(boolean(),
-          #{ default => Df("honor_cipher_order", true)
-           })
-      }
-    , {"handshake_timeout",
-       sc(duration(),
-          #{ default => Df("handshake_timeout", "15s")
            })
       }
     , {"depth",
@@ -983,50 +978,194 @@ the number of messages the underlying cipher suite can encipher.
       }
     , {"password",
        sc(string(),
-          #{ default => D("key_password")
-           , sensitive => true
-           })
-      }
-    , {"dhfile",
-       sc(string(),
-          #{ default => D("dhfile")
-           })
-      }
-    , {"server_name_indication",
-       sc(hoconsc:union([disable, string()]),
-          #{ default => D("server_name_indication")
+          #{ sensitive => true
+           , nullable => true
+           , desc =>
+"""String containing the user's password. Only used if the private
+keyfile is password-protected."""
            })
       }
     , {"versions",
-       sc(typerefl:alias("string", list(atom())),
-          #{ default => maps:get(versions, Defaults, default_tls_vsns())
-           , converter => fun (Vsns) -> [tls_vsn(iolist_to_binary(V)) || V <- Vsns] end
+       sc(hoconsc:array(typerefl:atom()),
+          #{ default => default_tls_vsns(maps:get(versions, Defaults, tcp))
+           , desc =>
+"""All TLS/DTLS versions to be supported.<br>
+NOTE: PSK ciphers are suppresed by 'tlsv1.3' version config<br>
+In case PSK cipher suites are intended, make sure to configured
+<code>['tlsv1.2', 'tlsv1.1']</code> here.
+"""
            })
       }
-    , {"ciphers",
-       sc(hoconsc:array(string()),
-          #{ default => D("ciphers")
-           })
-      }
-    , {"user_lookup_fun",
+    , {"ciphers", ciphers_schema(D("ciphers"))}
+    , {user_lookup_fun,
        sc(typerefl:alias("string", any()),
           #{ default => "emqx_psk:lookup"
            , converter => fun ?MODULE:parse_user_lookup_fun/1
            })
       }
+    , {"secure_renegotiate",
+       sc(boolean(),
+          #{ default => Df("secure_renegotiate", true)
+           , desc => """
+SSL parameter renegotiation is a feature that allows a client and a server
+to renegotiate the parameters of the SSL connection on the fly.
+RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation,
+you drop support for the insecure renegotiation, prone to MitM attacks.
+"""
+           })
+      }
     ].
 
-%% on erl23.2.7.2-emqx-2, sufficient_crypto_support('tlsv1.3') -> false
-default_tls_vsns() -> [<<"tlsv1.2">>, <<"tlsv1.1">>, <<"tlsv1">>].
+%% @doc Make schema for SSL listener options.
+%% When it's for ranch listener, an extra field `handshake_timeout' is added.
+-spec server_ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
+server_ssl_opts_schema(Defaults, IsRanchListener) ->
+    D = fun (Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
+    Df = fun (Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
+    common_ssl_opts_schema(Defaults) ++
+    [ {"dhfile",
+       sc(string(),
+          #{ default => D("dhfile")
+           , nullable => true
+           , desc =>
+"""Path to a file containing PEM-encoded Diffie Hellman parameters
+to be used by the server if a cipher suite using Diffie Hellman
+key exchange is negotiated. If not specified, default parameters
+are used.<br>
+NOTE: The dhfile option is not supported by TLS 1.3."""
+           })
+      }
+    , {"fail_if_no_peer_cert",
+       sc(boolean(),
+          #{ default => Df("fail_if_no_peer_cert", false)
+           , desc =>
+"""
+Used together with {verify, verify_peer} by an TLS/DTLS server.
+If set to true, the server fails if the client does not have a
+certificate to send, that is, sends an empty certificate.
+If set to false, it fails only if the client sends an invalid
+certificate (an empty certificate is considered valid).
+"""
+           })
+      }
+    , {"honor_cipher_order",
+       sc(boolean(),
+          #{ default => Df("honor_cipher_order", true)
+           })
+      }
+    , {"client_renegotiation",
+       sc(boolean(),
+          #{ default => Df("client_renegotiation", true)
+           , desc => """
+In protocols that support client-initiated renegotiation,
+the cost of resources of such an operation is higher for the server than the client.
+This can act as a vector for denial of service attacks.
+The SSL application already takes measures to counter-act such attempts,
+but client-initiated renegotiation can be strictly disabled by setting this option to false.
+The default value is true. Note that disabling renegotiation can result in
+long-lived connections becoming unusable due to limits on
+the number of messages the underlying cipher suite can encipher.
+"""
+           })
+      }
+    | [ {"handshake_timeout",
+         sc(duration(),
+            #{ default => Df("handshake_timeout", "15s")
+             , desc => "Maximum time duration allowed for the handshake to complete"
+             })}
+       || IsRanchListener]
+    ].
 
-tls_vsn(<<"tlsv1.3">>) -> 'tlsv1.3';
-tls_vsn(<<"tlsv1.2">>) -> 'tlsv1.2';
-tls_vsn(<<"tlsv1.1">>) -> 'tlsv1.1';
-tls_vsn(<<"tlsv1">>) -> 'tlsv1'.
+%% @doc Make schema for SSL client.
+-spec client_ssl_opts_schema(map()) -> hocon_schema:field_schema().
+client_ssl_opts_schema(Defaults) ->
+    common_ssl_opts_schema(Defaults) ++
+    [ { "server_name_indication",
+        sc(hoconsc:union([disable, string()]),
+           #{ default => disable
+            , desc =>
+"""Specify the host name to be used in TLS Server Name Indication extension.<br>
+For instance, when connecting to \"server.example.net\", the genuine server
+which accedpts the connection and performs TSL handshake may differ from the
+host the TLS client initially connects to, e.g. when connecting to an IP address
+or when the host has multiple resolvable DNS records <br>
+If not specified, it will default to the host name string which is used
+to establish the connection, unless it is IP addressed used.<br>
+The host name is then also used in the host name verification of the peer
+certificate.<br> The special value 'disable' prevents the Server Name
+Indication extension from being sent and disables the hostname
+verification check."""
+            })}
+    ].
 
-default_ciphers() -> [
-    "TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", "TLS_CHACHA20_POLY1305_SHA256",
-    "TLS_AES_128_CCM_SHA256", "TLS_AES_128_CCM_8_SHA256", "ECDHE-ECDSA-AES256-GCM-SHA384",
+
+default_tls_vsns(dtls) ->
+    [<<"dtlsv1.2">>, <<"dtlsv1">>];
+default_tls_vsns(tcp) ->
+    [<<"tlsv1.3">>, <<"tlsv1.2">>, <<"tlsv1.1">>, <<"tlsv1">>].
+
+-spec ciphers_schema(quic | dtls | tcp_all | undefined) -> hocon_schema:field_schema().
+ciphers_schema(Default) ->
+    sc(hoconsc:array(string()),
+       #{ default => default_ciphers(Default)
+        , converter => fun(Ciphers) when is_binary(Ciphers) ->
+                               binary:split(Ciphers, <<",">>, [global]);
+                          (Ciphers) when is_list(Ciphers) ->
+                               Ciphers
+                       end
+        , validator => fun validate_ciphers/1
+        , desc =>
+"""TLS cipher suite names separated by comma, or as an array of strings
+<code>\"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256\"</code> or
+<code>[\"TLS_AES_256_GCM_SHA384\",\"TLS_AES_128_GCM_SHA256\"]</code].
+<br>
+Ciphers (and their ordering) define the way in which the
+client and server encrypts information over the wire.
+Selecting a good cipher suite is critical for the
+application's data security, confidentiality and performance.
+The names should be in OpenSSL sting format (not RFC format).
+Default values and examples proveded by EMQ X config
+documentation are all in OpenSSL format.<br>
+
+NOTE: Certain cipher suites are only compatible with
+specific TLS <code>versions</code> ('tlsv1.1', 'tlsv1.2' or 'tlsv1.3')
+incompatible cipher suites will be silently dropped.
+For instance, if only 'tlsv1.3' is given in the <code>versions</code>,
+configuring cipher suites for other versions will have no effect.
+<br>
+
+NOTE: PSK ciphers are suppresed by 'tlsv1.3' version config<br>
+If PSK cipher suites are intended, 'tlsv1.3' should be disabled from <code>versions</code>.<br>
+PSK cipher suites: <code>\"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,
+RSA-PSK-AES128-GCM-SHA256,RSA-PSK-AES128-CBC-SHA256,
+RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA,
+RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA\"</code><br>
+""" ++ case Default of
+           quic -> "NOTE: QUIC listener supports only 'tlsv1.3' ciphers<br>";
+           _ -> ""
+       end}).
+
+default_ciphers(undefined) ->
+    default_ciphers(tcp_all);
+default_ciphers(quic) -> [
+    "TLS_AES_256_GCM_SHA384",
+    "TLS_AES_128_GCM_SHA256",
+    "TLS_CHACHA20_POLY1305_SHA256"
+    ];
+default_ciphers(tcp_all) ->
+    default_ciphers('tlsv1.3') ++
+    default_ciphers('tlsv1.2') ++
+    default_ciphers(psk);
+default_ciphers(dtls) ->
+    %% as of now, dtls does not support tlsv1.3 ciphers
+    default_ciphers('tlsv1.2') ++ default_ciphers('psk');
+default_ciphers('tlsv1.3') ->
+    ["TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256",
+     "TLS_CHACHA20_POLY1305_SHA256", "TLS_AES_128_CCM_SHA256",
+     "TLS_AES_128_CCM_8_SHA256"]
+    ++ default_ciphers('tlsv1.2');
+default_ciphers('tlsv1.2') -> [
+    "ECDHE-ECDSA-AES256-GCM-SHA384",
     "ECDHE-RSA-AES256-GCM-SHA384", "ECDHE-ECDSA-AES256-SHA384", "ECDHE-RSA-AES256-SHA384",
     "ECDHE-ECDSA-DES-CBC3-SHA", "ECDH-ECDSA-AES256-GCM-SHA384", "ECDH-RSA-AES256-GCM-SHA384",
     "ECDH-ECDSA-AES256-SHA384", "ECDH-RSA-AES256-SHA384", "DHE-DSS-AES256-GCM-SHA384",
@@ -1039,10 +1178,12 @@ default_ciphers() -> [
     "ECDH-ECDSA-AES256-SHA", "ECDH-RSA-AES256-SHA", "AES256-SHA", "ECDHE-ECDSA-AES128-SHA",
     "ECDHE-RSA-AES128-SHA", "DHE-DSS-AES128-SHA", "ECDH-ECDSA-AES128-SHA",
     "ECDH-RSA-AES128-SHA", "AES128-SHA"
-    ] ++ psk_ciphers().
-
-psk_ciphers() -> [
-        "PSK-AES128-CBC-SHA", "PSK-AES256-CBC-SHA", "PSK-3DES-EDE-CBC-SHA", "PSK-RC4-SHA"
+    ];
+default_ciphers(psk) ->
+    [ "RSA-PSK-AES256-GCM-SHA384","RSA-PSK-AES256-CBC-SHA384",
+      "RSA-PSK-AES128-GCM-SHA256","RSA-PSK-AES128-CBC-SHA256",
+      "RSA-PSK-AES256-CBC-SHA","RSA-PSK-AES128-CBC-SHA",
+      "RSA-PSK-DES-CBC3-SHA","RSA-PSK-RC4-SHA"
     ].
 
 %% @private return a list of keys in a parent field
@@ -1160,3 +1301,11 @@ parse_user_lookup_fun(StrConf) ->
     Mod = list_to_atom(ModStr),
     Fun = list_to_atom(FunStr),
     {fun Mod:Fun/3, <<>>}.
+
+validate_ciphers(Ciphers) ->
+    All = ssl:cipher_suites(all, 'tlsv1.3', openssl) ++
+          ssl:cipher_suites(all, 'tlsv1.2', openssl), %% includes older version ciphers
+    case lists:filter(fun(Cipher) -> not lists:member(Cipher, All) end, Ciphers) of
+        [] -> ok;
+        Bad -> {error, {bad_ciphers, Bad}}
+    end.

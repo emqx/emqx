@@ -1970,8 +1970,9 @@ find_config(AuthenticatorID, AuthenticatorsConfig) ->
     end.
 
 fill_defaults(Config) ->
-    #{<<"authentication">> := CheckedConfig} = hocon_schema:check_plain(
-        ?AUTHN, #{<<"authentication">> => Config}, #{no_conversion => true}),
+    #{<<"authentication">> := CheckedConfig} =
+        hocon_schema:check_plain(?AUTHN, #{<<"authentication">> => Config},
+                                 #{only_fill_defaults => true}),
     CheckedConfig.
 
 convert_certs(#{<<"ssl">> := SSLOpts} = Config) ->

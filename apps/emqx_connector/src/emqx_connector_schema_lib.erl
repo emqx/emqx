@@ -53,18 +53,12 @@
 
 -export([roots/0, fields/1]).
 
-roots() -> ["ssl"].
+roots() -> [].
 
-fields("ssl") ->
-    [ {enable, #{type => boolean(), default => false}}
-    , {cacertfile, fun cacertfile/1}
-    , {keyfile, fun keyfile/1}
-    , {certfile, fun certfile/1}
-    , {verify, fun verify/1}
-    ].
+fields(_) -> [].
 
 ssl_fields() ->
-    [ {ssl, #{type => hoconsc:ref(?MODULE, "ssl"),
+    [ {ssl, #{type => hoconsc:ref(emqx_schema, ssl_client_opts),
               default => #{<<"enable">> => false}
              }
       }
@@ -105,22 +99,6 @@ password(_) -> undefined.
 auto_reconnect(type) -> boolean();
 auto_reconnect(default) -> true;
 auto_reconnect(_) -> undefined.
-
-cacertfile(type) -> string();
-cacertfile(nullable) -> true;
-cacertfile(_) -> undefined.
-
-keyfile(type) -> string();
-keyfile(nullable) -> true;
-keyfile(_) -> undefined.
-
-certfile(type) -> string();
-certfile(nullable) -> true;
-certfile(_) -> undefined.
-
-verify(type) -> boolean();
-verify(default) -> false;
-verify(_) -> undefined.
 
 servers(type) -> servers();
 servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
