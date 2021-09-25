@@ -28,10 +28,6 @@
 -export([ get_rules_matched/1
         ]).
 
--export([ inc_rules_matched/1
-        , inc_rules_matched/2
-        ]).
-
 -export([ inc/2
         , inc/3
         , get/2
@@ -129,11 +125,6 @@ inc(Id, Metric, Val) ->
             counters:add(Ref, metrics_idx(Metric), Val)
     end.
 
-inc_rules_matched(Id) ->
-    inc_rules_matched(Id, 1).
-inc_rules_matched(Id, Val) ->
-    inc(Id, 'rules.matched', Val).
-
 get_rules_matched(Id) ->
     get(Id, 'rules.matched').
 
@@ -211,8 +202,9 @@ stop() ->
 create_counters(Id) ->
     case get_couters_ref(Id) of
         not_found ->
+            Counters = get_all_counters(),
             CntrRef = counters:new(max_counters_size(), [write_concurrency]),
-            persistent_term:put(?CntrRef, #{Id => CntrRef});
+            persistent_term:put(?CntrRef, Counters#{Id => CntrRef});
         _Ref -> ok
     end.
 
