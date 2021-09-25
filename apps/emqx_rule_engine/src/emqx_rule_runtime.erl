@@ -240,13 +240,21 @@ handle_output(OutId, Selected, Envs) ->
 
 do_handle_output(<<"bridge:", _/binary>> = _ChannelId, _Selected, _Envs) ->
     ?LOG(warning, "calling bridge from rules has not been implemented yet!");
-
-do_handle_output(BuiltInOutput, Selected, Envs) ->
-    try binary_to_existing_atom(BuiltInOutput) of Func ->
-        erlang:apply(emqx_rule_outputs, Func, [Selected, Envs])
+do_handle_output(OutputFun, Selected, Envs) when is_function(OutputFun) ->
+    erlang:apply(OutputFun, [Selected, Envs]);
+do_handle_output(BuiltInOutput, Selected, Envs) when is_atom(BuiltInOutput) ->
+    handle_builtin_output(BuiltInOutput, Selected, Envs);
+do_handle_output(BuiltInOutput, Selected, Envs) when is_binary(BuiltInOutput) ->
+    try binary_to_existing_atom(BuiltInOutput) of
+        Func -> handle_builtin_output(Func, Selected, Envs)
     catch
-        error:badarg -> error(not_found);
-        error:undef -> error(not_found)
+        error:badarg -> error(not_found)
+    end.
+
+handle_builtin_output(Func, Selected, Envs) ->
+    case erlang:function_exported(emqx_rule_outputs, Func, 2) of
+        true -> erlang:apply(emqx_rule_outputs, Func, [Selected, Envs]);
+        false -> error(not_found)
     end.
 
 eval({path, [{key, <<"payload">>} | Path]}, #{payload := Payload}) ->
