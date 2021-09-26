@@ -140,7 +140,6 @@ jobs:
         path: source/_packages/${{ matrix.profile }}/.
 
   mac:
-    runs-on: macos-10.15
 
     needs: prepare
 
@@ -148,10 +147,15 @@ jobs:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        macos:
+          - macos-11
+          - macos-10.15
         otp:
           - 24.0.5-emqx-1
         exclude:
           - profile: emqx-edge
+
+    runs-on: ${{ matrix.macos }}
 
     steps:
     - uses: actions/download-artifact@v2
@@ -170,16 +174,12 @@ jobs:
       id: cache
       with:
         path: ~/.kerl
-        key: erl${{ matrix.otp }}-macos10.15
+        key: otp-${{ matrix.otp }}-${{ matrix.macos }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
-      env:
-        KERL_BUILD_BACKEND: git
-        OTP_GITHUB_URL: https://github.com/emqx/otp
       run: |
-        kerl update releases
-        kerl build ${{ matrix.otp }}
+        kerl build git https://github.com/emqx/otp.git OTP-${{ matrix.otp }} ${{ matrix.otp }}
         kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
     - name: build
       working-directory: source
@@ -191,8 +191,8 @@ jobs:
     - name: test
       working-directory: source
       run: |
-        pkg_name=$(basename _packages/${{ matrix.profile }}/${{ matrix.profile }}-*.zip)
-        unzip -q _packages/${{ matrix.profile }}/$pkg_name
+        pkg_name=$(find _packages/${{ matrix.profile }} -mindepth 1 -maxdepth 1 -iname \*.zip | head)
+        unzip -q $pkg_name
         # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
@@ -211,7 +211,7 @@ jobs:
         ./emqx/bin/emqx_ctl status
         ./emqx/bin/emqx stop
         rm -rf emqx
-        openssl dgst -sha256 ./_packages/${{ matrix.profile }}/$pkg_name | awk '{print $2}'  > ./_packages/${{ matrix.profile }}/$pkg_name.sha256
+        openssl dgst -sha256 $pkg_name | awk '{print $2}'  > $pkg_name.sha256
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
