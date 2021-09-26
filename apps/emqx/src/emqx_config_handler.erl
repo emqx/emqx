@@ -77,7 +77,7 @@ stop() ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
     ?ATOM_CONF_PATH(ConfKeyPath, gen_server:call(?MODULE, {change_config, SchemaModule,
-        AtomKeyPath, UpdateArgs}), {error, ConfKeyPath}).
+        AtomKeyPath, UpdateArgs}), {error, {not_found, ConfKeyPath}}).
 
 -spec add_handler(emqx_config:config_key_path(), handler_name()) -> ok.
 add_handler(ConfKeyPath, HandlerName) ->

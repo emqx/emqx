@@ -121,9 +121,9 @@ on_stop(InstId, #{channels := NameList}) ->
 on_query(_InstId, {create_channel, Conf}, _AfterQuery, #{name_prefix := Prefix,
         baisc_conf := BasicConf}) ->
     create_channel(Conf, Prefix, BasicConf);
-on_query(_InstId, {send_to_remote, ChannelName, Msg}, _AfterQuery, _State) ->
-    logger:debug("send msg to remote node on channel: ~p, msg: ~p", [ChannelName, Msg]),
-    emqx_connector_mqtt_worker:send_to_remote(ChannelName, Msg).
+on_query(_InstId, {send_message, ChannelId, Msg}, _AfterQuery, _State) ->
+    logger:debug("send msg to remote node on channel: ~p, msg: ~p", [ChannelId, Msg]),
+    emqx_connector_mqtt_worker:send_to_remote(ChannelId, Msg).
 
 on_health_check(_InstId, #{channels := NameList} = State) ->
     Results = [{Name, emqx_connector_mqtt_worker:ping(Name)} || Name <- NameList],
