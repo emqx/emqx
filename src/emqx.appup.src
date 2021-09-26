@@ -20,6 +20,8 @@
      {load_module, emqx_broker, soft_purge, soft_purge, []},
      {load_module, emqx_trie, soft_purge, soft_purge, []},
      {load_module, emqx_router, soft_purge, soft_purge, [emqx_trie]},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_access_rule, brutal_purge, soft_purge, []},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
    ]},
@@ -40,6 +42,8 @@
      {load_module, emqx_broker, soft_purge, soft_purge, []},
      {load_module, emqx_trie, soft_purge, soft_purge, []},
      {load_module, emqx_router, soft_purge, soft_purge, [emqx_trie]},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_access_rule, brutal_purge, soft_purge, []},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
    ]},
@@ -57,6 +61,8 @@
      {load_module, emqx_broker, soft_purge, soft_purge, []},
      {load_module, emqx_trie, soft_purge, soft_purge, []},
      {load_module, emqx_router, soft_purge, soft_purge, [emqx_trie]},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_access_rule, brutal_purge, soft_purge, []},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
    ]},
@@ -72,6 +78,8 @@
      {load_module, emqx_broker, soft_purge, soft_purge, []},
      {load_module, emqx_trie, soft_purge, soft_purge, []},
      {load_module, emqx_router, soft_purge, soft_purge, [emqx_trie]},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_access_rule, brutal_purge, soft_purge, []},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
    ]},
@@ -86,10 +94,17 @@
      {load_module, emqx_broker, soft_purge, soft_purge, []},
      {load_module, emqx_trie, soft_purge, soft_purge, []},
      {load_module, emqx_router, soft_purge, soft_purge, [emqx_trie]},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_access_rule, brutal_purge, soft_purge, []},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
    ]},
    {<<"4.2.[6-7]">>, [
+     {load_module, emqx_channel, brutal_purge, soft_purge, []},
+     {load_module, emqx_connection, brutal_purge, soft_purge, []},
+     {load_module, emqx_ws_connection, brutal_purge, soft_purge, []},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_access_rule, brutal_purge, soft_purge, []},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
    ]},
@@ -114,6 +129,8 @@
      {load_module, emqx_broker, soft_purge, soft_purge, []},
      {load_module, emqx_trie, soft_purge, soft_purge, [emqx_router]},
      {load_module, emqx_router, soft_purge, soft_purge, []},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_access_rule, brutal_purge, soft_purge, []},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
    ]},
@@ -134,6 +151,8 @@
      {load_module, emqx_broker, soft_purge, soft_purge, []},
      {load_module, emqx_trie, soft_purge, soft_purge, [emqx_router]},
      {load_module, emqx_router, soft_purge, soft_purge, []},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_access_rule, brutal_purge, soft_purge, []},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
    ]},
@@ -151,6 +170,8 @@
      {load_module, emqx_broker, soft_purge, soft_purge, []},
      {load_module, emqx_trie, soft_purge, soft_purge, [emqx_router]},
      {load_module, emqx_router, soft_purge, soft_purge, []},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_access_rule, brutal_purge, soft_purge, []},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
    ]},
@@ -166,6 +187,8 @@
      {load_module, emqx_broker, soft_purge, soft_purge, []},
      {load_module, emqx_trie, soft_purge, soft_purge, [emqx_router]},
      {load_module, emqx_router, soft_purge, soft_purge, []},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_access_rule, brutal_purge, soft_purge, []},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
    ]},
@@ -180,10 +203,17 @@
      {load_module, emqx_broker, soft_purge, soft_purge, []},
      {load_module, emqx_trie, soft_purge, soft_purge, [emqx_router]},
      {load_module, emqx_router, soft_purge, soft_purge, []},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_access_rule, brutal_purge, soft_purge, []},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
    ]},
    {<<"4.2.[6-7]">>, [
+     {load_module, emqx_channel, brutal_purge, soft_purge, []},
+     {load_module, emqx_connection, brutal_purge, soft_purge, []},
+     {load_module, emqx_ws_connection, brutal_purge, soft_purge, []},
+     {load_module, emqx_cm, brutal_purge, soft_purge, []},
+     {load_module, emqx_access_rule, brutal_purge, soft_purge, []},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
    ]},
