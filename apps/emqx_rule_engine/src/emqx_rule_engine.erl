@@ -62,6 +62,12 @@ delete_rule(RuleId) ->
 %%------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------
+
+%% The pattern {'ok', Select} can never match the type {'error',{_,[{_,_,_,_}]}}.
+%% probably due to stack depth, or inlines.
+-dialyzer({nowarn_function, [do_create_rule/1, parse_outputs/1, do_parse_outputs/1,
+    pre_process_repub_args/1, preproc_vars/1]}).
+
 do_create_rule(Params = #{id := RuleId, sql := Sql, outputs := Outputs}) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->

@@ -237,6 +237,10 @@ param_path_id() ->
 %% Rules API
 %%------------------------------------------------------------------------------
 
+%% The pattern {'ok', Rule} can never match the type {'error',{_,'invalid_string' | binary() | [tuple()] | {_,[any()]} | {_,'sql_lex',{_,_}}}}
+%% probably due to stack depth, or inlines.
+-dialyzer({nowarn_function, [crud_rules/2, crud_rules_by_id/2]}).
+
 list_events(#{}, _Params) ->
     {200, emqx_rule_events:event_info()}.
 
@@ -283,10 +287,7 @@ crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params0}) ->
 crud_rules_by_id(delete, #{bindings := #{id := Id}}) ->
     case emqx_rule_engine:delete_rule(Id) of
         ok -> {200};
-        {error, not_found} -> {200};
-        {error, Reason} ->
-            ?LOG(error, "delete rule failed: ~0p", [Reason]),
-            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}}
+        {error, not_found} -> {200}
     end.
 
 %%------------------------------------------------------------------------------
