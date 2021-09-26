@@ -91,7 +91,7 @@ on_psk_lookup(PSKIdentity, _UserState) ->
     end.
 
 import(SrcFile) ->
-    gen_server:call(?MODULE, {import, SrcFile}).
+    call({import, SrcFile}).
 
 -spec start_link() -> {ok, pid()} | ignore | {error, term()}.
 start_link() ->
@@ -219,4 +219,12 @@ trans(Fun, Args) ->
     case ekka_mnesia:transaction(?PSK_SHARD, Fun, Args) of
         {atomic, Res} -> Res;
         {aborted, Reason} -> {error, Reason}
+    end.
+
+call(Request) ->
+    try
+        gen_server:call(?MODULE, Request, 10000)
+    catch
+        exit:{timeout, _Details} ->
+            {error, timeout}
     end.
