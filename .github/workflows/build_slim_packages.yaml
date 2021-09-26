@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-20.04
 
     strategy:
+      fail-fast: false
       matrix:
         otp:
         - 24.0.5-emqx-1
@@ -53,12 +54,17 @@ jobs:
         path: _packages/**/*.zip
 
   mac:
-    runs-on: macos-10.15
 
     strategy:
+      fail-fast: false
       matrix:
+        macos:
+        - macos-11
+        - macos-10.15
         otp:
         - 24.0.5-emqx-1
+
+    runs-on: ${{  matrix.macos }}
 
     steps:
     - uses: actions/checkout@v1
@@ -82,16 +88,12 @@ jobs:
       id: cache
       with:
         path: ~/.kerl
-        key: erl${{ matrix.otp }}-macos10.15
+        key: otp-${{ matrix.otp }}-${{ matrix.macos }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
-      env:
-        KERL_BUILD_BACKEND: git
-        OTP_GITHUB_URL: https://github.com/emqx/otp
       run: |
-        kerl update releases
-        kerl build ${{ matrix.otp }}
+        kerl build git https://github.com/emqx/otp.git OTP-${{ matrix.otp }} ${{ matrix.otp }}
         kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
     - name: build
       run: |
@@ -106,8 +108,7 @@ jobs:
         path: ./rebar3.crashdump
     - name: test
       run: |
-        pkg_name=$(basename _packages/${EMQX_NAME}/emqx-*.zip)
-        unzip -q _packages/${EMQX_NAME}/$pkg_name
+        unzip -q $(find _packages/${EMQX_NAME} -mindepth 1 -maxdepth 1 -iname \*.zip | head)
         # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'

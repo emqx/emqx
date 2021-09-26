@@ -16,7 +16,9 @@ PKG_VSN="$(./pkg-vsn.sh)"
 export PKG_VSN
 
 if [ "$(uname -s)" = 'Darwin' ]; then
-	SYSTEM=macos
+    DIST='macos'
+    VERSION_ID=$(sw_vers | gsed -n '/^ProductVersion:/p' | gsed -r 's/ProductVersion:(.*)/\1/g' | gsed -r 's/([0-9]+).*/\1/g' | gsed 's/^[ \t]*//g')
+    SYSTEM="$(echo "${DIST}${VERSION_ID}" | gsed -r 's/([a-zA-Z]*)-.*/\1/g')"
 elif [ "$(uname -s)" = 'Linux' ]; then
     if grep -q -i 'centos' /etc/*-release; then
         DIST='centos'
