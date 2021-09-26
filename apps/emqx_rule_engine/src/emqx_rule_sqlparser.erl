@@ -53,8 +53,7 @@
 -dialyzer({nowarn_function, [parse/1]}).
 
 %% Parse one select statement.
--spec(parse(string() | binary())
-      -> {ok, select()} | {parse_error, term()} | {lex_error, term()}).
+-spec(parse(string() | binary()) -> {ok, select()} | {error, term()}).
 parse(Sql) ->
     try case rulesql:parsetree(Sql) of
             {ok, {select, Clauses}} ->
@@ -75,11 +74,11 @@ parse(Sql) ->
                         from = get_value(from, Clauses),
                         where = get_value(where, Clauses)
                     }};
-            Error -> Error
+            {error, Error} -> {error, Error}
         end
     catch
         _Error:Reason:StackTrace ->
-            {parse_error, {Reason, StackTrace}}
+            {error, {Reason, StackTrace}}
     end.
 
 -spec(select_fields(select()) -> list(field())).

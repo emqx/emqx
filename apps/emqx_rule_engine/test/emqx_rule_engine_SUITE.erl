@@ -203,7 +203,7 @@ t_crud_rule_api(_Config) ->
     {201, Rule} = emqx_rule_engine_api:crud_rules(post, #{body => Params0}),
 
     ?assertEqual(RuleID, maps:get(id, Rule)),
-    {ok, Rules} = emqx_rule_engine_api:crud_rules(get, #{}),
+    {200, Rules} = emqx_rule_engine_api:crud_rules(get, #{}),
     ct:pal("RList : ~p", [Rules]),
     ?assert(length(Rules) > 0),
 
