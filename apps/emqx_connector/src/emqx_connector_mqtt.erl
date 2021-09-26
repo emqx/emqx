@@ -89,12 +89,13 @@ drop_bridge(Name) ->
 %% When use this bridge as a data source, ?MODULE:on_message_received/2 will be called
 %% if the bridge received msgs from the remote broker.
 on_message_received(Msg, ChannelName) ->
-    emqx:run_hook(ChannelName, [Msg]).
+    Name = atom_to_binary(ChannelName, utf8),
+    emqx:run_hook(<<"$bridges/", Name/binary>>, [Msg]).
 
 %% ===================================================================
 on_start(InstId, Conf) ->
     logger:info("starting mqtt connector: ~p, ~p", [InstId, Conf]),
-    NamePrefix = binary_to_list(InstId),
+    "bridge:" ++ NamePrefix = binary_to_list(InstId),
     BasicConf = basic_config(Conf),
     InitRes = {ok, #{name_prefix => NamePrefix, baisc_conf => BasicConf, channels => []}},
     InOutConfigs = taged_map_list(ingress_channels, maps:get(ingress_channels, Conf, #{}))

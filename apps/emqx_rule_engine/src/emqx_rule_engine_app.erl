@@ -23,6 +23,7 @@
 -export([stop/1]).
 
 start(_Type, _Args) ->
+    ok = emqx_rule_events:reload(),
     emqx_rule_engine_sup:start_link().
 
 stop(_State) ->

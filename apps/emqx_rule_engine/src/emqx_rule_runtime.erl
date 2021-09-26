@@ -238,8 +238,11 @@ handle_output(OutId, Selected, Envs) ->
             ?LOG(warning, "Output to ~p failed, ~p", [OutId, {Err, Reason, ST}])
     end.
 
-do_handle_output(#{type := bridge, target := ChannelId}, _Selected, _Envs) ->
-    ?LOG(warning, "calling bridge from rules has not been implemented yet! ~p", [ChannelId]);
+do_handle_output(#{type := bridge, target := ChannelId}, Selected, _Envs) ->
+    ?LOG(debug, "output to bridge: ~p", [ChannelId]),
+    [Type, BridgeName | _] = string:split(ChannelId, ":", all),
+    ResId = emqx_bridge:resource_id(<<Type/binary, ":", BridgeName/binary>>),
+    emqx_resource:query(ResId, {send_to_remote, ChannelId, Selected});
 do_handle_output(#{type := func, target := Func} = Out, Selected, Envs) ->
     erlang:apply(Func, [Selected, Envs, maps:get(args, Out, #{})]);
 do_handle_output(#{type := builtin, target := Output} = Out, Selected, Envs)
