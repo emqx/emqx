@@ -326,7 +326,7 @@ sources(put, #{body := Body}) when is_list(Body) ->
 source(get, #{bindings := #{type := Type}}) ->
     case get_raw_source(Type) of
         [] -> {404, #{message => <<"Not found ", Type/binary>>}};
-        [#{type := <<"file">>, enable := Enable, path := Path}] ->
+        [#{type := file, enable := Enable, path := Path}] ->
             case file:read_file(Path) of
                 {ok, Rules} ->
                     {200, #{type => file,
@@ -336,7 +336,7 @@ source(get, #{bindings := #{type := Type}}) ->
                     };
                 {error, Reason} ->
                     {400, #{code => <<"BAD_REQUEST">>,
-                            message => atom_to_binary(Reason)}}
+                            message => bin(Reason)}}
             end;
         [Source] ->
             {200, read_cert(Source)}
@@ -347,7 +347,7 @@ source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
+                    message => bin(Reason)}}
     end;
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
     update_config({replace_once, Type}, write_cert(Body));
@@ -362,7 +362,7 @@ move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
                     message => <<"source ", Type/binary, " not found">>}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
+                    message => bin(Reason)}}
     end.
 
 get_raw_sources() ->
@@ -374,7 +374,7 @@ get_raw_sources() ->
 
 get_raw_source(Type) ->
     lists:filter(fun (#{type := T}) ->
-                         T =:= Type
+                         bin(T) =:= Type
                  end, get_raw_sources()).
 
 update_config(Cmd, Sources) ->
@@ -382,13 +382,13 @@ update_config(Cmd, Sources) ->
         {ok, _} -> {204};
         {error, {pre_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}};
+                    message => bin(Reason)}};
         {error, {post_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}};
+                    message => bin(Reason)}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
+                    message => bin(Reason)}}
     end.
 
 read_cert(#{ssl := #{enable := true} = SSL} = Source) ->
@@ -459,3 +459,6 @@ do_write_file(Filename, Bytes) ->
            ?LOG(error, "Write File ~p Error: ~p", [Filename, Reason]),
            error(Reason)
     end.
+
+bin(Term) ->
+   erlang:iolist_to_binary(io_lib:format("~p", [Term])).
