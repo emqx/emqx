@@ -32,7 +32,6 @@ gateway.coap {
   connection_required = true
   subscribe_qos = qos1
   publish_qos = qos1
-  authentication = undefined
   listeners.udp.default {
     bind = 5683
   }
