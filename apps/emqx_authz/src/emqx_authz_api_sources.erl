@@ -41,6 +41,10 @@
                      ]
         }).
 
+-export([ get_raw_sources/0
+        , get_raw_source/1
+        ]).
+
 -export([ api_spec/0
         , sources/2
         , source/2
@@ -147,7 +151,15 @@ source_api() ->
                     name => type,
                     in => path,
                     schema => #{
-                       type => string
+                       type => string,
+                        enum => [ <<"file">>
+                                , <<"http">>
+                                , <<"mongodb">>
+                                , <<"mysql">>
+                                , <<"postgresql">>
+                                , <<"redis">>
+                                , <<"built-in-database">>
+                                ]
                     },
                     required => true
                 }
@@ -181,7 +193,15 @@ source_api() ->
                     name => type,
                     in => path,
                     schema => #{
-                       type => string
+                       type => string,
+                        enum => [ <<"file">>
+                                , <<"http">>
+                                , <<"mongodb">>
+                                , <<"mysql">>
+                                , <<"postgresql">>
+                                , <<"redis">>
+                                , <<"built-in-database">>
+                                ]
                     },
                     required => true
                 }
@@ -216,7 +236,15 @@ source_api() ->
                     name => type,
                     in => path,
                     schema => #{
-                       type => string
+                       type => string,
+                        enum => [ <<"file">>
+                                , <<"http">>
+                                , <<"mongodb">>
+                                , <<"mysql">>
+                                , <<"postgresql">>
+                                , <<"redis">>
+                                , <<"built-in-database">>
+                                ]
                     },
                     required => true
                 }
@@ -238,7 +266,15 @@ move_source_api() ->
                     name => type,
                     in => path,
                     schema => #{
-                        type => string
+                        type => string,
+                        enum => [ <<"file">>
+                                , <<"http">>
+                                , <<"mongodb">>
+                                , <<"mysql">>
+                                , <<"postgresql">>
+                                , <<"redis">>
+                                , <<"built-in-database">>
+                                ]
                     },
                     required => true
                 }
@@ -321,7 +357,7 @@ sources(put, #{body := Body}) when is_list(Body) ->
                     _ -> write_cert(Source)
                 end
               end || Source <- Body],
-    update_config(replace, NBody).
+    update_config(?CMD_REPLCAE, NBody).
 
 source(get, #{bindings := #{type := Type}}) ->
     case get_raw_source(Type) of
@@ -343,16 +379,16 @@ source(get, #{bindings := #{type := Type}}) ->
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
     {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
-    case emqx_authz:update({replace_once, file}, #{type => file, enable => Enable, path => Filename}) of
+    case emqx_authz:update({?CMD_REPLCAE, file}, #{type => file, enable => Enable, path => Filename}) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => bin(Reason)}}
     end;
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
-    update_config({replace_once, Type}, write_cert(Body));
+    update_config({?CMD_REPLCAE, Type}, write_cert(Body));
 source(delete, #{bindings := #{type := Type}}) ->
-    update_config({delete_once, Type}, #{}).
+    update_config({?CMD_DELETE, Type}, #{}).
 
 move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Position}}) ->
     case emqx_authz:move(Type, Position) of
@@ -374,7 +410,7 @@ get_raw_sources() ->
 
 get_raw_source(Type) ->
     lists:filter(fun (#{type := T}) ->
-                         bin(T) =:= Type
+                         erlang:atom_to_binary(T) =:= Type
                  end, get_raw_sources()).
 
 update_config(Cmd, Sources) ->
@@ -382,13 +418,13 @@ update_config(Cmd, Sources) ->
         {ok, _} -> {204};
         {error, {pre_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}};
+                    message => erlang:atom_to_binary(Reason)}};
         {error, {post_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}};
+                    message => erlang:atom_to_binary(Reason)}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}}
+                    message => erlang:atom_to_binary(Reason)}}
     end.
 
 read_cert(#{ssl := #{enable := true} = SSL} = Source) ->

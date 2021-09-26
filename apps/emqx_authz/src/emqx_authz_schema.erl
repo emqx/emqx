@@ -31,6 +31,7 @@ fields("authorization") ->
                     [ hoconsc:ref(?MODULE, file)
                     , hoconsc:ref(?MODULE, http_get)
                     , hoconsc:ref(?MODULE, http_post)
+                    , hoconsc:ref(?MODULE, mnesia)
                     , hoconsc:ref(?MODULE, mongo_single)
                     , hoconsc:ref(?MODULE, mongo_rs)
                     , hoconsc:ref(?MODULE, mongo_sharded)
@@ -51,7 +52,8 @@ fields(file) ->
                                         true -> ok;
                                         _ -> {error, "File does not exist"}
                                       end
-                            end
+                            end,
+               desc => "Path to the file which contains the ACL rules."
               }}
     ];
 fields(http_get) ->
@@ -115,6 +117,11 @@ fields(http_post) ->
               }
       }
     ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
+fields(mnesia) ->
+    [ {type,   #{type => 'built-in-database'}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    ];
 fields(mongo_single) ->
     [ {collection, #{type => atom()}}
     , {selector, #{type => map()}}

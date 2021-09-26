@@ -18,7 +18,9 @@
 
 -include_lib("stdlib/include/qlc.hrl").
 
--export([paginate/3]).
+-export([ paginate/3
+        , paginate/4
+        ]).
 
 %% first_next query APIs
 -export([ params2qs/2
@@ -47,12 +49,39 @@ paginate(Tables, Params, RowFun) ->
     #{meta  => #{page => Page, limit => Limit, count => Count},
       data  => [RowFun(Row) || Row <- Rows]}.
 
+paginate(Tables, MatchSpec, Params, RowFun) ->
+    Qh = query_handle(Tables, MatchSpec),
+    Count = count(Tables, MatchSpec),
+    Page = b2i(page(Params)),
+    Limit = b2i(limit(Params)),
+    Cursor = qlc:cursor(Qh),
+    case Page > 1 of
+        true  ->
+            _ = qlc:next_answers(Cursor, (Page - 1) * Limit),
+            ok;
+        false -> ok
+    end,
+    Rows = qlc:next_answers(Cursor, Limit),
+    qlc:delete_cursor(Cursor),
+    #{meta  => #{page => Page, limit => Limit, count => Count},
+      data  => [RowFun(Row) || Row <- Rows]}.
+
 query_handle(Table) when is_atom(Table) ->
     qlc:q([R|| R <- ets:table(Table)]);
 query_handle([Table]) when is_atom(Table) ->
     qlc:q([R|| R <- ets:table(Table)]);
 query_handle(Tables) ->
     qlc:append([qlc:q([E || E <- ets:table(T)]) || T <- Tables]).
+
+query_handle(Table, MatchSpec) when is_atom(Table) ->
+    Options = {traverse, {select, MatchSpec}},
+    qlc:q([R|| R <- ets:table(Table, Options)]);
+query_handle([Table], MatchSpec) when is_atom(Table) ->
+    Options = {traverse, {select, MatchSpec}},
+    qlc:q([R|| R <- ets:table(Table, Options)]);
+query_handle(Tables, MatchSpec) ->
+    Options = {traverse, {select, MatchSpec}},
+    qlc:append([qlc:q([E || E <- ets:table(T, Options)]) || T <- Tables]).
 
 count(Table) when is_atom(Table) ->
     ets:info(Table, size);
@@ -61,8 +90,16 @@ count([Table]) when is_atom(Table) ->
 count(Tables) ->
     lists:sum([count(T) || T <- Tables]).
 
-count(Table, Nodes) ->
-    lists:sum([rpc_call(Node, ets, info, [Table, size], 5000) || Node <- Nodes]).
+count(Table, MatchSpec) when is_atom(Table) ->
+    [{MatchPattern, Where, _Re}] = MatchSpec,
+    NMatchSpec = [{MatchPattern, Where, [true]}],
+    ets:select_count(Table, NMatchSpec);
+count([Table], MatchSpec) when is_atom(Table) ->
+    [{MatchPattern, Where, _Re}] = MatchSpec,
+    NMatchSpec = [{MatchPattern, Where, [true]}],
+    ets:select_count(Table, NMatchSpec);
+count(Tables, MatchSpec) ->
+    lists:sum([count(T, MatchSpec) || T <- Tables]).
 
 page(Params) when is_map(Params) ->
     maps:get(<<"page">>, Params, 1);
@@ -122,7 +159,7 @@ cluster_query(Params, Tab, QsSchema, QueryFun) ->
     Rows = do_cluster_query(Nodes, Tab, Qs, QueryFun, Start, Limit+1, []),
     Meta = #{page => Page, limit => Limit},
     NMeta = case CodCnt =:= 0 of
-                true -> Meta#{count => count(Tab, Nodes)};
+                true -> Meta#{count => lists:sum([rpc_call(Node, ets, info, [Tab, size], 5000) || Node <- Nodes])};
                 _ -> Meta#{count => length(Rows)}
             end,
     #{meta => NMeta, data => lists:sublist(Rows, Limit)}.

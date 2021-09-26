@@ -58,9 +58,9 @@ do_authorize(Client, PubSub, Topic, [Rule | Tail]) ->
     end.
 
 replvar(Selector, #{clientid := Clientid,
-                username := Username,
-                peerhost := IpAddress
-               }) ->
+                    username := Username,
+                    peerhost := IpAddress
+                   }) ->
     Fun = fun
               _Fun(K, V, AccIn) when is_map(V) -> maps:put(K, maps:fold(_Fun, AccIn, V), AccIn);
               _Fun(K, V, AccIn) when is_list(V) ->
