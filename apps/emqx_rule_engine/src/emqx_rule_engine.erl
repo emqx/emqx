@@ -86,7 +86,7 @@ do_create_rule(Params = #{id := RuleId, sql := Sql, outputs := Outputs}) ->
             ok = emqx_rule_registry:add_rule(Rule),
             _ = emqx_plugin_libs_rule:cluster_call(emqx_rule_metrics, create_rule_metrics, [RuleId]),
             {ok, Rule};
-        Reason -> {error, Reason}
+        {error, Reason} -> {error, Reason}
     end.
 
 parse_outputs(Outputs) ->
@@ -97,8 +97,9 @@ do_parse_outputs(#{type := bridge, target := ChId}) ->
 do_parse_outputs(#{type := builtin, target := Repub, args := Args})
         when Repub == republish; Repub == <<"republish">> ->
     #{type => builtin, target => republish, args => pre_process_repub_args(Args)};
-do_parse_outputs(#{type := builtin, target := Name} = Output) ->
-    #{type => builtin, target => Name, args => maps:get(args, Output, #{})}.
+do_parse_outputs(#{type := Type, target := Name} = Output)
+        when Type == func; Type == builtin ->
+    #{type => Type, target => Name, args => maps:get(args, Output, #{})}.
 
 pre_process_repub_args(#{<<"topic">> := Topic} = Args) ->
     QoS = maps:get(<<"qos">>, Args, <<"${qos}">>),

@@ -323,7 +323,7 @@ format_output(Outputs) ->
     [do_format_output(Out) || Out <- Outputs].
 
 do_format_output(#{type := func}) ->
-    #{type => builtin, target => <<"internal_function">>};
+    #{type => func, target => <<"internal_function">>};
 do_format_output(#{type := builtin, target := Name, args := Args}) ->
     #{type => builtin, target => Name, args => maps:remove(preprocessed_tmpl, Args)};
 do_format_output(#{type := bridge, target := Name}) ->
