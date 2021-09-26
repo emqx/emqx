@@ -278,7 +278,7 @@ t_connect_emit_stats_timeout(_) ->
     [ClientPid] = emqx_cm:lookup_channels(client_info(clientid, Client)),
 
     ?assert(is_reference(emqx_connection:info(stats_timer, sys:get_state(ClientPid)))),
-    timer:sleep(IdleTimeout),
+    timer:sleep(IdleTimeout+500),
     ?assertEqual(undefined, emqx_connection:info(stats_timer, sys:get_state(ClientPid))),
     ok = emqtt:disconnect(Client).
 
