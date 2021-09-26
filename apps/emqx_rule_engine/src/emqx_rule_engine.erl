@@ -72,7 +72,7 @@ do_create_rule(Params = #{id := RuleId, sql := Sql, outputs := Outputs}) ->
                     enabled => maps:get(enabled, Params, true),
                     sql => Sql,
                     from => emqx_rule_sqlparser:select_from(Select),
-                    outputs => Outputs,
+                    outputs => parse_outputs(Outputs),
                     description => maps:get(description, Params, ""),
                     %% -- calculated fields:
                     is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
@@ -88,3 +88,31 @@ do_create_rule(Params = #{id := RuleId, sql := Sql, outputs := Outputs}) ->
             {ok, Rule};
         Reason -> {error, Reason}
     end.
+
+parse_outputs(Outputs) ->
+    [do_parse_outputs(Out) || Out <- Outputs].
+
+do_parse_outputs(#{type := bridge, target := ChId}) ->
+    #{type => bridge, target => ChId};
+do_parse_outputs(#{type := builtin, target := Repub, args := Args})
+        when Repub == republish; Repub == <<"republish">> ->
+    #{type => builtin, target => republish, args => pre_process_repub_args(Args)};
+do_parse_outputs(#{type := builtin, target := Name} = Output) ->
+    #{type => builtin, target => Name, args => maps:get(args, Output, #{})}.
+
+pre_process_repub_args(#{<<"topic">> := Topic} = Args) ->
+    QoS = maps:get(<<"qos">>, Args, <<"${qos}">>),
+    Retain = maps:get(<<"retain">>, Args, <<"${retain}">>),
+    Payload = maps:get(<<"payload">>, Args, <<"${payload}">>),
+    #{topic => Topic, qos => QoS, payload => Payload, retain => Retain,
+      preprocessed_tmpl => #{
+          topic => emqx_plugin_libs_rule:preproc_tmpl(Topic),
+          qos => preproc_vars(QoS),
+          retain => preproc_vars(Retain),
+          payload => emqx_plugin_libs_rule:preproc_tmpl(Payload)
+      }}.
+
+preproc_vars(Data) when is_binary(Data) ->
+    emqx_plugin_libs_rule:preproc_tmpl(Data);
+preproc_vars(Data) ->
+    Data.

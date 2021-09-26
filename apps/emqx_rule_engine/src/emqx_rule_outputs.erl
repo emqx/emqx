@@ -17,16 +17,66 @@
 %% Define the default actions.
 -module(emqx_rule_outputs).
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
--export([ console/2
-        , get_selected_data/2
+-export([ console/3
+        , republish/3
         ]).
 
--spec console(map(), map()) -> any().
-console(Selected, #{metadata := #{rule_id := RuleId}} = Envs) ->
+-spec console(map(), map(), map()) -> any().
+console(Selected, #{metadata := #{rule_id := RuleId}} = Envs, _Args) ->
     ?ULOG("[rule output] ~s~n"
           "\tOutput Data: ~p~n"
           "\tEnvs: ~p~n", [RuleId, Selected, Envs]).
 
-get_selected_data(Selected, _Envs) ->
-     Selected.
+republish(_Selected, #{topic := Topic, headers := #{republish_by := RuleId},
+        metadata := #{rule_id := RuleId}}, _Args) ->
+    ?LOG(error, "[republish] recursively republish detected, msg topic: ~p", [Topic]);
+
+%% republish a PUBLISH message
+republish(Selected, #{flags := Flags, metadata := #{rule_id := RuleId}},
+        #{preprocessed_tmpl := #{
+            qos := QoSTks,
+            retain := RetainTks,
+            topic := TopicTks,
+            payload := PayloadTks}}) ->
+    Topic = emqx_plugin_libs_rule:proc_tmpl(TopicTks, Selected),
+    Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
+    QoS = replace_simple_var(QoSTks, Selected),
+    Retain = replace_simple_var(RetainTks, Selected),
+    ?LOG(debug, "[republish] to: ~p, payload: ~p", [Topic, Payload]),
+    safe_publish(RuleId, Topic, QoS, Flags#{retain => Retain}, Payload);
+
+%% in case this is a "$events/" event
+republish(Selected, #{metadata := #{rule_id := RuleId}},
+        #{preprocessed_tmpl := #{
+                qos := QoSTks,
+                retain := RetainTks,
+                topic := TopicTks,
+                payload := PayloadTks}}) ->
+    Topic = emqx_plugin_libs_rule:proc_tmpl(TopicTks, Selected),
+    Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
+    QoS = replace_simple_var(QoSTks, Selected),
+    Retain = replace_simple_var(RetainTks, Selected),
+    ?LOG(debug, "[republish] to: ~p, payload: ~p", [Topic, Payload]),
+    safe_publish(RuleId, Topic, QoS, #{retain => Retain}, Payload).
+
+safe_publish(RuleId, Topic, QoS, Flags, Payload) ->
+    Msg = #message{
+        id = emqx_guid:gen(),
+        qos = QoS,
+        from = RuleId,
+        flags = Flags,
+        headers = #{republish_by => RuleId},
+        topic = Topic,
+        payload = Payload,
+        timestamp = erlang:system_time(millisecond)
+    },
+    _ = emqx_broker:safe_publish(Msg),
+    emqx_metrics:inc_msg(Msg).
+
+replace_simple_var(Tokens, Data) when is_list(Tokens) ->
+    [Var] = emqx_plugin_libs_rule:proc_tmpl(Tokens, Data, #{return => rawlist}),
+    Var;
+replace_simple_var(Val, _Data) ->
+    Val.

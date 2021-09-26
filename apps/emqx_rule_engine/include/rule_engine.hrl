@@ -31,10 +31,21 @@
 
 -type(topic() :: binary()).
 -type(bridge_channel_id() :: binary()).
+-type selected_data() :: map().
+-type envs() :: map().
+-type output_type() :: bridge | builtin | func.
+-type output_target() :: bridge_channel_id() | atom() | output_fun().
+-type output_fun_args() :: map().
+-type output() :: #{
+        type := output_type(),
+        target := output_target(),
+        args => output_fun_args()
+}.
+-type output_fun() :: fun((selected_data(), envs(), output_fun_args()) -> any()).
 
 -type(rule_info() ::
        #{ from := list(topic())
-        , to := list(bridge_channel_id() | fun())
+        , outputs := [output()]
         , sql := binary()
         , is_foreach := boolean()
         , fields := list()

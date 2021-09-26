@@ -141,8 +141,21 @@ put_req_schema() ->
             description => <<"The outputs of the rule">>,
             type => array,
             items => #{
-                type => string,
-                example => <<"console">>
+                type => object,
+                properties => #{
+                    type => #{
+                        type => string,
+                        enum => [<<"bridge">>, <<"builtin">>],
+                        example => <<"builtin">>
+                    },
+                    target => #{
+                        type => string,
+                        example => <<"console">>
+                    },
+                    args => #{
+                        type => object
+                    }
+                }
             }
         },
         description => #{
@@ -190,9 +203,9 @@ rule_test_req_schema() ->
                 event_type => #{
                     description => <<"Event Type">>,
                     type => string,
-                    enum => ["message_publish", "message_acked", "message_delivered",
-                        "message_dropped", "session_subscribed", "session_unsubscribed",
-                        "client_connected", "client_disconnected"],
+                    enum => [<<"message_publish">>, <<"message_acked">>, <<"message_delivered">>,
+                        <<"message_dropped">>, <<"session_subscribed">>, <<"session_unsubscribed">>,
+                        <<"client_connected">>, <<"client_disconnected">>],
                     example => <<"message_publish">>
                 },
                 clientid => #{
@@ -295,7 +308,7 @@ format_rule_resp(#rule{id = Id, created_at = CreatedAt,
         description := Descr}}) ->
     #{id => Id,
       from => Topics,
-      outputs => Output,
+      outputs => format_output(Output),
       sql => SQL,
       metrics => get_rule_metrics(Id),
       enabled => Enabled,
@@ -305,6 +318,16 @@ format_rule_resp(#rule{id = Id, created_at = CreatedAt,
 
 format_datetime(Timestamp, Unit) ->
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, Unit}])).
+
+format_output(Outputs) ->
+    [do_format_output(Out) || Out <- Outputs].
+
+do_format_output(#{type := func}) ->
+    #{type => builtin, target => <<"internal_function">>};
+do_format_output(#{type := builtin, target := Name, args := Args}) ->
+    #{type => builtin, target => Name, args => maps:remove(preprocessed_tmpl, Args)};
+do_format_output(#{type := bridge, target := Name}) ->
+    #{type => bridge, target => Name}.
 
 get_rule_metrics(Id) ->
     [maps:put(node, Node, rpc:call(Node, emqx_rule_metrics, get_rule_metrics, [Id]))

@@ -19,6 +19,7 @@
 
 -export([ test/1
         , echo_action/2
+        , get_selected_data/3
         ]).
 
 %% Dialyzer gives up on the generated code.
@@ -55,7 +56,7 @@ test_rule(Sql, Select, Context, EventTopics) ->
         info = #{
             sql => Sql,
             from => EventTopics,
-            outputs => [get_selected_data],
+            outputs => [#{type => func, target => fun ?MODULE:get_selected_data/3, args => #{}}],
             enabled => true,
             is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
             fields => emqx_rule_sqlparser:select_fields(Select),
@@ -73,6 +74,9 @@ test_rule(Sql, Select, Context, EventTopics) ->
     after
         emqx_rule_metrics:clear_rule_metrics(RuleId)
     end.
+
+get_selected_data(Selected, _Envs, _Args) ->
+     Selected.
 
 is_publish_topic(<<"$events/", _/binary>>) -> false;
 is_publish_topic(_Topic) -> true.

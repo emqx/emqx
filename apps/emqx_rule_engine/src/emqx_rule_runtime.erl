@@ -238,22 +238,24 @@ handle_output(OutId, Selected, Envs) ->
             ?LOG(warning, "Output to ~p failed, ~p", [OutId, {Err, Reason, ST}])
     end.
 
-do_handle_output(<<"bridge:", _/binary>> = _ChannelId, _Selected, _Envs) ->
-    ?LOG(warning, "calling bridge from rules has not been implemented yet!");
-do_handle_output(OutputFun, Selected, Envs) when is_function(OutputFun) ->
-    erlang:apply(OutputFun, [Selected, Envs]);
-do_handle_output(BuiltInOutput, Selected, Envs) when is_atom(BuiltInOutput) ->
-    handle_builtin_output(BuiltInOutput, Selected, Envs);
-do_handle_output(BuiltInOutput, Selected, Envs) when is_binary(BuiltInOutput) ->
-    try binary_to_existing_atom(BuiltInOutput) of
-        Func -> handle_builtin_output(Func, Selected, Envs)
+do_handle_output(#{type := bridge, target := ChannelId}, _Selected, _Envs) ->
+    ?LOG(warning, "calling bridge from rules has not been implemented yet! ~p", [ChannelId]);
+do_handle_output(#{type := func, target := Func} = Out, Selected, Envs) ->
+    erlang:apply(Func, [Selected, Envs, maps:get(args, Out, #{})]);
+do_handle_output(#{type := builtin, target := Output} = Out, Selected, Envs)
+        when is_atom(Output) ->
+    handle_builtin_output(Output, Selected, Envs, maps:get(args, Out, #{}));
+do_handle_output(#{type := builtin, target := Output} = Out, Selected, Envs)
+        when is_binary(Output) ->
+    try binary_to_existing_atom(Output) of
+        Func -> handle_builtin_output(Func, Selected, Envs, maps:get(args, Out, #{}))
     catch
         error:badarg -> error(not_found)
     end.
 
-handle_builtin_output(Func, Selected, Envs) ->
-    case erlang:function_exported(emqx_rule_outputs, Func, 2) of
-        true -> erlang:apply(emqx_rule_outputs, Func, [Selected, Envs]);
+handle_builtin_output(Func, Selected, Envs, Args) ->
+    case erlang:function_exported(emqx_rule_outputs, Func, 3) of
+        true -> erlang:apply(emqx_rule_outputs, Func, [Selected, Envs, Args]);
         false -> error(not_found)
     end.
 
