@@ -41,6 +41,10 @@
                      ]
         }).
 
+-export([ get_raw_sources/0
+        , get_raw_source/1
+        ]).
+
 -export([ api_spec/0
         , sources/2
         , source/2
@@ -406,7 +410,7 @@ get_raw_sources() ->
 
 get_raw_source(Type) ->
     lists:filter(fun (#{type := T}) ->
-                         bin(T) =:= Type
+                         erlang:atom_to_binary(T) =:= Type
                  end, get_raw_sources()).
 
 update_config(Cmd, Sources) ->
@@ -414,13 +418,13 @@ update_config(Cmd, Sources) ->
         {ok, _} -> {204};
         {error, {pre_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}};
+                    message => erlang:atom_to_binary(Reason)}};
         {error, {post_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}};
+                    message => erlang:atom_to_binary(Reason)}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}}
+                    message => erlang:atom_to_binary(Reason)}}
     end.
 
 read_cert(#{ssl := #{enable := true} = SSL} = Source) ->

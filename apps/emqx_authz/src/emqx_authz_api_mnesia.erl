@@ -402,10 +402,16 @@ record_api() ->
     {"/authorization/sources/built-in-database/:type/:key", Metadata, record}.
 
 purge(delete, _) ->
-    ok = lists:foreach(fun(Key) ->
-                           ok = ekka_mnesia:dirty_delete(?ACL_TABLE, Key)
-                       end, mnesia:dirty_all_keys(?ACL_TABLE)),
-    {204}.
+    case emqx_authz_api_sources:get_raw_source(<<"built-in-database">>) of
+        [#{enable := false}] ->
+            ok = lists:foreach(fun(Key) ->
+                                   ok = ekka_mnesia:dirty_delete(?ACL_TABLE, Key)
+                               end, mnesia:dirty_all_keys(?ACL_TABLE)),
+            {204};
+        _ ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => <<"'built-in-database' type source must be disabled before purge.">>}}
+    end.
 
 records(get, #{bindings := #{type := <<"username">>},
                query_string := Qs
