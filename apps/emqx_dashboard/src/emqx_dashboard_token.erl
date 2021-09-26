@@ -103,7 +103,8 @@ do_sign(Username, Password) ->
     },
     Signed = jose_jwt:sign(JWK, JWS, JWT),
     {_, Token} = jose_jws:compact(Signed),
-    ok = ekka_mnesia:dirty_write(format(Token, Username, ExpTime)),
+    JWTRec = format(Token, Username, ExpTime),
+    ekka_mnesia:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
     {ok, Token}.
 
 do_verify(Token)->
@@ -111,8 +112,9 @@ do_verify(Token)->
         {ok, JWT = #mqtt_admin_jwt{exptime = ExpTime}} ->
             case ExpTime > erlang:system_time(millisecond) of
                 true ->
-                    ekka_mnesia:dirty_write(JWT#mqtt_admin_jwt{exptime = jwt_expiration_time()}),
-                    ok;
+                    NewJWT = JWT#mqtt_admin_jwt{exptime = jwt_expiration_time()},
+                    {atomic, Res} = ekka_mnesia:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [NewJWT]),
+                    Res;
                 _ ->
                     {error, token_timeout}
             end;
@@ -132,14 +134,18 @@ do_destroy_by_username(Username) ->
 %% jwt internal util function
 -spec(lookup(Token :: binary()) -> {ok, #mqtt_admin_jwt{}} | {error, not_found}).
 lookup(Token) ->
-    case mnesia:dirty_read(?TAB, Token) of
-        [JWT] -> {ok, JWT};
-        [] -> {error, not_found}
+    Fun = fun() -> mnesia:read(?TAB, Token) end,
+    case ekka_mnesia:ro_transaction(?DASHBOARD_SHARD, Fun) of
+        {atomic, [JWT]} -> {ok, JWT};
+        {atomic, []} -> {error, not_found}
     end.
 
 lookup_by_username(Username) ->
     Spec = [{{mqtt_admin_jwt, '_', Username, '_'}, [], ['$_']}],
-    mnesia:dirty_select(?TAB, Spec).
+    Fun = fun() -> mnesia:select(?TAB, Spec) end,
+    {atomic, List} = ekka_mnesia:ro_transaction(?DASHBOARD_SHARD, Fun),
+    List.
+
 
 jwk(Username, Password, Salt) ->
     Key = erlang:md5(<<Salt/binary, Username/binary, Password/binary>>),
@@ -187,7 +193,8 @@ handle_info(clean_jwt, State) ->
     timer_clean(self()),
     Now = erlang:system_time(millisecond),
     Spec = [{{mqtt_admin_jwt, '_', '_', '$1'}, [{'<', '$1', Now}], ['$_']}],
-    JWTList = mnesia:dirty_select(?TAB, Spec),
+    {atomic, JWTList} = ekka_mnesia:ro_transaction(?DASHBOARD_SHARD,
+        fun() -> mnesia:select(?TAB, Spec) end),
     destroy(JWTList),
     {noreply, State};
 handle_info(_Info, State) ->
