@@ -100,8 +100,8 @@ body(type) -> map();
 body(validator) -> [fun check_body/1];
 body(_) -> undefined.
 
-request_timeout(type) -> non_neg_integer();
-request_timeout(default) -> 5000;
+request_timeout(type) -> emqx_schema:duration_ms();
+request_timeout(default) -> "5s";
 request_timeout(_) -> undefined.
 
 %%------------------------------------------------------------------------------

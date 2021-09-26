@@ -18,6 +18,8 @@
         , fields/1
         ]).
 
+-import(emqx_schema, [mk_duration/2]).
+
 namespace() -> authz.
 
 %% @doc authorization schema is not exported
@@ -77,7 +79,7 @@ fields(http_get) ->
                                end
                  }
       }
-    , {request_timeout,  #{type => timeout(), default => 30000 }}
+    , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
     ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
 fields(http_post) ->
     [ {type, #{type => http}}
@@ -107,7 +109,7 @@ fields(http_post) ->
                                end
                  }
       }
-    , {request_timeout,  #{type => timeout(), default => 30000 }}
+    , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
     , {body, #{type => map(),
                nullable => true
               }

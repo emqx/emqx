@@ -55,7 +55,7 @@
 
 % workaround: prevent being recognized as unused functions
 -export([to_duration/1, to_duration_s/1, to_duration_ms/1,
-         to_bytesize/1, to_wordsize/1,
+         mk_duration/2, to_bytesize/1, to_wordsize/1,
          to_percent/1, to_comma_separated_list/1,
          to_bar_separated_list/1, to_ip_port/1,
          to_erl_cipher_suite/1,
@@ -1191,7 +1191,7 @@ default_ciphers(psk) ->
 keys(Parent, Conf) ->
     [binary_to_list(B) || B <- maps:keys(conf_get(Parent, Conf, #{}))].
 
--spec ceiling(float()) -> integer().
+-spec ceiling(number()) -> integer().
 ceiling(X) ->
     T = erlang:trunc(X),
     case (X - T) of
@@ -1210,6 +1210,15 @@ ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 ref(Module, Field) -> hoconsc:ref(Module, Field).
 
+mk_duration(Desc, OverrideMeta) ->
+    DefaultMeta = #{desc => Desc ++ " Time span. A text string with number followed by time units:
+                    `ms` for milli-seconds,
+                    `s` for seconds,
+                    `m` for minutes,
+                    `h` for hours;
+                    or combined representation like `1h5m0s`"},
+    hoconsc:mk(typerefl:alias("string", duration()), maps:merge(DefaultMeta, OverrideMeta)).
+
 to_duration(Str) ->
     case hocon_postprocess:duration(Str) of
         I when is_integer(I) -> {ok, I};
@@ -1218,13 +1227,15 @@ to_duration(Str) ->
 
 to_duration_s(Str) ->
     case hocon_postprocess:duration(Str) of
-        I when is_integer(I) -> {ok, ceiling(I / 1000)};
+        I when is_number(I) -> {ok, ceiling(I / 1000)};
         _ -> {error, Str}
     end.
 
+-spec to_duration_ms(Input) -> {ok, integer()} | {error, Input}
+              when Input :: string() | binary().
 to_duration_ms(Str) ->
     case hocon_postprocess:duration(Str) of
-        I when is_integer(I) -> {ok, ceiling(I)};
+        I when is_number(I) -> {ok, ceiling(I)};
         _ -> {error, Str}
     end.
 

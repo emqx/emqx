@@ -71,16 +71,16 @@ base_url(validator) -> fun(#{query := _Query}) ->
                        end;
 base_url(_) -> undefined.
 
-connect_timeout(type) -> connect_timeout();
-connect_timeout(default) -> 5000;
+connect_timeout(type) -> emqx_schema:duration_ms();
+connect_timeout(default) -> "5s";
 connect_timeout(_) -> undefined.
 
 max_retries(type) -> non_neg_integer();
 max_retries(default) -> 5;
 max_retries(_) -> undefined.
 
-retry_interval(type) -> non_neg_integer();
-retry_interval(default) -> 1000;
+retry_interval(type) -> emqx_schema:duration_ms();
+retry_interval(default) -> "1s";
 retry_interval(_) -> undefined.
 
 pool_type(type) -> pool_type();

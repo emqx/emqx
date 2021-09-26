@@ -71,7 +71,7 @@ t_send_request_api(_) ->
     Payload = <<"simple echo this">>,
     Req = #{token => Token,
             payload => Payload,
-            timeout => 10,
+            timeout => <<"10s">>,
             content_type => <<"text/plain">>,
             method => <<"get">>},
     Auth = emqx_mgmt_api_test_util:auth_header_(),
