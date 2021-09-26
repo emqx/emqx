@@ -138,7 +138,9 @@ authenticate(#{password := Password} = Credential,
                     {error, Reason}
             end;
         {error, Reason} ->
-            ?LOG(error, "['~s'] Query failed: ~p", [Unique, Reason]),
+            ?SLOG(error, #{msg => "query failed",
+                           unique => Unique,
+                           reason => Reason}),
             ignore
     end.
 

@@ -289,16 +289,10 @@ check_config(Config) ->
 %%------------------------------------------------------------------------------
 
 authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
-    case ets:lookup(?CHAINS_TAB, Listener) of
-        [#chain{authenticators = Authenticators}] when Authenticators =/= [] ->
-            do_authenticate(Authenticators, Credential);
-        _ ->
-            case ets:lookup(?CHAINS_TAB, global_chain(Protocol)) of
-                [#chain{authenticators = Authenticators}] when Authenticators =/= [] ->
-                    do_authenticate(Authenticators, Credential);
-                _ ->
-                    ignore
-            end
+    Authenticators = get_authenticators(Listener, global_chain(Protocol)),
+    case get_enabled(Authenticators) of
+        [] -> ignore;
+        NAuthenticators -> do_authenticate(NAuthenticators, Credential)
     end.
 
 do_authenticate([], _) ->
@@ -315,10 +309,30 @@ do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | M
             %% {error, Reason}
             {stop, Result}
     catch
-        error:Reason:Stacktrace ->
-            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [ID, {Reason, Stacktrace}]),
+        Class:Reason:Stacktrace ->
+            ?SLOG(warning, #{msg => "an unexpected error in authentication",
+                             class => Class,
+                             reason => Reason,
+                             stacktrace => Stacktrace,
+                             authenticator => ID}),
             do_authenticate(More, Credential)
     end.
+
+get_authenticators(Listener, Global) ->
+    case ets:lookup(?CHAINS_TAB, Listener) of
+        [#chain{authenticators = Authenticators}] ->
+            Authenticators;
+        _ ->
+            case ets:lookup(?CHAINS_TAB, Global) of
+                [#chain{authenticators = Authenticators}] ->
+                    Authenticators;
+                _ ->
+                    []
+            end
+    end.
+
+get_enabled(Authenticators) ->
+    [Authenticator || Authenticator <- Authenticators, Authenticator#authenticator.enable =:= true].
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -335,7 +349,9 @@ initialize_authentication(ChainName, AuthenticatorsConfig) ->
             {ok, _} ->
                 ok;
             {error, Reason} ->
-                ?LOG(error, "Failed to create authenticator '~s': ~p", [generate_id(AuthenticatorConfig), Reason])
+                ?SLOG(error, #{msg => "failed to create authenticator",
+                               reason => Reason,
+                               authenticator => generate_id(AuthenticatorConfig)})
         end
     end, CheckedConfig).
 
@@ -540,7 +556,7 @@ handle_call({create_authenticator, ChainName, Config}, _From, #{providers := Pro
                 false ->
                     case do_create_authenticator(ChainName, AuthenticatorID, Config, Providers) of
                         {ok, Authenticator} ->
-                            NAuthenticators = Authenticators ++ [Authenticator],
+                            NAuthenticators = Authenticators ++ [Authenticator#authenticator{enable = maps:get(enable, Config)}],
                             true = ets:insert(?CHAINS_TAB, Chain#chain{authenticators = NAuthenticators}),
                             {ok, serialize_authenticator(Authenticator)};
                         {error, Reason} ->
@@ -579,7 +595,8 @@ handle_call({update_authenticator, ChainName, AuthenticatorID, Config}, _From, S
                             Unique = unique(ChainName, AuthenticatorID, Version),
                             case Provider:update(Config#{'_unique' => Unique}, ST) of
                                 {ok, NewST} ->
-                                    NewAuthenticator = Authenticator#authenticator{state = switch_version(NewST)},
+                                    NewAuthenticator = Authenticator#authenticator{state = switch_version(NewST),
+                                                                                   enable = maps:get(enable, Config)},
                                     NewAuthenticators = replace_authenticator(AuthenticatorID, NewAuthenticator, Authenticators),
                                     true = ets:insert(?CHAINS_TAB, Chain#chain{authenticators = NewAuthenticators}),
                                     {ok, serialize_authenticator(NewAuthenticator)};
@@ -633,15 +650,15 @@ handle_call({list_users, ChainName, AuthenticatorID}, _From, State) ->
     reply(Reply, State);
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected call", req => Req}),
     {reply, ignored, State}.
 
 handle_cast(Req, State) ->
-    ?LOG(error, "Unexpected case: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected cast", req => Req}),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

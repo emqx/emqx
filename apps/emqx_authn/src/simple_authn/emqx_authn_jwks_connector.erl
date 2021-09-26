@@ -94,7 +94,9 @@ handle_info({http, {RequestID, Result}},
     State1 = State0#{request_id := undefined},
     case Result of
         {error, Reason} ->
-            ?LOG(error, "Failed to request jwks endpoint(~s): ~p", [Endpoint, Reason]),
+            ?SLOG(warning, #{msg => "failed to request jwks endpoint",
+                             endpoint => Endpoint,
+                             reason => Reason}),
             State1;
         {_StatusLine, _Headers, Body} ->
             try
@@ -102,7 +104,9 @@ handle_info({http, {RequestID, Result}},
                 {_, JWKs} = JWKS#jose_jwk.keys,
                 State1#{jwks := JWKs}
             catch _:_ ->
-                ?LOG(error, "Invalid jwks returned from jwks endpoint(~s): ~p~n", [Endpoint, Body]),
+                ?SLOG(warning, #{msg => "invalid jwks returned from jwks endpoint",
+                                 endpoint => Endpoint,
+                                 body => Body}),
                 State1
             end
     end;
@@ -140,7 +144,9 @@ refresh_jwks(#{endpoint := Endpoint,
     NState = case httpc:request(get, {Endpoint, [{"Accept", "application/json"}]}, HTTPOpts,
                                 [{body_format, binary}, {sync, false}, {receiver, self()}]) of
                  {error, Reason} ->
-                     ?LOG(error, "Failed to request jwks endpoint(~s): ~p", [Endpoint, Reason]),
+                     ?SLOG(warning, #{msg => "failed to request jwks endpoint",
+                                      endpoint => Endpoint,
+                                      reason => Reason}),
                      State;
                  {ok, RequestID} ->
                      State#{request_id := RequestID}

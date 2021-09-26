@@ -146,14 +146,18 @@ authenticate(#{password := Password} = Credential,
     case emqx_resource:query(Unique, {find_one, Collection, Selector2, #{}}) of
         undefined -> ignore;
         {error, Reason} ->
-            ?LOG(error, "['~s'] Query failed: ~p", [Unique, Reason]),
+            ?SLOG(error, #{msg => "query failed",
+                           unique => Unique,
+                           reason => Reason}),
             ignore;
         Doc ->
             case check_password(Password, Doc, State) of
                 ok ->
                     {ok, #{is_superuser => is_superuser(Doc, State)}};
                 {error, {cannot_find_password_hash_field, PasswordHashField}} ->
-                    ?LOG(error, "['~s'] Can't find password hash field: ~s", [Unique, PasswordHashField]),
+                    ?SLOG(error, #{msg => "can't find password hash field",
+                                   unique => Unique,
+                                   password_hash_field => PasswordHashField}),
                     {error, bad_username_or_password};
                 {error, Reason} ->
                     {error, Reason}

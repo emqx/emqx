@@ -188,9 +188,9 @@ check_url(URL) ->
     end.
 
 check_body(Body) ->
-    lists:all(fun({_, V}) ->
-                  is_binary(V)
-              end, maps:to_list(Body)).
+    maps:fold(fun(_K, _V, false) -> false;
+                 (_K, V, true) -> is_binary(V)
+              end, true, Body).
 
 default_headers() ->
     maps:put(<<"content-type">>,
