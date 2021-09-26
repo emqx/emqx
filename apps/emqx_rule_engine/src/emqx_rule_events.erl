@@ -21,7 +21,8 @@
 -include_lib("emqx/include/logger.hrl").
 
 
--export([ load/1
+-export([ reload/0
+        , load/1
         , unload/0
         , unload/1
         , event_name/1
@@ -36,6 +37,7 @@
         , on_message_dropped/4
         , on_message_delivered/3
         , on_message_acked/3
+        , on_bridge_message_received/2
         ]).
 
 -export([ event_info/0
@@ -61,6 +63,12 @@
         ]).
 -endif.
 
+reload() ->
+    emqx_rule_registry:load_hooks_for_rule(emqx_rule_registry:get_rules()).
+
+load(<<"$bridges/", _ChannelId/binary>> = BridgeTopic) ->
+    emqx_hooks:put(BridgeTopic, {?MODULE, on_bridge_message_received,
+        [#{bridge_topic => BridgeTopic}]});
 load(Topic) ->
     HookPoint = event_name(Topic),
     emqx_hooks:put(HookPoint, {?MODULE, hook_fun(HookPoint), [[]]}).
@@ -77,6 +85,12 @@ unload(Topic) ->
 %%--------------------------------------------------------------------
 %% Callbacks
 %%--------------------------------------------------------------------
+on_bridge_message_received(Message, #{bridge_topic := BridgeTopic}) ->
+    case emqx_rule_registry:get_rules_for_topic(BridgeTopic) of
+        [] -> ok;
+        Rules -> emqx_rule_runtime:apply_rules(Rules, Message)
+    end.
+
 on_message_publish(Message = #message{topic = Topic}, _Env) ->
     case ignore_sys_message(Message) of
         true -> ok;

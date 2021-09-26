@@ -67,7 +67,7 @@
 %%   - The execution order is the adding order of callbacks if they have
 %%     equal priority values.
 
--type(hookpoint() :: atom()).
+-type(hookpoint() :: atom() | binary()).
 -type(action() :: {module(), atom(), [term()] | undefined}).
 -type(filter() :: {module(), atom(), [term()] | undefined}).
 
@@ -158,12 +158,12 @@ del(HookPoint, Action) ->
     gen_server:cast(?SERVER, {del, HookPoint, Action}).
 
 %% @doc Run hooks.
--spec(run(atom(), list(Arg::term())) -> ok).
+-spec(run(hookpoint(), list(Arg::term())) -> ok).
 run(HookPoint, Args) ->
     do_run(lookup(HookPoint), Args).
 
 %% @doc Run hooks with Accumulator.
--spec(run_fold(atom(), list(Arg::term()), Acc::term()) -> Acc::term()).
+-spec(run_fold(hookpoint(), list(Arg::term()), Acc::term()) -> Acc::term()).
 run_fold(HookPoint, Args, Acc) ->
     do_run_fold(lookup(HookPoint), Args, Acc).
 
