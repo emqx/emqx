@@ -74,7 +74,7 @@ parse(Sql) ->
                         from = get_value(from, Clauses),
                         where = get_value(where, Clauses)
                     }};
-            {error, Error} -> {error, Error}
+            Error -> {error, Error}
         end
     catch
         _Error:Reason:StackTrace ->
