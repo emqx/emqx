@@ -193,8 +193,8 @@ fields(dtls_opts) ->
     emqx_schema:server_ssl_opts_schema(
         #{ depth => 10
          , reuse_sessions => true
-         , versions => dtls
-         , ciphers => dtls
+         , versions => dtls_all_available
+         , ciphers => dtls_all_available
          }, false).
 
 authentication() ->

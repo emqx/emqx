@@ -637,16 +637,16 @@ fields("listener_ssl_opts") ->
     server_ssl_opts_schema(
       #{ depth => 10
        , reuse_sessions => true
-       , versions => tcp
-       , ciphers => tcp_all
+       , versions => tls_all_available
+       , ciphers => tls_all_available
        }, false);
 
 fields("listener_wss_opts") ->
     server_ssl_opts_schema(
       #{ depth => 10
        , reuse_sessions => true
-       , versions => tcp
-       , ciphers => tcp_all
+       , versions => tls_all_available
+       , ciphers => tls_all_available
        }, true);
 fields(ssl_client_opts) ->
     client_ssl_opts_schema(#{});
@@ -987,13 +987,14 @@ keyfile is password-protected."""
       }
     , {"versions",
        sc(hoconsc:array(typerefl:atom()),
-          #{ default => default_tls_vsns(maps:get(versions, Defaults, tcp))
+          #{ default => default_tls_vsns(maps:get(versions, Defaults, tls_all_available))
            , desc =>
 """All TLS/DTLS versions to be supported.<br>
 NOTE: PSK ciphers are suppresed by 'tlsv1.3' version config<br>
 In case PSK cipher suites are intended, make sure to configured
 <code>['tlsv1.2', 'tlsv1.1']</code> here.
 """
+           , validator => fun validate_tls_versions/1
            })
       }
     , {"ciphers", ciphers_schema(D("ciphers"))}
@@ -1086,7 +1087,7 @@ client_ssl_opts_schema(Defaults) ->
             , desc =>
 """Specify the host name to be used in TLS Server Name Indication extension.<br>
 For instance, when connecting to \"server.example.net\", the genuine server
-which accedpts the connection and performs TSL handshake may differ from the
+which accedpts the connection and performs TLS handshake may differ from the
 host the TLS client initially connects to, e.g. when connecting to an IP address
 or when the host has multiple resolvable DNS records <br>
 If not specified, it will default to the host name string which is used
@@ -1099,12 +1100,12 @@ verification check."""
     ].
 
 
-default_tls_vsns(dtls) ->
-    [<<"dtlsv1.2">>, <<"dtlsv1">>];
-default_tls_vsns(tcp) ->
-    [<<"tlsv1.3">>, <<"tlsv1.2">>, <<"tlsv1.1">>, <<"tlsv1">>].
+default_tls_vsns(dtls_all_available) ->
+    proplists:get_value(available_dtls, ssl:versions());
+default_tls_vsns(tls_all_available) ->
+    proplists:get_value(available, ssl:versions()).
 
--spec ciphers_schema(quic | dtls | tcp_all | undefined) -> hocon_schema:field_schema().
+-spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined) -> hocon_schema:field_schema().
 ciphers_schema(Default) ->
     sc(hoconsc:array(string()),
        #{ default => default_ciphers(Default)
@@ -1146,24 +1147,24 @@ RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA\"</code><br>
        end}).
 
 default_ciphers(undefined) ->
-    default_ciphers(tcp_all);
+    default_ciphers(tls_all_available);
 default_ciphers(quic) -> [
     "TLS_AES_256_GCM_SHA384",
     "TLS_AES_128_GCM_SHA256",
     "TLS_CHACHA20_POLY1305_SHA256"
     ];
-default_ciphers(tcp_all) ->
+default_ciphers(tls_all_available) ->
     default_ciphers('tlsv1.3') ++
     default_ciphers('tlsv1.2') ++
     default_ciphers(psk);
-default_ciphers(dtls) ->
+default_ciphers(dtls_all_available) ->
     %% as of now, dtls does not support tlsv1.3 ciphers
     default_ciphers('tlsv1.2') ++ default_ciphers('psk');
 default_ciphers('tlsv1.3') ->
-    ["TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256",
-     "TLS_CHACHA20_POLY1305_SHA256", "TLS_AES_128_CCM_SHA256",
-     "TLS_AES_128_CCM_8_SHA256"]
-    ++ default_ciphers('tlsv1.2');
+    case is_tlsv13_available() of
+        true -> ssl:cipher_suites(exclusive, 'tlsv1.3', openssl);
+        false -> []
+    end ++ default_ciphers('tlsv1.2');
 default_ciphers('tlsv1.2') -> [
     "ECDHE-ECDSA-AES256-GCM-SHA384",
     "ECDHE-RSA-AES256-GCM-SHA384", "ECDHE-ECDSA-AES256-SHA384", "ECDHE-RSA-AES256-SHA384",
@@ -1314,9 +1315,22 @@ parse_user_lookup_fun(StrConf) ->
     {fun Mod:Fun/3, <<>>}.
 
 validate_ciphers(Ciphers) ->
-    All = ssl:cipher_suites(all, 'tlsv1.3', openssl) ++
-          ssl:cipher_suites(all, 'tlsv1.2', openssl), %% includes older version ciphers
+    All = case is_tlsv13_available() of
+              true -> ssl:cipher_suites(all, 'tlsv1.3', openssl);
+              false -> []
+          end ++ ssl:cipher_suites(all, 'tlsv1.2', openssl),
     case lists:filter(fun(Cipher) -> not lists:member(Cipher, All) end, Ciphers) of
         [] -> ok;
         Bad -> {error, {bad_ciphers, Bad}}
     end.
+
+validate_tls_versions(Versions) ->
+    AvailableVersions = proplists:get_value(available, ssl:versions()) ++
+                        proplists:get_value(available_dtls, ssl:versions()),
+    case lists:filter(fun(V) -> not lists:member(V, AvailableVersions) end, Versions) of
+        [] -> ok;
+        Vs -> {error, {unsupported_ssl_versions, Vs}}
+    end.
+
+is_tlsv13_available() ->
+    lists:member('tlsv1.3', proplists:get_value(available, ssl:versions())).
