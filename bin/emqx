@@ -308,6 +308,8 @@ is_down() {
             ps -p "$parent"
             return 0
         fi
+        echo "ERROR: $PID is still around"
+        ps -p "$PID"
         return 1
     fi
     # it's gone
