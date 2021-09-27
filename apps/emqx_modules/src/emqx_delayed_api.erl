@@ -74,7 +74,7 @@ schema("/mqtt/delayed") ->
     };
 
 schema("/mqtt/delayed/messages/:msgid") ->
-    #{operationId => delayed_messages,
+    #{operationId => delayed_message,
         get => #{
             tags => [<<"mqtt">>],
             description => <<"Get delayed message">>,
