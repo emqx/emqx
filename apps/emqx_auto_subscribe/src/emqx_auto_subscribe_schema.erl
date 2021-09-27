@@ -34,10 +34,10 @@ fields("auto_subscribe") ->
 
 fields("topic") ->
     [ {topic, sc(binary(), #{})}
-    , {qos, sc(typerefl:union([0, 1, 2]), #{default => 0})}
-    , {rh,  sc(typerefl:union([0, 1, 2]), #{default => 0})}
-    , {rap, sc(typerefl:union([0, 1]), #{default => 0})}
-    , {nl,  sc(typerefl:union([0, 1]), #{default => 0})}
+    , {qos, sc(hoconsc:enum([0, 1, 2]), #{default => 0})}
+    , {rh,  sc(hoconsc:enum([0, 1, 2]), #{default => 0})}
+    , {rap, sc(hoconsc:enum([0, 1]), #{default => 0})}
+    , {nl,  sc(hoconsc:enum([0, 1]), #{default => 0})}
     ].
 
 %%--------------------------------------------------------------------

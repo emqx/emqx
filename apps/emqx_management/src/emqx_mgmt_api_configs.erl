@@ -16,97 +16,106 @@
 
 -module(emqx_mgmt_api_configs).
 
+-include_lib("hocon/include/hoconsc.hrl").
 -behaviour(minirest_api).
 
--import(emqx_mgmt_util, [ schema/1
-                        , schema/2
-                        , error_schema/2
-                        ]).
-
 -export([api_spec/0]).
+-export([paths/0, schema/1, fields/1]).
 
--export([ config/3
-        , config_reset/3
-        ]).
+-export([config/3, config_reset/3, configs/3, get_full_config/0]).
 
 -export([get_conf_schema/2, gen_schema/1]).
 
--define(PARAM_CONF_PATH, [#{
-    name => conf_path,
-    in => query,
-    description => <<"The config path separated by '.' character">>,
-    required => false,
-    schema => #{type => string, default => <<".">>}
-}]).
-
--define(PREFIX, "/configs").
--define(PREFIX_RESET, "/configs_reset").
-
--define(MAX_DEPTH, 1).
-
+-define(PREFIX, "/configs/").
+-define(PREFIX_RESET, "/configs_reset/").
 -define(ERR_MSG(MSG), list_to_binary(io_lib:format("~p", [MSG]))).
-
--define(CORE_CONFS, [
-    %% from emqx_machine_schema
-    log, rpc,
-    %% from emqx_schema
-    zones, mqtt, flapping_detect, force_shutdown, force_gc, conn_congestion, rate_limit, quota,
-    broker, alarm, sysmon,
-    %% from other apps
-    emqx_dashboard, emqx_management]).
+-define(EXCLUDES, [listeners, node, cluster, gateway, rule_engine]).
 
 api_spec() ->
-    {config_apis() ++ [config_reset_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE).
 
-config_apis() ->
-    [config_api(ConfPath, Schema) || {ConfPath, Schema} <-
-     get_conf_schema(emqx:get_config([]), ?MAX_DEPTH), is_core_conf(ConfPath)].
+paths() ->
+    ["/configs", "/configs_reset/:rootname"] ++
+    lists:map(fun({Name, _Type}) -> ?PREFIX ++ to_list(Name) end, config_list(?EXCLUDES)).
 
-config_api(ConfPath, Schema) ->
-    Path = path_join(ConfPath),
-    Descr = fun(Str) ->
-        list_to_binary([Str, " ", path_join(ConfPath, ".")])
-    end,
-    Metadata = #{
+schema("/configs") ->
+    #{
+        operationId => configs,
         get => #{
-            description => Descr("Get configs for"),
+            tags => [conf],
+            description => <<"Get all the configurations of the specified node, including hot and non-hot updatable items.">>,
+            parameters => [
+                {node, hoconsc:mk(typerefl:atom(),
+                    #{in => query, required => false, example => <<"emqx@127.0.0.1">>,
+                        desc => <<"Node's name: If you do not fill in the fields, this node will be used by default.">>})}],
             responses => #{
-                <<"200">> => schema(Schema, <<"Get configs successfully">>),
-                <<"404">> => emqx_mgmt_util:error_schema(<<"Config not found">>, ['NOT_FOUND'])
-            }
-        },
-        put => #{
-            description => Descr("Update configs for"),
-            'requestBody' => schema(Schema),
-            responses => #{
-                <<"200">> => schema(Schema, <<"Update configs successfully">>),
-                <<"400">> => error_schema(<<"Update configs failed">>, ['UPDATE_FAILED'])
+                200 => config_list([])
             }
         }
-    },
-    {?PREFIX ++ "/" ++ Path, Metadata, config}.
-
-config_reset_api() ->
-    Metadata = #{
+    };
+schema("/configs_reset/:rootname") ->
+    Paths = lists:map(fun({Path, _}) -> Path end, config_list(?EXCLUDES)),
+    #{
+        operationId => config_reset,
         post => #{
-            tags => [configs],
+            tags => [conf],
             description => <<"Reset the config entry specified by the query string parameter `conf_path`.<br/>
 - For a config entry that has default value, this resets it to the default value;
 - For a config entry that has no default value, an error 400 will be returned">>,
-            parameters => ?PARAM_CONF_PATH,
+            %% We only return "200" rather than the new configs that has been changed, as
+            %% the schema of the changed configs is depends on the request parameter
+            %% `conf_path`, it cannot be defined here.
+            parameters => [
+                {rootname, hoconsc:mk(hoconsc:enum(Paths), #{in => path, example => <<"authorization">>})},
+                {conf_path, hoconsc:mk(typerefl:binary(),
+                    #{in => query, required => false, example => <<"cache.enable">>,
+                        desc => <<"The config path separated by '.' character">>})}],
             responses => #{
-                %% We only return "200" rather than the new configs that has been changed, as
-                %% the schema of the changed configs is depends on the request parameter
-                %% `conf_path`, it cannot be defined here.
-                <<"200">> => schema(<<"Reset configs successfully">>),
-                <<"400">> => error_schema(<<"It's not able to reset the config">>, ['INVALID_OPERATION'])
+                200 => <<"Rest config successfully">>,
+                400 => emqx_dashboard_swagger:error_codes(['NO_DEFAULT_VALUE', 'REST_FAILED'])
             }
         }
-    },
-    {?PREFIX_RESET, Metadata, config_reset}.
+    };
+schema(Path) ->
+    {Root, Schema} = find_schema(Path),
+    #{
+        operationId => config,
+        get => #{
+            tags => [conf],
+            description => iolist_to_binary([<<"Get the sub-configurations under *">>, Root, <<"*">>]),
+            responses => #{
+                200 => Schema,
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
+            }
+        },
+        put => #{
+            tags => [conf],
+            description => iolist_to_binary([<<"Update the sub-configurations under *">>, Root, <<"*">>]),
+            requestBody => Schema,
+            responses => #{
+                200 => Schema,
+                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
+            }
+        }
+    }.
+
+find_schema(Path) ->
+    [_, _Prefix, Root | _] = string:split(Path, "/", all),
+    Configs = config_list(?EXCLUDES),
+    case lists:keyfind(Root, 1, Configs) of
+        {Root, Schema} -> {Root, Schema};
+        false ->
+            RootAtom = list_to_existing_atom(Root),
+            {Root, element(2, lists:keyfind(RootAtom, 1, Configs))}
+    end.
+
+%% we load all configs from emqx_machine_schema, some of them are defined as local ref
+%% we need redirect to emqx_machine_schema.
+%% such as hoconsc:ref("node") to hoconsc:ref(emqx_machine_schema, "node")
+fields(Field) -> emqx_machine_schema:fields(Field).
 
 %%%==============================================================================================
-%% parameters trans
+%% HTTP API Callbacks
 config(get, _Params, Req) ->
     Path = conf_path(Req),
     case emqx_map_lib:deep_find(Path, get_full_config()) of
@@ -118,18 +127,32 @@ config(get, _Params, Req) ->
 
 config(put, #{body := Body}, Req) ->
     Path = conf_path(Req),
-    {ok, #{raw_config := RawConf}} = emqx:update_config(Path, Body,
-        #{rawconf_with_defaults => true}),
-    {200, emqx_map_lib:jsonable_map(RawConf)}.
+    case emqx:update_config(Path, Body, #{rawconf_with_defaults => true}) of
+        {ok, #{raw_config := RawConf}} ->
+            {200, emqx_map_lib:jsonable_map(RawConf)};
+        {error, Reason} ->
+            {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
+    end.
 
 config_reset(post, _Params, Req) ->
     %% reset the config specified by the query string param 'conf_path'
     Path = conf_path_reset(Req) ++ conf_path_from_querystr(Req),
     case emqx:reset_config(Path, #{}) of
         {ok, _} -> {200};
+        {error, no_default_value} ->
+            {400, #{code => 'NO_DEFAULT_VALUE', message => <<"No Default Value.">>}};
         {error, Reason} ->
-            {400, ?ERR_MSG(Reason)}
+            {400, #{code => 'REST_FAILED', message => ?ERR_MSG(Reason)}}
     end.
+
+configs(get, Params, _Req) ->
+    Node = maps:get(node, Params, node()),
+    Res = rpc:call(Node, ?MODULE, get_full_config, [[]]),
+    {200, Res}.
+
+conf_path_reset(Req) ->
+    <<"/api/v5", ?PREFIX_RESET, Path/binary>> = cowboy_req:path(Req),
+    string:lexemes(Path, "/ ").
 
 get_full_config() ->
     emqx_map_lib:jsonable_map(
@@ -141,12 +164,15 @@ conf_path_from_querystr(Req) ->
         Path -> string:lexemes(Path, ". ")
     end.
 
+config_list(Exclude) ->
+    Roots = emqx_machine_schema:roots(),
+    lists:foldl(fun(Key, Acc) -> lists:delete(Key, Acc) end, Roots, Exclude).
+
+to_list(L) when is_list(L) -> L;
+to_list(Atom) when is_atom(Atom) -> atom_to_list(Atom).
+
 conf_path(Req) ->
     <<"/api/v5", ?PREFIX, Path/binary>> = cowboy_req:path(Req),
-    string:lexemes(Path, "/ ").
-
-conf_path_reset(Req) ->
-    <<"/api/v5", ?PREFIX_RESET, Path/binary>> = cowboy_req:path(Req),
     string:lexemes(Path, "/ ").
 
 get_conf_schema(Conf, MaxDepth) ->
@@ -158,11 +184,11 @@ get_conf_schema(BasePath, [{Key, Conf} | Confs], Result, MaxDepth) ->
     Path = BasePath ++ [Key],
     Depth = length(Path),
     Result1 = case is_map(Conf) of
-        true when Depth < MaxDepth ->
-            get_conf_schema(Path, maps:to_list(Conf), Result, MaxDepth);
-        true when Depth >= MaxDepth -> Result;
-        false -> Result
-    end,
+                  true when Depth < MaxDepth ->
+                      get_conf_schema(Path, maps:to_list(Conf), Result, MaxDepth);
+                  true when Depth >= MaxDepth -> Result;
+                  false -> Result
+              end,
     get_conf_schema(BasePath, Confs, [{Path, gen_schema(Conf)} | Result1], MaxDepth).
 
 %% TODO: generate from hocon schema
@@ -181,7 +207,7 @@ gen_schema(Conf) when is_list(Conf) ->
     end;
 gen_schema(Conf) when is_map(Conf) ->
     #{type => object, properties =>
-        maps:map(fun(_K, V) -> gen_schema(V) end, Conf)};
+    maps:map(fun(_K, V) -> gen_schema(V) end, Conf)};
 gen_schema(_Conf) ->
     %% the conf is not of JSON supported type, it may have been converted
     %% by the hocon schema
@@ -189,17 +215,3 @@ gen_schema(_Conf) ->
 
 with_default_value(Type, Value) ->
     Type#{example => emqx_map_lib:binary_string(Value)}.
-
-path_join(Path) ->
-    path_join(Path, "/").
-
-path_join([P], _Sp) -> str(P);
-path_join([P | Path], Sp) ->
-    str(P) ++ Sp ++ path_join(Path, Sp).
-
-is_core_conf(Path) ->
-    lists:member(hd(Path), ?CORE_CONFS).
-
-str(S) when is_list(S) -> S;
-str(S) when is_binary(S) -> binary_to_list(S);
-str(S) when is_atom(S) -> atom_to_list(S).

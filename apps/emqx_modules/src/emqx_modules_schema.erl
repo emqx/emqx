@@ -28,14 +28,12 @@ namespace() -> modules.
 
 roots() ->
     ["delayed",
-     "recon",
      "telemetry",
      "event_message",
      array("rewrite"),
      array("topic_metrics")].
 
-fields(Name) when Name =:= "recon";
-                  Name =:= "telemetry" ->
+fields("telemetry") ->
     [ {enable, hoconsc:mk(boolean(), #{default => false})}
     ];
 

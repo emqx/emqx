@@ -232,7 +232,7 @@ gateway_common_options() ->
 
 common_listener_opts() ->
     [ {enable, sc(boolean(), true)}
-    , {bind, sc(union(ip_port(), integer()))}
+    , {bind, sc(hoconsc:union([ip_port(), integer()]))}
     , {max_connections, sc(integer(), 1024)}
     , {max_conn_rate, sc(integer())}
     , {authentication,  authentication()}
