@@ -45,6 +45,8 @@
         , index_of/2
         ]).
 
+-define(OOM_FACTOR, 1.25).
+
 %% @doc Merge options
 -spec(merge_opts(Opts, Opts) -> Opts when Opts :: proplists:proplist()).
 merge_opts(Defaults, Options) ->
@@ -185,8 +187,8 @@ do_check_oom([{Val, Max, Reason}|Rest]) ->
 
 tune_heap_size(#{max_heap_size := MaxHeapSize}) ->
     %% If set to zero, the limit is disabled.
-    erlang:process_flag(max_heap_size, #{size => MaxHeapSize,
-                                         kill => false,
+    erlang:process_flag(max_heap_size, #{size => must_kill_heap_size(MaxHeapSize),
+                                         kill => true,
                                          error_logger => true
                                         });
 tune_heap_size(undefined) -> ok.
@@ -233,3 +235,19 @@ index_of(E, I, [E|_]) ->
 index_of(E, I, [_|L]) ->
     index_of(E, I+1, L).
 
+must_kill_heap_size(Size) ->
+    %% We set the max allowed heap size by `erlang:process_flag(max_heap_size, #{size => Size})`,
+    %% where the `Size` cannot be set to an integer lager than `(1 bsl 59) - 1` on a 64-bit system,
+    %% or `(1 bsl 27) - 1` on a 32-bit system.
+    MaxAllowedSize = case erlang:system_info(wordsize) of
+        8 -> % arch_64
+            (1 bsl 59) - 1;
+        4 -> % arch_32
+            (1 bsl 27) - 1
+    end,
+    %% We multiply the size with factor ?OOM_FACTOR, to give the
+    %% process a chance to suicide by `check_oom/1`
+    case ceil(Size * ?OOM_FACTOR) of
+        Size0 when Size0 >= MaxAllowedSize -> MaxAllowedSize;
+        Size0 -> Size0
+    end.

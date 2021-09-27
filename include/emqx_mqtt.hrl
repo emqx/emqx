@@ -30,11 +30,13 @@
 %% MQTT Protocol Version and Names
 %%--------------------------------------------------------------------
 
+-define(MQTT_SN_PROTO_V1, 1).
 -define(MQTT_PROTO_V3, 3).
 -define(MQTT_PROTO_V4, 4).
 -define(MQTT_PROTO_V5, 5).
 
 -define(PROTOCOL_NAMES, [
+    {?MQTT_SN_PROTO_V1, <<"MQTT-SN">>}, %% XXX:Compatible with emqx-sn plug-in
     {?MQTT_PROTO_V3, <<"MQIsdp">>},
     {?MQTT_PROTO_V4, <<"MQTT">>},
     {?MQTT_PROTO_V5, <<"MQTT">>}]).

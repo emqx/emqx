@@ -1523,6 +1523,7 @@ clear_keepalive(Channel = #channel{timers = Timers}) ->
             emqx_misc:cancel_timer(TRef),
             Channel#channel{timers = maps:without([alive_timer], Timers)}
     end.
+
 %%--------------------------------------------------------------------
 %% Maybe Resume Session
 
