@@ -55,20 +55,24 @@ apply_rules([Rule = #rule{id = RuleID}|More], Input) ->
     catch
         %% ignore the errors if select or match failed
         _:{select_and_transform_error, Error} ->
-            ?SLOG(warning, #{msg => "SELECT clause exception failed",
+            ?SLOG(warning, #{msg => "SELECT_clause_exception",
                              rule_id => RuleID, reason => Error});
         _:{match_conditions_error, Error} ->
-            ?SLOG(warning, #{msg => "WHERE clause exception failed",
+            ?SLOG(warning, #{msg => "WHERE_clause_exception",
                              rule_id => RuleID, reason => Error});
         _:{select_and_collect_error, Error} ->
-            ?SLOG(warning, #{msg => "FOREACH clause exception failed",
+            ?SLOG(warning, #{msg => "FOREACH_clause_exception",
                              rule_id => RuleID, reason => Error});
         _:{match_incase_error, Error} ->
-            ?SLOG(warning, #{msg => "INCASE clause exception failed",
+            ?SLOG(warning, #{msg => "INCASE_clause_exception",
                              rule_id => RuleID, reason => Error});
-        _:Error:StkTrace ->
-            ?SLOG(error, #{msg => "Apply rule failed", rule_id => RuleID,
-                           reason => Error, stacktrace => StkTrace})
+        Class:Error:StkTrace ->
+            ?SLOG(error, #{msg => "apply_rule_failed",
+                           rule_id => RuleID,
+                           exception => Class,
+                           reason => Error,
+                           stacktrace => StkTrace
+                          })
     end,
     apply_rules(More, Input).
 
@@ -234,8 +238,12 @@ handle_output(OutId, Selected, Envs) ->
         do_handle_output(OutId, Selected, Envs)
     catch
         Err:Reason:ST ->
-            ?SLOG(error, #{msg => "Output failed", output => OutId, reason => {Err, Reason},
-                           stacktrace => ST})
+            ?SLOG(error, #{msg => "output_failed",
+                           output => OutId,
+                           exception => Err,
+                           reason => Reason,
+                           stacktrace => ST
+                          })
     end.
 
 do_handle_output(#{type := bridge, target := ChannelId}, Selected, _Envs) ->

@@ -31,7 +31,7 @@ console(Selected, #{metadata := #{rule_id := RuleId}} = Envs, _Args) ->
 
 republish(_Selected, #{topic := Topic, headers := #{republish_by := RuleId},
         metadata := #{rule_id := RuleId}}, _Args) ->
-    ?SLOG(error, #{msg => "[republish] recursively republish detected", topic => Topic});
+    ?SLOG(error, #{msg => "recursive_republish_detected", topic => Topic});
 
 %% republish a PUBLISH message
 republish(Selected, #{flags := Flags, metadata := #{rule_id := RuleId}},

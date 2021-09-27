@@ -20,7 +20,10 @@ check_params(Params, Tag) ->
         #{Tag := Checked} -> {ok, Checked}
     catch
         Error:Reason:ST ->
-            ?SLOG(error, #{msg => "check rule params failed", error => {Error, Reason, ST}}),
+            ?SLOG(error, #{msg => "check_rule_params_failed",
+                           exception => Error,
+                           reason => Reason
+                           stacktrace => ST}),
             {error, {Reason, ST}}
     end.
 

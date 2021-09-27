@@ -248,7 +248,7 @@ crud_rules(post, #{body := Params}) ->
     ?CHECK_PARAMS(Params, rule_creation, case emqx_rule_engine:create_rule(CheckedParams) of
         {ok, Rule} -> {201, format_rule_resp(Rule)};
         {error, Reason} ->
-            ?SLOG(error, #{msg => "create rule failed", reason => Reason}),
+            ?SLOG(error, #{msg => "create_rule_failed", reason => Reason}),
             {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
     end).
 
@@ -257,7 +257,7 @@ rule_test(post, #{body := Params}) ->
         {ok, Result} -> {200, Result};
         {error, nomatch} -> {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}};
         {error, Reason} ->
-            ?SLOG(error, #{msg => "rule test failed", reason => Reason}),
+            ?SLOG(error, #{msg => "rule_test_failed", reason => Reason}),
             {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
     end).
 
@@ -276,7 +276,9 @@ crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params0}) ->
         {error, not_found} ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}};
         {error, Reason} ->
-            ?SLOG(error, #{msg => "update rule failed", reason => Reason}),
+            ?SLOG(error, #{msg => "update_rule_failed",
+                           id => Id,
+                           reason => Reason}),
             {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
     end);
 

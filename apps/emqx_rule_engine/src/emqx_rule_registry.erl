@@ -207,15 +207,15 @@ handle_call({remove_rules, Rules}, _From, State) ->
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected call", request => Req}),
+    ?SLOG(error, #{msg => "unexpected_call", request => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected cast", request => Msg}),
+    ?SLOG(error, #{msg => "unexpected_cast", request => Msg}),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "unexpected info", request => Info}),
+    ?SLOG(error, #{msg => "unexpected_info", request => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
