@@ -48,7 +48,7 @@
         , is_foreach := boolean()
         , fields := list()
         , doeach := term()
-        , incase := list()
+        , incase := term()
         , conditions := tuple()
         , enabled := boolean()
         , description := binary()

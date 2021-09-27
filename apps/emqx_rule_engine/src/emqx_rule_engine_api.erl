@@ -255,10 +255,7 @@ crud_rules(post, #{body := Params}) ->
 rule_test(post, #{body := Params}) ->
     ?CHECK_PARAMS(Params, rule_test, case emqx_rule_sqltester:test(CheckedParams) of
         {ok, Result} -> {200, Result};
-        {error, nomatch} -> {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}};
-        {error, Reason} ->
-            ?SLOG(error, #{msg => "rule_test_failed", reason => Reason}),
-            {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
+        {error, nomatch} -> {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}}
     end).
 
 crud_rules_by_id(get, #{bindings := #{id := Id}}) ->
