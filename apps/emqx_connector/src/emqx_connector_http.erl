@@ -130,7 +130,8 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
                    retry_interval := RetryInterval,
                    pool_type := PoolType,
                    pool_size := PoolSize} = Config) ->
-    logger:info("starting http connector: ~p, config: ~p", [InstId, Config]),
+    ?SLOG(info, #{msg => "starting http connector",
+                  connector => InstId, config => Config}),
     {Transport, TransportOpts} = case Scheme of
                                      http ->
                                          {tcp, []};
@@ -166,7 +167,8 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
     end.
 
 on_stop(InstId, #{pool_name := PoolName}) ->
-    logger:info("stopping http connector: ~p", [InstId]),
+    ?SLOG(info, #{msg => "stopping http connector",
+                  connector => InstId}),
     ehttpc_sup:stop_pool(PoolName).
 
 on_query(InstId, {send_message, ChannelId, Msg}, AfterQuery, #{channels := Channels} = State) ->
@@ -181,16 +183,20 @@ on_query(InstId, {Method, Request}, AfterQuery, State) ->
     on_query(InstId, {undefined, Method, Request, 5000}, AfterQuery, State);
 on_query(InstId, {Method, Request, Timeout}, AfterQuery, State) ->
     on_query(InstId, {undefined, Method, Request, Timeout}, AfterQuery, State);
-on_query(InstId, {KeyOrNum, Method, Request, Timeout}, AfterQuery, #{pool_name := PoolName,
-                                                                     base_path := BasePath} = State) ->
-    logger:debug("http connector ~p received request: ~p, at state: ~p", [InstId, Request, State]),
+on_query(InstId, {KeyOrNum, Method, Request, Timeout}, AfterQuery,
+        #{pool_name := PoolName, base_path := BasePath} = State) ->
+    ?SLOG(debug, #{msg => "http connector received request",
+                   request => Request, connector => InstId,
+                   state => State}),
     NRequest = update_path(BasePath, Request),
     case Result = ehttpc:request(case KeyOrNum of
                                      undefined -> PoolName;
                                      _ -> {PoolName, KeyOrNum}
                                  end, Method, NRequest, Timeout) of
         {error, Reason} ->
-            logger:debug("http connector ~p do reqeust failed, sql: ~p, reason: ~p", [InstId, NRequest, Reason]),
+            ?SLOG(error, #{msg => "http connector do reqeust failed",
+                           request => NRequest, reason => Reason,
+                           connector => InstId}),
             emqx_resource:query_failed(AfterQuery);
         _ ->
             emqx_resource:query_success(AfterQuery)
