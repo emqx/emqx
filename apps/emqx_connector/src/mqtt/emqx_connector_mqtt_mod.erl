@@ -162,7 +162,7 @@ handle_publish(Msg, undefined) ->
 handle_publish(Msg, #{on_message_received := {OnMsgRcvdFunc, Args}} = Vars) ->
     ?LOG(debug, "publish to local broker, msg: ~p, vars: ~p", [Msg, Vars]),
     emqx_metrics:inc('bridge.mqtt.message_received_from_remote', 1),
-    _ = erlang:apply(OnMsgRcvdFunc, [Msg] ++ Args),
+    _ = erlang:apply(OnMsgRcvdFunc, [Msg | Args]),
     case maps:get(local_topic, Vars, undefined) of
         undefined -> ok;
         _Topic ->

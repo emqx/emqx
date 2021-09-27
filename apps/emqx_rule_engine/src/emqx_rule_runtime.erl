@@ -33,9 +33,9 @@
 
 -compile({no_auto_import,[alias/1]}).
 
--type(input() :: map()).
--type(alias() :: atom()).
--type(collection() :: {alias(), [term()]}).
+-type input() :: map().
+-type alias() :: atom().
+-type collection() :: {alias(), [term()]}.
 
 -define(ephemeral_alias(TYPE, NAME),
     iolist_to_binary(io_lib:format("_v_~s_~p_~p", [TYPE, NAME, erlang:system_time()]))).
@@ -55,20 +55,20 @@ apply_rules([Rule = #rule{id = RuleID}|More], Input) ->
     catch
         %% ignore the errors if select or match failed
         _:{select_and_transform_error, Error} ->
-            ?LOG(warning, "SELECT clause exception for ~s failed: ~p",
-                 [RuleID, Error]);
+            ?SLOG(warning, #{msg => "SELECT clause exception failed",
+                             rule_id => RuleID, reason => Error});
         _:{match_conditions_error, Error} ->
-            ?LOG(warning, "WHERE clause exception for ~s failed: ~p",
-                 [RuleID, Error]);
+            ?SLOG(warning, #{msg => "WHERE clause exception failed",
+                             rule_id => RuleID, reason => Error});
         _:{select_and_collect_error, Error} ->
-            ?LOG(warning, "FOREACH clause exception for ~s failed: ~p",
-                 [RuleID, Error]);
+            ?SLOG(warning, #{msg => "FOREACH clause exception failed",
+                             rule_id => RuleID, reason => Error});
         _:{match_incase_error, Error} ->
-            ?LOG(warning, "INCASE clause exception for ~s failed: ~p",
-                 [RuleID, Error]);
+            ?SLOG(warning, #{msg => "INCASE clause exception failed",
+                             rule_id => RuleID, reason => Error});
         _:Error:StkTrace ->
-            ?LOG(error, "Apply rule ~s failed: ~p. Stacktrace:~n~p",
-                 [RuleID, Error, StkTrace])
+            ?SLOG(error, #{msg => "Apply rule failed", rule_id => RuleID,
+                           reason => Error, stacktrace => StkTrace})
     end,
     apply_rules(More, Input).
 
@@ -166,7 +166,6 @@ select_and_collect([Field|More], Input, {Output, LastKV}) ->
         {nested_put(Key, Val, Output), LastKV}).
 
 %% Filter each item got from FOREACH
--dialyzer({nowarn_function, filter_collection/4}).
 filter_collection(Input, InCase, DoEach, {CollKey, CollVal}) ->
     lists:filtermap(
         fun(Item) ->
@@ -235,11 +234,12 @@ handle_output(OutId, Selected, Envs) ->
         do_handle_output(OutId, Selected, Envs)
     catch
         Err:Reason:ST ->
-            ?LOG(warning, "Output to ~p failed, ~p", [OutId, {Err, Reason, ST}])
+            ?SLOG(error, #{msg => "Output failed", output => OutId, reason => {Err, Reason},
+                           stacktrace => ST})
     end.
 
 do_handle_output(#{type := bridge, target := ChannelId}, Selected, _Envs) ->
-    ?LOG(debug, "output to bridge: ~p", [ChannelId]),
+    ?SLOG(debug, #{msg => "output to bridge", channel_id => ChannelId}),
     emqx_bridge:send_message(ChannelId, Selected);
 do_handle_output(#{type := func, target := Func} = Out, Selected, Envs) ->
     erlang:apply(Func, [Selected, Envs, maps:get(args, Out, #{})]);

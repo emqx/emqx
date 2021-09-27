@@ -31,7 +31,7 @@ console(Selected, #{metadata := #{rule_id := RuleId}} = Envs, _Args) ->
 
 republish(_Selected, #{topic := Topic, headers := #{republish_by := RuleId},
         metadata := #{rule_id := RuleId}}, _Args) ->
-    ?LOG(error, "[republish] recursively republish detected, msg topic: ~p", [Topic]);
+    ?SLOG(error, #{msg => "[republish] recursively republish detected", topic => Topic});
 
 %% republish a PUBLISH message
 republish(Selected, #{flags := Flags, metadata := #{rule_id := RuleId}},
@@ -44,7 +44,7 @@ republish(Selected, #{flags := Flags, metadata := #{rule_id := RuleId}},
     Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected),
     Retain = replace_simple_var(RetainTks, Selected),
-    ?LOG(debug, "[republish] to: ~p, payload: ~p", [Topic, Payload]),
+    ?SLOG(debug, #{msg => "republish", topic => Topic, payload => Payload}),
     safe_publish(RuleId, Topic, QoS, Flags#{retain => Retain}, Payload);
 
 %% in case this is a "$events/" event
@@ -58,7 +58,7 @@ republish(Selected, #{metadata := #{rule_id := RuleId}},
     Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected),
     Retain = replace_simple_var(RetainTks, Selected),
-    ?LOG(debug, "[republish] to: ~p, payload: ~p", [Topic, Payload]),
+    ?SLOG(debug, #{msg => "republish", topic => Topic, payload => Payload}),
     safe_publish(RuleId, Topic, QoS, #{retain => Retain}, Payload).
 
 safe_publish(RuleId, Topic, QoS, Flags, Payload) ->

@@ -86,8 +86,9 @@ flatten([D1]) -> D1;
 flatten([D1 | L]) when is_list(D1) ->
     D1 ++ flatten(L).
 
-echo_action(Data, _Envs) ->
-    ?LOG(info, "Testing Rule SQL OK"), Data.
+echo_action(Data, Envs) ->
+    ?SLOG(debug, #{msg => "Testing Rule SQL OK", data => Data, envs => Envs}),
+    Data.
 
 fill_default_values(Event, Context) ->
     maps:merge(envs_examp(Event), Context).

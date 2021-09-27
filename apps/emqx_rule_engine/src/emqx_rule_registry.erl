@@ -207,15 +207,15 @@ handle_call({remove_rules, Rules}, _From, State) ->
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[RuleRegistry]: unexpected call - ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected call", request => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[RuleRegistry]: unexpected cast ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected cast", request => Msg}),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "[RuleRegistry]: unexpected info ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected info", request => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

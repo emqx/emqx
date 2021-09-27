@@ -18,19 +18,17 @@
 
 -define(KV_TAB, '@rule_engine_db').
 
--type(maybe(T) :: T | undefined).
+-type maybe(T) :: T | undefined.
 
--type(rule_id() :: binary()).
--type(rule_name() :: binary()).
+-type rule_id() :: binary().
+-type rule_name() :: binary().
 
--type(descr() :: #{en := binary(), zh => binary()}).
+-type mf() :: {Module::atom(), Fun::atom()}.
 
--type(mf() :: {Module::atom(), Fun::atom()}).
+-type hook() :: atom() | 'any'.
 
--type(hook() :: atom() | 'any').
-
--type(topic() :: binary()).
--type(bridge_channel_id() :: binary()).
+-type topic() :: binary().
+-type bridge_channel_id() :: binary().
 -type selected_data() :: map().
 -type envs() :: map().
 -type output_type() :: bridge | builtin | func.
@@ -43,7 +41,7 @@
 }.
 -type output_fun() :: fun((selected_data(), envs(), output_fun_args()) -> any()).
 
--type(rule_info() ::
+-type rule_info() ::
        #{ from := list(topic())
         , outputs := [output()]
         , sql := binary()
@@ -54,9 +52,7 @@
         , conditions := tuple()
         , enabled := boolean()
         , description := binary()
-        }).
-
--define(descr, #{en => <<>>, zh => <<>>}).
+        }.
 
 -record(rule,
         { id :: rule_id()
