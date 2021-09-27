@@ -444,7 +444,10 @@ parse_property(<<16#28, Val, Bin/binary>>, Props) ->
 parse_property(<<16#29, Val, Bin/binary>>, Props) ->
     parse_property(Bin, Props#{'Subscription-Identifier-Available' => Val});
 parse_property(<<16#2A, Val, Bin/binary>>, Props) ->
-    parse_property(Bin, Props#{'Shared-Subscription-Available' => Val}).
+    parse_property(Bin, Props#{'Shared-Subscription-Available' => Val});
+parse_property(<<Property:8, _Rest/binary>>, _Props) ->
+    ?PARSE_ERR(#{invalid_property_code => Property}).
+%% TODO: invalid property in specific packet.
 
 parse_variable_byte_integer(Bin) ->
     parse_variable_byte_integer(Bin, 1, 0).
@@ -468,7 +471,23 @@ parse_reason_codes(Bin) ->
 
 parse_utf8_pair(<<Len1:16/big, Key:Len1/binary,
                   Len2:16/big, Val:Len2/binary, Rest/binary>>) ->
-    {{Key, Val}, Rest}.
+    {{Key, Val}, Rest};
+parse_utf8_pair(<<LenK:16/big, Rest/binary>>)
+  when LenK > byte_size(Rest) ->
+    ?PARSE_ERR(#{ hint => user_property_not_enough_bytes
+                , parsed_key_length => LenK
+                , remaining_bytes_length => byte_size(Rest)});
+parse_utf8_pair(<<LenK:16/big, _Key:LenK/binary, %% key maybe malformed
+                  LenV:16/big, Rest/binary>>)
+  when LenV > byte_size(Rest) ->
+    ?PARSE_ERR(#{ hint => malformed_user_property_value
+                , parsed_key_length => LenK
+                , parsed_value_length => LenV
+                , remaining_bytes_length => byte_size(Rest)});
+parse_utf8_pair(Bin)
+  when 4 > byte_size(Bin) ->
+    ?PARSE_ERR(#{ hint => user_property_not_enough_bytes
+                , total_bytes => byte_size(Bin)}).
 
 parse_utf8_string(Bin, false) ->
     {undefined, Bin};
@@ -476,10 +495,26 @@ parse_utf8_string(Bin, true) ->
     parse_utf8_string(Bin).
 
 parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>) ->
-    {Str, Rest}.
+    {Str, Rest};
+parse_utf8_string(<<Len:16/big, Rest/binary>>)
+  when Len > byte_size(Rest) ->
+    ?PARSE_ERR(#{ hint => malformed_utf8_string
+                , parsed_length => Len
+                , remaining_bytes_length => byte_size(Rest)});
+parse_utf8_string(Bin)
+  when 2 > byte_size(Bin) ->
+    ?PARSE_ERR(malformed_utf8_string_length).
 
 parse_binary_data(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
-    {Data, Rest}.
+    {Data, Rest};
+parse_binary_data(<<Len:16/big, Rest/binary>>)
+  when Len > byte_size(Rest) ->
+    ?PARSE_ERR(#{ hint => malformed_binary_data
+                , parsed_length => Len
+                , remaining_bytes_length => byte_size(Rest)});
+parse_binary_data(Bin)
+  when 2 > byte_size(Bin) ->
+    ?PARSE_ERR(malformed_binary_data_length).
 
 %%--------------------------------------------------------------------
 %% Serialize MQTT Packet
