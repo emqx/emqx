@@ -405,7 +405,7 @@ get_raw_sources() ->
     RawSources = emqx:get_raw_config([authorization, sources]),
     Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
     Conf = #{<<"sources">> => RawSources},
-    #{sources := Sources} = hocon_schema:check_plain(Schema, Conf, #{atom_key => true, no_conversion => true}),
+    #{sources := Sources} = hocon_schema:check_plain(Schema, Conf, #{atom_key => true, only_fill_defaults => true}),
     Sources.
 
 get_raw_source(Type) ->
