@@ -22,8 +22,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
--define(EXAMPLE_USERNAME, #{type => username,
-                            key => user1,
+-define(EXAMPLE_USERNAME, #{username => user1,
                             rules => [ #{topic => <<"test/toopic/1">>,
                                          permission => <<"allow">>,
                                          action => <<"publish">>
@@ -38,8 +37,7 @@
                                         }
                                      ]
                            }).
--define(EXAMPLE_CLIENTID, #{type => clientid,
-                            key => client1,
+-define(EXAMPLE_CLIENTID, #{clientid => client1,
                             rules => [ #{topic => <<"test/toopic/1">>,
                                          permission => <<"allow">>,
                                          action => <<"publish">>
@@ -54,8 +52,7 @@
                                         }
                                      ]
                            }).
--define(EXAMPLE_ALL ,     #{type => all,
-                            rules => [ #{topic => <<"test/toopic/1">>,
+-define(EXAMPLE_ALL ,     #{rules => [ #{topic => <<"test/toopic/1">>,
                                          permission => <<"allow">>,
                                          action => <<"publish">>
                                         }
@@ -106,37 +103,39 @@ definitions() ->
             }
         }
     },
-    Record = #{
-        oneOf => [ #{type => object,
-                     required => [username, rules],
-                     properties => #{
-                        username => #{
-                            type => string,
-                            example => <<"username">>
-                        },
-                        rules => minirest:ref(<<"rules">>)
-                     }
-                   }
-                 , #{type => object,
-                     required => [clientid, rules],
-                     properties => #{
-                        username => #{
-                            type => string,
-                            example => <<"clientid">>
-                        },
-                        rules => minirest:ref(<<"rules">>)
-                     }
-                   }
-                 , #{type => object,
-                     required => [rules],
-                     properties => #{
-                        rules => minirest:ref(<<"rules">>)
-                     }
-                   }
-                 ]
+    Username = #{
+        type => object,
+        required => [username, rules],
+        properties => #{
+           username => #{
+               type => string,
+               example => <<"username">>
+           },
+           rules => minirest:ref(<<"rules">>)
+        }
+    },
+    Clientid = #{
+        type => object,
+        required => [clientid, rules],
+        properties => #{
+           clientid => #{
+               type => string,
+               example => <<"clientid">>
+           },
+           rules => minirest:ref(<<"rules">>)
+        }
+    },
+    ALL = #{
+      type => object,
+      required => [rules],
+      properties => #{
+         rules => minirest:ref(<<"rules">>)
+      }
     },
     [ #{<<"rules">> => Rules}
-    , #{<<"record">> => Record}
+    , #{<<"username">> => Username}
+    , #{<<"clientid">> => Clientid}
+    , #{<<"all">> => ALL}
     ].
 
 purge_api() ->
@@ -187,7 +186,12 @@ records_api() ->
                         'application/json' => #{
                             schema => #{
                                 type => array,
-                                items => minirest:ref(<<"record">>)
+                                items => #{
+                                  oneOf => [ minirest:ref(<<"username">>)
+                                           , minirest:ref(<<"clientid">>)
+                                           , minirest:ref(<<"all">>)
+                                           ]
+                                }
                             },
                             examples => #{
                                 username => #{
@@ -226,7 +230,11 @@ records_api() ->
                     'application/json' => #{
                         schema => #{
                             type => array,
-                            items => minirest:ref(<<"record">>)
+                            items => #{
+                                oneOf => [ minirest:ref(<<"username">>)
+                                         , minirest:ref(<<"clientid">>)
+                                         ]
+                            }
                         },
                         examples => #{
                             username => #{
@@ -262,8 +270,24 @@ records_api() ->
             requestBody => #{
                 content => #{
                     'application/json' => #{
-                        schema => minirest:ref(<<"record">>),
+                        schema => #{
+                            type => array,
+                            items => #{
+                              oneOf => [ minirest:ref(<<"username">>)
+                                       , minirest:ref(<<"clientid">>)
+                                       , minirest:ref(<<"all">>)
+                                       ]
+                            }
+                        },
                         examples => #{
+                            username => #{
+                                summary => <<"Username">>,
+                                value => jsx:encode(?EXAMPLE_USERNAME)
+                            },
+                            clientid => #{
+                                summary => <<"Clientid">>,
+                                value => jsx:encode(?EXAMPLE_CLIENTID)
+                            },
                             all => #{
                                 summary => <<"All">>,
                                 value => jsx:encode(?EXAMPLE_ALL)
@@ -308,7 +332,11 @@ record_api() ->
                     description => <<"OK">>,
                     content => #{
                         'application/json' => #{
-                            schema => minirest:ref(<<"record">>),
+                            schema => #{
+                                oneOf => [ minirest:ref(<<"username">>)
+                                         , minirest:ref(<<"clientid">>)
+                                         ]
+                            },
                             examples => #{
                                 username => #{
                                     summary => <<"Username">>,
@@ -317,10 +345,6 @@ record_api() ->
                                 clientid => #{
                                     summary => <<"Clientid">>,
                                     value => jsx:encode(?EXAMPLE_CLIENTID)
-                                },
-                                all => #{
-                                    summary => <<"All">>,
-                                    value => jsx:encode(?EXAMPLE_ALL)
                                 }
                             }
                         }
@@ -353,7 +377,11 @@ record_api() ->
             requestBody => #{
                 content => #{
                     'application/json' => #{
-                        schema => minirest:ref(<<"record">>),
+                        schema => #{
+                            oneOf => [ minirest:ref(<<"username">>)
+                                     , minirest:ref(<<"clientid">>)
+                                     ]
+                        },
                         examples => #{
                             username => #{
                                 summary => <<"Username">>,

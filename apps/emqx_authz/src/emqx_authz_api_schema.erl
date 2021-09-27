@@ -21,6 +21,7 @@
 definitions() ->
     Sources = #{
         oneOf => [ minirest:ref(<<"http">>)
+                 , minirest:ref(<<"built-in-database">>)
                  , minirest:ref(<<"mongo_single">>)
                  , minirest:ref(<<"mongo_rs">>)
                  , minirest:ref(<<"mongo_sharded">>)
@@ -446,6 +447,21 @@ definitions() ->
             ssl => minirest:ref(<<"ssl">>)
         }
     },
+    Mnesia = #{
+        type => object,
+        required => [type, enable],
+        properties => #{
+            type => #{
+                type => string,
+                enum => [<<"redis">>],
+                example => <<"redis">>
+            },
+            enable => #{
+                type => boolean,
+                example => true
+            }
+        }
+    },
     File = #{
         type => object,
         required => [type, enable, rules],
@@ -475,6 +491,7 @@ definitions() ->
     [ #{<<"sources">> => Sources}
     , #{<<"ssl">> => SSL}
     , #{<<"http">> => HTTP}
+    , #{<<"built-in-database">> => Mnesia}
     , #{<<"mongo_single">> => MongoSingle}
     , #{<<"mongo_rs">> => MongoRs}
     , #{<<"mongo_sharded">> => MongoSharded}
