@@ -88,7 +88,7 @@ unload() ->
 on_psk_lookup(PSKIdentity, _UserState) ->
     case mnesia:dirty_read(?TAB, PSKIdentity) of
         [#psk_entry{shared_secret = SharedSecret}] ->
-            {stop, SharedSecret};
+            {stop, {ok, SharedSecret}};
         _ ->
             ignore
     end.

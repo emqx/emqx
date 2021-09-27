@@ -26,13 +26,23 @@
 
 -spec lookup(psk, psk_identity(), psk_user_state()) -> {ok, SharedSecret :: binary()} | error.
 lookup(psk, PSKIdentity, UserState) ->
-    try emqx_hooks:run_fold('tls_handshake.psk_lookup', [PSKIdentity], UserState) of
-        SharedSecret when is_binary(SharedSecret) -> {ok, SharedSecret};
-        Error ->
-            ?LOG(error, "Look PSK for PSKID ~p error: ~p", [PSKIdentity, Error]),
+    try emqx_hooks:run_fold('tls_handshake.psk_lookup', [PSKIdentity, UserState], normal) of
+        {ok, SharedSecret} when is_binary(SharedSecret) ->
+            {ok, SharedSecret};
+        normal ->
+            ?SLOG(info, #{msg => "psk_identity_not_found",
+                          psk_identity => PSKIdentity}),
+            error;
+        {error, Reason} ->
+            ?SLOG(warning, #{msg => "psk_identity_not_found",
+                             psk_identity => PSKIdentity,
+                             reason => Reason}),
             error
     catch
-        Except:Error:Stacktrace ->
-          ?LOG(error, "Lookup PSK failed, ~0p: ~0p", [{Except,Error}, Stacktrace]),
+        Class:Reason:Stacktrace ->
+          ?SLOG(error, #{msg => "lookup_psk_failed",
+                         class => Class,
+                         reason => Reason,
+                         stacktrace => Stacktrace}),
           error
     end.
