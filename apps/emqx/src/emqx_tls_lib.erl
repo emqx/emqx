@@ -31,9 +31,7 @@
 
 %% @doc Returns the default supported tls versions.
 -spec default_versions() -> [atom()].
-default_versions() ->
-    OtpRelease = list_to_integer(erlang:system_info(otp_release)),
-    integral_versions(default_versions(OtpRelease)).
+default_versions() -> available_versions().
 
 %% @doc Validate a given list of desired tls versions.
 %% raise an error exception if non of them are available.
@@ -51,7 +49,7 @@ integral_versions(Desired) when ?IS_STRING(Desired) ->
 integral_versions(Desired) when is_binary(Desired) ->
     integral_versions(parse_versions(Desired));
 integral_versions(Desired) ->
-    {_, Available} = lists:keyfind(available, 1, ssl:versions()),
+    Available = available_versions(),
     case lists:filter(fun(V) -> lists:member(V, Available) end, Desired) of
         [] -> erlang:error(#{ reason => no_available_tls_version
                             , desired => Desired
@@ -103,11 +101,17 @@ ensure_tls13_cipher(true, Ciphers) ->
 ensure_tls13_cipher(false, Ciphers) ->
     Ciphers.
 
+%% default ssl versions based on available versions.
+-spec available_versions() -> [atom()].
+available_versions() ->
+    OtpRelease = list_to_integer(erlang:system_info(otp_release)),
+    default_versions(OtpRelease).
+
 %% tlsv1.3 is available from OTP-22 but we do not want to use until 23.
 default_versions(OtpRelease) when OtpRelease >= 23 ->
-    ['tlsv1.3' | default_versions(22)];
+    proplists:get_value(available, ssl:versions());
 default_versions(_) ->
-    ['tlsv1.2', 'tlsv1.1', tlsv1].
+    lists:delete('tlsv1.3', proplists:get_value(available, ssl:versions())).
 
 %% Deduplicate a list without re-ordering the elements.
 dedup([]) -> [];
