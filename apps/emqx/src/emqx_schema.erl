@@ -1114,7 +1114,10 @@ ciphers_schema(Default) ->
                           (Ciphers) when is_list(Ciphers) ->
                                Ciphers
                        end
-        , validator => fun validate_ciphers/1
+        , validator => case Default =:= quic of
+                           true -> undefined; %% quic has openssl statically linked
+                           false -> fun validate_ciphers/1
+                       end
         , desc =>
 """TLS cipher suite names separated by comma, or as an array of strings
 <code>\"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256\"</code> or
