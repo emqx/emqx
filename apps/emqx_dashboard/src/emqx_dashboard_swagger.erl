@@ -6,6 +6,11 @@
 %% API
 -export([spec/1, spec/2]).
 -export([translate_req/2]).
+-export([namespace/0, fields/1]).
+-export([error_codes/1, error_codes/2]).
+-define(MAX_ROW_LIMIT, 100).
+
+%% API
 
 -ifdef(TEST).
 -compile(export_all).
@@ -22,7 +27,8 @@
 -define(INIT_SCHEMA, #{fields => #{}, translations => #{}, validations => [], namespace => undefined}).
 
 -define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
--define(TO_COMPONENTS(_M_, _F_), iolist_to_binary([<<"#/components/schemas/">>, ?TO_REF(namespace(_M_), _F_)])).
+-define(TO_COMPONENTS_SCHEMA(_M_, _F_), iolist_to_binary([<<"#/components/schemas/">>, ?TO_REF(namespace(_M_), _F_)])).
+-define(TO_COMPONENTS_PARAM(_M_, _F_), iolist_to_binary([<<"#/components/parameters/">>, ?TO_REF(namespace(_M_), _F_)])).
 
 %% @equiv spec(Module, #{check_schema => false})
 -spec(spec(module()) ->
@@ -54,7 +60,6 @@ spec(Module, Options) ->
                     end, {[], []}, Paths),
     {ApiSpec, components(lists:usort(AllRefs))}.
 
-
 -spec(translate_req(#{binding => list(), query_string => list(), body => map()},
     #{module => module(), path => string(), method => atom()}) ->
     {ok, #{binding => list(), query_string => list(), body => map()}}|
@@ -64,7 +69,7 @@ translate_req(Request, #{module := Module, path := Path, method := Method}) ->
     try
         Params = maps:get(parameters, Spec, []),
         Body = maps:get(requestBody, Spec, []),
-        {Bindings, QueryStr} = check_parameters(Request, Params),
+        {Bindings, QueryStr} = check_parameters(Request, Params, Module),
         NewBody = check_requestBody(Request, Body, Module, hoconsc:is_schema(Body)),
         {ok, Request#{bindings => Bindings, query_string => QueryStr, body => NewBody}}
     catch throw:Error ->
@@ -72,6 +77,30 @@ translate_req(Request, #{module := Module, path := Path, method := Method}) ->
         #{path := Key, reason := Reason} = ValidErr,
         {400, 'BAD_REQUEST', iolist_to_binary(io_lib:format("~s : ~p", [Key, Reason]))}
     end.
+
+namespace() -> "public".
+
+fields(page) ->
+    Desc = <<"Page number of the results to fetch.">>,
+    Meta = #{in => query, desc => Desc, default => 1, example => 1},
+    [{page, hoconsc:mk(integer(), Meta)}];
+fields(limit) ->
+    Desc = iolist_to_binary([<<"Results per page(max ">>,
+        integer_to_binary(?MAX_ROW_LIMIT), <<")">>]),
+    Meta = #{in => query, desc => Desc, default => ?MAX_ROW_LIMIT, example => 50},
+    [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}].
+
+error_codes(Codes) ->
+    error_codes(Codes, <<"Error code to troubleshoot problems.">>).
+
+error_codes(Codes = [_ | _], MsgExample) ->
+    [
+        {code, hoconsc:mk(hoconsc:enum(Codes))},
+        {message, hoconsc:mk(string(), #{
+            desc => <<"Details description of the error.">>,
+            example => MsgExample
+        })}
+    ].
 
 support_check_schema(#{check_schema := true}) -> ?DEFAULT_FILTER;
 support_check_schema(#{check_schema := Func})when is_function(Func, 2) -> #{filter => Func};
@@ -93,23 +122,28 @@ parse_spec_ref(Module, Path) ->
         maps:without([operationId], Schema)),
     {maps:get(operationId, Schema), Specs, Refs}.
 
-check_parameters(Request, Spec) ->
+check_parameters(Request, Spec, Module) ->
     #{bindings := Bindings, query_string := QueryStr} = Request,
     BindingsBin = maps:fold(fun(Key, Value, Acc) -> Acc#{atom_to_binary(Key) => Value} end, #{}, Bindings),
-    check_parameter(Spec, BindingsBin, QueryStr, #{}, #{}).
+    check_parameter(Spec, BindingsBin, QueryStr, Module, #{}, #{}).
 
-check_parameter([], _Bindings, _QueryStr, NewBindings, NewQueryStr) -> {NewBindings, NewQueryStr};
-check_parameter([{Name, Type} | Spec], Bindings, QueryStr, BindingsAcc, QueryStrAcc) ->
+check_parameter([?REF(Fields) | Spec], Bindings, QueryStr, LocalMod, BindingsAcc, QueryStrAcc) ->
+    check_parameter([?R_REF(LocalMod, Fields) | Spec], Bindings, QueryStr, LocalMod, BindingsAcc, QueryStrAcc);
+check_parameter([?R_REF(Module, Fields) | Spec], Bindings, QueryStr, LocalMod, BindingsAcc, QueryStrAcc) ->
+    Params = apply(Module, fields, [Fields]),
+    check_parameter(Params ++ Spec, Bindings, QueryStr, LocalMod, BindingsAcc, QueryStrAcc);
+check_parameter([], _Bindings, _QueryStr, _Module, NewBindings, NewQueryStr) -> {NewBindings, NewQueryStr};
+check_parameter([{Name, Type} | Spec], Bindings, QueryStr, Module, BindingsAcc, QueryStrAcc) ->
     Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
     case hocon_schema:field_schema(Type, in) of
         path ->
             NewBindings = hocon_schema:check_plain(Schema, Bindings, #{atom_key => true, override_env => false}),
             NewBindingsAcc = maps:merge(BindingsAcc, NewBindings),
-            check_parameter(Spec, Bindings, QueryStr, NewBindingsAcc, QueryStrAcc);
+            check_parameter(Spec, Bindings, QueryStr, Module, NewBindingsAcc, QueryStrAcc);
         query ->
             NewQueryStr = hocon_schema:check_plain(Schema, QueryStr, #{override_env => false}),
             NewQueryStrAcc = maps:merge(QueryStrAcc, NewQueryStr),
-            check_parameter(Spec, Bindings, QueryStr, BindingsAcc, NewQueryStrAcc)
+            check_parameter(Spec, Bindings, QueryStr, Module, BindingsAcc, NewQueryStrAcc)
     end.
 
 check_requestBody(#{body := Body}, Schema, Module, true) ->
@@ -154,19 +188,28 @@ to_spec(Meta, Params, RequestBody, Responses) ->
 
 parameters(Params, Module) ->
     {SpecList, AllRefs} =
-        lists:foldl(fun({Name, Type}, {Acc, RefsAcc}) ->
-            In = hocon_schema:field_schema(Type, in),
-            In =:= undefined andalso throw({error, <<"missing in:path/query field in parameters">>}),
-            Nullable = hocon_schema:field_schema(Type, nullable),
-            Default = hocon_schema:field_schema(Type, default),
-            HoconType = hocon_schema:field_schema(Type, type),
-            Meta = init_meta(Nullable, Default),
-            {ParamType, Refs} = hocon_schema_to_spec(HoconType, Module),
-            Spec0 = init_prop([required | ?DEFAULT_FIELDS],
-                #{schema => maps:merge(ParamType, Meta), name => Name, in => In}, Type),
-            Spec1 = trans_required(Spec0, Nullable, In),
-            Spec2 = trans_desc(Spec1, Type),
-            {[Spec2 | Acc], Refs ++ RefsAcc}
+        lists:foldl(fun(Param, {Acc, RefsAcc}) ->
+            case Param of
+                ?REF(StructName) ->
+                    {[#{<<"$ref">> => ?TO_COMPONENTS_PARAM(Module, StructName)} |Acc],
+                        [{Module, StructName, parameter}|RefsAcc]};
+                ?R_REF(RModule, StructName) ->
+                    {[#{<<"$ref">> => ?TO_COMPONENTS_PARAM(RModule, StructName)} |Acc],
+                        [{RModule, StructName, parameter}|RefsAcc]};
+                {Name, Type} ->
+                    In = hocon_schema:field_schema(Type, in),
+                    In =:= undefined andalso throw({error, <<"missing in:path/query field in parameters">>}),
+                    Nullable = hocon_schema:field_schema(Type, nullable),
+                    Default = hocon_schema:field_schema(Type, default),
+                    HoconType = hocon_schema:field_schema(Type, type),
+                    Meta = init_meta(Nullable, Default),
+                    {ParamType, Refs} = hocon_schema_to_spec(HoconType, Module),
+                    Spec0 = init_prop([required | ?DEFAULT_FIELDS],
+                        #{schema => maps:merge(ParamType, Meta), name => Name, in => In}, Type),
+                    Spec1 = trans_required(Spec0, Nullable, In),
+                    Spec2 = trans_desc(Spec1, Type),
+                    {[Spec2 | Acc], Refs ++ RefsAcc}
+            end
                     end, {[], []}, Params),
     {lists:reverse(SpecList), AllRefs}.
 
@@ -196,7 +239,7 @@ trans_required(Spec, _, _) -> Spec.
 trans_desc(Spec, Hocon) ->
     case hocon_schema:field_schema(Hocon, desc) of
         undefined -> Spec;
-        Desc -> Spec#{description => Desc}
+        Desc -> Spec#{description => to_bin(Desc)}
     end.
 
 requestBody([], _Module) -> {[], []};
@@ -248,6 +291,13 @@ components([{Module, Field} | Refs], SpecAcc, SubRefsAcc) ->
     Namespace = namespace(Module),
     {Object, SubRefs} = parse_object(Props, Module),
     NewSpecAcc = SpecAcc#{?TO_REF(Namespace, Field) => Object},
+    components(Refs, NewSpecAcc, SubRefs ++ SubRefsAcc);
+%% parameters in ref only have one value, not array
+components([{Module, Field, parameter} | Refs], SpecAcc, SubRefsAcc) ->
+    Props = apply(Module, fields, [Field]),
+    {[Param], SubRefs} = parameters(Props, Module),
+    Namespace = namespace(Module),
+    NewSpecAcc = SpecAcc#{?TO_REF(Namespace, Field) => Param},
     components(Refs, NewSpecAcc, SubRefs ++ SubRefsAcc).
 
 namespace(Module) ->
@@ -257,10 +307,10 @@ namespace(Module) ->
     end.
 
 hocon_schema_to_spec(?R_REF(Module, StructName), _LocalModule) ->
-    {#{<<"$ref">> => ?TO_COMPONENTS(Module, StructName)},
+    {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(Module, StructName)},
         [{Module, StructName}]};
 hocon_schema_to_spec(?REF(StructName), LocalModule) ->
-    {#{<<"$ref">> => ?TO_COMPONENTS(LocalModule, StructName)},
+    {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(LocalModule, StructName)},
         [{LocalModule, StructName}]};
 hocon_schema_to_spec(Type, _LocalModule) when ?IS_TYPEREFL(Type) ->
     {typename_to_spec(typerefl:name(Type)), []};

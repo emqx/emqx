@@ -159,11 +159,11 @@ fields("stats") ->
 
 fields("authorization") ->
     [ {"no_match",
-       sc(hoconsc:union([allow, deny]),
+       sc(hoconsc:enum([allow, deny]),
           #{ default => allow
            })}
     , {"deny_action",
-       sc(hoconsc:union([ignore, disconnect]),
+       sc(hoconsc:enum([ignore, disconnect]),
           #{ default => ignore
            })}
     , {"cache",
@@ -297,7 +297,7 @@ fields("mqtt") ->
            })
       }
     , {"mqueue_default_priority",
-       sc(union(highest, lowest),
+       sc(hoconsc:enum([highest, lowest]),
           #{ default => lowest
            })
       }
@@ -312,11 +312,11 @@ fields("mqtt") ->
            })
       }
     , {"peer_cert_as_username",
-       sc(hoconsc:union([disabled, cn, dn, crt, pem, md5]),
+       sc(hoconsc:enum([disabled, cn, dn, crt, pem, md5]),
           #{ default => disabled
            })}
     , {"peer_cert_as_clientid",
-       sc(hoconsc:union([disabled, cn, dn, crt, pem, md5]),
+       sc(hoconsc:enum([disabled, cn, dn, crt, pem, md5]),
           #{ default => disabled
            })}
     ];
@@ -525,7 +525,7 @@ fields("ws_opts") ->
            })
       }
     , {"mqtt_piggyback",
-       sc(hoconsc:union([single, multiple]),
+       sc(hoconsc:enum([single, multiple]),
           #{ default => multiple
            })
       }
@@ -653,7 +653,7 @@ fields(ssl_client_opts) ->
 
 fields("deflate_opts") ->
     [ {"level",
-       sc(hoconsc:union([none, default, best_compression, best_speed]),
+       sc(hoconsc:enum([none, default, best_compression, best_speed]),
           #{})
       }
     , {"mem_level",
@@ -662,15 +662,15 @@ fields("deflate_opts") ->
            })
       }
     , {"strategy",
-       sc(hoconsc:union([default, filtered, huffman_only, rle]),
+       sc(hoconsc:enum([default, filtered, huffman_only, rle]),
           #{})
       }
     , {"server_context_takeover",
-       sc(hoconsc:union([takeover, no_takeover]),
+       sc(hoconsc:enum([takeover, no_takeover]),
           #{})
       }
     , {"client_context_takeover",
-       sc(hoconsc:union([takeover, no_takeover]),
+       sc(hoconsc:enum([takeover, no_takeover]),
           #{})
       }
     , {"server_max_window_bits",
@@ -709,12 +709,12 @@ fields("broker") ->
            })
       }
     , {"session_locking_strategy",
-       sc(hoconsc:union([local, leader, quorum, all]),
+       sc(hoconsc:enum([local, leader, quorum, all]),
           #{ default => quorum
            })
       }
     , {"shared_subscription_strategy",
-       sc(hoconsc:union([random, round_robin]),
+       sc(hoconsc:enum([random, round_robin]),
           #{ default => round_robin
            })
       }
@@ -736,7 +736,7 @@ fields("broker") ->
 
 fields("broker_perf") ->
     [ {"route_lock_type",
-       sc(hoconsc:union([key, tab, global]),
+       sc(hoconsc:enum([key, tab, global]),
           #{ default => key
            })}
     , {"trie_compaction",
@@ -962,7 +962,7 @@ the file if it is to be added.
            })
       }
     , {"verify",
-       sc(hoconsc:union([verify_peer, verify_none]),
+       sc(hoconsc:enum([verify_peer, verify_none]),
           #{ default => Df("verify", verify_none)
            })
       }

@@ -124,7 +124,7 @@ t_catch_up_status_handle_next_commit(_Config) ->
 t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
-    Now = erlang:system_time(second),
+    Now = erlang:system_time(millisecond),
     {M, F, A} = {?MODULE, failed_on_other_recover_after_5_second, [erlang:whereis(?NODE1), Now]},
     {ok, _, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
     {ok, _, ok} = emqx_cluster_rpc:multicall(io, format, ["test"], 1, 1000),
@@ -132,10 +132,10 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     ?assertEqual([], L),
     ?assertEqual({io, format, ["test"]}, maps:get(mfa, Status)),
     ?assertEqual(node(), maps:get(node, Status)),
-    sleep(3000),
+    sleep(2300),
     {atomic, [Status1]} = emqx_cluster_rpc:status(),
     ?assertEqual(Status, Status1),
-    sleep(2600),
+    sleep(3600),
     {atomic, NewStatus} = emqx_cluster_rpc:status(),
     ?assertEqual(3, length(NewStatus)),
     Pid = self(),
@@ -243,11 +243,11 @@ failed_on_node_by_odd(Pid) ->
     end.
 
 failed_on_other_recover_after_5_second(Pid, CreatedAt) ->
-    Now = erlang:system_time(second),
+    Now = erlang:system_time(millisecond),
     case Pid =:= self() of
         true -> ok;
         false ->
-            case Now < CreatedAt + 5 of
+            case Now < CreatedAt + 5001 of
                 true -> "MFA return not ok";
                 false -> ok
             end
