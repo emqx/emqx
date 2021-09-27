@@ -189,7 +189,8 @@ restart_bridge(Type, Name) ->
     emqx_resource:restart(resource_id(Type, Name)).
 
 create_bridge(Type, Name, Conf) ->
-    logger:info("create ~p bridge ~p use config: ~p", [Type, Name, Conf]),
+    ?SLOG(info, #{msg => "create bridge", type => Type, name => Name,
+        config => Conf}),
     ResId = resource_id(Type, Name),
     case emqx_resource:create(ResId,
             emqx_bridge:resource_type(Type), Conf) of
@@ -210,12 +211,13 @@ update_bridge(Type, Name, {_OldConf, Conf}) ->
     %% `egress_channels` are changed, then we should not restart the bridge, we only restart/start
     %% the channels.
     %%
-    logger:info("update ~p bridge ~p use config: ~p", [Type, Name, Conf]),
+    ?SLOG(info, #{msg => "update bridge", type => Type, name => Name,
+        config => Conf}),
     emqx_resource:recreate(resource_id(Type, Name),
         emqx_bridge:resource_type(Type), Conf, []).
 
 remove_bridge(Type, Name, _Conf) ->
-    logger:info("remove ~p bridge ~p", [Type, Name]),
+    ?SLOG(info, #{msg => "remove bridge", type => Type, name => Name}),
     case emqx_resource:remove(resource_id(Type, Name)) of
         ok -> ok;
         {error, not_found} -> ok;
