@@ -112,15 +112,15 @@ t_without_in(_Config) ->
 t_require(_Config) ->
     ExpectSpec = [#{
         in => query,name => userid, required => false,
-        schema => #{example => <<"binary example">>, type => string}}],
+        schema => #{example => <<"binary-example">>, type => string}}],
     validate("/required/false", ExpectSpec),
     ok.
 
 t_nullable(_Config) ->
     NullableFalse = [#{in => query,name => userid, required => true,
-        schema => #{example => <<"binary example">>, type => string}}],
+        schema => #{example => <<"binary-example">>, type => string}}],
     NullableTrue = [#{in => query,name => userid,
-        schema => #{example => <<"binary example">>, type => string,
+        schema => #{example => <<"binary-example">>, type => string,
             nullable => true}}],
     validate("/nullable/false", NullableFalse),
     validate("/nullable/true", NullableTrue),
