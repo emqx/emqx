@@ -310,7 +310,7 @@ do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | M
             {stop, Result}
     catch
         Class:Reason:Stacktrace ->
-            ?SLOG(warning, #{msg => "an unexpected error in authentication",
+            ?SLOG(warning, #{msg => "unexpected_error_in_authentication",
                              class => Class,
                              reason => Reason,
                              stacktrace => Stacktrace,

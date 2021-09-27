@@ -165,11 +165,14 @@ authenticate(Credential, #{'_unique' := Unique,
                 {ok, NBody} ->
                     %% TODO: Return by user property
                     {ok, #{is_superuser => maps:get(<<"is_superuser">>, NBody, false),
-                            user_property => NBody}};
+                           user_property => NBody}};
                 {error, _Reason} ->
                     {ok, #{is_superuser => false}}
             end;
-        {error, _Reason} ->
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "http_server_query_failed",
+                           resource => Unique,
+                           reason => Reason}),
             ignore
     end.
 

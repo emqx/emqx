@@ -146,8 +146,8 @@ authenticate(#{password := Password} = Credential,
     case emqx_resource:query(Unique, {find_one, Collection, Selector2, #{}}) of
         undefined -> ignore;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "query failed",
-                           unique => Unique,
+            ?SLOG(error, #{msg => "mongodb_query_failed",
+                           resource => Unique,
                            reason => Reason}),
             ignore;
         Doc ->
@@ -155,10 +155,10 @@ authenticate(#{password := Password} = Credential,
                 ok ->
                     {ok, #{is_superuser => is_superuser(Doc, State)}};
                 {error, {cannot_find_password_hash_field, PasswordHashField}} ->
-                    ?SLOG(error, #{msg => "can't find password hash field",
-                                   unique => Unique,
+                    ?SLOG(error, #{msg => "cannot_find_password_hash_field",
+                                   resource => Unique,
                                    password_hash_field => PasswordHashField}),
-                    {error, bad_username_or_password};
+                    ignore;
                 {error, Reason} ->
                     {error, Reason}
             end
