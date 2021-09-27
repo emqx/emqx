@@ -27,19 +27,34 @@
 roots() -> [].
 
 fields("psk") ->
-    [ {enable,    fun enable/1}
-    , {init_file, fun init_file/1}
-    , {separator, fun separator/1}
+    [ {enable,     fun enable/1}
+    , {init_file,  fun init_file/1}
+    , {separator,  fun separator/1}
+    , {chunk_size, fun chunk_size/1}
     ].
 
 enable(type) -> boolean();
+enable(desc) -> <<"Whether to enable tls psk support">>;
 enable(default) -> false;
 enable(_) -> undefined.
 
 init_file(type) -> binary();
+init_file(desc) ->
+    <<"If init_file is specified, emqx will import PSKs from the file ",
+      "into the built-in database at startup for use by the runtime. ",
+      "The file has to be structured line-by-line, each line must be in ",
+      "the format: <PSKIdentity>:<SharedSecret>">>;
 init_file(nullable) -> true;
 init_file(_) -> undefined.
 
 separator(type) -> binary();
+separator(desc) ->
+    <<"The separator between PSKIdentity and SharedSecret in the psk file">>;
 separator(default) -> <<":">>;
 separator(_) -> undefined.
+
+chunk_size(type) -> integer();
+chunk_size(desc) ->
+    <<"The size of each chunk used to import to the built-in database from psk file">>;
+chunk_size(default) -> 50;
+chunk_size(_) -> undefined.

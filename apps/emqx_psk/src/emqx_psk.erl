@@ -40,7 +40,9 @@
         ]).
 
 -record(psk_entry, {psk_id :: binary(),
-                    shared_secret :: binary()}).
+                    shared_secret :: binary(),
+                    extra :: term()
+                    }).
 
 -export([mnesia/1]).
 
@@ -64,6 +66,7 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
                 {rlog_shard, ?PSK_SHARD},
+                {type, ordered_set},
                 {disc_copies, [node()]},
                 {record_name, psk_entry},
                 {attributes, record_info(fields, psk_entry)},
@@ -108,7 +111,7 @@ stop() ->
 init(_Opts) ->
     _ = case get_config(enable) of
             true -> load();
-            false -> ok
+            false -> ?SLOG(info, #{msg => "emqx_psk_disabled"})
         end,
     _ = case get_config(init_file) of
             undefined -> ok;
@@ -120,15 +123,15 @@ handle_call({import, SrcFile}, _From, State) ->
     {reply, import_psks(SrcFile), State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
-    {reply, ignored, State}.
+    ?SLOG(info, #{msg => "unexpected_call_discarded", req => Req}),
+    {reply, {error, unexecpted}, State}.
 
 handle_cast(Req, State) ->
-    ?LOG(error, "Unexpected case: ~p", [Req]),
+    ?SLOG(info, #{msg => "unexpected_cast_discarded", req => Req}),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(info, #{msg => "unexpected_info_discarded", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -147,27 +150,40 @@ get_config(enable) ->
 get_config(init_file) ->
     emqx_config:get([psk, init_file], undefined);
 get_config(separator) ->
-    emqx_config:get([psk, separator], ?DEFAULT_DELIMITER).
+    emqx_config:get([psk, separator], ?DEFAULT_DELIMITER);
+get_config(chunk_size) ->
+    emqx_config:get([psk, chunk_size]).
 
 import_psks(SrcFile) ->
     case file:open(SrcFile, [read, raw, binary, read_ahead]) of
         {error, Reason} ->
             {error, Reason};
         {ok, Io} ->
-            case Result = import_psks(Io, get_config(separator)) of
-                ok -> ignore;
+            try import_psks(Io, get_config(separator), get_config(chunk_size)) of
+                ok -> ok;
                 {error, Reason} ->
-                    ?LOG(warning, "Failed to import psk from ~s due to ~p", [SrcFile, Reason])
-            end,
-            _ = file:close(Io),
-            Result
+                    ?SLOG(error, #{msg => "failed_to_import_psk_file",
+                                   file => SrcFile,
+                                   reason => Reason}),
+                    {error, Reason}
+            catch
+                Class:Reason:Stacktrace ->
+                    ?SLOG(error, #{msg => "failed_to_import_psk_file",
+                                   file => SrcFile,
+                                   class => Class,
+                                   reason => Reason,
+                                   stacktrace => Stacktrace}),
+                    {error, Reason}
+            after
+                _ = file:close(Io)
+            end
     end.
 
-import_psks(Io, Delimiter) ->
-    case get_psks(Io, Delimiter, 50) of
+import_psks(Io, Delimiter, ChunkSize) ->
+    case get_psks(Io, Delimiter, ChunkSize) of
         {ok, Entries} ->
             _ = trans(fun insert_psks/1, Entries),
-            import_psks(Io, Delimiter);
+            import_psks(Io, Delimiter, ChunkSize);
         {eof, Entries} ->
             _ = trans(fun insert_psks/1, Entries),
             ok;
