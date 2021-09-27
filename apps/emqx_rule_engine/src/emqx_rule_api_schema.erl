@@ -22,7 +22,7 @@ check_params(Params, Tag) ->
         Error:Reason:ST ->
             ?SLOG(error, #{msg => "check_rule_params_failed",
                            exception => Error,
-                           reason => Reason
+                           reason => Reason,
                            stacktrace => ST}),
             {error, {Reason, ST}}
     end.
