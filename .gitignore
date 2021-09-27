@@ -50,3 +50,5 @@ _upgrade_base/
 TAGS
 erlang_ls.config
 .els_cache/
+.vs/
+.vscode/

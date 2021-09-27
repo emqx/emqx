@@ -1156,39 +1156,11 @@ default_ciphers(quic) -> [
     "TLS_AES_128_GCM_SHA256",
     "TLS_CHACHA20_POLY1305_SHA256"
     ];
-default_ciphers(tls_all_available) ->
-    default_ciphers('tlsv1.3') ++
-    default_ciphers('tlsv1.2') ++
-    default_ciphers(psk);
 default_ciphers(dtls_all_available) ->
     %% as of now, dtls does not support tlsv1.3 ciphers
-    default_ciphers('tlsv1.2') ++ default_ciphers('psk');
-default_ciphers('tlsv1.3') ->
-    case is_tlsv13_available() of
-        true -> ssl:cipher_suites(exclusive, 'tlsv1.3', openssl);
-        false -> []
-    end ++ default_ciphers('tlsv1.2');
-default_ciphers('tlsv1.2') -> [
-    "ECDHE-ECDSA-AES256-GCM-SHA384",
-    "ECDHE-RSA-AES256-GCM-SHA384", "ECDHE-ECDSA-AES256-SHA384", "ECDHE-RSA-AES256-SHA384",
-    "ECDHE-ECDSA-DES-CBC3-SHA", "ECDH-ECDSA-AES256-GCM-SHA384", "ECDH-RSA-AES256-GCM-SHA384",
-    "ECDH-ECDSA-AES256-SHA384", "ECDH-RSA-AES256-SHA384", "DHE-DSS-AES256-GCM-SHA384",
-    "DHE-DSS-AES256-SHA256", "AES256-GCM-SHA384", "AES256-SHA256",
-    "ECDHE-ECDSA-AES128-GCM-SHA256", "ECDHE-RSA-AES128-GCM-SHA256",
-    "ECDHE-ECDSA-AES128-SHA256", "ECDHE-RSA-AES128-SHA256", "ECDH-ECDSA-AES128-GCM-SHA256",
-    "ECDH-RSA-AES128-GCM-SHA256", "ECDH-ECDSA-AES128-SHA256", "ECDH-RSA-AES128-SHA256",
-    "DHE-DSS-AES128-GCM-SHA256", "DHE-DSS-AES128-SHA256", "AES128-GCM-SHA256", "AES128-SHA256",
-    "ECDHE-ECDSA-AES256-SHA", "ECDHE-RSA-AES256-SHA", "DHE-DSS-AES256-SHA",
-    "ECDH-ECDSA-AES256-SHA", "ECDH-RSA-AES256-SHA", "AES256-SHA", "ECDHE-ECDSA-AES128-SHA",
-    "ECDHE-RSA-AES128-SHA", "DHE-DSS-AES128-SHA", "ECDH-ECDSA-AES128-SHA",
-    "ECDH-RSA-AES128-SHA", "AES128-SHA"
-    ];
-default_ciphers(psk) ->
-    [ "RSA-PSK-AES256-GCM-SHA384","RSA-PSK-AES256-CBC-SHA384",
-      "RSA-PSK-AES128-GCM-SHA256","RSA-PSK-AES128-CBC-SHA256",
-      "RSA-PSK-AES256-CBC-SHA","RSA-PSK-AES128-CBC-SHA",
-      "RSA-PSK-DES-CBC3-SHA","RSA-PSK-RC4-SHA"
-    ].
+    emqx_tls_lib:selected_ciphers(['dtlsv1.2', 'dtlsv1']);
+default_ciphers(tls_all_available) ->
+    emqx_tls_lib:default_ciphers().
 
 %% @private return a list of keys in a parent field
 -spec(keys(string(), hocon:config()) -> [string()]).

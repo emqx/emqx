@@ -62,12 +62,7 @@ ssl_opts_cipher_comma_separated_string_test() ->
 ssl_opts_tls_psk_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.2">>]}),
-    ?assertMatch(#{versions := ['tlsv1.2']}, Checked),
-    #{ciphers := Ciphers} = Checked,
-    PskCiphers = emqx_schema:default_ciphers(psk),
-    lists:foreach(fun(Cipher) ->
-                          ?assert(lists:member(Cipher, Ciphers))
-                  end, PskCiphers).
+    ?assertMatch(#{versions := ['tlsv1.2']}, Checked).
 
 bad_cipher_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
