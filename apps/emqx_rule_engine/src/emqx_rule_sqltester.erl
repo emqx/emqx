@@ -22,16 +22,7 @@
         , get_selected_data/3
         ]).
 
-%% Dialyzer gives up on the generated code.
-%% probably due to stack depth, or inlines.
--dialyzer({nowarn_function, [test/1,
-                             test_rule/4,
-                             flatten/1,
-                             fill_default_values/2,
-                             envs_examp/1
-                             ]}).
-
--spec(test(#{}) -> {ok, map() | list()} | {error, term()}).
+-spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, nomatch}.
 test(#{sql := Sql, context := Context}) ->
     {ok, Select} = emqx_rule_sqlparser:parse(Sql),
     InTopic = maps:get(topic, Context, <<>>),
