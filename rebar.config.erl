@@ -279,6 +279,7 @@ relx_apps(ReleaseType) ->
     , emqx_retainer
     , emqx_statsd
     , emqx_prometheus
+    , emqx_psk
     ]
     ++ [quicer || is_quicer_supported()]
     ++ [emqx_license || is_enterprise()]

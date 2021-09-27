@@ -25,8 +25,8 @@
 -type psk_user_state() :: term().
 
 -spec lookup(psk, psk_identity(), psk_user_state()) -> {ok, SharedSecret :: binary()} | error.
-lookup(psk, PSKIdentity, UserState) ->
-    try emqx_hooks:run_fold('tls_handshake.psk_lookup', [PSKIdentity, UserState], normal) of
+lookup(psk, PSKIdentity, _UserState) ->
+    try emqx_hooks:run_fold('tls_handshake.psk_lookup', [PSKIdentity], normal) of
         {ok, SharedSecret} when is_binary(SharedSecret) ->
             {ok, SharedSecret};
         normal ->

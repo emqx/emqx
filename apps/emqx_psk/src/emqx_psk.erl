@@ -157,6 +157,9 @@ get_config(chunk_size) ->
 import_psks(SrcFile) ->
     case file:open(SrcFile, [read, raw, binary, read_ahead]) of
         {error, Reason} ->
+            ?SLOG(error, #{msg => "failed_to_open_psk_file",
+                                   file => SrcFile,
+                                   reason => Reason}),
             {error, Reason};
         {ok, Io} ->
             try import_psks(Io, get_config(separator), get_config(chunk_size)) of
@@ -167,10 +170,10 @@ import_psks(SrcFile) ->
                                    reason => Reason}),
                     {error, Reason}
             catch
-                Class:Reason:Stacktrace ->
+                Exception:Reason:Stacktrace ->
                     ?SLOG(error, #{msg => "failed_to_import_psk_file",
                                    file => SrcFile,
-                                   class => Class,
+                                   exception => Exception,
                                    reason => Reason,
                                    stacktrace => Stacktrace}),
                     {error, Reason}
@@ -182,10 +185,10 @@ import_psks(SrcFile) ->
 import_psks(Io, Delimiter, ChunkSize) ->
     case get_psks(Io, Delimiter, ChunkSize) of
         {ok, Entries} ->
-            _ = trans(fun insert_psks/1, Entries),
+            _ = trans(fun insert_psks/1, [Entries]),
             import_psks(Io, Delimiter, ChunkSize);
         {eof, Entries} ->
-            _ = trans(fun insert_psks/1, Entries),
+            _ = trans(fun insert_psks/1, [Entries]),
             ok;
         {error, Reaosn} ->
             {error, Reaosn}

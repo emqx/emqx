@@ -53,6 +53,7 @@
         , emqx_prometheus_schema
         , emqx_rule_engine_schema
         , emqx_exhook_schema
+        , emqx_psk_schema
         ]).
 
 namespace() -> undefined.

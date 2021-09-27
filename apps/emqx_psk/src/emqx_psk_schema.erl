@@ -24,7 +24,7 @@
         , fields/1
         ]).
 
-roots() -> [].
+roots() -> ["psk"].
 
 fields("psk") ->
     [ {enable,     fun enable/1}

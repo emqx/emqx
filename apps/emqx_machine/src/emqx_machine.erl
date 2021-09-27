@@ -149,6 +149,7 @@ reboot_apps() ->
     , emqx_rule_actions
     , emqx_authn
     , emqx_authz
+    , emqx_psk
     ].
 
 sorted_reboot_apps() ->

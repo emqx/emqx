@@ -1300,7 +1300,7 @@ parse_user_lookup_fun(StrConf) ->
     [ModStr, FunStr] = string:tokens(StrConf, ":"),
     Mod = list_to_atom(ModStr),
     Fun = list_to_atom(FunStr),
-    {fun Mod:Fun/3, <<>>}.
+    {fun Mod:Fun/3, undefined}.
 
 validate_ciphers(Ciphers) ->
     All = ssl:cipher_suites(all, 'tlsv1.3', openssl) ++
