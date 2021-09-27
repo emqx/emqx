@@ -120,6 +120,9 @@
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
      {load_module,emqx_misc,brutal_purge,soft_purge,[]}
    ]},
+   {<<"4.2.6">>, [
+     {load_module, emqx_channel, brutal_purge, soft_purge, []}
+   ]},
    {<<".*">>, []}
  ],
  [
@@ -240,6 +243,9 @@
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
      {load_module,emqx_misc,brutal_purge,soft_purge,[]}
+   ]},
+   {<<"4.2.6">>, [
+     {load_module, emqx_channel, brutal_purge, soft_purge, []}
    ]},
    {<<".*">>, []}
  ]
