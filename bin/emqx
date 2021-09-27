@@ -308,8 +308,6 @@ is_down() {
             ps -p "$parent"
             return 0
         fi
-        echo "ERROR: $PID is still around"
-        ps -p "$PID"
         return 1
     fi
     # it's gone
@@ -490,6 +488,8 @@ case "$1" in
             logger -t "${REL_NAME}[${PID}]" "STOP: $msg"
             # log to user console
             echoerr "stop failed, $msg"
+            echo "ERROR: $PID is still around"
+            ps -p "$PID"
             exit 1
         fi
         logger -t "${REL_NAME}[${PID}]" "STOP: OK"
