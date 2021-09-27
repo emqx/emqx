@@ -24,7 +24,7 @@
 -include_lib("common_test/include/ct.hrl").
 
 -define(ASSERT_FRAME_THROW(Reason, Expr),
-        ?assertThrow(?FRAME_ERROR(Reason), Expr)).
+        ?assertThrow(?FRAME_PARSE_ERROR(Reason), Expr)).
 
 all() ->
     [{group, parse},
@@ -552,4 +552,3 @@ parse_to_packet(Bin, Opts) ->
     Packet.
 
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
-

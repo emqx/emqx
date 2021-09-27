@@ -644,7 +644,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [Packet|Packets], NState)
     catch
-        throw : ?FRAME_ERROR(Reason) ->
+        throw : ?FRAME_PARSE_ERROR(Reason) ->
             ?SLOG(info, #{ reason => Reason
                          , at_state => emqx_frame:describe_state(ParseState)
                          , input_bytes => Data
@@ -652,12 +652,12 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
                          }),
             {[{frame_error, Reason} | Packets], State};
         error : Reason : Stacktrace ->
-            ?SLOG(info, #{ at_state => emqx_frame:describe_state(ParseState)
-                         , input_bytes => Data
-                         , parsed_packets => Packets
-                         , exception => Reason
-                         , stacktrace => Stacktrace
-                         }),
+            ?SLOG(error, #{ at_state => emqx_frame:describe_state(ParseState)
+                          , input_bytes => Data
+                          , parsed_packets => Packets
+                          , exception => Reason
+                          , stacktrace => Stacktrace
+                          }),
             {[{frame_error, Reason} | Packets], State}
     end.
 
@@ -707,7 +707,7 @@ handle_outgoing(Packet, State) ->
 
 serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
     fun(Packet) ->
-        case emqx_frame:serialize_pkt(Packet, Serialize) of
+        try emqx_frame:serialize_pkt(Packet, Serialize) of
             <<>> -> ?LOG(warning, "~s is discarded due to the frame is too large!",
                          [emqx_packet:format(Packet)]),
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
@@ -716,6 +716,17 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
             Data -> ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
                     ok = inc_outgoing_stats(Packet),
                     Data
+        catch
+            %% Maybe Never happen.
+            throw : ?FRAME_SERIALIZE_ERROR(Reason) ->
+                ?SLOG(info, #{ reason => Reason
+                             , input_packet => Packet}),
+                erlang:error(?FRAME_SERIALIZE_ERROR(Reason));
+            error : Reason : Stacktrace ->
+                ?SLOG(error, #{ input_packet => Packet
+                              , exception => Reason
+                              , stacktrace => Stacktrace}),
+                erlang:raise(error, Reason, Stacktrace)
         end
     end.
 

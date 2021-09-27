@@ -74,6 +74,7 @@
          }).
 
 -define(PARSE_ERR(Reason), ?THROW_FRAME_ERROR(Reason)).
+-define(SERIALIZE_ERR(Reason), ?THROW_SERIALIZE_ERROR(Reason)).
 
 -define(MULTIPLIER_MAX, 16#200000).
 
@@ -781,7 +782,7 @@ serialize_binary_data(Bin) ->
     [<<(byte_size(Bin)):16/big-unsigned-integer>>, Bin].
 
 serialize_utf8_string(undefined, false) ->
-    ?PARSE_ERR(utf8_string_undefined);
+    ?SERIALIZE_ERR(utf8_string_undefined);
 serialize_utf8_string(undefined, true) ->
     <<>>;
 serialize_utf8_string(String, _AllowNull) ->
