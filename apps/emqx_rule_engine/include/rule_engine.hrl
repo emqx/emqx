@@ -51,7 +51,7 @@
         , incase := term()
         , conditions := tuple()
         , enabled := boolean()
-        , description := binary()
+        , description => binary()
         }.
 
 -record(rule,

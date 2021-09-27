@@ -54,7 +54,8 @@ test_rule(Sql, Select, Context, EventTopics) ->
             doeach => emqx_rule_sqlparser:select_doeach(Select),
             incase => emqx_rule_sqlparser:select_incase(Select),
             conditions => emqx_rule_sqlparser:select_where(Select)
-        }
+        },
+        created_at = erlang:system_time(millisecond)
     },
     FullContext = fill_default_values(hd(EventTopics), emqx_rule_maps:atom_key_map(Context)),
     try
@@ -67,7 +68,7 @@ test_rule(Sql, Select, Context, EventTopics) ->
     end.
 
 get_selected_data(Selected, _Envs, _Args) ->
-     Selected.
+    Selected.
 
 is_publish_topic(<<"$events/", _/binary>>) -> false;
 is_publish_topic(_Topic) -> true.
