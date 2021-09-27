@@ -162,7 +162,7 @@ import_psks(SrcFile) ->
                                    reason => Reason}),
             {error, Reason};
         {ok, Io} ->
-            try import_psks(Io, get_config(separator), get_config(chunk_size)) of
+            try import_psks(Io, get_config(separator), get_config(chunk_size), 0) of
                 ok -> ok;
                 {error, Reason} ->
                     ?SLOG(error, #{msg => "failed_to_import_psk_file",
@@ -182,14 +182,16 @@ import_psks(SrcFile) ->
             end
     end.
 
-import_psks(Io, Delimiter, ChunkSize) ->
+import_psks(Io, Delimiter, ChunkSize, NChunk) ->
     case get_psks(Io, Delimiter, ChunkSize) of
         {ok, Entries} ->
             _ = trans(fun insert_psks/1, [Entries]),
-            import_psks(Io, Delimiter, ChunkSize);
+            import_psks(Io, Delimiter, ChunkSize, NChunk + 1);
         {eof, Entries} ->
             _ = trans(fun insert_psks/1, [Entries]),
             ok;
+        {error, {bad_format, {line, N}}} ->
+            {error, {bad_format, {line, NChunk * ChunkSize + N}}};
         {error, Reaosn} ->
             {error, Reaosn}
     end.
@@ -207,7 +209,7 @@ get_psks(Io, Delimiter, Remaining, Acc) ->
                     NSharedSecret = trim_crlf(SharedSecret),
                     get_psks(Io, Delimiter, Remaining - 1, [{PSKIdentity, NSharedSecret} | Acc]);
                 _ ->
-                    {error, {bad_format, Line}}
+                    {error, {bad_format, {line, length(Acc) + 1}}}
             end;
         eof ->
             {eof, Acc};
