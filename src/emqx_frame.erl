@@ -69,6 +69,8 @@
           version     => ?MQTT_PROTO_V4
          }).
 
+-define(MULTIPLIER_MAX, 16#200000).
+
 -dialyzer({no_match, [serialize_utf8_string/2]}).
 
 %%--------------------------------------------------------------------
@@ -146,7 +148,7 @@ parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
 parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
     parse_frame(Rest, Header, 2, Options);
 parse_remaining_len(<<1:1, _Len:7, _Rest/binary>>, _Header, Multiplier, _Value, _Options)
-        when Multiplier > 2097152 ->
+  when Multiplier > ?MULTIPLIER_MAX ->
     error(malformed_variable_byte_integer);
 parse_remaining_len(<<1:1, Len:7, Rest/binary>>, Header, Multiplier, Value, Options) ->
     parse_remaining_len(Rest, Header, Multiplier * ?HIGHBIT, Value + Len * Multiplier, Options);
@@ -432,6 +434,9 @@ parse_property(<<16#2A, Val, Bin/binary>>, Props) ->
 
 parse_variable_byte_integer(Bin) ->
     parse_variable_byte_integer(Bin, 1, 0).
+parse_variable_byte_integer(<<1:1, _Len:7, _Rest/binary>>, Multiplier, _Value)
+  when Multiplier > ?MULTIPLIER_MAX ->
+    error(malformed_variable_byte_integer);
 parse_variable_byte_integer(<<1:1, Len:7, Rest/binary>>, Multiplier, Value) ->
     parse_variable_byte_integer(Rest, Multiplier * ?HIGHBIT, Value + Len * Multiplier);
 parse_variable_byte_integer(<<0:1, Len:7, Rest/binary>>, Multiplier, Value) ->
