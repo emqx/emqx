@@ -646,7 +646,7 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
                 ?SLOG(error, #{ input_packet => Packet
                               , exception => Reason
                               , stacktrace => Stacktrace}),
-                erlang:raise(error, Reason, Stacktrace)
+                erlang:error(frame_serialize_error)
         end
     end.
 
