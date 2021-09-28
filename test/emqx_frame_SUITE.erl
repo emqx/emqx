@@ -137,6 +137,11 @@ t_parse_frame_malformed_variable_byte_integer(_) ->
     ?catch_error(malformed_variable_byte_integer,
         emqx_frame:parse(MalformedPayload, ParseState)).
 
+t_parse_frame_variable_byte_integer(_) ->
+    Bin = <<2#10010011, 2#10000000, 2#10001000, 2#10011001, 2#10101101, 2#00110010>>,
+    ?catch_error(malformed_variable_byte_integer,
+        emqx_frame:parse_variable_byte_integer(Bin)).
+
 t_serialize_parse_v3_connect(_) ->
     Bin = <<16,37,0,6,77,81,73,115,100,112,3,2,0,60,0,23,109,111,115,
             113,112,117, 98,47,49,48,52,53,49,45,105,77,97,99,46,108,
