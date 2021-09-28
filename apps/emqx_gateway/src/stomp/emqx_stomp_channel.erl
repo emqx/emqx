@@ -109,10 +109,15 @@ init(ConnInfo = #{peername := {PeerHost, _},
                   sockname := {_, SockPort}}, Option) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Mountpoint = maps:get(mountpoint, Option, undefined),
+    ListenerId = case maps:get(listener, Option, undefined) of
+                     undefined -> undefined;
+                     {GwName, Type, LisName} ->
+                         emqx_gateway_utils:listener_id(GwName, Type, LisName)
+                 end,
     ClientInfo = setting_peercert_infos(
                    Peercert,
                    #{ zone => default
-                    , listener => {tcp, default}
+                    , listener => ListenerId
                     , protocol => stomp
                     , peerhost => PeerHost
                     , sockport => SockPort

@@ -23,19 +23,21 @@
 -export([ roots/0
         , fields/1]).
 
+-import(emqx_schema, [mk_duration/2]).
+
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, "config")}}].
 
 fields("config") ->
     [ {server, hoconsc:mk(emqx_schema:ip_port(), #{default => "127.0.0.1:1883"})}
-    , {reconnect_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
+    , {reconnect_interval, mk_duration("reconnect interval", #{default => "30s"})}
     , {proto_ver, fun proto_ver/1}
     , {bridge_mode, hoconsc:mk(boolean(), #{default => true})}
     , {username, hoconsc:mk(string())}
     , {password, hoconsc:mk(string())}
     , {clean_start, hoconsc:mk(boolean(), #{default => true})}
-    , {keepalive, hoconsc:mk(integer(), #{default => 300})}
-    , {retry_interval, hoconsc:mk(emqx_schema:duration_ms(), #{default => "30s"})}
+    , {keepalive, mk_duration("keepalive", #{default => "300s"})}
+    , {retry_interval, mk_duration("retry interval", #{default => "30s"})}
     , {max_inflight, hoconsc:mk(integer(), #{default => 32})}
     , {replayq, hoconsc:mk(hoconsc:ref(?MODULE, "replayq"))}
     , {ingress_channels, hoconsc:mk(hoconsc:map(id, hoconsc:ref(?MODULE, "ingress_channels")), #{default => []})}

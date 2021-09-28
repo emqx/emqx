@@ -48,6 +48,7 @@ apis() ->
     , {"/gateway/:name", gateway_insta}
     , {"/gateway/:name/stats", gateway_insta_stats}
     ].
+
 %%--------------------------------------------------------------------
 %% http handlers
 
@@ -57,7 +58,29 @@ gateway(get, Request) ->
                  undefined -> all;
                  S0 -> binary_to_existing_atom(S0, utf8)
              end,
-    {200, emqx_gateway_http:gateways(Status)}.
+    {200, emqx_gateway_http:gateways(Status)};
+gateway(post, Request) ->
+    Body = maps:get(body, Request, #{}),
+    try
+        Name0 = maps:get(<<"name">>, Body),
+        GwName = binary_to_existing_atom(Name0),
+        case emqx_gateway_registry:lookup(GwName) of
+            undefined -> error(badarg);
+            _ ->
+                GwConf = maps:without([<<"name">>], Body),
+                case emqx_gateway_conf:load_gateway(GwName,  GwConf) of
+                    ok ->
+                        {204};
+                    {error, Reason} ->
+                        return_http_error(500, Reason)
+                end
+        end
+    catch
+        error : {badkey, K} ->
+            return_http_error(400, [K, " is required"]);
+        error : badarg ->
+            return_http_error(404, "Bad gateway name")
+    end.
 
 gateway_insta(delete, #{bindings := #{name := Name0}}) ->
     with_gateway(Name0, fun(GwName, _) ->
@@ -69,18 +92,16 @@ gateway_insta(get, #{bindings := #{name := Name0}}) ->
         GwConf = filled_raw_confs([<<"gateway">>, Name0]),
         LisConf = maps:get(<<"listeners">>, GwConf, #{}),
         NLisConf = emqx_gateway_http:mapping_listener_m2l(Name0, LisConf),
-        {200, GwConf#{<<"listeners">> => NLisConf}}
+        {200, GwConf#{<<"name">> => Name0, <<"listeners">> => NLisConf}}
     end);
 gateway_insta(put, #{body := GwConf0,
                      bindings := #{name := Name0}
                     }) ->
-    with_gateway(Name0, fun(_, _) ->
+    with_gateway(Name0, fun(GwName, _) ->
         GwConf = maps:without([<<"authentication">>, <<"listeners">>], GwConf0),
-        case emqx_gateway:update_rawconf(Name0, GwConf) of
+        case emqx_gateway_conf:update_gateway(GwName, GwConf) of
             ok ->
                 {200};
-            {error, not_found} ->
-                return_http_error(404, "Gateway not found");
             {error, Reason} ->
                 return_http_error(500, Reason)
         end
@@ -121,6 +142,16 @@ swagger("/gateway", get) ->
      , parameters => params_gateway_status_in_qs()
      , responses =>
         #{ <<"200">> => schema_gateway_overview_list() }
+     };
+swagger("/gateway", post) ->
+    #{ description => <<"Load a gateway">>
+     , requestBody => schema_gateway_conf()
+     , responses =>
+        #{ <<"400">> => schema_bad_request()
+         , <<"404">> => schema_not_found()
+         , <<"500">> => schema_internal_error()
+         , <<"204">> => schema_no_content()
+         }
      };
 swagger("/gateway/:name", get) ->
     #{ description => <<"Get the gateway configurations">>
@@ -189,7 +220,7 @@ schema_gateway_overview_list() ->
       #{ type => object
        , properties => properties_gateway_overview()
        },
-      <<"Gateway Overview list">>
+      <<"Gateway list">>
      ).
 
 %% XXX: This is whole confs for all type gateways. It is used to fill the
@@ -202,6 +233,7 @@ schema_gateway_overview_list() ->
         <<"name">> => <<"authenticator1">>,
         <<"server_type">> => <<"built-in-database">>,
         <<"user_id_type">> => <<"clientid">>},
+  <<"name">> => <<"coap">>,
   <<"enable">> => true,
   <<"enable_stats">> => true,<<"heartbeat">> => <<"30s">>,
   <<"idle_timeout">> => <<"30s">>,
@@ -219,6 +251,7 @@ schema_gateway_overview_list() ->
 
 -define(EXPROTO_GATEWAY_CONFS,
 #{<<"enable">> => true,
+  <<"name">> => <<"exproto">>,
   <<"enable_stats">> => true,
   <<"handler">> =>
       #{<<"address">> => <<"http://127.0.0.1:9001">>},
@@ -236,6 +269,7 @@ schema_gateway_overview_list() ->
 
 -define(LWM2M_GATEWAY_CONFS,
 #{<<"auto_observe">> => false,
+  <<"name">> => <<"lwm2m">>,
   <<"enable">> => true,
   <<"enable_stats">> => true,
   <<"idle_timeout">> => <<"30s">>,
@@ -264,6 +298,7 @@ schema_gateway_overview_list() ->
       #{<<"password">> => <<"abc">>,
         <<"username">> => <<"mqtt_sn_user">>},
   <<"enable">> => true,
+  <<"name">> => <<"mqtt-sn">>,
   <<"enable_qos3">> => true,<<"enable_stats">> => true,
   <<"gateway_id">> => 1,<<"idle_timeout">> => <<"30s">>,
   <<"listeners">> => [
@@ -290,6 +325,7 @@ schema_gateway_overview_list() ->
       #{<<"password">> => <<"${Packet.headers.passcode}">>,
         <<"username">> => <<"${Packet.headers.login}">>},
   <<"enable">> => true,
+  <<"name">> => <<"stomp">>,
   <<"enable_stats">> => true,
   <<"frame">> =>
       #{<<"max_body_length">> => 8192,<<"max_headers">> => 10,

@@ -19,7 +19,7 @@
 -export([ default_versions/0
         , integral_versions/1
         , default_ciphers/0
-        , default_ciphers/1
+        , selected_ciphers/1
         , integral_ciphers/2
         , drop_tls13_for_old_otp/1
         ]).
@@ -31,9 +31,7 @@
 
 %% @doc Returns the default supported tls versions.
 -spec default_versions() -> [atom()].
-default_versions() ->
-    OtpRelease = list_to_integer(erlang:system_info(otp_release)),
-    integral_versions(default_versions(OtpRelease)).
+default_versions() -> available_versions().
 
 %% @doc Validate a given list of desired tls versions.
 %% raise an error exception if non of them are available.
@@ -51,7 +49,7 @@ integral_versions(Desired) when ?IS_STRING(Desired) ->
 integral_versions(Desired) when is_binary(Desired) ->
     integral_versions(parse_versions(Desired));
 integral_versions(Desired) ->
-    {_, Available} = lists:keyfind(available, 1, ssl:versions()),
+    Available = available_versions(),
     case lists:filter(fun(V) -> lists:member(V, Available) end, Desired) of
         [] -> erlang:error(#{ reason => no_available_tls_version
                             , desired => Desired
@@ -61,27 +59,61 @@ integral_versions(Desired) ->
             Filtered
     end.
 
-%% @doc Return a list of default (openssl string format) cipher suites.
--spec default_ciphers() -> [string()].
-default_ciphers() -> default_ciphers(default_versions()).
-
 %% @doc Return a list of (openssl string format) cipher suites.
--spec default_ciphers([ssl:tls_version()]) -> [string()].
-default_ciphers(['tlsv1.3']) ->
+-spec all_ciphers([ssl:tls_version()]) -> [string()].
+all_ciphers(['tlsv1.3']) ->
     %% When it's only tlsv1.3 wanted, use 'exclusive' here
     %% because 'all' returns legacy cipher suites too,
     %% which does not make sense since tlsv1.3 can not use
     %% legacy cipher suites.
     ssl:cipher_suites(exclusive, 'tlsv1.3', openssl);
-default_ciphers(Versions) ->
+all_ciphers(Versions) ->
     %% assert non-empty
     [_ | _] = dedup(lists:append([ssl:cipher_suites(all, V, openssl) || V <- Versions])).
+
+
+%% @doc All Pre-selected TLS ciphers.
+default_ciphers() ->
+    selected_ciphers(available_versions()).
+
+%% @doc Pre-selected TLS ciphers for given versions..
+selected_ciphers(Vsns) ->
+    All = all_ciphers(Vsns),
+    dedup(lists:filter(fun(Cipher) -> lists:member(Cipher, All) end,
+                       lists:flatmap(fun do_selected_ciphers/1, Vsns))).
+
+do_selected_ciphers('tlsv1.3') ->
+    case lists:member('tlsv1.3', proplists:get_value(available, ssl:versions())) of
+        true -> ssl:cipher_suites(exclusive, 'tlsv1.3', openssl);
+        false -> []
+    end ++ do_selected_ciphers('tlsv1.2');
+do_selected_ciphers(_) ->
+    [ "ECDHE-ECDSA-AES256-GCM-SHA384",
+      "ECDHE-RSA-AES256-GCM-SHA384", "ECDHE-ECDSA-AES256-SHA384", "ECDHE-RSA-AES256-SHA384",
+      "ECDHE-ECDSA-DES-CBC3-SHA", "ECDH-ECDSA-AES256-GCM-SHA384", "ECDH-RSA-AES256-GCM-SHA384",
+      "ECDH-ECDSA-AES256-SHA384", "ECDH-RSA-AES256-SHA384", "DHE-DSS-AES256-GCM-SHA384",
+      "DHE-DSS-AES256-SHA256", "AES256-GCM-SHA384", "AES256-SHA256",
+      "ECDHE-ECDSA-AES128-GCM-SHA256", "ECDHE-RSA-AES128-GCM-SHA256",
+      "ECDHE-ECDSA-AES128-SHA256", "ECDHE-RSA-AES128-SHA256", "ECDH-ECDSA-AES128-GCM-SHA256",
+      "ECDH-RSA-AES128-GCM-SHA256", "ECDH-ECDSA-AES128-SHA256", "ECDH-RSA-AES128-SHA256",
+      "DHE-DSS-AES128-GCM-SHA256", "DHE-DSS-AES128-SHA256", "AES128-GCM-SHA256", "AES128-SHA256",
+      "ECDHE-ECDSA-AES256-SHA", "ECDHE-RSA-AES256-SHA", "DHE-DSS-AES256-SHA",
+      "ECDH-ECDSA-AES256-SHA", "ECDH-RSA-AES256-SHA", "AES256-SHA", "ECDHE-ECDSA-AES128-SHA",
+      "ECDHE-RSA-AES128-SHA", "DHE-DSS-AES128-SHA", "ECDH-ECDSA-AES128-SHA",
+      "ECDH-RSA-AES128-SHA", "AES128-SHA",
+
+      %% psk
+      "RSA-PSK-AES256-GCM-SHA384","RSA-PSK-AES256-CBC-SHA384",
+      "RSA-PSK-AES128-GCM-SHA256","RSA-PSK-AES128-CBC-SHA256",
+      "RSA-PSK-AES256-CBC-SHA","RSA-PSK-AES128-CBC-SHA",
+      "RSA-PSK-DES-CBC3-SHA","RSA-PSK-RC4-SHA"
+    ].
 
 %% @doc Ensure version & cipher-suites integrity.
 -spec integral_ciphers([ssl:tls_version()], binary() | string() | [string()]) -> [string()].
 integral_ciphers(Versions, Ciphers) when Ciphers =:= [] orelse Ciphers =:= undefined ->
     %% not configured
-    integral_ciphers(Versions, default_ciphers(Versions));
+    integral_ciphers(Versions, selected_ciphers(Versions));
 integral_ciphers(Versions, Ciphers) when ?IS_STRING_LIST(Ciphers) ->
     %% ensure tlsv1.3 ciphers if none of them is found in Ciphers
     dedup(ensure_tls13_cipher(lists:member('tlsv1.3', Versions), Ciphers));
@@ -95,7 +127,7 @@ integral_ciphers(Versions, Ciphers) ->
 %% In case tlsv1.3 is present, ensure tlsv1.3 cipher is added if user
 %% did not provide it from config --- which is a common mistake
 ensure_tls13_cipher(true, Ciphers) ->
-    Tls13Ciphers = default_ciphers(['tlsv1.3']),
+    Tls13Ciphers = selected_ciphers(['tlsv1.3']),
     case lists:any(fun(C) -> lists:member(C, Tls13Ciphers) end, Ciphers) of
         true  -> Ciphers;
         false -> Tls13Ciphers ++ Ciphers
@@ -103,11 +135,17 @@ ensure_tls13_cipher(true, Ciphers) ->
 ensure_tls13_cipher(false, Ciphers) ->
     Ciphers.
 
+%% default ssl versions based on available versions.
+-spec available_versions() -> [atom()].
+available_versions() ->
+    OtpRelease = list_to_integer(erlang:system_info(otp_release)),
+    default_versions(OtpRelease).
+
 %% tlsv1.3 is available from OTP-22 but we do not want to use until 23.
 default_versions(OtpRelease) when OtpRelease >= 23 ->
-    ['tlsv1.3' | default_versions(22)];
+    proplists:get_value(available, ssl:versions());
 default_versions(_) ->
-    ['tlsv1.2', 'tlsv1.1', tlsv1].
+    lists:delete('tlsv1.3', proplists:get_value(available, ssl:versions())).
 
 %% Deduplicate a list without re-ordering the elements.
 dedup([]) -> [];
@@ -175,10 +213,12 @@ drop_tls13(SslOpts0) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
+all_ciphers() -> all_ciphers(default_versions()).
+
 drop_tls13_test() ->
     Versions = default_versions(),
     ?assert(lists:member('tlsv1.3', Versions)),
-    Ciphers = default_ciphers(),
+    Ciphers = all_ciphers(),
     ?assert(has_tlsv13_cipher(Ciphers)),
     Opts0 = #{versions => Versions, ciphers => Ciphers, other => true},
     Opts = drop_tls13(Opts0),

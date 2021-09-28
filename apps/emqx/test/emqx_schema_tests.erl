@@ -19,8 +19,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 ssl_opts_dtls_test() ->
-    Sc = emqx_schema:server_ssl_opts_schema(#{versions => dtls,
-                                           ciphers => dtls}, false),
+    Sc = emqx_schema:server_ssl_opts_schema(#{versions => dtls_all_available,
+                                              ciphers => dtls_all_available}, false),
     Checked = validate(Sc, #{<<"versions">> => [<<"dtlsv1.2">>, <<"dtlsv1">>]}),
     ?assertMatch(#{versions := ['dtlsv1.2', 'dtlsv1'],
                    ciphers := ["ECDHE-ECDSA-AES256-GCM-SHA384" | _]
@@ -62,19 +62,14 @@ ssl_opts_cipher_comma_separated_string_test() ->
 ssl_opts_tls_psk_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.2">>]}),
-    ?assertMatch(#{versions := ['tlsv1.2']}, Checked),
-    #{ciphers := Ciphers} = Checked,
-    PskCiphers = emqx_schema:default_ciphers(psk),
-    lists:foreach(fun(Cipher) ->
-                          ?assert(lists:member(Cipher, Ciphers))
-                  end, PskCiphers).
+    ?assertMatch(#{versions := ['tlsv1.2']}, Checked).
 
 bad_cipher_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Reason = {bad_ciphers, ["foo"]},
     ?assertThrow({_Sc, [{validation_error, #{reason := Reason}}]},
-              [validate(Sc, #{<<"versions">> => [<<"tlsv1.2">>],
-                        <<"ciphers">> => [<<"foo">>]})]),
+                 validate(Sc, #{<<"versions">> => [<<"tlsv1.2">>],
+                                <<"ciphers">> => [<<"foo">>]})),
     ok.
 
 validate(Schema, Data0) ->
@@ -95,3 +90,10 @@ ciperhs_schema_test() ->
     WSc = #{roots => [{ciphers, Sc}]},
     ?assertThrow({_, [{validation_error, _}]},
                  hocon_schema:check_plain(WSc, #{<<"ciphers">> => <<"foo,bar">>})).
+
+bad_tls_version_test() ->
+    Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
+    Reason = {unsupported_ssl_versions, [foo]},
+    ?assertThrow({_Sc, [{validation_error, #{reason := Reason}}]},
+                 validate(Sc, #{<<"versions">> => [<<"foo">>]})),
+    ok.

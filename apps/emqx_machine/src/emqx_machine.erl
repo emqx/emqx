@@ -35,8 +35,12 @@
 
 %% @doc EMQ X boot entrypoint.
 start() ->
-    os:set_signal(sighup, ignore),
-    os:set_signal(sigterm, handle), %% default is handle
+    case os:type() of
+        {win32, nt} -> ok;
+        _nix ->
+            os:set_signal(sighup, ignore),
+            os:set_signal(sigterm, handle) %% default is handle
+    end,
     ok = set_backtrace_depth(),
     ok = print_otp_version_warning(),
 
@@ -146,7 +150,6 @@ reboot_apps() ->
     , emqx_management
     , emqx_retainer
     , emqx_exhook
-    , emqx_rule_actions
     , emqx_authn
     , emqx_authz
     ].

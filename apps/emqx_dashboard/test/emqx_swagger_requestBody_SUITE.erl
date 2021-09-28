@@ -101,7 +101,7 @@ t_remote_ref(_Config) ->
         {<<"another_ref">>, #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref3">>}}], <<"type">> => object}},
         #{<<"emqx_swagger_remote_schema.ref3">> => #{<<"properties">> => [
             {<<"ip">>, #{description => <<"IP:Port">>, example => <<"127.0.0.1:80">>,type => string}},
-            {<<"version">>, #{description => "a good version", example => <<"1.0.0">>,type => string}}],
+            {<<"version">>, #{description => <<"a good version">>, example => <<"1.0.0">>,type => string}}],
             <<"type">> => object}}],
     ?assertEqual(ExpectComponents, Components),
     ok.
@@ -116,7 +116,7 @@ t_nest_ref(_Config) ->
     ExpectComponents = lists:sort([
         #{<<"emqx_swagger_requestBody_SUITE.nest_ref">> => #{<<"properties">> => [
             {<<"env">>, #{enum => [test,dev,prod],type => string}},
-            {<<"another_ref">>, #{description => "nest ref", <<"$ref">> => <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>}}],
+            {<<"another_ref">>, #{description => <<"nest ref">>, <<"$ref">> => <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>}}],
             <<"type">> => object}},
         #{<<"emqx_swagger_requestBody_SUITE.good_ref">> => #{<<"properties">> => [
             {<<"webhook-host">>, #{default => <<"127.0.0.1:80">>, example => <<"127.0.0.1:80">>,type => string}},

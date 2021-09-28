@@ -18,7 +18,7 @@
 
 -include("rule_engine.hrl").
 
--export([parse_select/1]).
+-export([parse/1]).
 
 -export([ select_fields/1
         , select_is_foreach/1
@@ -36,26 +36,21 @@
 
 -opaque(select() :: #select{}).
 
--type(const() :: {const, number()|binary()}).
+-type const() :: {const, number()|binary()}.
 
--type(variable() :: binary() | list(binary())).
+-type variable() :: binary() | list(binary()).
 
--type(alias() :: binary() | list(binary())).
+-type alias() :: binary() | list(binary()).
 
--type(field() :: const() | variable()
+-type field() :: const() | variable()
                | {as, field(), alias()}
-               | {'fun', atom(), list(field())}).
+               | {'fun', atom(), list(field())}.
 
 -export_type([select/0]).
 
-%% Dialyzer gives up on the generated code.
-%% probably due to stack depth, or inlines.
--dialyzer({nowarn_function, [parse_select/1]}).
-
 %% Parse one select statement.
--spec(parse_select(string() | binary())
-      -> {ok, select()} | {parse_error, term()} | {lex_error, term()}).
-parse_select(Sql) ->
+-spec(parse(string() | binary()) -> {ok, select()} | {error, term()}).
+parse(Sql) ->
     try case rulesql:parsetree(Sql) of
             {ok, {select, Clauses}} ->
                 {ok, #select{
@@ -75,11 +70,11 @@ parse_select(Sql) ->
                         from = get_value(from, Clauses),
                         where = get_value(where, Clauses)
                     }};
-            Error -> Error
+            Error -> {error, Error}
         end
     catch
         _Error:Reason:StackTrace ->
-            {parse_error, {Reason, StackTrace}}
+            {error, {Reason, StackTrace}}
     end.
 
 -spec(select_fields(select()) -> list(field())).

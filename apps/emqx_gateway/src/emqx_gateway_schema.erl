@@ -50,11 +50,11 @@ namespace() -> gateway.
 roots() -> [gateway].
 
 fields(gateway) ->
-    [{stomp, sc(ref(stomp))},
-     {mqttsn, sc(ref(mqttsn))},
-     {coap, sc(ref(coap))},
-     {lwm2m, sc(ref(lwm2m))},
-     {exproto, sc(ref(exproto))}
+    [{stomp,   sc_meta(ref(stomp)  , #{nullable => {true, recursively}})},
+     {mqttsn,  sc_meta(ref(mqttsn) , #{nullable => {true, recursively}})},
+     {coap,    sc_meta(ref(coap)   , #{nullable => {true, recursively}})},
+     {lwm2m,   sc_meta(ref(lwm2m)  , #{nullable => {true, recursively}})},
+     {exproto, sc_meta(ref(exproto), #{nullable => {true, recursively}})}
     ];
 
 fields(stomp) ->
@@ -92,10 +92,10 @@ fields(coap) ->
 
 fields(lwm2m) ->
     [ {xml_dir, sc(binary())}
-    , {lifetime_min, sc(duration())}
-    , {lifetime_max, sc(duration())}
-    , {qmode_time_windonw, sc(integer())}
-    , {auto_observe, sc(boolean())}
+    , {lifetime_min, sc(duration(), "1s")}
+    , {lifetime_max, sc(duration(), "86400s")}
+    , {qmode_time_window, sc(integer(), 22)}
+    , {auto_observe, sc(boolean(), false)}
     , {update_msg_publish_condition, sc(hoconsc:union([always, contains_object_list]))}
     , {translators, sc(ref(translators))}
     , {listeners, sc(ref(udp_listeners))}
@@ -154,8 +154,8 @@ fields(udp_tcp_listeners) ->
     ];
 
 fields(tcp_listener) ->
-    [
-     %% some special confs for tcp listener
+    [ %% some special confs for tcp listener
+      {acceptors, sc(integer(), 16)}
     ] ++
     tcp_opts() ++
     proxy_protocol_opts() ++
@@ -175,6 +175,8 @@ fields(udp_listener) ->
     common_listener_opts();
 
 fields(dtls_listener) ->
+    [ {acceptors, sc(integer(), 16)}
+    ] ++
     fields(udp_listener) ++
     [{dtls, sc_meta(ref(dtls_opts),
                     #{desc => "DTLS listener options"})}];
@@ -191,29 +193,33 @@ fields(dtls_opts) ->
     emqx_schema:server_ssl_opts_schema(
         #{ depth => 10
          , reuse_sessions => true
-         , versions => dtls
-         , ciphers => dtls
+         , versions => dtls_all_available
+         , ciphers => dtls_all_available
          }, false).
 
-% authentication() ->
-%     hoconsc:union(
-%       [ undefined
-%       , hoconsc:ref(emqx_authn_mnesia, config)
-%       , hoconsc:ref(emqx_authn_mysql, config)
-%       , hoconsc:ref(emqx_authn_pgsql, config)
-%       , hoconsc:ref(emqx_authn_mongodb, standalone)
-%       , hoconsc:ref(emqx_authn_mongodb, 'replica-set')
-%       , hoconsc:ref(emqx_authn_mongodb, 'sharded-cluster')
-%       , hoconsc:ref(emqx_authn_redis, standalone)
-%       , hoconsc:ref(emqx_authn_redis, cluster)
-%       , hoconsc:ref(emqx_authn_redis, sentinel)
-%       , hoconsc:ref(emqx_authn_http, get)
-%       , hoconsc:ref(emqx_authn_http, post)
-%       , hoconsc:ref(emqx_authn_jwt, 'hmac-based')
-%       , hoconsc:ref(emqx_authn_jwt, 'public-key')
-%       , hoconsc:ref(emqx_authn_jwt, 'jwks')
-%       , hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
-%       ]).
+authentication() ->
+    sc_meta(hoconsc:union(
+        [ hoconsc:ref(emqx_authn_mnesia, config)
+        , hoconsc:ref(emqx_authn_mysql, config)
+        , hoconsc:ref(emqx_authn_pgsql, config)
+        , hoconsc:ref(emqx_authn_mongodb, standalone)
+        , hoconsc:ref(emqx_authn_mongodb, 'replica-set')
+        , hoconsc:ref(emqx_authn_mongodb, 'sharded-cluster')
+        , hoconsc:ref(emqx_authn_redis, standalone)
+        , hoconsc:ref(emqx_authn_redis, cluster)
+        , hoconsc:ref(emqx_authn_redis, sentinel)
+        , hoconsc:ref(emqx_authn_http, get)
+        , hoconsc:ref(emqx_authn_http, post)
+        , hoconsc:ref(emqx_authn_jwt, 'hmac-based')
+        , hoconsc:ref(emqx_authn_jwt, 'public-key')
+        , hoconsc:ref(emqx_authn_jwt, 'jwks')
+        , hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
+        ]),
+        #{nullable => {true, recursively},
+          desc =>
+"""Default authentication configs for all of the gateway listeners.<br>
+For per-listener overrides see <code>authentication</code>
+in listener configs"""}).
 
 gateway_common_options() ->
     [ {enable, sc(boolean(), true)}
@@ -221,16 +227,15 @@ gateway_common_options() ->
     , {idle_timeout, sc(duration(), <<"30s">>)}
     , {mountpoint, sc(binary(), <<>>)}
     , {clientinfo_override, sc(ref(clientinfo_override))}
-    , {authentication,  sc(hoconsc:lazy(map()))}
+    , {authentication,  authentication()}
     ].
 
 common_listener_opts() ->
     [ {enable, sc(boolean(), true)}
     , {bind, sc(union(ip_port(), integer()))}
-    , {acceptors, sc(integer(), 16)}
     , {max_connections, sc(integer(), 1024)}
     , {max_conn_rate, sc(integer())}
-    %, {rate_limit, sc(comma_separated_list())}
+    , {authentication,  authentication()}
     , {mountpoint, sc(binary(), undefined)}
     , {access_rules, sc(hoconsc:array(string()), [])}
     ].
@@ -242,8 +247,8 @@ udp_opts() ->
     [{udp, sc_meta(ref(udp_opts), #{})}].
 
 proxy_protocol_opts() ->
-    [ {proxy_protocol, sc(boolean())}
-    , {proxy_protocol_timeout, sc(duration())}
+    [ {proxy_protocol, sc(boolean(), false)}
+    , {proxy_protocol_timeout, sc(duration(), "15s")}
     ].
 
 sc(Type) ->

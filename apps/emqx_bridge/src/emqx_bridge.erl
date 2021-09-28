@@ -15,8 +15,14 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge).
 -behaviour(emqx_config_handler).
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([post_config_update/4]).
+
+-export([reload_hook/0, unload_hook/0]).
+
+-export([on_message_publish/1]).
 
 -export([ load_bridges/0
         , get_bridge/2
@@ -28,6 +34,7 @@
         , start_bridge/2
         , stop_bridge/2
         , restart_bridge/2
+        , send_message/2
         ]).
 
 -export([ config_key_path/0
@@ -38,24 +45,57 @@
         , resource_id/1
         , resource_id/2
         , parse_bridge_id/1
+        , channel_id/4
+        , parse_channel_id/1
         ]).
+
+reload_hook() ->
+    unload_hook(),
+    Bridges = emqx:get_config([bridges], #{}),
+    lists:foreach(fun({_Type, Bridge}) ->
+            lists:foreach(fun({_Name, BridgeConf}) ->
+                    load_hook(BridgeConf)
+                end, maps:to_list(Bridge))
+        end, maps:to_list(Bridges)).
+
+load_hook(#{egress_channels := Channels}) ->
+    case has_subscribe_local_topic(Channels) of
+        true -> ok;
+        false -> emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []})
+    end;
+load_hook(_Conf) -> ok.
+
+unload_hook() ->
+    ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}).
+
+on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
+    case maps:get(sys, Flags, false) of
+        false ->
+            ChannelIds = get_matched_channels(Topic),
+            lists:foreach(fun(ChannelId) ->
+                    send_message(ChannelId, emqx_message:to_map(Message))
+                end, ChannelIds);
+        true -> ok
+    end,
+    {ok, Message}.
+
+%% TODO: remove this clause, treat mqtt bridges the same as other bridges
+send_message(ChannelId, Message) ->
+    {BridgeType, BridgeName, _, _} = parse_channel_id(ChannelId),
+    ResId = emqx_bridge:resource_id(BridgeType, BridgeName),
+    do_send_message(ResId, ChannelId, Message).
+
+do_send_message(ResId, ChannelId, Message) ->
+    emqx_resource:query(ResId, {send_message, ChannelId, Message}).
 
 config_key_path() ->
     [bridges].
 
 resource_type(mqtt) -> emqx_connector_mqtt;
-resource_type(mysql) -> emqx_connector_mysql;
-resource_type(pgsql) -> emqx_connector_pgsql;
-resource_type(mongo) -> emqx_connector_mongo;
-resource_type(redis) -> emqx_connector_redis;
-resource_type(ldap) -> emqx_connector_ldap.
+resource_type(http) -> emqx_connector_http.
 
 bridge_type(emqx_connector_mqtt) -> mqtt;
-bridge_type(emqx_connector_mysql) -> mysql;
-bridge_type(emqx_connector_pgsql) -> pgsql;
-bridge_type(emqx_connector_mongo) -> mongo;
-bridge_type(emqx_connector_redis) -> redis;
-bridge_type(emqx_connector_ldap) -> ldap.
+bridge_type(emqx_connector_http) -> http.
 
 post_config_update(_Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated}
@@ -100,11 +140,23 @@ bridge_id(BridgeType, BridgeName) ->
     <<Type/binary, ":", Name/binary>>.
 
 parse_bridge_id(BridgeId) ->
-    try
-        [Type, Name] = string:split(str(BridgeId), ":", leading),
-        {list_to_existing_atom(Type), list_to_atom(Name)}
-    catch
-        _ : _ -> error({invalid_bridge_id, BridgeId})
+    case string:split(bin(BridgeId), ":", all) of
+        [Type, Name] -> {binary_to_atom(Type, utf8), binary_to_atom(Name, utf8)};
+        _ -> error({invalid_bridge_id, BridgeId})
+    end.
+
+channel_id(BridgeType, BridgeName, ChannelType, ChannelName) ->
+    BType = bin(BridgeType),
+    BName = bin(BridgeName),
+    CType = bin(ChannelType),
+    CName = bin(ChannelName),
+    <<BType/binary, ":", BName/binary, ":", CType/binary, ":", CName/binary>>.
+
+parse_channel_id(ChannelId) ->
+    case string:split(bin(ChannelId), ":", all) of
+        [BridgeType, BridgeName, ChannelType, ChannelName] ->
+            {BridgeType, BridgeName, ChannelType, ChannelName};
+        _ -> error({invalid_bridge_id, ChannelId})
     end.
 
 list_bridges() ->
@@ -137,7 +189,8 @@ restart_bridge(Type, Name) ->
     emqx_resource:restart(resource_id(Type, Name)).
 
 create_bridge(Type, Name, Conf) ->
-    logger:info("create ~p bridge ~p use config: ~p", [Type, Name, Conf]),
+    ?SLOG(info, #{msg => "create bridge", type => Type, name => Name,
+        config => Conf}),
     ResId = resource_id(Type, Name),
     case emqx_resource:create(ResId,
             emqx_bridge:resource_type(Type), Conf) of
@@ -158,12 +211,13 @@ update_bridge(Type, Name, {_OldConf, Conf}) ->
     %% `egress_channels` are changed, then we should not restart the bridge, we only restart/start
     %% the channels.
     %%
-    logger:info("update ~p bridge ~p use config: ~p", [Type, Name, Conf]),
+    ?SLOG(info, #{msg => "update bridge", type => Type, name => Name,
+        config => Conf}),
     emqx_resource:recreate(resource_id(Type, Name),
         emqx_bridge:resource_type(Type), Conf, []).
 
 remove_bridge(Type, Name, _Conf) ->
-    logger:info("remove ~p bridge ~p", [Type, Name]),
+    ?SLOG(info, #{msg => "remove bridge", type => Type, name => Name}),
     case emqx_resource:remove(resource_id(Type, Name)) of
         ok -> ok;
         {error, not_found} -> ok;
@@ -184,13 +238,35 @@ flatten_confs(Conf0) ->
 do_flatten_confs(Type, Conf0) ->
     [{{Type, Name}, Conf} || {Name, Conf} <- maps:to_list(Conf0)].
 
+has_subscribe_local_topic(Channels) ->
+    lists:any(fun (#{subscribe_local_topic := _}) -> true;
+                  (_) -> false
+        end, maps:to_list(Channels)).
+
+get_matched_channels(Topic) ->
+    Bridges = emqx:get_config([bridges], #{}),
+    maps:fold(fun
+        %% TODO: also trigger 'message.publish' for mqtt bridges.
+        (mqtt, _Conf, Acc0) -> Acc0;
+        (BType, Conf, Acc0) ->
+            maps:fold(fun
+                (BName, #{egress_channels := Channels}, Acc1) ->
+                    do_get_matched_channels(Topic, Channels, BType, BName, egress_channels)
+                    ++ Acc1;
+                (_Name, _BridgeConf, Acc1) -> Acc1
+            end, Acc0, Conf)
+    end, [], Bridges).
+
+do_get_matched_channels(Topic, Channels, BType, BName, CType) ->
+    maps:fold(fun
+        (ChannName, #{subscribe_local_topic := Filter}, Acc) ->
+            case emqx_topic:match(Topic, Filter) of
+                true -> [channel_id(BType, BName, CType, ChannName) | Acc];
+                false -> Acc
+            end;
+        (_ChannName, _ChannConf, Acc) -> Acc
+    end, [], Channels).
+
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
-
-str(A) when is_atom(A) ->
-    atom_to_list(A);
-str(B) when is_binary(B) ->
-    binary_to_list(B);
-str(S) when is_list(S) ->
-    S.

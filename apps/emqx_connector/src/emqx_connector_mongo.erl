@@ -18,6 +18,7 @@
 -include("emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -type server() :: emqx_schema:ip_port().
 -reflect_type([server/0]).
@@ -93,7 +94,8 @@ on_jsonify(Config) ->
 %% ===================================================================
 on_start(InstId, Config = #{server := Server,
                             mongo_type := single}) ->
-    logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
+    ?SLOG(info, #{msg => "starting mongodb single connector",
+                  connector => InstId, config => Config}),
     Opts = [{type, single},
             {hosts, [emqx_connector_schema_lib:ip_port_to_string(Server)]}
             ],
@@ -102,7 +104,8 @@ on_start(InstId, Config = #{server := Server,
 on_start(InstId, Config = #{servers := Servers,
                             mongo_type := rs,
                             replica_set_name := RsName}) ->
-    logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
+    ?SLOG(info, #{msg => "starting mongodb rs connector",
+                  connector => InstId, config => Config}),
     Opts = [{type,  {rs, RsName}},
             {hosts, [emqx_connector_schema_lib:ip_port_to_string(S)
                      || S <- Servers]}
@@ -111,7 +114,8 @@ on_start(InstId, Config = #{servers := Servers,
 
 on_start(InstId, Config = #{servers := Servers,
                             mongo_type := sharded}) ->
-    logger:info("starting mongodb connector: ~p, config: ~p", [InstId, Config]),
+    ?SLOG(info, #{msg => "starting mongodb sharded connector",
+                  connector => InstId, config => Config}),
     Opts = [{type, sharded},
             {hosts, [emqx_connector_schema_lib:ip_port_to_string(S)
                      || S <- Servers]}
@@ -119,14 +123,20 @@ on_start(InstId, Config = #{servers := Servers,
     do_start(InstId, Opts, Config).
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    logger:info("stopping mongodb connector: ~p", [InstId]),
+    ?SLOG(info, #{msg => "stopping mongodb connector",
+                  connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId, {Action, Collection, Selector, Docs}, AfterQuery, #{poolname := PoolName} = State) ->
-    logger:debug("mongodb connector ~p received request: ~p, at state: ~p", [InstId, {Action, Collection, Selector, Docs}, State]),
+    Request = {Action, Collection, Selector, Docs},
+    ?SLOG(debug, #{msg => "mongodb connector received request",
+        request => Request, connector => InstId,
+        state => State}),
     case ecpool:pick_and_do(PoolName, {?MODULE, mongo_query, [Action, Collection, Selector, Docs]}, no_handover) of
         {error, Reason} ->
-            logger:debug("mongodb connector ~p do sql query failed, request: ~p, reason: ~p", [InstId, {Action, Collection, Selector, Docs}, Reason]),
+            ?SLOG(error, #{msg => "mongodb connector do query failed",
+                request => Request, reason => Reason,
+                connector => InstId}),
             emqx_resource:query_failed(AfterQuery),
             {error, Reason};
         {ok, Cursor} when is_pid(Cursor) ->

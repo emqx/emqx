@@ -33,9 +33,9 @@
 
 -compile({no_auto_import,[alias/1]}).
 
--type(input() :: map()).
--type(alias() :: atom()).
--type(collection() :: {alias(), [term()]}).
+-type input() :: map().
+-type alias() :: atom().
+-type collection() :: {alias(), [term()]}.
 
 -define(ephemeral_alias(TYPE, NAME),
     iolist_to_binary(io_lib:format("_v_~s_~p_~p", [TYPE, NAME, erlang:system_time()]))).
@@ -48,27 +48,31 @@
 -spec(apply_rules(list(emqx_rule_engine:rule()), input()) -> ok).
 apply_rules([], _Input) ->
     ok;
-apply_rules([#rule{enabled = false}|More], Input) ->
+apply_rules([#rule{info = #{enabled := false}}|More], Input) ->
     apply_rules(More, Input);
 apply_rules([Rule = #rule{id = RuleID}|More], Input) ->
     try apply_rule_discard_result(Rule, Input)
     catch
         %% ignore the errors if select or match failed
         _:{select_and_transform_error, Error} ->
-            ?LOG(warning, "SELECT clause exception for ~s failed: ~p",
-                 [RuleID, Error]);
+            ?SLOG(warning, #{msg => "SELECT_clause_exception",
+                             rule_id => RuleID, reason => Error});
         _:{match_conditions_error, Error} ->
-            ?LOG(warning, "WHERE clause exception for ~s failed: ~p",
-                 [RuleID, Error]);
+            ?SLOG(warning, #{msg => "WHERE_clause_exception",
+                             rule_id => RuleID, reason => Error});
         _:{select_and_collect_error, Error} ->
-            ?LOG(warning, "FOREACH clause exception for ~s failed: ~p",
-                 [RuleID, Error]);
+            ?SLOG(warning, #{msg => "FOREACH_clause_exception",
+                             rule_id => RuleID, reason => Error});
         _:{match_incase_error, Error} ->
-            ?LOG(warning, "INCASE clause exception for ~s failed: ~p",
-                 [RuleID, Error]);
-        _:Error:StkTrace ->
-            ?LOG(error, "Apply rule ~s failed: ~p. Stacktrace:~n~p",
-                 [RuleID, Error, StkTrace])
+            ?SLOG(warning, #{msg => "INCASE_clause_exception",
+                             rule_id => RuleID, reason => Error});
+        Class:Error:StkTrace ->
+            ?SLOG(error, #{msg => "apply_rule_failed",
+                           rule_id => RuleID,
+                           exception => Class,
+                           reason => Error,
+                           stacktrace => StkTrace
+                          })
     end,
     apply_rules(More, Input).
 
@@ -80,14 +84,14 @@ apply_rule(Rule = #rule{id = RuleID}, Input) ->
     clear_rule_payload(),
     do_apply_rule(Rule, add_metadata(Input, #{rule_id => RuleID})).
 
-do_apply_rule(#rule{id = RuleId,
-                    is_foreach = true,
-                    fields = Fields,
-                    doeach = DoEach,
-                    incase = InCase,
-                    conditions = Conditions,
-                    on_action_failed = OnFailed,
-                    actions = Actions}, Input) ->
+do_apply_rule(#rule{id = RuleId, info = #{
+            is_foreach := true,
+            fields := Fields,
+            doeach := DoEach,
+            incase := InCase,
+            conditions := Conditions,
+            outputs := Outputs
+        }}, Input) ->
     {Selected, Collection} = ?RAISE(select_and_collect(Fields, Input),
                                         {select_and_collect_error, {_EXCLASS_,_EXCPTION_,_ST_}}),
     ColumnsAndSelected = maps:merge(Input, Selected),
@@ -96,24 +100,24 @@ do_apply_rule(#rule{id = RuleId,
         true ->
             ok = emqx_rule_metrics:inc(RuleId, 'rules.matched'),
             Collection2 = filter_collection(Input, InCase, DoEach, Collection),
-            {ok, [take_actions(Actions, Coll, Input, OnFailed) || Coll <- Collection2]};
+            {ok, [handle_output_list(Outputs, Coll, Input) || Coll <- Collection2]};
         false ->
             {error, nomatch}
     end;
 
-do_apply_rule(#rule{id = RuleId,
-                    is_foreach = false,
-                    fields = Fields,
-                    conditions = Conditions,
-                    on_action_failed = OnFailed,
-                    actions = Actions}, Input) ->
+do_apply_rule(#rule{id = RuleId, info = #{
+            is_foreach := false,
+            fields := Fields,
+            conditions := Conditions,
+            outputs := Outputs
+        }}, Input) ->
     Selected = ?RAISE(select_and_transform(Fields, Input),
                       {select_and_transform_error, {_EXCLASS_,_EXCPTION_,_ST_}}),
     case ?RAISE(match_conditions(Conditions, maps:merge(Input, Selected)),
                 {match_conditions_error, {_EXCLASS_,_EXCPTION_,_ST_}}) of
         true ->
             ok = emqx_rule_metrics:inc(RuleId, 'rules.matched'),
-            {ok, take_actions(Actions, Selected, Input, OnFailed)};
+            {ok, handle_output_list(Outputs, Selected, Input)};
         false ->
             {error, nomatch}
     end.
@@ -166,7 +170,6 @@ select_and_collect([Field|More], Input, {Output, LastKV}) ->
         {nested_put(Key, Val, Output), LastKV}).
 
 %% Filter each item got from FOREACH
--dialyzer({nowarn_function, filter_collection/4}).
 filter_collection(Input, InCase, DoEach, {CollKey, CollVal}) ->
     lists:filtermap(
         fun(Item) ->
@@ -198,8 +201,6 @@ match_conditions({'fun', {_, Name}, Args}, Data) ->
     apply_func(Name, [eval(Arg, Data) || Arg <- Args], Data);
 match_conditions({Op, L, R}, Data) when ?is_comp(Op) ->
     compare(Op, eval(L, Data), eval(R, Data));
-%%match_conditions({'like', Var, Pattern}, Data) ->
-%%    match_like(eval(Var, Data), Pattern);
 match_conditions({}, _Data) ->
     true.
 
@@ -229,81 +230,43 @@ number(Bin) ->
     catch error:badarg -> binary_to_float(Bin)
     end.
 
-%% Step3 -> Take actions
-take_actions(Actions, Selected, Envs, OnFailed) ->
-    [take_action(ActInst, Selected, Envs, OnFailed, ?ActionMaxRetry)
-     || ActInst <- Actions].
+handle_output_list(Outputs, Selected, Envs) ->
+    [handle_output(Out, Selected, Envs) || Out <- Outputs].
 
-take_action(#action_instance{id = Id, name = ActName, fallbacks = Fallbacks} = ActInst,
-            Selected, Envs, OnFailed, RetryN) when RetryN >= 0 ->
+handle_output(OutId, Selected, Envs) ->
     try
-        {ok, #action_instance_params{apply = Apply}}
-            = emqx_rule_registry:get_action_instance_params(Id),
-        emqx_rule_metrics:inc_actions_taken(Id),
-        apply_action_func(Selected, Envs, Apply, ActName)
-    of
-        {badact, Reason} ->
-            handle_action_failure(OnFailed, Id, Fallbacks, Selected, Envs, Reason);
-        Result -> Result
+        do_handle_output(OutId, Selected, Envs)
     catch
-        error:{badfun, _Func}:_ST ->
-            %?LOG(warning, "Action ~p maybe outdated, refresh it and try again."
-            %              "Func: ~p~nST:~0p", [Id, Func, ST]),
-            _ = trans_action_on(Id, fun() ->
-                emqx_rule_engine:refresh_actions([ActInst])
-            end, 5000),
-            emqx_rule_metrics:inc_actions_retry(Id),
-            take_action(ActInst, Selected, Envs, OnFailed, RetryN-1);
-        Error:Reason:Stack ->
-            emqx_rule_metrics:inc_actions_exception(Id),
-            handle_action_failure(OnFailed, Id, Fallbacks, Selected, Envs, {Error, Reason, Stack})
-    end;
-
-take_action(#action_instance{id = Id, fallbacks = Fallbacks}, Selected, Envs, OnFailed, _RetryN) ->
-    emqx_rule_metrics:inc_actions_error(Id),
-    handle_action_failure(OnFailed, Id, Fallbacks, Selected, Envs, {max_try_reached, ?ActionMaxRetry}).
-
-apply_action_func(Data, Envs, #{mod := Mod, bindings := Bindings}, Name) ->
-    %% TODO: Build the Func Name when creating the action
-    Func = cbk_on_action_triggered(Name),
-    Mod:Func(Data, Envs#{'__bindings__' => Bindings});
-apply_action_func(Data, Envs, Func, _Name) when is_function(Func) ->
-    erlang:apply(Func, [Data, Envs]).
-
-cbk_on_action_triggered(Name) ->
-    list_to_atom("on_action_" ++ atom_to_list(Name)).
-
-trans_action_on(Id, Callback, Timeout) ->
-    case emqx_rule_locker:lock(Id) of
-        true -> try Callback() after emqx_rule_locker:unlock(Id) end;
-        _ ->
-            wait_action_on(Id, Timeout div 10)
+        Err:Reason:ST ->
+            ?SLOG(error, #{msg => "output_failed",
+                           output => OutId,
+                           exception => Err,
+                           reason => Reason,
+                           stacktrace => ST
+                          })
     end.
 
-wait_action_on(_, 0) ->
-    {error, timeout};
-wait_action_on(Id, RetryN) ->
-    timer:sleep(10),
-    case emqx_rule_registry:get_action_instance_params(Id) of
-        not_found ->
-            {error, not_found};
-        {ok, #action_instance_params{apply = Apply}} ->
-            case catch apply_action_func(baddata, #{}, Apply, tryit) of
-                {'EXIT', {{badfun, _}, _}} ->
-                    wait_action_on(Id, RetryN-1);
-                _ ->
-                    ok
-            end
+do_handle_output(#{type := bridge, target := ChannelId}, Selected, _Envs) ->
+    ?SLOG(debug, #{msg => "output to bridge", channel_id => ChannelId}),
+    emqx_bridge:send_message(ChannelId, Selected);
+do_handle_output(#{type := func, target := Func} = Out, Selected, Envs) ->
+    erlang:apply(Func, [Selected, Envs, maps:get(args, Out, #{})]);
+do_handle_output(#{type := builtin, target := Output} = Out, Selected, Envs)
+        when is_atom(Output) ->
+    handle_builtin_output(Output, Selected, Envs, maps:get(args, Out, #{}));
+do_handle_output(#{type := builtin, target := Output} = Out, Selected, Envs)
+        when is_binary(Output) ->
+    try binary_to_existing_atom(Output) of
+        Func -> handle_builtin_output(Func, Selected, Envs, maps:get(args, Out, #{}))
+    catch
+        error:badarg -> error(not_found)
     end.
 
-handle_action_failure(continue, Id, Fallbacks, Selected, Envs, Reason) ->
-    ?LOG(error, "Take action ~p failed, continue next action, reason: ~0p", [Id, Reason]),
-    _ = take_actions(Fallbacks, Selected, Envs, continue),
-    failed;
-handle_action_failure(stop, Id, Fallbacks, Selected, Envs, Reason) ->
-    ?LOG(error, "Take action ~p failed, skip all actions, reason: ~0p", [Id, Reason]),
-    _ = take_actions(Fallbacks, Selected, Envs, continue),
-    error({take_action_failed, {Id, Reason}}).
+handle_builtin_output(Func, Selected, Envs, Args) ->
+    case erlang:function_exported(emqx_rule_outputs, Func, 3) of
+        true -> erlang:apply(emqx_rule_outputs, Func, [Selected, Envs, Args]);
+        false -> error(not_found)
+    end.
 
 eval({path, [{key, <<"payload">>} | Path]}, #{payload := Payload}) ->
     nested_get({path, Path}, may_decode_payload(Payload));

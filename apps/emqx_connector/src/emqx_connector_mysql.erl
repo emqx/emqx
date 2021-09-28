@@ -17,6 +17,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
@@ -54,7 +55,8 @@ on_start(InstId, #{server := {Host, Port},
                    auto_reconnect := AutoReconn,
                    pool_size := PoolSize,
                    ssl := SSL } = Config) ->
-    logger:info("starting mysql connector: ~p, config: ~p", [InstId, Config]),
+    ?SLOG(info, #{msg => "starting mysql connector",
+                  connector => InstId, config => Config}),
     SslOpts = case maps:get(enable, SSL) of
         true ->
             [{ssl, [{server_name_indication, disable} |
@@ -73,7 +75,8 @@ on_start(InstId, #{server := {Host, Port},
     {ok, #{poolname => PoolName}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    logger:info("stopping mysql connector: ~p", [InstId]),
+    ?SLOG(info, #{msg => "stopping mysql connector",
+                  connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
@@ -81,10 +84,12 @@ on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
 on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := _PoolName} = State) ->
     on_query(InstId, {sql, SQL, Params, default_timeout}, AfterQuery, State);
 on_query(InstId, {sql, SQL, Params, Timeout}, AfterQuery, #{poolname := PoolName} = State) ->
-    logger:debug("mysql connector ~p received sql query: ~p, at state: ~p", [InstId, SQL, State]),
+    ?SLOG(debug, #{msg => "mysql connector received sql query",
+        connector => InstId, sql => SQL, state => State}),
     case Result = ecpool:pick_and_do(PoolName, {mysql, query, [SQL, Params, Timeout]}, no_handover) of
         {error, Reason} ->
-            logger:debug("mysql connector ~p do sql query failed, sql: ~p, reason: ~p", [InstId, SQL, Reason]),
+            ?SLOG(error, #{msg => "mysql connector do sql query failed",
+                connector => InstId, sql => SQL, reason => Reason}),
             emqx_resource:query_failed(AfterQuery);
         _ ->
             emqx_resource:query_success(AfterQuery)

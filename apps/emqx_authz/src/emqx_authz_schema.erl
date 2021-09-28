@@ -18,6 +18,8 @@
         , fields/1
         ]).
 
+-import(emqx_schema, [mk_duration/2]).
+
 namespace() -> authz.
 
 %% @doc authorization schema is not exported
@@ -29,6 +31,7 @@ fields("authorization") ->
                     [ hoconsc:ref(?MODULE, file)
                     , hoconsc:ref(?MODULE, http_get)
                     , hoconsc:ref(?MODULE, http_post)
+                    , hoconsc:ref(?MODULE, mnesia)
                     , hoconsc:ref(?MODULE, mongo_single)
                     , hoconsc:ref(?MODULE, mongo_rs)
                     , hoconsc:ref(?MODULE, mongo_sharded)
@@ -45,11 +48,7 @@ fields(file) ->
     , {enable, #{type => boolean(),
                  default => true}}
     , {path, #{type => string(),
-               validator => fun(S) -> case filelib:is_file(S) of
-                                        true -> ok;
-                                        _ -> {error, "File does not exist"}
-                                      end
-                            end
+               desc => "Path to the file which contains the ACL rules."
               }}
     ];
 fields(http_get) ->
@@ -77,7 +76,7 @@ fields(http_get) ->
                                end
                  }
       }
-    , {request_timeout,  #{type => timeout(), default => 30000 }}
+    , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
     ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
 fields(http_post) ->
     [ {type, #{type => http}}
@@ -107,12 +106,17 @@ fields(http_post) ->
                                end
                  }
       }
-    , {request_timeout,  #{type => timeout(), default => 30000 }}
+    , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
     , {body, #{type => map(),
                nullable => true
               }
       }
     ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
+fields(mnesia) ->
+    [ {type,   #{type => 'built-in-database'}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    ];
 fields(mongo_single) ->
     [ {collection, #{type => atom()}}
     , {selector, #{type => map()}}

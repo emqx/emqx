@@ -65,8 +65,8 @@ salt_position(_) -> undefined.
 query(type) -> string();
 query(_) -> undefined.
 
-query_timeout(type) -> integer();
-query_timeout(default) -> 5000;
+query_timeout(type) -> emqx_schema:duration_ms();
+query_timeout(default) -> "5s";
 query_timeout(_) -> undefined.
 
 %%------------------------------------------------------------------------------

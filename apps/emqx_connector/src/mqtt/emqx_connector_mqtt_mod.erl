@@ -155,14 +155,18 @@ handle_puback(#{packet_id := PktId, reason_code := RC}, Parent)
        RC =:= ?RC_NO_MATCHING_SUBSCRIBERS ->
     Parent ! {batch_ack, PktId}, ok;
 handle_puback(#{packet_id := PktId, reason_code := RC}, _Parent) ->
-    ?LOG(warning, "publish ~p to remote node falied, reason_code: ~p", [PktId, RC]).
+    ?SLOG(warning, #{msg => "publish to remote node falied",
+        packet_id => PktId, reason_code => RC}).
 
 handle_publish(Msg, undefined) ->
-    ?LOG(error, "cannot publish to local broker as 'bridge.mqtt.<name>.in' not configured, msg: ~p", [Msg]);
+    ?SLOG(error, #{msg => "cannot publish to local broker as"
+                          " ingress_channles' is not configured",
+                   message => Msg});
 handle_publish(Msg, #{on_message_received := {OnMsgRcvdFunc, Args}} = Vars) ->
-    ?LOG(debug, "publish to local broker, msg: ~p, vars: ~p", [Msg, Vars]),
+    ?SLOG(debug, #{msg => "publish to local broker",
+                   message => Msg, vars => Vars}),
     emqx_metrics:inc('bridge.mqtt.message_received_from_remote', 1),
-    _ = erlang:apply(OnMsgRcvdFunc, [Msg, Args]),
+    _ = erlang:apply(OnMsgRcvdFunc, [Msg | Args]),
     case maps:get(local_topic, Vars, undefined) of
         undefined -> ok;
         _Topic ->

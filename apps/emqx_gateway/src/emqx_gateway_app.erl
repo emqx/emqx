@@ -22,20 +22,17 @@
 
 -export([start/2, stop/1]).
 
--define(CONF_CALLBACK_MODULE, emqx_gateway).
-
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_gateway_sup:start_link(),
     emqx_gateway_cli:load(),
     load_default_gateway_applications(),
     load_gateway_by_default(),
-    emqx_config_handler:add_handler([gateway], ?CONF_CALLBACK_MODULE),
+    emqx_gateway_conf:load(),
     {ok, Sup}.
 
 stop(_State) ->
+    emqx_gateway_conf:unload(),
     emqx_gateway_cli:unload(),
-    %% XXX: No api now
-    %emqx_config_handler:remove_handler([gateway], ?MODULE),
     ok.
 
 %%--------------------------------------------------------------------
