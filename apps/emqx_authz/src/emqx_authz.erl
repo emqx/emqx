@@ -64,9 +64,9 @@ move(Type, Cmd) ->
     move(Type, Cmd, #{}).
 
 move(Type, #{<<"before">> := Before}, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), #{<<"before">> => type(Before)}}, Opts);
+    emqx:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))}, Opts);
 move(Type, #{<<"after">> := After}, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), #{<<"after">> => type(After)}}, Opts);
+    emqx:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_AFTER(type(After))}, Opts);
 move(Type, Position, Opts) ->
     emqx:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), Position}, Opts).
 
@@ -80,17 +80,17 @@ update({delete, Type}, Sources, Opts) ->
 update(Cmd, Sources, Opts) ->
     emqx:update_config(?CONF_KEY_PATH, {Cmd, Sources}, Opts).
 
-do_update({?CMD_MOVE, Type, <<"top">>}, Conf) when is_list(Conf) ->
+do_update({?CMD_MOVE, Type, ?CMD_MOVE_TOP}, Conf) when is_list(Conf) ->
     {Source, Front, Rear} = take(Type, Conf),
     [Source | Front] ++ Rear;
-do_update({?CMD_MOVE, Type, <<"bottom">>}, Conf) when is_list(Conf) ->
+do_update({?CMD_MOVE, Type, ?CMD_MOVE_BOTTOM}, Conf) when is_list(Conf) ->
     {Source, Front, Rear} = take(Type, Conf),
     Front ++ Rear ++ [Source];
-do_update({?CMD_MOVE, Type, #{<<"before">> := Before}}, Conf) when is_list(Conf) ->
+do_update({?CMD_MOVE, Type, ?CMD_MOVE_BEFORE(Before)}, Conf) when is_list(Conf) ->
     {S1, Front1, Rear1} = take(Type, Conf),
     {S2, Front2, Rear2} = take(Before, Front1 ++ Rear1),
     Front2 ++ [S1, S2] ++ Rear2;
-do_update({?CMD_MOVE, Type, #{<<"after">> := After}}, Conf) when is_list(Conf) ->
+do_update({?CMD_MOVE, Type, ?CMD_MOVE_AFTER(After)}, Conf) when is_list(Conf) ->
     {S1, Front1, Rear1} = take(Type, Conf),
     {S2, Front2, Rear2} = take(After, Front1 ++ Rear1),
     Front2 ++ [S2, S1] ++ Rear2;

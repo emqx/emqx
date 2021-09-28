@@ -345,9 +345,9 @@ sources(get, _) ->
     {200, #{sources => Sources}};
 sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
     {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
-    update_config(head, [#{<<"type">> => <<"file">>, <<"enable">> => true, <<"path">> => Filename}]);
+    update_config(?CMD_PREPEND, [#{<<"type">> => <<"file">>, <<"enable">> => true, <<"path">> => Filename}]);
 sources(post, #{body := Body}) when is_map(Body) ->
-    update_config(head, [write_cert(Body)]);
+    update_config(?CMD_PREPEND, [write_cert(Body)]);
 sources(put, #{body := Body}) when is_list(Body) ->
     NBody = [ begin
                 case Source of
