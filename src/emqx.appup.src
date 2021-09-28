@@ -4,20 +4,23 @@ Instructions =
   [
    {"4.3.8", [
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
-     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
+     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.7", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
      {load_module,emqx_misc,brutal_purge,soft_purge,[]},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
-     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
+     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.6", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
      {load_module,emqx_misc,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
-     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
+     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.5", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
@@ -26,7 +29,8 @@ Instructions =
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
-     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
+     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.4", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
@@ -36,7 +40,8 @@ Instructions =
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
-     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
+     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.3", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
@@ -48,7 +53,8 @@ Instructions =
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
-     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
+     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.2", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
@@ -63,7 +69,8 @@ Instructions =
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]},
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
-     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]}
+     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.1", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
@@ -111,19 +118,22 @@ Instructions =
   [
    {"4.3.7", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
-     {load_module,emqx_misc,brutal_purge,soft_purge,[]}
+     {load_module,emqx_misc,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.6", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
      {load_module,emqx_misc,brutal_purge,soft_purge,[]},
-     {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
+     {load_module,emqx_ctl,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.5", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
      {load_module,emqx_misc,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
-     {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
+     {load_module,emqx_ctl,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.4", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
@@ -131,7 +141,8 @@ Instructions =
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
-     {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
+     {load_module,emqx_ctl,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.3", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
@@ -141,7 +152,8 @@ Instructions =
      {load_module,emqx_ws_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
-     {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
+     {load_module,emqx_ctl,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.2", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
@@ -154,7 +166,8 @@ Instructions =
      {load_module,emqx_connection,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
-     {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
+     {load_module,emqx_ctl,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.1", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
