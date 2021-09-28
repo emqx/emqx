@@ -155,7 +155,7 @@ delayed_message(get, #{bindings := #{msgid := Id}}) ->
                 true ->
                     {200, Message#{payload => ?PAYLOAD_TOO_LARGE}};
                 _ ->
-                    {200, Message#{payload => base64:encode(Payload)}}
+                    {200, Message#{payload => Payload}}
             end;
         {error, id_schema_error} ->
             {400, generate_http_code_map(id_schema_error, Id)};
