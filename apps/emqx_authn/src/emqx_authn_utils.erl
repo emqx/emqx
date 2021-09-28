@@ -18,6 +18,8 @@
 
 -export([ replace_placeholders/2
         , replace_placeholder/2
+        , check_password/3
+        , is_superuser/1
         , hash/4
         , gen_salt/0
         , bin/1
@@ -54,6 +56,28 @@ replace_placeholder(<<"${cert-common-name}">>, Credential) ->
     maps:get(cn, Credential, undefined);
 replace_placeholder(Constant, _) ->
     Constant.
+
+check_password(undefined, _Selected, _State) ->
+    {error, bad_username_or_password};
+check_password(Password,
+               #{<<"password_hash">> := Hash},
+               #{password_hash_algorithm := bcrypt}) ->
+    case {ok, Hash} =:= bcrypt:hashpw(Password, Hash) of
+        true -> ok;
+        false -> {error, bad_username_or_password}
+    end;
+check_password(Password,
+               #{<<"password_hash">> := Hash} = Selected,
+               #{password_hash_algorithm := Algorithm,
+                 salt_position := SaltPosition}) ->
+    Salt = maps:get(<<"salt">>, Selected, <<>>),
+    case Hash =:= hash(Algorithm, Password, Salt, SaltPosition) of
+        true -> ok;
+        false -> {error, bad_username_or_password}
+    end.
+
+is_superuser(Selected) ->
+    #{is_superuser => maps:get(<<"is_superuser">>, Selected, false)}.
 
 hash(Algorithm, Password, Salt, prefix) ->
     emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>);

@@ -79,8 +79,8 @@ on_stop(InstId, #{poolname := PoolName}) ->
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
-on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := PoolName} = State) ->
-    on_query(InstId, {sql, SQL, []}, AfterQuery, #{poolname := PoolName} = State);
+on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
+    on_query(InstId, {sql, SQL, []}, AfterQuery, State);
 on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := PoolName} = State) ->
     ?SLOG(debug, #{msg => "postgresql connector received sql query",
         connector => InstId, sql => SQL, state => State}),

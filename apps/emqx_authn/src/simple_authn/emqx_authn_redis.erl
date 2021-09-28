@@ -127,24 +127,26 @@ authenticate(#{password := Password} = Credential,
              #{ query := {Command, Key, Fields}
               , '_unique' := Unique
               } = State) ->
-    try
-        NKey = binary_to_list(iolist_to_binary(replace_placeholders(Key, Credential))),
-        case emqx_resource:query(Unique, {cmd, [Command, NKey | Fields]}) of
-            {ok, Values} ->
-                Selected = merge(Fields, Values),
-                case check_password(Password, Selected, State) of
-                   ok ->
-                       {ok, #{is_superuser => maps:get("is_superuser", Selected, false)}};
-                   {error, Reason} ->
-                       {error, Reason}
-                end;
-            {error, Reason} ->
-                ?LOG(error, "['~s'] Query failed: ~p", [Unique, Reason]),
-                ignore
-        end
-    catch
-        error:{cannot_get_variable, Placeholder} ->
-            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, {cannot_get_variable, Placeholder}]),
+    NKey = binary_to_list(iolist_to_binary(replace_placeholders(Key, Credential))),
+    case emqx_resource:query(Unique, {cmd, [Command, NKey | Fields]}) of
+        {ok, Values} ->
+            case merge(Fields, Values) of
+                #{<<"password_hash">> := _} = Selected ->
+                    case emqx_authn_utils:check_password(Password, Selected, State) of
+                        ok ->
+                            {ok, emqx_authn_utils:is_superuser(Selected)};
+                        {error, Reason} ->
+                            {error, Reason}
+                    end;
+                _ ->
+                    ?SLOG(error, #{msg => "cannot_find_password_hash_field",
+                                   resource => Unique}),
+                    ignore
+            end;
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "redis_query_failed",
+                           resource => Unique,
+                           reason => Reason}),
             ignore
     end.
 
@@ -209,27 +211,5 @@ merge(Fields, Value) when not is_list(Value) ->
     merge(Fields, [Value]);
 merge(Fields, Values) ->
     maps:from_list(
-        lists:filter(fun({_, V}) ->
-                         V =/= undefined
-                     end, lists:zip(Fields, Values))).
-
-check_password(undefined, _Selected, _State) ->
-    {error, bad_username_or_password};
-check_password(Password,
-               #{"password_hash" := PasswordHash},
-               #{password_hash_algorithm := bcrypt}) ->
-    case {ok, PasswordHash} =:= bcrypt:hashpw(Password, PasswordHash) of
-        true -> ok;
-        false -> {error, bad_username_or_password}
-    end;
-check_password(Password,
-               #{"password_hash" := PasswordHash} = Selected,
-               #{password_hash_algorithm := Algorithm,
-                 salt_position := SaltPosition}) ->
-    Salt = maps:get("salt", Selected, <<>>),
-    case PasswordHash =:= emqx_authn_utils:hash(Algorithm, Password, Salt, SaltPosition) of
-        true -> ok;
-        false -> {error, bad_username_or_password}
-    end;
-check_password(_Password, _Selected, _State) ->
-    ignore.
+        [{list_to_binary(K), V}
+            || {K, V} <- lists:zip(Fields, Values), V =/= undefined]).
