@@ -140,25 +140,6 @@ destroy(#{'_unique' := Unique}) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-% check_password(undefined, _Selected, _State) ->
-%     {error, bad_username_or_password};
-% check_password(Password,
-%                #{<<"password_hash">> := Hash},
-%                #{password_hash_algorithm := bcrypt}) ->
-%     case {ok, Hash} =:= bcrypt:hashpw(Password, Hash) of
-%         true -> ok;
-%         false -> {error, bad_username_or_password}
-%     end;
-% check_password(Password,
-%                #{<<"password_hash">> := Hash} = Selected,
-%                #{password_hash_algorithm := Algorithm,
-%                  salt_position := SaltPosition}) ->
-%     Salt = maps:get(<<"salt">>, Selected, <<>>),
-%     case Hash =:= emqx_authn_utils:hash(Algorithm, Password, Salt, SaltPosition) of
-%         true -> ok;
-%         false -> {error, bad_username_or_password}
-%     end.
-
 %% TODO: Support prepare
 parse_query(Query) ->
     case re:run(Query, ?RE_PLACEHOLDER, [global, {capture, all, binary}]) of
