@@ -1000,7 +1000,7 @@ In case PSK cipher suites are intended, make sure to configured
     , {"ciphers", ciphers_schema(D("ciphers"))}
     , {user_lookup_fun,
        sc(typerefl:alias("string", any()),
-          #{ default => "emqx_psk:lookup"
+          #{ default => "emqx_tls_psk:lookup"
            , converter => fun ?MODULE:parse_user_lookup_fun/1
            })
       }
@@ -1287,7 +1287,7 @@ parse_user_lookup_fun(StrConf) ->
     [ModStr, FunStr] = string:tokens(StrConf, ":"),
     Mod = list_to_atom(ModStr),
     Fun = list_to_atom(FunStr),
-    {fun Mod:Fun/3, <<>>}.
+    {fun Mod:Fun/3, undefined}.
 
 validate_ciphers(Ciphers) ->
     All = case is_tlsv13_available() of
