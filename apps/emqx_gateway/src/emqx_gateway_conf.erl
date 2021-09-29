@@ -23,13 +23,20 @@
         ]).
 
 %% APIs
--export([ load_gateway/2
+-export([ gateway/1
+        , load_gateway/2
         , update_gateway/2
         , unload_gateway/1
+        ]).
+
+-export([ listeners/1
+        , listener/1
         , add_listener/3
         , update_listener/3
         , remove_listener/2
-        , add_authn/2
+        ]).
+
+-export([ add_authn/2
         , add_authn/3
         , update_authn/2
         , update_authn/3
@@ -67,20 +74,16 @@ load_gateway(GwName, Conf) ->
     NConf = case maps:take(<<"listeners">>, Conf) of
                 error -> Conf;
                 {Ls, Conf1} ->
-                    Conf1#{<<"listeners">> => mapping(Ls)}
+                    Conf1#{<<"listeners">> => unconvert_listeners(Ls)}
             end,
     update({?FUNCTION_NAME, bin(GwName), NConf}).
 
-mapping(Ls) when is_list(Ls) ->
-    convert_to_map(Ls);
-mapping(Ls) when is_map(Ls) ->
-    Ls.
-
-convert_to_map(Listeners) when is_list(Listeners) ->
+%% @doc convert listener array to map
+unconvert_listeners(Ls) when is_list(Ls) ->
     lists:foldl(fun(Lis, Acc) ->
         {[Type, Name], Lis1} = maps_key_take([<<"type">>, <<"name">>], Lis),
         emqx_map_lib:deep_merge(Acc, #{Type => #{Name => Lis1}})
-    end, #{}, Listeners).
+    end, #{}, Ls).
 
 maps_key_take(Ks, M) ->
     maps_key_take(Ks, M, []).
@@ -102,6 +105,81 @@ update_gateway(GwName, Conf0) ->
 -spec unload_gateway(atom_or_bin()) -> ok_or_err().
 unload_gateway(GwName) ->
     update({?FUNCTION_NAME, bin(GwName)}).
+
+%% @doc Get the gateway configurations.
+%% Missing fields are filled with default values. This function is typically
+%% used to show the user what configuration value is currently in effect.
+-spec gateway(atom_or_bin()) -> map().
+gateway(GwName0) ->
+    GwName = bin(GwName0),
+    Path = [<<"gateway">>, GwName],
+    RawConf = emqx_config:fill_defaults(
+                emqx_config:get_root_raw(Path)
+               ),
+    Confs = emqx_map_lib:jsonable_map(
+              emqx_map_lib:deep_get(Path, RawConf)),
+    LsConf = maps:get(<<"listeners">>, Confs, #{}),
+    Confs#{<<"listeners">> => convert_listeners(GwName, LsConf)}.
+
+%% @doc convert listeners map to array
+convert_listeners(GwName, Ls) when is_map(Ls) ->
+    lists:append([do_convert_listener(GwName, Type, maps:to_list(Conf))
+                  || {Type, Conf} <- maps:to_list(Ls)]).
+
+do_convert_listener(GwName, Type, Conf) ->
+    [begin
+         ListenerId = emqx_gateway_utils:listener_id(GwName, Type, LName),
+         Running = emqx_gateway_utils:is_running(ListenerId, LConf),
+         bind2str(
+           LConf#{
+             id => ListenerId,
+             type => Type,
+             name => LName,
+             running => Running
+            })
+     end || {LName, LConf} <- Conf, is_map(LConf)].
+
+bind2str(LConf = #{bind := Bind}) when is_integer(Bind) ->
+    maps:put(bind, integer_to_binary(Bind), LConf);
+bind2str(LConf = #{<<"bind">> := Bind}) when is_integer(Bind) ->
+    maps:put(<<"bind">>, integer_to_binary(Bind), LConf);
+bind2str(LConf = #{bind := Bind}) when is_binary(Bind) ->
+    LConf;
+bind2str(LConf = #{<<"bind">> := Bind}) when is_binary(Bind) ->
+    LConf.
+
+-spec listeners(atom_or_bin()) -> map().
+listeners(GwName0) ->
+   GwName = bin(GwName0),
+   RawConf = emqx_config:fill_defaults(
+               emqx_config:get_root_raw([<<"gateway">>])),
+   Listeners = emqx_map_lib:jsonable_map(
+                 emqx_map_lib:deep_get(
+                   [<<"gateway">>, GwName, <<"listeners">>], RawConf)),
+   convert_listeners(GwName, Listeners).
+
+-spec listener(binary()) -> {ok, map()} | {error, not_found} | {error, any()}.
+listener(ListenerId) ->
+    {GwName, Type, LName} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    RootConf = emqx_config:fill_defaults(
+                 emqx_config:get_root_raw([<<"gateway">>])),
+    try
+        Path = [<<"gateway">>, GwName, <<"listeners">>, Type, LName],
+        LConf = emqx_map_lib:deep_get(Path, RootConf),
+        Running = emqx_gateway_utils:is_running(
+                    binary_to_existing_atom(ListenerId), LConf),
+        {ok, emqx_map_lib:jsonable_map(
+               LConf#{
+                 id => ListenerId,
+                 type => Type,
+                 name => LName,
+                 running => Running})}
+    catch
+        error : {config_not_found, _} ->
+            {error, not_found};
+        _Class : Reason ->
+            {error, Reason}
+    end.
 
 -spec add_listener(atom_or_bin(), listener_ref(), map()) -> ok_or_err().
 add_listener(GwName, ListenerRef, Conf) ->
