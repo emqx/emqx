@@ -36,8 +36,10 @@ emqx_test(){
             "zip")
                 packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.zip)
                 unzip -q "${PACKAGE_PATH}/${packagename}"
-                export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60 \
-                    EMQX_MQTT__MAX_TOPIC_ALIAS=10
+                export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60
+                export EMQX_MQTT__MAX_TOPIC_ALIAS=10
+                export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
+                export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
                 [[ $(arch) == *arm* || $(arch) == aarch64 ]] && export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
                 # sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
@@ -58,7 +60,11 @@ emqx_test(){
                     IDLE_TIME=$((IDLE_TIME+1))
                 done
                 pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
-                "${PACKAGE_PATH}"/emqx/bin/emqx stop
+                if ! "${PACKAGE_PATH}"/emqx/bin/emqx stop; then
+                    cat "${PACKAGE_PATH}"/emqx/log/erlang.log.1 || true
+                    cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
+                    exit 1
+                fi
                 echo "running ${packagename} stop"
                 rm -rf "${PACKAGE_PATH}"/emqx
             ;;
