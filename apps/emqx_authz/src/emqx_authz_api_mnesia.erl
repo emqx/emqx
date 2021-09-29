@@ -69,14 +69,20 @@
 
 -export([ api_spec/0
         , purge/2
-        , records/2
-        , record/2
+        , users/2
+        , user/2
+        , clients/2
+        , client/2
+        , all/2
         ]).
 
 api_spec() ->
     {[ purge_api()
-     , records_api()
-     , record_api()
+     , users_api()
+     , user_api()
+     , clients_api()
+     , client_api()
+     , all_api()
      ], definitions()}.
 
 definitions() ->
@@ -138,32 +144,11 @@ definitions() ->
     , #{<<"all">> => ALL}
     ].
 
-purge_api() ->
-    Metadata = #{
-        delete => #{
-            description => "Purge all records",
-            responses => #{
-                <<"204">> => #{description => <<"No Content">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
-            }
-        }
-     },
-    {"/authorization/sources/built-in-database/purge-all", Metadata, purge}.
-
-records_api() ->
+users_api() ->
     Metadata = #{
         get => #{
-            description => "List records",
+            description => "Show the list of record for username",
             parameters => [
-                #{
-                    name => type,
-                    in => path,
-                    schema => #{
-                       type => string,
-                       enum => [<<"username">>, <<"clientid">>, <<"all">>]
-                    },
-                    required => true
-                },
                 #{
                     name => page,
                     in => query,
@@ -186,25 +171,12 @@ records_api() ->
                         'application/json' => #{
                             schema => #{
                                 type => array,
-                                items => #{
-                                  oneOf => [ minirest:ref(<<"username">>)
-                                           , minirest:ref(<<"clientid">>)
-                                           , minirest:ref(<<"all">>)
-                                           ]
-                                }
+                                items => minirest:ref(<<"username">>)
                             },
                             examples => #{
                                 username => #{
                                     summary => <<"Username">>,
                                     value => jsx:encode([?EXAMPLE_USERNAME])
-                                },
-                                clientid => #{
-                                    summary => <<"Clientid">>,
-                                    value => jsx:encode([?EXAMPLE_CLIENTID])
-                                },
-                                all => #{
-                                    summary => <<"All">>,
-                                    value => jsx:encode([?EXAMPLE_ALL])
                                 }
                            }
                         }
@@ -213,18 +185,7 @@ records_api() ->
             }
         },
         post => #{
-            description => "Add new records",
-            parameters => [
-                #{
-                    name => type,
-                    in => path,
-                    schema => #{
-                       type => string,
-                       enum => [<<"username">>, <<"clientid">>]
-                    },
-                    required => true
-                }
-            ],
+            description => "Add new records for username",
             requestBody => #{
                 content => #{
                     'application/json' => #{
@@ -232,7 +193,6 @@ records_api() ->
                             type => array,
                             items => #{
                                 oneOf => [ minirest:ref(<<"username">>)
-                                         , minirest:ref(<<"clientid">>)
                                          ]
                             }
                         },
@@ -240,7 +200,72 @@ records_api() ->
                             username => #{
                                 summary => <<"Username">>,
                                 value => jsx:encode([?EXAMPLE_USERNAME])
+                            }
+                        }
+                    }
+                }
+            },
+            responses => #{
+                <<"204">> => #{description => <<"Created">>},
+                <<"400">> => emqx_mgmt_util:bad_request()
+            }
+        }
+    },
+    {"/authorization/sources/built-in-database/username", Metadata, users}.
+
+clients_api() ->
+    Metadata = #{
+        get => #{
+            description => "Show the list of record for clientid",
+            parameters => [
+                #{
+                    name => page,
+                    in => query,
+                    required => false,
+                    description => <<"Page Index">>,
+                    schema => #{type => integer}
+                },
+                #{
+                    name => limit,
+                    in => query,
+                    required => false,
+                    description => <<"Page limit">>,
+                    schema => #{type => integer}
+                }
+            ],
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => #{
+                                type => array,
+                                items => minirest:ref(<<"clientid">>)
                             },
+                            examples => #{
+                                clientid => #{
+                                    summary => <<"Clientid">>,
+                                    value => jsx:encode([?EXAMPLE_CLIENTID])
+                                }
+                           }
+                        }
+                    }
+                }
+            }
+        },
+        post => #{
+            description => "Add new records for clientid",
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => #{
+                            type => array,
+                            items => #{
+                                oneOf => [ minirest:ref(<<"clientid">>)
+                                         ]
+                            }
+                        },
+                        examples => #{
                             clientid => #{
                                 summary => <<"Clientid">>,
                                 value => jsx:encode([?EXAMPLE_CLIENTID])
@@ -253,73 +278,17 @@ records_api() ->
                 <<"204">> => #{description => <<"Created">>},
                 <<"400">> => emqx_mgmt_util:bad_request()
             }
-        },
-        put => #{
-            description => "Set the list of rules for all",
-            parameters => [
-                #{
-                    name => type,
-                    in => path,
-                    schema => #{
-                       type => string,
-                       enum => [<<"all">>]
-                    },
-                    required => true
-                }
-            ],
-            requestBody => #{
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => array,
-                            items => #{
-                              oneOf => [ minirest:ref(<<"username">>)
-                                       , minirest:ref(<<"clientid">>)
-                                       , minirest:ref(<<"all">>)
-                                       ]
-                            }
-                        },
-                        examples => #{
-                            username => #{
-                                summary => <<"Username">>,
-                                value => jsx:encode(?EXAMPLE_USERNAME)
-                            },
-                            clientid => #{
-                                summary => <<"Clientid">>,
-                                value => jsx:encode(?EXAMPLE_CLIENTID)
-                            },
-                            all => #{
-                                summary => <<"All">>,
-                                value => jsx:encode(?EXAMPLE_ALL)
-                            }
-                        }
-                    }
-                }
-            },
-            responses => #{
-                <<"204">> => #{description => <<"Created">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
-            }
         }
     },
-    {"/authorization/sources/built-in-database/:type", Metadata, records}.
+    {"/authorization/sources/built-in-database/clientid", Metadata, clients}.
 
-record_api() ->
+user_api() ->
     Metadata = #{
         get => #{
-            description => "Get record info",
+            description => "Get record info for username",
             parameters => [
                 #{
-                    name => type,
-                    in => path,
-                    schema => #{
-                       type => string,
-                       enum => [<<"username">>, <<"clientid">>]
-                    },
-                    required => true
-                },
-                #{
-                    name => key,
+                    name => username,
                     in => path,
                     schema => #{
                        type => string
@@ -332,16 +301,90 @@ record_api() ->
                     description => <<"OK">>,
                     content => #{
                         'application/json' => #{
-                            schema => #{
-                                oneOf => [ minirest:ref(<<"username">>)
-                                         , minirest:ref(<<"clientid">>)
-                                         ]
-                            },
+                            schema => minirest:ref(<<"username">>),
                             examples => #{
                                 username => #{
                                     summary => <<"Username">>,
                                     value => jsx:encode(?EXAMPLE_USERNAME)
-                                },
+                                }
+                            }
+                        }
+                    }
+                },
+                <<"404">> => emqx_mgmt_util:bad_request(<<"Not Found">>)
+            }
+        },
+        put => #{
+            description => "Set record for username",
+            parameters => [
+                #{
+                    name => username,
+                    in => path,
+                    schema => #{
+                       type => string
+                    },
+                    required => true
+                }
+            ],
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => minirest:ref(<<"username">>),
+                        examples => #{
+                            username => #{
+                                summary => <<"Username">>,
+                                value => jsx:encode(?EXAMPLE_USERNAME)
+                            }
+                        }
+                    }
+                }
+            },
+            responses => #{
+                <<"204">> => #{description => <<"Updated">>},
+                <<"400">> => emqx_mgmt_util:bad_request()
+            }
+        },
+        delete => #{
+            description => "Delete one record for username",
+            parameters => [
+                #{
+                    name => username,
+                    in => path,
+                    schema => #{
+                       type => string
+                    },
+                    required => true
+                }
+            ],
+            responses => #{
+                <<"204">> => #{description => <<"No Content">>},
+                <<"400">> => emqx_mgmt_util:bad_request()
+            }
+        }
+    },
+    {"/authorization/sources/built-in-database/username/:username", Metadata, user}.
+
+client_api() ->
+    Metadata = #{
+        get => #{
+            description => "Get record info for clientid",
+            parameters => [
+                #{
+                    name => clientid,
+                    in => path,
+                    schema => #{
+                       type => string
+                    },
+                    required => true
+                }
+            ],
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"clientid">>),
+                            examples => #{
                                 clientid => #{
                                     summary => <<"Clientid">>,
                                     value => jsx:encode(?EXAMPLE_CLIENTID)
@@ -354,19 +397,10 @@ record_api() ->
             }
         },
         put => #{
-            description => "Update one record",
+            description => "Set record for clientid",
             parameters => [
                 #{
-                    name => type,
-                    in => path,
-                    schema => #{
-                       type => string,
-                       enum => [<<"username">>, <<"clientid">>]
-                    },
-                    required => true
-                },
-                #{
-                    name => key,
+                    name => clientid,
                     in => path,
                     schema => #{
                        type => string
@@ -377,16 +411,8 @@ record_api() ->
             requestBody => #{
                 content => #{
                     'application/json' => #{
-                        schema => #{
-                            oneOf => [ minirest:ref(<<"username">>)
-                                     , minirest:ref(<<"clientid">>)
-                                     ]
-                        },
+                        schema => minirest:ref(<<"clientid">>),
                         examples => #{
-                            username => #{
-                                summary => <<"Username">>,
-                                value => jsx:encode(?EXAMPLE_USERNAME)
-                            },
                             clientid => #{
                                 summary => <<"Clientid">>,
                                 value => jsx:encode(?EXAMPLE_CLIENTID)
@@ -401,19 +427,10 @@ record_api() ->
             }
         },
         delete => #{
-            description => "Delete one record",
+            description => "Delete one record for clientid",
             parameters => [
                 #{
-                    name => type,
-                    in => path,
-                    schema => #{
-                       type => string,
-                       enum => [<<"username">>, <<"clientid">>]
-                    },
-                    required => true
-                },
-                #{
-                    name => key,
+                    name => clientid,
                     in => path,
                     schema => #{
                        type => string
@@ -427,23 +444,65 @@ record_api() ->
             }
         }
     },
-    {"/authorization/sources/built-in-database/:type/:key", Metadata, record}.
+    {"/authorization/sources/built-in-database/clientid/:clientid", Metadata, client}.
 
-purge(delete, _) ->
-    case emqx_authz_api_sources:get_raw_source(<<"built-in-database">>) of
-        [#{enable := false}] ->
-            ok = lists:foreach(fun(Key) ->
-                                   ok = ekka_mnesia:dirty_delete(?ACL_TABLE, Key)
-                               end, mnesia:dirty_all_keys(?ACL_TABLE)),
-            {204};
-        _ ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => <<"'built-in-database' type source must be disabled before purge.">>}}
-    end.
+all_api() ->
+    Metadata = #{
+        get => #{
+            description => "Show the list of rules for all",
+            responses => #{
+                <<"200">> => #{
+                    description => <<"OK">>,
+                    content => #{
+                        'application/json' => #{
+                            schema => minirest:ref(<<"clientid">>),
+                            examples => #{
+                                clientid => #{
+                                    summary => <<"All">>,
+                                    value => jsx:encode(?EXAMPLE_ALL)
+                                }
+                           }
+                        }
+                    }
+                }
+            }
+        },
+        put => #{
+            description => "Set the list of rules for all",
+            requestBody => #{
+                content => #{
+                    'application/json' => #{
+                        schema => minirest:ref(<<"all">>),
+                        examples => #{
+                            all => #{
+                                summary => <<"All">>,
+                                value => jsx:encode(?EXAMPLE_ALL)
+                            }
+                        }
+                    }
+                }
+            },
+            responses => #{
+                <<"204">> => #{description => <<"Created">>},
+                <<"400">> => emqx_mgmt_util:bad_request()
+            }
+        }
+    },
+    {"/authorization/sources/built-in-database/all", Metadata, all}.
 
-records(get, #{bindings := #{type := <<"username">>},
-               query_string := Qs
-              }) ->
+purge_api() ->
+    Metadata = #{
+        delete => #{
+            description => "Purge all records",
+            responses => #{
+                <<"204">> => #{description => <<"No Content">>},
+                <<"400">> => emqx_mgmt_util:bad_request()
+            }
+        }
+     },
+    {"/authorization/sources/built-in-database/purge-all", Metadata, purge}.
+
+users(get, #{query_string := Qs}) ->
     MatchSpec = ets:fun2ms(
                   fun({?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}, Rules}) ->
                           [{username, Username}, {rules, Rules}]
@@ -467,10 +526,16 @@ records(get, #{bindings := #{type := <<"username">>},
         _ ->
             {200, [Format(Row) || Row <- ets:select(?ACL_TABLE, MatchSpec)]}
     end;
+users(post, #{body := Body}) when is_list(Body) ->
+    lists:foreach(fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
+                      ekka_mnesia:dirty_write(#emqx_acl{
+                                                 who = {?ACL_TABLE_USERNAME, Username},
+                                                 rules = format_rules(Rules)
+                                                })
+                  end, Body),
+    {204}.
 
-records(get, #{bindings := #{type := <<"clientid">>},
-               query_string := Qs
-              }) ->
+clients(get, #{query_string := Qs}) ->
     MatchSpec = ets:fun2ms(
                   fun({?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}, Rules}) ->
                           [{clientid, Clientid}, {rules, Rules}]
@@ -494,44 +559,17 @@ records(get, #{bindings := #{type := <<"clientid">>},
         _ ->
             {200, [Format(Row) || Row <- ets:select(?ACL_TABLE, MatchSpec)]}
     end;
-records(get, #{bindings := #{type := <<"all">>}}) ->
-    MatchSpec = ets:fun2ms(
-                  fun({?ACL_TABLE, ?ACL_TABLE_ALL, Rules}) ->
-                          [{rules, Rules}]
-                  end),
-    {200, [ #{rules => [ #{topic => Topic,
-                           action => Action,
-                           permission => Permission
-                          } || {Permission, Action, Topic} <- Rules]
-             } || [{rules, Rules}] <- ets:select(?ACL_TABLE, MatchSpec)]};
-records(post, #{bindings := #{type := <<"username">>},
-                body := Body}) when is_list(Body) ->
-    lists:foreach(fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
-                      ekka_mnesia:dirty_write(#emqx_acl{
-                                                 who = {?ACL_TABLE_USERNAME, Username},
-                                                 rules = format_rules(Rules)
-                                                })
-                  end, Body),
-    {204};
-records(post, #{bindings := #{type := <<"clientid">>},
-                body := Body}) when is_list(Body) ->
+clients(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"clientid">> := Clientid, <<"rules">> := Rules}) ->
                       ekka_mnesia:dirty_write(#emqx_acl{
                                                  who = {?ACL_TABLE_CLIENTID, Clientid},
                                                  rules = format_rules(Rules)
                                                 })
                   end, Body),
-    {204};
-records(put, #{bindings := #{type := <<"all">>},
-               body := #{<<"rules">> := Rules}}) ->
-    ekka_mnesia:dirty_write(#emqx_acl{
-                               who = ?ACL_TABLE_ALL,
-                               rules = format_rules(Rules)
-                              }),
     {204}.
 
-record(get, #{bindings := #{type := <<"username">>, key := Key}}) ->
-    case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_USERNAME, Key}) of
+user(get, #{bindings := #{username := Username}}) ->
+    case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}) of
         [] -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
         [#emqx_acl{who = {?ACL_TABLE_USERNAME, Username}, rules = Rules}] ->
             {200, #{username => Username,
@@ -541,8 +579,19 @@ record(get, #{bindings := #{type := <<"username">>, key := Key}}) ->
                                 } || {Permission, Action, Topic} <- Rules]}
             }
     end;
-record(get, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
-    case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Key}) of
+user(put, #{bindings := #{username := Username},
+              body := #{<<"username">> := Username, <<"rules">> := Rules}}) ->
+    ekka_mnesia:dirty_write(#emqx_acl{
+                               who = {?ACL_TABLE_USERNAME, Username},
+                               rules = format_rules(Rules)
+                              }),
+    {204};
+user(delete, #{bindings := #{username := Username}}) ->
+    ekka_mnesia:dirty_delete({?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}}),
+    {204}.
+
+client(get, #{bindings := #{clientid := Clientid}}) ->
+    case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}) of
         [] -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
         [#emqx_acl{who = {?ACL_TABLE_CLIENTID, Clientid}, rules = Rules}] ->
             {200, #{clientid => Clientid,
@@ -552,26 +601,45 @@ record(get, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
                                 } || {Permission, Action, Topic} <- Rules]}
             }
     end;
-record(put, #{bindings := #{type := <<"username">>, key := Username},
-              body := #{<<"username">> := Username, <<"rules">> := Rules}}) ->
-    ekka_mnesia:dirty_write(#emqx_acl{
-                               who = {?ACL_TABLE_USERNAME, Username},
-                               rules = format_rules(Rules)
-                              }),
-    {204};
-record(put, #{bindings := #{type := <<"clientid">>, key := Clientid},
+client(put, #{bindings := #{clientid := Clientid},
               body := #{<<"clientid">> := Clientid, <<"rules">> := Rules}}) ->
     ekka_mnesia:dirty_write(#emqx_acl{
                                who = {?ACL_TABLE_CLIENTID, Clientid},
                                rules = format_rules(Rules)
                               }),
     {204};
-record(delete, #{bindings := #{type := <<"username">>, key := Key}}) ->
-    ekka_mnesia:dirty_delete({?ACL_TABLE, {?ACL_TABLE_USERNAME, Key}}),
-    {204};
-record(delete, #{bindings := #{type := <<"clientid">>, key := Key}}) ->
-    ekka_mnesia:dirty_delete({?ACL_TABLE, {?ACL_TABLE_CLIENTID, Key}}),
+client(delete, #{bindings := #{clientid := Clientid}}) ->
+    ekka_mnesia:dirty_delete({?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}}),
     {204}.
+
+all(get, _) ->
+    case mnesia:dirty_read(?ACL_TABLE, ?ACL_TABLE_ALL) of
+        [] -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
+        [#emqx_acl{who = ?ACL_TABLE_ALL, rules = Rules}] ->
+            {200, #{rules => [ #{topic => Topic,
+                                 action => Action,
+                                 permission => Permission
+                                } || {Permission, Action, Topic} <- Rules]}
+            }
+    end;
+all(put, #{body := #{<<"rules">> := Rules}}) ->
+    ekka_mnesia:dirty_write(#emqx_acl{
+                               who = ?ACL_TABLE_ALL,
+                               rules = format_rules(Rules)
+                              }),
+    {204}.
+
+purge(delete, _) ->
+    case emqx_authz_api_sources:get_raw_source(<<"built-in-database">>) of
+        [#{enable := false}] ->
+            ok = lists:foreach(fun(Key) ->
+                                   ok = ekka_mnesia:dirty_delete(?ACL_TABLE, Key)
+                               end, mnesia:dirty_all_keys(?ACL_TABLE)),
+            {204};
+        _ ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => <<"'built-in-database' type source must be disabled before purge.">>}}
+    end.
 
 format_rules(Rules) when is_list(Rules) ->
     lists:foldl(fun(#{<<"topic">> := Topic,
