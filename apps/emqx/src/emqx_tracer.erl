@@ -115,18 +115,25 @@ install_trace_handler(Who, Level, LogFile) ->
                                           {fun filter_by_meta_key/2, Who}}]})
     of
         ok ->
-            ?LOG(info, "Start trace for ~p", [Who]);
+            ?SLOG(info, #{msg => "start_trace_for", who => Who});
         {error, Reason} ->
-            ?LOG(error, "Start trace for ~p failed, error: ~p", [Who, Reason]),
+            ?SLOG(error, #{msg => "start_trace_for_who_failed", who => Who, reason => Reason}),
             {error, Reason}
     end.
 
 uninstall_trance_handler(Who) ->
     case logger:remove_handler(handler_id(Who)) of
         ok ->
-            ?LOG(info, "Stop trace for ~p", [Who]);
+            ?SLOG(info, #{
+                msg => "stop_trace_for",
+                who => Who
+            });
         {error, Reason} ->
-            ?LOG(error, "Stop trace for ~p failed, error: ~p", [Who, Reason]),
+            ?SLOG(error, #{
+                msg => "stop_trace_for",
+                who => Who,
+                reason => Reason
+            }),
             {error, Reason}
     end.
 

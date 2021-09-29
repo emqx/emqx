@@ -373,11 +373,17 @@ handle_in(?PUBACK_PACKET(PacketId, _ReasonCode, Properties), Channel
             ok = after_message_acked(ClientInfo, Msg, Properties),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ?LOG(warning, "The PUBACK PacketId ~w is inuse.", [PacketId]),
+            ?SLOG(warning, #{
+                msg => "puback_packetId_inuse",
+                packetId => PacketId
+            }),
             ok = emqx_metrics:inc('packets.puback.inuse'),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?LOG(warning, "The PUBACK PacketId ~w is not found.", [PacketId]),
+            ?SLOG(warning, #{
+                msg => "puback_packetId_not_found",
+                packetId => PacketId
+            }),
             ok = emqx_metrics:inc('packets.puback.missed'),
             {ok, Channel}
     end;
@@ -390,11 +396,11 @@ handle_in(?PUBREC_PACKET(PacketId, _ReasonCode, Properties), Channel
             NChannel = Channel#channel{session = NSession},
             handle_out(pubrel, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ?LOG(warning, "The PUBREC PacketId ~w is inuse.", [PacketId]),
+            ?SLOG(warning, #{msg => "pubrec_packetId_inuse", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.pubrec.inuse'),
             handle_out(pubrel, {PacketId, RC}, Channel);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?LOG(warning, "The PUBREC ~w is not found.", [PacketId]),
+            ?SLOG(warning, #{msg => "pubrec_packetId_not_found", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.pubrec.missed'),
             handle_out(pubrel, {PacketId, RC}, Channel)
     end;
@@ -405,7 +411,7 @@ handle_in(?PUBREL_PACKET(PacketId, _ReasonCode), Channel = #channel{session = Se
             NChannel = Channel#channel{session = NSession},
             handle_out(pubcomp, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?LOG(warning, "The PUBREL PacketId ~w is not found.", [PacketId]),
+            ?SLOG(warning, #{msg => "pubrec_packetId_not_found", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.pubrel.missed'),
             handle_out(pubcomp, {PacketId, RC}, Channel)
     end;
@@ -420,7 +426,7 @@ handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{session = S
             ok = emqx_metrics:inc('packets.pubcomp.inuse'),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?LOG(warning, "The PUBCOMP PacketId ~w is not found", [PacketId]),
+            ?SLOG(warning, #{msg => "pubcomp_packetId_not_found", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.pubcomp.missed'),
             {ok, Channel}
     end;
@@ -501,11 +507,17 @@ handle_in({frame_error, Reason}, Channel = #channel{conn_state = ConnState})
     handle_out(disconnect, {?RC_MALFORMED_PACKET, Reason}, Channel);
 
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = disconnected}) ->
-    ?LOG(error, "Unexpected frame error: ~p", [Reason]),
+    ?SLOG(error, #{
+        msg => "malformed_mqtt_message",
+        reason => Reason
+    }),
     {ok, Channel};
 
 handle_in(Packet, Channel) ->
-    ?LOG(error, "Unexpected incoming: ~p", [Packet]),
+    ?SLOG(error, #{
+        msg => "disconnecting_due_to_unexpected_message",
+        packet => Packet
+    }),
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel).
 
 %%--------------------------------------------------------------------
@@ -529,7 +541,10 @@ process_connect(AckProps, Channel = #channel{conninfo = ConnInfo,
         {error, client_id_unavailable} ->
             handle_out(connack, ?RC_CLIENT_IDENTIFIER_NOT_VALID, Channel);
         {error, Reason} ->
-            ?LOG(error, "Failed to open session due to ~p", [Reason]),
+            ?SLOG(error, #{
+                msg => "failed_to_open_session",
+                reason => Reason
+            }),
             handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
 
@@ -548,8 +563,11 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
             Msg = packet_to_message(NPacket, NChannel),
             do_publish(PacketId, Msg, NChannel);
         {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
-            ?LOG(warning, "Cannot publish message to ~s due to ~s.",
-                 [Topic, emqx_reason_codes:text(Rc)]),
+            ?SLOG(warning, #{
+                msg => "cannot_publish_to_topic",
+                topic => Topic,
+                reason => emqx_reason_codes:name(Rc)
+            }),
             case emqx:get_config([authorization, deny_action], ignore) of
                 ignore ->
                     case QoS of
@@ -563,8 +581,11 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                     handle_out(disconnect, Rc, NChannel)
             end;
         {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
-            ?LOG(warning, "Cannot publish messages to ~s due to ~s.",
-                 [Topic, emqx_reason_codes:text(Rc)]),
+            ?SLOG(warning, #{
+                msg => "cannot_publish_to_topic",
+                topic => Topic,
+                reason => emqx_reason_codes:name(Rc)
+            }),
             case QoS of
                 ?QOS_0 ->
                     ok = emqx_metrics:inc('packets.publish.dropped'),
@@ -575,8 +596,11 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                     handle_out(pubrec, {PacketId, Rc}, NChannel)
             end;
         {error, Rc, NChannel} ->
-            ?LOG(warning, "Cannot publish message to ~s due to ~s.",
-                 [Topic, emqx_reason_codes:text(Rc)]),
+            ?SLOG(warning, #{
+                msg => "cannot_publish_to_topic",
+                topic => Topic,
+                reason => emqx_reason_codes:name(Rc)
+            }),
             handle_out(disconnect, Rc, NChannel)
     end.
 
@@ -621,8 +645,11 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_2},
             ok = emqx_metrics:inc('packets.publish.inuse'),
             handle_out(pubrec, {PacketId, RC}, Channel);
         {error, RC = ?RC_RECEIVE_MAXIMUM_EXCEEDED} ->
-            ?LOG(warning, "Dropped the qos2 packet ~w "
-                 "due to awaiting_rel is full.", [PacketId]),
+            ?SLOG(warning, #{
+                msg => "dropped_qos2_packet",
+                reason => emqx_reason_codes:name(RC),
+                packetId => PacketId
+            }),
             ok = emqx_metrics:inc('packets.publish.dropped'),
             handle_out(pubrec, {PacketId, RC}, Channel)
     end.
@@ -671,8 +698,10 @@ process_subscribe([Topic = {TopicFilter, SubOpts}|More], SubProps, Channel, Acc)
                                                   Channel),
             process_subscribe(More, SubProps, NChannel, [{Topic, ReasonCode} | Acc]);
         {error, ReasonCode} ->
-            ?LOG(warning, "Cannot subscribe ~s due to ~s.",
-                 [TopicFilter, emqx_reason_codes:text(ReasonCode)]),
+            ?SLOG(warning, #{
+                msg => "cannot_subscribe_topic_filter",
+                reason => emqx_reason_codes:name(ReasonCode)
+            }),
             process_subscribe(More, SubProps, Channel, [{Topic, ReasonCode} | Acc])
     end.
 
@@ -685,8 +714,10 @@ do_subscribe(TopicFilter, SubOpts = #{qos := QoS}, Channel =
         {ok, NSession} ->
             {QoS, Channel#channel{session = NSession}};
         {error, RC} ->
-            ?LOG(warning, "Cannot subscribe ~s due to ~s.",
-                 [TopicFilter, emqx_reason_codes:text(RC)]),
+            ?SLOG(warning, #{
+                msg => "cannot_subscribe_topic_filter",
+                reason => emqx_reason_codes:text(RC)
+            }),
             {RC, Channel}
     end.
 
@@ -869,7 +900,7 @@ handle_out(auth, {ReasonCode, Properties}, Channel) ->
     {ok, ?AUTH_PACKET(ReasonCode, Properties), Channel};
 
 handle_out(Type, Data, Channel) ->
-    ?LOG(error, "Unexpected outgoing: ~s, ~p", [Type, Data]),
+    ?SLOG(error, #{msg => "unexpected_outgoing", type => Type, data => Data}),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
@@ -964,7 +995,7 @@ handle_call({quota, Policy}, Channel) ->
     reply(ok, Channel#channel{quota = Quota});
 
 handle_call(Req, Channel) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     reply(ignored, Channel).
 
 %%--------------------------------------------------------------------
@@ -1004,7 +1035,10 @@ handle_info({sock_closed, Reason}, Channel =
     end;
 
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}) ->
-    ?LOG(error, "Unexpected sock_closed: ~p", [Reason]),
+    ?SLOG(error, #{
+        msg => "unexpected_sock_closed",
+        reason => Reason
+    }),
     {ok, Channel};
 
 handle_info(clean_authz_cache, Channel) ->
@@ -1012,7 +1046,7 @@ handle_info(clean_authz_cache, Channel) ->
     {ok, Channel};
 
 handle_info(Info, Channel) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
@@ -1075,7 +1109,10 @@ handle_timeout(_TRef, expire_quota_limit, Channel) ->
     {ok, clean_timer(quota_timer, Channel)};
 
 handle_timeout(_TRef, Msg, Channel) ->
-    ?LOG(error, "Unexpected timeout: ~p~n", [Msg]),
+    ?SLOG(error, #{
+        msg => "unexpected_timeout",
+        payload => Msg
+    }),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------

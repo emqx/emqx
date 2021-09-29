@@ -239,11 +239,17 @@ handle_call({get_alarms, deactivated}, _From, State) ->
     {reply, Alarms, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{
+        msg => "unexpected_call",
+        call => Req
+    }),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected msg: ~p", [Msg]),
+    ?SLOG(error, #{
+        msg => "unexpected_msg",
+        payload => Msg
+    }),
     {noreply, State}.
 
 handle_info({timeout, _TRef, delete_expired_deactivated_alarm},
@@ -253,11 +259,14 @@ handle_info({timeout, _TRef, delete_expired_deactivated_alarm},
     {noreply, State#state{timer = ensure_timer(TRef, Period)}};
 
 handle_info({update_timer, Period}, #state{timer = TRef} = State) ->
-    ?LOG(warning, "update the 'validity_period' timer to ~p", [Period]),
+    ?SLOG(warning, #{
+        msg => "update_the_validity_period_timer",
+        period => Period
+    }),
     {noreply, State#state{timer = ensure_timer(TRef, Period)}};
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -323,8 +332,11 @@ deactivate_all_alarms() ->
 clear_table(TableName) ->
     case ekka_mnesia:clear_table(TableName) of
         {aborted, Reason} ->
-            ?LOG(warning, "Faile to clear table ~p reason: ~p",
-                 [TableName, Reason]);
+            ?SLOG(warning, #{
+                msg => "fail_to_clear_table",
+                table_name => TableName,
+                reason => Reason
+            });
         {atomic, ok} ->
             ok
     end.
@@ -354,10 +366,17 @@ delete_expired_deactivated_alarms(ActivatedAt, Checkpoint) ->
 do_actions(_, _, []) ->
     ok;
 do_actions(activate, Alarm = #activated_alarm{name = Name, message = Message}, [log | More]) ->
-    ?LOG(warning, "Alarm ~s is activated, ~s", [Name, Message]),
+    ?SLOG(warning, #{
+        msg => "alarm_is_activated",
+        name => Name,
+        message => Message
+    }),
     do_actions(activate, Alarm, More);
 do_actions(deactivate, Alarm = #deactivated_alarm{name = Name}, [log | More]) ->
-    ?LOG(warning, "Alarm ~s is deactivated", [Name]),
+    ?SLOG(warning, #{
+        msg => "alarm_is_deactivated",
+        name => Name
+    }),
     do_actions(deactivate, Alarm, More);
 do_actions(Operation, Alarm, [publish | More]) ->
     Topic = topic(Operation),
