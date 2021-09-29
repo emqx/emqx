@@ -24,13 +24,10 @@
 -export([ gateways/1
         ]).
 
-%% Mgmt APIs - listeners
--export([ listeners/1
-        , listener/1
-        , add_listener/2
+%% Mgmt APIs
+-export([ add_listener/2
         , remove_listener/1
         , update_listener/2
-        , mapping_listener_m2l/2
         ]).
 
 -export([ authn/1
@@ -139,75 +136,6 @@ get_listeners_status(GwName, Config) ->
 %%--------------------------------------------------------------------
 %% Mgmt APIs - listeners
 %%--------------------------------------------------------------------
-
--spec listeners(atom() | binary()) -> list().
-listeners(GwName) when is_atom(GwName) ->
-    listeners(atom_to_binary(GwName));
-listeners(GwName) ->
-    RawConf = emqx_config:fill_defaults(
-                emqx_config:get_root_raw([<<"gateway">>])),
-    Listeners = emqx_map_lib:jsonable_map(
-                  emqx_map_lib:deep_get(
-                    [<<"gateway">>, GwName, <<"listeners">>], RawConf)),
-    mapping_listener_m2l(GwName, Listeners).
-
--spec listener(binary()) -> {ok, map()} | {error, not_found} | {error, any()}.
-listener(ListenerId) ->
-    {GwName, Type, LName} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    RootConf = emqx_config:fill_defaults(
-                 emqx_config:get_root_raw([<<"gateway">>])),
-    try
-        Path = [<<"gateway">>, GwName, <<"listeners">>, Type, LName],
-        LConf = emqx_map_lib:deep_get(Path, RootConf),
-        Running = is_running(binary_to_existing_atom(ListenerId), LConf),
-        {ok, emqx_map_lib:jsonable_map(
-               LConf#{
-                 id => ListenerId,
-                 type => Type,
-                 name => LName,
-                 running => Running})}
-    catch
-        error : {config_not_found, _} ->
-            {error, not_found};
-        _Class : Reason ->
-            {error, Reason}
-    end.
-
-mapping_listener_m2l(GwName, Listeners0) ->
-    Listeners = maps:to_list(Listeners0),
-    lists:append([listener(GwName, Type, maps:to_list(Conf))
-                  || {Type, Conf} <- Listeners]).
-
-listener(GwName, Type, Conf) ->
-    [begin
-         ListenerId = emqx_gateway_utils:listener_id(GwName, Type, LName),
-         Running = is_running(ListenerId, LConf),
-         bind2str(
-           LConf#{
-             id => ListenerId,
-             type => Type,
-             name => LName,
-             running => Running
-            })
-     end || {LName, LConf} <- Conf, is_map(LConf)].
-
-is_running(ListenerId, #{<<"bind">> := ListenOn0}) ->
-    ListenOn = emqx_gateway_utils:parse_listenon(ListenOn0),
-    try esockd:listener({ListenerId, ListenOn}) of
-        Pid when is_pid(Pid)->
-            true
-    catch _:_ ->
-        false
-    end.
-
-bind2str(LConf = #{bind := Bind}) when is_integer(Bind) ->
-    maps:put(bind, integer_to_binary(Bind), LConf);
-bind2str(LConf = #{<<"bind">> := Bind}) when is_integer(Bind) ->
-    maps:put(<<"bind">>, integer_to_binary(Bind), LConf);
-bind2str(LConf = #{bind := Bind}) when is_binary(Bind) ->
-    LConf;
-bind2str(LConf = #{<<"bind">> := Bind}) when is_binary(Bind) ->
-    LConf.
 
 -spec add_listener(atom() | binary(), map()) -> ok.
 add_listener(ListenerId, NewConf0) ->

@@ -57,7 +57,7 @@ apis() ->
 
 listeners(get, #{bindings := #{name := Name0}}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        {200, emqx_gateway_http:listeners(GwName)}
+        {200, emqx_gateway_conf:listeners(GwName)}
     end);
 
 listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
@@ -90,7 +90,7 @@ listeners_insta(delete, #{bindings := #{name := Name0, id := ListenerId0}}) ->
 listeners_insta(get, #{bindings := #{name := Name0, id := ListenerId0}}) ->
     ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(_GwName, _) ->
-        case emqx_gateway_http:listener(ListenerId) of
+        case emqx_gateway_conf:listener(ListenerId) of
             {ok, Listener} ->
                 {200, Listener};
             {error, not_found} ->
