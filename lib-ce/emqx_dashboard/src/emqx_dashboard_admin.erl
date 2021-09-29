@@ -168,10 +168,10 @@ check(Username, Password) ->
         [#mqtt_admin{password = <<Salt:4/binary, Hash/binary>>}] ->
             case Hash =:= md5_hash(Salt, Password) of
                 true  -> ok;
-                false -> {error, <<"Password Error">>}
+                false -> {error, <<"Username/Password error">>}
             end;
         [] ->
-            {error, <<"Username Not Found">>}
+            {error, <<"Username/Password error">>}
     end.
 
 %%--------------------------------------------------------------------

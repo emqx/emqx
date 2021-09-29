@@ -49,7 +49,7 @@ all() ->
 groups() ->
     [{overview, [sequence], [t_overview]},
      {admins, [sequence], [t_admins_add_delete]},
-     {rest, [sequence], [t_rest_api]},
+     {rest, [sequence], [t_rest_api, t_auth_exhaustive_attack]},
      {cli, [sequence], [t_cli]}
     ].
 
@@ -97,6 +97,11 @@ t_rest_api(_Config) ->
              , http_post("auth", #{<<"username">> => <<"admin">>, <<"password">> => <<"newpwd">>})
              ]],
     ok.
+
+t_auth_exhaustive_attack(_Config) ->
+    {ok, Res0} = http_post("auth", #{<<"username">> => <<"invalid_login">>, <<"password">> => <<"newpwd">>}),
+    {ok, Res1} = http_post("auth", #{<<"username">> => <<"admin">>, <<"password">> => <<"invalid_password">>}),
+    ?assertEqual(Res0, Res1).
 
 t_cli(_Config) ->
     [mnesia:dirty_delete({mqtt_admin, Admin}) ||  Admin <- mnesia:dirty_all_keys(mqtt_admin)],
