@@ -221,7 +221,9 @@ preproc_channels(<<"bridge:", BridgeId/binary>>, Config) ->
     maps:fold(fun(ChannName, ChannConf, Acc) ->
             Acc#{emqx_bridge:channel_id(BridgeType, BridgeName, egress_channels, ChannName) =>
                  preproc_channel_conf(ChannConf)}
-        end, #{}, maps:get(egress_channels, Config, #{})).
+        end, #{}, maps:get(egress_channels, Config, #{}));
+preproc_channels(_InstId, _Config) ->
+    #{}.
 
 preproc_channel_conf(#{
         method := Method,
