@@ -273,7 +273,7 @@ jobs:
             make
             make install
         - name: run relup test
-          timeout-minutes: 20
+          timeout-minutes: 30
           run: |
             set -e -x -u
             if [ -n "$OLD_VSNS" ]; then
