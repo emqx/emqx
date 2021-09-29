@@ -84,8 +84,12 @@ gateway(post, Request) ->
 
 gateway_insta(delete, #{bindings := #{name := Name0}}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        _ = emqx_gateway:unload(GwName),
-        {204}
+        case emqx_gateway_conf:unload_gateway(GwName) of
+            ok ->
+                {204};
+            {error, Reason} ->
+                return_http_error(400, Reason)
+        end
     end);
 gateway_insta(get, #{bindings := #{name := Name0}}) ->
     with_gateway(Name0, fun(_, _) ->

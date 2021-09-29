@@ -25,7 +25,7 @@
 %% APIs
 -export([ load_gateway/2
         , update_gateway/2
-        , remove_gateway/1
+        , unload_gateway/1
         , add_listener/3
         , update_listener/3
         , remove_listener/2
@@ -64,14 +64,43 @@ unload() ->
 
 -spec load_gateway(atom_or_bin(), map()) -> ok_or_err().
 load_gateway(GwName, Conf) ->
-    update({?FUNCTION_NAME, bin(GwName), Conf}).
+    NConf = case maps:take(<<"listeners">>, Conf) of
+                error -> Conf;
+                {Ls, Conf1} ->
+                    Conf1#{<<"listeners">> => mapping(Ls)}
+            end,
+    update({?FUNCTION_NAME, bin(GwName), NConf}).
+
+mapping(Ls) when is_list(Ls) ->
+    convert_to_map(Ls);
+mapping(Ls) when is_map(Ls) ->
+    Ls.
+
+convert_to_map(Listeners) when is_list(Listeners) ->
+    lists:foldl(fun(Lis, Acc) ->
+        {[Type, Name], Lis1} = maps_key_take([<<"type">>, <<"name">>], Lis),
+        emqx_map_lib:deep_merge(Acc, #{Type => #{Name => Lis1}})
+    end, #{}, Listeners).
+
+maps_key_take(Ks, M) ->
+    maps_key_take(Ks, M, []).
+maps_key_take([], M, Acc) ->
+    {lists:reverse(Acc), M};
+maps_key_take([K|Ks], M, Acc) ->
+    case maps:take(K, M) of
+        error -> throw(bad_key);
+        {V, M1} ->
+            maps_key_take(Ks, M1, [V|Acc])
+    end.
 
 -spec update_gateway(atom_or_bin(), map()) -> ok_or_err().
-update_gateway(GwName, Conf) ->
+update_gateway(GwName, Conf0) ->
+    Conf = maps:without([listeners, authentication,
+                         <<"listeners">>, <<"authentication">>], Conf0),
     update({?FUNCTION_NAME, bin(GwName), Conf}).
 
--spec remove_gateway(atom_or_bin()) -> ok_or_err().
-remove_gateway(GwName) ->
+-spec unload_gateway(atom_or_bin()) -> ok_or_err().
+unload_gateway(GwName) ->
     update({?FUNCTION_NAME, bin(GwName)}).
 
 -spec add_listener(atom_or_bin(), listener_ref(), map()) -> ok_or_err().
@@ -148,7 +177,7 @@ pre_config_update({update_gateway, GwName, Conf}, RawConf) ->
                                   <<"authentication">>], Conf),
             {ok, emqx_map_lib:deep_merge(RawConf, #{GwName => NConf})}
     end;
-pre_config_update({remove_gateway, GwName}, RawConf) ->
+pre_config_update({unload_gateway, GwName}, RawConf) ->
     {ok, maps:remove(GwName, RawConf)};
 
 pre_config_update({add_listener, GwName, {LType, LName}, Conf}, RawConf) ->
