@@ -53,50 +53,77 @@ gateway(["list"]) ->
     lists:foreach(fun(#{name := Name} = Gateway) ->
         %% TODO: More infos: listeners?, connected?
         Status = maps:get(status, Gateway, stopped),
-        emqx_ctl:print("Gateway(name=~s, status=~s)~n",
-                       [Name, Status])
+        print("Gateway(name=~s, status=~s)~n", [Name, Status])
     end, emqx_gateway:list());
 
 gateway(["lookup", Name]) ->
     case emqx_gateway:lookup(atom(Name)) of
         undefined ->
-            emqx_ctl:print("undefined~n");
+            print("undefined~n");
         Info ->
-            emqx_ctl:print("~p~n", [Info])
+            print("~p~n", [Info])
+    end;
+
+gateway(["load", Name, Conf]) ->
+    case emqx_gateway_conf:load_gateway(
+           bin(Name),
+           emqx_json:decode(Conf, [return_maps])
+          ) of
+        ok ->
+            print("ok~n");
+        {error, Reason} ->
+            print("Error: ~p~n", [Reason])
+    end;
+
+gateway(["unload", Name]) ->
+    case emqx_gateway_conf:unload_gateway(bin(Name)) of
+        ok ->
+            print("ok~n");
+        {error, Reason} ->
+            print("Error: ~p~n", [Reason])
     end;
 
 gateway(["stop", Name]) ->
-    case emqx_gateway:stop(atom(Name)) of
+    case emqx_gateway_conf:update_gateway(
+           bin(Name),
+           #{<<"enable">> => <<"false">>}
+          ) of
         ok ->
-            emqx_ctl:print("ok~n");
+            print("ok~n");
         {error, Reason} ->
-            emqx_ctl:print("Error: ~p~n", [Reason])
+            print("Error: ~p~n", [Reason])
     end;
 
 gateway(["start", Name]) ->
-    case emqx_gateway:start(atom(Name)) of
+    case emqx_gateway_conf:update_gateway(
+           bin(Name),
+           #{<<"enable">> => <<"true">>}
+          ) of
         ok ->
-            emqx_ctl:print("ok~n");
+            print("ok~n");
         {error, Reason} ->
-            emqx_ctl:print("Error: ~p~n", [Reason])
+            print("Error: ~p~n", [Reason])
     end;
 
 gateway(_) ->
-    %% TODO: create/remove APIs
     emqx_ctl:usage([ {"gateway list",
                         "List all gateway"}
                    , {"gateway lookup <Name>",
                         "Lookup a gateway detailed informations"}
+                   , {"gateway load   <Name> <JsonConf>",
+                        "Load a gateway with config"}
+                   , {"gateway unload <Name>",
+                        "Unload the gateway"}
                    , {"gateway stop   <Name>",
-                        "Stop a gateway instance"}
+                        "Stop the gateway"}
                    , {"gateway start  <Name>",
-                        "Start a gateway instance"}
+                        "Start the gateway"}
                    ]).
 
 'gateway-registry'(["list"]) ->
     lists:foreach(
       fun({Name, #{cbkmod := CbMod}}) ->
-        emqx_ctl:print("Registered Name: ~s, Callback Module: ~s~n", [Name, CbMod])
+        print("Registered Name: ~s, Callback Module: ~s~n", [Name, CbMod])
       end,
     emqx_gateway_registry:list());
 
@@ -106,11 +133,11 @@ gateway(_) ->
                    ]).
 
 'gateway-clients'(["list", Name]) ->
-    %% FIXME: page me. for example: --limit 100 --page 10 ???
+    %% FIXME: page me?
     InfoTab = emqx_gateway_cm:tabname(info, Name),
     case ets:info(InfoTab) of
         undefined ->
-            emqx_ctl:print("Bad Gateway Name.~n");
+            print("Bad Gateway Name.~n");
         _ ->
         dump(InfoTab, client)
     end;
@@ -118,7 +145,7 @@ gateway(_) ->
 'gateway-clients'(["lookup", Name, ClientId]) ->
     ChanTab = emqx_gateway_cm:tabname(chan, Name),
     case ets:lookup(ChanTab, bin(ClientId)) of
-        [] -> emqx_ctl:print("Not Found.~n");
+        [] -> print("Not Found.~n");
         [Chann] ->
             InfoTab = emqx_gateway_cm:tabname(info, Name),
             [ChannInfo] = ets:lookup(InfoTab, Chann),
@@ -127,8 +154,8 @@ gateway(_) ->
 
 'gateway-clients'(["kick", Name, ClientId]) ->
     case emqx_gateway_cm:kick_session(Name, bin(ClientId)) of
-        ok -> emqx_ctl:print("ok~n");
-        _ -> emqx_ctl:print("Not Found.~n")
+        ok -> print("ok~n");
+        _ -> print("Not Found.~n")
     end;
 
 'gateway-clients'(_) ->
@@ -144,11 +171,11 @@ gateway(_) ->
     Tab = emqx_gateway_metrics:tabname(Name),
     case ets:info(Tab) of
         undefined ->
-            emqx_ctl:print("Bad Gateway Name.~n");
+            print("Bad Gateway Name.~n");
         _ ->
             lists:foreach(
               fun({K, V}) ->
-                emqx_ctl:print("~-30s: ~w~n", [K, V])
+                print("~-30s: ~w~n", [K, V])
               end, lists:sort(ets:tab2list(Tab)))
     end;
 
@@ -177,10 +204,10 @@ dump(_Table, _, '$end_of_table', Result) ->
     lists:reverse(Result);
 
 dump(Table, Tag, Key, Result) ->
-    PrintValue = [print({Tag, Record}) || Record <- ets:lookup(Table, Key)],
+    PrintValue = [print_record({Tag, Record}) || Record <- ets:lookup(Table, Key)],
     dump(Table, Tag, ets:next(Table, Key), [PrintValue | Result]).
 
-print({client, {_, Infos, Stats}}) ->
+print_record({client, {_, Infos, Stats}}) ->
     ClientInfo = maps:get(clientinfo, Infos, #{}),
     ConnInfo   = maps:get(conninfo, Infos, #{}),
     _Session    = maps:get(session, Infos, #{}),
@@ -202,11 +229,14 @@ print({client, {_, Infos, Stats}}) ->
               connected_at => ConnectedAt
             },
 
-    emqx_ctl:print("Client(~s, username=~s, peername=~s, "
-                   "clean_start=~s, keepalive=~w, "
-                   "subscriptions=~w, delivered_msgs=~w, "
-                   "connected=~s, created_at=~w, connected_at=~w)~n",
-                [format(K, maps:get(K, Info)) || K <- InfoKeys]).
+    print("Client(~s, username=~s, peername=~s, "
+          "clean_start=~s, keepalive=~w, "
+          "subscriptions=~w, delivered_msgs=~w, "
+          "connected=~s, created_at=~w, connected_at=~w)~n",
+          [format(K, maps:get(K, Info)) || K <- InfoKeys]).
+
+print(S) -> emqx_ctl:print(S).
+print(S, A) -> emqx_ctl:print(S, A).
 
 format(_, undefined) ->
     undefined;

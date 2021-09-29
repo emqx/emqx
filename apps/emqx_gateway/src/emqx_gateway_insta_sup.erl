@@ -298,17 +298,15 @@ do_deinit_authn(Names) ->
         end
     end, Names).
 
-do_update_one_by_one(NCfg0, State = #state{
-                                       config = OCfg,
-                                       status = Status}) ->
-
-    NCfg = emqx_map_lib:deep_merge(OCfg, NCfg0),
-
+do_update_one_by_one(NCfg, State = #state{
+                                      name = GwName,
+                                      config = OCfg,
+                                      status = Status}) ->
     OEnable = maps:get(enable, OCfg, true),
-    NEnable = maps:get(enable, NCfg0, OEnable),
+    NEnable = maps:get(enable, NCfg, OEnable),
 
-    OAuth = maps:get(authentication, OCfg, undefined),
-    NAuth = maps:get(authentication, NCfg0, OAuth),
+    OAuths = authns(GwName, OCfg),
+    NAuths = authns(GwName, NCfg),
 
     if
         Status == stopped, NEnable == true ->
@@ -317,7 +315,7 @@ do_update_one_by_one(NCfg0, State = #state{
         Status == stopped, NEnable == false ->
             {ok, State#state{config = NCfg}};
         Status == running, NEnable == true ->
-            NState = case NAuth == OAuth of
+            NState = case NAuths == OAuths of
                          true -> State;
                          false ->
                              %% Reset Authentication first
@@ -325,6 +323,7 @@ do_update_one_by_one(NCfg0, State = #state{
                              AuthnNames = init_authn(State#state.name, NCfg),
                              State#state{authns = AuthnNames}
                      end,
+            %% XXX: minimum impact update ???
             cb_gateway_update(NCfg, NState);
         Status == running, NEnable == false ->
             case cb_gateway_unload(State) of
