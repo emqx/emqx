@@ -40,7 +40,10 @@ emqx_test(){
                 export EMQX_MQTT__MAX_TOPIC_ALIAS=10
                 export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
                 export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
-                [[ $(arch) == *arm* || $(arch) == aarch64 ]] && export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
+                if [[ $(arch) == *arm* || $(arch) == aarch64 ]]; then
+                    export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
+                    export WAIT_FOR_ERLANG_STOP=120
+                fi
                 # sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
                 echo "running ${packagename} start"
@@ -139,6 +142,7 @@ EOF
         ## for ARM, due to CI env issue, skip start of quic listener for the moment
         [[ $(arch) == *arm* || $(arch) == aarch64 ]] && tee -a "$emqx_env_vars" <<EOF
 export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
+export WAIT_FOR_ERLANG_STOP=120
 EOF
     else
         echo "Error: cannot locate emqx_vars"
