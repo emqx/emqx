@@ -47,11 +47,13 @@ start_listeners() ->
                     type => apiKey,
                     name => "authorization",
                     in => header}}}},
-    Dispatch = [
-        {"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
-        {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
-        {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
-    ],
+    %% TODO: open dashboard after beta 1
+    %% Dispatch = [
+    %%     {"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
+    %%     {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
+    %%     {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
+    %% ],
+    Dispatch = [],
     BaseMinirest = #{
         base_path => ?BASE_PATH,
         modules => minirest_api:find_api_modules(apps()),
