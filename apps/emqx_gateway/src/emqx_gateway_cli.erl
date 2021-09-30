@@ -149,7 +149,7 @@ gateway(_) ->
         [Chann] ->
             InfoTab = emqx_gateway_cm:tabname(info, Name),
             [ChannInfo] = ets:lookup(InfoTab, Chann),
-            print({client, ChannInfo})
+            print_record({client, ChannInfo})
     end;
 
 'gateway-clients'(["kick", Name, ClientId]) ->
