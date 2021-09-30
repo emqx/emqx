@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx.hrl").
+-include("emqx_machine.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -define(NODE1, emqx_cluster_rpc).
@@ -42,7 +43,7 @@ init_per_suite(Config) ->
     application:load(emqx),
     application:load(emqx_machine),
     ok = ekka:start(),
-    ok = ekka_rlog:wait_for_shards([emqx_common_shard], infinity),
+    ok = ekka_rlog:wait_for_shards([?EMQX_MACHINE_SHARD], infinity),
     application:set_env(emqx_machine, cluster_call_max_history, 100),
     application:set_env(emqx_machine, cluster_call_clean_interval, 1000),
     application:set_env(emqx_machine, cluster_call_retry_interval, 900),

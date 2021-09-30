@@ -14,17 +14,24 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQ_MACHINE_X_HRL).
--define(EMQ_MACHINE_X_HRL, true).
+-ifndef(EMQ_X_CLUSTER_RPC_HRL).
+-define(EMQ_X_CLUSTER_RPC_HRL, true).
 
--define(COMMON_SHARD, emqx_common_shard).
--define(SHARED_SUB_SHARD, emqx_shared_sub_shard).
--define(CM_SHARD, emqx_cm_shard).
--define(ROUTE_SHARD, route_shard).
+-define(CLUSTER_MFA, cluster_rpc_mfa).
+-define(CLUSTER_COMMIT, cluster_rpc_commit).
 
--define(BOOT_SHARDS, [ ?ROUTE_SHARD
-                     , ?COMMON_SHARD
-                     , ?SHARED_SUB_SHARD
-                     ]).
+-define(EMQX_MACHINE_SHARD, emqx_machine_shard).
+
+-record(cluster_rpc_mfa, {
+    tnx_id :: pos_integer(),
+    mfa :: mfa(),
+    created_at :: calendar:datetime(),
+    initiator :: node()
+}).
+
+-record(cluster_rpc_commit, {
+    node :: node(),
+    tnx_id :: pos_integer() | '$1'
+}).
 
 -endif.

@@ -17,7 +17,17 @@
 -ifndef(EMQ_X_HRL).
 -define(EMQ_X_HRL, true).
 
--include_lib("emqx_machine/include/emqx_machine.hrl").
+%% Shard
+%%--------------------------------------------------------------------
+-define(COMMON_SHARD, emqx_common_shard).
+-define(SHARED_SUB_SHARD, emqx_shared_sub_shard).
+-define(CM_SHARD, emqx_cm_shard).
+-define(ROUTE_SHARD, route_shard).
+
+-define(BOOT_SHARDS, [ ?ROUTE_SHARD
+                     , ?COMMON_SHARD
+                     , ?SHARED_SUB_SHARD
+                     ]).
 
 %% Banner
 %%--------------------------------------------------------------------
