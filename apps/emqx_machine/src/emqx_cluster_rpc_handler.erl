@@ -18,7 +18,6 @@
 -behaviour(gen_server).
 
 -include_lib("emqx/include/logger.hrl").
--include("emqx_cluster_rpc.hrl").
 -include("emqx_machine.hrl").
 
 -export([start_link/0, start_link/2]).
@@ -50,7 +49,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, del_stale_mfa}, State = #{timer := TRef, max_history := MaxHistory}) ->
-    case ekka_mnesia:transaction(?COMMON_SHARD, fun del_stale_mfa/1, [MaxHistory]) of
+    case ekka_mnesia:transaction(?EMQX_MACHINE_SHARD, fun del_stale_mfa/1, [MaxHistory]) of
         {atomic, ok} -> ok;
         Error -> ?LOG(error, "del_stale_cluster_rpc_mfa error:~p", [Error])
     end,

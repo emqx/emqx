@@ -29,7 +29,6 @@
         ]).
 
 -include("emqx.hrl").
--include_lib("emqx_machine/include/emqx_machine.hrl").
 -include("emqx_release.hrl").
 -include("logger.hrl").
 
@@ -42,7 +41,7 @@
 start(_Type, _Args) ->
     ok = maybe_load_config(),
     ok = maybe_start_quicer(),
-    start_ekka(),
+    ensure_ekka_started(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = maybe_start_listeners(),
     ok = emqx_alarm_handler:load(),
@@ -55,6 +54,10 @@ prep_stop(_State) ->
       andalso emqx_listeners:stop().
 
 stop(_State) -> ok.
+
+ensure_ekka_started() ->
+    ekka:start(),
+    ok = ekka_rlog:wait_for_shards(?BOOT_SHARDS, infinity).
 
 %% @doc Call this function to make emqx boot without loading config,
 %% in case we want to delegate the config load to a higher level app
@@ -81,11 +84,6 @@ maybe_load_config() ->
             ConfFiles = application:get_env(emqx, config_files, []),
             emqx_config:init_load(emqx_schema, ConfFiles)
     end.
-%% @doc This API is mostly for testing
-%% we already start ekka in emqx_machine
-start_ekka() ->
-    ekka:start(),
-    ok = ekka_rlog:wait_for_shards(?BOOT_SHARDS, infinity).
 
 maybe_start_listeners() ->
     case emqx_boot:is_enabled(listeners) of
