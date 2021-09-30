@@ -94,3 +94,5 @@
 
 %% Tables
 -define(RULE_TAB, emqx_rule).
+
+-define(RULE_ENGINE_SHARD, emqx_rule_engine_shard).
