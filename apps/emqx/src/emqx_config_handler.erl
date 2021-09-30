@@ -28,6 +28,7 @@
         , remove_handler/1
         , update_config/3
         , merge_to_old_config/2
+        , get_raw_override_conf/0
         ]).
 
 %% gen_server callbacks
@@ -87,6 +88,10 @@ add_handler(ConfKeyPath, HandlerName) ->
 remove_handler(ConfKeyPath) ->
     gen_server:call(?MODULE, {remove_handler, ConfKeyPath}).
 
+-spec get_raw_override_conf() -> emqx_config:raw_config().
+get_raw_override_conf() ->
+    gen_server:call(?MODULE, get_raw_override_conf).
+
 %%============================================================================
 
 -spec init(term()) -> {ok, state()}.
@@ -122,6 +127,9 @@ handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
     end,
     {reply, Reply, State};
 
+handle_call(get_raw_override_conf, _From, State) ->
+    Reply = emqx_config:read_override_conf(),
+    {reply, Reply, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.

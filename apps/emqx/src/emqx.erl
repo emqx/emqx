@@ -222,8 +222,10 @@ update_config(KeyPath, UpdateReq) ->
              emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_config([RootName | _] = KeyPath, UpdateReq, Opts) ->
-    emqx_config_handler:update_config(emqx_config:get_schema_mod(RootName), KeyPath,
-        {{update, UpdateReq}, Opts}).
+    Module = emqx_config_handler,
+    Func = update_config,
+    Args = [emqx_config:get_schema_mod(RootName), KeyPath, {{update, UpdateReq}, Opts}],
+    cluster_call(Module, Func, Args).
 
 -spec remove_config(emqx_map_lib:config_key_path()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
@@ -233,16 +235,23 @@ remove_config(KeyPath) ->
 -spec remove_config(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 remove_config([RootName | _] = KeyPath, Opts) ->
-    emqx_config_handler:update_config(emqx_config:get_schema_mod(RootName),
-        KeyPath, {remove, Opts}).
+    Module = emqx_config_handler,
+    Func = update_config,
+    Args = [emqx_config:get_schema_mod(RootName), KeyPath, {remove, Opts}],
+    cluster_call(Module, Func, Args).
 
 -spec reset_config(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
-reset_config([RootName | _] = KeyPath, Opts) ->
+reset_config([_| _] = KeyPath, Opts) ->
     case emqx_config:get_default_value(KeyPath) of
         {ok, Default} ->
-            emqx_config_handler:update_config(emqx_config:get_schema_mod(RootName), KeyPath,
-                {{update, Default}, Opts});
+            update_config(KeyPath, {update, Default}, Opts);
         {error, _} = Error ->
             Error
+    end.
+
+cluster_call(Module, Func, Args) ->
+    case emqx_cluster_rpc:multicall(Module, Func, Args) of
+        {ok, _TxnId, Result} -> Result;
+        Failed -> Failed
     end.

@@ -198,9 +198,9 @@ tnx_ids(Status) ->
         {Node, TnxId} end, Status)).
 
 start() ->
-    {ok, Pid1} = emqx_cluster_rpc:start_link(),
-    {ok, Pid2} = emqx_cluster_rpc:start_link({node(), ?NODE2}, ?NODE2, 500),
-    {ok, Pid3} = emqx_cluster_rpc:start_link({node(), ?NODE3}, ?NODE3, 500),
+    {ok, Pid1} = emqx_cluster_rpc:start_link(-1),
+    {ok, Pid2} = emqx_cluster_rpc:start_link({node(), ?NODE2}, ?NODE2, 500, -1),
+    {ok, Pid3} = emqx_cluster_rpc:start_link({node(), ?NODE3}, ?NODE3, 500, -1),
     {ok, Pid4} = emqx_cluster_rpc_handler:start_link(100, 500),
     {ok, [Pid1, Pid2, Pid3, Pid4]}.
 

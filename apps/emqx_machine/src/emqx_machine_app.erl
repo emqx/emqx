@@ -23,8 +23,8 @@
 -behaviour(application).
 
 start(_Type, _Args) ->
-    ok = emqx_machine:start(),
-    emqx_machine_sup:start_link().
+    {ok, TnxId} = emqx_machine:start(),
+    emqx_machine_sup:start_link(TnxId).
 
 stop(_State) ->
     ok.

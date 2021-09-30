@@ -17,8 +17,9 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, mnesia/1]).
+-export([start_link/1, mnesia/1]).
 -export([multicall/3, multicall/5, query/1, reset/0, status/0, skip_failed_commit/1]).
+-export([get_latest_tnx_id/0]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
     handle_continue/2, code_change/3]).
@@ -26,7 +27,7 @@
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
--export([start_link/3]).
+-export([start_link/4]).
 -endif.
 
 -boot_mnesia({mnesia, [boot]}).
@@ -61,11 +62,11 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(cluster_rpc_mfa, disc_copies),
     ok = ekka_mnesia:copy_table(cluster_rpc_commit, disc_copies).
 
-start_link() ->
-    start_link(node(), ?MODULE, get_retry_ms()).
+start_link(TnxId) ->
+    start_link(node(), ?MODULE, get_retry_ms(), TnxId).
 
-start_link(Node, Name, RetryMs) ->
-    gen_server:start_link({local, Name}, ?MODULE, [Node, RetryMs], []).
+start_link(Node, Name, RetryMs, TnxId) ->
+    gen_server:start_link({local, Name}, ?MODULE, [Node, RetryMs, TnxId], []).
 
 -spec multicall(Module, Function, Args) -> {ok, TnxId, term()} | {error, Reason} when
     Module :: module(),
@@ -129,6 +130,10 @@ reset() -> gen_server:call(?MODULE, reset).
 status() ->
     transaction(fun trans_status/0, []).
 
+-spec get_latest_id() -> {'atomic', integer()} | {'aborted', Reason :: term()}.
+get_latest_tnx_id() ->
+    ekka_mnesia:ro_transaction(?EMQX_MACHINE_SHARD, fun() -> get_latest_id() end).
+
 %% Regardless of what MFA is returned, consider it a success),
 %% then move to the next tnxId.
 %% if the next TnxId failed, need call the function again to skip.
@@ -141,9 +146,11 @@ skip_failed_commit(Node) ->
 %%%===================================================================
 
 %% @private
-init([Node, RetryMs]) ->
+init([Node, RetryMs, TnxId]) ->
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
-    {ok, #{node => Node, retry_interval => RetryMs}, {continue, ?CATCH_UP}}.
+    State = #{node => Node, retry_interval => RetryMs},
+    maybe_init_tnx_id(Node, TnxId),
+    {ok, State, {continue, ?CATCH_UP}}.
 
 %% @private
 handle_continue(?CATCH_UP, State) ->
@@ -370,3 +377,13 @@ commit_status_trans(Operator, TnxId) ->
 
 get_retry_ms() ->
     application:get_env(emqx_machine, cluster_call_retry_interval, 1000).
+
+maybe_init_tnx_id(_Node, TnxId)when TnxId < 0 -> ok;
+maybe_init_tnx_id(Node, TnxId) ->
+    {atomic, _} = transaction(fun init_node_tnx_id/2, [Node, TnxId]).
+
+init_node_tnx_id(Node, TnxId) ->
+    case mnesia:read(?CLUSTER_COMMIT, Node) of
+        [] -> commit(Node, TnxId);
+        _ -> ok
+    end.

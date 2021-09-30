@@ -20,18 +20,18 @@
 
 -behaviour(supervisor).
 
--export([ start_link/0
+-export([ start_link/1
         ]).
 
 -export([init/1]).
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+start_link(TnxId) ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [TnxId]).
 
-init([]) ->
+init([TnxId]) ->
     GlobalGC = child_worker(emqx_global_gc, [], permanent),
     Terminator = child_worker(emqx_machine_terminator, [], transient),
-    ClusterRpc = child_worker(emqx_cluster_rpc, [], permanent),
+    ClusterRpc = child_worker(emqx_cluster_rpc, [TnxId], permanent),
     ClusterHandler = child_worker(emqx_cluster_rpc_handler, [], permanent),
     BootApps = child_worker(emqx_machine_boot, post_boot, [], temporary),
     Children = [GlobalGC, Terminator, ClusterRpc, ClusterHandler, BootApps],
