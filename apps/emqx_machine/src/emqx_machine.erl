@@ -22,7 +22,7 @@
         ]).
 
 -include_lib("emqx/include/logger.hrl").
--include("emqx_cluster_rpc.hrl").
+-include("emqx_machine.hrl").
 
 %% @doc EMQ X boot entrypoint.
 start() ->
