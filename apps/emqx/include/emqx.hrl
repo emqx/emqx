@@ -28,6 +28,13 @@
 -define(MOD_DELAYED_SHARD, emqx_delayed_shard).
 -define(CM_SHARD, emqx_cm_shard).
 
+-define(EMQX_SHARDS, [ ?ROUTE_SHARD
+                     , ?COMMON_SHARD
+                     , ?SHARED_SUB_SHARD
+                     , ?RULE_ENGINE_SHARD
+                     , ?MOD_DELAYED_SHARD
+                     ]).
+
 %%--------------------------------------------------------------------
 %% Banner
 %%--------------------------------------------------------------------

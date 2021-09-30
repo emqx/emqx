@@ -33,7 +33,8 @@ init([]) ->
     Terminator = child_worker(emqx_machine_terminator, [], transient),
     ClusterRpc = child_worker(emqx_cluster_rpc, [], permanent),
     ClusterHandler = child_worker(emqx_cluster_rpc_handler, [], permanent),
-    Children = [GlobalGC, Terminator, ClusterRpc, ClusterHandler],
+    BootApps = child_worker(emqx_machine_boot, post_boot, [], temporary),
+    Children = [GlobalGC, Terminator, ClusterRpc, ClusterHandler, BootApps],
     SupFlags = #{strategy => one_for_one,
                  intensity => 100,
                  period => 10
@@ -41,8 +42,11 @@ init([]) ->
     {ok, {SupFlags, Children}}.
 
 child_worker(M, Args, Restart) ->
+    child_worker(M, start_link, Args, Restart).
+
+child_worker(M, Func, Args, Restart) ->
     #{id       => M,
-      start    => {M, start_link, Args},
+      start    => {M, Func, Args},
       restart  => Restart,
       shutdown => 5000,
       type     => worker,

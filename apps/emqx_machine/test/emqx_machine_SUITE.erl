@@ -33,9 +33,9 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 t_shutdown_reboot(_Config) ->
-    emqx_machine:stop_apps(normal),
+    emqx_machine_boot:stop_apps(normal),
     false = emqx:is_running(node()),
-    emqx_machine:ensure_apps_started(),
+    emqx_machine_boot:ensure_apps_started(),
     true = emqx:is_running(node()),
-    ok = emqx_machine:stop_apps(for_test),
+    ok = emqx_machine_boot:stop_apps(for_test),
     false = emqx:is_running(node()).

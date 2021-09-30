@@ -80,7 +80,7 @@ handle_cast(_Cast, State) ->
 
 handle_call(?DO_IT, _From, State) ->
     try
-        emqx_machine:stop_apps(normal)
+        emqx_machine_boot:stop_apps(normal)
     catch
         C : E : St ->
             Apps = [element(1, A) || A <- application:which_applications()],
