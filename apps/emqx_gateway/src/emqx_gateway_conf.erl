@@ -44,6 +44,11 @@
         , remove_authn/2
         ]).
 
+%% internal exports
+-export([ unconvert_listeners/1
+        , convert_listeners/2
+        ]).
+
 %% callbacks for emqx_config_handler
 -export([ pre_config_update/2
         , post_config_update/4

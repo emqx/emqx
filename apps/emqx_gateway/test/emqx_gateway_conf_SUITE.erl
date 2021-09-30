@@ -38,7 +38,7 @@ end_per_suite(_Conf) ->
     emqx_ct_helpers:stop_apps([emqx_gateway]).
 
 init_per_testcase(_CaseName, Conf) ->
-    _ = emqx_gateway_conf:remove_gateway(stomp),
+    _ = emqx_gateway_conf:unload_gateway(stomp),
     Conf.
 
 %%--------------------------------------------------------------------
@@ -80,7 +80,7 @@ init_per_testcase(_CaseName, Conf) ->
            <<"user_id_type">> => <<"username">>
          }).
 
-t_load_remove_gateway(_) ->
+t_load_unload_gateway(_) ->
     StompConf1 = compose(?CONF_STOMP_BAISC_1,
                          ?CONF_STOMP_AUTHN_1,
                          ?CONF_STOMP_LISTENER_1
@@ -97,8 +97,8 @@ t_load_remove_gateway(_) ->
     ok = emqx_gateway_conf:update_gateway(stomp, StompConf2),
     assert_confs(StompConf2, emqx:get_raw_config([gateway, stomp])),
 
-    ok = emqx_gateway_conf:remove_gateway(stomp),
-    ok = emqx_gateway_conf:remove_gateway(stomp),
+    ok = emqx_gateway_conf:unload_gateway(stomp),
+    ok = emqx_gateway_conf:unload_gateway(stomp),
 
     {error, not_found} =
         emqx_gateway_conf:update_gateway(stomp, StompConf2),
@@ -226,9 +226,11 @@ compose_listener_authn(Basic, Listener, Authn) ->
       listener(maps:put(<<"authentication">>, Authn, Listener))).
 
 listener(L) ->
-  #{<<"listeners">> => #{<<"tcp">> => #{<<"default">> => L}}}.
+    #{<<"listeners">> => [L#{<<"type">> => <<"tcp">>,
+                             <<"name">> => <<"default">>}]}.
 
-assert_confs(Expected, Effected) ->
+assert_confs(Expected0, Effected) ->
+    Expected = maybe_unconvert_listeners(Expected0),
     case do_assert_confs(Expected, Effected) of
         false ->
             io:format(standard_error, "Expected config: ~p,\n"
@@ -248,3 +250,11 @@ do_assert_confs(Expected, Effected) when is_map(Expected),
     end, Ks1);
 do_assert_confs(Expected, Effected) ->
     Expected =:= Effected.
+
+maybe_unconvert_listeners(Conf) ->
+    case maps:take(<<"listeners">>, Conf) of
+        error -> Conf;
+        {Ls, Conf1} ->
+            Conf1#{<<"listeners">> =>
+                   emqx_gateway_conf:unconvert_listeners(Ls)}
+    end.
