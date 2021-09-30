@@ -38,7 +38,7 @@ sorted_reboot_apps_cycle_test() ->
 
 check_order(Apps) ->
     AllApps = lists:usort(lists:append([[A | Deps] || {A, Deps} <- Apps])),
-    Sorted = emqx_machine:sorted_reboot_apps(Apps),
+    Sorted = emqx_machine_boot:sorted_reboot_apps(Apps),
     case length(AllApps) =:= length(Sorted) of
         true -> ok;
         false -> error({AllApps, Sorted})
