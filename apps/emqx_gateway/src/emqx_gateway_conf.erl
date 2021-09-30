@@ -148,7 +148,7 @@ bind2str(LConf = #{bind := Bind}) when is_binary(Bind) ->
 bind2str(LConf = #{<<"bind">> := Bind}) when is_binary(Bind) ->
     LConf.
 
--spec listeners(atom_or_bin()) -> map().
+-spec listeners(atom_or_bin()) -> [map()].
 listeners(GwName0) ->
    GwName = bin(GwName0),
    RawConf = emqx_config:fill_defaults(
