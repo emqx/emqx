@@ -34,14 +34,6 @@
 
 -define(APP, emqx).
 
--define(EMQX_SHARDS, [ ?ROUTE_SHARD
-                     , ?COMMON_SHARD
-                     , ?SHARED_SUB_SHARD
-                     , ?RULE_ENGINE_SHARD
-                     , ?MOD_DELAYED_SHARD
-                     ]).
-
-
 %%--------------------------------------------------------------------
 %% Application callbacks
 %%--------------------------------------------------------------------
@@ -49,6 +41,7 @@
 start(_Type, _Args) ->
     ok = maybe_load_config(),
     ok = maybe_start_quicer(),
+    start_ekka(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = maybe_start_listeners(),
     ok = emqx_alarm_handler:load(),
@@ -87,6 +80,11 @@ maybe_load_config() ->
             ConfFiles = application:get_env(emqx, config_files, []),
             emqx_config:init_load(emqx_schema, ConfFiles)
     end.
+%% @doc This API is mostly for testing
+%% we already start ekka in emqx_machine
+start_ekka() ->
+    ekka:start(),
+    ok = ekka_rlog:wait_for_shards(?EMQX_SHARDS, infinity).
 
 maybe_start_listeners() ->
     case emqx_boot:is_enabled(listeners) of

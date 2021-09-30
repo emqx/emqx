@@ -24,13 +24,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
--define(EMQX_SHARDS, [ ?ROUTE_SHARD
-                     , ?COMMON_SHARD
-                     , ?SHARED_SUB_SHARD
-                     , ?RULE_ENGINE_SHARD
-                     , ?MOD_DELAYED_SHARD
-                     ]).
-
 %% @doc EMQ X boot entrypoint.
 start() ->
     case os:type() of
