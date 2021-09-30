@@ -29,6 +29,7 @@
         ]).
 
 -include("emqx.hrl").
+-include_lib("emqx_machine/include/emqx_machine.hrl").
 -include("emqx_release.hrl").
 -include("logger.hrl").
 
@@ -84,7 +85,7 @@ maybe_load_config() ->
 %% we already start ekka in emqx_machine
 start_ekka() ->
     ekka:start(),
-    ok = ekka_rlog:wait_for_shards(?EMQX_SHARDS, infinity).
+    ok = ekka_rlog:wait_for_shards(?BOOT_SHARDS, infinity).
 
 maybe_start_listeners() ->
     case emqx_boot:is_enabled(listeners) of

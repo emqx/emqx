@@ -19,7 +19,6 @@
 -behaviour(gen_server).
 
 -include("rule_engine.hrl").
--include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 
@@ -81,7 +80,6 @@ mnesia(boot) ->
                 {storage_properties, StoreProps}]);
 
 mnesia(copy) ->
-    %% Copy rule table
     ok = ekka_mnesia:copy_table(?RULE_TAB, disc_copies).
 
 dump() ->

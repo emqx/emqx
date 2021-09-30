@@ -23,6 +23,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include("emqx_machine.hrl").
 
 %% @doc EMQ X boot entrypoint.
 start() ->
@@ -38,7 +39,7 @@ start() ->
     ok = load_config_files(),
     %% Load application first for ekka_mnesia scanner
     ekka:start(),
-    ok = ekka_rlog:wait_for_shards(?EMQX_SHARDS, infinity),
+    ok = ekka_rlog:wait_for_shards(?BOOT_SHARDS, infinity),
     ok.
 
 graceful_shutdown() ->

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,20 +14,17 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_rule_engine_app).
+-ifndef(EMQ_MACHINE_X_HRL).
+-define(EMQ_MACHINE_X_HRL, true).
 
--include("rule_engine.hrl").
+-define(COMMON_SHARD, emqx_common_shard).
+-define(SHARED_SUB_SHARD, emqx_shared_sub_shard).
+-define(CM_SHARD, emqx_cm_shard).
+-define(ROUTE_SHARD, route_shard).
 
--behaviour(application).
+-define(BOOT_SHARDS, [ ?ROUTE_SHARD
+                     , ?COMMON_SHARD
+                     , ?SHARED_SUB_SHARD
+                     ]).
 
--export([start/2]).
-
--export([stop/1]).
-
-start(_Type, _Args) ->
-    ok = ekka_rlog:wait_for_shards([?RULE_ENGINE_SHARD], infinity),
-    ok = emqx_rule_events:reload(),
-    emqx_rule_engine_sup:start_link().
-
-stop(_State) ->
-    ok = emqx_rule_events:unload().
+-endif.
