@@ -354,9 +354,7 @@ typename_to_spec(Name) ->
             end
     end.
 
-%% #{example => [log, publish]} should keep the same.
-to_bin([Atom | _] = List) when is_atom(Atom) -> List;
-to_bin(List) when is_list(List) -> unicode:characters_to_binary(List);
+to_bin(List) when is_list(List) -> list_to_binary(List);
 to_bin(B) when is_boolean(B) -> B;
 to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 to_bin(X) -> X.

@@ -3,6 +3,7 @@
 -behaviour(hocon_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([ check_params/2
         ]).
@@ -19,7 +20,10 @@ check_params(Params, Tag) ->
         #{Tag := Checked} -> {ok, Checked}
     catch
         Error:Reason:ST ->
-            logger:error("check rule params failed: ~p", [{Error, Reason, ST}]),
+            ?SLOG(error, #{msg => "check_rule_params_failed",
+                           exception => Error,
+                           reason => Reason,
+                           stacktrace => ST}),
             {error, {Reason, ST}}
     end.
 
@@ -27,8 +31,8 @@ check_params(Params, Tag) ->
 %% Hocon Schema Definitions
 
 roots() ->
-    [ {"rule_creation", sc(ref("rule_creation"), #{})}
-    , {"rule_test", sc(ref("rule_test"), #{})}
+    [ {"rule_creation", sc(ref("rule_creation"), #{desc => "Schema for creating rules"})}
+    , {"rule_test", sc(ref("rule_test"), #{desc => "Schema for testing rules"})}
     ].
 
 fields("rule_creation") ->

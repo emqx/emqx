@@ -18,6 +18,7 @@
 -include("emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([roots/0, fields/1]).
 
@@ -53,7 +54,8 @@ on_start(InstId, #{servers := Servers0,
                    pool_size := PoolSize,
                    auto_reconnect := AutoReconn,
                    ssl := SSL} = Config) ->
-    logger:info("starting ldap connector: ~p, config: ~p", [InstId, Config]),
+    ?SLOG(info, #{msg => "starting ldap connector",
+                  connector => InstId, config => Config}),
     Servers = [begin proplists:get_value(host, S) end || S <- Servers0],
     SslOpts = case maps:get(enable, SSL) of
                   true ->
@@ -75,14 +77,20 @@ on_start(InstId, #{servers := Servers0,
     {ok, #{poolname => PoolName}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    logger:info("stopping ldap connector: ~p", [InstId]),
+    ?SLOG(info, #{msg => "stopping ldap connector",
+                  connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId, {search, Base, Filter, Attributes}, AfterQuery, #{poolname := PoolName} = State) ->
-    logger:debug("ldap connector ~p received request: ~p, at state: ~p", [InstId, {Base, Filter, Attributes}, State]),
+    Request = {Base, Filter, Attributes},
+    ?SLOG(debug, #{msg => "ldap connector received request",
+                   request => Request, connector => InstId,
+                   state => State}),
     case Result = ecpool:pick_and_do(PoolName, {?MODULE, search, [Base, Filter, Attributes]}, no_handover) of
         {error, Reason} ->
-            logger:debug("ldap connector ~p do request failed, request: ~p, reason: ~p", [InstId, {Base, Filter, Attributes}, Reason]),
+            ?SLOG(error, #{msg => "ldap connector do request failed",
+                           request => Request, connector => InstId,
+                           reason => Reason}),
             emqx_resource:query_failed(AfterQuery);
         _ ->
             emqx_resource:query_success(AfterQuery)

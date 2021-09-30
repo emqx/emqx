@@ -22,16 +22,7 @@
         , get_selected_data/3
         ]).
 
-%% Dialyzer gives up on the generated code.
-%% probably due to stack depth, or inlines.
--dialyzer({nowarn_function, [test/1,
-                             test_rule/4,
-                             flatten/1,
-                             fill_default_values/2,
-                             envs_examp/1
-                             ]}).
-
--spec(test(#{}) -> {ok, map() | list()} | {error, term()}).
+-spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, nomatch}.
 test(#{sql := Sql, context := Context}) ->
     {ok, Select} = emqx_rule_sqlparser:parse(Sql),
     InTopic = maps:get(topic, Context, <<>>),
@@ -63,7 +54,8 @@ test_rule(Sql, Select, Context, EventTopics) ->
             doeach => emqx_rule_sqlparser:select_doeach(Select),
             incase => emqx_rule_sqlparser:select_incase(Select),
             conditions => emqx_rule_sqlparser:select_where(Select)
-        }
+        },
+        created_at = erlang:system_time(millisecond)
     },
     FullContext = fill_default_values(hd(EventTopics), emqx_rule_maps:atom_key_map(Context)),
     try
@@ -76,7 +68,7 @@ test_rule(Sql, Select, Context, EventTopics) ->
     end.
 
 get_selected_data(Selected, _Envs, _Args) ->
-     Selected.
+    Selected.
 
 is_publish_topic(<<"$events/", _/binary>>) -> false;
 is_publish_topic(_Topic) -> true.
@@ -86,8 +78,9 @@ flatten([D1]) -> D1;
 flatten([D1 | L]) when is_list(D1) ->
     D1 ++ flatten(L).
 
-echo_action(Data, _Envs) ->
-    ?LOG(info, "Testing Rule SQL OK"), Data.
+echo_action(Data, Envs) ->
+    ?SLOG(debug, #{msg => "testing_rule_sql_ok", data => Data, envs => Envs}),
+    Data.
 
 fill_default_values(Event, Context) ->
     maps:merge(envs_examp(Event), Context).

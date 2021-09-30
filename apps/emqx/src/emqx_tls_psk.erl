@@ -14,10 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_psk).
+-module(emqx_tls_psk).
 
 -include("logger.hrl").
-
 
 %% SSL PSK Callbacks
 -export([lookup/3]).
@@ -26,14 +25,24 @@
 -type psk_user_state() :: term().
 
 -spec lookup(psk, psk_identity(), psk_user_state()) -> {ok, SharedSecret :: binary()} | error.
-lookup(psk, ClientPSKID, _UserState) ->
-    try emqx_hooks:run_fold('tls_handshake.psk_lookup', [ClientPSKID], not_found) of
-        SharedSecret when is_binary(SharedSecret) -> {ok, SharedSecret};
-        Error ->
-            ?LOG(error, "Look PSK for PSKID ~p error: ~p", [ClientPSKID, Error]),
+lookup(psk, PSKIdentity, _UserState) ->
+    try emqx_hooks:run_fold('tls_handshake.psk_lookup', [PSKIdentity], normal) of
+        {ok, SharedSecret} when is_binary(SharedSecret) ->
+            {ok, SharedSecret};
+        normal ->
+            ?SLOG(info, #{msg => "psk_identity_not_found",
+                          psk_identity => PSKIdentity}),
+            error;
+        {error, Reason} ->
+            ?SLOG(warning, #{msg => "psk_identity_not_found",
+                             psk_identity => PSKIdentity,
+                             reason => Reason}),
             error
     catch
-        Except:Error:Stacktrace ->
-          ?LOG(error, "Lookup PSK failed, ~0p: ~0p", [{Except,Error}, Stacktrace]),
+        Class:Reason:Stacktrace ->
+          ?SLOG(error, #{msg => "lookup_psk_failed",
+                         class => Class,
+                         reason => Reason,
+                         stacktrace => Stacktrace}),
           error
     end.

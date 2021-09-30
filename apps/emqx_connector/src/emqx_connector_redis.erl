@@ -18,6 +18,7 @@
 -include("emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -type server() :: tuple().
 
@@ -85,7 +86,8 @@ on_start(InstId, #{redis_type := Type,
                    pool_size := PoolSize,
                    auto_reconnect := AutoReconn,
                    ssl := SSL } = Config) ->
-    logger:info("starting redis connector: ~p, config: ~p", [InstId, Config]),
+    ?SLOG(info, #{msg => "starting redis connector",
+                  connector => InstId, config => Config}),
     Servers = case Type of
                 single -> [{servers, [maps:get(server, Config)]}];
                 _ ->[{servers, maps:get(servers, Config)}]
@@ -116,18 +118,21 @@ on_start(InstId, #{redis_type := Type,
     {ok, #{poolname => PoolName, type => Type}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    logger:info("stopping redis connector: ~p", [InstId]),
+    ?SLOG(info, #{msg => "stopping redis connector",
+                  connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId, {cmd, Command}, AfterCommand, #{poolname := PoolName, type := Type} = State) ->
-    logger:debug("redis connector ~p received cmd query: ~p, at state: ~p", [InstId, Command, State]),
+    ?SLOG(debug, #{msg => "redis connector received cmd query",
+        connector => InstId, sql => Command, state => State}),
     Result = case Type of
                  cluster -> eredis_cluster:q(PoolName, Command);
                  _ -> ecpool:pick_and_do(PoolName, {?MODULE, cmd, [Type, Command]}, no_handover)
              end,
     case Result of
         {error, Reason} ->
-            logger:debug("redis connector ~p do cmd query failed, cmd: ~p, reason: ~p", [InstId, Command, Reason]),
+            ?SLOG(error, #{msg => "redis connector do cmd query failed",
+                connector => InstId, sql => Command, reason => Reason}),
             emqx_resource:query_failed(AfterCommand);
         _ ->
             emqx_resource:query_success(AfterCommand)

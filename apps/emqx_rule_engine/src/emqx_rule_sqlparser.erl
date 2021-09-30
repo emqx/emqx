@@ -36,21 +36,17 @@
 
 -opaque(select() :: #select{}).
 
--type(const() :: {const, number()|binary()}).
+-type const() :: {const, number()|binary()}.
 
--type(variable() :: binary() | list(binary())).
+-type variable() :: binary() | list(binary()).
 
--type(alias() :: binary() | list(binary())).
+-type alias() :: binary() | list(binary()).
 
--type(field() :: const() | variable()
+-type field() :: const() | variable()
                | {as, field(), alias()}
-               | {'fun', atom(), list(field())}).
+               | {'fun', atom(), list(field())}.
 
 -export_type([select/0]).
-
-%% Dialyzer gives up on the generated code.
-%% probably due to stack depth, or inlines.
--dialyzer({nowarn_function, [parse/1]}).
 
 %% Parse one select statement.
 -spec(parse(string() | binary()) -> {ok, select()} | {error, term()}).

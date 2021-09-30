@@ -52,10 +52,12 @@ jobs:
           - api_delayed_publish
           - api_topic_rewrite
           - api_event_message
+          - api_stats
     steps:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-fvt
+        ref: v1.2.0
         path: .
     - uses: actions/setup-java@v1
       with:

@@ -55,6 +55,11 @@
 -define(CMD_APPEND, append).
 -define(CMD_MOVE, move).
 
+-define(CMD_MOVE_TOP, <<"top">>).
+-define(CMD_MOVE_BOTTOM, <<"bottom">>).
+-define(CMD_MOVE_BEFORE(Before), {<<"before">>, Before}).
+-define(CMD_MOVE_AFTER(After), {<<"after">>, After}).
+
 -define(METRICS(Type), tl(tuple_to_list(#Type{}))).
 -define(METRICS(Type, K), #Type{}#Type.K).
 

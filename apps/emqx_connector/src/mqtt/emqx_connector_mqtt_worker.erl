@@ -63,6 +63,7 @@
 -behaviour(gen_statem).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% APIs
 -export([ start_link/1
@@ -189,7 +190,8 @@ callback_mode() -> [state_functions].
 
 %% @doc Config should be a map().
 init(#{name := Name} = ConnectOpts) ->
-    ?LOG(debug, "starting bridge worker for ~p", [Name]),
+    ?SLOG(debug, #{msg => "starting bridge worker",
+                   name => Name}),
     erlang:process_flag(trap_exit, true),
     Queue = open_replayq(Name, maps:get(replayq, ConnectOpts, #{})),
     State = init_state(ConnectOpts),
@@ -335,8 +337,9 @@ common(_StateName, cast, {send_to_remote, Msg}, #{replayq := Q} = State) ->
     NewQ = replayq:append(Q, [Msg]),
     {keep_state, State#{replayq => NewQ}, {next_event, internal, maybe_send}};
 common(StateName, Type, Content, #{name := Name} = State) ->
-    ?LOG(notice, "Bridge ~p discarded ~p type event at state ~p:~p",
-          [Name, Type, StateName, Content]),
+    ?SLOG(notice, #{msg => "Bridge discarded event",
+        name => Name, type => Type, state_name => StateName,
+        content => Content}),
     {keep_state, State}.
 
 do_connect(#{connect_opts := ConnectOpts = #{forwards := Forwards},
@@ -352,8 +355,8 @@ do_connect(#{connect_opts := ConnectOpts = #{forwards := Forwards},
             {ok, State#{connection => Conn}};
         {error, Reason} ->
             ConnectOpts1 = obfuscate(ConnectOpts),
-            ?LOG(error, "Failed to connect \n"
-                 "config=~p\nreason:~p", [ConnectOpts1, Reason]),
+            ?SLOG(error, #{msg => "Failed to connect",
+                config => ConnectOpts1, reason => Reason}),
             {error, Reason, State}
     end.
 
@@ -399,7 +402,9 @@ pop_and_send_loop(#{replayq := Q} = State, N) ->
 
 %% Assert non-empty batch because we have a is_empty check earlier.
 do_send(#{connect_opts := #{forwards := undefined}}, _QAckRef, Batch) ->
-    ?LOG(error, "cannot forward messages to remote broker as 'bridge.mqtt.<name>.in' not configured, msg: ~p", [Batch]);
+    ?SLOG(error, #{msg => "cannot forward messages to remote broker"
+                          " as egress_channel is not configured",
+                   messages => Batch});
 do_send(#{inflight := Inflight,
           connection := Connection,
           mountpoint := Mountpoint,
@@ -409,14 +414,16 @@ do_send(#{inflight := Inflight,
                     emqx_metrics:inc('bridge.mqtt.message_sent_to_remote'),
                     emqx_connector_mqtt_msg:to_remote_msg(Message, Vars)
                 end,
-    ?LOG(debug, "publish to remote broker, msg: ~p, vars: ~p", [Batch, Vars]),
+    ?SLOG(debug, #{msg => "publish to remote broker",
+        message => Batch, vars => Vars}),
     case emqx_connector_mqtt_mod:send(Connection, [ExportMsg(M) || M <- Batch]) of
         {ok, Refs} ->
             {ok, State#{inflight := Inflight ++ [#{q_ack_ref => QAckRef,
                                                    send_ack_ref => map_set(Refs),
                                                    batch => Batch}]}};
         {error, Reason} ->
-            ?LOG(info, "mqtt_bridge_produce_failed ~p", [Reason]),
+            ?SLOG(info, #{msg => "mqtt_bridge_produce_failed",
+                reason => Reason}),
             {error, State}
     end.
 
@@ -436,7 +443,8 @@ handle_batch_ack(#{inflight := Inflight0, replayq := Q} = State, Ref) ->
     State#{inflight := Inflight}.
 
 do_ack([], Ref) ->
-    ?LOG(debug, "stale_batch_ack_reference ~p", [Ref]),
+    ?SLOG(debug, #{msg => "stale_batch_ack_reference",
+                   ref => Ref}),
     [];
 do_ack([#{send_ack_ref := Refs} = First | Rest], Ref) ->
     case maps:is_key(Ref, Refs) of

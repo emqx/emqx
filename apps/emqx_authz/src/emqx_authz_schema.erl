@@ -48,11 +48,6 @@ fields(file) ->
     , {enable, #{type => boolean(),
                  default => true}}
     , {path, #{type => string(),
-               validator => fun(S) -> case filelib:is_file(S) of
-                                        true -> ok;
-                                        _ -> {error, "File does not exist"}
-                                      end
-                            end,
                desc => "Path to the file which contains the ACL rules."
               }}
     ];
