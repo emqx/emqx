@@ -3,25 +3,22 @@
 %% A script that adds changed modules to the corresponding appup files
 
 main(Args) ->
-    #{check := Check, current_release := CurrentRelease, prepare := Prepare} =
-        parse_args(Args, #{check => false, prepare => true}),
+    #{current_release := CurrentRelease} = Options = parse_args(Args, default_options()),
     case find_pred_tag(CurrentRelease) of
         {ok, Baseline} ->
-            {CurrDir, PredDir} = prepare(Baseline, Prepare),
-            Upgrade = diff_releases(CurrDir, PredDir),
-            Downgrade = diff_releases(PredDir, CurrDir),
-            Apps = maps:keys(Upgrade),
-            lists:foreach( fun(App) ->
-                                   #{App := AppUpgrade} = Upgrade,
-                                   #{App := AppDowngrade} = Downgrade,
-                                   process_app(Baseline, Check, App, AppUpgrade, AppDowngrade)
-                           end
-                         , Apps
-                         );
+            main(Options, Baseline);
         undefined ->
             log("No appup update is needed for this release, nothing to be done~n", []),
             ok
     end.
+
+default_options() ->
+    #{ check        => false
+     , prepare      => true
+     , clone_url    => find_upstream_repo("origin")
+     , make_command => "make emqx-rel"
+     , beams_dir    => "_build/emqx/rel/emqx/lib/"
+     }.
 
 parse_args([CurrentRelease = [A|_]], State) when A =/= $- ->
     State#{current_release => CurrentRelease};
@@ -29,14 +26,46 @@ parse_args(["--check"|Rest], State) ->
     parse_args(Rest, State#{check => true});
 parse_args(["--skip-build"|Rest], State) ->
     parse_args(Rest, State#{prepare => false});
-parse_args([], _) ->
-    fail("A script that creates stubs for appup files
+parse_args(["--repo", Repo|Rest], State) ->
+    parse_args(Rest, State#{clone_url => Repo});
+parse_args(["--remote", Remote|Rest], State) ->
+    parse_args(Rest, State#{clone_url => find_upstream_repo(Remote)});
+parse_args(["--make-command", Command|Rest], State) ->
+    parse_args(Rest, State#{make_command => Command});
+parse_args(["--release-dir", Dir|Rest], State) ->
+    parse_args(Rest, State#{beams_dir => Dir});
+parse_args(_, _) ->
+    fail("A script that fills in boilerplate for appup files.
+Note: The defaults are set up for emqx, but they can be tuned to support other repos too.
 
-Usage: update_appup.escript [--check] [--skip-build] <current_release_tag>
+Usage:
 
-  --check       Don't update the appup files, just check that they are complete
-  --skip-build  Don't rebuild the releases. May produce wrong appup files if changes are made.
+   update_appup.escript [--check] [--repo URL] [--remote NAME] [--skip-build] [--make-commad SCRIPT] [--release-dir DIR] <current_release_tag>
+
+Options:
+
+  --check         Don't update the appup files, just check that they are complete
+  --repo          Upsteam git repo URL
+  --remote        Get upstream repo URL from the specified git remote
+  --skip-build    Don't rebuild the releases. May produce wrong results
+  --make-command  A command used to assemble the release
+  --release-dir   Directory where the release is build
 ").
+
+main(Options = #{check := Check}, Baseline) ->
+    {CurrDir, PredDir} = prepare(Baseline, Options),
+    CurrBeams = hashsums(find_beams(CurrDir)),
+    PredBeams = hashsums(find_beams(PredDir)),
+    Upgrade = diff_releases(CurrBeams, PredBeams),
+    Downgrade = diff_releases(PredBeams, CurrBeams),
+    Apps = maps:keys(Upgrade),
+    lists:foreach( fun(App) ->
+                           #{App := AppUpgrade} = Upgrade,
+                           #{App := AppDowngrade} = Downgrade,
+                           process_app(Baseline, Check, App, AppUpgrade, AppDowngrade)
+                   end
+                 , Apps
+                 ).
 
 process_app(_, _, App, {[], [], []}, {[], [], []}) ->
     %% No changes, just check the appup file if present:
@@ -72,9 +101,6 @@ create_stub(App) ->
             false
     end.
 
-update_appup(_, File, {[], [], []}, {[], [], []}) ->
-    %% No changes in the app. Just check syntax of the existing appup:
-    _ = read_appup(File);
 update_appup(PredVersion, File, UpgradeChanges, DowngradeChanges) ->
     log("Updating appup: ~p~n", [File]),
     {_, Upgrade0, Downgrade0} = read_appup(File),
@@ -103,8 +129,9 @@ process_changes({New0, Changed0, Deleted0}, OldActions) ->
     New = New0 -- AlreadyHandled,
     Changed = Changed0 -- AlreadyHandled,
     Deleted = Deleted0 -- AlreadyHandled,
-    OldActions ++ [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed ++ New]
-               ++ [{delete_module, M} || M <- Deleted].
+    [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed ++ New] ++
+        [{delete_module, M} || M <- Deleted] ++
+        OldActions.
 
 ensure_pred_versions(PredVersion, Versions) ->
     {Maj, Min, Patch} = parse_semver(PredVersion),
@@ -127,9 +154,7 @@ read_appup(File) ->
             fail("Failed to parse appup file ~s: ~p", [File, Error])
     end.
 
-diff_releases(CurrDir, OldDir) ->
-    Curr = hashsums(find_beams(CurrDir)),
-    Old = hashsums(find_beams(OldDir)),
+diff_releases(Curr, Old) ->
     Fun = fun(App, Modules, Acc) ->
                   OldModules = maps:get(App, Old, #{}),
                   Acc#{App => diff_app_modules(Modules, OldModules)}
@@ -156,39 +181,32 @@ diff_app_modules(Modules, OldModules) ->
 find_beams(Dir) ->
     [filename:join(Dir, I) || I <- filelib:wildcard("**/ebin/*.beam", Dir)].
 
-prepare(Baseline, Prepare) ->
+prepare(_, #{prepare := false}) ->
+    ok;
+prepare(Baseline, #{clone_url := Repo, make_command := MakeCommand, beams_dir := BeamDir}) ->
     log("~n===================================~n"
         "Baseline: ~s"
         "~n===================================~n", [Baseline]),
     log("Building the current version...~n"),
-    Prepare andalso bash("make emqx-rel"),
-    log("Downloading the preceding release...~n"),
-    {ok, PredRootDir} = build_pred_release(Baseline, Prepare),
-    BeamDir = "_build/emqx/rel/emqx/lib/",
+    bash(MakeCommand),
+    log("Downloading and building the previous release...~n"),
+    {ok, PredRootDir} = build_pred_release(Baseline, Repo, MakeCommand),
     {BeamDir, filename:join(PredRootDir, BeamDir)}.
 
-build_pred_release(Baseline, Prepare) ->
-    Repo = find_upstream_repo(),
+build_pred_release(Baseline, Repo, MakeCommand) ->
     BaseDir = "/tmp/emqx-baseline/",
     Dir = filename:basename(Repo, ".git") ++ [$-|Baseline],
     %% TODO: shallow clone
     Script = "mkdir -p ${BASEDIR} &&
               cd ${BASEDIR} &&
               { git clone --branch ${TAG} ${REPO} ${DIR} || true; } &&
-              cd ${DIR} &&
-              make emqx-rel",
+              cd ${DIR} &&" ++ MakeCommand,
     Env = [{"REPO", Repo}, {"TAG", Baseline}, {"BASEDIR", BaseDir}, {"DIR", Dir}],
-    Prepare andalso bash(Script, Env),
+    bash(Script, Env),
     {ok, filename:join(BaseDir, Dir)}.
 
-%% @doc Find whether we are in emqx or emqx-ee
-find_upstream_repo() ->
-    Str = os:cmd("git remote get-url origin"),
-    case re(Str, "/([^/]+).git$") of
-        {match, ["emqx"]}    -> "git@github.com:emqx/emqx.git";
-        {match, ["emqx-ee"]} -> "git@github.com:emqx/emqx-ee.git";
-        Ret                  -> fail("Cannot detect the correct upstream repo: ~p", [Ret])
-    end.
+find_upstream_repo(Remote) ->
+    string:trim(os:cmd("git remote get-url " ++ Remote)).
 
 find_pred_tag(CurrentRelease) ->
     {Maj, Min, Patch} = parse_semver(CurrentRelease),
