@@ -12,7 +12,7 @@ main(Args) ->
             _ = maps:map(fun(App, Changes) -> process_app(Baseline, Check, App, Changes) end, Changed),
             ok;
         undefined ->
-            io:format(standard_error, "No appup update is needed for this release, done~n", []),
+            log("No appup update is needed for this release, nothing to be done~n", []),
             ok
     end.
 
@@ -25,10 +25,10 @@ parse_args(["--skip-build"|Rest], State) ->
 parse_args([], _) ->
     fail("A script that creates stubs for appup files
 
-Usage:~n  update_appup.escript [--check] [--skip-build] <current_release_tag>
+Usage: update_appup.escript [--check] [--skip-build] <current_release_tag>
 
   --check       Don't update the appup files, just check that they are complete
-  --skip-build  Don't rebuild the releases. May produce wrong appup files.
+  --skip-build  Don't rebuild the releases. May produce wrong appup files if changes are made.
 ").
 
 process_app(_, _, App, {[], [], []}) ->
@@ -69,7 +69,7 @@ update_appup(_, File, {[], [], []}) ->
     %% No changes in the app. Just check syntax of the existing appup:
     _ = read_appup(File);
 update_appup(PredVersion, File, Changes) ->
-    io:format("~nUpdating appup: ~p~n", [File]),
+    log("Updating appup: ~p~n", [File]),
     {_, Upgrade0, Downgrade0} = read_appup(File),
     Upgrade = update_actions(PredVersion, Changes, Upgrade0),
     Downgrade = update_actions(PredVersion, Changes, Downgrade0),
@@ -82,7 +82,7 @@ render_appfile(File, Upgrade, Downgrade) ->
     ok = file:write_file(File, IOList).
 
 update_actions(PredVersion, Changes, Versions) ->
-    lists:map(fun(L) -> do_update_actions(Changes, L) end, ensure_pred_version(PredVersion, Versions)).
+    lists:map(fun(L) -> do_update_actions(Changes, L) end, ensure_pred_versions(PredVersion, Versions)).
 
 do_update_actions(_, Ret = {<<".*">>, _}) ->
     Ret;
@@ -97,10 +97,15 @@ process_changes({New0, Changed0, Deleted0}, OldActions) ->
     OldActions ++ [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed ++ New]
                ++ [{delete_module, M} || M <- Deleted].
 
-ensure_pred_version(PredVersion, Versions) ->
-    case lists:keyfind(PredVersion, 1, Versions) of
+ensure_pred_versions(PredVersion, Versions) ->
+    {Maj, Min, Patch} = parse_semver(PredVersion),
+    PredVersions = [semver(Maj, Min, P) || P <- lists:seq(0, Patch)],
+    lists:foldl(fun ensure_version/2, Versions, PredVersions).
+
+ensure_version(Version, Versions) ->
+    case lists:keyfind(Version, 1, Versions) of
         false ->
-            [{PredVersion, []}|Versions];
+            [{Version, []}|Versions];
         _ ->
             Versions
     end.
@@ -143,12 +148,12 @@ find_beams(Dir) ->
     [filename:join(Dir, I) || I <- filelib:wildcard("**/ebin/*.beam", Dir)].
 
 prepare(Baseline, Prepare) ->
-    io:format("~n===================================~n"
-              "Baseline: ~s"
-              "~n===================================~n", [Baseline]),
-    io:format("Building the current version...~n"),
-    Prepare andalso success(cmd("make", #{args => ["emqx-rel"]}), "Failed to build HEAD"),
-    io:format("Downloading the preceding release...~n"),
+    log("~n===================================~n"
+        "Baseline: ~s"
+        "~n===================================~n", [Baseline]),
+    log("Building the current version...~n"),
+    Prepare andalso bash("make emqx-rel"),
+    log("Downloading the preceding release...~n"),
     {ok, PredRootDir} = build_pred_release(Baseline, Prepare),
     BeamDir = "_build/emqx/rel/emqx/lib/",
     {BeamDir, filename:join(PredRootDir, BeamDir)}.
@@ -158,34 +163,29 @@ build_pred_release(Baseline, Prepare) ->
     BaseDir = "/tmp/emqx-baseline/",
     Dir = filename:basename(Repo, ".git") ++ [$-|Baseline],
     %% TODO: shallow clone
-    Script = "mkdir -p ${BASEDIR} && cd ${BASEDIR} && { git clone --branch ${TAG} ${REPO} ${DIR} || true; } && cd ${DIR} && make emqx-rel",
+    Script = "mkdir -p ${BASEDIR} &&
+              cd ${BASEDIR} &&
+              { git clone --branch ${TAG} ${REPO} ${DIR} || true; } &&
+              cd ${DIR} &&
+              make emqx-rel",
     Env = [{"REPO", Repo}, {"TAG", Baseline}, {"BASEDIR", BaseDir}, {"DIR", Dir}],
-    Prepare andalso
-        success( cmd("bash", #{ args => ["-c", Script]
-                              , env  => Env
-                              })
-               , "Failed to build the baseline release"
-               ),
+    Prepare andalso bash(Script, Env),
     {ok, filename:join(BaseDir, Dir)}.
 
 %% @doc Find whether we are in emqx or emqx-ee
 find_upstream_repo() ->
     Str = os:cmd("git remote get-url origin"),
-    case re:run(Str, "/([^/]+).git$", [{capture, all_but_first, list}]) of
+    case re(Str, "/([^/]+).git$") of
         {match, ["emqx"]}    -> "git@github.com:emqx/emqx.git";
         {match, ["emqx-ee"]} -> "git@github.com:emqx/emqx-ee.git";
         Ret                  -> fail("Cannot detect the correct upstream repo: ~p", [Ret])
     end.
 
 find_pred_tag(CurrentRelease) ->
-    case re:run(CurrentRelease, "^([0-9]+)\.([0-9]+)\.([0-9]+)$", [{capture, all_but_first, list}]) of
-        {match, [Maj, Min, Patch]} ->
-            case list_to_integer(Patch) of
-                0 -> undefined;
-                P -> {ok, lists:flatten(io_lib:format("~s.~s.~p", [Maj, Min, P - 1]))}
-            end;
-        Err ->
-            fail("The current release tag doesn't follow semver pattern: ~p", [Err])
+    {Maj, Min, Patch} = parse_semver(CurrentRelease),
+    case Patch of
+        0 -> undefined;
+        _ -> {ok, semver(Maj, Min, Patch - 1)}
     end.
 
 -spec hashsums(file:filename()) -> #{App => #{module() => binary()}}
@@ -197,7 +197,7 @@ hashsums([], Acc) ->
     Acc;
 hashsums([File|Rest], Acc0) ->
     [_, "ebin", Dir|_] = lists:reverse(filename:split(File)),
-    {match, [AppStr]} = re:run(Dir, "^(.*)-[^-]+$", [{capture, all_but_first, list}]),
+    {match, [AppStr]} = re(Dir, "^(.*)-[^-]+$"),
     App = list_to_atom(AppStr),
     {ok, {Module, MD5}} = beam_lib:md5(File),
     Acc = maps:update_with( App
@@ -207,6 +207,21 @@ hashsums([File|Rest], Acc0) ->
                           ),
     hashsums(Rest, Acc).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Utility functions
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+parse_semver(Version) ->
+    case re(Version, "^([0-9]+)\.([0-9]+)\.([0-9]+)$") of
+        {match, [Maj, Min, Patch]} ->
+            {list_to_integer(Maj), list_to_integer(Min), list_to_integer(Patch)};
+        Err ->
+            error({not_a_semver, Version})
+    end.
+
+semver(Maj, Min, Patch) ->
+    lists:flatten(io_lib:format("~p.~p.~p", [Maj, Min, Patch])).
+
 %% Locate a file in a specified application
 locate(App, Suffix) ->
     AppStr = atom_to_list(App),
@@ -215,6 +230,15 @@ locate(App, Suffix) ->
             {ok, File};
         [] ->
             undefined
+    end.
+
+bash(Script) ->
+    bash(Script, []).
+
+bash(Script, Env) ->
+    case cmd("bash", #{args => ["-c", Script], env => Env}) of
+        0 -> true;
+        _ -> fail("Failed to run command: ~s", [Script])
     end.
 
 %% Spawn an executable and return the exit status
@@ -236,14 +260,18 @@ cmd(Exec, Params) ->
             end
     end.
 
-success(0, _) ->
-    true;
-success(_, Msg) ->
-    fail(Msg).
-
 fail(Str) ->
     fail(Str, []).
 
 fail(Str, Args) ->
-    io:format(standard_error, Str ++ "~n", Args),
+    log(Str ++ "~n", Args),
     halt(1).
+
+re(Subject, RE) ->
+    re:run(Subject, RE, [{capture, all_but_first, list}]).
+
+log(Msg) ->
+    log(Msg, []).
+
+log(Msg, Args) ->
+    io:format(standard_error, Msg, Args).
