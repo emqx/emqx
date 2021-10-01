@@ -8,9 +8,16 @@ main(Args) ->
     case find_pred_tag(CurrentRelease) of
         {ok, Baseline} ->
             {CurrDir, PredDir} = prepare(Baseline, Prepare),
-            Changed = diff_releases(CurrDir, PredDir),
-            _ = maps:map(fun(App, Changes) -> process_app(Baseline, Check, App, Changes) end, Changed),
-            ok;
+            Upgrade = diff_releases(CurrDir, PredDir),
+            Downgrade = diff_releases(PredDir, CurrDir),
+            Apps = maps:keys(Upgrade),
+            lists:foreach( fun(App) ->
+                                   #{App := AppUpgrade} = Upgrade,
+                                   #{App := AppDowngrade} = Downgrade,
+                                   process_app(Baseline, Check, App, AppUpgrade, AppDowngrade)
+                           end
+                         , Apps
+                         );
         undefined ->
             log("No appup update is needed for this release, nothing to be done~n", []),
             ok
@@ -31,7 +38,7 @@ Usage: update_appup.escript [--check] [--skip-build] <current_release_tag>
   --skip-build  Don't rebuild the releases. May produce wrong appup files if changes are made.
 ").
 
-process_app(_, _, App, {[], [], []}) ->
+process_app(_, _, App, {[], [], []}, {[], [], []}) ->
     %% No changes, just check the appup file if present:
     case locate(App, ".appup.src") of
         {ok, AppupFile} ->
@@ -40,17 +47,17 @@ process_app(_, _, App, {[], [], []}) ->
         undefined ->
             ok
     end;
-process_app(PredVersion, _Check, App, Changes) ->
+process_app(PredVersion, _Check, App, Upgrade, Downgrade) ->
     case locate(App, ".appup.src") of
         {ok, AppupFile} ->
-            update_appup(PredVersion, AppupFile, Changes);
+            update_appup(PredVersion, AppupFile, Upgrade, Downgrade);
         undefined ->
             case create_stub(App) of
                 false ->
                     %% External dependency, skip
                     ok;
                 AppupFile ->
-                    update_appup(PredVersion, AppupFile, Changes)
+                    update_appup(PredVersion, AppupFile, Upgrade, Downgrade)
             end
     end.
 
@@ -65,14 +72,14 @@ create_stub(App) ->
             false
     end.
 
-update_appup(_, File, {[], [], []}) ->
+update_appup(_, File, {[], [], []}, {[], [], []}) ->
     %% No changes in the app. Just check syntax of the existing appup:
     _ = read_appup(File);
-update_appup(PredVersion, File, Changes) ->
+update_appup(PredVersion, File, UpgradeChanges, DowngradeChanges) ->
     log("Updating appup: ~p~n", [File]),
     {_, Upgrade0, Downgrade0} = read_appup(File),
-    Upgrade = update_actions(PredVersion, Changes, Upgrade0),
-    Downgrade = update_actions(PredVersion, Changes, Downgrade0),
+    Upgrade = update_actions(PredVersion, UpgradeChanges, Upgrade0),
+    Downgrade = update_actions(PredVersion, DowngradeChanges, Downgrade0),
     render_appfile(File, Upgrade, Downgrade),
     %% Check appup syntax:
     _ = read_appup(File).
@@ -81,8 +88,10 @@ render_appfile(File, Upgrade, Downgrade) ->
     IOList = io_lib:format("%% -*- mode: erlang -*-\n{VSN,~n  ~p,~n  ~p}.~n", [Upgrade, Downgrade]),
     ok = file:write_file(File, IOList).
 
-update_actions(PredVersion, Changes, Versions) ->
-    lists:map(fun(L) -> do_update_actions(Changes, L) end, ensure_pred_versions(PredVersion, Versions)).
+update_actions(PredVersion, Changes, Actions) ->
+    lists:map( fun(L) -> do_update_actions(Changes, L) end
+             , ensure_pred_versions(PredVersion, Actions)
+             ).
 
 do_update_actions(_, Ret = {<<".*">>, _}) ->
     Ret;
@@ -134,8 +143,8 @@ diff_app_modules(Modules, OldModules) ->
                                #{Mod := OldMD5} when MD5 =:= OldMD5 ->
                                    {New, Changed};
                                #{Mod := _} ->
-                                   {[Mod|New], Changed};
-                               _ -> {New, [Mod|Changed]}
+                                   {New, [Mod|Changed]};
+                               _ -> {[Mod|New], Changed}
                            end
                    end
                  , {[], []}
@@ -215,7 +224,7 @@ parse_semver(Version) ->
     case re(Version, "^([0-9]+)\.([0-9]+)\.([0-9]+)$") of
         {match, [Maj, Min, Patch]} ->
             {list_to_integer(Maj), list_to_integer(Min), list_to_integer(Patch)};
-        Err ->
+        _ ->
             error({not_a_semver, Version})
     end.
 
