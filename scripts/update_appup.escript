@@ -23,25 +23,47 @@ parse_args(["--check"|Rest], State) ->
 parse_args(["--skip-build"|Rest], State) ->
     parse_args(Rest, State#{prepare => false});
 parse_args([], _) ->
-    fail("Usage:~n  update_appup.escript [--check] [--skip-build] <current_release_tag>
+    fail("A script that creates stubs for appup files
+
+Usage:~n  update_appup.escript [--check] [--skip-build] <current_release_tag>
 
   --check       Don't update the appup files, just check that they are complete
   --skip-build  Don't rebuild the releases. May produce wrong appup files.
 ").
 
+process_app(_, _, App, {[], [], []}) ->
+    %% No changes, just check the appup file if present:
+    case locate(App, ".appup.src") of
+        {ok, AppupFile} ->
+            _ = read_appup(AppupFile),
+            ok;
+        undefined ->
+            ok
+    end;
 process_app(PredVersion, _Check, App, Changes) ->
-    AppupFiles = filelib:wildcard(lists:concat(["{src,apps,lib-*}/**/", App, ".appup.src"])),
-    case AppupFiles of
-        [AppupFile] ->
+    case locate(App, ".appup.src") of
+        {ok, AppupFile} ->
             update_appup(PredVersion, AppupFile, Changes);
-        [] ->
-            io:format("~nWARNING: Please create an stub appup src file for ~p~n", [App])
+        undefined ->
+            case create_stub(App) of
+                false ->
+                    %% External dependency, skip
+                    ok;
+                AppupFile ->
+                    update_appup(PredVersion, AppupFile, Changes)
+            end
     end.
 
-group_modules(L) ->
-    lists:foldl(fun({App, Mod}, Acc) ->
-                        maps:update_with(App, fun(Tl) -> [Mod|Tl] end, [Mod], Acc)
-                end, #{}, L).
+create_stub(App) ->
+    case locate(App, ".app.src") of
+        {ok, AppSrc} ->
+            AppupFile = filename:basename(AppSrc) ++ ".appup.src",
+            Default = {<<".*">>, []},
+            render_appfile(AppupFile, [Default], [Default]),
+            AppupFile;
+        undefined ->
+            false
+    end.
 
 update_appup(_, File, {[], [], []}) ->
     %% No changes in the app. Just check syntax of the existing appup:
@@ -51,11 +73,13 @@ update_appup(PredVersion, File, Changes) ->
     {_, Upgrade0, Downgrade0} = read_appup(File),
     Upgrade = update_actions(PredVersion, Changes, Upgrade0),
     Downgrade = update_actions(PredVersion, Changes, Downgrade0),
-    IOList = io_lib:format("%% -*- mode: erlang -*-
-{VSN,~n  ~p,~n  ~p}.~n", [Upgrade, Downgrade]),
-    ok = file:write_file(File, IOList),
+    render_appfile(File, Upgrade, Downgrade),
     %% Check appup syntax:
     _ = read_appup(File).
+
+render_appfile(File, Upgrade, Downgrade) ->
+    IOList = io_lib:format("%% -*- mode: erlang -*-\n{VSN,~n  ~p,~n  ~p}.~n", [Upgrade, Downgrade]),
+    ok = file:write_file(File, IOList).
 
 update_actions(PredVersion, Changes, Versions) ->
     lists:map(fun(L) -> do_update_actions(Changes, L) end, ensure_pred_version(PredVersion, Versions)).
@@ -182,6 +206,16 @@ hashsums([File|Rest], Acc0) ->
                           , Acc0
                           ),
     hashsums(Rest, Acc).
+
+%% Locate a file in a specified application
+locate(App, Suffix) ->
+    AppStr = atom_to_list(App),
+    case filelib:wildcard("{src,apps,lib-*}/**/" ++ AppStr ++ Suffix) of
+        [File] ->
+            {ok, File};
+        [] ->
+            undefined
+    end.
 
 %% Spawn an executable and return the exit status
 cmd(Exec, Params) ->
