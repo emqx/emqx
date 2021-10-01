@@ -291,7 +291,8 @@ handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connecting}) ->
     handle_out(connack, ?RC_PROTOCOL_ERROR, Channel);
 
 handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
-    case pipeline([fun enrich_conninfo/2,
+    case pipeline([fun overload_protection/2,
+                   fun enrich_conninfo/2,
                    fun run_conn_hooks/2,
                    fun check_connect/2,
                    fun enrich_client/2,
@@ -1142,6 +1143,10 @@ run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session})
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+overload_protection(_, #channel{clientinfo = #{zone := Zone}}) ->
+    T = get_mqtt_conf(Zone, overload_drawback_delay, 1),
+    emqx_olp:backoff(T),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Enrich MQTT Connect Info

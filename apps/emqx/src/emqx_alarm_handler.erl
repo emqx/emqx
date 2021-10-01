@@ -20,6 +20,7 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include_lib("lc/include/lc.hrl").
 
 
 %% gen_event callbacks
@@ -72,6 +73,14 @@ handle_event({clear_alarm, system_memory_high_watermark}, State) ->
 
 handle_event({clear_alarm, process_memory_high_watermark}, State) ->
     emqx_alarm:deactivate(high_process_memory_usage),
+    {ok, State};
+
+handle_event({set_alarm, {?LC_ALARM_ID_RUNQ, Info}}, State) ->
+    emqx_alarm:activate({runq_overload, node()}, Info),
+    {ok, State};
+
+handle_event({clear_alarm, ?LC_ALARM_ID_RUNQ}, State) ->
+    emqx_alarm:deactivate({runq_overload, node()}),
     {ok, State};
 
 handle_event(_, State) ->
