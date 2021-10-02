@@ -1,42 +1,19 @@
 #!/usr/bin/env -S escript -c
 %% -*- erlang-indent-level:4 -*-
-%% A script that adds changed modules to the corresponding appup files
 
-main(Args) ->
-    #{current_release := CurrentRelease} = Options = parse_args(Args, default_options()),
-    case find_pred_tag(CurrentRelease) of
-        {ok, Baseline} ->
-            main(Options, Baseline);
-        undefined ->
-            log("No appup update is needed for this release, nothing to be done~n", []),
-            ok
-    end.
+usage() ->
+"A script that fills in boilerplate for appup files.
 
-default_options() ->
-    #{ check        => false
-     , prepare      => true
-     , clone_url    => find_upstream_repo("origin")
-     , make_command => "make emqx-rel"
-     , beams_dir    => "_build/emqx/rel/emqx/lib/"
-     }.
+Algorithm: this script compares md5s of beam files of each
+application, and creates a `{load_module, Module, brutal_purge,
+soft_purge, []}` action for the changed and new modules. For deleted
+modules it creates `{delete_module, M}` action. These entries are
+added to each patch release preceding the current release. If an entry
+for a module already exists, this module is ignored. The existing
+actions are kept.
 
-parse_args([CurrentRelease = [A|_]], State) when A =/= $- ->
-    State#{current_release => CurrentRelease};
-parse_args(["--check"|Rest], State) ->
-    parse_args(Rest, State#{check => true});
-parse_args(["--skip-build"|Rest], State) ->
-    parse_args(Rest, State#{prepare => false});
-parse_args(["--repo", Repo|Rest], State) ->
-    parse_args(Rest, State#{clone_url => Repo});
-parse_args(["--remote", Remote|Rest], State) ->
-    parse_args(Rest, State#{clone_url => find_upstream_repo(Remote)});
-parse_args(["--make-command", Command|Rest], State) ->
-    parse_args(Rest, State#{make_command => Command});
-parse_args(["--release-dir", Dir|Rest], State) ->
-    parse_args(Rest, State#{beams_dir => Dir});
-parse_args(_, _) ->
-    fail("A script that fills in boilerplate for appup files.
-Note: The defaults are set up for emqx, but they can be tuned to support other repos too.
+Note: The defaults are set up for emqx, but they can be tuned to
+support other repos too.
 
 Usage:
 
@@ -49,8 +26,42 @@ Options:
   --remote        Get upstream repo URL from the specified git remote
   --skip-build    Don't rebuild the releases. May produce wrong results
   --make-command  A command used to assemble the release
-  --release-dir   Directory where the release is build
-").
+  --release-dir   Release directory
+".
+
+default_options() ->
+    #{ check        => false
+     , clone_url    => find_upstream_repo("origin")
+     , make_command => "make emqx-rel"
+     , beams_dir    => "_build/emqx/rel/emqx/lib/"
+     }.
+
+main(Args) ->
+    #{current_release := CurrentRelease} = Options = parse_args(Args, default_options()),
+    case find_pred_tag(CurrentRelease) of
+        {ok, Baseline} ->
+            main(Options, Baseline);
+        undefined ->
+            log("No appup update is needed for this release, nothing to be done~n", []),
+            ok
+    end.
+
+parse_args([CurrentRelease = [A|_]], State) when A =/= $- ->
+    State#{current_release => CurrentRelease};
+parse_args(["--check"|Rest], State) ->
+    parse_args(Rest, State#{check => true});
+parse_args(["--skip-build"|Rest], State) ->
+    parse_args(Rest, State#{make_command => "true"});
+parse_args(["--repo", Repo|Rest], State) ->
+    parse_args(Rest, State#{clone_url => Repo});
+parse_args(["--remote", Remote|Rest], State) ->
+    parse_args(Rest, State#{clone_url => find_upstream_repo(Remote)});
+parse_args(["--make-command", Command|Rest], State) ->
+    parse_args(Rest, State#{make_command => Command});
+parse_args(["--release-dir", Dir|Rest], State) ->
+    parse_args(Rest, State#{beams_dir => Dir});
+parse_args(_, _) ->
+    fail(usage()).
 
 main(Options = #{check := Check}, Baseline) ->
     {CurrDir, PredDir} = prepare(Baseline, Options),
@@ -130,8 +141,8 @@ process_changes({New0, Changed0, Deleted0}, OldActions) ->
     Changed = Changed0 -- AlreadyHandled,
     Deleted = Deleted0 -- AlreadyHandled,
     [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed ++ New] ++
-        [{delete_module, M} || M <- Deleted] ++
-        OldActions.
+        OldActions ++
+        [{delete_module, M} || M <- Deleted].
 
 ensure_pred_versions(PredVersion, Versions) ->
     {Maj, Min, Patch} = parse_semver(PredVersion),
@@ -181,8 +192,6 @@ diff_app_modules(Modules, OldModules) ->
 find_beams(Dir) ->
     [filename:join(Dir, I) || I <- filelib:wildcard("**/ebin/*.beam", Dir)].
 
-prepare(_, #{prepare := false}) ->
-    ok;
 prepare(Baseline, #{clone_url := Repo, make_command := MakeCommand, beams_dir := BeamDir}) ->
     log("~n===================================~n"
         "Baseline: ~s"
