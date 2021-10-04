@@ -35,13 +35,18 @@ init(ConnOpts) when is_map(ConnOpts) ->
 -spec new_conn(quicer:connection_handler(), cb_state()) -> {ok, cb_state()} | {error, any()}.
 new_conn(Conn, S) ->
     process_flag(trap_exit, true),
-    {ok, Pid} = emqx_connection:start_link(emqx_quic_stream, {self(), Conn}, S),
-    receive
-        {Pid, stream_acceptor_ready} ->
-            ok = quicer:async_handshake(Conn),
-            {ok, S};
-        {'EXIT', Pid, _Reason} ->
-            {error, stream_accept_error}
+    case emqx_olp:is_overloaded() of
+        false ->
+            {ok, Pid} = emqx_connection:start_link(emqx_quic_stream, {self(), Conn}, S),
+            receive
+                {Pid, stream_acceptor_ready} ->
+                    ok = quicer:async_handshake(Conn),
+                    {ok, S};
+                {'EXIT', Pid, _Reason} ->
+                    {error, stream_accept_error}
+            end;
+        true ->
+            {error, overloaded}
     end.
 
 -spec connected(quicer:connection_handler(), cb_state()) -> {ok, cb_state()} | {error, any()}.
