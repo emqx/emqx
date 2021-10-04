@@ -12,6 +12,10 @@ added to each patch release preceding the current release. If an entry
 for a module already exists, this module is ignored. The existing
 actions are kept.
 
+Please note that it only compares the current release with its
+predecessor, assuming that the upgrade actions for the older releases
+are correct.
+
 Note: The defaults are set up for emqx, but they can be tuned to
 support other repos too.
 
@@ -76,7 +80,12 @@ main(Options = #{check := Check}, Baseline) ->
                            process_app(Baseline, Check, App, AppUpgrade, AppDowngrade)
                    end
                  , Apps
-                 ).
+                 ),
+    log("
+NOTE: Please review the changes manually. This script does not know about NIF
+changes, supervisor changes, process restarts and so on. Also the load order of
+the beam files might need updating.
+").
 
 process_app(_, _, App, {[], [], []}, {[], [], []}) ->
     %% No changes, just check the appup file if present:
@@ -87,17 +96,17 @@ process_app(_, _, App, {[], [], []}, {[], [], []}) ->
         undefined ->
             ok
     end;
-process_app(PredVersion, _Check, App, Upgrade, Downgrade) ->
+process_app(PredVersion, Check, App, Upgrade, Downgrade) ->
     case locate(App, ".appup.src") of
         {ok, AppupFile} ->
-            update_appup(PredVersion, AppupFile, Upgrade, Downgrade);
+            update_appup(Check, PredVersion, AppupFile, Upgrade, Downgrade);
         undefined ->
             case create_stub(App) of
                 false ->
                     %% External dependency, skip
                     ok;
                 AppupFile ->
-                    update_appup(PredVersion, AppupFile, Upgrade, Downgrade)
+                    update_appup(Check, PredVersion, AppupFile, Upgrade, Downgrade)
             end
     end.
 
@@ -112,7 +121,7 @@ create_stub(App) ->
             false
     end.
 
-update_appup(PredVersion, File, UpgradeChanges, DowngradeChanges) ->
+update_appup(Check, PredVersion, File, UpgradeChanges, DowngradeChanges) ->
     log("Updating appup: ~p~n", [File]),
     {_, Upgrade0, Downgrade0} = read_appup(File),
     Upgrade = update_actions(PredVersion, UpgradeChanges, Upgrade0),
@@ -136,13 +145,25 @@ do_update_actions(Changes, {Vsn, Actions}) ->
     {Vsn, process_changes(Changes, Actions)}.
 
 process_changes({New0, Changed0, Deleted0}, OldActions) ->
-    AlreadyHandled = lists:map(fun(It) -> element(2, It) end, OldActions),
+    AlreadyHandled = lists:flatten(lists:map(fun process_old_action/1, OldActions)),
     New = New0 -- AlreadyHandled,
     Changed = Changed0 -- AlreadyHandled,
     Deleted = Deleted0 -- AlreadyHandled,
     [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed ++ New] ++
         OldActions ++
         [{delete_module, M} || M <- Deleted].
+
+%% @doc Process the existing actions to exclude modules that are
+%% already handled
+process_old_action({purge, Modules}) ->
+    Modules;
+process_old_action({delete_module, Module}) ->
+    [Module];
+process_old_action(LoadModule) when is_tuple(LoadModule) andalso
+                                    element(1, LoadModule) =:= load_module ->
+    element(2, LoadModule);
+process_old_action(_) ->
+    [].
 
 ensure_pred_versions(PredVersion, Versions) ->
     {Maj, Min, Patch} = parse_semver(PredVersion),
@@ -192,17 +213,17 @@ diff_app_modules(Modules, OldModules) ->
 find_beams(Dir) ->
     [filename:join(Dir, I) || I <- filelib:wildcard("**/ebin/*.beam", Dir)].
 
-prepare(Baseline, #{clone_url := Repo, make_command := MakeCommand, beams_dir := BeamDir}) ->
+prepare(Baseline, Options = #{make_command := MakeCommand, beams_dir := BeamDir}) ->
     log("~n===================================~n"
         "Baseline: ~s"
         "~n===================================~n", [Baseline]),
     log("Building the current version...~n"),
     bash(MakeCommand),
     log("Downloading and building the previous release...~n"),
-    {ok, PredRootDir} = build_pred_release(Baseline, Repo, MakeCommand),
+    {ok, PredRootDir} = build_pred_release(Baseline, Options),
     {BeamDir, filename:join(PredRootDir, BeamDir)}.
 
-build_pred_release(Baseline, Repo, MakeCommand) ->
+build_pred_release(Baseline, #{clone_url := Repo, make_command := MakeCommand}) ->
     BaseDir = "/tmp/emqx-baseline/",
     Dir = filename:basename(Repo, ".git") ++ [$-|Baseline],
     %% TODO: shallow clone
@@ -248,8 +269,8 @@ hashsums([File|Rest], Acc0) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 parse_semver(Version) ->
-    case re(Version, "^([0-9]+)\.([0-9]+)\.([0-9]+)$") of
-        {match, [Maj, Min, Patch]} ->
+    case re(Version, "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(\\.[0-9]+)?$") of
+        {match, [Maj, Min, Patch|_]} ->
             {list_to_integer(Maj), list_to_integer(Min), list_to_integer(Patch)};
         _ ->
             error({not_a_semver, Version})
