@@ -14,10 +14,18 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_olp).
+
 -export([ is_overloaded/0
         , backoff/1
         , backoff_gc/1
         , backoff_hibernation/1
+        ]).
+
+
+%% exports for O&M
+-export([ status/0
+        , on/0
+        , off/0
         ]).
 
 -spec is_overloaded() -> boolean().
@@ -45,6 +53,19 @@ backoff_hibernation(Zone) ->
   load_ctl:is_overloaded()
     andalso emqx_config:get_zone_conf(Zone, [overload_protection, enable], false)
     andalso emqx_config:get_zone_conf(Zone, [overload_protection, backoff_hibernation], false).
+
+-spec status() -> any().
+status() ->
+  is_overloaded().
+
+-spec off() -> ok | {error, timeout}.
+off() ->
+  load_ctl:stop_runq_flagman(5000).
+
+-spec on() -> any().
+on() ->
+ load_ctl:restart_runq_flagman().
+
 %%%_* Emacs ====================================================================
 %%% Local Variables:
 %%% allout-layout: t
