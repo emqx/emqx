@@ -16,16 +16,35 @@
 -module(emqx_olp).
 -export([ is_overloaded/0
         , backoff/1
+        , backoff_gc/1
+        , backoff_hibernation/1
         ]).
 
 -spec is_overloaded() -> boolean().
 is_overloaded() ->
   load_ctl:is_overloaded().
 
--spec backoff(timer:timeout()) -> ok | timeout.
-backoff(Delay) ->
-  load_ctl:maydelay(Delay).
+-spec backoff(Zone :: atom()) -> ok | timeout.
+backoff(Zone) ->
+  case emqx_config:get_zone_conf(Zone, [overload_protection, enable], false) of
+    true ->
+      Delay = emqx_config:get_zone_conf(Zone, [overload_protection, backoff_delay], 1),
+      load_ctl:maydelay(Delay);
+    false ->
+      ok
+  end.
 
+-spec backoff_gc(Zone :: atom()) -> ok | timeout.
+backoff_gc(Zone) ->
+  load_ctl:is_overloaded()
+    andalso emqx_config:get_zone_conf(Zone, [overload_protection, enable], false)
+    andalso emqx_config:get_zone_conf(Zone, [overload_protection, backoff_gc], false).
+
+-spec backoff_hibernation(Zone :: atom()) -> ok | timeout.
+backoff_hibernation(Zone) ->
+  load_ctl:is_overloaded()
+    andalso emqx_config:get_zone_conf(Zone, [overload_protection, enable], false)
+    andalso emqx_config:get_zone_conf(Zone, [overload_protection, backoff_hibernation], false).
 %%%_* Emacs ====================================================================
 %%% Local Variables:
 %%% allout-layout: t

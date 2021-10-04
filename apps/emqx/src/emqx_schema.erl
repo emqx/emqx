@@ -122,6 +122,9 @@ roots(medium) ->
     , {"force_shutdown",
        sc(ref("force_shutdown"),
           #{})}
+    , {"overload_protection",
+       sc(ref("overload_protection"),
+          #{})}
     ];
 roots(low) ->
     [ {"force_gc",
@@ -323,7 +326,9 @@ fields("mqtt") ->
 
 fields("zone") ->
     Fields = ["mqtt", "stats", "flapping_detect", "force_shutdown",
-              "conn_congestion", "rate_limit", "quota", "force_gc"],
+              "conn_congestion", "rate_limit", "quota", "force_gc",
+              "overload_protection"
+             ],
     [{F, ref(emqx_zone_schema, F)} || F <- Fields];
 
 fields("rate_limit") ->
@@ -388,6 +393,24 @@ fields("force_shutdown") ->
        sc(wordsize(),
           #{ default => "32MB",
              validator => fun ?MODULE:validate_heap_size/1
+           })}
+    ];
+
+fields("overload_protection") ->
+    [ {"enable",
+       sc(boolean(),
+          #{ default => false})}
+    , {"backoff_delay",
+       sc(range(0, inf),
+          #{ default => 1
+           })}
+    , {"backoff_gc",
+       sc(boolean(),
+          #{ default => true
+           })}
+    , {"backoff_hibernation",
+       sc(boolean(),
+          #{ default => true
            })}
     ];
 

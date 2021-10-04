@@ -1144,8 +1144,7 @@ run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session})
 %% Internal functions
 %%--------------------------------------------------------------------
 overload_protection(_, #channel{clientinfo = #{zone := Zone}}) ->
-    T = get_mqtt_conf(Zone, overload_drawback_delay, 1),
-    emqx_olp:backoff(T),
+    emqx_olp:backoff(Zone),
     ok.
 
 %%--------------------------------------------------------------------
