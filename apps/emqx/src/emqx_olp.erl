@@ -32,12 +32,20 @@
 is_overloaded() ->
   load_ctl:is_overloaded().
 
--spec backoff(Zone :: atom()) -> ok | timeout.
+-spec backoff(Zone :: atom()) -> ok | false | timeout.
 backoff(Zone) ->
   case emqx_config:get_zone_conf(Zone, [overload_protection, enable], false) of
     true ->
       Delay = emqx_config:get_zone_conf(Zone, [overload_protection, backoff_delay], 1),
-      load_ctl:maydelay(Delay);
+      case load_ctl:maydelay(Delay) of
+        false -> false;
+        ok ->
+          emqx_metrics:inc('olp.delay.ok'),
+          ok;
+        timeout ->
+          emqx_metrics:inc('olp.delay.timeout'),
+          timeout
+      end;
     false ->
       ok
   end.

@@ -325,6 +325,7 @@ recvloop(Parent, State = #state{idle_timeout = IdleTimeout}) ->
         IdleTimeout + 100 ->
             case emqx_olp:is_overloaded() of
                 true ->
+                    emqx_metrics:inc('olp.hbn'),
                     recvloop(Parent, State);
                 false ->
                     hibernate(Parent, cancel_stats_timer(State))
