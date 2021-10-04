@@ -323,7 +323,12 @@ recvloop(Parent, State = #state{idle_timeout = IdleTimeout}) ->
             handle_recv(Msg, Parent, State)
     after
         IdleTimeout + 100 ->
-            hibernate(Parent, cancel_stats_timer(State))
+            case emqx_olp:is_overloaded() of
+                true ->
+                    recvloop(Parent, State);
+                false ->
+                    hibernate(Parent, cancel_stats_timer(State))
+            end
     end.
 
 handle_recv({system, From, Request}, Parent, State) ->
