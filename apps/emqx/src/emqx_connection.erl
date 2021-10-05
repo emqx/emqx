@@ -317,15 +317,16 @@ exit_on_sock_error(Reason) ->
 %%--------------------------------------------------------------------
 %% Recv Loop
 
-recvloop(Parent, State = #state{idle_timeout = IdleTimeout}) ->
+recvloop(Parent, State = #state{ idle_timeout = IdleTimeout
+                               , zone = Zone
+                               }) ->
     receive
         Msg ->
             handle_recv(Msg, Parent, State)
     after
         IdleTimeout + 100 ->
-            case emqx_olp:is_overloaded() of
+            case emqx_olp:backoff_hibernation(Zone) of
                 true ->
-                    emqx_metrics:inc('olp.hbn'),
                     recvloop(Parent, State);
                 false ->
                     hibernate(Parent, cancel_stats_timer(State))

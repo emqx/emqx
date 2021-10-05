@@ -19,6 +19,7 @@
         , backoff/1
         , backoff_gc/1
         , backoff_hibernation/1
+        , backoff_new_conn/1
         ]).
 
 
@@ -28,15 +29,16 @@
         , off/0
         ]).
 
+-define(overload_protection, overload_protection).
+
 -spec is_overloaded() -> boolean().
 is_overloaded() ->
   load_ctl:is_overloaded().
 
 -spec backoff(Zone :: atom()) -> ok | false | timeout.
 backoff(Zone) ->
-  case emqx_config:get_zone_conf(Zone, [overload_protection, enable], false) of
-    true ->
-      Delay = emqx_config:get_zone_conf(Zone, [overload_protection, backoff_delay], 1),
+  case emqx_config:get_zone_conf(Zone, [?overload_protection]) of
+    #{enable := true, backoff_delay := Delay} ->
       case load_ctl:maydelay(Delay) of
         false -> false;
         ok ->
@@ -46,21 +48,26 @@ backoff(Zone) ->
           emqx_metrics:inc('olp.delay.timeout'),
           timeout
       end;
-    false ->
+    _ ->
       ok
   end.
 
--spec backoff_gc(Zone :: atom()) -> ok | timeout.
+-spec backoff_gc(Zone :: atom()) -> boolean().
 backoff_gc(Zone) ->
-  load_ctl:is_overloaded()
-    andalso emqx_config:get_zone_conf(Zone, [overload_protection, enable], false)
-    andalso emqx_config:get_zone_conf(Zone, [overload_protection, backoff_gc], false).
+  do_check(Zone, ?FUNCTION_NAME, 'olp.gc').
 
--spec backoff_hibernation(Zone :: atom()) -> ok | timeout.
+-spec backoff_hibernation(Zone :: atom()) -> boolean().
 backoff_hibernation(Zone) ->
-  load_ctl:is_overloaded()
-    andalso emqx_config:get_zone_conf(Zone, [overload_protection, enable], false)
-    andalso emqx_config:get_zone_conf(Zone, [overload_protection, backoff_hibernation], false).
+  do_check(Zone, ?FUNCTION_NAME, 'olp.hbn').
+
+-spec backoff_new_conn(Zone :: atom()) -> ok | {error, overloaded}.
+backoff_new_conn(Zone) ->
+  case do_check(Zone, ?FUNCTION_NAME, 'olp.new_conn') of
+    true ->
+      {error, overloaded};
+    false ->
+      ok
+  end.
 
 -spec status() -> any().
 status() ->
@@ -73,6 +80,21 @@ off() ->
 -spec on() -> any().
 on() ->
  load_ctl:restart_runq_flagman().
+
+%%% Internals
+do_check(Zone, Key, CntName) ->
+  case load_ctl:is_overloaded() of
+    true ->
+      case emqx_config:get_zone_conf(Zone, [?overload_protection]) of
+        #{enable := true, Key := true} ->
+          emqx_metrics:inc(CntName),
+          true;
+        _ ->
+          false
+      end;
+    false -> false
+  end.
+
 
 %%%_* Emacs ====================================================================
 %%% Local Variables:

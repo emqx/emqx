@@ -190,7 +190,7 @@
          {counter, 'olp.delay.timeout'},
          {counter, 'olp.hbn'},
          {counter, 'olp.gc'},
-         {counter, 'olp.close.quic'}
+         {counter, 'olp.new_conn'}
         ]).
 
 -record(state, {next_idx = 1}).
@@ -585,7 +585,7 @@ reserved_idx('olp.delay.ok')                 -> 300;
 reserved_idx('olp.delay.timeout')            -> 301;
 reserved_idx('olp.hbn')                      -> 302;
 reserved_idx('olp.gc')                       -> 303;
-reserved_idx('olp.close.quic')               -> 304;
+reserved_idx('olp.new_conn')                 -> 304;
 
 reserved_idx(_)                              -> undefined.
 

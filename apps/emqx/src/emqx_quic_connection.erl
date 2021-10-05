@@ -46,7 +46,7 @@ new_conn(Conn, S) ->
                     {error, stream_accept_error}
             end;
         true ->
-            emqx_metrics:inc('olp.close.quic'),
+            emqx_metrics:inc('olp.new_conn'),
             {error, overloaded}
     end.
 

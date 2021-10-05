@@ -406,9 +406,13 @@ fields("overload_protection") ->
            })}
     , {"backoff_gc",
        sc(boolean(),
-          #{ default => true
+          #{ default => false
            })}
     , {"backoff_hibernation",
+       sc(boolean(),
+          #{ default => true
+           })}
+    , {"backoff_new_conn",
        sc(boolean(),
           #{ default => true
            })}
