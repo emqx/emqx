@@ -403,6 +403,26 @@ t_pubsub(_) ->
                                    <<"topic">> => <<"">>}),
     ?assertEqual(?ERROR15, get(<<"code">>, BadTopic3)),
 
+
+    {ok, BadClient1} = request_api(post, api_path(["mqtt/subscribe"]), [], auth_header_(),
+                                 #{<<"clientid">> => 1,
+                                   <<"topics">> => <<"mytopic">>,
+                                   <<"qos">> => 2}),
+    ?assertEqual(?ERROR8, get(<<"code">>, BadClient1)),
+
+    {ok, BadClient2} = request_api(post, api_path(["mqtt/publish"]), [], auth_header_(),
+                                 #{<<"clientid">> => 1,
+                                   <<"topics">> => <<"mytopic">>,
+                                   <<"qos">> => 1,
+                                   <<"payload">> => <<"hello">>}),
+    ?assertEqual(?ERROR8, get(<<"code">>, BadClient2)),
+
+    {ok, BadClient3} = request_api(post, api_path(["mqtt/unsubscribe"]), [], auth_header_(),
+                                 #{<<"clientid">> => 1,
+                                   <<"topic">> => <<"mytopic">>}),
+    ?assertEqual(?ERROR8, get(<<"code">>, BadClient3)),
+
+
     meck:new(emqx_mgmt, [passthrough, no_history]),
     meck:expect(emqx_mgmt, unsubscribe, 2, fun(_, _) -> {error, undefined} end),
     {ok, NotFound2} = request_api(post, api_path(["mqtt/unsubscribe"]), [], auth_header_(),

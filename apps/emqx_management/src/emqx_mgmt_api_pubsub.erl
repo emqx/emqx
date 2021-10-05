@@ -147,6 +147,8 @@ loop_unsubscribe([Params | ParamsN], Acc) ->
                code => Code},
     loop_unsubscribe(ParamsN, [Result | Acc]).
 
+do_subscribe(ClientId, _Topics, _QoS) when not is_binary(ClientId) ->
+    {ok, ?ERROR8, <<"bad clientid: must be string">>};
 do_subscribe(_ClientId, [], _QoS) ->
     {ok, ?ERROR15, bad_topic};
 do_subscribe(ClientId, Topics, QoS) ->
@@ -156,6 +158,8 @@ do_subscribe(ClientId, Topics, QoS) ->
         _ -> ok
     end.
 
+do_publish(ClientId, _Topics, _Qos, _Retain, _Payload) when not is_binary(ClientId) ->
+    {ok, ?ERROR8, <<"bad clientid: must be string">>};
 do_publish(_ClientId, [], _Qos, _Retain, _Payload) ->
     {ok, ?ERROR15, bad_topic};
 do_publish(ClientId, Topics, Qos, Retain, Payload) ->
@@ -166,6 +170,8 @@ do_publish(ClientId, Topics, Qos, Retain, Payload) ->
     end, Topics),
     {ok, MsgIds}.
 
+do_unsubscribe(ClientId, _Topic) when not is_binary(ClientId) ->
+    {ok, ?ERROR8, <<"bad clientid: must be string">>};
 do_unsubscribe(ClientId, Topic) ->
     case validate_by_filter(Topic) of
         true ->
