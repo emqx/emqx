@@ -76,11 +76,11 @@ handle_event({clear_alarm, process_memory_high_watermark}, State) ->
     {ok, State};
 
 handle_event({set_alarm, {?LC_ALARM_ID_RUNQ, Info}}, State) ->
-    emqx_alarm:activate({runq_overload, node()}, Info),
+    emqx_alarm:activate(runq_overload, Info),
     {ok, State};
 
 handle_event({clear_alarm, ?LC_ALARM_ID_RUNQ}, State) ->
-    emqx_alarm:deactivate({runq_overload, node()}),
+    emqx_alarm:deactivate(runq_overload),
     {ok, State};
 
 handle_event(_, State) ->
