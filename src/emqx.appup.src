@@ -1,7 +1,11 @@
 %% -*- mode: erlang -*-
 Instructions =
-{"4.3.9",
+{"4.3.10",
   [
+   %% app 4.3.9 was released in e4.3.4(enterprise) but not v4.3.9(opensource)
+   {"4.3.9", [
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
+    ]},
    {"4.3.8", [
      {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
      {load_module,emqx_mqueue,brutal_purge,soft_purge,[]},
@@ -116,6 +120,14 @@ Instructions =
    ]},
    {<<".*">>,[]}],
   [
+   {"4.3.9", [
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
+    ]},
+   {"4.3.8", [
+     {load_module,emqx_pqueue,brutal_purge,soft_purge,[]},
+     {load_module,emqx_mqueue,brutal_purge,soft_purge,[]},
+     {load_module,emqx_frame,brutal_purge,soft_purge,[]}
+    ]},
    {"4.3.7", [
      {load_module,emqx_alarm_handler,brutal_purge,soft_purge,[]},
      {load_module,emqx_misc,brutal_purge,soft_purge,[]},
