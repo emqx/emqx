@@ -22,6 +22,7 @@
         , selected_ciphers/1
         , integral_ciphers/2
         , drop_tls13_for_old_otp/1
+        , all_ciphers/0
         ]).
 
 %% non-empty string
@@ -59,6 +60,9 @@ integral_versions(Desired) ->
             Filtered
     end.
 
+%% @doc Return a list of all supported ciphers.
+all_ciphers() -> all_ciphers(default_versions()).
+
 %% @doc Return a list of (openssl string format) cipher suites.
 -spec all_ciphers([ssl:tls_version()]) -> [string()].
 all_ciphers(['tlsv1.3']) ->
@@ -90,7 +94,7 @@ do_selected_ciphers('tlsv1.3') ->
 do_selected_ciphers(_) ->
     [ "ECDHE-ECDSA-AES256-GCM-SHA384",
       "ECDHE-RSA-AES256-GCM-SHA384", "ECDHE-ECDSA-AES256-SHA384", "ECDHE-RSA-AES256-SHA384",
-      "ECDHE-ECDSA-DES-CBC3-SHA", "ECDH-ECDSA-AES256-GCM-SHA384", "ECDH-RSA-AES256-GCM-SHA384",
+      "ECDH-ECDSA-AES256-GCM-SHA384", "ECDH-RSA-AES256-GCM-SHA384",
       "ECDH-ECDSA-AES256-SHA384", "ECDH-RSA-AES256-SHA384", "DHE-DSS-AES256-GCM-SHA384",
       "DHE-DSS-AES256-SHA256", "AES256-GCM-SHA384", "AES256-SHA256",
       "ECDHE-ECDSA-AES128-GCM-SHA256", "ECDHE-RSA-AES128-GCM-SHA256",
@@ -98,15 +102,14 @@ do_selected_ciphers(_) ->
       "ECDH-RSA-AES128-GCM-SHA256", "ECDH-ECDSA-AES128-SHA256", "ECDH-RSA-AES128-SHA256",
       "DHE-DSS-AES128-GCM-SHA256", "DHE-DSS-AES128-SHA256", "AES128-GCM-SHA256", "AES128-SHA256",
       "ECDHE-ECDSA-AES256-SHA", "ECDHE-RSA-AES256-SHA", "DHE-DSS-AES256-SHA",
-      "ECDH-ECDSA-AES256-SHA", "ECDH-RSA-AES256-SHA", "AES256-SHA", "ECDHE-ECDSA-AES128-SHA",
+      "ECDH-ECDSA-AES256-SHA", "ECDH-RSA-AES256-SHA", "ECDHE-ECDSA-AES128-SHA",
       "ECDHE-RSA-AES128-SHA", "DHE-DSS-AES128-SHA", "ECDH-ECDSA-AES128-SHA",
-      "ECDH-RSA-AES128-SHA", "AES128-SHA",
+      "ECDH-RSA-AES128-SHA",
 
       %% psk
       "RSA-PSK-AES256-GCM-SHA384","RSA-PSK-AES256-CBC-SHA384",
       "RSA-PSK-AES128-GCM-SHA256","RSA-PSK-AES128-CBC-SHA256",
-      "RSA-PSK-AES256-CBC-SHA","RSA-PSK-AES128-CBC-SHA",
-      "RSA-PSK-DES-CBC3-SHA","RSA-PSK-RC4-SHA"
+      "RSA-PSK-AES256-CBC-SHA","RSA-PSK-AES128-CBC-SHA"
     ].
 
 %% @doc Ensure version & cipher-suites integrity.
@@ -212,8 +215,6 @@ drop_tls13(SslOpts0) ->
 -if(?OTP_RELEASE > 22).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
-
-all_ciphers() -> all_ciphers(default_versions()).
 
 drop_tls13_test() ->
     Versions = default_versions(),
