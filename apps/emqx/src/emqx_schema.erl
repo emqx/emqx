@@ -1290,10 +1290,7 @@ parse_user_lookup_fun(StrConf) ->
     {fun Mod:Fun/3, undefined}.
 
 validate_ciphers(Ciphers) ->
-    All = case is_tlsv13_available() of
-              true -> ssl:cipher_suites(all, 'tlsv1.3', openssl);
-              false -> []
-          end ++ ssl:cipher_suites(all, 'tlsv1.2', openssl),
+    All = emqx_tls_lib:all_ciphers(),
     case lists:filter(fun(Cipher) -> not lists:member(Cipher, All) end, Ciphers) of
         [] -> ok;
         Bad -> {error, {bad_ciphers, Bad}}
@@ -1306,6 +1303,3 @@ validate_tls_versions(Versions) ->
         [] -> ok;
         Vs -> {error, {unsupported_ssl_versions, Vs}}
     end.
-
-is_tlsv13_available() ->
-    lists:member('tlsv1.3', proplists:get_value(available, ssl:versions())).

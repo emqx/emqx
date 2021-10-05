@@ -22,6 +22,7 @@
         , selected_ciphers/1
         , integral_ciphers/2
         , drop_tls13_for_old_otp/1
+        , all_ciphers/0
         ]).
 
 %% non-empty string
@@ -58,6 +59,9 @@ integral_versions(Desired) ->
         Filtered ->
             Filtered
     end.
+
+%% @doc Return a list of all supported ciphers.
+all_ciphers() -> all_ciphers(default_versions()).
 
 %% @doc Return a list of (openssl string format) cipher suites.
 -spec all_ciphers([ssl:tls_version()]) -> [string()].
@@ -211,8 +215,6 @@ drop_tls13(SslOpts0) ->
 -if(?OTP_RELEASE > 22).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
-
-all_ciphers() -> all_ciphers(default_versions()).
 
 drop_tls13_test() ->
     Versions = default_versions(),
