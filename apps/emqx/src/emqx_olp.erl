@@ -29,6 +29,18 @@
         , off/0
         ]).
 
+-type cfg_key() ::
+        backoff_gc |
+        backoff_hibernation |
+        backoff_new_conn.
+
+-type cnt_name() ::
+        'olp.delay.ok' |
+        'olp.delay.timeout' |
+        'olp.hbn' |
+        'olp.gc' |
+        'olp.new_conn'.
+
 -define(overload_protection, overload_protection).
 
 -spec is_overloaded() -> boolean().
@@ -82,6 +94,7 @@ on() ->
  load_ctl:restart_runq_flagman().
 
 %%% Internals
+-spec do_check(Zone::atom(), cfg_key(), cnt_name()) -> boolean().
 do_check(Zone, Key, CntName) ->
   case load_ctl:is_overloaded() of
     true ->
