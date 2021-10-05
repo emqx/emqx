@@ -25,7 +25,6 @@ Usage:
 
 Options:
 
-  --check         Don't update the appup files, just check that they are complete
   --repo          Upsteam git repo URL
   --remote        Get upstream repo URL from the specified git remote
   --skip-build    Don't rebuild the releases. May produce wrong results
@@ -34,13 +33,13 @@ Options:
 ".
 
 default_options() ->
-    #{ check        => false
-     , clone_url    => find_upstream_repo("origin")
+    #{ clone_url    => find_upstream_repo("origin")
      , make_command => "make emqx-rel"
      , beams_dir    => "_build/emqx/rel/emqx/lib/"
      }.
 
 main(Args) ->
+    put(update_appup_valid, true),
     #{current_release := CurrentRelease} = Options = parse_args(Args, default_options()),
     case find_pred_tag(CurrentRelease) of
         {ok, Baseline} ->
@@ -52,8 +51,6 @@ main(Args) ->
 
 parse_args([CurrentRelease = [A|_]], State) when A =/= $- ->
     State#{current_release => CurrentRelease};
-parse_args(["--check"|Rest], State) ->
-    parse_args(Rest, State#{check => true});
 parse_args(["--skip-build"|Rest], State) ->
     parse_args(Rest, State#{make_command => "true"});
 parse_args(["--repo", Repo|Rest], State) ->
@@ -67,27 +64,37 @@ parse_args(["--release-dir", Dir|Rest], State) ->
 parse_args(_, _) ->
     fail(usage()).
 
-main(Options = #{check := Check}, Baseline) ->
+main(Options, Baseline) ->
     {CurrDir, PredDir} = prepare(Baseline, Options),
+    log("~n===================================~n"
+        "Processing changes..."
+        "~n===================================~n"),
     CurrBeams = hashsums(find_beams(CurrDir)),
     PredBeams = hashsums(find_beams(PredDir)),
     Upgrade = diff_releases(CurrBeams, PredBeams),
     Downgrade = diff_releases(PredBeams, CurrBeams),
     Apps = maps:keys(Upgrade),
     lists:foreach( fun(App) ->
+                           %% TODO: Here we can find new and deleted apps and handle them accordingly
                            #{App := AppUpgrade} = Upgrade,
                            #{App := AppDowngrade} = Downgrade,
-                           process_app(Baseline, Check, App, AppUpgrade, AppDowngrade)
+                           process_app(Baseline, App, AppUpgrade, AppDowngrade)
                    end
                  , Apps
                  ),
+    warn_and_exit(is_valid()).
+
+warn_and_exit(true) ->
     log("
 NOTE: Please review the changes manually. This script does not know about NIF
 changes, supervisor changes, process restarts and so on. Also the load order of
-the beam files might need updating.
-").
+the beam files might need updating.~n"),
+    halt(0);
+warn_and_exit(false) ->
+    log("~nERROR: Incomplete appups found. Please inspect the output for more details.~n"),
+    halt(1).
 
-process_app(_, _, App, {[], [], []}, {[], [], []}) ->
+process_app(_, App, {[], [], []}, {[], [], []}) ->
     %% No changes, just check the appup file if present:
     case locate(App, ".appup.src") of
         {ok, AppupFile} ->
@@ -96,17 +103,19 @@ process_app(_, _, App, {[], [], []}, {[], [], []}) ->
         undefined ->
             ok
     end;
-process_app(PredVersion, Check, App, Upgrade, Downgrade) ->
+process_app(PredVersion, App, Upgrade, Downgrade) ->
     case locate(App, ".appup.src") of
         {ok, AppupFile} ->
-            update_appup(Check, PredVersion, AppupFile, Upgrade, Downgrade);
+            update_appup(PredVersion, AppupFile, Upgrade, Downgrade);
         undefined ->
             case create_stub(App) of
                 false ->
-                    %% External dependency, skip
+                    set_invalid(),
+                    log("ERROR: External dependency '~p' contains changes, but the appup.src file is NOT updated.
+       Create a patch to the upstream to resolve this issue.~n", [App]),
                     ok;
                 AppupFile ->
-                    update_appup(Check, PredVersion, AppupFile, Upgrade, Downgrade)
+                    update_appup(PredVersion, AppupFile, Upgrade, Downgrade)
             end
     end.
 
@@ -121,8 +130,8 @@ create_stub(App) ->
             false
     end.
 
-update_appup(Check, PredVersion, File, UpgradeChanges, DowngradeChanges) ->
-    log("Updating appup: ~p~n", [File]),
+update_appup(PredVersion, File, UpgradeChanges, DowngradeChanges) ->
+    log("INFO: Updating appup: ~s~n", [File]),
     {_, Upgrade0, Downgrade0} = read_appup(File),
     Upgrade = update_actions(PredVersion, UpgradeChanges, Upgrade0),
     Downgrade = update_actions(PredVersion, DowngradeChanges, Downgrade0),
@@ -229,7 +238,7 @@ build_pred_release(Baseline, #{clone_url := Repo, make_command := MakeCommand}) 
     %% TODO: shallow clone
     Script = "mkdir -p ${BASEDIR} &&
               cd ${BASEDIR} &&
-              { git clone --branch ${TAG} ${REPO} ${DIR} || true; } &&
+              { [ -d ${DIR} ] || git clone --branch ${TAG} ${REPO} ${DIR}; } &&
               cd ${DIR} &&" ++ MakeCommand,
     Env = [{"REPO", Repo}, {"TAG", Baseline}, {"BASEDIR", BaseDir}, {"DIR", Dir}],
     bash(Script, Env),
@@ -263,6 +272,13 @@ hashsums([File|Rest], Acc0) ->
                           , Acc0
                           ),
     hashsums(Rest, Acc).
+
+%% Set a global flag that something about the appfiles is invalid
+set_invalid() ->
+    put(update_appup_invalid, false).
+
+is_valid() ->
+    get(update_appup_invalid).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Utility functions
