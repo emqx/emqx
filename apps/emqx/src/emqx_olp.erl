@@ -43,10 +43,15 @@
 
 -define(overload_protection, overload_protection).
 
+%% @doc Light realtime check if system is overloaded.
 -spec is_overloaded() -> boolean().
 is_overloaded() ->
   load_ctl:is_overloaded().
 
+%% @doc Backoff with a delay if the system is overloaded, for tasks that could be deferred.
+%%      returns `false' if backoff didn't happen, the system is cool.
+%%      returns `ok' if backoff is triggered and get unblocked when the system is cool.
+%%      returns `timeout' if backoff is trigged but get unblocked due to timeout as configured.
 -spec backoff(Zone :: atom()) -> ok | false | timeout.
 backoff(Zone) ->
   case emqx_config:get_zone_conf(Zone, [?overload_protection]) of
@@ -64,14 +69,18 @@ backoff(Zone) ->
       ok
   end.
 
+%% @doc If forceful GC should be skipped when the system is overloaded.
 -spec backoff_gc(Zone :: atom()) -> boolean().
 backoff_gc(Zone) ->
   do_check(Zone, ?FUNCTION_NAME, 'olp.gc').
 
+%% @doc If hibernation should be skipped when the system is overloaded.
 -spec backoff_hibernation(Zone :: atom()) -> boolean().
 backoff_hibernation(Zone) ->
   do_check(Zone, ?FUNCTION_NAME, 'olp.hbn').
 
+%% @doc Returns {error, overloaded} if new connection should be
+%%      closed when system is overloaded.
 -spec backoff_new_conn(Zone :: atom()) -> ok | {error, overloaded}.
 backoff_new_conn(Zone) ->
   case do_check(Zone, ?FUNCTION_NAME, 'olp.new_conn') of
@@ -85,11 +94,13 @@ backoff_new_conn(Zone) ->
 status() ->
   is_overloaded().
 
+%% @doc turn off backgroud runq check.
 -spec off() -> ok | {error, timeout}.
 off() ->
   load_ctl:stop_runq_flagman(5000).
 
--spec on() -> any().
+%% @doc turn on backgroud runq check.
+-spec on() -> {ok, pid()} | {error, running | restarting}.
 on() ->
  load_ctl:restart_runq_flagman().
 
