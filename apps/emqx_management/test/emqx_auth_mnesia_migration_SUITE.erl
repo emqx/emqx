@@ -30,7 +30,7 @@ matrix() ->
                           , Version <- ["v4.2.10", "v4.1.5"]].
 
 all() ->
-    [t_import_4_0, t_import_4_1, t_import_4_2].
+    [t_import_4_0, t_import_4_1, t_import_4_2, t_export_import].
 
 groups() ->
     [{username, [], cases()}, {clientid, [], cases()}].
@@ -52,7 +52,8 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_, _Config) ->
-    {atomic,ok} = mnesia:clear_table(emqx_acl),
+    {atomic,ok} = mnesia:clear_table(?ACL_TABLE),
+    {atomic,ok} = mnesia:clear_table(?ACL_TABLE2),
     {atomic,ok} = mnesia:clear_table(emqx_user),
     ok.
 -ifdef(EMQX_ENTERPRISE).
@@ -138,25 +139,50 @@ t_import_4_2(Config) ->
     test_import(clientid, {<<"client_for_test">>, <<"public">>}),
     test_import(username, {<<"user_for_test">>, <<"public">>}),
 
-    ?assertMatch([#emqx_acl{
-                     filter = {{Type,<<"emqx_c">>}, <<"Topic/A">>},
-                     action = pub,
-                     access = allow
-                    },
-                  #emqx_acl{
-                     filter = {{Type,<<"emqx_c">>}, <<"Topic/A">>},
-                     action = sub,
-                     access = allow
-                    }],
-                 lists:sort(ets:tab2list(emqx_acl))).
+    ?assertMatch([
+            {{username, <<"emqx_c">>}, <<"Topic/A">>, pub, allow, _},
+            {{username, <<"emqx_c">>}, <<"Topic/A">>, sub, allow, _}
+        ],
+        lists:sort(emqx_acl_mnesia_db:all_acls())).
 -endif.
+
+t_export_import(_Config) ->
+    emqx_acl_mnesia_migrator:migrate_records(),
+
+    Records = [
+        #?ACL_TABLE2{who = {clientid,<<"client1">>}, rules = [{allow, sub, <<"t1">>, 1}]},
+        #?ACL_TABLE2{who = {clientid,<<"client2">>}, rules = [{allow, pub, <<"t2">>, 2}]}
+    ],
+    mnesia:transaction(fun() -> lists:foreach(fun mnesia:write/1, Records) end),
+    timer:sleep(100),
+
+    AclData = emqx_json:encode(emqx_mgmt_data_backup:export_acl_mnesia()),
+
+    mnesia:transaction(fun() ->
+                          lists:foreach(fun(#?ACL_TABLE2{who = Who}) ->
+                                           mnesia:delete({?ACL_TABLE2, Who})
+                                        end,
+                                        Records)
+                       end),
+
+    ?assertEqual([], emqx_acl_mnesia_db:all_acls()),
+
+    emqx_mgmt_data_backup:import_acl_mnesia(emqx_json:decode(AclData, [return_maps]), "4.3"),
+    timer:sleep(100),
+
+    ?assertMatch([
+        {{clientid, <<"client1">>}, <<"t1">>, sub, allow, _},
+        {{clientid, <<"client2">>}, <<"t2">>, pub, allow, _}
+    ], lists:sort(emqx_acl_mnesia_db:all_acls())).
 
 do_import(File, Config) ->
     do_import(File, Config, "{}").
 
 do_import(File, Config, Overrides) ->
-    mnesia:clear_table(emqx_acl),
+    mnesia:clear_table(?ACL_TABLE),
+    mnesia:clear_table(?ACL_TABLE2),
     mnesia:clear_table(emqx_user),
+    emqx_acl_mnesia_migrator:migrate_records(),
     Filename = filename:join(proplists:get_value(data_dir, Config), File),
     emqx_mgmt_data_backup:import(Filename, Overrides).
 
