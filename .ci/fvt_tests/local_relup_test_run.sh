@@ -28,8 +28,9 @@ exec docker run \
     -v "$TEMPDIR:/relup_test" \
     -w "/relup_test" \
     -e REBAR_COLOR=none \
-    -it savonarola/emqx-relup-env:4.3 \
+    -it emqx/relup-test-env:erl23.2.7.2-emqx-2-ubuntu20.04 \
         lux \
+        --progress verbose \
         --case_timeout infinity \
         --var PROFILE="$PROFILE" \
         --var PACKAGE_PATH="/relup_test/packages" \
@@ -37,4 +38,3 @@ exec docker run \
         --var VSN="$VSN" \
         --var OLD_VSN="$OLD_VSN" \
         relup.lux
-

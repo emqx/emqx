@@ -308,6 +308,7 @@ jobs:
           timeout-minutes: 5
           run: |
             lux \
+            --progress verbose \
             --case_timeout infinity \
             --var PROFILE=$PROFILE \
             --var PACKAGE_PATH=$(pwd)/packages \
