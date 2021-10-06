@@ -74,18 +74,20 @@ parse_args(["--make-command", Command|Rest], State) ->
     parse_args(Rest, State#{make_command => Command});
 parse_args(["--release-dir", Dir|Rest], State) ->
     parse_args(Rest, State#{beams_dir => Dir});
+parse_args(["--src-dirs", Pattern|Rest], State) ->
+    parse_args(Rest, State#{src_dirs => Pattern});
 parse_args(_, _) ->
     fail(usage()).
 
 main(Options, Baseline) ->
-    {CurrRelDir, PredRelDir} = prepare(Baseline, Options),
+    {CurrRelDir, PrevRelDir} = prepare(Baseline, Options),
     log("~n===================================~n"
         "Processing changes..."
         "~n===================================~n"),
     CurrAppsIdx = index_apps(CurrRelDir),
-    PredAppsIdx = index_apps(PredRelDir),
-    %% log("Curr: ~p~nPred: ~p~n", [CurrApps, PredApps]),
-    AppupChanges = find_appup_actions(CurrAppsIdx, PredAppsIdx),
+    PrevAppsIdx = index_apps(PrevRelDir),
+    %% log("Curr: ~p~nPrev: ~p~n", [CurrApps, PrevApps]),
+    AppupChanges = find_appup_actions(CurrAppsIdx, PrevAppsIdx),
     case getopt(check) of
         true ->
             case AppupChanges of
@@ -118,8 +120,8 @@ prepare(Baseline, Options = #{make_command := MakeCommand, beams_dir := BeamDir}
     log("Building the current version...~n"),
     bash(MakeCommand),
     log("Downloading and building the previous release...~n"),
-    {ok, PredRootDir} = build_pred_release(Baseline, Options),
-    {BeamDir, filename:join(PredRootDir, BeamDir)}.
+    {ok, PrevRootDir} = build_pred_release(Baseline, Options),
+    {BeamDir, filename:join(PrevRootDir, BeamDir)}.
 
 build_pred_release(Baseline, #{clone_url := Repo, make_command := MakeCommand}) ->
     BaseDir = "/tmp/emqx-baseline/",
@@ -152,11 +154,11 @@ find_pred_tag(CurrentRelease) ->
 %% Appup action creation and updating
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-find_appup_actions(CurrApps, PredApps) ->
+find_appup_actions(CurrApps, PrevApps) ->
     maps:fold(
       fun(App, CurrAppIdx, Acc) ->
-              case PredApps of
-                  #{App := PredAppIdx} -> find_appup_actions(App, CurrAppIdx, PredAppIdx) ++ Acc;
+              case PrevApps of
+                  #{App := PrevAppIdx} -> find_appup_actions(App, CurrAppIdx, PrevAppIdx) ++ Acc;
                   _                    -> Acc %% New app, nothing to upgrade here.
               end
       end,
@@ -166,10 +168,10 @@ find_appup_actions(CurrApps, PredApps) ->
 find_appup_actions(_App, AppIdx, AppIdx) ->
     %% No changes to the app, ignore:
     [];
-find_appup_actions(App, CurrAppIdx, PredAppIdx = #app{version = PredVersion}) ->
-    {OldUpgrade, OldDowngrade} = find_old_appup_actions(App, PredVersion),
-    Upgrade = merge_update_actions(diff_app(App, CurrAppIdx, PredAppIdx), OldUpgrade),
-    Downgrade = merge_update_actions(diff_app(App, PredAppIdx, CurrAppIdx), OldDowngrade),
+find_appup_actions(App, CurrAppIdx, PrevAppIdx = #app{version = PrevVersion}) ->
+    {OldUpgrade, OldDowngrade} = find_old_appup_actions(App, PrevVersion),
+    Upgrade = merge_update_actions(diff_app(App, CurrAppIdx, PrevAppIdx), OldUpgrade),
+    Downgrade = merge_update_actions(diff_app(App, PrevAppIdx, CurrAppIdx), OldDowngrade),
     if OldUpgrade =:= Upgrade andalso OldDowngrade =:= Downgrade ->
             %% The appup file has been already updated:
             [];
@@ -177,7 +179,7 @@ find_appup_actions(App, CurrAppIdx, PredAppIdx = #app{version = PredVersion}) ->
             [{App, {Upgrade, Downgrade}}]
     end.
 
-find_old_appup_actions(App, PredVersion) ->
+find_old_appup_actions(App, PrevVersion) ->
     {Upgrade0, Downgrade0} =
         case locate(App, ".appup.src") of
             {ok, AppupFile} ->
@@ -186,7 +188,7 @@ find_old_appup_actions(App, PredVersion) ->
             undefined ->
                 {[], []}
         end,
-    {ensure_version(PredVersion, Upgrade0), ensure_version(PredVersion, Downgrade0)}.
+    {ensure_version(PrevVersion, Upgrade0), ensure_version(PrevVersion, Downgrade0)}.
 
 merge_update_actions(Changes, Vsns) ->
     lists:map(fun(Ret = {<<".*">>, _}) ->
