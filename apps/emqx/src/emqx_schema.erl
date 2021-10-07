@@ -399,22 +399,29 @@ fields("force_shutdown") ->
 fields("overload_protection") ->
     [ {"enable",
        sc(boolean(),
-          #{ default => false})}
+          #{ desc => "React on system overload or not"
+           , default => false
+           })}
     , {"backoff_delay",
        sc(range(0, inf),
-          #{ default => 1
+          #{ desc => "Some unimporant tasks could be delayed"
+                     "for execution, here set the delays in ms"
+           , default => 1
            })}
     , {"backoff_gc",
        sc(boolean(),
-          #{ default => false
+          #{ desc => "Skip forceful GC if necessary"
+           , default => false
            })}
     , {"backoff_hibernation",
        sc(boolean(),
-          #{ default => true
+          #{ desc => "Skip process hibernation if necessary"
+           , default => true
            })}
     , {"backoff_new_conn",
        sc(boolean(),
-          #{ default => true
+          #{ desc => "Close new incoming connections if necessary"
+           , default => true
            })}
     ];
 
