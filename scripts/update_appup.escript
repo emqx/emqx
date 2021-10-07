@@ -76,6 +76,8 @@ parse_args(["--release-dir", Dir|Rest], State) ->
     parse_args(Rest, State#{beams_dir => Dir});
 parse_args(["--src-dirs", Pattern|Rest], State) ->
     parse_args(Rest, State#{src_dirs => Pattern});
+parse_args(["--prev-tag", Tag|Rest], State) ->
+    parse_args(Rest, State#{prev_tag => Tag});
 parse_args(_, _) ->
     fail(usage()).
 
