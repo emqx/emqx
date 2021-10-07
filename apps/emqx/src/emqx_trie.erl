@@ -68,7 +68,6 @@ mnesia(boot) ->
                         ]}],
     ok = mria:create_table(?TRIE, [
                 {rlog_shard, ?ROUTE_SHARD},
-                {storage, ram_copies},
                 {record_name, ?TRIE},
                 {attributes, record_info(fields, ?TRIE)},
                 {type, ordered_set},
