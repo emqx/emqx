@@ -39,6 +39,9 @@
         , from_base62/1
         ]).
 
+-export_type([ guid/0
+             ]).
+
 -define(TAG_VERSION, 131).
 -define(PID_EXT, 103).
 -define(NEW_PID_EXT, 88).

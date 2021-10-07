@@ -150,7 +150,29 @@ roots(low) ->
    , {"flapping_detect",
        sc(ref("flapping_detect"),
           #{})}
+   , {"persistent_session_store",
+       sc(ref("persistent_session_store"),
+          #{})}
     ].
+
+fields("persistent_session_store") ->
+    [ {"enabled",
+       sc(boolean(),
+          #{ default => "false"
+           })},
+      {"max_retain_undelivered",
+       sc(duration(),
+          #{ default => "1h"
+           })},
+      {"message_gc_interval",
+       sc(duration(),
+          #{ default => "1h"
+           })},
+      {"session_message_gc_interval",
+       sc(duration(),
+          #{ default => "1m"
+           })}
+    ];
 
 fields("stats") ->
     [ {"enable",

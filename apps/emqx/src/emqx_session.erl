@@ -75,6 +75,7 @@
 -export([ deliver/2
         , enqueue/2
         , dequeue/1
+        , ignore_local/3
         , retry/1
         , terminate/3
         ]).
@@ -89,9 +90,17 @@
 %% Export for CT
 -export([set_field/3]).
 
--export_type([session/0]).
+-type sessionID() :: emqx_guid:guid().
+
+-export_type([ session/0
+             , sessionID/0
+             ]).
 
 -record(session, {
+          %% sessionID, fresh for all new sessions unless it is a resumed persistent session
+          id :: sessionID(),
+          %% Is this session a persistent session i.e. was it started with Session-Expiry > 0
+          is_persistent :: boolean(),
           %% Client’s Subscriptions.
           subscriptions :: map(),
           %% Max subscriptions allowed
@@ -129,7 +138,9 @@
 
 -type(replies() :: list(publish() | pubrel())).
 
--define(INFO_KEYS, [subscriptions,
+-define(INFO_KEYS, [id,
+                    is_persistent,
+                    subscriptions,
                     upgrade_qos,
                     retry_interval,
                     await_rel_timeout,
@@ -157,6 +168,7 @@
                     , await_rel_timeout => timeout()
                     , max_inflight => integer()
                     , mqueue => emqx_mqueue:options()
+                    , is_persistent => boolean()
                     }.
 
 %%--------------------------------------------------------------------
@@ -171,6 +183,8 @@ init(Opts) ->
                     store_qos0 => true
                    }, maps:get(mqueue, Opts, #{})),
     #session{
+       id                = emqx_guid:gen(),
+       is_persistent     = maps:get(is_persistent, Opts, false),
        max_subscriptions = maps:get(max_subscriptions, Opts, infinity),
        subscriptions     = #{},
        upgrade_qos       = maps:get(upgrade_qos, Opts, false),
@@ -195,6 +209,10 @@ info(Session) ->
 
 info(Keys, Session) when is_list(Keys) ->
     [{Key, info(Key, Session)} || Key <- Keys];
+info(id, #session{id = Id}) ->
+    Id;
+info(is_persistent, #session{is_persistent = Bool}) ->
+    Bool;
 info(subscriptions, #session{subscriptions = Subs}) ->
     Subs;
 info(subscriptions_cnt, #session{subscriptions = Subs}) ->
@@ -237,6 +255,23 @@ info(created_at, #session{created_at = CreatedAt}) ->
 stats(Session) -> info(?STATS_KEYS, Session).
 
 %%--------------------------------------------------------------------
+%% Ignore local messages
+%%--------------------------------------------------------------------
+
+ignore_local(Delivers, Subscriber, Session) ->
+    Subs = emqx_session:info(subscriptions, Session),
+    lists:dropwhile(fun({deliver, Topic, #message{from = Publisher}}) ->
+                        case maps:find(Topic, Subs) of
+                            {ok, #{nl := 1}} when Subscriber =:= Publisher ->
+                                ok = emqx_metrics:inc('delivery.dropped'),
+                                ok = emqx_metrics:inc('delivery.dropped.no_local'),
+                                true;
+                            _ ->
+                                false
+                        end
+                    end, Delivers).
+
+%%--------------------------------------------------------------------
 %% Client -> Broker: SUBSCRIBE
 %%--------------------------------------------------------------------
 
@@ -244,11 +279,12 @@ stats(Session) -> info(?STATS_KEYS, Session).
                 emqx_types:subopts(), session())
       -> {ok, session()} | {error, emqx_types:reason_code()}).
 subscribe(ClientInfo = #{clientid := ClientId}, TopicFilter, SubOpts,
-          Session = #session{subscriptions = Subs}) ->
+          Session = #session{id = SessionID, is_persistent = IsPS, subscriptions = Subs}) ->
     IsNew = not maps:is_key(TopicFilter, Subs),
     case IsNew andalso is_subscriptions_full(Session) of
         false ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts),
+            ok = emqx_persistent_session:add_subscription(TopicFilter, SessionID, IsPS),
             ok = emqx_hooks:run('session.subscribed',
                                 [ClientInfo, TopicFilter, SubOpts#{is_new => IsNew}]),
             {ok, Session#session{subscriptions = maps:put(TopicFilter, SubOpts, Subs)}};
@@ -268,10 +304,12 @@ is_subscriptions_full(#session{subscriptions = Subs,
 
 -spec(unsubscribe(emqx_types:clientinfo(), emqx_types:topic(), emqx_types:subopts(), session())
       -> {ok, session()} | {error, emqx_types:reason_code()}).
-unsubscribe(ClientInfo, TopicFilter, UnSubOpts, Session = #session{subscriptions = Subs}) ->
+unsubscribe(ClientInfo, TopicFilter, UnSubOpts,
+            Session = #session{id = SessionID, subscriptions = Subs, is_persistent = IsPS}) ->
     case maps:find(TopicFilter, Subs) of
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
+            ok = emqx_persistent_session:remove_subscription(TopicFilter, SessionID, IsPS),
             ok = emqx_hooks:run('session.unsubscribed', [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]),
             {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}};
         error ->
@@ -638,7 +676,7 @@ terminate(ClientInfo, discarded, Session) ->
     run_hook('session.discarded', [ClientInfo, info(Session)]);
 terminate(ClientInfo, takeovered, Session) ->
     run_hook('session.takeovered', [ClientInfo, info(Session)]);
-terminate(ClientInfo, Reason, Session) ->
+terminate(#{clientid :=_ClientId} = ClientInfo, Reason, Session) ->
     run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
 
 -compile({inline, [run_hook/2]}).

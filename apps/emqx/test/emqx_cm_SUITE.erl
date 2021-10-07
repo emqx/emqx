@@ -98,6 +98,7 @@ t_open_session(_) ->
                  sockname => {{127,0,0,1}, 1883},
                  peercert => nossl,
                  conn_mod => emqx_connection,
+                 expiry_interval => 0,
                  receive_maximum => 100},
     {ok, #{session := Session1, present := false}}
         = emqx_cm:open_session(true, ClientInfo, ConnInfo),
@@ -123,6 +124,7 @@ t_open_session_race_condition(_) ->
                  sockname => {{127,0,0,1}, 1883},
                  peercert => nossl,
                  conn_mod => emqx_connection,
+                 expiry_interval => 0,
                  receive_maximum => 100},
 
     Parent = self(),
@@ -228,7 +230,7 @@ t_takeover_session(_) ->
         end
     end),
     timer:sleep(100),
-    {ok, emqx_connection, _, test} = emqx_cm:takeover_session(<<"clientid">>),
+    {living, emqx_connection, _, test} = emqx_cm:takeover_session(<<"clientid">>),
     emqx_cm:unregister_channel(<<"clientid">>).
 
 t_kick_session(_) ->
