@@ -220,12 +220,18 @@ mark_resume_begin(SessionID) ->
     MarkerID.
 
 add_subscription(TopicFilter, SessionID, true = _IsPersistent) ->
-    emqx_session_router:do_add_route(TopicFilter, SessionID);
+    case is_store_enabled() of
+        true  -> emqx_session_router:do_add_route(TopicFilter, SessionID);
+        false -> ok
+    end;
 add_subscription(_TopicFilter, _SessionID, false = _IsPersistent) ->
     ok.
 
 remove_subscription(TopicFilter, SessionID, true = _IsPersistent) ->
-    emqx_session_router:do_delete_route(TopicFilter, SessionID);
+    case is_store_enabled() of
+        true  -> emqx_session_router:do_delete_route(TopicFilter, SessionID);
+        false -> ok
+    end;
 remove_subscription(_TopicFilter, _SessionID, false = _IsPersistent) ->
     ok.
 
