@@ -26,6 +26,8 @@
         , set_init_config_load_done/0
         , get_init_config_load_done/0
         , set_override_conf_file/1
+        , set_init_tnx_id/1
+        , get_init_tnx_id/0
         ]).
 
 -include("emqx.hrl").
@@ -64,6 +66,12 @@ ensure_ekka_started() ->
 %% which manages emqx app.
 set_init_config_load_done() ->
     application:set_env(emqx, init_config_load_done, true).
+
+set_init_tnx_id(TnxId) ->
+    application:set_env(emqx, cluster_rpc_init_tnx_id, TnxId).
+
+get_init_tnx_id() ->
+    application:get_env(emqx, cluster_rpc_init_tnx_id, -1).
 
 get_init_config_load_done() ->
     application:get_env(emqx, init_config_load_done, false).

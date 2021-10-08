@@ -24,7 +24,6 @@
 -export([get_override_config_file/0]).
 
 -include_lib("emqx/include/logger.hrl").
--include("emqx_machine.hrl").
 
 %% @doc EMQ X boot entrypoint.
 start() ->
@@ -38,10 +37,8 @@ start() ->
     ok = print_otp_version_warning(),
 
     {ok, TnxId} = copy_override_conf_from_core_node(),
-    ok = load_config_files(),
-    ekka:start(),
-    ekka_rlog:wait_for_shards([?EMQX_MACHINE_SHARD], infinity),
-    TnxId.
+    emqx_app:set_init_tnx_id(TnxId),
+    load_config_files().
 
 graceful_shutdown() ->
     emqx_machine_terminator:graceful_wait().

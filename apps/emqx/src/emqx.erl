@@ -253,5 +253,5 @@ reset_config([_| _] = KeyPath, Opts) ->
 cluster_call(Module, Func, Args) ->
     case emqx_cluster_rpc:multicall(Module, Func, Args) of
         {ok, _TxnId, Result} -> Result;
-        Failed -> Failed
+        {error, Failed} -> Failed
     end.

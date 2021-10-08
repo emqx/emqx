@@ -142,7 +142,6 @@ end_per_group(_Groupname, _Config) ->
 
 init_per_testcase(t_events, Config) ->
     init_events_counters(),
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000, -1),
     SQL = "SELECT * FROM \"$events/client_connected\", "
                         "\"$events/client_disconnected\", "
                         "\"$events/session_subscribed\", "
@@ -163,7 +162,6 @@ init_per_testcase(t_events, Config) ->
     ?assertMatch(#rule{id = <<"rule:t_events">>}, Rule),
     [{hook_points_rules, Rule} | Config];
 init_per_testcase(_TestCase, Config) ->
-    emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000, -1),
     Config.
 
 end_per_testcase(t_events, Config) ->

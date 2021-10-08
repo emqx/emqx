@@ -17,7 +17,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/1, mnesia/1]).
+-export([start_link/0, mnesia/1]).
 -export([multicall/3, multicall/5, query/1, reset/0, status/0, skip_failed_commit/1]).
 -export([get_latest_tnx_id/0]).
 
@@ -27,17 +27,16 @@
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
--export([start_link/4]).
 -endif.
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
 -include_lib("emqx/include/logger.hrl").
--include("emqx_machine.hrl").
+-include("emqx.hrl").
 
--rlog_shard({?EMQX_MACHINE_SHARD, ?CLUSTER_MFA}).
--rlog_shard({?EMQX_MACHINE_SHARD, ?CLUSTER_COMMIT}).
+-rlog_shard({?COMMON_SHARD, ?CLUSTER_MFA}).
+-rlog_shard({?COMMON_SHARD, ?CLUSTER_COMMIT}).
 
 -define(CATCH_UP, catch_up).
 -define(TIMEOUT, timer:minutes(1)).
@@ -48,13 +47,13 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?CLUSTER_MFA, [
         {type, ordered_set},
-        {rlog_shard, ?EMQX_MACHINE_SHARD},
+        {rlog_shard, ?COMMON_SHARD},
         {disc_copies, [node()]},
         {record_name, cluster_rpc_mfa},
         {attributes, record_info(fields, cluster_rpc_mfa)}]),
     ok = ekka_mnesia:create_table(?CLUSTER_COMMIT, [
         {type, set},
-        {rlog_shard, ?EMQX_MACHINE_SHARD},
+        {rlog_shard, ?COMMON_SHARD},
         {disc_copies, [node()]},
         {record_name, cluster_rpc_commit},
         {attributes, record_info(fields, cluster_rpc_commit)}]);
@@ -62,11 +61,11 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(cluster_rpc_mfa, disc_copies),
     ok = ekka_mnesia:copy_table(cluster_rpc_commit, disc_copies).
 
-start_link(TnxId) ->
-    start_link(node(), ?MODULE, get_retry_ms(), TnxId).
+start_link() ->
+    start_link(node(), ?MODULE, get_retry_ms()).
 
-start_link(Node, Name, RetryMs, TnxId) ->
-    gen_server:start_link({local, Name}, ?MODULE, [Node, RetryMs, TnxId], []).
+start_link(Node, Name, RetryMs) ->
+    gen_server:start_link({local, Name}, ?MODULE, [Node, RetryMs], []).
 
 -spec multicall(Module, Function, Args) -> {ok, TnxId, term()} | {error, Reason} when
     Module :: module(),
@@ -95,7 +94,7 @@ multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNu
                 %% the initiate transaction must happened on core node
                 %% make sure MFA(in the transaction) and the transaction on the same node
                 %% don't need rpc again inside transaction.
-                case ekka_rlog_status:upstream_node(?EMQX_MACHINE_SHARD) of
+                case ekka_rlog_status:upstream_node(?COMMON_SHARD) of
                     {ok, Node} -> gen_server:call({?MODULE, Node}, MFA, Timeout);
                     disconnected -> {error, disconnected}
                 end
@@ -132,7 +131,7 @@ status() ->
 
 -spec get_latest_tnx_id() -> {'atomic', integer()} | {'aborted', Reason :: term()}.
 get_latest_tnx_id() ->
-    ekka_mnesia:ro_transaction(?EMQX_MACHINE_SHARD, fun() -> get_latest_id() end).
+    ekka_mnesia:ro_transaction(?COMMON_SHARD, fun() -> get_latest_id() end).
 
 %% Regardless of what MFA is returned, consider it a success),
 %% then move to the next tnxId.
@@ -146,9 +145,10 @@ skip_failed_commit(Node) ->
 %%%===================================================================
 
 %% @private
-init([Node, RetryMs, TnxId]) ->
+init([Node, RetryMs]) ->
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
     State = #{node => Node, retry_interval => RetryMs},
+    TnxId = emqx_app:get_init_tnx_id(),
     ok = maybe_init_tnx_id(Node, TnxId),
     {ok, State, {continue, ?CATCH_UP}}.
 
@@ -287,7 +287,7 @@ do_catch_up_in_one_trans(LatestId, Node) ->
     end.
 
 transaction(Func, Args) ->
-    ekka_mnesia:transaction(?EMQX_MACHINE_SHARD, Func, Args).
+    ekka_mnesia:transaction(?COMMON_SHARD, Func, Args).
 
 trans_status() ->
     mnesia:foldl(fun(Rec, Acc) ->
@@ -376,7 +376,7 @@ commit_status_trans(Operator, TnxId) ->
     mnesia:select(?CLUSTER_COMMIT, [{MatchHead, [Guard], [Result]}]).
 
 get_retry_ms() ->
-    application:get_env(emqx_machine, cluster_call_retry_interval, 1000).
+    emqx:get_config(["broker", "cluster_call", "retry_interval"], 1000).
 
 maybe_init_tnx_id(_Node, TnxId)when TnxId < 0 -> ok;
 maybe_init_tnx_id(Node, TnxId) ->

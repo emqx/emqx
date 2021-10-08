@@ -304,33 +304,11 @@ fields("node") ->
           #{ mapping => "emqx_machine.backtrace_depth"
            , default => 23
            })}
-    , {"cluster_call",
-       sc(ref("cluster_call"),
-          #{}
-         )}
     , {"etc_dir",
        sc(string(),
           #{ desc => "`etc` dir for the node"
            }
          )}
-    ];
-
-fields("cluster_call") ->
-    [ {"retry_interval",
-       sc(emqx_schema:duration(),
-          #{ mapping => "emqx_machine.retry_interval"
-           , default => "1s"
-           })}
-    , {"max_history",
-       sc(range(1, 500),
-          #{mapping => "emqx_machine.max_history",
-            default => 100
-           })}
-    , {"cleanup_interval",
-       sc(emqx_schema:duration(),
-          #{mapping => "emqx_machine.cleanup_interval",
-            default => "5m"
-           })}
     ];
 
 fields("rpc") ->
