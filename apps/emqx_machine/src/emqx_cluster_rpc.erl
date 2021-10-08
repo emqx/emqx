@@ -130,7 +130,7 @@ reset() -> gen_server:call(?MODULE, reset).
 status() ->
     transaction(fun trans_status/0, []).
 
--spec get_latest_id() -> {'atomic', integer()} | {'aborted', Reason :: term()}.
+-spec get_latest_tnx_id() -> {'atomic', integer()} | {'aborted', Reason :: term()}.
 get_latest_tnx_id() ->
     ekka_mnesia:ro_transaction(?EMQX_MACHINE_SHARD, fun() -> get_latest_id() end).
 
@@ -149,7 +149,7 @@ skip_failed_commit(Node) ->
 init([Node, RetryMs, TnxId]) ->
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
     State = #{node => Node, retry_interval => RetryMs},
-    maybe_init_tnx_id(Node, TnxId),
+    ok = maybe_init_tnx_id(Node, TnxId),
     {ok, State, {continue, ?CATCH_UP}}.
 
 %% @private
@@ -380,7 +380,8 @@ get_retry_ms() ->
 
 maybe_init_tnx_id(_Node, TnxId)when TnxId < 0 -> ok;
 maybe_init_tnx_id(Node, TnxId) ->
-    {atomic, _} = transaction(fun init_node_tnx_id/2, [Node, TnxId]).
+    {atomic, _} = transaction(fun init_node_tnx_id/2, [Node, TnxId]),
+    ok.
 
 init_node_tnx_id(Node, TnxId) ->
     case mnesia:read(?CLUSTER_COMMIT, Node) of
