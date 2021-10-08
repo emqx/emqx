@@ -139,28 +139,29 @@ cluster_query(Params, Tab, QsSchema, QueryFun) ->
     {CodCnt, Qs} = params2qs(Params, QsSchema),
     Limit = b2i(limit(Params)),
     Page  = b2i(page(Params)),
-    Start = if Page > 1 -> (Page-1) * Limit;
-               true -> 0
-            end,
+    PageStart = page_start(Page, Limit),
     Nodes = ekka_mnesia:running_nodes(),
-    Rows = do_cluster_query(Nodes, Tab, Qs, QueryFun, Start, Limit+1, []),
+    %% Rows so big, fixme.
+    Rows = do_cluster_query(Nodes, Tab, Qs, QueryFun, _Continuation = ?FRESH_SELECT, Limit, []),
+    Data = lists:sublist(Rows, PageStart, Limit),
     Meta = #{page => Page, limit => Limit},
     NMeta = case CodCnt =:= 0 of
                 true -> Meta#{count => lists:sum([rpc_call(Node, ets, info, [Tab, size], 5000) || Node <- Nodes])};
                 _ -> Meta#{count => length(Rows)}
             end,
-    #{meta => NMeta, data => lists:sublist(Rows, Limit)}.
+    #{meta => NMeta, data => Data}.
 
 %% @private
-do_cluster_query([], _, _, _, _, _, Acc) ->
+do_cluster_query([], _Tab, _Qs, _QueryFun, _Continuation, _Limit, Acc) ->
     lists:append(lists:reverse(Acc));
-do_cluster_query([Node|Nodes], Tab, Qs, QueryFun, Start, Limit, Acc) ->
-    {NStart, Rows} = do_query(Node, Tab, Qs, QueryFun, Start, Limit),
-    case Limit - length(Rows) of
-        Rest when Rest > 0 ->
-            do_cluster_query(Nodes, Tab, Qs, QueryFun, NStart, Limit, [Rows|Acc]);
-        0 ->
-            lists:append(lists:reverse([Rows|Acc]))
+do_cluster_query([Node | Nodes], Tab, Qs, QueryFun, Continuation, Limit, Acc) ->
+    {Rows, NContinuation} = do_query(Node, Tab, Qs, QueryFun, Continuation, Limit),
+    NAcc = [Rows | Acc],
+    case NContinuation of
+        ?FRESH_SELECT ->
+            do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, Limit, NAcc);
+        _ ->
+            do_cluster_query([Node | Nodes], Tab, Qs, QueryFun, NContinuation, Limit, NAcc)
     end.
 
 %%--------------------------------------------------------------------
