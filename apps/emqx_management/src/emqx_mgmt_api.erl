@@ -67,18 +67,18 @@ paginate(Tables, MatchSpec, Params, RowFun) ->
       data  => [RowFun(Row) || Row <- Rows]}.
 
 query_handle(Table) when is_atom(Table) ->
-    qlc:q([R|| R <- ets:table(Table)]);
+    qlc:q([R || R <- ets:table(Table)]);
 query_handle([Table]) when is_atom(Table) ->
-    qlc:q([R|| R <- ets:table(Table)]);
+    qlc:q([R || R <- ets:table(Table)]);
 query_handle(Tables) ->
     qlc:append([qlc:q([E || E <- ets:table(T)]) || T <- Tables]).
 
 query_handle(Table, MatchSpec) when is_atom(Table) ->
     Options = {traverse, {select, MatchSpec}},
-    qlc:q([R|| R <- ets:table(Table, Options)]);
+    qlc:q([R || R <- ets:table(Table, Options)]);
 query_handle([Table], MatchSpec) when is_atom(Table) ->
     Options = {traverse, {select, MatchSpec}},
-    qlc:q([R|| R <- ets:table(Table, Options)]);
+    qlc:q([R || R <- ets:table(Table, Options)]);
 query_handle(Tables, MatchSpec) ->
     Options = {traverse, {select, MatchSpec}},
     qlc:append([qlc:q([E || E <- ets:table(T, Options)]) || T <- Tables]).
@@ -140,7 +140,7 @@ do_node_query( Node, Tab, Qs, QueryFun, Continuation
             end;
         {cutrows, NMeta} ->
             {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
-            ThisRows  = lists:sublist(Rows, SubStart, NeedNowNum),
+            ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
             NResults = lists:sublist( lists:append(Results, ThisRows)
                                     , SubStart, Limit),
             case NContinuation of

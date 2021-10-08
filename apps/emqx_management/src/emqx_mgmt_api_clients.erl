@@ -502,7 +502,7 @@ unsubscribe(#{clientid := ClientID, topic := Topic}) ->
     end.
 
 subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
-    ArgList = [[ClientID, Topic, Qos]|| #{topic := Topic, qos := Qos} <- Topics],
+    ArgList = [[ClientID, Topic, Qos] || #{topic := Topic, qos := Qos} <- Topics],
     emqx_mgmt_util:batch_operation(?MODULE, do_subscribe, ArgList).
 
 %%--------------------------------------------------------------------
@@ -628,7 +628,7 @@ fuzzy_filter_fun(Fuzzy) ->
 
 run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE}|Fuzzy]) ->
+run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE} | Fuzzy]) ->
     Val = case maps:get(Key, ClientInfo, "") of
               undefined -> "";
               V -> V

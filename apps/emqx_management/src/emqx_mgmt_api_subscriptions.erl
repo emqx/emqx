@@ -165,7 +165,7 @@ fuzzy_filter_fun(Fuzzy) ->
 
 run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_filter(E = {{_, Topic}, _}, [{topic, match, TopicFilter}|Fuzzy]) ->
+run_fuzzy_filter(E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
     emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy).
 
 %%--------------------------------------------------------------------
