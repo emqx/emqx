@@ -18,6 +18,8 @@
 
 -include_lib("stdlib/include/qlc.hrl").
 
+-define(FRESH_SELECT, fresh_select).
+
 -export([ paginate/3
         , paginate/4
         ]).
@@ -217,32 +219,20 @@ traverse_n_by_one(Tab, K, MatchFun, Start, Limit, Acc) ->
             end
     end.
 
-select_table(Tab, Ms, 0, Limit, FmtFun) ->
+select_table(Tab, Ms, ?FRESH_SELECT, Limit, FmtFun)
+  when Limit > 0  ->
     case ets:select(Tab, Ms, Limit) of
         '$end_of_table' ->
-            {0, []};
-        {Rows, _} ->
-            {0, lists:map(FmtFun, lists:reverse(Rows))}
+            {[], ?FRESH_SELECT};
+        {RawResult, NContinuation} ->
+            {lists:map(FmtFun, lists:reverse(RawResult)), NContinuation}
     end;
-
-select_table(Tab, Ms, Start, Limit, FmtFun) ->
-    {NStart, Rows} = select_n_by_one(ets:select(Tab, Ms, Limit), Start, Limit, []),
-    {NStart, lists:map(FmtFun, Rows)}.
-
-select_n_by_one('$end_of_table', Start, _Limit, Acc) ->
-    {Start, lists:flatten(lists:reverse(Acc))};
-select_n_by_one(_, Start, _Limit = 0, Acc) ->
-    {Start, lists:flatten(lists:reverse(Acc))};
-
-select_n_by_one({Rows0, Cons}, Start, Limit, Acc) ->
-    Rows = lists:reverse(Rows0),
-    case Start - length(Rows) of
-        N when N > 0 -> %% Skip
-            select_n_by_one(ets:select(Cons), N, Limit, Acc);
-        _ ->
-            Got = lists:sublist(Rows, Start+1, Limit),
-            NLimit = Limit - length(Got),
-            select_n_by_one(ets:select(Cons), 0, NLimit, [Got|Acc])
+select_table(_Tab, _Ms, Continuation, _Limit, FmtFun) ->
+    case ets:select(Continuation) of
+        '$end_of_table' ->
+            {[], ?FRESH_SELECT};
+        {RawResult, NContinuation} ->
+            {lists:map(FmtFun, lists:reverse(RawResult)), NContinuation}
     end.
 
 %%--------------------------------------------------------------------
