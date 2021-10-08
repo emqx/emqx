@@ -120,16 +120,27 @@ node_query(Node, Params, Tab, QsSchema, QueryFun) ->
     {CodCnt, Qs} = params2qs(Params, QsSchema),
     Limit = b2i(limit(Params)),
     Page  = b2i(page(Params)),
-    Start = if Page > 1 -> (Page-1) * Limit;
-               true -> 0
-            end,
-    {_, Rows} = do_query(Node, Tab, Qs, QueryFun, Start, Limit+1),
+    PageStart = page_start(Page, Limit),
+    %% Rows so big, fixme.
+    Rows = do_node_query(Node, Tab, Qs, QueryFun, _Continuation = ?FRESH_SELECT, Limit, []),
+    Data = lists:sublist(Rows, PageStart, Limit),
     Meta = #{page => Page, limit => Limit},
     NMeta = case CodCnt =:= 0 of
                 true -> Meta#{count => count(Tab)};
                 _ -> Meta#{count => length(Rows)}
             end,
-    #{meta => NMeta, data => lists:sublist(Rows, Limit)}.
+    #{meta => NMeta, data => Data}.
+
+%% @private
+do_node_query(Node, Tab, Qs, QueryFun, Continuation, Limit, Acc) ->
+    {Rows, NContinuation} = do_query(Node, Tab, Qs, QueryFun, Continuation, Limit),
+    NAcc = [Rows | Acc],
+    case NContinuation of
+        ?FRESH_SELECT ->
+            lists:append(lists:reverse(Acc));
+        _ ->
+            do_node_query(Node, Tab, Qs, QueryFun, NContinuation, Limit, NAcc)
+    end.
 
 %%--------------------------------------------------------------------
 %% Cluster Query
