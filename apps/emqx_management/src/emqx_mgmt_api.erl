@@ -219,6 +219,22 @@ traverse_n_by_one(Tab, K, MatchFun, Start, Limit, Acc) ->
             end
     end.
 
+select_table(Tab, {Ms, FuzzyFilterFun}, ?FRESH_SELECT, Limit, FmtFun)
+  when is_function(FuzzyFilterFun) andalso Limit > 0 ->
+    case ets:select(Tab, Ms, Limit) of
+        '$end_of_table' ->
+            {[], ?FRESH_SELECT};
+        {RawResult, NContinuation} ->
+            {lists:map(FmtFun, lists:reverse(FuzzyFilterFun(RawResult))), NContinuation}
+    end;
+select_table(_Tab, {_Ms, FuzzyFilterFun}, Continuation, _Limit, FmtFun)
+  when is_function(FuzzyFilterFun) ->
+    case ets:select(Continuation) of
+        '$end_of_table' ->
+            {[], ?FRESH_SELECT};
+        {RawResult, NContinuation} ->
+            {lists:map(FmtFun, lists:reverse(FuzzyFilterFun(RawResult))), NContinuation}
+    end;
 select_table(Tab, Ms, ?FRESH_SELECT, Limit, FmtFun)
   when Limit > 0  ->
     case ets:select(Tab, Ms, Limit) of
