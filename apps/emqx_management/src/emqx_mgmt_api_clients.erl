@@ -555,15 +555,15 @@ generate_qs(Qs) ->
 %%--------------------------------------------------------------------
 %% Query Functions
 
-query(Tab, {Qs, []}, Start, Limit) ->
+query(Tab, {Qs, []}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
-    emqx_mgmt_api:select_table(Tab, Ms, Start, Limit,
+    emqx_mgmt_api:select_table(Tab, Ms, Continuation, Limit,
                                fun format_channel_info/1);
 
-query(Tab, {Qs, Fuzzy}, Start, Limit) ->
+query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
     MatchFun = match_fun(Ms, Fuzzy),
-    emqx_mgmt_api:traverse_table(Tab, MatchFun, Start, Limit,
+    emqx_mgmt_api:traverse_table(Tab, MatchFun, Continuation, Limit,
                                  fun format_channel_info/1).
 
 %%--------------------------------------------------------------------
