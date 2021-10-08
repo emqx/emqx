@@ -108,7 +108,7 @@ clients_insta(get, #{ bindings := #{name := Name0,
                                              {?MODULE, format_channel_info}) of
             [ClientInfo] ->
                 {200, ClientInfo};
-            [ClientInfo|_More] ->
+            [ClientInfo | _More] ->
                 ?LOG(warning, "More than one client info was returned on ~s",
                               [ClientId]),
                 {200, ClientInfo};
@@ -261,7 +261,7 @@ fuzzy_filter_fun(Fuzzy) ->
 
 run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE}|Fuzzy]) ->
+run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE} | Fuzzy]) ->
     Val = case maps:get(Key, ClientInfo, "") of
               undefined -> "";
               V -> V
@@ -319,12 +319,12 @@ eval(Ls) ->
     eval(Ls, #{}).
 eval([], AccMap) ->
     AccMap;
-eval([{K, Vx}|More], AccMap) ->
+eval([{K, Vx} | More], AccMap) ->
     case valuex_get(K, Vx) of
         undefined -> eval(More, AccMap#{K => null});
         Value -> eval(More, AccMap#{K => Value})
     end;
-eval([{K, Vx, Default}|More], AccMap) ->
+eval([{K, Vx, Default} | More], AccMap) ->
     case valuex_get(K, Vx) of
         undefined -> eval(More, AccMap#{K => Default});
         Value -> eval(More, AccMap#{K => Value})
@@ -363,7 +363,7 @@ metadata(APIs) ->
     metadata(APIs, []).
 metadata([], APIAcc) ->
     lists:reverse(APIAcc);
-metadata([{Path, Fun}|More], APIAcc) ->
+metadata([{Path, Fun} | More], APIAcc) ->
     Methods = [get, post, put, delete, patch],
     Mds = lists:foldl(fun(M, Acc) ->
               try

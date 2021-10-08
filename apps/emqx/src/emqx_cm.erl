@@ -408,7 +408,7 @@ cast(Msg) -> gen_server:cast(?CM, Msg).
 
 init([]) ->
     TabOpts = [public, {write_concurrency, true}],
-    ok = emqx_tables:new(?CHAN_TAB, [bag, {read_concurrency, true}|TabOpts]),
+    ok = emqx_tables:new(?CHAN_TAB, [bag, {read_concurrency, true} | TabOpts]),
     ok = emqx_tables:new(?CHAN_CONN_TAB, [bag | TabOpts]),
     ok = emqx_tables:new(?CHAN_INFO_TAB, [set, compressed | TabOpts]),
     ok = emqx_stats:update_interval(chan_stats, fun ?MODULE:stats_fun/0),
