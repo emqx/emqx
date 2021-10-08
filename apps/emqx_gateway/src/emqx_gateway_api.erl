@@ -84,21 +84,22 @@ gateway(post, Request) ->
 
 gateway_insta(delete, #{bindings := #{name := Name0}}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        _ = emqx_gateway:unload(GwName),
-        {204}
+        case emqx_gateway_conf:unload_gateway(GwName) of
+            ok ->
+                {204};
+            {error, Reason} ->
+                return_http_error(400, Reason)
+        end
     end);
 gateway_insta(get, #{bindings := #{name := Name0}}) ->
     with_gateway(Name0, fun(_, _) ->
-        GwConf = filled_raw_confs([<<"gateway">>, Name0]),
-        LisConf = maps:get(<<"listeners">>, GwConf, #{}),
-        NLisConf = emqx_gateway_http:mapping_listener_m2l(Name0, LisConf),
-        {200, GwConf#{<<"name">> => Name0, <<"listeners">> => NLisConf}}
+        GwConf = emqx_gateway_conf:gateway(Name0),
+        {200, GwConf#{<<"name">> => Name0}}
     end);
-gateway_insta(put, #{body := GwConf0,
+gateway_insta(put, #{body := GwConf,
                      bindings := #{name := Name0}
                     }) ->
     with_gateway(Name0, fun(GwName, _) ->
-        GwConf = maps:without([<<"authentication">>, <<"listeners">>], GwConf0),
         case emqx_gateway_conf:update_gateway(GwName, GwConf) of
             ok ->
                 {200};
@@ -109,13 +110,6 @@ gateway_insta(put, #{body := GwConf0,
 
 gateway_insta_stats(get, _Req) ->
     return_http_error(401, "Implement it later (maybe 5.1)").
-
-filled_raw_confs(Path) ->
-    RawConf = emqx_config:fill_defaults(
-                emqx_config:get_root_raw(Path)
-               ),
-    Confs = emqx_map_lib:deep_get(Path, RawConf),
-    emqx_map_lib:jsonable_map(Confs).
 
 %%--------------------------------------------------------------------
 %% Swagger defines

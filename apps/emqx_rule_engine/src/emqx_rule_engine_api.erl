@@ -237,10 +237,6 @@ param_path_id() ->
 %% Rules API
 %%------------------------------------------------------------------------------
 
-%% The pattern {'ok', Rule} can never match the type {'error',{_,'invalid_string' | binary() | [tuple()] | {_,[any()]} | {_,'sql_lex',{_,_}}}}
-%% probably due to stack depth, or inlines.
--dialyzer({nowarn_function, [crud_rules/2, crud_rules_by_id/2]}).
-
 list_events(#{}, _Params) ->
     {200, emqx_rule_events:event_info()}.
 
@@ -252,17 +248,14 @@ crud_rules(post, #{body := Params}) ->
     ?CHECK_PARAMS(Params, rule_creation, case emqx_rule_engine:create_rule(CheckedParams) of
         {ok, Rule} -> {201, format_rule_resp(Rule)};
         {error, Reason} ->
-            ?LOG(error, "create rule failed: ~0p", [Reason]),
+            ?SLOG(error, #{msg => "create_rule_failed", reason => Reason}),
             {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
     end).
 
 rule_test(post, #{body := Params}) ->
     ?CHECK_PARAMS(Params, rule_test, case emqx_rule_sqltester:test(CheckedParams) of
         {ok, Result} -> {200, Result};
-        {error, nomatch} -> {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}};
-        {error, Reason} ->
-            ?LOG(error, "rule test failed: ~0p", [Reason]),
-            {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
+        {error, nomatch} -> {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}}
     end).
 
 crud_rules_by_id(get, #{bindings := #{id := Id}}) ->
@@ -280,7 +273,9 @@ crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params0}) ->
         {error, not_found} ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}};
         {error, Reason} ->
-            ?LOG(error, "update rule failed: ~0p", [Reason]),
+            ?SLOG(error, #{msg => "update_rule_failed",
+                           id => Id,
+                           reason => Reason}),
             {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
     end);
 

@@ -326,7 +326,7 @@ move_source_api() ->
     {"/authorization/sources/:type/move", Metadata, move_source}.
 
 sources(get, _) ->
-    Sources = lists:foldl(fun (#{type := file, enable := Enable, path := Path}, AccIn) ->
+    Sources = lists:foldl(fun (#{<<"type">> := <<"file">>, <<"enable">> := Enable, <<"path">> := Path}, AccIn) ->
                                   case file:read_file(Path) of
                                       {ok, Rules} ->
                                           lists:append(AccIn, [#{type => file,
@@ -345,15 +345,15 @@ sources(get, _) ->
     {200, #{sources => Sources}};
 sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
     {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
-    update_config(head, [#{type => file, enable => true, path => Filename}]);
+    update_config(?CMD_PREPEND, [#{<<"type">> => <<"file">>, <<"enable">> => true, <<"path">> => Filename}]);
 sources(post, #{body := Body}) when is_map(Body) ->
-    update_config(head, [write_cert(Body)]);
+    update_config(?CMD_PREPEND, [write_cert(Body)]);
 sources(put, #{body := Body}) when is_list(Body) ->
     NBody = [ begin
                 case Source of
                     #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable} ->
                         {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
-                        #{type => file, enable => Enable, path => Filename};
+                        #{<<"type">> => <<"file">>, <<"enable">> => Enable, <<"path">> => Filename};
                     _ -> write_cert(Source)
                 end
               end || Source <- Body],
@@ -362,7 +362,7 @@ sources(put, #{body := Body}) when is_list(Body) ->
 source(get, #{bindings := #{type := Type}}) ->
     case get_raw_source(Type) of
         [] -> {404, #{message => <<"Not found ", Type/binary>>}};
-        [#{type := file, enable := Enable, path := Path}] ->
+        [#{<<"type">> := <<"file">>, <<"enable">> := Enable, <<"path">> := Path}] ->
             case file:read_file(Path) of
                 {ok, Rules} ->
                     {200, #{type => file,
@@ -379,7 +379,7 @@ source(get, #{bindings := #{type := Type}}) ->
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
     {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
-    case emqx_authz:update({?CMD_REPLCAE, file}, #{type => file, enable => Enable, path => Filename}) of
+    case emqx_authz:update({?CMD_REPLCAE, file}, #{<<"type">> => file, <<"enable">> => Enable, <<"path">> => Filename}) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
@@ -405,12 +405,12 @@ get_raw_sources() ->
     RawSources = emqx:get_raw_config([authorization, sources]),
     Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
     Conf = #{<<"sources">> => RawSources},
-    #{sources := Sources} = hocon_schema:check_plain(Schema, Conf, #{atom_key => true, no_conversion => true}),
+    #{<<"sources">> := Sources} = hocon_schema:check_plain(Schema, Conf, #{only_fill_defaults => true}),
     Sources.
 
 get_raw_source(Type) ->
-    lists:filter(fun (#{type := T}) ->
-                         erlang:atom_to_binary(T) =:= Type
+    lists:filter(fun (#{<<"type">> := T}) ->
+                         T =:= Type
                  end, get_raw_sources()).
 
 update_config(Cmd, Sources) ->
@@ -418,16 +418,16 @@ update_config(Cmd, Sources) ->
         {ok, _} -> {204};
         {error, {pre_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => erlang:atom_to_binary(Reason)}};
+                    message => bin(Reason)}};
         {error, {post_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => erlang:atom_to_binary(Reason)}};
+                    message => bin(Reason)}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => erlang:atom_to_binary(Reason)}}
+                    message => bin(Reason)}}
     end.
 
-read_cert(#{ssl := #{enable := true} = SSL} = Source) ->
+read_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
     CaCert = case file:read_file(maps:get(cacertfile, SSL, "")) of
                  {ok, CaCert0} -> CaCert0;
                  _ -> ""

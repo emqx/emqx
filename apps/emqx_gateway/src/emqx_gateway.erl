@@ -66,6 +66,7 @@ lookup(Name) ->
     emqx_gateway_sup:lookup_gateway(Name).
 
 -spec update(gateway_name(), emqx_config:config()) -> ok | {error, any()}.
+%% @doc This function only supports full configuration updates
 update(Name, Config) ->
     emqx_gateway_sup:update_gateway(Name, Config).
 

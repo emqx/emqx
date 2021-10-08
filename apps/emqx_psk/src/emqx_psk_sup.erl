@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,22 +14,22 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQ_X_CLUSTER_RPC_HRL).
--define(EMQ_X_CLUSTER_RPC_HRL, true).
+-module(emqx_psk_sup).
 
--define(CLUSTER_MFA, cluster_rpc_mfa).
--define(CLUSTER_COMMIT, cluster_rpc_commit).
+-behaviour(supervisor).
 
--record(cluster_rpc_mfa, {
-    tnx_id :: pos_integer(),
-    mfa :: mfa(),
-    created_at :: calendar:datetime(),
-    initiator :: node()
-}).
+-export([start_link/0]).
 
--record(cluster_rpc_commit, {
-    node :: node(),
-    tnx_id :: pos_integer() | '$1'
-}).
+-export([init/1]).
 
--endif.
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+init([]) ->
+    {ok, {{one_for_one, 10, 3600},
+          [#{id       => emqx_psk,
+             start    => {emqx_psk, start_link, []},
+             restart  => permanent,
+             shutdown => 5000,
+             type     => worker,
+             modules  => [emqx_psk]}]}}.

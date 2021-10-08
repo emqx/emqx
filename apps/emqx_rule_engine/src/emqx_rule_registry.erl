@@ -19,7 +19,6 @@
 -behaviour(gen_server).
 
 -include("rule_engine.hrl").
--include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 
@@ -81,7 +80,6 @@ mnesia(boot) ->
                 {storage_properties, StoreProps}]);
 
 mnesia(copy) ->
-    %% Copy rule table
     ok = ekka_mnesia:copy_table(?RULE_TAB, disc_copies).
 
 dump() ->
@@ -207,15 +205,15 @@ handle_call({remove_rules, Rules}, _From, State) ->
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[RuleRegistry]: unexpected call - ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", request => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[RuleRegistry]: unexpected cast ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", request => Msg}),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "[RuleRegistry]: unexpected info ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", request => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

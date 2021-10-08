@@ -33,6 +33,7 @@
         , unix_ts_to_rfc3339/2
         , listener_id/3
         , parse_listener_id/1
+        , is_running/2
         ]).
 
 -export([ stringfy/1
@@ -146,6 +147,15 @@ parse_listener_id(Id) ->
         {GwName, Type, Name}
     catch
         _ : _ -> error({invalid_listener_id, Id})
+    end.
+
+is_running(ListenerId, #{<<"bind">> := ListenOn0}) ->
+    ListenOn = emqx_gateway_utils:parse_listenon(ListenOn0),
+    try esockd:listener({ListenerId, ListenOn}) of
+        Pid when is_pid(Pid)->
+            true
+    catch _:_ ->
+        false
     end.
 
 bin(A) when is_atom(A) ->
