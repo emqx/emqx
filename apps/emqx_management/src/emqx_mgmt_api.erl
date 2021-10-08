@@ -319,8 +319,14 @@ is_fuzzy_key(<<"match_", _/binary>>) ->
 is_fuzzy_key(_) ->
     false.
 
+page_start(Page, Limit) ->
+    if Page > 1 -> (Page-1) * Limit + 1;
+       true -> 1
+    end.
+
 %%--------------------------------------------------------------------
 %% Types
+%%--------------------------------------------------------------------
 
 to_type(V, TargetType) ->
     try
