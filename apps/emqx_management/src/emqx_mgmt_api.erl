@@ -23,8 +23,7 @@
         ]).
 
 %% first_next query APIs
--export([ params2qs/2
-        , node_query/5
+-export([ node_query/5
         , cluster_query/4
         , traverse_table/5
         , select_table/5
@@ -130,20 +129,6 @@ node_query(Node, Params, Tab, QsSchema, QueryFun) ->
             end,
     #{meta => NMeta, data => lists:sublist(Rows, Limit)}.
 
-%% @private
-do_query(Node, Tab, Qs, {M,F}, Start, Limit) when Node =:= node() ->
-    M:F(Tab, Qs, Start, Limit);
-do_query(Node, Tab, Qs, QueryFun, Start, Limit) ->
-    rpc_call(Node, ?MODULE, do_query,
-             [Node, Tab, Qs, QueryFun, Start, Limit], 50000).
-
-%% @private
-rpc_call(Node, M, F, A, T) ->
-    case rpc:call(Node, M, F, A, T) of
-        {badrpc, _} = R -> {error, R};
-        Res -> Res
-    end.
-
 %%--------------------------------------------------------------------
 %% Cluster Query
 %%--------------------------------------------------------------------
@@ -175,6 +160,28 @@ do_cluster_query([Node|Nodes], Tab, Qs, QueryFun, Start, Limit, Acc) ->
         0 ->
             lists:append(lists:reverse([Rows|Acc]))
     end.
+
+%%--------------------------------------------------------------------
+%% Do Query (or rpc query)
+%%--------------------------------------------------------------------
+
+%% @private
+do_query(Node, Tab, Qs, {M,F}, Continuation, Limit) when Node =:= node() ->
+    M:F(Tab, Qs, Continuation, Limit);
+do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) ->
+    rpc_call(Node, ?MODULE, do_query,
+             [Node, Tab, Qs, QueryFun, Continuation, Limit], 50000).
+
+%% @private
+rpc_call(Node, M, F, A, T) ->
+    case rpc:call(Node, M, F, A, T) of
+        {badrpc, _} = R -> {error, R};
+        Res -> Res
+    end.
+
+%%--------------------------------------------------------------------
+%% Table Select
+%%--------------------------------------------------------------------
 
 traverse_table(Tab, MatchFun, Start, Limit, FmtFun) ->
     ets:safe_fixtable(Tab, true),
@@ -238,14 +245,15 @@ select_n_by_one({Rows0, Cons}, Start, Limit, Acc) ->
             select_n_by_one(ets:select(Cons), 0, NLimit, [Got|Acc])
     end.
 
+%%--------------------------------------------------------------------
+%% Internal funcs
+%%--------------------------------------------------------------------
+
 params2qs(Params, QsSchema) when is_map(Params) ->
     params2qs(maps:to_list(Params), QsSchema);
 params2qs(Params, QsSchema) ->
     {Qs, Fuzzy} = pick_params_to_qs(Params, QsSchema, [], []),
     {length(Qs) + length(Fuzzy), {Qs, Fuzzy}}.
-
-%%--------------------------------------------------------------------
-%% Internal funcs
 
 pick_params_to_qs([], _, Acc1, Acc2) ->
     NAcc2 = [E || E <- Acc2, not lists:keymember(element(1, E), 1, Acc1)],
