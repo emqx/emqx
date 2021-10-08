@@ -27,7 +27,6 @@
 %% first_next query APIs
 -export([ node_query/5
         , cluster_query/4
-        , traverse_table/5
         , select_table/5
         ]).
 
@@ -196,40 +195,6 @@ rpc_call(Node, M, F, A, T) ->
 %%--------------------------------------------------------------------
 %% Table Select
 %%--------------------------------------------------------------------
-
-traverse_table(Tab, MatchFun, Start, Limit, FmtFun) ->
-    ets:safe_fixtable(Tab, true),
-    {NStart, Rows} = traverse_n_by_one(Tab, ets:first(Tab), MatchFun, Start, Limit, []),
-    ets:safe_fixtable(Tab, false),
-    {NStart, lists:map(FmtFun, Rows)}.
-
-%% @private
-traverse_n_by_one(_, '$end_of_table', _, Start, _, Acc) ->
-    {Start, lists:flatten(lists:reverse(Acc))};
-traverse_n_by_one(_, _, _, Start, _Limit=0, Acc) ->
-    {Start, lists:flatten(lists:reverse(Acc))};
-traverse_n_by_one(Tab, K, MatchFun, Start, Limit, Acc) ->
-    GetRows = fun _GetRows('$end_of_table', _, Ks) ->
-                      {'$end_of_table', Ks};
-                  _GetRows(Kn,  1, Ks) ->
-                      {ets:next(Tab, Kn), [ets:lookup(Tab, Kn) | Ks]};
-                  _GetRows(Kn, N, Ks) ->
-                      _GetRows(ets:next(Tab, Kn), N-1, [ets:lookup(Tab, Kn) | Ks])
-              end,
-    {K2, Rows} = GetRows(K, 100, []),
-    case MatchFun(lists:flatten(lists:reverse(Rows))) of
-        [] ->
-            traverse_n_by_one(Tab, K2, MatchFun, Start, Limit, Acc);
-        Ls ->
-            case Start - length(Ls) of
-                N when N > 0 -> %% Skip
-                    traverse_n_by_one(Tab, K2, MatchFun, N, Limit, Acc);
-                _ ->
-                    Got = lists:sublist(Ls, Start+1, Limit),
-                    NLimit = Limit - length(Got),
-                    traverse_n_by_one(Tab, K2, MatchFun, 0, NLimit, [Got|Acc])
-            end
-    end.
 
 select_table(Tab, {Ms, FuzzyFilterFun}, ?FRESH_SELECT, Limit, FmtFun)
   when is_function(FuzzyFilterFun) andalso Limit > 0 ->
