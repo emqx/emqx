@@ -149,7 +149,7 @@ do_post_update({{delete, Type}, _Source}, _NewSources) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     ok = ensure_resource_deleted(OldSource),
-    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, Front ++ Rear}, -1),
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Front ++ Rear]}, -1),
     ok = emqx_authz_cache:drain_cache();
 do_post_update(_, NewSources) ->
     %% overwrite the entire config!
