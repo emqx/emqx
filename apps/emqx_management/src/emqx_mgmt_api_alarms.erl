@@ -90,7 +90,7 @@ alarms(delete, _Params) ->
 
 query(Table, _QsSpec, Continuation, Limit) ->
     Ms = [{'$1',[],['$1']}],
-    emqx_mgmt_api:select_table(Table, Ms, Continuation, Limit, fun format_alarm/1).
+    emqx_mgmt_api:select_table_with_count(Table, Ms, Continuation, Limit, fun format_alarm/1).
 
 format_alarm(Alarms) when is_list(Alarms) ->
     [emqx_alarm:format(Alarm) || Alarm <- Alarms];
