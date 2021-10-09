@@ -159,6 +159,7 @@ do_post_update(_, NewSources) ->
     lists:foreach(fun ensure_resource_deleted/1, OldInitedSources),
     ok = emqx_authz_cache:drain_cache().
 
+ensure_resource_deleted(#{enable := false}) -> ok;
 ensure_resource_deleted(#{type := file}) -> ok;
 ensure_resource_deleted(#{type := 'built-in-database'}) -> ok;
 ensure_resource_deleted(#{annotations := #{id := Id}}) -> ok = emqx_resource:remove(Id).
@@ -186,13 +187,14 @@ check_dup_types([Source | Sources], Checked) ->
     end.
 
 init_sources(Sources) ->
-    {Enabled, Disabled} = lists:partition(fun(#{enable := Enable}) -> Enable end, Sources),
+    {_Enabled, Disabled} = lists:partition(fun(#{enable := Enable}) -> Enable end, Sources),
     case Disabled =/= [] of
         true -> ?SLOG(info, #{msg => "disabled_sources_ignored", sources => Disabled});
         false -> ok
     end,
-    lists:map(fun init_source/1, Enabled).
+    lists:map(fun init_source/1, Sources).
 
+init_source(#{enable := false} = Source) -> Source;
 init_source(#{type := file,
               path := Path
              } = Source) ->
