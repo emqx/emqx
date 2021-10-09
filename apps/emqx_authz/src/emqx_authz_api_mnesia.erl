@@ -614,7 +614,8 @@ client(delete, #{bindings := #{clientid := Clientid}}) ->
 
 all(get, _) ->
     case mnesia:dirty_read(?ACL_TABLE, ?ACL_TABLE_ALL) of
-        [] -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
+        [] ->
+            {200, #{rules => []}};
         [#emqx_acl{who = ?ACL_TABLE_ALL, rules = Rules}] ->
             {200, #{rules => [ #{topic => Topic,
                                  action => Action,
