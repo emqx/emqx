@@ -71,6 +71,8 @@ apis() ->
     , {<<"lte_created_at">>, timestamp}
     , {<<"gte_connected_at">>, timestamp}
     , {<<"lte_connected_at">>, timestamp}
+    %% special keys for lwm2m protocol
+    , {<<"like_endpoint_name">>, binary}
     ]).
 
 -define(query_fun, {?MODULE, query}).

@@ -91,13 +91,13 @@ fields(coap) ->
     ] ++ gateway_common_options();
 
 fields(lwm2m) ->
-    [ {xml_dir, sc(binary())}
+    [ {xml_dir, sc(binary(), "etc/lwm2m_xml")}
     , {lifetime_min, sc(duration(), "1s")}
     , {lifetime_max, sc(duration(), "86400s")}
     , {qmode_time_window, sc(integer(), 22)}
     , {auto_observe, sc(boolean(), false)}
     , {update_msg_publish_condition, sc(hoconsc:union([always, contains_object_list]))}
-    , {translators, sc(ref(translators))}
+    , {translators, sc_meta(ref(translators), #{nullable => false})}
     , {listeners, sc(ref(udp_listeners))}
     ] ++ gateway_common_options();
 
@@ -133,7 +133,7 @@ fields(translators) ->
 
 fields(translator) ->
     [ {topic, sc(binary())}
-    , {qos, sc(range(0, 2))}
+    , {qos, sc(range(0, 2), 0)}
     ];
 
 fields(udp_listeners) ->

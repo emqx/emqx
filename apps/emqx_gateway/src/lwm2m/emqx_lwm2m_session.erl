@@ -62,6 +62,7 @@
                  , is_cache_mode :: boolean()
                  , mountpoint :: binary()
                  , last_active_at :: non_neg_integer()
+                 , created_at :: non_neg_integer()
                  , cmd_record :: cmd_record()
                  }).
 
@@ -109,6 +110,7 @@ new() ->
     #session{ coap = emqx_coap_tm:new()
             , queue = queue:new()
             , last_active_at = ?NOW
+            , created_at = erlang:system_time(millisecond)
             , is_cache_mode = false
             , mountpoint = <<>>
             , cmd_record = #{}
@@ -206,7 +208,7 @@ info(awaiting_rel_max, _) ->
     infinity;
 info(await_rel_timeout, _) ->
     infinity;
-info(created_at, #session{last_active_at = CreatedAt}) ->
+info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt.
 
 %% @doc Get stats of the session.
@@ -598,6 +600,7 @@ proto_publish(Topic, Payload, Qos, Headers, WithContext,
 mount(Topic, #session{mountpoint = MountPoint}) when is_binary(Topic) ->
     <<MountPoint/binary, Topic/binary>>.
 
+%% XXX: get these confs from params instead of shared mem
 downlink_topic() ->
     emqx:get_config([gateway, lwm2m, translators, command]).
 
