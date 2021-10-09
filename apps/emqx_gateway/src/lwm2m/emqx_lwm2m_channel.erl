@@ -57,7 +57,7 @@
 %% TODO:
 -define(DEFAULT_OVERRIDE,
         #{ clientid => <<"">>  %% Generate clientid by default
-         , username => <<"${Packet.querystring.epn}">>
+         , username => <<"${Packet.uri_query.ep}">>
          , password => <<"">>
          }).
 
@@ -300,13 +300,14 @@ enrich_clientinfo(#coap_message{options = Options} = Msg,
                   Channel = #channel{clientinfo = ClientInfo0}) ->
     Query = maps:get(uri_query, Options, #{}),
     case Query of
-        #{<<"ep">> := Epn} ->
-            %% TODO: put endpoint-name, lifetime into clientinfo ???
+        #{<<"ep">> := Epn, <<"lt">> := Lifetime} ->
             Username = maps:get(<<"imei">>, Query, Epn),
             Password = maps:get(<<"password">>, Query, undefined),
             ClientId = maps:get(<<"device_id">>, Query, Epn),
             ClientInfo =
-                ClientInfo0#{username => Username,
+                ClientInfo0#{endpoint_name => Epn,
+                             lifetime => binary_to_integer(Lifetime),
+                             username => Username,
                              password => Password,
                              clientid => ClientId},
             {ok, NClientInfo} = fix_mountpoint(Msg, ClientInfo),
