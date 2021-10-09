@@ -27,7 +27,7 @@
 %% first_next query APIs
 -export([ node_query/5
         , cluster_query/4
-        , select_table/5
+        , select_table_with_count/5
         ]).
 
 -export([do_query/6]).
@@ -196,36 +196,38 @@ rpc_call(Node, M, F, A, T) ->
 %% Table Select
 %%--------------------------------------------------------------------
 
-select_table(Tab, {Ms, FuzzyFilterFun}, ?FRESH_SELECT, Limit, FmtFun)
+select_table_with_count(Tab, {Ms, FuzzyFilterFun}, ?FRESH_SELECT, Limit, FmtFun)
   when is_function(FuzzyFilterFun) andalso Limit > 0 ->
     case ets:select(Tab, Ms, Limit) of
         '$end_of_table' ->
-            {[], ?FRESH_SELECT};
+            {0, [], ?FRESH_SELECT};
         {RawResult, NContinuation} ->
-            {lists:map(FmtFun, lists:reverse(FuzzyFilterFun(RawResult))), NContinuation}
+            Rows = FuzzyFilterFun(RawResult),
+            {length(Rows), lists:map(FmtFun, Rows), NContinuation}
     end;
-select_table(_Tab, {_Ms, FuzzyFilterFun}, Continuation, _Limit, FmtFun)
+select_table_with_count(_Tab, {_Ms, FuzzyFilterFun}, Continuation, _Limit, FmtFun)
   when is_function(FuzzyFilterFun) ->
     case ets:select(Continuation) of
         '$end_of_table' ->
-            {[], ?FRESH_SELECT};
+            {0, [], ?FRESH_SELECT};
         {RawResult, NContinuation} ->
-            {lists:map(FmtFun, lists:reverse(FuzzyFilterFun(RawResult))), NContinuation}
+            Rows = FuzzyFilterFun(RawResult),
+            {length(Rows), lists:map(FmtFun, Rows), NContinuation}
     end;
-select_table(Tab, Ms, ?FRESH_SELECT, Limit, FmtFun)
+select_table_with_count(Tab, Ms, ?FRESH_SELECT, Limit, FmtFun)
   when Limit > 0  ->
     case ets:select(Tab, Ms, Limit) of
         '$end_of_table' ->
-            {[], ?FRESH_SELECT};
+            {0, [], ?FRESH_SELECT};
         {RawResult, NContinuation} ->
-            {lists:map(FmtFun, lists:reverse(RawResult)), NContinuation}
+            {length(RawResult), lists:map(FmtFun, RawResult), NContinuation}
     end;
-select_table(_Tab, _Ms, Continuation, _Limit, FmtFun) ->
+select_table_with_count(_Tab, _Ms, Continuation, _Limit, FmtFun) ->
     case ets:select(Continuation) of
         '$end_of_table' ->
-            {[], ?FRESH_SELECT};
+            {0, [], ?FRESH_SELECT};
         {RawResult, NContinuation} ->
-            {lists:map(FmtFun, lists:reverse(RawResult)), NContinuation}
+            {length(RawResult), lists:map(FmtFun, RawResult), NContinuation}
     end.
 
 %%--------------------------------------------------------------------

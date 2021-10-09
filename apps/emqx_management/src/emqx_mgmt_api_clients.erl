@@ -557,14 +557,14 @@ generate_qs(Qs) ->
 
 query(Tab, {Qs, []}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
-    emqx_mgmt_api:select_table(Tab, Ms, Continuation, Limit,
-                               fun format_channel_info/1);
+    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit,
+                                          fun format_channel_info/1);
 
 query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
     FuzzyFilterFun = fuzzy_filter_fun(Fuzzy),
-    emqx_mgmt_api:select_table(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit,
-                               fun format_channel_info/1).
+    emqx_mgmt_api:select_table_with_count(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit,
+                                          fun format_channel_info/1).
 
 %%--------------------------------------------------------------------
 %% QueryString to Match Spec
