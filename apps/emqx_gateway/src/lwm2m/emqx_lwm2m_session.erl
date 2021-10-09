@@ -345,7 +345,7 @@ update(#coap_message{options = Opts, payload = Payload} = Msg,
        WithContext,
        CmdType,
        #session{reg_info = OldRegInfo} = Session) ->
-    Query = maps:get(uri_query, Opts),
+    Query = maps:get(uri_query, Opts, #{}),
     RegInfo = append_object_list(Query, Payload),
     UpdateRegInfo = maps:merge(OldRegInfo, RegInfo),
     LifeTime = get_lifetime(UpdateRegInfo, OldRegInfo),
