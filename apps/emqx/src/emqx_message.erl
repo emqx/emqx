@@ -292,7 +292,8 @@ to_map(#message{
           headers = Headers,
           topic = Topic,
           payload = Payload,
-          timestamp = Timestamp
+          timestamp = Timestamp,
+          extra = Extra
         }) ->
     #{id => Id,
       qos => QoS,
@@ -301,7 +302,8 @@ to_map(#message{
       headers => Headers,
       topic => Topic,
       payload => Payload,
-      timestamp => Timestamp
+      timestamp => Timestamp,
+      extra => Extra
      }.
 
 %% @doc Message to tuple list

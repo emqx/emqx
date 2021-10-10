@@ -71,7 +71,9 @@
           %% Message Payload
           payload :: emqx_types:payload(),
           %% Timestamp (Unit: millisecond)
-          timestamp :: integer()
+          timestamp :: integer(),
+          %% not used so far, for future extension
+          extra = [] :: term()
          }).
 
 -record(delivery, {
