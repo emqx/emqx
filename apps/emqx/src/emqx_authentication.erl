@@ -349,9 +349,11 @@ initialize_authentication(ChainName, AuthenticatorsConfig) ->
             {ok, _} ->
                 ok;
             {error, Reason} ->
-                ?SLOG(error, #{msg => "failed to create authenticator",
-                               reason => Reason,
-                               authenticator => generate_id(AuthenticatorConfig)})
+                ?SLOG(error, #{
+                    msg => "failed_to_create_authenticator",
+                    authenticator => generate_id(AuthenticatorConfig),
+                    reason => Reason
+                })
         end
     end, CheckedConfig).
 
@@ -650,15 +652,15 @@ handle_call({list_users, ChainName, AuthenticatorID}, _From, State) ->
     reply(Reply, State);
 
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected call", req => Req}),
+    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
 
 handle_cast(Req, State) ->
-    ?SLOG(error, #{msg => "unexpected cast", req => Req}),
+    ?SLOG(error, #{msg => "unexpected_cast", req => Req}),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "unexpected info", info => Info}),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

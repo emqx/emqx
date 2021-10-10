@@ -117,7 +117,12 @@ handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
                 {error, Result}
         end
     catch Error:Reason:ST ->
-        ?LOG(error, "change_config failed: ~p", [{Error, Reason, ST}]),
+        ?SLOG(error, #{
+            msg => "change_config_failed",
+            error => Error,
+            reason => Reason,
+            st => ST
+        }),
         {error, Reason}
     end,
     {reply, Reply, State};

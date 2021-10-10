@@ -202,7 +202,10 @@ publish(Msg) when is_record(Msg, message) ->
     emqx_message:is_sys(Msg) orelse emqx_metrics:inc('messages.publish'),
     case emqx_hooks:run_fold('message.publish', [], emqx_message:clean_dup(Msg)) of
         #message{headers = #{allow_publish := false}} ->
-            ?LOG(notice, "Stop publishing: ~s", [emqx_message:format(Msg)]),
+            ?SLOG(notice, #{
+                msg => "stop_publishing",
+                payload => emqx_message:format(Msg)
+            }),
             [];
         Msg1 = #message{topic = Topic} ->
             route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1))
@@ -215,8 +218,12 @@ safe_publish(Msg) when is_record(Msg, message) ->
         publish(Msg)
     catch
         _:Error:Stk->
-            ?LOG(error, "Publish error: ~0p~n~s~n~0p",
-                 [Error, emqx_message:format(Msg), Stk]),
+            ?SLOG(error,#{
+                msg => "publishing_error",
+                error => Error,
+                payload => Msg,
+                stacktrace => Stk
+            }),
             []
     end.
 
@@ -266,14 +273,22 @@ forward(Node, To, Delivery, async) ->
     case emqx_rpc:cast(To, Node, ?BROKER, dispatch, [To, Delivery]) of
         true -> emqx_metrics:inc('messages.forward');
         {badrpc, Reason} ->
-            ?LOG(error, "Ansync forward msg to ~s failed due to ~p", [Node, Reason]),
+            ?SLOG(error, #{
+                msg => "async_forward_msg_to_node_failed",
+                node => Node,
+                reason => Reason
+            }),
             {error, badrpc}
     end;
 
 forward(Node, To, Delivery, sync) ->
     case emqx_rpc:call(To, Node, ?BROKER, dispatch, [To, Delivery]) of
         {badrpc, Reason} ->
-            ?LOG(error, "Sync forward msg to ~s failed due to ~p", [Node, Reason]),
+            ?SLOG(error, #{
+                msg => "sync_forward_msg_to_node_failed",
+                node => Node,
+                reason => Reason
+            }),
             {error, badrpc};
         Result ->
             emqx_metrics:inc('messages.forward'), Result
@@ -450,14 +465,17 @@ handle_call({subscribe, Topic, I}, _From, State) ->
     {reply, Ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
 
 handle_cast({subscribe, Topic}, State) ->
     case emqx_router:do_add_route(Topic) of
         ok -> ok;
         {error, Reason} ->
-            ?LOG(error, "Failed to add route: ~p", [Reason])
+            ?SLOG(error, #{
+                msg => "failed_to_add_route",
+                reason => Reason
+            })
     end,
     {noreply, State};
 
@@ -481,11 +499,11 @@ handle_cast({unsubscribed, Topic, I}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

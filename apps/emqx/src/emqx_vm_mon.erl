@@ -49,11 +49,17 @@ init([]) ->
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[VM_MON] Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{
+        msg => "[VM_MON]_unexpected_call",
+        req => Req
+    }),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[VM_MON] Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{
+        msg => "[VM_MON]_unexpected_cast",
+        cast => Msg
+    }),
     {noreply, State}.
 
 handle_info({timeout, _Timer, check}, State) ->
@@ -75,7 +81,10 @@ handle_info({timeout, _Timer, check}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    ?LOG(error, "[VM_MON] Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{
+        msg => "[VM_MON]_unexpected_info",
+        info => Info
+    }),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

@@ -106,7 +106,7 @@ init([]) ->
     {ok, #{}, hibernate}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
 
 handle_cast({detected, #flapping{clientid   = ClientId,
@@ -116,8 +116,13 @@ handle_cast({detected, #flapping{clientid   = ClientId,
              #{window_time := WindTime, ban_time := Interval}}, State) ->
     case now_diff(StartedAt) < WindTime of
         true -> %% Flapping happened:(
-            ?LOG(error, "Flapping detected: ~s(~s) disconnected ~w times in ~wms",
-                 [ClientId, inet:ntoa(PeerHost), DetectCnt, WindTime]),
+            ?SLOG(error, #{
+                msg => "flapping_detected",
+                client_id => ClientId,
+                peer_host => inet:ntoa(PeerHost),
+                detect_cnt => DetectCnt,
+                wind_time_in_ms => WindTime
+            }),
             Now = erlang:system_time(second),
             Banned = #banned{who    = {clientid, ClientId},
                              by     = <<"flapping detector">>,
@@ -126,13 +131,18 @@ handle_cast({detected, #flapping{clientid   = ClientId,
                              until  = Now + (Interval div 1000)},
             emqx_banned:create(Banned);
         false ->
-            ?LOG(warning, "~s(~s) disconnected ~w times in ~wms",
-                 [ClientId, inet:ntoa(PeerHost), DetectCnt, Interval])
+            ?SLOG(warning, #{
+                msg => "client_disconnected",
+                client_id => ClientId,
+                peer_host => inet:ntoa(PeerHost),
+                detect_cnt => DetectCnt,
+                interval => Interval
+            })
     end,
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
 
 handle_info({timeout, _TRef, {garbage_collect, Zone}}, State) ->
@@ -144,7 +154,7 @@ handle_info({timeout, _TRef, {garbage_collect, Zone}}, State) ->
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
