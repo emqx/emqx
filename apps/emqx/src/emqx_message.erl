@@ -66,6 +66,7 @@
 
 -export([ to_packet/2
         , to_map/1
+        , to_log_map/1
         , to_list/1
         , from_map/1
         ]).
@@ -81,8 +82,6 @@
                         payload := emqx_types:payload(),
                         timestamp := integer()}
      ).
-
--export([format/1]).
 
 -elvis([{elvis_style, god_modules, disable}]).
 
@@ -306,6 +305,9 @@ to_map(#message{
       extra => Extra
      }.
 
+%% @doc To map for logging, with payload dropped.
+to_log_map(Msg) -> maps:without([payload], to_map(Msg)).
+
 %% @doc Message to tuple list
 -spec(to_list(emqx_types:message()) -> list()).
 to_list(Msg) ->
@@ -336,18 +338,3 @@ from_map(#{id := Id,
 %% MilliSeconds
 elapsed(Since) ->
     max(0, erlang:system_time(millisecond) - Since).
-
-format(#message{id = Id,
-                qos = QoS,
-                topic = Topic,
-                from = From,
-                flags = Flags,
-                headers = Headers}) ->
-    io_lib:format("Message(Id=~s, QoS=~w, Topic=~s, From=~p, Flags=~s, Headers=~s)",
-                  [Id, QoS, Topic, From, format(flags, Flags), format(headers, Headers)]).
-
-format(flags, Flags) ->
-    io_lib:format("~p", [[Flag || {Flag, true} <- maps:to_list(Flags)]]);
-format(headers, Headers) ->
-    io_lib:format("~p", [Headers]).
-

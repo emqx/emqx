@@ -417,20 +417,14 @@ handle_msg({'$gen_cast', Req}, State) ->
     {ok, NewState};
 
 handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
-    ?SLOG(debug, #{
-        msg => "RECV_data",
-        data => Data
-    }),
+    ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => Inet}),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
     parse_incoming(Data, State);
 
 handle_msg({quic, Data, _Sock, _, _, _}, State) ->
-    ?SLOG(debug, #{
-        msg => "RECV_data",
-        data => Data
-    }),
+    ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => quic}),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
@@ -495,7 +489,7 @@ handle_msg({connack, ConnAck}, State) ->
     handle_outgoing(ConnAck, State);
 
 handle_msg({close, Reason}, State) ->
-    ?SLOG(debug, #{msg => "force_to_close_the_socket", reason => Reason}),
+    ?SLOG(debug, #{msg => "force_socket_close", reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_msg({event, connected}, State = #state{channel = Channel}) ->
@@ -661,7 +655,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             ?SLOG(error, #{ at_state => emqx_frame:describe_state(ParseState)
                           , input_bytes => Data
                           , parsed_packets => Packets
-                          , exception => Reason
+                          , reason => Reason
                           , stacktrace => Stacktrace
                           }),
             {[{frame_error, Reason} | Packets], State}
@@ -678,10 +672,7 @@ next_incoming_msgs(Packets) ->
 
 handle_incoming(Packet, State) when is_record(Packet, mqtt_packet) ->
     ok = inc_incoming_stats(Packet),
-    ?SLOG(debug, #{
-        msg => "RECV_packet",
-        packet => Packet
-    }),
+    ?SLOG(debug, #{msg => "RECV_packet", packet => Packet}),
     with_channel(handle_in, [Packet], State);
 
 handle_incoming(FrameError, State) ->
@@ -718,7 +709,8 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
     fun(Packet) ->
         try emqx_frame:serialize_pkt(Packet, Serialize) of
             <<>> -> ?SLOG(warning, #{
-                        msg => "packet_is_discarded_because_the frame_is_too_large",
+                        msg => "packet_is_discarded",
+                        reason => "frame_is_too_large",
                         packet => emqx_packet:format(Packet)
                     }),
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),

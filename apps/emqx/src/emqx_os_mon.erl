@@ -87,10 +87,7 @@ handle_call(Req, _From, State) ->
     {reply, {error, {unexpected_call, Req}}, State}.
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{
-        msg => "unexpected_cast_discarded",
-        payload => Msg
-    }),
+    ?SLOG(error, #{msg => "unexpected_cast", cast=> Msg}),
     {noreply, State}.
 
 handle_info({timeout, _Timer, check}, State) ->
@@ -112,10 +109,7 @@ handle_info({timeout, _Timer, check}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    ?SLOG(info, #{
-        msg => "unexpected_info_discarded",
-        info => Info
-    }),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

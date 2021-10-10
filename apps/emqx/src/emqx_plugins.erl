@@ -29,8 +29,6 @@
         , find_plugin/1
         ]).
 
--export([funlog/2]).
-
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -50,16 +48,14 @@ load() ->
 load(PluginName) when is_atom(PluginName) ->
     case {lists:member(PluginName, names(plugin)), lists:member(PluginName, names(started_app))} of
         {false, _} ->
-            ?SLOG(alert, #{
-                msg => "plugin_not_found_cannot_load",
-                plugin_name => PluginName
-            }),
+            ?SLOG(alert, #{msg => "failed_to_load_plugin",
+                           plugin_name => PluginName,
+                           reason => not_found}),
             {error, not_found};
         {_, true} ->
-            ?SLOG(notice, #{
-                msg => "plugin_already_started",
-                plugin_name => PluginName
-            }),
+            ?SLOG(notice, #{msg => "plugin_already_loaded",
+                            plugin_name => PluginName,
+                            reason => already_loaded}),
             {error, already_started};
         {_, false} ->
             load_plugin(PluginName)
@@ -75,16 +71,14 @@ unload() ->
 unload(PluginName) when is_atom(PluginName) ->
     case {lists:member(PluginName, names(plugin)), lists:member(PluginName, names(started_app))} of
         {false, _} ->
-            ?SLOG(error, #{
-                msg => "plugin_not_found_cannot_load",
-                plugin_name => PluginName
-            }),
+            ?SLOG(error, #{msg => "fialed_to_unload_plugin",
+                           plugin_name => PluginName,
+                           reason => not_found}),
             {error, not_found};
         {_, false} ->
-            ?SLOG(error, #{
-                msg => "plugin_not_started",
-                plugin_name => PluginName
-            }),
+            ?SLOG(error, #{msg => "failed_to_unload_plugin",
+                           plugin_name => PluginName,
+                           reason => not_loaded}),
             {error, not_started};
         {_, _} ->
             unload_plugin(PluginName)
@@ -93,10 +87,9 @@ unload(PluginName) when is_atom(PluginName) ->
 reload(PluginName) when is_atom(PluginName)->
     case {lists:member(PluginName, names(plugin)), lists:member(PluginName, names(started_app))} of
         {false, _} ->
-            ?SLOG(error, #{
-                msg => "plugin_not_found_cannot_load",
-                plugin_name => PluginName
-            }),
+            ?SLOG(error, #{msg => "failed_to_reload_plugin",
+                           plugin_name => PluginName,
+                           reason => not_found}),
             {error, not_found};
         {_, false} ->
             load(PluginName);
@@ -142,20 +135,14 @@ load_ext_plugins(Dir) ->
         end, filelib:wildcard("*", Dir)).
 
 load_ext_plugin(PluginDir) ->
-    ?SLOG(debug, #{
-        msg => "loading_extra_plugin",
-        plugin_dir => PluginDir
-    }),
+    ?SLOG(debug, #{msg => "loading_extra_plugin", plugin_dir => PluginDir}),
     Ebin = filename:join([PluginDir, "ebin"]),
     AppFile = filename:join([Ebin, "*.app"]),
     AppName = case filelib:wildcard(AppFile) of
                   [App] ->
                       list_to_atom(filename:basename(App, ".app"));
                   [] ->
-                      ?SLOG(alert, #{
-                          msg => "plugin_app_file_not_found",
-                          app_file => AppFile
-                      }),
+                      ?SLOG(alert, #{msg => "plugin_app_file_not_found", app_file => AppFile}),
                       error({plugin_app_file_not_found, AppFile})
               end,
     ok = load_plugin_app(AppName, Ebin).
@@ -205,12 +192,13 @@ load_plugin(Name) ->
             {error, Error0} ->
                 {error, Error0}
         end
-    catch _ : Error : Stacktrace ->
+    catch Error : Reason : Stacktrace ->
         ?SLOG(alert, #{
             msg => "plugin_load_failed",
             name => Name,
-            error => Error,
-            stk => Stacktrace
+            exception => Error,
+            reason => Reason,
+            stacktrace => Stacktrace
         }),
         {error, parse_config_file_failed}
     end.
@@ -228,23 +216,19 @@ load_app(App) ->
 start_app(App) ->
     case application:ensure_all_started(App) of
         {ok, Started} ->
-            ?SLOG(info, #{
-                msg => "all_started_plugins",
-                started => Started
-            }),
-            ?SLOG(info, #{
-                msg => "load_plugin_app_successfully",
-                app => App
-            }),
+            case Started =/= [] of
+                true -> ?SLOG(info, #{msg => "started_plugin_dependency_apps", apps => Started});
+                false -> ok
+            end,
+            ?SLOG(info, #{msg => "started_plugin_app", app => App}),
             ok;
         {error, {ErrApp, Reason}} ->
-            ?SLOG(error, #{
-                msg => "load_plugin_failed_cannot_started",
-                app => App,
-                err_app => ErrApp,
-                reason => Reason
-            }),
-            {error, {ErrApp, Reason}}
+            ?SLOG(error, #{msg => failed_to_start_plugin_app,
+                           app => App,
+                           err_app => ErrApp,
+                           reason => Reason
+                          }),
+            {error, failed_to_start_plugin_app}
     end.
 
 unload_plugin(App) ->
@@ -258,23 +242,16 @@ unload_plugin(App) ->
 stop_app(App) ->
     case application:stop(App) of
         ok ->
-            ?SLOG(info, #{
-                msg => "stop_plugin_successfully",
-                app => App
-            }),
+            ?SLOG(info, #{msg => "stop_plugin_successfully", app => App}),
             ok;
         {error, {not_started, App}} ->
-            ?SLOG(error, #{
-                msg => "plugin_not_started",
-                app => App
-            }),
+            ?SLOG(info, #{msg => "plugin_not_started", app => App}),
             ok;
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "stop_plugin",
-                app => App,
-                error => Reason
-            }),
+            ?SLOG(error, #{msg => "failed_to_stop_plugin_app",
+                           app => App,
+                           error => Reason
+                          }),
             {error, Reason}
     end.
 
@@ -286,9 +263,3 @@ names(started_app) ->
 
 names(Plugins) ->
     [Name || #plugin{name = Name} <- Plugins].
-
-funlog(Key, Value) ->
-    ?SLOG(info, #{
-        key => string:join(Key, "."),
-        value => Value
-    }).

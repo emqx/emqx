@@ -347,11 +347,8 @@ handle_info({mnesia_table_event, {write, NewRecord, _}}, State = #state{pmon = P
 handle_info({mnesia_table_event, _Event}, State) ->
     {noreply, State};
 
-handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMon}) ->
-    ?SLOG(info, #{
-        msg => "shared_subscriber_down",
-        sub_pid => SubPid
-    }),
+handle_info({'DOWN', _MRef, process, SubPid, Reason}, State = #state{pmon = PMon}) ->
+    ?SLOG(info, #{msg => "shared_subscriber_down", sub_pid => SubPid, reason => Reason}),
     cleanup_down(SubPid),
     {noreply, update_stats(State#state{pmon = emqx_pmon:erase(SubPid, PMon)})};
 

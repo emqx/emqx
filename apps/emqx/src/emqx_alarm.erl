@@ -239,17 +239,11 @@ handle_call({get_alarms, deactivated}, _From, State) ->
     {reply, Alarms, State};
 
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{
-        msg => "unexpected_call",
-        call => Req
-    }),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{
-        msg => "unexpected_msg",
-        payload => Msg
-    }),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info({timeout, _TRef, delete_expired_deactivated_alarm},
@@ -259,10 +253,7 @@ handle_info({timeout, _TRef, delete_expired_deactivated_alarm},
     {noreply, State#state{timer = ensure_timer(TRef, Period)}};
 
 handle_info({update_timer, Period}, #state{timer = TRef} = State) ->
-    ?SLOG(warning, #{
-        msg => "update_the_validity_period_timer",
-        period => Period
-    }),
+    ?SLOG(warning, #{msg => "update_the_validity_period_timer", period => Period}),
     {noreply, State#state{timer = ensure_timer(TRef, Period)}};
 
 handle_info(Info, State) ->

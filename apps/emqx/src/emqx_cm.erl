@@ -266,9 +266,8 @@ get_mqtt_conf(Zone, Key) ->
     emqx_config:get_zone_conf(Zone, [mqtt, Key]).
 
 %% @doc Try to takeover a session.
--spec(takeover_session(emqx_types:clientid())
-      -> {error, term()}
-       | {ok, atom(), pid(), emqx_session:session()}).
+-spec(takeover_session(emqx_types:clientid()) ->
+        {error, term()} | {ok, atom(), pid(), emqx_session:session()}).
 takeover_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] -> {error, not_found};
@@ -276,10 +275,7 @@ takeover_session(ClientId) ->
             takeover_session(ClientId, ChanPid);
         ChanPids ->
             [ChanPid|StalePids] = lists:reverse(ChanPids),
-            ?SLOG(error, #{
-                msg => "more_than_one_channel_found",
-                chan_pids => ChanPids
-            }),
+            ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
             lists:foreach(fun(StalePid) ->
                                   catch discard_session(ClientId, StalePid)
                           end, StalePids),
@@ -344,10 +340,7 @@ kick_session(ClientId) ->
             kick_session(ClientId, ChanPid);
         ChanPids ->
             [ChanPid|StalePids] = lists:reverse(ChanPids),
-            ?SLOG(error, #{
-                msg => "more_than_one_channel_found",
-                chan_pids => ChanPids
-            }),
+            ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
             lists:foreach(fun(StalePid) ->
                                   catch discard_session(ClientId, StalePid)
                           end, StalePids),
@@ -422,7 +415,7 @@ init([]) ->
     {ok, #{chan_pmon => emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast({registered, {ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
@@ -430,7 +423,7 @@ handle_cast({registered, {ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
     {noreply, State#{chan_pmon := PMon1}};
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{chan_pmon := PMon}) ->

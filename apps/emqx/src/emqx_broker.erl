@@ -202,10 +202,8 @@ publish(Msg) when is_record(Msg, message) ->
     emqx_message:is_sys(Msg) orelse emqx_metrics:inc('messages.publish'),
     case emqx_hooks:run_fold('message.publish', [], emqx_message:clean_dup(Msg)) of
         #message{headers = #{allow_publish := false}} ->
-            ?SLOG(notice, #{
-                msg => "stop_publishing",
-                payload => emqx_message:format(Msg)
-            }),
+            ?SLOG(debug, #{msg => "message_not_published",
+                           payload => emqx_message:to_log_map(Msg)}),
             [];
         Msg1 = #message{topic = Topic} ->
             route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1))
@@ -217,11 +215,12 @@ safe_publish(Msg) when is_record(Msg, message) ->
     try
         publish(Msg)
     catch
-        _:Error:Stk->
+        Error : Reason : Stk->
             ?SLOG(error,#{
                 msg => "publishing_error",
-                error => Error,
-                payload => Msg,
+                exception => Error,
+                reason => Reason,
+                payload => emqx_message:to_log_map(Msg),
                 stacktrace => Stk
             }),
             []
@@ -465,17 +464,14 @@ handle_call({subscribe, Topic, I}, _From, State) ->
     {reply, Ok, State};
 
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast({subscribe, Topic}, State) ->
     case emqx_router:do_add_route(Topic) of
         ok -> ok;
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_add_route",
-                reason => Reason
-            })
+            ?SLOG(error, #{msg => "failed_to_add_route", reason => Reason})
     end,
     {noreply, State};
 
@@ -499,7 +495,7 @@ handle_cast({unsubscribed, Topic, I}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info(Info, State) ->

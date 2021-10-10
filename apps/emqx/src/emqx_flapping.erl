@@ -106,7 +106,7 @@ init([]) ->
     {ok, #{}, hibernate}.
 
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast({detected, #flapping{clientid   = ClientId,
@@ -116,10 +116,10 @@ handle_cast({detected, #flapping{clientid   = ClientId,
              #{window_time := WindTime, ban_time := Interval}}, State) ->
     case now_diff(StartedAt) < WindTime of
         true -> %% Flapping happened:(
-            ?SLOG(error, #{
+            ?SLOG(warning, #{
                 msg => "flapping_detected",
                 client_id => ClientId,
-                peer_host => inet:ntoa(PeerHost),
+                peer_host => fmt_host(PeerHost),
                 detect_cnt => DetectCnt,
                 wind_time_in_ms => WindTime
             }),
@@ -134,7 +134,7 @@ handle_cast({detected, #flapping{clientid   = ClientId,
             ?SLOG(warning, #{
                 msg => "client_disconnected",
                 client_id => ClientId,
-                peer_host => inet:ntoa(PeerHost),
+                peer_host => fmt_host(PeerHost),
                 detect_cnt => DetectCnt,
                 interval => Interval
             })
@@ -142,7 +142,7 @@ handle_cast({detected, #flapping{clientid   = ClientId,
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info({timeout, _TRef, {garbage_collect, Zone}}, State) ->
@@ -171,3 +171,8 @@ start_timers() ->
     lists:foreach(fun({Zone, _ZoneConf}) ->
             start_timer(Zone)
         end, maps:to_list(emqx:get_config([zones], #{}))).
+
+fmt_host(PeerHost) ->
+    try inet:ntoa(PeerHost)
+    catch _:_ -> PeerHost
+    end.

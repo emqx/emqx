@@ -373,17 +373,11 @@ handle_in(?PUBACK_PACKET(PacketId, _ReasonCode, Properties), Channel
             ok = after_message_acked(ClientInfo, Msg, Properties),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ?SLOG(warning, #{
-                msg => "puback_packetId_inuse",
-                packetId => PacketId
-            }),
+            ?SLOG(warning, #{msg => "puback_packetId_inuse", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.puback.inuse'),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?SLOG(warning, #{
-                msg => "puback_packetId_not_found",
-                packetId => PacketId
-            }),
+            ?SLOG(warning, #{msg => "puback_packetId_not_found", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.puback.missed'),
             {ok, Channel}
     end;
@@ -507,17 +501,11 @@ handle_in({frame_error, Reason}, Channel = #channel{conn_state = ConnState})
     handle_out(disconnect, {?RC_MALFORMED_PACKET, Reason}, Channel);
 
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = disconnected}) ->
-    ?SLOG(error, #{
-        msg => "malformed_mqtt_message",
-        reason => Reason
-    }),
+    ?SLOG(error, #{msg => "malformed_mqtt_message", reason => Reason}),
     {ok, Channel};
 
 handle_in(Packet, Channel) ->
-    ?SLOG(error, #{
-        msg => "disconnecting_due_to_unexpected_message",
-        packet => Packet
-    }),
+    ?SLOG(error, #{msg => "disconnecting_due_to_unexpected_message", packet => Packet}),
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel).
 
 %%--------------------------------------------------------------------
@@ -541,10 +529,7 @@ process_connect(AckProps, Channel = #channel{conninfo = ConnInfo,
         {error, client_id_unavailable} ->
             handle_out(connack, ?RC_CLIENT_IDENTIFIER_NOT_VALID, Channel);
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_open_session",
-                reason => Reason
-            }),
+            ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),
             handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
 
@@ -995,7 +980,7 @@ handle_call({quota, Policy}, Channel) ->
     reply(ok, Channel#channel{quota = Quota});
 
 handle_call(Req, Channel) ->
-    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     reply(ignored, Channel).
 
 %%--------------------------------------------------------------------
@@ -1035,10 +1020,7 @@ handle_info({sock_closed, Reason}, Channel =
     end;
 
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}) ->
-    ?SLOG(error, #{
-        msg => "unexpected_sock_closed",
-        reason => Reason
-    }),
+    ?SLOG(error, #{msg => "unexpected_sock_close", reason => Reason}),
     {ok, Channel};
 
 handle_info(clean_authz_cache, Channel) ->
@@ -1109,10 +1091,7 @@ handle_timeout(_TRef, expire_quota_limit, Channel) ->
     {ok, clean_timer(quota_timer, Channel)};
 
 handle_timeout(_TRef, Msg, Channel) ->
-    ?SLOG(error, #{
-        msg => "unexpected_timeout",
-        payload => Msg
-    }),
+    ?SLOG(error, #{msg => "unexpected_timeout", timeout_message => Msg}),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------

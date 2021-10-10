@@ -208,10 +208,11 @@ safe_execute({M, F, A}, Args) ->
         Error:Reason:Stacktrace ->
             ?SLOG(error, #{
                 msg => "failed_to_execute",
-                module_function_arity => {M, F, A},
-                error_reason_stacktrace => {Error, Reason, Stacktrace}
-            }),
-            ok
+                exception => Error,
+                reason => Reason,
+                stacktrace => Stacktrace,
+                failed_call => {M, F, A}
+            })
     end.
 
 %% @doc execute a function.

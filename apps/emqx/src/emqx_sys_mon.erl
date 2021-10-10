@@ -93,44 +93,41 @@ handle_cast(Msg, State) ->
 handle_info({monitor, Pid, long_gc, Info}, State) ->
     suppress({long_gc, Pid},
              fun() ->
-                 WarnMsg = io_lib:format("long_gc warning: pid = ~p, info: ~p", [Pid, Info]),
-                 ?SLOG(warning, #{
-                     warn_msg => WarnMsg,
-                     pid_info => procinfo(Pid)
-                    }),
+                 WarnMsg = io_lib:format("long_gc warning: pid = ~p", [Pid]),
+                 ?SLOG(warning, #{msg => long_gc,
+                                  info => Info,
+                                  porcinfo => procinfo(Pid)
+                                 }),
                  safe_publish(long_gc, WarnMsg)
              end, State);
 
 handle_info({monitor, Pid, long_schedule, Info}, State) when is_pid(Pid) ->
     suppress({long_schedule, Pid},
              fun() ->
-                 WarnMsg = io_lib:format("long_schedule warning: pid = ~p, info: ~p", [Pid, Info]),
-                 ?SLOG(warning, #{
-                     warn_msg => WarnMsg,
-                     pid_info => procinfo(Pid)
-                    }),
+                 WarnMsg = io_lib:format("long_schedule warning: pid = ~p", [Pid]),
+                 ?SLOG(warning, #{msg => long_schedule,
+                                  info => Info,
+                                  procinfo => procinfo(Pid)}),
                  safe_publish(long_schedule, WarnMsg)
              end, State);
 
 handle_info({monitor, Port, long_schedule, Info}, State) when is_port(Port) ->
     suppress({long_schedule, Port},
              fun() ->
-                 WarnMsg = io_lib:format("long_schedule warning: port = ~p, info: ~p", [Port, Info]),
-                 ?SLOG(warning, #{
-                     warn_msg => WarnMsg,
-                     port_info => erlang:port_info(Port)
-                    }),
+                 WarnMsg = io_lib:format("long_schedule warning: port = ~p", [Port]),
+                 ?SLOG(warning, #{msg => long_schedule,
+                                  info => Info,
+                                  portinfo => portinfo(Port)}),
                  safe_publish(long_schedule, WarnMsg)
              end, State);
 
 handle_info({monitor, Pid, large_heap, Info}, State) ->
     suppress({large_heap, Pid},
              fun() ->
-                 WarnMsg = io_lib:format("large_heap warning: pid = ~p, info: ~p", [Pid, Info]),
-                 ?SLOG(warning, #{
-                     warn_msg => WarnMsg,
-                     pid_info => procinfo(Pid)
-                    }),
+                 WarnMsg = io_lib:format("large_heap warning: pid = ~p", [Pid]),
+                 ?SLOG(warning, #{msg => large_heap,
+                                  info => Info,
+                                  procinfo => procinfo(Pid)}),
                  safe_publish(large_heap, WarnMsg)
              end, State);
 
@@ -138,11 +135,10 @@ handle_info({monitor, SusPid, busy_port, Port}, State) ->
     suppress({busy_port, Port},
              fun() ->
                  WarnMsg = io_lib:format("busy_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
-                 ?SLOG(warning, #{
-                     warn_msg => WarnMsg,
-                     pid_info => procinfo(SusPid),
-                     port_info => erlang:port_info(Port)
-                    }),
+                 ?SLOG(warning, #{msg => busy_port,
+                                  portinfo => portinfo(Port),
+                                  procinfo => procinfo(SusPid)
+                                 }),
                  safe_publish(busy_port, WarnMsg)
              end, State);
 
@@ -150,11 +146,9 @@ handle_info({monitor, SusPid, busy_dist_port, Port}, State) ->
     suppress({busy_dist_port, Port},
              fun() ->
                  WarnMsg = io_lib:format("busy_dist_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
-                 ?SLOG(warning, #{
-                     warn_msg => WarnMsg,
-                     pid_info => procinfo(SusPid),
-                     port_info => erlang:port_info(Port)
-                    }),
+                 ?SLOG(warning, #{msg => busy_dist_port,
+                                  portinfo => portinfo(Port),
+                                  procinfo => procinfo(SusPid)}),
                  safe_publish(busy_dist_port, WarnMsg)
              end, State);
 
@@ -190,11 +184,14 @@ suppress(Key, SuccFun, State = #{events := Events}) ->
     end.
 
 procinfo(Pid) ->
-    case {emqx_vm:get_process_info(Pid), emqx_vm:get_process_gc_info(Pid)} of
-        {undefined, _} -> undefined;
-        {_, undefined} -> undefined;
-        {Info, GcInfo} -> Info ++ GcInfo
-    end.
+    [{pid, Pid} | procinfo_l(emqx_vm:get_process_gc_info(Pid))] ++
+    procinfo_l(emqx_vm:get_process_info(Pid)).
+
+procinfo_l(undefined) -> [];
+procinfo_l(List) -> List.
+
+portinfo(Port) ->
+    [{port, Port} | erlang:port_info(Port)].
 
 safe_publish(Event, WarnMsg) ->
     Topic = emqx_topic:systop(lists:concat(['sysmon/', Event])),
