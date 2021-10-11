@@ -253,7 +253,7 @@ handle_info({timeout, _TRef, delete_expired_deactivated_alarm},
     {noreply, State#state{timer = ensure_timer(TRef, Period)}};
 
 handle_info({update_timer, Period}, #state{timer = TRef} = State) ->
-    ?SLOG(warning, #{msg => "update_the_validity_period_timer", period => Period}),
+    ?SLOG(warning, #{msg => "validity_timer_updated", period => Period}),
     {noreply, State#state{timer = ensure_timer(TRef, Period)}};
 
 handle_info(Info, State) ->
