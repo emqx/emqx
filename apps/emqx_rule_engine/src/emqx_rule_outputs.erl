@@ -19,9 +19,24 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
+-define(OUTPUT_FUNCS,
+        [ console
+        , republish
+        ]).
+
 -export([ console/3
         , republish/3
         ]).
+
+-export([ pre_process_repub_args/1
+        , assert_builtin_output/1
+        ]).
+
+assert_builtin_output(FuncName) ->
+    case lists:member(FuncName, ?OUTPUT_FUNCS) of
+        true -> FuncName;
+        false -> error({unknown_builtin_function, FuncName})
+    end.
 
 -spec console(map(), map(), map()) -> any().
 console(Selected, #{metadata := #{rule_id := RuleId}} = Envs, _Args) ->
@@ -74,6 +89,23 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload) ->
     },
     _ = emqx_broker:safe_publish(Msg),
     emqx_metrics:inc_msg(Msg).
+
+pre_process_repub_args(#{<<"topic">> := Topic} = Args) ->
+    QoS = maps:get(<<"qos">>, Args, <<"${qos}">>),
+    Retain = maps:get(<<"retain">>, Args, <<"${retain}">>),
+    Payload = maps:get(<<"payload">>, Args, <<"${payload}">>),
+    #{topic => Topic, qos => QoS, payload => Payload, retain => Retain,
+      preprocessed_tmpl => #{
+          topic => emqx_plugin_libs_rule:preproc_tmpl(Topic),
+          qos => preproc_vars(QoS),
+          retain => preproc_vars(Retain),
+          payload => emqx_plugin_libs_rule:preproc_tmpl(Payload)
+      }}.
+
+preproc_vars(Data) when is_binary(Data) ->
+    emqx_plugin_libs_rule:preproc_tmpl(Data);
+preproc_vars(Data) ->
+    Data.
 
 replace_simple_var(Tokens, Data) when is_list(Tokens) ->
     [Var] = emqx_plugin_libs_rule:proc_tmpl(Tokens, Data, #{return => rawlist}),

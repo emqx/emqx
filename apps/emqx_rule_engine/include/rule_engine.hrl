@@ -31,34 +31,29 @@
 -type bridge_channel_id() :: binary().
 -type selected_data() :: map().
 -type envs() :: map().
--type output_type() :: bridge | builtin | func.
 -type output_target() :: bridge_channel_id() | atom() | output_fun().
 -type output_fun_args() :: map().
 -type output() :: #{
-        type := output_type(),
-        target := output_target(),
+        function := output_target(),
         args => output_fun_args()
 }.
+
 -type output_fun() :: fun((selected_data(), envs(), output_fun_args()) -> any()).
 
--type rule_info() ::
-       #{ from := list(topic())
-        , outputs := [output()]
+-type rule() ::
+       #{ id := rule_id()
         , sql := binary()
+        , outputs := [output()]
+        , enabled := boolean()
+        , description => binary()
+        , created_at := integer() %% epoch in millisecond precision
+        , from := list(topic())
         , is_foreach := boolean()
         , fields := list()
         , doeach := term()
         , incase := term()
         , conditions := tuple()
-        , enabled := boolean()
-        , description => binary()
         }.
-
--record(rule,
-        { id :: rule_id()
-        , created_at :: integer() %% epoch in millisecond precision
-        , info :: rule_info()
-        }).
 
 %% Arithmetic operators
 -define(is_arith(Op), (Op =:= '+' orelse
@@ -94,5 +89,3 @@
 
 %% Tables
 -define(RULE_TAB, emqx_rule).
-
--define(RULE_ENGINE_SHARD, emqx_rule_engine_shard).

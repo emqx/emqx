@@ -19,20 +19,23 @@
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-export([ load_rules/0
+        ]).
+
 -export([ create_rule/1
         , update_rule/1
         , delete_rule/1
         ]).
 
--export_type([rule/0]).
-
--type rule() :: #rule{}.
-
--define(T_RETRY, 60000).
-
 %%------------------------------------------------------------------------------
 %% APIs for rules and resources
 %%------------------------------------------------------------------------------
+
+-spec load_rules() -> ok.
+load_rules() ->
+    lists:foreach(fun({Id, Rule}) ->
+            {ok, _} = create_rule(Rule#{id => Id})
+        end, maps:to_list(emqx:get_config([rule_engine, rules], #{}))).
 
 -spec create_rule(map()) -> {ok, rule()} | {error, term()}.
 create_rule(Params = #{id := RuleId}) ->
@@ -52,9 +55,7 @@ update_rule(Params = #{id := RuleId}) ->
 delete_rule(RuleId) ->
     case emqx_rule_registry:get_rule(RuleId) of
         {ok, Rule} ->
-            ok = emqx_rule_registry:remove_rule(Rule),
-            _ = emqx_plugin_libs_rule:cluster_call(emqx_rule_metrics, clear_rule_metrics, [RuleId]),
-            ok;
+            emqx_rule_registry:remove_rule(Rule);
         not_found ->
             {error, not_found}
     end.
@@ -66,26 +67,23 @@ delete_rule(RuleId) ->
 do_create_rule(Params = #{id := RuleId, sql := Sql, outputs := Outputs}) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
-            Rule = #rule{
-                id = RuleId,
-                created_at = erlang:system_time(millisecond),
-                info = #{
-                    enabled => maps:get(enabled, Params, true),
-                    sql => Sql,
-                    from => emqx_rule_sqlparser:select_from(Select),
-                    outputs => parse_outputs(Outputs),
-                    description => maps:get(description, Params, ""),
-                    %% -- calculated fields:
-                    is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
-                    fields => emqx_rule_sqlparser:select_fields(Select),
-                    doeach => emqx_rule_sqlparser:select_doeach(Select),
-                    incase => emqx_rule_sqlparser:select_incase(Select),
-                    conditions => emqx_rule_sqlparser:select_where(Select)
-                    %% -- calculated fields end
-                }
+            Rule = #{
+                id => RuleId,
+                created_at => erlang:system_time(millisecond),
+                enabled => maps:get(enabled, Params, true),
+                sql => Sql,
+                outputs => parse_outputs(Outputs),
+                description => maps:get(description, Params, ""),
+                %% -- calculated fields:
+                from => emqx_rule_sqlparser:select_from(Select),
+                is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
+                fields => emqx_rule_sqlparser:select_fields(Select),
+                doeach => emqx_rule_sqlparser:select_doeach(Select),
+                incase => emqx_rule_sqlparser:select_incase(Select),
+                conditions => emqx_rule_sqlparser:select_where(Select)
+                %% -- calculated fields end
             },
             ok = emqx_rule_registry:add_rule(Rule),
-            _ = emqx_plugin_libs_rule:cluster_call(emqx_rule_metrics, create_rule_metrics, [RuleId]),
             {ok, Rule};
         {error, Reason} -> {error, Reason}
     end.
@@ -93,28 +91,21 @@ do_create_rule(Params = #{id := RuleId, sql := Sql, outputs := Outputs}) ->
 parse_outputs(Outputs) ->
     [do_parse_outputs(Out) || Out <- Outputs].
 
-do_parse_outputs(#{type := bridge, target := ChId}) ->
-    #{type => bridge, target => ChId};
-do_parse_outputs(#{type := builtin, target := Repub, args := Args})
+do_parse_outputs(#{function := Repub, args := Args})
         when Repub == republish; Repub == <<"republish">> ->
-    #{type => builtin, target => republish, args => pre_process_repub_args(Args)};
-do_parse_outputs(#{type := Type, target := Name} = Output)
-        when Type == func; Type == builtin ->
-    #{type => Type, target => Name, args => maps:get(args, Output, #{})}.
+    #{function => republish, args => emqx_rule_outputs:pre_process_repub_args(Args)};
+do_parse_outputs(#{function := Func} = Output) ->
+    #{function => parse_output_func(Func), args => maps:get(args, Output, #{})};
+do_parse_outputs(BridgeChannelId) when is_binary(BridgeChannelId) ->
+    BridgeChannelId.
 
-pre_process_repub_args(#{<<"topic">> := Topic} = Args) ->
-    QoS = maps:get(<<"qos">>, Args, <<"${qos}">>),
-    Retain = maps:get(<<"retain">>, Args, <<"${retain}">>),
-    Payload = maps:get(<<"payload">>, Args, <<"${payload}">>),
-    #{topic => Topic, qos => QoS, payload => Payload, retain => Retain,
-      preprocessed_tmpl => #{
-          topic => emqx_plugin_libs_rule:preproc_tmpl(Topic),
-          qos => preproc_vars(QoS),
-          retain => preproc_vars(Retain),
-          payload => emqx_plugin_libs_rule:preproc_tmpl(Payload)
-      }}.
-
-preproc_vars(Data) when is_binary(Data) ->
-    emqx_plugin_libs_rule:preproc_tmpl(Data);
-preproc_vars(Data) ->
-    Data.
+parse_output_func(FuncName) when is_atom(FuncName) ->
+    FuncName;
+parse_output_func(BinFunc) when is_binary(BinFunc) ->
+    try binary_to_existing_atom(BinFunc) of
+        Func -> emqx_rule_outputs:assert_builtin_output(Func)
+    catch
+        error:badarg -> error({unknown_builtin_function, BinFunc})
+    end;
+parse_output_func(Func) when is_function(Func) ->
+    Func.
