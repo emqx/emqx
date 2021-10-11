@@ -147,6 +147,9 @@ end_per_group(persistent_store_enabled, _Config) ->
 end_per_group(persistent_store_disabled, _Config) ->
     meck:unload(emqx_config),
     emqx_common_test_helpers:stop_apps([]);
+end_per_group(quic, _Config) ->
+    application:stop(quicer),
+    ok;
 end_per_group(_Group, _Config) ->
     ok.
 
@@ -222,8 +225,11 @@ maybe_kill_connection_process(ClientId, Config) ->
         true ->
             [ConnectionPid] = emqx_cm:lookup_channels(ClientId),
             ?assert(is_pid(ConnectionPid)),
+            Ref = monitor(process, ConnectionPid),
             ConnectionPid ! die_if_test,
-            ok;
+            receive {'DOWN', Ref, process, ConnectionPid, normal} -> ok
+            after 3000 -> error(process_did_not_die)
+            end;
         false ->
             ok
     end.
@@ -714,7 +720,6 @@ t_snabbkaffe_pending_messages(Config) ->
     {ok, _, [2]} = emqtt:subscribe(Client1, STopic, qos2),
     ok = emqtt:disconnect(Client1),
     maybe_kill_connection_process(ClientId, Config),
-
 
     ?check_trace(
        begin
