@@ -20,6 +20,8 @@
         , check_pass/2
         ]).
 
+-include("logger.hrl").
+
 -type(hash_type() :: plain | md5 | sha | sha256 | pbkdf2 | bcrypt).
 
 -export_type([hash_type/0]).
@@ -67,8 +69,8 @@ hash(pbkdf2, {Salt, Password, Macfun, Iterations, Dklen}) ->
     case pbkdf2:pbkdf2(Macfun, Password, Salt, Iterations, Dklen) of
         {ok, Hexstring} ->
             pbkdf2:to_hex(Hexstring);
-        {error, Error}  ->
-            error_logger:error_msg("pbkdf2 hash error:~p", [Error]),
+        {error, Reason}  ->
+            ?SLOG(error, #{msg => "pbkdf2_hash_error", reason => Reason}),
             <<>>
     end;
 hash(bcrypt, {Salt, Password}) ->
@@ -76,8 +78,8 @@ hash(bcrypt, {Salt, Password}) ->
     case bcrypt:hashpw(Password, Salt) of
         {ok, HashPasswd} ->
             list_to_binary(HashPasswd);
-        {error, Error}->
-            error_logger:error_msg("bcrypt hash error:~p", [Error]),
+        {error, Reason}->
+            ?SLOG(error, #{msg => "bcrypt_hash_error", reason => Reason}),
             <<>>
     end.
 

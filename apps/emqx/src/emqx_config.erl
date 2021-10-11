@@ -66,6 +66,8 @@
         , find_listener_conf/3
         ]).
 
+-include("logger.hrl").
+
 -define(CONF, conf).
 -define(RAW_CONF, raw_conf).
 -define(PERSIS_SCHEMA_MODS, {?MODULE, schema_mods}).
@@ -250,7 +252,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
         {ok, RawRichConf} ->
             init_load(SchemaMod, RawRichConf);
         {error, Reason} ->
-            logger:error(#{msg => failed_to_load_hocon_conf,
+            ?SLOG(error, #{msg => failed_to_load_hocon_conf,
                            reason => Reason
                           }),
             error(failed_to_load_hocon_conf)
@@ -359,7 +361,9 @@ save_to_override_conf(RawConf) ->
             case file:write_file(FileName, hocon_pp:do(RawConf, #{})) of
                 ok -> ok;
                 {error, Reason} ->
-                    logger:error("write to ~s failed, ~p", [FileName, Reason]),
+                    ?SLOG(error, #{msg => failed_to_write_override_file,
+                                   filename => FileName,
+                                   reason => Reason}),
                     {error, Reason}
             end
     end.
