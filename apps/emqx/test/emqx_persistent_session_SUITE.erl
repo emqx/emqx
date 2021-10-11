@@ -147,9 +147,6 @@ end_per_group(persistent_store_enabled, _Config) ->
 end_per_group(persistent_store_disabled, _Config) ->
     meck:unload(emqx_config),
     emqx_common_test_helpers:stop_apps([]);
-end_per_group(quic, _Config) ->
-    application:stop(quicer),
-    ok;
 end_per_group(_Group, _Config) ->
     ok.
 
