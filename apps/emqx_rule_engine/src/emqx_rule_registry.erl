@@ -36,12 +36,15 @@
         , remove_rules/1
         ]).
 
--export([ load_hooks_for_rule/1
-        , unload_hooks_for_rule/1
+-export([ do_remove_rules/1
+        , do_add_rules/1
         ]).
 
-%% for debug purposes
--export([dump/0]).
+-export([ load_hooks_for_rules/1
+        , unload_hooks_for_rule/1
+        , add_metrics_for_rules/1
+        , clear_metrics_for_rules/1
+        ]).
 
 %% gen_server Callbacks
 -export([ init/1
@@ -52,38 +55,9 @@
         , code_change/3
         ]).
 
-%% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
-
 -define(REGISTRY, ?MODULE).
 
 -define(T_CALL, 10000).
-
-%%------------------------------------------------------------------------------
-%% Mnesia bootstrap
-%%------------------------------------------------------------------------------
-
-%% @doc Create or replicate tables.
--spec(mnesia(boot | copy) -> ok).
-mnesia(boot) ->
-    %% Optimize storage
-    StoreProps = [{ets, [{read_concurrency, true}]}],
-    %% Rule table
-    ok = ekka_mnesia:create_table(?RULE_TAB, [
-                {rlog_shard, ?RULE_ENGINE_SHARD},
-                {disc_copies, [node()]},
-                {record_name, rule},
-                {attributes, record_info(fields, rule)},
-                {storage_properties, StoreProps}]);
-
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?RULE_TAB, disc_copies).
-
-dump() ->
-    ?ULOG("Rules: ~p~n", [ets:tab2list(?RULE_TAB)]).
 
 %%------------------------------------------------------------------------------
 %% Start the registry
@@ -97,90 +71,102 @@ start_link() ->
 %% Rule Management
 %%------------------------------------------------------------------------------
 
--spec(get_rules() -> list(emqx_rule_engine:rule())).
+-spec(get_rules() -> [rule()]).
 get_rules() ->
     get_all_records(?RULE_TAB).
 
 get_rules_ordered_by_ts() ->
-    F = fun() ->
-        Query = qlc:q([E || E <- mnesia:table(?RULE_TAB)]),
-        qlc:e(qlc:keysort(#rule.created_at, Query, [{order, ascending}]))
-    end,
-    {atomic, List} = ekka_mnesia:transaction(?RULE_ENGINE_SHARD, F),
-    List.
+    lists:sort(fun(#{created_at := CreatedA}, #{created_at := CreatedB}) ->
+            CreatedA =< CreatedB
+        end, get_rules()).
 
--spec(get_rules_for_topic(Topic :: binary()) -> list(emqx_rule_engine:rule())).
+-spec(get_rules_for_topic(Topic :: binary()) -> [rule()]).
 get_rules_for_topic(Topic) ->
-    [Rule || Rule = #rule{info = #{from := From}} <- get_rules(),
+    [Rule || Rule = #{from := From} <- get_rules(),
              emqx_plugin_libs_rule:can_topic_match_oneof(Topic, From)].
 
--spec(get_rules_with_same_event(Topic :: binary()) -> list(emqx_rule_engine:rule())).
+-spec(get_rules_with_same_event(Topic :: binary()) -> [rule()]).
 get_rules_with_same_event(Topic) ->
     EventName = emqx_rule_events:event_name(Topic),
-    [Rule || Rule = #rule{info = #{from := From}} <- get_rules(),
+    [Rule || Rule = #{from := From} <- get_rules(),
              lists:any(fun(T) -> is_of_event_name(EventName, T) end, From)].
 
 is_of_event_name(EventName, Topic) ->
     EventName =:= emqx_rule_events:event_name(Topic).
 
--spec(get_rule(Id :: rule_id()) -> {ok, emqx_rule_engine:rule()} | not_found).
+-spec(get_rule(Id :: rule_id()) -> {ok, rule()} | not_found).
 get_rule(Id) ->
-    case mnesia:dirty_read(?RULE_TAB, Id) of
-        [Rule] -> {ok, Rule};
+    case ets:lookup(?RULE_TAB, Id) of
+        [{Id, Rule}] -> {ok, Rule#{id => Id}};
         [] -> not_found
     end.
 
--spec(add_rule(emqx_rule_engine:rule()) -> ok).
-add_rule(Rule) when is_record(Rule, rule) ->
+-spec(add_rule(rule()) -> ok).
+add_rule(Rule) ->
     add_rules([Rule]).
 
--spec(add_rules(list(emqx_rule_engine:rule())) -> ok).
+-spec(add_rules([rule()]) -> ok).
 add_rules(Rules) ->
     gen_server:call(?REGISTRY, {add_rules, Rules}, ?T_CALL).
 
--spec(remove_rule(emqx_rule_engine:rule() | rule_id()) -> ok).
+-spec(remove_rule(rule() | rule_id()) -> ok).
 remove_rule(RuleOrId) ->
     remove_rules([RuleOrId]).
 
--spec(remove_rules(list(emqx_rule_engine:rule()) | list(rule_id())) -> ok).
+-spec(remove_rules([rule()] | list(rule_id())) -> ok).
 remove_rules(Rules) ->
     gen_server:call(?REGISTRY, {remove_rules, Rules}, ?T_CALL).
 
 %% @private
 
-insert_rules([]) -> ok;
-insert_rules(Rules) ->
-    _ = emqx_plugin_libs_rule:cluster_call(?MODULE, load_hooks_for_rule, [Rules]),
-    [mnesia:write(?RULE_TAB, Rule, write) ||Rule <- Rules].
+do_add_rules([]) -> ok;
+do_add_rules(Rules) ->
+    load_hooks_for_rules(Rules),
+    add_metrics_for_rules(Rules),
+    ets:insert(?RULE_TAB, [{Id, maps:remove(id, R)} || #{id := Id} = R <- Rules]),
+    ok.
 
 %% @private
-delete_rules([]) -> ok;
-delete_rules(Rules = [R|_]) when is_binary(R) ->
+do_remove_rules([]) -> ok;
+do_remove_rules(RuleIds = [Id|_]) when is_binary(Id) ->
     RuleRecs =
         lists:foldl(fun(RuleId, Acc) ->
             case get_rule(RuleId) of
                 {ok, Rule} ->  [Rule|Acc];
                 not_found -> Acc
             end
-        end, [], Rules),
-    delete_rules_unload_hooks(RuleRecs);
-delete_rules(Rules = [Rule|_]) when is_record(Rule, rule) ->
-    delete_rules_unload_hooks(Rules).
+        end, [], RuleIds),
+    remove_rules_unload_hooks(RuleRecs);
+do_remove_rules(Rules = [Rule|_]) when is_map(Rule) ->
+    remove_rules_unload_hooks(Rules).
 
-delete_rules_unload_hooks(Rules) ->
-    _ =  emqx_plugin_libs_rule:cluster_call(?MODULE, unload_hooks_for_rule, [Rules]),
-    [mnesia:delete_object(?RULE_TAB, Rule, write) ||Rule <- Rules].
+remove_rules_unload_hooks(Rules) ->
+    unload_hooks_for_rule(Rules),
+    clear_metrics_for_rules(Rules),
+    lists:foreach(fun(#{id := Id}) ->
+            ets:delete(?RULE_TAB, Id)
+        end, Rules).
 
-load_hooks_for_rule(Rules) ->
-    lists:foreach(fun(#rule{info = #{from := Topics}}) ->
+load_hooks_for_rules(Rules) ->
+    lists:foreach(fun(#{from := Topics}) ->
             lists:foreach(fun emqx_rule_events:load/1, Topics)
         end, Rules).
 
+add_metrics_for_rules(Rules) ->
+    lists:foreach(fun(#{id := Id}) ->
+            ok = emqx_rule_metrics:create_rule_metrics(Id)
+        end, Rules).
+
+clear_metrics_for_rules(Rules) ->
+    lists:foreach(fun(#{id := Id}) ->
+            ok = emqx_rule_metrics:clear_rule_metrics(Id)
+        end, Rules).
+
 unload_hooks_for_rule(Rules) ->
-    lists:foreach(fun(#rule{id = Id, info = #{from := Topics}}) ->
+    lists:foreach(fun(#{id := Id, from := Topics}) ->
         lists:foreach(fun(Topic) ->
             case get_rules_with_same_event(Topic) of
-                [#rule{id = Id0}] when Id0 == Id -> %% we are now deleting the last rule
+                [#{id := Id0}] when Id0 == Id -> %% we are now deleting the last rule
                     emqx_rule_events:unload(Topic);
                 _ -> ok
             end
@@ -197,11 +183,11 @@ init([]) ->
     {ok, #{}}.
 
 handle_call({add_rules, Rules}, _From, State) ->
-    trans(fun insert_rules/1, [Rules]),
+    _ = emqx_plugin_libs_rule:cluster_call(?MODULE, do_add_rules, [Rules]),
     {reply, ok, State};
 
 handle_call({remove_rules, Rules}, _From, State) ->
-    trans(fun delete_rules/1, [Rules]),
+    _ = emqx_plugin_libs_rule:cluster_call(?MODULE, do_remove_rules, [Rules]),
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
@@ -227,19 +213,4 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 get_all_records(Tab) ->
-    %mnesia:dirty_match_object(Tab, mnesia:table_info(Tab, wild_pattern)).
-    %% Wrapping ets to a transaction to avoid reading inconsistent
-    %% ( nest cluster_call transaction, no a r/o transaction)
-    %% data during shard bootstrap
-    {atomic, Ret} =
-        ekka_mnesia:transaction(?RULE_ENGINE_SHARD,
-                                   fun() ->
-                                           ets:tab2list(Tab)
-                                   end),
-    Ret.
-
-trans(Fun, Args) ->
-    case ekka_mnesia:transaction(?RULE_ENGINE_SHARD, Fun, Args) of
-        {atomic, Result} -> Result;
-        {aborted, Reason} -> error(Reason)
-    end.
+    [Rule#{id => Id} || {Id, Rule} <- ets:tab2list(Tab)].
