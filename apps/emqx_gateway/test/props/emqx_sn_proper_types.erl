@@ -24,8 +24,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--import(emqx_ct_proper_types,
-        [topic/0]).
+-import(emqx_proper_types, [topic/0]).
 
 %%--------------------------------------------------------------------
 %% Messages

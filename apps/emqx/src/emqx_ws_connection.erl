@@ -181,13 +181,11 @@ init(Req, #{listener := {Type, Listener}} = Opts) ->
                idle_timeout => get_ws_opts(Type, Listener, idle_timeout)
               },
     case check_origin_header(Req, Opts) of
-        {error, Message} ->
-            ?SLOG(error, #{
-                msg => "invalid_origin_header",
-                payload => Message
-            }),
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "invalid_origin_header", reason => Reason}),
             {ok, cowboy_req:reply(403, Req), WsOpts};
-        ok -> parse_sec_websocket_protocol(Req, Opts, WsOpts)
+        ok ->
+            parse_sec_websocket_protocol(Req, Opts, WsOpts)
     end.
 
 parse_sec_websocket_protocol(Req, #{listener := {Type, Listener}} = Opts, WsOpts) ->
@@ -234,7 +232,7 @@ parse_header_fun_origin(Req, #{listener := {Type, Listener}}) ->
         Value ->
             case lists:member(Value, get_ws_opts(Type, Listener, check_origins)) of
                 true -> ok;
-                false -> {origin_not_allowed, Value}
+                false -> {error, #{bad_origin => Value}}
             end
     end.
 
@@ -266,12 +264,12 @@ websocket_init([Req, #{zone := Zone, listener := {Type, Listener}} = Opts]) ->
     WsCookie = try cowboy_req:parse_cookies(Req)
                catch
                    error:badarg ->
-                       ?SLOG(error, #{msg => "illegal_cookie"}),
+                       ?SLOG(error, #{msg => "bad_cookie"}),
                        undefined;
                    Error:Reason ->
                        ?SLOG(error, #{msg => "failed_to_parse_cookie",
-                           error => Error,
-                           reason => Reason}),
+                                      exception => Error,
+                                      reason => Reason}),
                        undefined
                end,
     ConnInfo = #{socktype  => ws,
@@ -328,7 +326,7 @@ websocket_handle({binary, Data}, State) when is_list(Data) ->
     websocket_handle({binary, iolist_to_binary(Data)}, State);
 
 websocket_handle({binary, Data}, State) ->
-    ?SLOG(debug, #{msg => "recv_data", data => Data}),
+    ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => websocket}),
     ok = inc_recv_stats(1, iolist_size(Data)),
     NState = ensure_stats_timer(State),
     return(parse_incoming(Data, NState));
@@ -450,7 +448,7 @@ handle_info({connack, ConnAck}, State) ->
     return(enqueue(ConnAck, State));
 
 handle_info({close, Reason}, State) ->
-    ?SLOG(debug, #{msg => "force_to_close_the_socket", reason => Reason}),
+    ?SLOG(debug, #{msg => "force_socket_close", reason => Reason}),
     return(enqueue({close, Reason}, State));
 
 handle_info({event, connected}, State = #state{channel = Channel}) ->
@@ -632,10 +630,9 @@ handle_outgoing(Packets, State = #state{mqtt_piggyback = MQTTPiggyback,
 serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
     fun(Packet) ->
         try emqx_frame:serialize_pkt(Packet, Serialize) of
-            <<>> -> ?SLOG(warning, #{
-                        msg => "packet_is_discarded_due_to_the_frame_is_too_large",
-                        packet => emqx_packet:format(Packet)
-                    }),
+            <<>> -> ?SLOG(warning, #{msg => "packet_discarded",
+                                     reason => "frame_too_large",
+                                     packet => emqx_packet:format(Packet)}),
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
                     ok = emqx_metrics:inc('delivery.dropped'),
                     <<>>;

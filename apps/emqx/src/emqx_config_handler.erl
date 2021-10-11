@@ -119,9 +119,9 @@ handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
     catch Error:Reason:ST ->
         ?SLOG(error, #{
             msg => "change_config_failed",
-            error => Error,
+            exception => Error,
             reason => Reason,
-            st => ST
+            stacktrace => ST
         }),
         {error, Reason}
     end,

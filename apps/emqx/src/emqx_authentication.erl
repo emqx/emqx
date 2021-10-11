@@ -311,7 +311,7 @@ do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | M
     catch
         Class:Reason:Stacktrace ->
             ?SLOG(warning, #{msg => "unexpected_error_in_authentication",
-                             class => Class,
+                             exception => Class,
                              reason => Reason,
                              stacktrace => Stacktrace,
                              authenticator => ID}),
@@ -652,11 +652,11 @@ handle_call({list_users, ChainName, AuthenticatorID}, _From, State) ->
     reply(Reply, State);
 
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Req, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", req => Req}),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
     {noreply, State}.
 
 handle_info(Info, State) ->

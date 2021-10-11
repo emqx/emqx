@@ -24,21 +24,22 @@
 
 -define(SYSMON, emqx_sys_mon).
 
+-define(FAKE_PORT, hd(erlang:ports())).
+-define(FAKE_INFO, [{timeout, 100}, {in, foo}, {out, {?MODULE, bar, 1}}]).
 -define(INPUTINFO, [{self(), long_gc,
-                     concat_str("long_gc warning: pid = ~p, info: ~p", self(), "hello"), "hello"},
+                     fmt("long_gc warning: pid = ~p", [self()]), ?FAKE_INFO},
                     {self(), long_schedule,
-                     concat_str("long_schedule warning: pid = ~p, info: ~p", self(), "hello"), "hello"},
+                     fmt("long_schedule warning: pid = ~p", [self()]), ?FAKE_INFO},
                      {self(), large_heap,
-                     concat_str("large_heap warning: pid = ~p, info: ~p", self(), "hello"), "hello"},
+                     fmt("large_heap warning: pid = ~p", [self()]), ?FAKE_INFO},
                     {self(), busy_port,
-                     concat_str("busy_port warning: suspid = ~p, port = ~p",
-                                self(), list_to_port("#Port<0.4>")), list_to_port("#Port<0.4>")},
+                     fmt("busy_port warning: suspid = ~p, port = ~p",
+                         [self(), ?FAKE_PORT]), ?FAKE_PORT},
                     {self(), busy_dist_port,
-                     concat_str("busy_dist_port warning: suspid = ~p, port = ~p",
-                                self(), list_to_port("#Port<0.4>")),list_to_port("#Port<0.4>")},
-                    {list_to_port("#Port<0.4>"), long_schedule,
-                     concat_str("long_schedule warning: port = ~p, info: ~p",
-                                list_to_port("#Port<0.4>"), "hello"), "hello"}
+                     fmt("busy_dist_port warning: suspid = ~p, port = ~p",
+                         [self(), ?FAKE_PORT]), ?FAKE_PORT},
+                    {?FAKE_PORT, long_schedule,
+                     fmt("long_schedule warning: port = ~p", [?FAKE_PORT]), ?FAKE_INFO}
                     ]).
 
 all() -> emqx_ct:all(?MODULE).
@@ -82,16 +83,16 @@ t_procinfo(_) ->
     ok = meck:new(emqx_vm, [passthrough, no_history]),
     ok = meck:expect(emqx_vm, get_process_info, fun(_) -> [] end),
     ok = meck:expect(emqx_vm, get_process_gc_info, fun(_) -> [] end),
-    ?assertEqual([], emqx_sys_mon:procinfo([])),
-    ok = meck:expect(emqx_vm, get_process_info, fun(_) -> ok end),
+    ?assertEqual([{pid, undefined}], emqx_sys_mon:procinfo(undefined)),
+    ok = meck:expect(emqx_vm, get_process_info, fun(_) -> [] end),
     ok = meck:expect(emqx_vm, get_process_gc_info, fun(_) -> undefined end),
-    ?assertEqual(undefined, emqx_sys_mon:procinfo([])),
+    ?assertEqual([{pid, self()}], emqx_sys_mon:procinfo(self())),
     ok = meck:unload(emqx_vm).
 
 t_sys_mon(_Config) ->
     lists:foreach(
-      fun({PidOrPort, SysMonName,ValidateInfo, InfoOrPort}) ->
-              validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort)
+      fun({PidOrPort, SysMonName, ValidateInfo, InfoOrPort}) ->
+              validate_sys_mon_info(PidOrPort, SysMonName, ValidateInfo, InfoOrPort)
       end, ?INPUTINFO).
 
 t_sys_mon2(_Config) ->
@@ -101,7 +102,7 @@ t_sys_mon2(_Config) ->
     ?assertEqual(ok, gen_server:cast(?SYSMON, ignored)),
     gen_server:stop(?SYSMON).
 
-validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort) ->
+validate_sys_mon_info(PidOrPort, SysMonName, ValidateInfo, InfoOrPort) ->
     {ok, C} = emqtt:start_link([{host, "localhost"}]),
     {ok, _} = emqtt:connect(C),
     emqtt:subscribe(C, emqx_topic:systop(lists:concat(['sysmon/', SysMonName])), qos1),
@@ -117,6 +118,4 @@ validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort) ->
     end,
     emqtt:stop(C).
 
-concat_str(ValidateInfo, InfoOrPort, Info) ->
-    WarnInfo = io_lib:format(ValidateInfo, [InfoOrPort, Info]),
-    lists:flatten(WarnInfo).
+fmt(Fmt, Args) -> lists:flatten(io_lib:format(Fmt, Args)).
