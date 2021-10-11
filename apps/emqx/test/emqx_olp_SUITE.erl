@@ -35,11 +35,20 @@ end_per_suite(_Config) ->
 
 init_per_testcase(_, Config) ->
     emqx_olp:on(),
-    ok = load_ctl:put_config(#{ ?RUNQ_MON_T1 => 200
-                              , ?RUNQ_MON_T2 => 50
-                              , ?RUNQ_MON_C1 => 3
-                              }),
-    Config.
+    case wait_for(fun() -> lc_sup:whereis_runq_flagman() end, 10) of
+      true -> ok;
+      false ->
+        ct:fail("runq_flagman is not up")
+    end,
+  ok = load_ctl:put_config(#{ ?RUNQ_MON_F0 => true
+                            , ?RUNQ_MON_F1 => 5
+                            , ?RUNQ_MON_F2 => 1
+                            , ?RUNQ_MON_T1 => 200
+                            , ?RUNQ_MON_T2 => 50
+                            , ?RUNQ_MON_C1 => 2
+                            , ?RUNQ_MON_F5 => -1
+                            }),
+  Config.
 
 %% Test that olp could be enabled/disabled globally
 t_off_on(_Config) ->
@@ -47,15 +56,16 @@ t_off_on(_Config) ->
     ok = emqx_olp:off(),
     ?assert(not is_process_alive(Old)),
     {ok, Pid} = emqx_olp:on(),
+    timer:sleep(1000),
     ?assert(is_process_alive(Pid)).
 
 %% Test that overload detection works
 t_is_overloaded(_Config) ->
     P = burst_runq(),
-    timer:sleep(2000),
+    timer:sleep(3000),
     ?assert(emqx_olp:is_overloaded()),
     exit(P, kill),
-    timer:sleep(2000),
+    timer:sleep(3000),
     ?assert(not emqx_olp:is_overloaded()).
 
 %% Test that new conn is rejected when olp is enabled
@@ -95,3 +105,14 @@ worker_parent(N, {M, F, A}) ->
 busy_loop() ->
   erlang:yield(),
   busy_loop().
+
+wait_for(_Fun, 0) ->
+  false;
+wait_for(Fun, Retry) ->
+  case is_pid(Fun()) of
+    true ->
+      true;
+    false ->
+      timer:sleep(10),
+      wait_for(Fun, Retry - 1)
+  end.

@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_olp).
 
+-include_lib("lc/include/lc.hrl").
+
 -export([ is_overloaded/0
         , backoff/1
         , backoff_gc/1
@@ -100,9 +102,16 @@ off() ->
   load_ctl:stop_runq_flagman(5000).
 
 %% @doc turn on backgroud runq check.
--spec on() -> {ok, pid()} | {error, running | restarting}.
+-spec on() -> {ok, pid()} | {error, running | restarting | disabled}.
 on() ->
- load_ctl:restart_runq_flagman().
+ case load_ctl:restart_runq_flagman() of
+   {error, disabled} ->
+     OldCfg = load_ctl:get_config(),
+     ok = load_ctl:put_config(OldCfg#{ ?RUNQ_MON_F0 => true }),
+     load_ctl:restart_runq_flagman();
+   Other ->
+     Other
+ end.
 
 %%% Internals
 -spec do_check(Zone::atom(), cfg_key(), cnt_name()) -> boolean().
