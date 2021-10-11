@@ -72,7 +72,10 @@ apis() ->
     , {<<"gte_connected_at">>, timestamp}
     , {<<"lte_connected_at">>, timestamp}
     %% special keys for lwm2m protocol
+    , {<<"endpoint_name">>, binary}
     , {<<"like_endpoint_name">>, binary}
+    , {<<"gte_lifetime">>, timestamp}
+    , {<<"lte_lifetime">>, timestamp}
     ]).
 
 -define(query_fun, {?MODULE, query}).
@@ -242,7 +245,12 @@ ms(proto_ver, X) ->
 ms(connected_at, X) ->
     #{conninfo => #{connected_at => X}};
 ms(created_at, X) ->
-    #{session => #{created_at => X}}.
+    #{session => #{created_at => X}};
+%% lwm2m fields
+ms(endpoint_name, X) ->
+    #{clientinfo => #{endpoint_name => X}};
+ms(lifetime, X) ->
+    #{clientinfo => #{lifetime => X}}.
 
 %%--------------------------------------------------------------------
 %% Fuzzy filter funcs
@@ -269,7 +277,7 @@ run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE} | Fuzzy]
 %%--------------------------------------------------------------------
 %% format funcs
 
-format_channel_info({_, Infos, Stats}) ->
+format_channel_info({_, Infos, Stats} = R) ->
     ClientInfo = maps:get(clientinfo, Infos, #{}),
     ConnInfo = maps:get(conninfo, Infos, #{}),
     SessInfo = maps:get(session, Infos, #{}),
@@ -312,7 +320,20 @@ format_channel_info({_, Infos, Stats}) ->
              , {heap_size, Stats, 0}
              , {reductions, Stats, 0}
              ],
-    eval(FetchX).
+    eval(FetchX ++ extra_feilds(R)).
+
+extra_feilds({_, Infos, _Stats} = R) ->
+    extra_feilds(
+      maps:get(protocol, maps:get(clientinfo, Infos)),
+      R).
+
+extra_feilds(lwm2m, {_, Infos, _Stats}) ->
+    ClientInfo = maps:get(clientinfo, Infos, #{}),
+    [ {endpoint_name, ClientInfo}
+    , {lifetime, ClientInfo}
+    ];
+extra_feilds(_, _) ->
+    [].
 
 eval(Ls) ->
     eval(Ls, #{}).
@@ -527,6 +548,7 @@ schema_subscription() ->
 %% properties defines
 
 properties_client() ->
+    %% FIXME: enum for every protocol's client
     emqx_mgmt_util:properties(
       [ {node, string,
          <<"Name of the node to which the client is connected">>}
