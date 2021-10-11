@@ -80,7 +80,8 @@
                         headers := emqx_types:headers(),
                         topic := emqx_types:topic(),
                         payload := emqx_types:payload(),
-                        timestamp := integer()}
+                        timestamp := integer(),
+                        extra := _}
      ).
 
 -elvis([{elvis_style, god_modules, disable}]).
@@ -322,7 +323,8 @@ from_map(#{id := Id,
            headers := Headers,
            topic := Topic,
            payload := Payload,
-           timestamp := Timestamp
+           timestamp := Timestamp,
+           extra := Extra
           }) ->
     #message{
         id = Id,
@@ -332,7 +334,8 @@ from_map(#{id := Id,
         headers = Headers,
         topic = Topic,
         payload = Payload,
-        timestamp = Timestamp
+        timestamp = Timestamp,
+        extra = Extra
     }.
 
 %% MilliSeconds
