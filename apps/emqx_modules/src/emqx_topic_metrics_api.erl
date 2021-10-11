@@ -36,6 +36,8 @@
 
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
 
+-define(BAD_TOPIC, 'BAD_TOPIC').
+
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
 api_spec() ->
@@ -94,7 +96,7 @@ topic_metrics_api() ->
             responses => #{
                 <<"200">> => schema(<<"Create topic metrics success">>),
                 <<"409">> => error_schema(<<"Topic metrics max limit">>, [?EXCEED_LIMIT]),
-                <<"400">> => error_schema(<<"Topic metrics already exist or bad topic">>, [?BAD_REQUEST])
+                <<"400">> => error_schema(<<"Topic metrics already exist or bad topic">>, [?BAD_REQUEST, ?BAD_TOPIC])
             }
         }
     },
@@ -164,12 +166,20 @@ list_metrics() ->
 register(Topic) ->
     case emqx_topic_metrics:register(Topic) of
         {error, quota_exceeded} ->
-            Message = list_to_binary(io_lib:format("Max topic metrics count is  ~p",
+            Message = list_to_binary(io_lib:format("Max topic metrics count is ~p",
                                         [emqx_topic_metrics:max_limit()])),
             {409, #{code => ?EXCEED_LIMIT, message => Message}};
+        {error, bad_topic} ->
+            Message = list_to_binary(io_lib:format("Bad Topic, topic cannot have wildcard ~p",
+                                        [Topic])),
+            {400, #{code => ?BAD_TOPIC, message => Message}};
+        {error, {quota_exceeded, bad_topic}} ->
+            Message = list_to_binary(io_lib:format("Max topic metrics count is ~p, and topic cannot have wildcard ~p",
+                                        [emqx_topic_metrics:max_limit(), Topic])),
+            {400, #{code => ?BAD_REQUEST, message => Message}};
         {error, already_existed} ->
             Message = list_to_binary(io_lib:format("Topic ~p already registered", [Topic])),
-            {400, #{code => ?BAD_REQUEST, message => Message}};
+            {400, #{code => ?BAD_TOPIC, message => Message}};
         ok ->
             {200}
     end.
