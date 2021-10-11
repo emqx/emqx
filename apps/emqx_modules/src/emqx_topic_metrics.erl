@@ -304,8 +304,8 @@ do_register(Topic, Speeds) ->
         true ->
             {error, already_existed};
         false ->
-            case number_of_registered_topics() < ?MAX_TOPICS of
-                true ->
+            case {number_of_registered_topics() < ?MAX_TOPICS, emqx_topic:wildcard(Topic)} of
+                {true, false} ->
                     CreateTime = emqx_rule_funcs:now_rfc3339(),
                     CRef = counters:new(counters_size(), [write_concurrency]),
                     ok = reset_counter(CRef),
@@ -318,8 +318,12 @@ do_register(Topic, Speeds) ->
                                           end, Speeds, ?TOPIC_METRICS),
                     add_topic_config(Topic),
                     {ok, NSpeeds};
-                false ->
-                    {error, quota_exceeded}
+                {true, true} ->
+                    {error, bad_topic};
+                {false, false} ->
+                    {error, quota_exceeded};
+                {false, true} ->
+                    {error, {quota_exceeded, bad_topic}}
             end
     end.
 
