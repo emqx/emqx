@@ -49,6 +49,13 @@ default_options() ->
      , src_dirs     => "{src,apps,lib-*}/**/"
      }.
 
+%% App-specific actions that should be added unconditionally to any update/downgrade:
+app_specific_actions(_) ->
+    [].
+
+ignored_apps() ->
+    [emqx_dashboard, emqx_management].
+
 main(Args) ->
     #{current_release := CurrentRelease} = Options = parse_args(Args, default_options()),
     init_globals(Options),
@@ -172,8 +179,8 @@ find_appup_actions(_App, AppIdx, AppIdx) ->
     [];
 find_appup_actions(App, CurrAppIdx, PrevAppIdx = #app{version = PrevVersion}) ->
     {OldUpgrade, OldDowngrade} = find_old_appup_actions(App, PrevVersion),
-    Upgrade = merge_update_actions(diff_app(App, CurrAppIdx, PrevAppIdx), OldUpgrade),
-    Downgrade = merge_update_actions(diff_app(App, PrevAppIdx, CurrAppIdx), OldDowngrade),
+    Upgrade = merge_update_actions(App, diff_app(App, CurrAppIdx, PrevAppIdx), OldUpgrade),
+    Downgrade = merge_update_actions(App, diff_app(App, PrevAppIdx, CurrAppIdx), OldDowngrade),
     if OldUpgrade =:= Upgrade andalso OldDowngrade =:= Downgrade ->
             %% The appup file has been already updated:
             [];
@@ -192,22 +199,24 @@ find_old_appup_actions(App, PrevVersion) ->
         end,
     {ensure_version(PrevVersion, Upgrade0), ensure_version(PrevVersion, Downgrade0)}.
 
-merge_update_actions(Changes, Vsns) ->
+merge_update_actions(App, Changes, Vsns) ->
     lists:map(fun(Ret = {<<".*">>, _}) ->
                       Ret;
                  ({Vsn, Actions}) ->
-                      {Vsn, do_merge_update_actions(Changes, Actions)}
+                      {Vsn, do_merge_update_actions(App, Changes, Actions)}
               end,
               Vsns).
 
-do_merge_update_actions({New0, Changed0, Deleted0}, OldActions) ->
+do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
+    AppSpecific = app_specific_actions(App) -- OldActions,
     AlreadyHandled = lists:flatten(lists:map(fun process_old_action/1, OldActions)),
     New = New0 -- AlreadyHandled,
     Changed = Changed0 -- AlreadyHandled,
     Deleted = Deleted0 -- AlreadyHandled,
     [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed ++ New] ++
         OldActions ++
-        [{delete_module, M} || M <- Deleted].
+        [{delete_module, M} || M <- Deleted] ++
+        AppSpecific.
 
 
 %% @doc Process the existing actions to exclude modules that are
@@ -222,12 +231,13 @@ process_old_action(LoadModule) when is_tuple(LoadModule) andalso
 process_old_action(_) ->
     [].
 
-ensure_version(Version, Versions) ->
-    case lists:keyfind(Version, 1, Versions) of
+ensure_version(Version, OldInstructions) ->
+    OldVersions = [ensure_string(element(1, I)) || I <- OldInstructions],
+    case lists:member(Version, OldVersions) of
         false ->
-            [{Version, []}|Versions];
+            [{Version, []}|OldInstructions];
         _ ->
-            Versions
+            OldInstructions
     end.
 
 read_appup(File) ->
@@ -288,8 +298,9 @@ create_stub(App) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 index_apps(ReleaseDir) ->
-    maps:from_list([index_app(filename:join(ReleaseDir, AppFile)) ||
-                       AppFile <- filelib:wildcard("**/ebin/*.app", ReleaseDir)]).
+    Apps0 = maps:from_list([index_app(filename:join(ReleaseDir, AppFile)) ||
+                               AppFile <- filelib:wildcard("**/ebin/*.app", ReleaseDir)]),
+    maps:without(ignored_apps(), Apps0).
 
 index_app(AppFile) ->
     {ok, [{application, App, Properties}]} = file:consult(AppFile),
@@ -320,7 +331,10 @@ diff_app(App, #app{version = NewVersion, modules = NewModules}, #app{version = O
     NChanges = length(New) + length(Changed) + length(Deleted),
     if NewVersion =:= OldVersion andalso NChanges > 0 ->
             set_invalid(),
-            log("ERROR: Application '~p' contains changes, but its version is not updated", [App]);
+            log("ERROR: Application '~p' contains changes, but its version is not updated~n", [App]);
+       NewVersion > OldVersion ->
+            log("INFO: Application '~p' has been updated: ~p -> ~p~n", [App, OldVersion, NewVersion]),
+            ok;
        true ->
             ok
     end,
@@ -425,3 +439,8 @@ log(Msg) ->
 
 log(Msg, Args) ->
     io:format(standard_error, Msg, Args).
+
+ensure_string(Str) when is_binary(Str) ->
+    binary_to_list(Str);
+ensure_string(Str) when is_list(Str) ->
+    Str.
