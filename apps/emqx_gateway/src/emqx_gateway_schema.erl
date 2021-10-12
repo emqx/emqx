@@ -109,12 +109,24 @@ fields(exproto) ->
 
 fields(exproto_grpc_server) ->
     [ {bind, sc(hoconsc:union([ip_port(), integer()]))}
-      %% TODO: ssl options
+    , {ssl, sc_meta(ref(simple_ssl_options),
+                    #{nullable => {true, recursively}})}
     ];
 
 fields(exproto_grpc_handler) ->
     [ {address, sc(binary())}
-      %% TODO: ssl
+    , {ssl, sc_meta(ref(simple_ssl_options),
+                    #{nullable => {true, recursively}})}
+    ];
+
+fields(simple_ssl_options) ->
+    [ {cacertfile, sc_meta(string(), #{nullable => true})}
+    , {certfile, sc_meta(string(), #{nullable => true})}
+    , {keyfile, sc_meta(string(), #{nullable => true})}
+    , {verify, sc(hoconsc:enum([verify_peer, verify_none]), verify_none)}
+    , {depth, sc(integer(), 10)}
+    , {password, sc_meta(string(), #{sensitive => true, nullable => true})}
+    %% XXX: More confs ???
     ];
 
 fields(clientinfo_override) ->
