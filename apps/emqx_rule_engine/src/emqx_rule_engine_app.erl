@@ -16,6 +16,8 @@
 
 -module(emqx_rule_engine_app).
 
+-include("rule_engine.hrl").
+
 -behaviour(application).
 
 -export([start/2]).
@@ -23,14 +25,9 @@
 -export([stop/1]).
 
 start(_Type, _Args) ->
-    {ok, Sup} = emqx_rule_engine_sup:start_link(),
-    _ = emqx_rule_engine_sup:start_locker(),
-    ok = emqx_rule_engine:load_providers(),
-    ok = emqx_rule_engine:refresh_resources(),
-    ok = emqx_rule_engine:refresh_rules(),
-    ok = emqx_rule_engine_cli:load(),
-    {ok, Sup}.
+    ok = ekka_rlog:wait_for_shards([?RULE_ENGINE_SHARD], infinity),
+    ok = emqx_rule_events:reload(),
+    emqx_rule_engine_sup:start_link().
 
 stop(_State) ->
-    ok = emqx_rule_events:unload(),
-    ok = emqx_rule_engine_cli:unload().
+    ok = emqx_rule_events:unload().

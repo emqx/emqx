@@ -17,18 +17,18 @@
 -ifndef(EMQ_X_HRL).
 -define(EMQ_X_HRL, true).
 
+%% Shard
 %%--------------------------------------------------------------------
-%% Common
-%%--------------------------------------------------------------------
-
--define(Otherwise, true).
-
 -define(COMMON_SHARD, emqx_common_shard).
 -define(SHARED_SUB_SHARD, emqx_shared_sub_shard).
--define(MOD_DELAYED_SHARD, emqx_delayed_shard).
 -define(CM_SHARD, emqx_cm_shard).
+-define(ROUTE_SHARD, route_shard).
 
-%%--------------------------------------------------------------------
+-define(BOOT_SHARDS, [ ?ROUTE_SHARD
+                     , ?COMMON_SHARD
+                     , ?SHARED_SUB_SHARD
+                     ]).
+
 %% Banner
 %%--------------------------------------------------------------------
 
@@ -71,7 +71,9 @@
           %% Message Payload
           payload :: emqx_types:payload(),
           %% Timestamp (Unit: millisecond)
-          timestamp :: integer()
+          timestamp :: integer(),
+          %% not used so far, for future extension
+          extra = [] :: term()
          }).
 
 -record(delivery, {
@@ -82,11 +84,6 @@
 %%--------------------------------------------------------------------
 %% Route
 %%--------------------------------------------------------------------
-
--define(ROUTE_SHARD, route_shard).
-
-
--define(RULE_ENGINE_SHARD, emqx_rule_engine_shard).
 
 -record(route, {
           topic :: binary(),
@@ -133,8 +130,6 @@
           until  :: integer()
         }).
 
--endif.
-
 %%--------------------------------------------------------------------
 %% Authentication
 %%--------------------------------------------------------------------
@@ -150,3 +145,5 @@
         { name :: atom()
         , authenticators :: [#authenticator{}]
         }).
+
+-endif.

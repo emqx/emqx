@@ -135,7 +135,7 @@ json_basic() ->
     oneof([true, false, null, number(), json_string()]).
 
 latin_atom() ->
-    emqx_ct_proper_types:limited_latin_atom().
+    emqx_proper_types:limited_latin_atom().
 
 json_string() -> utf8().
 

@@ -43,6 +43,7 @@
           name       :: gateway_name(),
           config     :: emqx_config:config(),
           ctx        :: emqx_gateway_ctx:context(),
+          authns     :: [emqx_authentication:chain_name()],
           status     :: stopped | running,
           child_pids :: [pid()],
           gw_state   :: emqx_gateway_impl:state() | undefined,
@@ -94,16 +95,23 @@ init([Gateway, Ctx, _GwDscrptr]) ->
     State = #state{
                ctx = Ctx,
                name = GwName,
+               authns = [],
                config = Config,
                child_pids = [],
                status = stopped,
                created_at = erlang:system_time(millisecond)
               },
-    case cb_gateway_load(State) of
-        {error, Reason} ->
-            {stop, {load_gateway_failure, Reason}};
-        {ok, NState} ->
-            {ok, NState}
+    case maps:get(enable, Config, true) of
+        false ->
+            ?LOG(info, "Skipp to start ~s gateway due to disabled", [GwName]),
+            {ok, State};
+        true ->
+            case cb_gateway_load(State) of
+                {error, Reason} ->
+                    {stop, {load_gateway_failure, Reason}};
+                {ok, NState} ->
+                    {ok, NState}
+            end
     end.
 
 handle_call(info, _From, State) ->
@@ -174,9 +182,9 @@ handle_info(Info, State) ->
     ?LOG(warning, "Unexcepted info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, State = #state{ctx = Ctx, child_pids = Pids}) ->
+terminate(_Reason, State = #state{child_pids = Pids}) ->
     Pids /= [] andalso (_ = cb_gateway_unload(State)),
-    _ = do_deinit_authn(maps:get(auth, Ctx, undefined)),
+    _ = do_deinit_authn(State#state.authns),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -197,60 +205,108 @@ detailed_gateway_info(State) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-do_init_authn(GwName, Config) ->
-    case maps:get(authentication, Config, #{enable => false}) of
-        #{enable := false} -> undefined;
-        AuthCfg when is_map(AuthCfg) ->
-            case maps:get(enable, AuthCfg, true) of
-                false ->
-                    undefined;
-                _ ->
-                    %% TODO: Implement Authentication
-                    GwName
-                    %case emqx_authn:create_chain(#{id => ChainId}) of
-                    %    {ok, _ChainInfo} ->
-                    %        case emqx_authn:create_authenticator(ChainId, AuthCfg) of
-                    %            {ok, _} -> ChainId;
-                    %            {error, Reason} ->
-                    %                ?LOG(error, "Failed to create authentication ~p", [Reason]),
-                    %                throw({bad_authentication, Reason})
-                    %        end;
-                    %    {error, Reason} ->
-                    %        ?LOG(error, "Failed to create authentication chain: ~p", [Reason]),
-                    %        throw({bad_chain, {ChainId, Reason}})
-                    %end.
-            end;
-        _ ->
-            undefined
+%% same with emqx_authentication:global_chain/1
+global_chain(mqtt) ->
+    'mqtt:global';
+global_chain('mqtt-sn') ->
+    'mqtt-sn:global';
+global_chain(coap) ->
+    'coap:global';
+global_chain(lwm2m) ->
+    'lwm2m:global';
+global_chain(stomp) ->
+    'stomp:global';
+global_chain(_) ->
+    'unknown:global'.
+
+listener_chain(GwName, Type, LisName) ->
+    emqx_gateway_utils:listener_id(GwName, Type, LisName).
+
+%% There are two layer authentication configs
+%%       stomp.authn
+%%           /                   \
+%%   listeners.tcp.defautl.authn  *.ssl.default.authn
+%%
+
+init_authn(GwName, Config) ->
+    Authns = authns(GwName, Config),
+    try
+        do_init_authn(Authns, [])
+    catch
+        throw : Reason = {badauth, _} ->
+            do_deinit_authn(proplists:get_keys(Authns)),
+            throw(Reason)
     end.
 
-do_deinit_authn(undefined) ->
-    ok;
-do_deinit_authn(AuthnRef) ->
-    %% TODO:
-    ?LOG(warning, "Failed to clean authn ~p, not suppported now", [AuthnRef]).
-    %case emqx_authn:delete_chain(AuthnRef) of
-    %    ok -> ok;
-    %    {error, {not_found, _}} ->
-    %        ?LOG(warning, "Failed to clean authentication chain: ~s, "
-    %                      "reason: not_found", [AuthnRef]);
-    %    {error, Reason} ->
-    %        ?LOG(error, "Failed to clean authentication chain: ~s, "
-    %                    "reason: ~p", [AuthnRef, Reason])
-    %end.
+do_init_authn([], Names) ->
+    Names;
+do_init_authn([{_ChainName, _AuthConf = #{enable := false}}|More], Names) ->
+    do_init_authn(More, Names);
+do_init_authn([{ChainName, AuthConf}|More], Names) when is_map(AuthConf) ->
+    _ = application:ensure_all_started(emqx_authn),
+    do_create_authn_chain(ChainName, AuthConf),
+    do_init_authn(More, [ChainName|Names]);
+do_init_authn([_BadConf|More], Names) ->
+    do_init_authn(More, Names).
 
-do_update_one_by_one(NCfg0, State = #state{
-                                      ctx = Ctx,
+authns(GwName, Config) ->
+    Listeners = maps:to_list(maps:get(listeners, Config, #{})),
+    lists:append(
+      [ [{listener_chain(GwName, LisType, LisName), authn_conf(Opts)}
+        || {LisName, Opts} <- maps:to_list(LisNames) ]
+      || {LisType, LisNames} <- Listeners])
+    ++ [{global_chain(GwName), authn_conf(Config)}].
+
+authn_conf(Conf) ->
+    maps:get(authentication, Conf, #{enable => false}).
+
+do_create_authn_chain(ChainName, AuthConf) ->
+    case ensure_chain(ChainName) of
+        ok ->
+            case emqx_authentication:create_authenticator(ChainName, AuthConf) of
+                {ok, _} -> ok;
+                {error, Reason} ->
+                    ?LOG(error, "Failed to create authenticator chain ~s, "
+                                "reason: ~p, config: ~p",
+                                [ChainName, Reason, AuthConf]),
+                    throw({badauth, Reason})
+            end;
+        {error, Reason} ->
+            ?LOG(error, "Falied to create authn chain ~s, reason ~p",
+                        [ChainName, Reason]),
+            throw({badauth, Reason})
+    end.
+
+ensure_chain(ChainName) ->
+    case emqx_authentication:create_chain(ChainName) of
+        {ok, _ChainInfo} ->
+            ok;
+        {error, {already_exists, _}} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+do_deinit_authn(Names) ->
+    lists:foreach(fun(ChainName) ->
+        case emqx_authentication:delete_chain(ChainName) of
+            ok -> ok;
+            {error, {not_found, _}} -> ok;
+            {error, Reason} ->
+                ?LOG(error, "Failed to clean authentication chain: ~s, "
+                            "reason: ~p", [ChainName, Reason])
+        end
+    end, Names).
+
+do_update_one_by_one(NCfg, State = #state{
+                                      name = GwName,
                                       config = OCfg,
                                       status = Status}) ->
-
-    NCfg = emqx_map_lib:deep_merge(OCfg, NCfg0),
-
     OEnable = maps:get(enable, OCfg, true),
-    NEnable = maps:get(enable, NCfg0, OEnable),
+    NEnable = maps:get(enable, NCfg, OEnable),
 
-    OAuth = maps:get(authentication, OCfg, undefined),
-    NAuth = maps:get(authentication, NCfg0, OAuth),
+    OAuths = authns(GwName, OCfg),
+    NAuths = authns(GwName, NCfg),
 
     if
         Status == stopped, NEnable == true ->
@@ -259,19 +315,15 @@ do_update_one_by_one(NCfg0, State = #state{
         Status == stopped, NEnable == false ->
             {ok, State#state{config = NCfg}};
         Status == running, NEnable == true ->
-            NState = case NAuth == OAuth of
+            NState = case NAuths == OAuths of
                          true -> State;
                          false ->
                              %% Reset Authentication first
-                             _ = do_deinit_authn(maps:get(auth, Ctx, undefined)),
-                             NCtx = Ctx#{
-                                      auth => do_init_authn(
-                                                State#state.name,
-                                                NCfg
-                                               )
-                                     },
-                             State#state{ctx = NCtx}
+                             _ = do_deinit_authn(State#state.authns),
+                             AuthnNames = init_authn(State#state.name, NCfg),
+                             State#state{authns = AuthnNames}
                      end,
+            %% XXX: minimum impact update ???
             cb_gateway_update(NCfg, NState);
         Status == running, NEnable == false ->
             case cb_gateway_unload(State) of
@@ -289,6 +341,7 @@ cb_gateway_unload(State = #state{name = GwName,
         #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
         CbMod:on_gateway_unload(Gateway, GwState),
         {ok, State#state{child_pids = [],
+                         authns = [],
                          status = stopped,
                          gw_state = undefined,
                          started_at = undefined,
@@ -300,6 +353,8 @@ cb_gateway_unload(State = #state{name = GwName,
                          [GwName, GwState,
                           Class, Reason, Stk]),
             {error, {Class, Reason, Stk}}
+    after
+        _ = do_deinit_authn(State#state.authns)
     end.
 
 %% @doc 1. Create Authentcation Context
@@ -311,38 +366,33 @@ cb_gateway_load(State = #state{name = GwName,
                                ctx = Ctx}) ->
 
     Gateway = detailed_gateway_info(State),
-
-    case maps:get(enable, Config, true) of
-        false ->
-            ?LOG(info, "Skipp to start ~s gateway due to disabled", [GwName]);
-        true ->
-            try
-                AuthnRef = do_init_authn(GwName, Config),
-                NCtx = Ctx#{auth => AuthnRef},
-                #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
-                case CbMod:on_gateway_load(Gateway, NCtx) of
-                    {error, Reason} ->
-                        do_deinit_authn(AuthnRef),
-                        throw({callback_return_error, Reason});
-                    {ok, ChildPidOrSpecs, GwState} ->
-                        ChildPids = start_child_process(ChildPidOrSpecs),
-                        {ok, State#state{
-                               ctx = NCtx,
-                               status = running,
-                               child_pids = ChildPids,
-                               gw_state = GwState,
-                               stopped_at = undefined,
-                               started_at = erlang:system_time(millisecond)
-                              }}
-                end
-            catch
-                Class : Reason1 : Stk ->
-                    ?LOG(error, "Failed to load ~s gateway (~0p, ~0p) "
-                                "crashed: {~p, ~p}, stacktrace: ~0p",
-                                 [GwName, Gateway, Ctx,
-                                  Class, Reason1, Stk]),
-                    {error, {Class, Reason1, Stk}}
-            end
+    try
+        AuthnNames = init_authn(GwName, Config),
+        NCtx = Ctx#{auth => AuthnNames},
+        #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
+        case CbMod:on_gateway_load(Gateway, NCtx) of
+            {error, Reason} ->
+                do_deinit_authn(AuthnNames),
+                throw({callback_return_error, Reason});
+            {ok, ChildPidOrSpecs, GwState} ->
+                ChildPids = start_child_process(ChildPidOrSpecs),
+                {ok, State#state{
+                       ctx = NCtx,
+                       authns = AuthnNames,
+                       status = running,
+                       child_pids = ChildPids,
+                       gw_state = GwState,
+                       stopped_at = undefined,
+                       started_at = erlang:system_time(millisecond)
+                      }}
+        end
+    catch
+        Class : Reason1 : Stk ->
+            ?LOG(error, "Failed to load ~s gateway (~0p, ~0p) "
+                        "crashed: {~p, ~p}, stacktrace: ~0p",
+                         [GwName, Gateway, Ctx,
+                          Class, Reason1, Stk]),
+            {error, {Class, Reason1, Stk}}
     end.
 
 cb_gateway_update(Config,

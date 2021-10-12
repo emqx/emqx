@@ -162,7 +162,8 @@ flush({Connection, Route, Subscription}, {Received0, Sent0, Dropped0}) ->
                diff(Sent, Sent0),
                diff(Dropped, Dropped0)},
     Ts = get_local_time(),
-    _ = mnesia:dirty_write(emqx_collect, #mqtt_collect{timestamp = Ts, collect = Collect}),
+    ekka_mnesia:transaction(ekka_mnesia:local_content_shard(),
+        fun mnesia:write/1, [#mqtt_collect{timestamp = Ts, collect = Collect}]),
     {Received, Sent, Dropped}.
 
 avg(Items) ->

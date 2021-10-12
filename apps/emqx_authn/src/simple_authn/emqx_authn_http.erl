@@ -100,8 +100,8 @@ body(type) -> map();
 body(validator) -> [fun check_body/1];
 body(_) -> undefined.
 
-request_timeout(type) -> non_neg_integer();
-request_timeout(default) -> 5000;
+request_timeout(type) -> emqx_schema:duration_ms();
+request_timeout(default) -> "5s";
 request_timeout(_) -> undefined.
 
 %%------------------------------------------------------------------------------
@@ -156,26 +156,23 @@ authenticate(#{auth_method := _}, _) ->
 authenticate(Credential, #{'_unique' := Unique,
                            method := Method,
                            request_timeout := RequestTimeout} = State) ->
-    try
-        Request = generate_request(Credential, State),
-        case emqx_resource:query(Unique, {Method, Request, RequestTimeout}) of
-            {ok, 204, _Headers} -> {ok, #{is_superuser => false}};
-            {ok, 200, Headers, Body} ->
-                ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
-                case safely_parse_body(ContentType, Body) of
-                    {ok, NBody} ->
-                        %% TODO: Return by user property
-                        {ok, #{is_superuser => maps:get(<<"is_superuser">>, NBody, false),
-                               user_property => NBody}};
-                    {error, _Reason} ->
-                        {ok, #{is_superuser => false}}
-                end;
-            {error, _Reason} ->
-                ignore
-        end
-    catch
-        error:Reason ->
-            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, Reason]),
+    Request = generate_request(Credential, State),
+    case emqx_resource:query(Unique, {Method, Request, RequestTimeout}) of
+        {ok, 204, _Headers} -> {ok, #{is_superuser => false}};
+        {ok, 200, Headers, Body} ->
+            ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
+            case safely_parse_body(ContentType, Body) of
+                {ok, NBody} ->
+                    %% TODO: Return by user property
+                    {ok, #{is_superuser => maps:get(<<"is_superuser">>, NBody, false),
+                           user_property => NBody}};
+                {error, _Reason} ->
+                    {ok, #{is_superuser => false}}
+            end;
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "http_server_query_failed",
+                           resource => Unique,
+                           reason => Reason}),
             ignore
     end.
 
@@ -194,9 +191,9 @@ check_url(URL) ->
     end.
 
 check_body(Body) ->
-    lists:any(fun({_, V}) ->
-                  not is_binary(V)
-              end, maps:to_list(Body)).
+    maps:fold(fun(_K, _V, false) -> false;
+                 (_K, V, true) -> is_binary(V)
+              end, true, Body).
 
 default_headers() ->
     maps:put(<<"content-type">>,

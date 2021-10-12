@@ -108,7 +108,7 @@ clients_insta(get, #{ bindings := #{name := Name0,
                                              {?MODULE, format_channel_info}) of
             [ClientInfo] ->
                 {200, ClientInfo};
-            [ClientInfo|_More] ->
+            [ClientInfo | _More] ->
                 ?LOG(warning, "More than one client info was returned on ~s",
                               [ClientId]),
                 {200, ClientInfo};
@@ -194,16 +194,16 @@ extra_sub_props(Props) ->
 %%--------------------------------------------------------------------
 %% query funcs
 
-query(Tab, {Qs, []}, Start, Limit) ->
+query(Tab, {Qs, []}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
-    emqx_mgmt_api:select_table(Tab, Ms, Start, Limit,
-                               fun format_channel_info/1);
+    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit,
+                                          fun format_channel_info/1);
 
-query(Tab, {Qs, Fuzzy}, Start, Limit) ->
+query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
-    MatchFun = match_fun(Ms, Fuzzy),
-    emqx_mgmt_api:traverse_table(Tab, MatchFun, Start, Limit,
-                                 fun format_channel_info/1).
+    FuzzyFilterFun = fuzzy_filter_fun(Fuzzy),
+    emqx_mgmt_api:select_table_with_count(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit,
+                                          fun format_channel_info/1).
 
 qs2ms(Qs) ->
     {MtchHead, Conds} = qs2ms(Qs, 2, {#{}, []}),
@@ -247,32 +247,26 @@ ms(created_at, X) ->
     #{session => #{created_at => X}}.
 
 %%--------------------------------------------------------------------
-%% Match funcs
+%% Fuzzy filter funcs
 
-match_fun(Ms, Fuzzy) ->
-    MsC = ets:match_spec_compile(Ms),
+fuzzy_filter_fun(Fuzzy) ->
     REFuzzy = lists:map(fun({K, like, S}) ->
         {ok, RE} = re:compile(S),
         {K, like, RE}
                         end, Fuzzy),
-    fun(Rows) ->
-        case ets:match_spec_run(Rows, MsC) of
-            [] -> [];
-            Ls ->
-                lists:filter(fun(E) ->
-                    run_fuzzy_match(E, REFuzzy)
-                             end, Ls)
-        end
+    fun(MsRaws) when is_list(MsRaws) ->
+            lists:filter( fun(E) -> run_fuzzy_filter(E, REFuzzy) end
+                        , MsRaws)
     end.
 
-run_fuzzy_match(_, []) ->
+run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE}|Fuzzy]) ->
+run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE} | Fuzzy]) ->
     Val = case maps:get(Key, ClientInfo, "") of
               undefined -> "";
               V -> V
           end,
-    re:run(Val, RE, [{capture, none}]) == match andalso run_fuzzy_match(E, Fuzzy).
+    re:run(Val, RE, [{capture, none}]) == match andalso run_fuzzy_filter(E, Fuzzy).
 
 %%--------------------------------------------------------------------
 %% format funcs
@@ -325,12 +319,12 @@ eval(Ls) ->
     eval(Ls, #{}).
 eval([], AccMap) ->
     AccMap;
-eval([{K, Vx}|More], AccMap) ->
+eval([{K, Vx} | More], AccMap) ->
     case valuex_get(K, Vx) of
         undefined -> eval(More, AccMap#{K => null});
         Value -> eval(More, AccMap#{K => Value})
     end;
-eval([{K, Vx, Default}|More], AccMap) ->
+eval([{K, Vx, Default} | More], AccMap) ->
     case valuex_get(K, Vx) of
         undefined -> eval(More, AccMap#{K => Default});
         Value -> eval(More, AccMap#{K => Value})
@@ -369,7 +363,7 @@ metadata(APIs) ->
     metadata(APIs, []).
 metadata([], APIAcc) ->
     lists:reverse(APIAcc);
-metadata([{Path, Fun}|More], APIAcc) ->
+metadata([{Path, Fun} | More], APIAcc) ->
     Methods = [get, post, put, delete, patch],
     Mds = lists:foldl(fun(M, Acc) ->
               try

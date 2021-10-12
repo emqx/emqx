@@ -45,10 +45,19 @@ jobs:
           - api_login
           - api_banned
           - api_alarms
+          - api_nodes
+          - api_topic_metrics
+          - api_retainer
+          - api_auto_subscribe
+          - api_delayed_publish
+          - api_topic_rewrite
+          - api_event_message
+          - api_stats
     steps:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-fvt
+        ref: v1.2.0
         path: .
     - uses: actions/setup-java@v1
       with:
@@ -74,7 +83,7 @@ jobs:
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
         echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
-        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-2.0.2-jar-with-dependencies.jar
+        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar
         ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
     - name: run ${{ matrix.script_name }}
       run: |

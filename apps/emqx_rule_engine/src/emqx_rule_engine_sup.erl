@@ -22,17 +22,12 @@
 
 -export([start_link/0]).
 
--export([start_locker/0]).
-
 -export([init/1]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Opts = [public, named_table, set, {read_concurrency, true}],
-    _ = ets:new(?ACTION_INST_PARAMS_TAB, [{keypos, #action_instance_params.id}|Opts]),
-    _ = ets:new(?RES_PARAMS_TAB, [{keypos, #resource_params.id}|Opts]),
     Registry = #{id => emqx_rule_registry,
                  start => {emqx_rule_registry, start_link, []},
                  restart => permanent,
@@ -45,19 +40,4 @@ init([]) ->
                 shutdown => 5000,
                 type => worker,
                 modules => [emqx_rule_metrics]},
-    Monitor = #{id => emqx_rule_monitor,
-                start => {emqx_rule_monitor, start_link, []},
-                restart => permanent,
-                shutdown => 5000,
-                type => worker,
-                modules => [emqx_rule_monitor]},
-    {ok, {{one_for_one, 10, 10}, [Registry, Metrics, Monitor]}}.
-
-start_locker() ->
-    Locker = #{id => emqx_rule_locker,
-               start => {emqx_rule_locker, start_link, []},
-               restart => permanent,
-               shutdown => 5000,
-               type => worker,
-               modules => [emqx_rule_locker]},
-    supervisor:start_child(?MODULE, Locker).
+    {ok, {{one_for_one, 10, 10}, [Registry, Metrics]}}.

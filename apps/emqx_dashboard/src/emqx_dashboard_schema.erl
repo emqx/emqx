@@ -45,7 +45,9 @@ fields("http") ->
     ];
 
 fields("https") ->
-    proplists:delete("fail_if_no_peer_cert", emqx_schema:ssl(#{})) ++ fields("http").
+    fields("http") ++
+    proplists:delete("fail_if_no_peer_cert",
+                     emqx_schema:server_ssl_opts_schema(#{}, true)).
 
 default_username(type) -> string();
 default_username(default) -> "admin";

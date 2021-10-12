@@ -417,14 +417,14 @@ handle_msg({'$gen_cast', Req}, State) ->
     {ok, NewState};
 
 handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
-    ?LOG(debug, "RECV ~0p", [Data]),
+    ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => Inet}),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
     parse_incoming(Data, State);
 
 handle_msg({quic, Data, _Sock, _, _, _}, State) ->
-    ?LOG(debug, "RECV ~0p", [Data]),
+    ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => quic}),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
@@ -489,7 +489,7 @@ handle_msg({connack, ConnAck}, State) ->
     handle_outgoing(ConnAck, State);
 
 handle_msg({close, Reason}, State) ->
-    ?LOG(debug, "Force to close the socket due to ~p", [Reason]),
+    ?SLOG(debug, #{msg => "force_socket_close", reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_msg({event, connected}, State = #state{channel = Channel}) ->
@@ -644,10 +644,21 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [Packet|Packets], NState)
     catch
-        error:Reason:Stk ->
-            ?LOG(error, "~nParse failed for ~0p~n~0p~nFrame data:~0p",
-                 [Reason, Stk, Data]),
-            {[{frame_error, Reason}|Packets], State}
+        throw : ?FRAME_PARSE_ERROR(Reason) ->
+            ?SLOG(info, #{ reason => Reason
+                         , at_state => emqx_frame:describe_state(ParseState)
+                         , input_bytes => Data
+                         , parsed_packets => Packets
+                         }),
+            {[{frame_error, Reason} | Packets], State};
+        error : Reason : Stacktrace ->
+            ?SLOG(error, #{ at_state => emqx_frame:describe_state(ParseState)
+                          , input_bytes => Data
+                          , parsed_packets => Packets
+                          , reason => Reason
+                          , stacktrace => Stacktrace
+                          }),
+            {[{frame_error, Reason} | Packets], State}
     end.
 
 -compile({inline, [next_incoming_msgs/1]}).
@@ -661,7 +672,7 @@ next_incoming_msgs(Packets) ->
 
 handle_incoming(Packet, State) when is_record(Packet, mqtt_packet) ->
     ok = inc_incoming_stats(Packet),
-    ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
+    ?SLOG(debug, #{msg => "RECV_packet", packet => Packet}),
     with_channel(handle_in, [Packet], State);
 
 handle_incoming(FrameError, State) ->
@@ -696,15 +707,32 @@ handle_outgoing(Packet, State) ->
 
 serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
     fun(Packet) ->
-        case emqx_frame:serialize_pkt(Packet, Serialize) of
-            <<>> -> ?LOG(warning, "~s is discarded due to the frame is too large!",
-                         [emqx_packet:format(Packet)]),
+        try emqx_frame:serialize_pkt(Packet, Serialize) of
+            <<>> -> ?SLOG(warning, #{
+                        msg => "packet_is_discarded",
+                        reason => "frame_is_too_large",
+                        packet => emqx_packet:format(Packet)
+                    }),
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
                     ok = emqx_metrics:inc('delivery.dropped'),
                     <<>>;
-            Data -> ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
+            Data -> ?SLOG(debug, #{
+                        msg => "SEND_packet",
+                        packet => emqx_packet:format(Packet)
+                    }),
                     ok = inc_outgoing_stats(Packet),
                     Data
+        catch
+            %% Maybe Never happen.
+            throw : ?FRAME_SERIALIZE_ERROR(Reason) ->
+                ?SLOG(info, #{ reason => Reason
+                             , input_packet => Packet}),
+                erlang:error(?FRAME_SERIALIZE_ERROR(Reason));
+            error : Reason : Stacktrace ->
+                ?SLOG(error, #{ input_packet => Packet
+                              , exception => Reason
+                              , stacktrace => Stacktrace}),
+                erlang:error(frame_serialize_error)
         end
     end.
 
@@ -741,7 +769,7 @@ handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
 
 handle_info({sock_error, Reason}, State) ->
     case Reason =/= closed andalso Reason =/= einval of
-        true -> ?LOG(warning, "socket_error: ~p", [Reason]);
+        true -> ?SLOG(warning, #{msg => "socket_error", reason => Reason});
         false -> ok
     end,
     handle_info({sock_closed, Reason}, close_socket(State));
@@ -783,7 +811,7 @@ ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
         {ok, Limiter1} ->
             State#state{limiter = Limiter1};
         {pause, Time, Limiter1} ->
-            ?LOG(warning, "Pause ~pms due to rate limit", [Time]),
+            ?SLOG(warning, #{msg => "pause_time_due_to_rate_limit", time_in_ms => Time}),
             TRef = start_timer(Time, limit_timeout),
             State#state{sockstate   = blocked,
                         limiter     = Limiter1,

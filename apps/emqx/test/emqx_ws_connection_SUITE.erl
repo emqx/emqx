@@ -229,7 +229,7 @@ t_ws_check_origin(_) ->
     ?assertMatch({gun_upgrade, _},
         start_ws_client(#{protocols => [<<"mqtt">>],
                           headers => [{<<"origin">>, <<"http://localhost:18083">>}]})),
-    ?assertMatch({gun_response, {_, 500, _}},
+    ?assertMatch({gun_response, {_, 403, _}},
         start_ws_client(#{protocols => [<<"mqtt">>],
                           headers => [{<<"origin">>, <<"http://localhost:18080">>}]})).
 

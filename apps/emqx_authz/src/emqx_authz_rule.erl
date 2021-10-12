@@ -32,16 +32,21 @@
 
 -export_type([rule/0]).
 
+compile({Permission, all}) when ?ALLOW_DENY(Permission) -> {Permission, all, all, [compile_topic(<<"#">>)]};
 compile({Permission, Who, Action, TopicFilters}) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(TopicFilters) ->
     {atom(Permission), compile_who(Who), atom(Action), [compile_topic(Topic) || Topic <- TopicFilters]}.
 
 compile_who(all) -> all;
-compile_who({username, Username}) ->
+compile_who({user, Username}) -> compile_who({username, Username});
+compile_who({username, {re, Username}}) ->
     {ok, MP} = re:compile(bin(Username)),
     {username, MP};
-compile_who({clientid, Clientid}) ->
+compile_who({username, Username}) -> {username, {eq, bin(Username)}};
+compile_who({client, Clientid}) -> compile_who({clientid, Clientid});
+compile_who({clientid, {re, Clientid}}) ->
     {ok, MP} = re:compile(bin(Clientid)),
     {clientid, MP};
+compile_who({clientid, Clientid}) -> {clientid, {eq, bin(Clientid)}};
 compile_who({ipaddr, CIDR}) ->
     {ipaddr, esockd_cidr:parse(CIDR, true)};
 compile_who({ipaddrs, CIDRs}) ->
@@ -102,14 +107,16 @@ match_action(_, all) -> true;
 match_action(_, _) -> false.
 
 match_who(_, all) -> true;
-match_who(#{username := undefined}, {username, _MP}) ->
+match_who(#{username := undefined}, {username, _}) ->
     false;
-match_who(#{username := Username}, {username, MP}) ->
+match_who(#{username := Username}, {username, {eq, Username}}) -> true;
+match_who(#{username := Username}, {username, {re_pattern, _, _, _, _} = MP}) ->
     case re:run(Username, MP) of
         {match, _} -> true;
         _ -> false
     end;
-match_who(#{clientid := Clientid}, {clientid, MP}) ->
+match_who(#{clientid := Clientid}, {clientid, {eq, Clientid}}) -> true;
+match_who(#{clientid := Clientid}, {clientid, {re_pattern, _, _, _, _} = MP}) ->
     case re:run(Clientid, MP) of
         {match, _} -> true;
         _ -> false

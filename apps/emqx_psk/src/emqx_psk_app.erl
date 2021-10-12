@@ -14,21 +14,17 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_rule_locker).
+-module(emqx_psk_app).
 
--export([start_link/0]).
+-behaviour(application).
 
--export([ lock/1
-        , unlock/1
+-export([ start/2
+        , stop/1
         ]).
 
-start_link() ->
-    ekka_locker:start_link(?MODULE).
+start(_Type, _Args) ->
+    {ok, Sup} = emqx_psk_sup:start_link(),
+    {ok, Sup}.
 
--spec(lock(binary()) -> ekka_locker:lock_result()).
-lock(Id) ->
-    ekka_locker:acquire(?MODULE, Id, local).
-
--spec(unlock(binary()) -> {boolean(), [node()]}).
-unlock(Id) ->
-    ekka_locker:release(?MODULE, Id, local).
+stop(_State) ->
+    ok.

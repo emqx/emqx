@@ -33,6 +33,7 @@
         , unix_ts_to_rfc3339/2
         , listener_id/3
         , parse_listener_id/1
+        , is_running/2
         ]).
 
 -export([ stringfy/1
@@ -117,13 +118,18 @@ format_listenon({Addr, Port}) when is_tuple(Addr) ->
 
 parse_listenon(Port) when is_integer(Port) ->
     Port;
+parse_listenon(IpPort) when is_tuple(IpPort) ->
+    IpPort;
 parse_listenon(Str) when is_binary(Str) ->
     parse_listenon(binary_to_list(Str));
 parse_listenon(Str) when is_list(Str) ->
-    case emqx_schema:to_ip_port(Str) of
-        {ok, R} -> R;
-        {error, _} ->
-            error({invalid_listenon_name, Str})
+    try list_to_integer(Str)
+    catch _ : _ ->
+        case emqx_schema:to_ip_port(Str) of
+            {ok, R} -> R;
+            {error, _} ->
+                error({invalid_listenon_name, Str})
+        end
     end.
 
 listener_id(GwName, Type, LisName) ->
@@ -141,6 +147,15 @@ parse_listener_id(Id) ->
         {GwName, Type, Name}
     catch
         _ : _ -> error({invalid_listener_id, Id})
+    end.
+
+is_running(ListenerId, #{<<"bind">> := ListenOn0}) ->
+    ListenOn = emqx_gateway_utils:parse_listenon(ListenOn0),
+    try esockd:listener({ListenerId, ListenOn}) of
+        Pid when is_pid(Pid)->
+            true
+    catch _:_ ->
+        false
     end.
 
 bin(A) when is_atom(A) ->
@@ -226,11 +241,7 @@ sock_opts(Name, Opts) ->
 %% Envs
 
 active_n(Options) ->
-    maps:get(
-      active_n,
-      maps:get(listener, Options, #{active_n => ?ACTIVE_N}),
-      ?ACTIVE_N
-     ).
+    maps:get(active_n, Options, ?ACTIVE_N).
 
 -spec idle_timeout(map()) -> pos_integer().
 idle_timeout(Options) ->

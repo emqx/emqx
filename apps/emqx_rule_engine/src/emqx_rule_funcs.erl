@@ -17,6 +17,8 @@
 -module(emqx_rule_funcs).
 
 -include("rule_engine.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% IoT Funcs
 -export([ msgid/0
@@ -313,8 +315,10 @@ null() ->
 '+'(X, Y) when is_number(X), is_number(Y) ->
     X + Y;
 
-%% concat 2 strings
-'+'(X, Y) when is_binary(X), is_binary(Y) ->
+%% string concatenation
+%% this requires one of the arguments is string, the other argument will be converted
+%% to string automatically (implicit conversion)
+'+'(X, Y) when is_binary(X); is_binary(Y) ->
     concat(X, Y).
 
 '-'(X, Y) when is_number(X), is_number(Y) ->
@@ -615,8 +619,9 @@ tokens(S, Separators) ->
 tokens(S, Separators, <<"nocrlf">>) ->
     [list_to_binary(R) || R <- string:lexemes(binary_to_list(S), binary_to_list(Separators) ++ [$\r,$\n,[$\r,$\n]])].
 
-concat(S1, S2) when is_binary(S1), is_binary(S2) ->
-    unicode:characters_to_binary([S1, S2], unicode).
+%% implicit convert args to strings, and then do concatenation
+concat(S1, S2) ->
+    unicode:characters_to_binary([str(S1), str(S2)], unicode).
 
 sprintf_s(Format, Args) when is_list(Args) ->
     erlang:iolist_to_binary(io_lib:format(binary_to_list(Format), Args)).

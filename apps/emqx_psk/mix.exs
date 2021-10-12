@@ -18,6 +18,8 @@ defmodule EmqxRuleActions.MixProject do
 
   def application do
     [
+      registered: [:emqx_psk_sup],
+      mod: {:emqx_psk_app, []},
       extra_applications: [:logger]
     ]
   end

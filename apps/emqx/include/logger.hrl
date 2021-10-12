@@ -41,6 +41,7 @@
 
 -define(LOG(Level, Format), ?LOG(Level, Format, [])).
 
+%% deprecated
 -define(LOG(Level, Format, Args, Meta),
         %% check 'allow' here so we do not have to pass an anonymous function
         %% down to logger which may cause `badfun` exception during upgrade
@@ -58,8 +59,15 @@
 
 %% structured logging
 -define(SLOG(Level, Data),
-        logger:log(Level, Data, #{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
-                                 , line => ?LINE})).
+        %% check 'allow' here, only evaluate Data when necessary
+        case logger:allow(Level, ?MODULE) of
+            true ->
+                logger:log(Level, (Data), #{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
+                                           , line => ?LINE
+                                           });
+            false ->
+                ok
+        end).
 
 %% print to 'user' group leader
 -define(ULOG(Fmt, Args), io:format(user, Fmt, Args)).

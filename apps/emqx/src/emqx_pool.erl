@@ -100,22 +100,26 @@ handle_call({submit, Task}, _From, State) ->
     {reply, catch run(Task), State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast({async_submit, Task}, State) ->
     try run(Task)
-    catch _:Error:Stacktrace ->
-        ?LOG(error, "Error: ~0p, ~0p", [Error, Stacktrace])
+    catch Error:Reason:Stacktrace ->
+        ?SLOG(error, #{msg => "async_submit_error",
+                       exception => Error,
+                       reason => Reason,
+                       stacktrace => Stacktrace
+                      })
     end,
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

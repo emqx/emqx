@@ -18,22 +18,14 @@
 -include_lib("emqx/include/logger.hrl").
 
 -export([ test/1
+        , echo_action/2
+        , get_selected_data/3
         ]).
 
-%% Dialyzer gives up on the generated code.
-%% probably due to stack depth, or inlines.
--dialyzer({nowarn_function, [test/1,
-                             test_rule/4,
-                             flatten/1,
-                             sql_test_action/0,
-                             fill_default_values/2,
-                             envs_examp/1
-                             ]}).
-
--spec(test(#{}) -> {ok, map() | list()} | {error, term()}).
-test(#{<<"rawsql">> := Sql, <<"ctx">> := Context}) ->
-    {ok, Select} = emqx_rule_sqlparser:parse_select(Sql),
-    InTopic = maps:get(<<"topic">>, Context, <<>>),
+-spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, nomatch}.
+test(#{sql := Sql, context := Context}) ->
+    {ok, Select} = emqx_rule_sqlparser:parse(Sql),
+    InTopic = maps:get(topic, Context, <<>>),
     EventTopics = emqx_rule_sqlparser:select_from(Select),
     case lists:all(fun is_publish_topic/1, EventTopics) of
         true ->
@@ -48,39 +40,35 @@ test(#{<<"rawsql">> := Sql, <<"ctx">> := Context}) ->
     end.
 
 test_rule(Sql, Select, Context, EventTopics) ->
-    RuleId = iolist_to_binary(["test_rule", emqx_misc:gen_id()]),
-    ActInstId = iolist_to_binary(["test_action", emqx_misc:gen_id()]),
+    RuleId = iolist_to_binary(["sql_tester:", emqx_misc:gen_id(16)]),
     ok = emqx_rule_metrics:create_rule_metrics(RuleId),
-    ok = emqx_rule_metrics:create_metrics(ActInstId),
     Rule = #rule{
         id = RuleId,
-        rawsql = Sql,
-        for = EventTopics,
-        is_foreach = emqx_rule_sqlparser:select_is_foreach(Select),
-        fields = emqx_rule_sqlparser:select_fields(Select),
-        doeach = emqx_rule_sqlparser:select_doeach(Select),
-        incase = emqx_rule_sqlparser:select_incase(Select),
-        conditions = emqx_rule_sqlparser:select_where(Select),
-        actions = [#action_instance{
-                    id = ActInstId,
-                    name = test_rule_sql}]
+        info = #{
+            sql => Sql,
+            from => EventTopics,
+            outputs => [#{type => func, target => fun ?MODULE:get_selected_data/3, args => #{}}],
+            enabled => true,
+            is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
+            fields => emqx_rule_sqlparser:select_fields(Select),
+            doeach => emqx_rule_sqlparser:select_doeach(Select),
+            incase => emqx_rule_sqlparser:select_incase(Select),
+            conditions => emqx_rule_sqlparser:select_where(Select)
+        },
+        created_at = erlang:system_time(millisecond)
     },
     FullContext = fill_default_values(hd(EventTopics), emqx_rule_maps:atom_key_map(Context)),
     try
-        ok = emqx_rule_registry:add_action_instance_params(
-                #action_instance_params{id = ActInstId,
-                                        params = #{},
-                                        apply = sql_test_action()}),
-        R = emqx_rule_runtime:apply_rule(Rule, FullContext),
-        emqx_rule_metrics:clear_rule_metrics(RuleId),
-        emqx_rule_metrics:clear_metrics(ActInstId),
-        R
+        emqx_rule_runtime:apply_rule(Rule, FullContext)
     of
         {ok, Data} -> {ok, flatten(Data)};
         {error, nomatch} -> {error, nomatch}
     after
-        ok = emqx_rule_registry:remove_action_instance_params(ActInstId)
+        emqx_rule_metrics:clear_rule_metrics(RuleId)
     end.
+
+get_selected_data(Selected, _Envs, _Args) ->
+    Selected.
 
 is_publish_topic(<<"$events/", _/binary>>) -> false;
 is_publish_topic(_Topic) -> true.
@@ -90,10 +78,9 @@ flatten([D1]) -> D1;
 flatten([D1 | L]) when is_list(D1) ->
     D1 ++ flatten(L).
 
-sql_test_action() ->
-    fun(Data, _Envs) ->
-        ?LOG(info, "Testing Rule SQL OK"), Data
-    end.
+echo_action(Data, Envs) ->
+    ?SLOG(debug, #{msg => "testing_rule_sql_ok", data => Data, envs => Envs}),
+    Data.
 
 fill_default_values(Event, Context) ->
     maps:merge(envs_examp(Event), Context).

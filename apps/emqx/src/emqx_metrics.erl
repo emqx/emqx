@@ -442,13 +442,17 @@ init([]) ->
     {ok, #state{next_idx = ?RESERVED_IDX + 1}, hibernate}.
 
 handle_call({create, Type, Name}, _From, State = #state{next_idx = ?MAX_SIZE}) ->
-    ?LOG(error, "Failed to create ~s:~s for index exceeded.", [Type, Name]),
+    ?SLOG(error, #{
+        msg => "failed_to_create_type_name_for_index_exceeded",
+        type => Type,
+        name => Name
+    }),
     {reply, {error, metric_index_exceeded}, State};
 
 handle_call({create, Type, Name}, _From, State = #state{next_idx = NextIdx}) ->
     case ets:lookup(?TAB, Name) of
         [#metric{idx = Idx}] ->
-            ?LOG(info, "~s already exists.", [Name]),
+            ?SLOG(info, #{msg => "name_already_exists", name => Name}),
             {reply, {ok, Idx}, State};
         [] ->
             Metric = #metric{name = Name, type = Type, idx = NextIdx},
@@ -464,15 +468,15 @@ handle_call({set_type_to_counter, Keys}, _From, State) ->
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

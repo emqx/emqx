@@ -35,18 +35,15 @@
           rules => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
                    }).
 
--define(EXAMPLE_RETURNED_REDIS,
-        maps:put(annotations, #{status => healthy}, ?EXAMPLE_REDIS)
-        ).
--define(EXAMPLE_RETURNED_FILE,
-        maps:put(annotations, #{status => healthy}, ?EXAMPLE_FILE)
-        ).
-
 -define(EXAMPLE_RETURNED,
-        #{sources => [ ?EXAMPLE_RETURNED_REDIS
-                     , ?EXAMPLE_RETURNED_FILE
+        #{sources => [ ?EXAMPLE_REDIS
+                     , ?EXAMPLE_FILE
                      ]
         }).
+
+-export([ get_raw_sources/0
+        , get_raw_source/1
+        ]).
 
 -export([ api_spec/0
         , sources/2
@@ -76,7 +73,7 @@ sources_api() ->
                                 required => [sources],
                                 properties => #{sources => #{
                                                   type => array,
-                                                  items => minirest:ref(<<"returned_sources">>)
+                                                  items => minirest:ref(<<"sources">>)
                                                  }
                                                }
                             },
@@ -122,7 +119,7 @@ sources_api() ->
                     'application/json' => #{
                         schema => #{
                             type => array,
-                            items => minirest:ref(<<"returned_sources">>)
+                            items => minirest:ref(<<"sources">>)
                         },
                         examples => #{
                             redis => #{
@@ -154,7 +151,15 @@ source_api() ->
                     name => type,
                     in => path,
                     schema => #{
-                       type => string
+                       type => string,
+                        enum => [ <<"file">>
+                                , <<"http">>
+                                , <<"mongodb">>
+                                , <<"mysql">>
+                                , <<"postgresql">>
+                                , <<"redis">>
+                                , <<"built-in-database">>
+                                ]
                     },
                     required => true
                 }
@@ -164,15 +169,15 @@ source_api() ->
                     description => <<"OK">>,
                     content => #{
                         'application/json' => #{
-                            schema => minirest:ref(<<"returned_sources">>),
+                            schema => minirest:ref(<<"sources">>),
                             examples => #{
                                 redis => #{
                                     summary => <<"Redis">>,
-                                    value => jsx:encode(?EXAMPLE_RETURNED_REDIS)
+                                    value => jsx:encode(?EXAMPLE_REDIS)
                                 },
                                 file => #{
                                     summary => <<"File">>,
-                                    value => jsx:encode(?EXAMPLE_RETURNED_FILE)
+                                    value => jsx:encode(?EXAMPLE_FILE)
                                 }
                             }
                          }
@@ -188,7 +193,15 @@ source_api() ->
                     name => type,
                     in => path,
                     schema => #{
-                       type => string
+                       type => string,
+                        enum => [ <<"file">>
+                                , <<"http">>
+                                , <<"mongodb">>
+                                , <<"mysql">>
+                                , <<"postgresql">>
+                                , <<"redis">>
+                                , <<"built-in-database">>
+                                ]
                     },
                     required => true
                 }
@@ -223,7 +236,15 @@ source_api() ->
                     name => type,
                     in => path,
                     schema => #{
-                       type => string
+                       type => string,
+                        enum => [ <<"file">>
+                                , <<"http">>
+                                , <<"mongodb">>
+                                , <<"mysql">>
+                                , <<"postgresql">>
+                                , <<"redis">>
+                                , <<"built-in-database">>
+                                ]
                     },
                     required => true
                 }
@@ -245,7 +266,15 @@ move_source_api() ->
                     name => type,
                     in => path,
                     schema => #{
-                        type => string
+                        type => string,
+                        enum => [ <<"file">>
+                                , <<"http">>
+                                , <<"mongodb">>
+                                , <<"mysql">>
+                                , <<"postgresql">>
+                                , <<"redis">>
+                                , <<"built-in-database">>
+                                ]
                     },
                     required => true
                 }
@@ -297,109 +326,69 @@ move_source_api() ->
     {"/authorization/sources/:type/move", Metadata, move_source}.
 
 sources(get, _) ->
-    Sources = lists:foldl(fun (#{type := file, enable := Enable, path := Path}, AccIn) ->
+    Sources = lists:foldl(fun (#{<<"type">> := <<"file">>, <<"enable">> := Enable, <<"path">> := Path}, AccIn) ->
                                   case file:read_file(Path) of
                                       {ok, Rules} ->
                                           lists:append(AccIn, [#{type => file,
                                                                  enable => Enable,
-                                                                 rules => Rules,
-                                                                 annotations => #{status => healthy}
+                                                                 rules => Rules
                                                                 }]);
                                       {error, _} ->
                                           lists:append(AccIn, [#{type => file,
                                                                  enable => Enable,
-                                                                 rules => <<"">>,
-                                                                 annotations => #{status => unhealthy}
+                                                                 rules => <<"">>
                                                                 }])
                                   end;
-                              (#{enable := false} = Source, AccIn) ->
-                                  lists:append(AccIn, [Source#{annotations => #{status => unhealthy}}]);
-                              (#{type := _Type, annotations := #{id := Id}} = Source, AccIn) ->
-                                  NSource0 = case maps:get(server, Source, undefined) of
-                                                 undefined -> Source;
-                                                 Server ->
-                                                     Source#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}
-                                             end,
-                                  NSource1 = case maps:get(servers, Source, undefined) of
-                                                 undefined -> NSource0;
-                                                 Servers ->
-                                                     NSource0#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}
-                                             end,
-                                  NSource2 = case emqx_resource:health_check(Id) of
-                                                 ok ->
-                                                     NSource1#{annotations => #{status => healthy}};
-                                                 _ ->
-                                                     NSource1#{annotations => #{status => unhealthy}}
-                                             end,
-                                  lists:append(AccIn, [read_cert(NSource2)]);
                               (Source, AccIn) ->
-                                  lists:append(AccIn, [Source#{annotations => #{status => healthy}}])
-                        end, [], emqx_authz:lookup()),
+                                  lists:append(AccIn, [read_cert(Source)])
+                          end, [], get_raw_sources()),
     {200, #{sources => Sources}};
 sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
     {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
-    update_config(head, [#{type => file, enable => true, path => Filename}]);
+    update_config(?CMD_PREPEND, [#{<<"type">> => <<"file">>, <<"enable">> => true, <<"path">> => Filename}]);
 sources(post, #{body := Body}) when is_map(Body) ->
-    update_config(head, [write_cert(Body)]);
+    update_config(?CMD_PREPEND, [write_cert(Body)]);
 sources(put, #{body := Body}) when is_list(Body) ->
     NBody = [ begin
                 case Source of
                     #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable} ->
                         {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
-                        #{type => file, enable => Enable, path => Filename};
+                        #{<<"type">> => <<"file">>, <<"enable">> => Enable, <<"path">> => Filename};
                     _ -> write_cert(Source)
                 end
               end || Source <- Body],
-    update_config(replace, NBody).
+    update_config(?CMD_REPLCAE, NBody).
 
 source(get, #{bindings := #{type := Type}}) ->
-    case emqx_authz:lookup(Type) of
-        {error, Reason} -> {404, #{message => atom_to_binary(Reason)}};
-        #{type := file, enable := Enable, path := Path}->
+    case get_raw_source(Type) of
+        [] -> {404, #{message => <<"Not found ", Type/binary>>}};
+        [#{<<"type">> := <<"file">>, <<"enable">> := Enable, <<"path">> := Path}] ->
             case file:read_file(Path) of
                 {ok, Rules} ->
                     {200, #{type => file,
                             enable => Enable,
-                            rules => Rules,
-                            annotations => #{status => healthy}
+                            rules => Rules
                            }
                     };
                 {error, Reason} ->
                     {400, #{code => <<"BAD_REQUEST">>,
-                            message => atom_to_binary(Reason)}}
+                            message => bin(Reason)}}
             end;
-        #{enable := false} = Source -> {200, Source#{annotations => #{status => unhealthy}}};
-        #{annotations := #{id := Id}} = Source ->
-            NSource0 = case maps:get(server, Source, undefined) of
-                           undefined -> Source;
-                           Server ->
-                               Source#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}
-                       end,
-            NSource1 = case maps:get(servers, Source, undefined) of
-                           undefined -> NSource0;
-                           Servers ->
-                               NSource0#{servers => [emqx_connector_schema_lib:ip_port_to_string(Server) || Server <- Servers]}
-                       end,
-            NSource2 = case emqx_resource:health_check(Id) of
-                ok ->
-                    NSource1#{annotations => #{status => healthy}};
-                _ ->
-                    NSource1#{annotations => #{status => unhealthy}}
-            end,
-            {200, read_cert(NSource2)}
+        [Source] ->
+            {200, read_cert(Source)}
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
     {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
-    case emqx_authz:update({replace_once, file}, #{type => file, enable => Enable, path => Filename}) of
+    case emqx_authz:update({?CMD_REPLCAE, file}, #{<<"type">> => file, <<"enable">> => Enable, <<"path">> => Filename}) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
+                    message => bin(Reason)}}
     end;
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
-    update_config({replace_once, Type}, write_cert(Body));
+    update_config({?CMD_REPLCAE, Type}, write_cert(Body));
 source(delete, #{bindings := #{type := Type}}) ->
-    update_config({delete_once, Type}, #{}).
+    update_config({?CMD_DELETE, Type}, #{}).
 
 move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Position}}) ->
     case emqx_authz:move(Type, Position) of
@@ -409,40 +398,52 @@ move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
                     message => <<"source ", Type/binary, " not found">>}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
+                    message => bin(Reason)}}
     end.
+
+get_raw_sources() ->
+    RawSources = emqx:get_raw_config([authorization, sources]),
+    Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
+    Conf = #{<<"sources">> => RawSources},
+    #{<<"sources">> := Sources} = hocon_schema:check_plain(Schema, Conf, #{only_fill_defaults => true}),
+    Sources.
+
+get_raw_source(Type) ->
+    lists:filter(fun (#{<<"type">> := T}) ->
+                         T =:= Type
+                 end, get_raw_sources()).
 
 update_config(Cmd, Sources) ->
     case emqx_authz:update(Cmd, Sources) of
         {ok, _} -> {204};
         {error, {pre_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}};
+                    message => bin(Reason)}};
         {error, {post_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}};
+                    message => bin(Reason)}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => atom_to_binary(Reason)}}
+                    message => bin(Reason)}}
     end.
 
-read_cert(#{ssl := #{enable := true} = SSL} = Source) ->
-    CaCert = case file:read_file(maps:get(cacertfile, SSL, "")) of
+read_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
+    CaCert = case file:read_file(maps:get(<<"cacertfile">>, SSL, "")) of
                  {ok, CaCert0} -> CaCert0;
                  _ -> ""
              end,
-    Cert =   case file:read_file(maps:get(certfile, SSL, "")) of
+    Cert =   case file:read_file(maps:get(<<"certfile">>, SSL, "")) of
                  {ok, Cert0} -> Cert0;
                  _ -> ""
              end,
-    Key =   case file:read_file(maps:get(keyfile, SSL, "")) of
+    Key =   case file:read_file(maps:get(<<"keyfile">>, SSL, "")) of
                  {ok, Key0} -> Key0;
                  _ -> ""
              end,
-    Source#{ssl => SSL#{cacertfile => CaCert,
-                        certfile => Cert,
-                        keyfile => Key
-                       }
+    Source#{<<"ssl">> => SSL#{<<"cacertfile">> => CaCert,
+                              <<"certfile">> => Cert,
+                              <<"keyfile">> => Key
+                             }
            };
 read_cert(Source) -> Source.
 
@@ -494,3 +495,6 @@ do_write_file(Filename, Bytes) ->
            ?LOG(error, "Write File ~p Error: ~p", [Filename, Reason]),
            error(Reason)
     end.
+
+bin(Term) ->
+   erlang:iolist_to_binary(io_lib:format("~p", [Term])).

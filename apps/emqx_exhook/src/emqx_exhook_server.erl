@@ -153,7 +153,7 @@ do_init(ChannName, ReqOpts) ->
     case do_call(ChannName, 'on_provider_loaded', Req, ReqOpts) of
         {ok, InitialResp} ->
             try
-                {ok, resovle_hookspec(maps:get(hooks, InitialResp, []))}
+                {ok, resolve_hookspec(maps:get(hooks, InitialResp, []))}
             catch _:Reason:Stk ->
                 ?LOG(error, "try to init ~p failed, reason: ~p, stacktrace: ~0p",
                              [ChannName, Reason, Stk]),
@@ -164,7 +164,7 @@ do_init(ChannName, ReqOpts) ->
     end.
 
 %% @private
-resovle_hookspec(HookSpecs) when is_list(HookSpecs) ->
+resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
     MessageHooks = message_hooks(),
     AvailableHooks = available_hooks(),
     lists:foldr(fun(HookSpec, Acc) ->

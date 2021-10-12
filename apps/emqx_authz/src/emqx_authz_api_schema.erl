@@ -19,29 +19,9 @@
 -export([definitions/0]).
 
 definitions() ->
-    RetruenedSources = #{
-        allOf => [ #{type => object,
-                     properties => #{
-                        annotations => #{
-                            type => object,
-                            required => [status],
-                            properties => #{
-                                id => #{
-                                    type => string
-                                },
-                                status => #{
-                                    type => string,
-                                    example => <<"healthy">>
-                                }
-                            }
-                        }
-                     }
-                   }
-                 , minirest:ref(<<"sources">>)
-                 ]
-    },
     Sources = #{
         oneOf => [ minirest:ref(<<"http">>)
+                 , minirest:ref(<<"built-in-database">>)
                  , minirest:ref(<<"mongo_single">>)
                  , minirest:ref(<<"mongo_rs">>)
                  , minirest:ref(<<"mongo_sharded">>)
@@ -100,9 +80,9 @@ definitions() ->
             },
             headers => #{type => object},
             body => #{type => object},
-            connect_timeout => #{type => integer},
+            connect_timeout => #{type => string},
             max_retries => #{type => integer},
-            retry_interval => #{type => integer},
+            retry_interval => #{type => string},
             pool_type => #{
                 type => string,
                 enum => [<<"random">>, <<"hash">>],
@@ -154,8 +134,8 @@ definitions() ->
                           properties => #{
                             pool_size => #{type => integer},
                             max_overflow => #{type => integer},
-                            overflow_ttl => #{type => integer},
-                            overflow_check_period => #{type => integer},
+                            overflow_ttl => #{type => string},
+                            overflow_check_period => #{type => string},
                             local_threshold_ms => #{type => integer},
                             connect_timeout_ms => #{type => integer},
                             socket_timeout_ms => #{type => integer},
@@ -212,8 +192,8 @@ definitions() ->
                           properties => #{
                             pool_size => #{type => integer},
                             max_overflow => #{type => integer},
-                            overflow_ttl => #{type => integer},
-                            overflow_check_period => #{type => integer},
+                            overflow_ttl => #{type => string},
+                            overflow_check_period => #{type => string},
                             local_threshold_ms => #{type => integer},
                             connect_timeout_ms => #{type => integer},
                             socket_timeout_ms => #{type => integer},
@@ -268,8 +248,8 @@ definitions() ->
                           properties => #{
                             pool_size => #{type => integer},
                             max_overflow => #{type => integer},
-                            overflow_ttl => #{type => integer},
-                            overflow_check_period => #{type => integer},
+                            overflow_ttl => #{type => string},
+                            overflow_check_period => #{type => string},
                             local_threshold_ms => #{type => integer},
                             connect_timeout_ms => #{type => integer},
                             socket_timeout_ms => #{type => integer},
@@ -467,6 +447,21 @@ definitions() ->
             ssl => minirest:ref(<<"ssl">>)
         }
     },
+    Mnesia = #{
+        type => object,
+        required => [type, enable],
+        properties => #{
+            type => #{
+                type => string,
+                enum => [<<"redis">>],
+                example => <<"redis">>
+            },
+            enable => #{
+                type => boolean,
+                example => true
+            }
+        }
+    },
     File = #{
         type => object,
         required => [type, enable, rules],
@@ -493,10 +488,10 @@ definitions() ->
             }
         }
     },
-    [ #{<<"returned_sources">> => RetruenedSources}
-    , #{<<"sources">> => Sources}
+    [ #{<<"sources">> => Sources}
     , #{<<"ssl">> => SSL}
     , #{<<"http">> => HTTP}
+    , #{<<"built-in-database">> => Mnesia}
     , #{<<"mongo_single">> => MongoSingle}
     , #{<<"mongo_rs">> => MongoRs}
     , #{<<"mongo_sharded">> => MongoSharded}

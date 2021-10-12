@@ -52,8 +52,8 @@ request(post, #{body := Body, bindings := Bindings}) ->
     CT = maps:get(<<"content_type">>, Body, <<"text/plain">>),
     Token = maps:get(<<"token">>, Body, <<>>),
     Payload = maps:get(<<"payload">>, Body, <<>>),
-    WaitTime =  maps:get(<<"timeout">>, Body, ?DEF_WAIT_TIME),
-
+    BinWaitTime = maps:get(<<"timeout">>, Body, <<"10s">>),
+    {ok, WaitTime} = emqx_schema:to_duration_ms(BinWaitTime),
     Payload2 = parse_payload(CT, Payload),
     ReqType = erlang:binary_to_atom(Method),
 
@@ -83,7 +83,7 @@ request_parameters() ->
 request_properties() ->
     properties([ {token, string, "message token, can be empty"}
                , {method, string, "request method type", ["get", "put", "post", "delete"]}
-               , {timeout, integer, "timespan for response"}
+               , {timeout, string, "timespan for response", "10s"}
                , {content_type, string, "payload type",
                   [<<"text/plain">>, <<"application/json">>, <<"application/octet-stream">>]}
                , {payload, string, "payload"}]).

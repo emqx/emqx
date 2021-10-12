@@ -139,7 +139,12 @@ init(ConnInfo = #{socktype := Socktype,
     GRpcChann = maps:get(handler, Options),
     PoolName = maps:get(pool_name, Options),
     NConnInfo = default_conninfo(ConnInfo),
-    ClientInfo = default_clientinfo(ConnInfo),
+    ListenerId = case maps:get(listener, Options, undefined) of
+                     undefined -> undefined;
+                     {GwName, Type, LisName} ->
+                         emqx_gateway_utils:listener_id(GwName, Type, LisName)
+                 end,
+    ClientInfo = maps:put(listener, ListenerId, default_clientinfo(ConnInfo)),
     Channel = #channel{
                  ctx = Ctx,
                  gcli = #{channel => GRpcChann, pool_name => PoolName},

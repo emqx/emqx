@@ -24,12 +24,20 @@
 -export([ gateways/1
         ]).
 
-%% Mgmt APIs - listeners
--export([ listeners/1
-        , listener/1
+%% Mgmt APIs
+-export([ add_listener/2
         , remove_listener/1
         , update_listener/2
-        , mapping_listener_m2l/2
+        ]).
+
+-export([ authn/1
+        , authn/2
+        , add_authn/2
+        , add_authn/3
+        , update_authn/2
+        , update_authn/3
+        , remove_authn/1
+        , remove_authn/2
         ]).
 
 %% Mgmt APIs - clients
@@ -129,86 +137,69 @@ get_listeners_status(GwName, Config) ->
 %% Mgmt APIs - listeners
 %%--------------------------------------------------------------------
 
--spec listeners(atom() | binary()) -> list().
-listeners(GwName) when is_atom(GwName) ->
-    listeners(atom_to_binary(GwName));
-listeners(GwName) ->
-    RawConf = emqx_config:fill_defaults(
-                emqx_config:get_root_raw([<<"gateway">>])),
-    Listeners = emqx_map_lib:jsonable_map(
-                  emqx_map_lib:deep_get(
-                    [<<"gateway">>, GwName, <<"listeners">>], RawConf)),
-    mapping_listener_m2l(GwName, Listeners).
-
--spec listener(binary()) -> {ok, map()} | {error, not_found} | {error, any()}.
-listener(ListenerId) ->
-    {GwName, Type, LName} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    RootConf = emqx_config:fill_defaults(
-                 emqx_config:get_root_raw([<<"gateway">>])),
-    try
-        Path = [<<"gateway">>, GwName, <<"listeners">>, Type, LName],
-        LConf = emqx_map_lib:deep_get(Path, RootConf),
-        Running = is_running(binary_to_existing_atom(ListenerId), LConf),
-        {ok, emqx_map_lib:jsonable_map(
-               LConf#{
-                 id => ListenerId,
-                 type => Type,
-                 name => LName,
-                 running => Running})}
-    catch
-        error : {config_not_found, _} ->
-            {error, not_found};
-        _Class : Reason ->
-            {error, Reason}
-    end.
-
-mapping_listener_m2l(GwName, Listeners0) ->
-    Listeners = maps:to_list(Listeners0),
-    lists:append([listener(GwName, Type, maps:to_list(Conf))
-                  || {Type, Conf} <- Listeners]).
-
-listener(GwName, Type, Conf) ->
-    [begin
-         ListenerId = emqx_gateway_utils:listener_id(GwName, Type, LName),
-         Running = is_running(ListenerId, LConf),
-         LConf#{
-           id => ListenerId,
-           type => Type,
-           name => LName,
-           running => Running
-          }
-     end || {LName, LConf} <- Conf, is_map(LConf)].
-
-is_running(ListenerId, #{<<"bind">> := ListenOn0}) ->
-    ListenOn = emqx_gateway_utils:parse_listenon(ListenOn0),
-    try esockd:listener({ListenerId, ListenOn}) of
-        Pid when is_pid(Pid)->
-            true
-    catch _:_ ->
-        false
-    end.
-
--spec remove_listener(binary()) -> ok | {error, not_found} | {error, any()}.
-remove_listener(ListenerId) ->
-    {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    LConf = emqx:get_raw_config(
-              [<<"gateway">>, GwName, <<"listeners">>, Type]
-             ),
-    NLConf = maps:remove(Name, LConf),
-    emqx_gateway:update_rawconf(
-      GwName,
-      #{<<"listeners">> => #{Type => NLConf}}
-     ).
-
--spec update_listener(atom() | binary(), map()) -> ok | {error, any()}.
-update_listener(ListenerId, NewConf0) ->
+-spec add_listener(atom() | binary(), map()) -> ok.
+add_listener(ListenerId, NewConf0) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
     NewConf = maps:without([<<"id">>, <<"name">>,
                             <<"type">>, <<"running">>], NewConf0),
-    emqx_gateway:update_rawconf(
-      GwName,
-      #{<<"listeners">> => #{Type => #{Name => NewConf}}
-       }).
+    confexp(emqx_gateway_conf:add_listener(GwName, {Type, Name}, NewConf)).
+
+-spec update_listener(atom() | binary(), map()) -> ok.
+update_listener(ListenerId, NewConf0) ->
+    {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+
+    NewConf = maps:without([<<"id">>, <<"name">>,
+                            <<"type">>, <<"running">>], NewConf0),
+    confexp(emqx_gateway_conf:update_listener(GwName, {Type, Name}, NewConf)).
+
+-spec remove_listener(binary()) -> ok.
+remove_listener(ListenerId) ->
+    {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:remove_listener(GwName, {Type, Name})).
+
+-spec authn(gateway_name()) -> map().
+authn(GwName) ->
+    Path = [gateway, GwName, authentication],
+    emqx_map_lib:jsonable_map(emqx:get_config(Path)).
+
+-spec authn(gateway_name(), binary()) -> map().
+authn(GwName, ListenerId) ->
+    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    Path = [gateway, GwName, listeners, Type, Name, authentication],
+    emqx_map_lib:jsonable_map(emqx:get_config(Path)).
+
+-spec add_authn(gateway_name(), map()) -> ok.
+add_authn(GwName, AuthConf) ->
+    confexp(emqx_gateway_conf:add_authn(GwName, AuthConf)).
+
+-spec add_authn(gateway_name(), binary(), map()) -> ok.
+add_authn(GwName, ListenerId, AuthConf) ->
+    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:add_authn(GwName, {Type, Name}, AuthConf)).
+
+-spec update_authn(gateway_name(), map()) -> ok.
+update_authn(GwName, AuthConf) ->
+    confexp(emqx_gateway_conf:update_authn(GwName, AuthConf)).
+
+-spec update_authn(gateway_name(), binary(), map()) -> ok.
+update_authn(GwName, ListenerId, AuthConf) ->
+    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:update_authn(GwName, {Type, Name}, AuthConf)).
+
+-spec remove_authn(gateway_name()) -> ok.
+remove_authn(GwName) ->
+    confexp(emqx_gateway_conf:remove_authn(GwName)).
+
+-spec remove_authn(gateway_name(), binary()) -> ok.
+remove_authn(GwName, ListenerId) ->
+    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:remove_authn(GwName, {Type, Name})).
+
+confexp(ok) -> ok;
+confexp({error, not_found}) ->
+    error({update_conf_error, not_found});
+confexp({error, already_exist}) ->
+    error({update_conf_error, already_exist}).
 
 %%--------------------------------------------------------------------
 %% Mgmt APIs - clients
@@ -328,10 +319,22 @@ with_gateway(GwName0, Fun) ->
     catch
         error : badname ->
             return_http_error(404, "Bad gateway name");
+        %% Exceptions from: checks/2
         error : {miss_param, K} ->
             return_http_error(400, [K, " is required"]);
+        %% Exceptions from emqx_gateway_utils:parse_listener_id/1
         error : {invalid_listener_id, Id} ->
             return_http_error(400, ["invalid listener id: ", Id]);
+        %% Exceptions from: emqx:get_config/1
+        error : {config_not_found, Path0} ->
+            Path = lists:concat(
+                     lists:join(".", lists:map(fun to_list/1, Path0))),
+            return_http_error(404, "Resource not found. path: " ++ Path);
+        %% Exceptions from: confexp/1
+        error : {update_conf_error, not_found} ->
+            return_http_error(404, "Resource not found");
+        error : {update_conf_error, already_exist} ->
+            return_http_error(400, "Resource already exist");
         Class : Reason : Stk ->
             ?LOG(error, "Uncatched error: {~p, ~p}, stacktrace: ~0p",
                         [Class, Reason, Stk]),
@@ -347,6 +350,11 @@ checks([K|Ks], Map) ->
         false ->
             error({miss_param, K})
     end.
+
+to_list(A) when is_atom(A) ->
+    atom_to_list(A);
+to_list(B) when is_binary(B) ->
+    binary_to_list(B).
 
 %%--------------------------------------------------------------------
 %% common schemas

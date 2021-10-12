@@ -266,9 +266,8 @@ get_mqtt_conf(Zone, Key) ->
     emqx_config:get_zone_conf(Zone, [mqtt, Key]).
 
 %% @doc Try to takeover a session.
--spec(takeover_session(emqx_types:clientid())
-      -> {error, term()}
-       | {ok, atom(), pid(), emqx_session:session()}).
+-spec(takeover_session(emqx_types:clientid()) ->
+        {error, term()} | {ok, atom(), pid(), emqx_session:session()}).
 takeover_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] -> {error, not_found};
@@ -276,7 +275,7 @@ takeover_session(ClientId) ->
             takeover_session(ClientId, ChanPid);
         ChanPids ->
             [ChanPid|StalePids] = lists:reverse(ChanPids),
-            ?LOG(error, "More than one channel found: ~p", [ChanPids]),
+            ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
             lists:foreach(fun(StalePid) ->
                                   catch discard_session(ClientId, StalePid)
                           end, StalePids),
@@ -341,7 +340,7 @@ kick_session(ClientId) ->
             kick_session(ClientId, ChanPid);
         ChanPids ->
             [ChanPid|StalePids] = lists:reverse(ChanPids),
-            ?LOG(error, "More than one channel found: ~p", [ChanPids]),
+            ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
             lists:foreach(fun(StalePid) ->
                                   catch discard_session(ClientId, StalePid)
                           end, StalePids),
@@ -409,14 +408,14 @@ cast(Msg) -> gen_server:cast(?CM, Msg).
 
 init([]) ->
     TabOpts = [public, {write_concurrency, true}],
-    ok = emqx_tables:new(?CHAN_TAB, [bag, {read_concurrency, true}|TabOpts]),
+    ok = emqx_tables:new(?CHAN_TAB, [bag, {read_concurrency, true} | TabOpts]),
     ok = emqx_tables:new(?CHAN_CONN_TAB, [bag | TabOpts]),
     ok = emqx_tables:new(?CHAN_INFO_TAB, [set, compressed | TabOpts]),
     ok = emqx_stats:update_interval(chan_stats, fun ?MODULE:stats_fun/0),
     {ok, #{chan_pmon => emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast({registered, {ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
@@ -424,7 +423,7 @@ handle_cast({registered, {ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
     {noreply, State#{chan_pmon := PMon1}};
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{chan_pmon := PMon}) ->
@@ -434,7 +433,8 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{chan_pmon := PMon}
     {noreply, State#{chan_pmon := PMon1}};
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
+
     {noreply, State}.
 
 terminate(_Reason, _State) ->

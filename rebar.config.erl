@@ -272,13 +272,13 @@ relx_apps(ReleaseType) ->
     , emqx_exhook
     , emqx_bridge
     , emqx_rule_engine
-    , emqx_rule_actions
     , emqx_modules
     , emqx_management
     , emqx_dashboard
     , emqx_retainer
     , emqx_statsd
     , emqx_prometheus
+    , emqx_psk
     ]
     ++ [quicer || is_quicer_supported()]
     ++ [emqx_license || is_enterprise()]

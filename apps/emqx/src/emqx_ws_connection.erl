@@ -181,10 +181,11 @@ init(Req, #{listener := {Type, Listener}} = Opts) ->
                idle_timeout => get_ws_opts(Type, Listener, idle_timeout)
               },
     case check_origin_header(Req, Opts) of
-        {error, Message} ->
-            ?LOG(error, "Invalid Origin Header ~p~n", [Message]),
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "invalid_origin_header", reason => Reason}),
             {ok, cowboy_req:reply(403, Req), WsOpts};
-        ok -> parse_sec_websocket_protocol(Req, Opts, WsOpts)
+        ok ->
+            parse_sec_websocket_protocol(Req, Opts, WsOpts)
     end.
 
 parse_sec_websocket_protocol(Req, #{listener := {Type, Listener}} = Opts, WsOpts) ->
@@ -231,7 +232,7 @@ parse_header_fun_origin(Req, #{listener := {Type, Listener}}) ->
         Value ->
             case lists:member(Value, get_ws_opts(Type, Listener, check_origins)) of
                 true -> ok;
-                false -> {origin_not_allowed, Value}
+                false -> {error, #{bad_origin => Value}}
             end
     end.
 
@@ -263,11 +264,12 @@ websocket_init([Req, #{zone := Zone, listener := {Type, Listener}} = Opts]) ->
     WsCookie = try cowboy_req:parse_cookies(Req)
                catch
                    error:badarg ->
-                       ?LOG(error, "Illegal cookie"),
+                       ?SLOG(error, #{msg => "bad_cookie"}),
                        undefined;
                    Error:Reason ->
-                       ?LOG(error, "Failed to parse cookie, Error: ~0p, Reason ~0p",
-                            [Error, Reason]),
+                       ?SLOG(error, #{msg => "failed_to_parse_cookie",
+                                      exception => Error,
+                                      reason => Reason}),
                        undefined
                end,
     ConnInfo = #{socktype  => ws,
@@ -324,7 +326,7 @@ websocket_handle({binary, Data}, State) when is_list(Data) ->
     websocket_handle({binary, iolist_to_binary(Data)}, State);
 
 websocket_handle({binary, Data}, State) ->
-    ?LOG(debug, "RECV ~0p", [Data]),
+    ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => websocket}),
     ok = inc_recv_stats(1, iolist_size(Data)),
     NState = ensure_stats_timer(State),
     return(parse_incoming(Data, NState));
@@ -339,7 +341,7 @@ websocket_handle({Frame, _}, State) when Frame =:= ping; Frame =:= pong ->
 
 websocket_handle({Frame, _}, State) ->
     %% TODO: should not close the ws connection
-    ?LOG(error, "Unexpected frame - ~p", [Frame]),
+    ?SLOG(error, #{msg => "unexpected_frame", frame => Frame}),
     shutdown(unexpected_ws_frame, State).
 
 websocket_info({call, From, Req}, State) ->
@@ -397,11 +399,11 @@ websocket_info(Info, State) ->
 websocket_close({_, ReasonCode, _Payload}, State) when is_integer(ReasonCode) ->
     websocket_close(ReasonCode, State);
 websocket_close(Reason, State) ->
-    ?LOG(debug, "Websocket closed due to ~p~n", [Reason]),
+    ?SLOG(debug, #{msg => "websocket_closed", reason => Reason}),
     handle_info({sock_closed, Reason}, State).
 
 terminate(Reason, _Req, #state{channel = Channel}) ->
-    ?LOG(debug, "Terminated due to ~p", [Reason]),
+    ?SLOG(debug, #{msg => "terminated", reason => Reason}),
     emqx_channel:terminate(Reason, Channel);
 
 terminate(_Reason, _Req, _UnExpectedState) ->
@@ -446,7 +448,7 @@ handle_info({connack, ConnAck}, State) ->
     return(enqueue(ConnAck, State));
 
 handle_info({close, Reason}, State) ->
-    ?LOG(debug, "Force to close the socket due to ~p", [Reason]),
+    ?SLOG(debug, #{msg => "force_socket_close", reason => Reason}),
     return(enqueue({close, Reason}, State));
 
 handle_info({event, connected}, State = #state{channel = Channel}) ->
@@ -499,7 +501,7 @@ ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
         {ok, Limiter1} ->
             State#state{limiter = Limiter1};
         {pause, Time, Limiter1} ->
-            ?LOG(warning, "Pause ~pms due to rate limit", [Time]),
+            ?SLOG(warning, #{msg => "pause_due_to_rate_limit", time => Time}),
             TRef = start_timer(Time, limit_timeout),
             NState = State#state{sockstate   = blocked,
                                  limiter     = Limiter1,
@@ -547,9 +549,19 @@ parse_incoming(Data, State = #state{parse_state = ParseState}) ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, postpone({incoming, Packet}, NState))
     catch
-        error:Reason:Stk ->
-            ?LOG(error, "~nParse failed for ~0p~n~0p~nFrame data: ~0p",
-                 [Reason, Stk, Data]),
+        throw : ?FRAME_PARSE_ERROR(Reason) ->
+            ?SLOG(info, #{ reason => Reason
+                         , at_state => emqx_frame:describe_state(ParseState)
+                         , input_bytes => Data
+                         }),
+            FrameError = {frame_error, Reason},
+            postpone({incoming, FrameError}, State);
+        error : Reason : Stacktrace ->
+            ?SLOG(error, #{ at_state => emqx_frame:describe_state(ParseState)
+                          , input_bytes => Data
+                          , exception => Reason
+                          , stacktrace => Stacktrace
+                          }),
             FrameError = {frame_error, Reason},
             postpone({incoming, FrameError}, State)
     end.
@@ -560,7 +572,7 @@ parse_incoming(Data, State = #state{parse_state = ParseState}) ->
 
 handle_incoming(Packet, State = #state{listener = {Type, Listener}})
   when is_record(Packet, mqtt_packet) ->
-    ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
+    ?SLOG(debug, #{msg => "RECV", packet => emqx_packet:format(Packet)}),
     ok = inc_incoming_stats(Packet),
     NState = case emqx_pd:get_counter(incoming_pubs) >
                   get_active_n(Type, Listener) of
@@ -617,15 +629,27 @@ handle_outgoing(Packets, State = #state{mqtt_piggyback = MQTTPiggyback,
 
 serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
     fun(Packet) ->
-        case emqx_frame:serialize_pkt(Packet, Serialize) of
-            <<>> -> ?LOG(warning, "~s is discarded due to the frame is too large.",
-                         [emqx_packet:format(Packet)]),
+        try emqx_frame:serialize_pkt(Packet, Serialize) of
+            <<>> -> ?SLOG(warning, #{msg => "packet_discarded",
+                                     reason => "frame_too_large",
+                                     packet => emqx_packet:format(Packet)}),
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
                     ok = emqx_metrics:inc('delivery.dropped'),
                     <<>>;
-            Data -> ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
+            Data -> ?SLOG(debug, #{msg => "SEND", packet => Packet}),
                     ok = inc_outgoing_stats(Packet),
                     Data
+        catch
+            %% Maybe Never happen.
+            throw : ?FRAME_SERIALIZE_ERROR(Reason) ->
+                ?SLOG(info, #{ reason => Reason
+                             , input_packet => Packet}),
+                erlang:error(?FRAME_SERIALIZE_ERROR(Reason));
+            error : Reason : Stacktrace ->
+                ?SLOG(error, #{ input_packet => Packet
+                              , exception => Reason
+                              , stacktrace => Stacktrace}),
+                erlang:error(frame_serialize_error)
         end
     end.
 

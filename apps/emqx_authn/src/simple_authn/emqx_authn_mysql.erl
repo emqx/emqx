@@ -65,8 +65,8 @@ salt_position(_) -> undefined.
 query(type) -> string();
 query(_) -> undefined.
 
-query_timeout(type) -> integer();
-query_timeout(default) -> 5000;
+query_timeout(type) -> emqx_schema:duration_ms();
+query_timeout(default) -> "5s";
 query_timeout(_) -> undefined.
 
 %%------------------------------------------------------------------------------
@@ -114,24 +114,21 @@ authenticate(#{password := Password} = Credential,
                query := Query,
                query_timeout := Timeout,
                '_unique' := Unique} = State) ->
-    try
-        Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
-        case emqx_resource:query(Unique, {sql, Query, Params, Timeout}) of
-            {ok, _Columns, []} -> ignore;
-            {ok, Columns, Rows} ->
-                Selected = maps:from_list(lists:zip(Columns, Rows)),
-                case check_password(Password, Selected, State) of
-                    ok ->
-                        {ok, #{is_superuser => maps:get(<<"is_superuser">>, Selected, false)}};
-                    {error, Reason} ->
-                        {error, Reason}
-                end;
-            {error, _Reason} ->
-                ignore
-        end
-    catch
-        error:Error ->
-            ?LOG(warning, "The following error occurred in '~s' during authentication: ~p", [Unique, Error]),
+    Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
+    case emqx_resource:query(Unique, {sql, Query, Params, Timeout}) of
+        {ok, _Columns, []} -> ignore;
+        {ok, Columns, Rows} ->
+            Selected = maps:from_list(lists:zip(Columns, Rows)),
+            case emqx_authn_utils:check_password(Password, Selected, State) of
+                ok ->
+                    {ok, emqx_authn_utils:is_superuser(Selected)};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "mysql_query_failed",
+                           resource => Unique,
+                           reason => Reason}),
             ignore
     end.
 
@@ -142,25 +139,6 @@ destroy(#{'_unique' := Unique}) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
-
-check_password(undefined, _Selected, _State) ->
-    {error, bad_username_or_password};
-check_password(Password,
-               #{<<"password_hash">> := Hash},
-               #{password_hash_algorithm := bcrypt}) ->
-    case {ok, Hash} =:= bcrypt:hashpw(Password, Hash) of
-        true -> ok;
-        false -> {error, bad_username_or_password}
-    end;
-check_password(Password,
-               #{<<"password_hash">> := Hash} = Selected,
-               #{password_hash_algorithm := Algorithm,
-                 salt_position := SaltPosition}) ->
-    Salt = maps:get(<<"salt">>, Selected, <<>>),
-    case Hash =:= emqx_authn_utils:hash(Algorithm, Password, Salt, SaltPosition) of
-        true -> ok;
-        false -> {error, bad_username_or_password}
-    end.
 
 %% TODO: Support prepare
 parse_query(Query) ->

@@ -69,7 +69,6 @@ do_authorize(Client, PubSub, Topic, Columns, [Row | Tail]) ->
         nomatch -> do_authorize(Client, PubSub, Topic, Columns, Tail)
     end.
 
-
 format_result(Columns, Row) ->
     Permission = lists:nth(index(<<"permission">>, Columns), Row),
     Action = lists:nth(index(<<"action">>, Columns), Row),

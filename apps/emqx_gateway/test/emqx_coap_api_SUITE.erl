@@ -25,20 +25,18 @@
 
 -define(CONF_DEFAULT, <<"
 gateway.coap {
-              idle_timeout = 30s
-              enable_stats = false
-              mountpoint = \"\"
-              notify_type = qos
-              connection_required = true
-              subscribe_qos = qos1
-              publish_qos = qos1
-              authentication = undefined
-
-              listeners.udp.default {
-                                     bind = 5683
-                                    }
-             }
-                        ">>).
+  idle_timeout = 30s
+  enable_stats = false
+  mountpoint = \"\"
+  notify_type = qos
+  connection_required = true
+  subscribe_qos = qos1
+  publish_qos = qos1
+  listeners.udp.default {
+    bind = 5683
+  }
+}
+">>).
 
 -define(HOST, "127.0.0.1").
 -define(PORT, 5683).
@@ -73,7 +71,7 @@ t_send_request_api(_) ->
     Payload = <<"simple echo this">>,
     Req = #{token => Token,
             payload => Payload,
-            timeout => 10,
+            timeout => <<"10s">>,
             content_type => <<"text/plain">>,
             method => <<"get">>},
     Auth = emqx_mgmt_api_test_util:auth_header_(),

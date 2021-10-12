@@ -24,6 +24,7 @@
         , get_description/0
         , get_release/0
         , set_init_config_load_done/0
+        , get_init_config_load_done/0
         , set_override_conf_file/1
         ]).
 
@@ -33,25 +34,18 @@
 
 -define(APP, emqx).
 
--define(EMQX_SHARDS, [ ?ROUTE_SHARD
-                     , ?COMMON_SHARD
-                     , ?SHARED_SUB_SHARD
-                     , ?RULE_ENGINE_SHARD
-                     , ?MOD_DELAYED_SHARD
-                     ]).
-
-
 %%--------------------------------------------------------------------
 %% Application callbacks
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
     ok = maybe_load_config(),
+
     %% Load application first for ekka_mnesia scanner
-    mnesia:change_table_copy_type(schema, node(), disc_copies),
-    ekka:start(),
-    ok = ekka_rlog:wait_for_shards(?EMQX_SHARDS, infinity),
+    %% mnesia:change_table_copy_type(schema, node(), disc_copies),
+
     ok = maybe_start_quicer(),
+    ensure_ekka_started(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = maybe_start_listeners(),
     ok = emqx_alarm_handler:load(),
@@ -65,21 +59,28 @@ prep_stop(_State) ->
 
 stop(_State) -> ok.
 
+ensure_ekka_started() ->
+    ekka:start(),
+    ok = ekka_rlog:wait_for_shards(?BOOT_SHARDS, infinity).
+
 %% @doc Call this function to make emqx boot without loading config,
 %% in case we want to delegate the config load to a higher level app
 %% which manages emqx app.
 set_init_config_load_done() ->
     application:set_env(emqx, init_config_load_done, true).
 
+get_init_config_load_done() ->
+    application:get_env(emqx, init_config_load_done, false).
+
 %% @doc This API is mostly for testing.
 %% The override config file is typically located in the 'data' dir when
-%% it is a emqx release, but emqx app should not have to konw where the
+%% it is a emqx release, but emqx app should not have to know where the
 %% 'data' dir is located.
 set_override_conf_file(File) ->
     application:set_env(emqx, override_conf_file, File).
 
 maybe_load_config() ->
-    case application:get_env(emqx, init_config_load_done, false) of
+    case get_init_config_load_done() of
         true ->
             ok;
         false ->
