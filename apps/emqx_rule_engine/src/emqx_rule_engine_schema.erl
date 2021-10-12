@@ -24,6 +24,9 @@
         , roots/0
         , fields/1]).
 
+-export([ validate_sql/1
+        ]).
+
 namespace() -> rule_engine.
 
 roots() -> ["rule_engine"].
@@ -34,7 +37,8 @@ fields("rule_engine") ->
     ];
 
 fields("rules") ->
-    [ {"sql", sc(binary(), #{desc => "The SQL of the rule", nullable => false})}
+    [ {"sql", sc(binary(), #{desc => "The SQL of the rule", nullable => false,
+                             validator => fun ?MODULE:validate_sql/1})}
     , {"outputs", sc(hoconsc:array(hoconsc:union(
                                    [ binary()
                                    , ref("builtin_output_republish")
@@ -78,6 +82,12 @@ fields("republish_args") ->
                   " Template with with variables is allowed. Defaults to ${payload}.",
           default => <<"${payload}">>})}
     ].
+
+validate_sql(Sql) ->
+    case emqx_rule_sqlparser:parse(Sql) of
+        {ok, _Result} -> ok;
+        {error, Reason} -> {error, Reason}
+    end.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Field) -> hoconsc:ref(?MODULE, Field).

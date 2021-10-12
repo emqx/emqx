@@ -141,21 +141,24 @@ put_req_schema() ->
             description => <<"The outputs of the rule">>,
             type => array,
             items => #{
-                type => object,
-                properties => #{
-                    type => #{
+                oneOf => [
+                    #{
                         type => string,
-                        enum => [<<"bridge">>, <<"builtin">>],
-                        example => <<"builtin">>
+                        description => <<"The channel id of an emqx bridge">>
                     },
-                    target => #{
-                        type => string,
-                        example => <<"console">>
-                    },
-                    args => #{
-                        type => object
+                    #{
+                        type => object,
+                        properties => #{
+                            function => #{
+                                type => string,
+                                example => <<"console">>
+                            },
+                            args => #{
+                                type => object
+                            }
+                        }
                     }
-                }
+                ]
             }
         },
         description => #{
@@ -241,7 +244,7 @@ list_events(#{}, _Params) ->
     {200, emqx_rule_events:event_info()}.
 
 crud_rules(get, _Params) ->
-    Records = emqx_rule_registry:get_rules_ordered_by_ts(),
+    Records = emqx_rule_engine:get_rules_ordered_by_ts(),
     {200, format_rule_resp(Records)};
 
 crud_rules(post, #{body := Params}) ->
@@ -259,7 +262,7 @@ rule_test(post, #{body := Params}) ->
     end).
 
 crud_rules_by_id(get, #{bindings := #{id := Id}}) ->
-    case emqx_rule_registry:get_rule(Id) of
+    case emqx_rule_engine:get_rule(Id) of
         {ok, Rule} ->
             {200, format_rule_resp(Rule)};
         not_found ->
