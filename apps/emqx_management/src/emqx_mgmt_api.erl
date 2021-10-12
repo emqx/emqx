@@ -120,7 +120,14 @@ node_query(Node, Params, Tab, QsSchema, QueryFun) ->
     Limit = b2i(limit(Params)),
     Page  = b2i(page(Params)),
     Meta = #{page => Page, limit => Limit, count => 0},
-    do_node_query(Node, Tab, Qs, QueryFun, Meta).
+    case Meta of
+        #{page := Page, limit := Limit}
+          when Page < 1; Limit < 1 ->
+            {error, page_limit_invalid};
+        _ ->
+            do_node_query(Node, Tab, Qs, QueryFun, Meta)
+    end.
+
 
 %% @private
 do_node_query(Node, Tab, Qs, QueryFun, Meta) ->
@@ -169,7 +176,13 @@ cluster_query(Params, Tab, QsSchema, QueryFun) ->
     Page  = b2i(page(Params)),
     Nodes = ekka_mnesia:running_nodes(),
     Meta = #{page => Page, limit => Limit, count => 0},
-    do_cluster_query(Nodes, Tab, Qs, QueryFun, Meta).
+    case Meta of
+        #{page := Page, limit := Limit}
+          when Page < 1; Limit < 1 ->
+            {error, page_limit_invalid};
+        _ ->
+            do_cluster_query(Nodes, Tab, Qs, QueryFun, Meta)
+    end.
 
 %% @private
 do_cluster_query(Nodes, Tab, Qs, QueryFun, Meta) ->
