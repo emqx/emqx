@@ -81,7 +81,8 @@ init_per_group(persistent_store_enabled, Config) ->
                                    (Other) -> meck:passthrough([Other])
                                 end),
     emqx_common_test_helpers:start_apps([], fun set_special_confs/1),
-    Config;
+    ?assertEqual(true, emqx_persistent_session:is_store_enabled()),
+    [{persistent_store_enabled, true}|Config];
 init_per_group(persistent_store_disabled, Config) ->
     %% Start Apps
     emqx_common_test_helpers:boot_modules(all),
@@ -90,7 +91,8 @@ init_per_group(persistent_store_disabled, Config) ->
                                    (Other) -> meck:passthrough([Other])
                                 end),
     emqx_common_test_helpers:start_apps([], fun set_special_confs/1),
-    Config;
+    ?assertEqual(false, emqx_persistent_session:is_store_enabled()),
+    [{persistent_store_enabled, false}|Config];
 init_per_group(Group, Config) when Group == tcp; Group == tcp_snabbkaffe ->
     [ {port, 1883}, {conn_fun, connect}| Config];
 init_per_group(Group, Config) when Group == quic; Group == quic_snabbkaffe ->
@@ -382,30 +384,89 @@ t_persist_on_disconnect(Config) ->
     ?assertEqual(0, client_info(session_present, Client2)),
     ok = emqtt:disconnect(Client2).
 
+wait_for_pending(SId) ->
+    wait_for_pending(SId, 100).
+
+wait_for_pending(_SId, 0) ->
+    error(exhausted_wait_for_pending);
+wait_for_pending(SId, N) ->
+    case emqx_persistent_session:pending(SId) of
+        [] -> timer:sleep(1), wait_for_pending(SId, N - 1);
+        [_|_] = Pending -> Pending
+    end.
+
 t_process_dies_session_expires(Config) ->
     %% Emulate an error in the connect process,
     %% or that the node of the process goes down.
     %% A persistent session should eventually expire.
     ConnFun = ?config(conn_fun, Config),
     ClientId = ?config(client_id, Config),
+    Topic = ?config(topic, Config),
+    STopic = ?config(stopic, Config),
+    Payload = <<"test">>,
     {ok, Client1} = emqtt:start_link([ {proto_ver, v5},
                                        {clientid, ClientId},
                                        {properties, #{'Session-Expiry-Interval' => 1}},
                                        {clean_start, true}
                                      | Config]),
     {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _, [2]} = emqtt:subscribe(Client1, STopic, qos2),
     ok = emqtt:disconnect(Client1),
 
     maybe_kill_connection_process(ClientId, Config),
 
+    ok = publish(Topic, [Payload], Config),
+
+    SessionId =
+        case ?config(persistent_store_enabled, Config) of
+            false -> undefined;
+            true ->
+                %% The session should not be marked as expired.
+                {Tag, Session} = emqx_persistent_session:lookup(ClientId),
+                ?assertEqual(persistent, Tag),
+                SId = emqx_session:info(id, Session),
+                case ?config(kill_connection_process, Config) of
+                    true ->
+                        %% The session should have a pending message
+                        ?assertMatch([_], wait_for_pending(SId));
+                    false ->
+                        skip
+                end,
+                SId
+        end,
+
     timer:sleep(1100),
+
+    %% The session should now be marked as expired.
+    case (?config(kill_connection_process, Config) andalso
+          ?config(persistent_store_enabled, Config)) of
+        true  -> ?assertMatch({expired, _}, emqx_persistent_session:lookup(ClientId));
+        false -> skip
+    end,
 
     {ok, Client2} = emqtt:start_link([ {proto_ver, v5},
                                        {clientid, ClientId},
+                                       {properties, #{'Session-Expiry-Interval' => 30}},
                                        {clean_start, false}
                                      | Config]),
     {ok, _} = emqtt:ConnFun(Client2),
     ?assertEqual(0, client_info(session_present, Client2)),
+
+    case (?config(kill_connection_process, Config) andalso
+          ?config(persistent_store_enabled, Config)) of
+        true ->
+            %% The session should be a fresh one
+            {persistent, NewSession} = emqx_persistent_session:lookup(ClientId),
+            ?assertNotEqual(SessionId, emqx_session:info(id, NewSession)),
+            %% The old session should now either be marked as abandoned or already be garbage collected.
+            ?assertMatch([], emqx_persistent_session:pending(SessionId));
+        false ->
+            skip
+    end,
+
+    %% We should not receive the pending message
+    ?assertEqual([], receive_messages(1)),
+
     emqtt:disconnect(Client2).
 
 t_publish_while_client_is_gone(Config) ->
@@ -520,7 +581,7 @@ t_unsubscribe(Config) ->
     {ok, _, [2]} = emqtt:subscribe(Client, STopic, qos2),
     case emqx_persistent_session:is_store_enabled() of
         true ->
-            [Session] = emqx_persistent_session:lookup(ClientId),
+            {persistent, Session} = emqx_persistent_session:lookup(ClientId),
             SessionID = emqx_session:info(id, Session),
             SessionIDs = [SId || #route{dest = SId} <- emqx_session_router:match_routes(Topic)],
             ?assert(lists:member(SessionID, SessionIDs)),
@@ -582,7 +643,7 @@ t_lost_messages_because_of_gc(init, Config) ->
             OldRetain = emqx_config:get(?msg_retain, Retain),
             emqx_config:put(?msg_retain, Retain),
             [{retain, Retain}, {old_retain, OldRetain}|Config];
-        false -> {skip, only_relevant_with_store}
+        false -> {skip, only_relevant_with_store_and_kill_process}
     end;
 t_lost_messages_because_of_gc('end', Config) ->
     OldRetain = ?config(old_retain, Config),

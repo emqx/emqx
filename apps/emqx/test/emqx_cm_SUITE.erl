@@ -221,7 +221,7 @@ t_discard_session_race(_) ->
 
 t_takeover_session(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
-    {error, not_found} = emqx_cm:takeover_session(<<"clientid">>),
+    none = emqx_cm:takeover_session(<<"clientid">>),
     erlang:spawn_link(fun() ->
         ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
         receive

@@ -242,7 +242,13 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                               {ok, #{session  => Session1,
                                      present  => true,
                                      pendings => Pendings}};
-                          {error, not_found} ->
+                          {expired, OldSession} ->
+                              _ = emqx_persistent_session:discard(ClientId, OldSession),
+                              Session = create_session(ClientInfo, ConnInfo),
+                              Session1 = emqx_persistent_session:persist(ClientInfo, ConnInfo, Session),
+                              register_channel(ClientId, Self, ConnInfo),
+                              {ok, #{session => Session1, present => false}};
+                          none ->
                               Session = create_session(ClientInfo, ConnInfo),
                               Session1 = emqx_persistent_session:persist(ClientInfo, ConnInfo, Session),
                               register_channel(ClientId, Self, ConnInfo),
@@ -282,17 +288,15 @@ get_mqtt_conf(Zone, Key) ->
     emqx_config:get_zone_conf(Zone, [mqtt, Key]).
 
 %% @doc Try to takeover a session.
--spec(takeover_session(emqx_types:clientid())
-      -> {error, term()}
-       | {living, atom(), pid(), emqx_session:session()}
-       | {persistent, emqx_session:session()}).
+-spec takeover_session(emqx_types:clientid()) ->
+          none
+        | {living, atom(), pid(), emqx_session:session()}
+        | {persistent, emqx_session:session()}
+        | {expired, emqx_session:session()}.
 takeover_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] ->
-            case emqx_persistent_session:lookup(ClientId) of
-                [] -> {error, not_found};
-                [Session] -> {persistent, Session}
-            end;
+            emqx_persistent_session:lookup(ClientId);
         [ChanPid] ->
             takeover_session(ClientId, ChanPid);
         ChanPids ->
@@ -307,10 +311,7 @@ takeover_session(ClientId) ->
 takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chann_conn_mod(ClientId, ChanPid) of
         undefined ->
-            case emqx_persistent_session:lookup(ClientId) of
-                [] -> {error, not_found};
-                [Session] -> {persistent, Session}
-            end;
+            emqx_persistent_session:lookup(ClientId);
         ConnMod when is_atom(ConnMod) ->
             Session = ConnMod:call(ChanPid, {takeover, 'begin'}, ?T_TAKEOVER),
             {living, ConnMod, ChanPid, Session}

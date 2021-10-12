@@ -181,20 +181,19 @@ timestamp_from_conninfo(ConnInfo) ->
 
 lookup(ClientID) when is_binary(ClientID) ->
     case lookup_session_store(ClientID) of
-        none -> [];
+        none -> none;
         {value, #session_store{session = S} = SS} ->
             case persistent_session_status(SS) of
-                not_persistent -> []; %% For completeness. Should not happen
-                expired        -> [];
-                persistent     -> [S]
+                expired        -> {expired, S};
+                persistent     -> {persistent, S}
             end
     end.
 
 -spec discard_if_present(binary()) -> 'ok'.
 discard_if_present(ClientID) ->
     case lookup(ClientID) of
-        [] -> ok;
-        [Session] ->
+        none -> ok;
+        {Tag, Session} when Tag =:= persistent; Tag =:= expired ->
             _ = discard(ClientID, Session),
             ok
     end.
@@ -354,7 +353,7 @@ do_mark_as_delivered(_SessionID, []) ->
 -spec pending(emqx_session:sessionID()) ->
           [{emqx_types:message(), STopic :: binary()}].
 pending(SessionID) ->
-    pending(SessionID, []).
+    pending_messages_in_db(SessionID, []).
 
 -spec pending(emqx_session:sessionID(), MarkerIDs :: [emqx_guid:guid()]) ->
           [{emqx_types:message(), STopic :: binary()}].
