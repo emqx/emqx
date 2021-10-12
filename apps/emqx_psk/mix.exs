@@ -1,9 +1,9 @@
-defmodule EmqxRuleActions.MixProject do
+defmodule EmqxPSK.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :emqx_rule_actions,
+      app: :emqx_psk,
       version: "5.0.0",
       build_path: "../../_build",
       config_path: "../../config/config.exs",
@@ -12,7 +12,7 @@ defmodule EmqxRuleActions.MixProject do
       elixir: "~> 1.12",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      description: "Rule Actions"
+      description: "EMQ X PSK"
     ]
   end
 
@@ -26,8 +26,7 @@ defmodule EmqxRuleActions.MixProject do
 
   defp deps do
     [
-      {:emqx, in_umbrella: true, runtime: false},
-      {:emqx_rule_engine, in_umbrella: true}
+      {:emqx, in_umbrella: true, runtime: false}
     ]
   end
 end

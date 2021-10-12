@@ -71,8 +71,8 @@ set_name () {
   SHORT_NAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
   export ESCRIPT_NAME="$SHORT_NAME"
 
-	export NAME_TYPE
-	export NAME
+    export NAME_TYPE
+    export NAME
 }
 
 SED_REPLACE="sed -i "
@@ -178,12 +178,12 @@ call_hocon() {
 nodetool () {
   command="$1"; shift
   "$RUNNER_ROOT_DIR/erts-$ERTS_VSN/bin/erl" \
-			+B -noshell \
+      +B -noshell \
       -boot "$REL_VSN_DIR/$RELEASE_BOOT_SCRIPT_CLEAN" \
       -boot_var RELEASE_LIB "$RELEASE_ROOT/lib" \
-			-run escript start \
-			-extra "$RUNNER_ROOT_DIR/bin/nodetool" \
-			"$command" "$@"
+      -run escript start \
+      -extra "$RUNNER_ROOT_DIR/bin/nodetool" \
+      "$command" "$@"
 }
 
 set_name "$1"

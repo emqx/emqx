@@ -26,8 +26,8 @@ defmodule EMQXBridge.MixProject do
 
   defp deps do
     [
-      {:emqx, in_umbrella: true},
-			{:emqx_connector, in_umbrella: true}
+      {:emqx, in_umbrella: true, runtime: false},
+      {:emqx_connector, in_umbrella: true}
     ]
   end
 end

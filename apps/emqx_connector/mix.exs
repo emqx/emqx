@@ -24,9 +24,10 @@ defmodule EMQXConnector.MixProject do
 
   defp deps do
     [
+      {:emqx_resource, in_umbrella: true},
       {:mysql, github: "emqx/mysql-otp", tag: "1.7.1"},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.1"},
-      {:emqx_resource, in_umbrella: true}
+      {:emqtt, github: "emqx/emqtt", tag: "1.4.3"}
     ]
   end
 end

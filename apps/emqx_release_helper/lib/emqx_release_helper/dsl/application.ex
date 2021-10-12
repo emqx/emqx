@@ -44,19 +44,6 @@ defmodule EmqxReleaseHelper.DSL.Application do
     end
   end
 
-  defmacro overlay(:application) do
-    block =
-      Macro.escape(
-        quote do
-          &application_overlay/1
-        end
-      )
-
-    quote do
-      @overlays [unquote(block) | @overlays]
-    end
-  end
-
   defmacro overlay(do: block) do
     block =
       Macro.escape(
@@ -129,25 +116,6 @@ defmodule EmqxReleaseHelper.DSL.Application do
         unquote(Macro.var(:config, nil))
       )
     end
-  end
-
-  def application_overlay(
-        %{app_source_path: app_source_path, release_path: release_path} = config
-      ) do
-    "#{app_source_path}/etc"
-    |> File.ls()
-    |> case do
-      {:ok, files} -> files
-      {:error, _} -> []
-    end
-    |> Enum.filter(fn file -> String.ends_with?(file, ".conf") end)
-    |> Enum.each(fn file ->
-      EmqxReleaseHelper.DSL.Overlay.run_template(
-        "#{app_source_path}/etc/#{file}",
-        "#{release_path}/etc/plugins/#{file}",
-        config
-      )
-    end)
   end
 
   defmacro __before_compile__(%Macro.Env{module: module}) do

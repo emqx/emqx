@@ -26,7 +26,7 @@ defmodule EMQXGateway.MixProject do
 
   defp deps do
     [
-      {:emqx, in_umbrella: true, runtime: false},
+      {:emqx, in_umbrella: true},
       {:lwm2m_coap, github: "emqx/lwm2m-coap", tag: "v2.0.0"},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.2"},
       {:esockd, github: "emqx/esockd", tag: "5.7.4"}

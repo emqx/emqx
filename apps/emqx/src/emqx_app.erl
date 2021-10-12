@@ -40,10 +40,6 @@
 
 start(_Type, _Args) ->
     ok = maybe_load_config(),
-
-    %% Load application first for ekka_mnesia scanner
-    %% mnesia:change_table_copy_type(schema, node(), disc_copies),
-
     ok = maybe_start_quicer(),
     ensure_ekka_started(),
     {ok, Sup} = emqx_sup:start_link(),

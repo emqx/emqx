@@ -26,7 +26,7 @@ defmodule EMQXAutoSubscribe.MixProject do
 
   defp deps do
     [
-      {:emqx, in_umbrella: true}
+      {:emqx, in_umbrella: true, runtime: false}
     ]
   end
 end

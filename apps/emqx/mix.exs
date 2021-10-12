@@ -19,7 +19,7 @@ defmodule EMQX.MixProject do
   def application do
     [
       mod: {:emqx_app, []},
-      extra_applications: [:logger, :os_mon, :syntax_tools, :mnesia]
+      extra_applications: [:logger, :os_mon, :syntax_tools]
     ]
   end
 

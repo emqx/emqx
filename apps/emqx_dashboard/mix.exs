@@ -20,7 +20,7 @@ defmodule EMQXDashboard.MixProject do
     [
       registered: [:emqx_dashboard_sup],
       mod: {:emqx_dashboard_app, []},
-      extra_applications: [:logger, :mnesia]
+      extra_applications: [:logger]
     ]
   end
 
