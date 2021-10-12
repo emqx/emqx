@@ -163,7 +163,6 @@ unload_hooks_for_rule(#{id := Id, from := Topics}) ->
 init([]) ->
     _TableId = ets:new(?KV_TAB, [named_table, set, public, {write_concurrency, true},
                                  {read_concurrency, true}]),
-    ok = load_rules(),
     {ok, #{}}.
 
 handle_call({insert_rule, Rule}, _From, State) ->
