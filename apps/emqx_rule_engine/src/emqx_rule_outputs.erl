@@ -90,17 +90,14 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload) ->
     _ = emqx_broker:safe_publish(Msg),
     emqx_metrics:inc_msg(Msg).
 
-pre_process_repub_args(#{<<"topic">> := Topic} = Args) ->
-    QoS = maps:get(<<"qos">>, Args, <<"${qos}">>),
-    Retain = maps:get(<<"retain">>, Args, <<"${retain}">>),
-    Payload = maps:get(<<"payload">>, Args, <<"${payload}">>),
-    #{topic => Topic, qos => QoS, payload => Payload, retain => Retain,
-      preprocessed_tmpl => #{
-          topic => emqx_plugin_libs_rule:preproc_tmpl(Topic),
-          qos => preproc_vars(QoS),
-          retain => preproc_vars(Retain),
-          payload => emqx_plugin_libs_rule:preproc_tmpl(Payload)
-      }}.
+pre_process_repub_args(#{topic := Topic, qos := QoS, retain := Retain,
+                         payload := Payload} = Args) ->
+    Args#{preprocessed_tmpl => #{
+            topic => emqx_plugin_libs_rule:preproc_tmpl(Topic),
+            qos => preproc_vars(QoS),
+            retain => preproc_vars(Retain),
+            payload => emqx_plugin_libs_rule:preproc_tmpl(Payload)
+        }}.
 
 preproc_vars(Data) when is_binary(Data) ->
     emqx_plugin_libs_rule:preproc_tmpl(Data);

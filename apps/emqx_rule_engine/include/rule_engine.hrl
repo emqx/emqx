@@ -88,4 +88,4 @@
         end()).
 
 %% Tables
--define(RULE_TAB, emqx_rule).
+-define(RULE_TAB, emqx_rule_engine).
