@@ -144,6 +144,7 @@ put_req_schema() ->
                 oneOf => [
                     #{
                         type => string,
+                        example => <<"channel_id_of_my_bridge">>,
                         description => <<"The channel id of an emqx bridge">>
                     },
                     #{
@@ -152,9 +153,6 @@ put_req_schema() ->
                             function => #{
                                 type => string,
                                 example => <<"console">>
-                            },
-                            args => #{
-                                type => object
                             }
                         }
                     }
