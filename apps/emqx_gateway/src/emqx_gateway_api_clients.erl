@@ -234,7 +234,7 @@ ms(username, X) ->
 ms(zone, X) ->
     #{clientinfo => #{zone => X}};
 ms(ip_address, X) ->
-    #{clientinfo => #{peerhost => X}};
+    #{clientinfo => #{peername => {X, '_'}}};
 ms(conn_state, X) ->
     #{conn_state => X};
 ms(clean_start, X) ->
@@ -280,7 +280,8 @@ format_channel_info({_, Infos, Stats}) ->
              , {username, ClientInfo}
              , {proto_name, ConnInfo}
              , {proto_ver, ConnInfo}
-             , {ip_address, {peername, ConnInfo, fun peer_to_binary/1}}
+             , {ip_address, {peername, ConnInfo, fun peer_to_binary_addr/1}}
+             , {port, {peername, ConnInfo, fun peer_to_port/1}}
              , {is_bridge, ClientInfo, false}
              , {connected_at,
                 {connected_at, ConnInfo, fun emqx_gateway_utils:unix_ts_to_rfc3339/1}}
@@ -345,12 +346,13 @@ key_get(K, M) when is_map(M) ->
 key_get(K, L) when is_list(L) ->
     proplists:get_value(K, L).
 
-peer_to_binary({Addr, Port}) ->
-    AddrBinary = list_to_binary(inet:ntoa(Addr)),
-    PortBinary = integer_to_binary(Port),
-    <<AddrBinary/binary, ":", PortBinary/binary>>;
-peer_to_binary(Addr) ->
+-spec(peer_to_binary_addr(emqx_types:peername()) -> binary()).
+peer_to_binary_addr({Addr, _}) ->
     list_to_binary(inet:ntoa(Addr)).
+
+-spec(peer_to_port(emqx_types:peername()) -> inet:port_number()).
+peer_to_port({_, Port}) ->
+    Port.
 
 conn_state_to_connected(connected) -> true;
 conn_state_to_connected(_) -> false.
@@ -540,6 +542,8 @@ properties_client() ->
          <<"Protocol version used by the client">>}
       , {ip_address, string,
          <<"Client's IP address">>}
+      , {port, integer,
+         <<"Client's port">>}
       , {is_bridge, boolean,
          <<"Indicates whether the client is connectedvia bridge">>}
       , {connected_at, string,

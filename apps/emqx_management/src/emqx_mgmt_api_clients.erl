@@ -697,7 +697,7 @@ result_format_time_fun(Key, NClientInfoMap) ->
 peername_dispart({Addr, Port}) ->
     AddrBinary = list_to_binary(inet:ntoa(Addr)),
     %% PortBinary = integer_to_binary(Port),
-    {<<AddrBinary/binary>>, Port}.
+    {AddrBinary, Port}.
 
 format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
     #{ access => PubSub,
