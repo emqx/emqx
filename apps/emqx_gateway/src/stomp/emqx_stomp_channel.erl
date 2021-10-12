@@ -280,7 +280,7 @@ auth_connect(_Packet, Channel = #channel{ctx = Ctx,
         {ok, NClientInfo} ->
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
-            ?LOG(warning, "Client ~s (Username: '~s') login failed for ~0p",
+            ?LOG(warning, "Client ~ts (Username: '~ts') login failed for ~0p",
                           [ClientId, Username, Reason]),
             {error, Reason}
     end.
@@ -352,7 +352,7 @@ handle_in(Packet = ?PACKET(?CMD_CONNECT), Channel) ->
         {ok, _NPacket, NChannel} ->
             process_connect(ensure_connected(NChannel));
         {error, ReasonCode, NChannel} ->
-            ErrMsg = io_lib:format("Login Failed: ~s", [ReasonCode]),
+            ErrMsg = io_lib:format("Login Failed: ~ts", [ReasonCode]),
             handle_out(connerr, {[], undefined, ErrMsg}, NChannel)
     end;
 
@@ -403,7 +403,7 @@ handle_in(?PACKET(?CMD_SUBSCRIBE, Headers),
                     handle_out(receipt, receipt_id(Headers), NChannel1)
             end;
         {error, ErrMsg, NChannel} ->
-            ?LOG(error, "Failed to subscribe topic ~s, reason: ~s",
+            ?LOG(error, "Failed to subscribe topic ~ts, reason: ~ts",
                         [Topic, ErrMsg]),
             handle_out(error, {receipt_id(Headers), ErrMsg}, NChannel)
     end;
@@ -485,7 +485,7 @@ handle_in(?PACKET(?CMD_COMMIT, Headers), Channel) ->
                 maybe_outgoing_receipt(receipt_id(Headers), Outgoings, Chann1);
             {error, Reason, Chann1} ->
                 %% FIXME: atomic for transaction ??
-                ErrMsg = io_lib:format("Execute transaction ~s falied: ~0p",
+                ErrMsg = io_lib:format("Execute transaction ~ts falied: ~0p",
                                        [TxId, Reason]
                                       ),
                 handle_out(error, {receipt_id(Headers), ErrMsg}, Chann1)
@@ -653,7 +653,7 @@ handle_call({subscribe, Topic, SubOpts}, _From,
                     NChannel1 = NChannel#channel{subscriptions = NSubs},
                     reply(ok, NChannel1);
                 {error, ErrMsg, NChannel} ->
-                    ?LOG(error, "Failed to subscribe topic ~s, reason: ~s",
+                    ?LOG(error, "Failed to subscribe topic ~ts, reason: ~ts",
                                 [Topic, ErrMsg]),
                     reply({error, ErrMsg}, NChannel)
             end
@@ -829,7 +829,7 @@ handle_deliver(Delivers,
                         [Frame|Acc];
                     false ->
                         ?LOG(error, "Dropped message ~0p due to not found "
-                                    "subscription id for ~s",
+                                    "subscription id for ~ts",
                                     [Message, emqx_message:topic(Message)]),
                         metrics_inc('delivery.dropped', Channel),
                         metrics_inc('delivery.dropped.no_subid', Channel),

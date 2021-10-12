@@ -128,7 +128,7 @@ help() ->
         [] ->
             print("No commands available.~n");
         Cmds ->
-            print("Usage: ~s~n", [?MODULE]),
+            print("Usage: ~ts~n", [?MODULE]),
             lists:foreach(fun({_, {Mod, Cmd}, _}) ->
                     print("~110..-s~n", [""]), Mod:Cmd(usage)
                 end, Cmds)
@@ -136,11 +136,11 @@ help() ->
 
 -spec(print(io:format()) -> ok).
 print(Msg) ->
-    io:format("~s", [format(Msg)]).
+    io:format("~ts", [format(Msg)]).
 
 -spec(print(io:format(), [term()]) -> ok).
 print(Format, Args) ->
-    io:format("~s", [format(Format, Args)]).
+    io:format("~ts", [format(Format, Args)]).
 
 -spec(usage([cmd_usage()]) -> ok).
 usage(UsageList) ->
@@ -152,7 +152,7 @@ usage(CmdParams, Desc) ->
 
 -spec(format(io:format()) -> string()).
 format(Msg) ->
-    lists:flatten(io_lib:format("~s", [Msg])).
+    lists:flatten(io_lib:format("~ts", [Msg])).
 
 -spec(format(io:format(), [term()]) -> string()).
 format(Format, Args) ->
@@ -170,7 +170,7 @@ format_usage(CmdParams, Desc) ->
     CmdLines = split_cmd(CmdParams),
     DescLines = split_cmd(Desc),
     lists:foldl(fun({CmdStr, DescStr}, Usage) ->
-                        Usage ++ format("~-70s# ~s~n", [CmdStr, DescStr])
+                        Usage ++ format("~-70s# ~ts~n", [CmdStr, DescStr])
                 end, "", zip_cmd(CmdLines, DescLines)).
 
 %%--------------------------------------------------------------------

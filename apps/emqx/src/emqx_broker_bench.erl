@@ -57,8 +57,8 @@ run(#{subscribers := Subs,
                lists:foreach(fun(Pid) -> Pid ! start_subscribe end, SubsPids),
                collect_results(SubsPids, subscribe_time)
            end),
-    io:format(user, "InsertTotalTime: ~s~n", [ns(T1)]),
-    io:format(user, "InsertTimeAverage: ~s~n", [ns(SubsTime / Subs)]),
+    io:format(user, "InsertTotalTime: ~ts~n", [ns(T1)]),
+    io:format(user, "InsertTimeAverage: ~ts~n", [ns(SubsTime / Subs)]),
     io:format(user, "InsertRps: ~p~n", [rps(Subs * SubOps, T1)]),
 
     io:format(user, "lookup ...~n", []),
@@ -67,8 +67,8 @@ run(#{subscribers := Subs,
                lists:foreach(fun(Pid) -> Pid ! start_lookup end, PubsPids),
                collect_results(PubsPids, lookup_time)
            end),
-    io:format(user, "LookupTotalTime: ~s~n", [ns(T2)]),
-    io:format(user, "LookupTimeAverage: ~s~n", [ns(PubsTime / Pubs)]),
+    io:format(user, "LookupTotalTime: ~ts~n", [ns(T2)]),
+    io:format(user, "LookupTimeAverage: ~ts~n", [ns(PubsTime / Pubs)]),
     io:format(user, "LookupRps: ~p~n", [rps(Pubs * PubOps, T2)]),
 
     io:format(user, "mnesia table(s) RAM: ~p~n", [ram_bytes()]),
@@ -79,7 +79,7 @@ run(#{subscribers := Subs,
                lists:foreach(fun(Pid) -> Pid ! stop end, SubsPids),
                wait_until_empty()
            end),
-    io:format(user, "TimeToUnsubscribeAll: ~s~n", [ns(T3)]).
+    io:format(user, "TimeToUnsubscribeAll: ~ts~n", [ns(T3)]).
 
 wait_until_empty() ->
     case emqx_trie:empty() of

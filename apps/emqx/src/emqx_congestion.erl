@@ -22,7 +22,7 @@
 
 -define(ALARM_CONN_CONGEST(Channel, Reason),
         list_to_binary(
-          io_lib:format("~s/~s/~s",
+          io_lib:format("~ts/~ts/~ts",
                         [Reason, emqx_channel:info(clientid, Channel),
                          maps:get(username, emqx_channel:info(clientinfo, Channel),
                                   <<"unknown_user">>)]))).

@@ -75,7 +75,7 @@ translate_req(Request, #{module := Module, path := Path, method := Method}) ->
     catch throw:Error ->
         {_, [{validation_error, ValidErr}]} = Error,
         #{path := Key, reason := Reason} = ValidErr,
-        {400, 'BAD_REQUEST', iolist_to_binary(io_lib:format("~s : ~p", [Key, Reason]))}
+        {400, 'BAD_REQUEST', iolist_to_binary(io_lib:format("~ts : ~p", [Key, Reason]))}
     end.
 
 namespace() -> "public".

@@ -136,7 +136,7 @@ data(get, _Request) ->
 %     TelemetryData = get_telemetry_data(),
 %     case emqx_json:safe_encode(TelemetryData, [pretty]) of
 %         {ok, Bin} ->
-%             emqx_ctl:print("~s~n", [Bin]);
+%             emqx_ctl:print("~ts~n", [Bin]);
 %         {error, _Reason} ->
 %             emqx_ctl:print("Failed to get telemetry data")
 %     end;

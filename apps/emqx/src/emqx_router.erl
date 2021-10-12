@@ -177,7 +177,7 @@ topics() ->
 -spec(print_routes(emqx_types:topic()) -> ok).
 print_routes(Topic) ->
     lists:foreach(fun(#route{topic = To, dest = Dest}) ->
-                      io:format("~s -> ~s~n", [To, Dest])
+                      io:format("~ts -> ~ts~n", [To, Dest])
                   end, match_routes(Topic)).
 
 call(Router, Msg) ->

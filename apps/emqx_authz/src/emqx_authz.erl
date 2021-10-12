@@ -202,13 +202,13 @@ init_source(#{type := file,
                 {ok, Terms} ->
                     [emqx_authz_rule:compile(Term) || Term <- Terms];
                 {error, eacces} ->
-                    ?LOG(alert, "Insufficient permissions to read the ~s file", [Path]),
+                    ?LOG(alert, "Insufficient permissions to read the ~ts file", [Path]),
                     error(eaccess);
                 {error, enoent} ->
-                    ?LOG(alert, "The ~s file does not exist", [Path]),
+                    ?LOG(alert, "The ~ts file does not exist", [Path]),
                     error(enoent);
                 {error, Reason} ->
-                    ?LOG(alert, "Failed to read ~s: ~p", [Path, Reason]),
+                    ?LOG(alert, "Failed to read ~ts: ~p", [Path, Reason]),
                     error(Reason)
             end,
     Source#{annotations => #{rules => Rules}};
@@ -315,7 +315,7 @@ find_action_in_hooks() ->
     Action.
 
 gen_id(Type) ->
-    iolist_to_binary([io_lib:format("~s_~s",[?APP, Type])]).
+    iolist_to_binary([io_lib:format("~ts_~ts",[?APP, Type])]).
 
 create_resource(#{type := DB,
                   annotations := #{id := ResourceID}} = Source) ->

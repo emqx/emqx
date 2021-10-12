@@ -38,7 +38,7 @@
 -type collection() :: {alias(), [term()]}.
 
 -define(ephemeral_alias(TYPE, NAME),
-    iolist_to_binary(io_lib:format("_v_~s_~p_~p", [TYPE, NAME, erlang:system_time()]))).
+    iolist_to_binary(io_lib:format("_v_~ts_~p_~p", [TYPE, NAME, erlang:system_time()]))).
 
 -define(ActionMaxRetry, 3).
 

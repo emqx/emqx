@@ -116,7 +116,7 @@
 -define(ENABLED(X), (X =/= undefined)).
 
 -define(ALARM_TCP_CONGEST(Channel),
-        list_to_binary(io_lib:format("mqtt_conn/congested/~s/~s",
+        list_to_binary(io_lib:format("mqtt_conn/congested/~ts/~ts",
             [emqx_channel:info(clientid, Channel),
              emqx_channel:info(username, Channel)]))).
 

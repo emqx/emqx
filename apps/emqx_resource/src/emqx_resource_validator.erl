@@ -56,7 +56,7 @@ len(string) -> fun string:length/1;
 len(_Type) -> fun(Val) -> Val end.
 
 err_limit({Type, {Op, Expected}, {got, Got}}) ->
-    io_lib:format("Expect the ~s value ~s ~p but got: ~p", [Type, Op, Expected, Got]).
+    io_lib:format("Expect the ~ts value ~ts ~p but got: ~p", [Type, Op, Expected, Got]).
 
 return(true, _) -> ok;
 return(false, Error) ->

@@ -446,14 +446,14 @@ format_header(#mqtt_packet_header{type = Type,
              true -> <<>>;
              false -> [", ", S]
          end,
-    io_lib:format("~s(Q~p, R~p, D~p~s)", [type_name(Type), QoS, i(Retain), i(Dup), S1]).
+    io_lib:format("~ts(Q~p, R~p, D~p~ts)", [type_name(Type), QoS, i(Retain), i(Dup), S1]).
 
 format_variable(undefined, _) ->
     undefined;
 format_variable(Variable, undefined) ->
     format_variable(Variable);
 format_variable(Variable, Payload) ->
-    io_lib:format("~s, Payload=~0p", [format_variable(Variable), Payload]).
+    io_lib:format("~ts, Payload=~0p", [format_variable(Variable), Payload]).
 
 format_variable(#mqtt_packet_connect{
                  proto_ver    = ProtoVer,
@@ -468,10 +468,10 @@ format_variable(#mqtt_packet_connect{
                  will_payload = WillPayload,
                  username     = Username,
                  password     = Password}) ->
-    Format = "ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanStart=~s, KeepAlive=~p, Username=~s, Password=~s",
+    Format = "ClientId=~ts, ProtoName=~ts, ProtoVsn=~p, CleanStart=~ts, KeepAlive=~p, Username=~ts, Password=~ts",
     Args = [ClientId, ProtoName, ProtoVer, CleanStart, KeepAlive, Username, format_password(Password)],
     {Format1, Args1} = if
-                        WillFlag -> {Format ++ ", Will(Q~p, R~p, Topic=~s, Payload=~0p)",
+                        WillFlag -> {Format ++ ", Will(Q~p, R~p, Topic=~ts, Payload=~0p)",
                                      Args ++ [WillQoS, i(WillRetain), WillTopic, WillPayload]};
                         true -> {Format, Args}
                        end,
@@ -487,7 +487,7 @@ format_variable(#mqtt_packet_connack{ack_flags   = AckFlags,
 
 format_variable(#mqtt_packet_publish{topic_name = TopicName,
                                      packet_id  = PacketId}) ->
-    io_lib:format("Topic=~s, PacketId=~p", [TopicName, PacketId]);
+    io_lib:format("Topic=~ts, PacketId=~p", [TopicName, PacketId]);
 
 format_variable(#mqtt_packet_puback{packet_id = PacketId,
                                     reason_code = ReasonCode}) ->

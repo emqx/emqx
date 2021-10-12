@@ -109,7 +109,7 @@ clients_insta(get, #{ bindings := #{name := Name0,
             [ClientInfo] ->
                 {200, ClientInfo};
             [ClientInfo | _More] ->
-                ?LOG(warning, "More than one client info was returned on ~s",
+                ?LOG(warning, "More than one client info was returned on ~ts",
                               [ClientId]),
                 {200, ClientInfo};
             [] ->

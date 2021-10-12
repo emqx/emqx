@@ -60,7 +60,7 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
                       [{ssl_options, SslOpts}]
               end,
     _ = grpc:start_server(GwName, ListenOn, Services, SvrOptions),
-    ?ULOG("Start ~s gRPC server on ~p successfully.~n", [GwName, ListenOn]).
+    ?ULOG("Start ~ts gRPC server on ~p successfully.~n", [GwName, ListenOn]).
 
 start_grpc_client_channel(_GwType, undefined) ->
     undefined;
@@ -71,7 +71,7 @@ start_grpc_client_channel(GwName, Options = #{address := UriStr}) ->
     Port = maps:get(port, UriMap),
     SvrAddr = lists:flatten(
                 io_lib:format(
-                  "~s://~s:~w", [Scheme, Host, Port])
+                  "~ts://~ts:~w", [Scheme, Host, Port])
                ),
     ClientOpts = case Scheme of
                      "https" ->
@@ -118,7 +118,7 @@ on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
         on_gateway_load(Gateway#{config => Config}, Ctx)
     catch
         Class : Reason : Stk ->
-            logger:error("Failed to update ~s; "
+            logger:error("Failed to update ~ts; "
                          "reason: {~0p, ~0p} stacktrace: ~0p",
                          [GwName, Class, Reason, Stk]),
             {error, {Class, Reason}}
@@ -143,11 +143,11 @@ start_listener(GwName, Ctx, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
-            ?ULOG("Gateway ~s:~s:~s on ~s started.~n",
+            ?ULOG("Gateway ~ts:~ts:~ts on ~ts started.~n",
                   [GwName, Type, LisName, ListenOnStr]),
             Pid;
         {error, Reason} ->
-            ?ELOG("Failed to start gateway ~s:~s:~s on ~s: ~0p~n",
+            ?ELOG("Failed to start gateway ~ts:~ts:~ts on ~ts: ~0p~n",
                   [GwName, Type, LisName, ListenOnStr, Reason]),
             throw({badconf, Reason})
     end.
@@ -198,10 +198,10 @@ stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(GwName, Type, LisName, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> ?ULOG("Gateway ~s:~s:~s on ~s stopped.~n",
+        ok -> ?ULOG("Gateway ~ts:~ts:~ts on ~ts stopped.~n",
                     [GwName, Type, LisName, ListenOnStr]);
         {error, Reason} ->
-            ?ELOG("Failed to stop gateway ~s:~s:~s on ~s: ~0p~n",
+            ?ELOG("Failed to stop gateway ~ts:~ts:~ts on ~ts: ~0p~n",
                   [GwName, Type, LisName, ListenOnStr, Reason])
     end,
     StopRet.

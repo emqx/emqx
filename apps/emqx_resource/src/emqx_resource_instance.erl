@@ -172,7 +172,7 @@ do_create(InstId, ResourceType, Config) ->
                     _ = do_health_check(InstId),
                     {ok, force_lookup(InstId)};
                 {error, Reason} ->
-                    logger:error("start ~s resource ~s failed: ~p", [ResourceType, InstId, Reason]),
+                    logger:error("start ~ts resource ~ts failed: ~p", [ResourceType, InstId, Reason]),
                     {error, Reason}
             end
     end.

@@ -21,7 +21,7 @@
 
 -include("emqx_mgmt.hrl").
 
--define(PRINT_CMD(Cmd, Descr), io:format("~-48s# ~s~n", [Cmd, Descr])).
+-define(PRINT_CMD(Cmd, Descr), io:format("~-48s# ~ts~n", [Cmd, Descr])).
 
 -export([load/0]).
 
@@ -65,7 +65,7 @@ is_cmd(Fun) ->
 
 status([]) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
-    emqx_ctl:print("Node ~p ~s is ~p~n", [node(), emqx_app:get_release(), InternalStatus]);
+    emqx_ctl:print("Node ~p ~ts is ~p~n", [node(), emqx_app:get_release(), InternalStatus]);
 status(_) ->
      emqx_ctl:usage("status", "Show broker status").
 
@@ -74,7 +74,7 @@ status(_) ->
 
 broker([]) ->
     Funs = [sysdescr, version, datetime],
-    [emqx_ctl:print("~-10s: ~s~n", [Fun, emqx_sys:Fun()]) || Fun <- Funs],
+    [emqx_ctl:print("~-10s: ~ts~n", [Fun, emqx_sys:Fun()]) || Fun <- Funs],
     emqx_ctl:print("~-10s: ~p~n", [uptime, emqx_sys:uptime()]);
 
 broker(["stats"]) ->
@@ -227,9 +227,9 @@ plugins(["list"]) ->
 plugins(["load", Name]) ->
     case emqx_plugins:load(list_to_atom(Name)) of
         ok ->
-            emqx_ctl:print("Plugin ~s loaded successfully.~n", [Name]);
+            emqx_ctl:print("Plugin ~ts loaded successfully.~n", [Name]);
         {error, Reason}   ->
-            emqx_ctl:print("Load plugin ~s error: ~p.~n", [Name, Reason])
+            emqx_ctl:print("Load plugin ~ts error: ~p.~n", [Name, Reason])
     end;
 
 plugins(["unload", "emqx_management"])->
@@ -238,9 +238,9 @@ plugins(["unload", "emqx_management"])->
 plugins(["unload", Name]) ->
     case emqx_plugins:unload(list_to_atom(Name)) of
         ok ->
-            emqx_ctl:print("Plugin ~s unloaded successfully.~n", [Name]);
+            emqx_ctl:print("Plugin ~ts unloaded successfully.~n", [Name]);
         {error, Reason} ->
-            emqx_ctl:print("Unload plugin ~s error: ~p.~n", [Name, Reason])
+            emqx_ctl:print("Unload plugin ~ts error: ~p.~n", [Name, Reason])
     end;
 
 plugins(["reload", Name]) ->
@@ -248,13 +248,13 @@ plugins(["reload", Name]) ->
         PluginName ->
             case emqx_mgmt:reload_plugin(node(), PluginName) of
                 ok ->
-                    emqx_ctl:print("Plugin ~s reloaded successfully.~n", [Name]);
+                    emqx_ctl:print("Plugin ~ts reloaded successfully.~n", [Name]);
                 {error, Reason} ->
-                    emqx_ctl:print("Reload plugin ~s error: ~p.~n", [Name, Reason])
+                    emqx_ctl:print("Reload plugin ~ts error: ~p.~n", [Name, Reason])
             end
     catch
         error:badarg ->
-            emqx_ctl:print("Reload plugin ~s error: The plugin doesn't exist.~n", [Name])
+            emqx_ctl:print("Reload plugin ~ts error: The plugin doesn't exist.~n", [Name])
     end;
 
 plugins(_) ->
@@ -274,7 +274,7 @@ vm(["all"]) ->
     [vm([Name]) || Name <- ["load", "memory", "process", "io", "ports"]];
 
 vm(["load"]) ->
-    [emqx_ctl:print("cpu/~-20s: ~s~n", [L, V]) || {L, V} <- emqx_vm:loads()];
+    [emqx_ctl:print("cpu/~-20s: ~ts~n", [L, V]) || {L, V} <- emqx_vm:loads()];
 
 vm(["memory"]) ->
     [emqx_ctl:print("memory/~-17s: ~w~n", [Cat, Val]) || {Cat, Val} <- erlang:memory()];
@@ -311,42 +311,42 @@ mnesia(_) ->
 
 log(["set-level", Level]) ->
     case emqx_logger:set_log_level(list_to_atom(Level)) of
-        ok -> emqx_ctl:print("~s~n", [Level]);
+        ok -> emqx_ctl:print("~ts~n", [Level]);
         Error -> emqx_ctl:print("[error] set overall log level failed: ~p~n", [Error])
     end;
 
 log(["primary-level"]) ->
     Level = emqx_logger:get_primary_log_level(),
-    emqx_ctl:print("~s~n", [Level]);
+    emqx_ctl:print("~ts~n", [Level]);
 
 log(["primary-level", Level]) ->
     _ = emqx_logger:set_primary_log_level(list_to_atom(Level)),
-    emqx_ctl:print("~s~n", [emqx_logger:get_primary_log_level()]);
+    emqx_ctl:print("~ts~n", [emqx_logger:get_primary_log_level()]);
 
 log(["handlers", "list"]) ->
-    _ = [emqx_ctl:print("LogHandler(id=~s, level=~s, destination=~s, status=~s)~n", [Id, Level, Dst, Status])
+    _ = [emqx_ctl:print("LogHandler(id=~ts, level=~ts, destination=~ts, status=~ts)~n", [Id, Level, Dst, Status])
         || #{id := Id, level := Level, dst := Dst, status := Status} <- emqx_logger:get_log_handlers()],
     ok;
 
 log(["handlers", "start", HandlerId]) ->
     case emqx_logger:start_log_handler(list_to_atom(HandlerId)) of
-        ok -> emqx_ctl:print("log handler ~s started~n", [HandlerId]);
+        ok -> emqx_ctl:print("log handler ~ts started~n", [HandlerId]);
         {error, Reason} ->
-            emqx_ctl:print("[error] failed to start log handler ~s: ~p~n", [HandlerId, Reason])
+            emqx_ctl:print("[error] failed to start log handler ~ts: ~p~n", [HandlerId, Reason])
     end;
 
 log(["handlers", "stop", HandlerId]) ->
     case emqx_logger:stop_log_handler(list_to_atom(HandlerId)) of
-        ok -> emqx_ctl:print("log handler ~s stopped~n", [HandlerId]);
+        ok -> emqx_ctl:print("log handler ~ts stopped~n", [HandlerId]);
         {error, Reason} ->
-            emqx_ctl:print("[error] failed to stop log handler ~s: ~p~n", [HandlerId, Reason])
+            emqx_ctl:print("[error] failed to stop log handler ~ts: ~p~n", [HandlerId, Reason])
     end;
 
 log(["handlers", "set-level", HandlerId, Level]) ->
     case emqx_logger:set_log_handler_level(list_to_atom(HandlerId), list_to_atom(Level)) of
         ok ->
             #{level := NewLevel} = emqx_logger:get_log_handler(list_to_atom(HandlerId)),
-            emqx_ctl:print("~s~n", [NewLevel]);
+            emqx_ctl:print("~ts~n", [NewLevel]);
         {error, Error} ->
             emqx_ctl:print("[error] ~p~n", [Error])
     end;
@@ -365,7 +365,7 @@ log(_) ->
 
 trace(["list"]) ->
     lists:foreach(fun({{Who, Name}, {Level, LogFile}}) ->
-                emqx_ctl:print("Trace(~s=~s, level=~s, destination=~p)~n", [Who, Name, Level, LogFile])
+                emqx_ctl:print("Trace(~ts=~ts, level=~ts, destination=~p)~n", [Who, Name, Level, LogFile])
             end, emqx_tracer:lookup_traces());
 
 trace(["stop", "client", ClientId]) ->
@@ -396,17 +396,17 @@ trace(_) ->
 trace_on(Who, Name, Level, LogFile) ->
     case emqx_tracer:start_trace({Who, iolist_to_binary(Name)}, Level, LogFile) of
         ok ->
-            emqx_ctl:print("trace ~s ~s successfully~n", [Who, Name]);
+            emqx_ctl:print("trace ~ts ~ts successfully~n", [Who, Name]);
         {error, Error} ->
-            emqx_ctl:print("[error] trace ~s ~s: ~p~n", [Who, Name, Error])
+            emqx_ctl:print("[error] trace ~ts ~ts: ~p~n", [Who, Name, Error])
     end.
 
 trace_off(Who, Name) ->
     case emqx_tracer:stop_trace({Who, iolist_to_binary(Name)}) of
         ok ->
-            emqx_ctl:print("stop tracing ~s ~s successfully~n", [Who, Name]);
+            emqx_ctl:print("stop tracing ~ts ~ts successfully~n", [Who, Name]);
         {error, Error} ->
-            emqx_ctl:print("[error] stop tracing ~s ~s: ~p~n", [Who, Name, Error])
+            emqx_ctl:print("[error] stop tracing ~ts ~ts: ~p~n", [Who, Name, Error])
     end.
 
 %%--------------------------------------------------------------------
@@ -432,32 +432,32 @@ listeners([]) ->
                     {proxy_protocol,    ProxyProtocol},
                     {running,           Running}
                 ] ++ CurrentConns ++ MaxConn,
-                emqx_ctl:print("~s~n", [ID]),
+                emqx_ctl:print("~ts~n", [ID]),
                 lists:foreach(fun indent_print/1, Info)
             end, emqx_listeners:list());
 
 listeners(["stop", ListenerId]) ->
     case emqx_listeners:stop_listener(list_to_atom(ListenerId)) of
         ok ->
-            emqx_ctl:print("Stop ~s listener successfully.~n", [ListenerId]);
+            emqx_ctl:print("Stop ~ts listener successfully.~n", [ListenerId]);
         {error, Error} ->
-            emqx_ctl:print("Failed to stop ~s listener: ~0p~n", [ListenerId, Error])
+            emqx_ctl:print("Failed to stop ~ts listener: ~0p~n", [ListenerId, Error])
     end;
 
 listeners(["start", ListenerId]) ->
     case emqx_listeners:start_listener(list_to_atom(ListenerId)) of
         ok ->
-            emqx_ctl:print("Started ~s listener successfully.~n", [ListenerId]);
+            emqx_ctl:print("Started ~ts listener successfully.~n", [ListenerId]);
         {error, Error} ->
-            emqx_ctl:print("Failed to start ~s listener: ~0p~n", [ListenerId, Error])
+            emqx_ctl:print("Failed to start ~ts listener: ~0p~n", [ListenerId, Error])
     end;
 
 listeners(["restart", ListenerId]) ->
     case emqx_listeners:restart_listener(list_to_atom(ListenerId)) of
         ok ->
-            emqx_ctl:print("Restarted ~s listener successfully.~n", [ListenerId]);
+            emqx_ctl:print("Restarted ~ts listener successfully.~n", [ListenerId]);
         {error, Error} ->
-            emqx_ctl:print("Failed to restart ~s listener: ~0p~n", [ListenerId, Error])
+            emqx_ctl:print("Failed to restart ~ts listener: ~0p~n", [ListenerId, Error])
     end;
 
 listeners(_) ->
@@ -473,9 +473,9 @@ listeners(_) ->
 authz(["cache-clean", "node", Node]) ->
     case emqx_mgmt:clean_authz_cache_all(erlang:list_to_existing_atom(Node)) of
         ok ->
-            emqx_ctl:print("Authorization cache drain started on node ~s.~n", [Node]);
+            emqx_ctl:print("Authorization cache drain started on node ~ts.~n", [Node]);
         {error, Reason} ->
-            emqx_ctl:print("Authorization drain failed on node ~s: ~0p.~n", [Node, Reason])
+            emqx_ctl:print("Authorization drain failed on node ~ts: ~0p.~n", [Node, Reason])
     end;
 
 authz(["cache-clean", "all"]) ->
@@ -549,10 +549,10 @@ print({client, {ClientId, ChanPid}}) ->
                     false -> []
                 end,
     Info1 = Info#{expiry_interval => maps:get(expiry_interval, Info) div 1000},
-    emqx_ctl:print("Client(~s, username=~s, peername=~s, "
-                    "clean_start=~s, keepalive=~w, session_expiry_interval=~w, "
+    emqx_ctl:print("Client(~ts, username=~ts, peername=~ts, "
+                    "clean_start=~ts, keepalive=~w, session_expiry_interval=~w, "
                     "subscriptions=~w, inflight=~w, awaiting_rel=~w, delivered_msgs=~w, enqueued_msgs=~w, dropped_msgs=~w, "
-                    "connected=~s, created_at=~w, connected_at=~w" ++
+                    "connected=~ts, created_at=~w, connected_at=~w" ++
                     case maps:is_key(disconnected_at, Info1) of
                         true  -> ", disconnected_at=~w)~n";
                         false -> ")~n"
@@ -560,23 +560,23 @@ print({client, {ClientId, ChanPid}}) ->
         [format(K, maps:get(K, Info1)) || K <- InfoKeys]);
 
 print({emqx_route, #route{topic = Topic, dest = {_, Node}}}) ->
-    emqx_ctl:print("~s -> ~s~n", [Topic, Node]);
+    emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print({emqx_route, #route{topic = Topic, dest = Node}}) ->
-    emqx_ctl:print("~s -> ~s~n", [Topic, Node]);
+    emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 
 print(#plugin{name = Name, descr = Descr, active = Active}) ->
-    emqx_ctl:print("Plugin(~s, description=~s, active=~s)~n",
+    emqx_ctl:print("Plugin(~ts, description=~ts, active=~ts)~n",
                   [Name, Descr, Active]);
 
 print({emqx_suboption, {{Pid, Topic}, Options}}) when is_pid(Pid) ->
-    emqx_ctl:print("~s -> ~s~n", [maps:get(subid, Options), Topic]).
+    emqx_ctl:print("~ts -> ~ts~n", [maps:get(subid, Options), Topic]).
 
 format(_, undefined) ->
     undefined;
 
 format(peername, {IPAddr, Port}) ->
     IPStr = emqx_mgmt_util:ntoa(IPAddr),
-    io_lib:format("~s:~p", [IPStr, Port]);
+    io_lib:format("~ts:~p", [IPStr, Port]);
 
 format(_, Val) ->
     Val.
@@ -584,13 +584,13 @@ format(_, Val) ->
 bin(S) -> iolist_to_binary(S).
 
 indent_print({Key, {string, Val}}) ->
-    emqx_ctl:print("  ~-16s: ~s~n", [Key, Val]);
+    emqx_ctl:print("  ~-16s: ~ts~n", [Key, Val]);
 indent_print({Key, Val}) ->
     emqx_ctl:print("  ~-16s: ~w~n", [Key, Val]).
 
 format_listen_on(Port) when is_integer(Port) ->
     io_lib:format("0.0.0.0:~w", [Port]);
 format_listen_on({Addr, Port}) when is_list(Addr) ->
-    io_lib:format("~s:~w", [Addr, Port]);
+    io_lib:format("~ts:~w", [Addr, Port]);
 format_listen_on({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
+    io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]).

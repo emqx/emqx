@@ -65,7 +65,7 @@ handle_msg(ReqMsg, RequestHandler, Parent) ->
                                props = RspProps,
                                payload = RspPayload
                               },
-            emqx_logger:debug("~p sending response msg to topic ~s with~n"
+            emqx_logger:debug("~p sending response msg to topic ~ts with~n"
                               "corr-data=~p~npayload=~p",
                               [?MODULE, RspTopic, CorrData, RspPayload]),
             ok = send_response(RspMsg);

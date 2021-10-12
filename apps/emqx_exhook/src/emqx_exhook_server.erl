@@ -91,7 +91,7 @@ load(Name, Opts0, ReqOpts) ->
                 {ok, HookSpecs} ->
                     %% Reigster metrics
                     Prefix = lists:flatten(
-                               io_lib:format("exhook.~s.", [Name])),
+                               io_lib:format("exhook.~ts.", [Name])),
                     ensure_metrics(Prefix, HookSpecs),
                     %% Ensure hooks
                     ensure_hooks(HookSpecs),
@@ -129,7 +129,7 @@ channel_opts(Opts = #{url := URL}) ->
     end.
 
 format_http_uri(Scheme, Host, Port) ->
-    lists:flatten(io_lib:format("~s://~s:~w", [Scheme, Host, Port])).
+    lists:flatten(io_lib:format("~ts://~ts:~w", [Scheme, Host, Port])).
 
 filter(Ls) ->
     [ E || E <- Ls, E /= undefined].
@@ -194,7 +194,7 @@ ensure_hooks(HookSpecs) ->
     lists:foreach(fun(Hookpoint) ->
         case lists:keyfind(Hookpoint, 1, ?ENABLED_HOOKS) of
             false ->
-                ?LOG(error, "Unknown name ~s to hook, skip it!", [Hookpoint]);
+                ?LOG(error, "Unknown name ~ts to hook, skip it!", [Hookpoint]);
             {Hookpoint, {M, F, A}} ->
                 emqx_hooks:put(Hookpoint, {M, F, A}),
                 ets:update_counter(?CNTER, Hookpoint, {2, 1}, {Hookpoint, 0})
@@ -217,7 +217,7 @@ may_unload_hooks(HookSpecs) ->
 
 format(#server{name = Name, hookspec = Hooks}) ->
     lists:flatten(
-      io_lib:format("name=~s, hooks=~0p, active=true", [Name, Hooks])).
+      io_lib:format("name=~ts, hooks=~0p, active=true", [Name, Hooks])).
 
 %%--------------------------------------------------------------------
 %% APIs

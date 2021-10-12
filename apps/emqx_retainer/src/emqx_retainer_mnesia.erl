@@ -89,7 +89,7 @@ store_retained(_, Msg =#message{topic = Topic}) ->
                                                write);
                               [] ->
                                   ?LOG(error,
-                                       "Cannot retain message(topic=~s) for table is full!",
+                                       "Cannot retain message(topic=~ts) for table is full!",
                                        [Topic]),
                                   ok
                           end

@@ -32,7 +32,7 @@ enrich(Report, #{mfa := Mfa, line := Line}) ->
 enrich(Report, _) -> Report.
 
 enrich_fmt({Fmt, Args}, #{mfa := Mfa, line := Line}) when is_list(Fmt) ->
-    {Fmt ++ " mfa: ~s line: ~w", Args ++ [mfa(Mfa), Line]};
+    {Fmt ++ " mfa: ~ts line: ~w", Args ++ [mfa(Mfa), Line]};
 enrich_fmt(Msg, _) ->
     Msg.
 
