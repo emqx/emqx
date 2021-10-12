@@ -41,10 +41,10 @@ call(Key, Node, Mod, Fun, Args) ->
     filter_result(?RPC:call(rpc_node({Key, Node}), Mod, Fun, Args)).
 
 multicall(Nodes, Mod, Fun, Args) ->
-    filter_result(?RPC:multicall(rpc_nodes(Nodes), Mod, Fun, Args)).
+    ?RPC:multicall(rpc_nodes(Nodes), Mod, Fun, Args).
 
 multicall(Key, Nodes, Mod, Fun, Args) ->
-    filter_result(?RPC:multicall(rpc_nodes([{Key, Node} || Node <- Nodes]), Mod, Fun, Args)).
+    ?RPC:multicall(rpc_nodes([{Key, Node} || Node <- Nodes]), Mod, Fun, Args).
 
 cast(Node, Mod, Fun, Args) ->
     filter_result(?RPC:cast(rpc_node(Node), Mod, Fun, Args)).
