@@ -55,7 +55,7 @@
     [ {<<"node">>, atom}
     , {<<"username">>, binary}
     , {<<"zone">>, atom}
-    , {<<"ip_address">>, ip_port}
+    , {<<"ip_address">>, ip}
     , {<<"conn_state">>, atom}
     , {<<"clean_start">>, atom}
     , {<<"proto_name">>, binary}
@@ -114,6 +114,7 @@ properties(client) ->
         {inflight_cnt,      integer, <<"Current length of inflight">>},
         {inflight_max,      integer, <<"v4 api name [max_inflight]. Maximum length of inflight">>},
         {ip_address,        string , <<"Client's IP address">>},
+        {port,              integer, <<"Client's port">>},
         {is_bridge,         boolean, <<"Indicates whether the client is connectedvia bridge">>},
         {keepalive,         integer, <<"keepalive time, with the unit of second">>},
         {mailbox_len,       integer, <<"Process mailbox size">>},
@@ -189,7 +190,7 @@ clients_api() ->
                     name => ip_address,
                     in => query,
                     required => false,
-                    description => <<"IP address">>,
+                    description => <<"Client's IP address">>,
                     schema => #{type => string}
                 },
                 #{
@@ -602,7 +603,7 @@ ms(zone, X) ->
 ms(conn_state, X) ->
     #{conn_state => X};
 ms(ip_address, X) ->
-    #{conninfo => #{peername => X}};
+    #{conninfo => #{peername => {X, '_'}}};
 ms(clean_start, X) ->
     #{conninfo => #{clean_start => X}};
 ms(proto_name, X) ->
@@ -643,12 +644,13 @@ format_channel_info({_, ClientInfo, ClientStats}) ->
     StatsMap = maps:without([memory, next_pkt_id, total_heap_size],
         maps:from_list(ClientStats)),
     ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo),
-    IpAddress      = peer_to_binary(maps:get(peername, ClientInfoMap0)),
+    {IpAddress, Port} = peername_dispart(maps:get(peername, ClientInfoMap0)),
     Connected      = maps:get(conn_state, ClientInfoMap0) =:= connected,
     ClientInfoMap1 = maps:merge(StatsMap, ClientInfoMap0),
     ClientInfoMap2 = maps:put(node, node(), ClientInfoMap1),
     ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
-    ClientInfoMap  = maps:put(connected, Connected, ClientInfoMap3),
+    ClientInfoMap4 = maps:put(port, Port, ClientInfoMap3),
+    ClientInfoMap  = maps:put(connected, Connected, ClientInfoMap4),
     RemoveList =
         [ auth_result
         , peername
@@ -692,12 +694,11 @@ result_format_time_fun(Key, NClientInfoMap) ->
         #{}                 -> NClientInfoMap
     end.
 
-peer_to_binary({Addr, Port}) ->
+-spec(peername_dispart(emqx_types:peername()) -> {binary(), inet:port_number()}).
+peername_dispart({Addr, Port}) ->
     AddrBinary = list_to_binary(inet:ntoa(Addr)),
-    PortBinary = integer_to_binary(Port),
-    <<AddrBinary/binary, ":", PortBinary/binary>>;
-peer_to_binary(Addr) ->
-    list_to_binary(inet:ntoa(Addr)).
+    %% PortBinary = integer_to_binary(Port),
+    {<<AddrBinary/binary>>, Port}.
 
 format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
     #{ access => PubSub,

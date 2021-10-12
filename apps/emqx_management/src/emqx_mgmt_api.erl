@@ -280,9 +280,9 @@ pick_params_to_qs([], _, Acc1, Acc2) ->
     NAcc2 = [E || E <- Acc2, not lists:keymember(element(1, E), 1, Acc1)],
     {lists:reverse(Acc1), lists:reverse(NAcc2)};
 
-pick_params_to_qs([{Key, Value}|Params], QsKits, Acc1, Acc2) ->
-    case proplists:get_value(Key, QsKits) of
-        undefined -> pick_params_to_qs(Params, QsKits, Acc1, Acc2);
+pick_params_to_qs([{Key, Value} | Params], QsSchema, Acc1, Acc2) ->
+    case proplists:get_value(Key, QsSchema) of
+        undefined -> pick_params_to_qs(Params, QsSchema, Acc1, Acc2);
         Type ->
             case Key of
                 <<Prefix:4/binary, NKey/binary>>
@@ -294,16 +294,16 @@ pick_params_to_qs([{Key, Value}|Params], QsKits, Acc1, Acc2) ->
                                 end,
                     case lists:keytake(OpposeKey, 1, Params) of
                         false ->
-                            pick_params_to_qs(Params, QsKits, [qs(Key, Value, Type) | Acc1], Acc2);
+                            pick_params_to_qs(Params, QsSchema, [qs(Key, Value, Type) | Acc1], Acc2);
                         {value, {K2, V2}, NParams} ->
-                            pick_params_to_qs(NParams, QsKits, [qs(Key, Value, K2, V2, Type) | Acc1], Acc2)
+                            pick_params_to_qs(NParams, QsSchema, [qs(Key, Value, K2, V2, Type) | Acc1], Acc2)
                     end;
                 _ ->
                     case is_fuzzy_key(Key) of
                         true ->
-                            pick_params_to_qs(Params, QsKits, Acc1, [qs(Key, Value, Type) | Acc2]);
+                            pick_params_to_qs(Params, QsSchema, Acc1, [qs(Key, Value, Type) | Acc2]);
                         _ ->
-                            pick_params_to_qs(Params, QsKits, [qs(Key, Value, Type) | Acc1], Acc2)
+                            pick_params_to_qs(Params, QsSchema, [qs(Key, Value, Type) | Acc1], Acc2)
 
                     end
             end
