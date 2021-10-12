@@ -79,7 +79,7 @@ alarms(get, #{query_string := Qs}) ->
             <<"false">> -> ?DEACTIVATED_ALARM
         end,
     Response = emqx_mgmt_api:cluster_query(Qs, Table, [], {?MODULE, query}),
-    {200, Response};
+    emqx_mgmt_util:generate_response(Response);
 
 alarms(delete, _Params) ->
     _ = emqx_mgmt:delete_all_deactivated_alarms(),

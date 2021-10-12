@@ -21,6 +21,7 @@
 -include_lib("emqx/include/emqx.hrl").
 
 -import(emqx_mgmt_util, [ page_schema/1
+                        , error_schema/2
                         , properties/1
                         , page_params/0
                         ]).
@@ -53,7 +54,8 @@ subscriptions_api() ->
             description => <<"List subscriptions">>,
             parameters => parameters(),
             responses => #{
-                <<"200">> => page_schema(subscription)
+                <<"200">> => page_schema(subscription),
+                <<"400">> => error_schema(<<"Invalid parameters">>, ['INVALID_PARAMETER'])
             }
         }
     },
@@ -114,11 +116,13 @@ list(Params) ->
     {Tab, QuerySchema} = ?SUBS_QS_SCHEMA,
     case maps:get(<<"node">>, Params, undefined) of
         undefined ->
-            {200, emqx_mgmt_api:cluster_query(Params, Tab,
-                                              QuerySchema, ?query_fun)};
+            Response = emqx_mgmt_api:cluster_query(Params, Tab,
+                                                   QuerySchema, ?query_fun),
+            emqx_mgmt_util:generate_response(Response);
         Node ->
-            {200, emqx_mgmt_api:node_query(binary_to_atom(Node, utf8), Params,
-                                           Tab, QuerySchema, ?query_fun)}
+            Response = emqx_mgmt_api:node_query(binary_to_atom(Node, utf8), Params,
+                                                Tab, QuerySchema, ?query_fun),
+            emqx_mgmt_util:generate_response(Response)
     end.
 
 format(Items) when is_list(Items) ->
