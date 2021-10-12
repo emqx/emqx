@@ -273,8 +273,6 @@ crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params0}) ->
     Params = maps:merge(Params0, #{id => Id}),
     ?CHECK_PARAMS(Params, rule_creation, case emqx_rule_engine:update_rule(CheckedParams) of
         {ok, Rule} -> {200, format_rule_resp(Rule)};
-        {error, not_found} ->
-            {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}};
         {error, Reason} ->
             ?SLOG(error, #{msg => "update_rule_failed",
                            id => Id,
@@ -283,10 +281,8 @@ crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params0}) ->
     end);
 
 crud_rules_by_id(delete, #{bindings := #{id := Id}}) ->
-    case emqx_rule_engine:delete_rule(Id) of
-        ok -> {200};
-        {error, not_found} -> {200}
-    end.
+    ok = emqx_rule_engine:delete_rule(Id),
+    {200}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
