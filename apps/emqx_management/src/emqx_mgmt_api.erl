@@ -120,14 +120,7 @@ node_query(Node, Params, Tab, QsSchema, QueryFun) ->
     Limit = b2i(limit(Params)),
     Page  = b2i(page(Params)),
     Meta = #{page => Page, limit => Limit, count => 0},
-    case Meta of
-        #{page := Page, limit := Limit}
-          when Page < 1; Limit < 1 ->
-            {error, page_limit_invalid};
-        _ ->
-            do_node_query(Node, Tab, Qs, QueryFun, Meta)
-    end.
-
+    page_limit_check_query(Meta, {fun do_node_query/5, [Node, Tab, Qs, QueryFun, Meta]}).
 
 %% @private
 do_node_query(Node, Tab, Qs, QueryFun, Meta) ->
@@ -176,13 +169,7 @@ cluster_query(Params, Tab, QsSchema, QueryFun) ->
     Page  = b2i(page(Params)),
     Nodes = ekka_mnesia:running_nodes(),
     Meta = #{page => Page, limit => Limit, count => 0},
-    case Meta of
-        #{page := Page, limit := Limit}
-          when Page < 1; Limit < 1 ->
-            {error, page_limit_invalid};
-        _ ->
-            do_cluster_query(Nodes, Tab, Qs, QueryFun, Meta)
-    end.
+    page_limit_check_query(Meta, {fun do_cluster_query/5, [Nodes, Tab, Qs, QueryFun, Meta]}).
 
 %% @private
 do_cluster_query(Nodes, Tab, Qs, QueryFun, Meta) ->
@@ -378,6 +365,15 @@ rows_sub_params(Len, _Meta = #{page := Page, limit := Limit, count := Count}) ->
             {SubStart, NeedNowNum};
        true ->
             {_SubStart = 1, _NeedNowNum = Len}
+    end.
+
+page_limit_check_query(Meta, {F, A}) ->
+    case Meta of
+        #{page := Page, limit := Limit}
+          when Page < 1; Limit < 1 ->
+            {error, page_limit_invalid};
+        _ ->
+            erlang:apply(F, A)
     end.
 
 %%--------------------------------------------------------------------

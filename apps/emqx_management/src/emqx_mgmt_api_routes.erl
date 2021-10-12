@@ -37,6 +37,7 @@
                         , error_schema/2
                         , properties/1
                         , page_params/0
+                        , generate_response/1
                         ]).
 
 api_spec() ->
@@ -54,7 +55,8 @@ routes_api() ->
             description => <<"EMQ X routes">>,
             parameters => [topic_param(query) , node_param()] ++ page_params(),
             responses => #{
-                <<"200">> => object_array_schema(properties(), <<"List route info">>)
+                <<"200">> => object_array_schema(properties(), <<"List route info">>),
+                <<"400">> => error_schema(<<"Invalid parameters">>, ['INVALID_PARAMETER'])
             }
         }
     },
@@ -87,7 +89,7 @@ route(get, #{bindings := Bindings}) ->
 %% api apply
 list(Params) ->
     Response = emqx_mgmt_api:node_query(node(), Params, emqx_route, ?ROUTES_QS_SCHEMA, {?MODULE, query}),
-    {200, Response}.
+    generate_response(Response).
 
 lookup(#{topic := Topic}) ->
     case emqx_mgmt:lookup_routes(Topic) of

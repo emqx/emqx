@@ -77,25 +77,21 @@ apis() ->
 -define(format_fun, {?MODULE, format_channel_info}).
 
 clients(get, #{ bindings := #{name := Name0}
-              , query_string := Qs
+              , query_string := Params
               }) ->
     with_gateway(Name0, fun(GwName, _) ->
         TabName = emqx_gateway_cm:tabname(info, GwName),
-        case maps:get(<<"node">>, Qs, undefined) of
+        case maps:get(<<"node">>, Params, undefined) of
             undefined ->
-                Response = emqx_mgmt_api:cluster_query(
-                             Qs, TabName,
-                             ?CLIENT_QS_SCHEMA, ?query_fun
-                            ),
-                {200, Response};
+                Response = emqx_mgmt_api:cluster_query(Params, TabName,
+                                                       ?CLIENT_QS_SCHEMA, ?query_fun),
+                emqx_mgmt_util:generate_response(Response);
             Node1 ->
                 Node = binary_to_atom(Node1, utf8),
-                ParamsWithoutNode = maps:without([<<"node">>], Qs),
-                Response = emqx_mgmt_api:node_query(
-                             Node, ParamsWithoutNode,
-                             TabName, ?CLIENT_QS_SCHEMA, ?query_fun
-                            ),
-                {200, Response}
+                ParamsWithoutNode = maps:without([<<"node">>], Params),
+                Response = emqx_mgmt_api:node_query(Node, ParamsWithoutNode,
+                                                    TabName, ?CLIENT_QS_SCHEMA, ?query_fun),
+                emqx_mgmt_util:generate_response(Response)
         end
     end).
 

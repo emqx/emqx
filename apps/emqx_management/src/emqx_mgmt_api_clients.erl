@@ -264,7 +264,8 @@ clients_api() ->
                 }
             ],
             responses => #{
-                <<"200">> => emqx_mgmt_util:array_schema(client, <<"List clients 200 OK">>)}}},
+                <<"200">> => emqx_mgmt_util:array_schema(client, <<"List clients 200 OK">>),
+                <<"400">> => emqx_mgmt_util:error_schema(<<"Invalid parameters">>, ['INVALID_PARAMETER'])}}},
     {"/clients", Metadata, clients}.
 
 client_api() ->
@@ -435,13 +436,13 @@ list(Params) ->
         undefined ->
             Response = emqx_mgmt_api:cluster_query(Params, Tab,
                                                    QuerySchema, ?query_fun),
-            {200, Response};
+            emqx_mgmt_util:generate_response(Response);
         Node1 ->
             Node = binary_to_atom(Node1, utf8),
             ParamsWithoutNode = maps:without([<<"node">>], Params),
             Response = emqx_mgmt_api:node_query(Node, ParamsWithoutNode,
                                                 Tab, QuerySchema, ?query_fun),
-            {200, Response}
+            emqx_mgmt_util:generate_response(Response)
     end.
 
 lookup(#{clientid := ClientID}) ->
