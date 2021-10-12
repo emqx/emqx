@@ -29,7 +29,7 @@
         , rule_test/2
         ]).
 
--define(ERR_NO_RULE(ID), list_to_binary(io_lib:format("Rule ~s Not Found", [(ID)]))).
+-define(ERR_NO_RULE(ID), list_to_binary(io_lib:format("Rule ~ts Not Found", [(ID)]))).
 -define(ERR_BADARGS(REASON),
         begin
             R0 = err_msg(REASON),

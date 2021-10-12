@@ -663,7 +663,7 @@ handle_incoming(Packet, State = #state{
                                   }) ->
     Ctx = ChannMod:info(ctx, Channel),
     ok = inc_incoming_stats(Ctx, FrameMod, Packet),
-    ?LOG(debug, "RECV ~s", [FrameMod:format(Packet)]),
+    ?LOG(debug, "RECV ~ts", [FrameMod:format(Packet)]),
     with_channel(handle_in, [Packet], State).
 
 %%--------------------------------------------------------------------
@@ -715,12 +715,12 @@ serialize_and_inc_stats_fun(#state{
     Ctx = ChannMod:info(ctx, Channel),
     fun(Packet) ->
         case FrameMod:serialize_pkt(Packet, Serialize) of
-            <<>> -> ?LOG(warning, "~s is discarded due to the frame is too large!",
+            <<>> -> ?LOG(warning, "~ts is discarded due to the frame is too large!",
                          [FrameMod:format(Packet)]),
                     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'delivery.dropped.too_large'),
                     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'delivery.dropped'),
                     <<>>;
-            Data -> ?LOG(debug, "SEND ~s", [FrameMod:format(Packet)]),
+            Data -> ?LOG(debug, "SEND ~ts", [FrameMod:format(Packet)]),
                     ok = inc_outgoing_stats(Ctx, FrameMod, Packet),
                     Data
         end

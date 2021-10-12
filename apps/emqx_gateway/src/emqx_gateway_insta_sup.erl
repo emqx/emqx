@@ -103,7 +103,7 @@ init([Gateway, Ctx, _GwDscrptr]) ->
               },
     case maps:get(enable, Config, true) of
         false ->
-            ?LOG(info, "Skipp to start ~s gateway due to disabled", [GwName]),
+            ?LOG(info, "Skipp to start ~ts gateway due to disabled", [GwName]),
             {ok, State};
         true ->
             case cb_gateway_load(State) of
@@ -266,13 +266,13 @@ do_create_authn_chain(ChainName, AuthConf) ->
             case emqx_authentication:create_authenticator(ChainName, AuthConf) of
                 {ok, _} -> ok;
                 {error, Reason} ->
-                    ?LOG(error, "Failed to create authenticator chain ~s, "
+                    ?LOG(error, "Failed to create authenticator chain ~ts, "
                                 "reason: ~p, config: ~p",
                                 [ChainName, Reason, AuthConf]),
                     throw({badauth, Reason})
             end;
         {error, Reason} ->
-            ?LOG(error, "Falied to create authn chain ~s, reason ~p",
+            ?LOG(error, "Falied to create authn chain ~ts, reason ~p",
                         [ChainName, Reason]),
             throw({badauth, Reason})
     end.
@@ -293,7 +293,7 @@ do_deinit_authn(Names) ->
             ok -> ok;
             {error, {not_found, _}} -> ok;
             {error, Reason} ->
-                ?LOG(error, "Failed to clean authentication chain: ~s, "
+                ?LOG(error, "Failed to clean authentication chain: ~ts, "
                             "reason: ~p", [ChainName, Reason])
         end
     end, Names).
@@ -388,7 +388,7 @@ cb_gateway_load(State = #state{name = GwName,
         end
     catch
         Class : Reason1 : Stk ->
-            ?LOG(error, "Failed to load ~s gateway (~0p, ~0p) "
+            ?LOG(error, "Failed to load ~ts gateway (~0p, ~0p) "
                         "crashed: {~p, ~p}, stacktrace: ~0p",
                          [GwName, Gateway, Ctx,
                           Class, Reason1, Stk]),
@@ -413,7 +413,7 @@ cb_gateway_update(Config,
         end
     catch
         Class : Reason1 : Stk ->
-            ?LOG(error, "Failed to update ~s gateway to config: ~0p crashed: "
+            ?LOG(error, "Failed to update ~ts gateway to config: ~0p crashed: "
                         "{~p, ~p}, stacktrace: ~0p",
                         [GwName, Config, Class, Reason1, Stk]),
             {error, {Class, Reason1, Stk}}

@@ -331,7 +331,7 @@ auth_connect(_Input, Channel = #channel{ctx = Ctx,
         {ok, NClientInfo} ->
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
-            ?LOG(warning, "Client ~s (Username: '~s') login failed for ~0p",
+            ?LOG(warning, "Client ~ts (Username: '~ts') login failed for ~0p",
                  [ClientId, Username, Reason]),
             {error, Reason}
     end.
@@ -473,7 +473,7 @@ process_connection({open, Req}, Result, Channel, Iter) ->
         {ok, _Input, NChannel} ->
             process_connect(ensure_connected(NChannel), Req, Result, Iter);
         {error, ReasonCode, NChannel} ->
-            ErrMsg = io_lib:format("Login Failed: ~s", [ReasonCode]),
+            ErrMsg = io_lib:format("Login Failed: ~ts", [ReasonCode]),
             Payload = erlang:list_to_binary(lists:flatten(ErrMsg)),
             iter(Iter,
                  reply({error, bad_request}, Payload, Req, Result),

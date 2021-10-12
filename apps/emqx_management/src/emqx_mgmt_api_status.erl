@@ -41,7 +41,7 @@ running_status(get, _Params) ->
             false         -> not_running;
             {value, _Val} -> running
         end,
-    Status = io_lib:format("Node ~s is ~s~nemqx is ~s", [node(), InternalStatus, AppStatus]),
+    Status = io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), InternalStatus, AppStatus]),
     Body = list_to_binary(Status),
     {200, #{<<"content-type">> => <<"text/plain">>}, Body}.
 

@@ -53,7 +53,7 @@ gateway(["list"]) ->
     lists:foreach(fun(#{name := Name} = Gateway) ->
         %% TODO: More infos: listeners?, connected?
         Status = maps:get(status, Gateway, stopped),
-        print("Gateway(name=~s, status=~s)~n", [Name, Status])
+        print("Gateway(name=~ts, status=~ts)~n", [Name, Status])
     end, emqx_gateway:list());
 
 gateway(["lookup", Name]) ->
@@ -123,7 +123,7 @@ gateway(_) ->
 'gateway-registry'(["list"]) ->
     lists:foreach(
       fun({Name, #{cbkmod := CbMod}}) ->
-        print("Registered Name: ~s, Callback Module: ~s~n", [Name, CbMod])
+        print("Registered Name: ~ts, Callback Module: ~ts~n", [Name, CbMod])
       end,
     emqx_gateway_registry:list());
 
@@ -229,10 +229,10 @@ print_record({client, {_, Infos, Stats}}) ->
               connected_at => ConnectedAt
             },
 
-    print("Client(~s, username=~s, peername=~s, "
-          "clean_start=~s, keepalive=~w, "
+    print("Client(~ts, username=~ts, peername=~ts, "
+          "clean_start=~ts, keepalive=~w, "
           "subscriptions=~w, delivered_msgs=~w, "
-          "connected=~s, created_at=~w, connected_at=~w)~n",
+          "connected=~ts, created_at=~w, connected_at=~w)~n",
           [format(K, maps:get(K, Info)) || K <- InfoKeys]).
 
 print(S) -> emqx_ctl:print(S).
@@ -243,7 +243,7 @@ format(_, undefined) ->
 
 format(peername, {IPAddr, Port}) ->
     IPStr = emqx_mgmt_util:ntoa(IPAddr),
-    io_lib:format("~s:~p", [IPStr, Port]);
+    io_lib:format("~ts:~p", [IPStr, Port]);
 
 format(_, Val) ->
     Val.

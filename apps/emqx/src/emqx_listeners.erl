@@ -131,15 +131,15 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
     case do_start_listener(Type, ListenerName, Conf) of
         {ok, {skipped, Reason}} when Reason =:= listener_disabled;
                                      Reason =:= quic_app_missing ->
-            console_print("- Skip - starting listener ~s on ~s ~n due to ~p",
+            console_print("- Skip - starting listener ~ts on ~ts ~n due to ~p",
                           [listener_id(Type, ListenerName), format_addr(Bind), Reason]);
         {ok, _} ->
-            console_print("Listener ~s on ~s started.~n",
+            console_print("Listener ~ts on ~ts started.~n",
                 [listener_id(Type, ListenerName), format_addr(Bind)]);
         {error, {already_started, Pid}} ->
             {error, {already_started, Pid}};
         {error, Reason} ->
-            ?ELOG("Failed to start listener ~s on ~s: ~0p~n",
+            ?ELOG("Failed to start listener ~ts on ~ts: ~0p~n",
                   [listener_id(Type, ListenerName), format_addr(Bind), Reason]),
             error(Reason)
     end.
@@ -180,11 +180,11 @@ stop_listener(ListenerId) ->
 stop_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
     case do_stop_listener(Type, ListenerName, Conf) of
         ok ->
-            console_print("Listener ~s on ~s stopped.~n",
+            console_print("Listener ~ts on ~ts stopped.~n",
                 [listener_id(Type, ListenerName), format_addr(Bind)]),
             ok;
         {error, Reason} ->
-            ?ELOG("Failed to stop listener ~s on ~s: ~0p~n",
+            ?ELOG("Failed to stop listener ~ts on ~ts: ~0p~n",
                   [listener_id(Type, ListenerName), format_addr(Bind), Reason]),
             {error, Reason}
     end.
@@ -342,9 +342,9 @@ merge_default(Options) ->
 format_addr(Port) when is_integer(Port) ->
     io_lib:format("0.0.0.0:~w", [Port]);
 format_addr({Addr, Port}) when is_list(Addr) ->
-    io_lib:format("~s:~w", [Addr, Port]);
+    io_lib:format("~ts:~w", [Addr, Port]);
 format_addr({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
+    io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]).
 
 listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).

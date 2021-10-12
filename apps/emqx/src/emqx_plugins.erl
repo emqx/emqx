@@ -151,7 +151,7 @@ load_ext_plugin(PluginDir) ->
     % catch
     %     throw : {conf_file_not_found, ConfFile} ->
     %         %% this is maybe a dependency of an external plugin
-    %         ?LOG(debug, "config_load_error_ignored for app=~p, path=~s", [AppName, ConfFile]),
+    %         ?LOG(debug, "config_load_error_ignored for app=~p, path=~ts", [AppName, ConfFile]),
     %         ok
     % end.
 

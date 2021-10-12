@@ -37,7 +37,7 @@ post_boot() ->
 print_vsn() -> ok.
 -else. % TEST
 print_vsn() ->
-    ?ULOG("~s ~s is running now!~n", [emqx_app:get_description(), emqx_app:get_release()]).
+    ?ULOG("~ts ~ts is running now!~n", [emqx_app:get_description(), emqx_app:get_release()]).
 -endif. % TEST
 
 

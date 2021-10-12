@@ -177,7 +177,7 @@ query() ->
 connector_fields(DB) ->
     connector_fields(DB, config).
 connector_fields(DB, Fields) ->
-    Mod0 = io_lib:format("~s_~s",[emqx_connector, DB]),
+    Mod0 = io_lib:format("~ts_~ts",[emqx_connector, DB]),
     Mod = try
               list_to_existing_atom(Mod0)
           catch

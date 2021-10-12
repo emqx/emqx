@@ -31,14 +31,14 @@ init_per_suite(Config) ->
     DataPath = proplists:get_value(data_dir, Config),
     AppPath = filename:join([DataPath, "emqx_mini_plugin"]),
     HoconPath = filename:join([DataPath, "emqx_hocon_plugin"]),
-    Cmd = lists:flatten(io_lib:format("cd ~s && make", [AppPath])),
-    CmdPath = lists:flatten(io_lib:format("cd ~s && make", [HoconPath])),
+    Cmd = lists:flatten(io_lib:format("cd ~ts && make", [AppPath])),
+    CmdPath = lists:flatten(io_lib:format("cd ~ts && make", [HoconPath])),
 
-    ct:pal("Executing ~s~n", [Cmd]),
-    ct:pal("~n ~s~n", [os:cmd(Cmd)]),
+    ct:pal("Executing ~ts~n", [Cmd]),
+    ct:pal("~n ~ts~n", [os:cmd(Cmd)]),
 
-    ct:pal("Executing ~s~n", [CmdPath]),
-    ct:pal("~n ~s~n", [os:cmd(CmdPath)]),
+    ct:pal("Executing ~ts~n", [CmdPath]),
+    ct:pal("~n ~ts~n", [os:cmd(CmdPath)]),
 
     emqx_ct_helpers:boot_modules([]),
     emqx_ct_helpers:start_apps([]),

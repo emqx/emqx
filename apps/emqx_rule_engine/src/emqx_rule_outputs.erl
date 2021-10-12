@@ -25,7 +25,7 @@
 
 -spec console(map(), map(), map()) -> any().
 console(Selected, #{metadata := #{rule_id := RuleId}} = Envs, _Args) ->
-    ?ULOG("[rule output] ~s~n"
+    ?ULOG("[rule output] ~ts~n"
           "\tOutput Data: ~p~n"
           "\tEnvs: ~p~n", [RuleId, Selected, Envs]).
 
