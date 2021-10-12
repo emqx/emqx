@@ -29,7 +29,9 @@ start(_Type, _Args) ->
     ok = emqx_rule_events:reload(),
     SupRet = emqx_rule_engine_sup:start_link(),
     ok = emqx_rule_engine:load_rules(),
+    emqx_config_handler:add_handler(emqx_rule_engine:config_key_path(), emqx_rule_engine),
     SupRet.
 
 stop(_State) ->
+    emqx_config_handler:remove_handler(emqx_rule_engine:config_key_path()),
     ok = emqx_rule_events:unload().

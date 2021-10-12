@@ -27,6 +27,7 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 stop(_State) ->
+    emqx_config_handler:remove_handler(emqx_bridge:config_key_path()),
     ok = emqx_bridge:unload_hook(),
     ok.
 
