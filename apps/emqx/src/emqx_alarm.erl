@@ -401,7 +401,7 @@ normalize(#deactivated_alarm{activate_at = ActivateAt,
 normalize_message(Name, no_details) ->
     list_to_binary(io_lib:format("~p", [Name]));
 normalize_message(runq_overload, #{node := Node, runq_length := Len}) ->
-    list_to_binary(io_lib:format("Runq is overloaded on node: ~p: ~p", [Node, Len]));
+    list_to_binary(io_lib:format("VM is overloaded on node: ~p: ~p", [Node, Len]));
 normalize_message(high_system_memory_usage, #{high_watermark := HighWatermark}) ->
     list_to_binary(io_lib:format("System memory usage is higher than ~p%", [HighWatermark]));
 normalize_message(high_process_memory_usage, #{high_watermark := HighWatermark}) ->
