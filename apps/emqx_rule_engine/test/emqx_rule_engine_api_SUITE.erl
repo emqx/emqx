@@ -6,11 +6,14 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(CONF_DEFAULT, <<"rule_engine {rules {}}">>).
+
 all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     application:load(emqx_machine),
+    ok = emqx_config:init_load(emqx_rule_engine_schema, ?CONF_DEFAULT),
     ok = emqx_ct_helpers:start_apps([emqx_rule_engine]),
     Config.
 
@@ -35,6 +38,9 @@ t_crud_rule_api(_Config) ->
         <<"sql">> => <<"SELECT * from \"t/1\"">>
     },
     {201, Rule} = emqx_rule_engine_api:crud_rules(post, #{body => Params0}),
+    %% if we post again with the same params, it return with 400 "rule id already exists"
+    ?assertMatch({400, #{code := _, message := _Message}},
+        emqx_rule_engine_api:crud_rules(post, #{body => Params0})),
 
     ?assertEqual(RuleID, maps:get(id, Rule)),
     {200, Rules} = emqx_rule_engine_api:crud_rules(get, #{}),

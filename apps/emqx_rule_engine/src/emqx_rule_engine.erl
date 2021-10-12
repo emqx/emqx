@@ -17,12 +17,17 @@
 -module(emqx_rule_engine).
 
 -behaviour(gen_server).
+-behaviour(emqx_config_handler).
 
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 
 -export([start_link/0]).
+
+-export([ post_config_update/4
+        , config_key_path/0
+        ]).
 
 %% Rule Management
 
@@ -66,13 +71,32 @@
 
 -define(T_CALL, 10000).
 
-%%------------------------------------------------------------------------------
-%% Start the gen_server
-%%------------------------------------------------------------------------------
+-define(FOREACH_RULE(RULES, EXPR),
+    lists:foreach(fun({ID0, _ITEM}) ->
+            ID = bin(ID0),
+            EXPR
+        end, maps:to_list(RULES))).
+
+config_key_path() ->
+    [rule_engine, rules].
 
 -spec(start_link() -> {ok, pid()} | ignore | {error, Reason :: term()}).
 start_link() ->
     gen_server:start_link({local, ?RULE_ENGINE}, ?MODULE, [], []).
+
+%%------------------------------------------------------------------------------
+%% The config handler for emqx_rule_engine
+%%------------------------------------------------------------------------------
+post_config_update(_Req, NewRules, OldRules, _AppEnvs) ->
+    #{added := Added, removed := Removed, changed := Updated}
+        = emqx_map_lib:diff_maps(NewRules, OldRules),
+    ?FOREACH_RULE(Updated, begin
+        {_Old, New} = _ITEM,
+        {ok, _} = update_rule(New#{id => ID})
+    end),
+    ?FOREACH_RULE(Removed, ok = delete_rule(ID)),
+    ?FOREACH_RULE(Added, {ok, _} = create_rule(_ITEM#{id => ID})),
+    {ok, get_rules()}.
 
 %%------------------------------------------------------------------------------
 %% APIs for rules
@@ -81,23 +105,23 @@ start_link() ->
 -spec load_rules() -> ok.
 load_rules() ->
     lists:foreach(fun({Id, Rule}) ->
-            {ok, _} = create_rule(Rule#{id => Id})
+            {ok, _} = create_rule(Rule#{id => bin(Id)})
         end, maps:to_list(emqx:get_config([rule_engine, rules], #{}))).
 
 -spec create_rule(map()) -> {ok, rule()} | {error, term()}.
-create_rule(Params = #{id := RuleId}) ->
+create_rule(Params = #{id := RuleId}) when is_binary(RuleId) ->
     case get_rule(RuleId) of
         not_found -> do_create_rule(Params);
         {ok, _} -> {error, {already_exists, RuleId}}
     end.
 
 -spec update_rule(map()) -> {ok, rule()} | {error, term()}.
-update_rule(Params = #{id := RuleId}) ->
+update_rule(Params = #{id := RuleId}) when is_binary(RuleId) ->
     ok = delete_rule(RuleId),
     do_create_rule(Params).
 
 -spec(delete_rule(RuleId :: rule_id()) -> ok).
-delete_rule(RuleId) ->
+delete_rule(RuleId) when is_binary(RuleId) ->
     gen_server:call(?RULE_ENGINE, {delete_rule, RuleId}, ?T_CALL).
 
 -spec(insert_rule(Rule :: rule()) -> ok).
@@ -259,3 +283,6 @@ parse_output_func(Func) when is_function(Func) ->
 
 get_all_records(Tab) ->
     [Rule#{id => Id} || {Id, Rule} <- ets:tab2list(Tab)].
+
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(B) when is_binary(B) -> B.

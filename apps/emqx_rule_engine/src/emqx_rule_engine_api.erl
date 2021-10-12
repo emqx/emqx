@@ -245,13 +245,22 @@ crud_rules(get, _Params) ->
     Records = emqx_rule_engine:get_rules_ordered_by_ts(),
     {200, format_rule_resp(Records)};
 
-crud_rules(post, #{body := Params}) ->
-    ?CHECK_PARAMS(Params, rule_creation, case emqx_rule_engine:create_rule(CheckedParams) of
-        {ok, Rule} -> {201, format_rule_resp(Rule)};
-        {error, Reason} ->
-            ?SLOG(error, #{msg => "create_rule_failed", reason => Reason}),
-            {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
-    end).
+crud_rules(post, #{body := #{<<"id">> := Id} = Params}) ->
+    ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
+    case emqx_rule_engine:get_rule(Id) of
+        {ok, _Rule} ->
+            {400, #{code => 'BAD_ARGS', message => <<"rule id already exists">>}};
+        not_found ->
+            case emqx:update_config(ConfPath, maps:remove(<<"id">>, Params), #{}) of
+                {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
+                    [Rule] = [R || R = #{id := Id0} <- AllRules, Id0 == Id],
+                    {201, format_rule_resp(Rule)};
+                {error, Reason} ->
+                    ?SLOG(error, #{msg => "create_rule_failed",
+                                   id => Id, reason => Reason}),
+                    {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
+            end
+    end.
 
 rule_test(post, #{body := Params}) ->
     ?CHECK_PARAMS(Params, rule_test, case emqx_rule_sqltester:test(CheckedParams) of
@@ -267,20 +276,27 @@ crud_rules_by_id(get, #{bindings := #{id := Id}}) ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end;
 
-crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params0}) ->
-    Params = maps:merge(Params0, #{id => Id}),
-    ?CHECK_PARAMS(Params, rule_creation, case emqx_rule_engine:update_rule(CheckedParams) of
-        {ok, Rule} -> {200, format_rule_resp(Rule)};
+crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params}) ->
+    ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
+    case emqx:update_config(ConfPath, maps:remove(<<"id">>, Params), #{}) of
+        {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
+            [Rule] = [R || R = #{id := Id0} <- AllRules, Id0 == Id],
+            {200, format_rule_resp(Rule)};
         {error, Reason} ->
             ?SLOG(error, #{msg => "update_rule_failed",
-                           id => Id,
-                           reason => Reason}),
+                           id => Id, reason => Reason}),
             {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
-    end);
+    end;
 
 crud_rules_by_id(delete, #{bindings := #{id := Id}}) ->
-    ok = emqx_rule_engine:delete_rule(Id),
-    {200}.
+    ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
+    case emqx:remove_config(ConfPath, #{}) of
+        {ok, _} -> {200};
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "delete_rule_failed",
+                           id => Id, reason => Reason}),
+            {500, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
