@@ -239,11 +239,11 @@ handle_call({get_alarms, deactivated}, _From, State) ->
     {reply, Alarms, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected msg: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info({timeout, _TRef, delete_expired_deactivated_alarm},
@@ -253,11 +253,11 @@ handle_info({timeout, _TRef, delete_expired_deactivated_alarm},
     {noreply, State#state{timer = ensure_timer(TRef, Period)}};
 
 handle_info({update_timer, Period}, #state{timer = TRef} = State) ->
-    ?LOG(warning, "update the 'validity_period' timer to ~p", [Period]),
+    ?SLOG(warning, #{msg => "validity_timer_updated", period => Period}),
     {noreply, State#state{timer = ensure_timer(TRef, Period)}};
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -323,8 +323,11 @@ deactivate_all_alarms() ->
 clear_table(TableName) ->
     case ekka_mnesia:clear_table(TableName) of
         {aborted, Reason} ->
-            ?LOG(warning, "Faile to clear table ~p reason: ~p",
-                 [TableName, Reason]);
+            ?SLOG(warning, #{
+                msg => "fail_to_clear_table",
+                table_name => TableName,
+                reason => Reason
+            });
         {atomic, ok} ->
             ok
     end.
@@ -354,10 +357,17 @@ delete_expired_deactivated_alarms(ActivatedAt, Checkpoint) ->
 do_actions(_, _, []) ->
     ok;
 do_actions(activate, Alarm = #activated_alarm{name = Name, message = Message}, [log | More]) ->
-    ?LOG(warning, "Alarm ~s is activated, ~s", [Name, Message]),
+    ?SLOG(warning, #{
+        msg => "alarm_is_activated",
+        name => Name,
+        message => Message
+    }),
     do_actions(activate, Alarm, More);
 do_actions(deactivate, Alarm = #deactivated_alarm{name = Name}, [log | More]) ->
-    ?LOG(warning, "Alarm ~s is deactivated", [Name]),
+    ?SLOG(warning, #{
+        msg => "alarm_is_deactivated",
+        name => Name
+    }),
     do_actions(deactivate, Alarm, More);
 do_actions(Operation, Alarm, [publish | More]) ->
     Topic = topic(Operation),
@@ -405,16 +415,16 @@ normalize_message(high_system_memory_usage, #{high_watermark := HighWatermark}) 
 normalize_message(high_process_memory_usage, #{high_watermark := HighWatermark}) ->
     list_to_binary(io_lib:format("Process memory usage is higher than ~p%", [HighWatermark]));
 normalize_message(high_cpu_usage, #{usage := Usage}) ->
-    list_to_binary(io_lib:format("~s cpu usage", [Usage]));
+    list_to_binary(io_lib:format("~ts cpu usage", [Usage]));
 normalize_message(too_many_processes, #{usage := Usage}) ->
-    list_to_binary(io_lib:format("~s process usage", [Usage]));
+    list_to_binary(io_lib:format("~ts process usage", [Usage]));
 normalize_message(cluster_rpc_apply_failed, #{tnx_id := TnxId}) ->
     list_to_binary(io_lib:format("cluster_rpc_apply_failed:~w", [TnxId]));
 normalize_message(partition, #{occurred := Node}) ->
-    list_to_binary(io_lib:format("Partition occurs at node ~s", [Node]));
+    list_to_binary(io_lib:format("Partition occurs at node ~ts", [Node]));
 normalize_message(<<"resource", _/binary>>, #{type := Type, id := ID}) ->
-    list_to_binary(io_lib:format("Resource ~s(~s) is down", [Type, ID]));
+    list_to_binary(io_lib:format("Resource ~ts(~ts) is down", [Type, ID]));
 normalize_message(<<"conn_congestion/", Info/binary>>, _) ->
-    list_to_binary(io_lib:format("connection congested: ~s", [Info]));
+    list_to_binary(io_lib:format("connection congested: ~ts", [Info]));
 normalize_message(_Name, _UnknownDetails) ->
     <<"Unknown alarm">>.

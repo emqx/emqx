@@ -187,11 +187,11 @@ init([]) ->
     {ok, ensure_expiry_timer(#{expiry_timer => undefined})}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "unexpected msg: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_msg", cast => Msg}),
     {noreply, State}.
 
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
@@ -199,7 +199,7 @@ handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
     {noreply, ensure_expiry_timer(State), hibernate};
 
 handle_info(Info, State) ->
-    ?LOG(error, "unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{expiry_timer := TRef}) ->

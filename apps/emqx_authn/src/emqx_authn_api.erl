@@ -1991,13 +1991,13 @@ convert_certs(Config) ->
 serialize_error({not_found, {authenticator, ID}}) ->
     {404, #{code => <<"NOT_FOUND">>,
             message => list_to_binary(
-                io_lib:format("Authenticator '~s' does not exist", [ID])
+                io_lib:format("Authenticator '~ts' does not exist", [ID])
             )}};
 
 serialize_error({not_found, {listener, ID}}) ->
     {404, #{code => <<"NOT_FOUND">>,
             message => list_to_binary(
-                io_lib:format("Listener '~s' does not exist", [ID])
+                io_lib:format("Listener '~ts' does not exist", [ID])
             )}};
 
 serialize_error({not_found, {chain, ?GLOBAL}}) ->
@@ -2007,13 +2007,13 @@ serialize_error({not_found, {chain, ?GLOBAL}}) ->
 serialize_error({not_found, {chain, Name}}) ->
     {400, #{code => <<"BAD_REQUEST">>,
             message => list_to_binary(
-                io_lib:format("No authentication has been create for listener '~s'", [Name])
+                io_lib:format("No authentication has been create for listener '~ts'", [Name])
             )}};
 
 serialize_error({already_exists, {authenticator, ID}}) ->
     {409, #{code => <<"ALREADY_EXISTS">>,
             message => list_to_binary(
-                io_lib:format("Authenticator '~s' already exist", [ID])
+                io_lib:format("Authenticator '~ts' already exist", [ID])
             )}};
 
 serialize_error(no_available_provider) ->

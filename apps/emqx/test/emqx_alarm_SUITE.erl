@@ -92,7 +92,7 @@ t_validity_period(_) ->
     ok = emqx_alarm:activate(a),
     ok = emqx_alarm:deactivate(a),
     ?assertNotEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))),
-    ct:sleep(2000),
+    ct:sleep(3000),
     ?assertEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))).
 
 get_alarm(Name, [Alarm = #{name := Name} | _More]) ->

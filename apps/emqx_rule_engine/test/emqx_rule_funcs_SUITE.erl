@@ -423,9 +423,9 @@ t_concat(_) ->
     ?assertEqual(<<>>, apply_func(concat, [<<"">>, <<"">>])).
 
 t_sprintf(_) ->
-    ?assertEqual(<<"Hello Shawn!">>, apply_func(sprintf, [<<"Hello ~s!">>, <<"Shawn">>])),
-    ?assertEqual(<<"Name: ABC, Count: 2">>, apply_func(sprintf, [<<"Name: ~s, Count: ~p">>, <<"ABC">>, 2])),
-    ?assertEqual(<<"Name: ABC, Count: 2, Status: {ok,running}">>, apply_func(sprintf, [<<"Name: ~s, Count: ~p, Status: ~p">>, <<"ABC">>, 2, {ok, running}])).
+    ?assertEqual(<<"Hello Shawn!">>, apply_func(sprintf, [<<"Hello ~ts!">>, <<"Shawn">>])),
+    ?assertEqual(<<"Name: ABC, Count: 2">>, apply_func(sprintf, [<<"Name: ~ts, Count: ~p">>, <<"ABC">>, 2])),
+    ?assertEqual(<<"Name: ABC, Count: 2, Status: {ok,running}">>, apply_func(sprintf, [<<"Name: ~ts, Count: ~p, Status: ~p">>, <<"ABC">>, 2, {ok, running}])).
 
 t_pad(_) ->
     ?assertEqual(<<"abc  ">>, apply_func(pad, [<<"abc">>, 5])),

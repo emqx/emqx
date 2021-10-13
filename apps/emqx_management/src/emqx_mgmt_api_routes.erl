@@ -105,9 +105,9 @@ generate_topic(Params = #{topic := Topic}) ->
     Params#{topic => uri_string:percent_decode(Topic)};
 generate_topic(Params) -> Params.
 
-query(Tab, {Qs, _}, Start, Limit) ->
+query(Tab, {Qs, _}, Continuation, Limit) ->
     Ms = qs2ms(Qs, [{{route, '_', '_'}, [], ['$_']}]),
-    emqx_mgmt_api:select_table(Tab, Ms, Start, Limit, fun format/1).
+    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit, fun format/1).
 
 qs2ms([], Res) -> Res;
 qs2ms([{topic,'=:=', T} | Qs], [{{route, _, N}, [], ['$_']}]) ->

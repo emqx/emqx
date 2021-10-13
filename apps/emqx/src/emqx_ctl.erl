@@ -128,7 +128,7 @@ help() ->
         [] ->
             print("No commands available.~n");
         Cmds ->
-            print("Usage: ~s~n", [?MODULE]),
+            print("Usage: ~ts~n", [?MODULE]),
             lists:foreach(fun({_, {Mod, Cmd}, _}) ->
                     print("~110..-s~n", [""]), Mod:Cmd(usage)
                 end, Cmds)
@@ -136,11 +136,11 @@ help() ->
 
 -spec(print(io:format()) -> ok).
 print(Msg) ->
-    io:format("~s", [format(Msg)]).
+    io:format("~ts", [format(Msg)]).
 
 -spec(print(io:format(), [term()]) -> ok).
 print(Format, Args) ->
-    io:format("~s", [format(Format, Args)]).
+    io:format("~ts", [format(Format, Args)]).
 
 -spec(usage([cmd_usage()]) -> ok).
 usage(UsageList) ->
@@ -152,7 +152,7 @@ usage(CmdParams, Desc) ->
 
 -spec(format(io:format()) -> string()).
 format(Msg) ->
-    lists:flatten(io_lib:format("~s", [Msg])).
+    lists:flatten(io_lib:format("~ts", [Msg])).
 
 -spec(format(io:format(), [term()]) -> string()).
 format(Format, Args) ->
@@ -170,7 +170,7 @@ format_usage(CmdParams, Desc) ->
     CmdLines = split_cmd(CmdParams),
     DescLines = split_cmd(Desc),
     lists:foldl(fun({CmdStr, DescStr}, Usage) ->
-                        Usage ++ format("~-70s# ~s~n", [CmdStr, DescStr])
+                        Usage ++ format("~-70s# ~ts~n", [CmdStr, DescStr])
                 end, "", zip_cmd(CmdLines, DescLines)).
 
 %%--------------------------------------------------------------------
@@ -185,13 +185,13 @@ handle_call({register_command, Cmd, MF, Opts}, _From, State = #state{seq = Seq})
     case ets:match(?CMD_TAB, {{'$1', Cmd}, '_', '_'}) of
         [] -> ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts});
         [[OriginSeq] | _] ->
-            ?LOG(warning, "CMD ~s is overidden by ~p", [Cmd, MF]),
+            ?SLOG(warning, #{msg => "CMD_overidden", cmd => Cmd, mf => MF}),
             true = ets:insert(?CMD_TAB, {{OriginSeq, Cmd}, MF, Opts})
     end,
     {reply, ok, next_seq(State)};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast({unregister_command, Cmd}, State) ->
@@ -199,11 +199,11 @@ handle_cast({unregister_command, Cmd}, State) ->
     noreply(State);
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     noreply(State).
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     noreply(State).
 
 terminate(_Reason, _State) ->

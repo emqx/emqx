@@ -19,7 +19,7 @@
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--import(emqx_ct_proper_types,
+-import(emqx_proper_types,
         [ conninfo/0
         , clientinfo/0
         , sessioninfo/0
@@ -503,7 +503,7 @@ unsub_properties() ->
     #{}.
 
 shutdown_reason() ->
-    oneof([utf8(), {shutdown, emqx_ct_proper_types:limited_atom()}]).
+    oneof([utf8(), {shutdown, emqx_proper_types:limited_atom()}]).
 
 authresult() ->
     ?LET(RC, connack_return_code(),

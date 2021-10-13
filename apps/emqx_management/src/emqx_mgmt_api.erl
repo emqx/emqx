@@ -18,16 +18,16 @@
 
 -include_lib("stdlib/include/qlc.hrl").
 
+-define(FRESH_SELECT, fresh_select).
+
 -export([ paginate/3
         , paginate/4
         ]).
 
 %% first_next query APIs
--export([ params2qs/2
-        , node_query/5
+-export([ node_query/5
         , cluster_query/4
-        , traverse_table/5
-        , select_table/5
+        , select_table_with_count/5
         ]).
 
 -export([do_query/6]).
@@ -67,18 +67,18 @@ paginate(Tables, MatchSpec, Params, RowFun) ->
       data  => [RowFun(Row) || Row <- Rows]}.
 
 query_handle(Table) when is_atom(Table) ->
-    qlc:q([R|| R <- ets:table(Table)]);
+    qlc:q([R || R <- ets:table(Table)]);
 query_handle([Table]) when is_atom(Table) ->
-    qlc:q([R|| R <- ets:table(Table)]);
+    qlc:q([R || R <- ets:table(Table)]);
 query_handle(Tables) ->
     qlc:append([qlc:q([E || E <- ets:table(T)]) || T <- Tables]).
 
 query_handle(Table, MatchSpec) when is_atom(Table) ->
     Options = {traverse, {select, MatchSpec}},
-    qlc:q([R|| R <- ets:table(Table, Options)]);
+    qlc:q([R || R <- ets:table(Table, Options)]);
 query_handle([Table], MatchSpec) when is_atom(Table) ->
     Options = {traverse, {select, MatchSpec}},
-    qlc:q([R|| R <- ets:table(Table, Options)]);
+    qlc:q([R || R <- ets:table(Table, Options)]);
 query_handle(Tables, MatchSpec) ->
     Options = {traverse, {select, MatchSpec}},
     qlc:append([qlc:q([E || E <- ets:table(T, Options)]) || T <- Tables]).
@@ -116,26 +116,110 @@ limit(Params) ->
 %%--------------------------------------------------------------------
 
 node_query(Node, Params, Tab, QsSchema, QueryFun) ->
-    {CodCnt, Qs} = params2qs(Params, QsSchema),
+    {_CodCnt, Qs} = params2qs(Params, QsSchema),
     Limit = b2i(limit(Params)),
     Page  = b2i(page(Params)),
-    Start = if Page > 1 -> (Page-1) * Limit;
-               true -> 0
-            end,
-    {_, Rows} = do_query(Node, Tab, Qs, QueryFun, Start, Limit+1),
-    Meta = #{page => Page, limit => Limit},
-    NMeta = case CodCnt =:= 0 of
-                true -> Meta#{count => count(Tab)};
-                _ -> Meta#{count => length(Rows)}
-            end,
-    #{meta => NMeta, data => lists:sublist(Rows, Limit)}.
+    Meta = #{page => Page, limit => Limit, count => 0},
+    do_node_query(Node, Tab, Qs, QueryFun, Meta).
 
 %% @private
-do_query(Node, Tab, Qs, {M,F}, Start, Limit) when Node =:= node() ->
-    M:F(Tab, Qs, Start, Limit);
-do_query(Node, Tab, Qs, QueryFun, Start, Limit) ->
+do_node_query(Node, Tab, Qs, QueryFun, Meta) ->
+    do_node_query(Node, Tab, Qs, QueryFun, _Continuation = ?FRESH_SELECT, Meta, _Results = []).
+
+do_node_query( Node, Tab, Qs, QueryFun, Continuation
+             , Meta = #{limit := Limit}
+             , Results) ->
+    {Len, Rows, NContinuation} = do_query(Node, Tab, Qs, QueryFun, Continuation, Limit),
+    case judge_page_with_counting(Len, Meta) of
+        {more, NMeta} ->
+            case NContinuation of
+                ?FRESH_SELECT ->
+                    #{meta => NMeta, data => []}; %% page and limit too big
+                _ ->
+                    do_node_query(Node, Tab, Qs, QueryFun, NContinuation, NMeta, [])
+            end;
+        {cutrows, NMeta} ->
+            {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
+            ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
+            NResults = lists:sublist( lists:append(Results, ThisRows)
+                                    , SubStart, Limit),
+            case NContinuation of
+                ?FRESH_SELECT ->
+                    #{meta => NMeta, data => NResults};
+                _ ->
+                    do_node_query(Node, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
+            end;
+        {enough, NMeta} ->
+            NResults = lists:sublist(lists:append(Results, Rows), 1, Limit),
+            case NContinuation of
+                ?FRESH_SELECT ->
+                    #{meta => NMeta, data => NResults};
+                _ ->
+                    do_node_query(Node, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% Cluster Query
+%%--------------------------------------------------------------------
+
+cluster_query(Params, Tab, QsSchema, QueryFun) ->
+    {_CodCnt, Qs} = params2qs(Params, QsSchema),
+    Limit = b2i(limit(Params)),
+    Page  = b2i(page(Params)),
+    Nodes = ekka_mnesia:running_nodes(),
+    Meta = #{page => Page, limit => Limit, count => 0},
+    do_cluster_query(Nodes, Tab, Qs, QueryFun, Meta).
+
+%% @private
+do_cluster_query(Nodes, Tab, Qs, QueryFun, Meta) ->
+    do_cluster_query(Nodes, Tab, Qs, QueryFun, _Continuation = ?FRESH_SELECT, Meta, _Results = []).
+
+do_cluster_query([], _Tab, _Qs, _QueryFun, _Continuation, Meta, Results) ->
+    #{meta => Meta, data => Results};
+do_cluster_query( [Node | Nodes], Tab, Qs, QueryFun, Continuation
+                , Meta = #{limit := Limit}
+                , Results) ->
+    {Len, Rows, NContinuation} = do_query(Node, Tab, Qs, QueryFun, Continuation, Limit),
+    case judge_page_with_counting(Len, Meta) of
+        {more, NMeta} ->
+            case NContinuation of
+                ?FRESH_SELECT ->
+                    do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, []); %% next node with parts of results
+                _ ->
+                    do_cluster_query([Node | Nodes], Tab, Qs, QueryFun, NContinuation, NMeta, []) %% continue this node
+            end;
+        {cutrows, NMeta} ->
+            {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
+            ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
+            NResults = lists:sublist( lists:append(Results, ThisRows)
+                                    , SubStart, Limit),
+            case NContinuation of
+                ?FRESH_SELECT ->
+                    do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, NResults); %% next node with parts of results
+                _ ->
+                    do_cluster_query([Node | Nodes], Tab, Qs, QueryFun, NContinuation, NMeta, NResults) %% continue this node
+            end;
+        {enough, NMeta} ->
+            NResults = lists:sublist(lists:append(Results, Rows), 1, Limit),
+            case NContinuation of
+                ?FRESH_SELECT ->
+                    do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, NResults); %% next node with parts of results
+                _ ->
+                    do_cluster_query([Node | Nodes], Tab, Qs, QueryFun, NContinuation, NMeta, NResults) %% continue this node
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% Do Query (or rpc query)
+%%--------------------------------------------------------------------
+
+%% @private
+do_query(Node, Tab, Qs, {M,F}, Continuation, Limit) when Node =:= node() ->
+    M:F(Tab, Qs, Continuation, Limit);
+do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) ->
     rpc_call(Node, ?MODULE, do_query,
-             [Node, Tab, Qs, QueryFun, Start, Limit], 50000).
+             [Node, Tab, Qs, QueryFun, Continuation, Limit], 50000).
 
 %% @private
 rpc_call(Node, M, F, A, T) ->
@@ -145,107 +229,52 @@ rpc_call(Node, M, F, A, T) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Cluster Query
+%% Table Select
 %%--------------------------------------------------------------------
 
-cluster_query(Params, Tab, QsSchema, QueryFun) ->
-    {CodCnt, Qs} = params2qs(Params, QsSchema),
-    Limit = b2i(limit(Params)),
-    Page  = b2i(page(Params)),
-    Start = if Page > 1 -> (Page-1) * Limit;
-               true -> 0
-            end,
-    Nodes = ekka_mnesia:running_nodes(),
-    Rows = do_cluster_query(Nodes, Tab, Qs, QueryFun, Start, Limit+1, []),
-    Meta = #{page => Page, limit => Limit},
-    NMeta = case CodCnt =:= 0 of
-                true -> Meta#{count => lists:sum([rpc_call(Node, ets, info, [Tab, size], 5000) || Node <- Nodes])};
-                _ -> Meta#{count => length(Rows)}
-            end,
-    #{meta => NMeta, data => lists:sublist(Rows, Limit)}.
-
-%% @private
-do_cluster_query([], _, _, _, _, _, Acc) ->
-    lists:append(lists:reverse(Acc));
-do_cluster_query([Node|Nodes], Tab, Qs, QueryFun, Start, Limit, Acc) ->
-    {NStart, Rows} = do_query(Node, Tab, Qs, QueryFun, Start, Limit),
-    case Limit - length(Rows) of
-        Rest when Rest > 0 ->
-            do_cluster_query(Nodes, Tab, Qs, QueryFun, NStart, Limit, [Rows|Acc]);
-        0 ->
-            lists:append(lists:reverse([Rows|Acc]))
-    end.
-
-traverse_table(Tab, MatchFun, Start, Limit, FmtFun) ->
-    ets:safe_fixtable(Tab, true),
-    {NStart, Rows} = traverse_n_by_one(Tab, ets:first(Tab), MatchFun, Start, Limit, []),
-    ets:safe_fixtable(Tab, false),
-    {NStart, lists:map(FmtFun, Rows)}.
-
-%% @private
-traverse_n_by_one(_, '$end_of_table', _, Start, _, Acc) ->
-    {Start, lists:flatten(lists:reverse(Acc))};
-traverse_n_by_one(_, _, _, Start, _Limit=0, Acc) ->
-    {Start, lists:flatten(lists:reverse(Acc))};
-traverse_n_by_one(Tab, K, MatchFun, Start, Limit, Acc) ->
-    GetRows = fun _GetRows('$end_of_table', _, Ks) ->
-                      {'$end_of_table', Ks};
-                  _GetRows(Kn,  1, Ks) ->
-                      {ets:next(Tab, Kn), [ets:lookup(Tab, Kn) | Ks]};
-                  _GetRows(Kn, N, Ks) ->
-                      _GetRows(ets:next(Tab, Kn), N-1, [ets:lookup(Tab, Kn) | Ks])
-              end,
-    {K2, Rows} = GetRows(K, 100, []),
-    case MatchFun(lists:flatten(lists:reverse(Rows))) of
-        [] ->
-            traverse_n_by_one(Tab, K2, MatchFun, Start, Limit, Acc);
-        Ls ->
-            case Start - length(Ls) of
-                N when N > 0 -> %% Skip
-                    traverse_n_by_one(Tab, K2, MatchFun, N, Limit, Acc);
-                _ ->
-                    Got = lists:sublist(Ls, Start+1, Limit),
-                    NLimit = Limit - length(Got),
-                    traverse_n_by_one(Tab, K2, MatchFun, 0, NLimit, [Got|Acc])
-            end
-    end.
-
-select_table(Tab, Ms, 0, Limit, FmtFun) ->
+select_table_with_count(Tab, {Ms, FuzzyFilterFun}, ?FRESH_SELECT, Limit, FmtFun)
+  when is_function(FuzzyFilterFun) andalso Limit > 0 ->
     case ets:select(Tab, Ms, Limit) of
         '$end_of_table' ->
-            {0, []};
-        {Rows, _} ->
-            {0, lists:map(FmtFun, lists:reverse(Rows))}
+            {0, [], ?FRESH_SELECT};
+        {RawResult, NContinuation} ->
+            Rows = FuzzyFilterFun(RawResult),
+            {length(Rows), lists:map(FmtFun, Rows), NContinuation}
     end;
-
-select_table(Tab, Ms, Start, Limit, FmtFun) ->
-    {NStart, Rows} = select_n_by_one(ets:select(Tab, Ms, Limit), Start, Limit, []),
-    {NStart, lists:map(FmtFun, Rows)}.
-
-select_n_by_one('$end_of_table', Start, _Limit, Acc) ->
-    {Start, lists:flatten(lists:reverse(Acc))};
-select_n_by_one(_, Start, _Limit = 0, Acc) ->
-    {Start, lists:flatten(lists:reverse(Acc))};
-
-select_n_by_one({Rows0, Cons}, Start, Limit, Acc) ->
-    Rows = lists:reverse(Rows0),
-    case Start - length(Rows) of
-        N when N > 0 -> %% Skip
-            select_n_by_one(ets:select(Cons), N, Limit, Acc);
-        _ ->
-            Got = lists:sublist(Rows, Start+1, Limit),
-            NLimit = Limit - length(Got),
-            select_n_by_one(ets:select(Cons), 0, NLimit, [Got|Acc])
+select_table_with_count(_Tab, {_Ms, FuzzyFilterFun}, Continuation, _Limit, FmtFun)
+  when is_function(FuzzyFilterFun) ->
+    case ets:select(Continuation) of
+        '$end_of_table' ->
+            {0, [], ?FRESH_SELECT};
+        {RawResult, NContinuation} ->
+            Rows = FuzzyFilterFun(RawResult),
+            {length(Rows), lists:map(FmtFun, Rows), NContinuation}
+    end;
+select_table_with_count(Tab, Ms, ?FRESH_SELECT, Limit, FmtFun)
+  when Limit > 0  ->
+    case ets:select(Tab, Ms, Limit) of
+        '$end_of_table' ->
+            {0, [], ?FRESH_SELECT};
+        {RawResult, NContinuation} ->
+            {length(RawResult), lists:map(FmtFun, RawResult), NContinuation}
+    end;
+select_table_with_count(_Tab, _Ms, Continuation, _Limit, FmtFun) ->
+    case ets:select(Continuation) of
+        '$end_of_table' ->
+            {0, [], ?FRESH_SELECT};
+        {RawResult, NContinuation} ->
+            {length(RawResult), lists:map(FmtFun, RawResult), NContinuation}
     end.
+
+%%--------------------------------------------------------------------
+%% Internal funcs
+%%--------------------------------------------------------------------
 
 params2qs(Params, QsSchema) when is_map(Params) ->
     params2qs(maps:to_list(Params), QsSchema);
 params2qs(Params, QsSchema) ->
     {Qs, Fuzzy} = pick_params_to_qs(Params, QsSchema, [], []),
     {length(Qs) + length(Fuzzy), {Qs, Fuzzy}}.
-
-%%--------------------------------------------------------------------
-%% Internal funcs
 
 pick_params_to_qs([], _, Acc1, Acc2) ->
     NAcc2 = [E || E <- Acc2, not lists:keymember(element(1, E), 1, Acc1)],
@@ -311,8 +340,36 @@ is_fuzzy_key(<<"match_", _/binary>>) ->
 is_fuzzy_key(_) ->
     false.
 
+page_start(Page, Limit) ->
+    if Page > 1 -> (Page-1) * Limit + 1;
+       true -> 1
+    end.
+
+judge_page_with_counting(Len, Meta = #{page := Page, limit := Limit, count := Count}) ->
+    PageStart = page_start(Page, Limit),
+    PageEnd   = Page * Limit,
+    case Count + Len of
+        NCount when NCount < PageStart ->
+            {more, Meta#{count => NCount}};
+        NCount when NCount < PageEnd ->
+            {cutrows, Meta#{count => NCount}};
+        NCount when NCount >= PageEnd ->
+            {enough, Meta#{count => NCount}}
+    end.
+
+rows_sub_params(Len, _Meta = #{page := Page, limit := Limit, count := Count}) ->
+    PageStart = page_start(Page, Limit),
+    if Count - Len < PageStart ->
+            NeedNowNum = Count - PageStart + 1,
+            SubStart   = Len - NeedNowNum + 1,
+            {SubStart, NeedNowNum};
+       true ->
+            {_SubStart = 1, _NeedNowNum = Len}
+    end.
+
 %%--------------------------------------------------------------------
 %% Types
+%%--------------------------------------------------------------------
 
 to_type(V, TargetType) ->
     try

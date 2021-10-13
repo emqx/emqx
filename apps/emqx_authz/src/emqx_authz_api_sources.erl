@@ -379,7 +379,7 @@ source(get, #{bindings := #{type := Type}}) ->
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
     {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
-    case emqx_authz:update({?CMD_REPLCAE, file}, #{<<"type">> => file, <<"enable">> => Enable, <<"path">> => Filename}) of
+    case emqx_authz:update({?CMD_REPLCAE, <<"file">>}, #{<<"type">> => <<"file">>, <<"enable">> => Enable, <<"path">> => Filename}) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
@@ -428,22 +428,22 @@ update_config(Cmd, Sources) ->
     end.
 
 read_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
-    CaCert = case file:read_file(maps:get(cacertfile, SSL, "")) of
+    CaCert = case file:read_file(maps:get(<<"cacertfile">>, SSL, "")) of
                  {ok, CaCert0} -> CaCert0;
                  _ -> ""
              end,
-    Cert =   case file:read_file(maps:get(certfile, SSL, "")) of
+    Cert =   case file:read_file(maps:get(<<"certfile">>, SSL, "")) of
                  {ok, Cert0} -> Cert0;
                  _ -> ""
              end,
-    Key =   case file:read_file(maps:get(keyfile, SSL, "")) of
+    Key =   case file:read_file(maps:get(<<"keyfile">>, SSL, "")) of
                  {ok, Key0} -> Key0;
                  _ -> ""
              end,
-    Source#{ssl => SSL#{cacertfile => CaCert,
-                        certfile => Cert,
-                        keyfile => Key
-                       }
+    Source#{<<"ssl">> => SSL#{<<"cacertfile">> => CaCert,
+                              <<"certfile">> => Cert,
+                              <<"keyfile">> => Key
+                             }
            };
 read_cert(Source) -> Source.
 

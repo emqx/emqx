@@ -66,6 +66,7 @@
 
 -export([ to_packet/2
         , to_map/1
+        , to_log_map/1
         , to_list/1
         , from_map/1
         ]).
@@ -79,10 +80,9 @@
                         headers := emqx_types:headers(),
                         topic := emqx_types:topic(),
                         payload := emqx_types:payload(),
-                        timestamp := integer()}
+                        timestamp := integer(),
+                        extra := _}
      ).
-
--export([format/1]).
 
 -elvis([{elvis_style, god_modules, disable}]).
 
@@ -292,7 +292,8 @@ to_map(#message{
           headers = Headers,
           topic = Topic,
           payload = Payload,
-          timestamp = Timestamp
+          timestamp = Timestamp,
+          extra = Extra
         }) ->
     #{id => Id,
       qos => QoS,
@@ -301,8 +302,12 @@ to_map(#message{
       headers => Headers,
       topic => Topic,
       payload => Payload,
-      timestamp => Timestamp
+      timestamp => Timestamp,
+      extra => Extra
      }.
+
+%% @doc To map for logging, with payload dropped.
+to_log_map(Msg) -> maps:without([payload], to_map(Msg)).
 
 %% @doc Message to tuple list
 -spec(to_list(emqx_types:message()) -> list()).
@@ -318,7 +323,8 @@ from_map(#{id := Id,
            headers := Headers,
            topic := Topic,
            payload := Payload,
-           timestamp := Timestamp
+           timestamp := Timestamp,
+           extra := Extra
           }) ->
     #message{
         id = Id,
@@ -328,24 +334,10 @@ from_map(#{id := Id,
         headers = Headers,
         topic = Topic,
         payload = Payload,
-        timestamp = Timestamp
+        timestamp = Timestamp,
+        extra = Extra
     }.
 
 %% MilliSeconds
 elapsed(Since) ->
     max(0, erlang:system_time(millisecond) - Since).
-
-format(#message{id = Id,
-                qos = QoS,
-                topic = Topic,
-                from = From,
-                flags = Flags,
-                headers = Headers}) ->
-    io_lib:format("Message(Id=~s, QoS=~w, Topic=~s, From=~p, Flags=~s, Headers=~s)",
-                  [Id, QoS, Topic, From, format(flags, Flags), format(headers, Headers)]).
-
-format(flags, Flags) ->
-    io_lib:format("~p", [[Flag || {Flag, true} <- maps:to_list(Flags)]]);
-format(headers, Headers) ->
-    io_lib:format("~p", [Headers]).
-

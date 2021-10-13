@@ -121,7 +121,7 @@ t_nest_ref(_Config) ->
         #{<<"emqx_swagger_requestBody_SUITE.good_ref">> => #{<<"properties">> => [
             {<<"webhook-host">>, #{default => <<"127.0.0.1:80">>, example => <<"127.0.0.1:80">>,type => string}},
             {<<"log_dir">>, #{example => <<"var/log/emqx">>,type => string}},
-            {<<"tag">>, #{description => <<"tag">>, example => <<"binary example">>,type => string}}],
+            {<<"tag">>, #{description => <<"tag">>, example => <<"binary-example">>,type => string}}],
             <<"type">> => object}}]),
     {_, Components} = validate("/ref/nest/ref", Spec, Refs),
     ?assertEqual(ExpectComponents, Components),

@@ -40,13 +40,13 @@ roots() -> [exhook].
 
 fields(exhook) ->
     [ {request_failed_action,
-       sc(union([deny, ignore]),
+       sc(hoconsc:enum([deny, ignore]),
           #{default => deny})}
     , {request_timeout,
        sc(duration(),
           #{default => "5s"})}
     , {auto_reconnect,
-       sc(union([false, duration()]),
+       sc(hoconsc:union([false, duration()]),
           #{ default => "60s"
            })}
     , {servers,

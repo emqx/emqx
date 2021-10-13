@@ -914,9 +914,9 @@ map_path(Key) ->
 function_literal(Fun, []) when is_atom(Fun) ->
     atom_to_list(Fun) ++ "()";
 function_literal(Fun, [FArg | Args]) when is_atom(Fun), is_list(Args) ->
-    WithFirstArg = io_lib:format("~s(~0p", [atom_to_list(Fun), FArg]),
+    WithFirstArg = io_lib:format("~ts(~0p", [atom_to_list(Fun), FArg]),
     lists:foldl(fun(Arg, Literal) ->
-        io_lib:format("~s, ~0p", [Literal, Arg])
+        io_lib:format("~ts, ~0p", [Literal, Arg])
     end, WithFirstArg, Args) ++ ")";
 function_literal(Fun, Args) ->
     {invalid_func, {Fun, Args}}.

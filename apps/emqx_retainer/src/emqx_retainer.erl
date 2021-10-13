@@ -288,7 +288,7 @@ store_retained(Context, #message{topic = Topic, payload = Payload} = Msg) ->
             Mod = get_backend_module(),
             Mod:store_retained(Context, Msg);
         _ ->
-            ?ERROR("Cannot retain message(topic=~s, payload_size=~p) for payload is too big!",
+            ?ERROR("Cannot retain message(topic=~ts, payload_size=~p) for payload is too big!",
                    [Topic, iolist_size(Payload)])
     end.
 
@@ -441,17 +441,17 @@ get_backend_module() ->
                  true ->
                       Backend
               end,
-    erlang:list_to_existing_atom(io_lib:format("~s_~s", [?APP, ModName])).
+    erlang:list_to_existing_atom(io_lib:format("~ts_~ts", [?APP, ModName])).
 
 create_resource(Context, #{type := built_in_database} = Cfg) ->
     emqx_retainer_mnesia:create_resource(Cfg),
     Context;
 
 create_resource(Context, #{type := DB} = Config) ->
-    ResourceID = erlang:iolist_to_binary([io_lib:format("~s_~s", [?APP, DB])]),
+    ResourceID = erlang:iolist_to_binary([io_lib:format("~ts_~ts", [?APP, DB])]),
     case emqx_resource:create(
            ResourceID,
-           list_to_existing_atom(io_lib:format("~s_~s", [emqx_connector, DB])),
+           list_to_existing_atom(io_lib:format("~ts_~ts", [emqx_connector, DB])),
            Config) of
         {ok, already_created} ->
             Context#{resource_id => ResourceID};

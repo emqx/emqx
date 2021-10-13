@@ -141,13 +141,6 @@ t_undefined_headers(_) ->
     Msg2 = emqx_message:set_header(c, 3, Msg),
     ?assertEqual(3, emqx_message:get_header(c, Msg2)).
 
-t_format(_) ->
-    Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
-    io:format("~s~n", [emqx_message:format(Msg)]),
-    Msg1 = emqx_message:set_header(properties, #{'Subscription-Identifier' => 1},
-                                   emqx_message:set_flag(dup, Msg)),
-    io:format("~s~n", [emqx_message:format(Msg1)]).
-
 t_is_expired(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
     ?assertNot(emqx_message:is_expired(Msg)),
@@ -206,7 +199,9 @@ t_to_map(_) ->
             {headers, #{}},
             {topic, <<"topic">>},
             {payload, <<"payload">>},
-            {timestamp, emqx_message:timestamp(Msg)}],
+            {timestamp, emqx_message:timestamp(Msg)},
+            {extra, []}
+           ],
     ?assertEqual(List, emqx_message:to_list(Msg)),
     ?assertEqual(maps:from_list(List), emqx_message:to_map(Msg)).
 
@@ -219,6 +214,8 @@ t_from_map(_) ->
             headers => #{},
             topic => <<"topic">>,
             payload => <<"payload">>,
-            timestamp => emqx_message:timestamp(Msg)},
+            timestamp => emqx_message:timestamp(Msg),
+            extra => []
+           },
     ?assertEqual(Map, emqx_message:to_map(Msg)),
     ?assertEqual(Msg, emqx_message:from_map(emqx_message:to_map(Msg))).

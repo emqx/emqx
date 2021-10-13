@@ -101,7 +101,7 @@ do_save_file(FileName, Content, Dir) ->
           ok ->
                ensure_str(FullFilename);
           {error, Reason} ->
-               logger:error("failed_to_save_ssl_file ~s: ~0p", [FullFilename, Reason]),
+               logger:error("failed_to_save_ssl_file ~ts: ~0p", [FullFilename, Reason]),
                error({"failed_to_save_ssl_file", FullFilename, Reason})
      end.
 

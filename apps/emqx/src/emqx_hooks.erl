@@ -206,8 +206,13 @@ safe_execute({M, F, A}, Args) ->
         Result -> Result
     catch
         Error:Reason:Stacktrace ->
-            ?LOG(error, "Failed to execute ~0p: ~0p", [{M, F, A}, {Error, Reason, Stacktrace}]),
-            ok
+            ?SLOG(error, #{
+                msg => "failed_to_execute",
+                exception => Error,
+                reason => Reason,
+                stacktrace => Stacktrace,
+                failed_call => {M, F, A}
+            })
     end.
 
 %% @doc execute a function.
@@ -246,7 +251,7 @@ handle_call({put, HookPoint, Callback = #callback{action = {M, F, _}}}, _From, S
     {reply, Reply, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
 
 handle_cast({del, HookPoint, Action}, State) ->
@@ -259,11 +264,11 @@ handle_cast({del, HookPoint, Action}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected msg: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

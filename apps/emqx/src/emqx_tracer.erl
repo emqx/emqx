@@ -70,7 +70,7 @@ trace(publish, #message{from = From, topic = Topic, payload = Payload})
         when is_binary(From); is_atom(From) ->
     emqx_logger:info(#{topic => Topic,
                        mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY} },
-                     "PUBLISH to ~s: ~0p", [Topic, Payload]).
+                     "PUBLISH to ~ts: ~0p", [Topic, Payload]).
 
 %% @doc Start to trace clientid or topic.
 -spec(start_trace(trace_who(), logger:level() | all, string()) -> ok | {error, term()}).
@@ -83,8 +83,8 @@ start_trace(Who, Level, LogFile) ->
             try logger:compare_levels(Level, PrimaryLevel) of
                 lt ->
                     {error,
-                     io_lib:format("Cannot trace at a log level (~s) "
-                                   "lower than the primary log level (~s)",
+                     io_lib:format("Cannot trace at a log level (~ts) "
+                                   "lower than the primary log level (~ts)",
                                    [Level, PrimaryLevel])};
                 _GtOrEq ->
                     install_trace_handler(Who, Level, LogFile)
@@ -115,18 +115,18 @@ install_trace_handler(Who, Level, LogFile) ->
                                           {fun filter_by_meta_key/2, Who}}]})
     of
         ok ->
-            ?LOG(info, "Start trace for ~p", [Who]);
+            ?SLOG(info, #{msg => "start_trace", who => Who});
         {error, Reason} ->
-            ?LOG(error, "Start trace for ~p failed, error: ~p", [Who, Reason]),
+            ?SLOG(error, #{msg => "failed_to_trace", who => Who, reason => Reason}),
             {error, Reason}
     end.
 
 uninstall_trance_handler(Who) ->
     case logger:remove_handler(handler_id(Who)) of
         ok ->
-            ?LOG(info, "Stop trace for ~p", [Who]);
+            ?SLOG(info, #{msg => "stop_trace", who => Who});
         {error, Reason} ->
-            ?LOG(error, "Stop trace for ~p failed, error: ~p", [Who, Reason]),
+            ?SLOG(error, #{msg => "failed_to_stop_trace", who => Who, reason => Reason}),
             {error, Reason}
     end.
 

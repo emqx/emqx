@@ -214,5 +214,5 @@ bench(Case, Fun, Args) ->
                           [fun(_) -> apply(Fun, Args) end,
                            lists:seq(1, ?N)
                           ]),
-    ct:pal("Time consumed by ~s: ~.3f(us)~nCall ~s per second: ~w",
+    ct:pal("Time consumed by ~ts: ~.3f(us)~nCall ~ts per second: ~w",
            [Case, Time/?N, Case, (?N * 1000000) div Time]).

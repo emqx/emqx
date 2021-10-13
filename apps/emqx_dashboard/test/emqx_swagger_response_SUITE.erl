@@ -13,7 +13,7 @@
 -export([all/0, suite/0, groups/0]).
 -export([paths/0, api_spec/0, schema/1, fields/1]).
 -export([t_simple_binary/1, t_object/1, t_nest_object/1, t_empty/1, t_error/1,
-    t_raw_local_ref/1, t_raw_remote_ref/1, t_hocon_schema_function/1,
+    t_raw_local_ref/1, t_raw_remote_ref/1, t_hocon_schema_function/1, t_complicated_type/1,
     t_local_ref/1, t_remote_ref/1, t_bad_ref/1, t_none_ref/1, t_nest_ref/1,
     t_ref_array_with_key/1, t_ref_array_without_key/1, t_api_spec/1]).
 
@@ -21,7 +21,7 @@ all() -> [{group, spec}].
 suite() -> [{timetrap, {minutes, 1}}].
 groups() -> [
     {spec, [parallel], [
-        t_api_spec, t_simple_binary, t_object, t_nest_object, t_error,
+        t_api_spec, t_simple_binary, t_object, t_nest_object, t_error, t_complicated_type,
         t_raw_local_ref, t_raw_remote_ref, t_empty, t_hocon_schema_function,
         t_local_ref, t_remote_ref, t_bad_ref, t_none_ref,
         t_ref_array_with_key, t_ref_array_without_key, t_nest_ref]}
@@ -54,7 +54,7 @@ t_error(_Config) ->
     #{<<"application/json">> => #{<<"schema">> => #{<<"type">> => object,
         <<"properties">> =>
         [
-            {<<"code">>, #{enum => ['Bad1','Bad2'], type => string}},
+            {<<"code">>, #{enum => ['Bad1', 'Bad2'], type => string}},
             {<<"message">>, #{description => <<"Details description of the error.">>,
                 example => <<"Bad request desc">>, type => string}}]
     }}}},
@@ -156,6 +156,38 @@ t_nest_ref(_Config) ->
     validate(Path, Object, ExpectRefs),
     ok.
 
+t_complicated_type(_Config) ->
+    Path = "/ref/complicated_type",
+    Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => #{<<"properties">> =>
+    [
+        {<<"no_neg_integer">>, #{example => 100, minimum => 1, type => integer}},
+        {<<"url">>, #{example => <<"http://127.0.0.1">>, type => string}},
+        {<<"server">>, #{example => <<"127.0.0.1:80">>, type => string}},
+        {<<"connect_timeout">>, #{example => infinity, <<"oneOf">> => [
+            #{example => infinity, type => string},
+            #{example => 100, type => integer}]}},
+        {<<"pool_type">>, #{enum => [random, hash], example => hash, type => string}},
+        {<<"timeout">>, #{example => infinity,
+            <<"oneOf">> =>
+            [#{example => infinity, type => string}, #{example => 100, type => integer}]}},
+        {<<"bytesize">>, #{example => <<"32MB">>, type => string}},
+        {<<"wordsize">>, #{example => <<"1024KB">>, type => string}},
+        {<<"maps">>, #{example => <<>>, type => string}},
+        {<<"comma_separated_list">>, #{example => <<"item1,item2">>, type => string}},
+        {<<"comma_separated_atoms">>, #{example => <<"item1,item2">>, type => string}},
+        {<<"log_level">>,
+            #{enum => [debug, info, notice, warning, error, critical, alert, emergency, all], type => string}},
+        {<<"fix_integer">>, #{default => 100, enum => [100], example => 100,type => integer}}
+    ],
+        <<"type">> => object}}}},
+    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
+    ?assertEqual(test, OperationId),
+    Response = maps:get(responses, maps:get(post, Spec)),
+    ?assertEqual(Object, maps:get(<<"200">>, Response)),
+    ?assertEqual([], Refs),
+    ok.
+
+
 t_ref_array_with_key(_Config) ->
     Path = "/ref/array/with/key",
     Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => #{
@@ -163,10 +195,10 @@ t_ref_array_with_key(_Config) ->
             {<<"per_page">>, #{description => <<"good per page desc">>, example => 1, maximum => 100, minimum => 1, type => integer}},
             {<<"timeout">>, #{default => 5, <<"oneOf">> =>
             [#{example => <<"1h">>, type => string}, #{enum => [infinity], type => string}]}},
-            {<<"assert">>, #{description => <<"money">>, example => 3.14159,type => number}},
-            {<<"number_ex">>, #{description => <<"number example">>, example => 42,type => number}},
-            {<<"percent_ex">>, #{description => <<"percent example">>, example => <<"12%">>,type => number}},
-            {<<"duration_ms_ex">>, #{description => <<"duration ms example">>, example => <<"32s">>,type => string}},
+            {<<"assert">>, #{description => <<"money">>, example => 3.14159, type => number}},
+            {<<"number_ex">>, #{description => <<"number example">>, example => 42, type => number}},
+            {<<"percent_ex">>, #{description => <<"percent example">>, example => <<"12%">>, type => number}},
+            {<<"duration_ms_ex">>, #{description => <<"duration ms example">>, example => <<"32s">>, type => string}},
             {<<"atom_ex">>, #{description => <<"atom ex">>, example => atom, type => string}},
             {<<"array_refs">>, #{items => #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>}, type => array}}
         ]}
@@ -201,7 +233,7 @@ t_hocon_schema_function(_Config) ->
         }},
         #{<<"emqx_swagger_remote_schema.ref3">> => #{<<"type">> => object,
             <<"properties">> => [
-                {<<"ip">>, #{description => <<"IP:Port">>, example => <<"127.0.0.1:80">>,type => string}},
+                {<<"ip">>, #{description => <<"IP:Port">>, example => <<"127.0.0.1:80">>, type => string}},
                 {<<"version">>, #{description => <<"a good version">>, example => <<"1.0.0">>, type => string}}]
         }},
         #{<<"emqx_swagger_remote_schema.root">> => #{required => [<<"default_password">>, <<"default_username">>],
@@ -210,8 +242,8 @@ t_hocon_schema_function(_Config) ->
             [#{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref2">>},
                 #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref1">>}]}, type => array}},
                 {<<"default_username">>,
-                    #{default => <<"admin">>, example => <<"string example">>, type => string}},
-                {<<"default_password">>, #{default => <<"public">>, example => <<"string example">>, type => string}},
+                    #{default => <<"admin">>, example => <<"string-example">>, type => string}},
+                {<<"default_password">>, #{default => <<"public">>, example => <<"string-example">>, type => string}},
                 {<<"sample_interval">>, #{default => <<"10s">>, example => <<"1h">>, type => string}},
                 {<<"token_expired_time">>, #{default => <<"30m">>, example => <<"12m">>, type => string}}],
             <<"type">> => object}}],
@@ -289,6 +321,27 @@ schema("/error") ->
         get => #{responses => #{
             400 => emqx_dashboard_swagger:error_codes(['Bad1', 'Bad2'], <<"Bad request desc">>),
             404 => emqx_dashboard_swagger:error_codes(['Not-Found'])
+        }}
+    };
+schema("/ref/complicated_type") ->
+    #{
+        operationId => test,
+        post => #{responses => #{
+            200 => [
+                {no_neg_integer, hoconsc:mk(non_neg_integer(), #{})},
+                {url, hoconsc:mk(emqx_connector_http:url(), #{})},
+                {server, hoconsc:mk(emqx_connector_redis:server(), #{})},
+                {connect_timeout, hoconsc:mk(emqx_connector_http:connect_timeout(), #{})},
+                {pool_type, hoconsc:mk(emqx_connector_http:pool_type(), #{})},
+                {timeout, hoconsc:mk(timeout(), #{})},
+                {bytesize, hoconsc:mk(emqx_schema:bytesize(), #{})},
+                {wordsize, hoconsc:mk(emqx_schema:wordsize(), #{})},
+                {maps, hoconsc:mk(map(), #{})},
+                {comma_separated_list, hoconsc:mk(emqx_schema:comma_separated_list(), #{})},
+                {comma_separated_atoms, hoconsc:mk(emqx_schema:comma_separated_atoms(), #{})},
+                {log_level, hoconsc:mk(emqx_machine_schema:log_level(), #{})},
+                {fix_integer, hoconsc:mk(typerefl:integer(100), #{})}
+            ]
         }}
     }.
 

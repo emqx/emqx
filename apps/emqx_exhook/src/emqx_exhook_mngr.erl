@@ -185,7 +185,7 @@ handle_info({timeout, _Ref, {reload, Name}}, State) ->
         {error, not_found} ->
             {noreply, NState};
         {error, Reason} ->
-            ?LOG(warning, "Failed to reload exhook callback server \"~s\", "
+            ?LOG(warning, "Failed to reload exhook callback server \"~ts\", "
                           "Reason: ~0p", [Name, Reason]),
             {noreply, ensure_reload_timer(NState)}
     end;
@@ -231,7 +231,7 @@ do_load_server(Name, State0 = #state{
                         {ok, ServerState} ->
                             save(Name, ServerState),
                             ?LOG(info, "Load exhook callback server "
-                                          "\"~s\" successfully!", [Name]),
+                                          "\"~ts\" successfully!", [Name]),
                             {ok, State#state{
                                    running = maps:put(Name, Options, Running),
                                    waiting = maps:remove(Name, Waiting),

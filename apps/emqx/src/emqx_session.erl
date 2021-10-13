@@ -479,11 +479,12 @@ log_dropped(Msg = #message{qos = QoS}, #session{mqueue = Q}) ->
     case (QoS == ?QOS_0) andalso (not emqx_mqueue:info(store_qos0, Q)) of
         true  ->
             ok = emqx_metrics:inc('delivery.dropped.qos0_msg'),
-            ?LOG(warning, "Dropped qos0 msg: ~s", [emqx_message:format(Msg)]);
+            ?SLOG(warning, #{msg => "dropped_qos0_msg",
+                             payload => emqx_message:to_log_map(Msg)});
         false ->
             ok = emqx_metrics:inc('delivery.dropped.queue_full'),
-            ?LOG(warning, "Dropped msg due to mqueue is full: ~s",
-                 [emqx_message:format(Msg)])
+            ?SLOG(warning, #{msg => "dropped_msg_due_to_mqueue_is_full",
+                             payload => emqx_message:to_log_map(Msg)})
     end.
 
 enrich_fun(Session = #session{subscriptions = Subs}) ->

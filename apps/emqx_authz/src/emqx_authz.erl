@@ -73,10 +73,10 @@ move(Type, Position, Opts) ->
 update(Cmd, Sources) ->
     update(Cmd, Sources, #{}).
 
-update({replace, Type}, Sources, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {{replace, type(Type)}, Sources}, Opts);
-update({delete, Type}, Sources, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {{delete, type(Type)}, Sources}, Opts);
+update({?CMD_REPLCAE, Type}, Sources, Opts) ->
+    emqx:update_config(?CONF_KEY_PATH, {{?CMD_REPLCAE, type(Type)}, Sources}, Opts);
+update({?CMD_DELETE, Type}, Sources, Opts) ->
+    emqx:update_config(?CONF_KEY_PATH, {{?CMD_DELETE, type(Type)}, Sources}, Opts);
 update(Cmd, Sources, Opts) ->
     emqx:update_config(?CONF_KEY_PATH, {Cmd, Sources}, Opts).
 
@@ -102,12 +102,12 @@ do_update({?CMD_APPEND, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
     NConf = Conf ++ Sources,
     ok = check_dup_types(NConf),
     NConf;
-do_update({{replace, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
+do_update({{?CMD_REPLCAE, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
     {_Old, Front, Rear} = take(Type, Conf),
     NConf = Front ++ [Source | Rear],
     ok = check_dup_types(NConf),
     NConf;
-do_update({{delete, Type}, _Source}, Conf) when is_list(Conf) ->
+do_update({{?CMD_DELETE, Type}, _Source}, Conf) when is_list(Conf) ->
     {_Old, Front, Rear} = take(Type, Conf),
     NConf = Front ++ Rear,
     NConf;
@@ -138,18 +138,18 @@ do_post_update({?CMD_APPEND, Sources}, _NewSources) ->
     InitedSources = init_sources(check_sources(Sources)),
     emqx_hooks:put('client.authorize', {?MODULE, authorize, [lookup() ++ InitedSources]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({{replace, Type}, #{type := Type} = Source}, _NewSources) when is_map(Source) ->
+do_post_update({{?CMD_REPLCAE, Type}, Source}, _NewSources) when is_map(Source) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     ok = ensure_resource_deleted(OldSource),
     InitedSources = init_sources(check_sources([Source])),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Front ++ InitedSources ++ Rear]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({{delete, Type}, _Source}, _NewSources) ->
+do_post_update({{?CMD_DELETE, Type}, _Source}, _NewSources) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     ok = ensure_resource_deleted(OldSource),
-    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, Front ++ Rear}, -1),
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Front ++ Rear]}, -1),
     ok = emqx_authz_cache:drain_cache();
 do_post_update(_, NewSources) ->
     %% overwrite the entire config!
@@ -159,6 +159,7 @@ do_post_update(_, NewSources) ->
     lists:foreach(fun ensure_resource_deleted/1, OldInitedSources),
     ok = emqx_authz_cache:drain_cache().
 
+ensure_resource_deleted(#{enable := false}) -> ok;
 ensure_resource_deleted(#{type := file}) -> ok;
 ensure_resource_deleted(#{type := 'built-in-database'}) -> ok;
 ensure_resource_deleted(#{annotations := #{id := Id}}) -> ok = emqx_resource:remove(Id).
@@ -186,13 +187,14 @@ check_dup_types([Source | Sources], Checked) ->
     end.
 
 init_sources(Sources) ->
-    {Enabled, Disabled} = lists:partition(fun(#{enable := Enable}) -> Enable end, Sources),
+    {_Enabled, Disabled} = lists:partition(fun(#{enable := Enable}) -> Enable end, Sources),
     case Disabled =/= [] of
         true -> ?SLOG(info, #{msg => "disabled_sources_ignored", sources => Disabled});
         false -> ok
     end,
-    lists:map(fun init_source/1, Enabled).
+    lists:map(fun init_source/1, Sources).
 
+init_source(#{enable := false} = Source) -> Source;
 init_source(#{type := file,
               path := Path
              } = Source) ->
@@ -200,13 +202,13 @@ init_source(#{type := file,
                 {ok, Terms} ->
                     [emqx_authz_rule:compile(Term) || Term <- Terms];
                 {error, eacces} ->
-                    ?LOG(alert, "Insufficient permissions to read the ~s file", [Path]),
+                    ?LOG(alert, "Insufficient permissions to read the ~ts file", [Path]),
                     error(eaccess);
                 {error, enoent} ->
-                    ?LOG(alert, "The ~s file does not exist", [Path]),
+                    ?LOG(alert, "The ~ts file does not exist", [Path]),
                     error(enoent);
                 {error, Reason} ->
-                    ?LOG(alert, "Failed to read ~s: ~p", [Path, Reason]),
+                    ?LOG(alert, "Failed to read ~ts: ~p", [Path, Reason]),
                     error(Reason)
             end,
     Source#{annotations => #{rules => Rules}};
@@ -313,7 +315,7 @@ find_action_in_hooks() ->
     Action.
 
 gen_id(Type) ->
-    iolist_to_binary([io_lib:format("~s_~s",[?APP, Type])]).
+    iolist_to_binary([io_lib:format("~ts_~ts",[?APP, Type])]).
 
 create_resource(#{type := DB,
                   annotations := #{id := ResourceID}} = Source) ->

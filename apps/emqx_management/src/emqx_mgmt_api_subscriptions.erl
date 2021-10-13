@@ -148,28 +148,25 @@ format({_Subscriber, Topic, Options}) ->
 %% Query Function
 %%--------------------------------------------------------------------
 
-query(Tab, {Qs, []}, Start, Limit) ->
+query(Tab, {Qs, []}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
-    emqx_mgmt_api:select_table(Tab, Ms, Start, Limit, fun format/1);
+    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit, fun format/1);
 
-query(Tab, {Qs, Fuzzy}, Start, Limit) ->
+query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
-    MatchFun = match_fun(Ms, Fuzzy),
-    emqx_mgmt_api:traverse_table(Tab, MatchFun, Start, Limit, fun format/1).
+    FuzzyFilterFun = fuzzy_filter_fun(Fuzzy),
+    emqx_mgmt_api:select_table_with_count(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit, fun format/1).
 
-match_fun(Ms, Fuzzy) ->
-    MsC = ets:match_spec_compile(Ms),
-    fun(Rows) ->
-         case ets:match_spec_run(Rows, MsC) of
-             [] -> [];
-             Ls -> lists:filter(fun(E) -> run_fuzzy_match(E, Fuzzy) end, Ls)
-         end
+fuzzy_filter_fun(Fuzzy) ->
+    fun(MsRaws) when is_list(MsRaws) ->
+            lists:filter( fun(E) -> run_fuzzy_filter(E, Fuzzy) end
+                        , MsRaws)
     end.
 
-run_fuzzy_match(_, []) ->
+run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_match(E = {{_, Topic}, _}, [{topic, match, TopicFilter}|Fuzzy]) ->
-    emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_match(E, Fuzzy).
+run_fuzzy_filter(E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
+    emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy).
 
 %%--------------------------------------------------------------------
 %% Query String to Match Spec

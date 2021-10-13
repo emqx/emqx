@@ -287,7 +287,7 @@ auth_connect(_Packet, Channel = #channel{ctx = Ctx,
         {ok, NClientInfo} ->
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
-            ?LOG(warning, "Client ~s (Username: '~s') login failed for ~0p",
+            ?LOG(warning, "Client ~ts (Username: '~ts') login failed for ~0p",
                           [ClientId, Username, Reason]),
             %% FIXME: ReasonCode?
             {error, Reason}
@@ -860,7 +860,7 @@ run_client_subs_hook({TopicId, TopicName, QoS},
     case run_hooks(Ctx, 'client.subscribe',
                    [ClientInfo, #{}], TopicFilters) of
         [] ->
-            ?LOG(warning, "Skip to subscribe ~s, "
+            ?LOG(warning, "Skip to subscribe ~ts, "
                           "due to 'client.subscribe' denied!", [TopicName]),
             {error, ?SN_EXCEED_LIMITATION};
         [{NTopicName, NSubOpts}|_] ->
@@ -879,7 +879,7 @@ do_subscribe({TopicId, TopicName, SubOpts},
             {ok, {TopicId, NTopicName, NSubOpts},
              Channel#channel{session = NSession}};
         {error, ?RC_QUOTA_EXCEEDED} ->
-            ?LOG(warning, "Cannot subscribe ~s due to ~s.",
+            ?LOG(warning, "Cannot subscribe ~ts due to ~ts.",
                  [TopicName, emqx_reason_codes:text(?RC_QUOTA_EXCEEDED)]),
             {error, ?SN_EXCEED_LIMITATION}
     end.

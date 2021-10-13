@@ -81,7 +81,7 @@ set_debug_secret(PathToSecretFile) ->
                 catch _ : _ -> error({badfile, PathToSecretFile})
                 end;
             {error, Reason} ->
-                ?ULOG("Failed to read debug_info encryption key file ~s: ~p~n",
+                ?ULOG("Failed to read debug_info encryption key file ~ts: ~p~n",
                       [PathToSecretFile, Reason]),
                 error(Reason)
         end,

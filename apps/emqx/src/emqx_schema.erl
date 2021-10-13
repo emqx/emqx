@@ -1303,7 +1303,7 @@ validate_heap_size(Siz) ->
                      (1 bsl 27) - 1
              end,
     case Siz > MaxSiz of
-        true -> error(io_lib:format("force_shutdown_policy: heap-size ~s is too large", [Siz]));
+        true -> error(io_lib:format("force_shutdown_policy: heap-size ~ts is too large", [Siz]));
         false -> ok
     end.
 parse_user_lookup_fun(StrConf) ->

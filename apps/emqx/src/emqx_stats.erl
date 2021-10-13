@@ -202,7 +202,7 @@ handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast({setstat, Stat, MaxStat, Val}, State) ->
@@ -221,7 +221,9 @@ handle_cast({update_interval, Update = #update{name = Name}},
             State = #state{updates = Updates}) ->
     NState = case lists:keyfind(Name, #update.name, Updates) of
                  #update{} ->
-                     ?LOG(warning, "Duplicated update: ~s", [Name]),
+                     ?SLOG(warning, #{msg => "duplicated_update",
+                                      name => Name
+                                     }),
                      State;
                  false -> State#state{updates = [Update|Updates]}
              end,
@@ -232,7 +234,7 @@ handle_cast({cancel_update, Name}, State = #state{updates = Updates}) ->
     {noreply, State#state{updates = Updates1}};
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Updates}) ->
@@ -241,8 +243,13 @@ handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Update
                                       func = UpFun}, Acc) when C =< 0 ->
                          try UpFun()
                          catch
-                             _:Error ->
-                                 ?LOG(error, "Update ~s failed: ~0p", [Name, Error])
+                             Error : Reason : Stacktrace ->
+                                 ?SLOG(error, #{msg => "update_name_failed",
+                                                name => Name,
+                                                exception => Error,
+                                                reason => Reason,
+                                                stacktrace => Stacktrace
+                                               })
                          end,
                          [Update#update{countdown = I} | Acc];
                     (Update = #update{countdown = C}, Acc) ->
@@ -251,7 +258,7 @@ handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Update
     {noreply, start_timer(State#state{updates = Updates1}), hibernate};
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #state{timer = TRef}) ->
@@ -271,6 +278,9 @@ safe_update_element(Key, Val) ->
         true -> true
     catch
         error:badarg ->
-            ?LOG(warning, "Failed to update ~0p to ~0p", [Key, Val])
+            ?SLOG(warning, #{
+                msg => "failed_to_update",
+                key => Key,
+                val => Val
+            })
     end.
-
