@@ -271,7 +271,7 @@ handle_call({auth, ClientInfo0, Password}, _From,
                          conninfo = ConnInfo,
                          clientinfo = ClientInfo}) ->
     ClientInfo1 = enrich_clientinfo(ClientInfo0, ClientInfo),
-    ConnInfo1 = enrich_conninfo(ClientInfo1, ConnInfo),
+    ConnInfo1 = enrich_conninfo(ClientInfo0, ConnInfo),
 
     Channel1 = Channel#channel{conninfo = ConnInfo1,
                                clientinfo = ClientInfo1},
@@ -383,7 +383,7 @@ handle_info({sock_closed, Reason},
          andalso Inflight =:= undefined of
         true ->
             Channel1 = ensure_disconnected({sock_closed, Reason}, Channel),
-            {shutdown, {sock_closed, Reason}, Channel1};
+            {shutdown, Reason, Channel1};
         _ ->
             %% delayed close process for flushing all callback funcs to gRPC server
             Channel1 = Channel#channel{closed_reason = {sock_closed, Reason}},
