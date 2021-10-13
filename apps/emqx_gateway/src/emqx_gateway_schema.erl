@@ -28,16 +28,19 @@
 
 -type ip_port() :: tuple().
 -type duration() :: integer().
+-type duration_s() :: integer().
 -type bytesize() :: integer().
 -type comma_separated_list() :: list().
 
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
+-typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
 -typerefl_from_string({bytesize/0, emqx_schema, to_bytesize}).
 -typerefl_from_string({comma_separated_list/0, emqx_schema,
                        to_comma_separated_list}).
 
 -reflect_type([ duration/0
+              , duration_s/0
               , bytesize/0
               , comma_separated_list/0
               , ip_port/0
@@ -94,7 +97,7 @@ fields(lwm2m) ->
     [ {xml_dir, sc(binary(), "etc/lwm2m_xml")}
     , {lifetime_min, sc(duration(), "1s")}
     , {lifetime_max, sc(duration(), "86400s")}
-    , {qmode_time_window, sc(integer(), 22)}
+    , {qmode_time_window, sc(duration_s(), "22s")}
     , {auto_observe, sc(boolean(), false)}
     , {update_msg_publish_condition, sc(hoconsc:union([always, contains_object_list]))}
     , {translators, sc_meta(ref(translators), #{nullable => false})}

@@ -266,7 +266,7 @@ gateway.lwm2m {
 
   lifetime_max = 86400s
 
-  qmode_time_window = 22
+  qmode_time_window = 22s
 
   auto_observe = false
 
