@@ -79,11 +79,7 @@ fields(config) ->
     ] ++ emqx_connector_schema_lib:ssl_fields().
 
 method() ->
-    hoconsc:union([ typerefl:atom(post)
-                  , typerefl:atom(put)
-                  , typerefl:atom(get)
-                  , typerefl:atom(delete)
-                  ]).
+    hoconsc:enum([post, put, get, delete]).
 
 validations() ->
     [ {check_ssl_opts, fun check_ssl_opts/1} ].
