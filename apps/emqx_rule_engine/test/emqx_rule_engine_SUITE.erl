@@ -150,7 +150,7 @@ init_per_testcase(t_events, Config) ->
             sql => SQL,
             outputs => [
                 #{function => console},
-                #{function => fun ?MODULE:output_record_triggered_events/3,
+                #{function => <<"emqx_rule_engine_SUITE:output_record_triggered_events">>,
                   args => #{}}
             ],
             description => <<"to console and record triggered events">>}),
@@ -1318,7 +1318,7 @@ make_simple_rule(RuleId, SQL, Topics, Ts) when is_binary(RuleId) ->
       fields => [<<"*">>],
       is_foreach => false,
       conditions => {},
-      ouputs => [#{function => console}],
+      outputs => [#{mod => emqx_rule_outputs, func => console, args => #{}}],
       description => <<"simple rule">>,
       created_at => Ts
     }.

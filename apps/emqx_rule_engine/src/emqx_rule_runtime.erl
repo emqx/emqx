@@ -250,13 +250,8 @@ handle_output(OutId, Selected, Envs) ->
 do_handle_output(ChannelId, Selected, _Envs) when is_binary(ChannelId) ->
     ?SLOG(debug, #{msg => "output to bridge", channel_id => ChannelId}),
     emqx_bridge:send_message(ChannelId, Selected);
-do_handle_output(#{function := Func} = Out, Selected, Envs) when is_function(Func) ->
-    erlang:apply(Func, [Selected, Envs, maps:get(args, Out, #{})]);
-do_handle_output(#{function := Func} = Out, Selected, Envs) when is_atom(Func) ->
-    case erlang:function_exported(emqx_rule_outputs, Func, 3) of
-        true -> erlang:apply(emqx_rule_outputs, Func, [Selected, Envs, maps:get(args, Out, #{})]);
-        false -> error(not_found)
-    end.
+do_handle_output(#{mod := Mod, func := Func, args := Args}, Selected, Envs) ->
+    Mod:Func(Selected, Envs, Args).
 
 eval({path, [{key, <<"payload">>} | Path]}, #{payload := Payload}) ->
     nested_get({path, Path}, may_decode_payload(Payload));

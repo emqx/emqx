@@ -260,26 +260,12 @@ do_delete_rule(RuleId) ->
     end.
 
 parse_outputs(Outputs) ->
-    [do_parse_outputs(Out) || Out <- Outputs].
+    [do_parse_output(Out) || Out <- Outputs].
 
-do_parse_outputs(#{function := Repub, args := Args})
-        when Repub == republish; Repub == <<"republish">> ->
-    #{function => republish, args => emqx_rule_outputs:pre_process_repub_args(Args)};
-do_parse_outputs(#{function := Func} = Output) ->
-    #{function => parse_output_func(Func), args => maps:get(args, Output, #{})};
-do_parse_outputs(BridgeChannelId) when is_binary(BridgeChannelId) ->
+do_parse_output(Output) when is_map(Output) ->
+    emqx_rule_outputs:parse_output(Output);
+do_parse_output(BridgeChannelId) when is_binary(BridgeChannelId) ->
     BridgeChannelId.
-
-parse_output_func(FuncName) when is_atom(FuncName) ->
-    FuncName;
-parse_output_func(BinFunc) when is_binary(BinFunc) ->
-    try binary_to_existing_atom(BinFunc) of
-        Func -> emqx_rule_outputs:assert_builtin_output(Func)
-    catch
-        error:badarg -> error({unknown_builtin_function, BinFunc})
-    end;
-parse_output_func(Func) when is_function(Func) ->
-    Func.
 
 get_all_records(Tab) ->
     [Rule#{id => Id} || {Id, Rule} <- ets:tab2list(Tab)].
