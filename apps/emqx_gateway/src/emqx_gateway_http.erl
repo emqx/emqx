@@ -294,7 +294,7 @@ with_channel(GwName, ClientId, Fun) ->
 return_http_error(Code, Msg) ->
     {Code, emqx_json:encode(
              #{code => codestr(Code),
-               reason => emqx_gateway_utils:stringfy(Msg)
+               message => emqx_gateway_utils:stringfy(Msg)
               })
     }.
 

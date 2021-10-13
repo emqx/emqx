@@ -109,25 +109,26 @@ fields(exproto) ->
 
 fields(exproto_grpc_server) ->
     [ {bind, sc(hoconsc:union([ip_port(), integer()]))}
-    , {ssl, sc_meta(ref(simple_ssl_options),
+    , {ssl, sc_meta(ref(ssl_server_opts),
                     #{nullable => {true, recursively}})}
     ];
 
 fields(exproto_grpc_handler) ->
     [ {address, sc(binary())}
-    , {ssl, sc_meta(ref(simple_ssl_options),
+    , {ssl, sc_meta(ref(ssl_client_opts),
                     #{nullable => {true, recursively}})}
     ];
 
-fields(simple_ssl_options) ->
-    [ {cacertfile, sc_meta(string(), #{nullable => true})}
-    , {certfile, sc_meta(string(), #{nullable => true})}
-    , {keyfile, sc_meta(string(), #{nullable => true})}
-    , {verify, sc(hoconsc:enum([verify_peer, verify_none]), verify_none)}
-    , {depth, sc(integer(), 10)}
-    , {password, sc_meta(string(), #{sensitive => true, nullable => true})}
-    %% XXX: More confs ???
-    ];
+fields(ssl_server_opts) ->
+    emqx_schema:server_ssl_opts_schema(
+      #{ depth => 10
+       , reuse_sessions => true
+       , versions => tls_all_available
+       , ciphers => tls_all_available
+       }, true);
+
+fields(ssl_client_opts) ->
+    emqx_schema:client_ssl_opts_schema(#{});
 
 fields(clientinfo_override) ->
     [ {username, sc(binary())}
