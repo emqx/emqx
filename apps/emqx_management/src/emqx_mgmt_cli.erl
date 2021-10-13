@@ -505,16 +505,16 @@ olp(["status"]) ->
             false -> "not overloaded"
         end,
     emqx_ctl:print("~p is ~s ~n", [node(), S]);
-olp(["off"]) ->
-    Res = emqx_olp:off(),
-    emqx_ctl:print("Turn off overload protetion ~p : ~p ~n", [node(), Res]);
-olp(["on"]) ->
-    Res = emqx_olp:on(),
-    emqx_ctl:print("Turn on overload protection ~p : ~p ~n", [node(), Res]);
+olp(["disable"]) ->
+    Res = emqx_olp:disable(),
+    emqx_ctl:print("Disable overload protetion ~p : ~p ~n", [node(), Res]);
+olp(["enable"]) ->
+    Res = emqx_olp:enable(),
+    emqx_ctl:print("Enable overload protection ~p : ~p ~n", [node(), Res]);
 olp(_) ->
-    emqx_ctl:usage([{"olp status", "Return OLP status if system is overloaded"},
-                    {"olp on",     "Turn on overload protection"},
-                    {"olp off",    "Turn off overload protection"}
+    emqx_ctl:usage([{"olp status",  "Return OLP status if system is overloaded"},
+                    {"olp enable",  "Enable overload protection"},
+                    {"olp disable", "Disable overload protection"}
                    ]).
 
 %%--------------------------------------------------------------------

@@ -34,7 +34,7 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 init_per_testcase(_, Config) ->
-    emqx_olp:on(),
+    emqx_olp:enable(),
     case wait_for(fun() -> lc_sup:whereis_runq_flagman() end, 10) of
       true -> ok;
       false ->
@@ -51,11 +51,11 @@ init_per_testcase(_, Config) ->
   Config.
 
 %% Test that olp could be enabled/disabled globally
-t_off_on(_Config) ->
+t_disable_enable(_Config) ->
     Old = load_ctl:whereis_runq_flagman(),
-    ok = emqx_olp:off(),
+    ok = emqx_olp:disable(),
     ?assert(not is_process_alive(Old)),
-    {ok, Pid} = emqx_olp:on(),
+    {ok, Pid} = emqx_olp:enable(),
     timer:sleep(1000),
     ?assert(is_process_alive(Pid)).
 

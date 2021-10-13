@@ -27,8 +27,8 @@
 
 %% exports for O&M
 -export([ status/0
-        , on/0
-        , off/0
+        , enable/0
+        , disable/0
         ]).
 
 -type cfg_key() ::
@@ -97,13 +97,13 @@ status() ->
   is_overloaded().
 
 %% @doc turn off backgroud runq check.
--spec off() -> ok | {error, timeout}.
-off() ->
+-spec disable() -> ok | {error, timeout}.
+disable() ->
   load_ctl:stop_runq_flagman(5000).
 
 %% @doc turn on backgroud runq check.
--spec on() -> {ok, pid()} | {error, running | restarting | disabled}.
-on() ->
+-spec enable() -> {ok, pid()} | {error, running | restarting | disabled}.
+enable() ->
  case load_ctl:restart_runq_flagman() of
    {error, disabled} ->
      OldCfg = load_ctl:get_config(),
