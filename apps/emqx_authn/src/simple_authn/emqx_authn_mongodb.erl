@@ -39,7 +39,7 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn:password-based:mongodb".
+namespace() -> "authn-password_based-mongodb".
 
 roots() ->
     [ {config, {union, [ hoconsc:mk(standalone)

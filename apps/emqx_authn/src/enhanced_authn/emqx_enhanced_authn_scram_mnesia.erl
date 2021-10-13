@@ -77,7 +77,7 @@ mnesia(copy) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn:scram:builtin-db".
+namespace() -> "authn-scram-builtin_db".
 
 roots() -> [config].
 

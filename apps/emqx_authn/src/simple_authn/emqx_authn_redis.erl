@@ -39,7 +39,7 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn:password-based:redis".
+namespace() -> "authn-password_based-redis".
 
 roots() ->
     [ {config, {union, [ hoconsc:mk(standalone)

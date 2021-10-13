@@ -40,7 +40,7 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn:password-based:http-server".
+namespace() -> "authn-password_based-http_server".
 
 roots() ->
     [ {config, {union, [ hoconsc:ref(?MODULE, get)
