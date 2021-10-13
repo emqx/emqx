@@ -330,13 +330,9 @@ format_datetime(Timestamp, Unit) ->
 format_output(Outputs) ->
     [do_format_output(Out) || Out <- Outputs].
 
-do_format_output(#{function := Func}) when is_function(Func) ->
-    FunInfo = erlang:fun_info(Func),
-    FunMod = proplists:get_value(module, FunInfo),
-    FunName = proplists:get_value(name, FunInfo),
-    #{function => list_to_binary(lists:concat([FunMod,":",FunName]))};
-do_format_output(#{function := Name, args := Args}) ->
-    #{function => Name, args => maps:remove(preprocessed_tmpl, Args)};
+do_format_output(#{mod := Mod, func := Func, args := Args}) ->
+    #{function => list_to_binary(lists:concat([Mod,":",Func])),
+      args => maps:remove(preprocessed_tmpl, Args)};
 do_format_output(BridgeChannelId) when is_binary(BridgeChannelId) ->
     BridgeChannelId.
 
