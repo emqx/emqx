@@ -148,7 +148,7 @@ init([InstaId, PredefTopics]) ->
                ]),
     ok = mria:wait_for_tables([Tab]),
     % FIXME:
-    %ok = ekka_rlog:wait_for_shards([?CM_SHARD], infinity),
+    %ok = mria_rlog:wait_for_shards([?CM_SHARD], infinity),
     MaxPredefId = lists:foldl(
                     fun(#{id := TopicId, topic := TopicName0}, AccId) ->
                         TopicName = iolist_to_binary(TopicName0),

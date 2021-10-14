@@ -108,7 +108,7 @@ init([]) ->
                 {attributes, record_info(fields, channel)},
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]),
-    ok = ekka_rlog:wait_for_shards([?CM_SHARD], infinity),
+    ok = mria_rlog:wait_for_shards([?CM_SHARD], infinity),
     ok = ekka:monitor(membership),
     {ok, #{}}.
 

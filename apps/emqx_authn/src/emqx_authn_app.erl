@@ -30,7 +30,7 @@
 %%------------------------------------------------------------------------------
 
 start(_StartType, _StartArgs) ->
-    ok = ekka_rlog:wait_for_shards([?AUTH_SHARD], infinity),
+    ok = mria_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
     ok = ?AUTHN:register_providers(providers()),
     ok = initialize(),
