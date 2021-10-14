@@ -122,7 +122,7 @@ gateway_insta(put, #{body := GwConf,
     with_gateway(Name0, fun(GwName, _) ->
         case emqx_gateway_conf:update_gateway(GwName, GwConf) of
             ok ->
-                {200};
+                {204};
             {error, Reason} ->
                 return_http_error(500, Reason)
         end

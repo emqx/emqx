@@ -19,6 +19,11 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-import(emqx_gateway_test_utils,
+        [ assert_confs/2
+        , maybe_unconvert_listeners/1
+        ]).
+
 -include_lib("eunit/include/eunit.hrl").
 
 %%--------------------------------------------------------------------
@@ -228,33 +233,3 @@ compose_listener_authn(Basic, Listener, Authn) ->
 listener(L) ->
     #{<<"listeners">> => [L#{<<"type">> => <<"tcp">>,
                              <<"name">> => <<"default">>}]}.
-
-assert_confs(Expected0, Effected) ->
-    Expected = maybe_unconvert_listeners(Expected0),
-    case do_assert_confs(Expected, Effected) of
-        false ->
-            io:format(standard_error, "Expected config: ~p,\n"
-                                      "Effected config: ~p",
-                                      [Expected, Effected]),
-            exit(conf_not_match);
-        true ->
-            ok
-    end.
-
-do_assert_confs(Expected, Effected) when is_map(Expected),
-                                         is_map(Effected) ->
-    Ks1 = maps:keys(Expected),
-    lists:all(fun(K) ->
-        do_assert_confs(maps:get(K, Expected),
-                        maps:get(K, Effected, undefined))
-    end, Ks1);
-do_assert_confs(Expected, Effected) ->
-    Expected =:= Effected.
-
-maybe_unconvert_listeners(Conf) ->
-    case maps:take(<<"listeners">>, Conf) of
-        error -> Conf;
-        {Ls, Conf1} ->
-            Conf1#{<<"listeners">> =>
-                   emqx_gateway_conf:unconvert_listeners(Ls)}
-    end.
