@@ -20,7 +20,6 @@ RUN apk add --no-cache \
 
 COPY . /emqx
 
-ARG PKG_VSN
 ARG EMQX_NAME=emqx
 
 RUN cd /emqx \
@@ -28,17 +27,6 @@ RUN cd /emqx \
     && make $EMQX_NAME
 
 FROM $RUN_FROM
-
-# Basic build-time metadata as defined at http://label-schema.org
-LABEL org.label-schema.docker.dockerfile="Dockerfile" \
-    org.label-schema.license="GNU" \
-    org.label-schema.name="emqx" \
-    org.label-schema.version=${PKG_VSN} \
-    org.label-schema.description="EMQ (Erlang MQTT Broker) is a distributed, massively scalable, highly extensible MQTT messaging broker written in Erlang/OTP." \
-    org.label-schema.url="https://emqx.io" \
-    org.label-schema.vcs-type="Git" \
-    org.label-schema.vcs-url="https://github.com/emqx/emqx" \
-    maintainer="Raymond M Mouthaan <raymondmmouthaan@gmail.com>, Huang Rui <vowstar@gmail.com>, EMQ X Team <support@emqx.io>"
 
 ARG EMQX_NAME=emqx
 
