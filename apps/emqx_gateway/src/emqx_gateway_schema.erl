@@ -73,8 +73,8 @@ fields(stomp_frame) ->
 
 fields(mqttsn) ->
     [ {gateway_id, sc(integer())}
-    , {broadcast, sc(boolean())}
-    , {enable_qos3, sc(boolean())}
+    , {broadcast, sc(boolean(), false)}
+    , {enable_qos3, sc(boolean(), true)}
     , {predefined, hoconsc:array(ref(mqttsn_predefined))}
     , {listeners, sc(ref(udp_listeners))}
     ] ++ gateway_common_options();
@@ -98,6 +98,7 @@ fields(lwm2m) ->
     , {lifetime_min, sc(duration(), "1s")}
     , {lifetime_max, sc(duration(), "86400s")}
     , {qmode_time_window, sc(duration_s(), "22s")}
+    %% TODO: Support config resource path
     , {auto_observe, sc(boolean(), false)}
     , {update_msg_publish_condition, sc(hoconsc:union([always, contains_object_list]))}
     , {translators, sc_meta(ref(translators), #{nullable => false})}
