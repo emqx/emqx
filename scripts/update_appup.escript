@@ -33,8 +33,8 @@ Options:
   --make-command    A command used to assemble the release
   --release-dir     Release directory
   --src-dirs        Directories where source code is found. Defaults to '{src,apps,lib-*}/**/'
-  --binary-rel-url  Binary release URL pattern. ${TAG} variable is substituted with the release tag.
-                    E.g. \"https://github.com/emqx/emqx/releases/download/v4.3.8/emqx-centos7-${TAG}-amd64.zip\"
+  --binary-rel-url  Binary release URL pattern. %TAG% variable is substituted with the release tag.
+                    E.g. \"https://github.com/emqx/emqx/releases/download/v4.3.8/emqx-centos7-%TAG%-amd64.zip\"
 ".
 
 -record(app,
@@ -158,7 +158,7 @@ build_prev_release(Baseline, #{clone_url := Repo, make_command := MakeCommand}) 
     {ok, filename:join(BaseDir, Dir)}.
 
 download_prev_release(Tag, #{binary_rel_url := {ok, URL0}, clone_url := Repo}) ->
-    URL = string:replace(URL0, "${TAG}", Tag, all),
+    URL = string:replace(URL0, "%TAG%", Tag, all),
     BaseDir = "/tmp/emqx-baseline-bin/",
     Dir = filename:basename(Repo, ".git") ++ [$-|Tag],
     Filename = filename:join(BaseDir, Dir),
