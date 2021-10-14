@@ -64,7 +64,6 @@ stop_one_app(App) ->
                 reason => E})
     end.
 
-
 ensure_apps_started() ->
     lists:foreach(fun start_one_app/1, sorted_reboot_apps()).
 
@@ -86,6 +85,7 @@ reboot_apps() ->
     , esockd
     , ranch
     , cowboy
+    , emqx_conf
     , emqx
     , emqx_prometheus
     , emqx_modules

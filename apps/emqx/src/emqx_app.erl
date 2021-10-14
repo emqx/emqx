@@ -85,12 +85,8 @@ set_override_conf_file(File) ->
 
 maybe_load_config() ->
     case get_init_config_load_done() of
-        true ->
-            ok;
-        false ->
-            %% the app env 'config_files' should be set before emqx get started.
-            ConfFiles = application:get_env(emqx, config_files, []),
-            emqx_config:init_load(emqx_schema, ConfFiles)
+        true -> ok;
+        false -> emqx_config:init_load(emqx_schema)
     end.
 
 maybe_start_listeners() ->

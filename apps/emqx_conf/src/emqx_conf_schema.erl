@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_machine_schema).
+-module(emqx_conf_schema).
 
 -dialyzer(no_return).
 -dialyzer(no_match).
@@ -269,7 +269,8 @@ fields("node") ->
            })}
     , {"data_dir",
        sc(string(),
-          #{ nullable => false
+          #{ nullable => false,
+             mapping => "emqx.data_dir"
            })}
     , {"config_files",
        sc(list(string()),
@@ -278,8 +279,9 @@ fields("node") ->
            })}
     , {"global_gc_interval",
        sc(emqx_schema:duration(),
-          #{ default => "15m"
-           })}
+         #{  mapping => "emqx_machine.global_gc_interval"
+          ,  default => "15m"
+          })}
     , {"crash_dump_dir",
        sc(file(),
           #{ mapping => "vm_args.-env ERL_CRASH_DUMP"
@@ -475,7 +477,8 @@ translation("kernel") ->
     , {"logger", fun tr_logger/1}];
 translation("emqx") ->
     [ {"config_files", fun tr_config_files/1}
-    , {"override_conf_file", fun tr_override_conf_fie/1}
+    , {"cluster_override_conf_file", fun tr_cluster_override_conf_file/1}
+    , {"local_override_conf_file", fun tr_local_override_conf_file/1}
     ].
 
 tr_config_files(Conf) ->
@@ -491,11 +494,17 @@ tr_config_files(Conf) ->
             end
     end.
 
-tr_override_conf_fie(Conf) ->
+tr_cluster_override_conf_file(Conf) ->
+    tr_override_conf_file(Conf, "cluster-override.conf").
+
+tr_local_override_conf_file(Conf) ->
+    tr_override_conf_file(Conf, "local-override.conf").
+
+tr_override_conf_file(Conf, Filename) ->
     DataDir = conf_get("node.data_dir", Conf),
     %% assert, this config is not nullable
     [_ | _] = DataDir,
-    filename:join([DataDir, "emqx_override.conf"]).
+    filename:join([DataDir, "configs", Filename]).
 
 tr_cluster__discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),

@@ -13,21 +13,36 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_bridge_app).
 
--behaviour(application).
+-module(emqx_conf_sup).
 
--export([start/2, stop/1]).
+-behaviour(supervisor).
 
-start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_bridge_sup:start_link(),
-    ok = emqx_bridge:load_bridges(),
-    ok = emqx_bridge:reload_hook(),
-    emqx_config_handler:add_handler(emqx_bridge:config_key_path(), emqx_bridge),
-    {ok, Sup}.
+-export([start_link/0]).
 
-stop(_State) ->
-    ok = emqx_bridge:unload_hook(),
-    ok.
+-export([init/1]).
 
-%% internal functions
+-define(SERVER, ?MODULE).
+
+start_link() ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+
+init([]) ->
+    SupFlags = #{strategy => one_for_all,
+        intensity => 10,
+        period => 100},
+    ChildSpecs =
+        [ child_spec(emqx_cluster_rpc, [])
+        , child_spec(emqx_cluster_rpc_handler, [])
+        ],
+    {ok, {SupFlags, ChildSpecs}}.
+
+child_spec(Mod, Args) ->
+    #{
+        id => Mod,
+        start => {Mod, start_link, Args},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [Mod]
+    }.

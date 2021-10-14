@@ -17,15 +17,16 @@
 
 -compile({no_auto_import, [get/0, get/1, put/2]}).
 
--export([ init_load/2
-        , read_override_conf/0
+-export([ init_load/1
+        , init_load/2
+        , read_override_conf/1
         , check_config/2
         , fill_defaults/1
         , fill_defaults/2
-        , save_configs/4
+        , save_configs/5
         , save_to_app_env/1
         , save_to_config_map/2
-        , save_to_override_conf/1
+        , save_to_override_conf/2
         ]).
 
 -export([ get_root/1
@@ -66,6 +67,8 @@
         , find_listener_conf/3
         ]).
 
+-export([merge_with_override_conf/2]).
+
 -include("logger.hrl").
 
 -define(CONF, conf).
@@ -96,7 +99,8 @@
         %% persistent:
         %%   save the updated config to the emqx_override.conf file
         %%   defaults to `true`
-        persistent => boolean()
+        persistent => boolean(),
+        override => local | cluster
     }.
 -type update_args() :: {update_cmd(), Opts :: update_opts()}.
 -type update_stage() :: pre_config_update | post_config_update.
@@ -237,13 +241,19 @@ put_raw(KeyPath, Config) -> do_put(?RAW_CONF, KeyPath, Config).
 %%============================================================================
 %% Load/Update configs From/To files
 %%============================================================================
+init_load(SchemaMod) ->
+    ConfFiles = application:get_env(emqx, config_files, []),
+    ok = init_load(SchemaMod, ConfFiles),
+    emqx_app:set_init_config_load_done(),
+    ok.
 
 %% @doc Initial load of the given config files.
 %% NOTE: The order of the files is significant, configs from files orderd
 %% in the rear of the list overrides prior values.
 -spec init_load(module(), [string()] | binary() | hocon:config()) -> ok.
 init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
-    ParseOptions = #{format => map},
+    IncDir = include_dirs(),
+    ParseOptions = #{format => map, include_dirs => IncDir},
     Parser = case is_binary(Conf) of
               true -> fun hocon:binary/2;
               false -> fun hocon:files/2
@@ -253,21 +263,23 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
             init_load(SchemaMod, RawRichConf);
         {error, Reason} ->
             ?SLOG(error, #{msg => failed_to_load_hocon_conf,
-                           reason => Reason
+                           reason => Reason,
+                           include_dirs => IncDir
                           }),
             error(failed_to_load_hocon_conf)
     end;
 init_load(SchemaMod, RawConf0) when is_map(RawConf0) ->
     ok = save_schema_mod_and_names(SchemaMod),
-    %% override part of the input conf using emqx_override.conf
-    RawConf = merge_with_override_conf(RawConf0),
     %% check and save configs
-    {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf),
+    {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf0),
     ok = save_to_config_map(maps:with(get_atom_root_names(), CheckedConf),
-            maps:with(get_root_names(), RawConf)).
+            maps:with(get_root_names(), RawConf0)).
 
-merge_with_override_conf(RawConf) ->
-    maps:merge(RawConf, maps:with(maps:keys(RawConf), read_override_conf())).
+include_dirs() ->
+    [filename:join(application:get_env(emqx, data_dir, "data/"), "configs") ++ "/"].
+
+merge_with_override_conf(RawConf, Opts) ->
+    maps:merge(RawConf, maps:with(maps:keys(RawConf), read_override_conf(Opts))).
 
 -spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().
@@ -299,9 +311,16 @@ fill_defaults(SchemaMod, RawConf) ->
         #{nullable => true, only_fill_defaults => true},
         root_names_from_conf(RawConf)).
 
--spec read_override_conf() -> raw_config().
-read_override_conf() ->
-    load_hocon_file(emqx_override_conf_name(), map).
+-spec read_override_conf(map()) -> raw_config().
+read_override_conf(#{} = Opts) ->
+    File = override_conf(Opts),
+    load_hocon_file(File, map).
+
+override_conf(Opts) ->
+    case maps:get(override, Opts, local) of
+        local -> local_override_conf();
+        cluster -> cluster_override_conf()
+    end.
 
 -spec save_schema_mod_and_names(module()) -> ok.
 save_schema_mod_and_names(SchemaMod) ->
@@ -330,14 +349,14 @@ get_root_names() ->
 get_atom_root_names() ->
     [atom(N) || N <- get_root_names()].
 
--spec save_configs(app_envs(), config(), raw_config(), raw_config()) -> ok | {error, term()}.
-save_configs(_AppEnvs, Conf, RawConf, OverrideConf) ->
+-spec save_configs(app_envs(), config(), raw_config(), raw_config(), update_opts()) -> ok | {error, term()}.
+save_configs(_AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
     %% We may need also support hot config update for the apps that use application envs.
     %% If that is the case uncomment the following line to update the configs to app env
     %save_to_app_env(AppEnvs),
     save_to_config_map(Conf, RawConf),
     %% TODO: merge RawConf to OverrideConf can be done here
-    save_to_override_conf(OverrideConf).
+    save_to_override_conf(OverrideConf, Opts).
 
 -spec save_to_app_env([tuple()]) -> ok.
 save_to_app_env(AppEnvs) ->
@@ -350,11 +369,11 @@ save_to_config_map(Conf, RawConf) ->
     ?MODULE:put(Conf),
     ?MODULE:put_raw(RawConf).
 
--spec save_to_override_conf(raw_config()) -> ok | {error, term()}.
-save_to_override_conf(undefined) ->
+-spec save_to_override_conf(raw_config(), update_opts()) -> ok | {error, term()}.
+save_to_override_conf(undefined, _) ->
     ok;
-save_to_override_conf(RawConf) ->
-    case emqx_override_conf_name() of
+save_to_override_conf(RawConf, Opts) ->
+    case override_conf(Opts) of
         undefined -> ok;
         FileName ->
             ok = filelib:ensure_dir(FileName),
@@ -371,13 +390,17 @@ save_to_override_conf(RawConf) ->
 load_hocon_file(FileName, LoadType) ->
     case filelib:is_regular(FileName) of
         true ->
-            {ok, Raw0} = hocon:load(FileName, #{format => LoadType}),
+            Opts = #{include_dirs => include_dirs(), format => LoadType},
+            {ok, Raw0} = hocon:load(FileName, Opts),
             Raw0;
         false -> #{}
     end.
 
-emqx_override_conf_name() ->
-    application:get_env(emqx, override_conf_file, undefined).
+local_override_conf() ->
+    application:get_env(emqx, local_override_conf_file, undefined).
+
+cluster_override_conf() ->
+    application:get_env(emqx, cluster_override_conf_file, undefined).
 
 do_get(Type, KeyPath) ->
     Ref = make_ref(),

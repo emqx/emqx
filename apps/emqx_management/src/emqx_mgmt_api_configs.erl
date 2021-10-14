@@ -109,10 +109,10 @@ find_schema(Path) ->
             {Root, element(2, lists:keyfind(RootAtom, 1, Configs))}
     end.
 
-%% we load all configs from emqx_machine_schema, some of them are defined as local ref
-%% we need redirect to emqx_machine_schema.
-%% such as hoconsc:ref("node") to hoconsc:ref(emqx_machine_schema, "node")
-fields(Field) -> emqx_machine_schema:fields(Field).
+%% we load all configs from emqx_conf_schema, some of them are defined as local ref
+%% we need redirect to emqx_conf_schema.
+%% such as hoconsc:ref("node") to hoconsc:ref(emqx_conf_schema, "node")
+fields(Field) -> emqx_conf_schema:fields(Field).
 
 %%%==============================================================================================
 %% HTTP API Callbacks
@@ -165,7 +165,7 @@ conf_path_from_querystr(Req) ->
     end.
 
 config_list(Exclude) ->
-    Roots = emqx_machine_schema:roots(),
+    Roots = emqx_conf_schema:roots(),
     lists:foldl(fun(Key, Acc) -> lists:delete(Key, Acc) end, Roots, Exclude).
 
 to_list(L) when is_list(L) -> L;

@@ -101,4 +101,3 @@ get_base_dir(Module) ->
 
 get_base_dir() ->
     get_base_dir(?MODULE).
-

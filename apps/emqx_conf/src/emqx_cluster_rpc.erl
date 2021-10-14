@@ -33,10 +33,7 @@
 -copy_mnesia({mnesia, [copy]}).
 
 -include_lib("emqx/include/logger.hrl").
--include("emqx.hrl").
-
--rlog_shard({?COMMON_SHARD, ?CLUSTER_MFA}).
--rlog_shard({?COMMON_SHARD, ?CLUSTER_COMMIT}).
+-include("emqx_conf.hrl").
 
 -define(CATCH_UP, catch_up).
 -define(TIMEOUT, timer:minutes(1)).
@@ -47,13 +44,13 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?CLUSTER_MFA, [
         {type, ordered_set},
-        {rlog_shard, ?COMMON_SHARD},
+        {rlog_shard, ?CLUSTER_RPC_SHARD},
         {disc_copies, [node()]},
         {record_name, cluster_rpc_mfa},
         {attributes, record_info(fields, cluster_rpc_mfa)}]),
     ok = ekka_mnesia:create_table(?CLUSTER_COMMIT, [
         {type, set},
-        {rlog_shard, ?COMMON_SHARD},
+        {rlog_shard, ?CLUSTER_RPC_SHARD},
         {disc_copies, [node()]},
         {record_name, cluster_rpc_commit},
         {attributes, record_info(fields, cluster_rpc_commit)}]);
@@ -94,7 +91,7 @@ multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNu
                 %% the initiate transaction must happened on core node
                 %% make sure MFA(in the transaction) and the transaction on the same node
                 %% don't need rpc again inside transaction.
-                case ekka_rlog_status:upstream_node(?COMMON_SHARD) of
+                case ekka_rlog_status:upstream_node(?CLUSTER_RPC_SHARD) of
                     {ok, Node} -> gen_server:call({?MODULE, Node}, MFA, Timeout);
                     disconnected -> {error, disconnected}
                 end
@@ -131,7 +128,7 @@ status() ->
 
 -spec get_latest_tnx_id() -> {'atomic', integer()} | {'aborted', Reason :: term()}.
 get_latest_tnx_id() ->
-    ekka_mnesia:ro_transaction(?COMMON_SHARD, fun() -> get_latest_id() end).
+    ekka_mnesia:ro_transaction(?CLUSTER_RPC_SHARD, fun() -> get_latest_id() end).
 
 %% Regardless of what MFA is returned, consider it a success),
 %% then move to the next tnxId.
@@ -287,7 +284,7 @@ do_catch_up_in_one_trans(LatestId, Node) ->
     end.
 
 transaction(Func, Args) ->
-    ekka_mnesia:transaction(?COMMON_SHARD, Func, Args).
+    ekka_mnesia:transaction(?CLUSTER_RPC_SHARD, Func, Args).
 
 trans_status() ->
     mnesia:foldl(fun(Rec, Acc) ->

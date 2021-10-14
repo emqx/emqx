@@ -200,7 +200,7 @@ pre_config_update(UpdateReq, OldConfig) ->
     end.
 
 do_pre_config_update({create_authenticator, ChainName, Config}, OldConfig) ->
-    try 
+    try
         CertsDir = certs_dir([to_bin(ChainName), generate_id(Config)]),
         NConfig = convert_certs(CertsDir, Config),
         {ok, OldConfig ++ [NConfig]}
@@ -216,7 +216,7 @@ do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldCon
                              end, OldConfig),
     {ok, NewConfig};
 do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
-    try 
+    try
         CertsDir = certs_dir([to_bin(ChainName), AuthenticatorID]),
         NewConfig = lists:map(
                         fun(OldConfig0) ->
@@ -549,7 +549,7 @@ handle_call({lookup_chain, Name}, _From, State) ->
     end;
 
 handle_call({create_authenticator, ChainName, Config}, _From, #{providers := Providers} = State) ->
-    UpdateFun = 
+    UpdateFun =
         fun(#chain{authenticators = Authenticators} = Chain) ->
             AuthenticatorID = generate_id(Config),
             case lists:keymember(AuthenticatorID, #authenticator.id, Authenticators) of
@@ -570,7 +570,7 @@ handle_call({create_authenticator, ChainName, Config}, _From, #{providers := Pro
     reply(Reply, maybe_hook(State));
 
 handle_call({delete_authenticator, ChainName, AuthenticatorID}, _From, State) ->
-    UpdateFun = 
+    UpdateFun =
         fun(#chain{authenticators = Authenticators} = Chain) ->
             case lists:keytake(AuthenticatorID, #authenticator.id, Authenticators) of
                 false ->
@@ -614,7 +614,7 @@ handle_call({update_authenticator, ChainName, AuthenticatorID, Config}, _From, S
     reply(Reply, State);
 
 handle_call({move_authenticator, ChainName, AuthenticatorID, Position}, _From, State) ->
-    UpdateFun = 
+    UpdateFun =
         fun(#chain{authenticators = Authenticators} = Chain) ->
             case do_move_authenticator(AuthenticatorID, Authenticators, Position) of
                 {ok, NAuthenticators} ->

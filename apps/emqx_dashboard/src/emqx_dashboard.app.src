@@ -4,7 +4,7 @@
   {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_dashboard_sup]},
-  {applications, [kernel,stdlib,mnesia,minirest,emqx]},
+  {applications, [kernel,stdlib,mnesia,minirest,emqx,emqx_conf]},
   {mod, {emqx_dashboard_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},
