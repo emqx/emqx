@@ -139,7 +139,7 @@ prepare(Baseline, Options = #{make_command := MakeCommand, beams_dir := BeamDir,
             undefined ->
                 {ok, PrevRootDir} = build_prev_release(Baseline, Options),
                 filename:join(PrevRootDir, BeamDir);
-            {ok, URL} ->
+            {ok, _URL} ->
                 {ok, PrevRootDir} = download_prev_release(Baseline, Options),
                 PrevRootDir
         end,
