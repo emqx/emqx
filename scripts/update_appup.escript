@@ -100,7 +100,7 @@ main(Options, Baseline) ->
         "~n===================================~n"),
     CurrAppsIdx = index_apps(CurrRelDir),
     PrevAppsIdx = index_apps(PrevRelDir),
-    %% log("Curr: ~p~nPrev: ~p~n", [CurrApps, PrevApps]),
+    %% log("Curr: ~p~nPrev: ~p~n", [CurrAppsIdx, PrevAppsIdx]),
     AppupChanges = find_appup_actions(CurrAppsIdx, PrevAppsIdx),
     case getopt(check) of
         true ->
@@ -215,7 +215,7 @@ find_appup_actions(App, CurrAppIdx, PrevAppIdx = #app{version = PrevVersion}) ->
 
 find_old_appup_actions(App, PrevVersion) ->
     {Upgrade0, Downgrade0} =
-        case locate(App, ".appup.src") of
+        case locate(ebin_current, App, ".appup") of
             {ok, AppupFile} ->
                 {_, U, D} = read_appup(AppupFile),
                 {U, D};
@@ -286,7 +286,7 @@ update_appups(Changes) ->
       Changes).
 
 do_update_appup(App, Upgrade, Downgrade) ->
-    case locate(App, ".appup.src") of
+    case locate(src, App, ".appup.src") of
         {ok, AppupFile} ->
             render_appfile(AppupFile, Upgrade, Downgrade);
         undefined ->
@@ -308,7 +308,7 @@ render_appfile(File, Upgrade, Downgrade) ->
     ok = file:write_file(File, IOList).
 
 create_stub(App) ->
-    case locate(App, ".app.src") of
+    case locate(src, App, ".app.src") of
         {ok, AppSrc} ->
             AppupFile = filename:basename(AppSrc) ++ ".appup.src",
             Default = {<<".*">>, []},
@@ -411,7 +411,16 @@ semver(Maj, Min, Patch) ->
     lists:flatten(io_lib:format("~p.~p.~p", [Maj, Min, Patch])).
 
 %% Locate a file in a specified application
-locate(App, Suffix) ->
+locate(ebin_current, App, Suffix) ->
+    ReleaseDir = getopt(beams_dir),
+    AppStr = atom_to_list(App),
+    case filelib:wildcard(ReleaseDir ++ "/**/ebin/" ++ AppStr ++ Suffix) of
+        [File] ->
+            {ok, File};
+        [] ->
+            undefined
+    end;
+locate(src, App, Suffix) ->
     AppStr = atom_to_list(App),
     SrcDirs = getopt(src_dirs),
     case filelib:wildcard(SrcDirs ++ AppStr ++ Suffix) of
