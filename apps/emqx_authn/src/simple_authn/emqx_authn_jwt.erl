@@ -37,7 +37,7 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn:jwt".
+namespace() -> "authn-jwt".
 
 roots() ->
     [ {config, {union, [ hoconsc:mk('hmac-based')

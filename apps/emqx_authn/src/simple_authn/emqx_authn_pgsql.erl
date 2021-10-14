@@ -40,7 +40,7 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn:password-based:postgresql".
+namespace() -> "authn-password_based-postgresql".
 
 roots() -> [config].
 
