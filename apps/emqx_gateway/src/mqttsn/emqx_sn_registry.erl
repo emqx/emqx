@@ -58,7 +58,6 @@
 %-export([mnesia/1]).
 
 %-boot_mnesia({mnesia, [boot]}).
-%-copy_mnesia({mnesia, [copy]}).
 
 %%% @doc Create or replicate tables.
 %-spec(mnesia(boot | copy) -> ok).

@@ -25,7 +25,6 @@
 -export([get_local_time/0]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 %% Mnesia bootstrap
 -export([mnesia/1]).

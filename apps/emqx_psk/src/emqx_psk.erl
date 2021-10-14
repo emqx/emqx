@@ -47,7 +47,6 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -define(TAB, ?MODULE).
 -define(PSK_SHARD, emqx_psk_shard).

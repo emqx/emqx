@@ -32,7 +32,6 @@
 -endif.
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
