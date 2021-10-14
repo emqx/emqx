@@ -69,13 +69,7 @@
 
 -define(RULE_ENGINE, ?MODULE).
 
--define(T_CALL, 10000).
-
--define(FOREACH_RULE(RULES, EXPR),
-    lists:foreach(fun({ID0, _ITEM}) ->
-            ID = bin(ID0),
-            EXPR
-        end, maps:to_list(RULES))).
+-define(T_CALL, infinity).
 
 config_key_path() ->
     [rule_engine, rules].
@@ -90,12 +84,15 @@ start_link() ->
 post_config_update(_Req, NewRules, OldRules, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Updated}
         = emqx_map_lib:diff_maps(NewRules, OldRules),
-    ?FOREACH_RULE(Updated, begin
-        {_Old, New} = _ITEM,
-        {ok, _} = update_rule(New#{id => ID})
-    end),
-    ?FOREACH_RULE(Removed, ok = delete_rule(ID)),
-    ?FOREACH_RULE(Added, {ok, _} = create_rule(_ITEM#{id => ID})),
+    maps_foreach(fun({Id, {_Old, New}}) ->
+            {ok, _} = update_rule(New#{id => bin(Id)})
+        end, Updated),
+    maps_foreach(fun({Id, _Rule}) ->
+            ok = delete_rule(bin(Id))
+        end, Removed),
+    maps_foreach(fun({Id, Rule}) ->
+            {ok, _} = create_rule(Rule#{id => bin(Id)})
+        end, Added),
     {ok, get_rules()}.
 
 %%------------------------------------------------------------------------------
@@ -104,9 +101,9 @@ post_config_update(_Req, NewRules, OldRules, _AppEnvs) ->
 
 -spec load_rules() -> ok.
 load_rules() ->
-    lists:foreach(fun({Id, Rule}) ->
+    maps_foreach(fun({Id, Rule}) ->
             {ok, _} = create_rule(Rule#{id => bin(Id)})
-        end, maps:to_list(emqx:get_config([rule_engine, rules], #{}))).
+        end, emqx:get_config([rule_engine, rules], #{})).
 
 -spec create_rule(map()) -> {ok, rule()} | {error, term()}.
 create_rule(Params = #{id := RuleId}) when is_binary(RuleId) ->
@@ -269,6 +266,9 @@ do_parse_output(BridgeChannelId) when is_binary(BridgeChannelId) ->
 
 get_all_records(Tab) ->
     [Rule#{id => Id} || {Id, Rule} <- ets:tab2list(Tab)].
+
+maps_foreach(Fun, Map) ->
+    lists:foreach(Fun, maps:to_list(Map)).
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B.
