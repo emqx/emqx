@@ -152,7 +152,7 @@ data(get, _Request) ->
 enable_telemetry(Enable) ->
     lists:foreach(fun(Node) ->
         enable_telemetry(Node, Enable)
-    end, ekka_mnesia:running_nodes()).
+    end, mria_mnesia:running_nodes()).
 
 enable_telemetry(Node, Enable) when Node =:= node() ->
     case Enable of

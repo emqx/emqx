@@ -209,7 +209,7 @@ confexp({error, already_exist}) ->
                     emqx_type:clientid(), {atom(), atom()}) -> list().
 lookup_client(GwName, ClientId, FormatFun) ->
     lists:append([lookup_client(Node, GwName, {clientid, ClientId}, FormatFun)
-                  || Node <- ekka_mnesia:running_nodes()]).
+                  || Node <- mria_mnesia:running_nodes()]).
 
 lookup_client(Node, GwName, {clientid, ClientId}, {M,F}) when Node =:= node() ->
     ChanTab = emqx_gateway_cm:tabname(chan, GwName),
@@ -229,7 +229,7 @@ lookup_client(Node, GwName, {clientid, ClientId}, FormatFun) ->
      | ok.
 kickout_client(GwName, ClientId) ->
     Results = [kickout_client(Node, GwName, ClientId)
-               || Node <- ekka_mnesia:running_nodes()],
+               || Node <- mria_mnesia:running_nodes()],
     case lists:any(fun(Item) -> Item =:= ok end, Results) of
         true  -> ok;
         false -> lists:last(Results)

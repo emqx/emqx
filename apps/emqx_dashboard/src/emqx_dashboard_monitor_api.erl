@@ -158,8 +158,8 @@ counters(get, #{bindings := #{counter := Counter}}) ->
     lookup([{<<"counter">>, Counter}]).
 
 current_counters(get, _Params) ->
-    Data = [get_collect(Node) || Node <- ekka_mnesia:running_nodes()],
-    Nodes = length(ekka_mnesia:running_nodes()),
+    Data = [get_collect(Node) || Node <- mria_mnesia:running_nodes()],
+    Nodes = length(mria_mnesia:running_nodes()),
     {Received, Sent, Sub, Conn} = format_current_metrics(Data),
     Response = #{
         nodes           => Nodes,
@@ -194,16 +194,16 @@ lookup_(#{node := Node, counter := Counter}) ->
 lookup_(#{node := Node}) ->
     {200, sampling(Node)};
 lookup_(#{counter := Counter}) ->
-    CounterData = merger_counters([sampling(Node, Counter) || Node <- ekka_mnesia:running_nodes()]),
+    CounterData = merger_counters([sampling(Node, Counter) || Node <- mria_mnesia:running_nodes()]),
     Data = hd(maps:values(CounterData)),
     {200, Data}.
 
 list_collect(Aggregate) ->
     case Aggregate of
         <<"true">> ->
-            [maps:put(node, Node, sampling(Node)) || Node <- ekka_mnesia:running_nodes()];
+            [maps:put(node, Node, sampling(Node)) || Node <- mria_mnesia:running_nodes()];
         _ ->
-            Counters = [sampling(Node) || Node <- ekka_mnesia:running_nodes()],
+            Counters = [sampling(Node) || Node <- mria_mnesia:running_nodes()],
             merger_counters(Counters)
     end.
 

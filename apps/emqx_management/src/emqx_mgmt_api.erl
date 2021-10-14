@@ -167,7 +167,7 @@ cluster_query(Params, Tab, QsSchema, QueryFun) ->
     {_CodCnt, Qs} = params2qs(Params, QsSchema),
     Limit = b2i(limit(Params)),
     Page  = b2i(page(Params)),
-    Nodes = ekka_mnesia:running_nodes(),
+    Nodes = mria_mnesia:running_nodes(),
     Meta = #{page => Page, limit => Limit, count => 0},
     page_limit_check_query(Meta, {fun do_cluster_query/5, [Nodes, Tab, Qs, QueryFun, Meta]}).
 

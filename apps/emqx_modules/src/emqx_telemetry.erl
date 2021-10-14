@@ -268,7 +268,7 @@ uptime() ->
     element(1, erlang:statistics(wall_clock)).
 
 nodes_uuid() ->
-    Nodes = lists:delete(node(), ekka_mnesia:running_nodes()),
+    Nodes = lists:delete(node(), mria_mnesia:running_nodes()),
     lists:foldl(fun(Node, Acc) ->
                     case rpc:call(Node, ?MODULE, get_uuid, []) of
                         {badrpc, _Reason} ->
