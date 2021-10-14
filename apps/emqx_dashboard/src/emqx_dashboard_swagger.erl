@@ -368,14 +368,18 @@ typename_to_spec("comma_separated_atoms()", _Mod) -> #{type => string, example =
 typename_to_spec("pool_type()", _Mod) -> #{type => string, enum => [random, hash], example => hash};
 typename_to_spec("log_level()", _Mod) ->
     #{type => string, enum => [debug, info, notice, warning, error, critical, alert, emergency, all]};
+typename_to_spec("rate()", _Mod) ->
+    #{type => string, example => <<"10M/s">>};
+typename_to_spec("bucket_rate()", _Mod) ->
+    #{type => string, example => <<"10M/s, 100M">>};
 typename_to_spec(Name, Mod) ->
     Spec = range(Name),
     Spec1 = remote_module_type(Spec, Name, Mod),
     Spec2 = typerefl_array(Spec1, Name, Mod),
     Spec3 = integer(Spec2, Name),
     Spec3 =:= nomatch andalso
-        throw({error, #{msg => <<"Unsupport Type">>, type => Name, module => Mod}}),
-    Spec3.
+                 throw({error, #{msg => <<"Unsupport Type">>, type => Name, module => Mod}}),
+             Spec3.
 
 range(Name) ->
     case string:split(Name, "..") of
