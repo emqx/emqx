@@ -95,21 +95,18 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?ACTIVATED_ALARM,
+    ok = mria:create_table(?ACTIVATED_ALARM,
              [{type, set},
-              {disc_copies, [node()]},
+              {storage, disc_copies},
               {local_content, true},
               {record_name, activated_alarm},
               {attributes, record_info(fields, activated_alarm)}]),
-    ok = ekka_mnesia:create_table(?DEACTIVATED_ALARM,
+    ok = mria:create_table(?DEACTIVATED_ALARM,
              [{type, ordered_set},
-              {disc_copies, [node()]},
+              {storage, disc_copies},
               {local_content, true},
               {record_name, deactivated_alarm},
-              {attributes, record_info(fields, deactivated_alarm)}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?ACTIVATED_ALARM, disc_copies),
-    ok = ekka_mnesia:copy_table(?DEACTIVATED_ALARM, disc_copies).
+              {attributes, record_info(fields, deactivated_alarm)}]).
 
 %%--------------------------------------------------------------------
 %% API

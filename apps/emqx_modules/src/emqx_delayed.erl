@@ -64,14 +64,12 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = mria:create_table(?TAB, [
                 {type, ordered_set},
-                {disc_copies, [node()]},
+                {storage, disc_copies},
                 {local_content, true},
                 {record_name, delayed_message},
-                {attributes, record_info(fields, delayed_message)}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TAB, disc_copies).
+                {attributes, record_info(fields, delayed_message)}]).
 
 %%--------------------------------------------------------------------
 %% Hooks

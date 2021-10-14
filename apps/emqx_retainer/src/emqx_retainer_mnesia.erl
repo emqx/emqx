@@ -52,14 +52,13 @@ create_resource(#{storage_type := StorageType}) ->
                          {read_concurrency, true},
                          {write_concurrency, true}]},
                   {dets, [{auto_save, 1000}]}],
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = mria:create_table(?TAB, [
                 {type, set},
                 {rlog_shard, ?RETAINER_SHARD},
-                {Copies, [node()]},
+                {storage, Copies},
                 {record_name, retained},
                 {attributes, record_info(fields, retained)},
                 {storage_properties, StoreProps}]),
-    ok = ekka_mnesia:copy_table(?TAB, Copies),
     ok = ekka_rlog:wait_for_shards([?RETAINER_SHARD], infinity),
     case mnesia:table_info(?TAB, storage_type) of
         Copies -> ok;

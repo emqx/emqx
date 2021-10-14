@@ -59,16 +59,13 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?ROUTING_NODE, [
+    ok = mria:create_table(?ROUTING_NODE, [
                 {type, set},
                 {rlog_shard, ?ROUTE_SHARD},
-                {ram_copies, [node()]},
+                {storage, ram_copies},
                 {record_name, routing_node},
                 {attributes, record_info(fields, routing_node)},
-                {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
-
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?ROUTING_NODE, ram_copies).
+                {storage_properties, [{ets, [{read_concurrency, true}]}]}]).
 
 %%--------------------------------------------------------------------
 %% API

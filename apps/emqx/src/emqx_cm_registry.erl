@@ -100,15 +100,14 @@ record(ClientId, ChanPid) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = mria:create_table(?TAB, [
                 {type, bag},
                 {rlog_shard, ?CM_SHARD},
-                {ram_copies, [node()]},
+                {storage, ram_copies},
                 {record_name, channel},
                 {attributes, record_info(fields, channel)},
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]),
-    ok = ekka_mnesia:copy_table(?TAB, ram_copies),
     ok = ekka_rlog:wait_for_shards([?CM_SHARD], infinity),
     ok = ekka:monitor(membership),
     {ok, #{}}.

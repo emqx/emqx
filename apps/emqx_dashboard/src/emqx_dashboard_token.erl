@@ -77,16 +77,14 @@ destroy_by_username(Username) ->
     do_destroy_by_username(Username).
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = mria:create_table(?TAB, [
                 {type, set},
                 {rlog_shard, ?DASHBOARD_SHARD},
-                {disc_copies, [node()]},
+                {storage, disc_copies},
                 {record_name, mqtt_admin_jwt},
                 {attributes, record_info(fields, mqtt_admin_jwt)},
                 {storage_properties, [{ets, [{read_concurrency, true},
-                                             {write_concurrency, true}]}]}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TAB, disc_copies).
+                                             {write_concurrency, true}]}]}]).
 
 %%--------------------------------------------------------------------
 %% jwt apply

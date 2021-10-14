@@ -85,15 +85,12 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = mria:create_table(?TAB, [
                 {type, bag},
                 {rlog_shard, ?SHARED_SUB_SHARD},
-                {ram_copies, [node()]},
+                {storage, ram_copies},
                 {record_name, emqx_shared_subscription},
-                {attributes, record_info(fields, emqx_shared_subscription)}]);
-
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TAB, ram_copies).
+                {attributes, record_info(fields, emqx_shared_subscription)}]).
 
 %%--------------------------------------------------------------------
 %% API

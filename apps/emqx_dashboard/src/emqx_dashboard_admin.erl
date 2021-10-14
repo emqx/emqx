@@ -50,16 +50,14 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(mqtt_admin, [
+    ok = mria:create_table(mqtt_admin, [
                 {type, set},
                 {rlog_shard, ?DASHBOARD_SHARD},
-                {disc_copies, [node()]},
+                {storage, disc_copies},
                 {record_name, mqtt_admin},
                 {attributes, record_info(fields, mqtt_admin)},
                 {storage_properties, [{ets, [{read_concurrency, true},
-                                             {write_concurrency, true}]}]}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(mqtt_admin, disc_copies).
+                                             {write_concurrency, true}]}]}]).
 
 %%--------------------------------------------------------------------
 %% API

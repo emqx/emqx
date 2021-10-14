@@ -64,16 +64,13 @@
 %% @doc Create or replicate tables.
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = mria:create_table(?TAB, [
                 {rlog_shard, ?PSK_SHARD},
                 {type, ordered_set},
-                {disc_copies, [node()]},
+                {storage, disc_copies},
                 {record_name, psk_entry},
                 {attributes, record_info(fields, psk_entry)},
-                {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
-
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TAB, disc_copies).
+                {storage_properties, [{ets, [{read_concurrency, true}]}]}]).
 
 %%------------------------------------------------------------------------------
 %% APIs

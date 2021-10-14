@@ -61,16 +61,13 @@ mnesia(boot) ->
     StoreProps = [{ets, [{read_concurrency, true},
                          {write_concurrency, true}
                         ]}],
-    ok = ekka_mnesia:create_table(?TRIE, [
+    ok = mria:create_table(?TRIE, [
                 {rlog_shard, ?ROUTE_SHARD},
-                {ram_copies, [node()]},
+                {storage, ram_copies},
                 {record_name, ?TRIE},
                 {attributes, record_info(fields, ?TRIE)},
                 {type, ordered_set},
-                {storage_properties, StoreProps}]);
-mnesia(copy) ->
-    %% Copy topics table
-    ok = ekka_mnesia:copy_table(?TRIE, ram_copies).
+                {storage_properties, StoreProps}]).
 
 %%--------------------------------------------------------------------
 %% Topics APIs

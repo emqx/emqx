@@ -35,7 +35,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ekka_mnesia:start(),
+    mria:start(),
     ok = emqx_delayed:mnesia(boot),
     emqx_common_test_helpers:start_apps([emqx_modules]),
     Config.
