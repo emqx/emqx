@@ -49,7 +49,7 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, Config) ->
     {Tab, _Pid} = proplists:get_value(reg, Config),
-    ekka_mnesia:clear_table(Tab),
+    mria:clear_table(Tab),
     Config.
 
 %%--------------------------------------------------------------------

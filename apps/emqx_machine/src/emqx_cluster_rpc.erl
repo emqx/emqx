@@ -150,8 +150,8 @@ handle_continue(?CATCH_UP, State) ->
     {noreply, State, catch_up(State)}.
 
 handle_call(reset, _From, State) ->
-    _ = ekka_mnesia:clear_table(?CLUSTER_COMMIT),
-    _ = ekka_mnesia:clear_table(?CLUSTER_MFA),
+    _ = mria:clear_table(?CLUSTER_COMMIT),
+    _ = mria:clear_table(?CLUSTER_MFA),
     {reply, ok, State, {continue, ?CATCH_UP}};
 
 handle_call({initiate, MFA}, _From, State = #{node := Node}) ->
