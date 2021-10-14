@@ -157,7 +157,7 @@ match_messages(_, Topic, Cursor) ->
     end.
 
 clean(_) ->
-    ekka_mnesia:clear_table(?TAB),
+    mria:clear_table(?TAB),
     ok.
 %%--------------------------------------------------------------------
 %% Internal functions

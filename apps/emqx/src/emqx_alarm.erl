@@ -221,7 +221,7 @@ handle_call(delete_all_deactivated_alarms, _From, State) ->
 
 handle_call({get_alarms, all}, _From, State) ->
     {atomic, Alarms} =
-        ekka_mnesia:ro_transaction(
+        mria:ro_transaction(
           ?COMMON_SHARD,
           fun() ->
                   [normalize(Alarm) ||
@@ -321,7 +321,7 @@ deactivate_all_alarms() ->
 
 %% Delete all records from the given table, ignore result.
 clear_table(TableName) ->
-    case ekka_mnesia:clear_table(TableName) of
+    case mria:clear_table(TableName) of
         {aborted, Reason} ->
             ?SLOG(warning, #{
                 msg => "fail_to_clear_table",
