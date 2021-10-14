@@ -201,7 +201,7 @@ handle_call({activate_alarm, Name, Details}, _From, State) ->
                                      details = Details,
                                      message = normalize_message(Name, Details),
                                      activate_at = erlang:system_time(microsecond)},
-            ekka_mnesia:dirty_write(?ACTIVATED_ALARM, Alarm),
+            mria:dirty_write(?ACTIVATED_ALARM, Alarm),
             do_actions(activate, Alarm, emqx:get_config([alarm, actions])),
             {reply, ok, State}
     end;
@@ -282,7 +282,7 @@ deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name
             case mnesia:dirty_first(?DEACTIVATED_ALARM) of
                 '$end_of_table' -> ok;
                 ActivateAt2 ->
-                    ekka_mnesia:dirty_delete(?DEACTIVATED_ALARM, ActivateAt2)
+                    mria:dirty_delete(?DEACTIVATED_ALARM, ActivateAt2)
             end;
         false -> ok
     end,
@@ -291,8 +291,8 @@ deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name
     DeActAlarm = make_deactivated_alarm(ActivateAt, Name, Details,
                     normalize_message(Name, Details),
                     erlang:system_time(microsecond)),
-    ekka_mnesia:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
-    ekka_mnesia:dirty_delete(?ACTIVATED_ALARM, Name),
+    mria:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
+    mria:dirty_delete(?ACTIVATED_ALARM, Name),
     do_actions(deactivate, DeActAlarm, emqx:get_config([alarm, actions])).
 
 make_deactivated_alarm(ActivateAt, Name, Details, Message, DeActivateAt) ->
@@ -309,7 +309,7 @@ deactivate_all_alarms() ->
                              details = Details,
                              message = Message,
                              activate_at = ActivateAt}) ->
-            ekka_mnesia:dirty_write(?DEACTIVATED_ALARM,
+            mria:dirty_write(?DEACTIVATED_ALARM,
                 #deactivated_alarm{
                     activate_at = ActivateAt,
                     name = Name,
@@ -347,7 +347,7 @@ delete_expired_deactivated_alarms('$end_of_table', _Checkpoint) ->
 delete_expired_deactivated_alarms(ActivatedAt, Checkpoint) ->
     case ActivatedAt =< Checkpoint of
         true ->
-            ekka_mnesia:dirty_delete(?DEACTIVATED_ALARM, ActivatedAt),
+            mria:dirty_delete(?DEACTIVATED_ALARM, ActivatedAt),
             NActivatedAt = mnesia:dirty_next(?DEACTIVATED_ALARM, ActivatedAt),
             delete_expired_deactivated_alarms(NActivatedAt, Checkpoint);
         false ->

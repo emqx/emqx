@@ -104,7 +104,7 @@ do_sign(Username, Password) ->
     Signed = jose_jwt:sign(JWK, JWS, JWT),
     {_, Token} = jose_jws:compact(Signed),
     JWTRec = format(Token, Username, ExpTime),
-    ekka_mnesia:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
+    mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
     {ok, Token}.
 
 do_verify(Token)->
@@ -113,7 +113,7 @@ do_verify(Token)->
             case ExpTime > erlang:system_time(millisecond) of
                 true ->
                     NewJWT = JWT#mqtt_admin_jwt{exptime = jwt_expiration_time()},
-                    {atomic, Res} = ekka_mnesia:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [NewJWT]),
+                    {atomic, Res} = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [NewJWT]),
                     Res;
                 _ ->
                     {error, token_timeout}
@@ -124,7 +124,7 @@ do_verify(Token)->
 
 do_destroy(Token) ->
     Fun = fun mnesia:delete/1,
-    {atomic, ok} = ekka_mnesia:transaction(?DASHBOARD_SHARD, Fun, [{?TAB, Token}]),
+    {atomic, ok} = mria:transaction(?DASHBOARD_SHARD, Fun, [{?TAB, Token}]),
     ok.
 
 do_destroy_by_username(Username) ->

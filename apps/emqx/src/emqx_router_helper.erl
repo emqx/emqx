@@ -87,7 +87,7 @@ monitor(Node) when is_atom(Node) ->
     case ekka:is_member(Node)
          orelse ets:member(?ROUTING_NODE, Node) of
         true  -> ok;
-        false -> ekka_mnesia:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
+        false -> mria:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
     end.
 
 %%--------------------------------------------------------------------
@@ -136,9 +136,9 @@ handle_info({mnesia_table_event, Event}, State) ->
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     ekka_mnesia:transaction(fun cleanup_routes/1, [Node])
+                     mria:transaction(fun cleanup_routes/1, [Node])
                  end),
-    ok = ekka_mnesia:dirty_delete(?ROUTING_NODE, Node),
+    ok = mria:dirty_delete(?ROUTING_NODE, Node),
     {noreply, State#{nodes := lists:delete(Node, Nodes)}, hibernate};
 
 handle_info({membership, {mnesia, down, Node}}, State) ->

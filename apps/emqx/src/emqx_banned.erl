@@ -155,13 +155,13 @@ create(#{who    := Who,
          reason := Reason,
          at     := At,
          until  := Until}) ->
-    ekka_mnesia:dirty_write(?BANNED_TAB, #banned{who = Who,
-                                                 by = By,
-                                                 reason = Reason,
-                                                 at = At,
-                                                 until = Until});
+    mria:dirty_write(?BANNED_TAB, #banned{who = Who,
+                                          by = By,
+                                          reason = Reason,
+                                          at = At,
+                                          until = Until});
 create(Banned) when is_record(Banned, banned) ->
-    ekka_mnesia:dirty_write(?BANNED_TAB, Banned).
+    mria:dirty_write(?BANNED_TAB, Banned).
 
 look_up(Who) when is_map(Who) ->
     look_up(pares_who(Who));
@@ -174,7 +174,7 @@ look_up(Who) ->
 delete(Who) when is_map(Who)->
     delete(pares_who(Who));
 delete(Who) ->
-    ekka_mnesia:dirty_delete(?BANNED_TAB, Who).
+    mria:dirty_delete(?BANNED_TAB, Who).
 
 info(InfoKey) ->
     mnesia:table_info(?BANNED_TAB, InfoKey).
@@ -195,7 +195,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
-    ekka_mnesia:transaction(?COMMON_SHARD, fun expire_banned_items/1, [erlang:system_time(second)]),
+    mria:transaction(?COMMON_SHARD, fun expire_banned_items/1, [erlang:system_time(second)]),
     {noreply, ensure_expiry_timer(State), hibernate};
 
 handle_info(Info, State) ->

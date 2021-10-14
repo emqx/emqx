@@ -225,7 +225,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 insert_direct_route(Route) ->
-    ekka_mnesia:dirty_write(?ROUTE_TAB, Route).
+    mria:dirty_write(?ROUTE_TAB, Route).
 
 insert_trie_route(Route = #route{topic = Topic}) ->
     case mnesia:wread({?ROUTE_TAB, Topic}) of
@@ -235,7 +235,7 @@ insert_trie_route(Route = #route{topic = Topic}) ->
     mnesia:write(?ROUTE_TAB, Route, sticky_write).
 
 delete_direct_route(Route) ->
-    ekka_mnesia:dirty_delete_object(?ROUTE_TAB, Route).
+    mria:dirty_delete_object(?ROUTE_TAB, Route).
 
 delete_trie_route(Route = #route{topic = Topic}) ->
     case mnesia:wread({?ROUTE_TAB, Topic}) of
@@ -280,7 +280,7 @@ trans(Fun, Args) ->
             %% Future changes should keep in mind that this process
             %% always exit with database write result.
             fun() ->
-                    Res = case ekka_mnesia:transaction(?ROUTE_SHARD, Fun, Args) of
+                    Res = case mria:transaction(?ROUTE_SHARD, Fun, Args) of
                               {atomic, Ok} -> Ok;
                               {aborted, Reason} -> {error, Reason}
                           end,

@@ -71,7 +71,7 @@ register_channel(ClientId) when is_binary(ClientId) ->
 
 register_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
     case is_enabled() of
-        true -> ekka_mnesia:dirty_write(?TAB, record(ClientId, ChanPid));
+        true -> mria:dirty_write(?TAB, record(ClientId, ChanPid));
         false -> ok
     end.
 
@@ -83,7 +83,7 @@ unregister_channel(ClientId) when is_binary(ClientId) ->
 
 unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
     case is_enabled() of
-        true -> ekka_mnesia:dirty_delete_object(?TAB, record(ClientId, ChanPid));
+        true -> mria:dirty_delete_object(?TAB, record(ClientId, ChanPid));
         false -> ok
     end.
 
@@ -124,7 +124,7 @@ handle_cast(Msg, State) ->
 handle_info({membership, {mnesia, down, Node}}, State) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     ekka_mnesia:transaction(?CM_SHARD, fun cleanup_channels/1, [Node])
+                     mria:transaction(?CM_SHARD, fun cleanup_channels/1, [Node])
                  end),
     {noreply, State};
 

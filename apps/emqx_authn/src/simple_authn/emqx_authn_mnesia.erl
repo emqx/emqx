@@ -390,7 +390,7 @@ trans(Fun) ->
     trans(Fun, []).
 
 trans(Fun, Args) ->
-    case ekka_mnesia:transaction(?AUTH_SHARD, Fun, Args) of
+    case mria:transaction(?AUTH_SHARD, Fun, Args) of
         {atomic, Res} -> Res;
         {aborted, Reason} -> {error, Reason}
     end.

@@ -157,14 +157,14 @@ init([InstaId, PredefTopics]) ->
     MaxPredefId = lists:foldl(
                     fun(#{id := TopicId, topic := TopicName0}, AccId) ->
                         TopicName = iolist_to_binary(TopicName0),
-                        ekka_mnesia:dirty_write(Tab, #emqx_sn_registry{
-                                                        key = {predef, TopicId},
-                                                        value = TopicName}
-                                               ),
-                        ekka_mnesia:dirty_write(Tab, #emqx_sn_registry{
-                                                        key = {predef, TopicName},
-                                                        value = TopicId}
-                                               ),
+                        mria:dirty_write(Tab, #emqx_sn_registry{
+                                                 key = {predef, TopicId},
+                                                 value = TopicName}
+                                        ),
+                        mria:dirty_write(Tab, #emqx_sn_registry{
+                                                 key = {predef, TopicName},
+                                                 value = TopicId}
+                                        ),
                         if TopicId > AccId -> TopicId; true -> AccId end
                     end, 0, PredefTopics),
     {ok, #state{tabname = Tab, max_predef_topic_id = MaxPredefId}}.
@@ -192,7 +192,7 @@ handle_call({register, ClientId, TopicName}, _From,
                                              key = {ClientId, TopicId},
                                              value = TopicName}, write)
                     end,
-                    case ekka_mnesia:transaction(?SN_SHARD, Fun) of
+                    case mria:transaction(?SN_SHARD, Fun) of
                         {atomic, ok} ->
                             {reply, TopicId, State};
                         {aborted, Error} ->
@@ -207,7 +207,7 @@ handle_call({unregister, ClientId}, _From, State = #state{tabname = Tab}) ->
                  {emqx_sn_registry, {ClientId, '_'}, '_'}
                 ),
     lists:foreach(fun(R) ->
-        ekka_mnesia:dirty_delete_object(Tab, R)
+        mria:dirty_delete_object(Tab, R)
     end, Registry),
     {reply, ok, State};
 
