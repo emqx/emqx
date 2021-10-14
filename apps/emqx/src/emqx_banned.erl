@@ -58,16 +58,13 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?BANNED_TAB, [
+    ok = mria:create_table(?BANNED_TAB, [
                 {type, set},
                 {rlog_shard, ?COMMON_SHARD},
-                {disc_copies, [node()]},
+                {storage, disc_copies},
                 {record_name, banned},
                 {attributes, record_info(fields, banned)},
-                {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
-
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?BANNED_TAB, disc_copies).
+                {storage_properties, [{ets, [{read_concurrency, true}]}]}]).
 
 %% @doc Start the banned server.
 -spec(start_link() -> startlink_ret()).

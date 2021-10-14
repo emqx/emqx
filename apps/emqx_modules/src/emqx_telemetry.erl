@@ -91,14 +91,12 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TELEMETRY,
+    ok = mria:create_table(?TELEMETRY,
              [{type, set},
-              {disc_copies, [node()]},
+              {storage, disc_copies},
               {local_content, true},
               {record_name, telemetry},
-              {attributes, record_info(fields, telemetry)}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TELEMETRY, disc_copies).
+              {attributes, record_info(fields, telemetry)}]).
 
 %%--------------------------------------------------------------------
 %% API

@@ -41,14 +41,12 @@
 -define(EXPIRE_INTERVAL, 86400000 * 7).
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(emqx_collect, [
+    ok = mria:create_table(emqx_collect, [
         {type, set},
         {local_content, true},
-        {disc_only_copies, [node()]},
+        {storage, disc_only_copies},
         {record_name, mqtt_collect},
-        {attributes, record_info(fields, mqtt_collect)}]);
-mnesia(copy) ->
-    mnesia:add_table_copy(emqx_collect, node(), disc_only_copies).
+        {attributes, record_info(fields, mqtt_collect)}]).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).

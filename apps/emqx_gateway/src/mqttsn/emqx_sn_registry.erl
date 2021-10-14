@@ -63,13 +63,10 @@
 %mnesia(boot) ->
 %    %% Optimize storage
 %    StoreProps = [{ets, [{read_concurrency, true}]}],
-%    ok = ekka_mnesia:create_table(?MODULE, [
+%    ok = mria:create_table(?MODULE, [
 %            {attributes, record_info(fields, emqx_sn_registry)},
 %            {ram_copies, [node()]},
-%            {storage_properties, StoreProps}]);
-%
-%mnesia(copy) ->
-%    ok = ekka_mnesia:copy_table(?MODULE, ram_copies).
+%            {storage_properties, StoreProps}]).
 
 -type registry() :: {Tab :: atom(),
                      RegistryPid :: pid()}.
@@ -141,15 +138,14 @@ init([InstaId, PredefTopics]) ->
     %% {ClientId, TopicId}   -> TopicName
     %% {ClientId, TopicName} -> TopicId
     Tab = name(InstaId),
-    ok = ekka_mnesia:create_table(Tab, [
-                {ram_copies, [node()]},
+    ok = mria:create_table(Tab, [
+                {storage, ram_copies},
                 {record_name, emqx_sn_registry},
                 {attributes, record_info(fields, emqx_sn_registry)},
                 {storage_properties, [{ets, [{read_concurrency, true}]}]},
                 {rlog_shard, ?SN_SHARD}
                ]),
-    ok = ekka_mnesia:copy_table(Tab, ram_copies),
-    ok = ekka_rlog:wait_for_shards([?SN_SHARD], infinity),
+    ok = mria:wait_for_tables([Tab]),
     % FIXME:
     %ok = ekka_rlog:wait_for_shards([?CM_SHARD], infinity),
     MaxPredefId = lists:foldl(

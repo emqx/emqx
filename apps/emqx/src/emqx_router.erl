@@ -74,16 +74,14 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?ROUTE_TAB, [
+    ok = mria:create_table(?ROUTE_TAB, [
                 {type, bag},
                 {rlog_shard, ?ROUTE_SHARD},
-                {ram_copies, [node()]},
+                {storage, ram_copies},
                 {record_name, route},
                 {attributes, record_info(fields, route)},
                 {storage_properties, [{ets, [{read_concurrency, true},
-                                             {write_concurrency, true}]}]}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?ROUTE_TAB, ram_copies).
+                                             {write_concurrency, true}]}]}]).
 
 %%--------------------------------------------------------------------
 %% Start a router

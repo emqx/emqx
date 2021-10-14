@@ -45,21 +45,18 @@
 %%% API
 %%%===================================================================
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?CLUSTER_MFA, [
+    ok = mria:create_table(?CLUSTER_MFA, [
         {type, ordered_set},
         {rlog_shard, ?EMQX_MACHINE_SHARD},
-        {disc_copies, [node()]},
+        {storage, disc_copies},
         {record_name, cluster_rpc_mfa},
         {attributes, record_info(fields, cluster_rpc_mfa)}]),
-    ok = ekka_mnesia:create_table(?CLUSTER_COMMIT, [
+    ok = mria:create_table(?CLUSTER_COMMIT, [
         {type, set},
         {rlog_shard, ?EMQX_MACHINE_SHARD},
-        {disc_copies, [node()]},
+        {storage, disc_copies},
         {record_name, cluster_rpc_commit},
-        {attributes, record_info(fields, cluster_rpc_commit)}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(cluster_rpc_mfa, disc_copies),
-    ok = ekka_mnesia:copy_table(cluster_rpc_commit, disc_copies).
+        {attributes, record_info(fields, cluster_rpc_commit)}]).
 
 start_link() ->
     start_link(node(), ?MODULE, get_retry_ms()).
