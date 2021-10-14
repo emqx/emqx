@@ -28,7 +28,6 @@
         ]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -export([mnesia/1]).
 

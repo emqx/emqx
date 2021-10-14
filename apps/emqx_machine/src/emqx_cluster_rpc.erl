@@ -30,7 +30,6 @@
 -endif.
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_machine.hrl").

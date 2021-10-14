@@ -22,7 +22,6 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 %% Trie APIs
 -export([ insert/1

@@ -26,7 +26,6 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -export([post_config_update/4]).
 

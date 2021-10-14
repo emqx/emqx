@@ -46,7 +46,6 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -record(user_info,
         { user_id

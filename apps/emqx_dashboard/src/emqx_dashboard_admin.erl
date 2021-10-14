@@ -21,7 +21,6 @@
 -include("emqx_dashboard.hrl").
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
