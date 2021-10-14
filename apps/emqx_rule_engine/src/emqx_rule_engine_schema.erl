@@ -32,7 +32,9 @@ namespace() -> rule_engine.
 roots() -> ["rule_engine"].
 
 fields("rule_engine") ->
-    [ {ignore_sys_message, sc(boolean(), #{default => true})}
+    [ {ignore_sys_message, sc(boolean(), #{default => true, desc =>
+"When set to 'true' (default), rule-engine will ignore messages published to $SYS topics."
+    })}
     , {rules, sc(hoconsc:map("id", ref("rules")), #{desc => "The rules", default => #{}})}
     ];
 
