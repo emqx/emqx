@@ -43,7 +43,7 @@ init_per_suite(Config) ->
     application:load(emqx),
     application:load(emqx_machine),
     ok = ekka:start(),
-    ok = ekka_rlog:wait_for_shards([?EMQX_MACHINE_SHARD], infinity),
+    ok = mria_rlog:wait_for_shards([?EMQX_MACHINE_SHARD], infinity),
     application:set_env(emqx_machine, cluster_call_max_history, 100),
     application:set_env(emqx_machine, cluster_call_clean_interval, 1000),
     application:set_env(emqx_machine, cluster_call_retry_interval, 900),

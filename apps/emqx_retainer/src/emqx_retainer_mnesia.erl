@@ -59,7 +59,7 @@ create_resource(#{storage_type := StorageType}) ->
                 {record_name, retained},
                 {attributes, record_info(fields, retained)},
                 {storage_properties, StoreProps}]),
-    ok = ekka_rlog:wait_for_shards([?RETAINER_SHARD], infinity),
+    ok = mria_rlog:wait_for_shards([?RETAINER_SHARD], infinity),
     case mnesia:table_info(?TAB, storage_type) of
         Copies -> ok;
         _Other ->

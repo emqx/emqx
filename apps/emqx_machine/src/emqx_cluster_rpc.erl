@@ -84,7 +84,7 @@ multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNu
     MFA = {initiate, {M, F, A}},
     Begin = erlang:monotonic_time(),
     InitRes =
-        case ekka_rlog:role() of
+        case mria_rlog:role() of
             core -> gen_server:call(?MODULE, MFA, Timeout);
             replicant ->
                 %% the initiate transaction must happened on core node

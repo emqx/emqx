@@ -252,7 +252,7 @@ maybe_trans(Fun, Args) ->
             trans(Fun, Args);
         global ->
             %% Assert:
-            mnesia = ekka_rlog:backend(), %% TODO: do something smarter than just crash
+            mnesia = mria_rlog:backend(), %% TODO: do something smarter than just crash
             lock_router(),
             try mnesia:sync_dirty(Fun, Args)
             after

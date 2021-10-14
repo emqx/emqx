@@ -57,7 +57,7 @@ stop(_State) -> ok.
 
 ensure_ekka_started() ->
     ekka:start(),
-    ok = ekka_rlog:wait_for_shards(?BOOT_SHARDS, infinity).
+    ok = mria_rlog:wait_for_shards(?BOOT_SHARDS, infinity).
 
 %% @doc Call this function to make emqx boot without loading config,
 %% in case we want to delegate the config load to a higher level app
