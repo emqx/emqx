@@ -528,10 +528,10 @@ users(get, #{query_string := Qs}) ->
     end;
 users(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
-                      ekka_mnesia:dirty_write(#emqx_acl{
-                                                 who = {?ACL_TABLE_USERNAME, Username},
-                                                 rules = format_rules(Rules)
-                                                })
+                      mria:dirty_write(#emqx_acl{
+                                          who = {?ACL_TABLE_USERNAME, Username},
+                                          rules = format_rules(Rules)
+                                         })
                   end, Body),
     {204}.
 
@@ -561,10 +561,10 @@ clients(get, #{query_string := Qs}) ->
     end;
 clients(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"clientid">> := Clientid, <<"rules">> := Rules}) ->
-                      ekka_mnesia:dirty_write(#emqx_acl{
-                                                 who = {?ACL_TABLE_CLIENTID, Clientid},
-                                                 rules = format_rules(Rules)
-                                                })
+                      mria:dirty_write(#emqx_acl{
+                                          who = {?ACL_TABLE_CLIENTID, Clientid},
+                                          rules = format_rules(Rules)
+                                         })
                   end, Body),
     {204}.
 
@@ -581,13 +581,13 @@ user(get, #{bindings := #{username := Username}}) ->
     end;
 user(put, #{bindings := #{username := Username},
               body := #{<<"username">> := Username, <<"rules">> := Rules}}) ->
-    ekka_mnesia:dirty_write(#emqx_acl{
-                               who = {?ACL_TABLE_USERNAME, Username},
-                               rules = format_rules(Rules)
-                              }),
+    mria:dirty_write(#emqx_acl{
+                        who = {?ACL_TABLE_USERNAME, Username},
+                        rules = format_rules(Rules)
+                       }),
     {204};
 user(delete, #{bindings := #{username := Username}}) ->
-    ekka_mnesia:dirty_delete({?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}}),
+    mria:dirty_delete({?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}}),
     {204}.
 
 client(get, #{bindings := #{clientid := Clientid}}) ->
@@ -603,13 +603,13 @@ client(get, #{bindings := #{clientid := Clientid}}) ->
     end;
 client(put, #{bindings := #{clientid := Clientid},
               body := #{<<"clientid">> := Clientid, <<"rules">> := Rules}}) ->
-    ekka_mnesia:dirty_write(#emqx_acl{
-                               who = {?ACL_TABLE_CLIENTID, Clientid},
-                               rules = format_rules(Rules)
-                              }),
+    mria:dirty_write(#emqx_acl{
+                        who = {?ACL_TABLE_CLIENTID, Clientid},
+                        rules = format_rules(Rules)
+                       }),
     {204};
 client(delete, #{bindings := #{clientid := Clientid}}) ->
-    ekka_mnesia:dirty_delete({?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}}),
+    mria:dirty_delete({?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}}),
     {204}.
 
 all(get, _) ->
@@ -624,17 +624,17 @@ all(get, _) ->
             }
     end;
 all(put, #{body := #{<<"rules">> := Rules}}) ->
-    ekka_mnesia:dirty_write(#emqx_acl{
-                               who = ?ACL_TABLE_ALL,
-                               rules = format_rules(Rules)
-                              }),
+    mria:dirty_write(#emqx_acl{
+                        who = ?ACL_TABLE_ALL,
+                        rules = format_rules(Rules)
+                       }),
     {204}.
 
 purge(delete, _) ->
     case emqx_authz_api_sources:get_raw_source(<<"built-in-database">>) of
         [#{<<"enable">> := false}] ->
             ok = lists:foreach(fun(Key) ->
-                                   ok = ekka_mnesia:dirty_delete(?ACL_TABLE, Key)
+                                   ok = mria:dirty_delete(?ACL_TABLE, Key)
                                end, mnesia:dirty_all_keys(?ACL_TABLE)),
             {204};
         [#{<<"enable">> := true}] ->

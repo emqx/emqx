@@ -237,7 +237,7 @@ trim_crlf(Bin) ->
     end.
 
 trans(Fun, Args) ->
-    case ekka_mnesia:transaction(?PSK_SHARD, Fun, Args) of
+    case mria:transaction(?PSK_SHARD, Fun, Args) of
         {atomic, Res} -> Res;
         {aborted, Reason} -> {error, Reason}
     end.

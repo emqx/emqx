@@ -65,7 +65,7 @@ register_channel(Type, ClientId) when is_binary(ClientId) ->
     register_channel(Type, {ClientId, self()});
 
 register_channel(Type, {ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
-    ekka_mnesia:dirty_write(tabname(Type), record(ClientId, ChanPid)).
+    mria:dirty_write(tabname(Type), record(ClientId, ChanPid)).
 
 %% @doc Unregister a global channel.
 -spec unregister_channel(atom(), binary() | {binary(), pid()}) -> ok.
@@ -73,7 +73,7 @@ unregister_channel(Type, ClientId) when is_binary(ClientId) ->
     unregister_channel(Type, {ClientId, self()});
 
 unregister_channel(Type, {ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
-    ekka_mnesia:dirty_delete_object(tabname(Type), record(ClientId, ChanPid)).
+    mria:dirty_delete_object(tabname(Type), record(ClientId, ChanPid)).
 
 %% @doc Lookup the global channels.
 -spec lookup_channels(atom(), binary()) -> list(pid()).
@@ -115,7 +115,7 @@ handle_info({membership, {mnesia, down, Node}}, State = #{type := Type}) ->
     global:trans({?LOCK, self()},
                  fun() ->
                      %% FIXME: The shard name should be fixed later
-                     ekka_mnesia:transaction(?MODULE, fun cleanup_channels/2, [Node, Tab])
+                     mria:transaction(?MODULE, fun cleanup_channels/2, [Node, Tab])
                  end),
     {noreply, State};
 

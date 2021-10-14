@@ -140,8 +140,8 @@ init(_Opts) ->
     UUID1 = case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
         [] ->
             UUID = generate_uuid(),
-            ekka_mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
-                                                           uuid = UUID}),
+            mria:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
+                                                    uuid = UUID}),
             UUID;
         [#telemetry{uuid = UUID} | _] ->
             UUID

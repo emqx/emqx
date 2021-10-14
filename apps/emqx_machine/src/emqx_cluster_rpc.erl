@@ -280,7 +280,7 @@ do_catch_up_in_one_trans(LatestId, Node) ->
     end.
 
 transaction(Func, Args) ->
-    ekka_mnesia:transaction(?EMQX_MACHINE_SHARD, Func, Args).
+    mria:transaction(?EMQX_MACHINE_SHARD, Func, Args).
 
 trans_status() ->
     mnesia:foldl(fun(Rec, Acc) ->

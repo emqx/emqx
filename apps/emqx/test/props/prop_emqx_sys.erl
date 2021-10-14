@@ -29,7 +29,7 @@
         [ emqx_metrics
         , emqx_stats
         , emqx_broker
-        , ekka_mnesia
+        , mria_mnesia
         ]).
 
 -define(ALL(Vars, Types, Exprs),
