@@ -153,7 +153,7 @@ param_path_operation()->
     }.
 
 list_bridges(get, _Params) ->
-    {200, lists:append([list_local_bridges(Node) || Node <- ekka_mnesia:running_nodes()])}.
+    {200, lists:append([list_local_bridges(Node) || Node <- mria_mnesia:running_nodes()])}.
 
 list_local_bridges(Node) when Node =:= node() ->
     [format_resp(Data) || Data <- emqx_bridge:list_bridges()];
@@ -161,7 +161,7 @@ list_local_bridges(Node) ->
     rpc_call(Node, list_local_bridges, [Node]).
 
 crud_bridges_cluster(Method, Params) ->
-    Results = [crud_bridges(Node, Method, Params) || Node <- ekka_mnesia:running_nodes()],
+    Results = [crud_bridges(Node, Method, Params) || Node <- mria_mnesia:running_nodes()],
     case lists:filter(fun({200}) -> false; ({200, _}) -> false; (_) -> true end, Results) of
         [] ->
             case Results of
