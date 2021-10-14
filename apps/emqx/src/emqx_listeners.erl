@@ -289,7 +289,9 @@ esockd_opts(Type, Opts0) ->
         infinity -> Opts1;
         Rate -> Opts1#{max_conn_rate => Rate}
     end,
-    Opts3 = Opts2#{access_rules => esockd_access_rules(maps:get(access_rules, Opts0, []))},
+    Opts3 = Opts2#{ access_rules => esockd_access_rules(maps:get(access_rules, Opts0, []))
+                  , tune_fun => {emqx_olp, backoff_new_conn, [zone(Opts0)]}
+                  },
     maps:to_list(case Type of
         tcp -> Opts3#{tcp_options => tcp_opts(Opts0)};
         ssl -> Opts3#{ssl_options => ssl_opts(Opts0), tcp_options => tcp_opts(Opts0)}

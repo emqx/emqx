@@ -38,6 +38,7 @@
         , trace/1
         , log/1
         , authz/1
+        , olp/1
         ]).
 
 -define(PROC_INFOKEYS, [status,
@@ -493,6 +494,27 @@ authz(_) ->
     emqx_ctl:usage([{"authz cache-clean all",             "Clears authorization cache on all nodes"},
                     {"authz cache-clean node <Node>",     "Clears authorization cache on given node"},
                     {"authz cache-clean <ClientId>",      "Clears authorization cache for given client"}
+                   ]).
+
+
+%%--------------------------------------------------------------------
+%% @doc OLP (Overload Protection related)
+olp(["status"]) ->
+    S = case emqx_olp:is_overloaded() of
+            true -> "overloaded";
+            false -> "not overloaded"
+        end,
+    emqx_ctl:print("~p is ~s ~n", [node(), S]);
+olp(["disable"]) ->
+    Res = emqx_olp:disable(),
+    emqx_ctl:print("Disable overload protetion ~p : ~p ~n", [node(), Res]);
+olp(["enable"]) ->
+    Res = emqx_olp:enable(),
+    emqx_ctl:print("Enable overload protection ~p : ~p ~n", [node(), Res]);
+olp(_) ->
+    emqx_ctl:usage([{"olp status",  "Return OLP status if system is overloaded"},
+                    {"olp enable",  "Enable overload protection"},
+                    {"olp disable", "Disable overload protection"}
                    ]).
 
 %%--------------------------------------------------------------------

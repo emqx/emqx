@@ -123,6 +123,9 @@ roots(medium) ->
     , {"force_shutdown",
        sc(ref("force_shutdown"),
           #{})}
+    , {"overload_protection",
+       sc(ref("overload_protection"),
+          #{})}
     ];
 roots(low) ->
     [ {"force_gc",
@@ -324,7 +327,9 @@ fields("mqtt") ->
 
 fields("zone") ->
     Fields = ["mqtt", "stats", "flapping_detect", "force_shutdown",
-              "conn_congestion", "rate_limit", "quota", "force_gc"],
+              "conn_congestion", "rate_limit", "quota", "force_gc",
+              "overload_protection"
+             ],
     [{F, ref(emqx_zone_schema, F)} || F <- Fields];
 
 fields("rate_limit") ->
@@ -389,6 +394,35 @@ fields("force_shutdown") ->
        sc(wordsize(),
           #{ default => "32MB",
              validator => fun ?MODULE:validate_heap_size/1
+           })}
+    ];
+
+fields("overload_protection") ->
+    [ {"enable",
+       sc(boolean(),
+          #{ desc => "React on system overload or not"
+           , default => false
+           })}
+    , {"backoff_delay",
+       sc(range(0, inf),
+          #{ desc => "Some unimporant tasks could be delayed"
+                     "for execution, here set the delays in ms"
+           , default => 1
+           })}
+    , {"backoff_gc",
+       sc(boolean(),
+          #{ desc => "Skip forceful GC if necessary"
+           , default => false
+           })}
+    , {"backoff_hibernation",
+       sc(boolean(),
+          #{ desc => "Skip process hibernation if necessary"
+           , default => true
+           })}
+    , {"backoff_new_conn",
+       sc(boolean(),
+          #{ desc => "Close new incoming connections if necessary"
+           , default => true
            })}
     ];
 
