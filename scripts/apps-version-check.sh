@@ -18,7 +18,7 @@ while read -r app; do
         changed="$(git diff --name-only "$latest_release"...HEAD \
                     -- "$app_path/src" \
                     -- "$app_path/priv" \
-                    -- "$app_path/c_src" | wc -l)"
+                    -- "$app_path/c_src" | { grep -v -E 'appup\.src' || true; } | wc -l)"
         if [ "$changed" -gt 0 ]; then
             echo "$src_file needs a vsn bump"
             bad_app_count=$(( bad_app_count + 1))
