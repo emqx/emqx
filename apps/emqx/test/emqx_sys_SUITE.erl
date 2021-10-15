@@ -25,6 +25,7 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     application:load(emqx),
+    application:load(emqx_conf),
     ok = emqx_logger:set_log_level(emergency),
     Config.
 
@@ -32,7 +33,7 @@ end_per_suite(_Config) ->
     application:unload(emqx),
     ok = emqx_logger:set_log_level(error),
     ok.
-    
+
 % t_version(_) ->
 %     error('TODO').
 

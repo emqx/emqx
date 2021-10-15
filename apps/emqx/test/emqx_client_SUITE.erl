@@ -79,7 +79,11 @@ groups() ->
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
+    ct:pal("00~p~n", [application:which_applications()]),
+    ct:pal("11~p~n", [application:get_all_env(emqx)]),
+    ct:pal("22~p", [emqx_config:get([listeners])]),
     emqx_config:put_listener_conf(ssl, default, [ssl, verify], verify_peer),
+    ct:pal("33~p", [emqx_config:get([listeners])]),
     emqx_listeners:restart_listener('ssl:default'),
     Config.
 

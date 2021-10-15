@@ -45,6 +45,7 @@ end_per_group(_, _) ->
 
 init_per_suite(Config) ->
     application:load(emqx),
+    application:load(emqx_conf),
     ok = ekka:start(),
     Config.
 
@@ -194,4 +195,3 @@ trans(Fun) ->
     mnesia:transaction(Fun).
 trans(Fun, Args) ->
     mnesia:transaction(Fun, Args).
-

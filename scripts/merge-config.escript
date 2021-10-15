@@ -12,7 +12,7 @@
 
 main(_) ->
     {ok, BaseConf} = file:read_file("apps/emqx_conf/etc/emqx_conf.conf"),
-    Apps = filelib:wildcard("*", "apps/") -- ["emqx_machine", "emqx_conf"],
+    Apps = filelib:wildcard("*", "apps/") -- ["emqx_conf"],
     Conf = lists:foldl(fun(App, Acc) ->
         Filename = filename:join([apps, App, "etc", App]) ++ ".conf",
         case filelib:is_regular(Filename) of

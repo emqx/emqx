@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 
 all() ->
@@ -132,7 +133,9 @@ basic_conf() ->
     }.
 
 set_test_listenser_confs() ->
-    emqx_config:put(basic_conf()).
+    Conf = emqx_config:get([]),
+    emqx_config:put(basic_conf()),
+    Conf.
 
 %%--------------------------------------------------------------------
 %% CT Callbacks
@@ -174,10 +177,11 @@ end_per_suite(_Config) ->
                 ]).
 
 init_per_testcase(_TestCase, Config) ->
-    set_test_listenser_confs(),
-    Config.
+    NewConf = set_test_listenser_confs(),
+    [{config, NewConf}|Config].
 
 end_per_testcase(_TestCase, Config) ->
+    emqx_config:put(?config(config, Config)),
     Config.
 
 %%--------------------------------------------------------------------
@@ -283,7 +287,7 @@ t_handle_in_re_auth(_) ->
           ?AUTH_PACKET(?RC_RE_AUTHENTICATE,Properties),
           channel(#{conninfo => #{proto_ver => ?MQTT_PROTO_V5, conn_props => undefined}})
         ),
-    
+
     Channel1 = channel(),
     ConnInfo = emqx_channel:info(conninfo, Channel1),
     Channel2 = emqx_channel:set_field(conninfo, ConnInfo#{conn_props => Properties}, Channel1),
@@ -953,4 +957,3 @@ session(InitFields) when is_map(InitFields) ->
 quota() ->
     emqx_limiter:init(zone, [{conn_messages_routing, {5, 1}},
                              {overall_messages_routing, {10, 1}}]).
-

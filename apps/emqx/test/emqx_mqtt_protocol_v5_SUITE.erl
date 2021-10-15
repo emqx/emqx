@@ -48,6 +48,9 @@ init_per_group(tcp, Config) ->
     emqx_ct_helpers:start_apps([]),
     [ {port, 1883}, {conn_fun, connect} | Config];
 init_per_group(quic, Config) ->
+    ct:pal("111~p~n", [emqx:get_config([])]),
+    ok = emqx_config:init_load(emqx_schema),
+    ct:pal("222~p~n", [emqx:get_config([])]),
     emqx_ct_helpers:start_apps([]),
     [ {port, 14567}, {conn_fun, quic_connect} | Config];
 init_per_group(_, Config) ->
@@ -129,6 +132,7 @@ clean_retained(Topic, Config) ->
 %%--------------------------------------------------------------------
 
 t_basic_test(Config) ->
+    ct:pal("333:~p~n", [emqx:get_config([])]),
     ConnFun = ?config(conn_fun, Config),
     Topic = nth(1, ?TOPICS),
     ct:print("Basic test starting"),

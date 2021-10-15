@@ -25,6 +25,7 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
+    application:load(emqx_conf),
     application:load(emqx),
     ok = ekka:start(),
     %% for coverage
@@ -92,4 +93,3 @@ t_unused(_) ->
     ?assertEqual(ok, Banned ! ok),
     timer:sleep(500), %% expiry timer
     ok = emqx_banned:stop().
-
