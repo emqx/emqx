@@ -40,11 +40,11 @@ init_per_suite(Conf) ->
     %% Start emqx-authn separately, due to emqx_authn_schema
     %% not implementing the roots/0 method, it cannot be started with
     %% emqx-ct-helpers at the moment.
-    application:ensure_all_started([emqx_authn]),
+    {ok, _} = application:ensure_all_started(emqx_authn),
     Conf.
 
 end_per_suite(Conf) ->
-    application:stop([emqx_authn]),
+    application:stop(emqx_authn),
     emqx_mgmt_api_test_util:end_suite([emqx_gateway]),
     Conf.
 
