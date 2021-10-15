@@ -35,7 +35,7 @@ all() ->
 
 init_per_suite(Config) ->
     application:ensure_all_started(ekka),
-    ekka_mnesia:start(),
+    mria:start(),
     Config.
 
 end_per_suite(_Config) ->

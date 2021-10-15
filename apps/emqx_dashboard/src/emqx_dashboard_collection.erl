@@ -160,7 +160,7 @@ flush({Connection, Route, Subscription}, {Received0, Sent0, Dropped0}) ->
                diff(Sent, Sent0),
                diff(Dropped, Dropped0)},
     Ts = get_local_time(),
-    mria:transaction(ekka_mnesia:local_content_shard(),
+    mria:transaction(mria:local_content_shard(),
         fun mnesia:write/1, [#mqtt_collect{timestamp = Ts, collect = Collect}]),
     {Received, Sent, Dropped}.
 
