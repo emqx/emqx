@@ -87,7 +87,7 @@ multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNu
                 %% the initiate transaction must happened on core node
                 %% make sure MFA(in the transaction) and the transaction on the same node
                 %% don't need rpc again inside transaction.
-                case ekka_rlog_status:upstream_node(?EMQX_MACHINE_SHARD) of
+                case mria_status:upstream_node(?EMQX_MACHINE_SHARD) of
                     {ok, Node} -> gen_server:call({?MODULE, Node}, MFA, Timeout);
                     disconnected -> {error, disconnected}
                 end

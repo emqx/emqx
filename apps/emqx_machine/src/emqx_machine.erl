@@ -35,6 +35,7 @@ start() ->
     ok = set_backtrace_depth(),
     ok = print_otp_version_warning(),
     ok = load_config_files(),
+    mria:start(),
     ekka:start(),
     mria_rlog:wait_for_shards([?EMQX_MACHINE_SHARD], infinity),
     ok.
