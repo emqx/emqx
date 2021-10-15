@@ -32,16 +32,16 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ekka_mnesia:start(),
     ok = emqx_delayed:mnesia(boot),
-    emqx_ct_helpers:start_apps([emqx_modules]),
+    emqx_common_test_helpers:start_apps([emqx_modules]),
     Config.
 
 end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([emqx_modules]).
+    emqx_common_test_helpers:stop_apps([emqx_modules]).
 
 %%--------------------------------------------------------------------
 %% Test cases

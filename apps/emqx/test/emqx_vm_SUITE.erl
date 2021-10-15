@@ -21,7 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_load(_Config) ->
     ?assertMatch([{load1, _}, {load5, _}, {load15, _}], emqx_vm:loads()).

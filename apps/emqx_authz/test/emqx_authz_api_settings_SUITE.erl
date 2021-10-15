@@ -38,20 +38,20 @@
 -define(BASE_PATH, "api").
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
+    ok = emqx_common_test_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
 
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_resource, emqx_authz, emqx_dashboard]),
+    emqx_common_test_helpers:stop_apps([emqx_resource, emqx_authz, emqx_dashboard]),
     ok.
 
 set_special_configs(emqx_dashboard) ->

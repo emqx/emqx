@@ -26,21 +26,21 @@
 -define(SUITE, ?MODULE).
 
 -define(wait(For, Timeout),
-        emqx_ct_helpers:wait_for(
+        emqx_common_test_helpers:wait_for(
           ?FUNCTION_NAME, ?LINE, fun() -> For end, Timeout)).
 
 -define(ack, shared_sub_ack).
 -define(no_ack, no_ack).
 
-all() -> emqx_ct:all(?SUITE).
+all() -> emqx_common_test_helpers:all(?SUITE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([]).
 
 t_is_ack_required(_) ->
     ?assertEqual(false, emqx_shared_sub:is_ack_required(#message{headers = #{}})).

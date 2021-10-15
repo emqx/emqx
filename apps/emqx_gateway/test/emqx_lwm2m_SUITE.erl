@@ -150,12 +150,12 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_suite(Config) ->
     timer:sleep(300),
-    emqx_ct_helpers:stop_apps([]),
+    emqx_common_test_helpers:stop_apps([]),
     Config.
 
 init_per_testcase(_AllTestCase, Config) ->

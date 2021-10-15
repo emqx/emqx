@@ -9,16 +9,16 @@
 -define(CONF_DEFAULT, <<"rule_engine {rules {}}">>).
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     application:load(emqx_machine),
     ok = emqx_config:init_load(emqx_rule_engine_schema, ?CONF_DEFAULT),
-    ok = emqx_ct_helpers:start_apps([emqx_rule_engine]),
+    ok = emqx_common_test_helpers:start_apps([emqx_rule_engine]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_rule_engine]),
+    emqx_common_test_helpers:stop_apps([emqx_rule_engine]),
     ok.
 
 init_per_testcase(_, Config) ->

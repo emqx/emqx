@@ -86,8 +86,8 @@ init_per_suite(Config) ->
                 }
             ]
         }">>),
-    emqx_ct_helpers:start_apps([emqx_dashboard], fun set_special_configs/1),
-    emqx_ct_helpers:start_apps([?APP]),
+    emqx_common_test_helpers:start_apps([emqx_dashboard], fun set_special_configs/1),
+    emqx_common_test_helpers:start_apps([?APP]),
     Config.
 
 set_special_configs(emqx_dashboard) ->
@@ -118,7 +118,7 @@ end_per_suite(_) ->
     application:unload(?APP),
     meck:unload(emqx_resource),
     meck:unload(emqx_schema),
-    emqx_ct_helpers:stop_apps([emqx_dashboard, ?APP]).
+    emqx_common_test_helpers:stop_apps([emqx_dashboard, ?APP]).
 
 t_auto_subscribe(_) ->
     {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),

@@ -27,7 +27,7 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 parse(D) ->
     {ok, P, _Rest, _State} = emqx_sn_frame:parse(D, #{}),

@@ -104,11 +104,11 @@ groups() ->
 
 init_per_suite(Config) ->
     application:load(emqx_machine),
-    ok = emqx_ct_helpers:start_apps([emqx_rule_engine]),
+    ok = emqx_common_test_helpers:start_apps([emqx_rule_engine]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_rule_engine]),
+    emqx_common_test_helpers:stop_apps([emqx_rule_engine]),
     ok.
 
 on_resource_create(_id, _) -> #{}.

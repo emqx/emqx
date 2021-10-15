@@ -472,13 +472,13 @@ do_setup() ->
     logger:set_primary_config(#{level => warning}),
     _ = emqx_exhook_demo_svr:start(),
     ok = emqx_config:init_load(emqx_exhook_schema, ?CONF_DEFAULT),
-    emqx_ct_helpers:start_apps([emqx_exhook]),
+    emqx_common_test_helpers:start_apps([emqx_exhook]),
     %% waiting first loaded event
     {'on_provider_loaded', _} = emqx_exhook_demo_svr:take(),
     ok.
 
 do_teardown(_) ->
-    emqx_ct_helpers:stop_apps([emqx_exhook]),
+    emqx_common_test_helpers:stop_apps([emqx_exhook]),
     %% waiting last unloaded event
     {'on_provider_unloaded', _} = emqx_exhook_demo_svr:take(),
     _ = emqx_exhook_demo_svr:stop(),

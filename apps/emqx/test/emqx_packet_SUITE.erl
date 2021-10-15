@@ -40,7 +40,7 @@
          {?AUTH, 'AUTH', ?AUTH_PACKET()}
         ]).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_type(_) ->
     lists:foreach(fun({Type, _Name, Packet}) ->

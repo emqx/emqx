@@ -27,7 +27,7 @@
 
 -define(Q, emqx_mqueue).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_info(_) ->
     Q = ?Q:init(#{max_len => 5, store_qos0 => true}),

@@ -21,7 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_batch_full_commit(_) ->
     B0 = emqx_batch:init(#{batch_size => 3,

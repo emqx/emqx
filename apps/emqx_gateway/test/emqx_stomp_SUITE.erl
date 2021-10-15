@@ -35,7 +35,7 @@ gateway.stomp {
 }
 ">>).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -43,11 +43,11 @@ all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
     ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_ct_helpers:start_apps([emqx_gateway]),
+    emqx_common_test_helpers:start_apps([emqx_gateway]),
     Cfg.
 
 end_per_suite(_Cfg) ->
-    emqx_ct_helpers:stop_apps([emqx_gateway]),
+    emqx_common_test_helpers:stop_apps([emqx_gateway]),
     ok.
 
 %%--------------------------------------------------------------------

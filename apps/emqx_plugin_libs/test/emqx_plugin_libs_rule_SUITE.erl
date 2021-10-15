@@ -23,7 +23,7 @@
 
 -define(PORT, 9876).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_http_connectivity(_) ->
     {ok, Socket} = gen_tcp:listen(?PORT, []),

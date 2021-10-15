@@ -36,16 +36,16 @@ exhook: {
 %% Setups
 %%--------------------------------------------------------------------
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Cfg) ->
     _ = emqx_exhook_demo_svr:start(),
     ok = emqx_config:init_load(emqx_exhook_schema, ?CONF_DEFAULT),
-    emqx_ct_helpers:start_apps([emqx_exhook]),
+    emqx_common_test_helpers:start_apps([emqx_exhook]),
     Cfg.
 
 end_per_suite(_Cfg) ->
-    emqx_ct_helpers:stop_apps([emqx_exhook]),
+    emqx_common_test_helpers:stop_apps([emqx_exhook]),
     emqx_exhook_demo_svr:stop().
 
 %%--------------------------------------------------------------------

@@ -36,7 +36,7 @@
 
 -define(N, 100000).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_wildcard(_) ->
     true  = wildcard(<<"a/b/#">>),

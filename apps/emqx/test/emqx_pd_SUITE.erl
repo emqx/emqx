@@ -21,7 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_update_counter(_) ->
     ?assertEqual(undefined, emqx_pd:inc_counter(bytes, 1)),

@@ -21,7 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_cast_useless_msg(_)->
     emqx_stats:setstat('notExis', 1),
