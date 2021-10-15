@@ -50,8 +50,8 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     ekka:stop(),
-    ekka_mnesia:ensure_stopped(),
-    ekka_mnesia:delete_schema().
+    mria:ensure_stopped(),
+    mria_mnesia:delete_schema().
 
 init_per_testcase(_TestCase, Config) ->
     clear_tables(),
@@ -194,4 +194,3 @@ trans(Fun) ->
     mnesia:transaction(Fun).
 trans(Fun, Args) ->
     mnesia:transaction(Fun, Args).
-

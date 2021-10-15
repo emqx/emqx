@@ -35,7 +35,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]),
-    ekka_mnesia:delete_schema(),    %% Clean emqx_banned table
+    mria_mnesia:delete_schema(),    %% Clean emqx_banned table
     ok.
 
 t_detect_check(_) ->

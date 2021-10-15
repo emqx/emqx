@@ -41,8 +41,8 @@
 all() ->
     [t_auto_subscribe, t_update].
 
-init_per_suite(Config) ->    
-    ekka_mnesia:start(),
+init_per_suite(Config) ->
+    mria:start(),
     application:stop(?APP),
 
     meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
@@ -159,4 +159,3 @@ check_subs([{{_, Topic}, #{subid := ?CLIENT_ID}} | Subs], List) ->
     check_subs(Subs, lists:delete(Topic, List));
 check_subs([_ | Subs], List) ->
     check_subs(Subs, List).
-

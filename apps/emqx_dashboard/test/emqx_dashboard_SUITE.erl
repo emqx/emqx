@@ -50,7 +50,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_management]),
-    ekka_mnesia:ensure_stopped().
+    mria:ensure_stopped().
 
 set_special_configs(emqx_management) ->
     emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
