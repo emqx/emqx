@@ -34,9 +34,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_machine.hrl").
 
--rlog_shard({?EMQX_MACHINE_SHARD, ?CLUSTER_MFA}).
--rlog_shard({?EMQX_MACHINE_SHARD, ?CLUSTER_COMMIT}).
-
 -define(CATCH_UP, catch_up).
 -define(TIMEOUT, timer:minutes(1)).
 
