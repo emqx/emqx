@@ -290,8 +290,8 @@ reload(App, SpecAppConfigHandler) ->
     application:start(App).
 
 ensure_mnesia_stopped() ->
-    ekka_mnesia:ensure_stopped(),
-    ekka_mnesia:delete_schema().
+    mria:stop(),
+    mria_mnesia:delete_schema().
 
 %% Help function to wait for Fun to yield 'true'.
 wait_for(Fn, Ln, F, Timeout) ->
