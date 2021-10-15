@@ -37,9 +37,11 @@ init_per_suite(Conf) ->
     %% FIXME: Magic line. for saving gateway schema name for emqx_config
     emqx_config:init_load(emqx_gateway_schema, <<"gateway {}">>),
     emqx_common_test_helpers:start_apps([emqx_gateway]),
+    {ok, _} = application:ensure_all_started(emqx_authn),
     Conf.
 
 end_per_suite(_Conf) ->
+    application:stop(emqx_authn),
     emqx_common_test_helpers:stop_apps([emqx_gateway]).
 
 init_per_testcase(_CaseName, Conf) ->
