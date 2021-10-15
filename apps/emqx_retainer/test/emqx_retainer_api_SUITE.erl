@@ -37,7 +37,7 @@
 
 all() ->
     %%    TODO: V5 API
-    %%    emqx_ct:all(?MODULE).
+    %%    emqx_common_test_helpers:all(?MODULE).
     [].
 
 groups() ->
@@ -45,13 +45,13 @@ groups() ->
 
 init_per_suite(Config) ->
     application:stop(emqx_retainer),
-    emqx_ct_helpers:start_apps([emqx_retainer, emqx_management], fun set_special_configs/1),
+    emqx_common_test_helpers:start_apps([emqx_retainer, emqx_management], fun set_special_configs/1),
     create_default_app(),
     Config.
 
 end_per_suite(_Config) ->
     delete_default_app(),
-    emqx_ct_helpers:stop_apps([emqx_management, emqx_retainer]).
+    emqx_common_test_helpers:stop_apps([emqx_management, emqx_retainer]).
 
 init_per_testcase(_, Config) ->
     Config.

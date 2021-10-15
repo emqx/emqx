@@ -24,7 +24,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 -define(BASE_CONF, <<"""
 emqx_retainer {
@@ -50,11 +50,11 @@ emqx_retainer {
 
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_retainer_schema, ?BASE_CONF),
-    emqx_ct_helpers:start_apps([emqx_retainer]),
+    emqx_common_test_helpers:start_apps([emqx_retainer]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_retainer]).
+    emqx_common_test_helpers:stop_apps([emqx_retainer]).
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------

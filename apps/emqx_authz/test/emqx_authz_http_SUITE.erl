@@ -24,7 +24,7 @@
 -define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 groups() ->
     [].
@@ -42,7 +42,7 @@ init_per_suite(Config) ->
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
-    ok = emqx_ct_helpers:start_apps([emqx_authz]),
+    ok = emqx_common_test_helpers:start_apps([emqx_authz]),
 
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
@@ -58,7 +58,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     {ok, _} = emqx_authz:update(replace, []),
-    emqx_ct_helpers:stop_apps([emqx_authz, emqx_resource]),
+    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_resource]),
     meck:unload(emqx_resource),
     meck:unload(emqx_schema),
     ok.

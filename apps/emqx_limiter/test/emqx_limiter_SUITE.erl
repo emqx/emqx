@@ -79,15 +79,15 @@ emqx_limiter {
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_limiter_schema, ?BASE_CONF),
-    emqx_ct_helpers:start_apps([?APP]),
+    emqx_common_test_helpers:start_apps([?APP]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([?APP]).
+    emqx_common_test_helpers:stop_apps([?APP]).
 
 init_per_testcase(_TestCase, Config) ->
     Config.

@@ -39,19 +39,19 @@ emqx_retainer {
         }
   }""">>).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_retainer_schema, ?BASE_CONF),
     %% Meck emqtt
     ok = meck:new(emqtt, [non_strict, passthrough, no_history, no_link]),
     %% Start Apps
-    emqx_ct_helpers:start_apps([emqx_retainer]),
+    emqx_common_test_helpers:start_apps([emqx_retainer]),
     Config.
 
 end_per_suite(_Config) ->
     ok = meck:unload(emqtt),
-    emqx_ct_helpers:stop_apps([emqx_retainer]).
+    emqx_common_test_helpers:stop_apps([emqx_retainer]).
 
 client_info(Key, Client) ->
     maps:get(Key, maps:from_list(emqtt:info(Client)), undefined).

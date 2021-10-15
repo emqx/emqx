@@ -69,7 +69,7 @@
 %m #{<<"foo">> => [{}]}       NOT SUPPORT
 %%--------------------------------------------------------------------
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_decode_encode(_) ->
     null = decode(encode(null)),

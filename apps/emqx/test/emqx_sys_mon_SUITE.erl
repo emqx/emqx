@@ -42,11 +42,11 @@
                      fmt("long_schedule warning: port = ~p", [?FAKE_PORT]), ?FAKE_INFO}
                     ]).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(t_sys_mon, Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([],
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([],
         fun(emqx) ->
             application:set_env(emqx, sysmon, [{busy_dist_port,true},
                                                 {busy_port,false},
@@ -58,8 +58,8 @@ init_per_testcase(t_sys_mon, Config) ->
         end),
     Config;
 init_per_testcase(t_sys_mon2, Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([],
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([],
         fun(emqx) ->
             application:set_env(emqx, sysmon, [{busy_dist_port,false},
                                                 {busy_port,true},
@@ -72,12 +72,12 @@ init_per_testcase(t_sys_mon2, Config) ->
         end),
     Config;
 init_per_testcase(_, Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_testcase(_, _Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([]).
 
 t_procinfo(_) ->
     ok = meck:new(emqx_vm, [passthrough, no_history]),

@@ -23,7 +23,7 @@
 
 -define(TAB, ?MODULE).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_new(_) ->
     ok = emqx_tables:new(?TAB),
