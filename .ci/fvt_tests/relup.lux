@@ -23,10 +23,7 @@
     ?SH-PROMPT
 
     !cd emqx
-    !export EMQX_LOG__CONSOLE_HANDLER__ENABLE=true
-    !export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
-    !export EMQX_LOG__PRIMARY_LEVEL=debug
-    !export EMQX_ZONES__DEFAULT__LISTENERS__MQTT_WSS__BIND="0.0.0.0:8085"
+    !export EMQX_LOG__LEVEL=debug
 
     !./bin/emqx start
     ?EMQ X .* is started successfully!
@@ -39,9 +36,7 @@
     ?SH-PROMPT
     !cd emqx2
 
-    !export EMQX_LOG__CONSOLE_HANDLER__ENABLE=true
-    !export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
-    !export EMQX_LOG__PRIMARY_LEVEL=debug
+    !export EMQX_LOG__LEVEL=debug
 
     !./bin/emqx start
     ?EMQ X .* is started successfully!
