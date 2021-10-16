@@ -73,9 +73,6 @@ t_get_memory(_Config) ->
 t_schedulers(_Config) ->
     emqx_vm:schedulers().
 
-t_get_process_group_leader_info(_Config) ->
-    emqx_vm:get_process_group_leader_info(self()).
-
 t_get_process_limit(_Config) ->
     emqx_vm:get_process_limit().
 
