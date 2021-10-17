@@ -21,7 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_config:put([sysmon, os], #{

@@ -26,7 +26,7 @@ init_suite() ->
 init_suite(Apps) ->
     ekka_mnesia:start(),
     application:load(emqx_management),
-    emqx_ct_helpers:start_apps(Apps ++ [emqx_dashboard], fun set_special_configs/1).
+    emqx_common_test_helpers:start_apps(Apps ++ [emqx_dashboard], fun set_special_configs/1).
 
 
 end_suite() ->
@@ -34,7 +34,7 @@ end_suite() ->
 
 end_suite(Apps) ->
     application:unload(emqx_management),
-    emqx_ct_helpers:stop_apps(Apps ++ [emqx_dashboard]).
+    emqx_common_test_helpers:stop_apps(Apps ++ [emqx_dashboard]).
 
 set_special_configs(emqx_dashboard) ->
     Config = #{

@@ -30,7 +30,6 @@
 
 all() ->
     [ {group, engine}
-    , {group, api}
     , {group, funcs}
     , {group, registry}
     , {group, runtime}
@@ -45,9 +44,6 @@ groups() ->
     [{engine, [sequence],
       [t_create_rule
       ]},
-     {api, [],
-      [t_crud_rule_api
-       ]},
      {funcs, [],
       [t_kv_store
       ]},
@@ -108,13 +104,11 @@ groups() ->
 
 init_per_suite(Config) ->
     application:load(emqx_machine),
-    ok = ekka_mnesia:start(),
-    ok = emqx_rule_registry:mnesia(boot),
-    ok = emqx_ct_helpers:start_apps([emqx_rule_engine]),
+    ok = emqx_common_test_helpers:start_apps([emqx_rule_engine]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_rule_engine]),
+    emqx_common_test_helpers:stop_apps([emqx_rule_engine]),
     ok.
 
 on_resource_create(_id, _) -> #{}.
@@ -154,19 +148,19 @@ init_per_testcase(t_events, Config) ->
         #{id => <<"rule:t_events">>,
             sql => SQL,
             outputs => [
-                #{type => builtin, target => console},
-                #{type => func, target => fun ?MODULE:output_record_triggered_events/3,
+                #{function => console},
+                #{function => <<"emqx_rule_engine_SUITE:output_record_triggered_events">>,
                   args => #{}}
             ],
             description => <<"to console and record triggered events">>}),
-    ?assertMatch(#rule{id = <<"rule:t_events">>}, Rule),
+    ?assertMatch(#{id := <<"rule:t_events">>}, Rule),
     [{hook_points_rules, Rule} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(t_events, Config) ->
     ets:delete(events_record_tab),
-    ok = emqx_rule_registry:remove_rule(?config(hook_points_rules, Config));
+    ok = delete_rule(?config(hook_points_rules, Config));
 end_per_testcase(_TestCase, _Config) ->
     ok.
 
@@ -174,57 +168,15 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test cases for rule engine
 %%------------------------------------------------------------------------------
 t_create_rule(_Config) ->
-    {ok, #rule{id = Id}} = emqx_rule_engine:create_rule(
+    {ok, #{id := Id}} = emqx_rule_engine:create_rule(
             #{sql => <<"select * from \"t/a\"">>,
               id => <<"t_create_rule">>,
-              outputs => [#{type => builtin, target => console}],
+              outputs => [#{function => console}],
               description => <<"debug rule">>}),
-    ct:pal("======== emqx_rule_registry:get_rules :~p", [emqx_rule_registry:get_rules()]),
-    ?assertMatch({ok, #rule{id = Id, info = #{from := [<<"t/a">>]}}},
-        emqx_rule_registry:get_rule(Id)),
-    emqx_rule_registry:remove_rule(Id),
-    ok.
-
-%%------------------------------------------------------------------------------
-%% Test cases for rule engine api
-%%------------------------------------------------------------------------------
-
-t_crud_rule_api(_Config) ->
-    RuleID = <<"my_rule">>,
-    Params0 = #{
-        <<"description">> => <<"A simple rule">>,
-        <<"enable">> => true,
-        <<"id">> => RuleID,
-        <<"outputs">> => [#{<<"type">> => <<"builtin">>, <<"target">> => <<"console">>}],
-        <<"sql">> => <<"SELECT * from \"t/1\"">>
-    },
-    {201, Rule} = emqx_rule_engine_api:crud_rules(post, #{body => Params0}),
-
-    ?assertEqual(RuleID, maps:get(id, Rule)),
-    {200, Rules} = emqx_rule_engine_api:crud_rules(get, #{}),
-    ct:pal("RList : ~p", [Rules]),
-    ?assert(length(Rules) > 0),
-
-    {200, Rule1} = emqx_rule_engine_api:crud_rules_by_id(get, #{bindings => #{id => RuleID}}),
-    ct:pal("RShow : ~p", [Rule1]),
-    ?assertEqual(Rule, Rule1),
-
-    {200, Rule2} = emqx_rule_engine_api:crud_rules_by_id(put, #{
-            bindings => #{id => RuleID},
-            body => Params0#{<<"sql">> => <<"select * from \"t/b\"">>}
-        }),
-
-    {200, Rule3} = emqx_rule_engine_api:crud_rules_by_id(get, #{bindings => #{id => RuleID}}),
-    %ct:pal("RShow : ~p", [Rule3]),
-    ?assertEqual(Rule3, Rule2),
-    ?assertEqual(<<"select * from \"t/b\"">>, maps:get(sql, Rule3)),
-
-    ?assertMatch({200}, emqx_rule_engine_api:crud_rules_by_id(delete,
-        #{bindings => #{id => RuleID}})),
-
-    %ct:pal("Show After Deleted: ~p", [NotFound]),
-    ?assertMatch({404, #{code := _, message := _Message}},
-        emqx_rule_engine_api:crud_rules_by_id(get, #{bindings => #{id => RuleID}})),
+    ct:pal("======== emqx_rule_engine:get_rules :~p", [emqx_rule_engine:get_rules()]),
+    ?assertMatch({ok, #{id := Id, from := [<<"t/a">>]}},
+        emqx_rule_engine:get_rule(Id)),
+    delete_rule(Id),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -245,34 +197,27 @@ t_kv_store(_) ->
 
 t_add_get_remove_rule(_Config) ->
     RuleId0 = <<"rule-debug-0">>,
-    ok = emqx_rule_registry:add_rule(make_simple_rule(RuleId0)),
-    ?assertMatch({ok, #rule{id = RuleId0}}, emqx_rule_registry:get_rule(RuleId0)),
-    ok = emqx_rule_registry:remove_rule(RuleId0),
-    ?assertEqual(not_found, emqx_rule_registry:get_rule(RuleId0)),
+    ok = emqx_rule_engine:insert_rule(make_simple_rule(RuleId0)),
+    ?assertMatch({ok, #{id := RuleId0}}, emqx_rule_engine:get_rule(RuleId0)),
+    ok = delete_rule(RuleId0),
+    ?assertEqual(not_found, emqx_rule_engine:get_rule(RuleId0)),
 
     RuleId1 = <<"rule-debug-1">>,
     Rule1 = make_simple_rule(RuleId1),
-    ok = emqx_rule_registry:add_rule(Rule1),
-    ?assertMatch({ok, #rule{id = RuleId1}}, emqx_rule_registry:get_rule(RuleId1)),
-    ok = emqx_rule_registry:remove_rule(Rule1),
-    ?assertEqual(not_found, emqx_rule_registry:get_rule(RuleId1)),
+    ok = emqx_rule_engine:insert_rule(Rule1),
+    ?assertMatch({ok, #{id := RuleId1}}, emqx_rule_engine:get_rule(RuleId1)),
+    ok = delete_rule(Rule1),
+    ?assertEqual(not_found, emqx_rule_engine:get_rule(RuleId1)),
     ok.
 
 t_add_get_remove_rules(_Config) ->
-    emqx_rule_registry:remove_rules(emqx_rule_registry:get_rules()),
-    ok = emqx_rule_registry:add_rules(
+    delete_rules_by_ids(emqx_rule_engine:get_rules()),
+    ok = insert_rules(
             [make_simple_rule(<<"rule-debug-1">>),
              make_simple_rule(<<"rule-debug-2">>)]),
-    ?assertEqual(2, length(emqx_rule_registry:get_rules())),
-    ok = emqx_rule_registry:remove_rules([<<"rule-debug-1">>, <<"rule-debug-2">>]),
-    ?assertEqual([], emqx_rule_registry:get_rules()),
-
-    Rule3 = make_simple_rule(<<"rule-debug-3">>),
-    Rule4 = make_simple_rule(<<"rule-debug-4">>),
-    ok = emqx_rule_registry:add_rules([Rule3, Rule4]),
-    ?assertEqual(2, length(emqx_rule_registry:get_rules())),
-    ok = emqx_rule_registry:remove_rules([Rule3, Rule4]),
-    ?assertEqual([], emqx_rule_registry:get_rules()),
+    ?assertEqual(2, length(emqx_rule_engine:get_rules())),
+    ok = delete_rules_by_ids([<<"rule-debug-1">>, <<"rule-debug-2">>]),
+    ?assertEqual([], emqx_rule_engine:get_rules()),
     ok.
 
 t_create_existing_rule(_Config) ->
@@ -280,40 +225,40 @@ t_create_existing_rule(_Config) ->
     {ok, _} = emqx_rule_engine:create_rule(
                     #{id => <<"an_existing_rule">>,
                       sql => <<"select * from \"t/#\"">>,
-                      outputs => [#{type => builtin, target => console}]
+                      outputs => [#{function => console}]
                      }),
-    {ok, #rule{info = #{sql := SQL}}} = emqx_rule_registry:get_rule(<<"an_existing_rule">>),
+    {ok, #{sql := SQL}} = emqx_rule_engine:get_rule(<<"an_existing_rule">>),
     ?assertEqual(<<"select * from \"t/#\"">>, SQL),
 
-    ok = emqx_rule_engine:delete_rule(<<"an_existing_rule">>),
-    ?assertEqual(not_found, emqx_rule_registry:get_rule(<<"an_existing_rule">>)),
+    ok = delete_rule(<<"an_existing_rule">>),
+    ?assertEqual(not_found, emqx_rule_engine:get_rule(<<"an_existing_rule">>)),
     ok.
 
 t_get_rules_for_topic(_Config) ->
-    Len0 = length(emqx_rule_registry:get_rules_for_topic(<<"simple/topic">>)),
-    ok = emqx_rule_registry:add_rules(
+    Len0 = length(emqx_rule_engine:get_rules_for_topic(<<"simple/topic">>)),
+    ok = insert_rules(
             [make_simple_rule(<<"rule-debug-1">>),
              make_simple_rule(<<"rule-debug-2">>)]),
-    ?assertEqual(Len0+2, length(emqx_rule_registry:get_rules_for_topic(<<"simple/topic">>))),
-    ok = emqx_rule_registry:remove_rules([<<"rule-debug-1">>, <<"rule-debug-2">>]),
+    ?assertEqual(Len0+2, length(emqx_rule_engine:get_rules_for_topic(<<"simple/topic">>))),
+    ok = delete_rules_by_ids([<<"rule-debug-1">>, <<"rule-debug-2">>]),
     ok.
 
 t_get_rules_ordered_by_ts(_Config) ->
     Now = fun() -> erlang:system_time(nanosecond) end,
-    ok = emqx_rule_registry:add_rules(
+    ok = insert_rules(
             [make_simple_rule_with_ts(<<"rule-debug-0">>, Now()),
              make_simple_rule_with_ts(<<"rule-debug-1">>, Now()),
              make_simple_rule_with_ts(<<"rule-debug-2">>, Now())
              ]),
     ?assertMatch([
-        #rule{id = <<"rule-debug-0">>},
-        #rule{id = <<"rule-debug-1">>},
-        #rule{id = <<"rule-debug-2">>}
-    ], emqx_rule_registry:get_rules_ordered_by_ts()).
+        #{id := <<"rule-debug-0">>},
+        #{id := <<"rule-debug-1">>},
+        #{id := <<"rule-debug-2">>}
+    ], emqx_rule_engine:get_rules_ordered_by_ts()).
 
 t_get_rules_for_topic_2(_Config) ->
-    Len0 = length(emqx_rule_registry:get_rules_for_topic(<<"simple/1">>)),
-    ok = emqx_rule_registry:add_rules(
+    Len0 = length(emqx_rule_engine:get_rules_for_topic(<<"simple/1">>)),
+    ok = insert_rules(
             [make_simple_rule(<<"rule-debug-1">>, <<"select * from \"simple/#\"">>, [<<"simple/#">>]),
              make_simple_rule(<<"rule-debug-2">>, <<"select * from \"simple/+\"">>, [<<"simple/+">>]),
              make_simple_rule(<<"rule-debug-3">>, <<"select * from \"simple/+/1\"">>, [<<"simple/+/1">>]),
@@ -321,21 +266,21 @@ t_get_rules_for_topic_2(_Config) ->
              make_simple_rule(<<"rule-debug-5">>, <<"select * from \"simple/2,simple/+,simple/3\"">>, [<<"simple/2">>,<<"simple/+">>, <<"simple/3">>]),
              make_simple_rule(<<"rule-debug-6">>, <<"select * from \"simple/2,simple/3,simple/4\"">>, [<<"simple/2">>,<<"simple/3">>, <<"simple/4">>])
              ]),
-    ?assertEqual(Len0+4, length(emqx_rule_registry:get_rules_for_topic(<<"simple/1">>))),
-    ok = emqx_rule_registry:remove_rules([<<"rule-debug-1">>, <<"rule-debug-2">>,<<"rule-debug-3">>, <<"rule-debug-4">>,<<"rule-debug-5">>, <<"rule-debug-6">>]),
+    ?assertEqual(Len0+4, length(emqx_rule_engine:get_rules_for_topic(<<"simple/1">>))),
+    ok = delete_rules_by_ids([<<"rule-debug-1">>, <<"rule-debug-2">>,<<"rule-debug-3">>, <<"rule-debug-4">>,<<"rule-debug-5">>, <<"rule-debug-6">>]),
     ok.
 
 t_get_rules_with_same_event(_Config) ->
     PubT = <<"simple/1">>,
-    PubN = length(emqx_rule_registry:get_rules_with_same_event(PubT)),
-    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/client_connected">>)),
-    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/client_disconnected">>)),
-    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/session_subscribed">>)),
-    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/session_unsubscribed">>)),
-    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/message_delivered">>)),
-    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/message_acked">>)),
-    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/message_dropped">>)),
-    ok = emqx_rule_registry:add_rules(
+    PubN = length(emqx_rule_engine:get_rules_with_same_event(PubT)),
+    ?assertEqual([], emqx_rule_engine:get_rules_with_same_event(<<"$events/client_connected">>)),
+    ?assertEqual([], emqx_rule_engine:get_rules_with_same_event(<<"$events/client_disconnected">>)),
+    ?assertEqual([], emqx_rule_engine:get_rules_with_same_event(<<"$events/session_subscribed">>)),
+    ?assertEqual([], emqx_rule_engine:get_rules_with_same_event(<<"$events/session_unsubscribed">>)),
+    ?assertEqual([], emqx_rule_engine:get_rules_with_same_event(<<"$events/message_delivered">>)),
+    ?assertEqual([], emqx_rule_engine:get_rules_with_same_event(<<"$events/message_acked">>)),
+    ?assertEqual([], emqx_rule_engine:get_rules_with_same_event(<<"$events/message_dropped">>)),
+    ok = insert_rules(
             [make_simple_rule(<<"r1">>, <<"select * from \"simple/#\"">>, [<<"simple/#">>]),
              make_simple_rule(<<"r2">>, <<"select * from \"abc/+\"">>, [<<"abc/+">>]),
              make_simple_rule(<<"r3">>, <<"select * from \"$events/client_connected\"">>, [<<"$events/client_connected">>]),
@@ -347,15 +292,15 @@ t_get_rules_with_same_event(_Config) ->
              make_simple_rule(<<"r9">>, <<"select * from \"$events/message_dropped\"">>, [<<"$events/message_dropped">>]),
              make_simple_rule(<<"r10">>, <<"select * from \"t/1, $events/session_subscribed, $events/client_connected\"">>, [<<"t/1">>, <<"$events/session_subscribed">>, <<"$events/client_connected">>])
              ]),
-    ?assertEqual(PubN + 3, length(emqx_rule_registry:get_rules_with_same_event(PubT))),
-    ?assertEqual(2, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/client_connected">>))),
-    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/client_disconnected">>))),
-    ?assertEqual(2, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/session_subscribed">>))),
-    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/session_unsubscribed">>))),
-    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/message_delivered">>))),
-    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/message_acked">>))),
-    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/message_dropped">>))),
-    ok = emqx_rule_registry:remove_rules([<<"r1">>, <<"r2">>,<<"r3">>, <<"r4">>,<<"r5">>, <<"r6">>, <<"r7">>, <<"r8">>, <<"r9">>, <<"r10">>]),
+    ?assertEqual(PubN + 3, length(emqx_rule_engine:get_rules_with_same_event(PubT))),
+    ?assertEqual(2, length(emqx_rule_engine:get_rules_with_same_event(<<"$events/client_connected">>))),
+    ?assertEqual(1, length(emqx_rule_engine:get_rules_with_same_event(<<"$events/client_disconnected">>))),
+    ?assertEqual(2, length(emqx_rule_engine:get_rules_with_same_event(<<"$events/session_subscribed">>))),
+    ?assertEqual(1, length(emqx_rule_engine:get_rules_with_same_event(<<"$events/session_unsubscribed">>))),
+    ?assertEqual(1, length(emqx_rule_engine:get_rules_with_same_event(<<"$events/message_delivered">>))),
+    ?assertEqual(1, length(emqx_rule_engine:get_rules_with_same_event(<<"$events/message_acked">>))),
+    ?assertEqual(1, length(emqx_rule_engine:get_rules_with_same_event(<<"$events/message_dropped">>))),
+    ok = delete_rules_by_ids([<<"r1">>, <<"r2">>,<<"r3">>, <<"r4">>,<<"r5">>, <<"r6">>, <<"r7">>, <<"r8">>, <<"r9">>, <<"r10">>]),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -451,7 +396,7 @@ t_match_atom_and_binary(_Config) ->
     end,
 
     emqtt:stop(Client),
-    emqx_rule_registry:remove_rule(TopicRule).
+    delete_rule(TopicRule).
 
 t_sqlselect_0(_Config) ->
     %% Verify SELECT with and without 'AS'
@@ -570,7 +515,7 @@ t_sqlselect_01(_Config) ->
     end,
 
     emqtt:stop(Client),
-    emqx_rule_registry:remove_rule(TopicRule1).
+    delete_rule(TopicRule1).
 
 t_sqlselect_02(_Config) ->
     SQL = "SELECT * "
@@ -608,7 +553,7 @@ t_sqlselect_02(_Config) ->
     end,
 
     emqtt:stop(Client),
-    emqx_rule_registry:remove_rule(TopicRule1).
+    delete_rule(TopicRule1).
 
 t_sqlselect_1(_Config) ->
     SQL = "SELECT json_decode(payload) as p, payload "
@@ -638,7 +583,7 @@ t_sqlselect_1(_Config) ->
     end,
 
     emqtt:stop(Client),
-    emqx_rule_registry:remove_rule(TopicRule).
+    delete_rule(TopicRule).
 
 t_sqlselect_2(_Config) ->
     %% recursively republish to t2
@@ -664,7 +609,7 @@ t_sqlselect_2(_Config) ->
     received_nothing = Fun(),
 
     emqtt:stop(Client),
-    emqx_rule_registry:remove_rule(TopicRule).
+    delete_rule(TopicRule).
 
 t_sqlselect_3(_Config) ->
     %% republish the client.connected msg
@@ -696,7 +641,7 @@ t_sqlselect_3(_Config) ->
     end,
 
     emqtt:stop(Client),
-    emqx_rule_registry:remove_rule(TopicRule).
+    delete_rule(TopicRule).
 
 t_sqlparse_event_1(_Config) ->
     Sql = "select topic as tp "
@@ -1347,8 +1292,8 @@ t_sqlparse_nested_get(_Config) ->
 republish_output(Topic) ->
     republish_output(Topic, <<"${payload}">>).
 republish_output(Topic, Payload) ->
-    #{type => builtin, target => republish,
-      args => #{<<"payload">> => Payload, <<"topic">> => Topic, <<"qos">> => 0}}.
+    #{function => republish,
+      args => #{payload => Payload, topic => Topic, qos => 0, retain => false}}.
 
 make_simple_rule_with_ts(RuleId, Ts) when is_binary(RuleId) ->
     SQL = <<"select * from \"simple/topic\"">>,
@@ -1364,18 +1309,16 @@ make_simple_rule(RuleId, SQL, Topics) when is_binary(RuleId) ->
     make_simple_rule(RuleId, SQL, Topics, erlang:system_time(millisecond)).
 
 make_simple_rule(RuleId, SQL, Topics, Ts) when is_binary(RuleId) ->
-    #rule{
-        id = RuleId,
-        info = #{
-            sql => SQL,
-            from => Topics,
-            fields => [<<"*">>],
-            is_foreach => false,
-            conditions => {},
-            ouputs => [#{type => builtin, target => console}],
-            description => <<"simple rule">>
-        },
-        created_at = Ts
+    #{
+      id => RuleId,
+      sql => SQL,
+      from => Topics,
+      fields => [<<"*">>],
+      is_foreach => false,
+      conditions => {},
+      outputs => [#{mod => emqx_rule_outputs, func => console, args => #{}}],
+      description => <<"simple rule">>,
+      created_at => Ts
     }.
 
 output_record_triggered_events(Data = #{event := EventName}, _Envs, _Args) ->
@@ -1644,3 +1587,18 @@ deps_path(App, RelativePath) ->
 
 local_path(RelativePath) ->
     deps_path(emqx_rule_engine, RelativePath).
+
+insert_rules(Rules) ->
+    lists:foreach(fun(Rule) ->
+        ok = emqx_rule_engine:insert_rule(Rule)
+      end, Rules).
+
+delete_rules_by_ids(Ids) ->
+    lists:foreach(fun(Id) ->
+        ok = emqx_rule_engine:delete_rule(Id)
+      end, Ids).
+
+delete_rule(#{id := Id}) ->
+    ok = emqx_rule_engine:delete_rule(Id);
+delete_rule(Id) when is_binary(Id) ->
+    ok = emqx_rule_engine:delete_rule(Id).

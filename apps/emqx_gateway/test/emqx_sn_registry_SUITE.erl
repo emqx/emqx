@@ -31,7 +31,7 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     application:ensure_all_started(ekka),

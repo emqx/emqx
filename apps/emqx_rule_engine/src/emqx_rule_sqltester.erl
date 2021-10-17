@@ -42,20 +42,18 @@ test(#{sql := Sql, context := Context}) ->
 test_rule(Sql, Select, Context, EventTopics) ->
     RuleId = iolist_to_binary(["sql_tester:", emqx_misc:gen_id(16)]),
     ok = emqx_rule_metrics:create_rule_metrics(RuleId),
-    Rule = #rule{
-        id = RuleId,
-        info = #{
-            sql => Sql,
-            from => EventTopics,
-            outputs => [#{type => func, target => fun ?MODULE:get_selected_data/3, args => #{}}],
-            enabled => true,
-            is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
-            fields => emqx_rule_sqlparser:select_fields(Select),
-            doeach => emqx_rule_sqlparser:select_doeach(Select),
-            incase => emqx_rule_sqlparser:select_incase(Select),
-            conditions => emqx_rule_sqlparser:select_where(Select)
-        },
-        created_at = erlang:system_time(millisecond)
+    Rule = #{
+        id => RuleId,
+        sql => Sql,
+        from => EventTopics,
+        outputs => [#{mod => ?MODULE, func => get_selected_data, args => #{}}],
+        enabled => true,
+        is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
+        fields => emqx_rule_sqlparser:select_fields(Select),
+        doeach => emqx_rule_sqlparser:select_doeach(Select),
+        incase => emqx_rule_sqlparser:select_incase(Select),
+        conditions => emqx_rule_sqlparser:select_where(Select),
+        created_at => erlang:system_time(millisecond)
     },
     FullContext = fill_default_values(hd(EventTopics), emqx_rule_maps:atom_key_map(Context)),
     try

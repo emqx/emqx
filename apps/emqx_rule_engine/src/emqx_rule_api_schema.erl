@@ -37,16 +37,7 @@ roots() ->
 
 fields("rule_creation") ->
     [ {"id", sc(binary(), #{desc => "The Id of the rule", nullable => false})}
-    , {"sql", sc(binary(), #{desc => "The SQL of the rule", nullable => false})}
-    , {"outputs", sc(hoconsc:array(hoconsc:union(
-                                   [ ref("bridge_output")
-                                   , ref("builtin_output")
-                                   ])),
-          #{desc => "The outputs of the rule",
-            default => []})}
-    , {"enable", sc(boolean(), #{desc => "Enable or disable the rule", default => true})}
-    , {"description", sc(binary(), #{desc => "The description of the rule", default => <<>>})}
-    ];
+    ] ++ emqx_rule_engine_schema:fields("rules");
 
 fields("rule_test") ->
     [ {"context", sc(hoconsc:union([ ref("ctx_pub")
@@ -60,38 +51,6 @@ fields("rule_test") ->
         #{desc => "The context of the event for testing",
           default => #{}})}
     , {"sql", sc(binary(), #{desc => "The SQL of the rule for testing", nullable => false})}
-    ];
-
-fields("bridge_output") ->
-    [ {type, bridge}
-    , {target, sc(binary(), #{desc => "The Channel ID of the bridge"})}
-    ];
-
-fields("builtin_output") ->
-    [ {type, builtin}
-    , {target, sc(binary(), #{desc => "The Name of the built-on output"})}
-    , {args, sc(map(), #{desc => "The arguments of the built-in output",
-        default => #{}})}
-    ];
-
-%% TODO: how to use this in "builtin_output".args ?
-fields("republish_args") ->
-    [ {topic, sc(binary(),
-        #{desc => "The target topic of the re-published message."
-                  " Template with with variables is allowed.",
-          nullable => false})}
-    , {qos, sc(binary(),
-        #{desc => "The qos of the re-published message."
-                  " Template with with variables is allowed. Defaults to ${qos}.",
-          default => <<"${qos}">> })}
-    , {retain, sc(binary(),
-        #{desc => "The retain of the re-published message."
-                  " Template with with variables is allowed. Defaults to ${retain}.",
-          default => <<"${retain}">> })}
-    , {payload, sc(binary(),
-        #{desc => "The payload of the re-published message."
-                  " Template with with variables is allowed. Defaults to ${payload}.",
-          default => <<"${payload}">>})}
     ];
 
 fields("ctx_pub") ->

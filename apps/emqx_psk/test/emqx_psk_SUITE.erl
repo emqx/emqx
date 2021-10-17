@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     meck:new(emqx_config, [non_strict, passthrough, no_history, no_link]),
@@ -35,12 +35,12 @@ init_per_suite(Config) ->
                                      ([psk, separator], _) -> <<":">>;
                                      (KeyPath, Default) -> meck:passthrough([KeyPath, Default])
                                   end),
-    emqx_ct_helpers:start_apps([emqx_psk]),
+    emqx_common_test_helpers:start_apps([emqx_psk]),
     Config.
 
 end_per_suite(_) ->
     meck:unload(emqx_config),
-    emqx_ct_helpers:stop_apps([emqx_psk]),
+    emqx_common_test_helpers:stop_apps([emqx_psk]),
     ok.
 
 t_psk_lookup(_) ->

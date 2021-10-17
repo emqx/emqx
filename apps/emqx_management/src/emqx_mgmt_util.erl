@@ -43,6 +43,7 @@
         , batch_schema/1
         ]).
 
+-export([generate_response/1]).
 
 
 -export([urldecode/1]).
@@ -258,3 +259,13 @@ bad_request() ->
 bad_request(Desc) ->
     object_schema(properties([{message, string}, {code, string}]), Desc).
 
+%%%==============================================================================================
+%% Response util
+
+generate_response(QueryResult) ->
+    case QueryResult of
+        {error, page_limit_invalid} ->
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+        Response ->
+            {200, Response}
+    end.

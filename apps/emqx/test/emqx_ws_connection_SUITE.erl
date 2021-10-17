@@ -35,7 +35,7 @@
 
 -define(ws_conn, emqx_ws_connection).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 %%--------------------------------------------------------------------
 %% CT callbacks
@@ -79,7 +79,7 @@ init_per_testcase(TestCase, Config) when
     Config;
 
 init_per_testcase(_, Config) ->
-    ok = emqx_ct_helpers:start_apps([]),
+    ok = emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_testcase(TestCase, _Config) when
@@ -98,7 +98,7 @@ end_per_testcase(TestCase, _Config) when
                   ]);
 
 end_per_testcase(_, Config) ->
-    emqx_ct_helpers:stop_apps([]),
+    emqx_common_test_helpers:stop_apps([]),
     Config.
 
 %%--------------------------------------------------------------------

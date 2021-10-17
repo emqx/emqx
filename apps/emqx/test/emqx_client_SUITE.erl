@@ -77,18 +77,18 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
     ct:pal("00~p~n", [application:which_applications()]),
     ct:pal("11~p~n", [application:get_all_env(emqx)]),
     ct:pal("22~p", [emqx_config:get([listeners])]),
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
     emqx_config:put_listener_conf(ssl, default, [ssl, verify], verify_peer),
     ct:pal("33~p", [emqx_config:get([listeners])]),
     emqx_listeners:restart_listener('ssl:default'),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([]).
 
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v3
@@ -328,7 +328,7 @@ tls_certcn_as_clientid(TLSVsn) ->
 tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     CN = <<"Client">>,
     emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], cn),
-    SslConf = emqx_ct_helpers:client_ssl_twoway(TLSVsn),
+    SslConf = emqx_common_test_helpers:client_ssl_twoway(TLSVsn),
     {ok, Client} = emqtt:start_link([{port, 8883}, {ssl, true}, {ssl_opts, SslConf}]),
     {ok, _} = emqtt:connect(Client),
     #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),

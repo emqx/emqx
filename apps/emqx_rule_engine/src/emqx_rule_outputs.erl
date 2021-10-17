@@ -16,13 +16,54 @@
 
 %% Define the default actions.
 -module(emqx_rule_outputs).
+
+-include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
+%% APIs
+-export([ parse_output/1
+        ]).
+
+%% callbacks of emqx_rule_output
+-export([ pre_process_output_args/2
+        ]).
+
+%% output functions
 -export([ console/3
         , republish/3
         ]).
 
+-optional_callbacks([ pre_process_output_args/2
+                    ]).
+
+-callback pre_process_output_args(FuncName :: atom(), output_fun_args()) -> output_fun_args().
+
+%%--------------------------------------------------------------------
+%% APIs
+%%--------------------------------------------------------------------
+parse_output(#{function := OutputFunc} = Output) ->
+    {Mod, Func} = parse_output_func(OutputFunc),
+    #{mod => Mod, func => Func,
+      args => pre_process_args(Mod, Func, maps:get(args, Output, #{}))}.
+
+%%--------------------------------------------------------------------
+%% callbacks of emqx_rule_output
+%%--------------------------------------------------------------------
+pre_process_output_args(republish, #{topic := Topic, qos := QoS, retain := Retain,
+        payload := Payload} = Args) ->
+    Args#{preprocessed_tmpl => #{
+            topic => emqx_plugin_libs_rule:preproc_tmpl(Topic),
+            qos => preproc_vars(QoS),
+            retain => preproc_vars(Retain),
+            payload => emqx_plugin_libs_rule:preproc_tmpl(Payload)
+        }};
+pre_process_output_args(_, Args) ->
+    Args.
+
+%%--------------------------------------------------------------------
+%% output functions
+%%--------------------------------------------------------------------
 -spec console(map(), map(), map()) -> any().
 console(Selected, #{metadata := #{rule_id := RuleId}} = Envs, _Args) ->
     ?ULOG("[rule output] ~ts~n"
@@ -42,8 +83,8 @@ republish(Selected, #{flags := Flags, metadata := #{rule_id := RuleId}},
             payload := PayloadTks}}) ->
     Topic = emqx_plugin_libs_rule:proc_tmpl(TopicTks, Selected),
     Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
-    QoS = replace_simple_var(QoSTks, Selected),
-    Retain = replace_simple_var(RetainTks, Selected),
+    QoS = replace_simple_var(QoSTks, Selected, 0),
+    Retain = replace_simple_var(RetainTks, Selected, false),
     ?SLOG(debug, #{msg => "republish", topic => Topic, payload => Payload}),
     safe_publish(RuleId, Topic, QoS, Flags#{retain => Retain}, Payload);
 
@@ -56,10 +97,44 @@ republish(Selected, #{metadata := #{rule_id := RuleId}},
                 payload := PayloadTks}}) ->
     Topic = emqx_plugin_libs_rule:proc_tmpl(TopicTks, Selected),
     Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
-    QoS = replace_simple_var(QoSTks, Selected),
-    Retain = replace_simple_var(RetainTks, Selected),
+    QoS = replace_simple_var(QoSTks, Selected, 0),
+    Retain = replace_simple_var(RetainTks, Selected, false),
     ?SLOG(debug, #{msg => "republish", topic => Topic, payload => Payload}),
     safe_publish(RuleId, Topic, QoS, #{retain => Retain}, Payload).
+
+%%--------------------------------------------------------------------
+%% internal functions
+%%--------------------------------------------------------------------
+parse_output_func(OutputFunc) ->
+    {Mod, Func} = get_output_mod_func(OutputFunc),
+    assert_function_supported(Mod, Func),
+    {Mod, Func}.
+
+get_output_mod_func(OutputFunc) when is_atom(OutputFunc) ->
+    {emqx_rule_outputs, OutputFunc};
+get_output_mod_func(OutputFunc) when is_binary(OutputFunc) ->
+    ToAtom = fun(Bin) ->
+        try binary_to_existing_atom(Bin) of Atom -> Atom
+        catch error:badarg -> error({unknown_output_function, OutputFunc})
+        end
+    end,
+    case string:split(OutputFunc, ":", all) of
+        [Func1] -> {emqx_rule_outputs, ToAtom(Func1)};
+        [Mod1, Func1] -> {ToAtom(Mod1), ToAtom(Func1)};
+        _ -> error({invalid_output_function, OutputFunc})
+    end.
+
+assert_function_supported(Mod, Func) ->
+    case erlang:function_exported(Mod, Func, 3) of
+        true -> ok;
+        false -> error({output_function_not_supported, Func})
+    end.
+
+pre_process_args(Mod, Func, Args) ->
+    case erlang:function_exported(Mod, pre_process_output_args, 2) of
+        true -> Mod:pre_process_output_args(Func, Args);
+        false -> Args
+    end.
 
 safe_publish(RuleId, Topic, QoS, Flags, Payload) ->
     Msg = #message{
@@ -75,8 +150,16 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload) ->
     _ = emqx_broker:safe_publish(Msg),
     emqx_metrics:inc_msg(Msg).
 
-replace_simple_var(Tokens, Data) when is_list(Tokens) ->
+preproc_vars(Data) when is_binary(Data) ->
+    emqx_plugin_libs_rule:preproc_tmpl(Data);
+preproc_vars(Data) ->
+    Data.
+
+replace_simple_var(Tokens, Data, Default) when is_list(Tokens) ->
     [Var] = emqx_plugin_libs_rule:proc_tmpl(Tokens, Data, #{return => rawlist}),
-    Var;
-replace_simple_var(Val, _Data) ->
+    case Var of
+        undefined -> Default; %% cannot find the variable from Data
+        _ -> Var
+    end;
+replace_simple_var(Val, _Data, _Default) ->
     Val.

@@ -25,7 +25,7 @@
 %% Setups
 %%--------------------------------------------------------------------
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(_, Cfg) ->
     _ = esockd_limiter:start_link(),

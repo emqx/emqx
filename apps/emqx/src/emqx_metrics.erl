@@ -184,6 +184,15 @@
          {counter, 'session.terminated'}
         ]).
 
+%% Overload protetion counters
+-define(OLP_METRICS,
+        [{counter, 'olp.delay.ok'},
+         {counter, 'olp.delay.timeout'},
+         {counter, 'olp.hbn'},
+         {counter, 'olp.gc'},
+         {counter, 'olp.new_conn'}
+        ]).
+
 -record(state, {next_idx = 1}).
 
 -record(metric, {name, type, idx}).
@@ -430,7 +439,8 @@ init([]) ->
                             ?MESSAGE_METRICS,
                             ?DELIVERY_METRICS,
                             ?CLIENT_METRICS,
-                            ?SESSION_METRICS
+                            ?SESSION_METRICS,
+                            ?OLP_METRICS
                            ]),
     % Store reserved indices
     ok = lists:foreach(fun({Type, Name}) ->
@@ -574,6 +584,12 @@ reserved_idx('session.resumed')              -> 221;
 reserved_idx('session.takeovered')           -> 222;
 reserved_idx('session.discarded')            -> 223;
 reserved_idx('session.terminated')           -> 224;
+
+reserved_idx('olp.delay.ok')                 -> 300;
+reserved_idx('olp.delay.timeout')            -> 301;
+reserved_idx('olp.hbn')                      -> 302;
+reserved_idx('olp.gc')                       -> 303;
+reserved_idx('olp.new_conn')                 -> 304;
 
 reserved_idx(_)                              -> undefined.
 

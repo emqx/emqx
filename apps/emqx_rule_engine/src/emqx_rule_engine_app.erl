@@ -25,9 +25,13 @@
 -export([stop/1]).
 
 start(_Type, _Args) ->
-    ok = ekka_rlog:wait_for_shards([?RULE_ENGINE_SHARD], infinity),
+    _ = ets:new(?RULE_TAB, [named_table, public, set, {read_concurrency, true}]),
     ok = emqx_rule_events:reload(),
-    emqx_rule_engine_sup:start_link().
+    SupRet = emqx_rule_engine_sup:start_link(),
+    ok = emqx_rule_engine:load_rules(),
+    emqx_config_handler:add_handler(emqx_rule_engine:config_key_path(), emqx_rule_engine),
+    SupRet.
 
 stop(_State) ->
+    emqx_config_handler:remove_handler(emqx_rule_engine:config_key_path()),
     ok = emqx_rule_events:unload().

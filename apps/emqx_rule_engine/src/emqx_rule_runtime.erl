@@ -45,12 +45,12 @@
 %%------------------------------------------------------------------------------
 %% Apply rules
 %%------------------------------------------------------------------------------
--spec(apply_rules(list(emqx_rule_engine:rule()), input()) -> ok).
+-spec(apply_rules(list(rule()), input()) -> ok).
 apply_rules([], _Input) ->
     ok;
-apply_rules([#rule{info = #{enabled := false}}|More], Input) ->
+apply_rules([#{enabled := false}|More], Input) ->
     apply_rules(More, Input);
-apply_rules([Rule = #rule{id = RuleID}|More], Input) ->
+apply_rules([Rule = #{id := RuleID}|More], Input) ->
     try apply_rule_discard_result(Rule, Input)
     catch
         %% ignore the errors if select or match failed
@@ -80,18 +80,19 @@ apply_rule_discard_result(Rule, Input) ->
     _ = apply_rule(Rule, Input),
     ok.
 
-apply_rule(Rule = #rule{id = RuleID}, Input) ->
+apply_rule(Rule = #{id := RuleID}, Input) ->
     clear_rule_payload(),
     do_apply_rule(Rule, add_metadata(Input, #{rule_id => RuleID})).
 
-do_apply_rule(#rule{id = RuleId, info = #{
+do_apply_rule(#{
+            id := RuleId,
             is_foreach := true,
             fields := Fields,
             doeach := DoEach,
             incase := InCase,
             conditions := Conditions,
             outputs := Outputs
-        }}, Input) ->
+        }, Input) ->
     {Selected, Collection} = ?RAISE(select_and_collect(Fields, Input),
                                         {select_and_collect_error, {_EXCLASS_,_EXCPTION_,_ST_}}),
     ColumnsAndSelected = maps:merge(Input, Selected),
@@ -105,12 +106,12 @@ do_apply_rule(#rule{id = RuleId, info = #{
             {error, nomatch}
     end;
 
-do_apply_rule(#rule{id = RuleId, info = #{
-            is_foreach := false,
-            fields := Fields,
-            conditions := Conditions,
-            outputs := Outputs
-        }}, Input) ->
+do_apply_rule(#{id := RuleId,
+                is_foreach := false,
+                fields := Fields,
+                conditions := Conditions,
+                outputs := Outputs
+            }, Input) ->
     Selected = ?RAISE(select_and_transform(Fields, Input),
                       {select_and_transform_error, {_EXCLASS_,_EXCPTION_,_ST_}}),
     case ?RAISE(match_conditions(Conditions, maps:merge(Input, Selected)),
@@ -246,27 +247,11 @@ handle_output(OutId, Selected, Envs) ->
                           })
     end.
 
-do_handle_output(#{type := bridge, target := ChannelId}, Selected, _Envs) ->
+do_handle_output(ChannelId, Selected, _Envs) when is_binary(ChannelId) ->
     ?SLOG(debug, #{msg => "output to bridge", channel_id => ChannelId}),
     emqx_bridge:send_message(ChannelId, Selected);
-do_handle_output(#{type := func, target := Func} = Out, Selected, Envs) ->
-    erlang:apply(Func, [Selected, Envs, maps:get(args, Out, #{})]);
-do_handle_output(#{type := builtin, target := Output} = Out, Selected, Envs)
-        when is_atom(Output) ->
-    handle_builtin_output(Output, Selected, Envs, maps:get(args, Out, #{}));
-do_handle_output(#{type := builtin, target := Output} = Out, Selected, Envs)
-        when is_binary(Output) ->
-    try binary_to_existing_atom(Output) of
-        Func -> handle_builtin_output(Func, Selected, Envs, maps:get(args, Out, #{}))
-    catch
-        error:badarg -> error(not_found)
-    end.
-
-handle_builtin_output(Func, Selected, Envs, Args) ->
-    case erlang:function_exported(emqx_rule_outputs, Func, 3) of
-        true -> erlang:apply(emqx_rule_outputs, Func, [Selected, Envs, Args]);
-        false -> error(not_found)
-    end.
+do_handle_output(#{mod := Mod, func := Func, args := Args}, Selected, Envs) ->
+    Mod:Func(Selected, Envs, Args).
 
 eval({path, [{key, <<"payload">>} | Path]}, #{payload := Payload}) ->
     nested_get({path, Path}, may_decode_payload(Payload));

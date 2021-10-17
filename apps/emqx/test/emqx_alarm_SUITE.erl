@@ -23,8 +23,9 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
+<<<<<<< HEAD
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
@@ -34,20 +35,29 @@ end_per_suite(_) ->
     emqx_ct_helpers:stop_apps([]).
 
 init_per_testcase(t_size_limit, Config) ->
+=======
+init_per_testcase(t_size_limit, Config) ->
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
     {ok, _} = emqx:update_config([alarm], #{
             <<"size_limit">> => 2
         }),
     Config;
 init_per_testcase(t_validity_period, Config) ->
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
     {ok, _} = emqx:update_config([alarm], #{
             <<"validity_period">> => <<"1s">>
         }),
     Config;
 init_per_testcase(_, Config) ->
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_testcase(_, _Config) ->
-    ok.
+    emqx_common_test_helpers:stop_apps([]).
+
 
 t_alarm(_) ->
     ok = emqx_alarm:activate(unknown_alarm),

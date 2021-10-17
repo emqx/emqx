@@ -114,21 +114,21 @@ plugins(HasElixir) ->
       %% emqx main project does not require port-compiler
       %% pin at root level for deterministic
     , {pc, {git, "https://github.com/emqx/port_compiler.git", {tag, "v1.11.1"}}}
-    | [ rebar_mix || HasElixir ]
+    | [ {rebar_mix, "0.5.1"} || HasElixir ]
     ]
     %% test plugins are concatenated to default profile plugins
     %% otherwise rebar3 test profile runs are super slow
     ++ test_plugins().
 
 test_plugins() ->
-    [ rebar3_proper,
-      {coveralls, {git, "https://github.com/emqx/coveralls-erl", {branch, "fix-git-info"}}}
+    [ {rebar3_proper, "0.12.1"}
+    , {coveralls, {git, "https://github.com/emqx/coveralls-erl", {tag, "v2.2.0-emqx-1"}}}
     ].
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "2.1.0"}}}
-    , meck
+    , {meck, "0.9.2"}
+    , {proper, "1.4.0"}
     ].
 
 common_compile_opts() ->
@@ -280,6 +280,7 @@ relx_apps(ReleaseType) ->
     , emqx_statsd
     , emqx_prometheus
     , emqx_psk
+    , emqx_limiter
     ]
     ++ [quicer || is_quicer_supported()]
     ++ [emqx_license || is_enterprise()]

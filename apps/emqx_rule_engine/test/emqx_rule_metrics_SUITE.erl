@@ -40,13 +40,13 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx]),
+    emqx_common_test_helpers:start_apps([emqx]),
     {ok, _} = emqx_rule_metrics:start_link(),
     Config.
 
 end_per_suite(_Config) ->
     catch emqx_rule_metrics:stop(),
-    emqx_ct_helpers:stop_apps([emqx]),
+    emqx_common_test_helpers:stop_apps([emqx]),
     ok.
 
 init_per_testcase(_, Config) ->

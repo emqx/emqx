@@ -21,11 +21,11 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(t_alarms, Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
     emqx_config:put([sysmon, vm], #{
             process_high_watermark => 0,
             process_low_watermark => 0,
@@ -35,12 +35,12 @@ init_per_testcase(t_alarms, Config) ->
     {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_vm_mon),
     Config;
 init_per_testcase(_, Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_testcase(_, _Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([]).
 
 t_alarms(_) ->
     timer:sleep(500),

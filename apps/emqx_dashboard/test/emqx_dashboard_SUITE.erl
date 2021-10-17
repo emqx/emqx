@@ -41,15 +41,15 @@
 
 all() ->
 %%    TODO: V5 API
-%%    emqx_ct:all(?MODULE).
+%%    emqx_common_test_helpers:all(?MODULE).
     [].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_management, emqx_dashboard],fun set_special_configs/1),
+    emqx_common_test_helpers:start_apps([emqx_management, emqx_dashboard],fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management]),
+    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_management]),
     ekka_mnesia:ensure_stopped().
 
 set_special_configs(emqx_management) ->

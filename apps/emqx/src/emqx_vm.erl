@@ -33,7 +33,6 @@
         , process_gc_info_keys/0
         , get_process_gc_info/0
         , get_process_gc_info/1
-        , get_process_group_leader_info/1
         , get_process_limit/0
         ]).
 
@@ -315,9 +314,6 @@ get_process_gc_info() ->
     get_process_gc_info(self()).
 get_process_gc_info(Pid) when is_pid(Pid) ->
     process_info(Pid, ?PROCESS_GC_KEYS).
-
-get_process_group_leader_info(LeaderPid) when is_pid(LeaderPid) ->
-    [{Key, Value}|| {Key, Value} <- process_info(LeaderPid), lists:member(Key, ?PROCESS_INFO_KEYS)].
 
 get_process_limit() ->
     erlang:system_info(process_limit).

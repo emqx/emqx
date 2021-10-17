@@ -25,16 +25,16 @@
 
 -import(proplists, [get_value/2]).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = ekka_mnesia:start(),
     ok = emqx_telemetry:mnesia(boot),
-    emqx_ct_helpers:start_apps([emqx_modules]),
+    emqx_common_test_helpers:start_apps([emqx_modules]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_modules]).
+    emqx_common_test_helpers:stop_apps([emqx_modules]).
 
 t_uuid(_) ->
     UUID = emqx_telemetry:generate_uuid(),

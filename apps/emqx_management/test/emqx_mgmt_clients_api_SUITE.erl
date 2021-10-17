@@ -20,7 +20,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite(),

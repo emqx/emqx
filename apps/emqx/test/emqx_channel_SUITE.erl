@@ -26,7 +26,7 @@
 
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 force_gc_conf() ->
     #{bytes => 16777216,count => 16000,enable => true}.

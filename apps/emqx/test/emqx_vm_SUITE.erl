@@ -21,7 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_load(_Config) ->
     ?assertMatch([{load1, _}, {load5, _}, {load15, _}], emqx_vm:loads()).
@@ -72,9 +72,6 @@ t_get_memory(_Config) ->
 
 t_schedulers(_Config) ->
     emqx_vm:schedulers().
-
-t_get_process_group_leader_info(_Config) ->
-    emqx_vm:get_process_group_leader_info(self()).
 
 t_get_process_limit(_Config) ->
     emqx_vm:get_process_limit().

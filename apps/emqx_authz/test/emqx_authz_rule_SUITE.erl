@@ -29,14 +29,14 @@
 -define(SOURCE5, {allow, {'or',  [{username, {re, "^test"}},  {clientid, {re, "test?"}}]},  publish, ["%u", "%c"]}).
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_ct_helpers:start_apps([emqx_authz]),
+    ok = emqx_common_test_helpers:start_apps([emqx_authz]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_authz]),
+    emqx_common_test_helpers:stop_apps([emqx_authz]),
     ok.
 
 t_compile(_) ->

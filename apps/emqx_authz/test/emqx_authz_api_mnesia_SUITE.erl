@@ -84,7 +84,7 @@
 
 all() ->
     []. %% Todo: Waiting for @terry-xiaoyu to fix the config_not_found error
-    % emqx_ct:all(?MODULE).
+    % emqx_common_test_helpers:all(?MODULE).
 
 groups() ->
     [].
@@ -99,7 +99,7 @@ init_per_suite(Config) ->
 
     ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
 
-    ok = emqx_ct_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
+    ok = emqx_common_test_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
 
@@ -107,7 +107,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     {ok, _} = emqx_authz:update(replace, []),
-    emqx_ct_helpers:stop_apps([emqx_authz, emqx_dashboard]),
+    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_dashboard]),
     meck:unload(emqx_schema),
     ok.
 

@@ -79,15 +79,15 @@ gateway.mqttsn {
 %%--------------------------------------------------------------------
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_ct_helpers:start_apps([emqx_gateway]),
+    emqx_common_test_helpers:start_apps([emqx_gateway]),
     Config.
 
 end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([emqx_gateway]).
+    emqx_common_test_helpers:stop_apps([emqx_gateway]).
 
 %%--------------------------------------------------------------------
 %% Test cases

@@ -317,13 +317,20 @@ exit_on_sock_error(Reason) ->
 %%--------------------------------------------------------------------
 %% Recv Loop
 
-recvloop(Parent, State = #state{idle_timeout = IdleTimeout}) ->
+recvloop(Parent, State = #state{ idle_timeout = IdleTimeout
+                               , zone = Zone
+                               }) ->
     receive
         Msg ->
             handle_recv(Msg, Parent, State)
     after
         IdleTimeout + 100 ->
-            hibernate(Parent, cancel_stats_timer(State))
+            case emqx_olp:backoff_hibernation(Zone) of
+                true ->
+                    recvloop(Parent, State);
+                false ->
+                    hibernate(Parent, cancel_stats_timer(State))
+            end
     end.
 
 handle_recv({system, From, Request}, Parent, State) ->
@@ -822,8 +829,10 @@ ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
 %%--------------------------------------------------------------------
 %% Run GC and Check OOM
 
-run_gc(Stats, State = #state{gc_state = GcSt}) ->
-    case ?ENABLED(GcSt) andalso emqx_gc:run(Stats, GcSt) of
+run_gc(Stats, State = #state{gc_state = GcSt, zone = Zone}) ->
+    case ?ENABLED(GcSt) andalso not emqx_olp:backoff_gc(Zone)
+        andalso emqx_gc:run(Stats, GcSt)
+    of
         false -> State;
         {_IsGC, GcSt1} ->
             State#state{gc_state = GcSt1}

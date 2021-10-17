@@ -7,14 +7,14 @@
 -include_lib("eunit/include/eunit.hrl").
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_statsd]),
+    emqx_common_test_helpers:start_apps([emqx_statsd]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_statsd]).
+    emqx_common_test_helpers:stop_apps([emqx_statsd]).
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 t_statsd(_) ->
     {ok, Socket} = gen_udp:open(8125),

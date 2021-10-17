@@ -28,7 +28,7 @@
                    {nodelay, true}
                   ]).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_merge_opts(_) ->
     Opts = emqx_misc:merge_opts(?SOCKOPTS, [raw,

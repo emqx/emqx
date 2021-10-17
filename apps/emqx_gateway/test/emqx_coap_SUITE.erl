@@ -45,10 +45,10 @@ gateway.coap
 -define(MQTT_PREFIX, "coap://127.0.0.1/mqtt").
 
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_gateway], fun set_special_cfg/1),
+    emqx_common_test_helpers:start_apps([emqx_gateway], fun set_special_cfg/1),
     Config.
 
 set_special_cfg(emqx_gateway) ->
@@ -58,7 +58,7 @@ set_special_cfg(_) ->
     ok.
 
 end_per_suite(Config) ->
-    emqx_ct_helpers:stop_apps([emqx_gateway]),
+    emqx_common_test_helpers:stop_apps([emqx_gateway]),
     Config.
 
 %%--------------------------------------------------------------------

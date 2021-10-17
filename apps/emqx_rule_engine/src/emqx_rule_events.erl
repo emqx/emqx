@@ -64,7 +64,9 @@
 -endif.
 
 reload() ->
-    emqx_rule_registry:load_hooks_for_rule(emqx_rule_registry:get_rules()).
+    lists:foreach(fun(Rule) ->
+            ok = emqx_rule_engine:load_hooks_for_rule(Rule)
+        end, emqx_rule_engine:get_rules()).
 
 load(<<"$bridges/", _ChannelId/binary>> = BridgeTopic) ->
     emqx_hooks:put(BridgeTopic, {?MODULE, on_bridge_message_received,
@@ -86,7 +88,7 @@ unload(Topic) ->
 %% Callbacks
 %%--------------------------------------------------------------------
 on_bridge_message_received(Message, #{bridge_topic := BridgeTopic}) ->
-    case emqx_rule_registry:get_rules_for_topic(BridgeTopic) of
+    case emqx_rule_engine:get_rules_for_topic(BridgeTopic) of
         [] -> ok;
         Rules -> emqx_rule_runtime:apply_rules(Rules, Message)
     end.
@@ -95,7 +97,7 @@ on_message_publish(Message = #message{topic = Topic}, _Env) ->
     case ignore_sys_message(Message) of
         true -> ok;
         false ->
-            case emqx_rule_registry:get_rules_for_topic(Topic) of
+            case emqx_rule_engine:get_rules_for_topic(Topic) of
                 [] -> ok;
                 Rules -> emqx_rule_runtime:apply_rules(Rules, eventmsg_publish(Message))
             end
@@ -310,7 +312,7 @@ with_basic_columns(EventName, Data) when is_map(Data) ->
 %%--------------------------------------------------------------------
 apply_event(EventName, GenEventMsg, _Env) ->
     EventTopic = event_topic(EventName),
-    case emqx_rule_registry:get_rules_for_topic(EventTopic) of
+    case emqx_rule_engine:get_rules_for_topic(EventTopic) of
         [] -> ok;
         Rules -> emqx_rule_runtime:apply_rules(Rules, GenEventMsg())
     end.

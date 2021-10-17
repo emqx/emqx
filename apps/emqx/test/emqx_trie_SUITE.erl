@@ -30,7 +30,7 @@ all() ->
     ].
 
 groups() ->
-    Cases = emqx_ct:all(?MODULE),
+    Cases = emqx_common_test_helpers:all(?MODULE),
     [{compact, Cases}, {not_compact, Cases}].
 
 init_per_group(compact, Config) ->
