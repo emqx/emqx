@@ -269,6 +269,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
             error(failed_to_load_hocon_conf)
     end;
 init_load(SchemaMod, RawConf0) when is_map(RawConf0) ->
+    io:format("111~p ~n ~p~n", [SchemaMod, RawConf0]),
     ok = save_schema_mod_and_names(SchemaMod),
     %% check and save configs
     {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf0),

@@ -28,8 +28,8 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    application:load(emqx_modules),
     ok = ekka_mnesia:start(),
-    ok = emqx_telemetry:mnesia(boot),
     emqx_common_test_helpers:start_apps([emqx_modules]),
     Config.
 

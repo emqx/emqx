@@ -145,8 +145,11 @@ load(App) ->
 start_app(App, Handler) ->
     start_app(App,
               app_schema(App),
-              app_path(App, filename:join(["etc", atom_to_list(App) ++ ".conf"])),
+              app_path(App, filename:join(["etc", conf_name(App)])),
               Handler).
+
+conf_name(emqx_conf) -> "emqx_conf.all";
+conf_name(App) -> atom_to_list(App) ++ ".conf".
 
 %% TODO: get rid of cuttlefish
 app_schema(App) ->

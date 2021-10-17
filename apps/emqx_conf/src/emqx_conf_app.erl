@@ -54,7 +54,7 @@ copy_override_conf_from_core_node() ->
             ok = emqx_config:save_to_override_conf(RawOverrideConf, #{override => cluster}),
             {ok, TnxId};
         [] when CoreNodes =:= [] -> %% The first core nodes is self.
-            ?SLOG(debug, #{msg => "skip_the_step_of_copy_overide_conf_from_core_node"}),
+            ?SLOG(debug, #{msg => "skip_copy_overide_conf_from_core_node"}),
             {ok, -1};
         [] -> %% Other core node running but copy failed.
             ?SLOG(error, #{msg => "copy_overide_conf_from_core_node_failed",

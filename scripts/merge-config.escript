@@ -23,5 +23,5 @@ main(_) ->
         end
     end, BaseConf, Apps),
     ClusterInc = "include \"cluster-override.conf\"\n",
-    LocalInc = "include required(\"local-override.conf\")\n",
+    LocalInc = "include \"local-override.conf\"\n",
     ok = file:write_file("apps/emqx_conf/etc/emqx.conf.all", [Conf, ClusterInc, LocalInc]).

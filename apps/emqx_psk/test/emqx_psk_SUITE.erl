@@ -25,6 +25,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_config:init_load(emqx_schema),
     meck:new(emqx_config, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_config, get, fun([psk, enable]) -> true;
                                      ([psk, chunk_size]) -> 50;
@@ -82,4 +83,3 @@ t_psk_lookup(_) ->
     ?assertMatch({error, _}, ssl:connect("127.0.0.1", 8883, maps:to_list(ClientTLSOpts1))),
 
     ok.
-

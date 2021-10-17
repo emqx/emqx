@@ -28,6 +28,8 @@ topic_metrics: []""">>).
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    application:load(emqx_modules),
+    ekka_mnesia:start(),
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([emqx_modules]),
     ok = emqx_config:init_load(emqx_modules_schema, ?TOPIC),

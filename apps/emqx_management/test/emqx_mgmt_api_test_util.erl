@@ -24,10 +24,10 @@ init_suite() ->
     init_suite([]).
 
 init_suite(Apps) ->
-    ekka_mnesia:start(),
+    application:load(emqx_conf),
     application:load(emqx_management),
+    ekka_mnesia:start(),
     emqx_common_test_helpers:start_apps(Apps ++ [emqx_dashboard], fun set_special_configs/1).
-
 
 end_suite() ->
     end_suite([]).

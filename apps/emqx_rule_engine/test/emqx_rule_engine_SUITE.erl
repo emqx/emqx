@@ -103,7 +103,9 @@ groups() ->
 %%------------------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    application:load(emqx_machine),
+    application:load(emqx_conf),
+    application:load(emqx_rule_engine),
+    ok = ekka_mnesia:start(),
     ok = emqx_common_test_helpers:start_apps([emqx_rule_engine]),
     Config.
 
@@ -136,6 +138,7 @@ end_per_group(_Groupname, _Config) ->
 
 init_per_testcase(t_events, Config) ->
     init_events_counters(),
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     SQL = "SELECT * FROM \"$events/client_connected\", "
                         "\"$events/client_disconnected\", "
                         "\"$events/session_subscribed\", "
@@ -156,6 +159,7 @@ init_per_testcase(t_events, Config) ->
     ?assertMatch(#{id := <<"rule:t_events">>}, Rule),
     [{hook_points_rules, Rule} | Config];
 init_per_testcase(_TestCase, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     Config.
 
 end_per_testcase(t_events, Config) ->

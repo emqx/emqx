@@ -25,17 +25,6 @@
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
-<<<<<<< HEAD
-init_per_suite(Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
-    Config.
-
-end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([]).
-
-init_per_testcase(t_size_limit, Config) ->
-=======
 init_per_testcase(t_size_limit, Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
