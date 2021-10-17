@@ -19,8 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx/include/emqx.hrl").
--include("emqx_machine.hrl").
+-include("emqx_conf.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -define(NODE1, emqx_cluster_rpc).
@@ -40,13 +39,9 @@ suite() -> [{timetrap, {minutes, 3}}].
 groups() -> [].
 
 init_per_suite(Config) ->
-    application:load(emqx),
-    application:load(emqx_machine),
+    application:load(emqx_conf),
     ok = ekka:start(),
-    ok = ekka_rlog:wait_for_shards([?EMQX_MACHINE_SHARD], infinity),
-    application:set_env(emqx_machine, cluster_call_max_history, 100),
-    application:set_env(emqx_machine, cluster_call_clean_interval, 1000),
-    application:set_env(emqx_machine, cluster_call_retry_interval, 900),
+    ok = ekka_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
     meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
     meck:expect(emqx_alarm, activate, 2, ok),
     meck:expect(emqx_alarm, deactivate, 2, ok),
@@ -68,6 +63,7 @@ end_per_testcase(_Config) ->
     ok.
 
 t_base_test(_Config) ->
+    emqx_cluster_rpc:reset(),
     ?assertEqual(emqx_cluster_rpc:status(), {atomic, []}),
     Pid = self(),
     MFA = {M, F, A} = {?MODULE, echo, [Pid, test]},
@@ -181,6 +177,7 @@ t_skip_failed_commit(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     {ok, 1, ok} = emqx_cluster_rpc:multicall(io, format, ["test~n"], all, 1000),
+    sleep(180),
     {atomic, List1} = emqx_cluster_rpc:status(),
     Node = node(),
     ?assertEqual([{Node, 1}, {{Node, ?NODE2}, 1}, {{Node, ?NODE3}, 1}],
@@ -254,7 +251,7 @@ failed_on_other_recover_after_5_second(Pid, CreatedAt) ->
             end
     end.
 
-sleep(Second) ->
+sleep(Ms) ->
     receive _ -> ok
-    after Second -> timeout
+    after Ms -> timeout
     end.

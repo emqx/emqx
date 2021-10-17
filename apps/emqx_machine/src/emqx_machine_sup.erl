@@ -29,12 +29,10 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    GlobalGC = child_worker(emqx_global_gc, [], permanent),
     Terminator = child_worker(emqx_machine_terminator, [], transient),
-    ClusterRpc = child_worker(emqx_cluster_rpc, [], permanent),
-    ClusterHandler = child_worker(emqx_cluster_rpc_handler, [], permanent),
     BootApps = child_worker(emqx_machine_boot, post_boot, [], temporary),
-    Children = [GlobalGC, Terminator, ClusterRpc, ClusterHandler, BootApps],
+    GlobalGC = child_worker(emqx_global_gc, [], permanent),
+    Children = [Terminator, BootApps, GlobalGC],
     SupFlags = #{strategy => one_for_one,
                  intensity => 100,
                  period => 10

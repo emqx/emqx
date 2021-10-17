@@ -238,7 +238,7 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Conf}) ->
     case lists:filter(fun filter_errors/1, Results) of
         [{error, {invalid_listener_id, Id}} | _] ->
             {400, #{code => 'BAD_REQUEST', message => ?INVALID_LISTENER_PROTOCOL}};
-        [{error, {emqx_machine_schema, _}} | _] ->
+        [{error, {emqx_conf_schema, _}} | _] ->
             {400, #{code => 'BAD_REQUEST', message => ?CONFIG_SCHEMA_ERROR}};
         [{error, {eaddrinuse, _}} | _] ->
             {400, #{code => 'BAD_REQUEST', message => ?ADDR_PORT_INUSE}};
@@ -280,7 +280,7 @@ crud_listener_by_id_on_node(put, #{bindings := #{id := Id, node := Node}, body :
             {404, #{code => 'RESOURCE_NOT_FOUND', message => ?NODE_NOT_FOUND_OR_DOWN}};
         {error, {invalid_listener_id, _}} ->
             {400, #{code => 'BAD_REQUEST', message => ?INVALID_LISTENER_PROTOCOL}};
-        {error, {emqx_machine_schema, _}} ->
+        {error, {emqx_conf_schema, _}} ->
             {400, #{code => 'BAD_REQUEST', message => ?CONFIG_SCHEMA_ERROR}};
         {error, {eaddrinuse, _}} ->
             {400, #{code => 'BAD_REQUEST', message => ?ADDR_PORT_INUSE}};

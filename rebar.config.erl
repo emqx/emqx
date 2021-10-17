@@ -256,6 +256,7 @@ relx_apps(ReleaseType) ->
     , compiler
     , runtime_tools
     , {emqx, load} % started by emqx_machine
+    , {emqx_conf, load}
     , emqx_machine
     , {mnesia, load}
     , {ekka, load}
@@ -377,7 +378,7 @@ emqx_etc_overlay(edge) ->
     ].
 
 emqx_etc_overlay_common() ->
-    [ {"{{base_dir}}/lib/emqx_machine/etc/emqx.conf.all", "etc/emqx.conf"}
+    [ {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
     , {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"}
     ].
 

@@ -41,7 +41,7 @@
 all() ->
     [t_auto_subscribe, t_update].
 
-init_per_suite(Config) ->    
+init_per_suite(Config) ->
     ekka_mnesia:start(),
     application:stop(?APP),
 
@@ -86,8 +86,7 @@ init_per_suite(Config) ->
                 }
             ]
         }">>),
-    emqx_common_test_helpers:start_apps([emqx_dashboard], fun set_special_configs/1),
-    emqx_common_test_helpers:start_apps([?APP]),
+    emqx_common_test_helpers:start_apps([emqx_dashboard, ?APP], fun set_special_configs/1),
     Config.
 
 set_special_configs(emqx_dashboard) ->
@@ -159,4 +158,3 @@ check_subs([{{_, Topic}, #{subid := ?CLIENT_ID}} | Subs], List) ->
     check_subs(Subs, lists:delete(Topic, List));
 check_subs([_ | Subs], List) ->
     check_subs(Subs, List).
-

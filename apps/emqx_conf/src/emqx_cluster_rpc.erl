@@ -19,6 +19,7 @@
 %% API
 -export([start_link/0, mnesia/1]).
 -export([multicall/3, multicall/5, query/1, reset/0, status/0, skip_failed_commit/1]).
+-export([get_latest_tnx_id/0]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
     handle_continue/2, code_change/3]).
@@ -26,17 +27,13 @@
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
--export([start_link/3]).
 -endif.
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
 -include_lib("emqx/include/logger.hrl").
--include("emqx_machine.hrl").
-
--rlog_shard({?EMQX_MACHINE_SHARD, ?CLUSTER_MFA}).
--rlog_shard({?EMQX_MACHINE_SHARD, ?CLUSTER_COMMIT}).
+-include("emqx_conf.hrl").
 
 -define(CATCH_UP, catch_up).
 -define(TIMEOUT, timer:minutes(1)).
@@ -47,13 +44,13 @@
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?CLUSTER_MFA, [
         {type, ordered_set},
-        {rlog_shard, ?EMQX_MACHINE_SHARD},
+        {rlog_shard, ?CLUSTER_RPC_SHARD},
         {disc_copies, [node()]},
         {record_name, cluster_rpc_mfa},
         {attributes, record_info(fields, cluster_rpc_mfa)}]),
     ok = ekka_mnesia:create_table(?CLUSTER_COMMIT, [
         {type, set},
-        {rlog_shard, ?EMQX_MACHINE_SHARD},
+        {rlog_shard, ?CLUSTER_RPC_SHARD},
         {disc_copies, [node()]},
         {record_name, cluster_rpc_commit},
         {attributes, record_info(fields, cluster_rpc_commit)}]);
@@ -94,7 +91,7 @@ multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNu
                 %% the initiate transaction must happened on core node
                 %% make sure MFA(in the transaction) and the transaction on the same node
                 %% don't need rpc again inside transaction.
-                case ekka_rlog_status:upstream_node(?EMQX_MACHINE_SHARD) of
+                case ekka_rlog_status:upstream_node(?CLUSTER_RPC_SHARD) of
                     {ok, Node} -> gen_server:call({?MODULE, Node}, MFA, Timeout);
                     disconnected -> {error, disconnected}
                 end
@@ -129,6 +126,10 @@ reset() -> gen_server:call(?MODULE, reset).
 status() ->
     transaction(fun trans_status/0, []).
 
+-spec get_latest_tnx_id() -> {'atomic', integer()} | {'aborted', Reason :: term()}.
+get_latest_tnx_id() ->
+    ekka_mnesia:ro_transaction(?CLUSTER_RPC_SHARD, fun() -> get_latest_id() end).
+
 %% Regardless of what MFA is returned, consider it a success),
 %% then move to the next tnxId.
 %% if the next TnxId failed, need call the function again to skip.
@@ -143,7 +144,10 @@ skip_failed_commit(Node) ->
 %% @private
 init([Node, RetryMs]) ->
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
-    {ok, #{node => Node, retry_interval => RetryMs}, {continue, ?CATCH_UP}}.
+    State = #{node => Node, retry_interval => RetryMs},
+    TnxId = emqx_app:get_init_tnx_id(),
+    ok = maybe_init_tnx_id(Node, TnxId),
+    {ok, State, {continue, ?CATCH_UP}}.
 
 %% @private
 handle_continue(?CATCH_UP, State) ->
@@ -280,7 +284,7 @@ do_catch_up_in_one_trans(LatestId, Node) ->
     end.
 
 transaction(Func, Args) ->
-    ekka_mnesia:transaction(?EMQX_MACHINE_SHARD, Func, Args).
+    ekka_mnesia:transaction(?CLUSTER_RPC_SHARD, Func, Args).
 
 trans_status() ->
     mnesia:foldl(fun(Rec, Acc) ->
@@ -369,4 +373,15 @@ commit_status_trans(Operator, TnxId) ->
     mnesia:select(?CLUSTER_COMMIT, [{MatchHead, [Guard], [Result]}]).
 
 get_retry_ms() ->
-    application:get_env(emqx_machine, cluster_call_retry_interval, 1000).
+    emqx:get_config(["broker", "cluster_call", "retry_interval"], 1000).
+
+maybe_init_tnx_id(_Node, TnxId)when TnxId < 0 -> ok;
+maybe_init_tnx_id(Node, TnxId) ->
+    {atomic, _} = transaction(fun init_node_tnx_id/2, [Node, TnxId]),
+    ok.
+
+init_node_tnx_id(Node, TnxId) ->
+    case mnesia:read(?CLUSTER_COMMIT, Node) of
+        [] -> commit(Node, TnxId);
+        _ -> ok
+    end.

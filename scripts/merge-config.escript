@@ -11,8 +11,8 @@
 -mode(compile).
 
 main(_) ->
-    {ok, BaseConf} = file:read_file("apps/emqx_machine/etc/emqx_machine.conf"),
-    Apps = filelib:wildcard("*", "apps/") -- ["emqx_machine"],
+    {ok, BaseConf} = file:read_file("apps/emqx_conf/etc/emqx_conf.conf"),
+    Apps = filelib:wildcard("*", "apps/") -- ["emqx_machine", "emqx_conf"],
     Conf = lists:foldl(fun(App, Acc) ->
         Filename = filename:join([apps, App, "etc", App]) ++ ".conf",
         case filelib:is_regular(Filename) of
@@ -22,4 +22,6 @@ main(_) ->
             false -> Acc
         end
     end, BaseConf, Apps),
-    ok = file:write_file("apps/emqx_machine/etc/emqx.conf.all", Conf).
+    ClusterInc = "include \"cluster-override.conf\"\n",
+    LocalInc = "include \"local-override.conf\"\n",
+    ok = file:write_file("apps/emqx_conf/etc/emqx.conf.all", [Conf, ClusterInc, LocalInc]).

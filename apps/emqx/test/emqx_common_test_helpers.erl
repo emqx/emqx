@@ -145,8 +145,11 @@ load(App) ->
 start_app(App, Handler) ->
     start_app(App,
               app_schema(App),
-              app_path(App, filename:join(["etc", atom_to_list(App) ++ ".conf"])),
+              app_path(App, filename:join(["etc", app_conf_file(App)])),
               Handler).
+
+app_conf_file(emqx_conf) ->  "emqx.conf.all";
+app_conf_file(App) -> atom_to_list(App) ++ ".conf".
 
 %% TODO: get rid of cuttlefish
 app_schema(App) ->
@@ -428,7 +431,8 @@ catch_call(F) ->
         C : E : S ->
             {crashed, {C, E, S}}
     end.
-
+force_set_config_file_paths(emqx_conf, Paths) ->
+    application:set_env(emqx, config_files, Paths);
 force_set_config_file_paths(emqx, Paths) ->
     application:set_env(emqx, config_files, Paths);
 force_set_config_file_paths(_, _) ->

@@ -137,7 +137,7 @@ roots(low) ->
    , {"quota",
        sc(ref("quota"),
           #{})}
-   , {"plugins", %% TODO: move to emqx_machine_schema
+   , {"plugins", %% TODO: move to emqx_conf_schema
        sc(ref("plugins"),
           #{})}
    , {"stats",
@@ -456,31 +456,31 @@ fields("listeners") ->
     [ {"tcp",
        sc(map(name, ref("mqtt_tcp_listener")),
           #{ desc => "TCP listeners"
-           , nullable => {true, recursive}
+           , nullable => {true, recursively}
            })
       }
     , {"ssl",
        sc(map(name, ref("mqtt_ssl_listener")),
           #{ desc => "SSL listeners"
-           , nullable => {true, recursive}
+           , nullable => {true, recursively}
            })
       }
     , {"ws",
        sc(map(name, ref("mqtt_ws_listener")),
           #{ desc => "HTTP websocket listeners"
-           , nullable => {true, recursive}
+           , nullable => {true, recursively}
            })
       }
     , {"wss",
        sc(map(name, ref("mqtt_wss_listener")),
           #{ desc => "HTTPS websocket listeners"
-           , nullable => {true, recursive}
+           , nullable => {true, recursively}
            })
       }
     , {"quic",
        sc(map(name, ref("mqtt_quic_listener")),
           #{ desc => "QUIC listeners"
-           , nullable => {true, recursive}
+           , nullable => {true, recursively}
            })
       }
     ];

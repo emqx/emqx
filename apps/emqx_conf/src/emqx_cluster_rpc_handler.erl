@@ -18,15 +18,15 @@
 -behaviour(gen_server).
 
 -include_lib("emqx/include/logger.hrl").
--include("emqx_machine.hrl").
+-include("emqx_conf.hrl").
 
 -export([start_link/0, start_link/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
     code_change/3]).
 
 start_link() ->
-    MaxHistory = application:get_env(emqx_machine, cluster_call_max_history, 100),
-    CleanupMs = application:get_env(emqx_machine, cluster_call_cleanup_interval, 5*60*1000),
+    MaxHistory = emqx:get_config(["broker", "cluster_call", "max_history"], 100),
+    CleanupMs = emqx:get_config(["broker", "cluster_call", "cleanup_interval"], 5*60*1000),
     start_link(MaxHistory, CleanupMs).
 
 start_link(MaxHistory, CleanupMs) ->
@@ -49,7 +49,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, del_stale_mfa}, State = #{timer := TRef, max_history := MaxHistory}) ->
-    case ekka_mnesia:transaction(?EMQX_MACHINE_SHARD, fun del_stale_mfa/1, [MaxHistory]) of
+    case ekka_mnesia:transaction(?CLUSTER_RPC_SHARD, fun del_stale_mfa/1, [MaxHistory]) of
         {atomic, ok} -> ok;
         Error -> ?LOG(error, "del_stale_cluster_rpc_mfa error:~p", [Error])
     end,

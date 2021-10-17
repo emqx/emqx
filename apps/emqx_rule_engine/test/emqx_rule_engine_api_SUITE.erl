@@ -12,7 +12,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_machine),
+    application:load(emqx_conf),
     ok = emqx_config:init_load(emqx_rule_engine_schema, ?CONF_DEFAULT),
     ok = emqx_common_test_helpers:start_apps([emqx_rule_engine]),
     Config.
