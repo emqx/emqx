@@ -87,6 +87,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    ok = emqx_config:init_load(emqx_limiter_schema, <<"""emqx_limiter {bytes_in {global = \"100KB/10s\"}}""">>),
     emqx_common_test_helpers:stop_apps([?APP]).
 
 init_per_testcase(_TestCase, Config) ->

@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_config).
 
--compile({no_auto_import, [get/0, get/1, put/2]}).
+-compile({no_auto_import, [get/0, get/1, put/2, erase/1]}).
 
 -export([ init_load/1
         , init_load/2
@@ -42,6 +42,7 @@
         , find_raw/1
         , put/1
         , put/2
+        , erase/1
         ]).
 
 -export([ get_raw/1
@@ -202,6 +203,10 @@ put(Config) ->
     maps:fold(fun(RootName, RootValue, _) ->
             ?MODULE:put([RootName], RootValue)
         end, ok, Config).
+
+erase(RootName) ->
+    persistent_term:erase(?PERSIS_KEY(?CONF, bin(RootName))),
+    persistent_term:erase(?PERSIS_KEY(?RAW_CONF, bin(RootName))).
 
 -spec put(emqx_map_lib:config_key_path(), term()) -> ok.
 put(KeyPath, Config) -> do_put(?CONF, KeyPath, Config).

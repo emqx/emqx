@@ -767,31 +767,8 @@ fields("broker") ->
           #{ desc => "Broker performance tuning pamaters"
            })
       }
-    , {"cluster_call",
-       sc(ref("cluster_call"),
-          #{
-          })
-      }
     ];
 
-fields("cluster_call") ->
-    [ {"retry_interval",
-        sc(emqx_schema:duration(),
-            #{ desc => "Time interval to retry after a failed call."
-                , default => "1s"
-            })}
-        , {"max_history",
-        sc(range(1, 500),
-            #{  desc => "Retain the maximum number of completed transactions (for queries)."
-             ,  default => 100
-            })}
-        , {"cleanup_interval",
-        sc(emqx_schema:duration(),
-            #{  desc => "Time interval to clear completed but stale transactions.
-                         Ensure that the number of completed transactions is less than the max_history."
-             ,  default => "5m"
-            })}
-    ];
 fields("broker_perf") ->
     [ {"route_lock_type",
        sc(hoconsc:enum([key, tab, global]),

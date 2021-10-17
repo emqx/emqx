@@ -50,6 +50,9 @@ init_per_group(tcp, Config) ->
 init_per_group(quic, Config) ->
     ct:pal("111~p~n", [emqx:get_config([])]),
     ok = emqx_config:init_load(emqx_schema),
+    emqx_config:erase("authentication"),
+    emqx_config:erase("emqx_limiter"),
+    emqx_config:erase("rpc"),
     ct:pal("222~p~n", [emqx:get_config([])]),
     emqx_common_test_helpers:start_apps([]),
     [ {port, 14567}, {conn_fun, quic_connect} | Config];
