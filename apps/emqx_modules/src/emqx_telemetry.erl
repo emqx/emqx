@@ -105,7 +105,7 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 
 start_link() ->
-    Opts = emqx:get_config([telemetry], #{}),
+    Opts = emqx_conf:get([telemetry], #{}),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
 
 stop() ->
@@ -118,7 +118,7 @@ disable() ->
     gen_server:call(?MODULE, disable).
 
 get_status() ->
-    emqx:get_config([telemetry, enable], true).
+    emqx_conf:get([telemetry, enable], true).
 
 get_uuid() ->
     gen_server:call(?MODULE, get_uuid).

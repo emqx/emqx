@@ -208,7 +208,7 @@ add_default_user() ->
     add_default_user(binenv(default_username), binenv(default_password)).
 
 binenv(Key) ->
-    iolist_to_binary(emqx:get_config([emqx_dashboard, Key], "")).
+    iolist_to_binary(emqx_conf:get([emqx_dashboard, Key], "")).
 
 add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY(Password) ->
     igonre;

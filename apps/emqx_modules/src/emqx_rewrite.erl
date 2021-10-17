@@ -43,7 +43,7 @@
 %%--------------------------------------------------------------------
 
 enable() ->
-    Rules = emqx:get_config([rewrite], []),
+    Rules = emqx_conf:get([rewrite], []),
     register_hook(Rules).
 
 disable() ->

@@ -177,7 +177,7 @@ delayed_message(delete, #{bindings := #{msgid := Id}}) ->
 %% internal function
 %%--------------------------------------------------------------------
 get_status() ->
-    emqx:get_config([delayed], #{}).
+    emqx_conf:get([delayed], #{}).
 
 update_config(Config) ->
     case generate_config(Config) of

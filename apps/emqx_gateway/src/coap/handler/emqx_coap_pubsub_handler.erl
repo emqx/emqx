@@ -86,7 +86,7 @@ get_sub_opts(#coap_message{options = Opts} = Msg) ->
         #{qos := _} ->
             maps:merge(SubOpts, ?SUBOPTS);
         _ ->
-            CfgType = emqx:get_config([gateway, coap, subscribe_qos], ?QOS_0),
+            CfgType = emqx_conf:get([gateway, coap, subscribe_qos], ?QOS_0),
             maps:merge(SubOpts, ?SUBOPTS#{qos => type_to_qos(CfgType, Msg)})
     end.
 
@@ -115,7 +115,7 @@ get_publish_qos(Msg) ->
         #{<<"qos">> := QOS} ->
             erlang:binary_to_integer(QOS);
         _ ->
-            CfgType = emqx:get_config([gateway, coap, publish_qos], ?QOS_0),
+            CfgType = emqx_conf:get([gateway, coap, publish_qos], ?QOS_0),
             type_to_qos(CfgType, Msg)
     end.
 

@@ -99,7 +99,7 @@
         %%   save the updated config to the emqx_override.conf file
         %%   defaults to `true`
         persistent => boolean(),
-        override => local | cluster
+        override_to => local | cluster
     }.
 -type update_args() :: {update_cmd(), Opts :: update_opts()}.
 -type update_stage() :: pre_config_update | post_config_update.
@@ -317,7 +317,7 @@ read_override_conf(#{} = Opts) ->
 
 override_conf_file(Opts) ->
     Key =
-        case maps:get(override, Opts, local) of
+        case maps:get(override_to, Opts, local) of
             local -> local_override_conf_file;
             cluster -> cluster_override_conf_file
         end,

@@ -25,8 +25,8 @@
     code_change/3]).
 
 start_link() ->
-    MaxHistory = emqx:get_config(["broker", "cluster_call", "max_history"], 100),
-    CleanupMs = emqx:get_config(["broker", "cluster_call", "cleanup_interval"], 5*60*1000),
+    MaxHistory = emqx_conf:get(["node", "cluster_call", "max_history"], 100),
+    CleanupMs = emqx_conf:get(["node", "cluster_call", "cleanup_interval"], 5*60*1000),
     start_link(MaxHistory, CleanupMs).
 
 start_link(MaxHistory, CleanupMs) ->

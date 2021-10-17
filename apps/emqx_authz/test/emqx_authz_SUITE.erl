@@ -133,7 +133,7 @@ t_update_source(_) ->
                  , #{type := postgresql, enable := true}
                  , #{type := redis, enable := true}
                  , #{type := file,  enable := true}
-                 ], emqx:get_config([authorization, sources], [])),
+                 ], emqx_conf:get([authorization, sources], [])),
 
     {ok, _} = emqx_authz:update({?CMD_REPLCAE, http},  ?SOURCE1#{<<"enable">> := false}),
     {ok, _} = emqx_authz:update({?CMD_REPLCAE, mongodb}, ?SOURCE2#{<<"enable">> := false}),
@@ -148,7 +148,7 @@ t_update_source(_) ->
                  , #{type := postgresql, enable := false}
                  , #{type := redis, enable := false}
                  , #{type := file,  enable := false}
-                 ], emqx:get_config([authorization, sources], [])),
+                 ], emqx_conf:get([authorization, sources], [])),
 
     {ok, _} = emqx_authz:update(?CMD_REPLCAE, []).
 

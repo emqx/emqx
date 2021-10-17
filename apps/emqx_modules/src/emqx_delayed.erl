@@ -110,7 +110,7 @@ on_message_publish(Msg) ->
 
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
-    Opts = emqx:get_config([delayed], #{}),
+    Opts = emqx_conf:get([delayed], #{}),
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
 
 -spec(store(#delayed_message{}) -> ok | {error, atom()}).

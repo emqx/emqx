@@ -15,13 +15,17 @@
 %%--------------------------------------------------------------------
 -module(emqx_conf).
 
--compile({no_auto_import, [get/1]}).
+-compile({no_auto_import, [get/1, get/2]}).
 
 -export([add_handler/2, remove_handler/1]).
--export([get/1, get/2, get/3, get_node_and_config/1]).
+-export([get/1, get/2, get_all/1]).
+-export([get_by_node/2, get_by_node/3]).
 -export([update/3, update/4]).
 -export([remove/2, remove/3]).
 -export([reset/2, reset/3]).
+
+%% for rpc
+-export([get_node_and_config/1]).
 
 %% API
 %% @doc Adds a new config handler to emqx_config_handler.
@@ -34,25 +38,33 @@ add_handler(ConfKeyPath, HandlerName) ->
 remove_handler(ConfKeyPath) ->
     emqx_config_handler:remove_handler(ConfKeyPath).
 
-%% @doc Returns all values in the cluster.
--spec get(emqx_map_lib:config_key_path()) -> #{node() => term()}.
+-spec get(emqx_map_lib:config_key_path()) -> term().
 get(KeyPath) ->
+    emqx:get_config(KeyPath).
+
+-spec get(emqx_map_lib:config_key_path(), term()) -> term().
+get(KeyPath, Default) ->
+    emqx:get_config(KeyPath, Default).
+
+%% @doc Returns all values in the cluster.
+-spec get_all(emqx_map_lib:config_key_path()) -> #{node() => term()}.
+get_all(KeyPath) ->
     {ResL, []} = rpc:multicall(?MODULE, get_node_and_config, [KeyPath], 5000),
     maps:from_list(ResL).
 
 %% @doc Returns the specified node's KeyPath, or exception if not found
--spec get(node(), emqx_map_lib:config_key_path()) -> term().
-get(Node, KeyPath)when Node =:= node() ->
+-spec get_by_node(node(), emqx_map_lib:config_key_path()) -> term().
+get_by_node(Node, KeyPath)when Node =:= node() ->
     emqx:get_config(KeyPath);
-get(Node, KeyPath) ->
-    rpc:call(Node, ?MODULE, get, [Node, KeyPath]).
+get_by_node(Node, KeyPath) ->
+    rpc:call(Node, ?MODULE, get_by_node, [Node, KeyPath]).
 
 %% @doc Returns the specified node's KeyPath, or the default value if not found
--spec get(node(), emqx_map_lib:config_key_path(), term()) -> term().
-get(Node, KeyPath, Default)when Node =:= node() ->
+-spec get_by_node(node(), emqx_map_lib:config_key_path(), term()) -> term().
+get_by_node(Node, KeyPath, Default)when Node =:= node() ->
     emqx:get_config(KeyPath, Default);
-get(Node, KeyPath, Default) ->
-    rpc:call(Node, ?MODULE, get, [Node, KeyPath, Default]).
+get_by_node(Node, KeyPath, Default) ->
+    rpc:call(Node, ?MODULE, get_by_node, [Node, KeyPath, Default]).
 
 %% @doc Returns the specified node's KeyPath, or config_not_found if key path not found
 -spec get_node_and_config(emqx_map_lib:config_key_path()) -> term().
@@ -73,7 +85,7 @@ update(KeyPath, UpdateReq, Opts0) ->
     emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update(Node, KeyPath, UpdateReq, Opts0)when Node =:= node() ->
-    emqx:update_config(KeyPath, UpdateReq, Opts0#{override => local});
+    emqx:update_config(KeyPath, UpdateReq, Opts0#{override_to => local});
 update(Node, KeyPath, UpdateReq, Opts0) ->
     rpc:call(Node, ?MODULE, update, [Node, KeyPath, UpdateReq, Opts0], 5000).
 
@@ -89,7 +101,7 @@ remove(KeyPath, Opts0) ->
 -spec remove(node(), emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 remove(Node, KeyPath, Opts) when Node =:= node() ->
-    emqx:remove_config(KeyPath, Opts#{override => local});
+    emqx:remove_config(KeyPath, Opts#{override_to => local});
 remove(Node, KeyPath, Opts) ->
     rpc:call(Node, ?MODULE, remove, [KeyPath, Opts]).
 
@@ -105,6 +117,6 @@ reset(KeyPath, Opts0) ->
 -spec reset(node(), emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 reset(Node, KeyPath, Opts) when Node =:= node() ->
-    emqx:reset_config(KeyPath, Opts#{override => local});
+    emqx:reset_config(KeyPath, Opts#{override_to => local});
 reset(Node, KeyPath, Opts) ->
     rpc:call(Node, ?MODULE, reset, [KeyPath, Opts]).

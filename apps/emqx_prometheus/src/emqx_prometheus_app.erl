@@ -34,9 +34,9 @@ stop(_State) ->
     ok.
 
 maybe_enable_prometheus() ->
-    case emqx:get_config([prometheus, enable], false) of
+    case emqx_conf:get([prometheus, enable], false) of
         true ->
-            emqx_prometheus_sup:start_child(?APP, emqx:get_config([prometheus], #{}));
+            emqx_prometheus_sup:start_child(?APP, emqx_conf:get([prometheus], #{}));
         false ->
             ok
     end.
