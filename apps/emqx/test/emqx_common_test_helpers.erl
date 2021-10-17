@@ -185,6 +185,7 @@ start_app(App, Schema, ConfigFile, SpecAppConfig) ->
     RenderedConfigFile = render_config_file(ConfigFile, Vars),
     read_schema_configs(Schema, RenderedConfigFile),
     force_set_config_file_paths(App, [RenderedConfigFile]),
+    copy_certs(App, RenderedConfigFile),
     SpecAppConfig(App),
     case application:ensure_all_started(App) of
         {ok, _} -> ok;
@@ -310,7 +311,7 @@ change_emqx_opts(SslType, MoreOpts) ->
         lists:map(fun(Listener) ->
                           maybe_inject_listener_ssl_options(SslType, MoreOpts, Listener)
                   end, Listeners),
-    application:set_env(emqx, listeners, NewListeners).
+    emqx_conf:update([listeners], NewListeners, #{}).
 
 maybe_inject_listener_ssl_options(SslType, MoreOpts, {sll, Port, Opts}) ->
     %% this clause is kept to be backward compatible
@@ -437,3 +438,11 @@ force_set_config_file_paths(emqx, Paths) ->
     application:set_env(emqx, config_files, Paths);
 force_set_config_file_paths(_, _) ->
     ok.
+
+copy_certs(emqx_conf, Dest0) ->
+    Dest = filename:dirname(Dest0),
+    From = string:replace(Dest, "emqx_conf", "emqx"),
+    io:format("~p ~p~n", [Dest, From]),
+    os:cmd( ["cp -rf ", From, "/certs ", Dest, "/"]),
+    ok;
+copy_certs(_, _) -> ok.

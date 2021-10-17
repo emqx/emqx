@@ -108,7 +108,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_rule_engine]),
+    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_rule_engine]),
     ok.
 
 on_resource_create(_id, _) -> #{}.

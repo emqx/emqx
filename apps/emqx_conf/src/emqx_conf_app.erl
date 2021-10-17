@@ -52,7 +52,7 @@ copy_override_conf_from_core_node() ->
         [{ok, _WallClock, Info} | _] ->
             #{node := Node, conf := RawOverrideConf, tnx_id := TnxId} = Info,
             ?SLOG(debug, #{msg => "copy_overide_conf_from_core_node_success", node => Node}),
-            ok = emqx_config:save_to_override_conf(RawOverrideConf, #{override => cluster}),
+            ok = emqx_config:save_to_override_conf(RawOverrideConf, #{override_to => cluster}),
             {ok, TnxId};
         [] when CoreNodes =:= [] -> %% The first core nodes is self.
             ?SLOG(debug, #{msg => "skip_copy_overide_conf_from_core_node"}),

@@ -125,7 +125,7 @@ handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
     end,
     {reply, Reply, State};
 handle_call(get_raw_cluster_override_conf, _From, State) ->
-    Reply = emqx_config:read_override_conf(#{override => cluster}),
+    Reply = emqx_config:read_override_conf(#{override_to => cluster}),
     {reply, Reply, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -170,7 +170,7 @@ process_update_request(ConfKeyPath, _Handlers, {remove, Opts}) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     BinKeyPath = bin_path(ConfKeyPath),
     NewRawConf = emqx_map_lib:deep_remove(BinKeyPath, OldRawConf),
-    remove_from_local_if_cluster_change(BinKeyPath, Opts),
+    _ = remove_from_local_if_cluster_change(BinKeyPath, Opts),
     OverrideConf = remove_from_override_config(BinKeyPath, Opts),
     {ok, NewRawConf, OverrideConf, Opts};
 process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, Opts}) ->
@@ -200,7 +200,7 @@ check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf, Override
     FullRawConf = with_full_raw_confs(NewRawConf),
     {AppEnvs, CheckedConf} = emqx_config:check_config(SchemaModule, FullRawConf),
     NewConf = maps:with(maps:keys(OldConf), CheckedConf),
-    remove_from_local_if_cluster_change(ConfKeyPath, Opts),
+    _ = remove_from_local_if_cluster_change(ConfKeyPath, Opts),
     case do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, #{}) of
         {ok, Result0} ->
             case save_configs(ConfKeyPath, AppEnvs, NewConf, NewRawConf, OverrideConf,
@@ -283,7 +283,8 @@ remove_from_local_if_cluster_change(BinKeyPath, Opts) ->
     case maps:get(override, Opts, local) of
         local -> ok;
         cluster ->
-            remove_from_override_config(BinKeyPath, Opts#{override => local})
+            Local = remove_from_override_config(BinKeyPath, Opts#{override_to => local}),
+            emqx_config:save_to_override_conf(Local, Opts)
     end.
 
 remove_from_override_config(_BinKeyPath, #{persistent := false}) ->
