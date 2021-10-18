@@ -77,7 +77,7 @@ get_override_config_file() ->
                             %% To prevent others from updating the file while we reading.
                             %% We read override conf from emqx_config_handler.
                             Conf = emqx_config_handler:get_raw_cluster_override_conf(),
-                            {ok, WallClock, Init#{conf => Conf, txn_id => TnxId}};
+                            {ok, WallClock, Init#{conf => Conf, tnx_id => TnxId}};
                         {aborted, Reason} ->
                             {error, Init#{msg => Reason}}
                     end
