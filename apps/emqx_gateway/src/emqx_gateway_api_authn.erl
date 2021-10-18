@@ -107,7 +107,7 @@ swagger("/gateway/:name/authentication", get) ->
          }
      };
 swagger("/gateway/:name/authentication", put) ->
-    #{ description => <<"Create the gateway authentication">>
+    #{ description => <<"Update authentication for the gateway">>
      , parameters => params_gateway_name_in_path()
      , requestBody => schema_authn()
      , responses =>

@@ -123,7 +123,7 @@ clients_insta(delete, #{ bindings := #{name := Name0,
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
     with_gateway(Name0, fun(GwName, _) ->
         _ = emqx_gateway_http:kickout_client(GwName, ClientId),
-        {200}
+        {204}
     end).
 
 %% FIXME:
@@ -157,7 +157,7 @@ subscriptions(post, #{ bindings := #{name := Name0,
                     {error, Reason} ->
                         return_http_error(404, Reason);
                     ok ->
-                        {200}
+                        {204}
                 end
         end
     end);
@@ -172,7 +172,7 @@ subscriptions(delete, #{ bindings := #{name := Name0,
     Topic = emqx_mgmt_util:urldecode(Topic0),
     with_gateway(Name0, fun(GwName, _) ->
         _ = emqx_gateway_http:client_unsubscribe(GwName, ClientId, Topic),
-        {200}
+        {204}
     end).
 
 %%--------------------------------------------------------------------
@@ -444,7 +444,7 @@ swagger("/gateway/:name/clients/:clientid/subscriptions", post) ->
         #{ <<"400">> => schema_bad_request()
          , <<"404">> => schema_not_found()
          , <<"500">> => schema_internal_error()
-         , <<"200">> => schema_no_content()
+         , <<"204">> => schema_no_content()
        }
      };
 swagger("/gateway/:name/clients/:clientid/subscriptions/:topic", delete) ->

@@ -21,6 +21,7 @@
 
 -import(emqx_gateway_test_utils,
         [ assert_confs/2
+        , assert_feilds_apperence/2
         , request/2
         , request/3
         ]).
@@ -271,10 +272,3 @@ assert_gw_unloaded(Gateway) ->
 
 assert_bad_request(BadReq) ->
     ?assertEqual(<<"BAD_REQUEST">>, maps:get(code, BadReq)).
-
-assert_feilds_apperence(Ks, Map) ->
-    lists:foreach(fun(K) ->
-        _ = maps:get(K, Map)
-    end, Ks).
-
-
