@@ -29,13 +29,13 @@ persistence:
   ## Default: volume.alpha.kubernetes.io/storage-class: default
   # storageClass: "-"
   accessMode: ReadWriteOnce
-  ## Existing PersistentVolumeClaims
+## Existing PersistentVolumeClaims
   ## The value is evaluated as a template
   ## So, for example, the name can depend on .Release or .Chart
   # existingClaim: ""
 
 resources: {}
-  # limits:
+# limits:
   #   cpu: 500m
   #   memory: 512Mi
   # requests:
@@ -44,7 +44,7 @@ resources: {}
 
 # Containers that run before the creation of EMQX containers. They can contain utilities or setup scripts.
 initContainers: {}
-  # - name: mysql-probe
+# - name: mysql-probe
   #   image: alpine
   #   command: ["sh", "-c", "for i in $(seq 1 300); do nc -zvw1 mysql 3306 && exit 0 || sleep 3; done; exit 1"]
 
@@ -90,8 +90,8 @@ emqxLoadedPlugins: >
   {emqx_telemetry, true}.
   {emqx_rule_engine, true}.
   {emqx_bridge_mqtt, false}.
-
-emqxLoadedModules: >
+  
+  emqxLoadedModules: >
   {emqx_mod_acl_internal, true}.
   {emqx_mod_presence, true}.
   {emqx_mod_delayed, false}.
@@ -193,9 +193,13 @@ podSecurityContext:
   fsGroupChangePolicy: Always
   runAsUser: 1000
   supplementalGroups:
-    - 1000
+  - 1000
 
 containerSecurityContext:
   enabled: true
   runAsNonRoot: true
   runAsUser: 1000
+
+metrics: 
+  enabled: true
+  type: prometheus
