@@ -1319,7 +1319,7 @@ validate_heap_size(Siz) ->
         false -> ok
     end.
 parse_user_lookup_fun(StrConf) ->
-    [ModStr, FunStr] = string:tokens(StrConf, ":"),
+    [ModStr, FunStr] = string:tokens(str(StrConf), ":"),
     Mod = list_to_atom(ModStr),
     Fun = list_to_atom(FunStr),
     {fun Mod:Fun/3, undefined}.
@@ -1338,3 +1338,10 @@ validate_tls_versions(Versions) ->
         [] -> ok;
         Vs -> {error, {unsupported_ssl_versions, Vs}}
     end.
+
+str(A) when is_atom(A) ->
+    atom_to_list(A);
+str(B) when is_binary(B) ->
+    binary_to_list(B);
+str(S) when is_list(S) ->
+    S.
