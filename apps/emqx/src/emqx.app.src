@@ -5,7 +5,7 @@
   {vsn, "5.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
-  {applications, [kernel,stdlib,gproc,gen_rpc,esockd,cowboy,sasl,os_mon,jiffy,lc]},
+  {applications, [kernel,stdlib,gproc,gen_rpc,mria,esockd,cowboy,sasl,os_mon,jiffy,lc]},
   {mod, {emqx_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

@@ -50,7 +50,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     ekka:stop(),
-    mria:ensure_stopped(),
+    mria:stop(),
     mria_mnesia:delete_schema().
 
 init_per_testcase(_TestCase, Config) ->
@@ -59,9 +59,6 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     clear_tables().
-
-t_mnesia(_) ->
-    ok = ?TRIE:mnesia(copy).
 
 t_insert(_) ->
     Fun = fun() ->

@@ -27,13 +27,11 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     application:load(emqx),
     ok = ekka:start(),
-    %% for coverage
-    ok = emqx_banned:mnesia(copy),
     Config.
 
 end_per_suite(_Config) ->
     ekka:stop(),
-    mria:ensure_stopped(),
+    mria:stop(),
     mria_mnesia:delete_schema().
 
 t_add_delete(_) ->
