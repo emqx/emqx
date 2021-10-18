@@ -132,7 +132,7 @@ handle_info({mnesia_table_event, Event}, State) ->
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     mria:transaction(fun cleanup_routes/1, [Node])
+                     mria:transaction(?ROUTE_SHARD, fun cleanup_routes/1, [Node])
                  end),
     ok = mria:dirty_delete(?ROUTING_NODE, Node),
     {noreply, State#{nodes := lists:delete(Node, Nodes)}, hibernate};
