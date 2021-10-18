@@ -93,25 +93,24 @@ gateway_insta(delete, #{bindings := #{name := Name0}}) ->
     end);
 gateway_insta(get, #{bindings := #{name := Name0}}) ->
     try
-        GwName = try
-                     binary_to_existing_atom(Name0)
-                 catch _ : _ -> error(badname)
-                 end,
-        case emqx_gateway:lookup(GwName) of
-            undefined ->
-                {200, #{name => GwName, status => unloaded}};
-            Gateway ->
-                GwConf = emqx_gateway_conf:gateway(Name0),
-                GwInfo0 = emqx_gateway_utils:unix_ts_to_rfc3339(
-                            [created_at, started_at, stopped_at],
-                            Gateway),
-                GwInfo1 = maps:with([name,
-                                     status,
-                                     created_at,
-                                     started_at,
-                                     stopped_at], GwInfo0),
-                {200, maps:merge(GwConf, GwInfo1)}
-        end
+        binary_to_existing_atom(Name0)
+    of
+        GwName ->
+            case emqx_gateway:lookup(GwName) of
+                undefined ->
+                    {200, #{name => GwName, status => unloaded}};
+                Gateway ->
+                    GwConf = emqx_gateway_conf:gateway(Name0),
+                    GwInfo0 = emqx_gateway_utils:unix_ts_to_rfc3339(
+                                [created_at, started_at, stopped_at],
+                                Gateway),
+                    GwInfo1 = maps:with([name,
+                                         status,
+                                         created_at,
+                                         started_at,
+                                         stopped_at], GwInfo0),
+                    {200, maps:merge(GwConf, GwInfo1)}
+            end
     catch
         error : badname ->
             return_http_error(400, "Bad gateway name")

@@ -60,6 +60,11 @@ maybe_unconvert_listeners(Conf) when is_map(Conf) ->
 maybe_unconvert_listeners(Conf) ->
     Conf.
 
+assert_feilds_apperence(Ks, Map) ->
+    lists:foreach(fun(K) ->
+        _ = maps:get(K, Map)
+    end, Ks).
+
 %%--------------------------------------------------------------------
 %% http
 
