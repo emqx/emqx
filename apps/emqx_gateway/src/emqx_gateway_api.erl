@@ -112,7 +112,7 @@ gateway_insta(get, #{bindings := #{name := Name0}}) ->
                     {200, maps:merge(GwConf, GwInfo1)}
             end
     catch
-        error : badname ->
+        error : badarg ->
             return_http_error(400, "Bad gateway name")
     end;
 gateway_insta(put, #{body := GwConf,
