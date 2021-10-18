@@ -24,15 +24,6 @@
 
 -define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
 
--import(emqx_ct_http, [ request_api/3
-                      , request_api/5
-                      , get_http_data/1
-                      , create_default_app/0
-                      , delete_default_app/0
-                      , default_auth_header/0
-                      , auth_header/2
-                      ]).
-
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
@@ -123,7 +114,7 @@ set_special_configs(emqx_dashboard) ->
     emqx_config:put([emqx_dashboard], Config),
     ok;
 set_special_configs(emqx_authz) ->
-    emqx_config:put([authorization], #{sources => [#{type => 'built-in-database', 
+    emqx_config:put([authorization], #{sources => [#{type => 'built-in-database',
                                                      enable => true}
                                                   ]}),
     ok;
