@@ -40,7 +40,7 @@ authorize(Client, PubSub, Topic,
              }) ->
     case emqx_resource:query(ResourceID, {find, Collection, replvar(Selector, Client), #{}}) of
         {error, Reason} ->
-            ?LOG(error, "[AuthZ] Query mongo error: ~p", [Reason]),
+            ?SLOG(error, #{msg => "query_mongo_error", reason => Reason, resource_id => ResourceID}),
             nomatch;
         [] -> nomatch;
         Rows ->
