@@ -101,7 +101,7 @@ do_sign(Username, Password) ->
     Signed = jose_jwt:sign(JWK, JWS, JWT),
     {_, Token} = jose_jws:compact(Signed),
     JWTRec = format(Token, Username, ExpTime),
-    mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
+    _ = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
     {ok, Token}.
 
 do_verify(Token)->

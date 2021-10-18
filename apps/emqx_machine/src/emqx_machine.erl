@@ -36,7 +36,7 @@ start() ->
     ok = print_otp_version_warning(),
     ok = load_config_files(),
     ekka:start(),
-    mria_rlog:wait_for_shards([?EMQX_MACHINE_SHARD], infinity),
+    ok = mria_rlog:wait_for_shards([?EMQX_MACHINE_SHARD], infinity),
     ok.
 
 graceful_shutdown() ->

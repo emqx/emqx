@@ -116,12 +116,8 @@ delete_message(_, Topic) ->
             Fun = fun() ->
                        mnesia:delete({?TAB, Tokens})
                   end,
-            case mria:transaction(?RETAINER_SHARD, Fun) of
-                {atomic, Result} ->
-                    Result;
-                ok ->
-                    ok
-                end
+            _ = mria:transaction(?RETAINER_SHARD, Fun),
+            ok
     end,
     ok.
 
@@ -156,7 +152,7 @@ match_messages(_, Topic, Cursor) ->
     end.
 
 clean(_) ->
-    mria:clear_table(?TAB),
+    _ = mria:clear_table(?TAB),
     ok.
 %%--------------------------------------------------------------------
 %% Internal functions
