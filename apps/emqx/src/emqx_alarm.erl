@@ -180,6 +180,7 @@ to_rfc3339(Timestamp) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    _ = mria:wait_for_tables([?ACTIVATED_ALARM, ?DEACTIVATED_ALARM]),
     deactivate_all_alarms(),
     ok = emqx_config_handler:add_handler([alarm], ?MODULE),
     {ok, #state{timer = ensure_timer(undefined, get_validity_period())}}.
