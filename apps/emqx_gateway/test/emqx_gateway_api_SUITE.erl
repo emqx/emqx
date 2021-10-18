@@ -32,7 +32,7 @@
 %% Setup
 %%--------------------------------------------------------------------
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
     %% FIXME: Magic line. for saving gateway schema name for emqx_config
@@ -189,7 +189,7 @@ t_gateway_exproto(_) ->
 t_authn(_) ->
     GwConf = #{name => <<"stomp">>},
     {204, _} = request(post, "/gateway", GwConf),
-    {404, _} = request(get, "/gateway/stomp/authentication"),
+    {204, _} = request(get, "/gateway/stomp/authentication"),
 
     AuthConf = #{mechanism => <<"password-based">>,
                  backend => <<"built-in-database">>,
@@ -206,7 +206,7 @@ t_authn(_) ->
     assert_confs(AuthConf2, ConfResp2),
 
     {204, _} = request(delete, "/gateway/stomp/authentication"),
-    {404, _} = request(get, "/gateway/stomp/authentication"),
+    {204, _} = request(get, "/gateway/stomp/authentication"),
     {204, _} = request(delete, "/gateway/stomp").
 
 t_listeners(_) ->
