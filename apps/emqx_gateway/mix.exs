@@ -4,7 +4,7 @@ defmodule EMQXGateway.MixProject do
   def project do
     [
       app: :emqx_gateway,
-      version: "4.4.0",
+      version: "0.1.0",
       build_path: "../../_build",
       config_path: "../../config/config.exs",
       deps_path: "../../deps",
