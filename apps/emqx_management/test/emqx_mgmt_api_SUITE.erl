@@ -447,6 +447,19 @@ t_pubsub(_) ->
             after 100 ->
                     false
             end),
+
+    % no clientid
+    {ok, Code} = request_api(post, api_path(["mqtt/publish"]), [], auth_header_(),
+                             #{<<"topic">> => <<"mytopic">>,
+                               <<"qos">> => 1,
+                               <<"payload">> => <<"hello">>}),
+    ?assert(receive
+                {publish, #{payload := <<"hello">>}} ->
+                    true
+            after 100 ->
+                    false
+            end),
+
     %% json payload
     {ok, Code} = request_api(post, api_path(["mqtt/publish"]), [], auth_header_(),
                              #{<<"clientid">> => ClientId,
@@ -491,9 +504,9 @@ t_pubsub(_) ->
 
     ok = emqtt:disconnect(C1),
 
-    ?assertEqual(2, emqx_metrics:val('messages.qos1.received') - Qos1Received),
+    ?assertEqual(3, emqx_metrics:val('messages.qos1.received') - Qos1Received),
     ?assertEqual(2, emqx_metrics:val('messages.qos2.received') - Qos2Received),
-    ?assertEqual(4, emqx_metrics:val('messages.received') - Received).
+    ?assertEqual(5, emqx_metrics:val('messages.received') - Received).
 
 loop([]) -> [];
 
