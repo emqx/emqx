@@ -22,7 +22,6 @@
 -include("logger.hrl").
 -include_lib("lc/include/lc.hrl").
 
-
 %% gen_event callbacks
 -export([ init/1
         , handle_event/2

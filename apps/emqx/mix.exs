@@ -35,7 +35,8 @@ defmodule EMQX.MixProject do
       {:hocon, github: "emqx/hocon"},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4"},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.14.0"},
-      {:jiffy, github: "emqx/jiffy", tag: "1.0.5"}
+      {:jiffy, github: "emqx/jiffy", tag: "1.0.5"},
+      {:lc, github: "qzhuyan/lc", tag: "0.1.1"}
     ]
   end
 end
