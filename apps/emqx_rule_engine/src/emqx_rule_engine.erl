@@ -16,48 +16,201 @@
 
 -module(emqx_rule_engine).
 
+-behaviour(gen_server).
+-behaviour(emqx_config_handler).
+
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("stdlib/include/qlc.hrl").
 
--export([ create_rule/1
-        , update_rule/1
-        , delete_rule/1
+-export([start_link/0]).
+
+-export([ post_config_update/4
+        , config_key_path/0
         ]).
 
--export_type([rule/0]).
+%% Rule Management
 
--type rule() :: #rule{}.
+-export([ load_rules/0
+        ]).
 
--define(T_RETRY, 60000).
+-export([ create_rule/1
+        , insert_rule/1
+        , update_rule/1
+        , delete_rule/1
+        , get_rule/1
+        ]).
+
+-export([ get_rules/0
+        , get_rules_for_topic/1
+        , get_rules_with_same_event/1
+        , get_rules_ordered_by_ts/0
+        ]).
+
+%% exported for cluster_call
+-export([ do_delete_rule/1
+        , do_insert_rule/1
+        ]).
+
+-export([ load_hooks_for_rule/1
+        , unload_hooks_for_rule/1
+        , add_metrics_for_rule/1
+        , clear_metrics_for_rule/1
+        ]).
+
+%% gen_server Callbacks
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
+
+-define(RULE_ENGINE, ?MODULE).
+
+-define(T_CALL, infinity).
+
+config_key_path() ->
+    [rule_engine, rules].
+
+-spec(start_link() -> {ok, pid()} | ignore | {error, Reason :: term()}).
+start_link() ->
+    gen_server:start_link({local, ?RULE_ENGINE}, ?MODULE, [], []).
 
 %%------------------------------------------------------------------------------
-%% APIs for rules and resources
+%% The config handler for emqx_rule_engine
 %%------------------------------------------------------------------------------
+post_config_update(_Req, NewRules, OldRules, _AppEnvs) ->
+    #{added := Added, removed := Removed, changed := Updated}
+        = emqx_map_lib:diff_maps(NewRules, OldRules),
+    maps_foreach(fun({Id, {_Old, New}}) ->
+            {ok, _} = update_rule(New#{id => bin(Id)})
+        end, Updated),
+    maps_foreach(fun({Id, _Rule}) ->
+            ok = delete_rule(bin(Id))
+        end, Removed),
+    maps_foreach(fun({Id, Rule}) ->
+            {ok, _} = create_rule(Rule#{id => bin(Id)})
+        end, Added),
+    {ok, get_rules()}.
+
+%%------------------------------------------------------------------------------
+%% APIs for rules
+%%------------------------------------------------------------------------------
+
+-spec load_rules() -> ok.
+load_rules() ->
+    maps_foreach(fun({Id, Rule}) ->
+            {ok, _} = create_rule(Rule#{id => bin(Id)})
+        end, emqx:get_config([rule_engine, rules], #{})).
 
 -spec create_rule(map()) -> {ok, rule()} | {error, term()}.
-create_rule(Params = #{id := RuleId}) ->
-    case emqx_rule_registry:get_rule(RuleId) of
+create_rule(Params = #{id := RuleId}) when is_binary(RuleId) ->
+    case get_rule(RuleId) of
         not_found -> do_create_rule(Params);
         {ok, _} -> {error, {already_exists, RuleId}}
     end.
 
 -spec update_rule(map()) -> {ok, rule()} | {error, term()}.
-update_rule(Params = #{id := RuleId}) ->
-    case delete_rule(RuleId) of
-        ok -> do_create_rule(Params);
-        Error -> Error
+update_rule(Params = #{id := RuleId}) when is_binary(RuleId) ->
+    ok = delete_rule(RuleId),
+    do_create_rule(Params).
+
+-spec(delete_rule(RuleId :: rule_id()) -> ok).
+delete_rule(RuleId) when is_binary(RuleId) ->
+    gen_server:call(?RULE_ENGINE, {delete_rule, RuleId}, ?T_CALL).
+
+-spec(insert_rule(Rule :: rule()) -> ok).
+insert_rule(Rule) ->
+    gen_server:call(?RULE_ENGINE, {insert_rule, Rule}, ?T_CALL).
+
+%%------------------------------------------------------------------------------
+%% Rule Management
+%%------------------------------------------------------------------------------
+
+-spec(get_rules() -> [rule()]).
+get_rules() ->
+    get_all_records(?RULE_TAB).
+
+get_rules_ordered_by_ts() ->
+    lists:sort(fun(#{created_at := CreatedA}, #{created_at := CreatedB}) ->
+            CreatedA =< CreatedB
+        end, get_rules()).
+
+-spec(get_rules_for_topic(Topic :: binary()) -> [rule()]).
+get_rules_for_topic(Topic) ->
+    [Rule || Rule = #{from := From} <- get_rules(),
+             emqx_plugin_libs_rule:can_topic_match_oneof(Topic, From)].
+
+-spec(get_rules_with_same_event(Topic :: binary()) -> [rule()]).
+get_rules_with_same_event(Topic) ->
+    EventName = emqx_rule_events:event_name(Topic),
+    [Rule || Rule = #{from := From} <- get_rules(),
+             lists:any(fun(T) -> is_of_event_name(EventName, T) end, From)].
+
+is_of_event_name(EventName, Topic) ->
+    EventName =:= emqx_rule_events:event_name(Topic).
+
+-spec(get_rule(Id :: rule_id()) -> {ok, rule()} | not_found).
+get_rule(Id) ->
+    case ets:lookup(?RULE_TAB, Id) of
+        [{Id, Rule}] -> {ok, Rule#{id => Id}};
+        [] -> not_found
     end.
 
--spec(delete_rule(RuleId :: rule_id()) -> ok | {error, term()}).
-delete_rule(RuleId) ->
-    case emqx_rule_registry:get_rule(RuleId) of
-        {ok, Rule} ->
-            ok = emqx_rule_registry:remove_rule(Rule),
-            _ = emqx_plugin_libs_rule:cluster_call(emqx_rule_metrics, clear_rule_metrics, [RuleId]),
-            ok;
-        not_found ->
-            {error, not_found}
-    end.
+load_hooks_for_rule(#{from := Topics}) ->
+    lists:foreach(fun emqx_rule_events:load/1, Topics).
+
+add_metrics_for_rule(#{id := Id}) ->
+    ok = emqx_rule_metrics:create_rule_metrics(Id).
+
+clear_metrics_for_rule(#{id := Id}) ->
+    ok = emqx_rule_metrics:clear_rule_metrics(Id).
+
+unload_hooks_for_rule(#{id := Id, from := Topics}) ->
+    lists:foreach(fun(Topic) ->
+        case get_rules_with_same_event(Topic) of
+            [#{id := Id0}] when Id0 == Id -> %% we are now deleting the last rule
+                emqx_rule_events:unload(Topic);
+            _ -> ok
+        end
+    end, Topics).
+
+%%------------------------------------------------------------------------------
+%% gen_server callbacks
+%%------------------------------------------------------------------------------
+
+init([]) ->
+    _TableId = ets:new(?KV_TAB, [named_table, set, public, {write_concurrency, true},
+                                 {read_concurrency, true}]),
+    {ok, #{}}.
+
+handle_call({insert_rule, Rule}, _From, State) ->
+    _ = emqx_plugin_libs_rule:cluster_call(?MODULE, do_insert_rule, [Rule]),
+    {reply, ok, State};
+
+handle_call({delete_rule, Rule}, _From, State) ->
+    _ = emqx_plugin_libs_rule:cluster_call(?MODULE, do_delete_rule, [Rule]),
+    {reply, ok, State};
+
+handle_call(Req, _From, State) ->
+    ?SLOG(error, #{msg => "unexpected_call", request => Req}),
+    {reply, ignored, State}.
+
+handle_cast(Msg, State) ->
+    ?SLOG(error, #{msg => "unexpected_cast", request => Msg}),
+    {noreply, State}.
+
+handle_info(Info, State) ->
+    ?SLOG(error, #{msg => "unexpected_info", request => Info}),
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
 
 %%------------------------------------------------------------------------------
 %% Internal Functions
@@ -66,55 +219,56 @@ delete_rule(RuleId) ->
 do_create_rule(Params = #{id := RuleId, sql := Sql, outputs := Outputs}) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
-            Rule = #rule{
-                id = RuleId,
-                created_at = erlang:system_time(millisecond),
-                info = #{
-                    enabled => maps:get(enabled, Params, true),
-                    sql => Sql,
-                    from => emqx_rule_sqlparser:select_from(Select),
-                    outputs => parse_outputs(Outputs),
-                    description => maps:get(description, Params, ""),
-                    %% -- calculated fields:
-                    is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
-                    fields => emqx_rule_sqlparser:select_fields(Select),
-                    doeach => emqx_rule_sqlparser:select_doeach(Select),
-                    incase => emqx_rule_sqlparser:select_incase(Select),
-                    conditions => emqx_rule_sqlparser:select_where(Select)
-                    %% -- calculated fields end
-                }
+            Rule = #{
+                id => RuleId,
+                created_at => erlang:system_time(millisecond),
+                enabled => maps:get(enabled, Params, true),
+                sql => Sql,
+                outputs => parse_outputs(Outputs),
+                description => maps:get(description, Params, ""),
+                %% -- calculated fields:
+                from => emqx_rule_sqlparser:select_from(Select),
+                is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
+                fields => emqx_rule_sqlparser:select_fields(Select),
+                doeach => emqx_rule_sqlparser:select_doeach(Select),
+                incase => emqx_rule_sqlparser:select_incase(Select),
+                conditions => emqx_rule_sqlparser:select_where(Select)
+                %% -- calculated fields end
             },
-            ok = emqx_rule_registry:add_rule(Rule),
-            _ = emqx_plugin_libs_rule:cluster_call(emqx_rule_metrics, create_rule_metrics, [RuleId]),
+            ok = insert_rule(Rule),
             {ok, Rule};
         {error, Reason} -> {error, Reason}
     end.
 
+do_insert_rule(#{id := Id} = Rule) ->
+    ok = load_hooks_for_rule(Rule),
+    ok = add_metrics_for_rule(Rule),
+    true = ets:insert(?RULE_TAB, {Id, maps:remove(id, Rule)}),
+    ok.
+
+do_delete_rule(RuleId) ->
+    case get_rule(RuleId) of
+        {ok, Rule} ->
+            ok = unload_hooks_for_rule(Rule),
+            ok = clear_metrics_for_rule(Rule),
+            true = ets:delete(?RULE_TAB, RuleId),
+            ok;
+        not_found -> ok
+    end.
+
 parse_outputs(Outputs) ->
-    [do_parse_outputs(Out) || Out <- Outputs].
+    [do_parse_output(Out) || Out <- Outputs].
 
-do_parse_outputs(#{type := bridge, target := ChId}) ->
-    #{type => bridge, target => ChId};
-do_parse_outputs(#{type := builtin, target := Repub, args := Args})
-        when Repub == republish; Repub == <<"republish">> ->
-    #{type => builtin, target => republish, args => pre_process_repub_args(Args)};
-do_parse_outputs(#{type := Type, target := Name} = Output)
-        when Type == func; Type == builtin ->
-    #{type => Type, target => Name, args => maps:get(args, Output, #{})}.
+do_parse_output(Output) when is_map(Output) ->
+    emqx_rule_outputs:parse_output(Output);
+do_parse_output(BridgeChannelId) when is_binary(BridgeChannelId) ->
+    BridgeChannelId.
 
-pre_process_repub_args(#{<<"topic">> := Topic} = Args) ->
-    QoS = maps:get(<<"qos">>, Args, <<"${qos}">>),
-    Retain = maps:get(<<"retain">>, Args, <<"${retain}">>),
-    Payload = maps:get(<<"payload">>, Args, <<"${payload}">>),
-    #{topic => Topic, qos => QoS, payload => Payload, retain => Retain,
-      preprocessed_tmpl => #{
-          topic => emqx_plugin_libs_rule:preproc_tmpl(Topic),
-          qos => preproc_vars(QoS),
-          retain => preproc_vars(Retain),
-          payload => emqx_plugin_libs_rule:preproc_tmpl(Payload)
-      }}.
+get_all_records(Tab) ->
+    [Rule#{id => Id} || {Id, Rule} <- ets:tab2list(Tab)].
 
-preproc_vars(Data) when is_binary(Data) ->
-    emqx_plugin_libs_rule:preproc_tmpl(Data);
-preproc_vars(Data) ->
-    Data.
+maps_foreach(Fun, Map) ->
+    lists:foreach(Fun, maps:to_list(Map)).
+
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(B) when is_binary(B) -> B.

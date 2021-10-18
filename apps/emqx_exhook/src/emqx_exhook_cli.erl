@@ -23,7 +23,7 @@
 cli(["server", "list"]) ->
     if_enabled(fun() ->
         ServerNames = emqx_exhook:list(),
-        [emqx_ctl:print("Server(~s)~n", [format(Name)]) || Name <- ServerNames]
+        [emqx_ctl:print("Server(~ts)~n", [format(Name)]) || Name <- ServerNames]
     end);
 
 cli(["server", "enable", Name]) ->
@@ -78,7 +78,7 @@ format(Name) ->
     case emqx_exhook_mngr:server(Name) of
         undefined ->
             lists:flatten(
-              io_lib:format("name=~s, hooks=#{}, active=false", [Name]));
+              io_lib:format("name=~ts, hooks=#{}, active=false", [Name]));
         Server ->
             emqx_exhook_server:format(Server)
     end.

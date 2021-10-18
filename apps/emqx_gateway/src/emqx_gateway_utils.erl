@@ -112,9 +112,9 @@ apply(F, A2) when is_function(F),
 format_listenon(Port) when is_integer(Port) ->
     io_lib:format("0.0.0.0:~w", [Port]);
 format_listenon({Addr, Port}) when is_list(Addr) ->
-    io_lib:format("~s:~w", [Addr, Port]);
+    io_lib:format("~ts:~w", [Addr, Port]);
 format_listenon({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
+    io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]).
 
 parse_listenon(Port) when is_integer(Port) ->
     Port;

@@ -5,7 +5,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_mod_hook_fun(_) ->
     Funcs = emqx_rule_events:module_info(exports),

@@ -82,15 +82,15 @@ destroy(_State) ->
     ok.
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     application:set_env(ekka, strict_mode, true),
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_suite(_) ->
-    emqx_ct_helpers:stop_apps([]),
+    emqx_common_test_helpers:stop_apps([]),
     ok.
 
 init_per_testcase(Case, Config) ->
@@ -297,7 +297,7 @@ update_config(Path, ConfigRequest) ->
     emqx:update_config(Path, ConfigRequest, #{rawconf_with_defaults => true}).
 
 certs(Certs) ->
-    CertsPath = emqx_ct_helpers:deps_path(emqx, "etc/certs"),
+    CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
     lists:foldl(fun({Key, Filename}, Acc) ->
                     {ok, Bin} = file:read_file(filename:join([CertsPath, Filename])),
                     Acc#{Key => Bin}

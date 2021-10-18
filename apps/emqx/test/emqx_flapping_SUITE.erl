@@ -21,11 +21,11 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
     emqx_config:put_zone_conf(default, [flapping_detect],
         #{max_count => 3,
           window_time => 100, % 0.1s
@@ -34,7 +34,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]),
+    emqx_common_test_helpers:stop_apps([]),
     ekka_mnesia:delete_schema(),    %% Clean emqx_banned table
     ok.
 

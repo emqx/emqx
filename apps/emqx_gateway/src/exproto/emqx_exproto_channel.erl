@@ -291,17 +291,17 @@ handle_call({auth, ClientInfo0, Password}, _From,
                    SessFun
                   ) of
                 {ok, _Session} ->
-                    ?LOG(debug, "Client ~s (Username: '~s') authorized successfully!",
+                    ?LOG(debug, "Client ~ts (Username: '~ts') authorized successfully!",
                                 [ClientId, Username]),
                     {reply, ok, [{event, connected}],
                      ensure_connected(Channel1#channel{clientinfo = NClientInfo})};
                 {error, Reason} ->
-                    ?LOG(warning, "Client ~s (Username: '~s') open session failed for ~0p",
+                    ?LOG(warning, "Client ~ts (Username: '~ts') open session failed for ~0p",
                          [ClientId, Username, Reason]),
                     {reply, {error, ?RESP_PERMISSION_DENY, Reason}, Channel}
             end;
         {error, Reason} ->
-            ?LOG(warning, "Client ~s (Username: '~s') login failed for ~0p",
+            ?LOG(warning, "Client ~ts (Username: '~ts') login failed for ~0p",
                  [ClientId, Username, Reason]),
             {reply, {error, ?RESP_PERMISSION_DENY, Reason}, Channel}
     end;

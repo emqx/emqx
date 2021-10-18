@@ -47,17 +47,10 @@ start_listeners() ->
                     type => apiKey,
                     name => "authorization",
                     in => header}}}},
-    %% TODO: make it permanent when it's ready to release
-    Dispatch =
-        case os:getenv("_EMQX_ENABLE_DASHBOARD") of
-            V when V =:= "true" orelse V =:= "1" ->
-                [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
-                 {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
-                 {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
-                ];
-            _ ->
-                []
-        end,
+    Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
+                {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
+                {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
+               ],
     BaseMinirest = #{
         base_path => ?BASE_PATH,
         modules => minirest_api:find_api_modules(apps()),
@@ -69,13 +62,13 @@ start_listeners() ->
     [begin
         Minirest = maps:put(protocol, Protocol, BaseMinirest),
         {ok, _} = minirest:start(Name, RanchOptions, Minirest),
-        ?ULOG("Start listener ~s on ~p successfully.~n", [Name, Port])
+        ?ULOG("Start listener ~ts on ~p successfully.~n", [Name, Port])
     end || {Name, Protocol, Port, RanchOptions} <- listeners()].
 
 stop_listeners() ->
     [begin
         ok = minirest:stop(Name),
-        ?ULOG("Stop listener ~s on ~p successfully.~n", [Name, Port])
+        ?ULOG("Stop listener ~ts on ~p successfully.~n", [Name, Port])
     end || {Name, _, Port, _} <- listeners()].
 
 %%--------------------------------------------------------------------

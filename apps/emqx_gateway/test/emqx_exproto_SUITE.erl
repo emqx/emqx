@@ -45,7 +45,7 @@ all() ->
     [{group, Name} || Name  <- metrics()].
 
 groups() ->
-    Cases = emqx_ct:all(?MODULE),
+    Cases = emqx_common_test_helpers:all(?MODULE),
     [{Name, Cases} || Name <- metrics()].
 
 %% @private
@@ -55,12 +55,12 @@ metrics() ->
 init_per_group(GrpName, Cfg) ->
     put(grpname, GrpName),
     Svrs = emqx_exproto_echo_svr:start(),
-    emqx_ct_helpers:start_apps([emqx_gateway], fun set_special_cfg/1),
+    emqx_common_test_helpers:start_apps([emqx_gateway], fun set_special_cfg/1),
     emqx_logger:set_log_level(debug),
     [{servers, Svrs}, {listener_type, GrpName} | Cfg].
 
 end_per_group(_, Cfg) ->
-    emqx_ct_helpers:stop_apps([emqx_gateway]),
+    emqx_common_test_helpers:stop_apps([emqx_gateway]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
 set_special_cfg(emqx_gateway) ->
@@ -448,7 +448,7 @@ client_ssl_opts() ->
     certs("client-key.pem", "client-cert.pem", "cacert.pem").
 
 certs(Key, Cert, CACert) ->
-    CertsPath = emqx_ct_helpers:deps_path(emqx, "etc/certs"),
+    CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
     #{keyfile    => filename:join([ CertsPath, Key   ]),
       certfile   => filename:join([ CertsPath, Cert  ]),
       cacertfile => filename:join([ CertsPath, CACert])}.

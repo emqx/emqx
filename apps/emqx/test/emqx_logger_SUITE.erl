@@ -25,7 +25,7 @@
 -define(a, "a").
 -define(SUPPORTED_LEVELS, [emergency, alert, critical, error, warning, notice, info, debug]).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(_TestCase, Config) ->
     Config.

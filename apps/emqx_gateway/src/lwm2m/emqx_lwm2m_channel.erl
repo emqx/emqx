@@ -249,7 +249,7 @@ do_connect(Req, Result, Channel, Iter) ->
                     iter(Iter, maps:merge(Result, NewResult), NChannel)
             end;
         {error, ReasonCode, NChannel} ->
-            ErrMsg = io_lib:format("Login Failed: ~s", [ReasonCode]),
+            ErrMsg = io_lib:format("Login Failed: ~ts", [ReasonCode]),
             Payload = erlang:list_to_binary(lists:flatten(ErrMsg)),
             iter(Iter,
                  reply({error, bad_request}, Payload, Req, Result),
@@ -320,7 +320,7 @@ auth_connect(_Input, Channel = #channel{ctx = Ctx,
             {ok, Channel#channel{clientinfo = NClientInfo,
                                  with_context = with_context(Ctx, ClientInfo)}};
         {error, Reason} ->
-            ?LOG(warning, "Client ~s (Username: '~s') login failed for ~0p",
+            ?LOG(warning, "Client ~ts (Username: '~ts') login failed for ~0p",
                  [ClientId, Username, Reason]),
             {error, Reason}
     end.

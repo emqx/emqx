@@ -24,7 +24,7 @@
 -define(PQ, emqx_pqueue).
 -define(SUITE, ?MODULE).
 
-all() -> emqx_ct:all(?SUITE).
+all() -> emqx_common_test_helpers:all(?SUITE).
 
 t_is_queue(_) ->
     Q = ?PQ:new(),

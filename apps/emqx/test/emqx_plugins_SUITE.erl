@@ -22,7 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
 
@@ -31,23 +31,23 @@ init_per_suite(Config) ->
     DataPath = proplists:get_value(data_dir, Config),
     AppPath = filename:join([DataPath, "emqx_mini_plugin"]),
     HoconPath = filename:join([DataPath, "emqx_hocon_plugin"]),
-    Cmd = lists:flatten(io_lib:format("cd ~s && make", [AppPath])),
-    CmdPath = lists:flatten(io_lib:format("cd ~s && make", [HoconPath])),
+    Cmd = lists:flatten(io_lib:format("cd ~ts && make", [AppPath])),
+    CmdPath = lists:flatten(io_lib:format("cd ~ts && make", [HoconPath])),
 
-    ct:pal("Executing ~s~n", [Cmd]),
-    ct:pal("~n ~s~n", [os:cmd(Cmd)]),
+    ct:pal("Executing ~ts~n", [Cmd]),
+    ct:pal("~n ~ts~n", [os:cmd(Cmd)]),
 
-    ct:pal("Executing ~s~n", [CmdPath]),
-    ct:pal("~n ~s~n", [os:cmd(CmdPath)]),
+    ct:pal("Executing ~ts~n", [CmdPath]),
+    ct:pal("~n ~ts~n", [os:cmd(CmdPath)]),
 
-    emqx_ct_helpers:boot_modules([]),
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:boot_modules([]),
+    emqx_common_test_helpers:start_apps([]),
     emqx_config:put([plugins, expand_plugins_dir], DataPath),
     ?assertEqual(ok, emqx_plugins:load()),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([]).
 
 t_load(_) ->
     ?assertEqual(ok, emqx_plugins:load()),

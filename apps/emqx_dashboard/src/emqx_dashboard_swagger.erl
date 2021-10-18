@@ -75,7 +75,7 @@ translate_req(Request, #{module := Module, path := Path, method := Method}) ->
     catch throw:Error ->
         {_, [{validation_error, ValidErr}]} = Error,
         #{path := Key, reason := Reason} = ValidErr,
-        {400, 'BAD_REQUEST', iolist_to_binary(io_lib:format("~s : ~p", [Key, Reason]))}
+        {400, 'BAD_REQUEST', iolist_to_binary(io_lib:format("~ts : ~p", [Key, Reason]))}
     end.
 
 namespace() -> "public".
@@ -103,7 +103,7 @@ error_codes(Codes = [_ | _], MsgExample) ->
     ].
 
 support_check_schema(#{check_schema := true}) -> ?DEFAULT_FILTER;
-support_check_schema(#{check_schema := Func})when is_function(Func, 2) -> #{filter => Func};
+support_check_schema(#{check_schema := Func}) when is_function(Func, 2) -> #{filter => Func};
 support_check_schema(_) -> #{filter => undefined}.
 
 parse_spec_ref(Module, Path) ->
@@ -191,11 +191,11 @@ parameters(Params, Module) ->
         lists:foldl(fun(Param, {Acc, RefsAcc}) ->
             case Param of
                 ?REF(StructName) ->
-                    {[#{<<"$ref">> => ?TO_COMPONENTS_PARAM(Module, StructName)} |Acc],
-                        [{Module, StructName, parameter}|RefsAcc]};
+                    {[#{<<"$ref">> => ?TO_COMPONENTS_PARAM(Module, StructName)} | Acc],
+                        [{Module, StructName, parameter} | RefsAcc]};
                 ?R_REF(RModule, StructName) ->
-                    {[#{<<"$ref">> => ?TO_COMPONENTS_PARAM(RModule, StructName)} |Acc],
-                        [{RModule, StructName, parameter}|RefsAcc]};
+                    {[#{<<"$ref">> => ?TO_COMPONENTS_PARAM(RModule, StructName)} | Acc],
+                        [{RModule, StructName, parameter} | RefsAcc]};
                 {Name, Type} ->
                     In = hocon_schema:field_schema(Type, in),
                     In =:= undefined andalso throw({error, <<"missing in:path/query field in parameters">>}),
@@ -300,10 +300,13 @@ components([{Module, Field, parameter} | Refs], SpecAcc, SubRefsAcc) ->
     NewSpecAcc = SpecAcc#{?TO_REF(Namespace, Field) => Param},
     components(Refs, NewSpecAcc, SubRefs ++ SubRefsAcc).
 
+%% Semantic error at components.schemas.xxx:xx:xx
+%% Component names can only contain the characters A-Z a-z 0-9 - . _
+%% So replace ':' by '-'.
 namespace(Module) ->
     case hocon_schema:namespace(Module) of
         undefined -> Module;
-        NameSpace -> NameSpace
+        NameSpace -> re:replace(to_bin(NameSpace), ":","-",[global])
     end.
 
 hocon_schema_to_spec(?R_REF(Module, StructName), _LocalModule) ->
@@ -312,13 +315,20 @@ hocon_schema_to_spec(?R_REF(Module, StructName), _LocalModule) ->
 hocon_schema_to_spec(?REF(StructName), LocalModule) ->
     {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(LocalModule, StructName)},
         [{LocalModule, StructName}]};
-hocon_schema_to_spec(Type, _LocalModule) when ?IS_TYPEREFL(Type) ->
-    {typename_to_spec(typerefl:name(Type)), []};
+hocon_schema_to_spec(Type, LocalModule) when ?IS_TYPEREFL(Type) ->
+    {typename_to_spec(typerefl:name(Type), LocalModule), []};
 hocon_schema_to_spec(?ARRAY(Item), LocalModule) ->
     {Schema, Refs} = hocon_schema_to_spec(Item, LocalModule),
     {#{type => array, items => Schema}, Refs};
+hocon_schema_to_spec(?LAZY(Item), LocalModule) ->
+    hocon_schema_to_spec(Item, LocalModule);
 hocon_schema_to_spec(?ENUM(Items), _LocalModule) ->
     {#{type => string, enum => Items}, []};
+hocon_schema_to_spec(?MAP(Name, Type), LocalModule) ->
+    {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),
+    {#{<<"type">> => object,
+        <<"properties">> => #{<<"$", (to_bin(Name))/binary>> => Schema}},
+        SubRefs};
 hocon_schema_to_spec(?UNION(Types), LocalModule) ->
     {OneOf, Refs} = lists:foldl(fun(Type, {Acc, RefsAcc}) ->
         {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),
@@ -328,38 +338,102 @@ hocon_schema_to_spec(?UNION(Types), LocalModule) ->
 hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
     {#{type => string, enum => [Atom]}, []}.
 
-typename_to_spec("boolean()") -> #{type => boolean, example => true};
-typename_to_spec("binary()") -> #{type => string, example =><<"binary example">>};
-typename_to_spec("float()") -> #{type =>number, example =>3.14159};
-typename_to_spec("integer()") -> #{type =>integer, example =>100};
-typename_to_spec("number()") -> #{type =>number, example =>42};
-typename_to_spec("string()") -> #{type =>string, example =><<"string example">>};
-typename_to_spec("atom()") -> #{type =>string, example =>atom};
-typename_to_spec("duration()") -> #{type =>string, example =><<"12m">>};
-typename_to_spec("duration_s()") -> #{type =>string, example =><<"1h">>};
-typename_to_spec("duration_ms()") -> #{type =>string, example =><<"32s">>};
-typename_to_spec("percent()") -> #{type =>number, example =><<"12%">>};
-typename_to_spec("file()") -> #{type =>string, example =><<"/path/to/file">>};
-typename_to_spec("ip_port()") -> #{type => string, example =><<"127.0.0.1:80">>};
-typename_to_spec(Name) ->
+%% todo: Find a way to fetch enum value from user_id_type().
+typename_to_spec("user_id_type()", _Mod) -> #{type => string, enum => [clientid, username]};
+typename_to_spec("term()", _Mod) -> #{type => string, example => "term"};
+typename_to_spec("boolean()", _Mod) -> #{type => boolean, example => true};
+typename_to_spec("binary()", _Mod) -> #{type => string, example => <<"binary-example">>};
+typename_to_spec("float()", _Mod) -> #{type => number, example => 3.14159};
+typename_to_spec("integer()", _Mod) -> #{type => integer, example => 100};
+typename_to_spec("non_neg_integer()", _Mod) -> #{type => integer, minimum => 1, example => 100};
+typename_to_spec("number()", _Mod) -> #{type => number, example => 42};
+typename_to_spec("string()", _Mod) -> #{type => string, example => <<"string-example">>};
+typename_to_spec("atom()", _Mod) -> #{type => string, example => atom};
+typename_to_spec("duration()", _Mod) -> #{type => string, example => <<"12m">>};
+typename_to_spec("duration_s()", _Mod) -> #{type => string, example => <<"1h">>};
+typename_to_spec("duration_ms()", _Mod) -> #{type => string, example => <<"32s">>};
+typename_to_spec("percent()", _Mod) -> #{type => number, example => <<"12%">>};
+typename_to_spec("file()", _Mod) -> #{type => string, example => <<"/path/to/file">>};
+typename_to_spec("ip_port()", _Mod) -> #{type => string, example => <<"127.0.0.1:80">>};
+typename_to_spec("url()", _Mod) -> #{type => string, example => <<"http://127.0.0.1">>};
+typename_to_spec("server()", Mod) -> typename_to_spec("ip_port()", Mod);
+typename_to_spec("connect_timeout()", Mod) -> typename_to_spec("timeout()", Mod);
+typename_to_spec("timeout()", _Mod) -> #{<<"oneOf">> => [#{type => string, example => infinity},
+    #{type => integer, example => 100}], example => infinity};
+typename_to_spec("bytesize()", _Mod) -> #{type => string, example => <<"32MB">>};
+typename_to_spec("wordsize()", _Mod) -> #{type => string, example => <<"1024KB">>};
+typename_to_spec("map()", _Mod) -> #{type => string, example => <<>>};
+typename_to_spec("comma_separated_list()", _Mod) -> #{type => string, example => <<"item1,item2">>};
+typename_to_spec("comma_separated_atoms()", _Mod) -> #{type => string, example => <<"item1,item2">>};
+typename_to_spec("pool_type()", _Mod) -> #{type => string, enum => [random, hash], example => hash};
+typename_to_spec("log_level()", _Mod) ->
+    #{type => string, enum => [debug, info, notice, warning, error, critical, alert, emergency, all]};
+typename_to_spec("rate()", _Mod) ->
+    #{type => string, example => <<"10M/s">>};
+typename_to_spec("bucket_rate()", _Mod) ->
+    #{type => string, example => <<"10M/s, 100M">>};
+typename_to_spec(Name, Mod) ->
+    Spec = range(Name),
+    Spec1 = remote_module_type(Spec, Name, Mod),
+    Spec2 = typerefl_array(Spec1, Name, Mod),
+    Spec3 = integer(Spec2, Name),
+    Spec3 =:= nomatch andalso
+                 throw({error, #{msg => <<"Unsupport Type">>, type => Name, module => Mod}}),
+             Spec3.
+
+range(Name) ->
     case string:split(Name, "..") of
-        [MinStr, MaxStr] -> %% 1..10
-            {Min, []} = string:to_integer(MinStr),
-            {Max, []} = string:to_integer(MaxStr),
-            #{type => integer, example => Min, minimum => Min, maximum => Max};
-        _ -> %% Module:Type().
-            case string:split(Name, ":") of
-                [_Module, Type] -> typename_to_spec(Type);
-                _ -> throw({error, #{msg => <<"Unsupport Type">>, type => Name}})
-            end
+        [MinStr, MaxStr] -> %% 1..10 1..inf -inf..10
+            Schema = #{type => integer},
+            Schema1 = add_integer_prop(Schema, minimum, MinStr),
+            add_integer_prop(Schema1, maximum, MaxStr);
+        _ -> nomatch
     end.
 
-to_bin(List) when is_list(List) -> list_to_binary(List);
+%% Module:Type
+remote_module_type(nomatch, Name, Mod) ->
+    case string:split(Name, ":") of
+        [_Module, Type] -> typename_to_spec(Type, Mod);
+        _ -> nomatch
+    end;
+remote_module_type(Spec, _Name, _Mod) -> Spec.
+
+%% [string()] or [integer()] or [xxx].
+typerefl_array(nomatch, Name, Mod) ->
+    case string:trim(Name, leading, "[") of
+        Name -> nomatch;
+        Name1 ->
+            case string:trim(Name1, trailing, "]") of
+                Name1 -> notmatch;
+                Name2 ->
+                    Schema = typename_to_spec(Name2, Mod),
+                    #{type => array, items => Schema}
+            end
+    end;
+typerefl_array(Spec, _Name, _Mod) -> Spec.
+
+%% integer(1)
+integer(nomatch, Name) ->
+    case string:to_integer(Name) of
+        {Int, []} -> #{type => integer, enum => [Int], example => Int, default => Int};
+        _ -> nomatch
+    end;
+integer(Spec, _Name) -> Spec.
+
+add_integer_prop(Schema, Key, Value) ->
+    case string:to_integer(Value) of
+        {error, no_integer} -> Schema;
+        {Int, []}when Key =:= minimum -> Schema#{Key => Int, example => Int};
+        {Int, []} -> Schema#{Key => Int}
+    end.
+
+to_bin([Atom | _] = List) when is_atom(Atom) -> iolist_to_binary(io_lib:format("~p", [List]));
+to_bin(List) when is_list(List) -> unicode:characters_to_binary(List);
 to_bin(B) when is_boolean(B) -> B;
 to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 to_bin(X) -> X.
 
-parse_object(PropList = [_|_], Module) when is_list(PropList) ->
+parse_object(PropList = [_ | _], Module) when is_list(PropList) ->
     {Props, Required, Refs} =
         lists:foldl(fun({Name, Hocon}, {Acc, RequiredAcc, RefsAcc}) ->
             NameBin = to_bin(Name),

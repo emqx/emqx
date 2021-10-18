@@ -39,7 +39,7 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn:password-based:mysql".
+namespace() -> "authn-password_based-mysql".
 
 roots() -> [config].
 

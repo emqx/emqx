@@ -45,10 +45,10 @@ gateway.coap
 -define(MQTT_PREFIX, "coap://127.0.0.1/mqtt").
 
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_gateway], fun set_special_cfg/1),
+    emqx_common_test_helpers:start_apps([emqx_gateway], fun set_special_cfg/1),
     Config.
 
 set_special_cfg(emqx_gateway) ->
@@ -58,7 +58,7 @@ set_special_cfg(_) ->
     ok.
 
 end_per_suite(Config) ->
-    emqx_ct_helpers:stop_apps([emqx_gateway]),
+    emqx_common_test_helpers:stop_apps([emqx_gateway]),
     Config.
 
 %%--------------------------------------------------------------------
@@ -74,7 +74,7 @@ t_connection(_Config) ->
 
                      %% heartbeat
                      HeartURI = ?MQTT_PREFIX ++ "/connection?clientid=client1&token=" ++ Token,
-                     ?LOGT("send heartbeat request:~s~n", [HeartURI]),
+                     ?LOGT("send heartbeat request:~ts~n", [HeartURI]),
                      {ok, changed, _} = er_coap_client:request(put, HeartURI),
 
                      disconnection(Channel, Token),
@@ -140,7 +140,7 @@ t_subscribe(_Config) ->
                   URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
                   Req = make_req(get, Payload, [{observe, 0}]),
                   {ok, content, _} = do_request(Channel, URI, Req),
-                  ?LOGT("observer topic:~s~n", [Topic]),
+                  ?LOGT("observer topic:~ts~n", [Topic]),
 
                   timer:sleep(100),
                   [SubPid] = emqx:subscribers(Topic),
@@ -172,7 +172,7 @@ t_un_subscribe(_Config) ->
 
                   Req = make_req(get, Payload, [{observe, 0}]),
                   {ok, content, _} = do_request(Channel, URI, Req),
-                  ?LOGT("observer topic:~s~n", [Topic]),
+                  ?LOGT("observer topic:~ts~n", [Topic]),
 
                   timer:sleep(100),
                   [SubPid] = emqx:subscribers(Topic),
@@ -180,7 +180,7 @@ t_un_subscribe(_Config) ->
 
                   UnReq = make_req(get, Payload, [{observe, 1}]),
                   {ok, nocontent, _} = do_request(Channel, URI, UnReq),
-                  ?LOGT("un observer topic:~s~n", [Topic]),
+                  ?LOGT("un observer topic:~ts~n", [Topic]),
                   timer:sleep(100),
                   ?assertEqual([], emqx:subscribers(Topic))
           end,
@@ -197,7 +197,7 @@ t_observe_wildcard(_Config) ->
                   URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
                   Req = make_req(get, Payload, [{observe, 0}]),
                   {ok, content, _} = do_request(Channel, URI, Req),
-                  ?LOGT("observer topic:~s~n", [Topic]),
+                  ?LOGT("observer topic:~ts~n", [Topic]),
 
                   timer:sleep(100),
                   [SubPid] = emqx:subscribers(Topic),
@@ -244,7 +244,7 @@ do_request(Channel, URI, #coap_message{options = Opts} = Req) ->
     {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
     Opts2 = [{uri_path, Path}, {uri_query, Query} | Opts],
     Req2 = Req#coap_message{options = Opts2},
-    ?LOGT("send request:~s~nReq:~p~n", [URI, Req2]),
+    ?LOGT("send request:~ts~nReq:~p~n", [URI, Req2]),
 
     {ok, _} = er_coap_channel:send(Channel, Req2),
     with_response(Channel).

@@ -27,14 +27,14 @@
 % -define(AUTH, emqx_authn).
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 % init_per_suite(Config) ->
-%     emqx_ct_helpers:start_apps([emqx_authn]),
+%     emqx_common_test_helpers:start_apps([emqx_authn]),
 %     Config.
 
 % end_per_suite(_) ->
-%     emqx_ct_helpers:stop_apps([emqx_authn]),
+%     emqx_common_test_helpers:stop_apps([emqx_authn]),
 %     ok.
 
 % t_jwt_authenticator(_) ->

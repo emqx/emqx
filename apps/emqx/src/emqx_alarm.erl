@@ -410,21 +410,23 @@ normalize(#deactivated_alarm{activate_at = ActivateAt,
 
 normalize_message(Name, no_details) ->
     list_to_binary(io_lib:format("~p", [Name]));
+normalize_message(runq_overload, #{node := Node, runq_length := Len}) ->
+    list_to_binary(io_lib:format("VM is overloaded on node: ~p: ~p", [Node, Len]));
 normalize_message(high_system_memory_usage, #{high_watermark := HighWatermark}) ->
     list_to_binary(io_lib:format("System memory usage is higher than ~p%", [HighWatermark]));
 normalize_message(high_process_memory_usage, #{high_watermark := HighWatermark}) ->
     list_to_binary(io_lib:format("Process memory usage is higher than ~p%", [HighWatermark]));
 normalize_message(high_cpu_usage, #{usage := Usage}) ->
-    list_to_binary(io_lib:format("~s cpu usage", [Usage]));
+    list_to_binary(io_lib:format("~ts cpu usage", [Usage]));
 normalize_message(too_many_processes, #{usage := Usage}) ->
-    list_to_binary(io_lib:format("~s process usage", [Usage]));
+    list_to_binary(io_lib:format("~ts process usage", [Usage]));
 normalize_message(cluster_rpc_apply_failed, #{tnx_id := TnxId}) ->
     list_to_binary(io_lib:format("cluster_rpc_apply_failed:~w", [TnxId]));
 normalize_message(partition, #{occurred := Node}) ->
-    list_to_binary(io_lib:format("Partition occurs at node ~s", [Node]));
+    list_to_binary(io_lib:format("Partition occurs at node ~ts", [Node]));
 normalize_message(<<"resource", _/binary>>, #{type := Type, id := ID}) ->
-    list_to_binary(io_lib:format("Resource ~s(~s) is down", [Type, ID]));
+    list_to_binary(io_lib:format("Resource ~ts(~ts) is down", [Type, ID]));
 normalize_message(<<"conn_congestion/", Info/binary>>, _) ->
-    list_to_binary(io_lib:format("connection congested: ~s", [Info]));
+    list_to_binary(io_lib:format("connection congested: ~ts", [Info]));
 normalize_message(_Name, _UnknownDetails) ->
     <<"Unknown alarm">>.

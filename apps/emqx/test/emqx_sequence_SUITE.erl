@@ -27,7 +27,7 @@
         , reclaim/2
         ]).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 % t_currval(_) ->
 %     error('TODO').

@@ -83,7 +83,7 @@ request_parameters() ->
 request_properties() ->
     properties([ {token, string, "message token, can be empty"}
                , {method, string, "request method type", ["get", "put", "post", "delete"]}
-               , {timeout, string, "timespan for response", "10s"}
+               , {timeout, string, "timespan for response"}
                , {content_type, string, "payload type",
                   [<<"text/plain">>, <<"application/json">>, <<"application/octet-stream">>]}
                , {payload, string, "payload"}]).

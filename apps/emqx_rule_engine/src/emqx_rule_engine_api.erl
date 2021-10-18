@@ -29,7 +29,7 @@
         , rule_test/2
         ]).
 
--define(ERR_NO_RULE(ID), list_to_binary(io_lib:format("Rule ~s Not Found", [(ID)]))).
+-define(ERR_NO_RULE(ID), list_to_binary(io_lib:format("Rule ~ts Not Found", [(ID)]))).
 -define(ERR_BADARGS(REASON),
         begin
             R0 = err_msg(REASON),
@@ -141,21 +141,22 @@ put_req_schema() ->
             description => <<"The outputs of the rule">>,
             type => array,
             items => #{
-                type => object,
-                properties => #{
-                    type => #{
+                oneOf => [
+                    #{
                         type => string,
-                        enum => [<<"bridge">>, <<"builtin">>],
-                        example => <<"builtin">>
+                        example => <<"channel_id_of_my_bridge">>,
+                        description => <<"The channel id of an emqx bridge">>
                     },
-                    target => #{
-                        type => string,
-                        example => <<"console">>
-                    },
-                    args => #{
-                        type => object
+                    #{
+                        type => object,
+                        properties => #{
+                            function => #{
+                                type => string,
+                                example => <<"console">>
+                            }
+                        }
                     }
-                }
+                ]
             }
         },
         description => #{
@@ -241,16 +242,25 @@ list_events(#{}, _Params) ->
     {200, emqx_rule_events:event_info()}.
 
 crud_rules(get, _Params) ->
-    Records = emqx_rule_registry:get_rules_ordered_by_ts(),
+    Records = emqx_rule_engine:get_rules_ordered_by_ts(),
     {200, format_rule_resp(Records)};
 
-crud_rules(post, #{body := Params}) ->
-    ?CHECK_PARAMS(Params, rule_creation, case emqx_rule_engine:create_rule(CheckedParams) of
-        {ok, Rule} -> {201, format_rule_resp(Rule)};
-        {error, Reason} ->
-            ?SLOG(error, #{msg => "create_rule_failed", reason => Reason}),
-            {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
-    end).
+crud_rules(post, #{body := #{<<"id">> := Id} = Params}) ->
+    ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
+    case emqx_rule_engine:get_rule(Id) of
+        {ok, _Rule} ->
+            {400, #{code => 'BAD_ARGS', message => <<"rule id already exists">>}};
+        not_found ->
+            case emqx:update_config(ConfPath, maps:remove(<<"id">>, Params), #{}) of
+                {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
+                    [Rule] = [R || R = #{id := Id0} <- AllRules, Id0 == Id],
+                    {201, format_rule_resp(Rule)};
+                {error, Reason} ->
+                    ?SLOG(error, #{msg => "create_rule_failed",
+                                   id => Id, reason => Reason}),
+                    {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
+            end
+    end.
 
 rule_test(post, #{body := Params}) ->
     ?CHECK_PARAMS(Params, rule_test, case emqx_rule_sqltester:test(CheckedParams) of
@@ -259,30 +269,33 @@ rule_test(post, #{body := Params}) ->
     end).
 
 crud_rules_by_id(get, #{bindings := #{id := Id}}) ->
-    case emqx_rule_registry:get_rule(Id) of
+    case emqx_rule_engine:get_rule(Id) of
         {ok, Rule} ->
             {200, format_rule_resp(Rule)};
         not_found ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end;
 
-crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params0}) ->
-    Params = maps:merge(Params0, #{id => Id}),
-    ?CHECK_PARAMS(Params, rule_creation, case emqx_rule_engine:update_rule(CheckedParams) of
-        {ok, Rule} -> {200, format_rule_resp(Rule)};
-        {error, not_found} ->
-            {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}};
+crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params}) ->
+    ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
+    case emqx:update_config(ConfPath, maps:remove(<<"id">>, Params), #{}) of
+        {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
+            [Rule] = [R || R = #{id := Id0} <- AllRules, Id0 == Id],
+            {200, format_rule_resp(Rule)};
         {error, Reason} ->
             ?SLOG(error, #{msg => "update_rule_failed",
-                           id => Id,
-                           reason => Reason}),
+                           id => Id, reason => Reason}),
             {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
-    end);
+    end;
 
 crud_rules_by_id(delete, #{bindings := #{id := Id}}) ->
-    case emqx_rule_engine:delete_rule(Id) of
-        ok -> {200};
-        {error, not_found} -> {200}
+    ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
+    case emqx:remove_config(ConfPath, #{}) of
+        {ok, _} -> {200};
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "delete_rule_failed",
+                           id => Id, reason => Reason}),
+            {500, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
     end.
 
 %%------------------------------------------------------------------------------
@@ -295,13 +308,12 @@ err_msg(Msg) ->
 format_rule_resp(Rules) when is_list(Rules) ->
     [format_rule_resp(R) || R <- Rules];
 
-format_rule_resp(#rule{id = Id, created_at = CreatedAt,
-    info = #{
-        from := Topics,
-        outputs := Output,
-        sql := SQL,
-        enabled := Enabled,
-        description := Descr}}) ->
+format_rule_resp(#{ id := Id, created_at := CreatedAt,
+                    from := Topics,
+                    outputs := Output,
+                    sql := SQL,
+                    enabled := Enabled,
+                    description := Descr}) ->
     #{id => Id,
       from => Topics,
       outputs => format_output(Output),
@@ -318,12 +330,11 @@ format_datetime(Timestamp, Unit) ->
 format_output(Outputs) ->
     [do_format_output(Out) || Out <- Outputs].
 
-do_format_output(#{type := func}) ->
-    #{type => func, target => <<"internal_function">>};
-do_format_output(#{type := builtin, target := Name, args := Args}) ->
-    #{type => builtin, target => Name, args => maps:remove(preprocessed_tmpl, Args)};
-do_format_output(#{type := bridge, target := Name}) ->
-    #{type => bridge, target => Name}.
+do_format_output(#{mod := Mod, func := Func, args := Args}) ->
+    #{function => list_to_binary(lists:concat([Mod,":",Func])),
+      args => maps:remove(preprocessed_tmpl, Args)};
+do_format_output(BridgeChannelId) when is_binary(BridgeChannelId) ->
+    BridgeChannelId.
 
 get_rule_metrics(Id) ->
     [maps:put(node, Node, rpc:call(Node, emqx_rule_metrics, get_rule_metrics, [Id]))

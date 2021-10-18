@@ -150,12 +150,12 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_suite(Config) ->
     timer:sleep(300),
-    emqx_ct_helpers:stop_apps([]),
+    emqx_common_test_helpers:stop_apps([]),
     Config.
 
 init_per_testcase(_AllTestCase, Config) ->
@@ -190,7 +190,7 @@ case01_register(Config) ->
 
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>, payload = <<"</1>, </2>, </3>, </4>, </5>">>},
                             [],
                             MsgId),
@@ -216,7 +216,7 @@ case01_register(Config) ->
     MsgId3 = 52,
     test_send_coap_request( UdpSock,
                             delete,
-                            sprintf("coap://127.0.0.1:~b~s", [?PORT, join_path(Location, <<>>)]),
+                            sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
                             #coap_content{payload = <<>>},
                             [],
                             MsgId3),
@@ -235,7 +235,7 @@ case01_register_additional_opts(Config) ->
     MsgId = 12,
     SubTopic = list_to_binary("lwm2m/"++Epn++"/dn/#"),
 
-    AddOpts = "ep=~s&lt=345&lwm2m=1&apn=psmA.eDRX0.ctnb&cust_opt=shawn&im=123&ct=1.4&mt=mdm9620&mv=1.2",
+    AddOpts = "ep=~ts&lt=345&lwm2m=1&apn=psmA.eDRX0.ctnb&cust_opt=shawn&im=123&ct=1.4&mt=mdm9620&mv=1.2",
     test_send_coap_request( UdpSock,
                             post,
                             sprintf("coap://127.0.0.1:~b/rd?" ++ AddOpts, [?PORT, Epn]),
@@ -264,7 +264,7 @@ case01_register_additional_opts(Config) ->
     MsgId3 = 52,
     test_send_coap_request( UdpSock,
                             delete,
-                            sprintf("coap://127.0.0.1:~b~s", [?PORT, join_path(Location, <<>>)]),
+                            sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
                             #coap_content{payload = <<>>},
                             [],
                             MsgId3),
@@ -283,7 +283,7 @@ case01_register_incorrect_opts(Config) ->
     MsgId = 12,
 
 
-    AddOpts = "ep=~s&lt=345&lwm2m=1&incorrect_opt",
+    AddOpts = "ep=~ts&lt=345&lwm2m=1&incorrect_opt",
     test_send_coap_request( UdpSock,
                             post,
                             sprintf("coap://127.0.0.1:~b/rd?" ++ AddOpts, [?PORT, Epn]),
@@ -310,7 +310,7 @@ case01_register_report(Config) ->
 
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>, payload = <<"</1>, </2>, </3>, </4>, </5>">>},
                             [],
                             MsgId),
@@ -345,7 +345,7 @@ case01_register_report(Config) ->
     MsgId3 = 52,
     test_send_coap_request( UdpSock,
                             delete,
-                            sprintf("coap://127.0.0.1:~b~s", [?PORT, join_path(Location, <<>>)]),
+                            sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
                             #coap_content{payload = <<>>},
                             [],
                             MsgId3),
@@ -369,7 +369,7 @@ case02_update_deregister(Config) ->
 
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>, payload = <<"</1>, </2>, </3>, </4>, </5>">>},
                             [],
                             MsgId),
@@ -398,7 +398,7 @@ case02_update_deregister(Config) ->
     MsgId2 = 27,
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b~s?lt=789", [?PORT, join_path(Location, <<>>)]),
+                            sprintf("coap://127.0.0.1:~b~ts?lt=789", [?PORT, join_path(Location, <<>>)]),
                             #coap_content{content_format = <<"text/plain">>, payload = <<"</1>, </2>, </3>, </4>, </5>, </6>">>},
                             [],
                             MsgId2),
@@ -424,7 +424,7 @@ case02_update_deregister(Config) ->
     MsgId3 = 52,
     test_send_coap_request( UdpSock,
                             delete,
-                            sprintf("coap://127.0.0.1:~b~s", [?PORT, join_path(Location, <<>>)]),
+                            sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
                             #coap_content{payload = <<>>},
                             [],
                             MsgId3),
@@ -445,7 +445,7 @@ case03_register_wrong_version(Config) ->
     SubTopic = list_to_binary("lwm2m/"++Epn++"/dn/#"),
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=8.3", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=8.3", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>, payload = <<"</1>, </2>, </3>, </4>, </5>">>},
                             [],
                             MsgId),
@@ -466,7 +466,7 @@ case04_register_and_lifetime_timeout(Config) ->
 
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=2&lwm2m=1", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=2&lwm2m=1", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>, payload = <<"</1>, </2>, </3>, </4>, </5>">>},
                             [],
                             MsgId),
@@ -509,7 +509,7 @@ case05_register_wrong_epn(Config) ->
 
 %%     test_send_coap_request( UdpSock,
 %%                             post,
-%%                             sprintf("coap://127.0.0.1:~b/rd?ep=~s&lwm2m=1", [?PORT, Epn]),
+%%                             sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lwm2m=1", [?PORT, Epn]),
 %%                             #coap_content{content_format = <<"text/plain">>, payload = <<"</1>, </2>, </3>, </4>, </5>">>},
 %%                             [],
 %%                             MsgId),
@@ -532,7 +532,7 @@ case07_register_alternate_path_01(Config) ->
 
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>,
                                           payload = <<"</>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
                             [],
@@ -554,7 +554,7 @@ case07_register_alternate_path_02(Config) ->
 
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>,
                                           payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
                             [],
@@ -576,7 +576,7 @@ case08_reregister(Config) ->
 
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>,
                                           payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
                             [],
@@ -602,7 +602,7 @@ case08_reregister(Config) ->
     %% the same lwm2mc client registers to server again
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>,
                                           payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
                             [],
@@ -621,7 +621,7 @@ case10_read(Config) ->
     %% step 1, device register ...
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>,
                                           payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
                             [],
@@ -1605,7 +1605,7 @@ case60_observe(Config) ->
 
 %%     test_send_coap_request( UdpSock,
 %%                             post,
-%%                             sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1"++RegOptionWangYi, [?PORT, Epn]),
+%%                             sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1"++RegOptionWangYi, [?PORT, Epn]),
 %%                             #coap_content{content_format = <<"text/plain">>, payload = <<"</1>, </2>, </3>, </4>, </5>">>},
 %%                             [],
 %%                             MsgId1),
@@ -1671,7 +1671,7 @@ case60_observe(Config) ->
 
 %%     test_send_coap_request( UdpSock,
 %%                             post,
-%%                             sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1"++RegOptionWangYi, [?PORT, Epn]),
+%%                             sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1"++RegOptionWangYi, [?PORT, Epn]),
 %%                             #coap_content{content_format = <<"text/plain">>, payload = <<"</1>, </2>, </3>, </4>, </5>">>},
 %%                             [],
 %%                             MsgId1),
@@ -1717,10 +1717,10 @@ case60_observe(Config) ->
 %%     ?assertEqual(ReadResult, test_recv_mqtt_response(RespTopic)).
 
 case90_psm_mode(Config) ->
-    server_cache_mode(Config, "ep=~s&lt=345&lwm2m=1&apn=psmA.eDRX0.ctnb").
+    server_cache_mode(Config, "ep=~ts&lt=345&lwm2m=1&apn=psmA.eDRX0.ctnb").
 
 case90_queue_mode(Config) ->
-    server_cache_mode(Config, "ep=~s&lt=345&lwm2m=1&b=UQ").
+    server_cache_mode(Config, "ep=~ts&lt=345&lwm2m=1&b=UQ").
 
 server_cache_mode(Config, RegOption) ->
     #{lwm2m := LwM2M} = Gateway = emqx:get_config([gateway]),
@@ -1817,7 +1817,7 @@ device_update_1(UdpSock, Location) ->
     MsgId2 = 27,
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b~s?lt=789", [?PORT, join_path(Location, <<>>)]),
+                            sprintf("coap://127.0.0.1:~b~ts?lt=789", [?PORT, join_path(Location, <<>>)]),
                             #coap_content{payload = <<>>},
                             [],
                             MsgId2),
@@ -1845,7 +1845,7 @@ test_send_coap_request(UdpSock, Method, Uri, Content, Options, MsgId) ->
             ?LOGT("test udp socket send to ~p:~p, data=~p", [IpAddr, Port, RequestBinary]),
             ok = gen_udp:send(UdpSock, IpAddr, Port, RequestBinary);
         {SchemeDiff, ChIdDiff, _, _} ->
-            error(lists:flatten(io_lib:format("scheme ~s or ChId ~s does not match with socket", [SchemeDiff, ChIdDiff])))
+            error(lists:flatten(io_lib:format("scheme ~ts or ChId ~ts does not match with socket", [SchemeDiff, ChIdDiff])))
     end.
 
 test_recv_coap_response(UdpSock) ->
@@ -1916,7 +1916,7 @@ test_send_coap_notif(UdpSock, Host, Port, Content, ObSeq, Request) ->
 std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic) ->
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>, payload = ObjectList},
                             [],
                             MsgId1),

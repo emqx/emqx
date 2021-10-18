@@ -43,6 +43,7 @@
         , batch_schema/1
         ]).
 
+-export([generate_response/1]).
 
 
 -export([urldecode/1]).
@@ -80,7 +81,7 @@ kmg(Byte) when Byte > ?KB ->
 kmg(Byte) ->
     Byte.
 kmg(F, S) ->
-    iolist_to_binary(io_lib:format("~.2f~s", [F, S])).
+    iolist_to_binary(io_lib:format("~.2f~ts", [F, S])).
 
 ntoa({0,0,0,0,0,16#ffff,AB,CD}) ->
     inet_parse:ntoa({AB bsr 8, AB rem 256, CD bsr 8, CD rem 256});
@@ -258,3 +259,13 @@ bad_request() ->
 bad_request(Desc) ->
     object_schema(properties([{message, string}, {code, string}]), Desc).
 
+%%%==============================================================================================
+%% Response util
+
+generate_response(QueryResult) ->
+    case QueryResult of
+        {error, page_limit_invalid} ->
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+        Response ->
+            {200, Response}
+    end.

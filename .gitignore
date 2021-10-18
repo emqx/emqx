@@ -50,5 +50,11 @@ _upgrade_base/
 TAGS
 erlang_ls.config
 .els_cache/
+# VSCode files
 .vs/
 .vscode/
+# Emacs Backup files
+*~
+# Emacs temporary files
+.#*
+*#

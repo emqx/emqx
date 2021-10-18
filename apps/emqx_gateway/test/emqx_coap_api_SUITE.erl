@@ -49,7 +49,7 @@ gateway.coap {
 %%--------------------------------------------------------------------
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
@@ -119,7 +119,7 @@ test_send_coap_request(UdpSock, Method, Content, Options, MsgId) ->
             ?LOGT("test udp socket send to ~p:~p, data=~p", [IpAddr, Port, RequestBinary]),
             ok = gen_udp:send(UdpSock, IpAddr, Port, RequestBinary);
         {SchemeDiff, ChIdDiff, _, _} ->
-            error(lists:flatten(io_lib:format("scheme ~s or ChId ~s does not match with socket", [SchemeDiff, ChIdDiff])))
+            error(lists:flatten(io_lib:format("scheme ~ts or ChId ~ts does not match with socket", [SchemeDiff, ChIdDiff])))
     end.
 
 test_recv_coap_response(UdpSock) ->

@@ -77,7 +77,7 @@ mnesia(copy) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn:scram:builtin-db".
+namespace() -> "authn-scram-builtin_db".
 
 roots() -> [config].
 
@@ -148,7 +148,7 @@ add_user(#{user_id := UserID,
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
                     IsSuperuser = maps:get(is_superuser, UserInfo, false),
-                    add_user(UserID, Password, IsSuperuser, State),
+                    add_user(UserGroup, UserID, Password, IsSuperuser, State),
                     {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
                 [_] ->
                     {error, already_exist}
@@ -240,9 +240,9 @@ check_client_final_message(Bin, #{is_superuser := IsSuperuser} = Cache, #{algori
             {error, not_authorized}
     end.
 
-add_user(UserID, Password, IsSuperuser, State) ->
+add_user(UserGroup, UserID, Password, IsSuperuser, State) ->
     {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(Password, State),
-    UserInfo = #user_info{user_id      = UserID,
+    UserInfo = #user_info{user_id      = {UserGroup, UserID},
                           stored_key   = StoredKey,
                           server_key   = ServerKey,
                           salt         = Salt,

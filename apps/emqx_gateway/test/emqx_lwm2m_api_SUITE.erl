@@ -66,7 +66,7 @@ gateway.lwm2m {
 %%--------------------------------------------------------------------
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
@@ -108,7 +108,7 @@ t_lookup_cmd_read(Config) ->
     %% step 1, device register ...
     test_send_coap_request( UdpSock,
                             post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=600&lwm2m=1", [?PORT, Epn]),
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
                             #coap_content{content_format = <<"text/plain">>,
                                           payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
                             [],
@@ -192,9 +192,9 @@ t_lookup_cmd_discover(Config) ->
 send_request(ClientId, Path, Action) ->
     ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m", ClientId, "lookup_cmd"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Query = io_lib:format("path=~s&action=~s", [Path, Action]),
+    Query = io_lib:format("path=~ts&action=~ts", [Path, Action]),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, ApiPath, Query, Auth),
-    ?LOGT("rest api response:~s~n", [Response]),
+    ?LOGT("rest api response:~ts~n", [Response]),
     Response.
 
 no_received_request(ClientId, Path, Action) ->

@@ -51,10 +51,10 @@ gateway_type_searching() ->
 reg(Mod) ->
     try
         Mod:reg(),
-        ?LOG(info, "Register ~s gateway application successfully!", [Mod])
+        ?LOG(info, "Register ~ts gateway application successfully!", [Mod])
     catch
         Class : Reason : Stk ->
-            ?LOG(error, "Failed to register ~s gateway application: {~p, ~p}\n"
+            ?LOG(error, "Failed to register ~ts gateway application: {~p, ~p}\n"
                         "Stacktrace: ~0p",
                         [Mod, Class, Reason, Stk])
     end.
@@ -67,14 +67,14 @@ load_gateway_by_default([]) ->
 load_gateway_by_default([{Type, Confs}|More]) ->
     case emqx_gateway_registry:lookup(Type) of
         undefined ->
-            ?LOG(error, "Skip to load ~s gateway, because it is not registered",
+            ?LOG(error, "Skip to load ~ts gateway, because it is not registered",
                         [Type]);
         _ ->
             case emqx_gateway:load(Type, Confs) of
                 {ok, _} ->
-                    ?LOG(debug, "Load ~s gateway successfully!", [Type]);
+                    ?LOG(debug, "Load ~ts gateway successfully!", [Type]);
                 {error, Reason} ->
-                    ?LOG(error, "Failed to load ~s gateway: ~0p", [Type, Reason])
+                    ?LOG(error, "Failed to load ~ts gateway: ~0p", [Type, Reason])
             end
     end,
     load_gateway_by_default(More).

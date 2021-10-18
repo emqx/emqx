@@ -39,19 +39,19 @@ all() ->
     ].
 
 groups() ->
-    TCs = emqx_ct:all(?MODULE),
+    TCs = emqx_common_test_helpers:all(?MODULE),
     [ {tcp,  [], TCs}
     , {quic, [], TCs}
     ].
 
 init_per_group(tcp, Config) ->
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:start_apps([]),
     [ {port, 1883}, {conn_fun, connect} | Config];
 init_per_group(quic, Config) ->
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:start_apps([]),
     [ {port, 14567}, {conn_fun, quic_connect} | Config];
 init_per_group(_, Config) ->
-    emqx_ct_helpers:stop_apps([]),
+    emqx_common_test_helpers:stop_apps([]),
     Config.
 
 end_per_group(_Group, _Config) ->
@@ -59,12 +59,12 @@ end_per_group(_Group, _Config) ->
 
 init_per_suite(Config) ->
     %% Start Apps
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([]).
 
 init_per_testcase(TestCase, Config) ->
     case erlang:function_exported(?MODULE, TestCase, 2) of
