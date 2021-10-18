@@ -239,8 +239,7 @@ t_migration_concurrency(_Config) ->
         end,
         fun(_, Trace) ->
             ?assertMatch([_], ?of_kind(emqx_acl_mnesia_migrator_record_missed, Trace))
-        end
-    ),
+        end),
 
     ?assert(emqx_acl_mnesia_migrator:is_old_table_migrated()),
     ?assertEqual([], emqx_acl_mnesia_db:all_acls()).
@@ -251,27 +250,30 @@ t_old_and_new_acl_migration_by_migrator(_Config) ->
 
     meck:new(fake_nodes, [non_strict]),
     meck:expect(fake_nodes, all, fun() -> [node(), 'somebadnode@127.0.0.1'] end),
-    snabbkaffe:start_trace(),
 
-    % check all nodes every 30 ms
-    {ok, _} = emqx_acl_mnesia_migrator:start_link(#{
-        name => ct_migrator,
-        check_nodes_interval => 30,
-        get_nodes => fun fake_nodes:all/0
-    }),
-    timer:sleep(100),
+    ?check_trace(
+        begin
+            % check all nodes every 30 ms
+            {ok, _} = emqx_acl_mnesia_migrator:start_link(#{
+                name => ct_migrator,
+                check_nodes_interval => 30,
+                get_nodes => fun fake_nodes:all/0
+            }),
+            timer:sleep(100)
+        end,
+        fun(_, Trace) ->
+            ?assertEqual([], ?of_kind(emqx_acl_mnesia_migrator_start_migration, Trace))
+        end),
 
-    Trace0 = snabbkaffe:collect_trace(),
-    ?assertEqual([], ?of_kind(emqx_acl_mnesia_migrator_start_migration, Trace0)),
+    ?check_trace(
+        begin
+            meck:expect(fake_nodes, all, fun() -> [node()] end),
+            timer:sleep(100)
+        end,
+        fun(_, Trace) ->
+            ?assertMatch([_], ?of_kind(emqx_acl_mnesia_migrator_finish, Trace))
+        end),
 
-
-    meck:expect(fake_nodes, all, fun() -> [node()] end),
-    timer:sleep(100),
-
-    Trace1 = snabbkaffe:collect_trace(),
-    ?assertMatch([_], ?of_kind(emqx_acl_mnesia_migrator_finish, Trace1)),
-
-    snabbkaffe:stop(),
     meck:unload(fake_nodes),
 
     ?assertEqual(combined_conflicting_records(), emqx_acl_mnesia_db:all_acls()),
@@ -289,8 +291,7 @@ t_old_and_new_acl_migration_repeated_by_migrator(_Config) ->
         fun(_, Trace) ->
             ?assertEqual([], ?of_kind(emqx_acl_mnesia_migrator_start_migration, Trace)),
             ?assertMatch([_], ?of_kind(emqx_acl_mnesia_migrator_finish, Trace))
-        end
-    ).
+        end).
 
 t_start_stop_supervised(_Config) ->
     ?assertEqual(undefined, whereis(emqx_acl_mnesia_migrator)),
