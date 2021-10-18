@@ -19,7 +19,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_ct_http,
+-import(emqx_common_test_http,
         [ request_api/3
         , request_api/5
         , get_http_data/1
