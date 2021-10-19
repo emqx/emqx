@@ -168,7 +168,10 @@ read_resp_to_mqtt({ok, SuccessCode}, CoapPayload, Format, Ref) ->
     catch
         error:not_implemented -> make_response(not_implemented, Ref);
         _:Ex:_ST ->
-            ?LOG(error, "~0p, bad payload format: ~0p", [Ex, CoapPayload]),
+            ?SLOG(error, #{ msg => "bad_payload_format"
+                          , payload => CoapPayload
+                          , reason => Ex
+                          , stacktrace => _ST}),
             make_response(bad_request, Ref)
     end.
 

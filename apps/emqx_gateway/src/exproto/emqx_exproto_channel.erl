@@ -263,7 +263,9 @@ handle_call(close, _From, Channel) ->
 
 handle_call({auth, ClientInfo, _Password}, _From,
             Channel = #channel{conn_state = connected}) ->
-    ?LOG(warning, "Duplicated authorized command, dropped ~p", [ClientInfo]),
+    ?SLOG(warning, #{ msg => "ingore_duplicated_authorized_command"
+                    , request_clientinfo => ClientInfo
+                    }),
     {reply, {error, ?RESP_PERMISSION_DENY, <<"Duplicated authenticate command">>}, Channel};
 handle_call({auth, ClientInfo0, Password}, _From,
             Channel = #channel{
@@ -291,18 +293,25 @@ handle_call({auth, ClientInfo0, Password}, _From,
                    SessFun
                   ) of
                 {ok, _Session} ->
-                    ?LOG(debug, "Client ~ts (Username: '~ts') authorized successfully!",
-                                [ClientId, Username]),
+                    ?SLOG(debug, #{ msg => "client_login_succeed"
+                                  , clientid => ClientId
+                                  , username => Username
+                                  }),
                     {reply, ok, [{event, connected}],
                      ensure_connected(Channel1#channel{clientinfo = NClientInfo})};
                 {error, Reason} ->
-                    ?LOG(warning, "Client ~ts (Username: '~ts') open session failed for ~0p",
-                         [ClientId, Username, Reason]),
+                    ?SLOG(warning, #{ msg => "client_login_failed"
+                                    , clientid => ClientId
+                                    , username => Username
+                                    , reason => Reason
+                                    }),
                     {reply, {error, ?RESP_PERMISSION_DENY, Reason}, Channel}
             end;
         {error, Reason} ->
-            ?LOG(warning, "Client ~ts (Username: '~ts') login failed for ~0p",
-                 [ClientId, Username, Reason]),
+            ?SLOG(warning, #{ msg => "client_login_failed"
+                            , clientid => ClientId
+                            , username => Username
+                            , reason => Reason}),
             {reply, {error, ?RESP_PERMISSION_DENY, Reason}, Channel}
     end;
 
@@ -363,7 +372,9 @@ handle_call(kick, _From, Channel) ->
     {shutdown, kicked, ok, Channel};
 
 handle_call(Req, _From, Channel) ->
-    ?LOG(warning, "Unexpected call: ~p", [Req]),
+    ?SLOG(warning, #{ msg => "unexpected_call"
+                    , call => Req
+                    }),
     {reply, {error, unexpected_call}, Channel}.
 
 -spec handle_cast(any(), channel())
@@ -371,7 +382,9 @@ handle_call(Req, _From, Channel) ->
      | {ok, replies(), channel()}
      | {shutdown, Reason :: term(), channel()}.
 handle_cast(Req, Channel) ->
-    ?WARN("Unexpected call: ~p", [Req]),
+    ?SLOG(warning, #{ msg => "unexpected_call"
+                    , call => Req
+                    }),
     {ok, Channel}.
 
 -spec handle_info(any(), channel())
@@ -403,7 +416,9 @@ handle_info({hreply, FunName, {error, Reason}}, Channel) ->
     {shutdown, {error, {FunName, Reason}}, Channel};
 
 handle_info(Info, Channel) ->
-    ?LOG(warning, "Unexpected info: ~p", [Info]),
+    ?SLOG(warning, #{ msg => "unexpected_info"
+                    , info => Info
+                    }),
     {ok, Channel}.
 
 -spec terminate(any(), channel()) -> channel().

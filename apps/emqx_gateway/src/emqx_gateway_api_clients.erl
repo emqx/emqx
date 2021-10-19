@@ -110,8 +110,9 @@ clients_insta(get, #{ bindings := #{name := Name0,
             [ClientInfo] ->
                 {200, ClientInfo};
             [ClientInfo | _More] ->
-                ?LOG(warning, "More than one client info was returned on ~ts",
-                              [ClientId]),
+                ?SLOG(warning, #{ msg => "more_than_one_channel_found"
+                                , clientid => ClientId
+                                }),
                 {200, ClientInfo};
             [] ->
                 return_http_error(404, "Client not found")

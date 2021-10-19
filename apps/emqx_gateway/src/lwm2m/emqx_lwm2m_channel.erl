@@ -172,14 +172,18 @@ handle_call({lookup_cmd, Path, Type}, _From, #channel{session = Session} = Chann
     {reply, {ok, Result}, Channel};
 
 handle_call(Req, _From, Channel) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{ msg => "unexpected_call"
+                  , call => Req
+                  }),
     {reply, ignored, Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle Cast
 %%--------------------------------------------------------------------
 handle_cast(Req, Channel) ->
-    ?LOG(error, "Unexpected cast: ~p", [Req]),
+    ?SLOG(error, #{ msg => "unexpected_cast"
+                  , cast => Req
+                  }),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
@@ -190,7 +194,9 @@ handle_info({subscribe, _AutoSubs}, Channel) ->
     {ok, Channel};
 
 handle_info(Info, Channel) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{ msg => "unexpected_info"
+                  , info => Info
+                  }),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
@@ -283,7 +289,9 @@ check_lwm2m_version(#coap_message{options = Opts},
                                  },
             {ok, Channel#channel{conninfo = NConnInfo}};
        true ->
-            ?LOG(error, "Reject REGISTER due to unsupported version: ~0p", [Ver]),
+            ?SLOG(error, #{ msg => "reject_REGISTRE_request"
+                          , reason => {unsupported_version, Ver}
+                          }),
             {error, "invalid lwm2m version", Channel}
     end.
 
@@ -313,7 +321,9 @@ enrich_clientinfo(#coap_message{options = Options} = Msg,
             {ok, NClientInfo} = fix_mountpoint(Msg, ClientInfo),
             {ok, Channel#channel{clientinfo = NClientInfo}};
         _ ->
-            ?LOG(error, "Reject REGISTER due to wrong parameters, Query=~p", [Query]),
+            ?SLOG(error, #{ msg => "reject_REGISTER_request"
+                          , reason => {wrong_paramters, Query}
+                          }),
             {error, "invalid queries", Channel}
     end.
 
@@ -329,8 +339,11 @@ auth_connect(_Input, Channel = #channel{ctx = Ctx,
             {ok, Channel#channel{clientinfo = NClientInfo,
                                  with_context = with_context(Ctx, ClientInfo)}};
         {error, Reason} ->
-            ?LOG(warning, "Client ~ts (Username: '~ts') login failed for ~0p",
-                 [ClientId, Username, Reason]),
+            ?SLOG(warning, #{ msg => "client_login_failed"
+                            , clientid => ClientId
+                            , username => Username
+                            , reason => Reason
+                            }),
             {error, Reason}
     end.
 
@@ -374,7 +387,9 @@ process_connect(Channel = #channel{ctx = Ctx,
             NewResult1 = NewResult0#{events => [{event, connected}]},
             iter(Iter, maps:merge(Result, NewResult1), Channel);
         {error, Reason} ->
-            ?LOG(error, "Failed to open session du to ~p", [Reason]),
+            ?SLOG(error, #{ msg => "falied_to_open_session"
+                          , reason => Reason
+                          }),
             iter(Iter, reply({error, bad_request}, Msg, Result), Channel)
     end.
 
@@ -398,17 +413,24 @@ with_context(publish, [Topic, Msg], Ctx, ClientInfo) ->
         allow ->
             emqx:publish(Msg);
         _ ->
-            ?LOG(error, "topic:~p not allow to publish ", [Topic])
+            ?SLOG(error, #{ msg => "publish_denied"
+                          , topic => Topic
+                          })
     end;
 
 with_context(subscribe, [Topic, Opts], Ctx, #{username := Username} = ClientInfo) ->
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, Topic) of
         allow ->
             run_hooks(Ctx, 'session.subscribed', [ClientInfo, Topic, Opts]),
-            ?LOG(debug, "Subscribe topic: ~0p, Opts: ~0p, EndpointName: ~0p", [Topic, Opts, Username]),
+            ?SLOG(debug, #{ msg => "subscribe_topic_succeed"
+                          , topic => Topic
+                          , endpoint_name => Username
+                          }),
             emqx:subscribe(Topic, Username, Opts);
         _ ->
-            ?LOG(error, "Topic: ~0p not allow to subscribe", [Topic])
+            ?SLOG(error, #{ msg => "subscribe_denied"
+                          , topic => Topic
+                          })
     end;
 
 with_context(metrics, Name, Ctx, _ClientInfo) ->

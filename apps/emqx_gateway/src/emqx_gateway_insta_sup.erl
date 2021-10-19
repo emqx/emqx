@@ -103,7 +103,9 @@ init([Gateway, Ctx, _GwDscrptr]) ->
               },
     case maps:get(enable, Config, true) of
         false ->
-            ?LOG(info, "Skipp to start ~ts gateway due to disabled", [GwName]),
+            ?SLOG(info, #{ msg => "skip_to_start_gateway_due_to_disabled"
+                         , gateway_name => GwName
+                         }),
             {ok, State};
         true ->
             case cb_gateway_load(State) of
@@ -160,13 +162,19 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'EXIT', Pid, Reason}, State = #state{child_pids = Pids}) ->
+handle_info({'EXIT', Pid, Reason}, State = #state{name = Name,
+                                                  child_pids = Pids}) ->
     case lists:member(Pid, Pids) of
         true ->
-            ?LOG(error, "Child process ~p exited: ~0p.", [Pid, Reason]),
+            ?SLOG(error, #{ msg => "child_process_exited"
+                          , child => Pid
+                          , reason => Reason
+                          }),
             case Pids -- [Pid]of
                 [] ->
-                    ?LOG(error, "All child process exited!"),
+                    ?SLOG(error, #{ msg => "gateway_all_children_process_existed"
+                                  , gateway_name => Name
+                                  }),
                     {noreply, State#state{status = stopped,
                                           child_pids = [],
                                           gw_state = undefined}};
@@ -174,12 +182,18 @@ handle_info({'EXIT', Pid, Reason}, State = #state{child_pids = Pids}) ->
                     {noreply, State#state{child_pids = RemainPids}}
             end;
         _ ->
-            ?LOG(error, "Unknown process exited ~p:~0p", [Pid, Reason]),
+            ?SLOG(error, #{ msg => "gateway_catch_a_unknown_process_exited"
+                          , child => Pid
+                          , reason => Reason
+                          , gateway_name => Name
+                          }),
             {noreply, State}
     end;
 
 handle_info(Info, State) ->
-    ?LOG(warning, "Unexcepted info: ~p", [Info]),
+    ?SLOG(warning, #{ msg => "unexcepted_info"
+                    , info => Info
+                    }),
     {noreply, State}.
 
 terminate(_Reason, State = #state{child_pids = Pids}) ->
@@ -266,14 +280,18 @@ do_create_authn_chain(ChainName, AuthConf) ->
             case emqx_authentication:create_authenticator(ChainName, AuthConf) of
                 {ok, _} -> ok;
                 {error, Reason} ->
-                    ?LOG(error, "Failed to create authenticator chain ~ts, "
-                                "reason: ~p, config: ~p",
-                                [ChainName, Reason, AuthConf]),
+                    ?SLOG(error, #{ msg => "failed_to_create_authenticator"
+                                  , chain_name => ChainName
+                                  , reason => Reason
+                                  , config => AuthConf
+                                  }),
                     throw({badauth, Reason})
             end;
         {error, Reason} ->
-            ?LOG(error, "Falied to create authn chain ~ts, reason ~p",
-                        [ChainName, Reason]),
+            ?SLOG(error, #{ msg => "failed_to_create_authn_chanin"
+                          , chain_name => ChainName
+                          , reason => Reason
+                          }),
             throw({badauth, Reason})
     end.
 
@@ -293,8 +311,10 @@ do_deinit_authn(Names) ->
             ok -> ok;
             {error, {not_found, _}} -> ok;
             {error, Reason} ->
-                ?LOG(error, "Failed to clean authentication chain: ~ts, "
-                            "reason: ~p", [ChainName, Reason])
+                ?SLOG(error, #{ msg => "failed_to_clean_authn_chain"
+                              , chain_name => ChainName
+                              , reason => Reason
+                              })
         end
     end, Names).
 
@@ -348,10 +368,12 @@ cb_gateway_unload(State = #state{name = GwName,
                          stopped_at = erlang:system_time(millisecond)}}
     catch
         Class : Reason : Stk ->
-            ?LOG(error, "Failed to unload gateway (~0p, ~0p) crashed: "
-                        "{~p, ~p}, stacktrace: ~0p",
-                         [GwName, GwState,
-                          Class, Reason, Stk]),
+            ?SLOG(error, #{ msg => "unload_gateway_crashed"
+                          , gateway_name => GwName
+                          , inner_state => GwState
+                          , reason => {Class, Reason}
+                          , stacktrace => Stk
+                          }),
             {error, {Class, Reason, Stk}}
     after
         _ = do_deinit_authn(State#state.authns)
@@ -388,10 +410,13 @@ cb_gateway_load(State = #state{name = GwName,
         end
     catch
         Class : Reason1 : Stk ->
-            ?LOG(error, "Failed to load ~ts gateway (~0p, ~0p) "
-                        "crashed: {~p, ~p}, stacktrace: ~0p",
-                         [GwName, Gateway, Ctx,
-                          Class, Reason1, Stk]),
+            ?SLOG(error, #{ msg => "load_gateway_crashed"
+                          , gateway_name => GwName
+                          , gateway => Gateway
+                          , ctx => Ctx
+                          , reason => {Class, Reason1}
+                          , stacktrace => Stk
+                          }),
             {error, {Class, Reason1, Stk}}
     end.
 
@@ -413,9 +438,12 @@ cb_gateway_update(Config,
         end
     catch
         Class : Reason1 : Stk ->
-            ?LOG(error, "Failed to update ~ts gateway to config: ~0p crashed: "
-                        "{~p, ~p}, stacktrace: ~0p",
-                        [GwName, Config, Class, Reason1, Stk]),
+            ?SLOG(error, #{ msg => "update_gateway_crashed"
+                          , gateway_name => GwName
+                          , new_config => Config
+                          , reason => {Class, Reason1}
+                          , stacktrace => Stk
+                          }),
             {error, {Class, Reason1, Stk}}
     end.
 

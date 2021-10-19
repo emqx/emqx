@@ -282,8 +282,12 @@ create_session(GwName, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
         Session
     catch
         Class : Reason : Stk ->
-            ?LOG(error, "Failed to create a session: ~p, ~p "
-                        "Stacktrace:~0p", [Class, Reason, Stk]),
+            ?SLOG(error, #{ msg => "failed_create_session"
+                          , clientid => maps:get(clientid, ClientInfo, undefined)
+                          , username => maps:get(username, ClientInfo, undefined)
+                          , reason => {Class, Reason}
+                          , stacktrace => Stk
+                          }),
         throw(Reason)
     end.
 
@@ -337,7 +341,9 @@ kick_session(GwName, ClientId) ->
             kick_session(GwName, ClientId, ChanPid);
         ChanPids ->
             [ChanPid|StalePids] = lists:reverse(ChanPids),
-            ?LOG(error, "More than one channel found: ~p", [ChanPids]),
+            ?SLOG(error, #{ msg => "more_than_one_channel_found"
+                          , chan_pids => ChanPids
+                          }),
             lists:foreach(fun(StalePid) ->
                               catch discard_session(GwName, ClientId, StalePid)
                           end, StalePids),
