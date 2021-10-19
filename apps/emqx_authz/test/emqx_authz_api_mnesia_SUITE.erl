@@ -74,8 +74,7 @@
                            }).
 
 all() ->
-    []. %% Todo: Waiting for @terry-xiaoyu to fix the config_not_found error
-    % emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 groups() ->
     [].
