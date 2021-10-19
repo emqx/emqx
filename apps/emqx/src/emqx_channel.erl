@@ -178,7 +178,7 @@ info(timers, #channel{timers = Timers}) -> Timers.
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
 
-set_session(Session, Channel = Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
+set_session(Session, Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
     %% Assume that this is also an updated session. Allow side effect.
     Session1 = emqx_persistent_session:persist(ClientInfo, ConnInfo, Session),
     Channel#channel{session = Session1}.

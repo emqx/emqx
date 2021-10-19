@@ -256,7 +256,7 @@ do_publish(Payloads = [_|_], PublishFun, Config) ->
                   {ok, Client} = emqtt:start_link([ {proto_ver, v5}
                                                   | Config]),
                   {ok, _} = emqtt:ConnFun(Client),
-                  lists:foreach(fun(Payload) -> PublishFun(Client, Payload)end, Payloads),
+                  lists:foreach(fun(Payload) -> PublishFun(Client, Payload) end, Payloads),
                   ok = emqtt:disconnect(Client)
           end),
     receive
