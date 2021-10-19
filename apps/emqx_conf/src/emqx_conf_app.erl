@@ -41,29 +41,30 @@ init_conf() ->
     ok = ekka_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity).
 
 copy_override_conf_from_core_node() ->
-    case mnesia:system_info(running_db_nodes) -- [node()] of
+    case nodes() of
         [] -> %% The first core nodes is self.
             ?SLOG(debug, #{msg => "skip_copy_overide_conf_from_core_node"}),
             {ok, -1};
-        RunningNodes ->
-            {Results, Failed} = rpc:multicall(RunningNodes, ?MODULE, get_override_config_file, [], 20000),
+        Nodes ->
+            {Results, Failed} = rpc:multicall(Nodes, ?MODULE, get_override_config_file, [], 20000),
             {Ready, NotReady0} = lists:partition(fun(Res) -> element(1, Res) =:= ok end, Results),
             NotReady = lists:filter(fun(Res) -> element(1, Res) =:= error end, NotReady0),
-            case Failed =/= [] orelse NotReady =/= [] of
+            case (Failed =/= [] orelse NotReady =/= []) andalso Ready =/= [] of
                 true ->
-                    WarningStruct = #{running_db_nodes => RunningNodes, failed => Failed, not_ready => NotReady,
+                    Warning = #{nodes => Nodes, failed => Failed, not_ready => NotReady,
                         msg => "ignored_bad_nodes_when_copy_init_config"},
-                    ?SLOG(warning, WarningStruct);
+                    ?SLOG(warning, Warning);
                 false -> ok
             end,
             case Ready of
                 [] ->
-                    %% Other core node running but copy failed.
+                    %% Other core nodes running but no one replicated it successfully.
                     ?SLOG(error, #{msg => "copy_overide_conf_from_core_node_failed",
-                        running_db_nodes => RunningNodes, failed => Failed, not_ready => NotReady});
+                        nodes => Nodes, failed => Failed, not_ready => NotReady}),
+                    {error, "core node not ready"};
                 _ ->
-                    SortFun = fun({ok, W1, _}, {ok, W2, _}) -> W1 > W2 end,
-                    [{ok, _WallClock, Info} | _] = lists:sort(SortFun, Ready),
+                    SortFun = fun({ok, #{wall_clock := W1}}, {ok, #{wall_clock := W2}}) -> W1 > W2 end,
+                    [{ok, Info} | _] = lists:sort(SortFun, Ready),
                     #{node := Node, conf := RawOverrideConf, tnx_id := TnxId} = Info,
                     ?SLOG(debug, #{msg => "copy_overide_conf_from_core_node_success", node => Node}),
                     ok = emqx_config:save_to_override_conf(RawOverrideConf, #{override_to => cluster}),
@@ -72,27 +73,27 @@ copy_override_conf_from_core_node() ->
     end.
 
 get_override_config_file() ->
-    Init = #{node => node()},
+    Node = node(),
     case emqx_app:get_init_config_load_done() of
-        false -> {error, Init#{msg => "init_conf_load_not_done"}};
+        false -> {error, #{node => Node, msg => "init_conf_load_not_done"}};
         true ->
             case ekka_rlog:role() of
                 core ->
                     case erlang:whereis(emqx_config_handler) of
-                        undefined -> {error, Init#{msg => "emqx_config_handler_not_ready"}};
+                        undefined -> {error, #{node => Node, msg => "emqx_config_handler_not_ready"}};
                         _ ->
-                            case emqx_cluster_rpc:get_self_tnx_id() of
-                                {atomic, TnxId} ->
-                                    WallClock = erlang:statistics(wall_clock),
-                                    %% To prevent others from updating the file while we reading.
-                                    %% We read override conf from emqx_config_handler.
-                                    Conf = emqx_config_handler:get_raw_cluster_override_conf(),
-                                    {ok, WallClock, Init#{conf => Conf, tnx_id => TnxId}};
-                                {aborted, Reason} ->
-                                    {error, Init#{msg => Reason}}
+                            Fun = fun() ->
+                                TnxId = emqx_cluster_rpc:get_node_tnx_id(Node),
+                                WallClock = erlang:statistics(wall_clock),
+                                Conf = emqx_config_handler:get_raw_cluster_override_conf(),
+                                #{wall_clock => WallClock, conf => Conf, tnx_id => TnxId, node => Node}
+                                  end,
+                            case ekka_mnesia:ro_transaction(?CLUSTER_RPC_SHARD, Fun) of
+                                {atomic, Res} -> {ok, Res};
+                                {aborted, Reason} -> {error, #{node => Node, msg => Reason}}
                             end
                     end;
                 replicant ->
-                    {ignore, Init}
+                    {ignore, #{node => Node}}
             end
     end.
