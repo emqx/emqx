@@ -250,7 +250,7 @@ users4_api() ->
 
 create_authenticator_api_spec() ->
     #{
-        description => "Create a authenticator for global authentication",
+        description => <<"Create a authenticator for global authentication">>,
         requestBody => #{
             content => #{
                 'application/json' => #{
@@ -319,7 +319,7 @@ create_authenticator_api_spec() ->
 create_authenticator_api_spec2() ->
     Spec = create_authenticator_api_spec(),
     Spec#{
-        description => "Create a authenticator for listener",
+        description => <<"Create a authenticator for listener">>,
         parameters => [
             #{
                 name => listener_id,
@@ -334,7 +334,7 @@ create_authenticator_api_spec2() ->
 
 list_authenticators_api_spec() ->
     #{
-        description => "List authenticators for global authentication",
+        description => <<"List authenticators for global authentication">>,
         responses => #{
             <<"200">> => #{
                 description => <<"OK">>,
@@ -357,7 +357,7 @@ list_authenticators_api_spec() ->
 list_authenticators_api_spec2() ->
     Spec = list_authenticators_api_spec(),
     Spec#{
-        description => "List authenticators for listener",
+        description => <<"List authenticators for listener">>,
         parameters => [
             #{
                 name => listener_id,
@@ -372,12 +372,12 @@ list_authenticators_api_spec2() ->
 
 find_authenticator_api_spec() ->
     #{
-        description => "Get authenticator by id",
+        description => <<"Get authenticator by id">>,
         parameters => [
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -426,7 +426,7 @@ find_authenticator_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "Listener id",
+                description => <<"Listener id">>,
                 schema => #{
                     type => string
                 },
@@ -435,7 +435,7 @@ find_authenticator_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -446,12 +446,12 @@ find_authenticator_api_spec2() ->
 
 update_authenticator_api_spec() ->
     #{
-        description => "Update authenticator",
+        description => <<"Update authenticator">>,
         parameters => [
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -531,7 +531,7 @@ update_authenticator_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "Listener id",
+                description => <<"Listener id">>,
                 schema => #{
                     type => string
                 },
@@ -540,7 +540,7 @@ update_authenticator_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -551,12 +551,12 @@ update_authenticator_api_spec2() ->
 
 delete_authenticator_api_spec() ->
     #{
-        description => "Delete authenticator",
+        description => <<"Delete authenticator">>,
         parameters => [
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -578,7 +578,7 @@ delete_authenticator_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "Listener id",
+                description => <<"Listener id">>,
                 schema => #{
                     type => string
                 },
@@ -587,7 +587,7 @@ delete_authenticator_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -598,12 +598,12 @@ delete_authenticator_api_spec2() ->
 
 move_authenticator_api_spec() ->
     #{
-        description => "Move authenticator",
+        description => <<"Move authenticator">>,
         parameters => [
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -658,7 +658,7 @@ move_authenticator_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "Listener id",
+                description => <<"Listener id">>,
                 schema => #{
                     type => string
                 },
@@ -667,7 +667,7 @@ move_authenticator_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -678,12 +678,12 @@ move_authenticator_api_spec2() ->
 
 import_users_api_spec() ->
     #{
-        description => "Import users from json/csv file",
+        description => <<"Import users from json/csv file">>,
         parameters => [
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -721,7 +721,7 @@ import_users_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "Listener id",
+                description => <<"Listener id">>,
                 schema => #{
                     type => string
                 },
@@ -730,7 +730,7 @@ import_users_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -741,12 +741,12 @@ import_users_api_spec2() ->
 
 create_user_api_spec() ->
     #{
-        description => "Add user",
+        description => <<"Add user">>,
         parameters => [
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -806,7 +806,7 @@ create_user_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "Listener id",
+                description => <<"Listener id">>,
                 schema => #{
                     type => string
                 },
@@ -815,7 +815,7 @@ create_user_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -826,12 +826,12 @@ create_user_api_spec2() ->
 
 list_users_api_spec() ->
     #{
-        description => "List users",
+        description => <<"List users">>,
         parameters => [
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -871,7 +871,7 @@ list_users_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "Listener id",
+                description => <<"Listener id">>,
                 schema => #{
                     type => string
                 },
@@ -880,7 +880,7 @@ list_users_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -891,12 +891,12 @@ list_users_api_spec2() ->
 
 update_user_api_spec() ->
     #{
-        description => "Update user",
+        description => <<"Update user">>,
         parameters => [
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -905,7 +905,7 @@ update_user_api_spec() ->
             #{
                 name => user_id,
                 in => path,
-                description => "User id",
+                description => <<"User id">>,
                 schema => #{
                     type => string
                 },
@@ -963,7 +963,7 @@ update_user_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "Listener id",
+                description => <<"Listener id">>,
                 schema => #{
                     type => string
                 },
@@ -972,7 +972,7 @@ update_user_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -981,7 +981,7 @@ update_user_api_spec2() ->
             #{
                 name => user_id,
                 in => path,
-                description => "User id",
+                description => <<"User id">>,
                 schema => #{
                     type => string
                 },
@@ -992,12 +992,12 @@ update_user_api_spec2() ->
 
 find_user_api_spec() ->
     #{
-        description => "Get user info",
+        description => <<"Get user info">>,
         parameters => [
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -1006,7 +1006,7 @@ find_user_api_spec() ->
             #{
                 name => user_id,
                 in => path,
-                description => "User id",
+                description => <<"User id">>,
                 schema => #{
                     type => string
                 },
@@ -1046,7 +1046,7 @@ find_user_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "Listener id",
+                description => <<"Listener id">>,
                 schema => #{
                     type => string
                 },
@@ -1055,7 +1055,7 @@ find_user_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -1064,7 +1064,7 @@ find_user_api_spec2() ->
             #{
                 name => user_id,
                 in => path,
-                description => "User id",
+                description => <<"User id">>,
                 schema => #{
                     type => string
                 },
@@ -1075,12 +1075,12 @@ find_user_api_spec2() ->
 
 delete_user_api_spec() ->
     #{
-        description => "Delete user",
+        description => <<"Delete user">>,
         parameters => [
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -1089,7 +1089,7 @@ delete_user_api_spec() ->
             #{
                 name => user_id,
                 in => path,
-                description => "User id",
+                description => <<"User id">>,
                 schema => #{
                     type => string
                 },
@@ -1111,7 +1111,7 @@ delete_user_api_spec2() ->
             #{
                 name => listener_id,
                 in => path,
-                description => "Listener id",
+                description => <<"Listener id">>,
                 schema => #{
                     type => string
                 },
@@ -1120,7 +1120,7 @@ delete_user_api_spec2() ->
             #{
                 name => id,
                 in => path,
-                description => "Authenticator id",
+                description => <<"Authenticator id">>,
                 schema => #{
                     type => string
                 },
@@ -1129,7 +1129,7 @@ delete_user_api_spec2() ->
             #{
                 name => user_id,
                 in => path,
-                description => "User id",
+                description => <<"User id">>,
                 schema => #{
                     type => string
                 },
