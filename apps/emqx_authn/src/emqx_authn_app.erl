@@ -32,7 +32,7 @@
 start(_StartType, _StartArgs) ->
     ok = mria_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
-    ok = ?AUTHN:register_providers(providers()),
+    ok = ?AUTHN:register_providers(emqx_authn:providers()),
     ok = initialize(),
     {ok, Sup}.
 
@@ -45,21 +45,12 @@ stop(_State) ->
 %%------------------------------------------------------------------------------
 
 initialize() ->
-    ?AUTHN:initialize_authentication(?GLOBAL, emqx:get_raw_config([authentication], [])),
+    RawConfigs = emqx:get_raw_config([authentication], []),
+    Config = emqx_authn:check_configs(RawConfigs),
+    ?AUTHN:initialize_authentication(?GLOBAL, Config),
     lists:foreach(fun({ListenerID, ListenerConfig}) ->
                       ?AUTHN:initialize_authentication(ListenerID, maps:get(authentication, ListenerConfig, []))
                   end, emqx_listeners:list()).
 
 provider_types() ->
-    lists:map(fun({Type, _Module}) -> Type end, providers()).
-
-providers() ->
-    [ {{'password-based', 'built-in-database'}, emqx_authn_mnesia}
-    , {{'password-based', mysql}, emqx_authn_mysql}
-    , {{'password-based', postgresql}, emqx_authn_pgsql}
-    , {{'password-based', mongodb}, emqx_authn_mongodb}
-    , {{'password-based', redis}, emqx_authn_redis}
-    , {{'password-based', 'http-server'}, emqx_authn_http}
-    , {jwt, emqx_authn_jwt}
-    , {{scram, 'built-in-database'}, emqx_enhanced_authn_scram_mnesia}
-    ].
+    lists:map(fun({Type, _Module}) -> Type end, emqx_authn:providers()).

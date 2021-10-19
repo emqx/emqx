@@ -313,7 +313,7 @@ create_authenticator_api_spec() ->
             },
             <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
             <<"409">> => ?ERR_RESPONSE(<<"Conflict">>)
-        }    
+        }
     }.
 
 create_authenticator_api_spec2() ->
@@ -1852,7 +1852,7 @@ create_authenticator(ConfKeyPath, ChainName, Config) ->
 
 list_authenticators(ConfKeyPath) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
-    NAuthenticators = [maps:put(id, ?AUTHN:generate_id(AuthenticatorConfig), convert_certs(AuthenticatorConfig))
+    NAuthenticators = [maps:put(id, ?AUTHN:authenticator_id(AuthenticatorConfig), convert_certs(AuthenticatorConfig))
                         || AuthenticatorConfig <- AuthenticatorsConfig],
     {200, NAuthenticators}.
 
@@ -1961,19 +1961,18 @@ update_config(Path, ConfigRequest) ->
 get_raw_config_with_defaults(ConfKeyPath) ->
     NConfKeyPath = [atom_to_binary(Key, utf8) || Key <- ConfKeyPath],
     RawConfig = emqx_map_lib:deep_get(NConfKeyPath, emqx_config:get_raw([]), []),
-    to_list(fill_defaults(RawConfig)).
+    ensure_list(fill_defaults(RawConfig)).
 
 find_config(AuthenticatorID, AuthenticatorsConfig) ->
-    case [AC || AC <- to_list(AuthenticatorsConfig), AuthenticatorID =:= ?AUTHN:generate_id(AC)] of
+    case [AC || AC <- ensure_list(AuthenticatorsConfig), AuthenticatorID =:= ?AUTHN:authenticator_id(AC)] of
         [] -> {error, {not_found, {authenticator, AuthenticatorID}}};
         [AuthenticatorConfig] -> {ok, AuthenticatorConfig}
     end.
 
+fill_defaults(Configs) when is_list(Configs) ->
+    lists:map(fun fill_defaults/1, Configs);
 fill_defaults(Config) ->
-    #{<<"authentication">> := CheckedConfig} =
-        hocon_schema:check_plain(?AUTHN, #{<<"authentication">> => Config},
-                                 #{only_fill_defaults => true}),
-    CheckedConfig.
+    emqx_authn:check_config(Config, #{only_fill_defaults => true}).
 
 convert_certs(#{<<"ssl">> := SSLOpts} = Config) ->
     NSSLOpts = lists:foldl(fun(K, Acc) ->
@@ -2063,10 +2062,8 @@ parse_position(<<"before:", Before/binary>>) ->
 parse_position(_) ->
     {error, {invalid_parameter, position}}.
 
-to_list(M) when is_map(M) ->
-    [M];
-to_list(L) when is_list(L) ->
-    L.
+ensure_list(M) when is_map(M) -> [M];
+ensure_list(L) when is_list(L) -> L.
 
 to_atom(B) when is_binary(B) ->
     binary_to_atom(B);
