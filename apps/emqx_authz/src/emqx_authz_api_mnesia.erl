@@ -632,14 +632,18 @@ all(put, #{body := #{<<"rules">> := Rules}}) ->
 
 purge(delete, _) ->
     case emqx_authz_api_sources:get_raw_source(<<"built-in-database">>) of
-        [#{enable := false}] ->
+        [#{<<"enable">> := false}] ->
             ok = lists:foreach(fun(Key) ->
                                    ok = ekka_mnesia:dirty_delete(?ACL_TABLE, Key)
                                end, mnesia:dirty_all_keys(?ACL_TABLE)),
             {204};
-        _ ->
+        [#{<<"enable">> := true}] ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => <<"'built-in-database' type source must be disabled before purge.">>}}
+                    message => <<"'built-in-database' type source must be disabled before purge.">>}};
+        [] ->
+            {404, #{code => <<"BAD_REQUEST">>,
+                    message => <<"'built-in-database' type source is not found.">>
+                   }}
     end.
 
 format_rules(Rules) when is_list(Rules) ->

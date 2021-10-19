@@ -347,17 +347,17 @@ sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
     {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
     update_config(?CMD_PREPEND, [#{<<"type">> => <<"file">>, <<"enable">> => true, <<"path">> => Filename}]);
 sources(post, #{body := Body}) when is_map(Body) ->
-    update_config(?CMD_PREPEND, [write_cert(Body)]);
+    update_config(?CMD_PREPEND, [maybe_write_certs(Body)]);
 sources(put, #{body := Body}) when is_list(Body) ->
     NBody = [ begin
                 case Source of
                     #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable} ->
                         {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
                         #{<<"type">> => <<"file">>, <<"enable">> => Enable, <<"path">> => Filename};
-                    _ -> write_cert(Source)
+                    _ -> maybe_write_certs(Source)
                 end
               end || Source <- Body],
-    update_config(?CMD_REPLCAE, NBody).
+    update_config(?CMD_REPLACE, NBody).
 
 source(get, #{bindings := #{type := Type}}) ->
     case get_raw_source(Type) of
@@ -379,14 +379,14 @@ source(get, #{bindings := #{type := Type}}) ->
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
     {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
-    case emqx_authz:update({?CMD_REPLCAE, <<"file">>}, #{<<"type">> => <<"file">>, <<"enable">> => Enable, <<"path">> => Filename}) of
+    case emqx_authz:update({?CMD_REPLACE, <<"file">>}, #{<<"type">> => <<"file">>, <<"enable">> => Enable, <<"path">> => Filename}) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => bin(Reason)}}
     end;
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
-    update_config({?CMD_REPLCAE, Type}, write_cert(Body));
+    update_config({?CMD_REPLACE, Type}, maybe_write_certs(Body#{<<"type">> => Type}));
 source(delete, #{bindings := #{type := Type}}) ->
     update_config({?CMD_DELETE, Type}, #{}).
 
@@ -402,7 +402,7 @@ move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
     end.
 
 get_raw_sources() ->
-    RawSources = emqx:get_raw_config([authorization, sources]),
+    RawSources = emqx:get_raw_config([authorization, sources], []),
     Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
     Conf = #{<<"sources">> => RawSources},
     #{<<"sources">> := Sources} = hocon_schema:check_plain(Schema, Conf, #{only_fill_defaults => true}),
@@ -447,7 +447,7 @@ read_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
            };
 read_cert(Source) -> Source.
 
-write_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
+maybe_write_certs(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
     CertPath = filename:join([emqx:get_config([node, data_dir]), "certs"]),
     CaCert = case maps:is_key(<<"cacertfile">>, SSL) of
                  true ->
@@ -475,7 +475,7 @@ write_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
                               <<"keyfile">> => Key
                              }
            };
-write_cert(Source) -> Source.
+maybe_write_certs(Source) -> Source.
 
 write_file(Filename, Bytes0) ->
     ok = filelib:ensure_dir(Filename),
