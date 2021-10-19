@@ -85,7 +85,7 @@ jobs:
         echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
     - uses: actions/checkout@v2
       with:
-        repository: xiangfangyang-tech/emqx-fvt
+        repository: emqx/emqx-fvt
         path: scripts
     - uses: actions/setup-java@v1
       with:
