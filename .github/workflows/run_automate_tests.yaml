@@ -1,0 +1,421 @@
+name: Integration Test Suites
+  
+on:
+  push:
+    tags:
+      - "v4.*"
+  pull_request:
+    branches:
+      - "main-v4.*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.build_docker.outputs.version}}
+    steps:
+    - uses: actions/checkout@v2
+    - name: build docker
+      id: build_docker
+      run: |
+        make docker
+        echo "::set-output name=version::$(./pkg-vsn.sh)"
+    - uses: actions/upload-artifact@v2
+      with:
+        name: emqx-docker-image-zip
+        path: _packages/emqx/emqx-docker-${{ steps.build_docker.outputs.version }}.zip
+
+  webhook:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        webhook_type:
+        - webhook_data_bridge
+
+    needs: build
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/download-artifact@v2
+      with:
+        name: emqx-docker-image-zip
+        path: /tmp
+    - name: load docker image
+      env:
+        version: ${{ needs.build.outputs.version }}
+      run: |
+        unzip -q /tmp/emqx-docker-${version}.zip -d /tmp
+        docker load < /tmp/emqx-docker-${version}
+    - name: docker compose up
+      timeout-minutes: 5
+      env:
+        TARGET: emqx/emqx
+        EMQX_TAG: ${{ needs.build.outputs.version }}
+      run: |
+        docker-compose \
+          -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
+          up -d --build
+    - uses: actions/checkout@v2
+      with:
+        repository: emqx/emqx-svt-web-server
+        ref: web-server-1.0
+        path: emqx-svt-web-server
+    - uses: actions/download-artifact@v2
+    - name: run webserver in docker
+      run: |
+        cd ./emqx-svt-web-server/svtserver
+        mvn clean package
+        cd target
+        docker run --name webserver --network emqx_bridge -d -v $(pwd)/svtserver-0.0.1.jar:/webserver/svtserver-0.0.1.jar --workdir /webserver openjdk:8-jdk bash \
+        -c "java -jar svtserver-0.0.1.jar"
+    - name: wait docker compose up
+      timeout-minutes: 5
+      run: |
+        while [ "$(docker inspect -f '{{ .State.Health.Status}}' node1.emqx.io)" != "healthy" ] || [ "$(docker inspect -f '{{ .State.Health.Status}}' node2.emqx.io)" != "healthy" ]; do
+          echo "['$(date -u +"%y-%m-%dt%h:%m:%sz")']:waiting emqx";
+          sleep 5;
+        done
+        docker ps -a
+        echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
+        echo WEB_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' webserver) >> $GITHUB_ENV
+    - uses: actions/checkout@v2
+      with:
+        repository: emqx/emqx-fvt
+        ref: integration_test_suites
+        path: scripts
+    - uses: actions/setup-java@v1
+      with:
+        java-version: '8.0.282' # The JDK version to make available on the path.
+        java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
+        architecture: x64 # (x64 or x86) - defaults to x64
+    - name: install jmeter
+      timeout-minutes: 10
+      env:
+          JMETER_VERSION: 5.3
+      run: |
+        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
+        cd /tmp && tar -xvf apache-jmeter.tgz
+        echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
+        echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
+        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-2.0.2-jar-with-dependencies.jar
+        ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
+    - name: run jmeter
+      run: |
+        /opt/jmeter/bin/jmeter.sh \
+          -Jjmeter.save.saveservice.output_format=xml -n \
+          -t scripts/.ci/automate-test-suite/${{ matrix.webhook_type }}.jmx \
+          -Demqx_ip=$HAPROXY_IP \
+          -Dweb_ip=$WEB_IP \
+          -l jmeter_logs/webhook_${{ matrix.webhook_type }}.jtl \
+          -j jmeter_logs/logs/webhook_${{ matrix.webhook_type }}.log
+    - name: check logs
+      run: |
+        if cat jmeter_logs/webhook_${{ matrix.webhook_type }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
+          echo "check logs filed"
+          exit 1
+        fi
+    - uses: actions/upload-artifact@v1
+      if: always()
+      with:
+        name: jmeter_logs
+        path: ./jmeter_logs
+
+  mysql:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        mysql_tag:
+        - 5.7
+        - 8
+        mysql_type:
+        - mysql_auth_acl
+
+    needs: build
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/download-artifact@v2
+      with:
+        name: emqx-docker-image-zip
+        path: /tmp
+    - name: load docker image
+      env:
+        version: ${{ needs.build.outputs.version }}
+      run: |
+        unzip -q /tmp/emqx-docker-${version}.zip -d /tmp
+        docker load < /tmp/emqx-docker-${version}
+    - name: docker compose up
+      timeout-minutes: 5
+      env:
+        TARGET: emqx/emqx
+        EMQX_TAG: ${{ needs.build.outputs.version }}
+        MYSQL_TAG: ${{ matrix.mysql_tag }}
+      run: |
+        docker-compose \
+          -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
+          -f .ci/docker-compose-file/docker-compose-mysql-tls.yaml \
+          up -d --build
+    - name: wait docker compose up
+      timeout-minutes: 5
+      run: |
+        while [ "$(docker inspect -f '{{ .State.Health.Status}}' node1.emqx.io)" != "healthy" ] || [ "$(docker inspect -f '{{ .State.Health.Status}}' node2.emqx.io)" != "healthy" ]; do
+          echo "['$(date -u +"%y-%m-%dt%h:%m:%sz")']:waiting emqx";
+          sleep 5;
+        done
+        while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
+             != $(docker ps -a --filter name=client | wc -l) ]; do
+          sleep 1
+        done
+        docker ps -a
+        echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
+        echo MYSQL_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mysql) >> $GITHUB_ENV
+    - uses: actions/checkout@v2
+      with:
+        repository: emqx/emqx-fvt
+        ref: integration_test_suites
+        path: scripts
+    - uses: actions/setup-java@v1
+      with:
+        java-version: '8.0.282' # The JDK version to make available on the path.
+        java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
+        architecture: x64 # (x64 or x86) - defaults to x64
+    - name: install jmeter
+      timeout-minutes: 10
+      env:
+          JMETER_VERSION: 5.3
+      run: |
+        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
+        cd /tmp && tar -xvf apache-jmeter.tgz
+        echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
+        echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
+        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-2.0.2-jar-with-dependencies.jar
+        ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
+    - name: install jmeter plugin
+      run: |
+        wget --no-verbose -O "/opt/jmeter/lib/mysql-connector-java-8.0.16.jar" https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.16/mysql-connector-java-8.0.16.jar
+    - name: run jmeter
+      run: |
+        /opt/jmeter/bin/jmeter.sh \
+          -Jjmeter.save.saveservice.output_format=xml -n \
+          -t scripts/.ci/automate-test-suite/${{ matrix.mysql_type }}.jmx \
+          -Droute="apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data" \
+          -Dmysql_ip=$MYSQL_IP \
+          -Demqx_ip=$HAPROXY_IP \
+          -Ddbname="mqtt" \
+          -Dmysql_user="ssluser" \
+          -Ddb_user="root" \
+          -Dmysql_pwd="public" \
+          -Dconfig_path="/tmp/etc" \
+          -Ddocker_path=".ci/docker-compose-file" \
+          -l jmeter_logs/${{ matrix.mysql_type }}_${{ matrix.mysql_tag }}.jtl \
+          -j jmeter_logs/logs/${{ matrix.mysql_type }}_${{ matrix.mysql_tag }}.log
+    - name: check logs
+      run: |
+        if cat jmeter_logs/${{ matrix.mysql_type }}_${{ matrix.mysql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
+          echo "check logs filed"
+          exit 1
+        fi
+    - uses: actions/upload-artifact@v1
+      if: always()
+      with:
+        name: jmeter_logs
+        path: ./jmeter_logs
+
+
+  postgresql:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        pgsql_type:
+        - pgsql_auth_acl
+        pgsql_tag:
+        - 9
+        - 10
+        - 11
+        - 12
+        - 13
+
+    needs: build
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/download-artifact@v2
+      with:
+        name: emqx-docker-image-zip
+        path: /tmp
+    - name: load docker image
+      env:
+        version: ${{ needs.build.outputs.version }}
+      run: |
+        unzip -q /tmp/emqx-docker-${version}.zip -d /tmp
+        docker load < /tmp/emqx-docker-${version}
+    - name: docker compose up
+      timeout-minutes: 5
+      env:
+        TARGET: emqx/emqx
+        EMQX_TAG: ${{ needs.build.outputs.version }}
+        PGSQL_TAG: ${{ matrix.pgsql_tag }}
+      run: |
+        docker-compose \
+          -f .ci/docker-compose-file/docker-compose-emqx-broker-cluster.yaml \
+          -f .ci/docker-compose-file/docker-compose-pgsql-tls.yaml \
+          up -d --build
+    - name: wait docker compose up
+      timeout-minutes: 5
+      run: |
+        while [ "$(docker inspect -f '{{ .State.Health.Status}}' node1.emqx.io)" != "healthy" ] || [ "$(docker inspect -f '{{ .State.Health.Status}}' node2.emqx.io)" != "healthy" ]; do
+          echo "['$(date -u +"%y-%m-%dt%h:%m:%sz")']:waiting emqx";
+          sleep 5;
+        done
+        docker ps -a
+        echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
+        echo PGSQL_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pgsql) >> $GITHUB_ENV
+        echo CONFIG_PATH=$(docker inspect -f '{{ range .Mounts }}{{ if eq .Name "docker-compose-file_etc" }}{{ .Source }}{{ end }}{{ end }}' node1.emqx.io) >> $GITHUB_ENV
+    - uses: actions/checkout@v2
+      with:
+        repository: emqx/emqx-fvt
+        ref: integration_test_suites
+        path: scripts
+    - uses: actions/setup-java@v1
+      with:
+        java-version: '8.0.282' # The JDK version to make available on the path.
+        java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
+        architecture: x64 # (x64 or x86) - defaults to x64
+    - name: install jmeter
+      timeout-minutes: 10
+      env:
+          JMETER_VERSION: 5.3
+      run: |
+        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
+        cd /tmp && tar -xvf apache-jmeter.tgz
+        echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
+        echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
+        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-2.0.2-jar-with-dependencies.jar
+        ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
+    - name: install jmeter plugin
+      run: |
+        wget --no-verbose -O "/opt/jmeter/lib/postgresql-42.2.18.jar" https://repo1.maven.org/maven2/org/postgresql/postgresql/42.2.18/postgresql-42.2.18.jar
+    - name: run jmeter
+      run: |
+        sudo /opt/jmeter/bin/jmeter.sh \
+          -Jjmeter.save.saveservice.output_format=xml -n \
+          -t scripts/.ci/automate-test-suite/${{ matrix.pgsql_type }}.jmx \
+          -Droute="apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data" \
+          -Dca_name="ca.pem" \
+          -Dkey_name="client-key.pem" \
+          -Dcert_name="client-cert.pem" \
+          -Ddb_ip=$PGSQL_IP \
+          -Dpgsql_ip=$PGSQL_IP \
+          -Demqx_ip=$HAPROXY_IP \
+          -Dpgsql_user="root" \
+          -Dpgsql_pwd="public" \
+          -Ddbname="mqtt" \
+          -Dpgsql_db="mqtt" \
+          -Dport="5432" \
+          -Dconfig_path=$CONFIG_PATH \
+          -Ddocker_path=".ci/docker-compose-file" \
+          -l jmeter_logs/${{ matrix.pgsql_type }}_${{ matrix.pgsql_tag }}.jtl \
+          -j jmeter_logs/logs/${{ matrix.pgsql_type }}_${{ matrix.pgsql_tag }}.log
+    - name: check logs
+      run: |
+        if cat jmeter_logs/${{ matrix.pgsql_type }}_${{ matrix.pgsql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
+          echo "check logs filed"
+          exit 1
+        fi
+    - uses: actions/upload-artifact@v1
+      if: always()
+      with:
+        name: jmeter_logs
+        path: ./jmeter_logs
+
+  http:
+    runs-on: ubuntu-latest
+
+    needs: build
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/download-artifact@v2
+      with:
+        name: emqx-docker-image-zip
+        path: /tmp
+    - name: load docker image
+      env:
+        version: ${{ needs.build.outputs.version }}
+      run: |
+        unzip -q /tmp/emqx-docker-${version}.zip -d /tmp
+        docker load < /tmp/emqx-docker-${version}
+    - name: docker compose up
+      timeout-minutes: 5
+      env:
+        TARGET: emqx/emqx
+        EMQX_TAG: ${{ needs.build.outputs.version }}
+        MYSQL_TAG: 8
+      run: |
+        docker-compose \
+          -f .ci/docker-compose-file/docker-compose-emqx-broker-cluster.yaml \
+          -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+          -f .ci/docker-compose-file/docker-compose-enterprise-tomcat-tcp.yaml \
+          up -d --build
+    - name: wait docker compose up
+      timeout-minutes: 5
+      run: |
+        while [ "$(docker inspect -f '{{ .State.Health.Status}}' node1.emqx.io)" != "healthy" ] || [ "$(docker inspect -f '{{ .State.Health.Status}}' node2.emqx.io)" != "healthy" ]; do
+          echo "['$(date -u +"%y-%m-%dt%h:%m:%sz")']:waiting emqx";
+          sleep 5;
+        done
+        docker ps -a
+        echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
+        echo HTTP_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' Tomcat) >> $GITHUB_ENV
+        echo MYSQL_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mysql) >> $GITHUB_ENV
+        echo CONFIG_PATH=$(docker inspect -f '{{ range .Mounts }}{{ if eq .Name "docker-compose-file_etc" }}{{ .Source }}{{ end }}{{ end }}' node1.emqx.io) >> $GITHUB_ENV
+    - uses: actions/checkout@v2
+      with:
+        repository: emqx/emqx-fvt
+        ref: integration_test_suites
+        path: scripts
+    - uses: actions/setup-java@v1
+      with:
+        java-version: '8.0.282' # The JDK version to make available on the path.
+        java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
+        architecture: x64 # (x64 or x86) - defaults to x64
+    - name: install jmeter
+      timeout-minutes: 10
+      env:
+          JMETER_VERSION: 5.3
+      run: |
+        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
+        cd /tmp && tar -xvf apache-jmeter.tgz
+        echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
+        echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
+        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-2.0.2-jar-with-dependencies.jar
+        ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
+    - name: install jmeter plugin
+      run: |
+        wget --no-verbose -O "/opt/jmeter/lib/mysql-connector-java-8.0.16.jar" https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.16/mysql-connector-java-8.0.16.jar
+    - name: run jmeter
+      run: |
+        sudo /opt/jmeter/bin/jmeter.sh \
+          -Jjmeter.save.saveservice.output_format=xml -n \
+          -t scripts/.ci/automate-test-suite/http_auth_acl.jmx \
+          -Dmysql_ip=$MYSQL_IP \
+          -Demqx_ip=$HAPROXY_IP \
+          -Dweb_server_ip=$HTTP_IP \
+          -Dconfig_path=$CONFIG_PATH \
+          -Ddocker_path=".ci/docker-compose-file" \
+          -l jmeter_logs/http_auth_acl.jtl \
+          -j jmeter_logs/logs/http_auth_acl.log
+    - name: check logs
+      run: |
+        if cat jmeter_logs/http_auth_acl.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
+          echo "check logs filed"
+          sudo cat /var/lib/docker/volumes/docker-compose-file_etc/_data/emqx.conf
+          exit 1
+        fi
+    - uses: actions/upload-artifact@v1
+      if: always()
+      with:
+        name: jmeter_logs
+        path: ./jmeter_logs

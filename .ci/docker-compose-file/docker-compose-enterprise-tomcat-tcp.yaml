@@ -1,0 +1,10 @@
+version: '3.9'
+
+services:
+  web_server:
+    container_name: Tomcat
+    build:
+      context: ./http-service
+    image: web-server
+    networks:
+      - emqx_bridge
