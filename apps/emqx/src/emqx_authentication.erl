@@ -59,7 +59,7 @@
         , delete_user/3
         , update_user/4
         , lookup_user/3
-        , list_users/2
+        , list_users/3
         ]).
 
 %% gen_server callbacks
@@ -378,10 +378,9 @@ update_user(ChainName, AuthenticatorID, UserID, NewUserInfo) ->
 lookup_user(ChainName, AuthenticatorID, UserID) ->
     call({lookup_user, ChainName, AuthenticatorID, UserID}).
 
-%% TODO: Support pagination
--spec list_users(chain_name(), authenticator_id()) -> {ok, [user_info()]} | {error, term()}.
-list_users(ChainName, AuthenticatorID) ->
-    call({list_users, ChainName, AuthenticatorID}).
+-spec list_users(chain_name(), authenticator_id(), map()) -> {ok, [user_info()]} | {error, term()}.
+list_users(ChainName, AuthenticatorID, Params) ->
+    call({list_users, ChainName, AuthenticatorID, Params}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -540,8 +539,8 @@ handle_call({lookup_user, ChainName, AuthenticatorID, UserID}, _From, State) ->
     Reply = call_authenticator(ChainName, AuthenticatorID, lookup_user, [UserID]),
     reply(Reply, State);
 
-handle_call({list_users, ChainName, AuthenticatorID}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, list_users, []),
+handle_call({list_users, ChainName, AuthenticatorID, PageParams}, _From, State) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, list_users, [PageParams]),
     reply(Reply, State);
 
 handle_call(Req, _From, State) ->
