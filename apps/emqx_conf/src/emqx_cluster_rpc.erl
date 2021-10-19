@@ -19,7 +19,7 @@
 %% API
 -export([start_link/0, mnesia/1]).
 -export([multicall/3, multicall/5, query/1, reset/0, status/0, skip_failed_commit/1]).
--export([get_latest_tnx_id/0]).
+-export([get_self_tnx_id/0]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
     handle_continue/2, code_change/3]).
@@ -126,9 +126,15 @@ reset() -> gen_server:call(?MODULE, reset).
 status() ->
     transaction(fun trans_status/0, []).
 
--spec get_latest_tnx_id() -> {'atomic', integer()} | {'aborted', Reason :: term()}.
-get_latest_tnx_id() ->
-    ekka_mnesia:ro_transaction(?CLUSTER_RPC_SHARD, fun() -> get_latest_id() end).
+-spec get_self_tnx_id() -> {'atomic', integer()} | {'aborted', Reason :: term()}.
+get_self_tnx_id() ->
+    Node = node(),
+    ekka_mnesia:ro_transaction(?CLUSTER_RPC_SHARD, fun() ->
+        case mnesia:wread({?CLUSTER_COMMIT, Node}) of
+            [] -> -1;
+            [#cluster_rpc_commit{tnx_id = TnxId}] -> TnxId
+        end
+                                                   end).
 
 %% Regardless of what MFA is returned, consider it a success),
 %% then move to the next tnxId.

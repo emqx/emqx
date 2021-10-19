@@ -81,7 +81,7 @@ get_override_config_file() ->
                     case erlang:whereis(emqx_config_handler) of
                         undefined -> {error, Init#{msg => "emqx_config_handler_not_ready"}};
                         _ ->
-                            case emqx_cluster_rpc:get_latest_tnx_id() of
+                            case emqx_cluster_rpc:get_self_tnx_id() of
                                 {atomic, TnxId} ->
                                     WallClock = erlang:statistics(wall_clock),
                                     %% To prevent others from updating the file while we reading.
