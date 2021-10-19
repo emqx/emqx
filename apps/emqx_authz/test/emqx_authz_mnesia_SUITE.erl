@@ -54,19 +54,19 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(t_authz, Config) ->
-    mnesia:transaction(fun mria:dirty_write/1, [#emqx_acl{who = {?ACL_TABLE_USERNAME, <<"test_username">>},
-                                                          rules = [{allow, publish, <<"test/%u">>},
-                                                                   {allow, subscribe, <<"eq #">>}
-                                                                  ]
-                                                     }]),
-    mnesia:transaction(fun mria:dirty_write/1, [#emqx_acl{who = {?ACL_TABLE_CLIENTID, <<"test_clientid">>},
-                                                          rules = [{allow, publish, <<"test/%c">>},
-                                                                   {deny, subscribe, <<"eq #">>}
-                                                                  ]
-                                                         }]),
-    mnesia:transaction(fun mria:dirty_write/1, [#emqx_acl{who = ?ACL_TABLE_ALL,
-                                                          rules = [{deny, all, <<"#">>}]
-                                                         }]),
+    mria:dirty_write(#emqx_acl{who = {?ACL_TABLE_USERNAME, <<"test_username">>},
+                               rules = [{allow, publish, <<"test/%u">>},
+                                        {allow, subscribe, <<"eq #">>}
+                                       ]
+                              }),
+    mria:dirty_write(#emqx_acl{who = {?ACL_TABLE_CLIENTID, <<"test_clientid">>},
+                               rules = [{allow, publish, <<"test/%c">>},
+                                        {deny, subscribe, <<"eq #">>}
+                                       ]
+                              }),
+    mria:dirty_write(#emqx_acl{who = ?ACL_TABLE_ALL,
+                               rules = [{deny, all, <<"#">>}]
+                              }),
     Config;
 init_per_testcase(_, Config) -> Config.
 
