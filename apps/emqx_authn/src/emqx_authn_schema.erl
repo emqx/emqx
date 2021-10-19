@@ -22,7 +22,7 @@
         ]).
 
 common_fields() ->
-    [ {enable,    fun enable/1}
+    [ {enable, fun enable/1}
     ].
 
 enable(type) -> boolean();

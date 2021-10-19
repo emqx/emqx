@@ -14,33 +14,30 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc Authenticator management API module.
+%% Authentication is a core functionality of MQTT,
+%% the 'emqx' APP provides APIs for other APPs to implement
+%% the authentication callbacks.
 -module(emqx_authentication).
 
 -behaviour(gen_server).
--behaviour(hocon_schema).
--behaviour(emqx_config_handler).
 
 -include("emqx.hrl").
 -include("logger.hrl").
 
--export([ roots/0
-        , fields/1
-        ]).
-
--export([ pre_config_update/2
-        , post_config_update/4
-        ]).
-
+%% The authentication entrypoint.
 -export([ authenticate/2
         ]).
 
--export([ initialize_authentication/2 ]).
-
+%% Authenticator manager process start/stop
 -export([ start_link/0
         , stop/0
+        , get_providers/0
         ]).
 
--export([ register_provider/2
+%% Authenticator management APIs
+-export([ initialize_authentication/2
+        , register_provider/2
         , register_providers/1
         , deregister_provider/1
         , deregister_providers/1
@@ -56,6 +53,7 @@
         , move_authenticator/3
         ]).
 
+%% APIs for observer built-in-database
 -export([ import_users/3
         , add_user/3
         , delete_user/3
@@ -63,8 +61,6 @@
         , lookup_user/3
         , list_users/2
         ]).
-
--export([ generate_id/1 ]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -74,6 +70,20 @@
         , terminate/2
         , code_change/3
         ]).
+
+%% utility functions
+-export([ authenticator_id/1
+        ]).
+
+%% proxy callback
+-export([ pre_config_update/2
+        , post_config_update/4
+        ]).
+
+-export_type([ authenticator_id/0
+             , position/0
+             , chain_name/0
+             ]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -88,10 +98,6 @@
 -type chain_name() :: atom().
 -type authenticator_id() :: binary().
 -type position() :: top | bottom | {before, authenticator_id()}.
--type update_request() :: {create_authenticator, chain_name(), map()}
-                        | {delete_authenticator, chain_name(), authenticator_id()}
-                        | {update_authenticator, chain_name(), authenticator_id(), map()}
-                        | {move_authenticator, chain_name(), authenticator_id(), position()}.
 -type authn_type() :: atom() | {atom(), atom()}.
 -type provider() :: module().
 
@@ -103,8 +109,7 @@
                            enable := boolean(),
                            state := map()}.
 
-
--type config() :: #{atom() => term()}.
+-type config() :: emqx_authentication_config:config().
 -type state() :: #{atom() => term()}.
 -type extra() :: #{is_superuser := boolean(),
                    atom() => term()}.
@@ -174,117 +179,6 @@
                     ]).
 
 %%------------------------------------------------------------------------------
-%% Hocon Schema
-%%------------------------------------------------------------------------------
-
-roots() -> [{authentication, fun authentication/1}].
-
-fields(_) -> [].
-
-authentication(type) ->
-    {ok, Refs} = get_refs(),
-    hoconsc:union([hoconsc:array(hoconsc:union(Refs)) | Refs]);
-authentication(default) -> [];
-authentication(_) -> undefined.
-
-%%------------------------------------------------------------------------------
-%% Callbacks of config handler
-%%------------------------------------------------------------------------------
-
--spec pre_config_update(update_request(), emqx_config:raw_config())
-    -> {ok, map() | list()} | {error, term()}.
-pre_config_update(UpdateReq, OldConfig) ->
-    case do_pre_config_update(UpdateReq, to_list(OldConfig)) of
-        {error, Reason} -> {error, Reason};
-        {ok, NewConfig} -> {ok, may_to_map(NewConfig)}
-    end.
-
-do_pre_config_update({create_authenticator, ChainName, Config}, OldConfig) ->
-    try 
-        CertsDir = certs_dir([to_bin(ChainName), generate_id(Config)]),
-        NConfig = convert_certs(CertsDir, Config),
-        {ok, OldConfig ++ [NConfig]}
-    catch
-        error:{save_cert_to_file, _} = Reason ->
-            {error, Reason};
-        error:{missing_parameter, _} = Reason ->
-            {error, Reason}
-    end;
-do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldConfig) ->
-    NewConfig = lists:filter(fun(OldConfig0) ->
-                                AuthenticatorID =/= generate_id(OldConfig0)
-                             end, OldConfig),
-    {ok, NewConfig};
-do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
-    try 
-        CertsDir = certs_dir([to_bin(ChainName), AuthenticatorID]),
-        NewConfig = lists:map(
-                        fun(OldConfig0) ->
-                            case AuthenticatorID =:= generate_id(OldConfig0) of
-                                true -> convert_certs(CertsDir, Config, OldConfig0);
-                                false -> OldConfig0
-                            end
-                        end, OldConfig),
-        {ok, NewConfig}
-    catch
-        error:{save_cert_to_file, _} = Reason ->
-            {error, Reason};
-         error:{missing_parameter, _} = Reason ->
-            {error, Reason}
-    end;
-do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}, OldConfig) ->
-    case split_by_id(AuthenticatorID, OldConfig) of
-        {error, Reason} -> {error, Reason};
-        {ok, Part1, [Found | Part2]} ->
-            case Position of
-                top ->
-                    {ok, [Found | Part1] ++ Part2};
-                bottom ->
-                    {ok, Part1 ++ Part2 ++ [Found]};
-                {before, Before} ->
-                    case split_by_id(Before, Part1 ++ Part2) of
-                        {error, Reason} ->
-                            {error, Reason};
-                        {ok, NPart1, [NFound | NPart2]} ->
-                            {ok, NPart1 ++ [Found, NFound | NPart2]}
-                    end
-            end
-    end.
-
--spec post_config_update(update_request(), map() | list(), emqx_config:raw_config(), emqx_config:app_envs())
-    -> ok | {ok, map()} | {error, term()}.
-post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs) ->
-    do_post_config_update(UpdateReq, check_config(to_list(NewConfig)), OldConfig, AppEnvs).
-
-do_post_config_update({create_authenticator, ChainName, Config}, _NewConfig, _OldConfig, _AppEnvs) ->
-    NConfig = check_config(Config),
-    _ = create_chain(ChainName),
-    create_authenticator(ChainName, NConfig);
-
-do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewConfig, OldConfig, _AppEnvs) ->
-    case delete_authenticator(ChainName, AuthenticatorID) of
-        ok ->
-            [Config] = [Config0 || Config0 <- to_list(OldConfig), AuthenticatorID == generate_id(Config0)],
-            CertsDir = certs_dir([to_bin(ChainName), AuthenticatorID]),
-            clear_certs(CertsDir, Config),
-            ok;
-        {error, Reason} ->
-            {error, Reason}
-    end;
-
-do_post_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, _NewConfig, _OldConfig, _AppEnvs) ->
-    NConfig = check_config(Config),
-    update_authenticator(ChainName, AuthenticatorID, NConfig);
-
-do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}, _NewConfig, _OldConfig, _AppEnvs) ->
-    move_authenticator(ChainName, AuthenticatorID, Position).
-
-check_config(Config) ->
-    #{authentication := CheckedConfig} =
-        hocon_schema:check_plain(?MODULE, #{<<"authentication">> => Config}, #{atom_key => true}),
-    CheckedConfig.
-
-%%------------------------------------------------------------------------------
 %% Authenticate
 %%------------------------------------------------------------------------------
 
@@ -338,12 +232,30 @@ get_enabled(Authenticators) ->
 %% APIs
 %%------------------------------------------------------------------------------
 
--spec initialize_authentication(chain_name(), [#{binary() => term()}]) -> ok.
-initialize_authentication(_, []) ->
-    ok;
+pre_config_update(UpdateReq, OldConfig) ->
+    emqx_authentication_config:pre_config_update(UpdateReq, OldConfig).
+
+post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs) ->
+    emqx_authentication_config:post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs).
+
+%% @doc Get all registered authentication providers.
+get_providers() ->
+    call(get_providers).
+
+%% @doc Get authenticator identifier from its config.
+%% The authenticator config must contain a 'mechanism' key
+%% and maybe a 'backend' key.
+%% This function works with both parsed (atom keys) and raw (binary keys)
+%% configurations.
+authenticator_id(Config) ->
+    emqx_authentication_config:authenticator_id(Config).
+
+%% @doc Call this API to initialize authenticators implemented in another APP.
+-spec initialize_authentication(chain_name(), config()) -> ok.
+initialize_authentication(_, []) -> ok;
 initialize_authentication(ChainName, AuthenticatorsConfig) ->
     _ = create_chain(ChainName),
-    CheckedConfig = check_config(to_list(AuthenticatorsConfig)),
+    CheckedConfig = to_list(AuthenticatorsConfig),
     lists:foreach(fun(AuthenticatorConfig) ->
         case create_authenticator(ChainName, AuthenticatorConfig) of
             {ok, _} ->
@@ -351,7 +263,7 @@ initialize_authentication(ChainName, AuthenticatorsConfig) ->
             {error, Reason} ->
                 ?SLOG(error, #{
                     msg => "failed_to_create_authenticator",
-                    authenticator => generate_id(AuthenticatorConfig),
+                    authenticator => authenticator_id(AuthenticatorConfig),
                     reason => Reason
                 })
         end
@@ -364,10 +276,6 @@ start_link() ->
 -spec stop() -> ok.
 stop() ->
     gen_server:stop(?MODULE).
-
--spec get_refs() -> {ok, Refs} when Refs :: [{authn_type(), module()}].
-get_refs() ->
-    call(get_refs).
 
 %% @doc Register authentication providers.
 %% A provider is a tuple of `AuthNType' the module which implements
@@ -472,20 +380,6 @@ lookup_user(ChainName, AuthenticatorID, UserID) ->
 list_users(ChainName, AuthenticatorID) ->
     call({list_users, ChainName, AuthenticatorID}).
 
--spec generate_id(config()) -> authenticator_id().
-generate_id(#{mechanism := Mechanism0, backend := Backend0}) ->
-    Mechanism = to_bin(Mechanism0),
-    Backend = to_bin(Backend0),
-    <<Mechanism/binary, ":", Backend/binary>>;
-generate_id(#{mechanism := Mechanism}) ->
-    to_bin(Mechanism);
-generate_id(#{<<"mechanism">> := Mechanism, <<"backend">> := Backend}) ->
-    <<Mechanism/binary, ":", Backend/binary>>;
-generate_id(#{<<"mechanism">> := Mechanism}) ->
-    Mechanism;
-generate_id(_) ->
-    error({missing_parameter, mechanism}).
-
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -498,6 +392,8 @@ init(_Opts) ->
     ok = emqx_config_handler:add_handler([listeners, '?', '?', authentication], ?MODULE),
     {ok, #{hooked => false, providers => #{}}}.
 
+handle_call(get_providers, _From, #{providers := Providers} = State) ->
+    reply(Providers, State);
 handle_call({register_providers, Providers}, _From,
             #{providers := Reg0} = State) ->
     case lists:filter(fun({T, _}) -> maps:is_key(T, Reg0) end, Providers) of
@@ -512,12 +408,6 @@ handle_call({register_providers, Providers}, _From,
 
 handle_call({deregister_providers, AuthNTypes}, _From, #{providers := Providers} = State) ->
     reply(ok, State#{providers := maps:without(AuthNTypes, Providers)});
-
-handle_call(get_refs, _From, #{providers := Providers} = State) ->
-    Refs = lists:foldl(fun({_, Provider}, Acc) ->
-                           Acc ++ Provider:refs()
-                       end, [], maps:to_list(Providers)),
-    reply({ok, Refs}, State);
 
 handle_call({create_chain, Name}, _From, State) ->
     case ets:member(?CHAINS_TAB, Name) of
@@ -549,9 +439,9 @@ handle_call({lookup_chain, Name}, _From, State) ->
     end;
 
 handle_call({create_authenticator, ChainName, Config}, _From, #{providers := Providers} = State) ->
-    UpdateFun = 
+    UpdateFun =
         fun(#chain{authenticators = Authenticators} = Chain) ->
-            AuthenticatorID = generate_id(Config),
+            AuthenticatorID = authenticator_id(Config),
             case lists:keymember(AuthenticatorID, #authenticator.id, Authenticators) of
                 true ->
                     {error, {already_exists, {authenticator, AuthenticatorID}}};
@@ -570,7 +460,7 @@ handle_call({create_authenticator, ChainName, Config}, _From, #{providers := Pro
     reply(Reply, maybe_hook(State));
 
 handle_call({delete_authenticator, ChainName, AuthenticatorID}, _From, State) ->
-    UpdateFun = 
+    UpdateFun =
         fun(#chain{authenticators = Authenticators} = Chain) ->
             case lists:keytake(AuthenticatorID, #authenticator.id, Authenticators) of
                 false ->
@@ -592,7 +482,7 @@ handle_call({update_authenticator, ChainName, AuthenticatorID, Config}, _From, S
                     {error, {not_found, {authenticator, AuthenticatorID}}};
                 #authenticator{provider = Provider,
                                state    = #{version := Version} = ST} = Authenticator ->
-                    case AuthenticatorID =:= generate_id(Config) of
+                    case AuthenticatorID =:= authenticator_id(Config) of
                         true ->
                             Unique = unique(ChainName, AuthenticatorID, Version),
                             case Provider:update(Config#{'_unique' => Unique}, ST) of
@@ -614,7 +504,7 @@ handle_call({update_authenticator, ChainName, AuthenticatorID, Config}, _From, S
     reply(Reply, State);
 
 handle_call({move_authenticator, ChainName, AuthenticatorID, Position}, _From, State) ->
-    UpdateFun = 
+    UpdateFun =
         fun(#chain{authenticators = Authenticators} = Chain) ->
             case do_move_authenticator(AuthenticatorID, Authenticators, Position) of
                 {ok, NAuthenticators} ->
@@ -663,9 +553,9 @@ handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    emqx_config_handler:remove_handler([authentication]),
-    emqx_config_handler:remove_handler([listeners, '?', '?', authentication]),
+terminate(Reason, _State) ->
+    ?SLOG(error, #{msg => "emqx_authentication_terminating",
+                   reason => Reason}),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -673,128 +563,6 @@ code_change(_OldVsn, State, _Extra) ->
 
 reply(Reply, State) ->
     {reply, Reply, State}.
-
-%%------------------------------------------------------------------------------
-%% Internal functions
-%%------------------------------------------------------------------------------
-
-certs_dir(Dirs) when is_list(Dirs) ->
-    to_bin(filename:join([emqx:get_config([node, data_dir]), "certs/authn"] ++ Dirs)).
-
-convert_certs(CertsDir, Config) ->
-    case maps:get(<<"ssl">>, Config, undefined) of
-        undefined ->
-            Config;
-        SSLOpts ->
-            NSSLOPts = lists:foldl(fun(K, Acc) ->
-                               case maps:get(K, Acc, undefined) of
-                                   undefined -> Acc;
-                                   PemBin ->
-                                       CertFile = generate_filename(CertsDir, K),
-                                       ok = save_cert_to_file(CertFile, PemBin),
-                                       Acc#{K => CertFile}
-                               end
-                           end, SSLOpts, [<<"certfile">>, <<"keyfile">>, <<"cacertfile">>]),
-            Config#{<<"ssl">> => NSSLOPts}
-    end.
-
-convert_certs(CertsDir, NewConfig, OldConfig) ->
-    case maps:get(<<"ssl">>, NewConfig, undefined) of
-        undefined ->
-            NewConfig;
-        NewSSLOpts ->
-            OldSSLOpts = maps:get(<<"ssl">>, OldConfig, #{}),
-            Diff = diff_certs(NewSSLOpts, OldSSLOpts),
-            NSSLOpts = lists:foldl(fun({identical, K}, Acc) ->
-                                    Acc#{K => maps:get(K, OldSSLOpts)};
-                                    ({_, K}, Acc) ->
-                                    CertFile = generate_filename(CertsDir, K),
-                                    ok = save_cert_to_file(CertFile, maps:get(K, NewSSLOpts)),
-                                    Acc#{K => CertFile}
-                                end, NewSSLOpts, Diff),
-            NewConfig#{<<"ssl">> => NSSLOpts}
-    end.
-
-clear_certs(CertsDir, Config) ->
-    case maps:get(<<"ssl">>, Config, undefined) of
-        undefined ->
-            ok;
-        SSLOpts ->
-            lists:foreach(
-                fun({_, Filename}) ->
-                    _ = file:delete(filename:join([CertsDir, Filename]))
-                end,
-                maps:to_list(maps:with([<<"certfile">>, <<"keyfile">>, <<"cacertfile">>], SSLOpts)))
-    end.
-
-save_cert_to_file(Filename, PemBin) ->
-    case public_key:pem_decode(PemBin) =/= [] of
-        true ->
-            case filelib:ensure_dir(Filename) of
-                ok ->
-                    case file:write_file(Filename, PemBin) of
-                        ok -> ok;
-                        {error, Reason} -> error({save_cert_to_file, {write_file, Reason}})
-                    end;
-                {error, Reason} ->
-                    error({save_cert_to_file, {ensure_dir, Reason}})
-            end;
-        false ->
-            error({save_cert_to_file, invalid_certificate})
-    end.
-
-generate_filename(CertsDir, Key) ->
-    Prefix = case Key of
-                 <<"keyfile">> -> "key-";
-                 <<"certfile">> -> "cert-";
-                 <<"cacertfile">> -> "cacert-"
-             end,
-    to_bin(filename:join([CertsDir, Prefix ++ emqx_misc:gen_id() ++ ".pem"])).
-
-diff_certs(NewSSLOpts, OldSSLOpts) ->
-    Keys = [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>],
-    CertPems = maps:with(Keys, NewSSLOpts),
-    CertFiles = maps:with(Keys, OldSSLOpts),
-    Diff = lists:foldl(fun({K, CertFile}, Acc) ->
-                    case maps:find(K, CertPems) of
-                        error -> Acc;
-                        {ok, PemBin1} ->
-                            {ok, PemBin2} = file:read_file(CertFile),
-                            case diff_cert(PemBin1, PemBin2) of
-                                true ->
-                                    [{changed, K} | Acc];
-                                false ->
-                                    [{identical, K} | Acc]
-                            end
-                    end
-                end,
-                [], maps:to_list(CertFiles)),
-    Added = [{added, K} || K <- maps:keys(maps:without(maps:keys(CertFiles), CertPems))],
-    Diff ++ Added.
-
-diff_cert(Pem1, Pem2) ->
-    cal_md5_for_cert(Pem1) =/= cal_md5_for_cert(Pem2).
-
-cal_md5_for_cert(Pem) ->
-    crypto:hash(md5, term_to_binary(public_key:pem_decode(Pem))).
-
-split_by_id(ID, AuthenticatorsConfig) ->
-    case lists:foldl(
-             fun(C, {P1, P2, F0}) ->
-                 F = case ID =:= generate_id(C) of
-                         true -> true;
-                         false -> F0
-                     end,
-                 case F of
-                     false -> {[C | P1], P2, F};
-                     true -> {P1, [C | P2], F}
-                 end
-             end, {[], [], false}, AuthenticatorsConfig) of
-        {_, _, false} ->
-            {error, {not_found, {authenticator, ID}}};
-        {Part1, Part2, true} ->
-            {ok, lists:reverse(Part1), lists:reverse(Part2)}
-    end.
 
 global_chain(mqtt) ->
     'mqtt:global';
@@ -942,22 +710,9 @@ authn_type(#{mechanism := Mechanism, backend := Backend}) ->
 authn_type(#{mechanism := Mechanism}) ->
     Mechanism.
 
-may_to_map([L]) ->
-    L;
-may_to_map(L) ->
-    L.
-
-to_list(undefined) ->
-    [];
-to_list(M) when M =:= #{} ->
-    [];
-to_list(M) when is_map(M) ->
-    [M];
-to_list(L) when is_list(L) ->
-    L.
-
-to_bin(B) when is_binary(B) -> B;
-to_bin(L) when is_list(L) -> list_to_binary(L);
-to_bin(A) when is_atom(A) -> atom_to_binary(A).
+to_list(undefined) -> [];
+to_list(M) when M =:= #{} -> [];
+to_list(M) when is_map(M) -> [M];
+to_list(L) when is_list(L) -> L.
 
 call(Call) -> gen_server:call(?MODULE, Call, infinity).

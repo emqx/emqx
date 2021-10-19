@@ -62,7 +62,7 @@ fields(post) ->
 
 common_fields() ->
     [ {mechanism,       {enum, ['password-based']}}
-    , {backend,         {enum, ['http-server']}}
+    , {backend,         {enum, ['http-server', 'http']}} %% TODO: delete http
     , {url,             fun url/1}
     , {body,            fun body/1}
     , {request_timeout, fun request_timeout/1}
@@ -78,6 +78,7 @@ validations() ->
 
 url(type) -> binary();
 url(validator) -> [fun check_url/1];
+url(nullable) -> false;
 url(_) -> undefined.
 
 headers(type) -> map();
@@ -214,11 +215,19 @@ transform_header_name(Headers) ->
               end, #{}, Headers).
 
 check_ssl_opts(Conf) ->
-    emqx_connector_http:check_ssl_opts("url", Conf).
+    case parse_url(hocon_schema:get_value("config.url", Conf)) of
+        #{scheme := https} ->
+            case hocon_schema:get_value("config.ssl.enable", Conf) of
+                true -> ok;
+                false -> false
+            end;
+        #{scheme := http} ->
+            ok
+    end.
 
 check_headers(Conf) ->
-    Method = hocon_schema:get_value("method", Conf),
-    Headers = hocon_schema:get_value("headers", Conf),
+    Method = hocon_schema:get_value("config.method", Conf),
+    Headers = hocon_schema:get_value("config.headers", Conf),
     case Method =:= get andalso maps:get(<<"content-type">>, Headers, undefined) =/= undefined of
         true -> false;
         false -> true

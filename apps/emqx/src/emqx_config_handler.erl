@@ -71,15 +71,15 @@ stop() ->
 update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
     %% force covert the path to a list of atoms, as there maybe some wildcard names/ids in the path
     AtomKeyPath = [atom(Key) || Key <- ConfKeyPath],
-    gen_server:call(?MODULE, {change_config, SchemaModule, AtomKeyPath, UpdateArgs}).
+    gen_server:call(?MODULE, {change_config, SchemaModule, AtomKeyPath, UpdateArgs}, infinity).
 
 -spec add_handler(emqx_config:config_key_path(), handler_name()) -> ok.
 add_handler(ConfKeyPath, HandlerName) ->
-    gen_server:call(?MODULE, {add_handler, ConfKeyPath, HandlerName}).
+    gen_server:call(?MODULE, {add_handler, ConfKeyPath, HandlerName}, infinity).
 
 -spec remove_handler(emqx_config:config_key_path()) -> ok.
 remove_handler(ConfKeyPath) ->
-    gen_server:call(?MODULE, {remove_handler, ConfKeyPath}).
+    gen_server:call(?MODULE, {remove_handler, ConfKeyPath}, infinity).
 
 %%============================================================================
 
@@ -247,7 +247,8 @@ call_post_config_update(Handlers, OldConf, NewConf, AppEnvs, UpdateReq, Result) 
         true ->
             case HandlerName:post_config_update(UpdateReq, NewConf, OldConf, AppEnvs) of
                 ok -> {ok, Result};
-                {ok, Result1} -> {ok, Result#{HandlerName => Result1}};
+                {ok, Result1} ->
+                    {ok, Result#{HandlerName => Result1}};
                 {error, Reason} -> {error, {post_config_update, HandlerName, Reason}}
             end;
         false -> {ok, Result}
