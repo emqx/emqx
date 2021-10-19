@@ -91,7 +91,7 @@ roots() ->
           #{ desc => """
 Authorization a.k.a ACL.<br>
 In EMQ X, MQTT client access control is extremly flexible.<br>
-A an out of the box set of authorization data sources are supported.
+An out of the box set of authorization data sources are supported.
 For example,<br>
 'file' source is to support concise and yet generic ACL rules in a file;<br>
 'built-in-database' source can be used to store per-client customisable rule sets,
