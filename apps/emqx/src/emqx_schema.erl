@@ -165,6 +165,13 @@ fields("authorization") ->
     [ {"no_match",
        sc(hoconsc:enum([allow, deny]),
           #{ default => allow
+             %% TODO: make sources a reference link
+           , desc => """
+Default access control action if the user or client matches no ACL rules,
+or if no such user or client is found by the configurable authorization
+sources such as built-in-database, an HTTP API, or a query against PostgreSQL.
+Find more details in 'authorization.sources' config.
+"""
            })}
     , {"deny_action",
        sc(hoconsc:enum([ignore, disconnect]),
