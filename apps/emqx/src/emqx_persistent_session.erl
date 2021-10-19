@@ -345,7 +345,14 @@ mark_as_delivered(SessionID, List) ->
 
 do_mark_as_delivered(SessionID, [{deliver, STopic, Msg}|Left]) ->
     MsgID = emqx_message:id(Msg),
-    put_session_message({SessionID, MsgID, STopic, ?DELIVERED}),
+    case next_session_message({SessionID, MsgID, STopic, ?ABANDONED}) of
+        {SessionID, MsgID, STopic, ?UNDELIVERED} = Key ->
+            %% We can safely delete this entry
+            %% instead of marking it as delivered.
+            delete_session_message(Key);
+        _ ->
+            put_session_message({SessionID, MsgID, STopic, ?DELIVERED})
+    end,
     do_mark_as_delivered(SessionID, Left);
 do_mark_as_delivered(_SessionID, []) ->
     ok.
