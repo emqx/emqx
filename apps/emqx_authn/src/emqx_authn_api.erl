@@ -836,6 +836,24 @@ list_users_api_spec() ->
                     type => string
                 },
                 required => true
+            },
+            #{
+                name => page,
+                in => query,
+                description => <<"Page Index">>,
+                schema => #{
+                    type => integer
+                },
+                required => false
+            },
+            #{
+                name => limit,
+                in => query,
+                description => <<"Page limit">>,
+                schema => #{
+                    type => integer
+                },
+                required => false
             }
         ],
         responses => #{
@@ -1796,8 +1814,8 @@ import_users2(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
 
 users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
     add_user(?GLOBAL, AuthenticatorID, UserInfo);
-users(get, #{bindings := #{id := AuthenticatorID}}) ->
-    list_users(?GLOBAL, AuthenticatorID).
+users(get, #{bindings := #{id := AuthenticatorID}, query_string := PageParams}) ->
+    list_users(?GLOBAL, AuthenticatorID, PageParams).
 
 users2(put, #{bindings := #{id := AuthenticatorID,
                             user_id := UserID}, body := UserInfo}) ->
@@ -1811,8 +1829,9 @@ users3(post, #{bindings := #{listener_id := ListenerID,
                              id := AuthenticatorID}, body := UserInfo}) ->
     add_user(ListenerID, AuthenticatorID, UserInfo);
 users3(get, #{bindings := #{listener_id := ListenerID,
-                            id := AuthenticatorID}}) ->
-    list_users(ListenerID, AuthenticatorID).
+                            id := AuthenticatorID},
+              query_string := PageParams}) ->
+    list_users(ListenerID, AuthenticatorID, PageParams).
 
 users4(put, #{bindings := #{listener_id := ListenerID,
                             id := AuthenticatorID,
@@ -1946,9 +1965,9 @@ delete_user(ChainName0, AuthenticatorID, UserID) ->
             serialize_error(Reason)
     end.
 
-list_users(ChainName0, AuthenticatorID) ->
+list_users(ChainName0, AuthenticatorID, PageParams) ->
     ChainName = to_atom(ChainName0),
-    case ?AUTHN:list_users(ChainName, AuthenticatorID) of
+    case ?AUTHN:list_users(ChainName, AuthenticatorID, PageParams) of
         {ok, Users} ->
             {200, Users};
         {error, Reason} ->
