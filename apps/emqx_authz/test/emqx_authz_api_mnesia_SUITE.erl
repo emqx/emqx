@@ -157,12 +157,12 @@ t_api(_) ->
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database", "all"]), ?EXAMPLE_ALL),
     {ok, 200, Request7} = request(get, uri(["authorization", "sources", "built-in-database", "all"]), []),
-    [#{<<"rules">> := Rules5}] = jsx:decode(Request7),
+    #{<<"rules">> := Rules5} = jsx:decode(Request7),
     ?assertEqual(3, length(Rules5)),
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database", "all"]), ?EXAMPLE_ALL#{rules => []}),
     {ok, 200, Request8} = request(get, uri(["authorization", "sources", "built-in-database", "all"]), []),
-    [#{<<"rules">> := Rules6}] = jsx:decode(Request8),
+    #{<<"rules">> := Rules6} = jsx:decode(Request8),
     ?assertEqual(0, length(Rules6)),
 
     {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "username"]), [ #{username => N, rules => []} || N <- lists:seq(1, 20) ]),
