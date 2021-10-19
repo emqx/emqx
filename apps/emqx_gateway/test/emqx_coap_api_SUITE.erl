@@ -57,6 +57,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(Config) ->
+    {ok, _} = emqx:remove_config([<<"gateway">>,<<"coap">>]),
     emqx_mgmt_api_test_util:end_suite([emqx_gateway]),
     Config.
 
