@@ -188,6 +188,6 @@ t_delete3(_) ->
 clear_tables() -> emqx_trie:clear_tables().
 
 trans(Fun) ->
-    mnesia:transaction(Fun).
+    mria:transaction(?ROUTE_SHARD, Fun).
 trans(Fun, Args) ->
-    mnesia:transaction(Fun, Args).
+    mria:transaction(?ROUTE_SHARD, Fun, Args).

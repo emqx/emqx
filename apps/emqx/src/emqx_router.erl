@@ -273,7 +273,7 @@ trans(Fun, Args) ->
     {WPid, RefMon} =
         spawn_monitor(
             %% NOTE: this is under the assumption that crashes in Fun
-            %% are caught by mnesia:transaction/2.
+            %% are caught by mria:transaction/2.
             %% Future changes should keep in mind that this process
             %% always exit with database write result.
             fun() ->
