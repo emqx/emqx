@@ -336,8 +336,10 @@ with_gateway(GwName0, Fun) ->
         error : {update_conf_error, already_exist} ->
             return_http_error(400, "Resource already exist");
         Class : Reason : Stk ->
-            ?LOG(error, "Uncatched error: {~p, ~p}, stacktrace: ~0p",
-                        [Class, Reason, Stk]),
+            ?SLOG(error, #{ msg => "uncatched_error"
+                          , reason => {Class, Reason}
+                          , stacktrace => Stk
+                          }),
             return_http_error(500, {Class, Reason, Stk})
     end.
 

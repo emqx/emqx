@@ -476,7 +476,7 @@ handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
     handle_info({sock_error, Reason}, State);
 
 handle_msg({close, Reason}, State) ->
-    ?LOG(debug, "Force to close the socket due to ~p", [Reason]),
+    ?SLOG(debug, #{msg => "force_socket_close", reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_msg({event, connected}, State = #state{
@@ -525,7 +525,7 @@ handle_msg(Msg, State) ->
 terminate(Reason, State = #state{
                              chann_mod = ChannMod,
                              channel = Channel}) ->
-    ?LOG(debug, "Terminated due to ~p", [Reason]),
+    ?SLOG(debug, #{msg => "conn_process_terminated", reason => Reason}),
     _ = ChannMod:terminate(Reason, Channel),
     _ = close_socket(State),
     exit(Reason).
@@ -620,7 +620,7 @@ handle_timeout(TRef, Msg, State) ->
 parse_incoming(Data, State = #state{
                                 chann_mod = ChannMod,
                                 channel = Channel}) ->
-    ?LOG(debug, "RECV ~0p", [Data]),
+    ?SLOG(debug, #{msg => "RECV_data", data => Data}),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     Ctx = ChannMod:info(ctx, Channel),
@@ -643,8 +643,12 @@ parse_incoming(Data, Packets,
             parse_incoming(Rest, [Packet|Packets], NState)
     catch
         error:Reason:Stk ->
-            ?LOG(error, "~nParse failed for ~0p~n~0p~nFrame data:~0p",
-                 [Reason, Stk, Data]),
+            ?SLOG(error, #{ msg => "parse_frame_failed"
+                          , at_state => ParseState
+                          , input_bytes => Data
+                          , reason => Reason
+                          , stacktrace => Stk
+                          }),
             {[{frame_error, Reason}|Packets], State}
     end.
 
@@ -663,7 +667,9 @@ handle_incoming(Packet, State = #state{
                                   }) ->
     Ctx = ChannMod:info(ctx, Channel),
     ok = inc_incoming_stats(Ctx, FrameMod, Packet),
-    ?LOG(debug, "RECV ~ts", [FrameMod:format(Packet)]),
+    ?SLOG(debug, #{ msg => "RECV_packet"
+                  , packet => FrameMod:format(Packet)
+                  }),
     with_channel(handle_in, [Packet], State).
 
 %%--------------------------------------------------------------------
@@ -715,14 +721,19 @@ serialize_and_inc_stats_fun(#state{
     Ctx = ChannMod:info(ctx, Channel),
     fun(Packet) ->
         case FrameMod:serialize_pkt(Packet, Serialize) of
-            <<>> -> ?LOG(warning, "~ts is discarded due to the frame is too large!",
-                         [FrameMod:format(Packet)]),
-                    ok = emqx_gateway_ctx:metrics_inc(Ctx, 'delivery.dropped.too_large'),
-                    ok = emqx_gateway_ctx:metrics_inc(Ctx, 'delivery.dropped'),
-                    <<>>;
-            Data -> ?LOG(debug, "SEND ~ts", [FrameMod:format(Packet)]),
-                    ok = inc_outgoing_stats(Ctx, FrameMod, Packet),
-                    Data
+            <<>> ->
+                ?SLOG(warning, #{ msg => "packet_too_large_discarded"
+                                , packet => FrameMod:format(Packet)
+                                }),
+                 ok = emqx_gateway_ctx:metrics_inc(Ctx, 'delivery.dropped.too_large'),
+                 ok = emqx_gateway_ctx:metrics_inc(Ctx, 'delivery.dropped'),
+                 <<>>;
+            Data ->
+                ?SLOG(debug, #{ msg => "SEND_packet"
+                              , packet => FrameMod:format(Packet)
+                              }),
+                ok = inc_outgoing_stats(Ctx, FrameMod, Packet),
+                Data
         end
     end.
 
@@ -760,7 +771,9 @@ handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
     end;
 
 handle_info({sock_error, Reason}, State) ->
-    ?LOG(debug, "Socket error: ~p", [Reason]),
+    ?SLOG(debug, #{ msg => "sock_error"
+                  , reason => Reason
+                  }),
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_info(Info, State) ->
@@ -775,7 +788,10 @@ ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
         {ok, Limiter1} ->
             State#state{limiter = Limiter1};
         {pause, Time, Limiter1} ->
-            ?LOG(warning, "Pause ~pms due to rate limit", [Time]),
+            %% XXX: which limiter reached?
+            ?SLOG(warning, #{ msg => "reach_rate_limit"
+                            , pause => Time
+                            }),
             TRef = emqx_misc:start_timer(Time, limit_timeout),
             State#state{sockstate   = blocked,
                         limiter     = Limiter1,

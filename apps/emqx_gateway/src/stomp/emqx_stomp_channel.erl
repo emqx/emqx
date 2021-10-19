@@ -280,8 +280,11 @@ auth_connect(_Packet, Channel = #channel{ctx = Ctx,
         {ok, NClientInfo} ->
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
-            ?LOG(warning, "Client ~ts (Username: '~ts') login failed for ~0p",
-                          [ClientId, Username, Reason]),
+            ?SLOG(warning, #{ msg => "client_login_failed"
+                            , clientid => ClientId
+                            , username => Username
+                            , reason => Reason
+                            }),
             {error, Reason}
     end.
 
@@ -315,7 +318,9 @@ process_connect(Channel = #channel{
                        {<<"heart-beat">>, reverse_heartbeats(Heartbeat)}],
             handle_out(connected, Headers, Channel#channel{session = Session});
         {error, Reason} ->
-            ?LOG(error, "Failed to open session du to ~p", [Reason]),
+            ?SLOG(error, #{ msg => "failed_to_open_session"
+                          , reason => Reason
+                          }),
             Headers = [{<<"version">>, <<"1.0,1.1,1.2">>},
                        {<<"content-type">>, <<"text/plain">>}],
             handle_out(connerr, {Headers, undefined, <<"Not Authenticated">>}, Channel)
@@ -403,8 +408,10 @@ handle_in(?PACKET(?CMD_SUBSCRIBE, Headers),
                     handle_out(receipt, receipt_id(Headers), NChannel1)
             end;
         {error, ErrMsg, NChannel} ->
-            ?LOG(error, "Failed to subscribe topic ~ts, reason: ~ts",
-                        [Topic, ErrMsg]),
+            ?SLOG(error, #{ msg => "failed_top_subscribe_topic"
+                          , topic => Topic
+                          , reason => ErrMsg
+                          }),
             handle_out(error, {receipt_id(Headers), ErrMsg}, NChannel)
     end;
 
@@ -507,7 +514,9 @@ handle_in(?PACKET(?CMD_DISCONNECT, Headers), Channel) ->
     shutdown_with_recepit(normal, receipt_id(Headers), Channel);
 
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = _ConnState}) ->
-    ?LOG(error, "Unexpected frame error: ~p", [Reason]),
+    ?SLOG(error, #{ msg => "unexpected_frame_error"
+                  , reason => Reason
+                  }),
     shutdown(Reason, Channel).
 
 with_transaction(Headers, Channel = #channel{transaction = Trans}, Fun) ->
@@ -653,8 +662,10 @@ handle_call({subscribe, Topic, SubOpts}, _From,
                     NChannel1 = NChannel#channel{subscriptions = NSubs},
                     reply(ok, NChannel1);
                 {error, ErrMsg, NChannel} ->
-                    ?LOG(error, "Failed to subscribe topic ~ts, reason: ~ts",
-                                [Topic, ErrMsg]),
+                    ?SLOG(error, #{ msg => "failed_to_subscribe_topic"
+                                  , topic => Topic
+                                  , reason => ErrMsg
+                                  }),
                     reply({error, ErrMsg}, NChannel)
             end
     end;
@@ -715,7 +726,9 @@ handle_call(list_authz_cache, _From, Channel) ->
 %     reply(ok, Channel#channel{quota = Quota});
 
 handle_call(Req, _From, Channel) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{ msg => "unexpected_call"
+                  , call => Req
+                  }),
     reply(ignored, Channel).
 
 %%--------------------------------------------------------------------
@@ -755,7 +768,9 @@ handle_info({sock_closed, Reason},
 
 handle_info({sock_closed, Reason},
             Channel = #channel{conn_state = disconnected}) ->
-    ?LOG(error, "Unexpected sock_closed: ~p", [Reason]),
+    ?SLOG(error, #{ msg => "unexpected_sock_closed"
+                  , reason => Reason
+                  }),
     {ok, Channel};
 
 handle_info(clean_authz_cache, Channel) ->
@@ -763,7 +778,9 @@ handle_info(clean_authz_cache, Channel) ->
     {ok, Channel};
 
 handle_info(Info, Channel) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{ msg => "unexpected_info"
+                  , info => Info
+                  }),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
@@ -828,9 +845,10 @@ handle_deliver(Delivers,
                                             },
                         [Frame|Acc];
                     false ->
-                        ?LOG(error, "Dropped message ~0p due to not found "
-                                    "subscription id for ~ts",
-                                    [Message, emqx_message:topic(Message)]),
+                        ?SLOG(error, #{ msg => "dropped_message_due_to_subscription_not_found"
+                                      , message => Message
+                                      , topic => emqx_message:topic(Message)
+                                      }),
                         metrics_inc('delivery.dropped', Channel),
                         metrics_inc('delivery.dropped.no_subid', Channel),
                         Acc
