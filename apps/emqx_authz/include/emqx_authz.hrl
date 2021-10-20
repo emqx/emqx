@@ -49,7 +49,7 @@
         ignore = 'client.authorize.ignore'
     }).
 
--define(CMD_REPLCAE, replace).
+-define(CMD_REPLACE, replace).
 -define(CMD_DELETE, delete).
 -define(CMD_PREPEND, prepend).
 -define(CMD_APPEND, append).

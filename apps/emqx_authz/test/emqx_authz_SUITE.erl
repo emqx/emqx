@@ -50,14 +50,14 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    {ok, _} = emqx_authz:update(?CMD_REPLCAE, []),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, []),
     emqx_common_test_helpers:stop_apps([emqx_authz, emqx_resource]),
     meck:unload(emqx_resource),
     meck:unload(emqx_schema),
     ok.
 
 init_per_testcase(_, Config) ->
-    {ok, _} = emqx_authz:update(?CMD_REPLCAE, []),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, []),
     Config.
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
@@ -120,7 +120,7 @@ init_per_testcase(_, Config) ->
 %%------------------------------------------------------------------------------
 
 t_update_source(_) ->
-    {ok, _} = emqx_authz:update(?CMD_REPLCAE, [?SOURCE3]),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE3]),
     {ok, _} = emqx_authz:update(?CMD_PREPEND, [?SOURCE2]),
     {ok, _} = emqx_authz:update(?CMD_PREPEND, [?SOURCE1]),
     {ok, _} = emqx_authz:update(?CMD_APPEND, [?SOURCE4]),
@@ -135,12 +135,12 @@ t_update_source(_) ->
                  , #{type := file,  enable := true}
                  ], emqx_conf:get([authorization, sources], [])),
 
-    {ok, _} = emqx_authz:update({?CMD_REPLCAE, http},  ?SOURCE1#{<<"enable">> := false}),
-    {ok, _} = emqx_authz:update({?CMD_REPLCAE, mongodb}, ?SOURCE2#{<<"enable">> := false}),
-    {ok, _} = emqx_authz:update({?CMD_REPLCAE, mysql}, ?SOURCE3#{<<"enable">> := false}),
-    {ok, _} = emqx_authz:update({?CMD_REPLCAE, postgresql}, ?SOURCE4#{<<"enable">> := false}),
-    {ok, _} = emqx_authz:update({?CMD_REPLCAE, redis}, ?SOURCE5#{<<"enable">> := false}),
-    {ok, _} = emqx_authz:update({?CMD_REPLCAE, file},  ?SOURCE6#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, http},  ?SOURCE1#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, mongodb}, ?SOURCE2#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, mysql}, ?SOURCE3#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, postgresql}, ?SOURCE4#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, redis}, ?SOURCE5#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, file},  ?SOURCE6#{<<"enable">> := false}),
 
     ?assertMatch([ #{type := http,  enable := false}
                  , #{type := mongodb, enable := false}
@@ -150,10 +150,10 @@ t_update_source(_) ->
                  , #{type := file,  enable := false}
                  ], emqx_conf:get([authorization, sources], [])),
 
-    {ok, _} = emqx_authz:update(?CMD_REPLCAE, []).
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, []).
 
 t_move_source(_) ->
-    {ok, _} = emqx_authz:update(?CMD_REPLCAE, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
     ?assertMatch([ #{type := http}
                  , #{type := mongodb}
                  , #{type := mysql}

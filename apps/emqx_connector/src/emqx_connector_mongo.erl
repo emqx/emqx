@@ -148,14 +148,23 @@ on_query(InstId, {Action, Collection, Selector, Docs}, AfterQuery, #{poolname :=
     end.
 
 -dialyzer({nowarn_function, [on_health_check/2]}).
-on_health_check(_InstId, #{test_opts := TestOpts} = State) ->
-    case mc_worker_api:connect(TestOpts) of
-        {ok, TestConn} ->
-            mc_worker_api:disconnect(TestConn),
-            {ok, State};
-        {error, _} ->
-            {error, health_check_failed, State}
+on_health_check(_InstId, #{poolname := PoolName} = State) ->
+    case health_check(PoolName) of
+        true -> {ok, State};
+        false -> {error, health_check_failed, State}
     end.
+
+health_check(PoolName) ->
+    Status = [begin
+        case ecpool_worker:client(Worker) of
+            {ok, Conn} ->
+                %% we don't care if this returns something or not, we just to test the connection
+                Res = mongo_api:find_one(Conn, <<"foo">>, {}, #{}),
+                Res == undefined orelse is_map(Res);
+            _ -> false
+        end
+    end || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    length(Status) > 0 andalso lists:all(fun(St) -> St =:= true end, Status).
 
 %% ===================================================================
 connect(Opts) ->

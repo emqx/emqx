@@ -40,7 +40,30 @@ fields("authorization") ->
                     , hoconsc:ref(?MODULE, redis_single)
                     , hoconsc:ref(?MODULE, redis_sentinel)
                     , hoconsc:ref(?MODULE, redis_cluster)
-                    ])}
+                    ]),
+                  default => [],
+                  desc =>
+"""
+Authorization data sources.<br>
+An array of authorization (ACL) data providers.
+It is designed as an array but not a hash-map so the sources can be
+ordered to form a chain of access controls.<br>
+
+
+When authorizing a publish or subscribe action, the configured
+sources are checked in order. When checking an ACL source,
+in case the client (identified by username or client ID) is not found,
+it moves on to the next source. And it stops immediatly
+once an 'allow' or 'deny' decision is returned.<br>
+
+If the client is not found in any of the sources,
+the default action configured in 'authorization.no_match' is applied.<br>
+
+NOTE:
+The source elements are identified by their 'type'.
+It is NOT allowed to configure two or more sources of the same type.
+"""
+                 }
       }
     ];
 fields(file) ->

@@ -72,8 +72,8 @@ move(Type, Position, Opts) ->
 update(Cmd, Sources) ->
     update(Cmd, Sources, #{}).
 
-update({?CMD_REPLCAE, Type}, Sources, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {{?CMD_REPLCAE, type(Type)}, Sources}, Opts);
+update({?CMD_REPLACE, Type}, Sources, Opts) ->
+    emqx:update_config(?CONF_KEY_PATH, {{?CMD_REPLACE, type(Type)}, Sources}, Opts);
 update({?CMD_DELETE, Type}, Sources, Opts) ->
     emqx:update_config(?CONF_KEY_PATH, {{?CMD_DELETE, type(Type)}, Sources}, Opts);
 update(Cmd, Sources, Opts) ->
@@ -101,7 +101,7 @@ do_update({?CMD_APPEND, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
     NConf = Conf ++ Sources,
     ok = check_dup_types(NConf),
     NConf;
-do_update({{?CMD_REPLCAE, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
+do_update({{?CMD_REPLACE, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
     {_Old, Front, Rear} = take(Type, Conf),
     NConf = Front ++ [Source | Rear],
     ok = check_dup_types(NConf),
@@ -112,7 +112,9 @@ do_update({{?CMD_DELETE, Type}, _Source}, Conf) when is_list(Conf) ->
     NConf;
 do_update({_, Sources}, _Conf) when is_list(Sources)->
     %% overwrite the entire config!
-    Sources.
+    Sources;
+do_update({Op, Sources}, Conf) ->
+    error({bad_request, #{op => Op, sources => Sources, conf => Conf}}).
 
 pre_config_update(Cmd, Conf) ->
     {ok, do_update(Cmd, Conf)}.
@@ -137,7 +139,7 @@ do_post_update({?CMD_APPEND, Sources}, _NewSources) ->
     InitedSources = init_sources(check_sources(Sources)),
     emqx_hooks:put('client.authorize', {?MODULE, authorize, [lookup() ++ InitedSources]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({{?CMD_REPLCAE, Type}, Source}, _NewSources) when is_map(Source) ->
+do_post_update({{?CMD_REPLACE, Type}, Source}, _NewSources) when is_map(Source) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     ok = ensure_resource_deleted(OldSource),

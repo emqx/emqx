@@ -22,16 +22,14 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
-
--import(emqx_ct_http, [ request_api/3
-                      , request_api/5
-                      , get_http_data/1
-                      , create_default_app/0
-                      , delete_default_app/0
-                      , default_auth_header/0
-                      , auth_header/2
-                      ]).
+-define(CONF_DEFAULT, <<"""
+authorization
+    {sources = [
+        { type = \"built-in-database\"
+          enable = true
+        }
+    ]}
+""">>).
 
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
@@ -82,33 +80,26 @@
                                      ]
                            }).
 
+roots() -> ["authorization"].
+
+fields("authorization") ->
+    emqx_authz_schema:fields("authorization") ++
+    emqx_schema:fields("authorization").
+
 all() ->
-    []. %% Todo: Waiting for @terry-xiaoyu to fix the config_not_found error
-    % emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 groups() ->
     [].
 
 init_per_suite(Config) ->
-    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_schema, fields, fun("authorization") ->
-                                             meck:passthrough(["authorization"]) ++
-                                             emqx_authz_schema:fields("authorization");
-                                        (F) -> meck:passthrough([F])
-                                     end),
-
-    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
-
-    ok = emqx_common_test_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-
+    ok = emqx_common_test_helpers:start_apps([emqx_authz, emqx_dashboard],
+                                             fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
     {ok, _} = emqx_authz:update(replace, []),
     emqx_common_test_helpers:stop_apps([emqx_authz, emqx_dashboard]),
-    meck:unload(emqx_schema),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -123,9 +114,9 @@ set_special_configs(emqx_dashboard) ->
     emqx_config:put([emqx_dashboard], Config),
     ok;
 set_special_configs(emqx_authz) ->
-    emqx_config:put([authorization], #{sources => [#{type => 'built-in-database', 
-                                                     enable => true}
-                                                  ]}),
+    ok = emqx_config:init_load(?MODULE, ?CONF_DEFAULT),
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
     ok;
 set_special_configs(_App) ->
     ok.
@@ -167,12 +158,12 @@ t_api(_) ->
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database", "all"]), ?EXAMPLE_ALL),
     {ok, 200, Request7} = request(get, uri(["authorization", "sources", "built-in-database", "all"]), []),
-    [#{<<"rules">> := Rules5}] = jsx:decode(Request7),
+    #{<<"rules">> := Rules5} = jsx:decode(Request7),
     ?assertEqual(3, length(Rules5)),
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database", "all"]), ?EXAMPLE_ALL#{rules => []}),
     {ok, 200, Request8} = request(get, uri(["authorization", "sources", "built-in-database", "all"]), []),
-    [#{<<"rules">> := Rules6}] = jsx:decode(Request8),
+    #{<<"rules">> := Rules6} = jsx:decode(Request8),
     ?assertEqual(0, length(Rules6)),
 
     {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "username"]), [ #{username => N, rules => []} || N <- lists:seq(1, 20) ]),
@@ -184,11 +175,14 @@ t_api(_) ->
     {ok, 200, Request10} = request(get, uri(["authorization", "sources", "built-in-database", "clientid?limit=5"]), []),
     ?assertEqual(5, length(jsx:decode(Request10))),
 
-    {ok, 400, _} = request(delete, uri(["authorization", "sources", "built-in-database", "purge-all"]), []),
+    {ok, 400, Msg1} = request(delete, uri(["authorization", "sources", "built-in-database", "purge-all"]), []),
+    ?assertMatch({match, _}, re:run(Msg1, "must\sbe\sdisabled\sbefore")),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database"]),  #{<<"enable">> => true}),
+    %% test idempotence
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database"]),  #{<<"enable">> => true}),
     {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database"]),  #{<<"enable">> => false}),
     {ok, 204, _} = request(delete, uri(["authorization", "sources", "built-in-database", "purge-all"]), []),
     ?assertEqual([], mnesia:dirty_all_keys(?ACL_TABLE)),
-
     ok.
 
 %%--------------------------------------------------------------------

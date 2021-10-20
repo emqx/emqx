@@ -88,9 +88,17 @@ roots() ->
            })}
     , {"authorization",
        sc(hoconsc:ref("authorization"),
-          #{ desc => "In EMQ X, MQTT client access control can be just a few "
-                     "lines of text based rules, or delegated to an external "
-                     "HTTP API, or base externa database query results."
+          #{ desc => """
+Authorization a.k.a ACL.<br>
+In EMQ X, MQTT client access control is extremly flexible.<br>
+An out of the box set of authorization data sources are supported.
+For example,<br>
+'file' source is to support concise and yet generic ACL rules in a file;<br>
+'built-in-database' source can be used to store per-client customisable rule sets,
+natively in the EMQ X node;<br>
+'http' source to make EMQ X call an external HTTP API to make the decision;<br>
+'postgresql' etc. to look up clients or rules from external databases;<br>
+"""
            })}
     ] ++
     emqx_schema:roots(medium) ++

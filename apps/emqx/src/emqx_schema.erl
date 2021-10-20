@@ -165,6 +165,13 @@ fields("authorization") ->
     [ {"no_match",
        sc(hoconsc:enum([allow, deny]),
           #{ default => allow
+             %% TODO: make sources a reference link
+           , desc => """
+Default access control action if the user or client matches no ACL rules,
+or if no such user or client is found by the configurable authorization
+sources such as built-in-database, an HTTP API, or a query against PostgreSQL.
+Find more details in 'authorization.sources' config.
+"""
            })}
     , {"deny_action",
        sc(hoconsc:enum([ignore, disconnect]),
@@ -1319,7 +1326,7 @@ validate_heap_size(Siz) ->
         false -> ok
     end.
 parse_user_lookup_fun(StrConf) ->
-    [ModStr, FunStr] = string:tokens(StrConf, ":"),
+    [ModStr, FunStr] = string:tokens(str(StrConf), ":"),
     Mod = list_to_atom(ModStr),
     Fun = list_to_atom(FunStr),
     {fun Mod:Fun/3, undefined}.
@@ -1338,3 +1345,10 @@ validate_tls_versions(Versions) ->
         [] -> ok;
         Vs -> {error, {unsupported_ssl_versions, Vs}}
     end.
+
+str(A) when is_atom(A) ->
+    atom_to_list(A);
+str(B) when is_binary(B) ->
+    binary_to_list(B);
+str(S) when is_list(S) ->
+    S.
