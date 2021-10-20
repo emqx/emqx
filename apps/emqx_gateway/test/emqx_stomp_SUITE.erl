@@ -384,6 +384,7 @@ t_rest_clienit_info(_) ->
                                     [{<<"id">>, 0},
                                      {<<"destination">>, <<"/queue/foo">>},
                                      {<<"ack">>, <<"client">>}])),
+        timer:sleep(100),
 
         {200, Subs} = request(get, ClientPath ++ "/subscriptions"),
         ?assertEqual(1, length(Subs)),
