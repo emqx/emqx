@@ -185,7 +185,7 @@ end}.
   OldCert = cuttlefish:conf_get("lwm2m.certfile", Conf, undefined),
 
   %% Ciphers
-  SplitFun = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
+  SplitFun = fun(undefined) -> []; (S) -> string:tokens(S, ",") end,
   Ciphers =
       case cuttlefish:conf_get("lwm2m.dtls.ciphers", Conf, undefined) of
           undefined ->
@@ -198,16 +198,17 @@ end}.
           undefined ->
               [];
           C2 ->
-              Psk = lists:map(fun("PSK-AES128-CBC-SHA") -> {psk, aes_128_cbc, sha};
-                                     ("PSK-AES256-CBC-SHA") -> {psk, aes_256_cbc, sha};
-                                     ("PSK-3DES-EDE-CBC-SHA") -> {psk, '3des_ede_cbc', sha};
-                                     ("PSK-RC4-SHA") -> {psk, rc4_128, sha}
-                                  end, SplitFun(C2)),
+              Psk = lists:map(fun("PSK-AES128-CBC-SHA") -> "RSA-PSK-AES128-CBC-SHA";
+                                 ("PSK-AES256-CBC-SHA") -> "RSA-PSK-AES256-CBC-SHA";
+                                 ("PSK-3DES-EDE-CBC-SHA") -> "RSA-PSK-3DES-EDE-CBC-SHA";
+                                 ("PSK-RC4-SHA") -> "RSA-PSK-RC4-SHA";
+                                 (Suite) -> Suite
+                              end, SplitFun(C2)),
               [{ciphers, Psk}, {user_lookup_fun, {fun emqx_psk:lookup/3, <<>>}}]
       end,
   Ciphers /= []
-      andalso PskCiphers /= []
-         andalso cuttlefish:invalid("The 'lwm2m.dtls.ciphers' and 'lwm2m.dtls.psk_ciphers' cannot exist simultaneously."),
+  andalso PskCiphers /= []
+  andalso cuttlefish:invalid("The 'lwm2m.dtls.ciphers' and 'lwm2m.dtls.psk_ciphers' cannot coexist"),
 
   NCiphers = Ciphers ++ PskCiphers,
 
