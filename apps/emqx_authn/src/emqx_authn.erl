@@ -28,8 +28,7 @@ providers() ->
     , {{'password-based', postgresql}, emqx_authn_pgsql}
     , {{'password-based', mongodb}, emqx_authn_mongodb}
     , {{'password-based', redis}, emqx_authn_redis}
-    , {{'password-based', 'http-server'}, emqx_authn_http}
-    , {{'password-based', 'http'}, emqx_authn_http} %% TODO: resolve one
+    , {{'password-based', 'http'}, emqx_authn_http}
     , {jwt, emqx_authn_jwt}
     , {{scram, 'built-in-database'}, emqx_enhanced_authn_scram_mnesia}
     ].

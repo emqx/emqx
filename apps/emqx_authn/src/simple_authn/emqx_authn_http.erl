@@ -61,8 +61,8 @@ fields(post) ->
     ] ++ common_fields().
 
 common_fields() ->
-    [ {mechanism,       {enum, ['password-based']}}
-    , {backend,         {enum, ['http-server', 'http']}} %% TODO: delete http
+    [ {mechanism,       'password-based'}
+    , {backend,         'http'}
     , {url,             fun url/1}
     , {body,            fun body/1}
     , {request_timeout, fun request_timeout/1}
