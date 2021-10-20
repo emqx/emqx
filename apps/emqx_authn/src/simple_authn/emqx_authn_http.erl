@@ -102,7 +102,7 @@ body(validator) -> [fun check_body/1];
 body(_) -> undefined.
 
 request_timeout(type) -> emqx_schema:duration_ms();
-request_timeout(default) -> "5s";
+request_timeout(default) -> <<"5s">>;
 request_timeout(_) -> undefined.
 
 %%------------------------------------------------------------------------------
