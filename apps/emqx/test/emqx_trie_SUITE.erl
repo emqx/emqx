@@ -50,8 +50,8 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     ekka:stop(),
-    ekka_mnesia:ensure_stopped(),
-    ekka_mnesia:delete_schema().
+    mria:stop(),
+    mria_mnesia:delete_schema().
 
 init_per_testcase(_TestCase, Config) ->
     clear_tables(),
@@ -59,9 +59,6 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     clear_tables().
-
-t_mnesia(_) ->
-    ok = ?TRIE:mnesia(copy).
 
 t_insert(_) ->
     Fun = fun() ->
@@ -191,7 +188,6 @@ t_delete3(_) ->
 clear_tables() -> emqx_trie:clear_tables().
 
 trans(Fun) ->
-    mnesia:transaction(Fun).
+    mria:transaction(?ROUTE_SHARD, Fun).
 trans(Fun, Args) ->
-    mnesia:transaction(Fun, Args).
-
+    mria:transaction(?ROUTE_SHARD, Fun, Args).

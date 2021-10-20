@@ -47,7 +47,6 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -define(TAB, ?MODULE).
 -define(PSK_SHARD, emqx_psk_shard).
@@ -64,16 +63,13 @@
 %% @doc Create or replicate tables.
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = mria:create_table(?TAB, [
                 {rlog_shard, ?PSK_SHARD},
                 {type, ordered_set},
-                {disc_copies, [node()]},
+                {storage, disc_copies},
                 {record_name, psk_entry},
                 {attributes, record_info(fields, psk_entry)},
-                {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
-
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TAB, disc_copies).
+                {storage_properties, [{ets, [{read_concurrency, true}]}]}]).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -237,7 +233,7 @@ trim_crlf(Bin) ->
     end.
 
 trans(Fun, Args) ->
-    case ekka_mnesia:transaction(?PSK_SHARD, Fun, Args) of
+    case mria:transaction(?PSK_SHARD, Fun, Args) of
         {atomic, Res} -> Res;
         {aborted, Reason} -> {error, Reason}
     end.

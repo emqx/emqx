@@ -30,13 +30,9 @@
 -endif.
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_machine.hrl").
-
--rlog_shard({?EMQX_MACHINE_SHARD, ?CLUSTER_MFA}).
--rlog_shard({?EMQX_MACHINE_SHARD, ?CLUSTER_COMMIT}).
 
 -define(CATCH_UP, catch_up).
 -define(TIMEOUT, timer:minutes(1)).
@@ -45,21 +41,18 @@
 %%% API
 %%%===================================================================
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?CLUSTER_MFA, [
+    ok = mria:create_table(?CLUSTER_MFA, [
         {type, ordered_set},
         {rlog_shard, ?EMQX_MACHINE_SHARD},
-        {disc_copies, [node()]},
+        {storage, disc_copies},
         {record_name, cluster_rpc_mfa},
         {attributes, record_info(fields, cluster_rpc_mfa)}]),
-    ok = ekka_mnesia:create_table(?CLUSTER_COMMIT, [
+    ok = mria:create_table(?CLUSTER_COMMIT, [
         {type, set},
         {rlog_shard, ?EMQX_MACHINE_SHARD},
-        {disc_copies, [node()]},
+        {storage, disc_copies},
         {record_name, cluster_rpc_commit},
-        {attributes, record_info(fields, cluster_rpc_commit)}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(cluster_rpc_mfa, disc_copies),
-    ok = ekka_mnesia:copy_table(cluster_rpc_commit, disc_copies).
+        {attributes, record_info(fields, cluster_rpc_commit)}]).
 
 start_link() ->
     start_link(node(), ?MODULE, get_retry_ms()).
@@ -88,13 +81,13 @@ multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNu
     MFA = {initiate, {M, F, A}},
     Begin = erlang:monotonic_time(),
     InitRes =
-        case ekka_rlog:role() of
+        case mria_rlog:role() of
             core -> gen_server:call(?MODULE, MFA, Timeout);
             replicant ->
                 %% the initiate transaction must happened on core node
                 %% make sure MFA(in the transaction) and the transaction on the same node
                 %% don't need rpc again inside transaction.
-                case ekka_rlog_status:upstream_node(?EMQX_MACHINE_SHARD) of
+                case mria_status:upstream_node(?EMQX_MACHINE_SHARD) of
                     {ok, Node} -> gen_server:call({?MODULE, Node}, MFA, Timeout);
                     disconnected -> {error, disconnected}
                 end
@@ -150,8 +143,8 @@ handle_continue(?CATCH_UP, State) ->
     {noreply, State, catch_up(State)}.
 
 handle_call(reset, _From, State) ->
-    _ = ekka_mnesia:clear_table(?CLUSTER_COMMIT),
-    _ = ekka_mnesia:clear_table(?CLUSTER_MFA),
+    _ = mria:clear_table(?CLUSTER_COMMIT),
+    _ = mria:clear_table(?CLUSTER_MFA),
     {reply, ok, State, {continue, ?CATCH_UP}};
 
 handle_call({initiate, MFA}, _From, State = #{node := Node}) ->
@@ -280,7 +273,7 @@ do_catch_up_in_one_trans(LatestId, Node) ->
     end.
 
 transaction(Func, Args) ->
-    ekka_mnesia:transaction(?EMQX_MACHINE_SHARD, Func, Args).
+    mria:transaction(?EMQX_MACHINE_SHARD, Func, Args).
 
 trans_status() ->
     mnesia:foldl(fun(Rec, Acc) ->

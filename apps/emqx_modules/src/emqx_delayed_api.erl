@@ -210,7 +210,7 @@ generate_max_delayed_messages(Config) ->
 update_config_(Config) ->
     lists:foreach(fun(Node) ->
         update_config_(Node, Config)
-                  end, ekka_mnesia:running_nodes()).
+                  end, mria_mnesia:running_nodes()).
 
 update_config_(Node, Config) when Node =:= node() ->
     _ = emqx_delayed:update_config(Config),

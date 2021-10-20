@@ -300,7 +300,7 @@ manage_listeners(_, #{bindings := #{id := Id, operation := Oper, node := Node}})
     Result;
 
 manage_listeners(_, #{bindings := #{id := Id, operation := Oper}}) ->
-    Results = [do_manage_listeners(Node, Id, Oper) || Node <- ekka_mnesia:running_nodes()],
+    Results = [do_manage_listeners(Node, Id, Oper) || Node <- mria_mnesia:running_nodes()],
     case lists:filter(fun({_, {200}}) -> false; (_) -> true end, Results) of
         [] -> {200};
         Errors -> {500, #{code => 'UNKNOW_ERROR', message => manage_listeners_err(Errors)}}

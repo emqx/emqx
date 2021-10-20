@@ -21,7 +21,6 @@
 -include("emqx_dashboard.hrl").
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -50,16 +49,14 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(mqtt_admin, [
+    ok = mria:create_table(mqtt_admin, [
                 {type, set},
                 {rlog_shard, ?DASHBOARD_SHARD},
-                {disc_copies, [node()]},
+                {storage, disc_copies},
                 {record_name, mqtt_admin},
                 {attributes, record_info(fields, mqtt_admin)},
                 {storage_properties, [{ets, [{read_concurrency, true},
-                                             {write_concurrency, true}]}]}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(mqtt_admin, disc_copies).
+                                             {write_concurrency, true}]}]}]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -68,7 +65,7 @@ mnesia(copy) ->
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
     Admin = #mqtt_admin{username = Username, password = hash(Password), tags = Tags},
-    return(ekka_mnesia:transaction(?DASHBOARD_SHARD, fun add_user_/1, [Admin])).
+    return(mria:transaction(?DASHBOARD_SHARD, fun add_user_/1, [Admin])).
 
 force_add_user(Username, Password, Tags) ->
     AddFun = fun() ->
@@ -76,7 +73,7 @@ force_add_user(Username, Password, Tags) ->
                                           password = Password,
                                           tags = Tags})
              end,
-    case ekka_mnesia:transaction(?DASHBOARD_SHARD, AddFun) of
+    case mria:transaction(?DASHBOARD_SHARD, AddFun) of
         {atomic, ok} -> ok;
         {aborted, Reason} -> {error, Reason}
     end.
@@ -98,11 +95,11 @@ remove_user(Username) when is_binary(Username) ->
                     end,
                     mnesia:delete({mqtt_admin, Username})
             end,
-    return(ekka_mnesia:transaction(?DASHBOARD_SHARD, Trans)).
+    return(mria:transaction(?DASHBOARD_SHARD, Trans)).
 
 -spec(update_user(binary(), binary()) -> ok | {error, term()}).
 update_user(Username, Tags) when is_binary(Username) ->
-    return(ekka_mnesia:transaction(?DASHBOARD_SHARD, fun update_user_/2, [Username, Tags])).
+    return(mria:transaction(?DASHBOARD_SHARD, fun update_user_/2, [Username, Tags])).
 
 %% @private
 update_user_(Username, Tags) ->
@@ -135,13 +132,13 @@ update_pwd(Username, Fun) ->
                     end,
                     mnesia:write(Fun(User))
             end,
-    return(ekka_mnesia:transaction(?DASHBOARD_SHARD, Trans)).
+    return(mria:transaction(?DASHBOARD_SHARD, Trans)).
 
 
 -spec(lookup_user(binary()) -> [mqtt_admin()]).
 lookup_user(Username) when is_binary(Username) ->
     Fun = fun() -> mnesia:read(mqtt_admin, Username) end,
-    {atomic, User} = ekka_mnesia:ro_transaction(?DASHBOARD_SHARD, Fun),
+    {atomic, User} = mria:ro_transaction(?DASHBOARD_SHARD, Fun),
     User.
 
 -spec(all_users() -> [#mqtt_admin{}]).

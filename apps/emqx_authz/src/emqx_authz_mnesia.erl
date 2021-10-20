@@ -32,18 +32,15 @@
 -endif.
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?ACL_TABLE, [
+    ok = mria:create_table(?ACL_TABLE, [
             {type, ordered_set},
             {rlog_shard, ?ACL_SHARDED},
-            {disc_copies, [node()]},
+            {storage, disc_copies},
             {attributes, record_info(fields, ?ACL_TABLE)},
-            {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?ACL_TABLE, disc_copies).
+            {storage_properties, [{ets, [{read_concurrency, true}]}]}]).
 
 description() ->
     "AuthZ with Mnesia".

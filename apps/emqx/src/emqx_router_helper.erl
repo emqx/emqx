@@ -27,7 +27,6 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 %% API
 -export([ start_link/0
@@ -59,16 +58,13 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?ROUTING_NODE, [
+    ok = mria:create_table(?ROUTING_NODE, [
                 {type, set},
                 {rlog_shard, ?ROUTE_SHARD},
-                {ram_copies, [node()]},
+                {storage, ram_copies},
                 {record_name, routing_node},
                 {attributes, record_info(fields, routing_node)},
-                {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
-
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?ROUTING_NODE, ram_copies).
+                {storage_properties, [{ets, [{read_concurrency, true}]}]}]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -87,7 +83,7 @@ monitor(Node) when is_atom(Node) ->
     case ekka:is_member(Node)
          orelse ets:member(?ROUTING_NODE, Node) of
         true  -> ok;
-        false -> ekka_mnesia:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
+        false -> mria:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
     end.
 
 %%--------------------------------------------------------------------
@@ -136,9 +132,9 @@ handle_info({mnesia_table_event, Event}, State) ->
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     ekka_mnesia:transaction(fun cleanup_routes/1, [Node])
+                     mria:transaction(?ROUTE_SHARD, fun cleanup_routes/1, [Node])
                  end),
-    ok = ekka_mnesia:dirty_delete(?ROUTING_NODE, Node),
+    ok = mria:dirty_delete(?ROUTING_NODE, Node),
     {noreply, State#{nodes := lists:delete(Node, Nodes)}, hibernate};
 
 handle_info({membership, {mnesia, down, Node}}, State) ->

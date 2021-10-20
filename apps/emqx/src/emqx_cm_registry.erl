@@ -71,7 +71,7 @@ register_channel(ClientId) when is_binary(ClientId) ->
 
 register_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
     case is_enabled() of
-        true -> ekka_mnesia:dirty_write(?TAB, record(ClientId, ChanPid));
+        true -> mria:dirty_write(?TAB, record(ClientId, ChanPid));
         false -> ok
     end.
 
@@ -83,7 +83,7 @@ unregister_channel(ClientId) when is_binary(ClientId) ->
 
 unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
     case is_enabled() of
-        true -> ekka_mnesia:dirty_delete_object(?TAB, record(ClientId, ChanPid));
+        true -> mria:dirty_delete_object(?TAB, record(ClientId, ChanPid));
         false -> ok
     end.
 
@@ -100,16 +100,15 @@ record(ClientId, ChanPid) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = mria:create_table(?TAB, [
                 {type, bag},
                 {rlog_shard, ?CM_SHARD},
-                {ram_copies, [node()]},
+                {storage, ram_copies},
                 {record_name, channel},
                 {attributes, record_info(fields, channel)},
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]),
-    ok = ekka_mnesia:copy_table(?TAB, ram_copies),
-    ok = ekka_rlog:wait_for_shards([?CM_SHARD], infinity),
+    ok = mria_rlog:wait_for_shards([?CM_SHARD], infinity),
     ok = ekka:monitor(membership),
     {ok, #{}}.
 
@@ -124,7 +123,7 @@ handle_cast(Msg, State) ->
 handle_info({membership, {mnesia, down, Node}}, State) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     ekka_mnesia:transaction(?CM_SHARD, fun cleanup_channels/1, [Node])
+                     mria:transaction(?CM_SHARD, fun cleanup_channels/1, [Node])
                  end),
     {noreply, State};
 

@@ -59,7 +59,6 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -define(TAB, ?MODULE).
 
@@ -70,15 +69,12 @@
 %% @doc Create or replicate tables.
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = mria:create_table(?TAB, [
                 {rlog_shard, ?AUTH_SHARD},
-                {disc_copies, [node()]},
+                {storage, disc_copies},
                 {record_name, user_info},
                 {attributes, record_info(fields, user_info)},
-                {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
-
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TAB, disc_copies).
+                {storage_properties, [{ets, [{read_concurrency, true}]}]}]).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -390,7 +386,7 @@ trans(Fun) ->
     trans(Fun, []).
 
 trans(Fun, Args) ->
-    case ekka_mnesia:transaction(?AUTH_SHARD, Fun, Args) of
+    case mria:transaction(?AUTH_SHARD, Fun, Args) of
         {atomic, Res} -> Res;
         {aborted, Reason} -> {error, Reason}
     end.

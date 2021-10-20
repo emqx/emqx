@@ -28,7 +28,6 @@
         ]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -export([mnesia/1]).
 
@@ -77,16 +76,14 @@ destroy_by_username(Username) ->
     do_destroy_by_username(Username).
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = mria:create_table(?TAB, [
                 {type, set},
                 {rlog_shard, ?DASHBOARD_SHARD},
-                {disc_copies, [node()]},
+                {storage, disc_copies},
                 {record_name, mqtt_admin_jwt},
                 {attributes, record_info(fields, mqtt_admin_jwt)},
                 {storage_properties, [{ets, [{read_concurrency, true},
-                                             {write_concurrency, true}]}]}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TAB, disc_copies).
+                                             {write_concurrency, true}]}]}]).
 
 %%--------------------------------------------------------------------
 %% jwt apply
@@ -104,7 +101,7 @@ do_sign(Username, Password) ->
     Signed = jose_jwt:sign(JWK, JWS, JWT),
     {_, Token} = jose_jws:compact(Signed),
     JWTRec = format(Token, Username, ExpTime),
-    ekka_mnesia:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
+    _ = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
     {ok, Token}.
 
 do_verify(Token)->
@@ -113,7 +110,7 @@ do_verify(Token)->
             case ExpTime > erlang:system_time(millisecond) of
                 true ->
                     NewJWT = JWT#mqtt_admin_jwt{exptime = jwt_expiration_time()},
-                    {atomic, Res} = ekka_mnesia:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [NewJWT]),
+                    {atomic, Res} = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [NewJWT]),
                     Res;
                 _ ->
                     {error, token_timeout}
@@ -124,7 +121,7 @@ do_verify(Token)->
 
 do_destroy(Token) ->
     Fun = fun mnesia:delete/1,
-    {atomic, ok} = ekka_mnesia:transaction(?DASHBOARD_SHARD, Fun, [{?TAB, Token}]),
+    {atomic, ok} = mria:transaction(?DASHBOARD_SHARD, Fun, [{?TAB, Token}]),
     ok.
 
 do_destroy_by_username(Username) ->
@@ -135,7 +132,7 @@ do_destroy_by_username(Username) ->
 -spec(lookup(Token :: binary()) -> {ok, #mqtt_admin_jwt{}} | {error, not_found}).
 lookup(Token) ->
     Fun = fun() -> mnesia:read(?TAB, Token) end,
-    case ekka_mnesia:ro_transaction(?DASHBOARD_SHARD, Fun) of
+    case mria:ro_transaction(?DASHBOARD_SHARD, Fun) of
         {atomic, [JWT]} -> {ok, JWT};
         {atomic, []} -> {error, not_found}
     end.
@@ -143,7 +140,7 @@ lookup(Token) ->
 lookup_by_username(Username) ->
     Spec = [{{mqtt_admin_jwt, '_', Username, '_'}, [], ['$_']}],
     Fun = fun() -> mnesia:select(?TAB, Spec) end,
-    {atomic, List} = ekka_mnesia:ro_transaction(?DASHBOARD_SHARD, Fun),
+    {atomic, List} = mria:ro_transaction(?DASHBOARD_SHARD, Fun),
     List.
 
 
@@ -193,7 +190,7 @@ handle_info(clean_jwt, State) ->
     timer_clean(self()),
     Now = erlang:system_time(millisecond),
     Spec = [{{mqtt_admin_jwt, '_', '_', '$1'}, [{'<', '$1', Now}], ['$_']}],
-    {atomic, JWTList} = ekka_mnesia:ro_transaction(?DASHBOARD_SHARD,
+    {atomic, JWTList} = mria:ro_transaction(?DASHBOARD_SHARD,
         fun() -> mnesia:select(?TAB, Spec) end),
     destroy(JWTList),
     {noreply, State};

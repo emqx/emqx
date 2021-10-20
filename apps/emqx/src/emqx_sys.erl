@@ -150,7 +150,7 @@ handle_info({timeout, TRef, tick},
             State = #state{ticker = TRef, version = Version, sysdescr = Descr}) ->
     publish_any(version, Version),
     publish_any(sysdescr, Descr),
-    publish_any(brokers, ekka_mnesia:running_nodes()),
+    publish_any(brokers, mria_mnesia:running_nodes()),
     publish_any(stats, emqx_stats:getstats()),
     publish_any(metrics, emqx_metrics:all()),
     {noreply, tick(State), hibernate};

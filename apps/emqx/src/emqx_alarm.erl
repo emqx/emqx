@@ -26,7 +26,6 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -export([post_config_update/4]).
 
@@ -95,21 +94,18 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?ACTIVATED_ALARM,
+    ok = mria:create_table(?ACTIVATED_ALARM,
              [{type, set},
-              {disc_copies, [node()]},
+              {storage, disc_copies},
               {local_content, true},
               {record_name, activated_alarm},
               {attributes, record_info(fields, activated_alarm)}]),
-    ok = ekka_mnesia:create_table(?DEACTIVATED_ALARM,
+    ok = mria:create_table(?DEACTIVATED_ALARM,
              [{type, ordered_set},
-              {disc_copies, [node()]},
+              {storage, disc_copies},
               {local_content, true},
               {record_name, deactivated_alarm},
-              {attributes, record_info(fields, deactivated_alarm)}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?ACTIVATED_ALARM, disc_copies),
-    ok = ekka_mnesia:copy_table(?DEACTIVATED_ALARM, disc_copies).
+              {attributes, record_info(fields, deactivated_alarm)}]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -184,6 +180,7 @@ to_rfc3339(Timestamp) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    _ = mria:wait_for_tables([?ACTIVATED_ALARM, ?DEACTIVATED_ALARM]),
     deactivate_all_alarms(),
     ok = emqx_config_handler:add_handler([alarm], ?MODULE),
     {ok, #state{timer = ensure_timer(undefined, get_validity_period())}}.
@@ -201,7 +198,7 @@ handle_call({activate_alarm, Name, Details}, _From, State) ->
                                      details = Details,
                                      message = normalize_message(Name, Details),
                                      activate_at = erlang:system_time(microsecond)},
-            ekka_mnesia:dirty_write(?ACTIVATED_ALARM, Alarm),
+            mria:dirty_write(?ACTIVATED_ALARM, Alarm),
             do_actions(activate, Alarm, emqx:get_config([alarm, actions])),
             {reply, ok, State}
     end;
@@ -221,7 +218,7 @@ handle_call(delete_all_deactivated_alarms, _From, State) ->
 
 handle_call({get_alarms, all}, _From, State) ->
     {atomic, Alarms} =
-        ekka_mnesia:ro_transaction(
+        mria:ro_transaction(
           ?COMMON_SHARD,
           fun() ->
                   [normalize(Alarm) ||
@@ -282,7 +279,7 @@ deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name
             case mnesia:dirty_first(?DEACTIVATED_ALARM) of
                 '$end_of_table' -> ok;
                 ActivateAt2 ->
-                    ekka_mnesia:dirty_delete(?DEACTIVATED_ALARM, ActivateAt2)
+                    mria:dirty_delete(?DEACTIVATED_ALARM, ActivateAt2)
             end;
         false -> ok
     end,
@@ -291,8 +288,8 @@ deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name
     DeActAlarm = make_deactivated_alarm(ActivateAt, Name, Details,
                     normalize_message(Name, Details),
                     erlang:system_time(microsecond)),
-    ekka_mnesia:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
-    ekka_mnesia:dirty_delete(?ACTIVATED_ALARM, Name),
+    mria:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
+    mria:dirty_delete(?ACTIVATED_ALARM, Name),
     do_actions(deactivate, DeActAlarm, emqx:get_config([alarm, actions])).
 
 make_deactivated_alarm(ActivateAt, Name, Details, Message, DeActivateAt) ->
@@ -309,7 +306,7 @@ deactivate_all_alarms() ->
                              details = Details,
                              message = Message,
                              activate_at = ActivateAt}) ->
-            ekka_mnesia:dirty_write(?DEACTIVATED_ALARM,
+            mria:dirty_write(?DEACTIVATED_ALARM,
                 #deactivated_alarm{
                     activate_at = ActivateAt,
                     name = Name,
@@ -321,7 +318,7 @@ deactivate_all_alarms() ->
 
 %% Delete all records from the given table, ignore result.
 clear_table(TableName) ->
-    case ekka_mnesia:clear_table(TableName) of
+    case mria:clear_table(TableName) of
         {aborted, Reason} ->
             ?SLOG(warning, #{
                 msg => "fail_to_clear_table",
@@ -347,7 +344,7 @@ delete_expired_deactivated_alarms('$end_of_table', _Checkpoint) ->
 delete_expired_deactivated_alarms(ActivatedAt, Checkpoint) ->
     case ActivatedAt =< Checkpoint of
         true ->
-            ekka_mnesia:dirty_delete(?DEACTIVATED_ALARM, ActivatedAt),
+            mria:dirty_delete(?DEACTIVATED_ALARM, ActivatedAt),
             NActivatedAt = mnesia:dirty_next(?DEACTIVATED_ALARM, ActivatedAt),
             delete_expired_deactivated_alarms(NActivatedAt, Checkpoint);
         false ->

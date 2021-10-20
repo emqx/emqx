@@ -50,7 +50,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_management]),
-    ekka_mnesia:ensure_stopped().
+    mria:stop().
 
 set_special_configs(emqx_management) ->
     emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
@@ -102,7 +102,7 @@ t_rest_api(_Config) ->
     ok.
 
 t_cli(_Config) ->
-    [ekka_mnesia:dirty_delete(mqtt_admin, Admin) ||  Admin <- mnesia:dirty_all_keys(mqtt_admin)],
+    [mria:dirty_delete(mqtt_admin, Admin) ||  Admin <- mnesia:dirty_all_keys(mqtt_admin)],
     emqx_dashboard_cli:admins(["add", "username", "password"]),
     [{mqtt_admin, <<"username">>, <<Salt:4/binary, Hash/binary>>, _}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),

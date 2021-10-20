@@ -195,7 +195,8 @@ generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
 
 -spec(stop_apps(list()) -> ok).
 stop_apps(Apps) ->
-    [application:stop(App) || App <- Apps ++ [emqx, mnesia]].
+    [application:stop(App) || App <- Apps ++ [emqx, mria, mnesia]],
+    ok.
 
 %% backward compatible
 deps_path(App, RelativePath) -> app_path(App, RelativePath).
@@ -269,8 +270,8 @@ reload(App, SpecAppConfigHandler) ->
     application:start(App).
 
 ensure_mnesia_stopped() ->
-    ekka_mnesia:ensure_stopped(),
-    ekka_mnesia:delete_schema().
+    mria:stop(),
+    mria_mnesia:delete_schema().
 
 %% Help function to wait for Fun to yield 'true'.
 wait_for(Fn, Ln, F, Timeout) ->

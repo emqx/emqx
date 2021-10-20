@@ -29,7 +29,7 @@
         [ emqx_metrics
         , emqx_stats
         , emqx_broker
-        , ekka_mnesia
+        , mria_mnesia
         ]).
 
 -define(ALL(Vars, Types, Exprs),
@@ -80,8 +80,8 @@ do_mock(emqx_broker) ->
                 fun(Msg) -> {node(), <<"test">>, Msg} end);
 do_mock(emqx_stats) ->
     meck:expect(emqx_stats, getstats, fun() -> [0] end);
-do_mock(ekka_mnesia) ->
-    meck:expect(ekka_mnesia, running_nodes, fun() -> [node()] end);
+do_mock(mria_mnesia) ->
+    meck:expect(mria_mnesia, running_nodes, fun() -> [node()] end);
 do_mock(emqx_metrics) ->
     meck:expect(emqx_metrics, all, fun() -> [{hello, 3}] end).
 
@@ -129,4 +129,3 @@ postcondition(_State, {call, _Mod, _Fun, _Args}, _Res) ->
 next_state(State, _Res, {call, _Mod, _Fun, _Args}) ->
     NewState = State,
     NewState.
-
