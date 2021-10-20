@@ -93,7 +93,7 @@ base_url(validator) -> fun(#{query := _Query}) ->
 base_url(_) -> undefined.
 
 connect_timeout(type) -> emqx_schema:duration_ms();
-connect_timeout(default) -> "5s";
+connect_timeout(default) -> <<"5s">>;
 connect_timeout(_) -> undefined.
 
 max_retries(type) -> non_neg_integer();
@@ -101,7 +101,7 @@ max_retries(default) -> 5;
 max_retries(_) -> undefined.
 
 retry_interval(type) -> emqx_schema:duration();
-retry_interval(default) -> "1s";
+retry_interval(default) -> <<"1s">>;
 retry_interval(_) -> undefined.
 
 pool_type(type) -> pool_type();

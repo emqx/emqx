@@ -251,7 +251,7 @@ authenticator_id(Config) ->
     emqx_authentication_config:authenticator_id(Config).
 
 %% @doc Call this API to initialize authenticators implemented in another APP.
--spec initialize_authentication(chain_name(), config()) -> ok.
+-spec initialize_authentication(chain_name(), [config()]) -> ok.
 initialize_authentication(_, []) -> ok;
 initialize_authentication(ChainName, AuthenticatorsConfig) ->
     _ = create_chain(ChainName),
