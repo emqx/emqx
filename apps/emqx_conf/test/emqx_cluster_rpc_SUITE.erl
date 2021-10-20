@@ -41,7 +41,7 @@ groups() -> [].
 init_per_suite(Config) ->
     application:load(emqx_conf),
     ok = ekka:start(),
-    ok = ekka_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
+    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
     meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
     meck:expect(emqx_alarm, activate, 2, ok),
     meck:expect(emqx_alarm, deactivate, 2, ok),
