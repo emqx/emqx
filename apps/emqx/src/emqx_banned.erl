@@ -27,7 +27,6 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -export([start_link/0, stop/0]).
 
@@ -58,16 +57,13 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?BANNED_TAB, [
+    ok = mria:create_table(?BANNED_TAB, [
                 {type, set},
                 {rlog_shard, ?COMMON_SHARD},
-                {disc_copies, [node()]},
+                {storage, disc_copies},
                 {record_name, banned},
                 {attributes, record_info(fields, banned)},
-                {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
-
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?BANNED_TAB, disc_copies).
+                {storage_properties, [{ets, [{read_concurrency, true}]}]}]).
 
 %% @doc Start the banned server.
 -spec(start_link() -> startlink_ret()).
@@ -155,13 +151,13 @@ create(#{who    := Who,
          reason := Reason,
          at     := At,
          until  := Until}) ->
-    ekka_mnesia:dirty_write(?BANNED_TAB, #banned{who = Who,
-                                                 by = By,
-                                                 reason = Reason,
-                                                 at = At,
-                                                 until = Until});
+    mria:dirty_write(?BANNED_TAB, #banned{who = Who,
+                                          by = By,
+                                          reason = Reason,
+                                          at = At,
+                                          until = Until});
 create(Banned) when is_record(Banned, banned) ->
-    ekka_mnesia:dirty_write(?BANNED_TAB, Banned).
+    mria:dirty_write(?BANNED_TAB, Banned).
 
 look_up(Who) when is_map(Who) ->
     look_up(pares_who(Who));
@@ -174,7 +170,7 @@ look_up(Who) ->
 delete(Who) when is_map(Who)->
     delete(pares_who(Who));
 delete(Who) ->
-    ekka_mnesia:dirty_delete(?BANNED_TAB, Who).
+    mria:dirty_delete(?BANNED_TAB, Who).
 
 info(InfoKey) ->
     mnesia:table_info(?BANNED_TAB, InfoKey).
@@ -195,7 +191,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
-    ekka_mnesia:transaction(?COMMON_SHARD, fun expire_banned_items/1, [erlang:system_time(second)]),
+    _ = mria:transaction(?COMMON_SHARD, fun expire_banned_items/1, [erlang:system_time(second)]),
     {noreply, ensure_expiry_timer(State), hibernate};
 
 handle_info(Info, State) ->

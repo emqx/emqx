@@ -112,7 +112,14 @@ listeners_insta_authn(get, #{bindings := #{name := Name0,
                                            id := ListenerId0}}) ->
     ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(GwName, _) ->
-        {200, emqx_gateway_http:authn(GwName, ListenerId)}
+        try
+            emqx_gateway_http:authn(GwName, ListenerId)
+        of
+            Authn -> {200, Authn}
+        catch
+            error : {config_not_found, _} ->
+                {204}
+        end
     end);
 listeners_insta_authn(post, #{body := Conf,
                               bindings := #{name := Name0,
@@ -222,6 +229,7 @@ swagger("/gateway/:name/listeners/:id/authentication", get) ->
          , <<"404">> => schema_not_found()
          , <<"500">> => schema_internal_error()
          , <<"200">> => schema_authn()
+         , <<"204">> => schema_no_content()
          }
      };
 swagger("/gateway/:name/listeners/:id/authentication", post) ->

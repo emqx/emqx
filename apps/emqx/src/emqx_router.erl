@@ -28,7 +28,6 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -export([start_link/2]).
 
@@ -74,16 +73,14 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?ROUTE_TAB, [
+    ok = mria:create_table(?ROUTE_TAB, [
                 {type, bag},
                 {rlog_shard, ?ROUTE_SHARD},
-                {ram_copies, [node()]},
+                {storage, ram_copies},
                 {record_name, route},
                 {attributes, record_info(fields, route)},
                 {storage_properties, [{ets, [{read_concurrency, true},
-                                             {write_concurrency, true}]}]}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?ROUTE_TAB, ram_copies).
+                                             {write_concurrency, true}]}]}]).
 
 %%--------------------------------------------------------------------
 %% Start a router
@@ -225,7 +222,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 insert_direct_route(Route) ->
-    ekka_mnesia:dirty_write(?ROUTE_TAB, Route).
+    mria:dirty_write(?ROUTE_TAB, Route).
 
 insert_trie_route(Route = #route{topic = Topic}) ->
     case mnesia:wread({?ROUTE_TAB, Topic}) of
@@ -235,7 +232,7 @@ insert_trie_route(Route = #route{topic = Topic}) ->
     mnesia:write(?ROUTE_TAB, Route, sticky_write).
 
 delete_direct_route(Route) ->
-    ekka_mnesia:dirty_delete_object(?ROUTE_TAB, Route).
+    mria:dirty_delete_object(?ROUTE_TAB, Route).
 
 delete_trie_route(Route = #route{topic = Topic}) ->
     case mnesia:wread({?ROUTE_TAB, Topic}) of
@@ -255,7 +252,7 @@ maybe_trans(Fun, Args) ->
             trans(Fun, Args);
         global ->
             %% Assert:
-            mnesia = ekka_rlog:backend(), %% TODO: do something smarter than just crash
+            mnesia = mria_rlog:backend(), %% TODO: do something smarter than just crash
             lock_router(),
             try mnesia:sync_dirty(Fun, Args)
             after
@@ -276,11 +273,11 @@ trans(Fun, Args) ->
     {WPid, RefMon} =
         spawn_monitor(
             %% NOTE: this is under the assumption that crashes in Fun
-            %% are caught by mnesia:transaction/2.
+            %% are caught by mria:transaction/2.
             %% Future changes should keep in mind that this process
             %% always exit with database write result.
             fun() ->
-                    Res = case ekka_mnesia:transaction(?ROUTE_SHARD, Fun, Args) of
+                    Res = case mria:transaction(?ROUTE_SHARD, Fun, Args) of
                               {atomic, Ok} -> Ok;
                               {aborted, Reason} -> {error, Reason}
                           end,

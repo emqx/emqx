@@ -42,9 +42,8 @@ all() ->
     [t_auto_subscribe, t_update].
 
 init_per_suite(Config) ->
-    ekka_mnesia:start(),
+    mria:start(),
     application:stop(?APP),
-
     meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_schema, fields, fun("auto_subscribe") ->
                                              meck:passthrough(["auto_subscribe"]) ++

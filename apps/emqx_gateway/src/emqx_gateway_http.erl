@@ -209,7 +209,7 @@ confexp({error, already_exist}) ->
                     emqx_type:clientid(), {atom(), atom()}) -> list().
 lookup_client(GwName, ClientId, FormatFun) ->
     lists:append([lookup_client(Node, GwName, {clientid, ClientId}, FormatFun)
-                  || Node <- ekka_mnesia:running_nodes()]).
+                  || Node <- mria_mnesia:running_nodes()]).
 
 lookup_client(Node, GwName, {clientid, ClientId}, {M,F}) when Node =:= node() ->
     ChanTab = emqx_gateway_cm:tabname(chan, GwName),
@@ -229,7 +229,7 @@ lookup_client(Node, GwName, {clientid, ClientId}, FormatFun) ->
      | ok.
 kickout_client(GwName, ClientId) ->
     Results = [kickout_client(Node, GwName, ClientId)
-               || Node <- ekka_mnesia:running_nodes()],
+               || Node <- mria_mnesia:running_nodes()],
     case lists:any(fun(Item) -> Item =:= ok end, Results) of
         true  -> ok;
         false -> lists:last(Results)
@@ -294,7 +294,7 @@ with_channel(GwName, ClientId, Fun) ->
 return_http_error(Code, Msg) ->
     {Code, emqx_json:encode(
              #{code => codestr(Code),
-               reason => emqx_gateway_utils:stringfy(Msg)
+               message => emqx_gateway_utils:stringfy(Msg)
               })
     }.
 
@@ -336,8 +336,10 @@ with_gateway(GwName0, Fun) ->
         error : {update_conf_error, already_exist} ->
             return_http_error(400, "Resource already exist");
         Class : Reason : Stk ->
-            ?LOG(error, "Uncatched error: {~p, ~p}, stacktrace: ~0p",
-                        [Class, Reason, Stk]),
+            ?SLOG(error, #{ msg => "uncatched_error"
+                          , reason => {Class, Reason}
+                          , stacktrace => Stk
+                          }),
             return_http_error(500, {Class, Reason, Stk})
     end.
 

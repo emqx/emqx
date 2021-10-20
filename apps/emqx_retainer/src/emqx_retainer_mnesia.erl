@@ -52,15 +52,14 @@ create_resource(#{storage_type := StorageType}) ->
                          {read_concurrency, true},
                          {write_concurrency, true}]},
                   {dets, [{auto_save, 1000}]}],
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = mria:create_table(?TAB, [
                 {type, set},
                 {rlog_shard, ?RETAINER_SHARD},
-                {Copies, [node()]},
+                {storage, Copies},
                 {record_name, retained},
                 {attributes, record_info(fields, retained)},
                 {storage_properties, StoreProps}]),
-    ok = ekka_mnesia:copy_table(?TAB, Copies),
-    ok = ekka_rlog:wait_for_shards([?RETAINER_SHARD], infinity),
+    ok = mria_rlog:wait_for_shards([?RETAINER_SHARD], infinity),
     case mnesia:table_info(?TAB, storage_type) of
         Copies -> ok;
         _Other ->
@@ -73,10 +72,10 @@ store_retained(_, Msg =#message{topic = Topic}) ->
     case is_table_full() of
         false ->
             ok = emqx_metrics:inc('messages.retained'),
-            ekka_mnesia:dirty_write(?TAB,
-                                    #retained{topic = topic2tokens(Topic),
-                                              msg = Msg,
-                                              expiry_time = ExpiryTime});
+            mria:dirty_write(?TAB,
+                             #retained{topic = topic2tokens(Topic),
+                                       msg = Msg,
+                                       expiry_time = ExpiryTime});
         _ ->
             Tokens = topic2tokens(Topic),
             Fun = fun() ->
@@ -94,7 +93,7 @@ store_retained(_, Msg =#message{topic = Topic}) ->
                                   ok
                           end
             end,
-            {atomic, ok} = ekka_mnesia:transaction(?RETAINER_SHARD, Fun),
+            {atomic, ok} = mria:transaction(?RETAINER_SHARD, Fun),
             ok
     end.
 
@@ -106,7 +105,7 @@ clear_expired(_) ->
                   Keys = mnesia:select(?TAB, Ms, write),
                   lists:foreach(fun(Key) -> mnesia:delete({?TAB, Key}) end, Keys)
           end,
-    {atomic, _} = ekka_mnesia:transaction(?RETAINER_SHARD, Fun),
+    {atomic, _} = mria:transaction(?RETAINER_SHARD, Fun),
     ok.
 
 delete_message(_, Topic) ->
@@ -117,12 +116,8 @@ delete_message(_, Topic) ->
             Fun = fun() ->
                        mnesia:delete({?TAB, Tokens})
                   end,
-            case ekka_mnesia:transaction(?RETAINER_SHARD, Fun) of
-                {atomic, Result} ->
-                    Result;
-                ok ->
-                    ok
-                end
+            _ = mria:transaction(?RETAINER_SHARD, Fun),
+            ok
     end,
     ok.
 
@@ -157,7 +152,7 @@ match_messages(_, Topic, Cursor) ->
     end.
 
 clean(_) ->
-    ekka_mnesia:clear_table(?TAB),
+    _ = mria:clear_table(?TAB),
     ok.
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -214,7 +209,7 @@ match_delete_messages(Filter) ->
     MsHd = #retained{topic = Cond, msg = '_', expiry_time = '_'},
     Ms = [{MsHd, [], ['$_']}],
     Rs = mnesia:dirty_select(?TAB, Ms),
-    lists:foreach(fun(R) -> ekka_mnesia:dirty_delete_object(?TAB, R) end, Rs).
+    lists:foreach(fun(R) -> mria:dirty_delete_object(?TAB, R) end, Rs).
 
 %% @private
 condition(Ws) ->

@@ -30,7 +30,6 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -export([ start_link/0
         , stop/0
@@ -91,14 +90,12 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TELEMETRY,
+    ok = mria:create_table(?TELEMETRY,
              [{type, set},
-              {disc_copies, [node()]},
+              {storage, disc_copies},
               {local_content, true},
               {record_name, telemetry},
-              {attributes, record_info(fields, telemetry)}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TELEMETRY, disc_copies).
+              {attributes, record_info(fields, telemetry)}]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -130,7 +127,7 @@ get_telemetry() ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-%% This is to suppress dialyzer warnings for mnesia:dirty_write and
+%% This is to suppress dialyzer warnings for mria:dirty_write and
 %% dirty_read race condition. Given that the init function is not evaluated
 %% concurrently in one node, it should be free of race condition.
 %% Given the chance of having two nodes bootstraping with the write
@@ -140,8 +137,8 @@ init(_Opts) ->
     UUID1 = case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
         [] ->
             UUID = generate_uuid(),
-            ekka_mnesia:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
-                                                           uuid = UUID}),
+            mria:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
+                                                    uuid = UUID}),
             UUID;
         [#telemetry{uuid = UUID} | _] ->
             UUID
@@ -268,7 +265,7 @@ uptime() ->
     element(1, erlang:statistics(wall_clock)).
 
 nodes_uuid() ->
-    Nodes = lists:delete(node(), ekka_mnesia:running_nodes()),
+    Nodes = lists:delete(node(), mria_mnesia:running_nodes()),
     lists:foldl(fun(Node, Acc) ->
                     case rpc:call(Node, ?MODULE, get_uuid, []) of
                         {badrpc, _Reason} ->

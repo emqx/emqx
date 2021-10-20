@@ -492,7 +492,7 @@ do_write_file(Filename, Bytes) ->
     case file:write_file(Filename, Bytes) of
        ok -> {ok, iolist_to_binary(Filename)};
        {error, Reason} ->
-           ?LOG(error, "Write File ~p Error: ~p", [Filename, Reason]),
+           ?SLOG(error, #{filename => Filename, msg => "write_file_error", reason => Reason}),
            error(Reason)
     end.
 

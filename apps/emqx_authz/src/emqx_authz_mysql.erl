@@ -55,7 +55,7 @@ authorize(Client, PubSub, Topic,
         {ok, Columns, Rows} ->
             do_authorize(Client, PubSub, Topic, Columns, Rows);
         {error, Reason} ->
-            ?LOG(error, "[AuthZ] Query mysql error: ~p~n", [Reason]),
+            ?SLOG(error, #{msg => "query_mysql_error", reason => Reason, resource_id => ResourceID}),
             nomatch
     end.
 

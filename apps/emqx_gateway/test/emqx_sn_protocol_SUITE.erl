@@ -87,6 +87,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_) ->
+    {ok, _} = emqx:remove_config([gateway, mqttsn]),
     emqx_common_test_helpers:stop_apps([emqx_gateway]).
 
 %%--------------------------------------------------------------------

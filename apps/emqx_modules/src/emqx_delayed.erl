@@ -25,7 +25,6 @@
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -export([ start_link/0
         , on_message_publish/1
@@ -64,14 +63,12 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = mria:create_table(?TAB, [
                 {type, ordered_set},
-                {disc_copies, [node()]},
+                {storage, disc_copies},
                 {local_content, true},
                 {record_name, delayed_message},
-                {attributes, record_info(fields, delayed_message)}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TAB, disc_copies).
+                {attributes, record_info(fields, delayed_message)}]).
 
 %%--------------------------------------------------------------------
 %% Hooks
@@ -184,7 +181,7 @@ delete_delayed_message(Id0) ->
             {error, not_found};
         Rows ->
             Timestamp = hd(Rows),
-            ekka_mnesia:dirty_delete(?TAB, {Timestamp, Id})
+            mria:dirty_delete(?TAB, {Timestamp, Id})
     end.
 update_config(Config) ->
     {ok, _} = emqx:update_config([delayed], Config).
@@ -205,7 +202,7 @@ handle_call({set_max_delayed_messages, Max}, _From, State) ->
 
 handle_call({store, DelayedMsg = #delayed_message{key = Key}},
             _From, State = #{max_delayed_messages := 0}) ->
-    ok = ekka_mnesia:dirty_write(?TAB, DelayedMsg),
+    ok = mria:dirty_write(?TAB, DelayedMsg),
     emqx_metrics:inc('messages.delayed'),
     {reply, ok, ensure_publish_timer(Key, State)};
 
@@ -216,7 +213,7 @@ handle_call({store, DelayedMsg = #delayed_message{key = Key}},
         true ->
             {reply, {error, max_delayed_messages_full}, State};
         false ->
-            ok = ekka_mnesia:dirty_write(?TAB, DelayedMsg),
+            ok = mria:dirty_write(?TAB, DelayedMsg),
             emqx_metrics:inc('messages.delayed'),
             {reply, ok, ensure_publish_timer(Key, State)}
     end;
@@ -240,7 +237,7 @@ handle_cast(Msg, State) ->
 %% Do Publish...
 handle_info({timeout, TRef, do_publish}, State = #{timer := TRef}) ->
     DeletedKeys = do_publish(mnesia:dirty_first(?TAB), os:system_time(seconds)),
-    lists:foreach(fun(Key) -> ekka_mnesia:dirty_delete(?TAB, Key) end, DeletedKeys),
+    lists:foreach(fun(Key) -> mria:dirty_delete(?TAB, Key) end, DeletedKeys),
     {noreply, ensure_publish_timer(State#{timer := undefined, publish_at := 0})};
 
 handle_info(stats, State = #{stats_fun := StatsFun}) ->

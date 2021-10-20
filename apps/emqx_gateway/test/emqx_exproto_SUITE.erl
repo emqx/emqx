@@ -60,6 +60,7 @@ init_per_group(GrpName, Cfg) ->
     [{servers, Svrs}, {listener_type, GrpName} | Cfg].
 
 end_per_group(_, Cfg) ->
+    {ok, _} = emqx:remove_config([gateway, exproto]),
     emqx_common_test_helpers:stop_apps([emqx_gateway]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
@@ -68,7 +69,7 @@ set_special_cfg(emqx_gateway) ->
     emqx_config:put(
       [gateway, exproto],
       #{server => #{bind => 9100},
-        handler => #{address => "http://127.0.0.1:9001"},
+        handler => #{address => "127.0.0.1:9001"},
         listeners => listener_confs(LisType)
        });
 set_special_cfg(_App) ->

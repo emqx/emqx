@@ -189,14 +189,14 @@ handle_call({send_request, Msg}, From, Channel) ->
     erlang:setelement(1, Result, noreply);
 
 handle_call(Req, _From, Channel) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle Cast
 %%--------------------------------------------------------------------
 handle_cast(Req, Channel) ->
-    ?LOG(error, "Unexpected cast: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
@@ -206,7 +206,7 @@ handle_info({subscribe, _}, Channel) ->
     {ok, Channel};
 
 handle_info(Info, Channel) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
@@ -331,8 +331,11 @@ auth_connect(_Input, Channel = #channel{ctx = Ctx,
         {ok, NClientInfo} ->
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
-            ?LOG(warning, "Client ~ts (Username: '~ts') login failed for ~0p",
-                 [ClientId, Username, Reason]),
+            ?SLOG(warning, #{ msg => "client_login_failed"
+                            , username => Username
+                            , clientid => ClientId
+                            , reason => Reason
+                            }),
             {error, Reason}
     end.
 
@@ -375,7 +378,10 @@ process_connect(#channel{ctx = Ctx,
                  reply({ok, created}, Token, Msg, Result),
                  Channel#channel{token = Token});
         {error, Reason} ->
-            ?LOG(error, "Failed to open session du to ~p", [Reason]),
+            ?SLOG(error, #{ msg => "failed_open_session"
+                          , clientid => maps:get(clientid, ClientInfo)
+                          , reason => Reason
+                          }),
             iter(Iter, reply({error, bad_request}, Msg, Result), Channel)
     end.
 

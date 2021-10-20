@@ -41,10 +41,6 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     clear_tables().
 
-t_mnesia(_) ->
-    %% for coverage
-    ok = emqx_router:mnesia(copy).
-
 % t_add_route(_) ->
 %     error('TODO').
 
@@ -117,4 +113,3 @@ t_unexpected(_) ->
 clear_tables() ->
     lists:foreach(fun mnesia:clear_table/1,
                   [emqx_route, emqx_trie, emqx_trie_node]).
-

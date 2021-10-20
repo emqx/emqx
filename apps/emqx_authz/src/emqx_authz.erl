@@ -203,13 +203,13 @@ init_source(#{type := file,
                 {ok, Terms} ->
                     [emqx_authz_rule:compile(Term) || Term <- Terms];
                 {error, eacces} ->
-                    ?LOG(alert, "Insufficient permissions to read the ~ts file", [Path]),
+                    ?SLOG(alert, #{msg => "insufficient_permissions_to_read_file", path => Path}),
                     error(eaccess);
                 {error, enoent} ->
-                    ?LOG(alert, "The ~ts file does not exist", [Path]),
+                    ?SLOG(alert, #{msg => "file_does_not_exist", path => Path}),
                     error(enoent);
                 {error, Reason} ->
-                    ?LOG(alert, "Failed to read ~ts: ~p", [Path, Reason]),
+                    ?SLOG(alert, #{msg => "failed_to_read_file", path => Path, reason => Reason}),
                     error(Reason)
             end,
     Source#{annotations => #{rules => Rules}};
@@ -257,15 +257,15 @@ authorize(#{username := Username,
            } = Client, PubSub, Topic, DefaultResult, Sources) ->
     case do_authorize(Client, PubSub, Topic, Sources) of
         {matched, allow} ->
-            ?LOG(info, "Client succeeded authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, IpAddress, Topic]),
+            ?SLOG(info, #{msg => "authorization_permission_allowed", username => Username, ipaddr => IpAddress, topic => Topic}),
             emqx_metrics:inc(?AUTHZ_METRICS(allow)),
             {stop, allow};
         {matched, deny} ->
-            ?LOG(info, "Client failed authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: deny", [Username, IpAddress, Topic]),
+            ?SLOG(info, #{msg => "authorization_permission_denied", username => Username, ipaddr => IpAddress, topic => Topic}),
             emqx_metrics:inc(?AUTHZ_METRICS(deny)),
             {stop, deny};
         nomatch ->
-            ?LOG(info, "Client failed authorization: Username: ~p, IP: ~p, Topic: ~p, Reasion: ~p", [Username, IpAddress, Topic, "no-match rule"]),
+            ?SLOG(info, #{msg => "authorization_failed_nomatch", username => Username, ipaddr => IpAddress, topic => Topic, reason => "no-match rule"}),
             {stop, DefaultResult}
     end.
 

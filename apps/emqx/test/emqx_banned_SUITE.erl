@@ -27,14 +27,12 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     application:load(emqx),
     ok = ekka:start(),
-    %% for coverage
-    ok = emqx_banned:mnesia(copy),
     Config.
 
 end_per_suite(_Config) ->
     ekka:stop(),
-    ekka_mnesia:ensure_stopped(),
-    ekka_mnesia:delete_schema().
+    mria:stop(),
+    mria_mnesia:delete_schema().
 
 t_add_delete(_) ->
     Banned = #banned{who = {clientid, <<"TestClient">>},
@@ -92,4 +90,3 @@ t_unused(_) ->
     ?assertEqual(ok, Banned ! ok),
     timer:sleep(500), %% expiry timer
     ok = emqx_banned:stop().
-

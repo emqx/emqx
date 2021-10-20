@@ -82,22 +82,42 @@ handle_call(_Request, _From, State) ->
 handle_cast({rpc, Fun, Req, Options, From}, State = #state{streams = Streams}) ->
     case ensure_stream_opened(Fun, Options, Streams) of
         {error, Reason} ->
-            ?LOG(error, "CALL ~0p:~0p(~0p) failed, reason: ~0p",
-                    [?CONN_ADAPTER_MOD, Fun, Options, Reason]),
+            ?SLOG(error, #{ msg => "request_grpc_server_failed"
+                          , function => {?CONN_ADAPTER_MOD, Fun, Options}
+                          , reason => Reason}),
             reply(From, Fun, {error, Reason}),
             {noreply, State#state{streams = Streams#{Fun => undefined}}};
         {ok, Stream} ->
             case catch grpc_client:send(Stream, Req) of
                 ok ->
-                    ?LOG(debug, "Send to ~p method successfully, request: ~0p", [Fun, Req]),
+                    ?SLOG(debug, #{ msg => "send_grpc_request_succeed"
+                                  , function => {?CONN_ADAPTER_MOD, Fun}
+                                  , request => Req
+                                  }),
                     reply(From, Fun, ok),
                     {noreply, State#state{streams = Streams#{Fun => Stream}}};
+                {'EXIT', {not_found, _Stk}} ->
+                    %% Not found the stream, reopen it
+                    ?SLOG(info, #{ msg => "cannt_find_old_stream_ref"
+                                 , function => {?CONN_ADAPTER_MOD, Fun}
+                                 }),
+                    handle_cast(
+                      {rpc, Fun, Req, Options, From},
+                      State#state{streams = maps:remove(Fun, Streams)});
                 {'EXIT', {timeout, _Stk}} ->
-                    ?LOG(error, "Send to ~p method timeout, request: ~0p", [Fun, Req]),
+                    ?SLOG(error, #{ msg => "send_grpc_request_timeout"
+                                  , function => {?CONN_ADAPTER_MOD, Fun}
+                                  , request => Req
+                                  }),
                     reply(From, Fun, {error, timeout}),
                     {noreply, State#state{streams = Streams#{Fun => Stream}}};
-                {'EXIT', {Reason1, _Stk}} ->
-                    ?LOG(error, "Send to ~p method failure, request: ~0p, stacktrace: ~0p", [Fun, Req, _Stk]),
+                {'EXIT', {Reason1, Stk}} ->
+                    ?SLOG(error, #{ msg => "send_grpc_request_failed"
+                                  , function => {?CONN_ADAPTER_MOD, Fun}
+                                  , request => Req
+                                  , error => Reason1
+                                  , stacktrace => Stk
+                                  }),
                     reply(From, Fun, {error, Reason1}),
                     {noreply, State#state{streams = Streams#{Fun => undefined}}}
             end

@@ -54,24 +54,24 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(t_authz, Config) ->
-    mnesia:transaction(fun ekka_mnesia:dirty_write/1, [#emqx_acl{who = {?ACL_TABLE_USERNAME, <<"test_username">>},
-                                                      rules = [{allow, publish, <<"test/%u">>},
-                                                               {allow, subscribe, <<"eq #">>}
-                                                              ]
-                                                     }]),
-    mnesia:transaction(fun ekka_mnesia:dirty_write/1, [#emqx_acl{who = {?ACL_TABLE_CLIENTID, <<"test_clientid">>},
-                                                      rules = [{allow, publish, <<"test/%c">>},
-                                                               {deny, subscribe, <<"eq #">>}
-                                                              ]
-                                                     }]),
-    mnesia:transaction(fun ekka_mnesia:dirty_write/1, [#emqx_acl{who = ?ACL_TABLE_ALL,
-                                                      rules = [{deny, all, <<"#">>}]
-                                                     }]),
+    mria:dirty_write(#emqx_acl{who = {?ACL_TABLE_USERNAME, <<"test_username">>},
+                               rules = [{allow, publish, <<"test/%u">>},
+                                        {allow, subscribe, <<"eq #">>}
+                                       ]
+                              }),
+    mria:dirty_write(#emqx_acl{who = {?ACL_TABLE_CLIENTID, <<"test_clientid">>},
+                               rules = [{allow, publish, <<"test/%c">>},
+                                        {deny, subscribe, <<"eq #">>}
+                                       ]
+                              }),
+    mria:dirty_write(#emqx_acl{who = ?ACL_TABLE_ALL,
+                               rules = [{deny, all, <<"#">>}]
+                              }),
     Config;
 init_per_testcase(_, Config) -> Config.
 
 end_per_testcase(t_authz, Config) ->
-    [ ekka_mnesia:dirty_delete(?ACL_TABLE, K) || K <- mnesia:dirty_all_keys(?ACL_TABLE)],
+    [ mria:dirty_delete(?ACL_TABLE, K) || K <- mnesia:dirty_all_keys(?ACL_TABLE)],
     Config;
 end_per_testcase(_, Config) -> Config.
 
@@ -96,7 +96,7 @@ t_authz(_) ->
                     listener => {tcp, default}
                    },
 
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)), 
+    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)),
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"#">>)),
 
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo2, publish, <<"test/test_username">>)),
@@ -106,4 +106,3 @@ t_authz(_) ->
     ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo3, subscribe, <<"#">>)),
 
     ok.
-

@@ -57,18 +57,24 @@ init([GwId, Port]) ->
                                  sock = Sock, port = Port, duration = Duration})}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected request: ~p", [Req]),
+    ?SLOG(error, #{ msg => "unexpected_call"
+                  , call => Req
+                  }),
 	{reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected msg: ~p", [Msg]),
+    ?SLOG(error, #{ msg => "unexpected_cast"
+                  , cast => Msg
+                  }),
 	{noreply, State}.
 
 handle_info(broadcast_advertise, State) ->
     {noreply, ensure_advertise(State), hibernate};
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{ msg => "unexpected_info"
+                  , info => Info
+                  }),
 	{noreply, State}.
 
 terminate(_Reason, #state{tref = Timer}) ->
@@ -90,7 +96,9 @@ send_advertise(#state{gwid = GwId, sock = Sock, port = Port,
                       addrs = Addrs, duration = Duration}) ->
     Data = emqx_sn_frame:serialize_pkt(?SN_ADVERTISE_MSG(GwId, Duration), #{}),
     lists:foreach(fun(Addr) ->
-                      ?LOG(debug, "SEND SN_ADVERTISE to ~p~n", [Addr]),
+                      ?SLOG(debug, #{ msg => "send_ADVERTISE_msg"
+                                    , address => Addr
+                                    }),
                       gen_udp:send(Sock, Addr, Port, Data)
                   end, Addrs).
 

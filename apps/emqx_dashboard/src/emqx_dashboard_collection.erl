@@ -25,7 +25,6 @@
 -export([get_local_time/0]).
 
 -boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -41,14 +40,12 @@
 -define(EXPIRE_INTERVAL, 86400000 * 7).
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(emqx_collect, [
+    ok = mria:create_table(emqx_collect, [
         {type, set},
         {local_content, true},
-        {disc_only_copies, [node()]},
+        {storage, disc_only_copies},
         {record_name, mqtt_collect},
-        {attributes, record_info(fields, mqtt_collect)}]);
-mnesia(copy) ->
-    mnesia:add_table_copy(emqx_collect, node(), disc_only_copies).
+        {attributes, record_info(fields, mqtt_collect)}]).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -162,8 +159,8 @@ flush({Connection, Route, Subscription}, {Received0, Sent0, Dropped0}) ->
                diff(Sent, Sent0),
                diff(Dropped, Dropped0)},
     Ts = get_local_time(),
-    ekka_mnesia:transaction(ekka_mnesia:local_content_shard(),
-        fun mnesia:write/1, [#mqtt_collect{timestamp = Ts, collect = Collect}]),
+    _ = mria:transaction(mria:local_content_shard(),
+                         fun mnesia:write/1, [#mqtt_collect{timestamp = Ts, collect = Collect}]),
     {Received, Sent, Dropped}.
 
 avg(Items) ->

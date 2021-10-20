@@ -32,7 +32,6 @@ start() ->
             os:set_signal(sigterm, handle) %% default is handle
     end,
     ok = set_backtrace_depth(),
-    %% emqx_config:init_load(emqx_conf_schema),
     ok = print_otp_version_warning().
 
 graceful_shutdown() ->

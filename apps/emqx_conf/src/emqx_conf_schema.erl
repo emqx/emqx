@@ -147,7 +147,7 @@ fields("cluster") ->
           #{})}
     , {"db_backend",
         sc(hoconsc:enum([mnesia, rlog]),
-          #{ mapping => "ekka.db_backend"
+          #{ mapping => "mria.db_backend"
            , default => mnesia
            })}
     , {"rlog",
@@ -253,12 +253,12 @@ fields(cluster_k8s) ->
 fields("rlog") ->
     [ {"role",
        sc(hoconsc:enum([core, replicant]),
-          #{ mapping => "ekka.node_role"
+          #{ mapping => "mria.node_role"
            , default => core
            })}
     , {"core_nodes",
        sc(emqx_schema:comma_separated_atoms(),
-          #{ mapping => "ekka.core_nodes"
+          #{ mapping => "mria.core_nodes"
            , default => []
            })}
     ];

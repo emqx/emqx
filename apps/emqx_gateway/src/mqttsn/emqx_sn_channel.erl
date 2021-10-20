@@ -287,8 +287,11 @@ auth_connect(_Packet, Channel = #channel{ctx = Ctx,
         {ok, NClientInfo} ->
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
-            ?LOG(warning, "Client ~ts (Username: '~ts') login failed for ~0p",
-                          [ClientId, Username, Reason]),
+            ?SLOG(warning, #{ msg => "client_login_failed"
+                            , clientid => ClientId
+                            , username => Username
+                            , reason => Reason
+                            }),
             %% FIXME: ReasonCode?
             {error, Reason}
     end.
@@ -321,7 +324,9 @@ process_connect(Channel = #channel{
             handle_out(connack, ?SN_RC_ACCEPTED,
                        Channel#channel{session = Session});
         {error, Reason} ->
-            ?LOG(error, "Failed to open session due to ~p", [Reason]),
+            ?SLOG(error, #{ msg => "failed_to_open_session"
+                          , reason => Reason
+                          }),
             handle_out(connack, ?SN_RC_FAILED_SESSION, Channel)
     end.
 
@@ -383,19 +388,24 @@ handle_in(?SN_PUBLISH_MSG(#mqtt_sn_flags{qos = ?QOS_NEG1,
         false ->
             ok
     end,
-    ?LOG(debug, "Client id=~p receives a publish with QoS=-1 in idle mode!",
-                 [?NEG_QOS_CLIENT_ID]),
+    ?SLOG(debug, #{ msg => "receive_qo3_message_in_idle_mode"
+                  , topic => TopicName
+                  , data => Data
+                  }),
     {ok, Channel};
 
 handle_in(Pkt = #mqtt_sn_message{type = Type},
           Channel = #channel{conn_state = idle})
   when Type /= ?SN_CONNECT ->
-    ?LOG(warning, "Receive unknown packet ~0p in idle state", [Pkt]),
+    ?SLOG(warning, #{ msg => "receive_unknown_packet_in_idle_state"
+                    , packet => Pkt
+                    }),
     shutdown(normal, Channel);
 
 handle_in(?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, _ClientId),
           Channel = #channel{conn_state = connecting}) ->
-    ?LOG(warning, "Receive connect packet in connecting state"),
+    ?SLOG(warning, #{ msg => "receive_connect_packet_in_connecting_state"
+                    }),
     {ok, Channel};
 
 handle_in(?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, _ClientId),
@@ -461,12 +471,17 @@ handle_in(?SN_REGISTER_MSG(_TopicId, MsgId, TopicName),
                              clientinfo = #{clientid := ClientId}}) ->
     case emqx_sn_registry:register_topic(Registry, ClientId, TopicName) of
         TopicId when is_integer(TopicId) ->
-            ?LOG(debug, "register TopicName=~p, TopicId=~p",
-                         [TopicName, TopicId]),
+            ?SLOG(debug, #{ msg => "registered_topic_name"
+                          , topic_name => TopicName
+                          , topic_id => TopicId
+                          }),
             AckPacket = ?SN_REGACK_MSG(TopicId, MsgId, ?SN_RC_ACCEPTED),
             {ok, {outgoing, AckPacket}, Channel};
         {error, too_large} ->
-            ?LOG(error, "TopicId is full! TopicName=~p", [TopicName]),
+            ?SLOG(error, #{ msg => "register_topic_failed"
+                          , topic_name => TopicName
+                          , reason => topic_id_fulled
+                          }),
             AckPacket = ?SN_REGACK_MSG(
                            ?SN_INVALID_TOPIC_ID,
                            MsgId,
@@ -474,8 +489,10 @@ handle_in(?SN_REGISTER_MSG(_TopicId, MsgId, TopicName),
                           ),
             {ok, {outgoing, AckPacket}, Channel};
         {error, wildcard_topic} ->
-            ?LOG(error, "wildcard topic can not be registered! TopicName=~p",
-                        [TopicName]),
+            ?SLOG(error, #{ msg => "register_topic_failed"
+                          , topic_name => TopicName
+                          , reason => not_support_wildcard_topic
+                          }),
             AckPacket = ?SN_REGACK_MSG(
                            ?SN_INVALID_TOPIC_ID,
                            MsgId,
@@ -520,13 +537,17 @@ handle_in(?SN_PUBACK_MSG(TopicId, MsgId, ReturnCode),
                                Publishes,
                                Channel#channel{session = NSession});
                 {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
-                    ?LOG(warning, "The PUBACK MsgId ~w is inuse.",
-                                  [MsgId]),
+                    ?SLOG(warning, #{ msg => "commit_puback_failed"
+                                    , msg_id => MsgId
+                                    , reason => msg_id_inused
+                                    }),
                     ok = metrics_inc(Ctx, 'packets.puback.inuse'),
                     {ok, Channel};
                 {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-                    ?LOG(warning, "The PUBACK MsgId ~w is not found.",
-                                  [MsgId]),
+                    ?SLOG(warning, #{ msg => "commit_puback_failed"
+                                    , msg_id => MsgId
+                                    , reason => not_found
+                                    }),
                     ok = metrics_inc(Ctx, 'packets.puback.missed'),
                     {ok, Channel}
             end;
@@ -543,7 +564,9 @@ handle_in(?SN_PUBACK_MSG(TopicId, MsgId, ReturnCode),
                     {ok, {outgoing, RegPkt}, Channel}
             end;
         _ ->
-            ?LOG(error, "CAN NOT handle PUBACK ReturnCode=~p", [ReturnCode]),
+            ?SLOG(error, #{ msg => "cannt_handle_PUBACK"
+                          , return_code => ReturnCode
+                          }),
             {ok, Channel}
     end;
 
@@ -557,11 +580,17 @@ handle_in(?SN_PUBREC_MSG(?SN_PUBREC, MsgId),
             NChannel = Channel#channel{session = NSession},
             handle_out(pubrel, MsgId, NChannel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ?LOG(warning, "The PUBREC MsgId ~w is inuse.", [MsgId]),
+            ?SLOG(warning, #{ msg => "commit_PUBREC_failed"
+                            , msg_id => MsgId
+                            , reason => msg_id_inused
+                            }),
             ok = metrics_inc(Ctx, 'packets.pubrec.inuse'),
             handle_out(pubrel, MsgId, Channel);
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?LOG(warning, "The PUBREC ~w is not found.", [MsgId]),
+            ?SLOG(warning, #{ msg => "commit_PUBREC_failed"
+                            , msg_id => MsgId
+                            , reason => not_found
+                            }),
             ok = metrics_inc(Ctx, 'packets.pubrec.missed'),
             handle_out(pubrel, MsgId, Channel)
     end;
@@ -573,7 +602,10 @@ handle_in(?SN_PUBREC_MSG(?SN_PUBREL, MsgId),
             NChannel = Channel#channel{session = NSession},
             handle_out(pubcomp, MsgId, NChannel);
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?LOG(warning, "The PUBREL MsgId ~w is not found.", [MsgId]),
+            ?SLOG(warning, #{ msg => "commit_PUBREL_failed"
+                            , msg_id => MsgId
+                            , reason => not_found
+                            }),
             ok = metrics_inc(Ctx, 'packets.pubrel.missed'),
             handle_out(pubcomp, MsgId, Channel)
     end;
@@ -587,10 +619,17 @@ handle_in(?SN_PUBREC_MSG(?SN_PUBCOMP, MsgId),
             handle_out(publish, Publishes,
                        Channel#channel{session = NSession});
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
+            ?SLOG(warning, #{ msg => "commit_PUBCOMP_failed"
+                            , msg_id => MsgId
+                            , reason => msg_id_inused
+                            }),
             ok = metrics_inc(Ctx, 'packets.pubcomp.inuse'),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?LOG(warning, "The PUBCOMP MsgId ~w is not found", [MsgId]),
+            ?SLOG(warning, #{ msg => "commit_PUBCOMP_failed"
+                            , msg_id => MsgId
+                            , reason => not_found
+                            }),
             ok = metrics_inc(Ctx, 'packets.pubcomp.missed'),
             {ok, Channel}
     end;
@@ -626,8 +665,10 @@ handle_in(UnsubPkt = ?SN_UNSUBSCRIBE_MSG(_, MsgId, TopicIdOrName),
             UnsubAck = ?SN_UNSUBACK_MSG(MsgId),
             {ok, outgoing_and_update(UnsubAck), NChannel};
         {error, Reason, NChannel} ->
-            ?LOG(warning, "Unsubscribe ~p failed: ~0p",
-                          [TopicIdOrName, Reason]),
+            ?SLOG(warning, #{ msg => "unsubscribe_failed"
+                            , topic => TopicIdOrName
+                            , reason => Reason
+                            }),
             %% XXX: Even if it fails, the reply is successful.
             UnsubAck = ?SN_UNSUBACK_MSG(MsgId),
             {ok, {outgoing, UnsubAck}, NChannel}
@@ -674,7 +715,9 @@ handle_in(?SN_WILLMSGUPD_MSG(Payload),
 
 handle_in({frame_error, Reason},
           Channel = #channel{conn_state = _ConnState}) ->
-    ?LOG(error, "Unexpected frame error: ~p", [Reason]),
+    ?SLOG(error, #{ msg => "unexpected_frame_error"
+                  , reason => Reason
+                  }),
     shutdown(Reason, Channel).
 
 after_message_acked(ClientInfo, Msg, #channel{ctx = Ctx}) ->
@@ -689,13 +732,15 @@ outgoing_and_update(Pkt) ->
 %%--------------------------------------------------------------------
 %% Handle Publish
 
-check_qos3_enable(?SN_PUBLISH_MSG(Flags, _, _, _),
+check_qos3_enable(?SN_PUBLISH_MSG(Flags, TopicId, _MsgId, Data),
                   #channel{enable_qos3 = EnableQoS3}) ->
     #mqtt_sn_flags{qos = QoS} = Flags,
     case EnableQoS3 =:= false andalso QoS =:= ?QOS_NEG1 of
         true  ->
-            ?LOG(debug, "The enable_qos3 is false, ignore the received "
-                        "publish with QoS=-1 in connected mode!"),
+            ?SLOG(debug, #{ msg => "ignore_msg_due_to_qos3_disabled"
+                          , topic_id => TopicId
+                          , data => Data
+                          }),
             {error, ?SN_RC_NOT_SUPPORTED};
         false ->
             ok
@@ -781,8 +826,9 @@ do_publish(TopicId, MsgId, Msg = #message{qos = ?QOS_2},
             handle_out(puback , {TopicId, MsgId, ?SN_RC_NOT_SUPPORTED},
                        Channel);
         {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED} ->
-            ?LOG(warning, "Dropped the qos2 packet ~w "
-                 "due to awaiting_rel is full.", [MsgId]),
+            ?SLOG(warning, #{ msg => "dropped_the_qos2_packet_due_to_awaiting_rel_full"
+                            , msg_id => MsgId
+                            }),
             ok = metrics_inc(Ctx, 'packets.publish.dropped'),
             handle_out(puback, {TopicId, MsgId, ?SN_RC_CONGESTION}, Channel)
     end.
@@ -860,8 +906,10 @@ run_client_subs_hook({TopicId, TopicName, QoS},
     case run_hooks(Ctx, 'client.subscribe',
                    [ClientInfo, #{}], TopicFilters) of
         [] ->
-            ?LOG(warning, "Skip to subscribe ~ts, "
-                          "due to 'client.subscribe' denied!", [TopicName]),
+            ?SLOG(warning, #{ msg => "skip_to_subscribe"
+                            , topic_name => TopicName
+                            , reason => "'client.subscribe' filtered it"
+                            }),
             {error, ?SN_EXCEED_LIMITATION};
         [{NTopicName, NSubOpts}|_] ->
             {ok, {TopicId, NTopicName, NSubOpts}, Channel}
@@ -879,8 +927,10 @@ do_subscribe({TopicId, TopicName, SubOpts},
             {ok, {TopicId, NTopicName, NSubOpts},
              Channel#channel{session = NSession}};
         {error, ?RC_QUOTA_EXCEEDED} ->
-            ?LOG(warning, "Cannot subscribe ~ts due to ~ts.",
-                 [TopicName, emqx_reason_codes:text(?RC_QUOTA_EXCEEDED)]),
+            ?SLOG(warning, #{ msg => "cannt_subscribe_due_to_quota_exceeded"
+                            , topic_name => TopicName
+                            , reason => emqx_reason_codes:text(?RC_QUOTA_EXCEEDED)
+                            }),
             {error, ?SN_EXCEED_LIMITATION}
     end.
 
@@ -1185,7 +1235,9 @@ handle_call(discard, _From, Channel) ->
 %     reply(ok, Channel#channel{quota = Quota});
 
 handle_call(Req, _From, Channel) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{ msg => "unexpected_call"
+                  , call => Req
+                  }),
     reply(ignored, Channel).
 
 %%--------------------------------------------------------------------
@@ -1225,7 +1277,9 @@ handle_info({sock_closed, Reason},
 
 handle_info({sock_closed, Reason},
             Channel = #channel{conn_state = disconnected}) ->
-    ?LOG(error, "Unexpected sock_closed: ~p", [Reason]),
+    ?SLOG(error, #{ msg => "unexpected_sock_closed"
+                  , reason => Reason
+                  }),
     {ok, Channel};
 
 handle_info(clean_authz_cache, Channel) ->
@@ -1233,7 +1287,9 @@ handle_info(clean_authz_cache, Channel) ->
     {ok, Channel};
 
 handle_info(Info, Channel) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{ msg => "unexpected_info"
+                  , info => Info
+                  }),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
@@ -1389,7 +1445,9 @@ handle_timeout(_TRef, expire_asleep, Channel) ->
     shutdown(asleep_timeout, Channel);
 
 handle_timeout(_TRef, Msg, Channel) ->
-    ?LOG(error, "Unexpected timeout: ~p~n", [Msg]),
+    ?SLOG(error, #{ msg => "unexpected_timeout"
+                  , timeout_msg => Msg
+                  }),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------

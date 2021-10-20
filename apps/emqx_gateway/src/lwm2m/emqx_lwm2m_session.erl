@@ -62,6 +62,7 @@
                  , is_cache_mode :: boolean()
                  , mountpoint :: binary()
                  , last_active_at :: non_neg_integer()
+                 , created_at :: non_neg_integer()
                  , cmd_record :: cmd_record()
                  }).
 
@@ -109,6 +110,7 @@ new() ->
     #session{ coap = emqx_coap_tm:new()
             , queue = queue:new()
             , last_active_at = ?NOW
+            , created_at = erlang:system_time(millisecond)
             , is_cache_mode = false
             , mountpoint = <<>>
             , cmd_record = #{}
@@ -206,7 +208,7 @@ info(awaiting_rel_max, _) ->
     infinity;
 info(await_rel_timeout, _) ->
     infinity;
-info(created_at, #session{last_active_at = CreatedAt}) ->
+info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt.
 
 %% @doc Get stats of the session.
@@ -343,7 +345,7 @@ update(#coap_message{options = Opts, payload = Payload} = Msg,
        WithContext,
        CmdType,
        #session{reg_info = OldRegInfo} = Session) ->
-    Query = maps:get(uri_query, Opts),
+    Query = maps:get(uri_query, Opts, #{}),
     RegInfo = append_object_list(Query, Payload),
     UpdateRegInfo = maps:merge(OldRegInfo, RegInfo),
     LifeTime = get_lifetime(UpdateRegInfo, OldRegInfo),
@@ -403,7 +405,7 @@ send_auto_observe(RegInfo, Session) ->
             ObjectList = maps:get(<<"objectList">>, RegInfo, []),
             observe_object_list(AlternatePath, ObjectList, Session);
         _ ->
-            ?LOG(info, "Auto Observe Disabled", []),
+            ?SLOG(info, #{ msg => "skip_auto_observe_due_to_disabled"}),
             Session
     end.
 
@@ -433,7 +435,10 @@ observe_object(AlternatePath, ObjectPath, Session) ->
     deliver_auto_observe_to_coap(AlternatePath, Payload, Session).
 
 deliver_auto_observe_to_coap(AlternatePath, TermData, Session) ->
-    ?LOG(info, "Auto Observe, SEND To CoAP, AlternatePath=~0p, Data=~0p ", [AlternatePath, TermData]),
+    ?SLOG(info, #{ msg => "send_auto_observe"
+                 , path => AlternatePath
+                 , data => TermData
+                 }),
     {Req, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
     maybe_do_deliver_to_coap(Ctx, Req, 0, false, Session).
 
@@ -566,11 +571,15 @@ send_to_coap(#session{queue = Queue} = Session) ->
     end.
 
 send_to_coap(Ctx, Req, Session) ->
-    ?LOG(debug, "Deliver To CoAP, CoapRequest: ~0p", [Req]),
+    ?SLOG(debug, #{ msg => "deliver_to_coap"
+                  , coap_request => Req
+                  }),
     out_to_coap(Ctx, Req, Session#session{wait_ack = Ctx}).
 
 send_msg_not_waiting_ack(Ctx, Req, Session) ->
-    ?LOG(debug, "Deliver To CoAP not waiting ack, CoapRequest: ~0p", [Req]),
+    ?SLOG(debug, #{ msg => "deliver_to_coap_and_no_ack"
+                  , coap_request => Req
+                  }),
     %%    cmd_sent(Ref, LwM2MOpts).
     out_to_coap(Ctx, Req, Session).
 
@@ -598,6 +607,7 @@ proto_publish(Topic, Payload, Qos, Headers, WithContext,
 mount(Topic, #session{mountpoint = MountPoint}) when is_binary(Topic) ->
     <<MountPoint/binary, Topic/binary>>.
 
+%% XXX: get these confs from params instead of shared mem
 downlink_topic() ->
     emqx:get_config([gateway, lwm2m, translators, command]).
 
@@ -633,8 +643,11 @@ deliver_to_coap(AlternatePath, JsonData, MQTT, CacheMode, WithContext, Session) 
         deliver_to_coap(AlternatePath, TermData, MQTT, CacheMode, WithContext, Session)
     catch
         ExClass:Error:ST ->
-            ?LOG(error, "deliver_to_coap - Invalid JSON: ~0p, Exception: ~0p, stacktrace: ~0p",
-                 [JsonData, {ExClass, Error}, ST]),
+            ?SLOG(error, #{ msg => "invaild_json_format_to_deliver"
+                          , data => JsonData
+                          , reason => {ExClass, Error}
+                          , stacktrace => ST
+                          }),
             WithContext(metrics, 'delivery.dropped'),
             Session
     end;

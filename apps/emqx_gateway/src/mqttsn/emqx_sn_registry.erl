@@ -22,9 +22,7 @@
 -behaviour(gen_server).
 
 -include("src/mqttsn/include/emqx_sn.hrl").
-
--define(LOG(Level, Format, Args),
-        emqx_logger:Level("MQTT-SN(registry): " ++ Format, Args)).
+-include_lib("emqx/include/logger.hrl").
 
 -export([ start_link/2
         ]).
@@ -58,20 +56,16 @@
 %-export([mnesia/1]).
 
 %-boot_mnesia({mnesia, [boot]}).
-%-copy_mnesia({mnesia, [copy]}).
 
 %%% @doc Create or replicate tables.
 %-spec(mnesia(boot | copy) -> ok).
 %mnesia(boot) ->
 %    %% Optimize storage
 %    StoreProps = [{ets, [{read_concurrency, true}]}],
-%    ok = ekka_mnesia:create_table(?MODULE, [
+%    ok = mria:create_table(?MODULE, [
 %            {attributes, record_info(fields, emqx_sn_registry)},
 %            {ram_copies, [node()]},
-%            {storage_properties, StoreProps}]);
-%
-%mnesia(copy) ->
-%    ok = ekka_mnesia:copy_table(?MODULE, ram_copies).
+%            {storage_properties, StoreProps}]).
 
 -type registry() :: {Tab :: atom(),
                      RegistryPid :: pid()}.
@@ -143,28 +137,27 @@ init([InstaId, PredefTopics]) ->
     %% {ClientId, TopicId}   -> TopicName
     %% {ClientId, TopicName} -> TopicId
     Tab = name(InstaId),
-    ok = ekka_mnesia:create_table(Tab, [
-                {ram_copies, [node()]},
+    ok = mria:create_table(Tab, [
+                {storage, ram_copies},
                 {record_name, emqx_sn_registry},
                 {attributes, record_info(fields, emqx_sn_registry)},
                 {storage_properties, [{ets, [{read_concurrency, true}]}]},
                 {rlog_shard, ?SN_SHARD}
                ]),
-    ok = ekka_mnesia:copy_table(Tab, ram_copies),
-    ok = ekka_rlog:wait_for_shards([?SN_SHARD], infinity),
+    ok = mria:wait_for_tables([Tab]),
     % FIXME:
-    %ok = ekka_rlog:wait_for_shards([?CM_SHARD], infinity),
+    %ok = mria_rlog:wait_for_shards([?CM_SHARD], infinity),
     MaxPredefId = lists:foldl(
                     fun(#{id := TopicId, topic := TopicName0}, AccId) ->
                         TopicName = iolist_to_binary(TopicName0),
-                        ekka_mnesia:dirty_write(Tab, #emqx_sn_registry{
-                                                        key = {predef, TopicId},
-                                                        value = TopicName}
-                                               ),
-                        ekka_mnesia:dirty_write(Tab, #emqx_sn_registry{
-                                                        key = {predef, TopicName},
-                                                        value = TopicId}
-                                               ),
+                        mria:dirty_write(Tab, #emqx_sn_registry{
+                                                 key = {predef, TopicId},
+                                                 value = TopicName}
+                                        ),
+                        mria:dirty_write(Tab, #emqx_sn_registry{
+                                                 key = {predef, TopicName},
+                                                 value = TopicId}
+                                        ),
                         if TopicId > AccId -> TopicId; true -> AccId end
                     end, 0, PredefTopics),
     {ok, #state{tabname = Tab, max_predef_topic_id = MaxPredefId}}.
@@ -192,7 +185,7 @@ handle_call({register, ClientId, TopicName}, _From,
                                              key = {ClientId, TopicId},
                                              value = TopicName}, write)
                     end,
-                    case ekka_mnesia:transaction(?SN_SHARD, Fun) of
+                    case mria:transaction(?SN_SHARD, Fun) of
                         {atomic, ok} ->
                             {reply, TopicId, State};
                         {aborted, Error} ->
@@ -207,7 +200,7 @@ handle_call({unregister, ClientId}, _From, State = #state{tabname = Tab}) ->
                  {emqx_sn_registry, {ClientId, '_'}, '_'}
                 ),
     lists:foreach(fun(R) ->
-        ekka_mnesia:dirty_delete_object(Tab, R)
+        mria:dirty_delete_object(Tab, R)
     end, Registry),
     {reply, ok, State};
 
@@ -215,15 +208,21 @@ handle_call(name, _From, State = #state{tabname = Tab}) ->
     {reply, {Tab, self()}, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected request: ~p", [Req]),
+    ?SLOG(error, #{ msg => "unexpected_call"
+                  , call => Req
+                  }),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected msg: ~p", [Msg]),
+    ?SLOG(error, #{ msg => "unexpected_cast"
+                  , cast => Msg
+                  }),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{ msg => "unexpected_info"
+                  , info => Info
+                  }),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

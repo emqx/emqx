@@ -41,27 +41,34 @@
         ]).
 
 -record(channel, {
-                  %% Context
-                  ctx           :: emqx_gateway_ctx:context(),
-                  %% Connection Info
-                  conninfo      :: emqx_types:conninfo(),
-                  %% Client Info
-                  clientinfo    :: emqx_types:clientinfo(),
-                  %% Session
-                  session       :: emqx_lwm2m_session:session() | undefined,
+          %% Context
+          ctx          :: emqx_gateway_ctx:context(),
+          %% Connection Info
+          conninfo     :: emqx_types:conninfo(),
+          %% Client Info
+          clientinfo   :: emqx_types:clientinfo(),
+          %% Session
+          session      :: emqx_lwm2m_session:session() | undefined,
+          %% Timer
+          timers       :: #{atom() => disable | undefined | reference()},
+          with_context :: function()
+         }).
 
-                  %% Timer
-                  timers :: #{atom() => disable | undefined | reference()},
-
-                  with_context :: function()
-                 }).
+%% TODO:
+-define(DEFAULT_OVERRIDE,
+        #{ clientid => <<"">>  %% Generate clientid by default
+         , username => <<"${Packet.uri_query.ep}">>
+         , password => <<"">>
+         }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session]).
+
 -import(emqx_coap_medium, [reply/2, reply/3, reply/4, iter/3, iter/4]).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
 
@@ -75,7 +82,7 @@ info(conn_state, _) ->
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
-    emqx_misc:maybe_apply(fun emqx_session:info/1, Session);
+    emqx_misc:maybe_apply(fun emqx_lwm2m_session:info/1, Session);
 info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
     ClientId;
 info(ctx, #channel{ctx = Ctx}) ->
@@ -114,13 +121,13 @@ init(ConnInfo = #{peername := {PeerHost, _},
             , clientinfo = ClientInfo
             , timers = #{}
             , session = emqx_lwm2m_session:new()
+            %% FIXME: don't store anonymouse func
             , with_context = with_context(Ctx, ClientInfo)
             }.
 
-
 with_context(Ctx, ClientInfo) ->
     fun(Type, Topic) ->
-            with_context(Type, Topic, Ctx, ClientInfo)
+        with_context(Type, Topic, Ctx, ClientInfo)
     end.
 
 lookup_cmd(Channel, Path, Action) ->
@@ -165,14 +172,18 @@ handle_call({lookup_cmd, Path, Type}, _From, #channel{session = Session} = Chann
     {reply, {ok, Result}, Channel};
 
 handle_call(Req, _From, Channel) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{ msg => "unexpected_call"
+                  , call => Req
+                  }),
     {reply, ignored, Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle Cast
 %%--------------------------------------------------------------------
 handle_cast(Req, Channel) ->
-    ?LOG(error, "Unexpected cast: ~p", [Req]),
+    ?SLOG(error, #{ msg => "unexpected_cast"
+                  , cast => Req
+                  }),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
@@ -183,7 +194,9 @@ handle_info({subscribe, _AutoSubs}, Channel) ->
     {ok, Channel};
 
 handle_info(Info, Channel) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{ msg => "unexpected_info"
+                  , info => Info
+                  }),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
@@ -276,7 +289,9 @@ check_lwm2m_version(#coap_message{options = Opts},
                                  },
             {ok, Channel#channel{conninfo = NConnInfo}};
        true ->
-            ?LOG(error, "Reject REGISTER due to unsupported version: ~0p", [Ver]),
+            ?SLOG(error, #{ msg => "reject_REGISTRE_request"
+                          , reason => {unsupported_version, Ver}
+                          }),
             {error, "invalid lwm2m version", Channel}
     end.
 
@@ -293,18 +308,22 @@ enrich_clientinfo(#coap_message{options = Options} = Msg,
                   Channel = #channel{clientinfo = ClientInfo0}) ->
     Query = maps:get(uri_query, Options, #{}),
     case Query of
-        #{<<"ep">> := Epn} ->
-            UserName = maps:get(<<"imei">>, Query, Epn),
+        #{<<"ep">> := Epn, <<"lt">> := Lifetime} ->
+            Username = maps:get(<<"imei">>, Query, Epn),
             Password = maps:get(<<"password">>, Query, undefined),
             ClientId = maps:get(<<"device_id">>, Query, Epn),
             ClientInfo =
-                ClientInfo0#{username => UserName,
+                ClientInfo0#{endpoint_name => Epn,
+                             lifetime => binary_to_integer(Lifetime),
+                             username => Username,
                              password => Password,
                              clientid => ClientId},
             {ok, NClientInfo} = fix_mountpoint(Msg, ClientInfo),
             {ok, Channel#channel{clientinfo = NClientInfo}};
         _ ->
-            ?LOG(error, "Reject REGISTER due to wrong parameters, Query=~p", [Query]),
+            ?SLOG(error, #{ msg => "reject_REGISTER_request"
+                          , reason => {wrong_paramters, Query}
+                          }),
             {error, "invalid queries", Channel}
     end.
 
@@ -320,8 +339,11 @@ auth_connect(_Input, Channel = #channel{ctx = Ctx,
             {ok, Channel#channel{clientinfo = NClientInfo,
                                  with_context = with_context(Ctx, ClientInfo)}};
         {error, Reason} ->
-            ?LOG(warning, "Client ~ts (Username: '~ts') login failed for ~0p",
-                 [ClientId, Username, Reason]),
+            ?SLOG(warning, #{ msg => "client_login_failed"
+                            , clientid => ClientId
+                            , username => Username
+                            , reason => Reason
+                            }),
             {error, Reason}
     end.
 
@@ -356,10 +378,18 @@ process_connect(Channel = #channel{ctx = Ctx,
           ) of
         {ok, _} ->
             Mountpoint = maps:get(mountpoint, ClientInfo, <<>>),
-            NewResult = emqx_lwm2m_session:init(Msg, Mountpoint, WithContext, Session),
-            iter(Iter, maps:merge(Result, NewResult), Channel);
+            NewResult0 = emqx_lwm2m_session:init(
+                           Msg,
+                           Mountpoint,
+                           WithContext,
+                           Session
+                          ),
+            NewResult1 = NewResult0#{events => [{event, connected}]},
+            iter(Iter, maps:merge(Result, NewResult1), Channel);
         {error, Reason} ->
-            ?LOG(error, "Failed to open session du to ~p", [Reason]),
+            ?SLOG(error, #{ msg => "falied_to_open_session"
+                          , reason => Reason
+                          }),
             iter(Iter, reply({error, bad_request}, Msg, Result), Channel)
     end.
 
@@ -383,17 +413,24 @@ with_context(publish, [Topic, Msg], Ctx, ClientInfo) ->
         allow ->
             emqx:publish(Msg);
         _ ->
-            ?LOG(error, "topic:~p not allow to publish ", [Topic])
+            ?SLOG(error, #{ msg => "publish_denied"
+                          , topic => Topic
+                          })
     end;
 
-with_context(subscribe, [Topic, Opts], Ctx, #{username := UserName} = ClientInfo) ->
+with_context(subscribe, [Topic, Opts], Ctx, #{username := Username} = ClientInfo) ->
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, Topic) of
         allow ->
-            run_hooks(Ctx, 'session.subscribed', [ClientInfo, Topic, UserName]),
-            ?LOG(debug, "Subscribe topic: ~0p, Opts: ~0p, EndpointName: ~0p", [Topic, Opts, UserName]),
-            emqx:subscribe(Topic, UserName, Opts);
+            run_hooks(Ctx, 'session.subscribed', [ClientInfo, Topic, Opts]),
+            ?SLOG(debug, #{ msg => "subscribe_topic_succeed"
+                          , topic => Topic
+                          , endpoint_name => Username
+                          }),
+            emqx:subscribe(Topic, Username, Opts);
         _ ->
-            ?LOG(error, "Topic: ~0p not allow to subscribe", [Topic])
+            ?SLOG(error, #{ msg => "subscribe_denied"
+                          , topic => Topic
+                          })
     end;
 
 with_context(metrics, Name, Ctx, _ClientInfo) ->
@@ -479,14 +516,15 @@ process_out(Outs, Result, Channel, _) ->
                 Reply ->
                     [Reply | Outs2]
             end,
-
-    {ok, {outgoing, Outs3}, Channel}.
+    Events = maps:get(events, Result, []),
+    {ok, [{outgoing, Outs3}] ++ Events, Channel}.
 
 process_reply(Reply, Result, #channel{session = Session} = Channel, _) ->
     Session2 = emqx_lwm2m_session:set_reply(Reply, Session),
     Outs = maps:get(out, Result, []),
     Outs2 = lists:reverse(Outs),
-    {ok, {outgoing, [Reply | Outs2]}, Channel#channel{session = Session2}}.
+    Events = maps:get(events, Result, []),
+    {ok, [{outgoing, [Reply | Outs2]}] ++ Events, Channel#channel{session = Session2}}.
 
 process_lifetime(_, Result, Channel, Iter) ->
     iter(Iter, Result, update_life_timer(Channel)).

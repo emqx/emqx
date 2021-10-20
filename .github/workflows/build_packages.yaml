@@ -356,62 +356,37 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source-${{ matrix.otp }}.zip
-    - name: get version
-      id: version
-      working-directory: source
-      run: echo "::set-output name=version::$(./pkg-vsn.sh)"
     - uses: docker/setup-buildx-action@v1
     - uses: docker/setup-qemu-action@v1
       with:
         image: tonistiigi/binfmt:latest
         platforms: all
-    - uses: docker/build-push-action@v2
-      if: github.event_name != 'release'
+    - uses: docker/metadata-action@v3
+      id: meta
       with:
-        push: false
-        pull: true
-        no-cache: true
-        platforms: linux/amd64,linux/arm64
-        tags: emqx/${{ matrix.profile }}:${{ steps.version.outputs.version }}
-        build-args: |
-          PKG_VSN=${{ steps.version.outputs.version }}
-          BUILD_FROM=ghcr.io/emqx/emqx-builder-helper/5.0:${{ matrix.otp }}-alpine3.14
-          RUN_FROM=alpine:3.14
-          EMQX_NAME=${{ matrix.profile }}
-        file: source/deploy/docker/Dockerfile
-        context: source
+        images: ${{ github.repository_owner }}/${{ matrix.profile }}
+        flavor: |
+          latest=${{ !github.event.release.prerelease }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=ref,event=tag
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
     - uses: docker/login-action@v1
       if: github.event_name == 'release'
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
     - uses: docker/build-push-action@v2
-      if: github.event_name == 'release' && github.event.release.prerelease
       with:
-        push: true
+        push: ${{ github.event_name == 'release' }}
         pull: true
         no-cache: true
         platforms: linux/amd64,linux/arm64
-        tags: emqx/${{ matrix.profile }}:${{ steps.version.outputs.version }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          PKG_VSN=${{ steps.version.outputs.version }}
-          BUILD_FROM=ghcr.io/emqx/emqx-builder-helper/5.0:${{ matrix.otp }}-alpine3.14
-          RUN_FROM=alpine:3.14
-          EMQX_NAME=${{ matrix.profile }}
-        file: source/deploy/docker/Dockerfile
-        context: source
-    - uses: docker/build-push-action@v2
-      if: github.event_name == 'release' && !github.event.release.prerelease
-      with:
-        push: true
-        pull: true
-        no-cache: true
-        platforms: linux/amd64,linux/arm64
-        tags: |
-          emqx/${{ matrix.profile }}:latest
-          emqx/${{ matrix.profile }}:${{ steps.version.outputs.version }}
-        build-args: |
-          PKG_VSN=${{ steps.version.outputs.version }}
           BUILD_FROM=ghcr.io/emqx/emqx-builder-helper/5.0:${{ matrix.otp }}-alpine3.14
           RUN_FROM=alpine:3.14
           EMQX_NAME=${{ matrix.profile }}

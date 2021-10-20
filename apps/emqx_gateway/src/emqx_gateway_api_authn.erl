@@ -53,7 +53,14 @@ apis() ->
 
 authn(get, #{bindings := #{name := Name0}}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        {200, emqx_gateway_http:authn(GwName)}
+        try
+            emqx_gateway_http:authn(GwName)
+        of
+            Authn -> {200, Authn}
+        catch
+            error : {config_not_found, _} ->
+                {204}
+        end
     end);
 
 authn(put, #{bindings := #{name := Name0},
@@ -104,10 +111,11 @@ swagger("/gateway/:name/authentication", get) ->
          , <<"404">> => schema_not_found()
          , <<"500">> => schema_internal_error()
          , <<"200">> => schema_authn()
+         , <<"204">> => schema_no_content()
          }
      };
 swagger("/gateway/:name/authentication", put) ->
-    #{ description => <<"Create the gateway authentication">>
+    #{ description => <<"Update authentication for the gateway">>
      , parameters => params_gateway_name_in_path()
      , requestBody => schema_authn()
      , responses =>
