@@ -1,5 +1,10 @@
 name: API Test Suite
 
+concurrency:
+  group: apt-test-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
 on:
   push:
     tags:
