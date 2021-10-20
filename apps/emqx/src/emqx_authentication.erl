@@ -935,7 +935,7 @@ switch_version(State = #{version := ?VER_1}) ->
 switch_version(State = #{version := ?VER_2}) ->
     State#{version := ?VER_1};
 switch_version(State) ->
-    State#{version => ?VER_1}.
+    State#{version => ?VER_2}.
 
 authn_type(#{mechanism := Mechanism, backend := Backend}) ->
     {Mechanism, Backend};

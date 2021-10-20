@@ -22,13 +22,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--import(emqx_ct_http, [ request_api/3
-                      , request_api/5
-                      , get_http_data/1
-                      , create_default_app/0
-                      , delete_default_app/0
-                      , default_auth_header/0
-                      ]).
+-import(emqx_common_test_http, [ request_api/3
+                               , request_api/5
+                               , get_http_data/1
+                               , create_default_app/0
+                               , delete_default_app/0
+                               , default_auth_header/0
+                               ]).
 
 -define(HOST, "http://127.0.0.1:8081/").
 -define(API_VERSION, "v4").

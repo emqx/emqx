@@ -27,8 +27,6 @@
 
 -include("emqx_lwm2m.hrl").
 
--define(LOG(Level, Format, Args), logger:Level("LWM2M-TLV: " ++ Format, Args)).
-
 -define(TLV_TYPE_OBJECT_INSTANCE,     0).
 -define(TLV_TYPE_RESOURCE_INSTANCE,   1).
 -define(TLV_TYPE_MULTIPLE_RESOURCE,   2).
@@ -38,8 +36,6 @@
 -define(TLV_LEGNTH_8_BIT,    1).
 -define(TLV_LEGNTH_16_BIT,   2).
 -define(TLV_LEGNTH_24_BIT,   3).
-
-
 
 %----------------------------------------------------------------------------------------------------------------------------------------
 % [#{tlv_object_instance := Id11, value := Value11}, #{tlv_object_instance := Id12, value := Value12}, ...]

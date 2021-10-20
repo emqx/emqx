@@ -37,6 +37,7 @@
         ]).
 
 -export([ stringfy/1
+        , parse_address/1
         ]).
 
 -export([ normalize_config/1
@@ -181,6 +182,19 @@ stringfy(T) when is_list(T); is_binary(T) ->
     iolist_to_binary(T);
 stringfy(T) ->
     iolist_to_binary(io_lib:format("~0p", [T])).
+
+-spec parse_address(binary()|list()) -> {list(), integer()}.
+parse_address(S) when is_binary(S); is_list(S) ->
+    S1 = case is_binary(S) of
+            true -> lists:reverse(binary_to_list(S));
+             _ -> lists:reverse(S)
+         end,
+    case re:split(S1, ":", [{parts, 2}, {return, list}]) of
+        [Port0, Host0] ->
+            {lists:reverse(Host0), list_to_integer(lists:reverse(Port0))};
+        _ ->
+            error(badarg)
+    end.
 
 -spec normalize_config(emqx_config:config())
     -> list({ Type :: udp | tcp | ssl | dtls

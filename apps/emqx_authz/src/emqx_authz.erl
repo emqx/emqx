@@ -73,8 +73,8 @@ move(Type, Position, Opts) ->
 update(Cmd, Sources) ->
     update(Cmd, Sources, #{}).
 
-update({?CMD_REPLCAE, Type}, Sources, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {{?CMD_REPLCAE, type(Type)}, Sources}, Opts);
+update({?CMD_REPLACE, Type}, Sources, Opts) ->
+    emqx:update_config(?CONF_KEY_PATH, {{?CMD_REPLACE, type(Type)}, Sources}, Opts);
 update({?CMD_DELETE, Type}, Sources, Opts) ->
     emqx:update_config(?CONF_KEY_PATH, {{?CMD_DELETE, type(Type)}, Sources}, Opts);
 update(Cmd, Sources, Opts) ->
@@ -102,7 +102,7 @@ do_update({?CMD_APPEND, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
     NConf = Conf ++ Sources,
     ok = check_dup_types(NConf),
     NConf;
-do_update({{?CMD_REPLCAE, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
+do_update({{?CMD_REPLACE, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
     {_Old, Front, Rear} = take(Type, Conf),
     NConf = Front ++ [Source | Rear],
     ok = check_dup_types(NConf),
@@ -113,7 +113,9 @@ do_update({{?CMD_DELETE, Type}, _Source}, Conf) when is_list(Conf) ->
     NConf;
 do_update({_, Sources}, _Conf) when is_list(Sources)->
     %% overwrite the entire config!
-    Sources.
+    Sources;
+do_update({Op, Sources}, Conf) ->
+    error({bad_request, #{op => Op, sources => Sources, conf => Conf}}).
 
 pre_config_update(Cmd, Conf) ->
     {ok, do_update(Cmd, Conf)}.
@@ -138,7 +140,7 @@ do_post_update({?CMD_APPEND, Sources}, _NewSources) ->
     InitedSources = init_sources(check_sources(Sources)),
     emqx_hooks:put('client.authorize', {?MODULE, authorize, [lookup() ++ InitedSources]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({{?CMD_REPLCAE, Type}, Source}, _NewSources) when is_map(Source) ->
+do_post_update({{?CMD_REPLACE, Type}, Source}, _NewSources) when is_map(Source) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     ok = ensure_resource_deleted(OldSource),
@@ -202,13 +204,13 @@ init_source(#{type := file,
                 {ok, Terms} ->
                     [emqx_authz_rule:compile(Term) || Term <- Terms];
                 {error, eacces} ->
-                    ?LOG(alert, "Insufficient permissions to read the ~ts file", [Path]),
+                    ?SLOG(alert, #{msg => "insufficient_permissions_to_read_file", path => Path}),
                     error(eaccess);
                 {error, enoent} ->
-                    ?LOG(alert, "The ~ts file does not exist", [Path]),
+                    ?SLOG(alert, #{msg => "file_does_not_exist", path => Path}),
                     error(enoent);
                 {error, Reason} ->
-                    ?LOG(alert, "Failed to read ~ts: ~p", [Path, Reason]),
+                    ?SLOG(alert, #{msg => "failed_to_read_file", path => Path, reason => Reason}),
                     error(Reason)
             end,
     Source#{annotations => #{rules => Rules}};
@@ -256,15 +258,15 @@ authorize(#{username := Username,
            } = Client, PubSub, Topic, DefaultResult, Sources) ->
     case do_authorize(Client, PubSub, Topic, Sources) of
         {matched, allow} ->
-            ?LOG(info, "Client succeeded authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: allow", [Username, IpAddress, Topic]),
+            ?SLOG(info, #{msg => "authorization_permission_allowed", username => Username, ipaddr => IpAddress, topic => Topic}),
             emqx_metrics:inc(?AUTHZ_METRICS(allow)),
             {stop, allow};
         {matched, deny} ->
-            ?LOG(info, "Client failed authorization: Username: ~p, IP: ~p, Topic: ~p, Permission: deny", [Username, IpAddress, Topic]),
+            ?SLOG(info, #{msg => "authorization_permission_denied", username => Username, ipaddr => IpAddress, topic => Topic}),
             emqx_metrics:inc(?AUTHZ_METRICS(deny)),
             {stop, deny};
         nomatch ->
-            ?LOG(info, "Client failed authorization: Username: ~p, IP: ~p, Topic: ~p, Reasion: ~p", [Username, IpAddress, Topic, "no-match rule"]),
+            ?SLOG(info, #{msg => "authorization_failed_nomatch", username => Username, ipaddr => IpAddress, topic => Topic, reason => "no-match rule"}),
             {stop, DefaultResult}
     end.
 

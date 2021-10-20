@@ -58,6 +58,7 @@ set_special_cfg(_) ->
     ok.
 
 end_per_suite(Config) ->
+    {ok, _} = emqx:remove_config([<<"gateway">>,<<"coap">>]),
     emqx_common_test_helpers:stop_apps([emqx_gateway]),
     Config.
 

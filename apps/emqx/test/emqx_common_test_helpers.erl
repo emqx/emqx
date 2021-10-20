@@ -148,27 +148,10 @@ start_app(App, Handler) ->
               app_path(App, filename:join(["etc", atom_to_list(App) ++ ".conf"])),
               Handler).
 
-%% TODO: get rid of cuttlefish
 app_schema(App) ->
-    CuttlefishSchema = app_path(App, filename:join(["priv", atom_to_list(App) ++ ".schema"])),
-    case filelib:is_regular(CuttlefishSchema) of
-        true ->
-            CuttlefishSchema;
-        false ->
-            Mod = list_to_atom(atom_to_list(App) ++ "_schema"),
-            try
-                true = is_list(Mod:roots()),
-                Mod
-            catch
-                C : E ->
-                    error(#{app => App,
-                            file => CuttlefishSchema,
-                            module => Mod,
-                            exeption => C,
-                            reason => E
-                           })
-            end
-    end.
+    Mod = list_to_atom(atom_to_list(App) ++ "_schema"),
+    true = is_list(Mod:roots()),
+    Mod.
 
 mustache_vars(App) ->
     [{platform_data_dir, app_path(App, "data")},
@@ -208,11 +191,7 @@ read_schema_configs(Schema, ConfigFile) ->
 
 generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
     {ok, Conf0} = hocon:load(ConfigFile, #{format => richmap}),
-    hocon_schema:generate(SchemaModule, Conf0);
-generate_config(SchemaFile, ConfigFile) ->
-    {ok, Conf1} = hocon:load(ConfigFile, #{format => proplists}),
-    Schema = cuttlefish_schema:files([SchemaFile]),
-    cuttlefish_generator:map(Schema, Conf1).
+    hocon_schema:generate(SchemaModule, Conf0).
 
 -spec(stop_apps(list()) -> ok).
 stop_apps(Apps) ->

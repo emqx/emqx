@@ -17,6 +17,7 @@
 -module(emqx_lwm2m_xml_object_db).
 
 -include_lib("xmerl/include/xmerl.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include("emqx_lwm2m.hrl").
 
 % This module is for future use. Disabled now.
@@ -36,9 +37,6 @@
         , terminate/2
         , code_change/3
         ]).
-
--define(LOG(Level, Format, Args),
-    logger:Level("LWM2M-OBJ-DB: " ++ Format, Args)).
 
 -define(LWM2M_OBJECT_DEF_TAB, lwm2m_object_def_tab).
 -define(LWM2M_OBJECT_NAME_TO_ID_TAB, lwm2m_object_name_to_id_tab).
@@ -130,7 +128,11 @@ load_loop([FileName|T]) ->
     [#xmlText{value=Name}] = xmerl_xpath:string("Name/text()", ObjectXml),
     ObjectId = list_to_integer(ObjectIdString),
     NameBinary = list_to_binary(Name),
-    ?LOG(debug, "load_loop FileName=~p, ObjectId=~p, Name=~p", [FileName, ObjectId, NameBinary]),
+    ?SLOG(debug, #{ msg => "load_object_succeed"
+                  , filename => FileName
+                  , object_id => ObjectId
+                  , object_name => NameBinary
+                  }),
     ets:insert(?LWM2M_OBJECT_DEF_TAB, {ObjectId, ObjectXml}),
     ets:insert(?LWM2M_OBJECT_NAME_TO_ID_TAB, {NameBinary, ObjectId}),
     load_loop(T).

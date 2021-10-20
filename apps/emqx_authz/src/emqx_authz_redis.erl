@@ -43,7 +43,7 @@ authorize(Client, PubSub, Topic,
         {ok, Rows} ->
             do_authorize(Client, PubSub, Topic, Rows);
         {error, Reason} ->
-            ?LOG(error, "[AuthZ] Query redis error: ~p", [Reason]),
+            ?SLOG(error, #{msg => "query_redis_error", reason => Reason, resource_id => ResourceID}),
             nomatch
     end.
 

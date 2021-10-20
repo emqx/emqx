@@ -365,7 +365,7 @@ pre_config_update(UnknownReq, _RawConf) ->
                          emqx_config:config(), emqx_config:app_envs())
     -> ok | {ok, Result::any()} | {error, Reason::term()}.
 
-post_config_update(Req, NewConfig, OldConfig, _AppEnvs) ->
+post_config_update(Req, NewConfig, OldConfig, _AppEnvs) when is_tuple(Req) ->
     [_Tag, GwName0|_] = tuple_to_list(Req),
     GwName = binary_to_existing_atom(GwName0),
 
@@ -379,4 +379,6 @@ post_config_update(Req, NewConfig, OldConfig, _AppEnvs) ->
             emqx_gateway:load(GwName, New);
         {New, Old} when is_map(New), is_map(Old) ->
             emqx_gateway:update(GwName, New)
-    end.
+    end;
+post_config_update(_Req, _NewConfig, _OldConfig, _AppEnvs) ->
+    ok.

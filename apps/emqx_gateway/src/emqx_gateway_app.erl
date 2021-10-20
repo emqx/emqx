@@ -40,7 +40,6 @@ stop(_State) ->
 
 load_default_gateway_applications() ->
     Apps = gateway_type_searching(),
-    ?LOG(info, "Starting the default gateway types: ~p", [Apps]),
     lists:foreach(fun reg/1, Apps).
 
 gateway_type_searching() ->
@@ -51,12 +50,16 @@ gateway_type_searching() ->
 reg(Mod) ->
     try
         Mod:reg(),
-        ?LOG(info, "Register ~ts gateway application successfully!", [Mod])
+        ?SLOG(debug, #{ msg => "register_gateway_succeed"
+                      , callback_module => Mod
+                      })
     catch
         Class : Reason : Stk ->
-            ?LOG(error, "Failed to register ~ts gateway application: {~p, ~p}\n"
-                        "Stacktrace: ~0p",
-                        [Mod, Class, Reason, Stk])
+            ?SLOG(error, #{ msg => "failed_to_register_gateway"
+                          , callback_module => Mod
+                          , reason => {Class, Reason}
+                          , stacktrace => Stk
+                          })
     end.
 
 load_gateway_by_default() ->
@@ -67,14 +70,19 @@ load_gateway_by_default([]) ->
 load_gateway_by_default([{Type, Confs}|More]) ->
     case emqx_gateway_registry:lookup(Type) of
         undefined ->
-            ?LOG(error, "Skip to load ~ts gateway, because it is not registered",
-                        [Type]);
+            ?SLOG(error, #{ msg => "skip_to_load_gateway"
+                          , gateway_name => Type
+                          });
         _ ->
             case emqx_gateway:load(Type, Confs) of
                 {ok, _} ->
-                    ?LOG(debug, "Load ~ts gateway successfully!", [Type]);
+                    ?SLOG(debug, #{ msg => "load_gateway_succeed"
+                                  , gateway_name => Type
+                                  });
                 {error, Reason} ->
-                    ?LOG(error, "Failed to load ~ts gateway: ~0p", [Type, Reason])
+                    ?SLOG(error, #{ msg => "load_gateway_failed"
+                                  , gateway_name => Type
+                                  , reason => Reason})
             end
     end,
     load_gateway_by_default(More).

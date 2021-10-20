@@ -51,21 +51,21 @@ on_gateway_load(_Gateway = #{ name := GwName,
                               config := Config
                             }, Ctx) ->
     %% Xml registry
-    {ok, _} = emqx_lwm2m_xml_object_db:start_link(maps:get(xml_dir, Config)),
+    {ok, RegPid} = emqx_lwm2m_xml_object_db:start_link(maps:get(xml_dir, Config)),
 
     Listeners = emqx_gateway_utils:normalize_config(Config),
     ListenerPids = lists:map(fun(Lis) ->
                                      start_listener(GwName, Ctx, Lis)
                              end, Listeners),
-    {ok, ListenerPids, _GwState = #{ctx => Ctx}}.
+    {ok, ListenerPids, _GwState = #{ctx => Ctx, registry => RegPid}}.
 
-on_gateway_update(NewGateway, OldGateway, GwState = #{ctx := Ctx}) ->
-    GwName = maps:get(name, NewGateway),
+on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
+    GwName = maps:get(name, Gateway),
     try
         %% XXX: 1. How hot-upgrade the changes ???
         %% XXX: 2. Check the New confs first before destroy old instance ???
-        on_gateway_unload(OldGateway, GwState),
-        on_gateway_load(NewGateway, Ctx)
+        on_gateway_unload(Gateway, GwState),
+        on_gateway_load(Gateway#{config => Config}, Ctx)
     catch
         Class : Reason : Stk ->
             logger:error("Failed to update ~ts; "
@@ -76,7 +76,8 @@ on_gateway_update(NewGateway, OldGateway, GwState = #{ctx := Ctx}) ->
 
 on_gateway_unload(_Gateway = #{ name := GwName,
                                 config := Config
-                              }, _GwState) ->
+                              }, _GwState = #{registry := RegPid}) ->
+    exit(RegPid, kill),
     Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:foreach(fun(Lis) ->
         stop_listener(GwName, Lis)

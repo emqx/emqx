@@ -71,6 +71,11 @@ apis() ->
     , {<<"lte_created_at">>, timestamp}
     , {<<"gte_connected_at">>, timestamp}
     , {<<"lte_connected_at">>, timestamp}
+    %% special keys for lwm2m protocol
+    , {<<"endpoint_name">>, binary}
+    , {<<"like_endpoint_name">>, binary}
+    , {<<"gte_lifetime">>, timestamp}
+    , {<<"lte_lifetime">>, timestamp}
     ]).
 
 -define(query_fun, {?MODULE, query}).
@@ -105,8 +110,9 @@ clients_insta(get, #{ bindings := #{name := Name0,
             [ClientInfo] ->
                 {200, ClientInfo};
             [ClientInfo | _More] ->
-                ?LOG(warning, "More than one client info was returned on ~ts",
-                              [ClientId]),
+                ?SLOG(warning, #{ msg => "more_than_one_channel_found"
+                                , clientid => ClientId
+                                }),
                 {200, ClientInfo};
             [] ->
                 return_http_error(404, "Client not found")
@@ -118,7 +124,7 @@ clients_insta(delete, #{ bindings := #{name := Name0,
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
     with_gateway(Name0, fun(GwName, _) ->
         _ = emqx_gateway_http:kickout_client(GwName, ClientId),
-        {200}
+        {204}
     end).
 
 %% FIXME:
@@ -152,7 +158,7 @@ subscriptions(post, #{ bindings := #{name := Name0,
                     {error, Reason} ->
                         return_http_error(404, Reason);
                     ok ->
-                        {200}
+                        {204}
                 end
         end
     end);
@@ -167,7 +173,7 @@ subscriptions(delete, #{ bindings := #{name := Name0,
     Topic = emqx_mgmt_util:urldecode(Topic0),
     with_gateway(Name0, fun(GwName, _) ->
         _ = emqx_gateway_http:client_unsubscribe(GwName, ClientId, Topic),
-        {200}
+        {204}
     end).
 
 %%--------------------------------------------------------------------
@@ -230,7 +236,7 @@ ms(username, X) ->
 ms(zone, X) ->
     #{clientinfo => #{zone => X}};
 ms(ip_address, X) ->
-    #{clientinfo => #{peerhost => X}};
+    #{clientinfo => #{peername => {X, '_'}}};
 ms(conn_state, X) ->
     #{conn_state => X};
 ms(clean_start, X) ->
@@ -240,7 +246,12 @@ ms(proto_ver, X) ->
 ms(connected_at, X) ->
     #{conninfo => #{connected_at => X}};
 ms(created_at, X) ->
-    #{session => #{created_at => X}}.
+    #{session => #{created_at => X}};
+%% lwm2m fields
+ms(endpoint_name, X) ->
+    #{clientinfo => #{endpoint_name => X}};
+ms(lifetime, X) ->
+    #{clientinfo => #{lifetime => X}}.
 
 %%--------------------------------------------------------------------
 %% Fuzzy filter funcs
@@ -267,7 +278,7 @@ run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE} | Fuzzy]
 %%--------------------------------------------------------------------
 %% format funcs
 
-format_channel_info({_, Infos, Stats}) ->
+format_channel_info({_, Infos, Stats} = R) ->
     ClientInfo = maps:get(clientinfo, Infos, #{}),
     ConnInfo = maps:get(conninfo, Infos, #{}),
     SessInfo = maps:get(session, Infos, #{}),
@@ -276,7 +287,8 @@ format_channel_info({_, Infos, Stats}) ->
              , {username, ClientInfo}
              , {proto_name, ConnInfo}
              , {proto_ver, ConnInfo}
-             , {ip_address, {peername, ConnInfo, fun peer_to_binary/1}}
+             , {ip_address, {peername, ConnInfo, fun peer_to_binary_addr/1}}
+             , {port, {peername, ConnInfo, fun peer_to_port/1}}
              , {is_bridge, ClientInfo, false}
              , {connected_at,
                 {connected_at, ConnInfo, fun emqx_gateway_utils:unix_ts_to_rfc3339/1}}
@@ -309,7 +321,20 @@ format_channel_info({_, Infos, Stats}) ->
              , {heap_size, Stats, 0}
              , {reductions, Stats, 0}
              ],
-    eval(FetchX).
+    eval(FetchX ++ extra_feilds(R)).
+
+extra_feilds({_, Infos, _Stats} = R) ->
+    extra_feilds(
+      maps:get(protocol, maps:get(clientinfo, Infos)),
+      R).
+
+extra_feilds(lwm2m, {_, Infos, _Stats}) ->
+    ClientInfo = maps:get(clientinfo, Infos, #{}),
+    [ {endpoint_name, ClientInfo}
+    , {lifetime, ClientInfo}
+    ];
+extra_feilds(_, _) ->
+    [].
 
 eval(Ls) ->
     eval(Ls, #{}).
@@ -341,12 +366,13 @@ key_get(K, M) when is_map(M) ->
 key_get(K, L) when is_list(L) ->
     proplists:get_value(K, L).
 
-peer_to_binary({Addr, Port}) ->
-    AddrBinary = list_to_binary(inet:ntoa(Addr)),
-    PortBinary = integer_to_binary(Port),
-    <<AddrBinary/binary, ":", PortBinary/binary>>;
-peer_to_binary(Addr) ->
+-spec(peer_to_binary_addr(emqx_types:peername()) -> binary()).
+peer_to_binary_addr({Addr, _}) ->
     list_to_binary(inet:ntoa(Addr)).
+
+-spec(peer_to_port(emqx_types:peername()) -> inet:port_number()).
+peer_to_port({_, Port}) ->
+    Port.
 
 conn_state_to_connected(connected) -> true;
 conn_state_to_connected(_) -> false.
@@ -419,7 +445,7 @@ swagger("/gateway/:name/clients/:clientid/subscriptions", post) ->
         #{ <<"400">> => schema_bad_request()
          , <<"404">> => schema_not_found()
          , <<"500">> => schema_internal_error()
-         , <<"200">> => schema_no_content()
+         , <<"204">> => schema_no_content()
        }
      };
 swagger("/gateway/:name/clients/:clientid/subscriptions/:topic", delete) ->
@@ -523,6 +549,7 @@ schema_subscription() ->
 %% properties defines
 
 properties_client() ->
+    %% FIXME: enum for every protocol's client
     emqx_mgmt_util:properties(
       [ {node, string,
          <<"Name of the node to which the client is connected">>}
@@ -536,6 +563,8 @@ properties_client() ->
          <<"Protocol version used by the client">>}
       , {ip_address, string,
          <<"Client's IP address">>}
+      , {port, integer,
+         <<"Client's port">>}
       , {is_bridge, boolean,
          <<"Indicates whether the client is connectedvia bridge">>}
       , {connected_at, string,

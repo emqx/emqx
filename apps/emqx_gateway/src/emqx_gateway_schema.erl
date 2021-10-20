@@ -28,16 +28,19 @@
 
 -type ip_port() :: tuple().
 -type duration() :: integer().
+-type duration_s() :: integer().
 -type bytesize() :: integer().
 -type comma_separated_list() :: list().
 
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
+-typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
 -typerefl_from_string({bytesize/0, emqx_schema, to_bytesize}).
 -typerefl_from_string({comma_separated_list/0, emqx_schema,
                        to_comma_separated_list}).
 
 -reflect_type([ duration/0
+              , duration_s/0
               , bytesize/0
               , comma_separated_list/0
               , ip_port/0
@@ -70,8 +73,8 @@ fields(stomp_frame) ->
 
 fields(mqttsn) ->
     [ {gateway_id, sc(integer())}
-    , {broadcast, sc(boolean())}
-    , {enable_qos3, sc(boolean())}
+    , {broadcast, sc(boolean(), false)}
+    , {enable_qos3, sc(boolean(), true)}
     , {predefined, hoconsc:array(ref(mqttsn_predefined))}
     , {listeners, sc(ref(udp_listeners))}
     ] ++ gateway_common_options();
@@ -91,13 +94,14 @@ fields(coap) ->
     ] ++ gateway_common_options();
 
 fields(lwm2m) ->
-    [ {xml_dir, sc(binary())}
+    [ {xml_dir, sc(binary(), "etc/lwm2m_xml")}
     , {lifetime_min, sc(duration(), "1s")}
     , {lifetime_max, sc(duration(), "86400s")}
-    , {qmode_time_window, sc(integer(), 22)}
+    , {qmode_time_window, sc(duration_s(), "22s")}
+    %% TODO: Support config resource path
     , {auto_observe, sc(boolean(), false)}
     , {update_msg_publish_condition, sc(hoconsc:union([always, contains_object_list]))}
-    , {translators, sc(ref(translators))}
+    , {translators, sc_meta(ref(translators), #{nullable => false})}
     , {listeners, sc(ref(udp_listeners))}
     ] ++ gateway_common_options();
 
@@ -109,13 +113,26 @@ fields(exproto) ->
 
 fields(exproto_grpc_server) ->
     [ {bind, sc(hoconsc:union([ip_port(), integer()]))}
-      %% TODO: ssl options
+    , {ssl, sc_meta(ref(ssl_server_opts),
+                    #{nullable => {true, recursively}})}
     ];
 
 fields(exproto_grpc_handler) ->
     [ {address, sc(binary())}
-      %% TODO: ssl
+    , {ssl, sc_meta(ref(ssl_client_opts),
+                    #{nullable => {true, recursively}})}
     ];
+
+fields(ssl_server_opts) ->
+    emqx_schema:server_ssl_opts_schema(
+      #{ depth => 10
+       , reuse_sessions => true
+       , versions => tls_all_available
+       , ciphers => tls_all_available
+       }, true);
+
+fields(ssl_client_opts) ->
+    emqx_schema:client_ssl_opts_schema(#{});
 
 fields(clientinfo_override) ->
     [ {username, sc(binary())}
@@ -133,7 +150,7 @@ fields(translators) ->
 
 fields(translator) ->
     [ {topic, sc(binary())}
-    , {qos, sc(range(0, 2))}
+    , {qos, sc(range(0, 2), 0)}
     ];
 
 fields(udp_listeners) ->

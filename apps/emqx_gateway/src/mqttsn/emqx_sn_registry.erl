@@ -22,9 +22,7 @@
 -behaviour(gen_server).
 
 -include("emqx_sn.hrl").
-
--define(LOG(Level, Format, Args),
-        emqx_logger:Level("MQTT-SN(registry): " ++ Format, Args)).
+-include_lib("emqx/include/logger.hrl").
 
 -export([ start_link/2
         ]).
@@ -215,15 +213,21 @@ handle_call(name, _From, State = #state{tabname = Tab}) ->
     {reply, {Tab, self()}, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected request: ~p", [Req]),
+    ?SLOG(error, #{ msg => "unexpected_call"
+                  , call => Req
+                  }),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected msg: ~p", [Msg]),
+    ?SLOG(error, #{ msg => "unexpected_cast"
+                  , cast => Msg
+                  }),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{ msg => "unexpected_info"
+                  , info => Info
+                  }),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
