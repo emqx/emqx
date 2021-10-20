@@ -43,7 +43,7 @@
                      }}).
 
 -define(EXAMPLE_2, #{mechanism => <<"password-based">>,
-                     backend => <<"http-server">>,
+                     backend => <<"http">>,
                      method => <<"post">>,
                      url => <<"http://localhost:80/login">>,
                      headers => #{
@@ -90,7 +90,7 @@
 -define(INSTANCE_EXAMPLE_1, maps:merge(?EXAMPLE_1, #{id => <<"password-based:built-in-database">>,
                                                      enable => true})).
 
--define(INSTANCE_EXAMPLE_2, maps:merge(?EXAMPLE_2, #{id => <<"password-based:http-server">>,
+-define(INSTANCE_EXAMPLE_2, maps:merge(?EXAMPLE_2, #{id => <<"password-based:http">>,
                                                      connect_timeout => "5s",
                                                      enable_pipelining => true,
                                                      headers => #{
@@ -1506,8 +1506,8 @@ definitions() ->
             },
             backend => #{
                 type => string,
-                enum => [<<"http-server">>],
-                example => <<"http-server">>
+                enum => [<<"http">>],
+                example => <<"http">>
             },
             method => #{
                 type => string,
