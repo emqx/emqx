@@ -87,7 +87,7 @@ jobs:
     steps:
     - uses: actions/download-artifact@v2
       with:
-        name: source-24.1.1-emqx-1
+        name: source-23.2.7.2-emqx-2
         path: .
     - name: unzip source code
       run: Expand-Archive -Path source-23.2.7.2-emqx-2.zip -DestinationPath ./
@@ -96,7 +96,7 @@ jobs:
       id: install_erlang
       ## gleam-lang/setup-erlang does not yet support the installation of otp24 on windows
       with:
-        otp-version: 24.1
+        otp-version: 23.2
     - name: build
       env:
         PYTHON: python
