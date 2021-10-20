@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         otp:
-        - 24.0.5-emqx-1
+        - 24.1.1-emqx-1
         os:
         - ubuntu20.04
         - centos7
@@ -62,7 +62,7 @@ jobs:
         - macos-11
         - macos-10.15
         otp:
-        - 24.0.5-emqx-1
+        - 24.1.1-emqx-1
 
     runs-on: ${{  matrix.macos }}
 
