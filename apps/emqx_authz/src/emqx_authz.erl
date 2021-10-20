@@ -102,6 +102,21 @@ do_update({?CMD_APPEND, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
     NConf = Conf ++ Sources,
     ok = check_dup_types(NConf),
     NConf;
+do_update({{?CMD_REPLACE, Type}, #{<<"enable">> := true} = Source},
+          Conf) when is_map(Source), is_list(Conf),
+                     Type =:= mongodb;
+                     Type =:= mysql;
+                     Type =:= postgresql;
+                     Type =:= redis ->
+    {_Old, Front, Rear} = take(Type, Conf),
+    [NSource] = check_sources([Source]),
+    case emqx_resource:create_dry_run(connector_module(Type), NSource) of
+        ok ->
+            NConf = Front ++ [Source | Rear],
+            ok = check_dup_types(NConf),
+            NConf;
+        Error -> Error
+    end;
 do_update({{?CMD_REPLACE, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
     {_Old, Front, Rear} = take(Type, Conf),
     NConf = Front ++ [Source | Rear],
@@ -319,12 +334,6 @@ find_action_in_hooks() ->
 gen_id(Type) ->
     iolist_to_binary([io_lib:format("~ts_~ts",[?APP, Type])]).
 
-create_resource(#{type := DB,
-                  annotations := #{id := ResourceID}} = Source) ->
-    case emqx_resource:recreate(ResourceID, connector_module(DB), Source, []) of
-        {ok, _} -> ResourceID;
-        {error, Reason} -> {error, Reason}
-    end;
 create_resource(#{type := DB} = Source) ->
     ResourceID = gen_id(DB),
     case emqx_resource:create(ResourceID, connector_module(DB), Source) of
