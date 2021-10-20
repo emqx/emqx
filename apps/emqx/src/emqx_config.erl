@@ -246,7 +246,6 @@ put_raw(KeyPath, Config) -> do_put(?RAW_CONF, KeyPath, Config).
 %%============================================================================
 init_load(SchemaMod) ->
     ConfFiles = application:get_env(emqx, config_files, []),
-    io:format("~p~n", [{SchemaMod, ConfFiles}]),
     init_load(SchemaMod, ConfFiles).
 
 %% @doc Initial load of the given config files.

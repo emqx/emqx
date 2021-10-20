@@ -38,7 +38,7 @@ init_conf() ->
     emqx_config:init_load(emqx_conf_schema),
     emqx_app:set_init_config_load_done(),
     ekka:start(),
-    ok = ekka_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity).
+    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity).
 
 copy_override_conf_from_core_node() ->
     case nodes() of
@@ -77,7 +77,7 @@ get_override_config_file() ->
     case emqx_app:get_init_config_load_done() of
         false -> {error, #{node => Node, msg => "init_conf_load_not_done"}};
         true ->
-            case ekka_rlog:role() of
+            case mria_rlog:role() of
                 core ->
                     case erlang:whereis(emqx_config_handler) of
                         undefined -> {error, #{node => Node, msg => "emqx_config_handler_not_ready"}};
@@ -88,7 +88,7 @@ get_override_config_file() ->
                                 Conf = emqx_config_handler:get_raw_cluster_override_conf(),
                                 #{wall_clock => WallClock, conf => Conf, tnx_id => TnxId, node => Node}
                                   end,
-                            case ekka_mnesia:ro_transaction(?CLUSTER_RPC_SHARD, Fun) of
+                            case mria:ro_transaction(?CLUSTER_RPC_SHARD, Fun) of
                                 {atomic, Res} -> {ok, Res};
                                 {aborted, Reason} -> {error, #{node => Node, msg => Reason}}
                             end
