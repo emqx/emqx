@@ -149,8 +149,8 @@ make_docker() {
     echo "DOCKER BUILD: docker repo -> emqx/$PROFILE "
 
     docker build --no-cache \
-       --build-arg PKG_VSN="$PKG_VSN"  \
-       --build-arg BUILD_FROM="ghcr.io/emqx/emqx-builder-helper/5.0:${OTP:-24.1.1-emqx-1}-alpine" \
+       --build-arg BUILD_FROM="ghcr.io/emqx/emqx-builder-helper/5.0:${OTP:-24.1.1-emqx-1}-alpine3.14" \
+       --build-arg RUN_FROM="alpine:3.14" \
        --build-arg EMQX_NAME="$PROFILE" \
        --tag "emqx/$PROFILE:$PKG_VSN" \
        -f deploy/docker/Dockerfile .
