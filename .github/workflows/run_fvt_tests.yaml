@@ -1,5 +1,9 @@
 name: Functional Verification Tests
 
+concurrency:
+  group: fvt-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     tags:
