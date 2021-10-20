@@ -23,8 +23,10 @@
         , fields/1
         ]).
 
-%% just a stub, never used at root level
-roots() -> [].
+%% only for doc generation
+roots() -> [{authenticator_config,
+             #{type => hoconsc:union(config_refs([Module || {_AuthnType, Module} <- emqx_authn:providers()]))
+               }}].
 
 fields(_) -> [].
 
@@ -35,3 +37,6 @@ common_fields() ->
 enable(type) -> boolean();
 enable(default) -> true;
 enable(_) -> undefined.
+
+config_refs(Modules) ->
+    lists:append([Module:refs() || Module <- Modules]).

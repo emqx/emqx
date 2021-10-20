@@ -40,12 +40,11 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-password_based-http_server".
+namespace() -> "authn-http".
 
 roots() ->
-    [ {config, {union, [ hoconsc:ref(?MODULE, get)
-                       , hoconsc:ref(?MODULE, post)
-                       ]}}
+    [ {config, hoconsc:mk(hoconsc:union(refs()),
+                          #{})}
     ].
 
 fields(get) ->
@@ -61,8 +60,8 @@ fields(post) ->
     ] ++ common_fields().
 
 common_fields() ->
-    [ {mechanism,       'password-based'}
-    , {backend,         'http'}
+    [ {mechanism,       hoconsc:enum(['password-based'])}
+    , {backend,         hoconsc:enum(['http'])}
     , {url,             fun url/1}
     , {body,            fun body/1}
     , {request_timeout, fun request_timeout/1}
