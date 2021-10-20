@@ -2,8 +2,15 @@ defmodule EmqxReleaseHelper.DSL.Application do
   defmacro __using__(_) do
     quote do
       import unquote(__MODULE__)
+      import EmqxReleaseHelper.DSL.Overlay, only: [
+        overlay: 1,
+        overlay: 2,
+        copy: 2,
+        template: 2
+      ]
       Module.register_attribute(__MODULE__, :applications, accumulate: true)
       @before_compile unquote(__MODULE__)
+      @overlay_source_path :app_source_path
     end
   end
 
@@ -44,80 +51,6 @@ defmodule EmqxReleaseHelper.DSL.Application do
     end
   end
 
-  defmacro overlay(do: block) do
-    block =
-      Macro.escape(
-        quote do
-          fn unquote(Macro.var(:config, nil)) ->
-            unquote(block)
-          end
-        end
-      )
-
-    quote do
-      @overlays [unquote(block) | @overlays]
-    end
-  end
-
-  defmacro overlay(literal_config, do: block) do
-    block =
-      Macro.escape(
-        quote do
-          fn unquote(literal_config) = unquote(Macro.var(:config, nil)) ->
-            unquote(block)
-          end
-        end
-      )
-
-    quote do
-      @overlays [unquote(block) | @overlays]
-    end
-  end
-
-  defmacro copy(from_path, to_path) do
-    from_path =
-      quote do
-        unquote(Macro.var(:config, nil))
-        |> Map.get(:app_source_path)
-        |> Path.join(unquote(from_path))
-      end
-
-    to_path =
-      quote do
-        unquote(Macro.var(:config, nil))
-        |> Map.get(:release_path)
-        |> Path.join(unquote(to_path))
-      end
-
-    quote do
-      EmqxReleaseHelper.DSL.Overlay.run_copy(unquote(from_path), unquote(to_path))
-    end
-  end
-
-  defmacro template(from_path, to_path) do
-    from_path =
-      quote do
-        unquote(Macro.var(:config, nil))
-        |> Map.get(:app_source_path)
-        |> Path.join(unquote(from_path))
-      end
-
-    to_path =
-      quote do
-        unquote(Macro.var(:config, nil))
-        |> Map.get(:release_path)
-        |> Path.join(unquote(to_path))
-      end
-
-    quote do
-      EmqxReleaseHelper.DSL.Overlay.run_template(
-        unquote(from_path),
-        unquote(to_path),
-        unquote(Macro.var(:config, nil))
-      )
-    end
-  end
-
   defmacro __before_compile__(%Macro.Env{module: module}) do
     block =
       module
@@ -127,6 +60,24 @@ defmodule EmqxReleaseHelper.DSL.Application do
 
     quote do
       def __all__, do: unquote(block)
+
+      def run(release, config) do
+        %{project_path: project_path, apps_paths: apps_paths} = config
+
+        __all__()
+        |> Enum.filter(fn %{name: name} -> Map.has_key?(apps_paths, name) end)
+        |> Enum.filter(fn
+          %{enable?: fun} -> fun.(config)
+          _ -> true
+        end)
+        |> Enum.each(fn %{name: name, overlays: overlays} ->
+          app_path = Map.get(apps_paths, name)
+          config = Map.put(config, :app_source_path, Path.join(project_path, app_path))
+          Enum.each(overlays, fn overlay -> overlay.(config) end)
+        end)
+
+        release
+      end
     end
   end
 end

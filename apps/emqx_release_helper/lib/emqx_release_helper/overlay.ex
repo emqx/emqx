@@ -18,9 +18,4 @@ defmodule EmqxReleaseHelper.Overlay do
     template "data/emqx_vars", "releases/emqx_vars"
     template "data/BUILT_ON", "releases/#{release_version}/BUILT_ON"
   end
-
-  def run(release, config) do
-    Enum.each(__overlays__(), fn overlay -> overlay.(config) end)
-    release
-  end
 end

@@ -92,6 +92,10 @@ defmodule EmqxReleaseHelper.Applications do
     start_type :load
   end
 
+  application :emqx_limiter do
+    start_type :permanent
+  end
+
   application :emqx_prometheus, %{release_type: :cloud} do
     start_type :load
   end
@@ -120,25 +124,11 @@ defmodule EmqxReleaseHelper.Applications do
     start_type :load
   end
 
-  application :xmerl, %{release_type: :cloud} do
-    start_type :permanent
+  application :lc do
+    start_type :load
   end
 
-  def run(release, config) do
-    %{project_path: project_path, apps_paths: apps_paths} = config
-
-    __all__()
-    |> Enum.filter(fn %{name: name} -> Map.has_key?(apps_paths, name) end)
-    |> Enum.filter(fn
-      %{enable?: fun} -> fun.(config)
-      _ -> true
-    end)
-    |> Enum.each(fn %{name: name, overlays: overlays} ->
-      app_path = Map.get(apps_paths, name)
-      config = Map.put(config, :app_source_path, Path.join(project_path, app_path))
-      Enum.each(overlays, fn overlay -> overlay.(config) end)
-    end)
-
-    release
+  application :xmerl, %{release_type: :cloud} do
+    start_type :permanent
   end
 end

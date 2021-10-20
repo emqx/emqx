@@ -2,8 +2,9 @@ defmodule EmqxReleaseHelper.DSL.Overlay do
   defmacro __using__(_) do
     quote do
       import unquote(__MODULE__)
-      Module.register_attribute(__MODULE__, :overlays, accumulate: true)
       @before_compile unquote(__MODULE__)
+      @overlays []
+      @overlay_source_path :project_path
     end
   end
 
@@ -18,7 +19,7 @@ defmodule EmqxReleaseHelper.DSL.Overlay do
       )
 
     quote do
-      @overlays unquote(block)
+      @overlays [unquote(block) | @overlays]
     end
   end
 
@@ -33,7 +34,7 @@ defmodule EmqxReleaseHelper.DSL.Overlay do
       )
 
     quote do
-      @overlays unquote(block)
+      @overlays [unquote(block) | @overlays]
     end
   end
 
@@ -54,7 +55,7 @@ defmodule EmqxReleaseHelper.DSL.Overlay do
     from_path =
       quote do
         unquote(Macro.var(:config, nil))
-        |> Map.get(:project_path)
+        |> Map.get(@overlay_source_path)
         |> Path.join(unquote(from_path))
       end
 
@@ -66,7 +67,7 @@ defmodule EmqxReleaseHelper.DSL.Overlay do
       end
 
     quote do
-      run_copy(unquote(from_path), unquote(to_path))
+      unquote(__MODULE__).run_copy(unquote(from_path), unquote(to_path))
     end
   end
 
@@ -74,7 +75,7 @@ defmodule EmqxReleaseHelper.DSL.Overlay do
     from_path =
       quote do
         unquote(Macro.var(:config, nil))
-        |> Map.get(:project_path)
+        |> Map.get(@overlay_source_path)
         |> Path.join(unquote(from_path))
       end
 
@@ -86,7 +87,7 @@ defmodule EmqxReleaseHelper.DSL.Overlay do
       end
 
     quote do
-      run_template(
+      unquote(__MODULE__).run_template(
         unquote(from_path),
         unquote(to_path),
         unquote(Macro.var(:config, nil))
@@ -122,8 +123,9 @@ defmodule EmqxReleaseHelper.DSL.Overlay do
       |> Enum.reverse()
 
     quote do
-      def __overlays__ do
-        unquote(block)
+      def run(release, config) do
+        Enum.each(unquote(block), fn overlay -> overlay.(config) end)
+        release
       end
     end
   end
