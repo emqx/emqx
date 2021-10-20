@@ -206,6 +206,9 @@ t_api(_) ->
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "cert-fake.pem"]))),
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "key-fake.pem"]))),
 
+    {ok, 400, _} = request(put, uri(["authorization", "sources", "mysql"]),  ?SOURCE3#{<<"server">> := <<"192.169.1.100:3306">>}),
+    {ok, 400, _} = request(put, uri(["authorization", "sources", "postgresql"]),  ?SOURCE4#{<<"server">> := <<"fake">>}),
+
     lists:foreach(fun(#{<<"type">> := Type}) ->
                     {ok, 204, _} = request(delete, uri(["authorization", "sources", binary_to_list(Type)]), [])
                   end, Sources),
