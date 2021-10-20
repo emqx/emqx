@@ -50,7 +50,8 @@ start_autocluster() ->
 stop_apps() ->
     ?SLOG(notice, #{msg => "stopping_emqx_apps"}),
     _ = emqx_alarm_handler:unload(),
-    lists:foreach(fun stop_one_app/1, lists:reverse(sorted_reboot_apps())).
+    lists:foreach(fun stop_one_app/1, lists:reverse(sorted_reboot_apps())),
+    emqx_machine_sup:stop_cluster_rpc().
 
 stop_one_app(App) ->
     ?SLOG(debug, #{msg => "stopping_app", app => App}),
@@ -66,6 +67,9 @@ stop_one_app(App) ->
 
 ensure_apps_started() ->
     ?SLOG(notice, #{msg => "(re)starting_emqx_apps"}),
+    %% FIXME: Hack spawning the cluster RPC asynchronously to avoid a
+    %% deadlock somewhere in EMQ X startup
+    spawn_link(fun() -> emqx_machine_sup:start_cluster_rpc() end),
     lists:foreach(fun start_one_app/1, sorted_reboot_apps()).
 
 start_one_app(App) ->
