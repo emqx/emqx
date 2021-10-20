@@ -33,6 +33,8 @@ providers() ->
     , {{scram, 'built-in-database'}, emqx_enhanced_authn_scram_mnesia}
     ].
 
+check_configs(C) when is_map(C) ->
+    check_configs([C]);
 check_configs([]) -> [];
 check_configs([Config | Configs]) ->
     [check_config(Config) | check_configs(Configs)].

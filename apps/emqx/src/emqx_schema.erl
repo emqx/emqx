@@ -103,12 +103,10 @@ The configs here work as default values which can be overriden
 in <code>zone</code> configs"""
           })}
     , {"authentication",
-      sc(hoconsc:lazy(hoconsc:array(map())),
-         #{ desc =>
+       authentication(
 """Default authentication configs for all MQTT listeners.<br>
 For per-listener overrides see <code>authentication</code>
-in listener configs"""
-          })}
+in listener configs""")}
     , {"authorization",
        sc(ref("authorization"),
           #{})}
@@ -903,8 +901,7 @@ mqtt_listener() ->
           #{})
       }
     , {"authentication",
-       sc(hoconsc:lazy(hoconsc:array(map())),
-          #{})
+       authentication("Per-listener authentication override")
       }
     ].
 
@@ -1356,3 +1353,13 @@ str(B) when is_binary(B) ->
     binary_to_list(B);
 str(S) when is_list(S) ->
     S.
+
+authentication(Desc) ->
+    #{ type => hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())])
+     , desc => [Desc, "<br>", """
+Authentication can be one single authenticator instance or a chain of authenticators as an array.
+The when authenticating a login (username, client ID, etc.) the authenticators are checked
+in the configured order.
+"""
+               ]
+     }.
