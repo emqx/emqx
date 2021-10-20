@@ -116,7 +116,9 @@
 -type user_info() :: #{user_id := binary(),
                        atom() => term()}.
 
--callback refs() -> [{ref, Module, Name}] when Module::module(), Name::atom().
+%% @doc check_config takes raw config from config file,
+%% parse and validate it, and reutrn parsed result.
+-callback check_config(config()) -> config().
 
 -callback create(Config)
     -> {ok, State}
@@ -176,6 +178,7 @@
                     , update_user/3
                     , lookup_user/3
                     , list_users/1
+                    , check_config/1
                     ]).
 
 %%------------------------------------------------------------------------------

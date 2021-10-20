@@ -27,6 +27,11 @@
         , authn_type/1
         ]).
 
+%% TODO: certs handling should be moved out of emqx app
+-ifdef(TEST).
+-export([convert_certs/2, convert_certs/3, diff_cert/2, clear_certs/2]).
+-endif.
+
 -export_type([config/0]).
 
 -include("logger.hrl").
@@ -151,17 +156,33 @@ do_check_conifg(Config, Providers) ->
                              providers => Providers}),
             throw(unknown_authn_type);
         Module ->
-            %% TODO: check if Module:check_config/1 is exported
-            %% so we do not force all providers to implement hocon schema
-            try hocon_schema:check_plain(Module, #{<<"config">> => Config},
-                                         #{atom_key => true}) of
-                #{config := Result} ->
-                    Result
-            catch
-                C : E : S ->
-                    ?SLOG(warning, #{msg => "failed_to_check_config", config => Config}),
-                    erlang:raise(C, E, S)
-            end
+            do_check_conifg(Type, Config, Module)
+    end.
+
+do_check_conifg(Type, Config, Module) ->
+    F = case erlang:function_exported(Module, check_config, 1) of
+            true ->
+                fun Module:check_config/1;
+            false ->
+                fun(C) ->
+                        #{config := R} =
+                            hocon_schema:check_plain(Module, #{<<"config">> => C},
+                                                     #{atom_key => true}),
+                        R
+                end
+        end,
+    try
+        F(Config)
+    catch
+        C : E : S ->
+            ?SLOG(warning, #{msg => "failed_to_check_config",
+                             config => Config,
+                             type => Type,
+                             exception => C,
+                             reason => E,
+                             stacktrace => S
+                            }),
+            throw(bad_authenticator_config)
     end.
 
 return_map([L]) -> L;

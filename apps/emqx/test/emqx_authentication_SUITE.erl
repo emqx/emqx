@@ -26,13 +26,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--export([ fields/1 ]).
+-export([ roots/0, fields/1 ]).
 
--export([ refs/0
-        , create/1
+-export([ create/1
         , update/2
         , authenticate/2
         , destroy/1
+        , check_config/1
         ]).
 
 -define(AUTHN, emqx_authentication).
@@ -41,6 +41,8 @@
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
+
+roots() -> [{config, #{type => hoconsc:union([hoconsc:ref(type1), hoconsc:ref(type2)])}}].
 
 fields(type1) ->
     [ {mechanism,               {enum, ['password-based']}}
@@ -62,10 +64,11 @@ enable(_) -> undefined.
 %% Callbacks
 %%------------------------------------------------------------------------------
 
-refs() ->
-    [ hoconsc:ref(?MODULE, type1)
-    , hoconsc:ref(?MODULE, type2)
-    ].
+check_config(C) ->
+    #{config := R} =
+        hocon_schema:check_plain(?MODULE, #{<<"config">> => C},
+                                 #{atom_key => true}),
+    R.
 
 create(_Config) ->
     {ok, #{mark => 1}}.
@@ -268,14 +271,14 @@ t_convert_certs(Config) when is_list(Config) ->
                   , {<<"cacertfile">>, "cacert.pem"}
                   ]),
 
-    CertsDir = ?AUTHN:certs_dir([Global, <<"password-based:built-in-database">>]),
-    #{<<"ssl">> := NCerts} = ?AUTHN:convert_certs(CertsDir, #{<<"ssl">> => Certs}),
+    CertsDir = certs_dir(Config, [Global, <<"password-based:built-in-database">>]),
+    #{<<"ssl">> := NCerts} = convert_certs(CertsDir, #{<<"ssl">> => Certs}),
     ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts), maps:get(<<"keyfile">>, Certs))),
 
     Certs2 = certs([ {<<"keyfile">>, "key.pem"}
                    , {<<"certfile">>, "cert.pem"}
                    ]),
-    #{<<"ssl">> := NCerts2} = ?AUTHN:convert_certs(CertsDir, #{<<"ssl">> => Certs2}, #{<<"ssl">> => NCerts}),
+    #{<<"ssl">> := NCerts2} = convert_certs(CertsDir, #{<<"ssl">> => Certs2}, #{<<"ssl">> => NCerts}),
     ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts2), maps:get(<<"keyfile">>, Certs2))),
     ?assertEqual(maps:get(<<"keyfile">>, NCerts), maps:get(<<"keyfile">>, NCerts2)),
     ?assertEqual(maps:get(<<"certfile">>, NCerts), maps:get(<<"certfile">>, NCerts2)),
@@ -284,13 +287,13 @@ t_convert_certs(Config) when is_list(Config) ->
                    , {<<"certfile">>, "client-cert.pem"}
                    , {<<"cacertfile">>, "cacert.pem"}
                    ]),
-    #{<<"ssl">> := NCerts3} = ?AUTHN:convert_certs(CertsDir, #{<<"ssl">> => Certs3}, #{<<"ssl">> => NCerts2}),
+    #{<<"ssl">> := NCerts3} = convert_certs(CertsDir, #{<<"ssl">> => Certs3}, #{<<"ssl">> => NCerts2}),
     ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts3), maps:get(<<"keyfile">>, Certs3))),
     ?assertNotEqual(maps:get(<<"keyfile">>, NCerts2), maps:get(<<"keyfile">>, NCerts3)),
     ?assertNotEqual(maps:get(<<"certfile">>, NCerts2), maps:get(<<"certfile">>, NCerts3)),
 
     ?assertEqual(true, filelib:is_regular(maps:get(<<"keyfile">>, NCerts3))),
-    ?AUTHN:clear_certs(CertsDir, #{<<"ssl">> => NCerts3}),
+    clear_certs(CertsDir, #{<<"ssl">> => NCerts3}),
     ?assertEqual(false, filelib:is_regular(maps:get(<<"keyfile">>, NCerts3))).
 
 update_config(Path, ConfigRequest) ->
@@ -305,7 +308,22 @@ certs(Certs) ->
 
 diff_cert(CertFile, CertPem2) ->
     {ok, CertPem1} = file:read_file(CertFile),
-    ?AUTHN:diff_cert(CertPem1, CertPem2).
+    emqx_authentication_config:diff_cert(CertPem1, CertPem2).
 
 register_provider(Type, Module) ->
     ok = ?AUTHN:register_providers([{Type, Module}]).
+
+certs_dir(CtConfig, Path) ->
+    DataDir = proplists:get_value(data_dir, CtConfig),
+    Dir = filename:join([DataDir | Path]),
+    filelib:ensure_dir(Dir),
+    Dir.
+
+convert_certs(CertsDir, SslConfig) ->
+    emqx_authentication_config:convert_certs(CertsDir, SslConfig).
+
+convert_certs(CertsDir, New, Old) ->
+    emqx_authentication_config:convert_certs(CertsDir, New, Old).
+
+clear_certs(CertsDir, SslConfig) ->
+    emqx_authentication_config:clear_certs(CertsDir, SslConfig).
