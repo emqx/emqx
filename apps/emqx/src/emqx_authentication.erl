@@ -557,8 +557,14 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(Reason, _State) ->
-    ?SLOG(error, #{msg => "emqx_authentication_terminating",
-                   reason => Reason}),
+    case Reason of
+        normal -> ok;
+        {shutdown, _} -> ok;
+        Other -> ?SLOG(error, #{msg => "emqx_authentication_terminating",
+                                reason => Other})
+    end,
+    emqx_config_handler:remove_handler([authentication]),
+    emqx_config_handler:remove_handler([listeners, '?', '?', authentication]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

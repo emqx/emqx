@@ -221,12 +221,12 @@ convert_certs(CertsDir, NewConfig, OldConfig) ->
             OldSSLOpts = maps:get(<<"ssl">>, OldConfig, #{}),
             Diff = diff_certs(NewSSLOpts, OldSSLOpts),
             NSSLOpts = lists:foldl(fun({identical, K}, Acc) ->
-                                    Acc#{K => maps:get(K, OldSSLOpts)};
-                                    ({_, K}, Acc) ->
-                                    CertFile = generate_filename(CertsDir, K),
-                                    ok = save_cert_to_file(CertFile, maps:get(K, NewSSLOpts)),
-                                    Acc#{K => CertFile}
-                                end, NewSSLOpts, Diff),
+                                           Acc#{K => maps:get(K, OldSSLOpts)};
+                                      ({_, K}, Acc) ->
+                                           CertFile = generate_filename(CertsDir, K),
+                                           ok = save_cert_to_file(CertFile, maps:get(K, NewSSLOpts)),
+                                           Acc#{K => CertFile}
+                                   end, NewSSLOpts, Diff),
             NewConfig#{<<"ssl">> => NSSLOpts}
     end.
 

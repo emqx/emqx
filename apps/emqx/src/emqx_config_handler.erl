@@ -77,9 +77,10 @@ update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
 add_handler(ConfKeyPath, HandlerName) ->
     gen_server:call(?MODULE, {add_handler, ConfKeyPath, HandlerName}, infinity).
 
+%% @doc Remove handler asynchronously
 -spec remove_handler(emqx_config:config_key_path()) -> ok.
 remove_handler(ConfKeyPath) ->
-    gen_server:call(?MODULE, {remove_handler, ConfKeyPath}, infinity).
+    gen_server:cast(?MODULE, {remove_handler, ConfKeyPath}).
 
 %%============================================================================
 
@@ -94,11 +95,6 @@ handle_call({add_handler, ConfKeyPath, HandlerName}, _From, State = #{handlers :
         Error ->
             {reply, Error, State}
     end;
-
-handle_call({remove_handler, ConfKeyPath}, _From,
-            State = #{handlers := Handlers}) ->
-    {reply, ok, State#{handlers =>
-        emqx_map_lib:deep_remove(ConfKeyPath ++ [?MOD], Handlers)}};
 
 handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
             #{handlers := Handlers} = State) ->
@@ -125,6 +121,9 @@ handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
+handle_cast({remove_handler, ConfKeyPath},
+            State = #{handlers := Handlers}) ->
+    {noreply, State#{handlers => emqx_map_lib:deep_remove(ConfKeyPath ++ [?MOD], Handlers)}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
