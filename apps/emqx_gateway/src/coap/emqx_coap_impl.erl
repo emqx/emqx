@@ -18,7 +18,7 @@
 
 -include_lib("emqx_gateway/include/emqx_gateway.hrl").
 
--behavior(emqx_gateway_impl).
+-behaviour(emqx_gateway_impl).
 
 %% APIs
 -export([ reg/0

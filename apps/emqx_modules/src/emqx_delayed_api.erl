@@ -16,7 +16,7 @@
 
 -module(emqx_delayed_api).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
 

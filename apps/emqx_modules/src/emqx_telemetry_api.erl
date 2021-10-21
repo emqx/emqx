@@ -16,7 +16,7 @@
 
 -module(emqx_telemetry_api).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -import(emqx_mgmt_util, [ schema/1
                         , object_schema/1

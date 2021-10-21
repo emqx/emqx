@@ -16,7 +16,7 @@
 
 -module(emqx_exhook_demo_svr).
 
--behavior(emqx_exhook_v_1_hook_provider_bhvr).
+-behaviour(emqx_exhook_v_1_hook_provider_bhvr).
 
 %%
 -export([ start/0
