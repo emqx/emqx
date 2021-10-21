@@ -135,7 +135,7 @@ roots(low) ->
    , {"quota",
        sc(ref("quota"),
           #{})}
-   , {"plugins", %% TODO: move to emqx_machine_schema
+   , {"plugins", %% TODO: move to emqx_conf_schema
        sc(ref("plugins"),
           #{})}
    , {"stats",

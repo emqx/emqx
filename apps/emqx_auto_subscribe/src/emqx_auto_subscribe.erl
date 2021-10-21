@@ -38,7 +38,7 @@ max_limit() ->
     ?MAX_AUTO_SUBSCRIBE.
 
 list() ->
-    format(emqx:get_config([auto_subscribe, topics], [])).
+    format(emqx_conf:get([auto_subscribe, topics], [])).
 
 update(Topics) ->
     update_(Topics).

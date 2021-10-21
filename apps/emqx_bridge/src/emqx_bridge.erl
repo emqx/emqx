@@ -51,7 +51,7 @@
 
 reload_hook() ->
     unload_hook(),
-    Bridges = emqx:get_config([bridges], #{}),
+    Bridges = emqx_conf:get([bridges], #{}),
     lists:foreach(fun({_Type, Bridge}) ->
             lists:foreach(fun({_Name, BridgeConf}) ->
                     load_hook(BridgeConf)
@@ -124,7 +124,7 @@ perform_bridge_changes([{Action, MapConfs} | Tasks], Result0) ->
     perform_bridge_changes(Tasks, Result).
 
 load_bridges() ->
-    Bridges = emqx:get_config([bridges], #{}),
+    Bridges = emqx_conf:get([bridges], #{}),
     emqx_bridge_monitor:ensure_all_started(Bridges).
 
 resource_id(BridgeId) when is_binary(BridgeId) ->
@@ -244,7 +244,7 @@ has_subscribe_local_topic(Channels) ->
         end, maps:to_list(Channels)).
 
 get_matched_channels(Topic) ->
-    Bridges = emqx:get_config([bridges], #{}),
+    Bridges = emqx_conf:get([bridges], #{}),
     maps:fold(fun
         %% TODO: also trigger 'message.publish' for mqtt bridges.
         (mqtt, _Conf, Acc0) -> Acc0;

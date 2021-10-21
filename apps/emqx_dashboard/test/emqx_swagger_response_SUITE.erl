@@ -339,7 +339,7 @@ schema("/ref/complicated_type") ->
                 {maps, hoconsc:mk(map(), #{})},
                 {comma_separated_list, hoconsc:mk(emqx_schema:comma_separated_list(), #{})},
                 {comma_separated_atoms, hoconsc:mk(emqx_schema:comma_separated_atoms(), #{})},
-                {log_level, hoconsc:mk(emqx_machine_schema:log_level(), #{})},
+                {log_level, hoconsc:mk(emqx_conf_schema:log_level(), #{})},
                 {fix_integer, hoconsc:mk(typerefl:integer(100), #{})}
             ]
         }}

@@ -152,7 +152,7 @@ jwk(Username, Password, Salt) ->
     }.
 
 jwt_expiration_time() ->
-    ExpTime = emqx:get_config([emqx_dashboard, token_expired_time], ?EXPTIME),
+    ExpTime = emqx_conf:get([emqx_dashboard, token_expired_time], ?EXPTIME),
     erlang:system_time(millisecond) + ExpTime.
 
 salt() ->

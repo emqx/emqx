@@ -57,7 +57,7 @@
 @set nodetool="%rel_root_dir%\bin\nodetool"
 @set cuttlefish="%rel_root_dir%\bin\cuttlefish"
 @set node_type="-name"
-@set schema_mod="emqx_machine_schema"
+@set schema_mod="emqx_conf_schema"
 
 :: Extract node name from emqx.conf
 @for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %etc_dir%\emqx.conf get node.name"`) do @(
@@ -266,7 +266,7 @@ cd /d %rel_root_dir%
 
 :: Attach to a running node
 :attach
-:: @start "%node_name% attach" 
+:: @start "%node_name% attach"
 @start "%node_name% attach" %werl% -boot "%clean_boot_script%" ^
   -remsh %node_name% %node_type% console_%node_name% -setcookie %node_cookie%
 @goto :eof

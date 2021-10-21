@@ -279,7 +279,7 @@ try_takeover(idle, DesireId, Msg, Channel) ->
             %% udp connection baseon the clientid
             call_session(handle_request, Msg, Channel);
         _ ->
-            case emqx:get_config([gateway, coap, authentication], undefined) of
+            case emqx_conf:get([gateway, coap, authentication], undefined) of
                 undefined ->
                     call_session(handle_request, Msg, Channel);
                 _ ->

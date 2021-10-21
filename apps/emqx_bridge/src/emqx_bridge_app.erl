@@ -23,11 +23,11 @@ start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_bridge_sup:start_link(),
     ok = emqx_bridge:load_bridges(),
     ok = emqx_bridge:reload_hook(),
-    emqx_config_handler:add_handler(emqx_bridge:config_key_path(), emqx_bridge),
+    emqx_conf:add_handler(emqx_bridge:config_key_path(), emqx_bridge),
     {ok, Sup}.
 
 stop(_State) ->
-    emqx_config_handler:remove_handler(emqx_bridge:config_key_path()),
+    emqx_conf:remove_handler(emqx_bridge:config_key_path()),
     ok = emqx_bridge:unload_hook(),
     ok.
 

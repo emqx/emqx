@@ -151,7 +151,7 @@ get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' :
                          timestamp = Ts}) ->
     Ts + Interval * 1000;
 get_expiry_time(#message{timestamp = Ts}) ->
-    Interval = emqx:get_config([?APP, msg_expiry_interval], ?DEF_EXPIRY_INTERVAL),
+    Interval = emqx_conf:get([?APP, msg_expiry_interval], ?DEF_EXPIRY_INTERVAL),
     case Interval of
         0 -> 0;
         _ -> Ts + Interval
@@ -219,7 +219,7 @@ handle_cast(Msg, State) ->
 handle_info(clear_expired, #{context := Context} = State) ->
     Mod = get_backend_module(),
     Mod:clear_expired(Context),
-    Interval = emqx:get_config([?APP, msg_clear_interval], ?DEF_EXPIRY_INTERVAL),
+    Interval = emqx_conf:get([?APP, msg_clear_interval], ?DEF_EXPIRY_INTERVAL),
     {noreply, State#{clear_timer := add_timer(Interval, clear_expired)}, hibernate};
 
 handle_info(release_deliver_quota, #{context := Context, wait_quotas := Waits} = State) ->
@@ -268,7 +268,7 @@ new_context(Id) ->
     #{context_id => Id}.
 
 is_too_big(Size) ->
-    Limit = emqx:get_config([?APP, max_payload_size], ?DEF_MAX_PAYLOAD_SIZE),
+    Limit = emqx_conf:get([?APP, max_payload_size], ?DEF_MAX_PAYLOAD_SIZE),
     Limit > 0 andalso (Size > Limit).
 
 %% @private
