@@ -144,7 +144,7 @@ destroy(#{'_unique' := Unique}) ->
 parse_query(Query) ->
     case re:run(Query, ?RE_PLACEHOLDER, [global, {capture, all, binary}]) of
         {match, Captured} ->
-            PlaceHolders = [PlaceHolder || PlaceHolder <- Captured],
+            PlaceHolders = [PlaceHolder || [PlaceHolder] <- Captured],
             NQuery = re:replace(Query, "'\\$\\{[a-z0-9\\_]+\\}'", "?", [global, {return, binary}]),
             {NQuery, PlaceHolders};
         nomatch ->
