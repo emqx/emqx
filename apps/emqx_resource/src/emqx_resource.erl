@@ -172,7 +172,7 @@ create_dry_run(ResourceType, Config) ->
 -spec create_dry_run_local(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run_local(ResourceType, Config) ->
-    InstId = emqx_misc:gen_id(16),
+    InstId = iolist_to_binary(emqx_misc:gen_id(16)),
     call_instance(InstId, {create_dry_run, InstId, ResourceType, Config}).
 
 -spec recreate(instance_id(), resource_type(), resource_config(), term()) ->
