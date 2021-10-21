@@ -21,7 +21,7 @@ jobs:
           - "24.1.1-emqx-1"
 
     runs-on: ubuntu-20.04
-    container: "ghcr.io/emqx/emqx-builder-helper/5.0:${{ matrix.otp }}-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0:${{ matrix.otp }}-ubuntu20.04"
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles }}
@@ -320,7 +320,7 @@ jobs:
         -v $(pwd):/emqx \
         --workdir /emqx \
         --platform linux/$ARCH \
-        ghcr.io/emqx/emqx-builder-helper/5.0:$OTP-$SYSTEM \
+        ghcr.io/emqx/emqx-builder/5.0:$OTP-$SYSTEM \
         bash -euc "make $PROFILE-zip || cat rebar3.crashdump; \
                    make $PROFILE-pkg || cat rebar3.crashdump; \
                    EMQX_NAME=$PROFILE && .ci/build_packages/tests.sh"
@@ -391,7 +391,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder-helper/5.0:${{ matrix.otp }}-alpine3.14
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0:${{ matrix.otp }}-alpine3.14
           RUN_FROM=alpine:3.14
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile

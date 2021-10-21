@@ -20,7 +20,7 @@ jobs:
           - "24.1.1-emqx-1"
 
     runs-on: ubuntu-20.04
-    container: "ghcr.io/emqx/emqx-builder-helper/5.0:${{ matrix.otp }}-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0:${{ matrix.otp }}-ubuntu20.04"
 
     defaults:
       run:
