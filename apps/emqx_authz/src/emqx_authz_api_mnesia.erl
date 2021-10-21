@@ -502,7 +502,7 @@ purge_api() ->
      },
     {"/authorization/sources/built-in-database/purge-all", Metadata, purge}.
 
-users(get, #{query_string := Qs}) ->
+users(get, #{query_string := PageParams}) ->
     MatchSpec = ets:fun2ms(
                   fun({?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}, Rules}) ->
                           [{username, Username}, {rules, Rules}]
@@ -515,17 +515,7 @@ users(get, #{query_string := Qs}) ->
                               } || {Permission, Action, Topic} <- Rules]
                  }
              end,
-    case Qs of
-        #{<<"limit">> := _, <<"page">> := _} = Page ->
-            {200, emqx_mgmt_api:paginate(?ACL_TABLE, MatchSpec, Page, Format)};
-        #{<<"limit">> := Limit} ->
-            case ets:select(?ACL_TABLE, MatchSpec, binary_to_integer(Limit)) of
-                {Rows, _Continuation} -> {200, [Format(Row) || Row <- Rows ]};
-                '$end_of_table' -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}}
-            end;
-        _ ->
-            {200, [Format(Row) || Row <- ets:select(?ACL_TABLE, MatchSpec)]}
-    end;
+    {200, emqx_mgmt_api:paginate(?ACL_TABLE, MatchSpec, PageParams, Format)};
 users(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
                       mria:dirty_write(#emqx_acl{
@@ -535,7 +525,7 @@ users(post, #{body := Body}) when is_list(Body) ->
                   end, Body),
     {204}.
 
-clients(get, #{query_string := Qs}) ->
+clients(get, #{query_string := PageParams}) ->
     MatchSpec = ets:fun2ms(
                   fun({?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}, Rules}) ->
                           [{clientid, Clientid}, {rules, Rules}]
@@ -548,17 +538,7 @@ clients(get, #{query_string := Qs}) ->
                               } || {Permission, Action, Topic} <- Rules]
                  }
              end,
-    case Qs of
-        #{<<"limit">> := _, <<"page">> := _} = Page ->
-            {200, emqx_mgmt_api:paginate(?ACL_TABLE, MatchSpec, Page, Format)};
-        #{<<"limit">> := Limit} ->
-            case ets:select(?ACL_TABLE, MatchSpec, binary_to_integer(Limit)) of
-                {Rows, _Continuation} -> {200, [Format(Row) || Row <- Rows ]};
-                '$end_of_table' -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}}
-            end;
-        _ ->
-            {200, [Format(Row) || Row <- ets:select(?ACL_TABLE, MatchSpec)]}
-    end;
+    {200, emqx_mgmt_api:paginate(?ACL_TABLE, MatchSpec, PageParams, Format)};
 clients(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"clientid">> := Clientid, <<"rules">> := Rules}) ->
                       mria:dirty_write(#emqx_acl{
