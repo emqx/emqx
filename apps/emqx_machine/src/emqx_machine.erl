@@ -32,6 +32,7 @@ start() ->
             os:set_signal(sigterm, handle) %% default is handle
     end,
     ok = set_backtrace_depth(),
+    ekka:start(),
     ok = print_otp_version_warning().
 
 graceful_shutdown() ->
