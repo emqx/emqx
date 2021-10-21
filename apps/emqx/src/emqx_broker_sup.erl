@@ -50,7 +50,7 @@ init([]) ->
                  shutdown => infinity,
                  type => supervisor,
                  modules => [emqx_authentication_sup]},
-   
+
     %% Broker helper
     Helper = #{id => helper,
                start => {emqx_broker_helper, start_link, []},

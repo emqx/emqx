@@ -133,6 +133,7 @@ start_apps(Apps, Handler) when is_function(Handler) ->
     %% Load all application code to beam vm first
     %% Because, minirest, ekka etc.. application will scan these modules
     lists:foreach(fun load/1, [emqx | Apps]),
+    ekka:start(),
     lists:foreach(fun(App) -> start_app(App, Handler) end, [emqx | Apps]).
 
 load(App) ->
@@ -200,7 +201,7 @@ generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
 
 -spec(stop_apps(list()) -> ok).
 stop_apps(Apps) ->
-    [application:stop(App) || App <- Apps ++ [emqx, mria, mnesia]],
+    [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
     ok.
 
 %% backward compatible

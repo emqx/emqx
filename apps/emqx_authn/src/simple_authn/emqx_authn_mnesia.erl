@@ -80,7 +80,7 @@ mnesia(boot) ->
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-password_based-builtin_db".
+namespace() -> "authn-builtin_db".
 
 roots() -> [config].
 

@@ -40,10 +40,9 @@
 namespace() -> "authn-jwt".
 
 roots() ->
-    [ {config, {union, [ hoconsc:mk('hmac-based')
-                       , hoconsc:mk('public-key')
-                       , hoconsc:mk('jwks')
-                       ]}}
+    [ {config, hoconsc:mk(hoconsc:union(refs()),
+                          #{}
+                         )}
     ].
 
 fields('hmac-based') ->

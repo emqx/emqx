@@ -42,7 +42,7 @@
 start(_Type, _Args) ->
     ok = maybe_load_config(),
     ok = maybe_start_quicer(),
-    ensure_ekka_started(),
+    wait_boot_shards(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = maybe_start_listeners(),
     ok = emqx_alarm_handler:load(),
@@ -56,8 +56,7 @@ prep_stop(_State) ->
 
 stop(_State) -> ok.
 
-ensure_ekka_started() ->
-    ekka:start(),
+wait_boot_shards() ->
     ok = mria_rlog:wait_for_shards(?BOOT_SHARDS, infinity).
 
 %% @doc Call this function to make emqx boot without loading config,
