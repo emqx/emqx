@@ -95,7 +95,7 @@ init_per_group(persistent_store_disabled, Config) ->
     emqx_common_test_helpers:start_apps([], fun set_special_confs/1),
     ?assertEqual(false, emqx_persistent_session:is_store_enabled()),
     [{persistent_store_enabled, false}|Config];
-init_per_group(Group, Config) when Group == ws; ws_snabbkaffe ->
+init_per_group(Group, Config) when Group == ws; Group == ws_snabbkaffe ->
     [{ssl,false},
      {host,"localhost"},
      {enable_websocket,true},
