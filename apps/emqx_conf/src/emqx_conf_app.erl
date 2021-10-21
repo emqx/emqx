@@ -36,9 +36,7 @@ init_conf() ->
     {ok, TnxId} = copy_override_conf_from_core_node(),
     emqx_app:set_init_tnx_id(TnxId),
     emqx_config:init_load(emqx_conf_schema),
-    emqx_app:set_init_config_load_done(),
-    ekka:start(),
-    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity).
+    emqx_app:set_init_config_load_done().
 
 copy_override_conf_from_core_node() ->
     case nodes() of

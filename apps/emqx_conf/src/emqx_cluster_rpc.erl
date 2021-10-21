@@ -142,7 +142,7 @@ skip_failed_commit(Node) ->
 
 %% @private
 init([Node, RetryMs]) ->
-    _ = mria:wait_for_tables([?CLUSTER_MFA]),
+    _ = mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]),
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
     State = #{node => Node, retry_interval => RetryMs},
     TnxId = emqx_app:get_init_tnx_id(),
