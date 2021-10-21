@@ -1358,9 +1358,9 @@ authentication(Desc) ->
     #{ type => hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())]))
      , desc => iolist_to_binary([Desc, "<br>", """
 Authentication can be one single authenticator instance or a chain of authenticators as an array.
-The when authenticating a login (username, client ID, etc.) the authenticators are checked
+When authenticating a login (username, client ID, etc.) the authenticators are checked
 in the configured order.<br>
 EMQ X comes with a set of pre-built autenticators, for more details, see
-<code>authenticator_config</code>.
+<a href=\"#root-authenticator_config\">autenticator_config<a>
 """])
      }.
