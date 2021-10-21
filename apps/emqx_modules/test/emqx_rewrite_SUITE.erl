@@ -35,6 +35,12 @@ rewrite: [
       source_topic : \"y/+/z/#\"
       re : \"^y/(.+)/z/(.+)$\"
       dest_topic : \"y/z/$2\"
+    },
+    {
+      action : all
+      source_topic : \"all/+/x/#\"
+      re : \"^all/(.+)/x/(.+)$\"
+      dest_topic : \"all/x/$2\"
     }
 ]""">>).
 
@@ -48,49 +54,121 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_modules]).
 
-%% Test case for emqx_mod_write
-t_mod_rewrite(_Config) ->
-    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
-    ok = emqx_rewrite:enable(),
-    {ok, C} = emqtt:start_link([{clientid, <<"rewrite_client">>}]),
-    {ok, _} = emqtt:connect(C),
-    PubOrigTopics = [<<"x/y/2">>, <<"x/1/2">>],
-    PubDestTopics = [<<"z/y/2">>, <<"x/1/2">>],
+t_subscribe_rewrite(_Config) ->
+    {ok, Conn} = init(),
     SubOrigTopics = [<<"y/a/z/b">>, <<"y/def">>],
     SubDestTopics = [<<"y/z/b">>, <<"y/def">>],
-    %% Sub Rules
-    {ok, _Props1, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- SubOrigTopics]),
-    timer:sleep(100),
+    {ok, _Props1, _} = emqtt:subscribe(Conn, [{Topic, ?QOS_1} || Topic <- SubOrigTopics]),
+    timer:sleep(150),
     Subscriptions = emqx_broker:subscriptions(<<"rewrite_client">>),
     ?assertEqual(SubDestTopics, [Topic || {Topic, _SubOpts} <- Subscriptions]),
-    RecvTopics1 = [begin
-                      ok = emqtt:publish(C, Topic, <<"payload">>),
-                      {ok, #{topic := RecvTopic}} = receive_publish(100),
-                      RecvTopic
-                  end || Topic <- SubDestTopics],
-    ?assertEqual(SubDestTopics, RecvTopics1),
-    {ok, _, _} = emqtt:unsubscribe(C, SubOrigTopics),
+    RecvTopics = [begin
+                       ok = emqtt:publish(Conn, Topic, <<"payload">>),
+                       {ok, #{topic := RecvTopic}} = receive_publish(100),
+                       RecvTopic
+                   end || Topic <- SubDestTopics],
+    ?assertEqual(SubDestTopics, RecvTopics),
+    {ok, _, _} = emqtt:unsubscribe(Conn, SubOrigTopics),
     timer:sleep(100),
     ?assertEqual([], emqx_broker:subscriptions(<<"rewrite_client">>)),
-    %% Pub Rules
-    {ok, _Props2, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- PubDestTopics]),
-    RecvTopics2 = [begin
-                      ok = emqtt:publish(C, Topic, <<"payload">>),
-                      {ok, #{topic := RecvTopic}} = receive_publish(100),
-                      RecvTopic
-                  end || Topic <- PubOrigTopics],
-    ?assertEqual(PubDestTopics, RecvTopics2),
-    {ok, _, _} = emqtt:unsubscribe(C, PubDestTopics),
 
-    ok = emqtt:disconnect(C),
-    ok = emqx_rewrite:disable().
+    terminate(Conn).
+
+t_publish_rewrite(_Config) ->
+    {ok, Conn} = init(),
+    PubOrigTopics = [<<"x/y/2">>, <<"x/1/2">>],
+    PubDestTopics = [<<"z/y/2">>, <<"x/1/2">>],
+    {ok, _Props2, _} = emqtt:subscribe(Conn, [{Topic, ?QOS_1} || Topic <- PubDestTopics]),
+    RecvTopics = [begin
+                       ok = emqtt:publish(Conn, Topic, <<"payload">>),
+                       {ok, #{topic := RecvTopic}} = receive_publish(100),
+                       RecvTopic
+                   end || Topic <- PubOrigTopics],
+    ?assertEqual(PubDestTopics, RecvTopics),
+    {ok, _, _} = emqtt:unsubscribe(Conn, PubDestTopics),
+    terminate(Conn).
 
 t_rewrite_rule(_Config) ->
-    {PubRules, SubRules} = emqx_rewrite:compile(emqx:get_config([rewrite])),
+    {PubRules, SubRules, []} = emqx_rewrite:compile(emqx:get_config([rewrite])),
     ?assertEqual(<<"z/y/2">>, emqx_rewrite:match_and_rewrite(<<"x/y/2">>, PubRules)),
     ?assertEqual(<<"x/1/2">>, emqx_rewrite:match_and_rewrite(<<"x/1/2">>, PubRules)),
     ?assertEqual(<<"y/z/b">>, emqx_rewrite:match_and_rewrite(<<"y/a/z/b">>, SubRules)),
     ?assertEqual(<<"y/def">>, emqx_rewrite:match_and_rewrite(<<"y/def">>, SubRules)).
+
+t_rewrite_re_error(_Config) ->
+    Rules = [#{
+        action => subscribe,
+        source_topic => "y/+/z/#",
+        re => "{^y/(.+)/z/(.+)$*",
+        dest_topic => "\"y/z/$2"
+    }],
+    Error = {
+        "y/+/z/#",
+        "{^y/(.+)/z/(.+)$*",
+        "\"y/z/$2",
+        {"nothing to repeat",16}
+    },
+    ?assertEqual({[], [], [Error]}, emqx_rewrite:compile(Rules)),
+    ok.
+
+t_list(_Config) ->
+    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
+    Expect = [
+        #{<<"action">> => <<"publish">>,
+            <<"dest_topic">> => <<"z/y/$1">>,
+            <<"re">> => <<"^x/y/(.+)$">>,
+            <<"source_topic">> => <<"x/#">>},
+        #{<<"action">> => <<"subscribe">>,
+            <<"dest_topic">> => <<"y/z/$2">>,
+            <<"re">> => <<"^y/(.+)/z/(.+)$">>,
+            <<"source_topic">> => <<"y/+/z/#">>},
+        #{<<"action">> => <<"all">>,
+            <<"dest_topic">> => <<"all/x/$2">>,
+            <<"re">> => <<"^all/(.+)/x/(.+)$">>,
+            <<"source_topic">> => <<"all/+/x/#">>}],
+    ?assertEqual(Expect, emqx_rewrite:list()),
+    ok.
+
+t_update(_Config) ->
+    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
+    Init = emqx_rewrite:list(),
+    Rules = [#{
+        source_topic => "test/#",
+        re => "test/*",
+        dest_topic => "test1/$2",
+        action => publish
+    }],
+    ok = emqx_rewrite:update(Rules),
+    ?assertEqual(Rules, emqx_rewrite:list()),
+    ok = emqx_rewrite:update(Init),
+    ok.
+
+t_update_disable(_Config) ->
+    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
+    ?assertEqual(ok, emqx_rewrite:update([])),
+    timer:sleep(150),
+
+    Subs = emqx_hooks:lookup('client.subscribe'),
+    UnSubs = emqx_hooks:lookup('client.unsubscribe'),
+    MessagePub = emqx_hooks:lookup('message.publish'),
+    Filter = fun({_, {Mod, _, _}, _, _}) -> Mod =:= emqx_rewrite end,
+
+    ?assertEqual([], lists:filter(Filter, Subs)),
+    ?assertEqual([], lists:filter(Filter, UnSubs)),
+    ?assertEqual([], lists:filter(Filter, MessagePub)),
+    ok.
+
+t_update_re_failed(_Config) ->
+    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
+    Rules = [#{
+        source_topic => "test/#",
+        re => "*^test/*",
+        dest_topic => "test1/$2",
+        action => publish
+    }],
+    ?assertEqual({error,[{<<"test/#">>, <<"*^test/*">>, <<"test1/$2">>,
+        {"nothing to repeat",0}}]}, emqx_rewrite:update(Rules)),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -102,3 +180,14 @@ receive_publish(Timeout) ->
     after
         Timeout -> {error, timeout}
     end.
+
+init() ->
+    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
+    ok = emqx_rewrite:enable(),
+    {ok, C} = emqtt:start_link([{clientid, <<"rewrite_client">>}]),
+    {ok, _} = emqtt:connect(C),
+    {ok, C}.
+
+terminate(Conn) ->
+    ok = emqtt:disconnect(Conn),
+    ok = emqx_rewrite:disable().

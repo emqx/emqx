@@ -62,10 +62,10 @@ schema("/mqtt/topic_rewrite") ->
 
 fields(topic) ->
     [
-        {action, hoconsc:mk(hoconsc:enum([subscribe, publish, all]), #{desc => "Action"})},
-        {source_topic, hoconsc:mk(binary(), #{desc => "Origin Topic", example => "/a/b/c"})},
-        {dest_topic, hoconsc:mk(binary(), #{desc => "Destination Topic", example => "/a/b/d"})},
-        {re, hoconsc:mk(binary(), #{desc => "Regular expressions", example => "/a/b/*"})}
+        {action, hoconsc:mk(hoconsc:enum([subscribe, publish, all]), #{desc => "Action", example => publish})},
+        {source_topic, hoconsc:mk(binary(), #{desc => "Origin Topic", example => "x/#"})},
+        {dest_topic, hoconsc:mk(binary(), #{desc => "Destination Topic", example => "z/y/$1"})},
+        {re, hoconsc:mk(binary(), #{desc => "Regular expressions", example => "^x/y/(.+)$"})}
     ].
 
 topic_rewrite(get, _Params) ->
