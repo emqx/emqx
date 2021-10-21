@@ -38,7 +38,7 @@
         , delete_user/2
         , update_user/3
         , lookup_user/2
-        , list_users/1
+        , list_users/2
         ]).
 
 -define(TAB, ?MODULE).
@@ -181,23 +181,21 @@ update_user(UserID, User,
                                                             salt       = Salt}
                                 end,
                     mnesia:write(?TAB, UserInfo2, write),
-                    {ok, serialize_user_info(UserInfo2)}
+                    {ok, format_user_info(UserInfo2)}
             end
         end).
 
 lookup_user(UserID, #{user_group := UserGroup}) ->
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [UserInfo] ->
-            {ok, serialize_user_info(UserInfo)};
+            {ok, format_user_info(UserInfo)};
         [] ->
             {error, not_found}
     end.
 
-%% TODO: Support Pagination
-list_users(#{user_group := UserGroup}) ->
-    Users = [serialize_user_info(UserInfo) ||
-                 #user_info{user_id = {UserGroup0, _}} = UserInfo <- ets:tab2list(?TAB), UserGroup0 =:= UserGroup],
-    {ok, Users}.
+list_users(PageParams, #{user_group := UserGroup}) ->
+    MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_', '_', '_'}, [], ['$_']}],
+    {ok, emqx_mgmt_api:paginate(?TAB, MatchSpec, PageParams, fun format_user_info/1)}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -269,5 +267,5 @@ trans(Fun, Args) ->
         {aborted, Reason} -> {error, Reason}
     end.
 
-serialize_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) ->
+format_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) ->
     #{user_id => UserID, is_superuser => IsSuperuser}.
