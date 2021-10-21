@@ -1,4 +1,4 @@
-name: Automate Test Suite
+name: Integration Test Suites
   
 on:
   push:
@@ -15,8 +15,6 @@ jobs:
       version: ${{ steps.build_docker.outputs.version}}
     steps:
     - uses: actions/checkout@v2
-      with:
-        ref: main-v4.3
     - name: build docker
       id: build_docker
       run: |
@@ -24,7 +22,7 @@ jobs:
         echo "::set-output name=version::$(./pkg-vsn.sh)"
     - uses: actions/upload-artifact@v2
       with:
-        name: emqx
+        name: emqx-docker-image-zip
         path: _packages/emqx/emqx-docker-${{ steps.build_docker.outputs.version }}.zip
 
   webhook:
@@ -39,11 +37,9 @@ jobs:
     needs: build
     steps:
     - uses: actions/checkout@v2
-      with:
-        ref: main-v4.3
     - uses: actions/download-artifact@v2
       with:
-        name: emqx
+        name: emqx-docker-image-zip
         path: /tmp
     - name: load docker image
       env:
@@ -63,7 +59,7 @@ jobs:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-svt-web-server
-        ref: main
+        ref: web-server-1.0
         path: emqx-svt-web-server
     - uses: actions/download-artifact@v2
     - name: run webserver in docker
@@ -71,8 +67,7 @@ jobs:
         cd ./emqx-svt-web-server/svtserver
         mvn clean package
         cd target
-        ls
-        docker run --name webserver --network emqx_bridge --ip 172.100.239.88 -d -v $(pwd)/svtserver-0.0.1.jar:/webserver/svtserver-0.0.1.jar --workdir /webserver openjdk:8-jdk bash \
+        docker run --name webserver --network emqx_bridge -d -v $(pwd)/svtserver-0.0.1.jar:/webserver/svtserver-0.0.1.jar --workdir /webserver openjdk:8-jdk bash \
         -c "java -jar svtserver-0.0.1.jar"
     - name: wait docker compose up
       timeout-minutes: 5
@@ -83,6 +78,7 @@ jobs:
         done
         docker ps -a
         echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
+        echo WEB_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' webserver) >> $GITHUB_ENV
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-fvt
@@ -109,18 +105,9 @@ jobs:
           -Jjmeter.save.saveservice.output_format=xml -n \
           -t scripts/.ci/automate-test-suite/${{ matrix.webhook_type }}.jmx \
           -Demqx_ip=$HAPROXY_IP \
-          -Dweb_ip=172.100.239.88 \
+          -Dweb_ip=$WEB_IP \
           -l jmeter_logs/webhook_${{ matrix.webhook_type }}.jtl \
           -j jmeter_logs/logs/webhook_${{ matrix.webhook_type }}.log
-    - name: wait docker compose up
-      timeout-minutes: 5
-      run: |
-        while [ "$(docker inspect -f '{{ .State.Health.Status}}' node1.emqx.io)" != "healthy" ] || [ "$(docker inspect -f '{{ .State.Health.Status}}' node2.emqx.io)" != "healthy" ]; do
-          echo "['$(date -u +"%y-%m-%dt%h:%m:%sz")']:waiting emqx";
-          sleep 5;
-        done
-        docker ps -a
-        echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
     - name: check logs
       run: |
         if cat jmeter_logs/webhook_${{ matrix.webhook_type }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
