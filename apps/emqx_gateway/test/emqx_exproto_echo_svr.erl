@@ -16,7 +16,7 @@
 
 -module(emqx_exproto_echo_svr).
 
--behavior(emqx_exproto_v_1_connection_handler_bhvr).
+-behaviour(emqx_exproto_v_1_connection_handler_bhvr).
 
 -export([ start/0
         , stop/1

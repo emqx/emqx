@@ -17,7 +17,7 @@
 %% @doc The ExProto Gateway Implement interface
 -module(emqx_exproto_impl).
 
--behavior(emqx_gateway_impl).
+-behaviour(emqx_gateway_impl).
 
 %% APIs
 -export([ reg/0

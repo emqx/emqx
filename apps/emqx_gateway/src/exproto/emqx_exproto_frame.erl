@@ -18,7 +18,7 @@
 %% @doc The frame parser for ExProto
 -module(emqx_exproto_frame).
 
--behavior(emqx_gateway_frame).
+-behaviour(emqx_gateway_frame).
 
 -export([ initial_parse_state/1
         , serialize_opts/0

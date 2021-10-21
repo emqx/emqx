@@ -16,7 +16,7 @@
 
 -module(emqx_coap_frame).
 
--behavior(emqx_gateway_frame).
+-behaviour(emqx_gateway_frame).
 
 %% emqx_gateway_frame API
 -export([ initial_parse_state/1

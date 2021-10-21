@@ -16,7 +16,7 @@
 
 -module(emqx_authz_api_sources).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").

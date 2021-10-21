@@ -19,7 +19,7 @@
 
 -include("include/emqx_gateway.hrl").
 
--behavior(gen_server).
+-behaviour(gen_server).
 
 %% APIs
 -export([ reg/2

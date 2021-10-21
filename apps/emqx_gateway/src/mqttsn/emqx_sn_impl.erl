@@ -17,7 +17,7 @@
 %% @doc The MQTT-SN Gateway Implement interface
 -module(emqx_sn_impl).
 
--behavior(emqx_gateway_impl).
+-behaviour(emqx_gateway_impl).
 
 %% APIs
 -export([ reg/0

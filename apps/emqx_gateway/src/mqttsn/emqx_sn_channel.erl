@@ -16,7 +16,7 @@
 
 -module(emqx_sn_channel).
 
--behavior(emqx_gateway_channel).
+-behaviour(emqx_gateway_channel).
 
 -include("src/mqttsn/include/emqx_sn.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -1042,7 +1042,7 @@ handle_out(connack, ?SN_RC_ACCEPTED,
            Channel = #channel{ctx = Ctx, conninfo = ConnInfo}) ->
     _ = run_hooks(Ctx, 'client.connack',
                   [ConnInfo, returncode_name(?SN_RC_ACCEPTED)],
-                  #{} 
+                  #{}
                  ),
     return_connack(?SN_CONNACK_MSG(?SN_RC_ACCEPTED),
                    ensure_keepalive(Channel));
@@ -1325,7 +1325,7 @@ handle_deliver(Delivers, Channel = #channel{
                                       ctx = Ctx,
                                       conn_state = ConnState,
                                       session    = Session,
-                                      clientinfo = #{clientid := ClientId}}) 
+                                      clientinfo = #{clientid := ClientId}})
   when ConnState =:= disconnected;
        ConnState =:= asleep ->
     NSession = emqx_session:enqueue(

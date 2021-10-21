@@ -17,7 +17,7 @@
 %% @doc The LwM2M Gateway Implement interface
 -module(emqx_lwm2m_impl).
 
--behavior(emqx_gateway_impl).
+-behaviour(emqx_gateway_impl).
 
 %% APIs
 -export([ reg/0
