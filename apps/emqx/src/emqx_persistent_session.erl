@@ -80,15 +80,14 @@
 %%--------------------------------------------------------------------
 
 init_db_backend() ->
-    case persistent_term:get({?MODULE, backend_init_done}, undefined) of
-        undefined ->
-            Backend = case is_store_enabled() of
-                          true  -> emqx_persistent_session_mnesia_backend;
-                          false -> emqx_persistent_session_dummy_backend
-                      end,
-            persistent_term:put(?db_backend_key, Backend),
-            persistent_term:put(backend_init_done, true);
-        true ->
+    case is_store_enabled() of
+        true  ->
+            ok = emqx_trie:create_session_trie(),
+            emqx_persistent_session_mnesia_backend:create_tables(),
+            persistent_term:put(?db_backend_key, emqx_persistent_session_mnesia_backend),
+            ok;
+        false ->
+            persistent_term:put(?db_backend_key, emqx_persistent_session_dummy_backend),
             ok
     end.
 

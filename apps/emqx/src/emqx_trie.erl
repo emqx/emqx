@@ -19,7 +19,9 @@
 -include("emqx.hrl").
 
 %% Mnesia bootstrap
--export([mnesia/1]).
+-export([ mnesia/1
+        , create_session_trie/0
+        ]).
 
 -boot_mnesia({mnesia, [boot]}).
 
@@ -71,20 +73,19 @@ mnesia(boot) ->
                 {record_name, ?TRIE},
                 {attributes, record_info(fields, ?TRIE)},
                 {type, ordered_set},
-                {storage_properties, StoreProps}]),
+                {storage_properties, StoreProps}]).
 
-    case emqx_persistent_session:is_store_enabled() of
-        true ->
-            ok = mria:create_table(?SESSION_TRIE, [
-                        {rlog_shard, ?ROUTE_SHARD},
-                        {storage, disc_copies},
-                        {record_name, ?TRIE},
-                        {attributes, record_info(fields, ?TRIE)},
-                        {type, ordered_set},
-                        {storage_properties, StoreProps}]);
-        false ->
-            ok
-    end.
+create_session_trie() ->
+    StoreProps = [{ets, [{read_concurrency, true},
+                         {write_concurrency, true}
+                        ]}],
+    ok = mria:create_table(?SESSION_TRIE,
+                           [{rlog_shard, ?ROUTE_SHARD},
+                            {storage, disc_copies},
+                            {record_name, ?TRIE},
+                            {attributes, record_info(fields, ?TRIE)},
+                            {type, ordered_set},
+                            {storage_properties, StoreProps}]).
 
 %%--------------------------------------------------------------------
 %% Topics APIs

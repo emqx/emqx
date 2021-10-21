@@ -16,15 +16,11 @@
 
 -module(emqx_persistent_session_mnesia_backend).
 
--boot_mnesia({mnesia, [boot]}).
-
 -include("emqx.hrl").
 -include("emqx_persistent_session.hrl").
 
--export([ mnesia/1
-        ]).
-
--export([ first_message_id/0
+-export([ create_tables/0
+        , first_message_id/0
         , next_message_id/1
         , delete_message/1
         , first_session_message/0
@@ -39,14 +35,7 @@
         , ro_transaction/1
         ]).
 
-
-mnesia(Action) ->
-    emqx_persistent_session:init_db_backend(),
-    mnesia_opt(?db_backend =:= ?MODULE, Action).
-
-mnesia_opt(false, _) ->
-    ok;
-mnesia_opt(true, boot) ->
+create_tables() ->
     ok = mria:create_table(?SESSION_STORE, [
                 {type, set},
                 {rlog_shard, ?PERSISTENT_SESSION_SHARD},

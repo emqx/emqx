@@ -41,6 +41,7 @@
 
 start(_Type, _Args) ->
     ok = maybe_load_config(),
+    ok = emqx_persistent_session:init_db_backend(),
     ok = maybe_start_quicer(),
     wait_boot_shards(),
     {ok, Sup} = emqx_sup:start_link(),
