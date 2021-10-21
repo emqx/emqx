@@ -137,7 +137,7 @@ parse_query(Query) ->
             PlaceHolders = [PlaceHolder || [PlaceHolder] <- Captured],
             Replacements = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(Captured))],
             NQuery = lists:foldl(fun({PlaceHolder, Replacement}, Query0) ->
-                                     re:replace(Query0, <<"'\\", PlaceHolder/binary, "'">>, Replacement, [{return, binary}])
+                                     re:replace(Query0, PlaceHolder, Replacement, [{return, binary}])
                                  end, Query, lists:zip(PlaceHolders, Replacements)),
             {NQuery, PlaceHolders};
         nomatch ->
