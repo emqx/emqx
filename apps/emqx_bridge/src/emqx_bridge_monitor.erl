@@ -91,11 +91,17 @@ parse_http_confs(#{ <<"url">> := Url
                   , <<"method">> := Method
                   , <<"body">> := Body
                   , <<"headers">> := Headers
+                  , <<"request_timeout">> := ReqTimeout
                   } = Conf) ->
     {BaseUrl, Path} = parse_url(Url),
     Conf#{ <<"base_url">> => BaseUrl
-         , <<"preprocessed_request">> =>
-            emqx_connector_http:preprocess_request(Method, Path, Body, Headers)
+         , <<"request">> =>
+            #{ <<"path">> => Path
+             , <<"method">> => Method
+             , <<"body">> => Body
+             , <<"headers">> => Headers
+             , <<"request_timeout">> => ReqTimeout
+             }
          }.
 
 parse_url(Url) ->

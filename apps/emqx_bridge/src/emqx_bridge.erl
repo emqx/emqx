@@ -67,7 +67,7 @@ on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
     case maps:get(sys, Flags, false) of
         false ->
             lists:foreach(fun (Id) ->
-                    send_message(Id, emqx_message:to_map(Message))
+                    send_message(Id, emqx_rule_events:eventmsg_publish(Message))
                 end, get_matched_bridges(Topic));
         true -> ok
     end,
