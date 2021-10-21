@@ -92,6 +92,7 @@ monitor(Node) when is_atom(Node) ->
 
 init([]) ->
     ok = ekka:monitor(membership),
+    _ = mria:wait_for_tables([?ROUTING_NODE]),
     {ok, _} = mnesia:subscribe({table, ?ROUTING_NODE, simple}),
     Nodes = lists:foldl(
               fun(Node, Acc) ->

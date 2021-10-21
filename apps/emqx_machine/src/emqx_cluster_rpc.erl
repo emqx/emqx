@@ -135,6 +135,7 @@ skip_failed_commit(Node) ->
 
 %% @private
 init([Node, RetryMs]) ->
+    _ = mria:wait_for_tables([?CLUSTER_MFA]),
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
     {ok, #{node => Node, retry_interval => RetryMs}, {continue, ?CATCH_UP}}.
 

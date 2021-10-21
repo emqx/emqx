@@ -102,6 +102,7 @@ mnesia(boot) ->
 %%--------------------------------------------------------------------
 
 start_link() ->
+    _ = mria:wait_for_tables([?TELEMETRY]),
     Opts = emqx:get_config([telemetry], #{}),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
 
