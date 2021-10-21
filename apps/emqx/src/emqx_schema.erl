@@ -331,10 +331,7 @@ fields("mqtt") ->
     ];
 
 fields("zone") ->
-    Fields = ["mqtt", "stats", "flapping_detect", "force_shutdown",
-              "conn_congestion", "rate_limit", "quota", "force_gc",
-              "overload_protection"
-             ],
+    Fields = emqx_zone_schema:roots(),
     [{F, ref(emqx_zone_schema, F)} || F <- Fields];
 
 fields("rate_limit") ->

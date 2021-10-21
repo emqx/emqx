@@ -20,7 +20,12 @@
 
 namespace() -> zone.
 
-roots() -> [].
+%% this shcema module is not used at root level.
+%% roots are added only for document generation.
+roots() -> ["mqtt", "stats", "flapping_detect", "force_shutdown",
+            "conn_congestion", "rate_limit", "quota", "force_gc",
+            "overload_protection"
+           ].
 
 %% zone schemas are clones from the same name from root level
 %% only not allowed to have default values.
