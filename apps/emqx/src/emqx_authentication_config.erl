@@ -268,4 +268,3 @@ dir(ChainName, ID) when is_binary(ID) ->
     binary:replace(iolist_to_binary([to_bin(ChainName), "-", ID]), <<":">>, <<"-">>);
 dir(ChainName, Config) when is_map(Config) ->
     dir(ChainName, authenticator_id(Config)).
-

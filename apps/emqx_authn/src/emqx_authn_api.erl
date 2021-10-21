@@ -18,1848 +18,582 @@
 
 -behaviour(minirest_api).
 
+-include_lib("typerefl/include/types.hrl").
 -include("emqx_authn.hrl").
 
+-import(hoconsc, [mk/2, ref/1]).
+-import(emqx_dashboard_swagger, [error_codes/2]).
+
+-define(BAD_REQUEST, 'BAD_REQUEST').
+-define(NOT_FOUND, 'NOT_FOUND').
+-define(CONFLICT, 'CONFLICT').
+
+% Swagger
+
 -export([ api_spec/0
-        , authentication/2
-        , authentication2/2
-        , authentication3/2
-        , authentication4/2
-        , move/2
-        , move2/2
-        , import_users/2
-        , import_users2/2
-        , users/2
-        , users2/2
-        , users3/2
-        , users4/2
+        , paths/0
+        , schema/1
         ]).
 
--define(EXAMPLE_1, #{mechanism => <<"password-based">>,
-                     backend => <<"built-in-database">>,
-                     user_id_type => <<"username">>,
-                     password_hash_algorithm => #{
-                         name => <<"sha256">>
-                     }}).
+-export([ roots/0
+        , fields/1
+        ]).
 
--define(EXAMPLE_2, #{mechanism => <<"password-based">>,
-                     backend => <<"http">>,
-                     method => <<"post">>,
-                     url => <<"http://localhost:80/login">>,
-                     headers => #{
-                        <<"content-type">> => <<"application/json">>
-                     },
-                     body => #{
-                        <<"username">> => <<"${mqtt-username}">>,
-                        <<"password">> => <<"${mqtt-password}">>
-                     }}).
+-export([ authenticators/2
+        , authenticator/2
+        , listener_authenticators/2
+        , listener_authenticator/2
+        , authenticator_move/2
+        , listener_authenticator_move/2
+        , authenticator_import_users/2
+        , listener_authenticator_import_users/2
+        , authenticator_users/2
+        , authenticator_user/2
+        , listener_authenticator_users/2
+        , listener_authenticator_user/2
+        ]).
 
--define(EXAMPLE_3, #{mechanism => <<"jwt">>,
-                     use_jwks => false,
-                     algorithm => <<"hmac-based">>,
-                     secret => <<"mysecret">>,
-                     secret_base64_encoded => false,
-                     verify_claims => #{
-                         <<"username">> => <<"${mqtt-username}">>
-                     }}).
-
--define(EXAMPLE_4, #{mechanism => <<"password-based">>,
-                     backend => <<"mongodb">>,
-                     server => <<"127.0.0.1:27017">>,
-                     database => example,
-                     collection => users,
-                     selector => #{
-                         username => <<"${mqtt-username}">>
-                     },
-                     password_hash_field => <<"password_hash">>,
-                     salt_field => <<"salt">>,
-                     is_superuser_field => <<"is_superuser">>,
-                     password_hash_algorithm => <<"sha256">>,
-                     salt_position => <<"prefix">>
-                    }).
-
--define(EXAMPLE_5, #{mechanism => <<"password-based">>,
-                     backend => <<"redis">>,
-                     server => <<"127.0.0.1:6379">>,
-                     database => 0,
-                     query => <<"HMGET ${mqtt-username} password_hash salt">>,
-                     password_hash_algorithm => <<"sha256">>,
-                     salt_position => <<"prefix">>
-                    }).
-
--define(INSTANCE_EXAMPLE_1, maps:merge(?EXAMPLE_1, #{id => <<"password-based:built-in-database">>,
-                                                     enable => true})).
-
--define(INSTANCE_EXAMPLE_2, maps:merge(?EXAMPLE_2, #{id => <<"password-based:http">>,
-                                                     connect_timeout => "5s",
-                                                     enable_pipelining => true,
-                                                     headers => #{
-                                                         <<"accept">> => <<"application/json">>,
-                                                         <<"cache-control">> => <<"no-cache">>,
-                                                         <<"connection">> => <<"keepalive">>,
-                                                         <<"content-type">> => <<"application/json">>,
-                                                         <<"keep-alive">> => <<"timeout=5">>
-                                                     },
-                                                     max_retries => 5,
-                                                     pool_size => 8,
-                                                     request_timeout => "5s",
-                                                     retry_interval => "1s",
-                                                     enable => true})).
-
--define(INSTANCE_EXAMPLE_3, maps:merge(?EXAMPLE_3, #{id => <<"jwt">>,
-                                                     enable => true})).
-
--define(INSTANCE_EXAMPLE_4, maps:merge(?EXAMPLE_4, #{id => <<"password-based:mongodb">>,
-                                                     mongo_type => <<"single">>,
-                                                     pool_size => 8,
-                                                     ssl => #{
-                                                         enable => false
-                                                     },
-                                                     topology => #{
-                                                         max_overflow => 8,
-                                                         pool_size => 8
-                                                     },
-                                                     enable => true})).
-
--define(INSTANCE_EXAMPLE_5, maps:merge(?EXAMPLE_5, #{id => <<"password-based:redis">>,
-                                                     auto_reconnect => true,
-                                                     redis_type => single,
-                                                     pool_size => 8,
-                                                     ssl => #{
-                                                         enable => false
-                                                     },
-                                                     enable => true})).
-
--define(ERR_RESPONSE(Desc), #{description => Desc,
-                              content => #{
-                                  'application/json' => #{
-                                      schema => minirest:ref(<<"Error">>),
-                                      examples => #{
-                                        example1 => #{
-                                            summary => <<"Not Found">>,
-                                            value => #{code => <<"NOT_FOUND">>, message => <<"Authenticator '67e4c9d3' does not exist">>}
-                                        },
-                                        example2 => #{
-                                            summary => <<"Conflict">>,
-                                            value => #{code => <<"ALREADY_EXISTS">>, message => <<"Name has be used">>}
-                                        },
-                                        example3 => #{
-                                            summary => <<"Bad Request 1">>,
-                                            value => #{code => <<"OUT_OF_RANGE">>, message => <<"Out of range">>}
-                                        }
-                                  }}}}).
+-export([authenticator_examples/0]).
 
 api_spec() ->
-    {[ authentication_api()
-     , authentication_api2()
-     , move_api()
-     , authentication_api3()
-     , authentication_api4()
-     , move_api2()
-     , import_users_api()
-     , import_users_api2()
-     , users_api()
-     , users2_api()
-     , users3_api()
-     , users4_api()
-     ], definitions()}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-authentication_api() ->
-    Metadata = #{
-        post => create_authenticator_api_spec(),
-        get => list_authenticators_api_spec()
-    },
-    {"/authentication", Metadata, authentication}.
+paths() -> [ "/authentication"
+           , "/authentication/:id"
+           , "/authentication/:id/move"
+           , "/authentication/:id/import_users"
+           , "/authentication/:id/users"
+           , "/authentication/:id/users/:user_id"
 
-authentication_api2() ->
-    Metadata = #{
-        get => find_authenticator_api_spec(),
-        put => update_authenticator_api_spec(),
-        delete => delete_authenticator_api_spec()
-    },
-    {"/authentication/:id", Metadata, authentication2}.
+           , "/listeners/:listener_id/authentication"
+           , "/listeners/:listener_id/authentication/:id"
+           , "/listeners/:listener_id/authentication/:id/move"
+           , "/listeners/:listener_id/authentication/:id/import_users"
+           , "/listeners/:listener_id/authentication/:id/users"
+           , "/listeners/:listener_id/authentication/:id/users/:user_id"
+           ].
 
-authentication_api3() ->
-    Metadata = #{
-        post => create_authenticator_api_spec2(),
-        get => list_authenticators_api_spec2()
-    },
-    {"/listeners/:listener_id/authentication", Metadata, authentication3}.
+roots() -> [ request_user_create
+           , request_user_update
+           , request_move
+           , request_import_users
+           , response_user
+           ].
 
-authentication_api4() ->
-    Metadata = #{
-        get => find_authenticator_api_spec2(),
-        put => update_authenticator_api_spec2(),
-        delete => delete_authenticator_api_spec2()
-    },
-    {"/listeners/:listener_id/authentication/:id", Metadata, authentication4}.
+fields(request_user_create) ->
+    [
+        {user_id, binary()},
+        {password, binary()},
+        {is_superuser, mk(boolean(), #{default => false, nullable => true})}
+    ];
 
-move_api() ->
-    Metadata = #{
-        post => move_authenticator_api_spec()
-    },
-    {"/authentication/:id/move", Metadata, move}.
+fields(request_user_update) ->
+    [
+        {password, binary()},
+        {is_superuser, mk(boolean(), #{default => false, nullable => true})}
+    ];
 
-move_api2() ->
-    Metadata = #{
-        post => move_authenticator_api_spec2()
-    },
-    {"/listeners/:listener_id/authentication/:id/move", Metadata, move2}.
+fields(request_move) ->
+    [{position, binary()}];
 
-import_users_api() ->
-    Metadata = #{
-        post => import_users_api_spec()
-    },
-    {"/authentication/:id/import_users", Metadata, import_users}.
+fields(request_import_users) ->
+    [{filename, binary()}];
 
-import_users_api2() ->
-    Metadata = #{
-        post => import_users_api_spec2()
-    },
-    {"/listeners/:listener_id/authentication/:id/import_users", Metadata, import_users2}.
-
-users_api() ->
-    Metadata = #{
-        post => create_user_api_spec(),
-        get => list_users_api_spec()
-    },
-    {"/authentication/:id/users", Metadata, users}.
-
-users2_api() ->
-    Metadata = #{
-        put => update_user_api_spec(),
-        get => find_user_api_spec(),
-        delete => delete_user_api_spec()
-    },
-    {"/authentication/:id/users/:user_id", Metadata, users2}.
-
-users3_api() ->
-    Metadata = #{
-        post => create_user_api_spec2(),
-        get => list_users_api_spec2()
-    },
-    {"/listeners/:listener_id/authentication/:id/users", Metadata, users3}.
-
-users4_api() ->
-    Metadata = #{
-        put => update_user_api_spec2(),
-        get => find_user_api_spec2(),
-        delete => delete_user_api_spec2()
-    },
-    {"/listeners/:listener_id/authentication/:id/users/:user_id", Metadata, users4}.
-
-create_authenticator_api_spec() ->
-    #{
-        description => <<"Create a authenticator for global authentication">>,
-        requestBody => #{
-            content => #{
-                'application/json' => #{
-                    schema => minirest:ref(<<"AuthenticatorConfig">>),
-                    examples => #{
-                        default => #{
-                            summary => <<"Default">>,
-                            value => emqx_json:encode(?EXAMPLE_1)
-                        },
-                        http => #{
-                            summary => <<"Authentication provided by HTTP Server">>,
-                            value => emqx_json:encode(?EXAMPLE_2)
-                        },
-                        jwt => #{
-                            summary => <<"JWT Authentication">>,
-                            value => emqx_json:encode(?EXAMPLE_3)
-                        },
-                        mongodb => #{
-                            summary => <<"Authentication with MongoDB">>,
-                            value => emqx_json:encode(?EXAMPLE_4)
-                        },
-                        redis => #{
-                            summary => <<"Authentication with Redis">>,
-                            value => emqx_json:encode(?EXAMPLE_5)
-                        }
-                    }
-                }
-            }
-        },
-        responses => #{
-            <<"201">> => #{
-                description => <<"Created">>,
-                content => #{
-                    'application/json' => #{
-                        schema => minirest:ref(<<"AuthenticatorInstance">>),
-                        examples => #{
-                            example1 => #{
-                                summary => <<"Example 1">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_1)
-                            },
-                            example2 => #{
-                                summary => <<"Example 2">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_2)
-                            },
-                            example3 => #{
-                                summary => <<"Example 3">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_3)
-                            },
-                            example4 => #{
-                                summary => <<"Example 4">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_4)
-                            },
-                            example5 => #{
-                                summary => <<"Example 5">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_5)
-                            }
-                        }
-                    }
-                }
-            },
-            <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
-            <<"409">> => ?ERR_RESPONSE(<<"Conflict">>)
-        }
-    }.
-
-create_authenticator_api_spec2() ->
-    Spec = create_authenticator_api_spec(),
-    Spec#{
-        description => <<"Create a authenticator for listener">>,
-        parameters => [
-            #{
-                name => listener_id,
-                in => path,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ]
-    }.
-
-list_authenticators_api_spec() ->
-    #{
-        description => <<"List authenticators for global authentication">>,
-        responses => #{
-            <<"200">> => #{
-                description => <<"OK">>,
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => array,
-                            items => minirest:ref(<<"AuthenticatorInstance">>)
-                        },
-                        examples => #{
-                            example => #{
-                                summary => <<"Example">>,
-                                value => emqx_json:encode([ ?INSTANCE_EXAMPLE_1
-                                                          , ?INSTANCE_EXAMPLE_2
-                                                          , ?INSTANCE_EXAMPLE_3
-                                                          , ?INSTANCE_EXAMPLE_4
-                                                          , ?INSTANCE_EXAMPLE_5
-                                                          ])}}}}}}}.
-
-list_authenticators_api_spec2() ->
-    Spec = list_authenticators_api_spec(),
-    Spec#{
-        description => <<"List authenticators for listener">>,
-        parameters => [
-            #{
-                name => listener_id,
-                in => path,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ]
-    }.
-
-find_authenticator_api_spec() ->
-    #{
-        description => <<"Get authenticator by id">>,
-        parameters => [
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ],
-        responses => #{
-            <<"200">> => #{
-                description => <<"OK">>,
-                content => #{
-                    'application/json' => #{
-                        schema => minirest:ref(<<"AuthenticatorInstance">>),
-                        examples => #{
-                            example1 => #{
-                                summary => <<"Example 1">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_1)
-                            },
-                            example2 => #{
-                                summary => <<"Example 2">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_2)
-                            },
-                            example3 => #{
-                                summary => <<"Example 3">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_3)
-                            },
-                            example4 => #{
-                                summary => <<"Example 4">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_4)
-                            },
-                            example5 => #{
-                                summary => <<"Example 5">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_5)
-                            }
-                        }
-                    }
-                }
-            },
-            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-        }
-    }.
-
-find_authenticator_api_spec2() ->
-    Spec = find_authenticator_api_spec(),
-    Spec#{
-        parameters => [
-            #{
-                name => listener_id,
-                in => path,
-                description => <<"Listener id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ]
-    }.
-
-update_authenticator_api_spec() ->
-    #{
-        description => <<"Update authenticator">>,
-        parameters => [
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ],
-        requestBody => #{
-            content => #{
-                'application/json' => #{
-                    schema => minirest:ref(<<"AuthenticatorConfig">>),
-                    examples => #{
-                        example1 => #{
-                            summary => <<"Example 1">>,
-                            value => emqx_json:encode(?EXAMPLE_1)
-                        },
-                        example2 => #{
-                            summary => <<"Example 2">>,
-                            value => emqx_json:encode(?EXAMPLE_2)
-                        },
-                        example3 => #{
-                            summary => <<"Example 3">>,
-                            value => emqx_json:encode(?EXAMPLE_3)
-                        },
-                        example4 => #{
-                            summary => <<"Example 4">>,
-                            value => emqx_json:encode(?EXAMPLE_4)
-                        },
-                        example5 => #{
-                            summary => <<"Example 5">>,
-                            value => emqx_json:encode(?EXAMPLE_5)
-                        }
-                    }
-                }
-            }
-        },
-        responses => #{
-            <<"200">> => #{
-                description => <<"OK">>,
-                content => #{
-                    'application/json' => #{
-                        schema => minirest:ref(<<"AuthenticatorInstance">>),
-                        examples => #{
-                            example1 => #{
-                                summary => <<"Example 1">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_1)
-                            },
-                            example2 => #{
-                                summary => <<"Example 2">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_2)
-                            },
-                            example3 => #{
-                                summary => <<"Example 3">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_3)
-                            },
-                            example4 => #{
-                                summary => <<"Example 4">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_4)
-                            },
-                            example5 => #{
-                                summary => <<"Example 5">>,
-                                value => emqx_json:encode(?INSTANCE_EXAMPLE_5)
-                            }
-                        }
-                    }
-                }
-            },
-            <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
-            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>),
-            <<"409">> => ?ERR_RESPONSE(<<"Conflict">>)
-        }
-    }.
-
-update_authenticator_api_spec2() ->
-    Spec = update_authenticator_api_spec(),
-    Spec#{
-        parameters => [
-            #{
-                name => listener_id,
-                in => path,
-                description => <<"Listener id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ]
-    }.
-
-delete_authenticator_api_spec() ->
-    #{
-        description => <<"Delete authenticator">>,
-        parameters => [
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ],
-        responses => #{
-            <<"204">> => #{
-                description => <<"No Content">>
-            },
-            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-        }
-    }.
-
-delete_authenticator_api_spec2() ->
-    Spec = delete_authenticator_api_spec(),
-    Spec#{
-        parameters => [
-            #{
-                name => listener_id,
-                in => path,
-                description => <<"Listener id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ]
-    }.
-
-move_authenticator_api_spec() ->
-    #{
-        description => <<"Move authenticator">>,
-        parameters => [
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ],
-        requestBody => #{
-            content => #{
-                'application/json' => #{
-                    schema => #{
-                        oneOf => [
-                            #{
-                                type => object,
-                                required => [position],
-                                properties => #{
-                                    position => #{
-                                        type => string,
-                                        enum => [<<"top">>, <<"bottom">>],
-                                        example => <<"top">>
-                                    }
-                                }
-                            },
-                            #{
-                                type => object,
-                                required => [position],
-                                properties => #{
-                                    position => #{
-                                        type => string,
-                                        description => <<"before:<authenticator_id>">>,
-                                        example => <<"before:password-based:mysql">>
-                                    }
-                                }
-                            }
-                        ]
-                    }
-                }
-            }
-        },
-        responses => #{
-            <<"204">> => #{
-                description => <<"No Content">>
-            },
-            <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
-            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-        }
-    }.
-
-move_authenticator_api_spec2() ->
-    Spec = move_authenticator_api_spec(),
-    Spec#{
-        parameters => [
-            #{
-                name => listener_id,
-                in => path,
-                description => <<"Listener id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ]
-    }.
-
-import_users_api_spec() ->
-    #{
-        description => <<"Import users from json/csv file">>,
-        parameters => [
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ],
-        requestBody => #{
-            content => #{
-                'application/json' => #{
-                    schema => #{
-                        type => object,
-                        required => [filename],
-                        properties => #{
-                            filename => #{
-                                type => string
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        responses => #{
-            <<"204">> => #{
-                description => <<"No Content">>
-            },
-            <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
-            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-        }
-    }.
-
-import_users_api_spec2() ->
-    Spec = import_users_api_spec(),
-    Spec#{
-        parameters => [
-            #{
-                name => listener_id,
-                in => path,
-                description => <<"Listener id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ]
-    }.
-
-create_user_api_spec() ->
-    #{
-        description => <<"Add user">>,
-        parameters => [
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ],
-        requestBody => #{
-            content => #{
-                'application/json' => #{
-                    schema => #{
-                        type => object,
-                        required => [user_id, password],
-                        properties => #{
-                            user_id => #{
-                                type => string
-                            },
-                            password => #{
-                                type => string
-                            },
-                            is_superuser => #{
-                                type => boolean,
-                                default => false
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        responses => #{
-            <<"201">> => #{
-                description => <<"Created">>,
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => object,
-                            properties => #{
-                                user_id => #{
-                                    type => string
-                                },
-                                is_superuser => #{
-                                    type => boolean
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
-            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-        }
-    }.
-
-create_user_api_spec2() ->
-    Spec = create_user_api_spec(),
-    Spec#{
-        parameters => [
-            #{
-                name => listener_id,
-                in => path,
-                description => <<"Listener id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ]
-    }.
-
-list_users_api_spec() ->
-    #{
-        description => <<"List users">>,
-        parameters => [
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => page,
-                in => query,
-                description => <<"Page Index">>,
-                schema => #{
-                    type => integer
-                },
-                required => false
-            },
-            #{
-                name => limit,
-                in => query,
-                description => <<"Page limit">>,
-                schema => #{
-                    type => integer
-                },
-                required => false
-            }
-        ],
-        responses => #{
-            <<"200">> => #{
-                description => <<"OK">>,
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => array,
-                            items => #{
-                                type => object,
-                                properties => #{
-                                    user_id => #{
-                                        type => string
-                                    },
-                                    is_superuser => #{
-                                        type => boolean
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-        }
-    }.
-
-list_users_api_spec2() ->
-    Spec = list_users_api_spec(),
-    Spec#{
-        parameters => [
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => listener_id,
-                in => path,
-                description => <<"Listener id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => page,
-                in => query,
-                description => <<"Page Index">>,
-                schema => #{
-                    type => integer
-                },
-                required => false
-            },
-            #{
-                name => limit,
-                in => query,
-                description => <<"Page limit">>,
-                schema => #{
-                    type => integer
-                },
-                required => false
-            }
-        ]
-    }.
-
-update_user_api_spec() ->
-    #{
-        description => <<"Update user">>,
-        parameters => [
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => user_id,
-                in => path,
-                description => <<"User id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ],
-        requestBody => #{
-            content => #{
-                'application/json' => #{
-                    schema => #{
-                        type => object,
-                        properties => #{
-                            password => #{
-                                type => string
-                            },
-                            is_superuser => #{
-                                type => boolean
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        responses => #{
-            <<"200">> => #{
-                description => <<"OK">>,
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => array,
-                            items => #{
-                                type => object,
-                                properties => #{
-                                    user_id => #{
-                                        type => string
-                                    },
-                                    is_superuser => #{
-                                        type => boolean
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            <<"400">> => ?ERR_RESPONSE(<<"Bad Request">>),
-            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-        }
-    }.
-
-update_user_api_spec2() ->
-    Spec = update_user_api_spec(),
-    Spec#{
-        parameters => [
-            #{
-                name => listener_id,
-                in => path,
-                description => <<"Listener id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => user_id,
-                in => path,
-                description => <<"User id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ]
-    }.
-
-find_user_api_spec() ->
-    #{
-        description => <<"Get user info">>,
-        parameters => [
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => user_id,
-                in => path,
-                description => <<"User id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ],
-        responses => #{
-            <<"200">> => #{
-                description => <<"OK">>,
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => array,
-                            items => #{
-                                type => object,
-                                properties => #{
-                                    user_id => #{
-                                        type => string
-                                    },
-                                    is_superuser => #{
-                                        type => boolean
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-        }
-    }.
-
-find_user_api_spec2() ->
-    Spec = find_user_api_spec(),
-    Spec#{
-        parameters => [
-            #{
-                name => listener_id,
-                in => path,
-                description => <<"Listener id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => user_id,
-                in => path,
-                description => <<"User id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ]
-    }.
-
-delete_user_api_spec() ->
-    #{
-        description => <<"Delete user">>,
-        parameters => [
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => user_id,
-                in => path,
-                description => <<"User id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ],
-        responses => #{
-            <<"204">> => #{
-                description => <<"No Content">>
-            },
-            <<"404">> => ?ERR_RESPONSE(<<"Not Found">>)
-        }
-    }.
-
-delete_user_api_spec2() ->
-    Spec = delete_user_api_spec(),
-    Spec#{
-        parameters => [
-            #{
-                name => listener_id,
-                in => path,
-                description => <<"Listener id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            },
-            #{
-                name => user_id,
-                in => path,
-                description => <<"User id">>,
-                schema => #{
-                    type => string
-                },
-                required => true
-            }
-        ]
-    }.
-
-
-definitions() ->
-    AuthenticatorConfigDef = #{
-        allOf => [
-            #{
-                type => object,
-                properties => #{
-                    enable => #{
-                        type => boolean,
-                        default => true,
-                        example => true
-                    }
-                }
-            },
-            #{
-                oneOf => [ minirest:ref(<<"PasswordBasedBuiltInDatabase">>)
-                         , minirest:ref(<<"PasswordBasedMySQL">>)
-                         , minirest:ref(<<"PasswordBasedPostgreSQL">>)
-                         , minirest:ref(<<"PasswordBasedMongoDB">>)
-                         , minirest:ref(<<"PasswordBasedRedis">>)
-                         , minirest:ref(<<"PasswordBasedHTTPServer">>)
-                         , minirest:ref(<<"JWT">>)
-                         , minirest:ref(<<"SCRAMBuiltInDatabase">>)
-                         ]
-            }
-        ]
-    },
-
-    AuthenticatorInstanceDef = #{
-        allOf => [
-            #{
-                type => object,
-                properties => #{
-                    id => #{
-                        type => string
-                    }
-                }
-            }
-        ] ++ maps:get(allOf, AuthenticatorConfigDef)
-    },
-
-    PasswordBasedBuiltInDatabaseDef = #{
-        type => object,
-        required => [mechanism, backend],
-        properties => #{
-            mechanism => #{
-                type => string,
-                enum => [<<"password-based">>],
-                example => <<"password-based">>
-            },
-            backend => #{
-                type => string,
-                enum => [<<"built-in-database">>],
-                example => <<"built-in-database">>
-            },
-            user_id_type => #{
-                type => string,
-                enum => [<<"username">>, <<"clientid">>],
-                example => <<"username">>
-            },
-            password_hash_algorithm => minirest:ref(<<"PasswordHashAlgorithm">>)
-        }
-    },
-
-    PasswordBasedMySQLDef = #{
-        type => object,
-        required => [ mechanism
-                    , backend
-                    , server
-                    , database
-                    , username
-                    , password
-                    , query],
-        properties => #{
-            mechanism => #{
-                type => string,
-                enum => [<<"password-based">>],
-                example => <<"password-based">>
-            },
-            backend => #{
-                type => string,
-                enum => [<<"mysql">>],
-                example => <<"mysql">>
-            },
-            server => #{
-                type => string,
-                example => <<"localhost:3306">>
-            },
-            database => #{
-                type => string
-            },
-            pool_size => #{
-                type => integer,
-                default => 8
-            },
-            username => #{
-                type => string
-            },
-            password => #{
-                type => string
-            },
-            auto_reconnect => #{
-                type => boolean,
-                default => true
-            },
-            ssl => minirest:ref(<<"SSL">>),
-            password_hash_algorithm => #{
-                type => string,
-                enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
-                default => <<"sha256">>
-            },
-            salt_position => #{
-                type => string,
-                enum => [<<"prefix">>, <<"suffix">>],
-                default => <<"prefix">>
-            },
-            query => #{
-                type => string,
-                example => <<"SELECT password_hash FROM mqtt_user WHERE username = ${mqtt-username}">>
-            },
-            query_timeout => #{
-                type => string,
-                description => <<"Query timeout">>,
-                default => "5s"
-            }
-        }
-    },
-
-    PasswordBasedPostgreSQLDef = #{
-        type => object,
-        required => [ mechanism
-                    , backend
-                    , server
-                    , database
-                    , username
-                    , password
-                    , query],
-        properties => #{
-            mechanism => #{
-                type => string,
-                enum => [<<"password-based">>],
-                example => <<"password-based">>
-            },
-            backend => #{
-                type => string,
-                enum => [<<"postgresql">>],
-                example => <<"postgresql">>
-            },
-            server => #{
-                type => string,
-                example => <<"localhost:5432">>
-            },
-            database => #{
-                type => string
-            },
-            pool_size => #{
-                type => integer,
-                default => 8
-            },
-            username => #{
-                type => string
-            },
-            password => #{
-                type => string
-            },
-            auto_reconnect => #{
-                type => boolean,
-                default => true
-            },
-            password_hash_algorithm => #{
-                type => string,
-                enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
-                default => <<"sha256">>
-            },
-            salt_position => #{
-                type => string,
-                enum => [<<"prefix">>, <<"suffix">>],
-                default => <<"prefix">>
-            },
-            query => #{
-                type => string,
-                example => <<"SELECT password_hash FROM mqtt_user WHERE username = ${mqtt-username}">>
-            }
-        }
-    },
-
-    PasswordBasedMongoDBDef = #{
-        type => object,
-        required => [ mechanism
-                    , backend
-                    , server
-                    , servers
-                    , replica_set_name
-                    , database
-                    , username
-                    , password
-                    , collection
-                    , selector
-                    , password_hash_field
-                    ],
-        properties => #{
-            mechanism => #{
-                type => string,
-                enum => [<<"password-based">>],
-                example => <<"password-based">>
-            },
-            backend => #{
-                type => string,
-                enum => [<<"mongodb">>],
-                example => <<"mongodb">>
-            },
-            server => #{
-                description => <<"Mutually exclusive with the 'servers' field, only valid in standalone mode">>,
-                type => string,
-                example => <<"127.0.0.1:27017">>
-            },
-            servers => #{
-                description => <<"Mutually exclusive with the 'server' field, only valid in replica set and sharded mode">>,
-                type => array,
-                items => #{
-                    type => string
-                },
-                example => [<<"127.0.0.1:27017">>]
-            },
-            replica_set_name => #{
-                description => <<"Only valid in replica set mode">>,
-                type => string
-            },
-            database => #{
-                type => string
-            },
-            username => #{
-                type => string
-            },
-            password => #{
-                type => string
-            },
-            auth_source => #{
-                type => string,
-                default => <<"admin">>
-            },
-            pool_size => #{
-                type => integer,
-                default => 8
-            },
-            collection => #{
-                type => string
-            },
-            selector => #{
-                type => object,
-                additionalProperties => true,
-                example => <<"{\"username\":\"${mqtt-username}\"}">>
-            },
-            password_hash_field => #{
-                type => string,
-                example => <<"password_hash">>
-            },
-            salt_field => #{
-                type => string,
-                example => <<"salt">>
-            },
-            is_superuser_field => #{
-                type => string,
-                example => <<"is_superuser">>
-            },
-            password_hash_algorithm => #{
-                type => string,
-                enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
-                default => <<"sha256">>,
-                example => <<"sha256">>
-            },
-            salt_position => #{
-                description => <<"Only valid when the 'salt_field' field is specified">>,
-                type => string,
-                enum => [<<"prefix">>, <<"suffix">>],
-                default => <<"prefix">>,
-                example => <<"prefix">>
-            }
-        }
-    },
-
-    PasswordBasedRedisDef = #{
-        type => object,
-        required => [ mechanism
-                    , backend
-                    , server
-                    , servers
-                    , password
-                    , database
-                    , query
-                    ],
-        properties => #{
-            mechanism => #{
-                type => string,
-                enum => [<<"password-based">>],
-                example => <<"password-based">>
-            },
-            backend => #{
-                type => string,
-                enum => [<<"redis">>],
-                example => <<"redis">>
-            },
-            server => #{
-                description => <<"Mutually exclusive with the 'servers' field, only valid in standalone mode">>,
-                type => string,
-                example => <<"127.0.0.1:27017">>
-            },
-            servers => #{
-                description => <<"Mutually exclusive with the 'server' field, only valid in cluster and sentinel mode">>,
-                type => array,
-                items => #{
-                    type => string
-                },
-                example => [<<"127.0.0.1:27017">>]
-            },
-            sentinel => #{
-                description => <<"Only valid in sentinel mode">>,
-                type => string
-            },
-            password => #{
-                type => string
-            },
-            database => #{
-                type => integer,
-                example => 0
-            },
-            query => #{
-                type => string,
-                example => <<"HMGET ${mqtt-username} password_hash salt">>
-            },
-            password_hash_algorithm => #{
-                type => string,
-                enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
-                default => <<"sha256">>,
-                example => <<"sha256">>
-            },
-            salt_position => #{
-                type => string,
-                enum => [<<"prefix">>, <<"suffix">>],
-                default => <<"prefix">>,
-                example => <<"prefix">>
-            },
-            pool_size => #{
-                type => integer,
-                default => 8
-            },
-            auto_reconnect => #{
-                type => boolean,
-                default => true
-            }
-        }
-    },
-
-    PasswordBasedHTTPServerDef = #{
-        type => object,
-        required => [ mechanism
-                    , backend
-                    , url
-                    , body
-                    ],
-        properties => #{
-            mechanism => #{
-                type => string,
-                enum => [<<"password-based">>],
-                example => <<"password-based">>
-            },
-            backend => #{
-                type => string,
-                enum => [<<"http">>],
-                example => <<"http">>
-            },
-            method => #{
-                type => string,
-                enum => [<<"get">>, <<"post">>],
-                default => <<"post">>
-            },
-            url => #{
-                type => string,
-                example => <<"http://localhost:80/login">>
-            },
-            headers => #{
-                type => object,
-                additionalProperties => #{
-                    type => string
-                }
-            },
-            body => #{
-                type => object
-            },
-            connect_timeout => #{
-                type => string,
-                default => <<"5s">>
-            },
-            max_retries => #{
-                type => integer,
-                default => 5
-            },
-            retry_interval => #{
-                type => string,
-                default => <<"1s">>
-            },
-            request_timout => #{
-                type => integer,
-                default => 5000
-            },
-            pool_size =>  #{
-                type => integer,
-                default => 8
-            },
-            enable_pipelining => #{
-                type => boolean,
-                default => true
-            },
-            ssl => minirest:ref(<<"SSL">>)
-        }
-    },
-
-    JWTDef = #{
-        type => object,
-        required => [mechanism],
-        properties => #{
-            mechanism => #{
-                type => string,
-                enum => [<<"jwt">>],
-                example => <<"jwt">>
-            },
-            use_jwks => #{
-                type => boolean,
-                default => false,
-                example => false
-            },
-            algorithm => #{
-                type => string,
-                enum => [<<"hmac-based">>, <<"public-key">>],
-                default => <<"hmac-based">>,
-                example => <<"hmac-based">>
-            },
-            secret => #{
-                type => string
-            },
-            secret_base64_encoded => #{
-                type => boolean,
-                default => false
-            },
-            certificate => #{
-                type => string
-            },
-            endpoint => #{
-                type => string,
-                example => <<"http://localhost:80">>
-            },
-            refresh_interval => #{
-                type => integer,
-                default => 300,
-                example => 300
-            },
-            verify_claims => #{
-                type => object,
-                additionalProperties => #{
-                    type => string
-                }
-            },
-            ssl => minirest:ref(<<"SSL">>)
-        }
-    },
-
-    SCRAMBuiltInDatabaseDef = #{
-        type => object,
-        required => [mechanism, backend],
-        properties => #{
-            mechanism => #{
-                type => string,
-                enum => [<<"scram">>],
-                example => <<"scram">>
-            },
-            backend => #{
-                type => string,
-                enum => [<<"built-in-database">>],
-                example => <<"built-in-database">>
-            },
-            algorithm => #{
-                type => string,
-                enum => [<<"sha256">>, <<"sha512">>],
-                default => <<"sha256">>
-            },
-            iteration_count => #{
-                type => integer,
-                default => 4096
-            }
-        }
-    },
-
-    PasswordHashAlgorithmDef = #{
-        type => object,
-        required => [name],
-        properties => #{
-            name => #{
-                type => string,
-                enum => [<<"plain">>, <<"md5">>, <<"sha">>, <<"sha256">>, <<"sha512">>, <<"bcrypt">>],
-                default => <<"sha256">>
-            },
-            salt_rounds => #{
-                type => integer,
-                description => <<"Only valid when the name field is set to bcrypt">>,
-                default => 10
-            }
-        }
-    },
-
-    SSLDef = #{
-        type => object,
-        properties => #{
-            enable => #{
-                type => boolean,
-                default => false
-            },
-            certfile => #{
-                type => string
-            },
-            keyfile => #{
-                type => string
-            },
-            cacertfile => #{
-                type => string
-            },
-            verify => #{
-                type => boolean,
-                default => true
-            },
-            server_name_indication => #{
-                type => object,
-                properties => #{
-                    enable => #{
-                        type => boolean,
-                        default => false
-                    },
-                    hostname => #{
-                        type => string
-                    }
-                }
-            }
-        }
-    },
-
-    ErrorDef = #{
-        type => object,
-        properties => #{
-            code => #{
-                type => string,
-                enum => [<<"NOT_FOUND">>],
-                example => <<"NOT_FOUND">>
-            },
-            message => #{
-                type => string
-            }
-        }
-    },
-
-    [ #{<<"AuthenticatorConfig">> => AuthenticatorConfigDef}
-    , #{<<"AuthenticatorInstance">> => AuthenticatorInstanceDef}
-    , #{<<"PasswordBasedBuiltInDatabase">> => PasswordBasedBuiltInDatabaseDef}
-    , #{<<"PasswordBasedMySQL">> => PasswordBasedMySQLDef}
-    , #{<<"PasswordBasedPostgreSQL">> => PasswordBasedPostgreSQLDef}
-    , #{<<"PasswordBasedMongoDB">> => PasswordBasedMongoDBDef}
-    , #{<<"PasswordBasedRedis">> => PasswordBasedRedisDef}
-    , #{<<"PasswordBasedHTTPServer">> => PasswordBasedHTTPServerDef}
-    , #{<<"JWT">> => JWTDef}
-    , #{<<"SCRAMBuiltInDatabase">> => SCRAMBuiltInDatabaseDef}
-    , #{<<"PasswordHashAlgorithm">> => PasswordHashAlgorithmDef}
-    , #{<<"SSL">> => SSLDef}
-    , #{<<"Error">> => ErrorDef}
+fields(response_user) ->
+    [
+        {user_id, binary()},
+        {is_superuser, mk(boolean(), #{default => false, nullable => true})}
     ].
 
-authentication(post, #{body := Config}) ->
+schema("/authentication") ->
+    #{
+        operationId => authenticators,
+        get => #{
+            tags => [<<"authentication">>, <<"global">>],
+            description => <<"List authenticators for global authentication">>,
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    hoconsc:array(emqx_authn_schema:authenticator_type()),
+                    authenticator_array_example())
+            }
+        },
+        post => #{
+            tags => [<<"authentication">>, <<"global">>],
+            description => <<"Create authenticator for global authentication">>,
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                emqx_authn_schema:authenticator_type(),
+                authenticator_examples()),
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    emqx_authn_schema:authenticator_type(),
+                    authenticator_examples()),
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                409 => error_codes([?CONFLICT], <<"Conflict">>)
+            }
+        }
+    };
+
+schema("/authentication/:id") ->
+    #{
+        operationId => authenticator,
+        get => #{
+            tags => [<<"authentication">>, <<"global">>],
+            description => <<"Get authenticator from global authentication chain">>,
+            parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    emqx_authn_schema:authenticator_type(),
+                    authenticator_examples()),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        },
+        put => #{
+            tags => [<<"authentication">>, <<"global">>],
+            description => <<"Update authenticator from global authentication chain">>,
+            parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                emqx_authn_schema:authenticator_type(),
+                authenticator_examples()
+            ),
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    emqx_authn_schema:authenticator_type(),
+                    authenticator_examples()),
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>),
+                409 => error_codes([?CONFLICT], <<"Conflict">>)
+            }
+        },
+        delete => #{
+            tags => [<<"authentication">>, <<"global">>],
+            description => <<"Delete authenticator from global authentication chain">>,
+            parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
+            responses => #{
+                200 => <<"Authenticator deleted">>,
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        }
+    };
+
+schema("/listeners/:listener_id/authentication") ->
+    #{
+        operationId => listener_authenticators,
+        get => #{
+            tags => [<<"authentication">>, <<"listener">>],
+            description => <<"List authenticators for listener authentication">>,
+            parameters => [{listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})}],
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    hoconsc:array(emqx_authn_schema:authenticator_type()),
+                    authenticator_array_example())
+            }
+        },
+        post => #{
+            tags => [<<"authentication">>, <<"listener">>],
+            description => <<"Create authenticator for listener authentication">>,
+            parameters => [{listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})}],
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                emqx_authn_schema:authenticator_type(),
+                authenticator_examples()
+            ),
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    emqx_authn_schema:authenticator_type(),
+                    authenticator_examples()),
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                409 => error_codes([?CONFLICT], <<"Conflict">>)
+            }
+        }
+    };
+
+schema("/listeners/:listener_id/authentication/:id") ->
+    #{
+        operationId => listener_authenticator,
+        get => #{
+            tags => [<<"authentication">>, <<"listener">>],
+            description => <<"Get authenticator from listener authentication chain">>,
+            parameters => [
+                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
+            ],
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    emqx_authn_schema:authenticator_type(),
+                    authenticator_examples()),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        },
+        put => #{
+            tags => [<<"authentication">>, <<"listener">>],
+            description => <<"Update authenticator from listener authentication chain">>,
+            parameters => [
+                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
+            ],
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                emqx_authn_schema:authenticator_type(),
+                authenticator_examples()),
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    emqx_authn_schema:authenticator_type(),
+                    authenticator_examples()),
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>),
+                409 => error_codes([?CONFLICT], <<"Conflict">>)
+            }
+        },
+        delete => #{
+            tags => [<<"authentication">>, <<"listener">>],
+            description => <<"Delete authenticator from listener authentication chain">>,
+            parameters => [
+                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
+            ],
+            responses => #{
+                204 => <<"Authenticator deleted">>,
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        }
+    };
+
+
+schema("/authentication/:id/move") ->
+    #{
+        operationId => authenticator_move,
+        post => #{
+            tags => [<<"authentication">>, <<"global">>],
+            description => <<"Move authenticator in global authentication chain">>,
+            parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
+            requestBody => ref(request_move),
+            responses => #{
+                204 => <<"Authenticator moved">>,
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        }
+    };
+
+schema("/listeners/:listener_id/authentication/:id/move") ->
+    #{
+        operationId => listener_authenticator_move,
+        post => #{
+            tags => [<<"authentication">>, <<"listener">>],
+            description => <<"Move authenticator in listener authentication chain">>,
+            parameters => [
+                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
+            ],
+            requestBody => ref(request_move),
+            responses => #{
+                204 => <<"Authenticator moved">>,
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        }
+    };
+
+schema("/authentication/:id/import_users") ->
+    #{
+        operationId => authenticator_import_users,
+        post => #{
+            tags => [<<"authentication">>, <<"global">>],
+            description => <<"Import users into authenticator in global authentication chain">>,
+            parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
+            requestBody => ref(request_import_users),
+            responses => #{
+                204 => <<"Users imported">>,
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        }
+    };
+
+schema("/listeners/:listener_id/authentication/:id/import_users") ->
+    #{
+        operationId => listener_authenticator_import_users,
+        post => #{
+            tags => [<<"authentication">>, <<"listener">>],
+            description => <<"Import users into authenticator in listener authentication chain">>,
+            parameters => [
+                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
+            ],
+            requestBody => ref(request_import_users),
+            responses => #{
+                204 => <<"Users imported">>,
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        }
+    };
+
+schema("/authentication/:id/users") ->
+    #{
+        operationId => authenticator_users,
+        post => #{
+            tags => [<<"authentication">>, <<"global">>],
+            description => <<"Create users for authenticator in global authentication chain">>,
+            parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
+            requestBody => ref(request_user_create),
+            responses => #{
+                201 => ref(response_user),
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        },
+        get => #{
+            tags => [<<"authentication">>, <<"global">>],
+            description => <<"List users in authenticator in global authentication chain">>,
+            parameters => [
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
+                {page, mk(integer(), #{in => query, desc => <<"Page Index">>, nullable => true})},
+                {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, nullable => true})}
+            ],
+            responses => #{
+                200 => mk(hoconsc:array(ref(response_user)), #{}),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+
+        }
+    };
+
+schema("/listeners/:listener_id/authentication/:id/users") ->
+    #{
+        operationId => listener_authenticator_users,
+        post => #{
+            tags => [<<"authentication">>, <<"listener">>],
+            description => <<"Create users for authenticator in global authentication chain">>,
+            parameters => [
+                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
+            ],
+            requestBody => ref(request_user_create),
+            responses => #{
+                201 => ref(response_user),
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        },
+        get => #{
+            tags => [<<"authentication">>, <<"listener">>],
+            description => <<"List users in authenticator in listener authentication chain">>,
+            parameters => [
+                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
+                {page, mk(integer(), #{in => query, desc => <<"Page Index">>, nullable => true})},
+                {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, nullable => true})}
+            ],
+            responses => #{
+                200 => mk(hoconsc:array(ref(response_user)), #{}),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+
+        }
+    };
+
+schema("/authentication/:id/users/:user_id") ->
+    #{
+        operationId => authenticator_user,
+        get => #{
+            tags => [<<"authentication">>, <<"global">>],
+            description => <<"Get user from authenticator in global authentication chain">>,
+            parameters => [
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
+                {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
+            ],
+            responses => #{
+                200 => ref(response_user),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        },
+        put => #{
+            tags => [<<"authentication">>, <<"global">>],
+            description => <<"Update user in authenticator in global authentication chain">>,
+            parameters => [
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
+                {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
+            ],
+            requestBody => ref(request_user_update),
+            responses => #{
+                200 => mk(hoconsc:array(ref(response_user)), #{}),
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        },
+        delete => #{
+            tags => [<<"authentication">>, <<"global">>],
+            description => <<"Update user in authenticator in global authentication chain">>,
+            parameters => [
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
+                {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
+            ],
+            responses => #{
+                204 => <<"User deleted">>,
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        }
+    };
+
+schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
+    #{
+        operationId => listener_authenticator_user,
+        get => #{
+            tags => [<<"authentication">>, <<"listener">>],
+            description => <<"Get user from authenticator in listener authentication chain">>,
+            parameters => [
+                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
+                {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
+            ],
+            responses => #{
+                200 => ref(response_user),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        },
+        put => #{
+            tags => [<<"authentication">>, <<"listener">>],
+            description => <<"Update user in authenticator in listener authentication chain">>,
+            parameters => [
+                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
+                {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
+            ],
+            requestBody => ref(request_user_update),
+            responses => #{
+                200 => mk(hoconsc:array(ref(response_user)), #{}),
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+
+        },
+        delete => #{
+            tags => [<<"authentication">>, <<"listener">>],
+            description => <<"Update user in authenticator in listener authentication chain">>,
+            parameters => [
+                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
+                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
+                {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
+            ],
+            responses => #{
+                204 => <<"User deleted">>,
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        }
+    }.
+
+authenticators(post, #{body := Config}) ->
     create_authenticator([authentication], ?GLOBAL, Config);
 
-authentication(get, _Params) ->
+authenticators(get, _Params) ->
     list_authenticators([authentication]).
 
-authentication2(get, #{bindings := #{id := AuthenticatorID}}) ->
+authenticator(get, #{bindings := #{id := AuthenticatorID}}) ->
     list_authenticator([authentication], AuthenticatorID);
 
-authentication2(put, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
+authenticator(put, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
     update_authenticator([authentication], ?GLOBAL, AuthenticatorID, Config);
 
-authentication2(delete, #{bindings := #{id := AuthenticatorID}}) ->
+authenticator(delete, #{bindings := #{id := AuthenticatorID}}) ->
     delete_authenticator([authentication], ?GLOBAL, AuthenticatorID).
 
-authentication3(post, #{bindings := #{listener_id := ListenerID}, body := Config}) ->
-    case find_listener(ListenerID) of
-        {ok, {Type, Name}} ->
-            create_authenticator([listeners, Type, Name, authentication], ListenerID, Config);
-        {error, Reason} ->
-            serialize_error(Reason)
-    end;
-authentication3(get, #{bindings := #{listener_id := ListenerID}}) ->
-    case find_listener(ListenerID) of
-        {ok, {Type, Name}} ->
-            list_authenticators([listeners, Type, Name, authentication]);
-        {error, Reason} ->
-            serialize_error(Reason)
-    end.
+listener_authenticators(post, #{bindings := #{listener_id := ListenerID}, body := Config}) ->
+    with_listener(ListenerID,
+                  fun(Type, Name) ->
+                        create_authenticator([listeners, Type, Name, authentication],
+                                          ListenerID,
+                                          Config)
+                  end);
 
-authentication4(get, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}}) ->
-    case find_listener(ListenerID) of
-        {ok, {Type, Name}} ->
-            list_authenticator([listeners, Type, Name, authentication], AuthenticatorID);
-        {error, Reason} ->
-            serialize_error(Reason)
-    end;
-authentication4(put, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := Config}) ->
-    case find_listener(ListenerID) of
-        {ok, {Type, Name}} ->
-            update_authenticator([listeners, Type, Name, authentication], ListenerID, AuthenticatorID, Config);
-        {error, Reason} ->
-            serialize_error(Reason)
-    end;
-authentication4(delete, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}}) ->
-    case find_listener(ListenerID) of
-        {ok, {Type, Name}} ->
-            delete_authenticator([listeners, Type, Name, authentication], ListenerID, AuthenticatorID);
-        {error, Reason} ->
-            serialize_error(Reason)
-    end.
+listener_authenticators(get, #{bindings := #{listener_id := ListenerID}}) ->
+    with_listener(ListenerID,
+                  fun(Type, Name) ->
+                        list_authenticators([listeners, Type, Name, authentication])
+                  end).
 
-move(post, #{bindings := #{id := AuthenticatorID}, body := #{<<"position">> := Position}}) ->
+listener_authenticator(get, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}}) ->
+    with_listener(ListenerID,
+                  fun(Type, Name) ->
+                        list_authenticator([listeners, Type, Name, authentication],
+                                       AuthenticatorID)
+                  end);
+listener_authenticator(put, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := Config}) ->
+    with_listener(ListenerID,
+                  fun(Type, Name) ->
+                        update_authenticator([listeners, Type, Name, authentication],
+                                             ListenerID,
+                                             AuthenticatorID,
+                                             Config)
+                  end);
+listener_authenticator(delete, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}}) ->
+    with_listener(ListenerID,
+                  fun(Type, Name) ->
+                        delete_authenticator([listeners, Type, Name, authentication],
+                                             ListenerID,
+                                             AuthenticatorID)
+                  end).
+
+authenticator_move(post, #{bindings := #{id := AuthenticatorID}, body := #{<<"position">> := Position}}) ->
     move_authenitcator([authentication], ?GLOBAL, AuthenticatorID, Position);
-move(post, #{bindings := #{id := _}, body := _}) ->
+authenticator_move(post, #{bindings := #{id := _}, body := _}) ->
     serialize_error({missing_parameter, position}).
 
-move2(post, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := #{<<"position">> := Position}}) ->
-    case find_listener(ListenerID) of
-        {ok, {Type, Name}} ->
-            move_authenitcator([listeners, Type, Name, authentication], ListenerID, AuthenticatorID, Position);
-        {error, Reason} ->
-            serialize_error(Reason)
-    end;
-move2(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
+listener_authenticator_move(post, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := #{<<"position">> := Position}}) ->
+    with_listener(ListenerID,
+                  fun(Type, Name) ->
+                        move_authenitcator([listeners, Type, Name, authentication],
+                                           ListenerID,
+                                           AuthenticatorID,
+                                           Position)
+                  end);
+listener_authenticator_move(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
     serialize_error({missing_parameter, position}).
 
-import_users(post, #{bindings := #{id := AuthenticatorID}, body := #{<<"filename">> := Filename}}) ->
+authenticator_import_users(post, #{bindings := #{id := AuthenticatorID}, body := #{<<"filename">> := Filename}}) ->
     case ?AUTHN:import_users(?GLOBAL, AuthenticatorID, Filename) of
         ok -> {204};
         {error, Reason} -> serialize_error(Reason)
     end;
-import_users(post, #{bindings := #{id := _}, body := _}) ->
+authenticator_import_users(post, #{bindings := #{id := _}, body := _}) ->
     serialize_error({missing_parameter, filename}).
 
-import_users2(post, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := #{<<"filename">> := Filename}}) ->
-    case ?AUTHN:import_users(ListenerID, AuthenticatorID, Filename) of
+listener_authenticator_import_users(post, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := #{<<"filename">> := Filename}}) ->
+    ChainName = to_atom(ListenerID),
+    case ?AUTHN:import_users(ChainName, AuthenticatorID, Filename) of
         ok -> {204};
         {error, Reason} -> serialize_error(Reason)
     end;
-import_users2(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
+listener_authenticator_import_users(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
     serialize_error({missing_parameter, filename}).
 
-users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
+authenticator_users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
     add_user(?GLOBAL, AuthenticatorID, UserInfo);
-users(get, #{bindings := #{id := AuthenticatorID}, query_string := PageParams}) ->
+authenticator_users(get, #{bindings := #{id := AuthenticatorID}, query_string := PageParams}) ->
     list_users(?GLOBAL, AuthenticatorID, PageParams).
 
-users2(put, #{bindings := #{id := AuthenticatorID,
+authenticator_user(put, #{bindings := #{id := AuthenticatorID,
                             user_id := UserID}, body := UserInfo}) ->
     update_user(?GLOBAL, AuthenticatorID, UserID, UserInfo);
-users2(get, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
+authenticator_user(get, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
     find_user(?GLOBAL, AuthenticatorID, UserID);
-users2(delete, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
+authenticator_user(delete, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
     delete_user(?GLOBAL, AuthenticatorID, UserID).
 
-users3(post, #{bindings := #{listener_id := ListenerID,
+listener_authenticator_users(post, #{bindings := #{listener_id := ListenerID,
                              id := AuthenticatorID}, body := UserInfo}) ->
     add_user(ListenerID, AuthenticatorID, UserInfo);
-users3(get, #{bindings := #{listener_id := ListenerID,
-                            id := AuthenticatorID},
-              query_string := PageParams}) ->
+listener_authenticator_users(get, #{bindings := #{listener_id := ListenerID,
+                            id := AuthenticatorID}, query_string := PageParams}) ->
     list_users(ListenerID, AuthenticatorID, PageParams).
 
-users4(put, #{bindings := #{listener_id := ListenerID,
+listener_authenticator_user(put, #{bindings := #{listener_id := ListenerID,
                             id := AuthenticatorID,
                             user_id := UserID}, body := UserInfo}) ->
     update_user(ListenerID, AuthenticatorID, UserID, UserInfo);
-users4(get, #{bindings := #{listener_id := ListenerID,
+listener_authenticator_user(get, #{bindings := #{listener_id := ListenerID,
                             id := AuthenticatorID,
                             user_id := UserID}}) ->
     find_user(ListenerID, AuthenticatorID, UserID);
-users4(delete, #{bindings := #{listener_id := ListenerID,
+listener_authenticator_user(delete, #{bindings := #{listener_id := ListenerID,
                                id := AuthenticatorID,
                                user_id := UserID}}) ->
     delete_user(ListenerID, AuthenticatorID, UserID).
@@ -1868,13 +602,25 @@ users4(delete, #{bindings := #{listener_id := ListenerID,
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+with_listener(ListenerID, Fun) ->
+    case find_listener(ListenerID) of
+        {ok, {Type, Name}} ->
+           Fun(Type, Name);
+        {error, Reason} ->
+            serialize_error(Reason)
+    end.
+
 find_listener(ListenerID) ->
-    {Type, Name} = emqx_listeners:parse_listener_id(ListenerID),
-    case emqx_config:find([listeners, Type, Name]) of
-        {not_found, _, _} ->
+    case emqx_listeners:parse_listener_id(ListenerID) of
+        {error, _} ->
             {error, {not_found, {listener, ListenerID}}};
-        {ok, _} ->
-            {ok, {Type, Name}}
+        {Type, Name} ->
+            case emqx_config:find([listeners, Type, Name]) of
+                {not_found, _, _} ->
+                    {error, {not_found, {listener, ListenerID}}};
+                {ok, _} ->
+                    {ok, {Type, Name}}
+            end
     end.
 
 create_authenticator(ConfKeyPath, ChainName, Config) ->
@@ -1944,7 +690,7 @@ add_user(ChainName0, AuthenticatorID, #{<<"user_id">> := UserID, <<"password">> 
         {ok, User} ->
             {201, User};
         {error, Reason} ->
-            serialize_error(Reason)
+            serialize_error({user_error, Reason})
     end;
 add_user(_, _, #{<<"user_id">> := _}) ->
     serialize_error({missing_parameter, password});
@@ -1961,7 +707,7 @@ update_user(ChainName0, AuthenticatorID, UserID, UserInfo) ->
                 {ok, User} ->
                     {200, User};
                 {error, Reason} ->
-                    serialize_error(Reason)
+                    serialize_error({user_error, Reason})
             end
     end.
 
@@ -1971,7 +717,7 @@ find_user(ChainName0, AuthenticatorID, UserID) ->
         {ok, User} ->
             {200, User};
         {error, Reason} ->
-            serialize_error(Reason)
+            serialize_error({user_error, Reason})
     end.
 
 delete_user(ChainName0, AuthenticatorID, UserID) ->
@@ -1980,7 +726,7 @@ delete_user(ChainName0, AuthenticatorID, UserID) ->
         ok ->
             {204};
         {error, Reason} ->
-            serialize_error(Reason)
+            serialize_error({user_error, Reason})
     end.
 
 list_users(ChainName0, AuthenticatorID, PageParams) ->
@@ -2024,6 +770,15 @@ convert_certs(#{<<"ssl">> := SSLOpts} = Config) ->
 convert_certs(Config) ->
     Config.
 
+serialize_error({user_error, not_found}) ->
+    {404, #{code => <<"NOT_FOUND">>,
+            message => binfmt("User not found", [])}};
+serialize_error({user_error, already_exist}) ->
+    {409, #{code => <<"BAD_REQUEST">>,
+            message => binfmt("User already exists", [])}};
+serialize_error({user_error, Reason}) ->
+    {400, #{code => <<"BAD_REQUEST">>,
+            message => binfmt("User error: ~p", [Reason])}};
 serialize_error({not_found, {authenticator, ID}}) ->
     {404, #{code => <<"NOT_FOUND">>,
             message => binfmt("Authenticator '~ts' does not exist", [ID]) }};
@@ -2035,7 +790,7 @@ serialize_error({not_found, {chain, ?GLOBAL}}) ->
             message => <<"Authenticator not found in the 'global' scope">>}};
 serialize_error({not_found, {chain, Name}}) ->
     {400, #{code => <<"BAD_REQUEST">>,
-            message => binfmt("No authentication has been create for listener '~ts'", [Name])}};
+            message => binfmt("No authentication has been created for listener ~p", [Name])}};
 serialize_error({already_exists, {authenticator, ID}}) ->
     {409, #{code => <<"ALREADY_EXISTS">>,
             message => binfmt("Authenticator '~ts' already exist", [ID])}};
@@ -2079,9 +834,92 @@ parse_position(_) ->
 ensure_list(M) when is_map(M) -> [M];
 ensure_list(L) when is_list(L) -> L.
 
+% TODO: fix atom leak!
 to_atom(B) when is_binary(B) ->
     binary_to_atom(B);
 to_atom(A) when is_atom(A) ->
     A.
 
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
+
+authenticator_array_example() ->
+    [Config || #{value := Config} <- maps:values(authenticator_examples())].
+
+authenticator_examples() ->
+    #{
+        'password-based:built-in-database' => #{
+            summary => <<"Built-in password-based authentication">>,
+            value => #{
+                mechanism => <<"password-based">>,
+                backend => <<"built-in-database">>,
+                user_id_type => <<"username">>,
+                password_hash_algorithm => #{
+                    name => <<"sha256">>
+                }
+            }
+        },
+        'password-based:http' => #{
+            summary => <<"Password-based authentication througth external HTTP API">>,
+            value => #{
+                mechanism => <<"password-based">>,
+                backend => <<"http">>,
+                method => <<"post">>,
+                url => <<"http://127.0.0.2:8080">>,
+                headers => #{
+                    <<"content-type">> => <<"application/json">>
+                },
+                body => #{
+                    <<"username">> => <<"${mqtt-username}">>,
+                    <<"password">> => <<"${mqtt-password}">>
+                },
+                pool_size => 8,
+                connect_timeout => 5000,
+                request_timeout => 5000,
+                enable_pipelining => true,
+                ssl => #{enable => false}
+            }
+        },
+        'jwt' => #{
+            summary => <<"JWT authentication">>,
+            value => #{
+                mechanism => <<"jwt">>,
+                use_jwks => false,
+                algorithm => <<"hmac-based">>,
+                secret => <<"mysecret">>,
+                secret_base64_encoded => false,
+                verify_claims => #{
+                    <<"username">> => <<"${mqtt-username}">>
+                }
+            }
+        },
+        'password-based:mongodb' => #{
+            summary => <<"Password-based authentication with MongoDB backend">>,
+            value => #{
+                mechanism => <<"password-based">>,
+                backend => <<"mongodb">>,
+                server => <<"127.0.0.1:27017">>,
+                database => example,
+                collection => users,
+                selector => #{
+                    username => <<"${mqtt-username}">>
+                },
+                password_hash_field => <<"password_hash">>,
+                salt_field => <<"salt">>,
+                is_superuser_field => <<"is_superuser">>,
+                password_hash_algorithm => <<"sha256">>,
+                salt_position => <<"prefix">>
+            }
+        },
+        'password-based:redis' => #{
+            summary => <<"Password-based authentication with Redis backend">>,
+            value => #{
+                mechanism => <<"password-based">>,
+                backend => <<"redis">>,
+                server => <<"127.0.0.1:6379">>,
+                database => 0,
+                query => <<"HMGET ${mqtt-username} password_hash salt">>,
+                password_hash_algorithm => <<"sha256">>,
+                salt_position => <<"prefix">>
+            }
+        }
+    }.

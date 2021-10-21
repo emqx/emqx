@@ -41,7 +41,7 @@
 namespace() -> "dashboard".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() -> ["/login", "/logout", "/users",
     "/users/:username", "/users/:username/change_pwd"].

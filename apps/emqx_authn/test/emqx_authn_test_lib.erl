@@ -19,20 +19,15 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+authenticator_example(Id) ->
+    #{Id := #{value := Example}} = emqx_authn_api:authenticator_examples(),
+    Example.
+
 http_example() ->
-"""
-{
-  mechanism = \"password-based\"
-  backend = http
-  method = post
-  url = \"http://127.0.0.2:8080\"
-  headers = {\"content-type\" = \"application/json\"}
-  body = {username = \"${username}\",
-          password = \"${password}\"}
-  pool_size = 8
-  connect_timeout = 5000
-  request_timeout = 5000
-  enable_pipelining = true
-  ssl = {enable = false}
-}
-""".
+    authenticator_example('password-based:http').
+
+built_in_database_example() ->
+    authenticator_example('password-based:built-in-database').
+
+jwt_example() ->
+    authenticator_example(jwt).
