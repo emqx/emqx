@@ -16,7 +16,7 @@
 %% TODO: refactor uri path
 -module(emqx_topic_metrics_api).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -import(emqx_mgmt_util, [ properties/1
                         , schema/1

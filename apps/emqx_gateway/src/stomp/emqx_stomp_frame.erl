@@ -68,7 +68,7 @@
 
 -module(emqx_stomp_frame).
 
--behavior(emqx_gateway_frame).
+-behaviour(emqx_gateway_frame).
 
 -include("emqx_stomp.hrl").
 

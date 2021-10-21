@@ -16,7 +16,7 @@
 
 -module(emqx_authn_api).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -include("emqx_authn.hrl").
 
@@ -117,7 +117,7 @@
                                                      },
                                                      topology => #{
                                                          max_overflow => 8,
-                                                         pool_size => 8 
+                                                         pool_size => 8
                                                      },
                                                      enable => true})).
 

@@ -18,7 +18,7 @@
 %% @doc The frame parser for MQTT-SN protocol
 -module(emqx_sn_frame).
 
--behavior(emqx_gateway_frame).
+-behaviour(emqx_gateway_frame).
 
 -include("emqx_sn.hrl").
 

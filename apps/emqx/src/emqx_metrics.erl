@@ -16,7 +16,7 @@
 
 -module(emqx_metrics).
 
--behavior(gen_server).
+-behaviour(gen_server).
 
 -include("emqx.hrl").
 -include("logger.hrl").

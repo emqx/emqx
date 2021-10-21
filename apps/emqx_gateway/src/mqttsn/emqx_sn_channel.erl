@@ -16,7 +16,7 @@
 
 -module(emqx_sn_channel).
 
--behavior(emqx_gateway_channel).
+-behaviour(emqx_gateway_channel).
 
 -include("emqx_sn.hrl").
 -include_lib("emqx/include/emqx.hrl").

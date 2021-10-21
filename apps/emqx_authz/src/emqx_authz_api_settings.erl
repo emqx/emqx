@@ -16,7 +16,7 @@
 
 -module(emqx_authz_api_settings).
 
--behavior(minirest_api).
+-behaviour(minirest_api).
 
 -export([ api_spec/0
         , settings/2

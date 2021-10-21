@@ -16,7 +16,7 @@
 
 -module(emqx_coap_channel).
 
--behavior(emqx_gateway_channel).
+-behaviour(emqx_gateway_channel).
 
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_coap.hrl").
