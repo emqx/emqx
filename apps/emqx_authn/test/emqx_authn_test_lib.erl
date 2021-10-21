@@ -14,29 +14,25 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_schema).
+-module(emqx_authn_test_lib).
 
--include_lib("typerefl/include/types.hrl").
+-compile(nowarn_export_all).
+-compile(export_all).
 
--export([ common_fields/0
-        , roots/0
-        , fields/1
-        ]).
-
-%% only for doc generation
-roots() -> [{authenticator_config,
-             #{type => hoconsc:union(config_refs([Module || {_AuthnType, Module} <- emqx_authn:providers()]))
-               }}].
-
-fields(_) -> [].
-
-common_fields() ->
-    [ {enable, fun enable/1}
-    ].
-
-enable(type) -> boolean();
-enable(default) -> true;
-enable(_) -> undefined.
-
-config_refs(Modules) ->
-    lists:append([Module:refs() || Module <- Modules]).
+http_example() ->
+"""
+{
+  mechanism = \"password-based\"
+  backend = http
+  method = post
+  url = \"http://127.0.0.2:8080\"
+  headers = {\"content-type\" = \"application/json\"}
+  body = {username = \"${username}\",
+          password = \"${password}\"}
+  pool_size = 8
+  connect_timeout = 5000
+  request_timeout = 5000
+  enable_pipelining = true
+  ssl = {enable = false}
+}
+""".

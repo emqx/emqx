@@ -103,12 +103,10 @@ The configs here work as default values which can be overriden
 in <code>zone</code> configs"""
           })}
     , {"authentication",
-      sc(hoconsc:lazy(hoconsc:array(map())),
-         #{ desc =>
+       authentication(
 """Default authentication configs for all MQTT listeners.<br>
 For per-listener overrides see <code>authentication</code>
-in listener configs"""
-          })}
+in listener configs""")}
     , {"authorization",
        sc(ref("authorization"),
           #{})}
@@ -903,8 +901,7 @@ mqtt_listener() ->
           #{})
       }
     , {"authentication",
-       sc(hoconsc:lazy(hoconsc:array(map())),
-          #{})
+       authentication("Per-listener authentication override")
       }
     ].
 
@@ -1042,7 +1039,7 @@ In case PSK cipher suites are intended, make sure to configured
     , {"ciphers", ciphers_schema(D("ciphers"))}
     , {user_lookup_fun,
        sc(typerefl:alias("string", any()),
-          #{ default => "emqx_tls_psk:lookup"
+          #{ default => <<"emqx_tls_psk:lookup">>
            , converter => fun ?MODULE:parse_user_lookup_fun/1
            })
       }
@@ -1191,17 +1188,21 @@ RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA\"</code><br>
            _ -> ""
        end}).
 
-default_ciphers(undefined) ->
-    default_ciphers(tls_all_available);
-default_ciphers(quic) -> [
+default_ciphers(Which) ->
+    lists:map(fun erlang:iolist_to_binary/1,
+              do_default_ciphers(Which)).
+
+do_default_ciphers(undefined) ->
+    do_default_ciphers(tls_all_available);
+do_default_ciphers(quic) -> [
     "TLS_AES_256_GCM_SHA384",
     "TLS_AES_128_GCM_SHA256",
     "TLS_CHACHA20_POLY1305_SHA256"
     ];
-default_ciphers(dtls_all_available) ->
+do_default_ciphers(dtls_all_available) ->
     %% as of now, dtls does not support tlsv1.3 ciphers
     emqx_tls_lib:selected_ciphers(['dtlsv1.2', 'dtlsv1']);
-default_ciphers(tls_all_available) ->
+do_default_ciphers(tls_all_available) ->
     emqx_tls_lib:default_ciphers().
 
 %% @private return a list of keys in a parent field
@@ -1352,3 +1353,14 @@ str(B) when is_binary(B) ->
     binary_to_list(B);
 str(S) when is_list(S) ->
     S.
+
+authentication(Desc) ->
+    #{ type => hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())]))
+     , desc => iolist_to_binary([Desc, "<br>", """
+Authentication can be one single authenticator instance or a chain of authenticators as an array.
+The when authenticating a login (username, client ID, etc.) the authenticators are checked
+in the configured order.<br>
+EMQ X comes with a set of pre-built autenticators, for more details, see
+<code>authenticator_config</code>.
+"""])
+     }.

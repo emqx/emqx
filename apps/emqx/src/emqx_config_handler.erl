@@ -71,15 +71,16 @@ stop() ->
 update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
     %% force covert the path to a list of atoms, as there maybe some wildcard names/ids in the path
     AtomKeyPath = [atom(Key) || Key <- ConfKeyPath],
-    gen_server:call(?MODULE, {change_config, SchemaModule, AtomKeyPath, UpdateArgs}).
+    gen_server:call(?MODULE, {change_config, SchemaModule, AtomKeyPath, UpdateArgs}, infinity).
 
 -spec add_handler(emqx_config:config_key_path(), handler_name()) -> ok.
 add_handler(ConfKeyPath, HandlerName) ->
-    gen_server:call(?MODULE, {add_handler, ConfKeyPath, HandlerName}).
+    gen_server:call(?MODULE, {add_handler, ConfKeyPath, HandlerName}, infinity).
 
+%% @doc Remove handler asynchronously
 -spec remove_handler(emqx_config:config_key_path()) -> ok.
 remove_handler(ConfKeyPath) ->
-    gen_server:call(?MODULE, {remove_handler, ConfKeyPath}).
+    gen_server:cast(?MODULE, {remove_handler, ConfKeyPath}).
 
 %%============================================================================
 
@@ -94,11 +95,6 @@ handle_call({add_handler, ConfKeyPath, HandlerName}, _From, State = #{handlers :
         Error ->
             {reply, Error, State}
     end;
-
-handle_call({remove_handler, ConfKeyPath}, _From,
-            State = #{handlers := Handlers}) ->
-    {reply, ok, State#{handlers =>
-        emqx_map_lib:deep_remove(ConfKeyPath ++ [?MOD], Handlers)}};
 
 handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
             #{handlers := Handlers} = State) ->
@@ -125,6 +121,9 @@ handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
+handle_cast({remove_handler, ConfKeyPath},
+            State = #{handlers := Handlers}) ->
+    {noreply, State#{handlers => emqx_map_lib:deep_remove(ConfKeyPath ++ [?MOD], Handlers)}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -247,7 +246,8 @@ call_post_config_update(Handlers, OldConf, NewConf, AppEnvs, UpdateReq, Result) 
         true ->
             case HandlerName:post_config_update(UpdateReq, NewConf, OldConf, AppEnvs) of
                 ok -> {ok, Result};
-                {ok, Result1} -> {ok, Result#{HandlerName => Result1}};
+                {ok, Result1} ->
+                    {ok, Result#{HandlerName => Result1}};
                 {error, Reason} -> {error, {post_config_update, HandlerName, Reason}}
             end;
         false -> {ok, Result}

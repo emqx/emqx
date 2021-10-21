@@ -39,13 +39,11 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-namespace() -> "authn-password_based-redis".
+namespace() -> "authn-redis".
 
 roots() ->
-    [ {config, {union, [ hoconsc:mk(standalone)
-                       , hoconsc:mk(cluster)
-                       , hoconsc:mk(sentinel)
-                       ]}}
+    [ {config, hoconsc:mk(hoconsc:union(refs()),
+                          #{})}
     ].
 
 fields(standalone) ->
