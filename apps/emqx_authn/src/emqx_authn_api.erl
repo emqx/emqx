@@ -887,6 +887,15 @@ list_users_api_spec2() ->
     Spec#{
         parameters => [
             #{
+                name => id,
+                in => path,
+                description => <<"Authenticator id">>,
+                schema => #{
+                    type => string
+                },
+                required => true
+            },
+            #{
                 name => listener_id,
                 in => path,
                 description => <<"Listener id">>,
@@ -896,13 +905,22 @@ list_users_api_spec2() ->
                 required => true
             },
             #{
-                name => id,
-                in => path,
-                description => <<"Authenticator id">>,
+                name => page,
+                in => query,
+                description => <<"Page Index">>,
                 schema => #{
-                    type => string
+                    type => integer
                 },
-                required => true
+                required => false
+            },
+            #{
+                name => limit,
+                in => query,
+                description => <<"Page limit">>,
+                schema => #{
+                    type => integer
+                },
+                required => false
             }
         ]
     }.
