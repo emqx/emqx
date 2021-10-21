@@ -57,13 +57,15 @@ groups() ->
                                  ]}
     , {persistent_store_disabled, [ {group, no_kill_connection_process}
                                   ]}
-    , {no_kill_connection_process, [], [{group, tcp}, {group, quic}]}
-    , {   kill_connection_process, [], [{group, tcp}, {group, quic}]}
-    , {snabbkaffe, [], [{group, tcp_snabbkaffe}, {group, quic_snabbkaffe}]}
+    , {no_kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]}
+    , {   kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]}
+    , {snabbkaffe, [], [{group, tcp_snabbkaffe}, {group, quic_snabbkaffe}, {group, ws_snabbkaffe}]}
     , {tcp,  [], OtherTCs}
     , {quic, [], OtherTCs}
+    , {ws, [], OtherTCs}
     , {tcp_snabbkaffe,  [], SnabbkaffeTCs}
     , {quic_snabbkaffe, [], SnabbkaffeTCs}
+    , {ws_snabbkaffe,   [], SnabbkaffeTCs}
     , {gc_tests, [], GCTests}
     ].
 
@@ -93,6 +95,12 @@ init_per_group(persistent_store_disabled, Config) ->
     emqx_common_test_helpers:start_apps([], fun set_special_confs/1),
     ?assertEqual(false, emqx_persistent_session:is_store_enabled()),
     [{persistent_store_enabled, false}|Config];
+init_per_group(Group, Config) when Group == ws; ws_snabbkaffe ->
+    [{ssl,false},
+     {host,"localhost"},
+     {enable_websocket,true},
+     {port, 8083},
+     {conn_fun, ws_connect}| Config];
 init_per_group(Group, Config) when Group == tcp; Group == tcp_snabbkaffe ->
     [ {port, 1883}, {conn_fun, connect}| Config];
 init_per_group(Group, Config) when Group == quic; Group == quic_snabbkaffe ->
@@ -252,10 +260,11 @@ do_publish(Payloads = [_|_], PublishFun, Config) ->
     {Pid, Ref} =
         spawn_monitor(
           fun() ->
-                  ConnFun = ?config(conn_fun, Config),
+                  %% For convenience, always publish using tcp.
+                  %% The publish path is not what we are testing.
                   {ok, Client} = emqtt:start_link([ {proto_ver, v5}
-                                                  | Config]),
-                  {ok, _} = emqtt:ConnFun(Client),
+                                                  , {port, 1883} ]),
+                  {ok, _} = emqtt:connect(Client),
                   lists:foreach(fun(Payload) -> PublishFun(Client, Payload) end, Payloads),
                   ok = emqtt:disconnect(Client)
           end),
