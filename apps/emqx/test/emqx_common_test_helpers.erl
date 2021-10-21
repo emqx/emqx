@@ -146,9 +146,13 @@ load(App) ->
 start_app(App, Handler) ->
     start_app(App,
               app_schema(App),
-              app_path(App, filename:join(["etc", atom_to_list(App) ++ ".conf"])),
+              app_path(App, filename:join(["etc", app_conf_file(App)])),
               Handler).
 
+app_conf_file(emqx_conf) ->  "emqx.conf.all";
+app_conf_file(App) -> atom_to_list(App) ++ ".conf".
+
+%% TODO: get rid of cuttlefish
 app_schema(App) ->
     Mod = list_to_atom(atom_to_list(App) ++ "_schema"),
     true = is_list(Mod:roots()),
@@ -166,6 +170,7 @@ start_app(App, Schema, ConfigFile, SpecAppConfig) ->
     RenderedConfigFile = render_config_file(ConfigFile, Vars),
     read_schema_configs(Schema, RenderedConfigFile),
     force_set_config_file_paths(App, [RenderedConfigFile]),
+    copy_certs(App, RenderedConfigFile),
     SpecAppConfig(App),
     case application:ensure_all_started(App) of
         {ok, _} -> ok;
@@ -288,7 +293,7 @@ change_emqx_opts(SslType, MoreOpts) ->
         lists:map(fun(Listener) ->
                           maybe_inject_listener_ssl_options(SslType, MoreOpts, Listener)
                   end, Listeners),
-    application:set_env(emqx, listeners, NewListeners).
+    emqx_conf:update([listeners], NewListeners, #{}).
 
 maybe_inject_listener_ssl_options(SslType, MoreOpts, {sll, Port, Opts}) ->
     %% this clause is kept to be backward compatible
@@ -409,8 +414,16 @@ catch_call(F) ->
         C : E : S ->
             {crashed, {C, E, S}}
     end.
-
+force_set_config_file_paths(emqx_conf, Paths) ->
+    application:set_env(emqx, config_files, Paths);
 force_set_config_file_paths(emqx, Paths) ->
     application:set_env(emqx, config_files, Paths);
 force_set_config_file_paths(_, _) ->
     ok.
+
+copy_certs(emqx_conf, Dest0) ->
+    Dest = filename:dirname(Dest0),
+    From = string:replace(Dest, "emqx_conf", "emqx"),
+    os:cmd( ["cp -rf ", From, "/certs ", Dest, "/"]),
+    ok;
+copy_certs(_, _) -> ok.

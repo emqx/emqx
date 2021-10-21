@@ -27,6 +27,7 @@
         , add_handler/2
         , remove_handler/1
         , update_config/3
+        , get_raw_cluster_override_conf/0
         , merge_to_old_config/2
         ]).
 
@@ -82,6 +83,9 @@ add_handler(ConfKeyPath, HandlerName) ->
 remove_handler(ConfKeyPath) ->
     gen_server:cast(?MODULE, {remove_handler, ConfKeyPath}).
 
+get_raw_cluster_override_conf() ->
+    gen_server:call(?MODULE, get_raw_cluster_override_conf).
+
 %%============================================================================
 
 -spec init(term()) -> {ok, state()}.
@@ -100,9 +104,9 @@ handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
             #{handlers := Handlers} = State) ->
     Reply = try
         case process_update_request(ConfKeyPath, Handlers, UpdateArgs) of
-            {ok, NewRawConf, OverrideConf} ->
+            {ok, NewRawConf, OverrideConf, Opts} ->
                 check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf,
-                    OverrideConf, UpdateArgs);
+                    OverrideConf, UpdateArgs, Opts);
             {error, Result} ->
                 {error, Result}
         end
@@ -116,7 +120,9 @@ handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
         {error, Reason}
     end,
     {reply, Reply, State};
-
+handle_call(get_raw_cluster_override_conf, _From, State) ->
+    Reply = emqx_config:read_override_conf(#{override_to => cluster}),
+    {reply, Reply, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -163,14 +169,15 @@ process_update_request(ConfKeyPath, _Handlers, {remove, Opts}) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     BinKeyPath = bin_path(ConfKeyPath),
     NewRawConf = emqx_map_lib:deep_remove(BinKeyPath, OldRawConf),
+    _ = remove_from_local_if_cluster_change(BinKeyPath, Opts),
     OverrideConf = remove_from_override_config(BinKeyPath, Opts),
-    {ok, NewRawConf, OverrideConf};
+    {ok, NewRawConf, OverrideConf, Opts};
 process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, Opts}) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     case do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq) of
         {ok, NewRawConf} ->
             OverrideConf = update_override_config(NewRawConf, Opts),
-            {ok, NewRawConf, OverrideConf};
+            {ok, NewRawConf, OverrideConf, Opts};
         Error -> Error
     end.
 
@@ -187,15 +194,16 @@ do_update_config([ConfKey | ConfKeyPath], Handlers, OldRawConf, UpdateReq) ->
     end.
 
 check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf, OverrideConf,
-        UpdateArgs) ->
+        UpdateArgs, Opts) ->
     OldConf = emqx_config:get_root(ConfKeyPath),
     FullRawConf = with_full_raw_confs(NewRawConf),
     {AppEnvs, CheckedConf} = emqx_config:check_config(SchemaModule, FullRawConf),
     NewConf = maps:with(maps:keys(OldConf), CheckedConf),
+    _ = remove_from_local_if_cluster_change(ConfKeyPath, Opts),
     case do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, #{}) of
         {ok, Result0} ->
             case save_configs(ConfKeyPath, AppEnvs, NewConf, NewRawConf, OverrideConf,
-                    UpdateArgs) of
+                    UpdateArgs, Opts) of
                 {ok, Result1} ->
                     {ok, Result1#{post_config_update => Result0}};
                 Error -> Error
@@ -253,8 +261,8 @@ call_post_config_update(Handlers, OldConf, NewConf, AppEnvs, UpdateReq, Result) 
         false -> {ok, Result}
     end.
 
-save_configs(ConfKeyPath, AppEnvs, CheckedConf, NewRawConf, OverrideConf, UpdateArgs) ->
-    case emqx_config:save_configs(AppEnvs, CheckedConf, NewRawConf, OverrideConf) of
+save_configs(ConfKeyPath, AppEnvs, CheckedConf, NewRawConf, OverrideConf, UpdateArgs, Opts) ->
+    case emqx_config:save_configs(AppEnvs, CheckedConf, NewRawConf, OverrideConf, Opts) of
         ok -> {ok, return_change_result(ConfKeyPath, UpdateArgs)};
         {error, Reason} -> {error, {save_configs, Reason}}
     end.
@@ -269,16 +277,26 @@ merge_to_old_config(UpdateReq, RawConf) when is_map(UpdateReq), is_map(RawConf) 
 merge_to_old_config(UpdateReq, _RawConf) ->
     {ok, UpdateReq}.
 
+%% local-override.conf priority is higher than cluster-override.conf
+%% If we want cluster to take effect, we must remove the local.
+remove_from_local_if_cluster_change(BinKeyPath, Opts) ->
+    case maps:get(override, Opts, local) of
+        local -> ok;
+        cluster ->
+            Local = remove_from_override_config(BinKeyPath, Opts#{override_to => local}),
+            emqx_config:save_to_override_conf(Local, Opts)
+    end.
+
 remove_from_override_config(_BinKeyPath, #{persistent := false}) ->
     undefined;
-remove_from_override_config(BinKeyPath, _Opts) ->
-    OldConf = emqx_config:read_override_conf(),
+remove_from_override_config(BinKeyPath, Opts) ->
+    OldConf = emqx_config:read_override_conf(Opts),
     emqx_map_lib:deep_remove(BinKeyPath, OldConf).
 
 update_override_config(_RawConf, #{persistent := false}) ->
     undefined;
-update_override_config(RawConf, _Opts) ->
-    OldConf = emqx_config:read_override_conf(),
+update_override_config(RawConf, Opts) ->
+    OldConf = emqx_config:read_override_conf(Opts),
     maps:merge(OldConf, RawConf).
 
 up_req({remove, _Opts}) -> '$remove';

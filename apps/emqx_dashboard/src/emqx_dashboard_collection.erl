@@ -55,7 +55,7 @@ get_collect() -> gen_server:call(whereis(?MODULE), get_collect).
 init([]) ->
     timer(next_interval(), collect),
     timer(get_today_remaining_seconds(), clear_expire_data),
-    ExpireInterval = emqx:get_config([emqx_dashboard, monitor, interval], ?EXPIRE_INTERVAL),
+    ExpireInterval = emqx_conf:get([emqx_dashboard, monitor, interval], ?EXPIRE_INTERVAL),
     State = #{
         count => count(),
         expire_interval => ExpireInterval,
@@ -75,7 +75,7 @@ next_interval() ->
     (1000 * interval()) - (erlang:system_time(millisecond) rem (1000 * interval())) - 1.
 
 interval() ->
-    emqx:get_config([?APP, sample_interval], ?DEFAULT_INTERVAL).
+    emqx_conf:get([?APP, sample_interval], ?DEFAULT_INTERVAL).
 
 count() ->
     60 div interval().

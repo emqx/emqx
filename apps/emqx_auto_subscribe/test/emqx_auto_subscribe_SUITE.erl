@@ -44,7 +44,6 @@ all() ->
 init_per_suite(Config) ->
     mria:start(),
     application:stop(?APP),
-
     meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_schema, fields, fun("auto_subscribe") ->
                                              meck:passthrough(["auto_subscribe"]) ++
@@ -86,8 +85,7 @@ init_per_suite(Config) ->
                 }
             ]
         }">>),
-    emqx_common_test_helpers:start_apps([emqx_dashboard], fun set_special_configs/1),
-    emqx_common_test_helpers:start_apps([?APP]),
+    emqx_common_test_helpers:start_apps([emqx_dashboard, ?APP], fun set_special_configs/1),
     Config.
 
 set_special_configs(emqx_dashboard) ->

@@ -43,7 +43,7 @@ proper: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) proper -d test/props -c
 
 .PHONY: ct
-ct: $(REBAR)
+ct: $(REBAR) conf-segs
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name 'test@127.0.0.1' -c -v
 
 APPS=$(shell $(CURDIR)/scripts/find-apps.sh)

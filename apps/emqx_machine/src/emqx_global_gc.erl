@@ -18,8 +18,6 @@
 
 -behaviour(gen_server).
 
--include("types.hrl").
-
 -export([start_link/0, stop/0]).
 
 -export([run/0]).
@@ -40,7 +38,7 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec(start_link() -> startlink_ret()).
+-spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
@@ -85,10 +83,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 ensure_timer(State) ->
-    case emqx:get_config([node, global_gc_interval]) of
+    case application:get_env(emqx_machine, global_gc_interval) of
         undefined -> State;
-        Interval  -> TRef = emqx_misc:start_timer(Interval, run),
-                     State#{timer := TRef}
+        {ok, Interval}  ->
+            TRef = emqx_misc:start_timer(Interval, run),
+            State#{timer := TRef}
     end.
 
 run_gc() -> lists:foreach(fun do_gc/1, processes()).
@@ -99,4 +98,3 @@ do_gc(Pid) ->
 -compile({inline, [is_waiting/1]}).
 is_waiting(Pid) ->
     {status, waiting} == process_info(Pid, status).
-

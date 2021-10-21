@@ -14,29 +14,35 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_prometheus_app).
+-module(emqx_conf_sup).
 
--behaviour(application).
+-behaviour(supervisor).
 
--include("emqx_prometheus.hrl").
+-export([start_link/0]).
 
-%% Application callbacks
--export([ start/2
-        , stop/1
-        ]).
+-export([init/1]).
 
-start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_prometheus_sup:start_link(),
-    maybe_enable_prometheus(),
-    {ok, Sup}.
+-define(SERVER, ?MODULE).
 
-stop(_State) ->
-    ok.
+start_link() ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-maybe_enable_prometheus() ->
-    case emqx_conf:get([prometheus, enable], false) of
-        true ->
-            emqx_prometheus_sup:start_child(?APP, emqx_conf:get([prometheus], #{}));
-        false ->
-            ok
-    end.
+init([]) ->
+    SupFlags = #{strategy => one_for_all,
+        intensity => 10,
+        period => 100},
+    ChildSpecs =
+        [ child_spec(emqx_cluster_rpc, [])
+        , child_spec(emqx_cluster_rpc_handler, [])
+        ],
+    {ok, {SupFlags, ChildSpecs}}.
+
+child_spec(Mod, Args) ->
+    #{
+        id => Mod,
+        start => {Mod, start_link, Args},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [Mod]
+    }.

@@ -38,7 +38,6 @@
 
 -export([post_config_update/4, pre_config_update/2]).
 
--define(CONF_KEY_PATH, [authorization, sources]).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
@@ -46,8 +45,8 @@ register_metrics() ->
 
 init() ->
     ok = register_metrics(),
-    emqx_config_handler:add_handler(?CONF_KEY_PATH, ?MODULE),
-    Sources = emqx:get_config(?CONF_KEY_PATH, []),
+    emqx_conf:add_handler(?CONF_KEY_PATH, ?MODULE),
+    Sources = emqx_conf:get(?CONF_KEY_PATH, []),
     ok = check_dup_types(Sources),
     NSources = init_sources(Sources),
     ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NSources]}, -1).

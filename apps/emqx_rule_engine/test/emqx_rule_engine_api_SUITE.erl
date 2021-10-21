@@ -12,17 +12,16 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_machine),
+    application:load(emqx_conf),
     ok = emqx_config:init_load(emqx_rule_engine_schema, ?CONF_DEFAULT),
-    ok = emqx_common_test_helpers:start_apps([emqx_rule_engine]),
+    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_rule_engine]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_rule_engine]),
+    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_rule_engine]),
     ok.
 
 init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     Config.
 
 end_per_testcase(_, _Config) ->

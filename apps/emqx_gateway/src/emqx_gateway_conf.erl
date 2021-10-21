@@ -65,11 +65,11 @@
 
 -spec load() -> ok.
 load() ->
-    emqx_config_handler:add_handler([gateway], ?MODULE).
+    emqx_conf:add_handler([gateway], ?MODULE).
 
 -spec unload() -> ok.
 unload() ->
-    emqx_config_handler:remove_handler([gateway]).
+    emqx_conf:remove_handler([gateway]).
 
 %%--------------------------------------------------------------------
 %% APIs

@@ -19,7 +19,7 @@
 
 -spec(init() -> {Module :: atom(), Config :: term()}).
 init() ->
-    do_init(emqx:get_config([auto_subscribe], #{})).
+    do_init(emqx_conf:get([auto_subscribe], #{})).
 
 do_init(Config = #{topics := _Topics}) ->
     Options = emqx_auto_subscribe_internal:init(Config),

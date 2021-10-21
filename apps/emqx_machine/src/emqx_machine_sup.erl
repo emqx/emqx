@@ -21,8 +21,6 @@
 -behaviour(supervisor).
 
 -export([ start_link/0
-        , stop_cluster_rpc/0
-        , start_cluster_rpc/0
         ]).
 
 -export([init/1]).
@@ -30,33 +28,11 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-stop_cluster_rpc() ->
-    case whereis(?MODULE) of
-        undefined ->
-            ok;
-        _ ->
-            _ = supervisor:terminate_child(?MODULE, emqx_cluster_rpc_handler),
-            _ = supervisor:terminate_child(?MODULE, emqx_cluster_rpc),
-            ok
-    end.
-
-start_cluster_rpc() ->
-    case whereis(?MODULE) of
-        undefined ->
-            ok;
-        _ ->
-            ensure_running(emqx_cluster_rpc),
-            ensure_running(emqx_cluster_rpc_handler),
-            ok
-    end.
-
 init([]) ->
-    GlobalGC = child_worker(emqx_global_gc, [], permanent),
     Terminator = child_worker(emqx_machine_terminator, [], transient),
-    ClusterRpc = child_worker(emqx_cluster_rpc, [], permanent),
-    ClusterHandler = child_worker(emqx_cluster_rpc_handler, [], permanent),
     BootApps = child_worker(emqx_machine_boot, post_boot, [], temporary),
-    Children = [GlobalGC, Terminator, ClusterRpc, ClusterHandler, BootApps],
+    GlobalGC = child_worker(emqx_global_gc, [], permanent),
+    Children = [Terminator, BootApps, GlobalGC],
     SupFlags = #{strategy => one_for_one,
                  intensity => 100,
                  period => 10
@@ -74,13 +50,3 @@ child_worker(M, Func, Args, Restart) ->
       type     => worker,
       modules  => [M]
      }.
-
-ensure_running(Id) ->
-    %% Assuming Id == locally registered name
-    case whereis(Id) of
-        undefined ->
-            _ = supervisor:restart_child(?MODULE, Id),
-            ok;
-        _ ->
-            ok
-    end.

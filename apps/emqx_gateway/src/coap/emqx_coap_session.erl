@@ -216,7 +216,7 @@ mqtt_to_coap(MQTT, Token, SeqId) ->
                   options = #{observe => SeqId}}.
 
 get_notify_type(#message{qos = Qos}) ->
-    case emqx:get_config([gateway, coap, notify_qos], non) of
+    case emqx_conf:get([gateway, coap, notify_qos], non) of
         qos ->
             case Qos of
                 ?QOS_0 ->

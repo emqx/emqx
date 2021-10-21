@@ -22,7 +22,6 @@
         ]).
 
 -include_lib("emqx/include/logger.hrl").
--include("emqx_machine.hrl").
 
 %% @doc EMQ X boot entrypoint.
 start() ->
@@ -33,11 +32,8 @@ start() ->
             os:set_signal(sigterm, handle) %% default is handle
     end,
     ok = set_backtrace_depth(),
-    ok = print_otp_version_warning(),
-    ok = load_config_files(),
     ekka:start(),
-    ok = mria_rlog:wait_for_shards([?EMQX_MACHINE_SHARD], infinity),
-    ok.
+    ok = print_otp_version_warning().
 
 graceful_shutdown() ->
     emqx_machine_terminator:graceful_wait().
@@ -58,12 +54,3 @@ print_otp_version_warning() ->
     ?ULOG("WARNING: Running on Erlang/OTP version ~p. Recommended: 23~n",
           [?OTP_RELEASE]).
 -endif. % OTP_RELEASE > 22
-
-load_config_files() ->
-    %% the app env 'config_files' for 'emqx` app should be set
-    %% in app.time.config by boot script before starting Erlang VM
-    ConfFiles = application:get_env(emqx, config_files, []),
-    %% emqx_machine_schema is a superset of emqx_schema
-    ok = emqx_config:init_load(emqx_machine_schema, ConfFiles),
-    %% to avoid config being loaded again when emqx app starts.
-    ok = emqx_app:set_init_config_load_done().

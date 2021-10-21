@@ -25,7 +25,8 @@
         , get_release/0
         , set_init_config_load_done/0
         , get_init_config_load_done/0
-        , set_override_conf_file/1
+        , set_init_tnx_id/1
+        , get_init_tnx_id/0
         ]).
 
 -include("emqx.hrl").
@@ -67,21 +68,16 @@ set_init_config_load_done() ->
 get_init_config_load_done() ->
     application:get_env(emqx, init_config_load_done, false).
 
-%% @doc This API is mostly for testing.
-%% The override config file is typically located in the 'data' dir when
-%% it is a emqx release, but emqx app should not have to know where the
-%% 'data' dir is located.
-set_override_conf_file(File) ->
-    application:set_env(emqx, override_conf_file, File).
+set_init_tnx_id(TnxId) ->
+    application:set_env(emqx, cluster_rpc_init_tnx_id, TnxId).
+
+get_init_tnx_id() ->
+    application:get_env(emqx, cluster_rpc_init_tnx_id, -1).
 
 maybe_load_config() ->
     case get_init_config_load_done() of
-        true ->
-            ok;
-        false ->
-            %% the app env 'config_files' should be set before emqx get started.
-            ConfFiles = application:get_env(emqx, config_files, []),
-            emqx_config:init_load(emqx_schema, ConfFiles)
+        true -> ok;
+        false -> emqx_config:init_load(emqx_schema)
     end.
 
 maybe_start_listeners() ->

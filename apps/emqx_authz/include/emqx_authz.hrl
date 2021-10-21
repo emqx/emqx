@@ -65,3 +65,5 @@
 
 -define(AUTHZ_METRICS, ?METRICS(authz_metrics)).
 -define(AUTHZ_METRICS(K), ?METRICS(authz_metrics, K)).
+
+-define(CONF_KEY_PATH, [authorization, sources]).

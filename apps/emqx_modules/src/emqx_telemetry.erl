@@ -116,7 +116,7 @@ disable() ->
     gen_server:call(?MODULE, disable).
 
 get_status() ->
-    emqx:get_config([telemetry, enable], true).
+    emqx_conf:get([telemetry, enable], true).
 
 get_uuid() ->
     gen_server:call(?MODULE, get_uuid).
