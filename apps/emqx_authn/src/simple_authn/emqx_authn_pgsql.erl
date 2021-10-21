@@ -108,7 +108,8 @@ authenticate(#{password := Password} = Credential,
         {ok, _Columns, []} -> ignore;
         {ok, Columns, Rows} ->
             NColumns = [Name || #column{name = Name} <- Columns],
-            Selected = maps:from_list(lists:zip(NColumns, Rows)),
+            NRows = [erlang:element(1, Row) || Row <- Rows],
+            Selected = maps:from_list(lists:zip(NColumns, NRows)),
             case emqx_authn_utils:check_password(Password, Selected, State) of
                 ok ->
                     {ok, emqx_authn_utils:is_superuser(Selected)};
