@@ -103,6 +103,9 @@ init_per_suite(Config) ->
 
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
+    meck:expect(emqx_resource, create_dry_run, fun(emqx_connector_mysql, _) -> {ok, meck_data}; 
+                                                  (T, C) -> meck:passthrough([T, C])
+                                               end),
     meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, health_check, fun(_) -> ok end),
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
@@ -206,8 +209,10 @@ t_api(_) ->
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "cert-fake.pem"]))),
     ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "key-fake.pem"]))),
 
-    {ok, 400, _} = request(put, uri(["authorization", "sources", "mysql"]),  ?SOURCE3#{<<"server">> := <<"192.169.1.100:3306">>}),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "mysql"]),  ?SOURCE3#{<<"server">> := <<"192.168.1.100:3306">>}),
+
     {ok, 400, _} = request(put, uri(["authorization", "sources", "postgresql"]),  ?SOURCE4#{<<"server">> := <<"fake">>}),
+    {ok, 400, _} = request(put, uri(["authorization", "sources", "redis"]),  ?SOURCE5#{<<"servers">> := [<<"192.168.1.100:6379">>, <<"192.168.1.100:6380">>]}),
 
     lists:foreach(fun(#{<<"type">> := Type}) ->
                     {ok, 204, _} = request(delete, uri(["authorization", "sources", binary_to_list(Type)]), [])
