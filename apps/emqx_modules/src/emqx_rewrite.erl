@@ -17,6 +17,7 @@
 -module(emqx_rewrite).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -ifdef(TEST).
@@ -49,28 +50,27 @@ enable() ->
 disable() ->
     emqx_hooks:del('client.subscribe',   {?MODULE, rewrite_subscribe}),
     emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
-    emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}).
+    emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}),
+    ok.
 
 list() ->
-    emqx:get_raw_config([<<"rewrite">>], []).
+    emqx_conf:get_raw([<<"rewrite">>], []).
 
 update(Rules0) ->
-    {ok, #{config := Rules}} = emqx:update_config([rewrite], Rules0),
-    case Rules of
-        [] ->
-            disable();
-        _ ->
-            register_hook(Rules)
-    end.
+    {ok, #{config := Rules}} = emqx_conf:update([rewrite], Rules0, #{override_to => cluster}),
+    register_hook(Rules).
 
+register_hook([]) -> disable();
 register_hook(Rules) ->
-    case Rules =:= [] of
-        true -> ok;
-        false ->
-            {PubRules, SubRules} = compile(Rules),
-            emqx_hooks:put('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}),
-            emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
-            emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]})
+    {PubRules, SubRules, ErrRules} = compile(Rules),
+    emqx_hooks:put('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}),
+    emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
+    emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]}),
+    case ErrRules of
+        [] -> ok;
+        _ ->
+            ?SLOG(error, #{rewrite_rule_re_complie_failed => ErrRules}),
+            {error, ErrRules}
     end.
 
 rewrite_subscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
@@ -86,20 +86,21 @@ rewrite_publish(Message = #message{topic = Topic}, Rules) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 compile(Rules) ->
-    lists:foldl(fun(#{source_topic := Topic,
-                      re := Re,
-                      dest_topic := Dest,
-                      action := Action}, {Acc1, Acc2}) ->
-        {ok, MP} = re:compile(Re),
-        case Action of
-            publish ->
-                {[{Topic, MP, Dest} | Acc1], Acc2};
-            subscribe ->
-                {Acc1, [{Topic, MP, Dest} | Acc2]};
-            all ->
-                {[{Topic, MP, Dest} | Acc1], [{Topic, MP, Dest} | Acc2]}
-        end
-    end, {[], []}, Rules).
+    lists:foldl(fun(Rule, {Publish, Subscribe, Error}) ->
+        #{source_topic := Topic, re := Re, dest_topic := Dest, action := Action} = Rule,
+        case re:compile(Re) of
+            {ok, MP} ->
+                case Action of
+                    publish ->
+                        {[{Topic, MP, Dest} | Publish], Subscribe, Error};
+                    subscribe ->
+                        {Publish, [{Topic, MP, Dest} | Subscribe], Error};
+                    all ->
+                        {[{Topic, MP, Dest} | Publish], [{Topic, MP, Dest} | Subscribe], Error}
+                end;
+            {error, ErrSpec} ->
+                {Publish, Subscribe, [{Topic, Re, Dest, ErrSpec}]}
+        end end, {[], [], []}, Rules).
 
 match_and_rewrite(Topic, []) ->
     Topic;
