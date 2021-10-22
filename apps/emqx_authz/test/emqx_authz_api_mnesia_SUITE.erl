@@ -129,7 +129,8 @@ t_api(_) ->
     {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "username"]), [?EXAMPLE_USERNAME]),
     {ok, 200, Request1} = request(get, uri(["authorization", "sources", "built-in-database", "username"]), []),
     {ok, 200, Request2} = request(get, uri(["authorization", "sources", "built-in-database", "username", "user1"]), []),
-    [#{<<"username">> := <<"user1">>, <<"rules">> := Rules1}] = jsx:decode(Request1),
+    #{<<"data">> := [#{<<"username">> := <<"user1">>, <<"rules">> := Rules1}],
+      <<"meta">> := #{<<"count">> := 1,<<"limit">> := 100,<<"page">> := 1}} = jsx:decode(Request1),
     #{<<"username">> := <<"user1">>, <<"rules">> := Rules1} = jsx:decode(Request2),
     ?assertEqual(3, length(Rules1)),
 
@@ -144,7 +145,8 @@ t_api(_) ->
     {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "clientid"]), [?EXAMPLE_CLIENTID]),
     {ok, 200, Request4} = request(get, uri(["authorization", "sources", "built-in-database", "clientid"]), []),
     {ok, 200, Request5} = request(get, uri(["authorization", "sources", "built-in-database", "clientid", "client1"]), []),
-    [#{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3}] = jsx:decode(Request4),
+    #{<<"data">> := [#{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3}],
+      <<"meta">> := #{<<"count">> := 1, <<"limit">> := 100, <<"page">> := 1}} = jsx:decode(Request4),
     #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3} = jsx:decode(Request5),
     ?assertEqual(3, length(Rules3)),
 
@@ -173,7 +175,8 @@ t_api(_) ->
 
     {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "clientid"]), [ #{clientid => N, rules => []} || N <- lists:seq(1, 20) ]),
     {ok, 200, Request10} = request(get, uri(["authorization", "sources", "built-in-database", "clientid?limit=5"]), []),
-    ?assertEqual(5, length(jsx:decode(Request10))),
+    #{<<"data">> := Data2} = jsx:decode(Request10),
+    ?assertEqual(5, length(Data2)),
 
     {ok, 400, Msg1} = request(delete, uri(["authorization", "sources", "built-in-database", "purge-all"]), []),
     ?assertMatch({match, _}, re:run(Msg1, "must\sbe\sdisabled\sbefore")),
