@@ -76,7 +76,7 @@ get_node_and_config(KeyPath) ->
     {node(), emqx:get_config(KeyPath, config_not_found)}.
 
 %% @doc Update all value of key path in cluster-override.conf or local-override.conf.
--spec update(emqx_map_lib:config_key_path(), emqx_config:update_args(),
+-spec update(emqx_map_lib:config_key_path(), emqx_config:update_request(),
     emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update(KeyPath, UpdateReq, Opts0) ->
@@ -85,7 +85,7 @@ update(KeyPath, UpdateReq, Opts0) ->
     Res.
 
 %% @doc Update the specified node's key path in local-override.conf.
--spec update(node(), emqx_map_lib:config_key_path(), emqx_config:update_args(),
+-spec update(node(), emqx_map_lib:config_key_path(), emqx_config:update_request(),
     emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update(Node, KeyPath, UpdateReq, Opts0)when Node =:= node() ->
