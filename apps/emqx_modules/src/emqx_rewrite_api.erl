@@ -16,8 +16,9 @@
 -module(emqx_rewrite_api).
 
 -behaviour(minirest_api).
+-include_lib("typerefl/include/types.hrl").
 
--export([api_spec/0]).
+-export([api_spec/0, paths/0, schema/1]).
 
 -export([topic_rewrite/2]).
 
@@ -32,33 +33,32 @@
                         ]).
 
 api_spec() ->
-    {[rewrite_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-properties() ->
-    properties([{action, string, <<"Action">>, [subscribe, publish, all]},
-                {source_topic, string, <<"Topic">>},
-                {re, string, <<"Regular expressions">>},
-                {dest_topic, string, <<"Destination topic">>}]).
+paths() ->
+    ["/mqtt/topic_rewrite"].
 
-rewrite_api() ->
-    Path = "/mqtt/topic_rewrite",
-    Metadata = #{
+schema("/mqtt/topic_rewrite") ->
+    #{
+        operationId => topic_rewrite,
         get => #{
-            description => <<"List topic rewrite">>,
+            tags => [mqtt],
+            description => <<"List rewrite topic.">>,
             responses => #{
-                <<"200">> => object_array_schema(properties(), <<"List all rewrite rules">>)
+                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
+                    #{desc => <<"List all rewrite rules">>})
             }
         },
         put => #{
-            description => <<"Update topic rewrite">>,
-            'requestBody' => object_array_schema(properties()),
+            description => <<"Update rewrite topic">>,
+            requestBody => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),#{}),
             responses => #{
-                <<"200">> =>object_array_schema(properties(), <<"Update topic rewrite success">>),
-                <<"413">> => error_schema(<<"Rules count exceed max limit">>, [?EXCEED_LIMIT])
+                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
+                    #{desc => <<"Update rewrite topic success.">>}),
+                413 => emqx_dashboard_swagger:error_codes([?EXCEED_LIMIT], <<"Rules count exceed max limit">>)
             }
         }
-    },
-    {Path, Metadata, topic_rewrite}.
+    }.
 
 topic_rewrite(get, _Params) ->
     {200, emqx_rewrite:list()};
