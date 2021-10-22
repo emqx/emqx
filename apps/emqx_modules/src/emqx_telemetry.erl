@@ -237,8 +237,9 @@ os_info() ->
                                                               end,
                                                      [{Var, NValue} | Acc]
                                                  end, [], string:tokens(os:cmd("cat /etc/os-release"), "\n")),
-                            [{os_name, get_value("NAME", OSInfo)},
-                             {os_version, get_value("VERSION", OSInfo, get_value("VERSION_ID", OSInfo))}];
+                            [{os_name, get_value("NAME", OSInfo, "Unknown")},
+                             {os_version, get_value("VERSION", OSInfo,
+                                                    get_value("VERSION_ID", OSInfo, "Unknown"))}];
                         _ ->
                             [{os_name, "Unknown"},
                              {os_version, "Unknown"}]
