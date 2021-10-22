@@ -66,7 +66,7 @@ fields("topic_metrics") ->
 regular_expression(type) -> binary();
 regular_expression(desc) -> "Regular expressions";
 regular_expression(example) -> "^x/y/(.+)$";
-regular_expression(validator) -> [fun is_re/1];
+regular_expression(validator) -> fun is_re/1;
 regular_expression(_) -> undefined.
 
 is_re(Bin) ->

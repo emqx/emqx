@@ -166,8 +166,14 @@ t_update_re_failed(_Config) ->
         dest_topic => "test1/$2",
         action => publish
     }],
-    ?assertEqual({error,[{<<"test/#">>, <<"*^test/*">>, <<"test1/$2">>,
-        {"nothing to repeat",0}}]}, emqx_rewrite:update(Rules)),
+    Error = {error,
+        {emqx_modules_schema,
+            [{validation_error,
+                #{array_index => 1,path => "rewrite.re",
+                    reason =>
+                    {<<"*^test/*">>,{"nothing to repeat",0}},
+                    value => <<"*^test/*">>}}]}},
+    ?assertThrow(Error, emqx_rewrite:update(Rules)),
     ok.
 
 %%--------------------------------------------------------------------
