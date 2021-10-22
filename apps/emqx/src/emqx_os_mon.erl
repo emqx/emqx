@@ -96,12 +96,26 @@ handle_info({timeout, _Timer, check}, State) ->
     _ = case emqx_vm:cpu_util() of %% TODO: should be improved?
         0 -> ok;
         Busy when Busy >= CPUHighWatermark ->
-            emqx_alarm:activate(high_cpu_usage, #{usage => io_lib:format("~p%", [Busy]),
-                                                  high_watermark => CPUHighWatermark,
-                                                  low_watermark => CPULowWatermark}),
+            Usage = io_lib:format("~p%", [Busy]),
+            Message = [Usage, " cpu usage"],
+            emqx_alarm:activate(high_cpu_usage,
+                #{
+                    usage => Usage,
+                    high_watermark => CPUHighWatermark,
+                    low_watermark => CPULowWatermark
+                },
+                Message),
             start_check_timer();
         Busy when Busy =< CPULowWatermark ->
-            emqx_alarm:deactivate(high_cpu_usage),
+            Usage = io_lib:format("~p%", [Busy]),
+            Message = [Usage, " cpu usage"],
+            emqx_alarm:deactivate(high_cpu_usage,
+                #{
+                    usage => Usage,
+                    high_watermark => CPUHighWatermark,
+                    low_watermark => CPULowWatermark
+                },
+                Message),
             start_check_timer();
         _Busy ->
             start_check_timer()

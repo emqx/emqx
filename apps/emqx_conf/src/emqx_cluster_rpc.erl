@@ -320,21 +320,23 @@ apply_mfa(TnxId, {M, F, A}) ->
         end,
     Meta = #{tnx_id => TnxId, module => M, function => F, args => ?TO_BIN(A)},
     IsSuccess = is_success(Res),
-    log_and_alarm(IsSuccess, Res, Meta),
+    log_and_alarm(IsSuccess, Res, Meta, TnxId),
     {IsSuccess, Res}.
 
 is_success(ok) -> true;
 is_success({ok, _}) -> true;
 is_success(_) -> false.
 
-log_and_alarm(true, Res, Meta) ->
+log_and_alarm(true, Res, Meta, TnxId) ->
     OkMeta = Meta#{msg => <<"succeeded to apply MFA">>, result => Res},
     ?SLOG(debug, OkMeta),
-    emqx_alarm:deactivate(cluster_rpc_apply_failed, OkMeta#{result => ?TO_BIN(Res)});
-log_and_alarm(false, Res, Meta) ->
+    Message = ["cluster_rpc_apply_failed:", integer_to_binary(TnxId)],
+    emqx_alarm:deactivate(cluster_rpc_apply_failed, OkMeta#{result => ?TO_BIN(Res)}, Message);
+log_and_alarm(false, Res, Meta, TnxId) ->
     NotOkMeta = Meta#{msg => <<"failed to apply MFA">>, result => Res},
     ?SLOG(error, NotOkMeta),
-    emqx_alarm:activate(cluster_rpc_apply_failed, NotOkMeta#{result => ?TO_BIN(Res)}).
+    Message = ["cluster_rpc_apply_failed:", integer_to_binary(TnxId)],
+    emqx_alarm:activate(cluster_rpc_apply_failed, NotOkMeta#{result => ?TO_BIN(Res)}, Message).
 
 wait_for_all_nodes_commit(TnxId, Delay, Remain) ->
     case lagging_node(TnxId) of

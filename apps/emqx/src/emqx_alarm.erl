@@ -38,8 +38,10 @@
 %% API
 -export([ activate/1
         , activate/2
+        , activate/3
         , deactivate/1
         , deactivate/2
+        , deactivate/3
         , delete_all_deactivated_alarms/0
         , get_alarms/0
         , get_alarms/1
@@ -121,13 +123,19 @@ activate(Name) ->
     activate(Name, #{}).
 
 activate(Name, Details) ->
-    gen_server:call(?MODULE, {activate_alarm, Name, Details}).
+    activate(Name, Details, <<"">>).
+
+activate(Name, Details, Message) ->
+    gen_server:call(?MODULE, {activate_alarm, Name, Details, Message}).
 
 deactivate(Name) ->
-    gen_server:call(?MODULE, {deactivate_alarm, Name, no_details}).
+    deactivate(Name, no_details, <<"">>).
 
 deactivate(Name, Details) ->
-    gen_server:call(?MODULE, {deactivate_alarm, Name, Details}).
+    deactivate(Name, Details, <<"">>).
+
+deactivate(Name, Details, Message) ->
+    gen_server:call(?MODULE, {deactivate_alarm, Name, Details, Message}).
 
 delete_all_deactivated_alarms() ->
     gen_server:call(?MODULE, delete_all_deactivated_alarms).
@@ -189,26 +197,26 @@ init([]) ->
 %% TODO: change from dirty_read/write to transactional.
 %% TODO: handle mnesia write errors.
 -dialyzer([{nowarn_function, [handle_call/3]}]).
-handle_call({activate_alarm, Name, Details}, _From, State) ->
+handle_call({activate_alarm, Name, Details, Message}, _From, State) ->
     case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
         [#activated_alarm{name = Name}] ->
             {reply, {error, already_existed}, State};
         [] ->
             Alarm = #activated_alarm{name = Name,
                                      details = Details,
-                                     message = normalize_message(Name, Details),
+                                     message = normalize_message(Name, iolist_to_binary(Message)),
                                      activate_at = erlang:system_time(microsecond)},
             mria:dirty_write(?ACTIVATED_ALARM, Alarm),
             do_actions(activate, Alarm, emqx:get_config([alarm, actions])),
             {reply, ok, State}
     end;
 
-handle_call({deactivate_alarm, Name, Details}, _From, State) ->
+handle_call({deactivate_alarm, Name, Details, Message}, _From, State) ->
     case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
         [] ->
             {reply, {error, not_found}, State};
         [Alarm] ->
-            deactivate_alarm(Details, Alarm),
+            deactivate_alarm(Alarm, Details, Message),
             {reply, ok, State}
     end;
 
@@ -271,8 +279,8 @@ code_change(_OldVsn, State, _Extra) ->
 get_validity_period() ->
     emqx:get_config([alarm, validity_period]).
 
-deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name,
-        details = Details0, message = Msg0}) ->
+deactivate_alarm(#activated_alarm{activate_at = ActivateAt, name = Name,
+        details = Details0, message = Msg0}, Details, Message) ->
     SizeLimit = emqx:get_config([alarm, size_limit]),
     case SizeLimit > 0 andalso (mnesia:table_info(?DEACTIVATED_ALARM, size) >= SizeLimit) of
         true ->
@@ -286,7 +294,7 @@ deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name
     HistoryAlarm = make_deactivated_alarm(ActivateAt, Name, Details0, Msg0,
                         erlang:system_time(microsecond)),
     DeActAlarm = make_deactivated_alarm(ActivateAt, Name, Details,
-                    normalize_message(Name, Details),
+                    normalize_message(Name, iolist_to_binary(Message)),
                     erlang:system_time(microsecond)),
     mria:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
     mria:dirty_delete(?ACTIVATED_ALARM, Name),
@@ -405,25 +413,6 @@ normalize(#deactivated_alarm{activate_at = ActivateAt,
       deactivate_at => DeactivateAt,
       activated => false}.
 
-normalize_message(Name, no_details) ->
+normalize_message(Name, <<"">>) ->
     list_to_binary(io_lib:format("~p", [Name]));
-normalize_message(runq_overload, #{node := Node, runq_length := Len}) ->
-    list_to_binary(io_lib:format("VM is overloaded on node: ~p: ~p", [Node, Len]));
-normalize_message(high_system_memory_usage, #{high_watermark := HighWatermark}) ->
-    list_to_binary(io_lib:format("System memory usage is higher than ~p%", [HighWatermark]));
-normalize_message(high_process_memory_usage, #{high_watermark := HighWatermark}) ->
-    list_to_binary(io_lib:format("Process memory usage is higher than ~p%", [HighWatermark]));
-normalize_message(high_cpu_usage, #{usage := Usage}) ->
-    list_to_binary(io_lib:format("~ts cpu usage", [Usage]));
-normalize_message(too_many_processes, #{usage := Usage}) ->
-    list_to_binary(io_lib:format("~ts process usage", [Usage]));
-normalize_message(cluster_rpc_apply_failed, #{tnx_id := TnxId}) ->
-    list_to_binary(io_lib:format("cluster_rpc_apply_failed:~w", [TnxId]));
-normalize_message(partition, #{occurred := Node}) ->
-    list_to_binary(io_lib:format("Partition occurs at node ~ts", [Node]));
-normalize_message(<<"resource", _/binary>>, #{type := Type, id := ID}) ->
-    list_to_binary(io_lib:format("Resource ~ts(~ts) is down", [Type, ID]));
-normalize_message(<<"conn_congestion/", Info/binary>>, _) ->
-    list_to_binary(io_lib:format("connection congested: ~ts", [Info]));
-normalize_message(_Name, _UnknownDetails) ->
-    <<"Unknown alarm">>.
+normalize_message(_Name, Message) -> Message.
