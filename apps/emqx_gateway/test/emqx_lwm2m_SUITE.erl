@@ -150,12 +150,13 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([]),
+    emqx_common_test_helpers:start_apps([emqx_conf]),
     Config.
 
 end_per_suite(Config) ->
     timer:sleep(300),
-    emqx_common_test_helpers:stop_apps([]),
+    {ok, _} = emqx_conf:remove([<<"gateway">>,<<"lwm2m">>], #{}),
+    emqx_common_test_helpers:stop_apps([emqx_conf]),
     Config.
 
 init_per_testcase(_AllTestCase, Config) ->

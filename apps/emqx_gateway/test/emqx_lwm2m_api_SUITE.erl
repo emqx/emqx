@@ -70,12 +70,13 @@ all() ->
 
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([emqx_gateway]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_gateway]),
     Config.
 
 end_per_suite(Config) ->
     timer:sleep(300),
-    emqx_mgmt_api_test_util:end_suite([emqx_gateway]),
+    {ok, _} = emqx_conf:remove([<<"gateway">>,<<"lwm2m">>], #{}),
+    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_conf]),
     Config.
 
 init_per_testcase(_AllTestCase, Config) ->
