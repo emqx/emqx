@@ -52,21 +52,6 @@
 
 -record(emqx_sn_registry, {key, value}).
 
-%% Mnesia bootstrap
-%-export([mnesia/1]).
-
-%-boot_mnesia({mnesia, [boot]}).
-
-%%% @doc Create or replicate tables.
-%-spec(mnesia(boot | copy) -> ok).
-%mnesia(boot) ->
-%    %% Optimize storage
-%    StoreProps = [{ets, [{read_concurrency, true}]}],
-%    ok = mria:create_table(?MODULE, [
-%            {attributes, record_info(fields, emqx_sn_registry)},
-%            {ram_copies, [node()]},
-%            {storage_properties, StoreProps}]).
-
 -type registry() :: {Tab :: atom(),
                      RegistryPid :: pid()}.
 
@@ -145,8 +130,6 @@ init([InstaId, PredefTopics]) ->
                 {rlog_shard, ?SN_SHARD}
                ]),
     ok = mria:wait_for_tables([Tab]),
-    % FIXME:
-    %ok = mria_rlog:wait_for_shards([?CM_SHARD], infinity),
     MaxPredefId = lists:foldl(
                     fun(#{id := TopicId, topic := TopicName0}, AccId) ->
                         TopicName = iolist_to_binary(TopicName0),
