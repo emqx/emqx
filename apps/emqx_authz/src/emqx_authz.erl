@@ -202,7 +202,7 @@ create_dry_run(T, Source) ->
     case is_connector_source(T) of
         true ->
             [NSource] = check_sources([Source]),
-            emqx_resource:create_dry_run(T, NSource);
+            emqx_resource:create_dry_run(connector_module(T), NSource);
         false ->
             ok
 end.
