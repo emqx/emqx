@@ -54,10 +54,10 @@ disable() ->
     ok.
 
 list() ->
-    emqx:get_raw_config([<<"rewrite">>], []).
+    emqx_conf:get_raw([<<"rewrite">>], []).
 
 update(Rules0) ->
-    {ok, #{config := Rules}} = emqx:update_config([rewrite], Rules0),
+    {ok, #{config := Rules}} = emqx_conf:update([rewrite], Rules0, #{override_to => cluster}),
     register_hook(Rules).
 
 register_hook([]) -> disable();

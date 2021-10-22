@@ -48,11 +48,11 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([emqx_modules]),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_modules]).
+    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_modules]).
 
 t_subscribe_rewrite(_Config) ->
     {ok, Conn} = init(),
@@ -133,10 +133,10 @@ t_update(_Config) ->
     ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
     Init = emqx_rewrite:list(),
     Rules = [#{
-        source_topic => "test/#",
-        re => "test/*",
-        dest_topic => "test1/$2",
-        action => publish
+        <<"source_topic">> => <<"test/#">>,
+        <<"re">> => <<"test/*">>,
+        <<"dest_topic">> => <<"test1/$2">>,
+        <<"action">> => <<"publish">>
     }],
     ok = emqx_rewrite:update(Rules),
     ?assertEqual(Rules, emqx_rewrite:list()),
@@ -161,19 +161,20 @@ t_update_disable(_Config) ->
 t_update_re_failed(_Config) ->
     ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
     Rules = [#{
-        source_topic => "test/#",
-        re => "*^test/*",
-        dest_topic => "test1/$2",
-        action => publish
+        <<"source_topic">> => <<"test/#">>,
+        <<"re">> => <<"*^test/*">>,
+        <<"dest_topic">> => <<"test1/$2">>,
+        <<"action">> => <<"publish">>
     }],
-    Error = {error,
-        {emqx_modules_schema,
-            [{validation_error,
-                #{array_index => 1,path => "rewrite.re",
-                    reason =>
-                    {<<"*^test/*">>,{"nothing to repeat",0}},
-                    value => <<"*^test/*">>}}]}},
-    ?assertThrow(Error, emqx_rewrite:update(Rules)),
+    Error = {badmatch,
+        {error,
+            {error,
+                {emqx_modules_schema,
+                    [{validation_error,
+                        #{array_index => 1,path => "rewrite.re",
+                            reason => {<<"*^test/*">>,{"nothing to repeat",0}},
+                            value => <<"*^test/*">>}}]}}}},
+    ?assertError(Error, emqx_rewrite:update(Rules)),
     ok.
 
 %%--------------------------------------------------------------------
