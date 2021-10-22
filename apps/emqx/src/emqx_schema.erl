@@ -331,10 +331,7 @@ fields("mqtt") ->
     ];
 
 fields("zone") ->
-    Fields = ["mqtt", "stats", "flapping_detect", "force_shutdown",
-              "conn_congestion", "rate_limit", "quota", "force_gc",
-              "overload_protection"
-             ],
+    Fields = emqx_zone_schema:roots(),
     [{F, ref(emqx_zone_schema, F)} || F <- Fields];
 
 fields("rate_limit") ->
@@ -1358,9 +1355,9 @@ authentication(Desc) ->
     #{ type => hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())]))
      , desc => iolist_to_binary([Desc, "<br>", """
 Authentication can be one single authenticator instance or a chain of authenticators as an array.
-The when authenticating a login (username, client ID, etc.) the authenticators are checked
+When authenticating a login (username, client ID, etc.) the authenticators are checked
 in the configured order.<br>
 EMQ X comes with a set of pre-built autenticators, for more details, see
-<code>authenticator_config</code>.
+<a href=\"#root-authenticator_config\">autenticator_config<a>
 """])
      }.
