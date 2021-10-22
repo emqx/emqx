@@ -81,8 +81,7 @@ get_node_and_config(KeyPath) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update(KeyPath, UpdateReq, Opts0) ->
     Args = [KeyPath, UpdateReq, Opts0],
-    {ok, _TnxId, Res} = emqx_cluster_rpc:multicall(emqx, update_config, Args),
-    Res.
+    multicall(emqx, update_config, Args).
 
 %% @doc Update the specified node's key path in local-override.conf.
 -spec update(node(), emqx_map_lib:config_key_path(), emqx_config:update_request(),
@@ -98,8 +97,7 @@ update(Node, KeyPath, UpdateReq, Opts0) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 remove(KeyPath, Opts0) ->
     Args = [KeyPath, Opts0],
-    {ok, _TnxId, Res} = emqx_cluster_rpc:multicall(emqx, remove_config, Args),
-    Res.
+    multicall(emqx, remove_config, Args).
 
 %% @doc remove the specified node's key path in local-override.conf.
 -spec remove(node(), emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
@@ -114,8 +112,7 @@ remove(Node, KeyPath, Opts) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 reset(KeyPath, Opts0) ->
     Args = [KeyPath, Opts0],
-    {ok, _TnxId, Res} = emqx_cluster_rpc:multicall(emqx, reset_config, Args),
-    Res.
+    multicall(emqx, reset_config, Args).
 
 %% @doc reset the specified node's key path in local-override.conf.
 -spec reset(node(), emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
@@ -124,3 +121,15 @@ reset(Node, KeyPath, Opts) when Node =:= node() ->
     emqx:reset_config(KeyPath, Opts#{override_to => local});
 reset(Node, KeyPath, Opts) ->
     rpc:call(Node, ?MODULE, reset, [KeyPath, Opts]).
+
+%%--------------------------------------------------------------------
+%% Internal funcs
+%%--------------------------------------------------------------------
+
+multicall(M, F, Args) ->
+    case emqx_cluster_rpc:multicall(M, F, Args) of
+        {ok, _TnxId, Res} ->
+            Res;
+        {error, Reason} ->
+            {error, Reason}
+    end.
