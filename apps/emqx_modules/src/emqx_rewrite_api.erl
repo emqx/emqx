@@ -18,7 +18,7 @@
 -behaviour(minirest_api).
 -include_lib("typerefl/include/types.hrl").
 
--export([api_spec/0, paths/0, schema/1, fields/1]).
+-export([api_spec/0, paths/0, schema/1]).
 
 -export([topic_rewrite/2]).
 
@@ -33,7 +33,7 @@
                         ]).
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     ["/mqtt/topic_rewrite"].
@@ -45,28 +45,20 @@ schema("/mqtt/topic_rewrite") ->
             tags => [mqtt],
             description => <<"List rewrite topic.">>,
             responses => #{
-                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, topic)),
+                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
                     #{desc => <<"List all rewrite rules">>})
             }
         },
         put => #{
             description => <<"Update rewrite topic">>,
-            requestBody => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, topic)), #{}),
+            requestBody => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),#{}),
             responses => #{
-                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, topic)),
+                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
                     #{desc => <<"Update rewrite topic success.">>}),
                 413 => emqx_dashboard_swagger:error_codes([?EXCEED_LIMIT], <<"Rules count exceed max limit">>)
             }
         }
     }.
-
-fields(topic) ->
-    [
-        {action, hoconsc:mk(hoconsc:enum([subscribe, publish, all]), #{desc => "Action", example => publish})},
-        {source_topic, hoconsc:mk(binary(), #{desc => "Origin Topic", example => "x/#"})},
-        {dest_topic, hoconsc:mk(binary(), #{desc => "Destination Topic", example => "z/y/$1"})},
-        {re, hoconsc:mk(binary(), #{desc => "Regular expressions", example => "^x/y/(.+)$"})}
-    ].
 
 topic_rewrite(get, _Params) ->
     {200, emqx_rewrite:list()};

@@ -36,7 +36,7 @@ maybe_enable_modules() ->
     emqx:get_config([telemetry, enable], true) andalso emqx_telemetry:enable(),
     emqx:get_config([observer_cli, enable], true) andalso emqx_observer_cli:enable(),
     emqx_event_message:enable(),
-    emqx_rewrite:enable(),
+    ok = emqx_rewrite:enable(),
     emqx_topic_metrics:enable().
 
 maybe_disable_modules() ->
