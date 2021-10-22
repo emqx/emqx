@@ -43,11 +43,12 @@ fields("delayed") ->
     ];
 
 fields("rewrite") ->
-    [ {action, hoconsc:enum([publish, subscribe, all])}
-    , {source_topic, sc(binary(), #{})}
-    , {re, sc(binary(), #{})}
-    , {dest_topic, sc(binary(), #{})}
+    [ {action, sc(hoconsc:enum([subscribe, publish, all]), #{desc => "Action", example => publish})}
+    , {source_topic, sc(binary(), #{desc => "Origin Topic", example => "x/#"})}
+    , {dest_topic, sc(binary(), #{desc => "Destination Topic", example => "z/y/$1"})}
+    , {re, fun regular_expression/1 }
     ];
+
 
 fields("event_message") ->
     [ {"$event/client_connected", sc(boolean(), #{default => false})}
@@ -61,6 +62,18 @@ fields("event_message") ->
 
 fields("topic_metrics") ->
     [{topic, sc(binary(), #{})}].
+
+regular_expression(type) -> binary();
+regular_expression(desc) -> "Regular expressions";
+regular_expression(example) -> "^x/y/(.+)$";
+regular_expression(validator) -> fun is_re/1;
+regular_expression(_) -> undefined.
+
+is_re(Bin) ->
+    case re:compile(Bin) of
+        {ok, _} -> ok;
+        {error, Reason} -> {error, {Bin, Reason}}
+    end.
 
 array(Name) -> {Name, hoconsc:array(hoconsc:ref(?MODULE, Name))}.
 

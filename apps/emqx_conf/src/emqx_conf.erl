@@ -18,7 +18,7 @@
 -compile({no_auto_import, [get/1, get/2]}).
 
 -export([add_handler/2, remove_handler/1]).
--export([get/1, get/2, get_all/1]).
+-export([get/1, get/2, get_raw/2, get_all/1]).
 -export([get_by_node/2, get_by_node/3]).
 -export([update/3, update/4]).
 -export([remove/2, remove/3]).
@@ -46,6 +46,10 @@ get(KeyPath) ->
 get(KeyPath, Default) ->
     emqx:get_config(KeyPath, Default).
 
+-spec get_raw(emqx_map_lib:config_key_path(), term()) -> term().
+get_raw(KeyPath, Default) ->
+    emqx_config:get_raw(KeyPath, Default).
+
 %% @doc Returns all values in the cluster.
 -spec get_all(emqx_map_lib:config_key_path()) -> #{node() => term()}.
 get_all(KeyPath) ->
@@ -72,7 +76,7 @@ get_node_and_config(KeyPath) ->
     {node(), emqx:get_config(KeyPath, config_not_found)}.
 
 %% @doc Update all value of key path in cluster-override.conf or local-override.conf.
--spec update(emqx_map_lib:config_key_path(), emqx_config:update_args(),
+-spec update(emqx_map_lib:config_key_path(), emqx_config:update_request(),
     emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update(KeyPath, UpdateReq, Opts0) ->
@@ -81,7 +85,7 @@ update(KeyPath, UpdateReq, Opts0) ->
     Res.
 
 %% @doc Update the specified node's key path in local-override.conf.
--spec update(node(), emqx_map_lib:config_key_path(), emqx_config:update_args(),
+-spec update(node(), emqx_map_lib:config_key_path(), emqx_config:update_request(),
     emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update(Node, KeyPath, UpdateReq, Opts0)when Node =:= node() ->
