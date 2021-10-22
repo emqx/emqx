@@ -36,6 +36,7 @@ t_fill_default_values(_) ->
         <<"perf">> => #{},
         <<"route_batch_clean">> => false}
     },
+    WithDefaults = emqx_config:fill_defaults(Conf),
     ?assertMatch(#{<<"broker">> :=
       #{<<"enable_session_registry">> := true,
         <<"perf">> :=
@@ -45,6 +46,8 @@ t_fill_default_values(_) ->
         <<"session_locking_strategy">> := quorum,
         <<"shared_dispatch_ack_enabled">> := false,
         <<"shared_subscription_strategy">> := round_robin,
-        <<"sys_heartbeat_interval">> := "30s",
-        <<"sys_msg_interval">> := "1m"}},
-    emqx_config:fill_defaults(Conf)).
+        <<"sys_heartbeat_interval">> := <<"30s">>,
+        <<"sys_msg_interval">> := <<"1m">>}}, WithDefaults),
+    %% ensure JSON compatible
+    _ = emqx_json:encode(WithDefaults),
+    ok.
