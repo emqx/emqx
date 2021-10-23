@@ -65,6 +65,7 @@
         , remove_config/1
         , remove_config/2
         , reset_config/2
+        , data_dir/0
         ]).
 
 -define(APP, ?MODULE).
@@ -246,3 +247,6 @@ reset_config([RootName | _] = KeyPath, Opts) ->
         {error, _} = Error ->
             Error
     end.
+
+data_dir() ->
+    application:get_env(emqx, data_dir, "data").

@@ -38,7 +38,7 @@ use_default_ciphers_test() ->
 
 ciphers_format_test_() ->
     String = ?TLS_13_CIPHER ++ "," ++ ?TLS_12_CIPHER,
-    Binary = iolist_to_binary(String),
+    Binary = bin(String),
     List = [?TLS_13_CIPHER, ?TLS_12_CIPHER],
     [ {"string", fun() -> test_cipher_format(String) end}
     , {"binary", fun() -> test_cipher_format(Binary) end}
@@ -66,3 +66,93 @@ cipher_suites_no_duplication_test() ->
     AllCiphers = emqx_tls_lib:default_ciphers(),
     ?assertEqual(length(AllCiphers), length(lists:usort(AllCiphers))).
 
+ssl_files_failure_test_() ->
+    [{"undefined_is_undefined",
+      fun() ->
+              ?assertEqual({ok, undefined},
+                           emqx_tls_lib:ensure_ssl_files("dir", undefined)) end},
+     {"no_op_if_disabled",
+      fun() ->
+              Disabled = #{<<"enable">> => false, foo => bar},
+              ?assertEqual({ok, Disabled},
+                           emqx_tls_lib:ensure_ssl_files("dir", Disabled)) end},
+     {"enoent_key_file",
+      fun() ->
+              NonExistingFile = filename:join("/tmp", integer_to_list(erlang:system_time(microsecond))),
+              ?assertMatch({error, #{reason := enoent}},
+                           emqx_tls_lib:ensure_ssl_files("/tmp", #{<<"keyfile">> => NonExistingFile}))
+      end},
+     {"bad_pem_string",
+      fun() ->
+              %% not valid unicode
+              ?assertMatch({error, #{reason := invalid_file_path_or_pem_string, which_option := <<"keyfile">>}},
+                           emqx_tls_lib:ensure_ssl_files("/tmp", #{<<"keyfile">> => <<255, 255>>})),
+              %% not printable
+              ?assertMatch({error, #{reason := invalid_file_path_or_pem_string}},
+                           emqx_tls_lib:ensure_ssl_files("/tmp", #{<<"keyfile">> => <<33, 22>>})),
+              TmpFile = filename:join("/tmp", integer_to_list(erlang:system_time(microsecond))),
+              try
+                  ok = file:write_file(TmpFile, <<"not a valid pem">>),
+                  ?assertMatch({error, #{file_path := _, reason := not_pem}},
+                               emqx_tls_lib:ensure_ssl_files("/tmp", #{<<"cacertfile">> => bin(TmpFile)}))
+              after
+                  file:delete(TmpFile)
+              end
+      end}
+    ].
+
+ssl_files_save_delete_test() ->
+    SSL0 = #{<<"keyfile">> => bin(test_key())},
+    Dir = filename:join(["/tmp", "ssl-test-dir"]),
+    {ok, SSL} = emqx_tls_lib:ensure_ssl_files(Dir, SSL0),
+    File = maps:get(<<"keyfile">>, SSL),
+    ?assertMatch(<<"/tmp/ssl-test-dir/key-", _:8/binary>>, File),
+    ?assertEqual({ok, bin(test_key())}, file:read_file(File)),
+    %% no old file to delete
+    ok = emqx_tls_lib:delete_ssl_files(Dir, SSL, undefined),
+    ?assertEqual({ok, bin(test_key())}, file:read_file(File)),
+    %% old and new identical, no delete
+    ok = emqx_tls_lib:delete_ssl_files(Dir, SSL, SSL),
+    ?assertEqual({ok, bin(test_key())}, file:read_file(File)),
+    %% new is gone, delete old
+    ok = emqx_tls_lib:delete_ssl_files(Dir, undefined, SSL),
+    ?assertEqual({error, enoent}, file:read_file(File)),
+    %% test idempotence
+    ok = emqx_tls_lib:delete_ssl_files(Dir, undefined, SSL),
+    ok.
+
+ssl_file_replace_test() ->
+    SSL0 = #{<<"keyfile">> => bin(test_key())},
+    SSL1 = #{<<"keyfile">> => bin(test_key2())},
+    Dir = filename:join(["/tmp", "ssl-test-dir2"]),
+    {ok, SSL2} = emqx_tls_lib:ensure_ssl_files(Dir, SSL0),
+    {ok, SSL3} = emqx_tls_lib:ensure_ssl_files(Dir, SSL1),
+    File1 = maps:get(<<"keyfile">>, SSL2),
+    File2 = maps:get(<<"keyfile">>, SSL3),
+    ?assert(filelib:is_regular(File1)),
+    ?assert(filelib:is_regular(File2)),
+    %% delete old file (File1, in SSL2)
+    ok = emqx_tls_lib:delete_ssl_files(Dir, SSL3, SSL2),
+    ?assertNot(filelib:is_regular(File1)),
+    ?assert(filelib:is_regular(File2)),
+    ok.
+
+bin(X) -> iolist_to_binary(X).
+
+test_key() ->
+"""
+-----BEGIN EC PRIVATE KEY-----
+MHQCAQEEICKTbbathzvD8zvgjL7qRHhW4alS0+j0Loo7WeYX9AxaoAcGBSuBBAAK
+oUQDQgAEJBdF7MIdam5T4YF3JkEyaPKdG64TVWCHwr/plC0QzNVJ67efXwxlVGTo
+ju0VBj6tOX1y6C0U+85VOM0UU5xqvw==
+-----END EC PRIVATE KEY-----
+""".
+
+test_key2() ->
+"""
+-----BEGIN EC PRIVATE KEY-----
+MHQCAQEEID9UlIyAlLFw0irkRHX29N+ZGivGtDjlVJvATY3B0TTmoAcGBSuBBAAK
+oUQDQgAEUwiarudRNAT25X11js8gE9G+q0GdsT53QJQjRtBO+rTwuCW1vhLzN0Ve
+AbToUD4JmV9m/XwcSVH06ZaWqNuC5w==
+-----END EC PRIVATE KEY-----
+""".
