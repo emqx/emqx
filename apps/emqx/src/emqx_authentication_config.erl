@@ -27,9 +27,8 @@
         , authn_type/1
         ]).
 
-%% TODO: certs handling should be moved out of emqx app
 -ifdef(TEST).
--export([convert_certs/2, convert_certs/3, diff_cert/2, clear_certs/2]).
+-export([convert_certs/2, convert_certs/3, clear_certs/2]).
 -endif.
 
 -export_type([config/0]).
@@ -64,7 +63,7 @@ pre_config_update(UpdateReq, OldConfig) ->
 
 do_pre_config_update({create_authenticator, ChainName, Config}, OldConfig) ->
     try
-        CertsDir = certs_dir([to_bin(ChainName), authenticator_id(Config)]),
+        CertsDir = certs_dir(ChainName, Config),
         NConfig = convert_certs(CertsDir, Config),
         {ok, OldConfig ++ [NConfig]}
     catch
@@ -80,7 +79,7 @@ do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldCon
     {ok, NewConfig};
 do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
     try
-        CertsDir = certs_dir([to_bin(ChainName), AuthenticatorID]),
+        CertsDir = certs_dir(ChainName, AuthenticatorID),
         NewConfig = lists:map(
                         fun(OldConfig0) ->
                             case AuthenticatorID =:= authenticator_id(OldConfig0) of
@@ -127,9 +126,8 @@ do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewCo
     case emqx_authentication:delete_authenticator(ChainName, AuthenticatorID) of
         ok ->
             [Config] = [Config0 || Config0 <- to_list(OldConfig), AuthenticatorID == authenticator_id(Config0)],
-            CertsDir = certs_dir([to_bin(ChainName), AuthenticatorID]),
-            clear_certs(CertsDir, Config),
-            ok;
+            CertsDir = certs_dir(ChainName, AuthenticatorID),
+            ok = clear_certs(CertsDir, Config);
         {error, Reason} ->
             {error, Reason}
     end;
@@ -193,105 +191,33 @@ to_list(M) when M =:= #{} -> [];
 to_list(M) when is_map(M) -> [M];
 to_list(L) when is_list(L) -> L.
 
-certs_dir(Dirs) when is_list(Dirs) ->
-    to_bin(filename:join([emqx:get_config([node, data_dir]), "certs", "authn"] ++ Dirs)).
-
 convert_certs(CertsDir, Config) ->
-    case maps:get(<<"ssl">>, Config, undefined) of
-        undefined ->
-            Config;
-        SSLOpts ->
-            NSSLOPts = lists:foldl(fun(K, Acc) ->
-                               case maps:get(K, Acc, undefined) of
-                                   undefined -> Acc;
-                                   PemBin ->
-                                       CertFile = generate_filename(CertsDir, K),
-                                       ok = save_cert_to_file(CertFile, PemBin),
-                                       Acc#{K => CertFile}
-                               end
-                           end, SSLOpts, [<<"certfile">>, <<"keyfile">>, <<"cacertfile">>]),
-            Config#{<<"ssl">> => NSSLOPts}
+    case emqx_tls_lib:ensure_ssl_files(CertsDir, maps:get(<<"ssl">>, Config, undefined)) of
+        {ok, SSL} ->
+            new_ssl_config(Config, SSL);
+        {error, Reason} ->
+            ?SLOG(error, Reason#{msg => bad_ssl_config}),
+            throw(bad_ssl_config)
     end.
 
 convert_certs(CertsDir, NewConfig, OldConfig) ->
-    case maps:get(<<"ssl">>, NewConfig, undefined) of
-        undefined ->
-            NewConfig;
-        NewSSLOpts ->
-            OldSSLOpts = maps:get(<<"ssl">>, OldConfig, #{}),
-            Diff = diff_certs(NewSSLOpts, OldSSLOpts),
-            NSSLOpts = lists:foldl(fun({identical, K}, Acc) ->
-                                           Acc#{K => maps:get(K, OldSSLOpts)};
-                                      ({_, K}, Acc) ->
-                                           CertFile = generate_filename(CertsDir, K),
-                                           ok = save_cert_to_file(CertFile, maps:get(K, NewSSLOpts)),
-                                           Acc#{K => CertFile}
-                                   end, NewSSLOpts, Diff),
-            NewConfig#{<<"ssl">> => NSSLOpts}
+    OldSSL = maps:get(<<"ssl">>, OldConfig, undefined),
+    NewSSL = maps:get(<<"ssl">>, NewConfig, undefined),
+    case emqx_tls_lib:ensure_ssl_files(CertsDir, NewSSL) of
+        {ok, NewSSL1} ->
+            ok = emqx_tls_lib:delete_ssl_files(CertsDir, NewSSL1, OldSSL),
+            new_ssl_config(NewConfig, NewSSL1);
+        {error, Reason} ->
+            ?SLOG(error, Reason#{msg => bad_ssl_config}),
+            throw(bad_ssl_config)
     end.
+
+new_ssl_config(Config, undefined) -> Config;
+new_ssl_config(Config, SSL) -> Config#{<<"ssl">> => SSL}.
 
 clear_certs(CertsDir, Config) ->
-    case maps:get(<<"ssl">>, Config, undefined) of
-        undefined ->
-            ok;
-        SSLOpts ->
-            lists:foreach(
-                fun({_, Filename}) ->
-                    _ = file:delete(filename:join([CertsDir, Filename]))
-                end,
-                maps:to_list(maps:with([<<"certfile">>, <<"keyfile">>, <<"cacertfile">>], SSLOpts)))
-    end.
-
-save_cert_to_file(Filename, PemBin) ->
-    case public_key:pem_decode(PemBin) =/= [] of
-        true ->
-            case filelib:ensure_dir(Filename) of
-                ok ->
-                    case file:write_file(Filename, PemBin) of
-                        ok -> ok;
-                        {error, Reason} -> error({save_cert_to_file, {write_file, Reason}})
-                    end;
-                {error, Reason} ->
-                    error({save_cert_to_file, {ensure_dir, Reason}})
-            end;
-        false ->
-            error({save_cert_to_file, invalid_certificate})
-    end.
-
-generate_filename(CertsDir, Key) ->
-    Prefix = case Key of
-                 <<"keyfile">> -> "key-";
-                 <<"certfile">> -> "cert-";
-                 <<"cacertfile">> -> "cacert-"
-             end,
-    to_bin(filename:join([CertsDir, Prefix ++ emqx_misc:gen_id() ++ ".pem"])).
-
-diff_certs(NewSSLOpts, OldSSLOpts) ->
-    Keys = [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>],
-    CertPems = maps:with(Keys, NewSSLOpts),
-    CertFiles = maps:with(Keys, OldSSLOpts),
-    Diff = lists:foldl(fun({K, CertFile}, Acc) ->
-                    case maps:find(K, CertPems) of
-                        error -> Acc;
-                        {ok, PemBin1} ->
-                            {ok, PemBin2} = file:read_file(CertFile),
-                            case diff_cert(PemBin1, PemBin2) of
-                                true ->
-                                    [{changed, K} | Acc];
-                                false ->
-                                    [{identical, K} | Acc]
-                            end
-                    end
-                end,
-                [], maps:to_list(CertFiles)),
-    Added = [{added, K} || K <- maps:keys(maps:without(maps:keys(CertFiles), CertPems))],
-    Diff ++ Added.
-
-diff_cert(Pem1, Pem2) ->
-    cal_md5_for_cert(Pem1) =/= cal_md5_for_cert(Pem2).
-
-cal_md5_for_cert(Pem) ->
-    crypto:hash(md5, term_to_binary(public_key:pem_decode(Pem))).
+    OldSSL = maps:get(<<"ssl">>, Config, undefined),
+    ok = emqx_tls_lib:delete_ssl_files(CertsDir, undefined, OldSSL).
 
 split_by_id(ID, AuthenticatorsConfig) ->
     case lists:foldl(
@@ -342,3 +268,9 @@ authn_type(#{<<"mechanism">> := M}) -> atom(M).
 
 atom(Bin) ->
     binary_to_existing_atom(Bin, utf8).
+
+%% The relative dir for ssl files.
+certs_dir(ChainName, ID) when is_binary(ID) ->
+    filename:join([to_bin(ChainName), ID]);
+certs_dir(ChainName, Config) when is_map(Config) ->
+    certs_dir(ChainName, authenticator_id(Config)).

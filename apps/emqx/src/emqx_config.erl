@@ -277,7 +277,7 @@ init_load(SchemaMod, RawConf0) when is_map(RawConf0) ->
             maps:with(get_root_names(), RawConf0)).
 
 include_dirs() ->
-    [filename:join(application:get_env(emqx, data_dir, "data/"), "configs") ++ "/"].
+    [filename:join(emqx:data_dir(), "configs")].
 
 -spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().

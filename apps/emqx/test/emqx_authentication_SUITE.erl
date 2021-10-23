@@ -97,17 +97,10 @@ end_per_suite(_) ->
     ok.
 
 init_per_testcase(Case, Config) ->
-    meck:new(emqx, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx, get_config, fun([node, data_dir]) ->
-                                          {data_dir, Data} = lists:keyfind(data_dir, 1, Config),
-                                          Data;
-                                     (C) -> meck:passthrough([C])
-                                  end),
     ?MODULE:Case({'init', Config}).
 
 end_per_testcase(Case, Config) ->
     _ = ?MODULE:Case({'end', Config}),
-    meck:unload(emqx),
     ok.
 
 t_chain({_, Config}) -> Config;
@@ -119,7 +112,7 @@ t_chain(Config) when is_list(Config) ->
     ?assertEqual({error, {already_exists, {chain, ChainName}}}, ?AUTHN:create_chain(ChainName)),
     ?assertMatch({ok, #{name := ChainName, authenticators := []}}, ?AUTHN:lookup_chain(ChainName)),
     ?assertMatch({ok, [#{name := ChainName}]}, ?AUTHN:list_chains()),
-    ?assertEqual(ok, ?AUTHN:delete_chain(ChainName)),
+    ?assertEqual(ok, ?AUTHN:delete_chain(ChainName)),
     ?assertMatch({error, {not_found, {chain, ChainName}}}, ?AUTHN:lookup_chain(ChainName)),
     ok.
 
@@ -273,13 +266,11 @@ t_convert_certs(Config) when is_list(Config) ->
 
     CertsDir = certs_dir(Config, [Global, <<"password-based:built-in-database">>]),
     #{<<"ssl">> := NCerts} = convert_certs(CertsDir, #{<<"ssl">> => Certs}),
-    ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts), maps:get(<<"keyfile">>, Certs))),
 
     Certs2 = certs([ {<<"keyfile">>, "key.pem"}
                    , {<<"certfile">>, "cert.pem"}
                    ]),
     #{<<"ssl">> := NCerts2} = convert_certs(CertsDir, #{<<"ssl">> => Certs2}, #{<<"ssl">> => NCerts}),
-    ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts2), maps:get(<<"keyfile">>, Certs2))),
     ?assertEqual(maps:get(<<"keyfile">>, NCerts), maps:get(<<"keyfile">>, NCerts2)),
     ?assertEqual(maps:get(<<"certfile">>, NCerts), maps:get(<<"certfile">>, NCerts2)),
 
@@ -288,7 +279,6 @@ t_convert_certs(Config) when is_list(Config) ->
                    , {<<"cacertfile">>, "cacert.pem"}
                    ]),
     #{<<"ssl">> := NCerts3} = convert_certs(CertsDir, #{<<"ssl">> => Certs3}, #{<<"ssl">> => NCerts2}),
-    ?assertEqual(false, diff_cert(maps:get(<<"keyfile">>, NCerts3), maps:get(<<"keyfile">>, Certs3))),
     ?assertNotEqual(maps:get(<<"keyfile">>, NCerts2), maps:get(<<"keyfile">>, NCerts3)),
     ?assertNotEqual(maps:get(<<"certfile">>, NCerts2), maps:get(<<"certfile">>, NCerts3)),
 
@@ -305,10 +295,6 @@ certs(Certs) ->
                     {ok, Bin} = file:read_file(filename:join([CertsPath, Filename])),
                     Acc#{Key => Bin}
                 end, #{}, Certs).
-
-diff_cert(CertFile, CertPem2) ->
-    {ok, CertPem1} = file:read_file(CertFile),
-    emqx_authentication_config:diff_cert(CertPem1, CertPem2).
 
 register_provider(Type, Module) ->
     ok = ?AUTHN:register_providers([{Type, Module}]).
