@@ -64,13 +64,14 @@ mnesia(boot) ->
 
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
-    Admin = #mqtt_admin{username = Username, password = hash(Password), tags = Tags},
+    Admin = #mqtt_admin{username = Username, pwdhash = hash(Password), tags = Tags},
     return(mria:transaction(?DASHBOARD_SHARD, fun add_user_/1, [Admin])).
 
+%% black-magic: force overwrite a user
 force_add_user(Username, Password, Tags) ->
     AddFun = fun() ->
                  mnesia:write(#mqtt_admin{username = Username,
-                                          password = Password,
+                                          pwdhash = hash(Password),
                                           tags = Tags})
              end,
     case mria:transaction(?DASHBOARD_SHARD, AddFun) of
@@ -119,7 +120,7 @@ change_password(Username, Password) when is_binary(Username), is_binary(Password
 
 change_password_hash(Username, PasswordHash) ->
     update_pwd(Username, fun(User) ->
-                        User#mqtt_admin{password = PasswordHash}
+                        User#mqtt_admin{pwdhash = PasswordHash}
                 end).
 
 update_pwd(Username, Fun) ->
@@ -150,18 +151,18 @@ return({aborted, Reason}) ->
     {error, Reason}.
 
 check(undefined, _) ->
-    {error, <<"Username undefined">>};
+    {error, <<"username_not_provided">>};
 check(_, undefined) ->
-    {error, <<"Password undefined">>};
+    {error, <<"password_not_provided">>};
 check(Username, Password) ->
     case lookup_user(Username) of
-        [#mqtt_admin{password = <<Salt:4/binary, Hash/binary>>}] ->
+        [#mqtt_admin{pwdhash = <<Salt:4/binary, Hash/binary>>}] ->
             case Hash =:= md5_hash(Salt, Password) of
                 true  -> ok;
-                false -> {error, <<"PASSWORD_ERROR">>}
+                false -> {error, <<"BAD_USERNAME_OR_PASSWORD">>}
             end;
         [] ->
-            {error, <<"USERNAME_ERROR">>}
+            {error, <<"BAD_USERNAME_OR_PASSWORD">>}
     end.
 
 %%--------------------------------------------------------------------

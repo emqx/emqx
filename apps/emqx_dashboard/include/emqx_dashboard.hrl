@@ -15,10 +15,10 @@
 %%--------------------------------------------------------------------
 
 -record(mqtt_admin, {
-    username             :: binary(),
-    password             :: binary(),
-    tags                 :: list() | binary(),
-    role = undefined     :: atom()
+    username         :: binary(),
+    pwdhash          :: binary(),
+    tags             :: list() | binary(),
+    role = undefined :: atom()
     }).
 
 -record(mqtt_admin_jwt, {
