@@ -1989,69 +1989,46 @@ convert_certs(Config) ->
 
 serialize_error({not_found, {authenticator, ID}}) ->
     {404, #{code => <<"NOT_FOUND">>,
-            message => list_to_binary(
-                io_lib:format("Authenticator '~ts' does not exist", [ID])
-            )}};
-
+            message => binfmt("Authenticator '~ts' does not exist", [ID]) }};
 serialize_error({not_found, {listener, ID}}) ->
     {404, #{code => <<"NOT_FOUND">>,
-            message => list_to_binary(
-                io_lib:format("Listener '~ts' does not exist", [ID])
-            )}};
-
+            message => binfmt("Listener '~ts' does not exist", [ID])}};
 serialize_error({not_found, {chain, ?GLOBAL}}) ->
-    {500, #{code => <<"INTERNAL_SERVER_ERROR">>,
-            message => <<"Authentication status is abnormal">>}};
-
+    {404, #{code => <<"NOT_FOUND">>,
+            message => <<"Authenticator not found in the 'global' scope">>}};
 serialize_error({not_found, {chain, Name}}) ->
     {400, #{code => <<"BAD_REQUEST">>,
-            message => list_to_binary(
-                io_lib:format("No authentication has been create for listener '~ts'", [Name])
-            )}};
-
+            message => binfmt("No authentication has been create for listener '~ts'", [Name])}};
 serialize_error({already_exists, {authenticator, ID}}) ->
     {409, #{code => <<"ALREADY_EXISTS">>,
-            message => list_to_binary(
-                io_lib:format("Authenticator '~ts' already exist", [ID])
-            )}};
-
+            message => binfmt("Authenticator '~ts' already exist", [ID])}};
 serialize_error(no_available_provider) ->
     {400, #{code => <<"BAD_REQUEST">>,
             message => <<"Unsupported authentication type">>}};
-
 serialize_error(change_of_authentication_type_is_not_allowed) ->
     {400, #{code => <<"BAD_REQUEST">>,
             message => <<"Change of authentication type is not allowed">>}};
-
 serialize_error(unsupported_operation) ->
     {400, #{code => <<"BAD_REQUEST">>,
             message => <<"Operation not supported in this authentication type">>}};
-
-serialize_error({save_cert_to_file, invalid_certificate}) ->
+serialize_error({bad_ssl_config, Details}) ->
     {400, #{code => <<"BAD_REQUEST">>,
-            message => <<"Invalid certificate">>}};
-
-serialize_error({save_cert_to_file, {_, Reason}}) ->
-    {500, #{code => <<"INTERNAL_SERVER_ERROR">>,
-            message => list_to_binary(
-                io_lib:format("Cannot save certificate to file due to '~p'", [Reason])
-            )}};
-
-serialize_error({missing_parameter, Name}) ->
+            message => binfmt("bad_ssl_config ~p", [Details])}};
+serialize_error({missing_parameter, Detail}) ->
     {400, #{code => <<"MISSING_PARAMETER">>,
-            message => list_to_binary(
-                io_lib:format("The input parameter '~p' that is mandatory for processing this request is not supplied", [Name])
-            )}};
-
+            message => binfmt("Missing required parameter", [Detail])}};
 serialize_error({invalid_parameter, Name}) ->
     {400, #{code => <<"INVALID_PARAMETER">>,
-            message => list_to_binary(
-                io_lib:format("The value of input parameter '~p' is invalid", [Name])
-            )}};
-
+            message => binfmt("Invalid value for '~p'", [Name])}};
+serialize_error({unknown_authn_type, Type}) ->
+    {400, #{code => <<"BAD_REQUEST">>,
+            message => binfmt("Unknown type '~ts'", [Type])}};
+serialize_error({bad_authenticator_config, Reason}) ->
+    {400, #{code => <<"BAD_REQUEST">>,
+            message => binfmt("Bad authenticator config ~p", [Reason])}};
 serialize_error(Reason) ->
     {400, #{code => <<"BAD_REQUEST">>,
-            message => list_to_binary(io_lib:format("~p", [Reason]))}}.
+            message => binfmt("~p", [Reason])}}.
 
 parse_position(<<"top">>) ->
     {ok, top};
@@ -2069,3 +2046,5 @@ to_atom(B) when is_binary(B) ->
     binary_to_atom(B);
 to_atom(A) when is_atom(A) ->
     A.
+
+binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).

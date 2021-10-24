@@ -76,7 +76,7 @@ Path to the file which contains the ACL rules.<br>
 If the file provisioned before starting EMQ X node, it can be placed anywhere
 as long as EMQ X has read access to it.
 In case rule set is created from EMQ X dashboard or management HTTP API,
-the file will be placed in `authz` sub directory inside EMQ X's `data_dir`,
+the file will be placed in `certs/authz` sub directory inside EMQ X's `data_dir`,
 and the new rules will override all rules from the old config file.
 """
               }}
