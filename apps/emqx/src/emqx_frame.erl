@@ -249,7 +249,8 @@ parse_packet(#mqtt_packet_header{type = ?CONNECT}, FrameBin, _Options) ->
     {ConnPacket1, Rest5} = parse_will_message(ConnPacket, Rest4),
     {Username, Rest6} = parse_utf8_string(Rest5, bool(UsernameFlag)),
     {Passsword, <<>>} = parse_utf8_string(Rest6, bool(PasswordFlag)),
-    ConnPacket1#mqtt_packet_connect{username = Username, password = Passsword};
+    ConnPacket1#mqtt_packet_connect{username = Username,
+                                    password = emqx_secret:hide(Passsword)};
 
 parse_packet(#mqtt_packet_header{type = ?CONNACK},
              <<AckFlags:8, ReasonCode:8, Rest/binary>>, #{version := Ver}) ->
@@ -591,7 +592,7 @@ serialize_variable(#mqtt_packet_connect{
            false -> ProtoVer
        end):8,
        (flag(Username)):1,
-       (flag(Password)):1,
+       (flag(emqx_secret:peek(Password))):1,
        (flag(WillRetain)):1,
        WillQoS:2,
        (flag(WillFlag)):1,
@@ -607,7 +608,7 @@ serialize_variable(#mqtt_packet_connect{
          false -> <<>>
      end,
      serialize_utf8_string(Username, true),
-     serialize_utf8_string(Password, true)];
+     serialize_utf8_string(emqx_secret:peek(Password), true)];
 
 serialize_variable(#mqtt_packet_connack{ack_flags   = AckFlags,
                                         reason_code = ReasonCode,

@@ -47,7 +47,7 @@ replace_placeholder(<<"${mqtt-username}">>, Credential) ->
 replace_placeholder(<<"${mqtt-clientid}">>, Credential) ->
     maps:get(clientid, Credential, undefined);
 replace_placeholder(<<"${mqtt-password}">>, Credential) ->
-    maps:get(password, Credential, undefined);
+    emqx_secret:peek(maps:get(password, Credential, undefined));
 replace_placeholder(<<"${ip-address}">>, Credential) ->
     maps:get(peerhost, Credential, undefined);
 replace_placeholder(<<"${cert-subject}">>, Credential) ->
@@ -59,17 +59,19 @@ replace_placeholder(Constant, _) ->
 
 check_password(undefined, _Selected, _State) ->
     {error, bad_username_or_password};
-check_password(Password,
+check_password(Password0,
                #{<<"password_hash">> := Hash},
                #{password_hash_algorithm := bcrypt}) ->
+    Password = emqx_secret:peek(Password0),
     case {ok, Hash} =:= bcrypt:hashpw(Password, Hash) of
         true -> ok;
         false -> {error, bad_username_or_password}
     end;
-check_password(Password,
+check_password(Password0,
                #{<<"password_hash">> := Hash} = Selected,
                #{password_hash_algorithm := Algorithm,
                  salt_position := SaltPosition}) ->
+    Password = emqx_secret:peek(Password0),
     Salt = maps:get(<<"salt">>, Selected, <<>>),
     case Hash =:= hash(Algorithm, Password, Salt, SaltPosition) of
         true -> ok;

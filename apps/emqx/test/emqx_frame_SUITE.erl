@@ -202,7 +202,7 @@ t_serialize_parse_v5_connect(_) ->
                                      will_topic   = <<"topic">>,
                                      will_payload = <<>>,
                                      username     = <<"device:1">>,
-                                     password     = <<"passwd">>
+                                     password     = emqx_secret:hide(<<"passwd">>)
                                     }),
     ?assertEqual(Packet, parse_serialize(Packet)).
 
@@ -234,7 +234,7 @@ t_serialize_parse_connect_with_will(_) ->
                                                           will_topic   = <<"/will">>,
                                                           will_payload = <<"willmsg">>,
                                                           username     = <<"test">>,
-                                                          password     = <<"public">>
+                                                          password     = emqx_secret:hide(<<"public">>)
                                                          }},
     ?assertEqual(Bin, serialize_to_binary(Packet)),
     ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).

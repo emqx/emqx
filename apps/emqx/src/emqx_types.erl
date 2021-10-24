@@ -139,7 +139,7 @@
                         is_superuser := boolean(),
                         mountpoint   := maybe(binary()),
                         ws_cookie    => maybe(list()),
-                        password     => maybe(binary()),
+                        password     => password(),
                         auth_result  => auth_result(),
                         anonymous    => boolean(),
                         cn           => binary(),
@@ -148,7 +148,7 @@
                        }).
 -type(clientid() :: binary() | atom()).
 -type(username() :: maybe(binary())).
--type(password() :: maybe(binary())).
+-type(password() :: maybe(emqx_secret:hidden())).
 -type(peerhost() :: inet:ip_address()).
 -type(peername() :: {inet:ip_address(), inet:port_number()}
                   | inet:returned_non_ip_address()).
