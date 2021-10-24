@@ -238,10 +238,13 @@ feedvar(Override, Packet, ConnInfo, ClientInfo) ->
             , 'ClientInfo' => ClientInfo
             , 'Packet' => connect_packet_to_map(Packet)
             },
-    maps:map(fun(_K, V) ->
-        Tokens = emqx_plugin_libs_rule:preproc_tmpl(V),
-        emqx_plugin_libs_rule:proc_tmpl(Tokens, Envs)
-    end, Override).
+    maps:map(
+      fun(password, V) ->
+              V;
+         (_K, V) ->
+              Tokens = emqx_plugin_libs_rule:preproc_tmpl(V),
+              emqx_plugin_libs_rule:proc_tmpl(Tokens, Envs)
+      end, Override).
 
 connect_packet_to_map(#mqtt_sn_message{}) ->
     %% XXX: Empty now
