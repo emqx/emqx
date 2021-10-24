@@ -34,7 +34,7 @@ fields("config") ->
     , {proto_ver, fun proto_ver/1}
     , {bridge_mode, hoconsc:mk(boolean(), #{default => true})}
     , {username, hoconsc:mk(string())}
-    , {password, hoconsc:mk(string())}
+    , {password, hoconsc:mk(string(), #{sensitive => true})}
     , {clean_start, hoconsc:mk(boolean(), #{default => true})}
     , {keepalive, mk_duration("keepalive", #{default => "300s"})}
     , {retry_interval, mk_duration("retry interval", #{default => "30s"})}

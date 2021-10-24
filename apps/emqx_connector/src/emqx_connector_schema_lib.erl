@@ -94,6 +94,7 @@ username(_) -> undefined.
 
 password(type) -> binary();
 password(nullable) -> true;
+password(sensitive) -> true;
 password(_) -> undefined.
 
 auto_reconnect(type) -> boolean();

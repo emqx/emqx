@@ -87,6 +87,7 @@ common_fields() ->
     ] ++ emqx_authn_schema:common_fields().
 
 secret(type) -> binary();
+secret(sensitive) -> true;
 secret(_) -> undefined.
 
 secret_base64_encoded(type) -> boolean();

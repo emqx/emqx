@@ -136,7 +136,13 @@ fields(ssl_client_opts) ->
 
 fields(clientinfo_override) ->
     [ {username, sc(binary())}
-    , {password, sc(binary())}
+    , {password,
+       sc_meta(binary(),
+               #{sensitive => false, %% just a template
+                 desc => """
+Override template to use the source protocol's specific field as MQTT password.<br>
+e.g. \"${Packet.headers.passcode}\"
+"""})}
     , {clientid, sc(binary())}
     ];
 
