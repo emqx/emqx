@@ -438,7 +438,7 @@ read_certs(Source) -> Source.
 
 maybe_write_certs(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
     Type = maps:get(<<"type">>, Source),
-    emqx_tls_lib:ensure_ssl_files(filename:join(["authz", "certs", Type]), SSL);
+    emqx_tls_lib:ensure_ssl_files(filename:join(["authz", Type]), SSL);
 maybe_write_certs(Source) -> Source.
 
 write_file(Filename, Bytes0) ->

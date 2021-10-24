@@ -292,8 +292,8 @@ do_ensure_ssl_file(Dir, Key, Opts, MaybePem, DryRun) ->
                 true -> {ok, Opts};
                 {error, enoent} when DryRun -> {ok, Opts};
                 {error, Reason} ->
-                    {error, #{file_path => MaybePem,
-                              reason => Reason
+                    {error, #{pem_check => invalid_pem,
+                              file_read => Reason
                             }}
             end
     end.
@@ -333,12 +333,16 @@ save_pem_file(Dir, Key, Pem, DryRun) ->
 
 %% compute the filename for a PEM format key/certificate
 %% the filename is prefixed by the option name without the 'file' part
-%% and suffixed with the first 8 byets of base64 encode result of the PEM content's
-%% md5 checksum.  e.g. key-EKjjO9um, cert-TwuCW1vh, and cacert-6ZaWqNuC
+%% and suffixed with the first 8 byets the PEM content's md5 checksum.
+%% e.g. key-1234567890abcdef, cert-1234567890abcdef, and cacert-1234567890abcdef
 pem_file_name(Dir, Key, Pem) ->
-    <<CK:8/binary, _/binary>> = base64:encode(crypto:hash(md5, Pem)),
-    FileName = binary:replace(Key, <<"file">>, <<"-", CK/binary>>),
-    filename:join([emqx:data_dir(), Dir, FileName]).
+    <<CK:8/binary, _/binary>> = crypto:hash(md5, Pem),
+    Suffix = hex_str(CK),
+    FileName = binary:replace(Key, <<"file">>, <<"-", Suffix/binary>>),
+    filename:join([emqx:certs_dir(), Dir, FileName]).
+
+hex_str(Bin) ->
+    iolist_to_binary([io_lib:format("~2.16.0b",[X]) || <<X:8>> <= Bin ]).
 
 is_valid_pem_file(Path) ->
     case file:read_file(Path) of

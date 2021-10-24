@@ -79,7 +79,7 @@ ssl_files_failure_test_() ->
      {"enoent_key_file",
       fun() ->
               NonExistingFile = filename:join("/tmp", integer_to_list(erlang:system_time(microsecond))),
-              ?assertMatch({error, #{reason := enoent}},
+              ?assertMatch({error, #{file_read := enoent, pem_check := invalid_pem}},
                            emqx_tls_lib:ensure_ssl_files("/tmp", #{<<"keyfile">> => NonExistingFile}))
       end},
      {"bad_pem_string",
@@ -93,7 +93,7 @@ ssl_files_failure_test_() ->
               TmpFile = filename:join("/tmp", integer_to_list(erlang:system_time(microsecond))),
               try
                   ok = file:write_file(TmpFile, <<"not a valid pem">>),
-                  ?assertMatch({error, #{file_path := _, reason := not_pem}},
+                  ?assertMatch({error, #{file_read := not_pem}},
                                emqx_tls_lib:ensure_ssl_files("/tmp", #{<<"cacertfile">> => bin(TmpFile)}))
               after
                   file:delete(TmpFile)
@@ -106,7 +106,7 @@ ssl_files_save_delete_test() ->
     Dir = filename:join(["/tmp", "ssl-test-dir"]),
     {ok, SSL} = emqx_tls_lib:ensure_ssl_files(Dir, SSL0),
     File = maps:get(<<"keyfile">>, SSL),
-    ?assertMatch(<<"/tmp/ssl-test-dir/key-", _:8/binary>>, File),
+    ?assertMatch(<<"/tmp/ssl-test-dir/key-", _:16/binary>>, File),
     ?assertEqual({ok, bin(test_key())}, file:read_file(File)),
     %% no old file to delete
     ok = emqx_tls_lib:delete_ssl_files(Dir, SSL, undefined),

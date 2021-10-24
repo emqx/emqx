@@ -56,44 +56,33 @@
 -spec pre_config_update(update_request(), emqx_config:raw_config())
     -> {ok, map() | list()} | {error, term()}.
 pre_config_update(UpdateReq, OldConfig) ->
-    case do_pre_config_update(UpdateReq, to_list(OldConfig)) of
+    try do_pre_config_update(UpdateReq, to_list(OldConfig)) of
         {error, Reason} -> {error, Reason};
         {ok, NewConfig} -> {ok, return_map(NewConfig)}
+    catch
+        throw : Reason ->
+            {error, Reason}
     end.
 
 do_pre_config_update({create_authenticator, ChainName, Config}, OldConfig) ->
-    try
-        CertsDir = certs_dir(ChainName, Config),
-        NConfig = convert_certs(CertsDir, Config),
-        {ok, OldConfig ++ [NConfig]}
-    catch
-        error:{save_cert_to_file, _} = Reason ->
-            {error, Reason};
-        error:{missing_parameter, _} = Reason ->
-            {error, Reason}
-    end;
+    CertsDir = certs_dir(ChainName, Config),
+    NConfig = convert_certs(CertsDir, Config),
+    {ok, OldConfig ++ [NConfig]};
 do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldConfig) ->
     NewConfig = lists:filter(fun(OldConfig0) ->
                                 AuthenticatorID =/= authenticator_id(OldConfig0)
                              end, OldConfig),
     {ok, NewConfig};
 do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
-    try
-        CertsDir = certs_dir(ChainName, AuthenticatorID),
-        NewConfig = lists:map(
-                        fun(OldConfig0) ->
-                            case AuthenticatorID =:= authenticator_id(OldConfig0) of
-                                true -> convert_certs(CertsDir, Config, OldConfig0);
-                                false -> OldConfig0
-                            end
-                        end, OldConfig),
-        {ok, NewConfig}
-    catch
-        error:{save_cert_to_file, _} = Reason ->
-            {error, Reason};
-        error:{missing_parameter, _} = Reason ->
-            {error, Reason}
-    end;
+    CertsDir = certs_dir(ChainName, AuthenticatorID),
+    NewConfig = lists:map(
+                    fun(OldConfig0) ->
+                        case AuthenticatorID =:= authenticator_id(OldConfig0) of
+                            true -> convert_certs(CertsDir, Config, OldConfig0);
+                            false -> OldConfig0
+                        end
+                    end, OldConfig),
+    {ok, NewConfig};
 do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}, OldConfig) ->
     case split_by_id(AuthenticatorID, OldConfig) of
         {error, Reason} -> {error, Reason};
@@ -152,7 +141,7 @@ do_check_conifg(Config, Providers) ->
             ?SLOG(warning, #{msg => "unknown_authn_type",
                              type => Type,
                              providers => Providers}),
-            throw(unknown_authn_type);
+            throw({unknown_authn_type, Type});
         Module ->
             do_check_conifg(Type, Config, Module)
     end.
@@ -180,7 +169,7 @@ do_check_conifg(Type, Config, Module) ->
                              reason => E,
                              stacktrace => S
                             }),
-            throw(bad_authenticator_config)
+            throw({bad_authenticator_config, #{type => Type, reason => E}})
     end.
 
 return_map([L]) -> L;
@@ -197,7 +186,7 @@ convert_certs(CertsDir, Config) ->
             new_ssl_config(Config, SSL);
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => bad_ssl_config}),
-            throw(bad_ssl_config)
+            throw({bad_ssl_config, Reason})
     end.
 
 convert_certs(CertsDir, NewConfig, OldConfig) ->
@@ -209,7 +198,7 @@ convert_certs(CertsDir, NewConfig, OldConfig) ->
             new_ssl_config(NewConfig, NewSSL1);
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => bad_ssl_config}),
-            throw(bad_ssl_config)
+            throw({bad_ssl_config, Reason})
     end.
 
 new_ssl_config(Config, undefined) -> Config;
@@ -257,8 +246,8 @@ authenticator_id(#{<<"mechanism">> := Mechanism, <<"backend">> := Backend}) ->
     <<Mechanism/binary, ":", Backend/binary>>;
 authenticator_id(#{<<"mechanism">> := Mechanism}) ->
     Mechanism;
-authenticator_id(C) ->
-    error({missing_parameter, mechanism, C}).
+authenticator_id(_C) ->
+    throw({missing_parameter, #{name => mechanism}}).
 
 %% @doc Make the authentication type.
 authn_type(#{mechanism := M, backend :=  B}) -> {atom(M), atom(B)};
@@ -270,7 +259,13 @@ atom(Bin) ->
     binary_to_existing_atom(Bin, utf8).
 
 %% The relative dir for ssl files.
-certs_dir(ChainName, ID) when is_binary(ID) ->
-    filename:join([to_bin(ChainName), ID]);
-certs_dir(ChainName, Config) when is_map(Config) ->
-    certs_dir(ChainName, authenticator_id(Config)).
+certs_dir(ChainName, ConfigOrID) ->
+    DirName = dir(ChainName, ConfigOrID),
+    SubDir = iolist_to_binary(filename:join(["authn", DirName])),
+    binary:replace(SubDir, <<":">>, <<"-">>, [global]).
+
+dir(ChainName, ID) when is_binary(ID) ->
+    binary:replace(iolist_to_binary([to_bin(ChainName), "-", ID]), <<":">>, <<"-">>);
+dir(ChainName, Config) when is_map(Config) ->
+    dir(ChainName, authenticator_id(Config)).
+
