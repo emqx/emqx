@@ -26,8 +26,8 @@
         ]).
 
 -include_lib("eunit/include/eunit.hrl").
-
 -include_lib("emqx/include/emqx.hrl").
+-include("emqx_dashboard.hrl").
 
 -define(CONTENT_TYPE, "application/x-www-form-urlencoded").
 
@@ -41,8 +41,8 @@
 
 all() ->
 %%    TODO: V5 API
-%%    emqx_common_test_helpers:all(?MODULE).
-    [].
+%    emqx_common_test_helpers:all(?MODULE).
+    [t_cli].
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps([emqx_management, emqx_dashboard],fun set_special_configs/1),
@@ -60,12 +60,12 @@ set_special_configs(_) ->
     ok.
 
 t_overview(_) ->
-    mnesia:clear_table(mqtt_admin),
+    mnesia:clear_table(?ADMIN),
     emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"tag">>),
     [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)), auth_header_()))|| Overview <- ?OVERVIEWS].
 
 t_admins_add_delete(_) ->
-    mnesia:clear_table(mqtt_admin),
+    mnesia:clear_table(?ADMIN),
     ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, <<"tag">>),
     ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, <<"tag1">>),
     Admins = emqx_dashboard_admin:all_users(),
@@ -81,7 +81,7 @@ t_admins_add_delete(_) ->
     ?assertNotEqual(true, request_dashboard(get, api_path("brokers"), auth_header_("username", "pwd"))).
 
 t_rest_api(_Config) ->
-    mnesia:clear_table(mqtt_admin),
+    mnesia:clear_table(?ADMIN),
     emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"administrator">>),
     {ok, Res0} = http_get("users"),
 
@@ -102,13 +102,13 @@ t_rest_api(_Config) ->
     ok.
 
 t_cli(_Config) ->
-    [mria:dirty_delete(mqtt_admin, Admin) ||  Admin <- mnesia:dirty_all_keys(mqtt_admin)],
+    [mria:dirty_delete(?ADMIN, Admin) ||  Admin <- mnesia:dirty_all_keys(?ADMIN)],
     emqx_dashboard_cli:admins(["add", "username", "password"]),
-    [{mqtt_admin, <<"username">>, <<Salt:4/binary, Hash/binary>>, _}] =
+    [#?ADMIN{ username = <<"username">>, pwdhash = <<Salt:4/binary, Hash/binary>>}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
     ?assertEqual(Hash, erlang:md5(<<Salt/binary, <<"password">>/binary>>)),
     emqx_dashboard_cli:admins(["passwd", "username", "newpassword"]),
-    [{mqtt_admin, <<"username">>, <<Salt1:4/binary, Hash1/binary>>, _}] =
+    [#?ADMIN{username = <<"username">>, pwdhash = <<Salt1:4/binary, Hash1/binary>>}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
     ?assertEqual(Hash1, erlang:md5(<<Salt1/binary, <<"newpassword">>/binary>>)),
     emqx_dashboard_cli:admins(["del", "username"]),
