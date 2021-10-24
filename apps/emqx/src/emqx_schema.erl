@@ -1012,15 +1012,6 @@ the file if it is to be added.
           #{default => Df("depth", 10)
            })
       }
-    , {"password",
-       sc(string(),
-          #{ sensitive => true
-           , nullable => true
-           , desc =>
-"""String containing the user's password. Only used if the private
-keyfile is password-protected."""
-           })
-      }
     , {"versions",
        sc(hoconsc:array(typerefl:atom()),
           #{ default => default_tls_vsns(maps:get(versions, Defaults, tls_all_available))
