@@ -100,8 +100,7 @@ t_connect_info(_) ->
     ?assertEqual(#{}, emqx_packet:info(will_props, ConnPkt)),
     ?assertEqual(<<"topic">>, emqx_packet:info(will_topic, ConnPkt)),
     ?assertEqual(<<"payload">>, emqx_packet:info(will_payload, ConnPkt)),
-    ?assertEqual(<<"username">>, emqx_packet:info(username, ConnPkt)),
-    ?assertEqual(undefined, emqx_packet:info(password, ConnPkt)).
+    ?assertEqual(<<"username">>, emqx_packet:info(username, ConnPkt)).
 
 t_connack_info(_) ->
     AckPkt = #mqtt_packet_connack{ack_flags = 0, reason_code = 0},
@@ -297,7 +296,7 @@ t_format(_) ->
                                                                              will_qos = ?QOS_2,
                                                                              will_topic = <<"topic">>,
                                                                              will_payload = <<"payload">>}))]),
-    io:format("~ts", [emqx_packet:format(?CONNECT_PACKET(#mqtt_packet_connect{password = password}))]),
+    io:format("~ts", [emqx_packet:format(?CONNECT_PACKET(#mqtt_packet_connect{password = emqx_secret:hide(<<"password">>)}))]),
     io:format("~ts", [emqx_packet:format(?CONNACK_PACKET(?CONNACK_SERVER))]),
     io:format("~ts", [emqx_packet:format(?PUBLISH_PACKET(?QOS_1, 1))]),
     io:format("~ts", [emqx_packet:format(?PUBLISH_PACKET(?QOS_2, <<"topic">>, 10, <<"payload">>))]),

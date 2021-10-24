@@ -152,8 +152,6 @@ info(will_payload, #mqtt_packet_connect{will_payload = Payload}) ->
     Payload;
 info(username, #mqtt_packet_connect{username = Username}) ->
     Username;
-info(password, #mqtt_packet_connect{password = Password}) ->
-    Password;
 
 info(ack_flags, #mqtt_packet_connack{ack_flags = Flags}) ->
     Flags;
