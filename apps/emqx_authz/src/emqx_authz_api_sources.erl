@@ -340,11 +340,11 @@ sources(get, _) ->
                                                                 }])
                                   end;
                               (Source, AccIn) ->
-                                  lists:append(AccIn, [read_cert(Source)])
+                                  lists:append(AccIn, [read_certs(Source)])
                           end, [], get_raw_sources()),
     {200, #{sources => Sources}};
 sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
-    {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
+    {ok, Filename} = write_file(acl_conf_file(), Rules),
     update_config(?CMD_PREPEND, [#{<<"type">> => <<"file">>, <<"enable">> => true, <<"path">> => Filename}]);
 sources(post, #{body := Body}) when is_map(Body) ->
     update_config(?CMD_PREPEND, [maybe_write_certs(Body)]);
@@ -352,7 +352,7 @@ sources(put, #{body := Body}) when is_list(Body) ->
     NBody = [ begin
                 case Source of
                     #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable} ->
-                        {ok, Filename} = write_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]), Rules),
+                        {ok, Filename} = write_file(acl_conf_file(), Rules),
                         #{<<"type">> => <<"file">>, <<"enable">> => Enable, <<"path">> => Filename};
                     _ -> maybe_write_certs(Source)
                 end
@@ -375,7 +375,7 @@ source(get, #{bindings := #{type := Type}}) ->
                             message => bin(Reason)}}
             end;
         [Source] ->
-            {200, read_cert(Source)}
+            {200, read_certs(Source)}
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
     {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
@@ -427,54 +427,18 @@ update_config(Cmd, Sources) ->
                     message => bin(Reason)}}
     end.
 
-read_cert(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
-    CaCert = case file:read_file(maps:get(<<"cacertfile">>, SSL, "")) of
-                 {ok, CaCert0} -> CaCert0;
-                 _ -> ""
-             end,
-    Cert =   case file:read_file(maps:get(<<"certfile">>, SSL, "")) of
-                 {ok, Cert0} -> Cert0;
-                 _ -> ""
-             end,
-    Key =   case file:read_file(maps:get(<<"keyfile">>, SSL, "")) of
-                 {ok, Key0} -> Key0;
-                 _ -> ""
-             end,
-    Source#{<<"ssl">> => SSL#{<<"cacertfile">> => CaCert,
-                              <<"certfile">> => Cert,
-                              <<"keyfile">> => Key
-                             }
-           };
-read_cert(Source) -> Source.
+read_certs(#{<<"ssl">> := SSL} = Source) ->
+    case emqx_tls_lib:file_content_as_options(SSL) of
+        {ok, NewSSL} -> Source#{<<"ssl">> => NewSSL};
+        {error, Reason} ->
+            ?SLOG(error, Reason#{msg => failed_to_readd_ssl_file}),
+            throw(failed_to_readd_ssl_file)
+    end;
+read_certs(Source) -> Source.
 
 maybe_write_certs(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
-    CertPath = filename:join([emqx:get_config([node, data_dir]), "certs"]),
-    CaCert = case maps:is_key(<<"cacertfile">>, SSL) of
-                 true ->
-                     {ok, CaCertFile} = write_file(filename:join([CertPath, "cacert-" ++ emqx_misc:gen_id() ++".pem"]),
-                                                 maps:get(<<"cacertfile">>, SSL)),
-                     CaCertFile;
-                 false -> ""
-             end,
-    Cert =   case maps:is_key(<<"certfile">>, SSL) of
-                 true ->
-                     {ok, CertFile} = write_file(filename:join([CertPath, "cert-" ++ emqx_misc:gen_id() ++".pem"]),
-                                                 maps:get(<<"certfile">>, SSL)),
-                     CertFile;
-                 false -> ""
-             end,
-    Key =    case maps:is_key(<<"keyfile">>, SSL) of
-                 true ->
-                     {ok, KeyFile}  = write_file(filename:join([CertPath, "key-" ++ emqx_misc:gen_id() ++".pem"]),
-                                                 maps:get(<<"keyfile">>, SSL)),
-                     KeyFile;
-                 false -> ""
-             end,
-    Source#{<<"ssl">> => SSL#{<<"cacertfile">> => CaCert,
-                              <<"certfile">> => Cert,
-                              <<"keyfile">> => Key
-                             }
-           };
+    Type = maps:get(<<"type">>, Source),
+    emqx_tls_lib:ensure_ssl_files(filename:join(["authz", "certs", Type]), SSL);
 maybe_write_certs(Source) -> Source.
 
 write_file(Filename, Bytes0) ->
@@ -482,7 +446,7 @@ write_file(Filename, Bytes0) ->
     case file:read_file(Filename) of
         {ok, Bytes1} ->
             case crypto:hash(md5, Bytes1) =:= crypto:hash(md5, Bytes0) of
-                true -> {ok,iolist_to_binary(Filename)};
+                true -> {ok, iolist_to_binary(Filename)};
                 false -> do_write_file(Filename, Bytes0)
             end;
         _ -> do_write_file(Filename, Bytes0)
@@ -498,3 +462,6 @@ do_write_file(Filename, Bytes) ->
 
 bin(Term) ->
    erlang:iolist_to_binary(io_lib:format("~p", [Term])).
+
+acl_conf_file() ->
+    emqx_authz:acl_conf_file().

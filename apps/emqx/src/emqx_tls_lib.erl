@@ -26,9 +26,10 @@
         , all_ciphers/0
         ]).
 
-%% files
+%% SSL files
 -export([ ensure_ssl_files/2
         , delete_ssl_files/3
+        , file_content_as_options/1
         ]).
 
 -include("logger.hrl").
@@ -248,7 +249,7 @@ ensure_ssl_files(Dir, Opts, [Key | Keys], DryRun) ->
     end.
 
 %% @doc Compare old and new config, delete the ones in old but not in new.
--spec delete_ssl_files(file:name_all(), undefiend | map(), undefined | map()) -> ok.
+-spec delete_ssl_files(file:name_all(), undefined | map(), undefined | map()) -> ok.
 delete_ssl_files(Dir, NewOpts0, OldOpts0) ->
     DryRun = true,
     {ok, NewOpts} = ensure_ssl_files(Dir, NewOpts0, DryRun),
@@ -343,6 +344,28 @@ is_valid_pem_file(Path) ->
     case file:read_file(Path) of
         {ok, Pem} -> is_pem(Pem) orelse {error, not_pem};
         {error, Reason} -> {error, Reason}
+    end.
+
+%% @doc This is to return SSL file content in management APIs.
+file_content_as_options(undefined) -> undefined;
+file_content_as_options(#{<<"enable">> := false} = SSL) ->
+    maps:without(?SSL_FILE_OPT_NAMES, SSL);
+file_content_as_options(#{<<"enable">> := true} = SSL) ->
+    file_content_as_options(?SSL_FILE_OPT_NAMES, SSL).
+
+file_content_as_options([], SSL) -> {ok, SSL};
+file_content_as_options([Key | Keys], SSL) ->
+    case maps:get(Key, SSL, undefined) of
+        undefined -> file_content_as_options(Keys, SSL);
+        Path ->
+            case file:read_file(Path) of
+                {ok, Bin} ->
+                    file_content_as_options(Keys, SSL#{Key => Bin});
+                {error, Reason} ->
+                    {error, #{file_path => Path,
+                              reason => Reason
+                             }}
+            end
     end.
 
 -if(?OTP_RELEASE > 22).

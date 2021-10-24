@@ -38,6 +38,7 @@
 
 -export([post_config_update/4, pre_config_update/2]).
 
+-export([acl_conf_file/0]).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
@@ -381,3 +382,7 @@ type(<<"postgresql">>) -> postgresql;
 type('built-in-database') -> 'built-in-database';
 type(<<"built-in-database">>) -> 'built-in-database';
 type(Unknown) -> error({unknown_authz_source_type, Unknown}). % should never happend if the input is type-checked by hocon schema
+
+%% @doc where the acl.conf file is stored.
+acl_conf_file() ->
+    filename:join([emqx:data_dir(), "ahtz", "acl.conf"]).
