@@ -18,6 +18,8 @@
 
 -behaviour(minirest_api).
 
+-include_lib("emqx/include/emqx.hrl").
+
 -export([api_spec/0]).
 
 -export([alarms/2]).
@@ -25,10 +27,6 @@
 %% internal export (for query)
 -export([ query/4
         ]).
-
-%% notice: from emqx_alarms
--define(ACTIVATED_ALARM, emqx_activated_alarm).
--define(DEACTIVATED_ALARM, emqx_deactivated_alarm).
 
 -import(emqx_mgmt_util, [ object_array_schema/2
                         , schema/1

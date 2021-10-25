@@ -51,6 +51,7 @@
 
 -export([ validate_heap_size/1
         , parse_user_lookup_fun/1
+        , validate_alarm_actions/1
         ]).
 
 % workaround: prevent being recognized as unused functions
@@ -870,17 +871,32 @@ fields("sysmon_os") ->
 fields("alarm") ->
     [ {"actions",
        sc(hoconsc:array(atom()),
-          #{ default => [log, publish]
+          #{ default => [log, publish],
+             validator => fun ?MODULE:validate_alarm_actions/1,
+             example => [log, publish],
+             desc =>
+             """The action triggered when the alarm is activated,<\br>
+             and it currently only supports log and publish,
+             which is to output log or publish to system topic: <\br>
+             $SYS/brokers/emqx@xx.xx.xx.x/alarms/activate  $SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate"""
            })
       }
     , {"size_limit",
-       sc(integer(),
-          #{ default => 1000
+       sc(range(1, 3000),
+          #{ default => 1000,
+             example => 1000,
+             desc =>
+             """The maximum number of saved alarms that has been deactivated.<br>
+             After the limit is reached,
+             these alarms will be cleared according to the FIFO principle."""
            })
       }
     , {"validity_period",
        sc(duration(),
-          #{ default => "24h"
+          #{ default => "24h",
+             example => "24h",
+             desc =>
+             """The maximum storage time of deactivated alarms, and expired alarms will be cleared"""
            })
       }
     ].
@@ -1326,6 +1342,14 @@ validate_heap_size(Siz) ->
         true -> error(io_lib:format("force_shutdown_policy: heap-size ~ts is too large", [Siz]));
         false -> ok
     end.
+
+validate_alarm_actions(Actions) ->
+ UnSupported = lists:filter(fun(Action) -> Action =/= log andalso Action =/= publish end, Actions),
+    case UnSupported of
+        [] -> ok;
+        Error -> {error, Error}
+    end.
+
 parse_user_lookup_fun(StrConf) ->
     [ModStr, FunStr] = string:tokens(str(StrConf), ":"),
     Mod = list_to_atom(ModStr),
