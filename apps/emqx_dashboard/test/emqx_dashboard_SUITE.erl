@@ -42,7 +42,7 @@
 all() ->
 %%    TODO: V5 API
 %    emqx_common_test_helpers:all(?MODULE).
-    [t_cli].
+    [t_cli, t_lookup_by_username_jwt, t_clean_expired_jwt].
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps([emqx_management, emqx_dashboard],fun set_special_configs/1),
@@ -118,9 +118,39 @@ t_cli(_Config) ->
     AdminList = emqx_dashboard_admin:all_users(),
     ?assertEqual(2, length(AdminList)).
 
+t_lookup_by_username_jwt(_Config) ->
+    User = bin(["user-", integer_to_list(random_num())]),
+    Pwd = bin(integer_to_list(random_num())),
+    emqx_dashboard_token:sign(User, Pwd),
+    ?assertMatch([#?ADMIN_JWT{username = User}],
+                 emqx_dashboard_token:lookup_by_username(User)),
+    ok = emqx_dashboard_token:destroy_by_username(User),
+    %% issue a gen_server call to sync the async destroy gen_server cast
+    ok = gen_server:call(emqx_dashboard_token, dummy, infinity),
+    ?assertMatch([], emqx_dashboard_token:lookup_by_username(User)),
+    ok.
+
+t_clean_expired_jwt(_Config) ->
+    User = bin(["user-", integer_to_list(random_num())]),
+    Pwd = bin(integer_to_list(random_num())),
+    emqx_dashboard_token:sign(User, Pwd),
+    [#?ADMIN_JWT{username = User, exptime = ExpTime}] =
+        emqx_dashboard_token:lookup_by_username(User),
+    ok = emqx_dashboard_token:clean_expired_jwt(_Now1 = ExpTime),
+    ?assertMatch([#?ADMIN_JWT{username = User}],
+                 emqx_dashboard_token:lookup_by_username(User)),
+    ok = emqx_dashboard_token:clean_expired_jwt(_Now2 = ExpTime + 1),
+    ?assertMatch([], emqx_dashboard_token:lookup_by_username(User)),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+bin(X) -> iolist_to_binary(X).
+
+random_num() ->
+    erlang:system_time(nanosecond).
 
 http_get(Path) ->
     request_api(get, api_path(Path), auth_header_()).

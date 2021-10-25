@@ -29,9 +29,12 @@
 
 -export([mnesia/1]).
 
+-ifdef(TEST).
+-export([lookup_by_username/1, clean_expired_jwt/1]).
+-endif.
+
 -define(TAB, ?ADMIN_JWT).
 -define(EXPTIME, 60 * 60 * 1000).
--define(CLEAN_JWT_INTERVAL, 60 * 60 * 1000).
 
 %%--------------------------------------------------------------------
 %% gen server part
@@ -62,8 +65,7 @@ verify(Token) ->
 destroy([]) ->
     ok;
 destroy(JWTorTokenList) when is_list(JWTorTokenList)->
-    [destroy(JWTorToken) || JWTorToken <- JWTorTokenList],
-    ok;
+    lists:foreach(fun destroy/1, JWTorTokenList);
 destroy(#?ADMIN_JWT{token = Token}) ->
     destroy(Token);
 destroy(Token) when is_binary(Token)->
@@ -135,12 +137,12 @@ lookup(Token) ->
         {atomic, []} -> {error, not_found}
     end.
 
+-dialyzer({nowarn_function, lookup_by_username/1}).
 lookup_by_username(Username) ->
-    Spec = [{{?ADMIN_JWT, '_', Username, '_'}, [], ['$_']}],
+    Spec = [{#?ADMIN_JWT{username = Username, _ = '_'}, [], ['$_']}],
     Fun = fun() -> mnesia:select(?TAB, Spec) end,
     {atomic, List} = mria:ro_transaction(?DASHBOARD_SHARD, Fun),
     List.
-
 
 jwk(Username, Password, Salt) ->
     Key = erlang:md5(<<Salt/binary, Username/binary, Password/binary>>),
@@ -150,8 +152,10 @@ jwk(Username, Password, Salt) ->
     }.
 
 jwt_expiration_time() ->
-    ExpTime = emqx_conf:get([emqx_dashboard, token_expired_time], ?EXPTIME),
-    erlang:system_time(millisecond) + ExpTime.
+    erlang:system_time(millisecond) + token_ttl().
+
+token_ttl() ->
+    emqx_conf:get([emqx_dashboard, token_expired_time], ?EXPTIME).
 
 salt() ->
     _ = emqx_misc:rand_seed(),
@@ -187,10 +191,7 @@ handle_cast(_Request, State) ->
 handle_info(clean_jwt, State) ->
     timer_clean(self()),
     Now = erlang:system_time(millisecond),
-    Spec = [{{?ADMIN_JWT, '_', '_', '$1'}, [{'<', '$1', Now}], ['$_']}],
-    {atomic, JWTList} = mria:ro_transaction(?DASHBOARD_SHARD,
-        fun() -> mnesia:select(?TAB, Spec) end),
-    destroy(JWTList),
+    ok = clean_expired_jwt(Now),
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -202,4 +203,12 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 timer_clean(Pid) ->
-    erlang:send_after(?CLEAN_JWT_INTERVAL, Pid, clean_jwt).
+    erlang:send_after(token_ttl(), Pid, clean_jwt).
+
+-dialyzer({nowarn_function, clean_expired_jwt/1}).
+clean_expired_jwt(Now) ->
+    Spec = [{#?ADMIN_JWT{exptime = '$1', token = '$2', _ = '_'},
+             [{'<', '$1', Now}], ['$2']}],
+    {atomic, JWTList} = mria:ro_transaction(?DASHBOARD_SHARD,
+        fun() -> mnesia:select(?TAB, Spec) end),
+    ok = destroy(JWTList).
