@@ -16,6 +16,7 @@
 
 -module(emqx_tls_lib).
 
+%% version & cipher suites
 -export([ default_versions/0
         , integral_versions/1
         , default_ciphers/0
@@ -24,6 +25,16 @@
         , drop_tls13_for_old_otp/1
         , all_ciphers/0
         ]).
+
+%% SSL files
+-export([ ensure_ssl_files/2
+        , delete_ssl_files/3
+        , file_content_as_options/1
+        ]).
+
+-include("logger.hrl").
+
+-define(SSL_FILE_OPT_NAMES, [<<"keyfile">>, <<"certfile">>, <<"cacertfile">>]).
 
 %% non-empty string
 -define(IS_STRING(L), (is_list(L) andalso L =/= [] andalso is_integer(hd(L)))).
@@ -210,6 +221,155 @@ drop_tls13(SslOpts0) ->
         error -> SslOpts1;
         {ok, Ciphers} ->
             SslOpts1#{ciphers => Ciphers -- ?TLSV13_EXCLUSIVE_CIPHERS}
+    end.
+
+%% @doc The input map is a HOCON decoded result of a struct defined as
+%% emqx_schema:server_ssl_opts_schema. (NOTE: before schema-checked).
+%% `keyfile', `certfile' and `cacertfile' can be either pem format key or certificates,
+%% or file path.
+%% When PEM format key or certificate is given, it tries to to save them in the given
+%% sub-dir in emqx's data_dir, and replace saved file paths for SSL options.
+-spec ensure_ssl_files(file:name_all(), undefined | map()) ->
+            {ok, undefined | map()} | {error, map()}.
+ensure_ssl_files(Dir, Opts) ->
+    ensure_ssl_files(Dir, Opts, _DryRun = false).
+
+ensure_ssl_files(_Dir, undefined, _DryRun) -> {ok, undefined};
+ensure_ssl_files(_Dir, #{<<"enable">> := false} = Opts, _DryRun) -> {ok, Opts};
+ensure_ssl_files(Dir, Opts, DryRun) ->
+    ensure_ssl_files(Dir, Opts, ?SSL_FILE_OPT_NAMES, DryRun).
+
+ensure_ssl_files(_Dir,Opts, [], _DryRun) -> {ok, Opts};
+ensure_ssl_files(Dir, Opts, [Key | Keys], DryRun) ->
+    case ensure_ssl_file(Dir, Key, Opts, maps:get(Key, Opts, undefined), DryRun) of
+        {ok, NewOpts} ->
+            ensure_ssl_files(Dir, NewOpts, Keys, DryRun);
+        {error, Reason} ->
+            {error, Reason#{which_option => Key}}
+    end.
+
+%% @doc Compare old and new config, delete the ones in old but not in new.
+-spec delete_ssl_files(file:name_all(), undefined | map(), undefined | map()) -> ok.
+delete_ssl_files(Dir, NewOpts0, OldOpts0) ->
+    DryRun = true,
+    {ok, NewOpts} = ensure_ssl_files(Dir, NewOpts0, DryRun),
+    {ok, OldOpts} = ensure_ssl_files(Dir, OldOpts0, DryRun),
+    Get = fun(_K, undefined) -> undefined;
+             (K, Opts) -> maps:get(K, Opts, undefined)
+          end,
+    lists:foreach(fun(Key) -> delete_old_file(Get(Key, NewOpts), Get(Key, OldOpts)) end,
+                  ?SSL_FILE_OPT_NAMES).
+
+delete_old_file(New, Old) when New =:= Old -> ok;
+delete_old_file(_New, _Old = undefined) -> ok;
+delete_old_file(_New, Old) ->
+    case filelib:is_regular(Old) andalso file:delete(Old) of
+        ok -> ok;
+        false -> ok; %% already deleted
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "failed_to_delete_ssl_file", file_path => Old, reason => Reason})
+    end.
+
+ensure_ssl_file(_Dir, _Key, Opts, undefined, _DryRun) ->
+    {ok, Opts};
+ensure_ssl_file(Dir, Key, Opts, MaybePem, DryRun) ->
+    case is_valid_string(MaybePem) of
+        true ->
+            do_ensure_ssl_file(Dir, Key, Opts, MaybePem, DryRun);
+        false ->
+            {error, #{reason => invalid_file_path_or_pem_string}}
+    end.
+
+do_ensure_ssl_file(Dir, Key, Opts, MaybePem, DryRun) ->
+    case is_pem(MaybePem) of
+        true ->
+            case save_pem_file(Dir, Key, MaybePem, DryRun) of
+                {ok, Path} -> {ok, Opts#{Key => Path}};
+                {error, Reason} -> {error, Reason}
+            end;
+        false ->
+            case is_valid_pem_file(MaybePem) of
+                true -> {ok, Opts};
+                {error, enoent} when DryRun -> {ok, Opts};
+                {error, Reason} ->
+                    {error, #{pem_check => invalid_pem,
+                              file_read => Reason
+                            }}
+            end
+    end.
+
+is_valid_string(String) when is_list(String) ->
+    io_lib:printable_unicode_list(String);
+is_valid_string(Binary) when is_binary(Binary) ->
+    case unicode:characters_to_list(Binary, utf8) of
+        String when is_list(String) -> is_valid_string(String);
+        _Otherwise -> false
+    end.
+
+%% Check if it is a valid PEM formated key.
+is_pem(MaybePem) ->
+    try public_key:pem_decode(MaybePem) =/= []
+    catch _ : _ -> false
+    end.
+
+%% Write the pem file to the given dir.
+%% To make it simple, the file is always overwritten.
+%% Also a potentially half-written PEM file (e.g. due to power outage)
+%% can be corrected with an overwrite.
+save_pem_file(Dir, Key, Pem, DryRun) ->
+    Path = pem_file_name(Dir, Key, Pem),
+    case filelib:ensure_dir(Path) of
+        ok when DryRun ->
+            {ok, Path};
+        ok ->
+            case file:write_file(Path, Pem) of
+                ok -> {ok, Path};
+                {error, Reason} ->
+                    {error, #{failed_to_write_file => Reason, file_path => Path}}
+            end;
+        {error, Reason} ->
+            {error, #{failed_to_create_dir_for => Path, reason => Reason}}
+    end.
+
+%% compute the filename for a PEM format key/certificate
+%% the filename is prefixed by the option name without the 'file' part
+%% and suffixed with the first 8 byets the PEM content's md5 checksum.
+%% e.g. key-1234567890abcdef, cert-1234567890abcdef, and cacert-1234567890abcdef
+pem_file_name(Dir, Key, Pem) ->
+    <<CK:8/binary, _/binary>> = crypto:hash(md5, Pem),
+    Suffix = hex_str(CK),
+    FileName = binary:replace(Key, <<"file">>, <<"-", Suffix/binary>>),
+    filename:join([emqx:certs_dir(), Dir, FileName]).
+
+hex_str(Bin) ->
+    iolist_to_binary([io_lib:format("~2.16.0b",[X]) || <<X:8>> <= Bin ]).
+
+is_valid_pem_file(Path) ->
+    case file:read_file(Path) of
+        {ok, Pem} -> is_pem(Pem) orelse {error, not_pem};
+        {error, Reason} -> {error, Reason}
+    end.
+
+%% @doc This is to return SSL file content in management APIs.
+file_content_as_options(undefined) -> undefined;
+file_content_as_options(#{<<"enable">> := false} = SSL) ->
+    maps:without(?SSL_FILE_OPT_NAMES, SSL);
+file_content_as_options(#{<<"enable">> := true} = SSL) ->
+    file_content_as_options(?SSL_FILE_OPT_NAMES, SSL).
+
+file_content_as_options([], SSL) -> {ok, SSL};
+file_content_as_options([Key | Keys], SSL) ->
+    case maps:get(Key, SSL, undefined) of
+        undefined -> file_content_as_options(Keys, SSL);
+        Path ->
+            case file:read_file(Path) of
+                {ok, Bin} ->
+                    file_content_as_options(Keys, SSL#{Key => Bin});
+                {error, Reason} ->
+                    {error, #{file_path => Path,
+                              reason => Reason
+                             }}
+            end
     end.
 
 -if(?OTP_RELEASE > 22).

@@ -147,12 +147,10 @@ init_per_testcase(t_api, Config) ->
     meck:expect(emqx_misc, gen_id, fun() -> "fake" end),
 
     meck:new(emqx, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx, get_config, fun([node, data_dir]) ->
-                                          % emqx_common_test_helpers:deps_path(emqx_authz, "test");
-                                          {data_dir, Data} = lists:keyfind(data_dir, 1, Config),
-                                          Data;
-                                     (C) -> meck:passthrough([C])
-                                  end),
+    meck:expect(emqx, data_dir, fun() ->
+                                        {data_dir, Data} = lists:keyfind(data_dir, 1, Config),
+                                        Data
+                                end),
     Config;
 init_per_testcase(_, Config) -> Config.
 
@@ -182,7 +180,7 @@ t_api(_) ->
                  , #{<<"type">> := <<"redis">>}
                  , #{<<"type">> := <<"file">>}
                  ], Sources),
-    ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "acl.conf"]))),
+    ?assert(filelib:is_file(emqx_authz:acl_conf_file())),
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]),  ?SOURCE1#{<<"enable">> := false}),
     {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
@@ -205,9 +203,9 @@ t_api(_) ->
                                   <<"verify">> := false
                                  }
                   }, jsx:decode(Result4)),
-    ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "cacert-fake.pem"]))),
-    ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "cert-fake.pem"]))),
-    ?assert(filelib:is_file(filename:join([emqx:get_config([node, data_dir]), "certs", "key-fake.pem"]))),
+    ?assert(filelib:is_file(filename:join([data_dir(), "certs", "cacert-fake.pem"]))),
+    ?assert(filelib:is_file(filename:join([data_dir(), "certs", "cert-fake.pem"]))),
+    ?assert(filelib:is_file(filename:join([data_dir(), "certs", "key-fake.pem"]))),
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "mysql"]),  ?SOURCE3#{<<"server">> := <<"192.168.1.100:3306">>}),
 
@@ -301,3 +299,5 @@ auth_header_() ->
     Password = <<"public">>,
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
+data_dir() -> emqx:data_dir().
