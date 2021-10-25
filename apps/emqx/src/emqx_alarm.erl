@@ -342,16 +342,7 @@ do_actions(Operation, Alarm, [publish | More]) ->
     {ok, Payload} = emqx_json:safe_encode(normalize(Alarm)),
     Message = emqx_message:make(?MODULE, 0, Topic, Payload, #{sys => true},
                   #{properties => #{'Content-Type' => <<"application/json">>}}),
-    case emqx_broker:safe_publish(Message) of
-        [] ->
-            ?SLOG(warning, #{
-                msg => "alarm_publish_failed",
-                publish_msg => Message,
-                operation => Operation,
-                alarm => Alarm
-            });
-        _ -> ok
-    end,
+    _ = emqx_broker:safe_publish(Message),
     do_actions(Operation, Alarm, More).
 
 topic(activate) ->

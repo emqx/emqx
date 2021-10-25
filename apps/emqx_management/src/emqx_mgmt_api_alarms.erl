@@ -19,62 +19,75 @@
 -behaviour(minirest_api).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("typerefl/include/types.hrl").
 
--export([api_spec/0]).
+-export([api_spec/0, paths/0, schema/1, fields/1]).
 
 -export([alarms/2]).
 
 %% internal export (for query)
--export([ query/4
-        ]).
-
--import(emqx_mgmt_util, [ object_array_schema/2
-                        , schema/1
-                        , properties/1
-                        ]).
+-export([query/4]).
 
 api_spec() ->
-    {[alarms_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-properties() ->
-    properties([
-        {node, string, <<"Alarm in node">>},
-        {name, string, <<"Alarm name">>},
-        {message, string, <<"Alarm readable information">>},
-        {details, object},
-        {duration, integer, <<"Alarms duration time; UNIX time stamp, millisecond">>},
-        {activate_at, string, <<"Alarms activate time, RFC 3339">>},
-        {deactivate_at, string, <<"Nullable, alarms deactivate time, RFC 3339">>}
-    ]).
+paths() ->
+    ["/alarms"].
 
-alarms_api() ->
-    Metadata = #{
+schema("/alarms") ->
+    #{
+        operationId => alarms,
         get => #{
             description => <<"EMQ X alarms">>,
-            parameters => emqx_mgmt_util:page_params() ++ [#{
-                name => activated,
-                in => query,
-                description => <<"All alarms, if not specified">>,
-                required => false,
-                schema => #{type => boolean, default => true}
-            }],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, page),
+                hoconsc:ref(emqx_dashboard_swagger, limit),
+                {activated, hoconsc:mk(boolean(), #{in => query,
+                    desc => <<"All alarms, if not specified">>,
+                    required => false})}
+            ],
             responses => #{
-                <<"200">> =>
-                object_array_schema(properties(), <<"List all alarms">>)}},
-        delete => #{
+                200 => [
+                    {data, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, alarm)), #{})},
+                    {meta, hoconsc:mk(hoconsc:ref(?MODULE, meta), #{})}
+                ]
+            }
+        },
+        delete  => #{
             description => <<"Remove all deactivated alarms">>,
             responses => #{
-                <<"200">> =>
-                schema(<<"Remove all deactivated alarms ok">>)}}},
-    {"/alarms", Metadata, alarms}.
+                200 => <<"Remove all deactivated alarms ok">>
+            }
+        }
+    }.
 
+fields(alarm) ->
+    [
+        {node, hoconsc:mk(binary(), #{desc => <<"Alarm in node">>, example => atom_to_list(node())})},
+        {name, hoconsc:mk(binary(), #{desc => <<"Alarm name">>, example => <<"high_system_memory_usage">>})},
+        {message, hoconsc:mk(binary(), #{desc => <<"Alarm readable information">>,
+            example => <<"System memory usage is higher than 70%">>})},
+        {details, hoconsc:mk(map(), #{desc => <<"Alarm details information">>,
+            example => #{<<"high_watermark">> => 70}})},
+        {duration, hoconsc:mk(integer(), #{desc => <<"Alarms duration time; UNIX time stamp, millisecond">>,
+            example => 297056})},
+        {activate_at, hoconsc:mk(binary(), #{desc => <<"Alarms activate time, RFC 3339">>,
+            example => <<"2021-10-25T11:52:52.548+08:00">>})},
+        {deactivate_at, hoconsc:mk(binary(), #{desc => <<"Nullable, alarms deactivate time, RFC 3339">>,
+            example => <<"2021-10-31T10:52:52.548+08:00">>})}
+    ];
+
+fields(meta) ->
+    emqx_dashboard_swagger:fields(page) ++
+        emqx_dashboard_swagger:fields(limit) ++
+        [{count, hoconsc:mk(integer(), #{example => 1})}].
 %%%==============================================================================================
 %% parameters trans
 alarms(get, #{query_string := Qs}) ->
     Table =
-        case maps:get(<<"activated">>, Qs, <<"true">>) of
-            <<"true">> -> ?ACTIVATED_ALARM;
-            <<"false">> -> ?DEACTIVATED_ALARM
+        case maps:get(<<"activated">>, Qs, true) of
+            true -> ?ACTIVATED_ALARM;
+            false -> ?DEACTIVATED_ALARM
         end,
     Response = emqx_mgmt_api:cluster_query(Qs, Table, [], {?MODULE, query}),
     emqx_mgmt_util:generate_response(Response);

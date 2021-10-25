@@ -362,7 +362,7 @@ typename_to_spec("timeout()", _Mod) -> #{<<"oneOf">> => [#{type => string, examp
     #{type => integer, example => 100}], example => infinity};
 typename_to_spec("bytesize()", _Mod) -> #{type => string, example => <<"32MB">>};
 typename_to_spec("wordsize()", _Mod) -> #{type => string, example => <<"1024KB">>};
-typename_to_spec("map()", _Mod) -> #{type => string, example => <<>>};
+typename_to_spec("map()", _Mod) -> #{type => object, example => #{}};
 typename_to_spec("comma_separated_list()", _Mod) -> #{type => string, example => <<"item1,item2">>};
 typename_to_spec("comma_separated_atoms()", _Mod) -> #{type => string, example => <<"item1,item2">>};
 typename_to_spec("pool_type()", _Mod) -> #{type => string, enum => [random, hash], example => hash};
