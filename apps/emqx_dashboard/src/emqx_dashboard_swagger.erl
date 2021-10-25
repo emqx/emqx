@@ -427,9 +427,11 @@ add_integer_prop(Schema, Key, Value) ->
         {Int, []} -> Schema#{Key => Int}
     end.
 
-to_bin([Atom | _] = List) when is_atom(Atom) -> iolist_to_binary(io_lib:format("~p", [List]));
-to_bin(List) when is_list(List) -> unicode:characters_to_binary(List);
-to_bin(B) when is_boolean(B) -> B;
+to_bin(List) when is_list(List) ->
+    case io_lib:printable_list(List) of
+        true -> unicode:characters_to_binary(List);
+        false -> List
+    end;
 to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 to_bin(X) -> X.
 
