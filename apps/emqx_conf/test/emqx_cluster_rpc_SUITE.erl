@@ -122,17 +122,21 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     Now = erlang:system_time(millisecond),
+    ct:pal("111:~p~n", [ets:tab2list(cluster_rpc_commit)]),
     {M, F, A} = {?MODULE, failed_on_other_recover_after_5_second, [erlang:whereis(?NODE1), Now]},
-    {ok, _, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
-    {ok, _, ok} = emqx_cluster_rpc:multicall(io, format, ["test"], 1, 1000),
+    {ok, 1, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
+    ct:pal("222:~p~n", [ets:tab2list(cluster_rpc_commit)]),
+    {ok, 2, ok} = emqx_cluster_rpc:multicall(io, format, ["test"], 1, 1000),
+    ct:pal("333:~p~n", [ets:tab2list(cluster_rpc_commit)]),
+    ct:pal("444:~p~n", [emqx_cluster_rpc:status()]),
     {atomic, [Status|L]} = emqx_cluster_rpc:status(),
     ?assertEqual([], L),
     ?assertEqual({io, format, ["test"]}, maps:get(mfa, Status)),
     ?assertEqual(node(), maps:get(node, Status)),
-    sleep(2300),
+    ct:sleep(2300),
     {atomic, [Status1]} = emqx_cluster_rpc:status(),
     ?assertEqual(Status, Status1),
-    sleep(3600),
+    ct:sleep(3600),
     {atomic, NewStatus} = emqx_cluster_rpc:status(),
     ?assertEqual(3, length(NewStatus)),
     Pid = self(),
@@ -161,7 +165,7 @@ t_del_stale_mfa(_Config) ->
              {ok, TnxId, ok} = emqx_cluster_rpc:multicall(M, F, A),
              TnxId end || _ <- Keys2],
     ?assertEqual(Keys2, Ids2),
-    sleep(1200),
+    ct:sleep(1200),
     [begin
          ?assertEqual({aborted, not_found}, emqx_cluster_rpc:query(I))
      end || I <- lists:seq(1, 50)],
@@ -177,7 +181,7 @@ t_skip_failed_commit(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     {ok, 1, ok} = emqx_cluster_rpc:multicall(io, format, ["test~n"], all, 1000),
-    sleep(180),
+    ct:sleep(180),
     {atomic, List1} = emqx_cluster_rpc:status(),
     Node = node(),
     ?assertEqual([{Node, 1}, {{Node, ?NODE2}, 1}, {{Node, ?NODE3}, 1}],
@@ -249,9 +253,4 @@ failed_on_other_recover_after_5_second(Pid, CreatedAt) ->
                 true -> "MFA return not ok";
                 false -> ok
             end
-    end.
-
-sleep(Ms) ->
-    receive _ -> ok
-    after Ms -> timeout
     end.
