@@ -51,9 +51,9 @@ end_per_testcase(_, _Config) ->
 -define(HTTP_BRIDGE(PATH),
 #{
     <<"base_url">> => <<"http://localhost:9901">>,
-    <<"egress_channels">> => #{
+    <<"egress">> => #{
         <<"a">> => #{
-            <<"subscribe_local_topic">> => <<"emqx_http/#">>,
+            <<"from_local_topic">> => <<"emqx_http/#">>,
             <<"method">> => <<"post">>,
             <<"path">> => PATH,
             <<"body">> => <<"${payload}">>,
@@ -114,7 +114,7 @@ t_crud_apis(_) ->
                   , bridge_type := http
                   , is_connected := _
                   , node := _
-                  , <<"egress_channels">> := #{
+                  , <<"egress">> := #{
                       <<"a">> := #{<<"path">> := ?PATH1}
                     }
                   }, Bridge),
@@ -127,7 +127,7 @@ t_crud_apis(_) ->
     ?assertMatch(#{ id := <<"http:test_bridge">>
                   , bridge_type := http
                   , is_connected := _
-                  , <<"egress_channels">> := #{
+                  , <<"egress">> := #{
                       <<"a">> := #{<<"path">> := ?PATH2}
                     }
                   }, Bridge2),

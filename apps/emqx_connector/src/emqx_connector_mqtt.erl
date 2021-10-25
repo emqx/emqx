@@ -100,8 +100,8 @@ on_start(InstId, Conf) ->
     "bridge:" ++ NamePrefix = binary_to_list(InstId),
     BasicConf = basic_config(Conf),
     InitRes = {ok, #{name_prefix => NamePrefix, baisc_conf => BasicConf, channels => []}},
-    InOutConfigs = taged_map_list(ingress_channels, maps:get(ingress_channels, Conf, #{}))
-                ++ taged_map_list(egress_channels, maps:get(egress_channels, Conf, #{})),
+    InOutConfigs = taged_map_list(ingress, maps:get(ingress, Conf, #{}))
+                ++ taged_map_list(egress, maps:get(egress, Conf, #{})),
     lists:foldl(fun
             (_InOutConf, {error, Reason}) ->
                 {error, Reason};
@@ -120,7 +120,7 @@ on_stop(InstId, #{channels := NameList}) ->
         end, NameList).
 
 %% TODO: let the emqx_resource trigger on_query/4 automatically according to the
-%%  `ingress_channels` and `egress_channels` config
+%%  `ingress` and `egress` config
 on_query(_InstId, {create_channel, Conf}, _AfterQuery, #{name_prefix := Prefix,
         baisc_conf := BasicConf}) ->
     create_channel(Conf, Prefix, BasicConf);
@@ -136,36 +136,36 @@ on_health_check(_InstId, #{channels := NameList} = State) ->
         false -> {error, {some_channel_down, Results}, State}
     end.
 
-create_channel({{ingress_channels, Id}, #{subscribe_remote_topic := RemoteT} = Conf},
+create_channel({{ingress, Id}, #{from_remote_topic := RemoteT} = Conf},
         NamePrefix, BasicConf) ->
-    LocalT = maps:get(local_topic, Conf, undefined),
+    LocalT = maps:get(to_local_topic, Conf, undefined),
     ChannId = ingress_channel_id(NamePrefix, Id),
     ?SLOG(info, #{msg => "creating ingress channel",
-        remote_topic => RemoteT,
-        local_topic => LocalT,
+        to_remote_topic => RemoteT,
+        to_local_topic => LocalT,
         channel_id => ChannId}),
     do_create_channel(BasicConf#{
         name => ChannId,
         clientid => clientid(ChannId),
         subscriptions => Conf#{
-            local_topic => LocalT,
+            to_local_topic => LocalT,
             on_message_received => {fun ?MODULE:on_message_received/2, [ChannId]}
         },
         forwards => undefined});
 
-create_channel({{egress_channels, Id}, #{remote_topic := RemoteT} = Conf},
+create_channel({{egress, Id}, #{to_remote_topic := RemoteT} = Conf},
         NamePrefix, BasicConf) ->
-    LocalT = maps:get(subscribe_local_topic, Conf, undefined),
+    LocalT = maps:get(from_local_topic, Conf, undefined),
     ChannId = egress_channel_id(NamePrefix, Id),
     ?SLOG(info, #{msg => "creating egress channel",
-        remote_topic => RemoteT,
-        local_topic => LocalT,
+        to_remote_topic => RemoteT,
+        to_local_topic => LocalT,
         channel_id => ChannId}),
     do_create_channel(BasicConf#{
         name => ChannId,
         clientid => clientid(ChannId),
         subscriptions => undefined,
-        forwards => Conf#{subscribe_local_topic => LocalT}}).
+        forwards => Conf#{from_local_topic => LocalT}}).
 
 remove_channel(ChannId) ->
     ?SLOG(info, #{msg => "removing channel",
@@ -229,9 +229,9 @@ taged_map_list(Tag, Map) ->
     [{{Tag, K}, V} || {K, V} <- maps:to_list(Map)].
 
 ingress_channel_id(Prefix, Id) ->
-    channel_name("ingress_channels", Prefix, Id).
+    channel_name("ingress", Prefix, Id).
 egress_channel_id(Prefix, Id) ->
-    channel_name("egress_channels", Prefix, Id).
+    channel_name("egress", Prefix, Id).
 
 channel_name(Type, Prefix, Id) ->
     list_to_atom(str(Prefix) ++ ":" ++ Type ++ ":" ++ str(Id)).

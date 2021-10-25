@@ -235,8 +235,8 @@ pre_process_opts(#{subscriptions := InConf, forwards := OutConf} = ConnectOpts) 
 
 pre_process_in_out(undefined) -> undefined;
 pre_process_in_out(Conf) when is_map(Conf) ->
-    Conf1 = pre_process_conf(local_topic, Conf),
-    Conf2 = pre_process_conf(remote_topic, Conf1),
+    Conf1 = pre_process_conf(to_local_topic, Conf),
+    Conf2 = pre_process_conf(to_remote_topic, Conf1),
     Conf3 = pre_process_conf(payload, Conf2),
     Conf4 = pre_process_conf(qos, Conf3),
     pre_process_conf(retain, Conf4).
@@ -347,7 +347,7 @@ do_connect(#{connect_opts := ConnectOpts = #{forwards := Forwards},
              name := Name} = State) ->
     case Forwards of
         undefined -> ok;
-        #{subscribe_local_topic := Topic} -> subscribe_local_topic(Topic, Name)
+        #{from_local_topic := Topic} -> from_local_topic(Topic, Name)
     end,
     case emqx_connector_mqtt_mod:start(ConnectOpts) of
         {ok, Conn} ->
@@ -473,9 +473,9 @@ drop_acked_batches(Q, [#{send_ack_ref := Refs,
             All
     end.
 
-subscribe_local_topic(undefined, _Name) ->
+from_local_topic(undefined, _Name) ->
     ok;
-subscribe_local_topic(Topic, Name) ->
+from_local_topic(Topic, Name) ->
     do_subscribe(Topic, Name).
 
 topic(T) -> iolist_to_binary(T).
