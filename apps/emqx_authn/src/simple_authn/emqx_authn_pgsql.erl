@@ -108,7 +108,8 @@ authenticate(#{password := Password} = Credential,
         {ok, _Columns, []} -> ignore;
         {ok, Columns, Rows} ->
             NColumns = [Name || #column{name = Name} <- Columns],
-            Selected = maps:from_list(lists:zip(NColumns, Rows)),
+            NRows = [erlang:element(1, Row) || Row <- Rows],
+            Selected = maps:from_list(lists:zip(NColumns, NRows)),
             case emqx_authn_utils:check_password(Password, Selected, State) of
                 ok ->
                     {ok, emqx_authn_utils:is_superuser(Selected)};
@@ -137,7 +138,7 @@ parse_query(Query) ->
             PlaceHolders = [PlaceHolder || [PlaceHolder] <- Captured],
             Replacements = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(Captured))],
             NQuery = lists:foldl(fun({PlaceHolder, Replacement}, Query0) ->
-                                     re:replace(Query0, <<"'\\", PlaceHolder/binary, "'">>, Replacement, [{return, binary}])
+                                     re:replace(Query0, PlaceHolder, Replacement, [{return, binary}])
                                  end, Query, lists:zip(PlaceHolders, Replacements)),
             {NQuery, PlaceHolders};
         nomatch ->
