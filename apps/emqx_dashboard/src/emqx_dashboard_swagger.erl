@@ -432,6 +432,7 @@ to_bin(List) when is_list(List) ->
         true -> unicode:characters_to_binary(List);
         false -> List
     end;
+to_bin(Boolean) when is_boolean(Boolean) -> Boolean;
 to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 to_bin(X) -> X.
 
