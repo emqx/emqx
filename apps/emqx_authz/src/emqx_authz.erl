@@ -385,4 +385,4 @@ type(Unknown) -> error({unknown_authz_source_type, Unknown}). % should never hap
 
 %% @doc where the acl.conf file is stored.
 acl_conf_file() ->
-    filename:join([emqx:data_dir(), "ahtz", "acl.conf"]).
+    filename:join([emqx:data_dir(), "authz", "acl.conf"]).
