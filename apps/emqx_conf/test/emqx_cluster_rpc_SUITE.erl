@@ -43,8 +43,8 @@ init_per_suite(Config) ->
     ok = ekka:start(),
     ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
     meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
-    meck:expect(emqx_alarm, activate, 2, ok),
-    meck:expect(emqx_alarm, deactivate, 2, ok),
+    meck:expect(emqx_alarm, activate, 3, ok),
+    meck:expect(emqx_alarm, deactivate, 3, ok),
     Config.
 
 end_per_suite(_Config) ->

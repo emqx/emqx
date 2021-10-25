@@ -44,7 +44,7 @@ schema("/alarms") ->
                 hoconsc:ref(emqx_dashboard_swagger, limit),
                 {activated, hoconsc:mk(boolean(), #{in => query,
                     desc => <<"All alarms, if not specified">>,
-                    required => false})}
+                    nullable => true})}
             ],
             responses => #{
                 200 => [
