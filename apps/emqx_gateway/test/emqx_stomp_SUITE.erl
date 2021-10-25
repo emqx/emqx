@@ -407,6 +407,7 @@ t_rest_clienit_info(_) ->
 
         %% kickout
         {204, _} = request(delete, ClientPath),
+        ignored = gen_server:call(?CM, ignore, infinity). % sync
         ok = emqx_pool:flush_async_tasks(),
         {200, Clients2} = request(get, "/gateway/stomp/clients"),
         ?assertEqual(0, length(maps:get(data, Clients2)))
