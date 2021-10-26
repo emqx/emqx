@@ -68,7 +68,8 @@ init([]) ->
     SessionSup = child_spec(emqx_persistent_session_sup, supervisor),
     CMSup = child_spec(emqx_cm_sup, supervisor),
     SysSup = child_spec(emqx_sys_sup, supervisor),
-    Children = [KernelSup, SessionSup] ++
+    Children = [KernelSup] ++
+               [SessionSup || emqx_persistent_session:is_store_enabled()] ++
                [RouterSup || emqx_boot:is_enabled(router)] ++
                [BrokerSup || emqx_boot:is_enabled(broker)] ++
                [CMSup || emqx_boot:is_enabled(broker)] ++

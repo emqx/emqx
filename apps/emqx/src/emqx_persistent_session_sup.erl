@@ -26,29 +26,29 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    case emqx_persistent_session:is_store_enabled() of
-        false ->
-            {ok, {{one_for_all, 0, 1}, []}};
-        true ->
-            %% We want this supervisor to own the table for restarts
-            SessionTab = emqx_session_router:create_init_tab(),
+    %% We want this supervisor to own the table for restarts
+    SessionTab = emqx_session_router:create_init_tab(),
 
-            %% Resume worker sup
-            ResumeSup = #{id => router_worker_sup,
-                          start => {emqx_session_router_worker_sup, start_link, [SessionTab]},
-                          restart => permanent,
-                          shutdown => 2000,
-                          type => supervisor,
-                          modules => [emqx_session_router_worker_sup]},
+    %% Resume worker sup
+    ResumeSup = #{id => router_worker_sup,
+                  start => {emqx_session_router_worker_sup, start_link, [SessionTab]},
+                  restart => permanent,
+                  shutdown => 2000,
+                  type => supervisor,
+                  modules => [emqx_session_router_worker_sup]},
 
-            SessionRouterPool = emqx_pool_sup:spec(session_router_pool,
-                                                   [session_router_pool, hash,
-                                                    {emqx_session_router, start_link, []}]),
+    SessionRouterPool = emqx_pool_sup:spec(session_router_pool,
+                                           [session_router_pool, hash,
+                                            {emqx_session_router, start_link, []}]),
 
-            GCWorker = child_spec(emqx_persistent_session_gc, worker),
+    GCWorker = child_spec(emqx_persistent_session_gc, worker),
 
-            {ok, {{one_for_all, 0, 1}, [ResumeSup, SessionRouterPool, GCWorker]}}
-    end.
+    Spec = #{ strategy  => one_for_all
+            , intensity => 0
+            , period    => 1
+            },
+
+    {ok, {Spec, [ResumeSup, SessionRouterPool, GCWorker]}}.
 
 child_spec(Mod, worker) ->
     #{id => Mod,
