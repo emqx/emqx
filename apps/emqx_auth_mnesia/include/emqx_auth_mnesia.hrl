@@ -5,6 +5,8 @@
 
 -type(acl_target() :: login() | all).
 
+-type(acl_target_type() :: clientid | username | all).
+
 -type(access():: allow | deny).
 -type(action():: pub | sub).
 -type(legacy_action():: action() | pubsub).

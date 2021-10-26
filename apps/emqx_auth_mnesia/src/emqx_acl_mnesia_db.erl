@@ -20,7 +20,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 
-%% Acl APIs
+%% ACL APIs
 -export([ create_table/0
         , create_table2/0
         ]).
@@ -39,7 +39,7 @@
 -export([comparing/2]).
 
 %%--------------------------------------------------------------------
-%% Acl API
+%% ACL API
 %%--------------------------------------------------------------------
 
 %% @doc Create table `emqx_acl` of old format rules
@@ -87,7 +87,7 @@ lookup_acl(Login) ->
     MergedAcl = merge_acl_records(Login, OldRecs, NewAcls),
     lists:sort(fun comparing/2, acl_to_list(MergedAcl)).
 
-%% @doc Remove acl
+%% @doc Remove ACL
 -spec remove_acl(acl_target(), emqx_topic:topic()) -> ok | {error, any()}.
 remove_acl(Login, Topic) ->
     ret(mnesia:transaction(fun() ->
@@ -103,19 +103,24 @@ remove_acl(Login, Topic) ->
                               end
                            end)).
 
-%% @doc All Acl rules
+%% @doc All ACL rules
 -spec(all_acls() -> list(acl_record())).
 all_acls() ->
-    all_acls({username, '_'}) ++
-    all_acls({clientid, '_'}) ++
+    all_acls(username) ++
+    all_acls(clientid) ++
     all_acls(all).
 
-%% @doc All Acl rules transactionally
+%% @doc All ACL rules of specified type
+-spec(all_acls(acl_target_type()) -> list(acl_record())).
+all_acls(AclTargetType) ->
+    lists:sort(fun comparing/2, qlc:eval(login_acl_table(AclTargetType))).
+
+%% @doc All ACL rules fetched transactionally
 -spec(all_acls_export() -> list(acl_record())).
 all_acls_export() ->
-    LoginSpecs = [{username, '_'}, {clientid, '_'}, all],
-    MatchSpecNew = lists:flatmap(fun login_match_spec_new/1, LoginSpecs),
-    MatchSpecOld = lists:flatmap(fun login_match_spec_old/1, LoginSpecs),
+    AclTargetTypes = [username, clientid, all],
+    MatchSpecNew = lists:flatmap(fun login_match_spec_new/1, AclTargetTypes),
+    MatchSpecOld = lists:flatmap(fun login_match_spec_old/1, AclTargetTypes),
 
     {atomic, Records} = mnesia:transaction(
         fun() ->
@@ -125,10 +130,10 @@ all_acls_export() ->
     Records.
 
 %% @doc QLC table of logins matching spec
--spec(login_acl_table(ets:match_pattern()) -> qlc:query_handle()).
-login_acl_table(LoginSpec) ->
-    MatchSpecNew = login_match_spec_new(LoginSpec),
-    MatchSpecOld = login_match_spec_old(LoginSpec),
+-spec(login_acl_table(acl_target_type()) -> qlc:query_handle()).
+login_acl_table(AclTargetType) ->
+    MatchSpecNew = login_match_spec_new(AclTargetType),
+    MatchSpecOld = login_match_spec_old(AclTargetType),
     acl_table(MatchSpecNew, MatchSpecOld, fun ets:table/2, fun lookup_ets/2).
 
 %% @doc Combine old `emqx_acl` ACL records with a new `emqx_acl2` ACL record for a given login
@@ -183,9 +188,6 @@ add_acl_old(Login, Topic, Action, Access) ->
             update_permission(Action, Acl, OldRecords)
     end.
 
-all_acls(LoginSpec) ->
-    lists:sort(fun comparing/2, qlc:eval(login_acl_table(LoginSpec))).
-
 old_recs_to_rules(OldRecs) ->
     lists:flatmap(fun old_rec_to_rules/1, OldRecs).
 
@@ -221,11 +223,25 @@ comparing({_, _, _, _, CreatedAt1},
           {_, _, _, _, CreatedAt2}) ->
     CreatedAt1 >= CreatedAt2.
 
-login_match_spec_new(LoginSpec) ->
-    [{{?ACL_TABLE2, LoginSpec, '_'}, [], ['$_']}].
+login_match_spec_old(all) ->
+    ets:fun2ms(fun(#?ACL_TABLE{filter = {all, _}} = Record) ->
+                Record
+               end);
 
-login_match_spec_old(LoginSpec) ->
-    [{{?ACL_TABLE, {LoginSpec, '_'}, '_', '_', '_'}, [], ['$_']}].
+login_match_spec_old(Type) when (Type =:= username) or (Type =:= clientid) ->
+    ets:fun2ms(fun(#?ACL_TABLE{filter = {{RecordType, _}, _}} = Record)
+                    when RecordType =:= Type -> Record
+               end).
+
+login_match_spec_new(all) ->
+    ets:fun2ms(fun(#?ACL_TABLE2{who = all} = Record) ->
+                Record
+               end);
+
+login_match_spec_new(Type) when (Type =:= username) or (Type =:= clientid) ->
+    ets:fun2ms(fun(#?ACL_TABLE2{who = {RecordType, _}} = Record)
+                    when RecordType =:= Type -> Record
+               end).
 
 acl_table(MatchSpecNew, MatchSpecOld, TableFun, LookupFun) ->
     TraverseFun =

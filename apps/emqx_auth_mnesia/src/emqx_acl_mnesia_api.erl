@@ -97,11 +97,11 @@
         ]).
 
 list_clientid(_Bindings, Params) ->
-    Table = emqx_acl_mnesia_db:login_acl_table({clientid, '_'}),
+    Table = emqx_acl_mnesia_db:login_acl_table(clientid),
     return({ok, emqx_auth_mnesia_api:paginate_qh(Table, count(Table), Params, fun emqx_acl_mnesia_db:comparing/2, fun format/1)}).
 
 list_username(_Bindings, Params) ->
-    Table = emqx_acl_mnesia_db:login_acl_table({username, '_'}),
+    Table = emqx_acl_mnesia_db:login_acl_table(username),
     return({ok, emqx_auth_mnesia_api:paginate_qh(Table, count(Table), Params, fun emqx_acl_mnesia_db:comparing/2, fun format/1)}).
 
 list_all(_Bindings, Params) ->

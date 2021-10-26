@@ -26,10 +26,10 @@ cli(["list"]) ->
     [print_acl(Acl) || Acl <- emqx_acl_mnesia_db:all_acls()];
 
 cli(["list", "clientid"]) ->
-    [print_acl(Acl) || Acl <- emqx_acl_mnesia_db:all_acls({clientid, '_'})];
+    [print_acl(Acl) || Acl <- emqx_acl_mnesia_db:all_acls(clientid)];
 
 cli(["list", "username"]) ->
-    [print_acl(Acl) || Acl <- emqx_acl_mnesia_db:all_acls({username, '_'})];
+    [print_acl(Acl) || Acl <- emqx_acl_mnesia_db:all_acls(username)];
 
 cli(["list", "_all"]) ->
     [print_acl(Acl) || Acl <- emqx_acl_mnesia_db:all_acls(all)];
