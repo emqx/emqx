@@ -14,20 +14,24 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--record(mqtt_admin, {
-    username             :: binary(),
-    password             :: binary(),
-    tags                 :: list() | binary(),
-    role = undefined     :: atom()
+-record(emqx_admin, {
+    username         :: binary(),
+    pwdhash          :: binary(),
+    tags             :: list() | binary(),
+    role = undefined :: atom(),
+    extra = []       :: term() %% not used so far, for future extension
     }).
 
--record(mqtt_admin_jwt, {
-    token               :: binary(),
-    username            :: binary(),
-    exptime             :: integer()
+-define(ADMIN, emqx_admin).
+
+-record(emqx_admin_jwt, {
+    token      :: binary(),
+    username   :: binary(),
+    exptime    :: integer(),
+    extra = [] :: term() %% not used so far, fur future extension
     }).
 
--type(mqtt_admin() :: #mqtt_admin{}).
+-define(ADMIN_JWT, emqx_admin_jwt).
 
 -define(EMPTY_KEY(Key), ((Key == undefined) orelse (Key == <<>>))).
 

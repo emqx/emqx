@@ -188,7 +188,7 @@ logout(_, #{body := #{<<"username">> := Username},
     end.
 
 users(get, _Request) ->
-    {200, [row(User) || User <- emqx_dashboard_admin:all_users()]};
+    {200, emqx_dashboard_admin:all_users()};
 
 users(post, #{body := Params}) ->
     Tag = maps:get(<<"tag">>, Params),
@@ -231,6 +231,3 @@ change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->
         {error, Reason} ->
             {400, #{code => <<"CHANGE_PWD_FAIL">>, message => Reason}}
     end.
-
-row(#mqtt_admin{username = Username, tags = Tag}) ->
-    #{username => Username, tag => Tag}.
