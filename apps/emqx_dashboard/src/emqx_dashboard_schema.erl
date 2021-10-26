@@ -57,6 +57,10 @@ default_username(_) -> undefined.
 default_password(type) -> string();
 default_password(default) -> "public";
 default_password(nullable) -> false;
+default_password(sensitive) -> true;
+default_password(desc) -> """
+The initial default password for dashboard 'admin' user.
+For safty, it should be changed as soon as possible.""";
 default_password(_) -> undefined.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
