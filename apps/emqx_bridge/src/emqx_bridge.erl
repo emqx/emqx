@@ -199,7 +199,7 @@ update(Type, Name, {_OldConf, Conf}) ->
     ?SLOG(info, #{msg => "update bridge", type => Type, name => Name,
         config => Conf}),
     emqx_resource:recreate(resource_id(Type, Name),
-        emqx_bridge:resource_type(Type), Conf, []).
+        emqx_bridge:resource_type(Type), parse_confs(Type, Conf), []).
 
 remove(Type, Name, _Conf) ->
     ?SLOG(info, #{msg => "remove bridge", type => Type, name => Name}),

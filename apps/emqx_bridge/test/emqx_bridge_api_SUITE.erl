@@ -23,21 +23,30 @@
 -define(CONF_DEFAULT, <<"bridges: {}">>).
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 groups() ->
     [].
 
+suite() ->
+	[{timetrap,{seconds,30}}].
+
 init_per_suite(Config) ->
-    application:load(emqx_machine),
-    ok = ekka:start(),
-    ok = emqx_ct_helpers:start_apps([emqx_bridge]),
+    ok = emqx_config:put([emqx_dashboard], #{
+        default_username => <<"admin">>,
+        default_password => <<"public">>,
+        listeners => [#{
+            protocol => http,
+            port => 18083
+        }]
+    }),
+    ok = emqx_common_test_helpers:start_apps([emqx_bridge, emqx_dashboard]),
     ok = emqx_config:init_load(emqx_bridge_schema, ?CONF_DEFAULT),
     Config.
 
 end_per_suite(_Config) ->
     ok = ekka:stop(),
-    emqx_ct_helpers:stop_apps([emqx_bridge]),
+    emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_dashboard]),
     ok.
 
 init_per_testcase(_, Config) ->
@@ -98,40 +107,74 @@ handle_fun_200_ok(Conn) ->
 %%------------------------------------------------------------------------------
 
 t_crud_apis(_) ->
+    start_http_server(9901, fun handle_fun_200_ok/1),
     %% assert we there's no bridges at first
-    {200, []} = emqx_bridge_api:list_bridges(get, #{}),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     %% then we add a http bridge now
-    {200, [Bridge]} = emqx_bridge_api:crud_bridges_cluster(put,
-        #{ bindings => #{id => <<"http:test_bridge">>}
-         , body => ?HTTP_BRIDGE(?URL1)
-         }),
+    {ok, 200, Bridge} = request(put, uri(["bridges", "http:test_bridge"]), ?HTTP_BRIDGE(?URL1)),
     %ct:pal("---bridge: ~p", [Bridge]),
-    ?assertMatch(#{ id := <<"http:test_bridge">>
-                  , bridge_type := http
-                  , is_connected := _
-                  , node := _
-                  , <<"url">> := ?URL1
-                  }, Bridge),
+    ?assertMatch([ #{ <<"id">> := <<"http:test_bridge">>
+                    , <<"bridge_type">> := <<"http">>
+                    , <<"is_connected">> := _
+                    , <<"node">> := _
+                    , <<"url">> := ?URL1
+                    }], jsx:decode(Bridge)),
 
     %% update the request-path of the bridge
-    {200, [Bridge2]} = emqx_bridge_api:crud_bridges_cluster(put,
-        #{ bindings => #{id => <<"http:test_bridge">>}
-         , body => ?HTTP_BRIDGE(?URL2)
-         }),
-    ?assertMatch(#{ id := <<"http:test_bridge">>
-                  , bridge_type := http
-                  , is_connected := _
-                  , <<"url">> := ?URL2
-                  }, Bridge2),
+    {ok, 200, Bridge2} = request(put, uri(["bridges", "http:test_bridge"]), ?HTTP_BRIDGE(?URL2)),
+    ?assertMatch([ #{ <<"id">> := <<"http:test_bridge">>
+                    , <<"bridge_type">> := <<"http">>
+                    , <<"is_connected">> := _
+                    , <<"node">> := _
+                    , <<"url">> := ?URL2
+                    }], jsx:decode(Bridge2)),
 
     %% list all bridges again, assert Bridge2 is in it
-    {200, [Bridge2]} = emqx_bridge_api:list_bridges(get, #{}),
+    {ok, 200, Bridge2Str} = request(get, uri(["bridges"]), []),
+    ?assertMatch([ #{ <<"id">> := <<"http:test_bridge">>
+                    , <<"bridge_type">> := <<"http">>
+                    , <<"is_connected">> := _
+                    , <<"node">> := _
+                    , <<"url">> := ?URL2
+                    }], jsx:decode(Bridge2Str)),
 
-    %% delete teh bridge
-    {200} = emqx_bridge_api:crud_bridges_cluster(delete,
-        #{ bindings => #{id => <<"http:test_bridge">>}
-         }),
-    {200, []} = emqx_bridge_api:list_bridges(get, #{}),
+    %% delete the bridge
+    {ok,200,<<>>} = request(delete, uri(["bridges", "http:test_bridge"]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
     ok.
+
+
+%%--------------------------------------------------------------------
+%% HTTP Request
+%%--------------------------------------------------------------------
+-define(HOST, "http://127.0.0.1:18083/").
+-define(API_VERSION, "v5").
+-define(BASE_PATH, "api").
+
+request(Method, Url, Body) ->
+    Request = case Body of
+        [] -> {Url, [auth_header_()]};
+        _ -> {Url, [auth_header_()], "application/json", jsx:encode(Body)}
+    end,
+    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
+    case httpc:request(Method, Request, [], [{body_format, binary}]) of
+        {error, socket_closed_remotely} ->
+            {error, socket_closed_remotely};
+        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return} } ->
+            {ok, Code, Return};
+        {ok, {Reason, _, _}} ->
+            {error, Reason}
+    end.
+
+uri() -> uri([]).
+uri(Parts) when is_list(Parts) ->
+    NParts = [E || E <- Parts],
+    ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION | NParts]).
+
+auth_header_() ->
+    Username = <<"admin">>,
+    Password = <<"public">>,
+    {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
