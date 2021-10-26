@@ -66,6 +66,9 @@
                                         }
                                      ]
                            }).
+-define(FORMAT_USERNAME_FUN, {?MODULE, format_by_username}).
+-define(FORMAT_CLIENTID_FUN, {?MODULE, format_by_clientid}).
+
 
 -export([ api_spec/0
         , purge/2
@@ -75,6 +78,9 @@
         , client/2
         , all/2
         ]).
+
+-export([ format_by_username/1
+        , format_by_clientid/1]).
 
 api_spec() ->
     {[ purge_api()
@@ -507,15 +513,7 @@ users(get, #{query_string := PageParams}) ->
                   fun({?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}, Rules}) ->
                           [{username, Username}, {rules, Rules}]
                   end),
-    Format = fun ([{username, Username}, {rules, Rules}]) ->
-                #{username => Username,
-                  rules => [ #{topic => Topic,
-                               action => Action,
-                               permission => Permission
-                              } || {Permission, Action, Topic} <- Rules]
-                 }
-             end,
-    {200, emqx_mgmt_api:paginate(?ACL_TABLE, MatchSpec, PageParams, Format)};
+    {200, emqx_mgmt_api:paginate(?ACL_TABLE, MatchSpec, PageParams, ?FORMAT_USERNAME_FUN)};
 users(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
                       mria:dirty_write(#emqx_acl{
@@ -530,15 +528,7 @@ clients(get, #{query_string := PageParams}) ->
                   fun({?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}, Rules}) ->
                           [{clientid, Clientid}, {rules, Rules}]
                   end),
-    Format = fun ([{clientid, Clientid}, {rules, Rules}]) ->
-                #{clientid => Clientid,
-                  rules => [ #{topic => Topic,
-                               action => Action,
-                               permission => Permission
-                              } || {Permission, Action, Topic} <- Rules]
-                 }
-             end,
-    {200, emqx_mgmt_api:paginate(?ACL_TABLE, MatchSpec, PageParams, Format)};
+    {200, emqx_mgmt_api:paginate(?ACL_TABLE, MatchSpec, PageParams, ?FORMAT_CLIENTID_FUN)};
 clients(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"clientid">> := Clientid, <<"rules">> := Rules}) ->
                       mria:dirty_write(#emqx_acl{
@@ -635,6 +625,20 @@ format_rules(Rules) when is_list(Rules) ->
                    AccIn ++ [{ atom(Permission), atom(Action), Topic }]
                 end, [], Rules).
 
+format_by_username([{username, Username}, {rules, Rules}]) ->
+    #{username => Username,
+      rules => [ #{topic => Topic,
+                   action => Action,
+                   permission => Permission
+                  } || {Permission, Action, Topic} <- Rules]
+     }.
+format_by_clientid([{clientid, Clientid}, {rules, Rules}]) ->
+    #{clientid => Clientid,
+      rules => [ #{topic => Topic,
+                   action => Action,
+                   permission => Permission
+                  } || {Permission, Action, Topic} <- Rules]
+     }.
 atom(B) when is_binary(B) ->
     try binary_to_existing_atom(B, utf8)
     catch

@@ -42,6 +42,8 @@
         , list_users/2
         ]).
 
+-export([format_user_info/1]).
+
 -type user_id_type() :: clientid | username.
 
 -type user_group() :: {binary(), binary()}.
@@ -61,6 +63,7 @@
 -boot_mnesia({mnesia, [boot]}).
 
 -define(TAB, ?MODULE).
+-define(FORMAT_FUN, {?MODULE, format_user_info}).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -244,7 +247,7 @@ lookup_user(UserID, #{user_group := UserGroup}) ->
 
 list_users(PageParams, #{user_group := UserGroup}) ->
     MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_', '_'}, [], ['$_']}],
-    {ok, emqx_mgmt_api:paginate(?TAB, MatchSpec, PageParams, fun format_user_info/1)}.
+    {ok, emqx_mgmt_api:paginate(?TAB, MatchSpec, PageParams, ?FORMAT_FUN)}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
