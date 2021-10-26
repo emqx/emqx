@@ -92,7 +92,7 @@ the rule.
 """
             })}
     , {egress,
-        sc(hoconsc:map(id, ref("egress")),
+        sc(ref("egress"),
            #{ default => #{}
             , desc => """
 The egress config defines how this bridge forwards messages from the local broker to the remote

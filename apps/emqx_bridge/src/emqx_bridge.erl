@@ -221,14 +221,18 @@ get_matched_bridges(Topic) ->
     Bridges = emqx:get_config([bridges], #{}),
     maps:fold(fun (BType, Conf, Acc0) ->
         maps:fold(fun
-            (BName, #{from_local_topic := Filter}, Acc1) ->
-                case emqx_topic:match(Topic, Filter) of
-                    true -> [bridge_id(BType, BName) | Acc1];
-                    false -> Acc1
-                end;
-            (_Name, _BridgeConf, Acc1) -> Acc1
+            (BName, #{egress := Egress}, Acc1) ->
+                get_matched_bridge_id(Egress, Topic, BType, BName, Acc1);
+            (BName, BridgeConf, Acc1) ->
+                get_matched_bridge_id(BridgeConf, Topic, BType, BName, Acc1)
         end, Acc0, Conf)
     end, [], Bridges).
+
+get_matched_bridge_id(#{from_local_topic := Filter}, Topic, BType, BName, Acc) ->
+    case emqx_topic:match(Topic, Filter) of
+        true -> [bridge_id(BType, BName) | Acc];
+        false -> Acc
+    end.
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);

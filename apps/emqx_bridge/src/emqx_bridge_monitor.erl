@@ -74,8 +74,9 @@ load_bridges(Configs) ->
 %% TODO: move this monitor into emqx_resource
 %% emqx_resource:check_and_create_local(ResourceId, ResourceType, Config, #{keep_retry => true}).
 load_bridge(<<"http">>, Name, Config) ->
-    Config1 = parse_http_confs(Config),
-    do_load_bridge(<<"http">>, Name, Config1).
+    do_load_bridge(<<"http">>, Name, parse_http_confs(Config));
+load_bridge(Type, Name, Config) ->
+    do_load_bridge(Type, Name, Config).
 
 do_load_bridge(Type, Name, Config) ->
     case emqx_resource:check_and_create_local(
