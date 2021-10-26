@@ -54,7 +54,7 @@ start_link() ->
 
 init([]) ->
     process_flag(trap_exit, true),
-    {ok, start_session_gc_timer(#{})}.
+    {ok, start_message_gc_timer(start_session_gc_timer(#{}))}.
 
 handle_call(_Request, _From, State) ->
     Reply = ok,
