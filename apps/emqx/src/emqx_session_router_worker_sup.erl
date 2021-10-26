@@ -50,4 +50,8 @@ init(SessionTab) ->
                shutdown => 2000,
                type => worker,
                modules => [emqx_session_router_worker]},
-    {ok, {{simple_one_for_one, 0, 1}, [Worker]}}.
+    Spec = #{ strategy  => simple_one_for_one
+            , intensity => 1
+            , period    => 5},
+
+    {ok, {Spec, [Worker]}}.
