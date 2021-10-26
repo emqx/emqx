@@ -53,26 +53,40 @@ namespace() -> gateway.
 roots() -> [gateway].
 
 fields(gateway) ->
-    [{stomp,   sc(ref(stomp),
-                  #{ nullable => {true, recursively}
-                   , desc => "The Stomp Gateway configuration."
-                   })},
-     {mqttsn,  sc(ref(mqttsn),
-                  #{ nullable => {true, recursively}
-                   , desc => "The MQTT-SN Gateway configuration"
-                   })},
-     {coap,    sc(ref(coap),
-                  #{ nullable => {true, recursively}
-                   , desc => "The CoAP Gateway configuration"
-                   })},
-     {lwm2m,   sc(ref(lwm2m),
-                  #{ nullable => {true, recursively}
-                   , desc => "The LwM2M Gateway configuration"
-                   })},
-     {exproto, sc(ref(exproto),
-                  #{ nullable => {true, recursively}
-                   , desc => "The Extension Protocol configuration"
-                   })}
+    [{stomp,
+      sc(ref(stomp),
+         #{ nullable => {true, recursively}
+          , desc =>
+"The Stomp Gateway configuration.<br>
+This gateway supports v1.2/1.1/1.0"
+          })},
+     {mqttsn,
+      sc(ref(mqttsn),
+         #{ nullable => {true, recursively}
+          , desc =>
+"The MQTT-SN Gateway configuration.<br>
+This gateway only supports the v1.2 protocol"
+          })},
+     {coap,
+      sc(ref(coap),
+         #{ nullable => {true, recursively}
+          , desc =>
+"The CoAP Gateway configuration.<br>
+This gateway is implemented based on RFC-7252 and
+https://core-wg.github.io/coap-pubsub/draft-ietf-core-pubsub.html"
+          })},
+     {lwm2m,
+      sc(ref(lwm2m),
+         #{ nullable => {true, recursively}
+          , desc =>
+"The LwM2M Gateway configuration.<br>
+This gateway only supports the v1.0.1 protocol"
+          })},
+     {exproto,
+      sc(ref(exproto),
+         #{ nullable => {true, recursively}
+          , desc => "The Extension Protocol configuration"
+          })}
     ];
 
 fields(stomp) ->
