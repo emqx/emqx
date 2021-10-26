@@ -91,7 +91,6 @@ buffer(Worker, STopic, Msg) ->
 init(#{ remote_pid  := RemotePid
       , session_id  := SessionID
       , session_tab := SessionTab}) ->
-    process_flag(trap_exit, true),
     erlang:monitor(process, RemotePid),
     ?tp(ps_worker_started, #{ remote_pid => RemotePid
                             , sid => SessionID }),
