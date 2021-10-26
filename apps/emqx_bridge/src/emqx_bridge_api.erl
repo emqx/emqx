@@ -157,7 +157,7 @@ list_bridges(get, _Params) ->
     {200, lists:append([list_local_bridges(Node) || Node <- mria_mnesia:running_nodes()])}.
 
 list_local_bridges(Node) when Node =:= node() ->
-    [format_resp(Data) || Data <- emqx_bridge:list_bridges()];
+    [format_resp(Data) || Data <- emqx_bridge:list()];
 list_local_bridges(Node) ->
     rpc_call(Node, list_local_bridges, [Node]).
 
@@ -177,7 +177,7 @@ crud_bridges(Node, Method, Params) when Node =/= node() ->
     rpc_call(Node, crud_bridges, [Node, Method, Params]);
 
 crud_bridges(_, get, #{bindings := #{id := Id}}) ->
-    ?TRY_PARSE_ID(Id, case emqx_bridge:get_bridge(BridgeType, BridgeName) of
+    ?TRY_PARSE_ID(Id, case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, Data} -> {200, format_resp(Data)};
         {error, not_found} ->
             {404, #{code => 102, message => <<"not_found: ", Id/binary>>}}
@@ -190,7 +190,7 @@ crud_bridges(_, put, #{bindings := #{id := Id}, body := Conf}) ->
             {ok, #{raw_config := RawConf, post_config_update := #{emqx_bridge := Data}}} ->
                 {200, format_resp(#{id => Id, raw_config => RawConf, resource_data => Data})};
             {ok, _} -> %% the bridge already exits
-                {ok, Data} = emqx_bridge:get_bridge(BridgeType, BridgeName),
+                {ok, Data} = emqx_bridge:lookup(BridgeType, BridgeName),
                 {200, format_resp(Data)};
             {error, Reason} ->
                 {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
