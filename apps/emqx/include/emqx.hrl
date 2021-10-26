@@ -89,7 +89,7 @@
 
 -record(route, {
           topic :: binary(),
-          dest  :: node() | {binary(), node()} | binary()
+          dest  :: node() | {binary(), node()} | emqx_session:sessionID()
          }).
 
 %%--------------------------------------------------------------------

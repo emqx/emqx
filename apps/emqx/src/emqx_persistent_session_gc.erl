@@ -37,6 +37,9 @@
 -endif.
 
 -define(SERVER, ?MODULE).
+%% TODO: Maybe these should be configurable?
+-define(MARKER_GRACE_PERIOD, 60000000).
+-define(ABANDONED_GRACE_PERIOD, 300000000).
 
 %%--------------------------------------------------------------------
 %% API
@@ -96,10 +99,6 @@ session_gc_timeout(_Ref, State) ->
 
 session_gc_worker() ->
     ok = emqx_persistent_session:gc_session_messages(fun session_gc_worker/2).
-
-%% TODO: Maybe these should be configurable?
--define(MARKER_GRACE_PERIOD, 60000000).
--define(ABANDONED_GRACE_PERIOD, 300000000).
 
 session_gc_worker(delete, Key) ->
     emqx_persistent_session:delete_session_message(Key);

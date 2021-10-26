@@ -259,7 +259,7 @@ stats(Session) -> info(?STATS_KEYS, Session).
 %%--------------------------------------------------------------------
 
 ignore_local(Delivers, Subscriber, Session) ->
-    Subs = emqx_session:info(subscriptions, Session),
+    Subs = info(subscriptions, Session),
     lists:dropwhile(fun({deliver, Topic, #message{from = Publisher}}) ->
                         case maps:find(Topic, Subs) of
                             {ok, #{nl := 1}} when Subscriber =:= Publisher ->
