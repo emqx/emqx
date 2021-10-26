@@ -340,7 +340,7 @@ After succeed observe a resource of LwM2M client, Gateway will send the notifyev
 
 fields(translator) ->
     [ {topic, sc(binary())}
-    , {qos, sc(range(0, 2), 0)}
+    , {qos, sc(range(0, 2), #{default => 0})}
     ];
 
 fields(udp_listeners) ->
@@ -362,7 +362,7 @@ fields(udp_tcp_listeners) ->
 
 fields(tcp_listener) ->
     [ %% some special confs for tcp listener
-      {acceptors, sc(integer(), 16)}
+      {acceptors, sc(integer(), #{default => 16})}
     ] ++
     tcp_opts() ++
     proxy_protocol_opts() ++
@@ -390,11 +390,11 @@ fields(dtls_listener) ->
     [{dtls, sc(ref(dtls_opts), #{desc => "DTLS listener options"})}];
 
 fields(udp_opts) ->
-    [ {active_n, sc(integer(), 100)}
+    [ {active_n, sc(integer(), #{default => 100})}
     , {recbuf, sc(bytesize())}
     , {sndbuf, sc(bytesize())}
     , {buffer, sc(bytesize())}
-    , {reuseaddr, sc(boolean(), true)}
+    , {reuseaddr, sc(boolean(), #{default => true})}
     ];
 
 fields(dtls_opts) ->
