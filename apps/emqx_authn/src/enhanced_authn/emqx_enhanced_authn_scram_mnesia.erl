@@ -41,7 +41,10 @@
         , list_users/2
         ]).
 
+-export([format_user_info/1]).
+
 -define(TAB, ?MODULE).
+-define(FORMAT_FUN, {?MODULE, format_user_info}).
 
 -export([mnesia/1]).
 
@@ -195,7 +198,7 @@ lookup_user(UserID, #{user_group := UserGroup}) ->
 
 list_users(PageParams, #{user_group := UserGroup}) ->
     MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_', '_', '_'}, [], ['$_']}],
-    {ok, emqx_mgmt_api:paginate(?TAB, MatchSpec, PageParams, fun format_user_info/1)}.
+    {ok, emqx_mgmt_api:paginate(?TAB, MatchSpec, PageParams, ?FORMAT_FUN)}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions

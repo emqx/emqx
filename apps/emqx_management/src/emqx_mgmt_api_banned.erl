@@ -39,6 +39,8 @@
 -export([format/1]).
 
 -define(TAB, emqx_banned).
+-define(FORMAT_FUN, {?MODULE, format}).
+
 
 api_spec() ->
     {[banned_api(), delete_banned_api()], []}.
@@ -98,7 +100,7 @@ delete_banned_api() ->
     {Path, MetaData, delete_banned}.
 
 banned(get, #{query_string := Params}) ->
-    Response = emqx_mgmt_api:paginate(?TAB, Params, fun format/1),
+    Response = emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN),
     {200, Response};
 banned(post, #{body := Body}) ->
     _ = emqx_banned:create(emqx_banned:parse(Body)),
