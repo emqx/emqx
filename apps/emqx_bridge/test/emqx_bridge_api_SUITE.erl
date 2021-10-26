@@ -46,22 +46,19 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     ok.
 
--define(PATH1, <<"path1">>).
--define(PATH2, <<"path2">>).
--define(HTTP_BRIDGE(PATH),
+-define(URL1, <<"http://localhost:9901/path1">>).
+-define(URL2, <<"http://localhost:9901/path2">>).
+-define(HTTP_BRIDGE(URL),
 #{
-    <<"base_url">> => <<"http://localhost:9901">>,
-    <<"egress">> => #{
-        <<"a">> => #{
-            <<"from_local_topic">> => <<"emqx_http/#">>,
-            <<"method">> => <<"post">>,
-            <<"path">> => PATH,
-            <<"body">> => <<"${payload}">>,
-            <<"headers">> => #{
-                <<"content-type">> => <<"application/json">>
-            }
-        }
+    <<"url">> => URL,
+    <<"from_local_topic">> => <<"emqx_http/#">>,
+    <<"method">> => <<"post">>,
+    <<"ssl">> => #{<<"enable">> => false},
+    <<"body">> => <<"${payload}">>,
+    <<"headers">> => #{
+        <<"content-type">> => <<"application/json">>
     }
+
 }).
 
 %%------------------------------------------------------------------------------
@@ -107,29 +104,25 @@ t_crud_apis(_) ->
     %% then we add a http bridge now
     {200, [Bridge]} = emqx_bridge_api:crud_bridges_cluster(put,
         #{ bindings => #{id => <<"http:test_bridge">>}
-         , body => ?HTTP_BRIDGE(?PATH1)
+         , body => ?HTTP_BRIDGE(?URL1)
          }),
     %ct:pal("---bridge: ~p", [Bridge]),
     ?assertMatch(#{ id := <<"http:test_bridge">>
                   , bridge_type := http
                   , is_connected := _
                   , node := _
-                  , <<"egress">> := #{
-                      <<"a">> := #{<<"path">> := ?PATH1}
-                    }
+                  , <<"url">> := ?URL1
                   }, Bridge),
 
     %% update the request-path of the bridge
     {200, [Bridge2]} = emqx_bridge_api:crud_bridges_cluster(put,
         #{ bindings => #{id => <<"http:test_bridge">>}
-         , body => ?HTTP_BRIDGE(?PATH2)
+         , body => ?HTTP_BRIDGE(?URL2)
          }),
     ?assertMatch(#{ id := <<"http:test_bridge">>
                   , bridge_type := http
                   , is_connected := _
-                  , <<"egress">> := #{
-                      <<"a">> := #{<<"path">> := ?PATH2}
-                    }
+                  , <<"url">> := ?URL2
                   }, Bridge2),
 
     %% list all bridges again, assert Bridge2 is in it

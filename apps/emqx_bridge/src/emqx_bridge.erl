@@ -172,7 +172,7 @@ create_bridge(Type, Name, Conf) ->
         config => Conf}),
     ResId = resource_id(Type, Name),
     case emqx_resource:create(ResId,
-            emqx_bridge:resource_type(Type), Conf) of
+            emqx_bridge:resource_type(Type), parse_confs(Type, Conf)) of
         {ok, already_created} ->
             emqx_resource:get_instance(ResId);
         {ok, Data} ->
@@ -233,6 +233,40 @@ get_matched_bridge_id(#{from_local_topic := Filter}, Topic, BType, BName, Acc) -
         true -> [bridge_id(BType, BName) | Acc];
         false -> Acc
     end.
+
+parse_confs(http, #{ url := Url
+                   , method := Method
+                   , body := Body
+                   , headers := Headers
+                   , request_timeout := ReqTimeout
+                   } = Conf) ->
+    {BaseUrl, Path} = parse_url(Url),
+    {ok, BaseUrl2} = emqx_http_lib:uri_parse(BaseUrl),
+    Conf#{ base_url => BaseUrl2
+         , request =>
+            #{ path => Path
+             , method => Method
+             , body => Body
+             , headers => Headers
+             , request_timeout => ReqTimeout
+             }
+         };
+parse_confs(_Type, Conf) ->
+    Conf.
+
+parse_url(Url) ->
+    case string:split(Url, "//", leading) of
+        [Scheme, UrlRem] ->
+            case string:split(UrlRem, "/", leading) of
+                [HostPort, Path] ->
+                    {iolist_to_binary([Scheme, "//", HostPort]), Path};
+                [HostPort] ->
+                    {iolist_to_binary([Scheme, "//", HostPort]), <<>>}
+            end;
+        [Url] ->
+            error({invalid_url, Url})
+    end.
+
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);

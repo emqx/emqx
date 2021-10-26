@@ -127,6 +127,7 @@ sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 %% ===================================================================
+
 on_start(InstId, #{base_url := #{scheme := Scheme,
                                  host := Host,
                                  port := Port,

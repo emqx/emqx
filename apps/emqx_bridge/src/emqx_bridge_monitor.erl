@@ -67,54 +67,6 @@ code_change(_OldVsn, State, _Extra) ->
 load_bridges(Configs) ->
     lists:foreach(fun({Type, NamedConf}) ->
             lists:foreach(fun({Name, Conf}) ->
-                    load_bridge(Type, Name, Conf)
+                    emqx_bridge:create_bridge(Type, Name, Conf)
                 end, maps:to_list(NamedConf))
         end, maps:to_list(Configs)).
-
-%% TODO: move this monitor into emqx_resource
-%% emqx_resource:check_and_create_local(ResourceId, ResourceType, Config, #{keep_retry => true}).
-load_bridge(<<"http">>, Name, Config) ->
-    do_load_bridge(<<"http">>, Name, parse_http_confs(Config));
-load_bridge(Type, Name, Config) ->
-    do_load_bridge(Type, Name, Config).
-
-do_load_bridge(Type, Name, Config) ->
-    case emqx_resource:check_and_create_local(
-            emqx_bridge:resource_id(Type, Name),
-            emqx_bridge:resource_type(Type), Config) of
-        {ok, already_created} -> ok;
-        {ok, _} -> ok;
-        {error, Reason} ->
-            error({load_bridge, Reason})
-    end.
-
-parse_http_confs(#{ <<"url">> := Url
-                  , <<"method">> := Method
-                  , <<"body">> := Body
-                  , <<"headers">> := Headers
-                  , <<"request_timeout">> := ReqTimeout
-                  } = Conf) ->
-    {BaseUrl, Path} = parse_url(Url),
-    Conf#{ <<"base_url">> => BaseUrl
-         , <<"request">> =>
-            #{ <<"path">> => Path
-             , <<"method">> => Method
-             , <<"body">> => Body
-             , <<"headers">> => Headers
-             , <<"request_timeout">> => ReqTimeout
-             }
-         }.
-
-parse_url(Url) ->
-    case string:split(Url, "//", leading) of
-        [Scheme, UrlRem] ->
-            case string:split(UrlRem, "/", leading) of
-                [HostPort, Path] ->
-                    {iolist_to_binary([Scheme, "//", HostPort]), Path};
-                [HostPort] ->
-                    {iolist_to_binary([Scheme, "//", HostPort]), <<>>}
-            end;
-        [Url] ->
-            error({invalid_url, Url})
-    end.
-
