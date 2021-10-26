@@ -49,6 +49,8 @@
         , delete_delayed_message/1
         ]).
 
+-export([format_delayed/1]).
+
 -record(delayed_message, {key, delayed, msg}).
 
 %% sync ms with record change
@@ -58,6 +60,7 @@
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 -define(MAX_INTERVAL, 4294967).
+-define(FORMAT_FUN, {?MODULE, format_delayed}).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -124,7 +127,7 @@ set_max_delayed_messages(Max) ->
     gen_server:call(?SERVER, {set_max_delayed_messages, Max}).
 
 list(Params) ->
-    emqx_mgmt_api:paginate(?TAB, Params, fun format_delayed/1).
+    emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN).
 
 format_delayed(Delayed) ->
     format_delayed(Delayed, false).

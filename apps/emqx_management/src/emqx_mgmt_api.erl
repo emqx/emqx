@@ -32,7 +32,7 @@
 
 -export([do_query/6]).
 
-paginate(Tables, Params, RowFun) ->
+paginate(Tables, Params, {Module, FormatFun}) ->
     Qh = query_handle(Tables),
     Count = count(Tables),
     Page = b2i(page(Params)),
@@ -47,9 +47,9 @@ paginate(Tables, Params, RowFun) ->
     Rows = qlc:next_answers(Cursor, Limit),
     qlc:delete_cursor(Cursor),
     #{meta  => #{page => Page, limit => Limit, count => Count},
-      data  => [RowFun(Row) || Row <- Rows]}.
+      data  => [Module:FormatFun(Row) || Row <- Rows]}.
 
-paginate(Tables, MatchSpec, Params, RowFun) ->
+paginate(Tables, MatchSpec, Params, {Module, FormatFun}) ->
     Qh = query_handle(Tables, MatchSpec),
     Count = count(Tables, MatchSpec),
     Page = b2i(page(Params)),
@@ -64,7 +64,7 @@ paginate(Tables, MatchSpec, Params, RowFun) ->
     Rows = qlc:next_answers(Cursor, Limit),
     qlc:delete_cursor(Cursor),
     #{meta  => #{page => Page, limit => Limit, count => Count},
-      data  => [RowFun(Row) || Row <- Rows]}.
+      data  => [Module:FormatFun(Row) || Row <- Rows]}.
 
 query_handle(Table) when is_atom(Table) ->
     qlc:q([R || R <- ets:table(Table)]);
