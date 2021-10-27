@@ -105,7 +105,7 @@ retry_interval(default) -> <<"1s">>;
 retry_interval(_) -> undefined.
 
 pool_type(type) -> pool_type();
-pool_type(default) -> random;
+pool_type(default) -> hash;
 pool_type(_) -> undefined.
 
 pool_size(type) -> non_neg_integer();
