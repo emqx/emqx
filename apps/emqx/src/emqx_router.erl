@@ -116,8 +116,10 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
             ok = emqx_router_helper:monitor(Dest),
             case emqx_topic:wildcard(Topic) of
                 true  ->
-                    maybe_trans(fun insert_trie_route/1, [Route]);
-                false -> insert_direct_route(Route)
+                    Fun = fun emqx_router_utils:insert_trie_route/2,
+                    emqx_router_utils:maybe_trans(Fun, [?ROUTE_TAB, Route], ?ROUTE_SHARD);
+                false ->
+                    emqx_router_utils:insert_direct_route(?ROUTE_TAB, Route)
             end
     end.
 
@@ -162,8 +164,10 @@ do_delete_route(Topic, Dest) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
         true  ->
-            maybe_trans(fun delete_trie_route/1, [Route]);
-        false -> delete_direct_route(Route)
+            Fun = fun emqx_router_utils:delete_trie_route/2,
+            emqx_router_utils:maybe_trans(Fun, [?ROUTE_TAB, Route], ?ROUTE_SHARD);
+        false ->
+            emqx_router_utils:delete_direct_route(?ROUTE_TAB, Route)
     end.
 
 -spec(topics() -> list(emqx_types:topic())).
@@ -216,100 +220,3 @@ terminate(_Reason, #{pool := Pool, id := Id}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-insert_direct_route(Route) ->
-    mria:dirty_write(?ROUTE_TAB, Route).
-
-insert_trie_route(Route = #route{topic = Topic}) ->
-    case mnesia:wread({?ROUTE_TAB, Topic}) of
-        [] -> emqx_trie:insert(Topic);
-        _  -> ok
-    end,
-    mnesia:write(?ROUTE_TAB, Route, sticky_write).
-
-delete_direct_route(Route) ->
-    mria:dirty_delete_object(?ROUTE_TAB, Route).
-
-delete_trie_route(Route = #route{topic = Topic}) ->
-    case mnesia:wread({?ROUTE_TAB, Topic}) of
-        [Route] -> %% Remove route and trie
-                  ok = mnesia:delete_object(?ROUTE_TAB, Route, sticky_write),
-                   emqx_trie:delete(Topic);
-        [_|_]   -> %% Remove route only
-                   mnesia:delete_object(?ROUTE_TAB, Route, sticky_write);
-        []      -> ok
-    end.
-
-%% @private
--spec(maybe_trans(function(), list(any())) -> ok | {error, term()}).
-maybe_trans(Fun, Args) ->
-    case emqx:get_config([broker, perf, route_lock_type]) of
-        key ->
-            trans(Fun, Args);
-        global ->
-            %% Assert:
-            mnesia = mria_rlog:backend(), %% TODO: do something smarter than just crash
-            lock_router(),
-            try mnesia:sync_dirty(Fun, Args)
-            after
-                unlock_router()
-            end;
-        tab ->
-            trans(fun() ->
-                          emqx_trie:lock_tables(),
-                          apply(Fun, Args)
-                  end, [])
-    end.
-
-%% The created fun only terminates with explicit exception
--dialyzer({nowarn_function, [trans/2]}).
-
--spec(trans(function(), list(any())) -> ok | {error, term()}).
-trans(Fun, Args) ->
-    {WPid, RefMon} =
-        spawn_monitor(
-            %% NOTE: this is under the assumption that crashes in Fun
-            %% are caught by mria:transaction/2.
-            %% Future changes should keep in mind that this process
-            %% always exit with database write result.
-            fun() ->
-                    Res = case mria:transaction(?ROUTE_SHARD, Fun, Args) of
-                              {atomic, Ok} -> Ok;
-                              {aborted, Reason} -> {error, Reason}
-                          end,
-                    exit({shutdown, Res})
-            end),
-    %% Receive a 'shutdown' exit to pass result from the short-lived process.
-    %% so the receive below can be receive-mark optimized by the compiler.
-    %%
-    %% If the result is sent as a regular message, we'll have to
-    %% either demonitor (with flush which is essentially a 'receive' since
-    %% the process is no longer alive after the result has been received),
-    %% or use a plain 'receive' to drain the normal 'DOWN' message.
-    %% However the compiler does not optimize this second 'receive'.
-    receive
-        {'DOWN', RefMon, process, WPid, Info} ->
-            case Info of
-                {shutdown, Result} -> Result;
-                _ -> {error, {trans_crash, Info}}
-            end
-    end.
-
-lock_router() ->
-    %% if Retry is not 0, global:set_lock could sleep a random time up to 8s.
-    %% Considering we have a limited number of brokers, it is safe to use sleep 1 ms.
-    case global:set_lock({?MODULE, self()}, [node() | nodes()], 0) of
-        false ->
-            %% Force to sleep 1ms instead.
-            timer:sleep(1),
-            lock_router();
-        true ->
-            ok
-    end.
-
-unlock_router() ->
-    global:del_lock({?MODULE, self()}).
