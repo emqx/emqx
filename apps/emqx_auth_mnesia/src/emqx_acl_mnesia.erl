@@ -18,24 +18,16 @@
 
 -include("emqx_auth_mnesia.hrl").
 
--include_lib("stdlib/include/ms_transform.hrl").
-
--define(TABLE, emqx_acl).
-
 %% ACL Callbacks
 -export([ init/0
         , register_metrics/0
         , check_acl/5
         , description/0
-        ]).
+       ]).
 
 init() ->
-    ok = ekka_mnesia:create_table(emqx_acl, [
-            {type, bag},
-            {disc_copies, [node()]},
-            {attributes, record_info(fields, emqx_acl)},
-            {storage_properties, [{ets, [{read_concurrency, true}]}]}]),
-    ok = ekka_mnesia:copy_table(emqx_acl, disc_copies).
+    ok = emqx_acl_mnesia_db:create_table(),
+    ok = emqx_acl_mnesia_db:create_table2().
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
@@ -46,12 +38,12 @@ check_acl(ClientInfo = #{ clientid := Clientid }, PubSub, Topic, _NoMatchAction,
 
     Acls = case Username of
                undefined ->
-                   emqx_acl_mnesia_cli:lookup_acl({clientid, Clientid}) ++
-                   emqx_acl_mnesia_cli:lookup_acl(all);
+                   emqx_acl_mnesia_db:lookup_acl({clientid, Clientid}) ++
+                   emqx_acl_mnesia_db:lookup_acl(all);
                _ ->
-                   emqx_acl_mnesia_cli:lookup_acl({clientid, Clientid}) ++
-                   emqx_acl_mnesia_cli:lookup_acl({username, Username}) ++
-                   emqx_acl_mnesia_cli:lookup_acl(all)
+                   emqx_acl_mnesia_db:lookup_acl({clientid, Clientid}) ++
+                   emqx_acl_mnesia_db:lookup_acl({username, Username}) ++
+                   emqx_acl_mnesia_db:lookup_acl(all)
            end,
 
     case match(ClientInfo, PubSub, Topic, Acls) of
@@ -83,7 +75,6 @@ match(ClientInfo, PubSub, Topic, [ {_, ACLTopic, Action, Access, _} | Acls]) ->
 match_topic(ClientInfo, Topic, ACLTopic) when is_binary(Topic) ->
     emqx_topic:match(Topic, feed_var(ClientInfo, ACLTopic)).
 
-match_actions(_, pubsub) -> true;
 match_actions(subscribe, sub) -> true;
 match_actions(publish, pub) -> true;
 match_actions(_, _) -> false.

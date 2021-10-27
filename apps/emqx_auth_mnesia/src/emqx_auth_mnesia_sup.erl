@@ -33,4 +33,16 @@ start_link() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    {ok, {{one_for_one, 10, 100}, []}}.
+    {ok, {{one_for_one, 10, 100}, [
+        child_spec(emqx_acl_mnesia_migrator, worker, [])
+    ]}}.
+
+child_spec(M, worker, Args) ->
+    #{id       => M,
+      start    => {M, start_link, Args},
+      restart  => permanent,
+      shutdown => 5000,
+      type     => worker,
+      modules  => [M]
+     }.
+

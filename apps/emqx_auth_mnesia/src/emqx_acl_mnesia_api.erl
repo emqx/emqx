@@ -16,8 +16,6 @@
 
 -module(emqx_acl_mnesia_api).
 
--include("emqx_auth_mnesia.hrl").
-
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -import(proplists, [ get_value/2
@@ -99,26 +97,22 @@
         ]).
 
 list_clientid(_Bindings, Params) ->
-    MatchSpec = ets:fun2ms(
-                  fun({emqx_acl, {{clientid, Clientid}, Topic}, Action, Access, CreatedAt}) -> {{clientid,Clientid}, Topic, Action,Access, CreatedAt} end),
-    return({ok, emqx_auth_mnesia_api:paginate(emqx_acl, MatchSpec, Params, fun emqx_acl_mnesia_cli:comparing/2, fun format/1)}).
+    Table = emqx_acl_mnesia_db:login_acl_table(clientid),
+    return({ok, emqx_auth_mnesia_api:paginate_qh(Table, count(Table), Params, fun emqx_acl_mnesia_db:comparing/2, fun format/1)}).
 
 list_username(_Bindings, Params) ->
-    MatchSpec = ets:fun2ms(
-                  fun({emqx_acl, {{username, Username}, Topic}, Action, Access, CreatedAt}) -> {{username, Username}, Topic, Action,Access, CreatedAt} end),
-    return({ok, emqx_auth_mnesia_api:paginate(emqx_acl, MatchSpec, Params, fun emqx_acl_mnesia_cli:comparing/2, fun format/1)}).
+    Table = emqx_acl_mnesia_db:login_acl_table(username),
+    return({ok, emqx_auth_mnesia_api:paginate_qh(Table, count(Table), Params, fun emqx_acl_mnesia_db:comparing/2, fun format/1)}).
 
 list_all(_Bindings, Params) ->
-    MatchSpec = ets:fun2ms(
-                  fun({emqx_acl, {all, Topic}, Action, Access, CreatedAt}) -> {all, Topic, Action,Access, CreatedAt}end
-                 ),
-    return({ok, emqx_auth_mnesia_api:paginate(emqx_acl, MatchSpec, Params, fun emqx_acl_mnesia_cli:comparing/2, fun format/1)}).
+    Table = emqx_acl_mnesia_db:login_acl_table(all),
+    return({ok, emqx_auth_mnesia_api:paginate_qh(Table, count(Table), Params, fun emqx_acl_mnesia_db:comparing/2, fun format/1)}).
 
 
 lookup(#{clientid := Clientid}, _Params) ->
-    return({ok, format(emqx_acl_mnesia_cli:lookup_acl({clientid, urldecode(Clientid)}))});
+    return({ok, format(emqx_acl_mnesia_db:lookup_acl({clientid, urldecode(Clientid)}))});
 lookup(#{username := Username}, _Params) ->
-    return({ok, format(emqx_acl_mnesia_cli:lookup_acl({username, urldecode(Username)}))}).
+    return({ok, format(emqx_acl_mnesia_db:lookup_acl({username, urldecode(Username)}))}).
 
 add(_Bindings, Params) ->
     [ P | _] = Params,
@@ -152,7 +146,7 @@ do_add(Params) ->
     Access = get_value(<<"access">>, Params),
     Re = case validate([login, topic, action, access], [Login, Topic, Action, Access]) of
         ok ->
-            emqx_acl_mnesia_cli:add_acl(Login, Topic, erlang:binary_to_atom(Action, utf8), erlang:binary_to_atom(Access, utf8));
+            emqx_acl_mnesia_db:add_acl(Login, Topic, erlang:binary_to_atom(Action, utf8), erlang:binary_to_atom(Access, utf8));
         Err -> Err
     end,
     maps:merge(#{topic => Topic,
@@ -165,15 +159,19 @@ do_add(Params) ->
                    end).
 
 delete(#{clientid := Clientid, topic := Topic}, _) ->
-    return(emqx_acl_mnesia_cli:remove_acl({clientid, urldecode(Clientid)}, urldecode(Topic)));
+    return(emqx_acl_mnesia_db:remove_acl({clientid, urldecode(Clientid)}, urldecode(Topic)));
 delete(#{username := Username, topic := Topic}, _) ->
-    return(emqx_acl_mnesia_cli:remove_acl({username, urldecode(Username)}, urldecode(Topic)));
+    return(emqx_acl_mnesia_db:remove_acl({username, urldecode(Username)}, urldecode(Topic)));
 delete(#{topic := Topic}, _) ->
-    return(emqx_acl_mnesia_cli:remove_acl(all, urldecode(Topic))).
+    return(emqx_acl_mnesia_db:remove_acl(all, urldecode(Topic))).
 
 %%------------------------------------------------------------------------------
 %% Interval Funcs
 %%------------------------------------------------------------------------------
+
+count(QH) ->
+    qlc:fold(fun(_, Count) -> Count + 1 end, 0, QH).
+
 format({{clientid, Clientid}, Topic, Action, Access, _CreatedAt}) ->
     #{clientid => Clientid, topic => Topic, action => Action, access => Access};
 format({{username, Username}, Topic, Action, Access, _CreatedAt}) ->
