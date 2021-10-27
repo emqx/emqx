@@ -1,0 +1,58 @@
+%%-*- mode: erlang -*-
+%% st_statistics config mapping
+
+%% Threshold time of slow topics statistics
+%% {$configurable}
+{mapping, "st_statistics.threshold_time", "emqx_st_statistics.threshold_time",
+ [
+  {default, "10S"},
+  {datatype, [integer, {duration, ms}]}
+ ]}.
+
+%% Time window of slow topics statistics
+%% {$configurable}
+{mapping, "st_statistics.time_window", "emqx_st_statistics.time_window",
+ [
+  {default, "5M"},
+  {datatype, [integer, {duration, ms}]}
+ ]}.
+
+%% Maximum of slow topics log
+%% {$configurable}
+{mapping, "st_statistics.max_log_num", "emqx_st_statistics.max_log_num",
+ [
+  {default, 500},
+  {datatype, integer}
+ ]}.
+
+%% Top-K record for slow topics, update from logs
+%% {$configurable}
+{mapping, "st_statistics.top_k_num", "emqx_st_statistics.top_k_num",
+ [
+  {default, 500},
+  {datatype, integer}
+ ]}.
+
+%% Topic of notification
+%% {$configurable}
+{mapping, "st_statistics.notice_topic", "emqx_st_statistics.notice_topic",
+ [
+  {default, <<"slow_topics">>},
+  {datatype, string}
+ ]}.
+
+%% QoS of notification message in notice topic
+%% {$configurable}
+{mapping, "st_statistics.notice_qos", "emqx_st_statistics.notice_qos",
+ [
+  {default, 0},
+  {datatype, integer}
+ ]}.
+
+%% Maximum entities per notification message
+%% {$configurable}
+{mapping, "st_statistics.notice_batch_size", "emqx_st_statistics.notice_batch_size",
+ [
+  {default, 500},
+  {datatype, integer}
+ ]}.
