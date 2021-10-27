@@ -86,7 +86,7 @@ definitions() ->
             pool_type => #{
                 type => string,
                 enum => [<<"random">>, <<"hash">>],
-                example => <<"random">>
+                example => <<"hash">>
             },
             pool_size => #{type => integer},
             enable_pipelining => #{type => boolean},
