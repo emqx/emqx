@@ -22,50 +22,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
--define(EXAMPLE_USERNAME, #{username => user1,
-                            rules => [ #{topic => <<"test/toopic/1">>,
-                                         permission => <<"allow">>,
-                                         action => <<"publish">>
-                                        }
-                                     , #{topic => <<"test/toopic/2">>,
-                                         permission => <<"allow">>,
-                                         action => <<"subscribe">>
-                                        }
-                                     , #{topic => <<"eq test/#">>,
-                                         permission => <<"deny">>,
-                                         action => <<"all">>
-                                        }
-                                     ]
-                           }).
--define(EXAMPLE_CLIENTID, #{clientid => client1,
-                            rules => [ #{topic => <<"test/toopic/1">>,
-                                         permission => <<"allow">>,
-                                         action => <<"publish">>
-                                        }
-                                     , #{topic => <<"test/toopic/2">>,
-                                         permission => <<"allow">>,
-                                         action => <<"subscribe">>
-                                        }
-                                     , #{topic => <<"eq test/#">>,
-                                         permission => <<"deny">>,
-                                         action => <<"all">>
-                                        }
-                                     ]
-                           }).
--define(EXAMPLE_ALL ,     #{rules => [ #{topic => <<"test/toopic/1">>,
-                                         permission => <<"allow">>,
-                                         action => <<"publish">>
-                                        }
-                                     , #{topic => <<"test/toopic/2">>,
-                                         permission => <<"allow">>,
-                                         action => <<"subscribe">>
-                                        }
-                                     , #{topic => <<"eq test/#">>,
-                                         permission => <<"deny">>,
-                                         action => <<"all">>
-                                        }
-                                     ]
-                           }).
 -define(FORMAT_USERNAME_FUN, {?MODULE, format_by_username}).
 -define(FORMAT_CLIENTID_FUN, {?MODULE, format_by_clientid}).
 
@@ -182,7 +138,7 @@ users_api() ->
                             examples => #{
                                 username => #{
                                     summary => <<"Username">>,
-                                    value => jsx:encode([?EXAMPLE_USERNAME])
+                                    value => jsx:encode([?USERNAME_RULES_EXAMPLE])
                                 }
                            }
                         }
@@ -205,7 +161,7 @@ users_api() ->
                         examples => #{
                             username => #{
                                 summary => <<"Username">>,
-                                value => jsx:encode([?EXAMPLE_USERNAME])
+                                value => jsx:encode([?USERNAME_RULES_EXAMPLE])
                             }
                         }
                     }
@@ -251,7 +207,7 @@ clients_api() ->
                             examples => #{
                                 clientid => #{
                                     summary => <<"Clientid">>,
-                                    value => jsx:encode([?EXAMPLE_CLIENTID])
+                                    value => jsx:encode([?CLIENTID_RULES_EXAMPLE])
                                 }
                            }
                         }
@@ -274,7 +230,7 @@ clients_api() ->
                         examples => #{
                             clientid => #{
                                 summary => <<"Clientid">>,
-                                value => jsx:encode([?EXAMPLE_CLIENTID])
+                                value => jsx:encode([?CLIENTID_RULES_EXAMPLE])
                             }
                         }
                     }
@@ -311,7 +267,7 @@ user_api() ->
                             examples => #{
                                 username => #{
                                     summary => <<"Username">>,
-                                    value => jsx:encode(?EXAMPLE_USERNAME)
+                                    value => jsx:encode(?USERNAME_RULES_EXAMPLE)
                                 }
                             }
                         }
@@ -339,7 +295,7 @@ user_api() ->
                         examples => #{
                             username => #{
                                 summary => <<"Username">>,
-                                value => jsx:encode(?EXAMPLE_USERNAME)
+                                value => jsx:encode(?USERNAME_RULES_EXAMPLE)
                             }
                         }
                     }
@@ -393,7 +349,7 @@ client_api() ->
                             examples => #{
                                 clientid => #{
                                     summary => <<"Clientid">>,
-                                    value => jsx:encode(?EXAMPLE_CLIENTID)
+                                    value => jsx:encode(?CLIENTID_RULES_EXAMPLE)
                                 }
                             }
                         }
@@ -421,7 +377,7 @@ client_api() ->
                         examples => #{
                             clientid => #{
                                 summary => <<"Clientid">>,
-                                value => jsx:encode(?EXAMPLE_CLIENTID)
+                                value => jsx:encode(?CLIENTID_RULES_EXAMPLE)
                             }
                         }
                     }
@@ -465,7 +421,7 @@ all_api() ->
                             examples => #{
                                 clientid => #{
                                     summary => <<"All">>,
-                                    value => jsx:encode(?EXAMPLE_ALL)
+                                    value => jsx:encode(?ALL_RULES_EXAMPLE)
                                 }
                            }
                         }
@@ -482,7 +438,7 @@ all_api() ->
                         examples => #{
                             all => #{
                                 summary => <<"All">>,
-                                value => jsx:encode(?EXAMPLE_ALL)
+                                value => jsx:encode(?ALL_RULES_EXAMPLE)
                             }
                         }
                     }

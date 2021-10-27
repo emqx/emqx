@@ -35,50 +35,6 @@ authorization
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
 
--define(EXAMPLE_USERNAME, #{username => user1,
-                            rules => [ #{topic => <<"test/toopic/1">>,
-                                         permission => <<"allow">>,
-                                         action => <<"publish">>
-                                        }
-                                     , #{topic => <<"test/toopic/2">>,
-                                         permission => <<"allow">>,
-                                         action => <<"subscribe">>
-                                        }
-                                     , #{topic => <<"eq test/#">>,
-                                         permission => <<"deny">>,
-                                         action => <<"all">>
-                                        }
-                                     ]
-                           }).
--define(EXAMPLE_CLIENTID, #{clientid => client1,
-                            rules => [ #{topic => <<"test/toopic/1">>,
-                                         permission => <<"allow">>,
-                                         action => <<"publish">>
-                                        }
-                                     , #{topic => <<"test/toopic/2">>,
-                                         permission => <<"allow">>,
-                                         action => <<"subscribe">>
-                                        }
-                                     , #{topic => <<"eq test/#">>,
-                                         permission => <<"deny">>,
-                                         action => <<"all">>
-                                        }
-                                     ]
-                           }).
--define(EXAMPLE_ALL ,     #{rules => [ #{topic => <<"test/toopic/1">>,
-                                         permission => <<"allow">>,
-                                         action => <<"publish">>
-                                        }
-                                     , #{topic => <<"test/toopic/2">>,
-                                         permission => <<"allow">>,
-                                         action => <<"subscribe">>
-                                        }
-                                     , #{topic => <<"eq test/#">>,
-                                         permission => <<"deny">>,
-                                         action => <<"all">>
-                                        }
-                                     ]
-                           }).
 
 roots() -> ["authorization"].
 
@@ -126,7 +82,7 @@ set_special_configs(_App) ->
 %%------------------------------------------------------------------------------
 
 t_api(_) ->
-    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "username"]), [?EXAMPLE_USERNAME]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "username"]), [?USERNAME_RULES_EXAMPLE]),
     {ok, 200, Request1} = request(get, uri(["authorization", "sources", "built-in-database", "username"]), []),
     {ok, 200, Request2} = request(get, uri(["authorization", "sources", "built-in-database", "username", "user1"]), []),
     #{<<"data">> := [#{<<"username">> := <<"user1">>, <<"rules">> := Rules1}],
@@ -134,7 +90,7 @@ t_api(_) ->
     #{<<"username">> := <<"user1">>, <<"rules">> := Rules1} = jsx:decode(Request2),
     ?assertEqual(3, length(Rules1)),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database", "username", "user1"]), ?EXAMPLE_USERNAME#{rules => []}),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database", "username", "user1"]), ?USERNAME_RULES_EXAMPLE#{rules => []}),
     {ok, 200, Request3} = request(get, uri(["authorization", "sources", "built-in-database", "username", "user1"]), []),
     #{<<"username">> := <<"user1">>, <<"rules">> := Rules2} = jsx:decode(Request3),
     ?assertEqual(0, length(Rules2)),
@@ -142,7 +98,7 @@ t_api(_) ->
     {ok, 204, _} = request(delete, uri(["authorization", "sources", "built-in-database", "username", "user1"]), []),
     {ok, 404, _} = request(get, uri(["authorization", "sources", "built-in-database", "username", "user1"]), []),
 
-    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "clientid"]), [?EXAMPLE_CLIENTID]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "clientid"]), [?CLIENTID_RULES_EXAMPLE]),
     {ok, 200, Request4} = request(get, uri(["authorization", "sources", "built-in-database", "clientid"]), []),
     {ok, 200, Request5} = request(get, uri(["authorization", "sources", "built-in-database", "clientid", "client1"]), []),
     #{<<"data">> := [#{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3}],
@@ -150,7 +106,7 @@ t_api(_) ->
     #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3} = jsx:decode(Request5),
     ?assertEqual(3, length(Rules3)),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database", "clientid", "client1"]), ?EXAMPLE_CLIENTID#{rules => []}),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database", "clientid", "client1"]), ?CLIENTID_RULES_EXAMPLE#{rules => []}),
     {ok, 200, Request6} = request(get, uri(["authorization", "sources", "built-in-database", "clientid", "client1"]), []),
     #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules4} = jsx:decode(Request6),
     ?assertEqual(0, length(Rules4)),
@@ -158,12 +114,12 @@ t_api(_) ->
     {ok, 204, _} = request(delete, uri(["authorization", "sources", "built-in-database", "clientid", "client1"]), []),
     {ok, 404, _} = request(get, uri(["authorization", "sources", "built-in-database", "clientid", "client1"]), []),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database", "all"]), ?EXAMPLE_ALL),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database", "all"]), ?ALL_RULES_EXAMPLE),
     {ok, 200, Request7} = request(get, uri(["authorization", "sources", "built-in-database", "all"]), []),
     #{<<"rules">> := Rules5} = jsx:decode(Request7),
     ?assertEqual(3, length(Rules5)),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database", "all"]), ?EXAMPLE_ALL#{rules => []}),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "built-in-database", "all"]), ?ALL_RULES_EXAMPLE#{rules => []}),
     {ok, 200, Request8} = request(get, uri(["authorization", "sources", "built-in-database", "all"]), []),
     #{<<"rules">> := Rules6} = jsx:decode(Request8),
     ?assertEqual(0, length(Rules6)),
