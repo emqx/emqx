@@ -400,10 +400,6 @@ t_load_gateway_with_certs_content(_) ->
 
 t_add_listener_with_certs_content(_) ->
     StompConf = ?CONF_STOMP_BAISC_1,
-    StompConf1 = compose_ssl_listener(
-                   ?CONF_STOMP_BAISC_1,
-                   ?CONF_STOMP_LISTENER_SSL
-                  ),
     ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
 
