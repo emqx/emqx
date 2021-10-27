@@ -32,11 +32,22 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_authz]),
+    ok = emqx_common_test_helpers:start_apps(
+           [emqx_conf, emqx_authz],
+           fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_authz]),
+    {ok, _} = emqx_authz:update(replace, []),
+    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_conf]),
+    ok.
+
+set_special_configs(emqx_authz) ->
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
+    {ok, _} = emqx:update_config([authorization, sources], []),
+    ok;
+set_special_configs(_App) ->
     ok.
 
 t_compile(_) ->

@@ -89,7 +89,8 @@ load_gateway(GwName, Conf) ->
 unconvert_listeners(Ls) when is_list(Ls) ->
     lists:foldl(fun(Lis, Acc) ->
         {[Type, Name], Lis1} = maps_key_take([<<"type">>, <<"name">>], Lis),
-        emqx_map_lib:deep_merge(Acc, #{Type => #{Name => Lis1}})
+        NLis1 = maps:without([<<"id">>], Lis1),
+        emqx_map_lib:deep_merge(Acc, #{Type => #{Name => NLis1}})
     end, #{}, Ls).
 
 maps_key_take(Ks, M) ->

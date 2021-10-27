@@ -22,8 +22,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -31,34 +29,32 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_schema, fields, fun("authorization") ->
-                                             meck:passthrough(["authorization"]) ++
-                                             emqx_authz_schema:fields("authorization");
-                                        (F) -> meck:passthrough([F])
-                                     end),
-
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
-    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
-    ok = emqx_common_test_helpers:start_apps([emqx_authz]),
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
+    ok = emqx_common_test_helpers:start_apps(
+           [emqx_conf, emqx_authz], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, []),
-    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_resource]),
+    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_conf]),
     meck:unload(emqx_resource),
-    meck:unload(emqx_schema),
     ok.
 
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, []),
     Config.
+
+set_special_configs(emqx_authz) ->
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
+    {ok, _} = emqx:update_config([authorization, sources], []),
+    ok;
+set_special_configs(_App) ->
+    ok.
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
                    <<"enable">> => true,

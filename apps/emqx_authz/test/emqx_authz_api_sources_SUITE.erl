@@ -22,8 +22,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
-
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
@@ -94,13 +92,6 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_schema, fields, fun("authorization") ->
-                                             meck:passthrough(["authorization"]) ++
-                                             emqx_authz_schema:fields("authorization");
-                                        (F) -> meck:passthrough([F])
-                                     end),
-
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, create_dry_run, fun(emqx_connector_mysql, _) -> {ok, meck_data}; 
@@ -110,19 +101,15 @@ init_per_suite(Config) ->
     meck:expect(emqx_resource, health_check, fun(_) -> ok end),
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
-    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
-
-    ok = emqx_common_test_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-
+    ok = emqx_common_test_helpers:start_apps(
+           [emqx_conf, emqx_authz, emqx_dashboard],
+           fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
     {ok, _} = emqx_authz:update(replace, []),
-    emqx_common_test_helpers:stop_apps([emqx_resource, emqx_authz, emqx_dashboard]),
+    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf]),
     meck:unload(emqx_resource),
-    meck:unload(emqx_schema),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -137,7 +124,9 @@ set_special_configs(emqx_dashboard) ->
     emqx_config:put([emqx_dashboard], Config),
     ok;
 set_special_configs(emqx_authz) ->
-    emqx_config:put([authorization], #{sources => []}),
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
+    {ok, _} = emqx:update_config([authorization, sources], []),
     ok;
 set_special_configs(_App) ->
     ok.
