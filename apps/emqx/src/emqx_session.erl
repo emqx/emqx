@@ -58,6 +58,7 @@
 
 -export([ info/1
         , info/2
+        , is_session/1
         , stats/1
         ]).
 
@@ -201,6 +202,9 @@ init(Opts) ->
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------
+
+is_session(#session{}) -> true;
+is_session(_) -> false.
 
 %% @doc Get infos of the session.
 -spec(info(session()) -> emqx_types:infos()).
