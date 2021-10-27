@@ -106,10 +106,9 @@ authenticate(#{password := Password} = Credential,
     Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
     case emqx_resource:query(Unique, {sql, Query, Params}) of
         {ok, _Columns, []} -> ignore;
-        {ok, Columns, Rows} ->
+        {ok, Columns, [Row | _]} ->
             NColumns = [Name || #column{name = Name} <- Columns],
-            NRows = [erlang:element(1, Row) || Row <- Rows],
-            Selected = maps:from_list(lists:zip(NColumns, NRows)),
+            Selected = maps:from_list(lists:zip(NColumns, erlang:tuple_to_list(Row))),
             case emqx_authn_utils:check_password(Password, Selected, State) of
                 ok ->
                     {ok, emqx_authn_utils:is_superuser(Selected)};
@@ -135,7 +134,7 @@ destroy(#{'_unique' := Unique}) ->
 parse_query(Query) ->
     case re:run(Query, ?RE_PLACEHOLDER, [global, {capture, all, binary}]) of
         {match, Captured} ->
-            PlaceHolders = [PlaceHolder || [PlaceHolder] <- Captured],
+            PlaceHolders = [PlaceHolder || ["\\" ++ PlaceHolder] <- Captured],
             Replacements = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(Captured))],
             NQuery = lists:foldl(fun({PlaceHolder, Replacement}, Query0) ->
                                      re:replace(Query0, PlaceHolder, Replacement, [{return, binary}])
