@@ -361,9 +361,11 @@ is_awaiting_full(#session{awaiting_rel = AwaitingRel,
       -> {ok, emqx_types:message(), session()}
        | {ok, emqx_types:message(), replies(), session()}
        | {error, emqx_types:reason_code()}).
-puback(PacketId, Session = #session{inflight = Inflight}) ->
+puback(PacketId, Session = #session{inflight = Inflight, created_at = CreatedAt}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
+            emqx:run_hook('message.publish_done',
+                          [Msg, #{session_rebirth_time => CreatedAt}]),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             return_with(Msg, dequeue(Session#session{inflight = Inflight1}));
         {value, {_Pubrel, _Ts}} ->
@@ -385,9 +387,12 @@ return_with(Msg, {ok, Publishes, Session}) ->
 -spec(pubrec(emqx_types:packet_id(), session())
       -> {ok, emqx_types:message(), session()}
        | {error, emqx_types:reason_code()}).
-pubrec(PacketId, Session = #session{inflight = Inflight}) ->
+pubrec(PacketId, Session = #session{inflight = Inflight, created_at = CreatedAt}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
+            %% execute hook here, because message record will be replaced by pubrel
+            emqx:run_hook('message.publish_done',
+                          [Msg, #{session_rebirth_time => CreatedAt}]),
             Inflight1 = emqx_inflight:update(PacketId, with_ts(pubrel), Inflight),
             {ok, Msg, Session#session{inflight = Inflight1}};
         {value, {pubrel, _Ts}} ->
@@ -450,7 +455,7 @@ dequeue(Cnt, Msgs, Q) ->
             case emqx_message:is_expired(Msg) of
                 true  -> ok = inc_expired_cnt(delivery),
                          dequeue(Cnt, Msgs, Q1);
-                false -> dequeue(acc_cnt(Msg, Cnt), [Msg|Msgs], Q1)
+                false -> dequeue(acc_cnt(Msg, Cnt), [Msg | Msgs], Q1)
             end
     end.
 
@@ -480,15 +485,17 @@ deliver([Msg | More], Acc, Session) ->
         {ok, Session1} ->
             deliver(More, Acc, Session1);
         {ok, [Publish], Session1} ->
-            deliver(More, [Publish|Acc], Session1)
+            deliver(More, [Publish | Acc], Session1)
     end.
 
 deliver_msg(Msg = #message{qos = ?QOS_0}, Session) ->
+    emqx:run_hook('message.publish_done',
+                  [Msg, #{session_rebirth_time => Session#session.created_at}]),
     {ok, [{undefined, maybe_ack(Msg)}], Session};
 
 deliver_msg(Msg = #message{qos = QoS}, Session =
-            #session{next_pkt_id = PacketId, inflight = Inflight})
-    when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
+                #session{next_pkt_id = PacketId, inflight = Inflight})
+  when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
     case emqx_inflight:is_full(Inflight) of
         true ->
             Session1 = case maybe_nack(Msg) of
@@ -502,7 +509,7 @@ deliver_msg(Msg = #message{qos = QoS}, Session =
             {ok, [Publish], next_pkt_id(Session1)}
     end.
 
--spec(enqueue(list(emqx_types:deliver())|emqx_types:message(),
+-spec(enqueue(list(emqx_types:deliver()) | emqx_types:message(),
               session()) -> session()).
 enqueue([Deliver], Session) -> %% Optimize
     Enrich = enrich_fun(Session),
@@ -554,23 +561,23 @@ get_subopts(Topic, SubMap) ->
     end.
 
 enrich_subopts([], Msg, _Session) -> Msg;
-enrich_subopts([{nl, 1}|Opts], Msg, Session) ->
+enrich_subopts([{nl, 1} | Opts], Msg, Session) ->
     enrich_subopts(Opts, emqx_message:set_flag(nl, Msg), Session);
-enrich_subopts([{nl, 0}|Opts], Msg, Session) ->
+enrich_subopts([{nl, 0} | Opts], Msg, Session) ->
     enrich_subopts(Opts, Msg, Session);
-enrich_subopts([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS},
+enrich_subopts([{qos, SubQoS} | Opts], Msg = #message{qos = PubQoS},
                Session = #session{upgrade_qos = true}) ->
     enrich_subopts(Opts, Msg#message{qos = max(SubQoS, PubQoS)}, Session);
-enrich_subopts([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS},
+enrich_subopts([{qos, SubQoS} | Opts], Msg = #message{qos = PubQoS},
                Session = #session{upgrade_qos = false}) ->
     enrich_subopts(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, Session);
-enrich_subopts([{rap, 1}|Opts], Msg, Session) ->
+enrich_subopts([{rap, 1} | Opts], Msg, Session) ->
     enrich_subopts(Opts, Msg, Session);
-enrich_subopts([{rap, 0}|Opts], Msg = #message{headers = #{retained := true}}, Session) ->
+enrich_subopts([{rap, 0} | Opts], Msg = #message{headers = #{retained := true}}, Session) ->
     enrich_subopts(Opts, Msg, Session);
-enrich_subopts([{rap, 0}|Opts], Msg, Session) ->
+enrich_subopts([{rap, 0} | Opts], Msg, Session) ->
     enrich_subopts(Opts, emqx_message:set_flag(retain, false, Msg), Session);
-enrich_subopts([{subid, SubId}|Opts], Msg, Session) ->
+enrich_subopts([{subid, SubId} | Opts], Msg, Session) ->
     Props = emqx_message:get_header(properties, Msg, #{}),
     Msg1 = emqx_message:set_header(properties, Props#{'Subscription-Identifier' => SubId}, Msg),
     enrich_subopts(Opts, Msg1, Session).
@@ -598,7 +605,7 @@ retry(Session = #session{inflight = Inflight}) ->
 retry_delivery([], Acc, _Now, Session = #session{retry_interval = Interval}) ->
     {ok, lists:reverse(Acc), Interval, Session};
 
-retry_delivery([{PacketId, {Msg, Ts}}|More], Acc, Now, Session =
+retry_delivery([{PacketId, {Msg, Ts}} | More], Acc, Now, Session =
                #session{retry_interval = Interval, inflight = Inflight}) ->
     case (Age = age(Now, Ts)) >= Interval of
         true ->
@@ -616,12 +623,12 @@ retry_delivery(PacketId, Msg, Now, Acc, Inflight) when is_record(Msg, message) -
         false ->
             Msg1 = emqx_message:set_flag(dup, true, Msg),
             Inflight1 = emqx_inflight:update(PacketId, {Msg1, Now}, Inflight),
-            {[{PacketId, Msg1}|Acc], Inflight1}
+            {[{PacketId, Msg1} | Acc], Inflight1}
     end;
 
 retry_delivery(PacketId, pubrel, Now, Acc, Inflight) ->
     Inflight1 = emqx_inflight:update(PacketId, {pubrel, Now}, Inflight),
-    {[{pubrel, PacketId}|Acc], Inflight1}.
+    {[{pubrel, PacketId} | Acc], Inflight1}.
 
 %%--------------------------------------------------------------------
 %% Expire Awaiting Rel

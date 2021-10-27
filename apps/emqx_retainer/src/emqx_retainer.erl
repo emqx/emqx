@@ -136,7 +136,8 @@ deliver(Result, #{context_id := Id} = Context, Pid, Topic, Cursor) ->
                     _ = [Pid ! {deliver, Topic, Msg} || Msg <- Result],
                     ok;
                 _ ->
-                    case do_deliver(Result, Id, Pid, Topic) of
+                    Now = erlang:system_time(millisecond),
+                    case do_deliver(Result, Id, Pid, Topic, Now) of
                         ok ->
                             deliver([], Context, Pid, Topic, Cursor);
                         abort ->
@@ -297,16 +298,17 @@ clean(Context) ->
     Mod = get_backend_module(),
     Mod:clean(Context).
 
--spec do_deliver(list(term()), pos_integer(), pid(), topic()) -> ok | abort.
-do_deliver([Msg | T], Id, Pid, Topic) ->
+-spec do_deliver(list(term()), pos_integer(), pid(), topic(), pos_integer()) -> ok | abort.
+do_deliver([MsgT | T], Id, Pid, Topic, Now) ->
     case require_semaphore(?DELIVER_SEMAPHORE, Id) of
         true ->
+            Msg = refresh_timestamp_expiry(MsgT, Now),
             Pid ! {deliver, Topic, Msg},
-            do_deliver(T, Id, Pid, Topic);
+            do_deliver(T, Id, Pid, Topic, Now);
         _ ->
             abort
     end;
-do_deliver([], _, _, _) ->
+do_deliver([], _, _, _, _) ->
     ok.
 
 -spec require_semaphore(semaphore(), pos_integer()) -> boolean().
@@ -476,3 +478,18 @@ load(Context) ->
 unload() ->
     emqx:unhook('message.publish', {?MODULE, on_message_publish}),
     emqx:unhook('session.subscribed', {?MODULE, on_session_subscribed}).
+
+-spec(refresh_timestamp_expiry(emqx_types:message(), pos_integer()) -> emqx_types:message()).
+refresh_timestamp_expiry(Msg = #message{headers =
+                                            #{properties :=
+                                                  #{'Message-Expiry-Interval' := Interval} = Props},
+                                        timestamp = CreatedAt},
+                         Now) ->
+    Elapsed = max(0, Now - CreatedAt),
+    Interval1 = max(1, Interval - (Elapsed div 1000)),
+    emqx_message:set_header(properties,
+                            Props#{'Message-Expiry-Interval' => Interval1},
+                            Msg#message{timestamp = Now});
+
+refresh_timestamp_expiry(Msg, Now) ->
+    Msg#message{timestamp = Now}.

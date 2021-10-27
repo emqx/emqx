@@ -56,6 +56,7 @@
         , emqx_exhook_schema
         , emqx_psk_schema
         , emqx_limiter_schema
+        , emqx_st_statistics_schema
         ]).
 
 namespace() -> undefined.
