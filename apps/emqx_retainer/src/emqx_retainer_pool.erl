@@ -172,7 +172,7 @@ cast(Msg) ->
 
 %% @private
 worker() ->
-    gproc_pool:pick_worker(?POOL).
+    gproc_pool:pick_worker(?POOL, self()).
 
 run({M, F, A}) ->
     erlang:apply(M, F, A);
