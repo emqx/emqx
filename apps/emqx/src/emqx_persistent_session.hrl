@@ -30,4 +30,5 @@
 -define(is_enabled_key, [persistent_session_store, enabled]).
 -define(msg_retain, [persistent_session_store, max_retain_undelivered]).
 
--define(db_backend, (persistent_term:get(?db_backend_key))).
+-define(db_backend_module, [persistent_session_store, db_backend_module]).
+-define(db_backend, (persistent_term:get(?db_backend_module))).

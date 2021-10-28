@@ -19,7 +19,7 @@
 -include("emqx.hrl").
 -include("emqx_persistent_session.hrl").
 
--export([ create_tables/0
+-export([ create_tables/1
         , first_message_id/0
         , next_message_id/1
         , delete_message/1
@@ -35,11 +35,12 @@
         , ro_transaction/1
         ]).
 
-create_tables() ->
+create_tables(TableType) when TableType =:= ram_copies;
+                              TableType =:= disc_copies ->
     ok = mria:create_table(?SESSION_STORE, [
                 {type, set},
                 {rlog_shard, ?PERSISTENT_SESSION_SHARD},
-                {storage, disc_copies},
+                {storage, TableType},
                 {record_name, session_store},
                 {attributes, record_info(fields, session_store)},
                 {storage_properties, [{ets, [{read_concurrency, true}]}]}]),
@@ -47,7 +48,7 @@ create_tables() ->
     ok = mria:create_table(?SESS_MSG_TAB, [
                 {type, ordered_set},
                 {rlog_shard, ?PERSISTENT_SESSION_SHARD},
-                {storage, disc_copies},
+                {storage, TableType},
                 {record_name, session_msg},
                 {attributes, record_info(fields, session_msg)},
                 {storage_properties, [{ets, [{read_concurrency, true},
@@ -56,7 +57,7 @@ create_tables() ->
     ok = mria:create_table(?MSG_TAB, [
                 {type, ordered_set},
                 {rlog_shard, ?PERSISTENT_SESSION_SHARD},
-                {storage, disc_copies},
+                {storage, TableType},
                 {record_name, message},
                 {attributes, record_info(fields, message)},
                 {storage_properties, [{ets, [{read_concurrency, true},

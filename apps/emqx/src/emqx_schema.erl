@@ -160,6 +160,10 @@ fields("persistent_session_store") ->
        sc(boolean(),
           #{ default => "false"
            })},
+      {"db_backend",
+       sc(hoconsc:union([mnesia_ram, mnesia_disc]),
+          #{ default => "mnesia_ram"
+           })},
       {"max_retain_undelivered",
        sc(duration(),
           #{ default => "1h"

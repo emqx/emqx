@@ -20,7 +20,7 @@
 
 %% Mnesia bootstrap
 -export([ mnesia/1
-        , create_session_trie/0
+        , create_session_trie/1
         ]).
 
 -boot_mnesia({mnesia, [boot]}).
@@ -75,13 +75,14 @@ mnesia(boot) ->
                 {type, ordered_set},
                 {storage_properties, StoreProps}]).
 
-create_session_trie() ->
+create_session_trie(TableType) when TableType =:= ram_copies;
+                                    TableType =:= disc_copies ->
     StoreProps = [{ets, [{read_concurrency, true},
                          {write_concurrency, true}
                         ]}],
     ok = mria:create_table(?SESSION_TRIE,
                            [{rlog_shard, ?ROUTE_SHARD},
-                            {storage, disc_copies},
+                            {storage, TableType},
                             {record_name, ?TRIE},
                             {attributes, record_info(fields, ?TRIE)},
                             {type, ordered_set},
