@@ -13,11 +13,7 @@ defmodule EmqxReleaseHelper.Applications do
   end
 
   application :emqx_machine do
-    start_type :permanent
-
-    overlay do
-      template "etc/emqx.conf.all", "etc/emqx.conf"
-    end
+    start_type :load
   end
 
   application :emqx_bridge do
@@ -93,7 +89,15 @@ defmodule EmqxReleaseHelper.Applications do
   end
 
   application :emqx_limiter do
-    start_type :permanent
+    start_type :load
+  end
+
+  application :emqx_conf do
+    start_type :load
+
+    overlay do
+      template "etc/emqx.conf.all", "etc/emqx.conf"
+    end
   end
 
   application :emqx_prometheus, %{release_type: :cloud} do
@@ -113,6 +117,10 @@ defmodule EmqxReleaseHelper.Applications do
   end
 
   application :ekka do
+    start_type :load
+  end
+
+  application :mria do
     start_type :load
   end
 

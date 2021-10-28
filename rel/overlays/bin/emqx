@@ -29,7 +29,7 @@ export RUNNER_ROOT_DIR
 export RUNNER_ETC_DIR
 export ERTS_VSN
 
-export SCHEMA_MOD=emqx_machine_schema
+export SCHEMA_MOD=emqx_conf_schema
 export CONFIGS_DIR="$RUNNER_DATA_DIR/configs"
 export MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia"
 

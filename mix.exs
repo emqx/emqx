@@ -16,7 +16,7 @@ defmodule EMQXUmbrella.MixProject do
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:jsx, "~> 3.1", override: true},
       {:gun, github: "emqx/gun", tag: "1.3.4", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.19.0", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.20.5", override: true},
       {:cuttlefish,
        github: "emqx/cuttlefish",
        manager: :rebar3,
