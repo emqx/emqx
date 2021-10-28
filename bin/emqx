@@ -238,12 +238,22 @@ generate_config() {
         sed '/^#/d' "$CUTTLE_GEN_ARG_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
             ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
             ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
-            TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $NF}')
-            if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
-                if [ -n "$TMP_ARG_VALUE" ]; then
-                    sh -c "$SED_REPLACE 's/^$ARG_KEY.*$/$ARG_LINE/' $TMP_ARG_FILE"
-                else
-                    echo "$ARG_LINE" >> "$TMP_ARG_FILE"
+            if [ "$ARG_KEY" =  '' ]; then
+                ## for the flags, e.g. -heart -emu_args etc
+                ARG_KEY=$(echo "$ARG_LINE" | awk '{print $1}')
+                ARG_VALUE=''
+                TMP_ARG_KEY=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $1}')
+                if [ "$TMP_ARG_KEY" = '' ]; then
+                    echo "$ARG_KEY" >> "$TMP_ARG_FILE"
+                fi
+            else
+                TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $NF}')
+                if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
+                    if [ -n "$TMP_ARG_VALUE" ]; then
+                        sh -c "$SED_REPLACE 's/^$ARG_KEY.*$/$ARG_LINE/' $TMP_ARG_FILE"
+                    else
+                        echo "$ARG_LINE" >> "$TMP_ARG_FILE"
+                    fi
                 fi
             fi
         done
