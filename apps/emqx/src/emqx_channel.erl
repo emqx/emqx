@@ -33,8 +33,6 @@
         , get_mqtt_conf/2
         , get_mqtt_conf/3
         , set_conn_state/2
-        , get_session/1
-        , set_session/2
         , stats/1
         , caps/1
         ]).
@@ -180,11 +178,10 @@ info(timers, #channel{timers = Timers}) -> Timers.
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
 
-get_session(#channel{session = Session}) ->
-    Session.
-
-set_session(Session, Channel) ->
-    Channel#channel{session = Session}.
+set_session(Session, Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
+    %% Assume that this is also an updated session. Allow side effect.
+    Session1 = emqx_persistent_session:persist(ClientInfo, ConnInfo, Session),
+    Channel#channel{session = Session1}.
 
 %% TODO: Add more stats.
 -spec(stats(channel()) -> emqx_types:stats()).
@@ -369,10 +366,10 @@ handle_in(?PUBACK_PACKET(PacketId, _ReasonCode, Properties), Channel
     case emqx_session:puback(PacketId, Session) of
         {ok, Msg, NSession} ->
             ok = after_message_acked(ClientInfo, Msg, Properties),
-            {ok, Channel#channel{session = NSession}};
+            {ok, set_session(NSession, Channel)};
         {ok, Msg, Publishes, NSession} ->
             ok = after_message_acked(ClientInfo, Msg, Properties),
-            handle_out(publish, Publishes, Channel#channel{session = NSession});
+            handle_out(publish, Publishes, set_session(NSession, Channel));
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{msg => "puback_packetId_inuse", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.puback.inuse'),
@@ -388,7 +385,7 @@ handle_in(?PUBREC_PACKET(PacketId, _ReasonCode, Properties), Channel
     case emqx_session:pubrec(PacketId, Session) of
         {ok, Msg, NSession} ->
             ok = after_message_acked(ClientInfo, Msg, Properties),
-            NChannel = Channel#channel{session = NSession},
+            NChannel = set_session(NSession, Channel),
             handle_out(pubrel, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{msg => "pubrec_packetId_inuse", packetId => PacketId}),
@@ -403,7 +400,7 @@ handle_in(?PUBREC_PACKET(PacketId, _ReasonCode, Properties), Channel
 handle_in(?PUBREL_PACKET(PacketId, _ReasonCode), Channel = #channel{session = Session}) ->
     case emqx_session:pubrel(PacketId, Session) of
         {ok, NSession} ->
-            NChannel = Channel#channel{session = NSession},
+            NChannel = set_session(NSession, Channel),
             handle_out(pubcomp, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "pubrec_packetId_not_found", packetId => PacketId}),
@@ -414,9 +411,9 @@ handle_in(?PUBREL_PACKET(PacketId, _ReasonCode), Channel = #channel{session = Se
 handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{session = Session}) ->
     case emqx_session:pubcomp(PacketId, Session) of
         {ok, NSession} ->
-            {ok, Channel#channel{session = NSession}};
+            {ok, set_session(NSession, Channel)};
         {ok, Publishes, NSession} ->
-            handle_out(publish, Publishes, Channel#channel{session = NSession});
+            handle_out(publish, Publishes, set_session(NSession, Channel));
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ok = emqx_metrics:inc('packets.pubcomp.inuse'),
             {ok, Channel};
@@ -624,7 +621,8 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_2},
     case emqx_session:publish(PacketId, Msg, Session) of
         {ok, PubRes, NSession} ->
             RC = puback_reason_code(PubRes),
-            NChannel1 = ensure_timer(await_timer, Channel#channel{session = NSession}),
+            NChannel0 = set_session(NSession, Channel),
+            NChannel1 = ensure_timer(await_timer, NChannel0),
             NChannel2 = ensure_quota(PubRes, NChannel1),
             handle_out(pubrec, {PacketId, RC}, NChannel2);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
@@ -698,7 +696,7 @@ do_subscribe(TopicFilter, SubOpts = #{qos := QoS}, Channel =
     NSubOpts = enrich_subopts(maps:merge(?DEFAULT_SUBOPTS, SubOpts), Channel),
     case emqx_session:subscribe(ClientInfo, NTopicFilter, NSubOpts, Session) of
         {ok, NSession} ->
-            {QoS, Channel#channel{session = NSession}};
+            {QoS, set_session(NSession, Channel)};
         {error, RC} ->
             ?SLOG(warning, #{
                 msg => "cannot_subscribe_topic_filter",
@@ -728,7 +726,7 @@ do_unsubscribe(TopicFilter, SubOpts, Channel =
     TopicFilter1 = emqx_mountpoint:mount(MountPoint, TopicFilter),
     case emqx_session:unsubscribe(ClientInfo, TopicFilter1, SubOpts, Session) of
         {ok, NSession} ->
-            {?RC_SUCCESS, Channel#channel{session = NSession}};
+            {?RC_SUCCESS, set_session(NSession, Channel)};
         {error, RC} -> {RC, Channel}
     end.
 %%--------------------------------------------------------------------
@@ -752,8 +750,23 @@ process_disconnect(ReasonCode, Properties, Channel) ->
     {ok, {close, disconnect_reason(ReasonCode)}, NChannel}.
 
 maybe_update_expiry_interval(#{'Session-Expiry-Interval' := Interval},
-                             Channel = #channel{conninfo = ConnInfo}) ->
-    Channel#channel{conninfo = ConnInfo#{expiry_interval => timer:seconds(Interval)}};
+                             Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
+    EI = timer:seconds(Interval),
+    OldEI = maps:get(expiry_interval, ConnInfo, 0),
+    case OldEI =:= EI of
+        true -> Channel;
+        false ->
+            NChannel = Channel#channel{conninfo = ConnInfo#{expiry_interval => EI}},
+            ClientID = maps:get(clientid, ClientInfo, undefined),
+            %% Check if the client turns off persistence (turning it on is disallowed)
+            case EI =:= 0 andalso OldEI > 0 of
+                true ->
+                    S = emqx_persistent_session:discard(ClientID, NChannel#channel.session),
+                    set_session(S, NChannel);
+                false ->
+                    NChannel
+            end
+    end;
 maybe_update_expiry_interval(_Properties, Channel) -> Channel.
 
 %%--------------------------------------------------------------------
@@ -765,38 +778,32 @@ maybe_update_expiry_interval(_Properties, Channel) -> Channel.
 handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
                                             session    = Session,
                                             clientinfo = #{clientid := ClientId}}) ->
-    NSession = emqx_session:enqueue(ignore_local(maybe_nack(Delivers), ClientId, Session), Session),
-    {ok, Channel#channel{session = NSession}};
+    Delivers1 = maybe_nack(Delivers),
+    Delivers2 = emqx_session:ignore_local(Delivers1, ClientId, Session),
+    NSession = emqx_session:enqueue(Delivers2, Session),
+    NChannel = set_session(NSession, Channel),
+    %% We consider queued/dropped messages as delivered since they are now in the session state.
+    maybe_mark_as_delivered(Session, Delivers),
+    {ok, NChannel};
 
 handle_deliver(Delivers, Channel = #channel{takeover = true,
                                             pendings = Pendings,
                                             session = Session,
                                             clientinfo = #{clientid := ClientId}}) ->
-    NPendings = lists:append(Pendings, ignore_local(maybe_nack(Delivers), ClientId, Session)),
+    NPendings = lists:append(Pendings, emqx_session:ignore_local(maybe_nack(Delivers), ClientId, Session)),
     {ok, Channel#channel{pendings = NPendings}};
 
 handle_deliver(Delivers, Channel = #channel{session = Session,
-                                            clientinfo = #{clientid := ClientId}}) ->
-    case emqx_session:deliver(ignore_local(Delivers, ClientId, Session), Session) of
+                                            clientinfo = #{clientid := ClientId}
+                                           }) ->
+    case emqx_session:deliver(emqx_session:ignore_local(Delivers, ClientId, Session), Session) of
         {ok, Publishes, NSession} ->
-            NChannel = Channel#channel{session = NSession},
+            NChannel = set_session(NSession, Channel),
+            maybe_mark_as_delivered(NSession, Delivers),
             handle_out(publish, Publishes, ensure_timer(retry_timer, NChannel));
         {ok, NSession} ->
-            {ok, Channel#channel{session = NSession}}
+            {ok, set_session(NSession, Channel)}
     end.
-
-ignore_local(Delivers, Subscriber, Session) ->
-    Subs = emqx_session:info(subscriptions, Session),
-    lists:dropwhile(fun({deliver, Topic, #message{from = Publisher}}) ->
-                        case maps:find(Topic, Subs) of
-                            {ok, #{nl := 1}} when Subscriber =:= Publisher ->
-                                ok = emqx_metrics:inc('delivery.dropped'),
-                                ok = emqx_metrics:inc('delivery.dropped.no_local'),
-                                true;
-                            _ ->
-                                false
-                        end
-                    end, Delivers).
 
 %% Nack delivers from shared subscription
 maybe_nack(Delivers) ->
@@ -805,6 +812,14 @@ maybe_nack(Delivers) ->
 not_nacked({deliver, _Topic, Msg}) ->
     not (emqx_shared_sub:is_ack_required(Msg)
          andalso (ok == emqx_shared_sub:nack_no_connection(Msg))).
+
+maybe_mark_as_delivered(Session, Delivers) ->
+    case emqx_session:info(is_persistent, Session) of
+        false -> skip;
+        true ->
+            SessionID = emqx_session:info(id, Session),
+            emqx_persistent_session:mark_as_delivered(SessionID, Delivers)
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packet
@@ -898,13 +913,13 @@ return_connack(AckPacket, Channel) ->
     case maybe_resume_session(Channel) of
         ignore -> {ok, Replies, Channel};
         {ok, Publishes, NSession} ->
-            NChannel = Channel#channel{session  = NSession,
-                                       resuming = false,
+            NChannel0 = Channel#channel{resuming = false,
                                        pendings = []
                                       },
-            {Packets, NChannel1} = do_deliver(Publishes, NChannel),
+            NChannel1 = set_session(NSession, NChannel0),
+            {Packets, NChannel2} = do_deliver(Publishes, NChannel1),
             Outgoing = [{outgoing, Packets} || length(Packets) > 0],
-            {ok, Replies ++ Outgoing, NChannel1}
+            {ok, Replies ++ Outgoing, NChannel2}
     end.
 
 %%--------------------------------------------------------------------
@@ -1028,9 +1043,27 @@ handle_info(clean_authz_cache, Channel) ->
     ok = emqx_authz_cache:empty_authz_cache(),
     {ok, Channel};
 
+handle_info(die_if_test = Info, Channel) ->
+    die_if_test_compiled(),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
+    {ok, Channel};
+
 handle_info(Info, Channel) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {ok, Channel}.
+
+-ifdef(TEST).
+
+-spec die_if_test_compiled() -> no_return().
+die_if_test_compiled() ->
+    exit(normal).
+
+-else.
+
+die_if_test_compiled() ->
+    ok.
+
+-endif.
 
 %%--------------------------------------------------------------------
 %% Handle timeout
@@ -1063,9 +1096,9 @@ handle_timeout(_TRef, retry_delivery,
                Channel = #channel{session = Session}) ->
     case emqx_session:retry(Session) of
         {ok, NSession} ->
-            {ok, clean_timer(retry_timer, Channel#channel{session = NSession})};
+            {ok, clean_timer(retry_timer, set_session(NSession, Channel))};
         {ok, Publishes, Timeout, NSession} ->
-            NChannel = Channel#channel{session = NSession},
+            NChannel = set_session(NSession, Channel),
             handle_out(publish, Publishes, reset_timer(retry_timer, Timeout, NChannel))
     end;
 
@@ -1076,9 +1109,9 @@ handle_timeout(_TRef, expire_awaiting_rel,
                Channel = #channel{session = Session}) ->
     case emqx_session:expire(awaiting_rel, Session) of
         {ok, NSession} ->
-            {ok, clean_timer(await_timer, Channel#channel{session = NSession})};
+            {ok, clean_timer(await_timer, set_session(NSession, Channel))};
         {ok, Timeout, NSession} ->
-            {ok, reset_timer(await_timer, Timeout, Channel#channel{session = NSession})}
+            {ok, reset_timer(await_timer, Timeout, set_session(NSession, Channel))}
     end;
 
 handle_timeout(_TRef, expire_session, Channel) ->
@@ -1145,11 +1178,19 @@ interval(will_timer, #channel{will_msg = WillMsg}) ->
 terminate(_, #channel{conn_state = idle}) -> ok;
 terminate(normal, Channel) ->
     run_terminate_hook(normal, Channel);
-terminate({shutdown, Reason}, Channel)
-  when Reason =:= kicked; Reason =:= discarded; Reason =:= takeovered ->
+terminate({shutdown, kicked}, Channel) ->
+    _ = emqx_persistent_session:persist(Channel#channel.clientinfo,
+                                        Channel#channel.conninfo,
+                                        Channel#channel.session),
+    run_terminate_hook(kicked, Channel);
+terminate({shutdown, Reason}, Channel) when Reason =:= discarded;
+                                            Reason =:= takeovered ->
     run_terminate_hook(Reason, Channel);
 terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
     (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+    _ = emqx_persistent_session:persist(Channel#channel.clientinfo,
+                                        Channel#channel.conninfo,
+                                        Channel#channel.session),
     run_terminate_hook(Reason, Channel).
 
 run_terminate_hook(_Reason, #channel{session = undefined}) -> ok;
@@ -1613,8 +1654,11 @@ maybe_resume_session(#channel{resuming = false}) ->
     ignore;
 maybe_resume_session(#channel{session  = Session,
                               resuming = true,
-                              pendings = Pendings}) ->
+                              pendings = Pendings,
+                              clientinfo = #{clientid := ClientId}}) ->
     {ok, Publishes, Session1} = emqx_session:replay(Session),
+    %% We consider queued/dropped messages as delivered since they are now in the session state.
+    emqx_persistent_session:mark_as_delivered(ClientId, Pendings),
     case emqx_session:deliver(Pendings, Session1) of
         {ok, Session2} ->
             {ok, Publishes, Session2};

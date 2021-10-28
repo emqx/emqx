@@ -100,6 +100,8 @@ clientinfo() ->
 %% See emqx_session:session() type define
 sessioninfo() ->
     ?LET(Session, {session,
+                    sessionid(),        % id
+                    boolean(),          % is_persistent
                     subscriptions(),    % subscriptions
                     non_neg_integer(),  % max_subscriptions
                     boolean(),          % upgrade_qos
@@ -113,6 +115,9 @@ sessioninfo() ->
                     timestamp()         % created_at
                   },
          emqx_session:info(Session)).
+
+sessionid() ->
+    emqx_guid:gen().
 
 subscriptions() ->
     ?LET(L, list({topic(), subopts()}), maps:from_list(L)).

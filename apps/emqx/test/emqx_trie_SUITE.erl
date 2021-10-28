@@ -183,7 +183,7 @@ t_delete3(_) ->
               ?TRIE:delete(<<"sensor/+/unknown">>)
           end),
     ?assertEqual([], ?TRIE:match(<<"sensor">>)),
-    ?assertEqual([], ?TRIE:lookup_topic(<<"sensor/+">>)).
+    ?assertEqual([], ?TRIE:lookup_topic(<<"sensor/+">>, ?TRIE)).
 
 clear_tables() -> emqx_trie:clear_tables().
 
