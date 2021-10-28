@@ -875,10 +875,11 @@ fields("alarm") ->
              validator => fun ?MODULE:validate_alarm_actions/1,
              example => [log, publish],
              desc =>
-             """The action triggered when the alarm is activated,<\br>
-             and it currently only supports log and publish,
-             which is to output log or publish to system topic: <\br>
-             $SYS/brokers/emqx@xx.xx.xx.x/alarms/activate  $SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate"""
+             """The actions triggered when the alarm is activated.<\br>
+Currently supports two actions, 'log' and 'publish'.
+'log' is to write the alarm to log (console or file).
+'publish' is to publish the alarm as an MQTT message to the system topics:
+<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/activate</code> and <code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate</code>"""
            })
       }
     , {"size_limit",
@@ -886,9 +887,9 @@ fields("alarm") ->
           #{ default => 1000,
              example => 1000,
              desc =>
-             """The maximum number of saved alarms that has been deactivated.<br>
-             After the limit is reached,
-             these alarms will be cleared according to the FIFO principle."""
+             """The maximum total number of deactivated alarms to keep as history.<br>
+When this limit is exceeded, the oldest deactivated alarms are deleted to cap the total number.
+"""
            })
       }
     , {"validity_period",
@@ -896,7 +897,8 @@ fields("alarm") ->
           #{ default => "24h",
              example => "24h",
              desc =>
-             """The maximum storage time of deactivated alarms, and expired alarms will be cleared"""
+             """Retention time of deactivated alarms. Alarms are not deleted immediately when deactivated, but after the retention time.
+             """
            })
       }
     ].
