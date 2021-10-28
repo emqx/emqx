@@ -51,6 +51,7 @@
 
 -export([ validate_heap_size/1
         , parse_user_lookup_fun/1
+        , validate_alarm_actions/1
         ]).
 
 % workaround: prevent being recognized as unused functions
@@ -889,17 +890,34 @@ fields("sysmon_os") ->
 fields("alarm") ->
     [ {"actions",
        sc(hoconsc:array(atom()),
-          #{ default => [log, publish]
+          #{ default => [log, publish],
+             validator => fun ?MODULE:validate_alarm_actions/1,
+             example => [log, publish],
+             desc =>
+             """The actions triggered when the alarm is activated.<\br>
+Currently supports two actions, 'log' and 'publish'.
+'log' is to write the alarm to log (console or file).
+'publish' is to publish the alarm as an MQTT message to the system topics:
+<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/activate</code> and <code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate</code>"""
            })
       }
     , {"size_limit",
-       sc(integer(),
-          #{ default => 1000
+       sc(range(1, 3000),
+          #{ default => 1000,
+             example => 1000,
+             desc =>
+             """The maximum total number of deactivated alarms to keep as history.<br>
+When this limit is exceeded, the oldest deactivated alarms are deleted to cap the total number.
+"""
            })
       }
     , {"validity_period",
        sc(duration(),
-          #{ default => "24h"
+          #{ default => "24h",
+             example => "24h",
+             desc =>
+             """Retention time of deactivated alarms. Alarms are not deleted immediately when deactivated, but after the retention time.
+             """
            })
       }
     ].
@@ -1345,6 +1363,14 @@ validate_heap_size(Siz) ->
         true -> error(io_lib:format("force_shutdown_policy: heap-size ~ts is too large", [Siz]));
         false -> ok
     end.
+
+validate_alarm_actions(Actions) ->
+ UnSupported = lists:filter(fun(Action) -> Action =/= log andalso Action =/= publish end, Actions),
+    case UnSupported of
+        [] -> ok;
+        Error -> {error, Error}
+    end.
+
 parse_user_lookup_fun(StrConf) ->
     [ModStr, FunStr] = string:tokens(str(StrConf), ":"),
     Mod = list_to_atom(ModStr),

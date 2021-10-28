@@ -62,12 +62,23 @@ handle_info({timeout, _Timer, check}, State) ->
     ProcessCount = erlang:system_info(process_count),
     case ProcessCount / erlang:system_info(process_limit) of
         Percent when Percent >= ProcHighWatermark ->
-            emqx_alarm:activate(too_many_processes, #{
-                usage => io_lib:format("~p%", [Percent*100]),
-                high_watermark => ProcHighWatermark,
-                low_watermark => ProcLowWatermark});
+            Usage = io_lib:format("~p%", [Percent*100]),
+            Message = [Usage, " process usage"],
+            emqx_alarm:activate(too_many_processes,
+                #{
+                    usage => Usage,
+                    high_watermark => ProcHighWatermark,
+                    low_watermark => ProcLowWatermark},
+                Message);
         Percent when Percent < ProcLowWatermark ->
-            emqx_alarm:deactivate(too_many_processes);
+            Usage = io_lib:format("~p%", [Percent*100]),
+            Message = [Usage, " process usage"],
+            emqx_alarm:deactivate(too_many_processes,
+                #{
+                    usage => Usage,
+                    high_watermark => ProcHighWatermark,
+                    low_watermark => ProcLowWatermark},
+                Message);
         _Precent ->
             ok
     end,
