@@ -158,7 +158,7 @@ do_subscribe(ClientId, Topics, QoS) ->
         _ -> ok
     end.
 
-do_publish(ClientId, _Topics, _Qos, _Retain, _Payload) when not is_binary(ClientId) ->
+do_publish(ClientId, _Topics, _Qos, _Retain, _Payload) when not (is_binary(ClientId) or (ClientId =:= undefined)) ->
     {ok, ?ERROR8, <<"bad clientid: must be string">>};
 do_publish(_ClientId, [], _Qos, _Retain, _Payload) ->
     {ok, ?ERROR15, bad_topic};

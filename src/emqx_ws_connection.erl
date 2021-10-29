@@ -242,7 +242,7 @@ parse_header_fun_origin(Req, Opts) ->
             Origins = proplists:get_value(check_origins, Opts, []),
             case lists:member(Value, Origins) of
                 true -> ok;
-                false -> {origin_not_allowed, Value}
+                false -> {error, {origin_not_allowed, Value}}
             end
     end.
 

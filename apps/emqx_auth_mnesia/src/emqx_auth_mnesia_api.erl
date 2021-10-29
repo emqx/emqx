@@ -23,7 +23,7 @@
 
 -import(proplists, [get_value/2]).
 -import(minirest,  [return/1]).
--export([paginate/5]).
+-export([paginate_qh/5]).
 
 -export([ list_clientid/2
         , lookup_clientid/2
@@ -212,9 +212,12 @@ delete_username(#{username := Username}, _) ->
 %% Paging Query
 %%------------------------------------------------------------------------------
 
-paginate(Tables, MatchSpec, Params, ComparingFun, RowFun) ->
-    Qh = query_handle(Tables, MatchSpec),
-    Count = count(Tables, MatchSpec),
+paginate(Table, MatchSpec, Params, ComparingFun, RowFun) ->
+    Qh = query_handle(Table, MatchSpec),
+    Count = count(Table, MatchSpec),
+    paginate_qh(Qh, Count, Params, ComparingFun, RowFun).
+
+paginate_qh(Qh, Count, Params, ComparingFun, RowFun) ->
     Page = page(Params),
     Limit = limit(Params),
     Cursor = qlc:cursor(Qh),
@@ -231,24 +234,12 @@ paginate(Tables, MatchSpec, Params, ComparingFun, RowFun) ->
 
 query_handle(Table, MatchSpec) when is_atom(Table) ->
     Options = {traverse, {select, MatchSpec}},
-    qlc:q([R|| R <- ets:table(Table, Options)]);
-query_handle([Table], MatchSpec) when is_atom(Table) ->
-    Options = {traverse, {select, MatchSpec}},
-    qlc:q([R|| R <- ets:table(Table, Options)]);
-query_handle(Tables, MatchSpec) ->
-    Options = {traverse, {select, MatchSpec}},
-    qlc:append([qlc:q([E || E <- ets:table(T, Options)]) || T <- Tables]).
+    qlc:q([R || R <- ets:table(Table, Options)]).
 
 count(Table, MatchSpec) when is_atom(Table) ->
     [{MatchPattern, Where, _Re}] = MatchSpec,
     NMatchSpec = [{MatchPattern, Where, [true]}],
-    ets:select_count(Table, NMatchSpec);
-count([Table], MatchSpec) when is_atom(Table) ->
-    [{MatchPattern, Where, _Re}] = MatchSpec,
-    NMatchSpec = [{MatchPattern, Where, [true]}],
-    ets:select_count(Table, NMatchSpec);
-count(Tables, MatchSpec) ->
-    lists:sum([count(T, MatchSpec) || T <- Tables]).
+    ets:select_count(Table, NMatchSpec).
 
 page(Params) ->
     binary_to_integer(proplists:get_value(<<"_page">>, Params, <<"1">>)).

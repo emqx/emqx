@@ -25,14 +25,16 @@ Usage:
 
 Options:
 
-  --check         Don't update the appfile, just check that they are complete
-  --prev-tag      Specify the previous release tag. Otherwise the previous patch version is used
-  --repo          Upsteam git repo URL
-  --remote        Get upstream repo URL from the specified git remote
-  --skip-build    Don't rebuild the releases. May produce wrong results
-  --make-command  A command used to assemble the release
-  --release-dir   Release directory
-  --src-dirs      Directories where source code is found. Defaults to '{src,apps,lib-*}/**/'
+  --check           Don't update the appfile, just check that they are complete
+  --prev-tag        Specify the previous release tag. Otherwise the previous patch version is used
+  --repo            Upsteam git repo URL
+  --remote          Get upstream repo URL from the specified git remote
+  --skip-build      Don't rebuild the releases. May produce wrong results
+  --make-command    A command used to assemble the release
+  --release-dir     Release directory
+  --src-dirs        Directories where source code is found. Defaults to '{src,apps,lib-*}/**/'
+  --binary-rel-url  Binary release URL pattern. %TAG% variable is substituted with the release tag.
+                    E.g. \"https://github.com/emqx/emqx/releases/download/v4.3.8/emqx-centos7-%TAG%-amd64.zip\"
 ".
 
 -record(app,
@@ -41,18 +43,26 @@ Options:
         }).
 
 default_options() ->
-    #{ clone_url    => find_upstream_repo("origin")
-     , make_command => "make emqx-rel"
-     , beams_dir    => "_build/emqx/rel/emqx/lib/"
-     , check        => false
-     , prev_tag     => undefined
-     , src_dirs     => "{src,apps,lib-*}/**/"
+    #{ clone_url      => find_upstream_repo("origin")
+     , make_command   => "make emqx-rel"
+     , beams_dir      => "_build/emqx/rel/emqx/lib/"
+     , check          => false
+     , prev_tag       => undefined
+     , src_dirs       => "{src,apps,lib-*}/**/"
+     , binary_rel_url => undefined
      }.
+
+%% App-specific actions that should be added unconditionally to any update/downgrade:
+app_specific_actions(_) ->
+    [].
+
+ignored_apps() ->
+    [emqx_dashboard, emqx_management] ++ otp_standard_apps().
 
 main(Args) ->
     #{current_release := CurrentRelease} = Options = parse_args(Args, default_options()),
     init_globals(Options),
-    case find_pred_tag(CurrentRelease) of
+    case find_prev_tag(CurrentRelease) of
         {ok, Baseline} ->
             main(Options, Baseline);
         undefined ->
@@ -78,6 +88,8 @@ parse_args(["--src-dirs", Pattern|Rest], State) ->
     parse_args(Rest, State#{src_dirs => Pattern});
 parse_args(["--prev-tag", Tag|Rest], State) ->
     parse_args(Rest, State#{prev_tag => Tag});
+parse_args(["--binary-rel-url", URL|Rest], State) ->
+    parse_args(Rest, State#{binary_rel_url => {ok, URL}});
 parse_args(_, _) ->
     fail(usage()).
 
@@ -88,7 +100,7 @@ main(Options, Baseline) ->
         "~n===================================~n"),
     CurrAppsIdx = index_apps(CurrRelDir),
     PrevAppsIdx = index_apps(PrevRelDir),
-    %% log("Curr: ~p~nPrev: ~p~n", [CurrApps, PrevApps]),
+    %% log("Curr: ~p~nPrev: ~p~n", [CurrAppsIdx, PrevAppsIdx]),
     AppupChanges = find_appup_actions(CurrAppsIdx, PrevAppsIdx),
     case getopt(check) of
         true ->
@@ -115,17 +127,25 @@ warn_and_exit(false) ->
     log("~nERROR: Incomplete appups found. Please inspect the output for more details.~n"),
     halt(1).
 
-prepare(Baseline, Options = #{make_command := MakeCommand, beams_dir := BeamDir}) ->
+prepare(Baseline, Options = #{make_command := MakeCommand, beams_dir := BeamDir, binary_rel_url := BinRel}) ->
     log("~n===================================~n"
         "Baseline: ~s"
         "~n===================================~n", [Baseline]),
     log("Building the current version...~n"),
     bash(MakeCommand),
     log("Downloading and building the previous release...~n"),
-    {ok, PrevRootDir} = build_pred_release(Baseline, Options),
-    {BeamDir, filename:join(PrevRootDir, BeamDir)}.
+    PrevRelDir =
+        case BinRel of
+            undefined ->
+                {ok, PrevRootDir} = build_prev_release(Baseline, Options),
+                filename:join(PrevRootDir, BeamDir);
+            {ok, _URL} ->
+                {ok, PrevRootDir} = download_prev_release(Baseline, Options),
+                PrevRootDir
+        end,
+    {BeamDir, PrevRelDir}.
 
-build_pred_release(Baseline, #{clone_url := Repo, make_command := MakeCommand}) ->
+build_prev_release(Baseline, #{clone_url := Repo, make_command := MakeCommand}) ->
     BaseDir = "/tmp/emqx-baseline/",
     Dir = filename:basename(Repo, ".git") ++ [$-|Baseline],
     %% TODO: shallow clone
@@ -137,10 +157,22 @@ build_pred_release(Baseline, #{clone_url := Repo, make_command := MakeCommand}) 
     bash(Script, Env),
     {ok, filename:join(BaseDir, Dir)}.
 
+download_prev_release(Tag, #{binary_rel_url := {ok, URL0}, clone_url := Repo}) ->
+    URL = string:replace(URL0, "%TAG%", Tag, all),
+    BaseDir = "/tmp/emqx-baseline-bin/",
+    Dir = filename:basename(Repo, ".git") ++ [$-|Tag],
+    Filename = filename:join(BaseDir, Dir),
+    Script = "mkdir -p ${OUTFILE} &&
+              { [ -f ${OUTFILE}.zip ] || wget -O ${OUTFILE}.zip ${URL}; } &&
+              unzip -n -d ${OUTFILE} ${OUTFILE}.zip",
+    Env = [{"TAG", Tag}, {"OUTFILE", Filename}, {"URL", URL}],
+    bash(Script, Env),
+    {ok, Filename}.
+
 find_upstream_repo(Remote) ->
     string:trim(os:cmd("git remote get-url " ++ Remote)).
 
-find_pred_tag(CurrentRelease) ->
+find_prev_tag(CurrentRelease) ->
     case getopt(prev_tag) of
         undefined ->
             {Maj, Min, Patch} = parse_semver(CurrentRelease),
@@ -172,8 +204,8 @@ find_appup_actions(_App, AppIdx, AppIdx) ->
     [];
 find_appup_actions(App, CurrAppIdx, PrevAppIdx = #app{version = PrevVersion}) ->
     {OldUpgrade, OldDowngrade} = find_old_appup_actions(App, PrevVersion),
-    Upgrade = merge_update_actions(diff_app(App, CurrAppIdx, PrevAppIdx), OldUpgrade),
-    Downgrade = merge_update_actions(diff_app(App, PrevAppIdx, CurrAppIdx), OldDowngrade),
+    Upgrade = merge_update_actions(App, diff_app(App, CurrAppIdx, PrevAppIdx), OldUpgrade),
+    Downgrade = merge_update_actions(App, diff_app(App, PrevAppIdx, CurrAppIdx), OldDowngrade),
     if OldUpgrade =:= Upgrade andalso OldDowngrade =:= Downgrade ->
             %% The appup file has been already updated:
             [];
@@ -183,7 +215,7 @@ find_appup_actions(App, CurrAppIdx, PrevAppIdx = #app{version = PrevVersion}) ->
 
 find_old_appup_actions(App, PrevVersion) ->
     {Upgrade0, Downgrade0} =
-        case locate(App, ".appup.src") of
+        case locate(ebin_current, App, ".appup") of
             {ok, AppupFile} ->
                 {_, U, D} = read_appup(AppupFile),
                 {U, D};
@@ -192,22 +224,24 @@ find_old_appup_actions(App, PrevVersion) ->
         end,
     {ensure_version(PrevVersion, Upgrade0), ensure_version(PrevVersion, Downgrade0)}.
 
-merge_update_actions(Changes, Vsns) ->
+merge_update_actions(App, Changes, Vsns) ->
     lists:map(fun(Ret = {<<".*">>, _}) ->
                       Ret;
                  ({Vsn, Actions}) ->
-                      {Vsn, do_merge_update_actions(Changes, Actions)}
+                      {Vsn, do_merge_update_actions(App, Changes, Actions)}
               end,
               Vsns).
 
-do_merge_update_actions({New0, Changed0, Deleted0}, OldActions) ->
+do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
+    AppSpecific = app_specific_actions(App) -- OldActions,
     AlreadyHandled = lists:flatten(lists:map(fun process_old_action/1, OldActions)),
     New = New0 -- AlreadyHandled,
     Changed = Changed0 -- AlreadyHandled,
     Deleted = Deleted0 -- AlreadyHandled,
     [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed ++ New] ++
         OldActions ++
-        [{delete_module, M} || M <- Deleted].
+        [{delete_module, M} || M <- Deleted] ++
+        AppSpecific.
 
 
 %% @doc Process the existing actions to exclude modules that are
@@ -222,12 +256,13 @@ process_old_action(LoadModule) when is_tuple(LoadModule) andalso
 process_old_action(_) ->
     [].
 
-ensure_version(Version, Versions) ->
-    case lists:keyfind(Version, 1, Versions) of
+ensure_version(Version, OldInstructions) ->
+    OldVersions = [ensure_string(element(1, I)) || I <- OldInstructions],
+    case lists:member(Version, OldVersions) of
         false ->
-            [{Version, []}|Versions];
+            [{Version, []}|OldInstructions];
         _ ->
-            Versions
+            OldInstructions
     end.
 
 read_appup(File) ->
@@ -251,7 +286,7 @@ update_appups(Changes) ->
       Changes).
 
 do_update_appup(App, Upgrade, Downgrade) ->
-    case locate(App, ".appup.src") of
+    case locate(src, App, ".appup.src") of
         {ok, AppupFile} ->
             render_appfile(AppupFile, Upgrade, Downgrade);
         undefined ->
@@ -260,7 +295,7 @@ do_update_appup(App, Upgrade, Downgrade) ->
                     render_appfile(AppupFile, Upgrade, Downgrade);
                 false ->
                     set_invalid(),
-                    log("ERROR: Appup file for the external dependency '~p' is not complete.~n       Missing changes: ~p", [App, Upgrade])
+                    log("ERROR: Appup file for the external dependency '~p' is not complete.~n       Missing changes: ~p~n", [App, Upgrade])
             end
     end.
 
@@ -273,7 +308,7 @@ render_appfile(File, Upgrade, Downgrade) ->
     ok = file:write_file(File, IOList).
 
 create_stub(App) ->
-    case locate(App, ".app.src") of
+    case locate(src, App, ".app.src") of
         {ok, AppSrc} ->
             AppupFile = filename:basename(AppSrc) ++ ".appup.src",
             Default = {<<".*">>, []},
@@ -288,8 +323,9 @@ create_stub(App) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 index_apps(ReleaseDir) ->
-    maps:from_list([index_app(filename:join(ReleaseDir, AppFile)) ||
-                       AppFile <- filelib:wildcard("**/ebin/*.app", ReleaseDir)]).
+    Apps0 = maps:from_list([index_app(filename:join(ReleaseDir, AppFile)) ||
+                               AppFile <- filelib:wildcard("**/ebin/*.app", ReleaseDir)]),
+    maps:without(ignored_apps(), Apps0).
 
 index_app(AppFile) ->
     {ok, [{application, App, Properties}]} = file:consult(AppFile),
@@ -320,7 +356,10 @@ diff_app(App, #app{version = NewVersion, modules = NewModules}, #app{version = O
     NChanges = length(New) + length(Changed) + length(Deleted),
     if NewVersion =:= OldVersion andalso NChanges > 0 ->
             set_invalid(),
-            log("ERROR: Application '~p' contains changes, but its version is not updated", [App]);
+            log("ERROR: Application '~p' contains changes, but its version is not updated~n", [App]);
+       NewVersion > OldVersion ->
+            log("INFO: Application '~p' has been updated: ~p -> ~p~n", [App, OldVersion, NewVersion]),
+            ok;
        true ->
             ok
     end,
@@ -372,7 +411,16 @@ semver(Maj, Min, Patch) ->
     lists:flatten(io_lib:format("~p.~p.~p", [Maj, Min, Patch])).
 
 %% Locate a file in a specified application
-locate(App, Suffix) ->
+locate(ebin_current, App, Suffix) ->
+    ReleaseDir = getopt(beams_dir),
+    AppStr = atom_to_list(App),
+    case filelib:wildcard(ReleaseDir ++ "/**/ebin/" ++ AppStr ++ Suffix) of
+        [File] ->
+            {ok, File};
+        [] ->
+            undefined
+    end;
+locate(src, App, Suffix) ->
     AppStr = atom_to_list(App),
     SrcDirs = getopt(src_dirs),
     case filelib:wildcard(SrcDirs ++ AppStr ++ Suffix) of
@@ -425,3 +473,11 @@ log(Msg) ->
 
 log(Msg, Args) ->
     io:format(standard_error, Msg, Args).
+
+ensure_string(Str) when is_binary(Str) ->
+    binary_to_list(Str);
+ensure_string(Str) when is_list(Str) ->
+    Str.
+
+otp_standard_apps() ->
+    [ssl, mnesia, kernel, asn1, stdlib].

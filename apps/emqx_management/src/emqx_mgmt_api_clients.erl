@@ -334,7 +334,7 @@ query({Qs, Fuzzy}, Start, Limit) ->
 match_fun(Ms, Fuzzy) ->
     MsC = ets:match_spec_compile(Ms),
     REFuzzy = lists:map(fun({K, like, S}) ->
-                  {ok, RE} = re:compile(S),
+                  {ok, RE} = re:compile(escape(S)),
                   {K, like, RE}
               end, Fuzzy),
     fun(Rows) ->
@@ -346,6 +346,9 @@ match_fun(Ms, Fuzzy) ->
                  end, Ls)
          end
     end.
+
+escape(B) when is_binary(B) ->
+    re:replace(B, <<"\\\\">>, <<"\\\\\\\\">>, [{return, binary}, global]).
 
 run_fuzzy_match(_, []) ->
     true;
@@ -449,5 +452,10 @@ params2qs_test() ->
     ?assertEqual(ExpectedCondi, Condi),
 
     [{{'$1', #{}, '_'}, [], ['$_']}] = qs2ms([]).
+
+escape_test() ->
+    Str = <<"\\n">>,
+    {ok, Re} = re:compile(escape(Str)),
+    {match, _} = re:run(<<"\\name">>, Re).
 
 -endif.
