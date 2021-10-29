@@ -130,6 +130,8 @@ get_alarms(deactivated) ->
 
 format(#activated_alarm{name = Name, message = Message, activate_at = At, details = Details}) ->
     Now = erlang:system_time(microsecond),
+    %% mnesia db stored microsecond for high frequency alarm
+    %% format for dashboard using millisecond
     #{
         node => node(),
         name => Name,
@@ -144,13 +146,14 @@ format(#deactivated_alarm{name = Name, message = Message, activate_at = At, deta
         node => node(),
         name => Name,
         message => Message,
-        duration => DAt - At,
+        duration => (DAt - At) div 1000, %% to millisecond
         activate_at => to_rfc3339(At),
         deactivate_at => to_rfc3339(DAt),
         details => Details
     }.
 
 to_rfc3339(Timestamp) ->
+    %% rfc3339 accuracy to millisecond
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp div 1000, [{unit, millisecond}])).
 
 %%--------------------------------------------------------------------
