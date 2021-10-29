@@ -946,7 +946,10 @@ handle_info({sock_closed, Reason}, Channel =
     end;
 
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}) ->
-    ?LOG(error, "Unexpected sock_closed: ~p", [Reason]),
+    %% Since sock_closed messages can be generated multiple times,
+    %% we can simply ignore errors of this type in the disconnected state.
+    %% e.g. when the socket send function returns an error, there is already
+    %% a tcp_closed delivered to the process mailbox
     {ok, Channel};
 
 handle_info(clean_acl_cache, Channel) ->
