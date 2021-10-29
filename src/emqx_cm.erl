@@ -93,6 +93,7 @@
 %% Server name
 -define(CM, ?MODULE).
 
+-define(T_KICKOUT, 5000).
 -define(T_TAKEOVER, 15000).
 
 %% @doc Start the channel manager.
@@ -281,35 +282,51 @@ takeover_session(ClientId, ChanPid) ->
 discard_session(ClientId) when is_binary(ClientId) ->
     case lookup_channels(ClientId) of
         [] -> ok;
-        ChanPids -> lists:foreach(fun(Pid) -> do_discard_session(ClientId, Pid) end, ChanPids)
+        ChanPids ->
+            lists:foreach(fun(Pid) ->
+                do_discard_or_kick_session(discard_session, ClientId, Pid)
+            end, ChanPids)
     end.
 
-do_discard_session(ClientId, Pid) ->
+do_discard_or_kick_session(Fun, ClientId, Pid) ->
     try
-        discard_session(ClientId, Pid)
+        erlang:apply(?MODULE, Fun, [ClientId, Pid])
     catch
         _ : noproc -> % emqx_ws_connection: call
-            ?tp(debug, "session_already_gone", #{pid => Pid}),
+            ?tp(debug, "session_already_gone", #{pid => Pid, func => Fun}),
             ok;
         _ : {noproc, _} -> % emqx_connection: gen_server:call
-            ?tp(debug, "session_already_gone", #{pid => Pid}),
+            ?tp(debug, "session_already_gone", #{pid => Pid, func => Fun}),
             ok;
         _ : {'EXIT', {noproc, _}} -> % rpc_call/3
-            ?tp(debug, "session_already_gone", #{pid => Pid}),
+            ?tp(debug, "session_already_gone", #{pid => Pid, func => Fun}),
             ok;
         _ : {{shutdown, _}, _} ->
-            ?tp(debug, "session_already_shutdown", #{pid => Pid}),
+            ?tp(debug, "session_already_shutdown", #{pid => Pid, func => Fun}),
             ok;
+        _ : Error = {timeout, _} ->
+            ?tp(error, "force_shutdown_old_session_due_to_call_timeout",
+                #{ pid => Pid
+                 , func => Fun
+                 , reason => Error
+                 , process_info => process_info(Pid, [status,
+                                                      message_queue_len,
+                                                      current_function,
+                                                      current_stacktrace])
+                 }),
+            %% We will close the old connection process forcefully
+            %% when the normal kickout operation times out
+            exit(Pid, kill);
         _ : Error : St ->
-            ?tp(error, "failed_to_discard_session",
-                #{pid => Pid, reason => Error, stacktrace=>St})
+            ?tp(error, "failed_to_discard_or_kick_session",
+                #{pid => Pid, func => Fun, reason => Error, stacktrace => St})
     end.
 
 discard_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chann_conn_mod(ClientId, ChanPid) of
         undefined -> ok;
         ConnMod when is_atom(ConnMod) ->
-            ConnMod:call(ChanPid, discard, ?T_TAKEOVER)
+            ConnMod:call(ChanPid, discard, ?T_KICKOUT)
     end;
 
 discard_session(ClientId, ChanPid) ->
@@ -318,21 +335,21 @@ discard_session(ClientId, ChanPid) ->
 kick_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] -> {error, not_found};
-        [ChanPid] ->
-            kick_session(ClientId, ChanPid);
         ChanPids ->
             [ChanPid|StalePids] = lists:reverse(ChanPids),
-            ?LOG(error, "More than one channel found: ~p", [ChanPids]),
-            lists:foreach(fun(StalePid) ->
-                                  catch discard_session(ClientId, StalePid)
-                          end, StalePids),
-            kick_session(ClientId, ChanPid)
+            StalePids =/= [] andalso begin
+                ?LOG(error, "More than one channel found: ~p", [ChanPids]),
+                lists:foreach(fun(StalePid) ->
+                    do_discard_or_kick_session(discard_session, ClientId, StalePid)
+                end, StalePids)
+            end,
+            do_discard_or_kick_session(kick_session, ClientId, ChanPid)
     end.
 
 kick_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chan_info(ClientId, ChanPid) of
         #{conninfo := #{conn_mod := ConnMod}} ->
-            ConnMod:call(ChanPid, kick, ?T_TAKEOVER);
+            ConnMod:call(ChanPid, kick, ?T_KICKOUT);
         undefined ->
             {error, not_found}
     end;
