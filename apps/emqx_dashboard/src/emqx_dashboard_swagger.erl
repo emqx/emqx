@@ -372,6 +372,8 @@ typename_to_spec("rate()", _Mod) ->
     #{type => string, example => <<"10M/s">>};
 typename_to_spec("bucket_rate()", _Mod) ->
     #{type => string, example => <<"10M/s, 100M">>};
+typename_to_spec("rpc_client_num()", _Mod) ->
+    #{type => string, example => <<"auto">>};
 typename_to_spec(Name, Mod) ->
     Spec = range(Name),
     Spec1 = remote_module_type(Spec, Name, Mod),
