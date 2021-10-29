@@ -1,7 +1,7 @@
 #!/bin/sh
 
 ## This script is to run emqx cluster smoke tests (fvt) in github action
-## This script is executed in pacho_client
+## This script is executed in paho_client
 
 set -x
 set +e

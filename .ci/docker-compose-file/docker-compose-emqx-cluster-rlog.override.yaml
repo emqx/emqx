@@ -1,0 +1,27 @@
+x-default-emqx: &default-emqx
+    image: $TARGET:$EMQX_TAG
+    env_file:
+      - conf.cluster.env
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+
+services:
+  emqx1:
+    <<: *default-emqx
+    environment:
+      - "EMQX_HOST=node1.emqx.io"
+      - "EMQX_CLUSTER__DB_BACKEND=rlog"
+      - "EMQX_CLUSTER__RLOG__ROLE=core"
+      - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io]"
+
+  emqx2:
+    <<: *default-emqx
+    environment:
+      - "EMQX_HOST=node2.emqx.io"
+      - "EMQX_CLUSTER__DB_BACKEND=rlog"
+      - "EMQX_CLUSTER__RLOG__ROLE=replicant"
+      - "EMQX_CLUSTER__RLOG__CORE_NODES=emqx@node1.emqx.io"
+      - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io]"
