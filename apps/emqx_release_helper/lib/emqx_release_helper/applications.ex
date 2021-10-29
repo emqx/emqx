@@ -12,19 +12,35 @@ defmodule EmqxReleaseHelper.Applications do
     end
   end
 
-  application :emqx_machine do
+  application :emqx_conf do
+    start_type :load
+
+    overlay do
+      template "etc/emqx.conf.all", "etc/emqx.conf"
+    end
+  end
+
+  application :lc do
     start_type :load
   end
 
-  application :emqx_bridge do
+  application :esasl do
     start_type :load
   end
 
-  application :emqx_auto_subscribe do
+  application :mria do
     start_type :load
   end
 
-  application :emqx_exhook do
+  application :mnesia do
+    start_type :load
+  end
+
+  application :ekka do
+    start_type :load
+  end
+
+  application :emqx_plugin_libs do
     start_type :load
   end
 
@@ -36,19 +52,15 @@ defmodule EmqxReleaseHelper.Applications do
     end
   end
 
-  application :emqx_connector do
-    start_type :load
-  end
-
-  application :emqx_modules do
-    start_type :load
-  end
-
   application :emqx_resource do
     start_type :load
   end
 
-  application :emqx_plugin_libs do
+  application :emqx_connector do
+    start_type :load
+  end
+
+  application :emqx_bridge do
     start_type :load
   end
 
@@ -64,79 +76,63 @@ defmodule EmqxReleaseHelper.Applications do
     end
   end
 
+  application :emqx_machine do
+    start_type :permanent
+  end
+
+  application :emqx_auto_subscribe do
+    start_type :permanent
+  end
+
+  application :emqx_exhook do
+    start_type :permanent
+  end
+
+  application :emqx_modules do
+    start_type :permanent
+  end
+
   application :emqx_dashboard do
-    start_type :load
+    start_type :permanent
   end
 
   application :emqx_management do
-    start_type :load
+    start_type :permanent
   end
 
   application :emqx_statsd do
-    start_type :load
+    start_type :permanent
   end
 
   application :emqx_retainer do
-    start_type :load
+    start_type :permanent
   end
 
   application :emqx_rule_engine do
-    start_type :load
+    start_type :permanent
   end
 
   application :emqx_psk do
-    start_type :load
+    start_type :permanent
   end
 
   application :emqx_limiter do
-    start_type :load
+    start_type :permanent
   end
 
-  application :emqx_conf do
-    start_type :load
-
-    overlay do
-      template "etc/emqx.conf.all", "etc/emqx.conf"
-    end
-  end
-
-  application :emqx_prometheus, %{release_type: :cloud} do
-    start_type :load
+  application :emqx_prometheus do
+    start_type :permanent
   end
 
   application :bcrypt, %{enable_bcrypt: true, release_type: :cloud} do
     start_type :permanent
   end
 
-  application :gproc do
-    start_type :load
-  end
-
-  application :grpc do
-    start_type :load
-  end
-
-  application :ekka do
-    start_type :load
-  end
-
-  application :mria do
-    start_type :load
-  end
-
-  application :mnesia do
-    start_type :load
-  end
-
-  application :ecpool do
-    start_type :load
-  end
-
-  application :lc do
-    start_type :load
-  end
-
   application :xmerl, %{release_type: :cloud} do
     start_type :permanent
+  end
+
+  application :observer, %{release_type: :cloud} do
+    start_type :load
   end
 end

@@ -26,7 +26,8 @@ defmodule EMQXResource.MixProject do
     [
       {:jsx, "3.1.0"},
       {:gproc, "0.9.0"},
-      {:hocon, github: "emqx/hocon"}
+      {:hocon, github: "emqx/hocon"},
+      {:emqx_conf, in_umbrella: true}
     ]
   end
 end
