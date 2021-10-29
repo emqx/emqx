@@ -977,8 +977,7 @@ handle_info({sock_closed, Reason}, Channel =
         Shutdown -> Shutdown
     end;
 
-handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}) ->
-    ?LOG(error, "Unexpected sock_closed: ~p", [Reason]),
+handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected}) ->
     {ok, Channel};
 
 handle_info(clean_acl_cache, Channel) ->
