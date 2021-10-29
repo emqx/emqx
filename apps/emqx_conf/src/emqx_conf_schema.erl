@@ -101,6 +101,10 @@ natively in the EMQ X node;<br>
 'postgresql' etc. to look up clients or rules from external databases;<br>
 """
            })}
+    , {"db",
+       sc(hoconsc:ref("db"),
+          #{ desc => "Settings for the builtin database."
+           })}
     ] ++
     emqx_schema:roots(medium) ++
     emqx_schema:roots(low) ++
@@ -145,14 +149,6 @@ fields("cluster") ->
           #{})}
     , {"k8s",
        sc(ref(cluster_k8s),
-          #{})}
-    , {"db_backend",
-        sc(hoconsc:enum([mnesia, rlog]),
-          #{ mapping => "mria.db_backend"
-           , default => mnesia
-           })}
-    , {"rlog",
-       sc(ref("rlog"),
           #{})}
     ];
 
@@ -248,19 +244,6 @@ fields(cluster_k8s) ->
     , {"suffix",
        sc(string(),
           #{default => "pod.local"
-           })}
-    ];
-
-fields("rlog") ->
-    [ {"role",
-       sc(hoconsc:enum([core, replicant]),
-          #{ mapping => "mria.node_role"
-           , default => core
-           })}
-    , {"core_nodes",
-       sc(emqx_schema:comma_separated_atoms(),
-          #{ mapping => "mria.core_nodes"
-           , default => []
            })}
     ];
 
@@ -500,7 +483,57 @@ fields("log_burst_limit") ->
 
 fields("authorization") ->
     emqx_schema:fields("authorization") ++
-    emqx_authz_schema:fields("authorization").
+    emqx_authz_schema:fields("authorization");
+
+fields("db") ->
+    [ {"backend",
+       sc(hoconsc:enum([mnesia, rlog]), %% TODO: rlog -> mria
+          #{ mapping => "mria.db_backend"
+           , default => mnesia
+           , desc    => """
+There are two possible database engines that can be used:<br>
+<code>mnesia</code>: the default DB engine that offers great
+performance in small clusters, but has some limits to the
+horizontal scalability.<br>
+<code>rlog</code>: a DB engine that is suitable for large
+clusters (4 nodes and more).<br>
+<strong>IMPORTANT</strong>: this setting should be the same for
+all nodes in the cluster, and it cannot be changed in the
+runtime.
+"""
+           })}
+    , {"role",
+       sc(hoconsc:enum([core, replicant]),
+          #{ mapping => "mria.node_role"
+           , default => core
+           , desc    => """
+If this setting is set to <code>core</code>, the node is used as
+a durable storage of information. It's better to place core nodes
+in different server racks or availability zones to increase
+fault-tolerance of the cluster.<br>
+If this setting is set to <code>replicant</code>, the node is
+considered an ephemeral worker. Replicant nodes can be placed in
+auto-scaling groups. Adding or removing them doesn't affect
+durability of the data.<br>
+In order to take full advantage of the <code>rlog</code> DB
+engine, it's recommended to set up the cluster so that the number
+of replicant nodes is more than the number of core nodes.<br>
+<strong>NOTE</strong>: This setting only takes effect when the
+<code>backend</backend> is set to <code>rlog</code>.
+"""
+           })}
+    , {"core_nodes",
+       sc(emqx_schema:comma_separated_atoms(),
+          #{ mapping => "mria.core_nodes"
+           , default => []
+           , desc    => """
+A comma-separated list of core nodes that the replicant can
+connect to.<br>
+<strong>NOTE</strong>: This setting only takes effect on the
+replicant nodes.
+"""
+           })}
+    ].
 
 translations() -> ["ekka", "kernel", "emqx"].
 
