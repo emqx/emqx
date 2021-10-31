@@ -77,19 +77,19 @@ init(#{peername := Peername,
     AllowAnonymous = get_value(allow_anonymous, Env, false),
     DefaultUser = get_value(default_user, Env),
 	#pstate{peername = Peername,
-                 heartfun = HeartFun,
-                 sendfun = SendFun,
-                 timers = #{},
-                 transaction = #{},
-                 allow_anonymous = AllowAnonymous,
-                 default_user = DefaultUser}.
+            heartfun = HeartFun,
+            sendfun = SendFun,
+            timers = #{},
+            transaction = #{},
+            allow_anonymous = AllowAnonymous,
+            default_user = DefaultUser}.
 
 info(#pstate{connected     = Connected,
-                  proto_ver     = ProtoVer,
-                  proto_name    = ProtoName,
-                  heart_beats   = Heartbeats,
-                  login         = Login,
-                  subscriptions = Subscriptions}) ->
+             proto_ver     = ProtoVer,
+             proto_name    = ProtoName,
+             heart_beats   = Heartbeats,
+             login         = Login,
+             subscriptions = Subscriptions}) ->
     [{connected, Connected},
      {proto_ver, ProtoVer},
      {proto_name, ProtoName},
@@ -139,7 +139,7 @@ received(Frame = #stomp_frame{command = <<"SEND">>, headers = Headers}, State) -
     end;
 
 received(#stomp_frame{command = <<"SUBSCRIBE">>, headers = Headers},
-            State = #pstate{subscriptions = Subscriptions}) ->
+            State = #pstate{subscriptions = Subscriptions, login = Login}) ->
     Id    = header(<<"id">>, Headers),
     Topic = header(<<"destination">>, Headers),
     Ack   = header(<<"ack">>, Headers, <<"auto">>),
@@ -147,7 +147,7 @@ received(#stomp_frame{command = <<"SUBSCRIBE">>, headers = Headers},
                        {Id, Topic, Ack} ->
                            {ok, State};
                        false ->
-                           emqx_broker:subscribe(Topic),
+                           emqx_broker:subscribe(Topic, Login),
                            {ok, State#pstate{subscriptions = [{Id, Topic, Ack}|Subscriptions]}}
                    end,
     maybe_send_receipt(receipt_id(Headers), State1);
@@ -312,13 +312,15 @@ negotiate_version(Ver, [AcceptVer|_]) when Ver >= AcceptVer ->
 negotiate_version(Ver, [_|T]) ->
     negotiate_version(Ver, T).
 
-check_login(undefined, _, AllowAnonymous, _) ->
+check_login(Login, _, AllowAnonymous, _)
+  when Login == <<>>;
+       Login == undefined ->
     AllowAnonymous;
 check_login(_, _, _, undefined) ->
     false;
 check_login(Login, Passcode, _, DefaultUser) ->
-    case {list_to_binary(get_value(login, DefaultUser)),
-          list_to_binary(get_value(passcode, DefaultUser))} of
+    case {iolist_to_binary(get_value(login, DefaultUser)),
+          iolist_to_binary(get_value(passcode, DefaultUser))} of
         {Login, Passcode} -> true;
         {_,     _       } -> false
     end.
