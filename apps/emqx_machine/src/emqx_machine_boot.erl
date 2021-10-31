@@ -97,7 +97,6 @@ reboot_apps() ->
     , emqx_resource
     , emqx_rule_engine
     , emqx_bridge
-    , emqx_bridge_mqtt
     , emqx_plugin_libs
     , emqx_management
     , emqx_retainer
@@ -135,8 +134,8 @@ add_app(G, App, undefined) ->
     ?SLOG(debug, #{msg => "app_is_not_loaded", app => App}),
     %% not loaded
     add_app(G, App, []);
-add_app(_G, _App, []) ->
-    ok;
+add_app(G, App, []) ->
+    digraph:add_vertex(G, App);
 add_app(G, App, [Dep | Deps]) ->
     digraph:add_vertex(G, App),
     digraph:add_vertex(G, Dep),

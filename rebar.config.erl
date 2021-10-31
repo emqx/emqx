@@ -255,13 +255,13 @@ relx_apps(ReleaseType) ->
     , inets
     , compiler
     , runtime_tools
-    , {emqx, load} % started by emqx_machine
-    , {emqx_conf, load}
     , emqx_machine
-    , {mnesia, load}
-    , {ekka, load}
-    , {emqx_plugin_libs, load}
-    , {esasl, load}
+    , emqx_conf
+    , emqx
+    , mnesia
+    , ekka
+    , emqx_plugin_libs
+    , esasl
     , observer_cli
     , emqx_http_lib
     , emqx_resource
