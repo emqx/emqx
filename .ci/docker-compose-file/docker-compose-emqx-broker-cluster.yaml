@@ -12,10 +12,12 @@ services:
       - ../../etc/certs:/usr/local/etc/haproxy/certs
     ports:
       - "18083:18083"
-#     - "1883:1883"
-#     - "8883:8883"
-#     - "8083:8083"
-#     - "8084:8084"
+    #  - "1883:1883"
+    #  - "8883:8883"
+    #  - "8083:8083"
+    #  - "5683:5683/udp"
+    #  - "9999:9999"
+    #  - "8084:8084"
     networks:
       - emqx_bridge
     working_dir: /usr/local/etc/haproxy
@@ -32,8 +34,13 @@ services:
     image: $TARGET:$EMQX_TAG
     env_file:
       - conf.cluster.env
+    volumes:
+      - etc:/opt/emqx/etc
     environment:
       - "EMQX_HOST=node1.emqx.io"
+    ports:
+      - "11881:18083"
+#      - "1883:1883"
     command:
         - /bin/sh
         - -c
@@ -57,8 +64,12 @@ services:
     image: $TARGET:$EMQX_TAG
     env_file:
       - conf.cluster.env
+    volumes:
+      - etc:/opt/emqx/etc
     environment:
       - "EMQX_HOST=node2.emqx.io"
+    ports:
+      - "11882:18083"
     command:
       - /bin/sh
       - -c
@@ -75,7 +86,8 @@ services:
       emqx_bridge:
         aliases:
         - node2.emqx.io
-
+volumes:
+  etc:
 networks:
   emqx_bridge:
     driver: bridge
