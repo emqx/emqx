@@ -179,12 +179,17 @@ timestamp_from_conninfo(ConnInfo) ->
     end.
 
 lookup(ClientID) when is_binary(ClientID) ->
-    case lookup_session_store(ClientID) of
-        none -> none;
-        {value, #session_store{session = S} = SS} ->
-            case persistent_session_status(SS) of
-                expired        -> {expired, S};
-                persistent     -> {persistent, S}
+    case is_store_enabled() of
+        false ->
+            none;
+        true ->
+            case lookup_session_store(ClientID) of
+                none -> none;
+                {value, #session_store{session = S} = SS} ->
+                    case persistent_session_status(SS) of
+                        expired        -> {expired, S};
+                        persistent     -> {persistent, S}
+                    end
             end
     end.
 
