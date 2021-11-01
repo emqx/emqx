@@ -14,10 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(SESSION_STORE, emqx_session_store).
--define(SESS_MSG_TAB, emqx_session_msg).
--define(MSG_TAB, emqx_persistent_msg).
-
 -record(session_store, { client_id        :: binary()
                        , expiry_interval  :: non_neg_integer()
                        , ts               :: non_neg_integer()

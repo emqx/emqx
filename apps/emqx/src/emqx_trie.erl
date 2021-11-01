@@ -17,10 +17,11 @@
 -module(emqx_trie).
 
 -include("emqx.hrl").
+-include("emqx_persistent_session.hrl").
 
 %% Mnesia bootstrap
 -export([ mnesia/1
-        , create_session_trie/1
+        , create_session_trie/0
         ]).
 
 -boot_mnesia({mnesia, [boot]}).
@@ -48,7 +49,8 @@
 -endif.
 
 -define(TRIE, emqx_trie).
--define(SESSION_TRIE, emqx_session_trie).
+-define(SESSION_TRIE_RAM, emqx_session_trie_ram).
+-define(SESSION_TRIE_DISC, emqx_session_trie_disc).
 -define(PREFIX(Prefix), {Prefix, 0}).
 -define(TOPIC(Topic), {Topic, 1}).
 
@@ -56,6 +58,12 @@
         { key :: ?TOPIC(binary()) | ?PREFIX(binary())
         , count = 0 :: non_neg_integer()
         }).
+
+-define(ACTIVE_SESSION_TRIE, case emqx_config:get(?db_backend_key) of
+                                 mnesia_ram  -> ?SESSION_TRIE_RAM;
+                                 mnesia_disc -> ?SESSION_TRIE_DISC
+                             end).
+
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -75,18 +83,25 @@ mnesia(boot) ->
                 {type, ordered_set},
                 {storage_properties, StoreProps}]).
 
-create_session_trie(TableType) when TableType =:= ram_copies;
-                                    TableType =:= disc_copies ->
+create_session_trie() ->
     StoreProps = [{ets, [{read_concurrency, true},
                          {write_concurrency, true}
                         ]}],
-    ok = mria:create_table(?SESSION_TRIE,
+    ok = mria:create_table(?SESSION_TRIE_RAM,
                            [{rlog_shard, ?ROUTE_SHARD},
-                            {storage, TableType},
+                            {storage, ram_copies},
+                            {record_name, ?TRIE},
+                            {attributes, record_info(fields, ?TRIE)},
+                            {type, ordered_set},
+                            {storage_properties, StoreProps}]),
+    ok = mria:create_table(?SESSION_TRIE_DISC,
+                           [{rlog_shard, ?ROUTE_SHARD},
+                            {storage, disc_copies},
                             {record_name, ?TRIE},
                             {attributes, record_info(fields, ?TRIE)},
                             {type, ordered_set},
                             {storage_properties, StoreProps}]).
+
 
 %%--------------------------------------------------------------------
 %% Topics APIs
@@ -99,7 +114,7 @@ insert(Topic) when is_binary(Topic) ->
 
 -spec(insert_session(emqx_topic:topic()) -> ok).
 insert_session(Topic) when is_binary(Topic) ->
-    insert(Topic, ?SESSION_TRIE).
+    insert(Topic, ?ACTIVE_SESSION_TRIE).
 
 insert(Topic, Trie) when is_binary(Topic) ->
     {TopicKey, PrefixKeys} = make_keys(Topic),
@@ -116,7 +131,7 @@ delete(Topic) when is_binary(Topic) ->
 %% @doc Delete a topic filter from the trie.
 -spec(delete_session(emqx_topic:topic()) -> ok).
 delete_session(Topic) when is_binary(Topic) ->
-    delete(Topic, ?SESSION_TRIE).
+    delete(Topic, ?ACTIVE_SESSION_TRIE).
 
 delete(Topic, Trie) when is_binary(Topic) ->
     {TopicKey, PrefixKeys} = make_keys(Topic),
@@ -132,7 +147,7 @@ match(Topic) when is_binary(Topic) ->
 
 -spec(match_session(emqx_topic:topic()) -> list(emqx_topic:topic())).
 match_session(Topic) when is_binary(Topic) ->
-    match(Topic, ?SESSION_TRIE).
+    match(Topic, ?ACTIVE_SESSION_TRIE).
 
 match(Topic, Trie) when is_binary(Topic) ->
     Words = emqx_topic:words(Topic),
@@ -155,7 +170,7 @@ match(Topic, Trie) when is_binary(Topic) ->
 empty() -> empty(?TRIE).
 
 empty_session() ->
-    empty(?SESSION_TRIE).
+    empty(?ACTIVE_SESSION_TRIE).
 
 empty(Trie) -> ets:first(Trie) =:= '$end_of_table'.
 
@@ -165,7 +180,7 @@ lock_tables() ->
 
 -spec lock_session_tables() -> ok.
 lock_session_tables() ->
-    mnesia:write_lock_table(?SESSION_TRIE).
+    mnesia:write_lock_table(?ACTIVE_SESSION_TRIE).
 
 %%--------------------------------------------------------------------
 %% Internal functions

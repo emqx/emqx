@@ -124,15 +124,15 @@ init_per_group(gc_tests, Config) ->
                         receive stop -> ok end
                 end),
     meck:new(mnesia, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(mnesia, dirty_first, fun(?SESS_MSG_TAB) -> ets:first(SessionMsgEts);
-                                        (?MSG_TAB) -> ets:first(MsgEts);
+    meck:expect(mnesia, dirty_first, fun(emqx_session_msg_ram) -> ets:first(SessionMsgEts);
+                                        (emqx_persistent_msg_ram) -> ets:first(MsgEts);
                                         (X) -> meck:passthrough(X)
                                      end),
-    meck:expect(mnesia, dirty_next, fun(?SESS_MSG_TAB, X) -> ets:next(SessionMsgEts, X);
-                                       (?MSG_TAB, X) -> ets:next(MsgEts, X);
+    meck:expect(mnesia, dirty_next, fun(emqx_session_msg_ram, X) -> ets:next(SessionMsgEts, X);
+                                       (emqx_persistent_msg_ram, X) -> ets:next(MsgEts, X);
                                        (Tab, X) -> meck:passthrough([Tab, X])
                                     end),
-    meck:expect(mnesia, dirty_delete, fun(?MSG_TAB, X) -> ets:delete(MsgEts, X);
+    meck:expect(mnesia, dirty_delete, fun(emqx_persistent_msg_ram, X) -> ets:delete(MsgEts, X);
                                          (Tab, X) -> meck:passthrough([Tab, X])
                                       end),
     [{store_owner, Pid}, {session_msg_store, SessionMsgEts}, {msg_store, MsgEts} | Config].

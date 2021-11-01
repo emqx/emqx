@@ -82,14 +82,14 @@
 init_db_backend() ->
     case is_store_enabled() of
         true  ->
-            TableType =
+            Backend =
                 case emqx_config:get(?db_backend_key) of
-                    mnesia_ram -> ram_copies;
-                    mnesia_disc -> disc_copies
+                    mnesia_ram  -> emqx_persistent_session_mnesia_ram_backend;
+                    mnesia_disc -> emqx_persistent_session_mnesia_disc_backend
                 end,
-            ok = emqx_trie:create_session_trie(TableType),
-            emqx_persistent_session_mnesia_backend:create_tables(TableType),
-            persistent_term:put(?db_backend_module, emqx_persistent_session_mnesia_backend),
+            persistent_term:put(?db_backend_module, Backend),
+            Backend:create_tables(),
+            ok = emqx_trie:create_session_trie(),
             ok;
         false ->
             persistent_term:put(?db_backend_module, emqx_persistent_session_dummy_backend),
