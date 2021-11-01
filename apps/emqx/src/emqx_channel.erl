@@ -1190,11 +1190,15 @@ terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
     run_terminate_hook(Reason, Channel).
 
 persist_if_session(#channel{session = Session} = Channel) ->
-    _ = [emqx_persistent_session:persist(Channel#channel.clientinfo,
-                                         Channel#channel.conninfo,
-                                         Channel#channel.session)
-         || emqx_session:is_session(Session)],
-    ok.
+    case emqx_session:is_session(Session) of
+        true ->
+            _ = emqx_persistent_session:persist(Channel#channel.clientinfo,
+                                                Channel#channel.conninfo,
+                                                Channel#channel.session),
+            ok;
+        false ->
+            ok
+    end.
 
 run_terminate_hook(_Reason, #channel{session = undefined}) -> ok;
 run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session}) ->
