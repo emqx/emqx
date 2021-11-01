@@ -173,10 +173,23 @@ relx(Vsn, RelType, PkgType) ->
     , {vm_args,false}
     , {release, {emqx, Vsn}, relx_apps(RelType)}
     , {overlay, relx_overlay(RelType)}
-    , {overlay_vars, [ {built_on_arch, rebar_utils:get_arch()}
+    , {overlay_vars, [ {built_on_platform, built_on()}
                      , {emqx_description, emqx_description(RelType, IsEnterprise)}
                      | overlay_vars(RelType, PkgType, IsEnterprise)]}
     ].
+
+built_on() ->
+    On = rebar_utils:get_arch(),
+    case distro() of
+        false -> On;
+        Distro -> On ++ "-" ++ Distro
+    end.
+
+distro() ->
+    case os:type() of
+        {unix, _} -> string:strip(os:cmd("scripts/get-distro.sh"), both, $\n);
+        _ -> false
+    end.
 
 emqx_description(cloud, true) -> "EMQ X Enterprise";
 emqx_description(cloud, false) -> "EMQ X Broker";
