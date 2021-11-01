@@ -108,10 +108,12 @@ t_chain(Config) when is_list(Config) ->
     % CRUD of authentication chain
     ChainName = 'test',
     ?assertMatch({ok, []}, ?AUTHN:list_chains()),
+    ?assertMatch({ok, []}, ?AUTHN:list_chain_names()),
     ?assertMatch({ok, #{name := ChainName, authenticators := []}}, ?AUTHN:create_chain(ChainName)),
     ?assertEqual({error, {already_exists, {chain, ChainName}}}, ?AUTHN:create_chain(ChainName)),
     ?assertMatch({ok, #{name := ChainName, authenticators := []}}, ?AUTHN:lookup_chain(ChainName)),
     ?assertMatch({ok, [#{name := ChainName}]}, ?AUTHN:list_chains()),
+    ?assertEqual({ok, [ChainName]}, ?AUTHN:list_chain_names()),
     ?assertEqual(ok, ?AUTHN:delete_chain(ChainName)),
     ?assertMatch({error, {not_found, {chain, ChainName}}}, ?AUTHN:lookup_chain(ChainName)),
     ok.
