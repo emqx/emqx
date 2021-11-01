@@ -5,16 +5,16 @@
 
 %% API
 -export([spec/1, spec/2]).
--export([translate_req/2]).
 -export([namespace/0, fields/1]).
+-export([schema_with_example/2, schema_with_examples/2]).
 -export([error_codes/1, error_codes/2]).
--define(MAX_ROW_LIMIT, 100).
-
-%% API
 
 -ifdef(TEST).
--compile(export_all).
--compile(nowarn_export_all).
+-export([
+    parse_spec_ref/2,
+    components/1,
+    filter_check_request/2,
+    filter_check_request_and_translate_body/2]).
 -endif.
 
 -define(METHODS, [get, post, put, head, delete, patch, options, trace]).
@@ -22,33 +22,39 @@
 -define(DEFAULT_FIELDS, [example, allowReserved, style,
     explode, maxLength, allowEmptyValue, deprecated, minimum, maximum]).
 
--define(DEFAULT_FILTER, #{filter => fun ?MODULE:translate_req/2}).
-
 -define(INIT_SCHEMA, #{fields => #{}, translations => #{}, validations => [], namespace => undefined}).
 
 -define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
 -define(TO_COMPONENTS_SCHEMA(_M_, _F_), iolist_to_binary([<<"#/components/schemas/">>, ?TO_REF(namespace(_M_), _F_)])).
 -define(TO_COMPONENTS_PARAM(_M_, _F_), iolist_to_binary([<<"#/components/parameters/">>, ?TO_REF(namespace(_M_), _F_)])).
 
+-define(MAX_ROW_LIMIT, 100).
+
+-type(request() :: #{bindings => map(), query_string => map(), body => map()}).
+-type(request_meta() :: #{module => module(), path => string(), method => atom()}).
+
+-type(filter_result() :: {ok, request()} | {400, 'BAD_REQUEST', binary()}).
+-type(filter() :: fun((request(), request_meta()) -> filter_result())).
+
+-type(spec_opts() :: #{check_schema => boolean() | filter(), translate_body => boolean()}).
+
+-type(route_path() :: string() | binary()).
+-type(route_methods() :: map()).
+-type(route_handler() :: atom()).
+-type(route_options() :: #{filter => filter() | undefined}).
+
+-type(api_spec_entry() :: {route_path(), route_methods(), route_handler(), route_options()}).
+-type(api_spec_component() :: map()).
+
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
+
 %% @equiv spec(Module, #{check_schema => false})
--spec(spec(module()) ->
-    {list({Path, Specs, OperationId, Options}), list(Component)} when
-    Path :: string()|binary(),
-    Specs :: map(),
-    OperationId :: atom(),
-    Options :: #{filter => fun((map(),
-    #{module => module(), path => string(), method => atom()}) -> map())},
-    Component :: map()).
+-spec(spec(module()) -> {list(api_spec_entry()), list(api_spec_component())}).
 spec(Module) -> spec(Module, #{check_schema => false}).
 
--spec(spec(module(), #{check_schema => boolean()}) ->
-    {list({Path, Specs, OperationId, Options}), list(Component)} when
-    Path :: string()|binary(),
-    Specs :: map(),
-    OperationId :: atom(),
-    Options :: #{filter => fun((map(),
-    #{module => module(), path => string(), method => atom()}) -> map())},
-    Component :: map()).
+-spec(spec(module(), spec_opts()) -> {list(api_spec_entry()), list(api_spec_component())}).
 spec(Module, Options) ->
     Paths = apply(Module, paths, []),
     {ApiSpec, AllRefs} =
@@ -60,26 +66,10 @@ spec(Module, Options) ->
                     end, {[], []}, Paths),
     {ApiSpec, components(lists:usort(AllRefs))}.
 
--spec(translate_req(#{binding => list(), query_string => list(), body => map()},
-    #{module => module(), path => string(), method => atom()}) ->
-    {ok, #{binding => list(), query_string => list(), body => map()}}|
-    {400, 'BAD_REQUEST', binary()}).
-translate_req(Request, #{module := Module, path := Path, method := Method}) ->
-    #{Method := Spec} = apply(Module, schema, [Path]),
-    try
-        Params = maps:get(parameters, Spec, []),
-        Body = maps:get(requestBody, Spec, []),
-        {Bindings, QueryStr} = check_parameters(Request, Params, Module),
-        NewBody = check_requestBody(Request, Body, Module, hoconsc:is_schema(Body)),
-        {ok, Request#{bindings => Bindings, query_string => QueryStr, body => NewBody}}
-    catch throw:Error ->
-        {_, [{validation_error, ValidErr}]} = Error,
-        #{path := Key, reason := Reason} = ValidErr,
-        {400, 'BAD_REQUEST', iolist_to_binary(io_lib:format("~ts : ~p", [Key, Reason]))}
-    end.
-
+-spec(namespace() -> hocon_schema:name()).
 namespace() -> "public".
 
+-spec(fields(hocon_schema:name()) -> hocon_schema:fields()).
 fields(page) ->
     Desc = <<"Page number of the results to fetch.">>,
     Meta = #{in => query, desc => Desc, default => 1, example => 1},
@@ -90,9 +80,19 @@ fields(limit) ->
     Meta = #{in => query, desc => Desc, default => ?MAX_ROW_LIMIT, example => 50},
     [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}].
 
+-spec(schema_with_example(hocon_schema:type(), term()) -> hocon_schema:field_schema_map()).
+schema_with_example(Type, Example) ->
+    hoconsc:mk(Type, #{examples => #{<<"example">> => Example}}).
+
+-spec(schema_with_examples(hocon_schema:type(), map()) -> hocon_schema:field_schema_map()).
+schema_with_examples(Type, Examples) ->
+    hoconsc:mk(Type, #{examples => #{<<"examples">> => Examples}}).
+
+-spec(error_codes(list(atom())) -> hocon_schema:fields()).
 error_codes(Codes) ->
     error_codes(Codes, <<"Error code to troubleshoot problems.">>).
 
+-spec(error_codes(nonempty_list(atom()), binary()) -> hocon_schema:fields()).
 error_codes(Codes = [_ | _], MsgExample) ->
     [
         {code, hoconsc:mk(hoconsc:enum(Codes))},
@@ -102,9 +102,45 @@ error_codes(Codes = [_ | _], MsgExample) ->
         })}
     ].
 
-support_check_schema(#{check_schema := true}) -> ?DEFAULT_FILTER;
-support_check_schema(#{check_schema := Func}) when is_function(Func, 2) -> #{filter => Func};
-support_check_schema(_) -> #{filter => undefined}.
+%%------------------------------------------------------------------------------
+%% Private functions
+%%------------------------------------------------------------------------------
+
+filter_check_request_and_translate_body(Request, RequestMeta) ->
+    translate_req(Request, RequestMeta, fun check_and_translate/3).
+
+filter_check_request(Request, RequestMeta) ->
+    translate_req(Request, RequestMeta, fun check_only/3).
+
+translate_req(Request, #{module := Module, path := Path, method := Method}, CheckFun) ->
+    #{Method := Spec} = apply(Module, schema, [Path]),
+    try
+        Params = maps:get(parameters, Spec, []),
+        Body = maps:get(requestBody, Spec, []),
+        {Bindings, QueryStr} = check_parameters(Request, Params, Module),
+        NewBody = check_requestBody(Request, Body, Module, CheckFun, hoconsc:is_schema(Body)),
+        {ok, Request#{bindings => Bindings, query_string => QueryStr, body => NewBody}}
+    catch throw:Error ->
+        {_, [{validation_error, ValidErr}]} = Error,
+        #{path := Key, reason := Reason} = ValidErr,
+        {400, 'BAD_REQUEST', iolist_to_binary(io_lib:format("~ts : ~p", [Key, Reason]))}
+    end.
+
+check_and_translate(Schema, Map, Opts) ->
+    hocon_schema:check_plain(Schema, Map, Opts).
+
+check_only(Schema, Map, Opts) ->
+    _ = hocon_schema:check_plain(Schema, Map, Opts),
+    Map.
+
+support_check_schema(#{check_schema := true, translate_body := true}) ->
+    #{filter => fun filter_check_request_and_translate_body/2};
+support_check_schema(#{check_schema := true}) ->
+    #{filter => fun filter_check_request/2};
+support_check_schema(#{check_schema := Filter}) when is_function(Filter, 2) ->
+    #{filter => Filter};
+support_check_schema(_) ->
+    #{filter => undefined}.
 
 parse_spec_ref(Module, Path) ->
     Schema =
@@ -143,10 +179,10 @@ check_parameter([{Name, Type} | Spec], Bindings, QueryStr, Module, BindingsAcc, 
         query ->
             NewQueryStr = hocon_schema:check_plain(Schema, QueryStr, #{override_env => false}),
             NewQueryStrAcc = maps:merge(QueryStrAcc, NewQueryStr),
-            check_parameter(Spec, Bindings, QueryStr, Module, BindingsAcc, NewQueryStrAcc)
+            check_parameter(Spec, Bindings, QueryStr, Module,BindingsAcc, NewQueryStrAcc)
     end.
 
-check_requestBody(#{body := Body}, Schema, Module, true) ->
+check_requestBody(#{body := Body}, Schema, Module, CheckFun, true) ->
     Type0 = hocon_schema:field_schema(Schema, type),
     Type =
         case Type0 of
@@ -154,7 +190,7 @@ check_requestBody(#{body := Body}, Schema, Module, true) ->
             _ -> Type0
         end,
     NewSchema = ?INIT_SCHEMA#{roots => [{root, Type}]},
-    #{<<"root">> := NewBody} = hocon_schema:check_plain(NewSchema, #{<<"root">> => Body}, #{override_env => false}),
+    #{<<"root">> := NewBody} = CheckFun(NewSchema, #{<<"root">> => Body}, #{override_env => false}),
     NewBody;
 %% TODO not support nest object check yet, please use ref!
 %% RequestBody = [ {per_page, mk(integer(), #{}},
@@ -163,10 +199,10 @@ check_requestBody(#{body := Body}, Schema, Module, true) ->
 %%                   {good_nest_2, mk(ref(?MODULE, good_ref), #{})}
 %%                ]}
 %% ]
-check_requestBody(#{body := Body}, Spec, _Module, false) ->
+check_requestBody(#{body := Body}, Spec, _Module, CheckFun, false) ->
     lists:foldl(fun({Name, Type}, Acc) ->
         Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
-        maps:merge(Acc, hocon_schema:check_plain(Schema, Body))
+        maps:merge(Acc, CheckFun(Schema, Body, #{}))
                 end, #{}, Spec).
 
 %% tags, description, summary, security, deprecated
@@ -244,14 +280,15 @@ trans_desc(Spec, Hocon) ->
 
 requestBody([], _Module) -> {[], []};
 requestBody(Schema, Module) ->
-    {Props, Refs} =
+    {{Props, Refs}, Examples} =
         case hoconsc:is_schema(Schema) of
             true ->
                 HoconSchema = hocon_schema:field_schema(Schema, type),
-                hocon_schema_to_spec(HoconSchema, Module);
-            false -> parse_object(Schema, Module)
+                SchemaExamples = hocon_schema:field_schema(Schema, examples),
+                {hocon_schema_to_spec(HoconSchema, Module), SchemaExamples};
+            false -> {parse_object(Schema, Module), undefined}
         end,
-    {#{<<"content">> => #{<<"application/json">> => #{<<"schema">> => Props}}},
+    {#{<<"content">> => content(Props, Examples)},
         Refs}.
 
 responses(Responses, Module) ->
@@ -264,19 +301,20 @@ response(Status, ?REF(StructName), {Acc, RefsAcc, Module}) ->
     response(Status, ?R_REF(Module, StructName), {Acc, RefsAcc, Module});
 response(Status, ?R_REF(_Mod, _Name) = RRef, {Acc, RefsAcc, Module}) ->
     {Spec, Refs} = hocon_schema_to_spec(RRef, Module),
-    Content = #{<<"application/json">> => #{<<"schema">> => Spec}},
+    Content = content(Spec),
     {Acc#{integer_to_binary(Status) => #{<<"content">> => Content}}, Refs ++ RefsAcc, Module};
 response(Status, Schema, {Acc, RefsAcc, Module}) ->
     case hoconsc:is_schema(Schema) of
         true ->
             Hocon = hocon_schema:field_schema(Schema, type),
+            Examples = hocon_schema:field_schema(Schema, examples),
             {Spec, Refs} = hocon_schema_to_spec(Hocon, Module),
             Init = trans_desc(#{}, Schema),
-            Content = #{<<"application/json">> => #{<<"schema">> => Spec}},
+            Content = content(Spec, Examples),
             {Acc#{integer_to_binary(Status) => Init#{<<"content">> => Content}}, Refs ++ RefsAcc, Module};
         false ->
             {Props, Refs} = parse_object(Schema, Module),
-            Content = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => Props}}},
+            Content = #{<<"content">> => content(Props)},
             {Acc#{integer_to_binary(Status) => Content}, Refs ++ RefsAcc, Module}
     end.
 
@@ -467,3 +505,11 @@ parse_object(Other, Module) ->
 is_required(Hocon) ->
     hocon_schema:field_schema(Hocon, required) =:= true orelse
         hocon_schema:field_schema(Hocon, nullable) =:= false.
+
+content(ApiSpec) ->
+    content(ApiSpec, undefined).
+
+content(ApiSpec, undefined) ->
+    #{<<"application/json">> => #{<<"schema">> => ApiSpec}};
+content(ApiSpec, Examples) when is_map(Examples) ->
+    #{<<"application/json">> => Examples#{<<"schema">> => ApiSpec}}.

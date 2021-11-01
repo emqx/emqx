@@ -21,12 +21,11 @@
 -export([ common_fields/0
         , roots/0
         , fields/1
+        , authenticator_type/0
         ]).
 
 %% only for doc generation
-roots() -> [{authenticator_config,
-             #{type => hoconsc:union(config_refs([Module || {_AuthnType, Module} <- emqx_authn:providers()]))
-               }}].
+roots() -> [{authenticator_config, hoconsc:mk(authenticator_type())}].
 
 fields(_) -> [].
 
@@ -37,6 +36,9 @@ common_fields() ->
 enable(type) -> boolean();
 enable(default) -> true;
 enable(_) -> undefined.
+
+authenticator_type() ->
+    hoconsc:union(config_refs([Module || {_AuthnType, Module} <- emqx_authn:providers()])).
 
 config_refs(Modules) ->
     lists:append([Module:refs() || Module <- Modules]).
