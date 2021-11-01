@@ -30,6 +30,8 @@
 %% API
 -export([ init/2
         , info/1
+        , info/2
+        , stats/1
         ]).
 
 -export([ received/2
@@ -45,19 +47,28 @@
         ]).
 
 -record(pstate, {
-          peername,
-          heartfun,
-          sendfun,
+          %% Stomp ConnInfo
+          conninfo :: emqx_types:conninfo(),
+          %% Stomp ClientInfo
+          clientinfo :: emqx_types:clientinfo(),
+          %% Stomp Heartbeats
+          heart_beats :: emqx_stomp_hearbeat:heartbeat(),
+          %% Stomp Connection State
           connected = false,
-          proto_ver,
-          proto_name,
-          heart_beats,
-          login,
-          allow_anonymous,
-          default_user,
-          subscriptions = [],
+          %% Timers
           timers :: #{atom() => disable | undefined | reference()},
-          transaction :: #{binary() => list()}
+          %% Transaction
+          transaction :: #{binary() => list()},
+          %% Subscriptions
+          subscriptions = [],
+          %% Send function
+          sendfun :: function(),
+          %% Heartbeat function
+          heartfun :: function(),
+          %% The confs for the connection
+          %% TODO: put these configs into a public mem?
+          allow_anonymous,
+          default_user
          }).
 
 -define(TIMER_TABLE, #{
@@ -68,34 +79,132 @@
 
 -define(TRANS_TIMEOUT, 60000).
 
+-define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
+
+-define(STATS_KEYS, [subscriptions_cnt,
+                     subscriptions_max,
+                     inflight_cnt,
+                     inflight_max,
+                     mqueue_len,
+                     mqueue_max,
+                     mqueue_dropped,
+                     next_pkt_id,
+                     awaiting_rel_cnt,
+                     awaiting_rel_max
+                    ]).
+
 -type(pstate() :: #pstate{}).
 
 %% @doc Init protocol
-init(#{peername := Peername,
-       sendfun := SendFun,
-       heartfun := HeartFun}, Env) ->
-    AllowAnonymous = get_value(allow_anonymous, Env, false),
-    DefaultUser = get_value(default_user, Env),
-	#pstate{peername = Peername,
-            heartfun = HeartFun,
-            sendfun = SendFun,
-            timers = #{},
-            transaction = #{},
-            allow_anonymous = AllowAnonymous,
-            default_user = DefaultUser}.
+init(ConnInfo = #{peername := {PeerHost, _Port},
+                  sockname := {_Host, SockPort},
+                  sendfun := SendFun,
+                  heartfun := HeartFun}, Opts) ->
 
-info(#pstate{connected     = Connected,
-             proto_ver     = ProtoVer,
-             proto_name    = ProtoName,
-             heart_beats   = Heartbeats,
-             login         = Login,
-             subscriptions = Subscriptions}) ->
-    [{connected, Connected},
-     {proto_ver, ProtoVer},
-     {proto_name, ProtoName},
-     {heart_beats, Heartbeats},
-     {login, Login},
-     {subscriptions, Subscriptions}].
+    NConnInfo = default_conninfo(ConnInfo),
+
+    ClientInfo = #{zone => undefined,
+                   protocol => stomp,
+                   peerhost => PeerHost,
+                   sockport => SockPort,
+                   clientid => undefined,
+                   username => undefined,
+                   mountpoint => undefined,
+                   is_bridge => false,
+                   is_superuser => false
+                  },
+
+    AllowAnonymous = get_value(allow_anonymous, Opts, false),
+    DefaultUser = get_value(default_user, Opts),
+
+	#pstate{
+       conninfo = NConnInfo,
+       clientinfo = ClientInfo,
+       heartfun = HeartFun,
+       sendfun = SendFun,
+       timers = #{},
+       transaction = #{},
+       allow_anonymous = AllowAnonymous,
+       default_user = DefaultUser
+      }.
+
+default_conninfo(ConnInfo) ->
+    NConnInfo = maps:without([sendfun, heartfun], ConnInfo),
+    NConnInfo#{
+      proto_name => <<"STOMP">>,
+      proto_ver => <<"1.2">>,
+      clean_start => true,
+      clientid => undefined,
+      username => undefined,
+      conn_props => [],
+      connected => false,
+      connected_at => undefined,
+      keepalive => undefined,
+      receive_maximum => 0,
+      expiry_interval => 0
+     }.
+
+-spec info(pstate()) -> emqx_types:infos().
+info(State) ->
+    maps:from_list(info(?INFO_KEYS, State)).
+
+-spec info(list(atom())|atom(), pstate()) -> term().
+info(Keys, State) when is_list(Keys) ->
+    [{Key, info(Key, State)} || Key <- Keys];
+info(conninfo, #pstate{conninfo = ConnInfo}) ->
+    ConnInfo;
+info(socktype, #pstate{conninfo = ConnInfo}) ->
+    maps:get(socktype, ConnInfo, undefined);
+info(peername, #pstate{conninfo = ConnInfo}) ->
+    maps:get(peername, ConnInfo, undefined);
+info(sockname, #pstate{conninfo = ConnInfo}) ->
+    maps:get(sockname, ConnInfo, undefined);
+info(proto_name, #pstate{conninfo = ConnInfo}) ->
+    maps:get(proto_name, ConnInfo, undefined);
+info(proto_ver, #pstate{conninfo = ConnInfo}) ->
+    maps:get(proto_ver, ConnInfo, undefined);
+info(connected_at, #pstate{conninfo = ConnInfo}) ->
+    maps:get(connected_at, ConnInfo, undefined);
+info(clientinfo, #pstate{clientinfo = ClientInfo}) ->
+    ClientInfo;
+info(zone, _) ->
+    undefined;
+info(clientid, #pstate{clientinfo = ClientInfo}) ->
+    maps:get(clientid, ClientInfo, undefined);
+info(username, #pstate{clientinfo = ClientInfo}) ->
+    maps:get(username, ClientInfo, undefined);
+info(session, State) ->
+    session_info(State);
+info(conn_state, #pstate{connected = true}) ->
+    connected;
+info(conn_state, _) ->
+    disconnected;
+info(will_msg, _) ->
+    undefined.
+
+session_info(#pstate{conninfo = ConnInfo, subscriptions = Subs}) ->
+    NSubs = lists:foldl(fun({_Id, Topic, _Ack}, Acc) ->
+               Acc#{Topic => ?DEFAULT_SUBOPTS}
+            end, #{}, Subs),
+    #{subscriptions => NSubs,
+      upgrade_qos => false,
+      retry_interval => 0,
+      await_rel_timeout => 0,
+      created_at => maps:get(connected_at, ConnInfo, 0)
+     }.
+
+-spec stats(pstate()) -> emqx_types:stats().
+stats(#pstate{subscriptions = Subs}) ->
+    [{subscriptions_cnt, length(Subs)},
+     {subscriptions_max, 0},
+     {inflight_cnt, 0},
+     {inflight_max, 0},
+     {mqueue_len, 0},
+     {mqueue_max, 0},
+     {mqueue_dropped, 0},
+     {next_pkt_id, 0},
+     {awaiting_rel_cnt, 0},
+     {awaiting_rel_max, 0}].
 
 -spec(received(stomp_frame(), pstate())
     -> {ok, pstate()}
@@ -105,20 +214,50 @@ received(Frame = #stomp_frame{command = <<"STOMP">>}, State) ->
     received(Frame#stomp_frame{command = <<"CONNECT">>}, State);
 
 received(#stomp_frame{command = <<"CONNECT">>, headers = Headers},
-         State = #pstate{connected = false, allow_anonymous = AllowAnonymous, default_user = DefaultUser}) ->
+         State = #pstate{connected = false}) ->
     case negotiate_version(header(<<"accept-version">>, Headers)) of
         {ok, Version} ->
             Login = header(<<"login">>, Headers),
             Passc = header(<<"passcode">>, Headers),
-            case check_login(Login, Passc, AllowAnonymous, DefaultUser) of
+            case check_login(Login, Passc,
+                             allow_anonymous(State),
+                             default_user(State)
+                            ) of
                 true ->
-                    emqx_logger:set_metadata_clientid(Login),
+                    NLogin = case Login == undefined orelse Login == <<>> of
+                                 false -> Login;
+                                 true -> emqx_guid:to_base62(emqx_guid:gen())
+                             end,
+                    emqx_logger:set_metadata_clientid(NLogin),
+                    ConnInfo = State#pstate.conninfo,
+                    ClitInfo = State#pstate.clientinfo,
+                    NConnInfo = ConnInfo#{
+                                  proto_ver => Version,
+                                  clientid => NLogin,
+                                  username => NLogin
+                                 },
+                    NClitInfo = ClitInfo#{
+                                  clientid => NLogin,
+                                  username => NLogin
+                                 },
 
+                    ConnPid = self(),
+                    _ = emqx_cm_locker:trans(NLogin, fun(_) ->
+                        emqx_cm:discard_session(NLogin),
+                        emqx_cm:register_channel(NLogin, ConnPid, NConnInfo)
+                    end),
                     Heartbeats = parse_heartbeats(header(<<"heart-beat">>, Headers, <<"0,0">>)),
-                    NState = start_heartbeart_timer(Heartbeats, State#pstate{connected = true,
-                                                                                  proto_ver = Version, login = Login}),
-                    send(connected_frame([{<<"version">>, Version},
-                                          {<<"heart-beat">>, reverse_heartbeats(Heartbeats)}]), NState);
+                    NState = start_heartbeart_timer(
+                               Heartbeats,
+                               State#pstate{
+                                 conninfo = NConnInfo,
+                                 clientinfo = NClitInfo}
+                              ),
+                    ConnectedFrame = connected_frame(
+                                       [{<<"version">>, Version},
+                                        {<<"heart-beat">>, reverse_heartbeats(Heartbeats)}
+                                       ]),
+                    send(ConnectedFrame, ensure_connected(NState));
                 false ->
                     _ = send(error_frame(undefined, <<"Login or passcode error!">>), State),
                     {error, login_or_passcode_error, State}
@@ -130,6 +269,7 @@ received(#stomp_frame{command = <<"CONNECT">>, headers = Headers},
     end;
 
 received(#stomp_frame{command = <<"CONNECT">>}, State = #pstate{connected = true}) ->
+    ?LOG(error, "Received CONNECT frame on connected=true state"),
     {error, unexpected_connect, State};
 
 received(Frame = #stomp_frame{command = <<"SEND">>, headers = Headers}, State) ->
@@ -139,30 +279,56 @@ received(Frame = #stomp_frame{command = <<"SEND">>, headers = Headers}, State) -
     end;
 
 received(#stomp_frame{command = <<"SUBSCRIBE">>, headers = Headers},
-            State = #pstate{subscriptions = Subscriptions, login = Login}) ->
+            State = #pstate{subscriptions = Subs}) ->
     Id    = header(<<"id">>, Headers),
     Topic = header(<<"destination">>, Headers),
     Ack   = header(<<"ack">>, Headers, <<"auto">>),
-    {ok, State1} = case lists:keyfind(Id, 1, Subscriptions) of
-                       {Id, Topic, Ack} ->
-                           {ok, State};
-                       false ->
-                           emqx_broker:subscribe(Topic, Login),
-                           {ok, State#pstate{subscriptions = [{Id, Topic, Ack}|Subscriptions]}}
-                   end,
-    maybe_send_receipt(receipt_id(Headers), State1);
+
+    case lists:keyfind(Id, 1, Subs) of
+        {Id, Topic, Ack} ->
+            ?LOG(info, "Subscription has established: ~s", [Topic]),
+            maybe_send_receipt(receipt_id(Headers), State);
+        false ->
+            case check_acl(subscribe, Topic, State) of
+                allow ->
+                    ClientInfo = State#pstate.clientinfo,
+                    ClientId = maps:get(clientid, ClientInfo),
+                    %% XXX: We don't parse the request topic name or filter
+                    %% which meaning stomp does not support shared
+                    %% subscription
+                    _ = run_hooks('client.subscribe',
+                                  [ClientInfo, _SubProps = #{}],
+                                  [{Topic, _TopicOpts = #{}}]),
+
+                    emqx_broker:subscribe(Topic, ClientId),
+
+                    SubOpts = ?DEFAULT_SUBOPTS#{is_new => true},
+                    _ = run_hooks('session.subscribed',
+                                  [ClientInfo, Topic, SubOpts]),
+
+                    NState = put_subs({Id, Topic, Ack}, State),
+                    maybe_send_receipt(receipt_id(Headers), NState)
+            end
+    end;
 
 received(#stomp_frame{command = <<"UNSUBSCRIBE">>, headers = Headers},
-            State = #pstate{subscriptions = Subscriptions}) ->
+            State = #pstate{subscriptions = Subs, clientinfo = ClientInfo}) ->
     Id = header(<<"id">>, Headers),
+    {ok, State1} = case lists:keyfind(Id, 1, Subs) of
+            {Id, Topic, _Ack} ->
+                _ = run_hooks('client.unsubscribe',
+                              [ClientInfo, #{}],
+                              [{Topic, #{}}]),
 
-    {ok, State1} = case lists:keyfind(Id, 1, Subscriptions) of
-                       {Id, Topic, _Ack} ->
-                           ok = emqx_broker:unsubscribe(Topic),
-                           {ok, State#pstate{subscriptions = lists:keydelete(Id, 1, Subscriptions)}};
-                       false ->
-                           {ok, State}
-                   end,
+                ok = emqx_broker:unsubscribe(Topic),
+
+                _ = run_hooks('session.unsubscribe',
+                              [ClientInfo, Topic, ?DEFAULT_SUBOPTS]),
+
+                {ok, remove_subs(Id, State)};
+            false ->
+                {ok, State}
+        end,
     maybe_send_receipt(receipt_id(Headers), State1);
 
 %% ACK
@@ -240,8 +406,8 @@ received(#stomp_frame{command = <<"DISCONNECT">>, headers = Headers}, State) ->
     {stop, normal, State}.
 
 send(Msg = #message{topic = Topic, headers = Headers, payload = Payload},
-     State = #pstate{subscriptions = Subscriptions}) ->
-    case lists:keyfind(Topic, 2, Subscriptions) of
+     State = #pstate{subscriptions = Subs}) ->
+    case lists:keyfind(Topic, 2, Subs) of
         {Id, Topic, Ack} ->
             Headers0 = [{<<"subscription">>, Id},
                         {<<"message-id">>, next_msgid()},
@@ -269,6 +435,9 @@ send(Frame, State = #pstate{sendfun = {Fun, Args}}) ->
     erlang:apply(Fun, [Data] ++ Args),
     {ok, State}.
 
+shutdown(Reason, State = #pstate{connected = true}) ->
+    _ = ensure_disconnected(Reason, State),
+    ok;
 shutdown(_Reason, _State) ->
     ok.
 
@@ -398,11 +567,18 @@ receipt_id(Headers) ->
 
 handle_recv_send_frame(#stomp_frame{command = <<"SEND">>, headers = Headers, body = Body}, State) ->
     Topic = header(<<"destination">>, Headers),
-    _ = maybe_send_receipt(receipt_id(Headers), State),
-    _ = emqx_broker:publish(
-        make_mqtt_message(Topic, Headers, iolist_to_binary(Body))
-    ),
-    State.
+    case check_acl(publish, Topic, State) of
+        allow ->
+            _ = maybe_send_receipt(receipt_id(Headers), State),
+            _ = emqx_broker:publish(
+                make_mqtt_message(Topic, Headers, iolist_to_binary(Body))
+            ),
+            State;
+        deny ->
+            ErrFrame = error_frame(receipt_id(Headers), <<"Not Authorized">>),
+            {ok, NState} = send(ErrFrame, State),
+            NState
+    end.
 
 handle_recv_ack_frame(#stomp_frame{command = <<"ACK">>, headers = Headers}, State) ->
     Id = header(<<"id">>, Headers),
@@ -434,6 +610,58 @@ start_heartbeart_timer(Heartbeats, State) ->
     ensure_timer(
       [incoming_timer, outgoing_timer],
       State#pstate{heart_beats = emqx_stomp_heartbeat:init(Heartbeats)}).
+
+%%--------------------------------------------------------------------
+%% ...
+
+check_acl(PubSub, Topic, State = #pstate{clientinfo = ClientInfo}) ->
+    case is_acl_enabled(State) andalso
+         emqx_access_control:check_acl(ClientInfo, PubSub, Topic) of
+        false -> allow;
+        Res   -> Res
+    end.
+
+put_subs({Id, Topic, Ack}, State = #pstate{subscriptions = Subs}) ->
+    State#pstate{subscriptions = lists:keystore(Id, 1, Subs, {Id, Topic, Ack})}.
+
+remove_subs(Id, State = #pstate{subscriptions = Subs}) ->
+    State#pstate{subscriptions = lists:keydelete(Id, 1, Subs)}.
+
+%%--------------------------------------------------------------------
+%% ...
+
+is_acl_enabled(_) ->
+    %% TODO: configs from somewhere
+    true.
+
+default_user(#pstate{default_user = DefaultUser}) ->
+    DefaultUser.
+allow_anonymous(#pstate{allow_anonymous = AllowAnonymous}) ->
+    AllowAnonymous.
+
+ensure_connected(State = #pstate{conninfo = ConnInfo,
+                                  clientinfo = ClientInfo}) ->
+    NConnInfo = ConnInfo#{
+                  connected => true,
+                  connected_at => erlang:system_time(millisecond)
+                 },
+    %% send connected event
+    self() ! {event, connected},
+    ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
+    State#pstate{conninfo  = NConnInfo,
+                 connected = true
+                }.
+
+ensure_disconnected(Reason, State = #pstate{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
+    NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
+    ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
+    State#pstate{conninfo = NConnInfo, connected = false}.
+
+run_hooks(Name, Args) ->
+    emqx_hooks:run(Name, Args).
+
+run_hooks(Name, Args, Acc) ->
+    emqx_hooks:run_fold(Name, Args, Acc).
 
 %%--------------------------------------------------------------------
 %% Timer
