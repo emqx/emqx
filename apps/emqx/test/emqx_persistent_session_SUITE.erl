@@ -378,6 +378,8 @@ t_cancel_on_disconnect(Config) ->
     {ok, _} = emqtt:ConnFun(Client1),
     ok = emqtt:disconnect(Client1, 0, #{'Session-Expiry-Interval' => 0}),
 
+    wait_for_cm_unregister(ClientId),
+
     {ok, Client2} = emqtt:start_link([ {clientid, ClientId},
                                        {proto_ver, v5},
                                        {clean_start, false},
