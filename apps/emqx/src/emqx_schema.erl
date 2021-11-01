@@ -163,6 +163,14 @@ fields("persistent_session_store") ->
       {"db_backend",
        sc(hoconsc:union([mnesia_ram, mnesia_disc]),
           #{ default => "mnesia_ram"
+           , desc => """
+Which database backend should be used for persistent session storage.<br>
+mnesia_ram: Mnesia table, RAM only.<br>
+mnesia_disc: Mnesia table, in RAM but also copy to disc.<br>
+When running in a single node, it's recommended to have the session states copied to disc.<br>
+When clustered, session states are replicated to all the nodes in the cluster,
+most of the time, RAM only is good enough.
+"""
            })},
       {"max_retain_undelivered",
        sc(duration(),
