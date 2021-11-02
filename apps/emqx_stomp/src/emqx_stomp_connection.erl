@@ -237,7 +237,9 @@ handle_cast(Msg, State) ->
     ?LOG(error, "unexpected msg: ~p", [Msg]),
     noreply(State).
 
-handle_info({event, connected}, State = #state{pstate = PState}) ->
+handle_info({event, Name}, State = #state{pstate = PState})
+  when Name == connected;
+       Name == updated ->
     ClientId = emqx_stomp_protocol:info(clientid, PState),
     emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
     noreply(State);
@@ -272,7 +274,7 @@ handle_info({timeout, _TRef, emit_stats},
             State = #state{pstate = PState}) ->
     ClientId = emqx_stomp_protocol:info(clientid, PState),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
-    {ok, State#state{stats_timer = undefined}};
+    noreply(State#state{stats_timer = undefined});
 
 handle_info({timeout, TRef, TMsg}, State) ->
     with_proto(timeout, [TRef, TMsg], State);
@@ -296,7 +298,7 @@ handle_info({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
-    ensure_stats_timer(?IDLE_TIMEOUT, received(Data, State));
+    received(Data, ensure_stats_timer(?IDLE_TIMEOUT, State));
 
 handle_info({Passive, _Sock}, State)
   when Passive == tcp_passive; Passive == ssl_passive ->
