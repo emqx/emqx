@@ -26,8 +26,7 @@
 -logger_header("[Stomp-Conn]").
 
 -import(emqx_misc,
-        [ maybe_apply/2
-        , start_timer/2
+        [ start_timer/2
         ]).
 
 -export([ start_link/3
@@ -92,6 +91,13 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
+-dialyzer({nowarn_function, [ ensure_stats_timer/2
+                            ]}).
+
+-dialyzer({no_return, [ init/1
+                      , init_state/3
+                      ]}).
+
 start_link(Transport, Sock, ProtoEnv) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[Transport, Sock, ProtoEnv]])}.
 
@@ -115,13 +121,7 @@ info(sockname, #state{sockname = Sockname}) ->
 info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
 info(active_n, #state{active_n = ActiveN}) ->
-    ActiveN;
-info(stats_timer, #state{stats_timer = StatsTimer}) ->
-    StatsTimer;
-info(limit_timer, #state{limit_timer = LimitTimer}) ->
-    LimitTimer;
-info(limiter, #state{limiter = Limiter}) ->
-    maybe_apply(fun emqx_limiter:info/1, Limiter).
+    ActiveN.
 
 -spec stats(pid()|state()) -> emqx_types:stats().
 stats(CPid) when is_pid(CPid) ->
@@ -215,6 +215,12 @@ send(Data, Transport, Sock, ConnPid) ->
 
 heartbeat(Transport, Sock) ->
     Transport:send(Sock, <<$\n>>).
+
+handle_call(info, _From, State) ->
+    {reply, info(State), State};
+
+handle_call(stats, _From, State) ->
+    {reply, stats(State), State};
 
 handle_call(discard, _From, State) ->
     %% TODO: send the DISCONNECT packet?
