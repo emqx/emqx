@@ -50,7 +50,7 @@ req_schema() ->
 resp_schema() ->
     #{'oneOf' := Schema} = req_schema(),
     AddMetadata = fun(Prop) ->
-        Prop#{is_connected => #{type => boolean},
+        Prop#{status => #{type => string, enum => [connected, disconnected, connecting]},
               id => #{type => string},
               bridge_type => #{type => string, enum => ?TYPES},
               node => #{type => string}}
@@ -206,9 +206,9 @@ crud_bridges(_, delete, #{bindings := #{id := Id}}) ->
 
 manage_bridges(post, #{bindings := #{node := Node, id := Id, operation := Op}}) ->
     OperFun =
-        fun (<<"start">>) -> start_bridge;
-            (<<"stop">>) -> stop_bridge;
-            (<<"restart">>) -> restart_bridge
+        fun (<<"start">>) -> start;
+            (<<"stop">>) -> stop;
+            (<<"restart">>) -> restart
         end,
     ?TRY_PARSE_ID(Id,
         case rpc_call(binary_to_atom(Node, latin1), emqx_bridge, OperFun(Op),
@@ -219,12 +219,12 @@ manage_bridges(post, #{bindings := #{node := Node, id := Id, operation := Op}}) 
         end).
 
 format_resp(#{id := Id, raw_config := RawConf, resource_data := #{mod := Mod, status := Status}}) ->
-    IsConnected = fun(started) -> true; (_) -> false end,
+    IsConnected = fun(started) -> connected; (_) -> disconnected end,
     RawConf#{
         id => Id,
         node => node(),
         bridge_type => emqx_bridge:bridge_type(Mod),
-        is_connected => IsConnected(Status)
+        status => IsConnected(Status)
     }.
 
 rpc_call(Node, Fun, Args) ->

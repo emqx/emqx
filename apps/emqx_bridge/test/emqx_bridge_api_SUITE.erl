@@ -55,8 +55,10 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     ok.
 
--define(URL1, <<"http://localhost:9901/path1">>).
--define(URL2, <<"http://localhost:9901/path2">>).
+-define(URL(PORT, PATH), list_to_binary(
+    io_lib:format("http://localhost:~s/~s",
+                  [integer_to_list(PORT), PATH]))).
+
 -define(HTTP_BRIDGE(URL),
 #{
     <<"url">> => URL,
@@ -73,11 +75,26 @@ end_per_testcase(_, _Config) ->
 %%------------------------------------------------------------------------------
 %% HTTP server for testing
 %%------------------------------------------------------------------------------
-start_http_server(Port, HandleFun) ->
+start_http_server(HandleFun) ->
+    Parent = self(),
     spawn_link(fun() ->
-        {ok, Sock} = gen_tcp:listen(Port, [{active, false}]),
+        {Port, Sock} = listen_on_random_port(),
+        Parent ! {port, Port},
         loop(Sock, HandleFun)
-    end).
+    end),
+    receive
+        {port, Port} -> Port
+    after
+        2000 -> error({timeout, start_http_server})
+    end.
+
+listen_on_random_port() ->
+    Min = 1024, Max = 65000,
+    Port = rand:uniform(Max - Min) + Min,
+    case gen_tcp:listen(Port, [{active, false}, {reuseaddr, true}]) of
+        {ok, Sock} -> {Port, Sock};
+        {error, eaddrinuse} -> listen_on_random_port()
+    end.
 
 loop(Sock, HandleFun) ->
     {ok, Conn} = gen_tcp:accept(Sock),
@@ -107,46 +124,50 @@ handle_fun_200_ok(Conn) ->
 %%------------------------------------------------------------------------------
 
 t_crud_apis(_) ->
-    start_http_server(9901, fun handle_fun_200_ok/1),
+    Port = start_http_server(fun handle_fun_200_ok/1),
     %% assert we there's no bridges at first
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     %% then we add a http bridge now
     %% PUT /bridges/:id will create or update a bridge
-    {ok, 200, Bridge} = request(put, uri(["bridges", "http:test_bridge"]), ?HTTP_BRIDGE(?URL1)),
+    URL1 = ?URL(Port, "path1"),
+    {ok, 200, Bridge} = request(put, uri(["bridges", "http:test_bridge"]),
+                                ?HTTP_BRIDGE(URL1)),
     %ct:pal("---bridge: ~p", [Bridge]),
     ?assertMatch([ #{ <<"id">> := <<"http:test_bridge">>
                     , <<"bridge_type">> := <<"http">>
-                    , <<"is_connected">> := _
+                    , <<"status">> := _
                     , <<"node">> := _
-                    , <<"url">> := ?URL1
+                    , <<"url">> := URL1
                     }], jsx:decode(Bridge)),
 
     %% update the request-path of the bridge
-    {ok, 200, Bridge2} = request(put, uri(["bridges", "http:test_bridge"]), ?HTTP_BRIDGE(?URL2)),
+    URL2 = ?URL(Port, "path2"),
+    {ok, 200, Bridge2} = request(put, uri(["bridges", "http:test_bridge"]),
+                                 ?HTTP_BRIDGE(URL2)),
     ?assertMatch([ #{ <<"id">> := <<"http:test_bridge">>
                     , <<"bridge_type">> := <<"http">>
-                    , <<"is_connected">> := _
+                    , <<"status">> := _
                     , <<"node">> := _
-                    , <<"url">> := ?URL2
+                    , <<"url">> := URL2
                     }], jsx:decode(Bridge2)),
 
     %% list all bridges again, assert Bridge2 is in it
     {ok, 200, Bridge2Str} = request(get, uri(["bridges"]), []),
     ?assertMatch([ #{ <<"id">> := <<"http:test_bridge">>
                     , <<"bridge_type">> := <<"http">>
-                    , <<"is_connected">> := _
+                    , <<"status">> := _
                     , <<"node">> := _
-                    , <<"url">> := ?URL2
+                    , <<"url">> := URL2
                     }], jsx:decode(Bridge2Str)),
 
     %% get the bridge by id
     {ok, 200, Bridge3Str} = request(get, uri(["bridges", "http:test_bridge"]), []),
     ?assertMatch([#{ <<"id">> := <<"http:test_bridge">>
                     , <<"bridge_type">> := <<"http">>
-                    , <<"is_connected">> := _
+                    , <<"status">> := _
                     , <<"node">> := _
-                    , <<"url">> := ?URL2
+                    , <<"url">> := URL2
                     }], jsx:decode(Bridge3Str)),
 
     %% delete the bridge
@@ -154,21 +175,53 @@ t_crud_apis(_) ->
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
     ok.
 
-t_change_is_connnected_to_status() ->
-    error(not_implimented).
-
 t_start_stop_bridges(_) ->
-    start_http_server(9901, fun handle_fun_200_ok/1),
-    {ok, 200, Bridge} = request(put, uri(["bridges", "http:test_bridge"]), ?HTTP_BRIDGE(?URL1)),
-    ?assertMatch(  #{ <<"id">> := <<"http:test_bridge">>
+    Port = start_http_server(fun handle_fun_200_ok/1),
+    URL1 = ?URL(Port, "abc"),
+    {ok, 200, Bridge} = request(put, uri(["bridges", "http:test_bridge"]), ?HTTP_BRIDGE(URL1)),
+    %ct:pal("the bridge ==== ~p", [Bridge]),
+    ?assertMatch( [#{ <<"id">> := <<"http:test_bridge">>
                     , <<"bridge_type">> := <<"http">>
-                    , <<"is_connected">> := true
+                    , <<"status">> := <<"connected">>
                     , <<"node">> := _
-                    , <<"url">> := ?URL1
-                    }, jsx:decode(Bridge)),
-    {ok, 200, <<>>} = request(put,
+                    , <<"url">> := URL1
+                    }], jsx:decode(Bridge)),
+    %% stop it
+    {ok, 200, <<>>} = request(post,
         uri(["nodes", node(), "bridges", "http:test_bridge", "operation", "stop"]),
-        ?HTTP_BRIDGE(?URL1)).
+        <<"">>),
+    {ok, 200, Bridge2} = request(get, uri(["bridges", "http:test_bridge"]), []),
+    ?assertMatch([#{ <<"id">> := <<"http:test_bridge">>
+                    , <<"status">> := <<"disconnected">>
+                    }], jsx:decode(Bridge2)),
+    %% start again
+    {ok, 200, <<>>} = request(post,
+        uri(["nodes", node(), "bridges", "http:test_bridge", "operation", "start"]),
+        <<"">>),
+    {ok, 200, Bridge3} = request(get, uri(["bridges", "http:test_bridge"]), []),
+    ?assertMatch([#{ <<"id">> := <<"http:test_bridge">>
+                    , <<"status">> := <<"connected">>
+                    }], jsx:decode(Bridge3)),
+    %% restart an already started bridge
+    {ok, 200, <<>>} = request(post,
+        uri(["nodes", node(), "bridges", "http:test_bridge", "operation", "restart"]),
+        <<"">>),
+    {ok, 200, Bridge3} = request(get, uri(["bridges", "http:test_bridge"]), []),
+    ?assertMatch([#{ <<"id">> := <<"http:test_bridge">>
+                    , <<"status">> := <<"connected">>
+                    }], jsx:decode(Bridge3)),
+    %% stop it again
+    {ok, 200, <<>>} = request(post,
+        uri(["nodes", node(), "bridges", "http:test_bridge", "operation", "stop"]),
+        <<"">>),
+    %% restart a stopped bridge
+    {ok, 200, <<>>} = request(post,
+        uri(["nodes", node(), "bridges", "http:test_bridge", "operation", "restart"]),
+        <<"">>),
+    {ok, 200, Bridge4} = request(get, uri(["bridges", "http:test_bridge"]), []),
+    ?assertMatch([#{ <<"id">> := <<"http:test_bridge">>
+                    , <<"status">> := <<"connected">>
+                    }], jsx:decode(Bridge4)).
 
 %%--------------------------------------------------------------------
 %% HTTP Request
