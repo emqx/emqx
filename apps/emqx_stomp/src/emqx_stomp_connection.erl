@@ -349,8 +349,7 @@ handle_info({deliver, _Topic, Msg}, State = #state{pstate = PState}) ->
                                  end});
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
-    noreply(State).
+    with_proto(handle_info, [Info], State).
 
 terminate(Reason, #state{transport = Transport,
                          socket    = Sock,
@@ -374,6 +373,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 with_proto(Fun, Args, State = #state{pstate = PState}) ->
     case erlang:apply(emqx_stomp_protocol, Fun, Args ++ [PState]) of
+        ok ->
+            noreply(State);
         {ok, NPState} ->
             noreply(State#state{pstate = NPState});
         {F, Reason, NPState} when F == stop;
