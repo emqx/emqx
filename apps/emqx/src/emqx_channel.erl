@@ -1179,14 +1179,13 @@ terminate(_, #channel{conn_state = idle}) -> ok;
 terminate(normal, Channel) ->
     run_terminate_hook(normal, Channel);
 terminate({shutdown, kicked}, Channel) ->
-    persist_if_session(Channel),
     run_terminate_hook(kicked, Channel);
 terminate({shutdown, Reason}, Channel) when Reason =:= discarded;
                                             Reason =:= takeovered ->
     run_terminate_hook(Reason, Channel);
 terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
     (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
-    persist_if_session(Channel),
+    (Reason =:= expired) andalso persist_if_session(Channel),
     run_terminate_hook(Reason, Channel).
 
 persist_if_session(#channel{session = Session} = Channel) ->
