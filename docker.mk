@@ -1,8 +1,10 @@
 #!/usr/bin/make -f
 # -*- makefile -*-
 
-## default globals
-TARGET ?= emqx/emqx
+## default globals.
+## when built with `make docker` command the default profile is either emqx or emqx-ee (for enterprise)
+## or the TARGET varialbe can be set beforehand to force a different name
+TARGET ?= emqx/$(PROFILE)
 QEMU_ARCH ?= x86_64
 ARCH ?= amd64
 QEMU_VERSION ?= v5.0.0-2
@@ -37,7 +39,7 @@ docker-prepare:
 	# enable experimental to use docker manifest command
 	@echo '{ "experimental": "enabled" }' | tee $$HOME/.docker/config.json
 	# enable experimental
-	@echo '{ "experimental": true, "storage-driver": "overlay2", "max-concurrent-downloads": 50, "max-concurrent-uploads": 50 }' | tee /etc/docker/daemon.json 
+	@echo '{ "experimental": true, "storage-driver": "overlay2", "max-concurrent-downloads": 50, "max-concurrent-uploads": 50 }' | tee /etc/docker/daemon.json
 	@service docker restart
 
 .PHONY: docker-build
@@ -85,7 +87,7 @@ docker-tag:
 
 .PHONY: docker-save
 docker-save:
-	@echo "DOCKER SAVE: Save Docker image." 
+	@echo "DOCKER SAVE: Save Docker image."
 
 	@mkdir -p _packages/$(EMQX_NAME)
 
@@ -94,7 +96,7 @@ docker-save:
 		zip -r -m $(EMQX_NAME)-docker-$(PKG_VSN).zip $(EMQX_NAME)-docker-$(PKG_VSN); \
 		mv ./$(EMQX_NAME)-docker-$(PKG_VSN).zip _packages/$(EMQX_NAME)/$(EMQX_NAME)-docker-$(PKG_VSN).zip; \
 	fi
-	
+
 	@for arch in $(ARCH_LIST); do \
 		if [ -n  "$$(docker images -q  $(TARGET):$(PKG_VSN)-$(OS)-$${arch})" ]; then \
 			docker save  $(TARGET):$(PKG_VSN)-$(OS)-$${arch} > $(EMQX_NAME)-docker-$(PKG_VSN)-$(OS)-$${arch}; \
@@ -105,8 +107,8 @@ docker-save:
 
 .PHONY: docker-push
 docker-push:
-	@echo "DOCKER PUSH: Push Docker image."; 
-	@echo "DOCKER PUSH: pushing - $(TARGET):$(PKG_VSN)."; 
+	@echo "DOCKER PUSH: Push Docker image.";
+	@echo "DOCKER PUSH: pushing - $(TARGET):$(PKG_VSN).";
 
 	@if [ -n "$$(docker images -q $(TARGET):$(PKG_VSN))" ]; then \
 		docker push $(TARGET):$(PKG_VSN); \
@@ -131,7 +133,7 @@ docker-manifest-list:
 		fi; \
 	done; \
 	eval $$version; \
-	eval $$latest; 
+	eval $$latest;
 
 	for arch in $(ARCH_LIST); do \
 		case $${arch} in \
@@ -166,10 +168,10 @@ docker-manifest-list:
 				fi; \
 				;; \
 		esac; \
-	done; 
+	done;
 
 	docker manifest inspect $(TARGET):$(PKG_VSN)
-	docker manifest push $(TARGET):$(PKG_VSN); 
+	docker manifest push $(TARGET):$(PKG_VSN);
 	docker manifest inspect $(TARGET):latest
 	docker manifest push $(TARGET):latest;
 
