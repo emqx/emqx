@@ -229,10 +229,11 @@ handle_call(info, _From, State = #state{transport   = Transport,
     end;
 
 handle_call(discard, _From, State) ->
-    shutdown(discared, State);
+    %% TODO: send the DISCONNECT packet?
+    shutdown_and_reply(discared, ok, State);
 
 handle_call(kick, _From, State) ->
-    shutdown(kicked, State);
+    shutdown_and_reply(kicked, ok, State);
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "unexpected request: ~p", [Req]),
@@ -490,6 +491,9 @@ stop(Reason, State) ->
 
 shutdown(Reason, State) ->
     stop({shutdown, Reason}, State).
+
+shutdown_and_reply(Reason, Reply, State) ->
+    {stop, {shutdown, Reason}, Reply, State}.
 
 inc_counter(Key, Inc) ->
     _ = emqx_pd:inc_counter(Key, Inc),
