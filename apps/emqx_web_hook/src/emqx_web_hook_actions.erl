@@ -57,7 +57,7 @@
                          type => string,
                          default => <<"5s">>,
                          title => #{en => <<"Request Timeout">>,
-                                    zh => <<"请求超时时间时间"/utf8>>},
+                                    zh => <<"请求超时时间"/utf8>>},
                          description => #{en => <<"Request Timeout In Seconds">>,
                                           zh => <<"请求超时时间"/utf8>>}},
     pool_size => #{order => 4,
