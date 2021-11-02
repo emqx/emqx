@@ -28,12 +28,15 @@
 -type log_level() :: debug | info | notice | warning | error | critical | alert | emergency | all.
 -type file() :: string().
 -type cipher() :: map().
+-type rpc_client_num() :: auto | 1..256.
 
 -behaviour(hocon_schema).
 
--reflect_type([ log_level/0,
-                file/0,
-                cipher/0]).
+-reflect_type([ log_level/0
+              , file/0
+              , cipher/0
+              , rpc_client_num/0
+              ]).
 
 -export([namespace/0, roots/0, fields/1, translations/0, translation/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
@@ -368,8 +371,14 @@ fields("rpc") ->
            , default => 5369
            })}
     , {"tcp_client_num",
-       sc(range(1, 256),
-          #{ default => 1
+       sc(rpc_client_num(),
+          #{ default   => auto
+           , desc => """
+Maximum number of TCP connections used to forward MQTT messages
+between the nodes in the cluster.<br>
+When value is set to <code>auto</code>, the number of connections
+is set to the number of CPU cores divided by 2.
+"""
            })}
     , {"connect_timeout",
        sc(emqx_schema:duration(),
@@ -513,6 +522,7 @@ translation("emqx") ->
     [ {"config_files", fun tr_config_files/1}
     , {"cluster_override_conf_file", fun tr_cluster_override_conf_file/1}
     , {"local_override_conf_file", fun tr_local_override_conf_file/1}
+    , {"tcp_client_num", fun tr_tcp_client_num/1}
     ].
 
 tr_config_files(Conf) ->
@@ -552,6 +562,15 @@ tr_logger_level(Conf) ->
         [] -> warning; %% warning is the default level we should use
         Levels ->
             least_severe_log_level(Levels)
+    end.
+
+tr_tcp_client_num(Conf) ->
+    ClientNum = conf_get("rpc.tcp_client_num", Conf),
+    case ClientNum of
+        auto ->
+            max(1, erlang:system_info(schedulers) div 2);
+        N when is_integer(N) ->
+            N
     end.
 
 tr_logger(Conf) ->
