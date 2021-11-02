@@ -113,8 +113,9 @@ init_per_group(snabbkaffe, Config) ->
     [ {kill_connection_process, true} | Config];
 init_per_group(gc_tests, Config) ->
     %% We need to make sure the system does not interfere with this test group.
-    [maybe_kill_connection_process(ClientId, [{kill_connection_process, true}])
-     || ClientId <- emqx_cm:all_client_ids()],
+    lists:foreach(fun(ClientId) ->
+                          maybe_kill_connection_process(ClientId, [{kill_connection_process, true}])
+                  end, emqx_cm:all_client_ids()),
     emqx_common_test_helpers:stop_apps([]),
     SessionMsgEts = gc_tests_session_store,
     MsgEts = gc_tests_msg_store,
