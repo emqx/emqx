@@ -132,7 +132,7 @@ start_apps(Apps) ->
 start_apps(Apps, Handler) when is_function(Handler) ->
     %% Load all application code to beam vm first
     %% Because, minirest, ekka etc.. application will scan these modules
-    lists:foreach(fun load/1, [emqx_conf, emqx | Apps]),
+    lists:foreach(fun load/1, [emqx | Apps]),
     ekka:start(),
     lists:foreach(fun(App) -> start_app(App, Handler) end, [emqx | Apps]).
 
