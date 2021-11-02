@@ -1,8 +1,8 @@
 %% -*- mode: erlang -*-
 {"4.3.1",
   [{"4.3.0",
-    [{restart_application,emqx_auth_http}]},
+    [{restart_application,emqx_stomp}]},
    {<<".*">>,[]}],
   [{"4.3.0",
-     [{restart_application,emqx_auth_http}]},
+     [{restart_application,emqx_stomp}]},
    {<<".*">>,[]}]}.

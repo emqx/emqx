@@ -70,9 +70,13 @@
           gc_state :: maybe(emqx_gc:gc_state()),
           %% Stats Timer
           stats_timer :: disabled | maybe(reference()),
-
-          await_recv, parser, pstate,
-          proto_env, heartbeat}).
+          %% Parser State
+          parser :: emqx_stomp_frame:parser(),
+          %% Protocol State
+          pstate :: emqx_stomp_protocol:pstate(),
+          %% XXX: some common confs
+          proto_env :: list()
+         }).
 
 -type(state() :: #state{}).
 
@@ -212,22 +216,6 @@ send(Data, Transport, Sock, ConnPid) ->
 heartbeat(Transport, Sock) ->
     Transport:send(Sock, <<$\n>>).
 
-handle_call(info, _From, State = #state{transport   = Transport,
-                                        socket      = Sock,
-                                        peername    = Peername,
-                                        await_recv  = AwaitRecv,
-                                        sockstate  = ConnState,
-                                        pstate      = PState}) ->
-    ClientInfo = [{peername,  Peername}, {await_recv, AwaitRecv},
-                  {sockstate, ConnState}],
-    ProtoInfo  = emqx_stomp_protocol:info(PState),
-    case Transport:getstat(Sock, ?SOCK_STATS) of
-        {ok, SockStats} ->
-            {reply, lists:append([ClientInfo, ProtoInfo, SockStats]), State};
-        {error, Reason} ->
-            {stop, Reason, lists:append([ClientInfo, ProtoInfo]), State}
-    end;
-
 handle_call(discard, _From, State) ->
     %% TODO: send the DISCONNECT packet?
     shutdown_and_reply(discared, ok, State);
@@ -282,9 +270,6 @@ handle_info({timeout, _TRef, emit_stats},
 
 handle_info({timeout, TRef, TMsg}, State) ->
     with_proto(timeout, [TRef, TMsg], State);
-
-handle_info({'EXIT', HbProc, Error}, State = #state{heartbeat = HbProc}) ->
-    stop(Error, State);
 
 handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
     case activate_socket(State) of
