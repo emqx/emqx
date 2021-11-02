@@ -178,9 +178,9 @@ on_stop(InstId, #{pool_name := PoolName}) ->
                   connector => InstId}),
     ehttpc_sup:stop_pool(PoolName).
 
-on_query(InstId, {send_message, BridgeId, Msg}, AfterQuery, State) ->
+on_query(InstId, {send_message, Msg}, AfterQuery, State) ->
     case maps:get(request, State, undefined) of
-        undefined -> ?SLOG(error, #{msg => "request not found", bridge_id => BridgeId});
+        undefined -> ?SLOG(error, #{msg => "request not found", connector => InstId});
         Request ->
             #{method := Method, path := Path, body := Body, headers := Headers,
               request_timeout := Timeout} = process_request(Request, Msg),

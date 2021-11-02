@@ -21,7 +21,12 @@
 -behaviour(hocon_schema).
 
 -export([ roots/0
-        , fields/1]).
+        , fields/1
+        ]).
+
+-export([ ingress_desc/0
+        , egress_desc/0
+        ]).
 
 -import(emqx_schema, [mk_duration/2]).
 
@@ -29,6 +34,10 @@ roots() ->
     fields("config").
 
 fields("config") ->
+    fields("connector") ++
+    topic_mappings();
+
+fields("connector") ->
     [ {server,
         sc(emqx_schema:ip_port(),
            #{ default => "127.0.0.1:1883"
@@ -78,31 +87,6 @@ fields("config") ->
 Queue messages in disk files.
 """
             })}
-    , {ingress,
-        sc(ref("ingress"),
-           #{ default => #{}
-            , desc => """
-The ingress config defines how this bridge receive messages from the remote MQTT broker, and then
-send them to the local broker.<br>
-Template with variables is allowed in 'to_local_topic', 'subscribe_qos', 'qos', 'retain',
-'payload'.<br>
-NOTE: if this bridge is used as the input of a rule (emqx rule engine), and also to_local_topic is
-configured, then messages got from the remote broker will be sent to both the 'to_local_topic' and
-the rule.
-"""
-            })}
-    , {egress,
-        sc(ref("egress"),
-           #{ default => #{}
-            , desc => """
-The egress config defines how this bridge forwards messages from the local broker to the remote
-broker.<br>
-Template with variables is allowed in 'to_remote_topic', 'qos', 'retain', 'payload'.<br>
-NOTE: if this bridge is used as the output of a rule (emqx rule engine), and also from_local_topic
-is configured, then both the data got from the rule and the MQTT messages that matches
-from_local_topic will be forwarded.
-"""
-            })}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("ingress") ->
@@ -122,6 +106,12 @@ fields("ingress") ->
            #{ desc => """
 Send messages to which topic of the local broker.<br>
 Template with variables is allowed.
+"""
+            })}
+    , {hookpoint,
+        sc(binary(),
+           #{ desc => """
+The hookpoint will be triggered when there's any message received from the remote broker.
 """
             })}
     ] ++ common_inout_confs();
@@ -169,6 +159,38 @@ the memory cache reaches 'seg_bytes'.
 """
             })}
     ].
+
+topic_mappings() ->
+    [ {ingress,
+        sc(ref("ingress"),
+           #{ default => #{}
+            , desc => ingress_desc()
+            })}
+    , {egress,
+        sc(ref("egress"),
+           #{ default => #{}
+            , desc => egress_desc()
+            })}
+    ].
+
+ingress_desc() -> """
+The ingress config defines how this bridge receive messages from the remote MQTT broker, and then
+send them to the local broker.<br>
+Template with variables is allowed in 'to_local_topic', 'subscribe_qos', 'qos', 'retain',
+'payload'.<br>
+NOTE: if this bridge is used as the input of a rule (emqx rule engine), and also to_local_topic is
+configured, then messages got from the remote broker will be sent to both the 'to_local_topic' and
+the rule.
+""".
+
+egress_desc() -> """
+The egress config defines how this bridge forwards messages from the local broker to the remote
+broker.<br>
+Template with variables is allowed in 'to_remote_topic', 'qos', 'retain', 'payload'.<br>
+NOTE: if this bridge is used as the output of a rule (emqx rule engine), and also from_local_topic
+is configured, then both the data got from the rule and the MQTT messages that matches
+from_local_topic will be forwarded.
+""".
 
 common_inout_confs() ->
     [ {qos,

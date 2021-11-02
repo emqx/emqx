@@ -89,63 +89,69 @@ drop_bridge(Name) ->
 %% ===================================================================
 %% When use this bridge as a data source, ?MODULE:on_message_received/2 will be called
 %% if the bridge received msgs from the remote broker.
-on_message_received(Msg, BridgeId) ->
-    Name = atom_to_binary(BridgeId, utf8),
-    emqx:run_hook(<<"$bridges/", Name/binary>>, [Msg]).
+on_message_received(Msg, HookPoint) ->
+    emqx:run_hook(HookPoint, [Msg]).
 
 %% ===================================================================
 on_start(InstId, Conf) ->
-    "bridge:" ++ NamePrefix = binary_to_list(InstId),
-    BridgeId = list_to_atom(NamePrefix),
+    InstanceId = binary_to_atom(InstId, utf8),
     ?SLOG(info, #{msg => "starting mqtt connector",
-                  connector => BridgeId, config => Conf}),
+                  connector => InstanceId, config => Conf}),
     BasicConf = basic_config(Conf),
-    SubRemoteConf = maps:get(ingress, Conf, #{}),
-    FrowardConf = maps:get(egress, Conf, #{}),
     BridgeConf = BasicConf#{
-        name => BridgeId,
-        clientid => clientid(BridgeId),
-        subscriptions => SubRemoteConf#{
-            to_local_topic => maps:get(to_local_topic, SubRemoteConf, undefined),
-            on_message_received => {fun ?MODULE:on_message_received/2, [BridgeId]}
-        },
-        forwards => FrowardConf#{
-            from_local_topic => maps:get(from_local_topic, FrowardConf, undefined)
-        }
+        name => InstanceId,
+        clientid => clientid(InstanceId),
+        subscriptions => make_sub_confs(maps:get(ingress, Conf, undefined)),
+        forwards => make_forward_confs(maps:get(egress, Conf, undefined))
     },
     case ?MODULE:create_bridge(BridgeConf) of
         {ok, _Pid} ->
-            case emqx_connector_mqtt_worker:ensure_started(BridgeId) of
-                ok -> {ok, #{name => BridgeId}};
+            case emqx_connector_mqtt_worker:ensure_started(InstanceId) of
+                ok -> {ok, #{name => InstanceId}};
                 {error, Reason} -> {error, Reason}
             end;
         {error, {already_started, _Pid}} ->
-            {ok, #{name => BridgeId}};
+            {ok, #{name => InstanceId}};
         {error, Reason} ->
             {error, Reason}
     end.
 
-on_stop(_InstId, #{name := BridgeId}) ->
+on_stop(_InstId, #{name := InstanceId}) ->
     ?SLOG(info, #{msg => "stopping mqtt connector",
-                  connector => BridgeId}),
-    case ?MODULE:drop_bridge(BridgeId) of
+                  connector => InstanceId}),
+    case ?MODULE:drop_bridge(InstanceId) of
         ok -> ok;
         {error, not_found} -> ok;
         {error, Reason} ->
             ?SLOG(error, #{msg => "stop mqtt connector",
-                connector => BridgeId, reason => Reason})
+                connector => InstanceId, reason => Reason})
     end.
 
-on_query(_InstId, {send_message, BridgeId, Msg}, _AfterQuery, _State) ->
+on_query(_InstId, {send_message, Msg}, _AfterQuery, #{name := InstanceId}) ->
     ?SLOG(debug, #{msg => "send msg to remote node", message => Msg,
-        connector => BridgeId}),
-    emqx_connector_mqtt_worker:send_to_remote(BridgeId, Msg).
+        connector => InstanceId}),
+    emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg).
 
-on_health_check(_InstId, #{name := BridgeId} = State) ->
-    case emqx_connector_mqtt_worker:ping(BridgeId) of
+on_health_check(_InstId, #{name := InstanceId} = State) ->
+    case emqx_connector_mqtt_worker:ping(InstanceId) of
         pong -> {ok, State};
-        _ -> {error, {connector_down, BridgeId}, State}
+        _ -> {error, {connector_down, InstanceId}, State}
     end.
+
+make_sub_confs(undefined) ->
+    undefined;
+make_sub_confs(SubRemoteConf) ->
+    case maps:take(hookpoint, SubRemoteConf) of
+        error -> SubRemoteConf;
+        {HookPoint, SubConf} ->
+            MFA = {?MODULE, on_message_received, [HookPoint]},
+            SubConf#{on_message_received => MFA}
+    end.
+
+make_forward_confs(undefined) ->
+    undefined;
+make_forward_confs(FrowardConf) ->
+    FrowardConf.
 
 basic_config(#{
         server := Server,

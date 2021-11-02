@@ -381,7 +381,7 @@ pop_and_send_loop(#{replayq := Q} = State, N) ->
 
 do_send(#{connect_opts := #{forwards := undefined}}, _QAckRef, Msg) ->
     ?SLOG(error, #{msg => "cannot forward messages to remote broker"
-                          " as forwards is not configured",
+                          " as 'egress' is not configured",
                    messages => Msg});
 do_send(#{inflight := Inflight,
           connection := Connection,

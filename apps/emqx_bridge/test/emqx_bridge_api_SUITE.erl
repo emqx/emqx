@@ -112,6 +112,7 @@ t_crud_apis(_) ->
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     %% then we add a http bridge now
+    %% PUT /bridges/:id will create or update a bridge
     {ok, 200, Bridge} = request(put, uri(["bridges", "http:test_bridge"]), ?HTTP_BRIDGE(?URL1)),
     %ct:pal("---bridge: ~p", [Bridge]),
     ?assertMatch([ #{ <<"id">> := <<"http:test_bridge">>
@@ -139,11 +140,35 @@ t_crud_apis(_) ->
                     , <<"url">> := ?URL2
                     }], jsx:decode(Bridge2Str)),
 
+    %% get the bridge by id
+    {ok, 200, Bridge3Str} = request(get, uri(["bridges", "http:test_bridge"]), []),
+    ?assertMatch([#{ <<"id">> := <<"http:test_bridge">>
+                    , <<"bridge_type">> := <<"http">>
+                    , <<"is_connected">> := _
+                    , <<"node">> := _
+                    , <<"url">> := ?URL2
+                    }], jsx:decode(Bridge3Str)),
+
     %% delete the bridge
     {ok,200,<<>>} = request(delete, uri(["bridges", "http:test_bridge"]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
     ok.
 
+t_change_is_connnected_to_status() ->
+    error(not_implimented).
+
+t_start_stop_bridges(_) ->
+    start_http_server(9901, fun handle_fun_200_ok/1),
+    {ok, 200, Bridge} = request(put, uri(["bridges", "http:test_bridge"]), ?HTTP_BRIDGE(?URL1)),
+    ?assertMatch(  #{ <<"id">> := <<"http:test_bridge">>
+                    , <<"bridge_type">> := <<"http">>
+                    , <<"is_connected">> := true
+                    , <<"node">> := _
+                    , <<"url">> := ?URL1
+                    }, jsx:decode(Bridge)),
+    {ok, 200, <<>>} = request(put,
+        uri(["nodes", node(), "bridges", "http:test_bridge", "operation", "stop"]),
+        ?HTTP_BRIDGE(?URL1)).
 
 %%--------------------------------------------------------------------
 %% HTTP Request

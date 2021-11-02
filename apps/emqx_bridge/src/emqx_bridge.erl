@@ -84,7 +84,7 @@ on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
 send_message(BridgeId, Message) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
     ResId = emqx_bridge:resource_id(BridgeType, BridgeName),
-    emqx_resource:query(ResId, {send_message, BridgeId, Message}).
+    emqx_resource:query(ResId, {send_message, Message}).
 
 config_key_path() ->
     [bridges].
@@ -178,7 +178,7 @@ create(Type, Name, Conf) ->
         config => Conf}),
     ResId = resource_id(Type, Name),
     case emqx_resource:create(ResId,
-            emqx_bridge:resource_type(Type), parse_confs(Type, Conf)) of
+            emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf)) of
         {ok, already_created} ->
             emqx_resource:get_instance(ResId);
         {ok, Data} ->
@@ -199,7 +199,7 @@ update(Type, Name, {_OldConf, Conf}) ->
     ?SLOG(info, #{msg => "update bridge", type => Type, name => Name,
         config => Conf}),
     emqx_resource:recreate(resource_id(Type, Name),
-        emqx_bridge:resource_type(Type), parse_confs(Type, Conf), []).
+        emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf), []).
 
 remove(Type, Name, _Conf) ->
     ?SLOG(info, #{msg => "remove bridge", type => Type, name => Name}),
@@ -227,8 +227,12 @@ get_matched_bridges(Topic) ->
     Bridges = emqx:get_config([bridges], #{}),
     maps:fold(fun (BType, Conf, Acc0) ->
         maps:fold(fun
-            (BName, #{egress := Egress}, Acc1) ->
+            %% Confs for MQTT, Kafka bridges have the `direction` flag
+            (_BName, #{direction := ingress}, Acc1) ->
+                Acc1;
+            (BName, #{direction := egress} = Egress, Acc1) ->
                 get_matched_bridge_id(Egress, Topic, BType, BName, Acc1);
+            %% HTTP, MySQL bridges only have egress direction
             (BName, BridgeConf, Acc1) ->
                 get_matched_bridge_id(BridgeConf, Topic, BType, BName, Acc1)
         end, Acc0, Conf)
@@ -240,12 +244,13 @@ get_matched_bridge_id(#{from_local_topic := Filter}, Topic, BType, BName, Acc) -
         false -> Acc
     end.
 
-parse_confs(http, #{ url := Url
-                   , method := Method
-                   , body := Body
-                   , headers := Headers
-                   , request_timeout := ReqTimeout
-                   } = Conf) ->
+parse_confs(http, _Name,
+        #{ url := Url
+         , method := Method
+         , body := Body
+         , headers := Headers
+         , request_timeout := ReqTimeout
+         } = Conf) ->
     {BaseUrl, Path} = parse_url(Url),
     {ok, BaseUrl2} = emqx_http_lib:uri_parse(BaseUrl),
     Conf#{ base_url => BaseUrl2
@@ -257,8 +262,20 @@ parse_confs(http, #{ url := Url
              , request_timeout => ReqTimeout
              }
          };
-parse_confs(_Type, Conf) ->
-    Conf.
+parse_confs(Type, Name, #{connector := ConnName, direction := Direction} = Conf) ->
+    ConnectorConfs = emqx:get_config([connectors, Type, ConnName]),
+    make_resource_confs(Direction, ConnectorConfs,
+        maps:without([connector, direction], Conf), Name).
+
+make_resource_confs(ingress, ConnectorConfs, BridgeConf, Name) ->
+    BName = bin(Name),
+    ConnectorConfs#{
+        ingress => BridgeConf#{hookpoint => <<"$bridges/", BName/binary>>}
+    };
+make_resource_confs(egress, ConnectorConfs, BridgeConf, _Name) ->
+    ConnectorConfs#{
+        egress => BridgeConf
+    }.
 
 parse_url(Url) ->
     case string:split(Url, "//", leading) of

@@ -68,7 +68,7 @@ reload() ->
             ok = emqx_rule_engine:load_hooks_for_rule(Rule)
         end, emqx_rule_engine:get_rules()).
 
-load(<<"$bridges/", _ChannelId/binary>> = BridgeTopic) ->
+load(<<"$bridges/", _BridgeId/binary>> = BridgeTopic) ->
     emqx_hooks:put(BridgeTopic, {?MODULE, on_bridge_message_received,
         [#{bridge_topic => BridgeTopic}]});
 load(Topic) ->

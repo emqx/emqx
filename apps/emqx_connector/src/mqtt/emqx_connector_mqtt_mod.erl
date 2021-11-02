@@ -160,13 +160,17 @@ handle_puback(#{packet_id := PktId, reason_code := RC}, _Parent) ->
 
 handle_publish(Msg, undefined) ->
     ?SLOG(error, #{msg => "cannot publish to local broker as"
-                          " ingress_channles' is not configured",
+                          " 'ingress' is not configured",
                    message => Msg});
-handle_publish(Msg, #{on_message_received := {OnMsgRcvdFunc, Args}} = Vars) ->
+handle_publish(Msg, Vars) ->
     ?SLOG(debug, #{msg => "publish to local broker",
                    message => Msg, vars => Vars}),
     emqx_metrics:inc('bridge.mqtt.message_received_from_remote', 1),
-    _ = erlang:apply(OnMsgRcvdFunc, [Msg | Args]),
+    case Vars of
+        #{on_message_received := {Mod, Func, Args}} ->
+            _ = erlang:apply(Mod, Func, [Msg | Args]);
+        _ -> ok
+    end,
     case maps:get(to_local_topic, Vars, undefined) of
         undefined -> ok;
         _Topic ->

@@ -11,17 +11,26 @@ roots() -> [bridges].
 
 fields(bridges) ->
     [ {mqtt,
-       sc(hoconsc:map(name, ref("mqtt_bridge")),
+       sc(hoconsc:map(name, hoconsc:union([ ref("ingress_mqtt_bridge")
+                                          , ref("egress_mqtt_bridge")
+                                          ])),
           #{ desc => "MQTT bridges"
-           })}
+          })}
     , {http,
        sc(hoconsc:map(name, ref("http_bridge")),
           #{ desc => "HTTP bridges"
-           })}
+          })}
     ];
 
-fields("mqtt_bridge") ->
-    emqx_connector_mqtt:fields("config");
+fields("ingress_mqtt_bridge") ->
+    [ direction(ingress, emqx_connector_mqtt_schema:ingress_desc())
+    , connector_name()
+    ] ++ proplists:delete(hookpoint, emqx_connector_mqtt_schema:fields("ingress"));
+
+fields("egress_mqtt_bridge") ->
+    [ direction(egress, emqx_connector_mqtt_schema:egress_desc())
+    , connector_name()
+    ] ++ emqx_connector_mqtt_schema:fields("egress");
 
 fields("http_bridge") ->
     basic_config_http() ++
@@ -84,6 +93,24 @@ How long will the HTTP request timeout.
 """
            })}
     ].
+
+direction(Dir, Desc) ->
+    {direction,
+        sc(Dir,
+           #{ nullable => false
+            , desc => "The direction of the bridge. Can be one of 'ingress' or 'egress'.<br>" ++
+                      Desc
+            })}.
+
+connector_name() ->
+    {connector,
+        sc(binary(),
+           #{ nullable => false
+            , desc =>"""
+The connector name to be used for this bridge.
+Connectors are configured by 'connectors.<type>.<name>
+"""
+            })}.
 
 basic_config_http() ->
     proplists:delete(base_url, emqx_connector_http:fields(config)).
