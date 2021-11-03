@@ -187,7 +187,7 @@ t_api_spec(_Config) ->
 
     Filter0 = filter(Spec0, Path),
     ?assertMatch(
-        {ok, #{body := ActualBody}},
+        {ok, #{body := #{<<"timeout">> := <<"infinity">>}}},
         trans_requestBody(Path, Body, Filter0)),
 
     {Spec1, _} = emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}),

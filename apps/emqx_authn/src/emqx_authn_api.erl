@@ -498,37 +498,37 @@ authenticator(delete, #{bindings := #{id := AuthenticatorID}}) ->
 
 listener_authenticators(post, #{bindings := #{listener_id := ListenerID}, body := Config}) ->
     with_listener(ListenerID,
-                  fun(Type, Name) ->
+                  fun(Type, Name, ChainName) ->
                         create_authenticator([listeners, Type, Name, authentication],
-                                          ListenerID,
+                                          ChainName,
                                           Config)
                   end);
 
 listener_authenticators(get, #{bindings := #{listener_id := ListenerID}}) ->
     with_listener(ListenerID,
-                  fun(Type, Name) ->
+                  fun(Type, Name, _) ->
                         list_authenticators([listeners, Type, Name, authentication])
                   end).
 
 listener_authenticator(get, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}}) ->
     with_listener(ListenerID,
-                  fun(Type, Name) ->
+                  fun(Type, Name, _) ->
                         list_authenticator([listeners, Type, Name, authentication],
                                        AuthenticatorID)
                   end);
 listener_authenticator(put, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := Config}) ->
     with_listener(ListenerID,
-                  fun(Type, Name) ->
+                  fun(Type, Name, ChainName) ->
                         update_authenticator([listeners, Type, Name, authentication],
-                                             ListenerID,
+                                             ChainName,
                                              AuthenticatorID,
                                              Config)
                   end);
 listener_authenticator(delete, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}}) ->
     with_listener(ListenerID,
-                  fun(Type, Name) ->
+                  fun(Type, Name, ChainName) ->
                         delete_authenticator([listeners, Type, Name, authentication],
-                                             ListenerID,
+                                             ChainName,
                                              AuthenticatorID)
                   end).
 
@@ -539,9 +539,9 @@ authenticator_move(post, #{bindings := #{id := _}, body := _}) ->
 
 listener_authenticator_move(post, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := #{<<"position">> := Position}}) ->
     with_listener(ListenerID,
-                  fun(Type, Name) ->
+                  fun(Type, Name, ChainName) ->
                         move_authenitcator([listeners, Type, Name, authentication],
-                                           ListenerID,
+                                           ChainName,
                                            AuthenticatorID,
                                            Position)
                   end);
@@ -557,11 +557,13 @@ authenticator_import_users(post, #{bindings := #{id := _}, body := _}) ->
     serialize_error({missing_parameter, filename}).
 
 listener_authenticator_import_users(post, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := #{<<"filename">> := Filename}}) ->
-    ChainName = to_atom(ListenerID),
-    case ?AUTHN:import_users(ChainName, AuthenticatorID, Filename) of
-        ok -> {204};
-        {error, Reason} -> serialize_error(Reason)
-    end;
+    with_chain(ListenerID,
+                    fun(ChainName) ->
+                        case ?AUTHN:import_users(ChainName, AuthenticatorID, Filename) of
+                            ok -> {204};
+                            {error, Reason} -> serialize_error(Reason)
+                        end
+                    end);
 listener_authenticator_import_users(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
     serialize_error({missing_parameter, filename}).
 
@@ -580,23 +582,38 @@ authenticator_user(delete, #{bindings := #{id := AuthenticatorID, user_id := Use
 
 listener_authenticator_users(post, #{bindings := #{listener_id := ListenerID,
                              id := AuthenticatorID}, body := UserInfo}) ->
-    add_user(ListenerID, AuthenticatorID, UserInfo);
+    with_chain(ListenerID,
+                    fun(ChainName) ->
+                        add_user(ChainName, AuthenticatorID, UserInfo)
+                    end);
 listener_authenticator_users(get, #{bindings := #{listener_id := ListenerID,
                             id := AuthenticatorID}, query_string := PageParams}) ->
-    list_users(ListenerID, AuthenticatorID, PageParams).
+    with_chain(ListenerID,
+                    fun(ChainName) ->
+                        list_users(ChainName, AuthenticatorID, PageParams)
+                    end).
 
 listener_authenticator_user(put, #{bindings := #{listener_id := ListenerID,
                             id := AuthenticatorID,
                             user_id := UserID}, body := UserInfo}) ->
-    update_user(ListenerID, AuthenticatorID, UserID, UserInfo);
+    with_chain(ListenerID,
+                    fun(ChainName) ->
+                        update_user(ChainName, AuthenticatorID, UserID, UserInfo)
+                    end);
 listener_authenticator_user(get, #{bindings := #{listener_id := ListenerID,
                             id := AuthenticatorID,
                             user_id := UserID}}) ->
-    find_user(ListenerID, AuthenticatorID, UserID);
+    with_chain(ListenerID,
+                    fun(ChainName) ->
+                        find_user(ChainName, AuthenticatorID, UserID)
+                    end);
 listener_authenticator_user(delete, #{bindings := #{listener_id := ListenerID,
                                id := AuthenticatorID,
                                user_id := UserID}}) ->
-    delete_user(ListenerID, AuthenticatorID, UserID).
+    with_chain(ListenerID,
+                    fun(ChainName) ->
+                        delete_user(ChainName, AuthenticatorID, UserID)
+                    end).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -604,27 +621,41 @@ listener_authenticator_user(delete, #{bindings := #{listener_id := ListenerID,
 
 with_listener(ListenerID, Fun) ->
     case find_listener(ListenerID) of
-        {ok, {Type, Name}} ->
-           Fun(Type, Name);
+        {ok, {BType, BName}} ->
+            Type = binary_to_existing_atom(BType),
+            Name = binary_to_existing_atom(BName),
+            ChainName = binary_to_atom(ListenerID),
+            Fun(Type, Name, ChainName);
         {error, Reason} ->
             serialize_error(Reason)
     end.
 
 find_listener(ListenerID) ->
-    case emqx_listeners:parse_listener_id(ListenerID) of
-        {error, _} ->
-            {error, {not_found, {listener, ListenerID}}};
-        {Type, Name} ->
-            case emqx_config:find([listeners, Type, Name]) of
-                {not_found, _, _} ->
-                    {error, {not_found, {listener, ListenerID}}};
+    case binary:split(ListenerID, <<":">>) of
+        [BType, BName] ->
+            case emqx_config:find([listeners, BType, BName]) of
                 {ok, _} ->
-                    {ok, {Type, Name}}
-            end
+                    {ok, {BType, BName}};
+                {not_found, _, _} ->
+                    {error, {not_found, {listener, ListenerID}}}
+            end;
+        _ ->
+            {error, {not_found, {listener, ListenerID}}}
+    end.
+
+with_chain(ListenerID, Fun) ->
+    {ok, ChainNames} = ?AUTHN:list_chain_names(),
+    ListenerChainName =
+        [ Name || Name <- ChainNames, atom_to_binary(Name) =:= ListenerID ],
+    case ListenerChainName of
+        [ChainName] ->
+            Fun(ChainName);
+        _ ->
+            serialize_error({not_found, {chain, ListenerID}})
     end.
 
 create_authenticator(ConfKeyPath, ChainName, Config) ->
-    case update_config(ConfKeyPath, {create_authenticator, to_atom(ChainName), Config}) of
+    case update_config(ConfKeyPath, {create_authenticator, ChainName, Config}) of
         {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
             raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
@@ -649,7 +680,7 @@ list_authenticator(ConfKeyPath, AuthenticatorID) ->
     end.
 
 update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
-    case update_config(ConfKeyPath, {update_authenticator, to_atom(ChainName), AuthenticatorID, Config}) of
+    case update_config(ConfKeyPath, {update_authenticator, ChainName, AuthenticatorID, Config}) of
         {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
                raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
@@ -658,8 +689,7 @@ update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
             serialize_error(Reason)
     end.
 
-delete_authenticator(ConfKeyPath, ChainName0, AuthenticatorID) ->
-    ChainName = to_atom(ChainName0),
+delete_authenticator(ConfKeyPath, ChainName, AuthenticatorID) ->
     case update_config(ConfKeyPath, {delete_authenticator, ChainName, AuthenticatorID}) of
         {ok, _} ->
             {204};
@@ -667,8 +697,7 @@ delete_authenticator(ConfKeyPath, ChainName0, AuthenticatorID) ->
             serialize_error(Reason)
     end.
 
-move_authenitcator(ConfKeyPath, ChainName0, AuthenticatorID, Position) ->
-    ChainName = to_atom(ChainName0),
+move_authenitcator(ConfKeyPath, ChainName, AuthenticatorID, Position) ->
     case parse_position(Position) of
         {ok, NPosition} ->
             case update_config(ConfKeyPath, {move_authenticator, ChainName, AuthenticatorID, NPosition}) of
@@ -681,8 +710,7 @@ move_authenitcator(ConfKeyPath, ChainName0, AuthenticatorID, Position) ->
             serialize_error(Reason)
     end.
 
-add_user(ChainName0, AuthenticatorID, #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo) ->
-    ChainName = to_atom(ChainName0),
+add_user(ChainName, AuthenticatorID, #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo) ->
     IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
     case ?AUTHN:add_user(ChainName, AuthenticatorID, #{ user_id => UserID
                                                       , password => Password
@@ -697,8 +725,7 @@ add_user(_, _, #{<<"user_id">> := _}) ->
 add_user(_, _, _) ->
     serialize_error({missing_parameter, user_id}).
 
-update_user(ChainName0, AuthenticatorID, UserID, UserInfo) ->
-    ChainName = to_atom(ChainName0),
+update_user(ChainName, AuthenticatorID, UserID, UserInfo) ->
     case maps:with([<<"password">>, <<"is_superuser">>], UserInfo) =:= #{} of
         true ->
             serialize_error({missing_parameter, password});
@@ -711,8 +738,7 @@ update_user(ChainName0, AuthenticatorID, UserID, UserInfo) ->
             end
     end.
 
-find_user(ChainName0, AuthenticatorID, UserID) ->
-    ChainName = to_atom(ChainName0),
+find_user(ChainName, AuthenticatorID, UserID) ->
     case ?AUTHN:lookup_user(ChainName, AuthenticatorID, UserID) of
         {ok, User} ->
             {200, User};
@@ -720,8 +746,7 @@ find_user(ChainName0, AuthenticatorID, UserID) ->
             serialize_error({user_error, Reason})
     end.
 
-delete_user(ChainName0, AuthenticatorID, UserID) ->
-    ChainName = to_atom(ChainName0),
+delete_user(ChainName, AuthenticatorID, UserID) ->
     case ?AUTHN:delete_user(ChainName, AuthenticatorID, UserID) of
         ok ->
             {204};
@@ -729,8 +754,7 @@ delete_user(ChainName0, AuthenticatorID, UserID) ->
             serialize_error({user_error, Reason})
     end.
 
-list_users(ChainName0, AuthenticatorID, PageParams) ->
-    ChainName = to_atom(ChainName0),
+list_users(ChainName, AuthenticatorID, PageParams) ->
     case ?AUTHN:list_users(ChainName, AuthenticatorID, PageParams) of
         {ok, Users} ->
             {200, Users};
@@ -833,12 +857,6 @@ parse_position(_) ->
 
 ensure_list(M) when is_map(M) -> [M];
 ensure_list(L) when is_list(L) -> L.
-
-% TODO: fix atom leak!
-to_atom(B) when is_binary(B) ->
-    binary_to_atom(B);
-to_atom(A) when is_atom(A) ->
-    A.
 
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
 
