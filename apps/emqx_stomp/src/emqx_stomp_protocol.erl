@@ -69,6 +69,8 @@
           sendfun :: {function(), list()},
           %% Heartbeat function
           heartfun :: {function(), list()},
+          %% Get Socket stat function
+          statfun :: {function(), list()},
           %% The confs for the connection
           %% TODO: put these configs into a public mem?
           allow_anonymous :: maybe(boolean()),
@@ -76,6 +78,9 @@
          }).
 
 -define(DEFAULT_SUB_ACK, <<"auto">>).
+
+-define(INCOMING_TIMER_BACKOFF, 1.25).
+-define(OUTCOMING_TIMER_BACKOFF, 0.75).
 
 -define(TIMER_TABLE, #{
           incoming_timer => incoming,
@@ -108,7 +113,8 @@
 %% @doc Init protocol
 init(ConnInfo = #{peername := {PeerHost, _Port},
                   sockname := {_Host, SockPort},
-                  sendfun := SendFun,
+                  statfun  := StatFun,
+                  sendfun  := SendFun,
                   heartfun := HeartFun}, Opts) ->
 
     NConnInfo = default_conninfo(ConnInfo),
@@ -132,6 +138,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
        clientinfo = ClientInfo,
        heartfun = HeartFun,
        sendfun = SendFun,
+       statfun = StatFun,
        timers = #{},
        transaction = #{},
        allow_anonymous = AllowAnonymous,
@@ -231,6 +238,8 @@ received(#stomp_frame{command = <<"CONNECT">>, headers = Headers},
                              default_user(State)
                             ) of
                 true ->
+                    Heartbeats = parse_heartbeats(
+                                   header(<<"heart-beat">>, Headers, <<"0,0">>)),
                     ClientId = emqx_guid:to_base62(emqx_guid:gen()),
                     emqx_logger:set_metadata_clientid(ClientId),
                     ConnInfo = State#pstate.conninfo,
@@ -238,6 +247,7 @@ received(#stomp_frame{command = <<"CONNECT">>, headers = Headers},
                     NConnInfo = ConnInfo#{
                                   proto_ver => Version,
                                   clientid => ClientId,
+                                  keepalive => element(1, Heartbeats) div 1000,
                                   username => Login
                                  },
                     NClitInfo = ClitInfo#{
@@ -250,7 +260,6 @@ received(#stomp_frame{command = <<"CONNECT">>, headers = Headers},
                         emqx_cm:discard_session(ClientId),
                         emqx_cm:register_channel(ClientId, ConnPid, NConnInfo)
                     end),
-                    Heartbeats = parse_heartbeats(header(<<"heart-beat">>, Headers, <<"0,0">>)),
                     NState = start_heartbeart_timer(
                                Heartbeats,
                                State#pstate{
@@ -454,11 +463,18 @@ timeout(_TRef, {incoming, NewVal},
 
 timeout(_TRef, {outgoing, NewVal},
         State = #pstate{heart_beats = HrtBt,
+                        statfun = {StatFun, StatArgs},
                         heartfun = {Fun, Args}}) ->
     case emqx_stomp_heartbeat:check(outgoing, NewVal, HrtBt) of
         {error, timeout} ->
             _ = erlang:apply(Fun, Args),
-            {ok, State};
+            case erlang:apply(StatFun, [send_oct] ++ StatArgs) of
+                {ok, NewVal2} ->
+                    NHrtBt = emqx_stomp_heartbeat:reset(outgoing, NewVal2, HrtBt),
+                    {ok, reset_timer(outgoing_timer, State#pstate{heart_beats = NHrtBt})};
+                {error, Reason} ->
+                    {shutdown, {error, {get_stats_error, Reason}}, State}
+            end;
         {ok, NHrtBt} ->
             {ok, reset_timer(outgoing_timer, State#pstate{heart_beats = NHrtBt})}
     end;
@@ -633,7 +649,11 @@ reverse_heartbeats({Cx, Cy}) ->
 start_heartbeart_timer(Heartbeats, State) ->
     ensure_timer(
       [incoming_timer, outgoing_timer],
-      State#pstate{heart_beats = emqx_stomp_heartbeat:init(Heartbeats)}).
+      State#pstate{heart_beats = emqx_stomp_heartbeat:init(backoff(Heartbeats))}).
+
+backoff({Cx, Cy}) ->
+    {erlang:ceil(Cx * ?INCOMING_TIMER_BACKOFF),
+     erlang:ceil(Cy * ?OUTCOMING_TIMER_BACKOFF)}.
 
 %%--------------------------------------------------------------------
 %% pub & sub helpers
@@ -768,3 +788,4 @@ interval(outgoing_timer, #pstate{heart_beats = HrtBt}) ->
     emqx_stomp_heartbeat:interval(outgoing, HrtBt);
 interval(clean_trans_timer, _) ->
     ?TRANS_TIMEOUT.
+

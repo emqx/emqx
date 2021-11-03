@@ -43,7 +43,7 @@
         ]).
 
 %% for protocol
--export([send/4, heartbeat/2]).
+-export([send/4, heartbeat/2, statfun/3]).
 
 %% for mgmt
 -export([call/2, call/3]).
@@ -157,6 +157,7 @@ init_state(Transport, Socket, ProtoEnv) ->
     {ok, Sockname} = Transport:ensure_ok_or_exit(sockname, [Socket]),
 
     SendFun = {fun ?MODULE:send/4, [Transport, Socket, self()]},
+    StatFun = {fun ?MODULE:statfun/3, [Transport, Socket]},
     HrtBtFun = {fun ?MODULE:heartbeat/2, [Transport, Socket]},
     Parser = emqx_stomp_frame:init_parer_state(ProtoEnv),
 
@@ -168,6 +169,7 @@ init_state(Transport, Socket, ProtoEnv) ->
                  peername => Peername,
                  sockname => Sockname,
                  peercert => Peercert,
+                 statfun  => StatFun,
                  sendfun  => SendFun,
                  heartfun => HrtBtFun,
                  conn_mod => ?MODULE
@@ -218,7 +220,14 @@ send(Frame, Transport, Sock, ConnPid) ->
     end.
 
 heartbeat(Transport, Sock) ->
+    ?LOG(debug, "SEND heartbeat: \\n"),
     Transport:send(Sock, <<$\n>>).
+
+statfun(Stat, Transport, Sock) ->
+    case Transport:getstat(Sock, [Stat]) of
+        {ok, [{Stat, Val}]} -> {ok, Val};
+        {error, Error}      -> {error, Error}
+    end.
 
 handle_call(info, _From, State) ->
     {reply, info(State), State};
