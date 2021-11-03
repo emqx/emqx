@@ -231,27 +231,24 @@ received(#stomp_frame{command = <<"CONNECT">>, headers = Headers},
                              default_user(State)
                             ) of
                 true ->
-                    NLogin = case Login == undefined orelse Login == <<>> of
-                                 false -> Login;
-                                 true -> emqx_guid:to_base62(emqx_guid:gen())
-                             end,
-                    emqx_logger:set_metadata_clientid(NLogin),
+                    ClientId = emqx_guid:to_base62(emqx_guid:gen()),
+                    emqx_logger:set_metadata_clientid(ClientId),
                     ConnInfo = State#pstate.conninfo,
                     ClitInfo = State#pstate.clientinfo,
                     NConnInfo = ConnInfo#{
                                   proto_ver => Version,
-                                  clientid => NLogin,
-                                  username => NLogin
+                                  clientid => ClientId,
+                                  username => Login
                                  },
                     NClitInfo = ClitInfo#{
-                                  clientid => NLogin,
-                                  username => NLogin
+                                  clientid => ClientId,
+                                  username => Login
                                  },
 
                     ConnPid = self(),
-                    _ = emqx_cm_locker:trans(NLogin, fun(_) ->
-                        emqx_cm:discard_session(NLogin),
-                        emqx_cm:register_channel(NLogin, ConnPid, NConnInfo)
+                    _ = emqx_cm_locker:trans(ClientId, fun(_) ->
+                        emqx_cm:discard_session(ClientId),
+                        emqx_cm:register_channel(ClientId, ConnPid, NConnInfo)
                     end),
                     Heartbeats = parse_heartbeats(header(<<"heart-beat">>, Headers, <<"0,0">>)),
                     NState = start_heartbeart_timer(
@@ -406,8 +403,13 @@ received(#stomp_frame{command = <<"DISCONNECT">>, headers = Headers}, State) ->
     _ = maybe_send_receipt(receipt_id(Headers), State),
     {stop, normal, State}.
 
-send(Msg = #message{topic = Topic, headers = Headers, payload = Payload},
-     State = #pstate{subscriptions = Subs}) ->
+send(Msg0 = #message{},
+     State = #pstate{clientinfo = ClientInfo, subscriptions = Subs}) ->
+    ok = emqx_metrics:inc('messages.delivered'),
+    Msg = emqx_hooks:run_fold('message.delivered', [ClientInfo], Msg0),
+    #message{topic = Topic,
+             headers = Headers,
+             payload = Payload} = Msg,
     case find_sub_by_topic(Topic, Subs) of
         {Topic, #{sub_props := #{id := Id, ack := Ack}}} ->
             Headers0 = [{<<"subscription">>, Id},
@@ -423,6 +425,8 @@ send(Msg = #message{topic = Topic, headers = Headers, payload = Payload},
             Frame = #stomp_frame{command = <<"MESSAGE">>,
                                  headers = Headers1 ++ maps:get(stomp_headers, Headers, []),
                                  body = Payload},
+
+
             send(Frame, State);
         undefined ->
             ?LOG(error, "Stomp dropped: ~p", [Msg]),
@@ -430,10 +434,7 @@ send(Msg = #message{topic = Topic, headers = Headers, payload = Payload},
     end;
 
 send(Frame, State = #pstate{sendfun = {Fun, Args}}) when is_record(Frame, stomp_frame) ->
-    ?LOG(info, "SEND Frame: ~s", [emqx_stomp_frame:format(Frame)]),
-    Data = emqx_stomp_frame:serialize(Frame),
-    ?LOG(debug, "SEND ~p", [Data]),
-    erlang:apply(Fun, [Data] ++ Args),
+    erlang:apply(Fun, [Frame] ++ Args),
     {ok, State}.
 
 shutdown(Reason, State = #pstate{connected = true}) ->
@@ -453,7 +454,7 @@ timeout(_TRef, {incoming, NewVal},
 
 timeout(_TRef, {outgoing, NewVal},
         State = #pstate{heart_beats = HrtBt,
-                             heartfun = {Fun, Args}}) ->
+                        heartfun = {Fun, Args}}) ->
     case emqx_stomp_heartbeat:check(outgoing, NewVal, HrtBt) of
         {error, timeout} ->
             _ = erlang:apply(Fun, Args),

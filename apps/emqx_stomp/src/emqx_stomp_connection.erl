@@ -205,7 +205,11 @@ exit_on_sock_error(timeout) ->
 exit_on_sock_error(Reason) ->
     erlang:exit({shutdown, Reason}).
 
-send(Data, Transport, Sock, ConnPid) ->
+send(Frame, Transport, Sock, ConnPid) ->
+    ?LOG(info, "SEND Frame: ~s", [emqx_stomp_frame:format(Frame)]),
+    ok = inc_outgoing_stats(Frame),
+    Data = emqx_stomp_frame:serialize(Frame),
+    ?LOG(debug, "SEND ~p", [Data]),
     try Transport:async_send(Sock, Data) of
         ok -> ok;
         {error, Reason} -> ConnPid ! {shutdown, Reason}
@@ -386,6 +390,7 @@ received(Bytes, State = #state{parser = Parser,
             noreply(State#state{parser = NewParser});
         {ok, Frame, Rest} ->
             ?LOG(info, "RECV Frame: ~s", [emqx_stomp_frame:format(Frame)]),
+            ok = inc_incoming_stats(Frame),
             case emqx_stomp_protocol:received(Frame, PState) of
                 {ok, PState1}           ->
                     received(Rest, reset_parser(State#state{pstate = PState1}));
@@ -424,6 +429,35 @@ close_socket(State = #state{sockstate = closed}) -> State;
 close_socket(State = #state{transport = Transport, socket = Socket}) ->
     ok = Transport:fast_close(Socket),
     State#state{sockstate = closed}.
+
+%%--------------------------------------------------------------------
+%% Inc incoming/outgoing stats
+
+inc_incoming_stats(#stomp_frame{command = Cmd}) ->
+    inc_counter(recv_pkt, 1),
+    case Cmd of
+        <<"SEND">> ->
+            inc_counter(recv_msg, 1),
+            inc_counter(incoming_pubs, 1),
+            emqx_metrics:inc('messages.received'),
+            emqx_metrics:inc('messages.qos1.received');
+        _ ->
+            ok
+    end,
+    emqx_metrics:inc('packets.received').
+
+inc_outgoing_stats(#stomp_frame{command = Cmd}) ->
+    inc_counter(send_pkt, 1),
+    case Cmd of
+        <<"MESSAGE">> ->
+            inc_counter(send_msg, 1),
+            inc_counter(outgoing_pubs, 1),
+            emqx_metrics:inc('messages.sent'),
+            emqx_metrics:inc('messages.qos1.sent');
+        _ ->
+            ok
+    end,
+    emqx_metrics:inc('packets.sent').
 
 %%--------------------------------------------------------------------
 %% Ensure rate limit
