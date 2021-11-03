@@ -27,6 +27,7 @@ services:
         haproxy -f /usr/local/etc/haproxy/haproxy.cfg
 
   emqx1:
+    restart: always
     container_name: node1.emqx.io
     image: $TARGET:$EMQX_TAG
     env_file:
@@ -51,6 +52,7 @@ services:
         - node1.emqx.io
 
   emqx2:
+    restart: always
     container_name: node2.emqx.io
     image: $TARGET:$EMQX_TAG
     env_file:

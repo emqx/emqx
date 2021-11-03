@@ -158,9 +158,9 @@ t_clients_cmd(_) ->
     timer:sleep(300),
     emqx_mgmt_cli:clients(["list"]),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:clients(["show", "client12"]), "client12")),
-    ?assertEqual((emqx_mgmt_cli:clients(["kick", "client12"])), "ok~n"),
+    ?assertEqual("ok~n", emqx_mgmt_cli:clients(["kick", "client12"])),
     timer:sleep(500),
-    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:clients(["show", "client12"]), "Not Found")),
+    ?assertEqual("ok~n", emqx_mgmt_cli:clients(["kick", "client12"])),
     receive
         {'EXIT', T, _} ->
             ok

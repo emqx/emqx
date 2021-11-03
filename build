@@ -15,18 +15,7 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
 export PKG_VSN
 
-if [ "$(uname -s)" = 'Darwin' ]; then
-	SYSTEM=macos
-elif [ "$(uname -s)" = 'Linux' ]; then
-    if grep -q -i 'centos' /etc/*-release; then
-        DIST='centos'
-        VERSION_ID="$(rpm --eval '%{centos_ver}')"
-    else
-        DIST="$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')"
-        VERSION_ID="$(sed -n '/^VERSION_ID=/p' /etc/os-release | sed -r 's/VERSION_ID=(.*)/\1/g' | sed 's/"//g')"
-    fi
-    SYSTEM="$(echo "${DIST}${VERSION_ID}" | sed -r 's/([a-zA-Z]*)-.*/\1/g')"
-fi
+SYSTEM="$(./scripts/get-distro.sh)"
 
 ARCH="$(uname -m)"
 case "$ARCH" in
@@ -46,8 +35,8 @@ export ARCH
 ## Support RPM and Debian based linux systems
 ##
 if [ "$(uname -s)" = 'Linux' ]; then
-    case "${DIST:-}" in
-        ubuntu|debian|raspbian)
+    case "${SYSTEM:-}" in
+        ubuntu*|debian*|raspbian*)
             PKGERDIR='deb'
             ;;
         *)
@@ -98,6 +87,18 @@ make_relup() {
     ./rebar3 as "$PROFILE" relup --relname emqx --relvsn "${PKG_VSN}"
 }
 
+cp_dyn_libs() {
+    local rel_dir="$1"
+    local target_dir="${rel_dir}/dynlibs"
+    if ! [ "$(uname -s)" = 'Linux' ]; then
+        return 0;
+    fi
+    mkdir -p "$target_dir"
+    while read -r so_file; do
+        cp -L "$so_file" "$target_dir/"
+    done < <(find "$rel_dir" -type f \( -name "*.so*" -o -name "beam.smp" \) -print0 | xargs -0 ldd | grep -E '^\s+.*=>\s(/lib|/usr)' | awk '{print $3}')
+}
+
 ## make_zip turns .tar.gz into a .zip with a slightly different name.
 ## It assumes the .tar.gz has been built -- relies on Makefile dependency
 make_zip() {
@@ -117,6 +118,9 @@ make_zip() {
     local zipball
     zipball="${pkgpath}/${PROFILE}-${SYSTEM}-${PKG_VSN}-${ARCH}.zip"
     tar zxf "${tarball}" -C "${tard}/emqx"
+    ## try to be portable for zip packages.
+    ## for DEB and RPM packages the dependencies are resoved by yum and apt
+    cp_dyn_libs "${tard}/emqx"
     (cd "${tard}" && zip -qr - emqx) > "${zipball}"
 }
 

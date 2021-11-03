@@ -20,6 +20,41 @@ mkdir -p "$RUNNER_LOG_DIR"
 # Make sure data directory exists
 mkdir -p "$RUNNER_DATA_DIR"
 
+export ROOTDIR="$RUNNER_ROOT_DIR"
+export ERTS_DIR="$ROOTDIR/erts-$ERTS_VSN"
+export BINDIR="$ERTS_DIR/bin"
+export EMU="beam"
+export PROGNAME="erl"
+DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
+ERTS_LIB_DIR="$ERTS_DIR/../lib"
+MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
+
+# Echo to stderr on errors
+echoerr() { echo "$*" 1>&2; }
+
+check_eralng_start() {
+    "$BINDIR/$PROGNAME" -noshell -boot "$REL_DIR/start_clean" -s crypto start -s init stop
+}
+
+if ! check_eralng_start >/dev/null 2>&1; then
+    BUILT_ON="$(head -1 "${REL_DIR}/BUILT_ON")"
+    ## failed to start, might be due to missing libs, try to be portable
+    export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
+    if ! check_eralng_start; then
+        ## it's hopeless
+        echoerr "FATAL: Unable to start Erlang (with libcrypto)."
+        echoerr "Please make sure it's running on the correct platform with all required dependencies."
+        echoerr "This EMQ X release is built for $BUILT_ON"
+        exit 1
+    fi
+    echoerr "WARNING: There seem to be missing dynamic libs from the OS. Using libs from ${DYNLIBS_DIR}"
+fi
+
+## backward compatible
+if [ -d "$ERTS_DIR/lib" ]; then
+    export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
+fi
+
 # cuttlefish try to read environment variables starting with "EMQX_"
 export CUTTLEFISH_ENV_OVERRIDE_PREFIX='EMQX_'
 
@@ -119,9 +154,6 @@ if [ "$ULIMIT_F" -lt 1024 ]; then
     echo "!!!! WARNING: ulimit -n is ${ULIMIT_F}; 1024 is the recommended minimum."
     echo "!!!!"
 fi
-
-# Echo to stderr on errors
-echoerr() { echo "$@" 1>&2; }
 
 # By default, use cuttlefish to generate app.config and vm.args
 CUTTLEFISH="${USE_CUTTLEFISH:-yes}"
@@ -238,12 +270,22 @@ generate_config() {
         sed '/^#/d' "$CUTTLE_GEN_ARG_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
             ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
             ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
-            TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $NF}')
-            if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
-                if [ -n "$TMP_ARG_VALUE" ]; then
-                    sh -c "$SED_REPLACE 's/^$ARG_KEY.*$/$ARG_LINE/' $TMP_ARG_FILE"
-                else
-                    echo "$ARG_LINE" >> "$TMP_ARG_FILE"
+            if [ "$ARG_KEY" =  '' ]; then
+                ## for the flags, e.g. -heart -emu_args etc
+                ARG_KEY=$(echo "$ARG_LINE" | awk '{print $1}')
+                ARG_VALUE=''
+                TMP_ARG_KEY=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $1}')
+                if [ "$TMP_ARG_KEY" = '' ]; then
+                    echo "$ARG_KEY" >> "$TMP_ARG_FILE"
+                fi
+            else
+                TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" | awk '{print $NF}')
+                if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
+                    if [ -n "$TMP_ARG_VALUE" ]; then
+                        sh -c "$SED_REPLACE 's/^$ARG_KEY.*$/$ARG_LINE/' $TMP_ARG_FILE"
+                    else
+                        echo "$ARG_LINE" >> "$TMP_ARG_FILE"
+                    fi
                 fi
             fi
         done
@@ -353,15 +395,6 @@ if [ -z "$PROTO_DIST" ]; then
 else
     PROTO_DIST_ARG="-proto_dist $PROTO_DIST"
 fi
-
-export ROOTDIR="$RUNNER_ROOT_DIR"
-export ERTS_DIR="$ROOTDIR/erts-$ERTS_VSN"
-export BINDIR="$ERTS_DIR/bin"
-export EMU="beam"
-export PROGNAME="erl"
-export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
-ERTS_LIB_DIR="$ERTS_DIR/../lib"
-MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
 
 cd "$ROOTDIR"
 

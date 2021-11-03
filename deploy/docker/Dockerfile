@@ -41,7 +41,7 @@ LABEL org.label-schema.docker.dockerfile="Dockerfile" \
     org.label-schema.url="https://emqx.io" \
     org.label-schema.vcs-type="Git" \
     org.label-schema.vcs-url="https://github.com/emqx/emqx" \
-    maintainer="Raymond M Mouthaan <raymondmmouthaan@gmail.com>, Huang Rui <vowstar@gmail.com>, EMQ X Team <support@emqx.io>"
+    maintainer="EMQ X Team <support@emqx.io>"
 
 ARG QEMU_ARCH=x86_64
 ARG EMQX_NAME=emqx

@@ -1,0 +1,99 @@
+version: '3.9'
+
+services:
+  haproxy:
+    container_name: haproxy
+    image: haproxy:2.3
+    depends_on:
+      - emqx1
+      - emqx2
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+      - ../../etc/certs:/usr/local/etc/haproxy/certs
+    ports:
+      - "18083:18083"
+    #  - "1883:1883"
+    #  - "8883:8883"
+    #  - "8083:8083"
+    #  - "5683:5683/udp"
+    #  - "9999:9999"
+    #  - "8084:8084"
+    networks:
+      - emqx_bridge
+    working_dir: /usr/local/etc/haproxy
+    command:
+      - bash
+      - -c
+      - |
+        cat /usr/local/etc/haproxy/certs/cert.pem /usr/local/etc/haproxy/certs/key.pem > /usr/local/etc/haproxy/certs/emqx.pem
+        haproxy -f /usr/local/etc/haproxy/haproxy.cfg
+
+  emqx1:
+    restart: always
+    container_name: node1.emqx.io
+    image: $TARGET:$EMQX_TAG
+    env_file:
+      - conf.cluster.env
+    volumes:
+      - etc:/opt/emqx/etc
+    environment:
+      - "EMQX_HOST=node1.emqx.io"
+    ports:
+      - "11881:18083"
+#      - "1883:1883"
+    command:
+        - /bin/sh
+        - -c
+        - |
+          sed -i "s 127.0.0.1 $$(ip route show |grep "link" |awk '{print $$1}') g" /opt/emqx/etc/acl.conf
+          sed -i '/emqx_telemetry/d' /opt/emqx/data/loaded_plugins
+          /opt/emqx/bin/emqx foreground
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx_bridge:
+        aliases:
+        - node1.emqx.io
+
+  emqx2:
+    restart: always
+    container_name: node2.emqx.io
+    image: $TARGET:$EMQX_TAG
+    env_file:
+      - conf.cluster.env
+    volumes:
+      - etc:/opt/emqx/etc
+    environment:
+      - "EMQX_HOST=node2.emqx.io"
+    ports:
+      - "11882:18083"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        sed -i "s 127.0.0.1 $$(ip route show |grep "link" |awk '{print $$1}') g" /opt/emqx/etc/acl.conf
+        sed -i '/emqx_telemetry/d' /opt/emqx/data/loaded_plugins
+        /opt/emqx/bin/emqx foreground
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ping"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+    networks:
+      emqx_bridge:
+        aliases:
+        - node2.emqx.io
+volumes:
+  etc:
+networks:
+  emqx_bridge:
+    driver: bridge
+    name: emqx_bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.100.239.0/24
+          gateway: 172.100.239.1

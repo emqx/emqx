@@ -1,19 +1,21 @@
 %% -*-: erlang -*-
-{"4.3.3",
+{"4.3.4",
   [
-    {<<"4.3.[0-1]">>, [
+    {<<"4\\.3\\.[0-1]">>, [
       {restart_application, emqx_lwm2m}
     ]},
     {"4.3.2", [
       {load_module, emqx_lwm2m_message, brutal_purge, soft_purge, []}
-    ]}
+    ]},
+    {"4.3.3", []} %% only config change
   ],
   [
-    {<<"4.3.[0-1]">>, [
+    {<<"4\\.3\\.[0-1]">>, [
       {restart_application, emqx_lwm2m}
     ]},
     {"4.3.2", [
       {load_module, emqx_lwm2m_message, brutal_purge, soft_purge, []}
-    ]}
+    ]},
+    {"4.3.3", []} %% only config change
   ]
 }.

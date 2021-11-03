@@ -22,6 +22,7 @@
 -include("emqx_auth_mnesia.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(emqx_ct_http, [ request_api/3
                       , request_api/5
@@ -39,10 +40,15 @@ all() ->
     emqx_ct:all(?MODULE).
 
 groups() ->
-    [].
+    [{async_migration_tests, [sequence], [
+        t_old_and_new_acl_migration_by_migrator,
+        t_old_and_new_acl_migration_repeated_by_migrator,
+        t_migration_concurrency
+    ]}].
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_auth_mnesia], fun set_special_configs/1),
+    supervisor:terminate_child(emqx_auth_mnesia_sup, emqx_acl_mnesia_migrator),
     create_default_app(),
     Config.
 
@@ -50,13 +56,31 @@ end_per_suite(_Config) ->
     delete_default_app(),
     emqx_ct_helpers:stop_apps([emqx_modules, emqx_management, emqx_auth_mnesia]).
 
-init_per_testcase(t_check_acl_as_clientid, Config) ->
+init_per_testcase_clean(_, Config) ->
+    mnesia:clear_table(?ACL_TABLE),
+    mnesia:clear_table(?ACL_TABLE2),
+    Config.
+
+init_per_testcase_emqx_hook(t_check_acl_as_clientid, Config) ->
     emqx:hook('client.check_acl', fun emqx_acl_mnesia:check_acl/5, [#{key_as => clientid}]),
     Config;
-
-init_per_testcase(_, Config) ->
+init_per_testcase_emqx_hook(_, Config) ->
     emqx:hook('client.check_acl', fun emqx_acl_mnesia:check_acl/5, [#{key_as => username}]),
     Config.
+
+init_per_testcase_migration(t_management_before_migration, Config) ->
+    Config;
+init_per_testcase_migration(_, Config) ->
+    emqx_acl_mnesia_migrator:migrate_records(),
+    Config.
+
+init_per_testcase(Case, Config) ->
+    PerTestInitializers = [
+        fun init_per_testcase_clean/2,
+        fun init_per_testcase_migration/2,
+        fun init_per_testcase_emqx_hook/2
+    ],
+    lists:foldl(fun(Init, Conf) -> Init(Case, Conf) end, Config, PerTestInitializers).
 
 end_per_testcase(_, Config) ->
     emqx:unhook('client.check_acl', fun emqx_acl_mnesia:check_acl/5),
@@ -76,25 +100,34 @@ set_special_configs(_App) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_management(_Config) ->
-    clean_all_acls(),
-    ?assertEqual("Acl with Mnesia", emqx_acl_mnesia:description()),
-    ?assertEqual([], emqx_acl_mnesia_cli:all_acls()),
+t_management_before_migration(_Config) ->
+    {atomic, IsStarted} = mnesia:transaction(fun emqx_acl_mnesia_db:is_migration_started/0),
+    ?assertNot(IsStarted),
+    run_acl_tests().
 
-    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/%c">>, sub, allow),
-    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/+">>, pub, deny),
-    ok = emqx_acl_mnesia_cli:add_acl({username, <<"test_username">>}, <<"topic/%u">>, sub, deny),
-    ok = emqx_acl_mnesia_cli:add_acl({username, <<"test_username">>}, <<"topic/+">>, pub, allow),
-    ok = emqx_acl_mnesia_cli:add_acl(all, <<"#">>, pubsub, deny),
+t_management_after_migration(_Config) ->
+    {atomic, IsStarted} = mnesia:transaction(fun emqx_acl_mnesia_db:is_migration_started/0),
+    ?assert(IsStarted),
+    run_acl_tests().
+
+run_acl_tests() ->
+    ?assertEqual("Acl with Mnesia", emqx_acl_mnesia:description()),
+    ?assertEqual([], emqx_acl_mnesia_db:all_acls()),
+
+    ok = emqx_acl_mnesia_db:add_acl({clientid, <<"test_clientid">>}, <<"topic/%c">>, sub, allow),
+    ok = emqx_acl_mnesia_db:add_acl({clientid, <<"test_clientid">>}, <<"topic/+">>, pub, deny),
+    ok = emqx_acl_mnesia_db:add_acl({username, <<"test_username">>}, <<"topic/%u">>, sub, deny),
+    ok = emqx_acl_mnesia_db:add_acl({username, <<"test_username">>}, <<"topic/+">>, pub, allow),
+    ok = emqx_acl_mnesia_db:add_acl(all, <<"#">>, pubsub, deny),
     %% Sleeps below are needed to hide the race condition between
     %% mnesia and ets dirty select in check_acl, that make this test
     %% flaky
     timer:sleep(100),
 
-    ?assertEqual(2, length(emqx_acl_mnesia_cli:lookup_acl({clientid, <<"test_clientid">>}))),
-    ?assertEqual(2, length(emqx_acl_mnesia_cli:lookup_acl({username, <<"test_username">>}))),
-    ?assertEqual(2, length(emqx_acl_mnesia_cli:lookup_acl(all))),
-    ?assertEqual(6, length(emqx_acl_mnesia_cli:all_acls())),
+    ?assertEqual(2, length(emqx_acl_mnesia_db:lookup_acl({clientid, <<"test_clientid">>}))),
+    ?assertEqual(2, length(emqx_acl_mnesia_db:lookup_acl({username, <<"test_username">>}))),
+    ?assertEqual(2, length(emqx_acl_mnesia_db:lookup_acl(all))),
+    ?assertEqual(6, length(emqx_acl_mnesia_db:all_acls())),
 
     User1 = #{zone => external, clientid => <<"test_clientid">>},
     User2 = #{zone => external, clientid => <<"no_exist">>, username => <<"test_username">>},
@@ -110,30 +143,30 @@ t_management(_Config) ->
     deny  = emqx_access_control:check_acl(User3, publish,   <<"topic/A/B">>),
 
     %% Test merging of pubsub capability:
-    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pubsub, deny),
+    ok = emqx_acl_mnesia_db:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pubsub, deny),
     timer:sleep(100),
     deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
     deny  = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
-    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pub, allow),
+    ok = emqx_acl_mnesia_db:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pub, allow),
     timer:sleep(100),
     deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
     allow = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
-    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pubsub, allow),
+    ok = emqx_acl_mnesia_db:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pubsub, allow),
     timer:sleep(100),
     allow = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
     allow = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
-    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, sub, deny),
+    ok = emqx_acl_mnesia_db:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, sub, deny),
     timer:sleep(100),
     deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
     allow = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
-    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pub, deny),
+    ok = emqx_acl_mnesia_db:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pub, deny),
     timer:sleep(100),
     deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
     deny  = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
 
     %% Test implicit migration of pubsub to pub and sub:
-    ok = emqx_acl_mnesia_cli:remove_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>),
-    ok = mnesia:dirty_write(#emqx_acl{
+    ok = emqx_acl_mnesia_db:remove_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>),
+    ok = mnesia:dirty_write(#?ACL_TABLE{
                                filter = {{clientid, <<"test_clientid">>}, <<"topic/mix">>},
                                action = pubsub,
                                access = allow,
@@ -142,24 +175,130 @@ t_management(_Config) ->
     timer:sleep(100),
     allow = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
     allow = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
-    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pub, deny),
+    ok = emqx_acl_mnesia_db:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pub, deny),
     timer:sleep(100),
     allow = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
     deny  = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
-    ok = emqx_acl_mnesia_cli:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, sub, deny),
+    ok = emqx_acl_mnesia_db:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, sub, deny),
     timer:sleep(100),
     deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
     deny  = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
 
-    ok = emqx_acl_mnesia_cli:remove_acl({clientid, <<"test_clientid">>}, <<"topic/%c">>),
-    ok = emqx_acl_mnesia_cli:remove_acl({clientid, <<"test_clientid">>}, <<"topic/+">>),
-    ok = emqx_acl_mnesia_cli:remove_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>),
-    ok = emqx_acl_mnesia_cli:remove_acl({username, <<"test_username">>}, <<"topic/%u">>),
-    ok = emqx_acl_mnesia_cli:remove_acl({username, <<"test_username">>}, <<"topic/+">>),
-    ok = emqx_acl_mnesia_cli:remove_acl(all, <<"#">>),
+    ok = emqx_acl_mnesia_db:remove_acl({clientid, <<"test_clientid">>}, <<"topic/%c">>),
+    ok = emqx_acl_mnesia_db:remove_acl({clientid, <<"test_clientid">>}, <<"topic/+">>),
+    ok = emqx_acl_mnesia_db:remove_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>),
+    ok = emqx_acl_mnesia_db:remove_acl({username, <<"test_username">>}, <<"topic/%u">>),
+    ok = emqx_acl_mnesia_db:remove_acl({username, <<"test_username">>}, <<"topic/+">>),
+    ok = emqx_acl_mnesia_db:remove_acl(all, <<"#">>),
     timer:sleep(100),
 
-    ?assertEqual([], emqx_acl_mnesia_cli:all_acls()).
+    ?assertEqual([], emqx_acl_mnesia_db:all_acls()).
+
+t_old_and_new_acl_combination(_Config) ->
+    create_conflicting_records(),
+
+    ?assertEqual(combined_conflicting_records(), emqx_acl_mnesia_db:all_acls()),
+    ?assertEqual(
+        lists:usort(combined_conflicting_records()),
+        lists:usort(emqx_acl_mnesia_db:all_acls_export())).
+
+t_old_and_new_acl_migration(_Config) ->
+    create_conflicting_records(),
+    emqx_acl_mnesia_migrator:migrate_records(),
+
+    ?assertEqual(combined_conflicting_records(), emqx_acl_mnesia_db:all_acls()),
+    ?assertEqual(
+        lists:usort(combined_conflicting_records()),
+        lists:usort(emqx_acl_mnesia_db:all_acls_export())),
+
+    % check that old table is not popoulated anymore
+    ok = emqx_acl_mnesia_db:add_acl({clientid, <<"test_clientid">>}, <<"topic/%c">>, sub, allow),
+    ?assert(emqx_acl_mnesia_migrator:is_old_table_migrated()).
+
+
+t_migration_concurrency(_Config) ->
+    Key = {{clientid,<<"client6">>}, <<"t">>},
+    Record = #?ACL_TABLE{filter = Key, action = pubsub, access = deny, created_at = 0},
+    {atomic, ok} = mnesia:transaction(fun mnesia:write/1, [Record]),
+
+    LockWaitAndDelete =
+        fun() ->
+           [_Rec] = mnesia:wread({?ACL_TABLE, Key}),
+           {{Pid, Ref}, _} =
+               ?wait_async_action(spawn_monitor(fun emqx_acl_mnesia_migrator:migrate_records/0),
+                                  #{?snk_kind := emqx_acl_mnesia_migrator_record_selected},
+                                  1000),
+           mnesia:delete({?ACL_TABLE, Key}),
+           {Pid, Ref}
+        end,
+
+    ?check_trace(
+        begin
+            {atomic, {Pid, Ref}} = mnesia:transaction(LockWaitAndDelete),
+            receive {'DOWN', Ref, process, Pid, _} -> ok end
+        end,
+        fun(_, Trace) ->
+            ?assertMatch([_], ?of_kind(emqx_acl_mnesia_migrator_record_missed, Trace))
+        end),
+
+    ?assert(emqx_acl_mnesia_migrator:is_old_table_migrated()),
+    ?assertEqual([], emqx_acl_mnesia_db:all_acls()).
+
+
+t_old_and_new_acl_migration_by_migrator(_Config) ->
+    create_conflicting_records(),
+
+    meck:new(fake_nodes, [non_strict]),
+    meck:expect(fake_nodes, all, fun() -> [node(), 'somebadnode@127.0.0.1'] end),
+
+    ?check_trace(
+        begin
+            % check all nodes every 30 ms
+            {ok, _} = emqx_acl_mnesia_migrator:start_link(#{
+                name => ct_migrator,
+                check_nodes_interval => 30,
+                get_nodes => fun fake_nodes:all/0
+            }),
+            timer:sleep(100)
+        end,
+        fun(_, Trace) ->
+            ?assertEqual([], ?of_kind(emqx_acl_mnesia_migrator_start_migration, Trace))
+        end),
+
+    ?check_trace(
+        begin
+            meck:expect(fake_nodes, all, fun() -> [node()] end),
+            timer:sleep(100)
+        end,
+        fun(_, Trace) ->
+            ?assertMatch([_], ?of_kind(emqx_acl_mnesia_migrator_finish, Trace))
+        end),
+
+    meck:unload(fake_nodes),
+
+    ?assertEqual(combined_conflicting_records(), emqx_acl_mnesia_db:all_acls()),
+    ?assert(emqx_acl_mnesia_migrator:is_old_table_migrated()).
+
+t_old_and_new_acl_migration_repeated_by_migrator(_Config) ->
+    create_conflicting_records(),
+    emqx_acl_mnesia_migrator:migrate_records(),
+
+    ?check_trace(
+        begin
+            {ok, _} = emqx_acl_mnesia_migrator:start_link(ct_migrator),
+            timer:sleep(100)
+        end,
+        fun(_, Trace) ->
+            ?assertEqual([], ?of_kind(emqx_acl_mnesia_migrator_start_migration, Trace)),
+            ?assertMatch([_], ?of_kind(emqx_acl_mnesia_migrator_finish, Trace))
+        end).
+
+t_start_stop_supervised(_Config) ->
+    ?assertEqual(undefined, whereis(emqx_acl_mnesia_migrator)),
+    ok = emqx_acl_mnesia_migrator:start_supervised(),
+    ?assert(is_pid(whereis(emqx_acl_mnesia_migrator))),
+    ok = emqx_acl_mnesia_migrator:stop_supervised(),
+    ?assertEqual(undefined, whereis(emqx_acl_mnesia_migrator)).
 
 t_acl_cli(_Config) ->
     meck:new(emqx_ctl, [non_strict, passthrough]),
@@ -167,8 +306,6 @@ t_acl_cli(_Config) ->
     meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),
     meck:expect(emqx_ctl, usage, fun(Usages) -> emqx_ctl:format_usage(Usages) end),
     meck:expect(emqx_ctl, usage, fun(Cmd, Descr) -> emqx_ctl:format_usage(Cmd, Descr) end),
-
-    clean_all_acls(),
 
     ?assertEqual(0, length(emqx_acl_mnesia_cli:cli(["list"]))),
 
@@ -202,8 +339,6 @@ t_acl_cli(_Config) ->
     meck:unload(emqx_ctl).
 
 t_rest_api(_Config) ->
-    clean_all_acls(),
-
     Params1 = [#{<<"clientid">> => <<"test_clientid">>,
                  <<"topic">> => <<"topic/A">>,
                  <<"action">> => <<"pub">>,
@@ -273,13 +408,24 @@ t_rest_api(_Config) ->
     {ok, Res3} = request_http_rest_list(["$all"]),
     ?assertMatch([], get_http_data(Res3)).
 
-%%------------------------------------------------------------------------------
-%% Helpers
-%%------------------------------------------------------------------------------
 
-clean_all_acls() ->
-    [ mnesia:dirty_delete({emqx_acl, Login})
-      || Login <- mnesia:dirty_all_keys(emqx_acl)].
+create_conflicting_records() ->
+    Records = [
+        #?ACL_TABLE{filter = {{clientid,<<"client6">>}, <<"t">>}, action = pubsub, access = deny, created_at = 0},
+        #?ACL_TABLE{filter = {{clientid,<<"client5">>}, <<"t">>}, action = pubsub, access = deny, created_at = 1},
+        #?ACL_TABLE2{who = {clientid,<<"client5">>}, rules = [{allow, sub, <<"t">>, 2}]}
+    ],
+    mnesia:transaction(fun() -> lists:foreach(fun mnesia:write/1, Records) end).
+
+
+combined_conflicting_records() ->
+    % pubsub's are split, ACL_TABLE2 rules shadow ACL_TABLE rules
+    [
+        {{clientid,<<"client5">>},<<"t">>,sub,allow,2},
+        {{clientid,<<"client5">>},<<"t">>,pub,deny,1},
+        {{clientid,<<"client6">>},<<"t">>,sub,deny,0},
+        {{clientid,<<"client6">>},<<"t">>,pub,deny,0}
+    ].
 
 %%--------------------------------------------------------------------
 %% HTTP Request
