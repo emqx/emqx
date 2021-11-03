@@ -191,10 +191,8 @@ clients(["show", ClientId]) ->
     if_client(ClientId, fun print/1);
 
 clients(["kick", ClientId]) ->
-    case emqx_cm:kick_session(bin(ClientId)) of
-        ok -> emqx_ctl:print("ok~n");
-        _ -> emqx_ctl:print("Not Found.~n")
-    end;
+    ok = emqx_cm:kick_session(bin(ClientId)),
+    emqx_ctl:print("ok~n");
 
 clients(_) ->
     emqx_ctl:usage([{"clients list",            "List all clients"},
