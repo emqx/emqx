@@ -41,7 +41,7 @@ check_apps() {
             lines="$(git diff --name-only "$latest_release"...HEAD \
                         -- "$app_path/src" \
                         -- "$app_path/priv" \
-                        -- "$app_path/c_src")"
+                        -- "$app_path/c_src" | { grep -v -E 'appup\.src' || true; } | wc -l)"
             if [ "$lines" != '' ]; then
                 echo "$src_file needs a vsn bump (old=$old_app_version)"
                 echo "changed: $lines"
