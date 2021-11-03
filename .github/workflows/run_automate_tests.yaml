@@ -1,5 +1,5 @@
 name: Integration Test Suites
-  
+
 on:
   push:
     tags:
@@ -12,18 +12,30 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
+      imgname: ${{ steps.build_docker.outputs.imgname}}
       version: ${{ steps.build_docker.outputs.version}}
     steps:
     - uses: actions/checkout@v2
     - name: build docker
       id: build_docker
       run: |
+        if [ -f EMQX_ENTERPRISE ]; then
+          echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+          git config --global credential.helper store
+          echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
+          make deps-emqx-ee
+        fi
         make docker
         echo "::set-output name=version::$(./pkg-vsn.sh)"
+        if [ -f EMQX_ENTERPRISE ]; then
+          echo "::set-output name=imgname::emqx-ee"
+        else
+          echo "::set-output name=imgname::emqx"
+        fi
     - uses: actions/upload-artifact@v2
       with:
         name: emqx-docker-image-zip
-        path: _packages/emqx/emqx-docker-${{ steps.build_docker.outputs.version }}.zip
+        path: _packages/${{ steps.build_docker.outputs.imgname }}/${{ steps.build_docker.outputs.imgname }}-docker-${{ steps.build_docker.outputs.version }}.zip
 
   webhook:
     runs-on: ubuntu-latest
@@ -43,14 +55,15 @@ jobs:
         path: /tmp
     - name: load docker image
       env:
+        imgname: ${{ needs.build.outputs.imgname}}
         version: ${{ needs.build.outputs.version }}
       run: |
-        unzip -q /tmp/emqx-docker-${version}.zip -d /tmp
-        docker load < /tmp/emqx-docker-${version}
+        unzip -q /tmp/${imgname}-docker-${version}.zip -d /tmp
+        docker load < /tmp/${imgname}-docker-${version}
     - name: docker compose up
       timeout-minutes: 5
       env:
-        TARGET: emqx/emqx
+        TARGET: emqx/${{ needs.build.outputs.imgname }}
         EMQX_TAG: ${{ needs.build.outputs.version }}
       run: |
         docker-compose \
@@ -142,14 +155,15 @@ jobs:
         path: /tmp
     - name: load docker image
       env:
+        imgname: ${{ needs.build.outputs.imgname }}
         version: ${{ needs.build.outputs.version }}
       run: |
-        unzip -q /tmp/emqx-docker-${version}.zip -d /tmp
-        docker load < /tmp/emqx-docker-${version}
+        unzip -q /tmp/${imgname}-docker-${version}.zip -d /tmp
+        docker load < /tmp/${imgname}-docker-${version}
     - name: docker compose up
       timeout-minutes: 5
       env:
-        TARGET: emqx/emqx
+        TARGET: emqx/${{ needs.build.outputs.imgname }}
         EMQX_TAG: ${{ needs.build.outputs.version }}
         MYSQL_TAG: ${{ matrix.mysql_tag }}
       run: |
@@ -248,14 +262,15 @@ jobs:
         path: /tmp
     - name: load docker image
       env:
+        imgname: ${{ needs.build.outputs.imgname }}
         version: ${{ needs.build.outputs.version }}
       run: |
-        unzip -q /tmp/emqx-docker-${version}.zip -d /tmp
-        docker load < /tmp/emqx-docker-${version}
+        unzip -q /tmp/${imgname}-docker-${version}.zip -d /tmp
+        docker load < /tmp/${imgname}-docker-${version}
     - name: docker compose up
       timeout-minutes: 5
       env:
-        TARGET: emqx/emqx
+        TARGET: emqx/${{ needs.build.outputs.imgname }}
         EMQX_TAG: ${{ needs.build.outputs.version }}
         PGSQL_TAG: ${{ matrix.pgsql_tag }}
       run: |
@@ -343,14 +358,15 @@ jobs:
         path: /tmp
     - name: load docker image
       env:
+        imgname: ${{ needs.build.outputs.imgname }}
         version: ${{ needs.build.outputs.version }}
       run: |
-        unzip -q /tmp/emqx-docker-${version}.zip -d /tmp
-        docker load < /tmp/emqx-docker-${version}
+        unzip -q /tmp/${imgname}-docker-${version}.zip -d /tmp
+        docker load < /tmp/${imgname}-docker-${version}
     - name: docker compose up
       timeout-minutes: 5
       env:
-        TARGET: emqx/emqx
+        TARGET: emqx/${{ needs.build.outputs.imgname }}
         EMQX_TAG: ${{ needs.build.outputs.version }}
         MYSQL_TAG: 8
       run: |
