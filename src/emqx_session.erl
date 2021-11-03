@@ -319,6 +319,7 @@ is_awaiting_full(#session{awaiting_rel = AwaitingRel,
 puback(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
+            emqx:run_hook('message.publish_done', [Msg]),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             return_with(Msg, dequeue(Session#session{inflight = Inflight1}));
         {value, {_Pubrel, _Ts}} ->
@@ -343,6 +344,8 @@ return_with(Msg, {ok, Publishes, Session}) ->
 pubrec(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
+            %% execute hook here, because message record will be replaced by pubrel
+            emqx:run_hook('message.publish_done', [Msg]),
             Inflight1 = emqx_inflight:update(PacketId, with_ts(pubrel), Inflight),
             {ok, Msg, Session#session{inflight = Inflight1}};
         {value, {pubrel, _Ts}} ->
@@ -439,11 +442,12 @@ deliver([Msg | More], Acc, Session) ->
     end.
 
 deliver_msg(Msg = #message{qos = ?QOS_0}, Session) ->
+    emqx:run_hook('message.publish_done', [Msg]),
     {ok, [{undefined, maybe_ack(Msg)}], Session};
 
 deliver_msg(Msg = #message{qos = QoS}, Session =
-            #session{next_pkt_id = PacketId, inflight = Inflight})
-    when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
+                #session{next_pkt_id = PacketId, inflight = Inflight})
+  when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
     case emqx_inflight:is_full(Inflight) of
         true ->
             Session1 = case maybe_nack(Msg) of
@@ -696,4 +700,3 @@ age(Now, Ts) -> Now - Ts.
 set_field(Name, Value, Session) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, session)),
     setelement(Pos+1, Session, Value).
-
