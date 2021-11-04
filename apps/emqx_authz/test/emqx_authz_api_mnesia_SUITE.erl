@@ -124,12 +124,12 @@ t_api(_) ->
     #{<<"rules">> := Rules6} = jsx:decode(Request8),
     ?assertEqual(0, length(Rules6)),
 
-    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "username"]), [ #{username => N, rules => []} || N <- lists:seq(1, 20) ]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "username"]), [ #{username => erlang:integer_to_binary(N), rules => []} || N <- lists:seq(1, 20) ]),
     {ok, 200, Request9} = request(get, uri(["authorization", "sources", "built-in-database", "username?page=2&limit=5"]), []),
     #{<<"data">> := Data1} = jsx:decode(Request9),
     ?assertEqual(5, length(Data1)),
 
-    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "clientid"]), [ #{clientid => N, rules => []} || N <- lists:seq(1, 20) ]),
+    {ok, 204, _} = request(post, uri(["authorization", "sources", "built-in-database", "clientid"]), [ #{clientid => erlang:integer_to_binary(N), rules => []} || N <- lists:seq(1, 20) ]),
     {ok, 200, Request10} = request(get, uri(["authorization", "sources", "built-in-database", "clientid?limit=5"]), []),
     #{<<"data">> := Data2} = jsx:decode(Request10),
     ?assertEqual(5, length(Data2)),
