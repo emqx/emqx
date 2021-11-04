@@ -38,7 +38,8 @@ end_per_suite(Cfg) ->
     Cfg.
 
 get_data_path() ->
-    emqx_ct_helpers:deps_path(emqx_management, "test/emqx_bridge_mqtt_data_export_import_SUITE_data/").
+    emqx_ct_helpers:deps_path(emqx_management,
+                              "test/emqx_bridge_mqtt_data_export_import_SUITE_data/").
 
 import(FilePath, Version) ->
     ok = emqx_mgmt_data_backup:import(get_data_path() ++ "/" ++ FilePath, <<"{}">>),

@@ -112,7 +112,8 @@ t_out(_) ->
 t_out_2(_) ->
     {empty, {pqueue, [{-1, {queue, [a], [], 1}}]}} = ?PQ:out(0, ?PQ:from_list([{1, a}])),
     {{value, a}, {queue, [], [], 0}} = ?PQ:out(1, ?PQ:from_list([{1, a}])),
-    {{value, a}, {pqueue, [{-1, {queue, [], [b], 1}}]}} = ?PQ:out(1, ?PQ:from_list([{1, a}, {1, b}])),
+    {{value, a}, {pqueue, [{-1, {queue, [], [b], 1}}]}} =
+        ?PQ:out(1, ?PQ:from_list([{1, a}, {1, b}])),
     {{value, a}, {queue, [b], [], 1}} = ?PQ:out(1, ?PQ:from_list([{1, a}, {0, b}])).
 
 t_out_p(_) ->

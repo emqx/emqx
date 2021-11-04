@@ -23,10 +23,10 @@
 -export([init/1]).
 
 start_link(Env) ->
-	supervisor:start_link({local, ?MODULE}, ?MODULE, [Env]).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [Env]).
 
 init([Env]) ->
-	{ok, {{one_for_one, 10, 3600},
+    {ok, {{one_for_one, 10, 3600},
           [#{id       => telemetry,
              start    => {emqx_telemetry, start_link, [Env]},
              restart  => permanent,
