@@ -23,5 +23,5 @@ jobs:
             ./scripts/elvis-check.sh $GITHUB_BASE_REF emqx
           fi
       - name: Check line-break at EOF
-      - run: |
+        run: |
           ./scripts/check-nl-at-eof.sh
