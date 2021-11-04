@@ -126,6 +126,13 @@ parse(Bytes, #{phase := body, len := Len, state := State}) ->
 
 parse(Bytes, Parser = #{pre := Pre}) ->
     parse(<<Pre/binary, Bytes/binary>>, maps:without([pre], Parser));
+parse(<<?CR, Rest/binary>>, Parser = #{phase := none}) ->
+    parse(Rest, Parser);
+parse(<<?LF, Rest/binary>>, Parser = #{phase := none}) ->
+    case byte_size(Rest) of
+        0 -> {more, Parser};
+        _ -> parse(Rest, Parser)
+    end;
 parse(<<?CR, ?LF, Rest/binary>>, #{phase := Phase, state := State}) ->
     parse(Phase, <<?LF, Rest/binary>>, State);
 parse(<<?CR>>, Parser) ->
