@@ -36,6 +36,11 @@
         , destroy/1
         ]).
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
@@ -48,7 +53,7 @@ fields(config) ->
     [ {mechanism,               {enum, ['password-based']}}
     , {backend,                 {enum, [postgresql]}}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
-    , {salt_position,           {enum, [prefix, suffix]}}
+    , {salt_position,           fun salt_position/1}
     , {query,                   fun query/1}
     ] ++ emqx_authn_schema:common_fields()
     ++ emqx_connector_schema_lib:relational_db_fields()
@@ -57,6 +62,10 @@ fields(config) ->
 password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};
 password_hash_algorithm(default) -> sha256;
 password_hash_algorithm(_) -> undefined.
+
+salt_position(type) -> {enum, [prefix, suffix]};
+salt_position(default) -> prefix;
+salt_position(_) -> undefined.
 
 query(type) -> string();
 query(_) -> undefined.
@@ -134,10 +143,10 @@ destroy(#{'_unique' := Unique}) ->
 parse_query(Query) ->
     case re:run(Query, ?RE_PLACEHOLDER, [global, {capture, all, binary}]) of
         {match, Captured} ->
-            PlaceHolders = ["\\" ++ PlaceHolder || [PlaceHolder] <- Captured],
+            PlaceHolders = [PlaceHolder || [PlaceHolder] <- Captured],
             Replacements = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(Captured))],
             NQuery = lists:foldl(fun({PlaceHolder, Replacement}, Query0) ->
-                                     re:replace(Query0, PlaceHolder, Replacement, [{return, binary}])
+                                     re:replace(Query0, "\\" ++ PlaceHolder, Replacement, [{return, binary}])
                                  end, Query, lists:zip(PlaceHolders, Replacements)),
             {NQuery, PlaceHolders};
         nomatch ->
