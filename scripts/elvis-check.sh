@@ -5,10 +5,11 @@
 
 set -euo pipefail
 
+set -x
 elvis_version='1.0.0-emqx-2'
 
 base="${1:-}"
-repo="${2:-emqx}"
+repo="${2:-emqx/emqx}"
 REPO="${GITHUB_REPOSITORY:-${repo}}"
 if [ "${base}" = "" ]; then
     echo "Usage $0 <git-compare-base-ref>"
@@ -27,7 +28,8 @@ if [[ "$base" =~ [0-9a-f]{8,40} ]]; then
     # base is a commit sha1
     compare_base="$base"
 else
-    remote="$(git remote -v | grep -E "github\.com(:|/)emqx/$REPO((\.git)|(\s))" | grep fetch | awk '{print $1}')"
+    git remote -v
+    remote="$(git remote -v | grep -E "github\.com(:|/)$REPO((\.git)|(\s))" | grep fetch | awk '{print $1}')"
     git fetch "$remote" "$base"
     compare_base="$remote/$base"
 fi
