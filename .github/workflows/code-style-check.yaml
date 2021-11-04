@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v2
+        with:
+          fetch-depth: 1000
       - name: Set git token
         if: endsWith(github.repository, 'enterprise')
         run: |
@@ -14,7 +16,12 @@ jobs:
           git config --global credential.helper store
       - name: Run elvis check
         run: |
-          ./scripts/elvis-check.sh $GITHUB_BASE_REF
+          set -e
+          if [ -f EMQX_ENTERPRISE ]; then
+            ./scripts/elvis-check.sh $GITHUB_BASE_REF emqx-enterprise
+          else
+            ./scripts/elvis-check.sh $GITHUB_BASE_REF emqx
+          fi
       - name: Check line-break at EOF
       - run: |
           ./scripts/check-nl-at-eof.sh
