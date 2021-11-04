@@ -1,4 +1,4 @@
-name: Elvis Linter
+name: Code style check
 
 on: [pull_request]
 
@@ -12,5 +12,9 @@ jobs:
         run: |
           echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
           git config --global credential.helper store
-      - run: |
+      - name: Run elvis check
+        run: |
           ./scripts/elvis-check.sh $GITHUB_BASE_REF
+      - name: Check line-break at EOF
+      - run: |
+          ./scripts/check-nl-at-eof.sh

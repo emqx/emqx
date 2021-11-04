@@ -6,7 +6,7 @@ cd -P -- "$(dirname -- "$0")/.."
 
 nl_at_eof() {
     local file="$1"
-    if ! [ -f $file ]; then
+    if ! [ -f "$file" ]; then
         return
     fi
     case "$file" in
@@ -17,10 +17,16 @@ nl_at_eof() {
     local lastbyte
     lastbyte="$(tail -c 1 "$file" 2>&1)"
     if [ "$lastbyte" != '' ]; then
-        echo $file
+        echo "$file"
+        return 1
     fi
 }
 
+n=0
 while read -r file; do
-    nl_at_eof "$file"
+    if ! nl_at_eof "$file"; then
+        n=$(( n + 1 ))
+    fi
 done < <(git ls-files)
+
+exit $n
