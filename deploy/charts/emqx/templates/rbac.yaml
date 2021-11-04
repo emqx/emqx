@@ -17,8 +17,8 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - endpoints 
-  verbs: 
+  - endpoints
+  verbs:
   - get
   - watch
   - list
