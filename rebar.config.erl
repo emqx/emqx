@@ -258,7 +258,7 @@ relx_apps(ReleaseType) ->
     , emqx_machine
     , emqx_conf
     , emqx
-    , mnesia
+    , {mnesia, load}
     , ekka
     , emqx_plugin_libs
     , esasl
