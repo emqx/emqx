@@ -295,14 +295,14 @@ on_session_terminated(Req, Md) ->
      | {error, grpc_cowboy_h:error_response()}.
 on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    io:format(standard_error, "fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     %% some cases for testing
     case From of
         <<"baduser">> ->
-            NMsg = Msg#{qos => 0,
+            NMsg = deny(Msg#{qos => 0,
                         topic => <<"">>,
                         payload => <<"">>
-                       },
+                       }),
             {ok, #{type => 'STOP_AND_RETURN',
                    value => {message, NMsg}}, Md};
         <<"gooduser">> ->
@@ -313,6 +313,11 @@ on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
         _ ->
             {ok, #{type => 'IGNORE'}, Md}
     end.
+
+deny(Msg) ->
+    NHeader = maps:put(<<"allow_publish">>, <<"false">>,
+                       maps:get(headers, Msg, #{})),
+    maps:put(headers, NHeader, Msg).
 
 -spec on_message_delivered(emqx_exhook_pb:message_delivered_request(), grpc:metadata())
     -> {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}

@@ -193,6 +193,7 @@
                      username => username(),
                      peerhost => peerhost(),
                      properties => properties(),
+                     allow_publish => boolean(),
                      atom() => term()}).
 
 -type(banned() :: #banned{}).
