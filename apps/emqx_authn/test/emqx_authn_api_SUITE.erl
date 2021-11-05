@@ -49,7 +49,9 @@ init_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_authn, emqx_dashboard], fun set_special_configs/1),
+    ok = emqx_common_test_helpers:start_apps(
+           [emqx_authn, emqx_dashboard],
+           fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
@@ -118,322 +120,275 @@ test_authenticators(PathPrefix) ->
 
     ValidConfig = emqx_authn_test_lib:http_example(),
     {ok, 200, _} = request(
-                    post,
-                    uri(PathPrefix ++ ["authentication"]),
-                    ValidConfig),
+                     post,
+                     uri(PathPrefix ++ ["authentication"]),
+                     ValidConfig),
 
     InvalidConfig = ValidConfig#{method => <<"delete">>},
     {ok, 400, _} = request(
-                    post,
-                    uri(PathPrefix ++ ["authentication"]),
-                    InvalidConfig),
+                     post,
+                     uri(PathPrefix ++ ["authentication"]),
+                     InvalidConfig),
 
     ?assertAuthenticatorsMatch(
-        [#{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>}],
-        PathPrefix ++ ["authentication"]).
+       [#{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>}],
+       PathPrefix ++ ["authentication"]).
 
 test_authenticator(PathPrefix) ->
     ValidConfig0 = emqx_authn_test_lib:http_example(),
 
     {ok, 200, _} = request(
-                    post,
-                    uri(PathPrefix ++ ["authentication"]),
-                    ValidConfig0),
+                     post,
+                     uri(PathPrefix ++ ["authentication"]),
+                     ValidConfig0),
 
     {ok, 200, _} = request(
-                    get,
-                    uri(PathPrefix ++ ["authentication", "password-based:http"])),
+                     get,
+                     uri(PathPrefix ++ ["authentication", "password-based:http"])),
 
     {ok, 404, _} = request(
-                    get,
-                    uri(PathPrefix ++ ["authentication", "password-based:redis"])),
+                     get,
+                     uri(PathPrefix ++ ["authentication", "password-based:redis"])),
 
 
     {ok, 404, _} = request(
-                    put,
-                    uri(PathPrefix ++ ["authentication", "password-based:built-in-database"]),
-                    emqx_authn_test_lib:built_in_database_example()),
+                     put,
+                     uri(PathPrefix ++ ["authentication", "password-based:built-in-database"]),
+                     emqx_authn_test_lib:built_in_database_example()),
 
     InvalidConfig0 = ValidConfig0#{method => <<"delete">>},
     {ok, 400, _} = request(
-                    put,
-                    uri(PathPrefix ++ ["authentication", "password-based:http"]),
-                    InvalidConfig0),
+                     put,
+                     uri(PathPrefix ++ ["authentication", "password-based:http"]),
+                     InvalidConfig0),
 
     ValidConfig1 = ValidConfig0#{pool_size => 9},
     {ok, 200, _} = request(
-                    put,
-                    uri(PathPrefix ++ ["authentication", "password-based:http"]),
-                    ValidConfig1),
+                     put,
+                     uri(PathPrefix ++ ["authentication", "password-based:http"]),
+                     ValidConfig1),
 
     {ok, 404, _} = request(
-                    delete,
-                    uri(PathPrefix ++ ["authentication", "password-based:redis"])),
+                     delete,
+                     uri(PathPrefix ++ ["authentication", "password-based:redis"])),
 
     {ok, 204, _} = request(
-                    delete,
-                    uri(PathPrefix ++ ["authentication", "password-based:http"])),
+                     delete,
+                     uri(PathPrefix ++ ["authentication", "password-based:http"])),
 
     ?assertAuthenticatorsMatch([], PathPrefix ++ ["authentication"]).
 
 test_authenticator_users(PathPrefix) ->
+    UsersUri = uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]),
+
     {ok, 200, _} = request(
-                    post,
-                    uri(PathPrefix ++ ["authentication"]),
-                    emqx_authn_test_lib:built_in_database_example()),
+                     post,
+                     uri(PathPrefix ++ ["authentication"]),
+                     emqx_authn_test_lib:built_in_database_example()),
 
     InvalidUsers = [
-        #{clientid => <<"u1">>, password => <<"p1">>},
-        #{user_id => <<"u2">>},
-        #{user_id => <<"u3">>, password => <<"p3">>, foobar => <<"foobar">>}],
+                    #{clientid => <<"u1">>, password => <<"p1">>},
+                    #{user_id => <<"u2">>},
+                    #{user_id => <<"u3">>, password => <<"p3">>, foobar => <<"foobar">>}],
 
     lists:foreach(
-        fun(User) ->
-            {ok, 400, _} = request(
-                            post,
-                            uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]),
-                            User)
-        end,
-        InvalidUsers),
+      fun(User) -> {ok, 400, _} = request(post, UsersUri, User) end,
+      InvalidUsers),
 
 
     ValidUsers = [
-        #{user_id => <<"u1">>, password => <<"p1">>},
-        #{user_id => <<"u2">>, password => <<"p2">>, is_superuser => true},
-        #{user_id => <<"u3">>, password => <<"p3">>}],
+                  #{user_id => <<"u1">>, password => <<"p1">>},
+                  #{user_id => <<"u2">>, password => <<"p2">>, is_superuser => true},
+                  #{user_id => <<"u3">>, password => <<"p3">>}],
 
     lists:foreach(
-        fun(User) ->
-            {ok, 201, UserData} = request(
-                                post,
-                                uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]),
-                                User),
-            CreatedUser = jiffy:decode(UserData, [return_maps]),
-            ?assertMatch(#{<<"user_id">> := _}, CreatedUser)
+      fun(User) ->
+          {ok, 201, UserData} = request(post, UsersUri, User),
+          CreatedUser = jiffy:decode(UserData, [return_maps]),
+          ?assertMatch(#{<<"user_id">> := _}, CreatedUser)
+      end,
+      ValidUsers),
 
-        end,
-        ValidUsers),
-
-    {ok, 200, Page1Data} =
-        request(
-            get,
-            uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]) ++ "?page=1&limit=2"),
+    {ok, 200, Page1Data} = request(get, UsersUri ++ "?page=1&limit=2"),
 
     #{<<"data">> := Page1Users,
       <<"meta">> :=
-          #{<<"page">> := 1,
-            <<"limit">> := 2,
-            <<"count">> := 3}} =
-        jiffy:decode(Page1Data, [return_maps]),
+      #{<<"page">> := 1,
+        <<"limit">> := 2,
+        <<"count">> := 3}} =
+    jiffy:decode(Page1Data, [return_maps]),
 
-    {ok, 200, Page2Data} =
-        request(
-            get,
-            uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]) ++ "?page=2&limit=2"),
+    {ok, 200, Page2Data} = request(get, UsersUri ++ "?page=2&limit=2"),
 
     #{<<"data">> := Page2Users,
       <<"meta">> :=
-          #{<<"page">> := 2,
-            <<"limit">> := 2,
-            <<"count">> := 3}} =
-        jiffy:decode(Page2Data, [return_maps]),
+      #{<<"page">> := 2,
+        <<"limit">> := 2,
+        <<"count">> := 3}} = jiffy:decode(Page2Data, [return_maps]),
 
     ?assertEqual(2, length(Page1Users)),
     ?assertEqual(1, length(Page2Users)),
 
     ?assertEqual(
-        [<<"u1">>, <<"u2">>, <<"u3">>],
-        lists:usort([ UserId || #{<<"user_id">> := UserId} <- Page1Users ++ Page2Users])).
+       [<<"u1">>, <<"u2">>, <<"u3">>],
+       lists:usort([ UserId || #{<<"user_id">> := UserId} <- Page1Users ++ Page2Users])).
 
 test_authenticator_user(PathPrefix) ->
+    UsersUri = uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]),
+
     {ok, 200, _} = request(
-                        post,
-                        uri(PathPrefix ++ ["authentication"]),
-                        emqx_authn_test_lib:built_in_database_example()),
+                     post,
+                     uri(PathPrefix ++ ["authentication"]),
+                     emqx_authn_test_lib:built_in_database_example()),
 
     User = #{user_id => <<"u1">>, password => <<"p1">>},
-    {ok, 201, _} = request(
-                        post,
-                        uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]),
-                        User),
+    {ok, 201, _} = request(post, UsersUri, User),
 
-    {ok, 404, _} = request(
-                        get,
-                        uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users", "u123"])),
+    {ok, 404, _} = request(get, UsersUri ++ "/u123"),
 
-    {ok, 409, _} = request(
-                        post,
-                        uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]),
-                        User),
+    {ok, 409, _} = request(post, UsersUri, User),
 
-    {ok, 200, UserData} = request(
-                            get,
-                            uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users", "u1"])),
+    {ok, 200, UserData} = request(get, UsersUri ++ "/u1"),
 
     FetchedUser = jiffy:decode(UserData, [return_maps]),
     ?assertMatch(#{<<"user_id">> := <<"u1">>}, FetchedUser),
     ?assertNotMatch(#{<<"password">> := _}, FetchedUser),
 
     ValidUserUpdates = [
-        #{password => <<"p1">>},
-        #{password => <<"p1">>, is_superuser => true}],
+                        #{password => <<"p1">>},
+                        #{password => <<"p1">>, is_superuser => true}],
 
     lists:foreach(
-        fun(UserUpdate) ->
-            {ok, 200, _} = request(
-                            put,
-                            uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users", "u1"]),
-                            UserUpdate)
-        end,
-        ValidUserUpdates),
+      fun(UserUpdate) -> {ok, 200, _} = request(put, UsersUri ++ "/u1", UserUpdate) end,
+      ValidUserUpdates),
 
     InvalidUserUpdates = [
-        #{user_id => <<"u1">>, password => <<"p1">>},
-        #{is_superuser => true}],
+                          #{user_id => <<"u1">>, password => <<"p1">>},
+                          #{is_superuser => true}],
 
     lists:foreach(
-        fun(UserUpdate) ->
-            {ok, 400, _} = request(
-                            put,
-                            uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users", "u1"]),
-                            UserUpdate)
-        end,
-        InvalidUserUpdates),
+      fun(UserUpdate) -> {ok, 400, _} = request(put, UsersUri ++ "/u1", UserUpdate) end,
+      InvalidUserUpdates),
 
-    {ok, 404, _} = request(
-                    delete,
-                    uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users", "u123"])),
-
-    {ok, 204, _} = request(
-                    delete,
-                    uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users", "u1"])).
+    {ok, 404, _} = request(delete, UsersUri ++ "/u123"),
+    {ok, 204, _} = request(delete, UsersUri ++ "/u1").
 
 test_authenticator_move(PathPrefix) ->
     AuthenticatorConfs = [
-        emqx_authn_test_lib:http_example(),
-        emqx_authn_test_lib:jwt_example(),
-        emqx_authn_test_lib:built_in_database_example()
-    ],
+                          emqx_authn_test_lib:http_example(),
+                          emqx_authn_test_lib:jwt_example(),
+                          emqx_authn_test_lib:built_in_database_example()
+                         ],
 
     lists:foreach(
-        fun(Conf) ->
-            {ok, 200, _} = request(
-                            post,
-                            uri(PathPrefix ++ ["authentication"]),
-                            Conf)
-        end,
-        AuthenticatorConfs),
+      fun(Conf) ->
+              {ok, 200, _} = request(
+                               post,
+                               uri(PathPrefix ++ ["authentication"]),
+                               Conf)
+      end,
+      AuthenticatorConfs),
 
     ?assertAuthenticatorsMatch(
-        [
-            #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
-            #{<<"mechanism">> := <<"jwt">>},
-            #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>}
-        ],
-        PathPrefix ++ ["authentication"]),
+       [
+        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
+        #{<<"mechanism">> := <<"jwt">>},
+        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>}
+       ],
+       PathPrefix ++ ["authentication"]),
 
     % Invalid moves
 
     {ok, 400, _} = request(
-                    post,
-                    uri(PathPrefix ++ ["authentication", "jwt", "move"]),
-                    #{position => <<"up">>}),
+                     post,
+                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     #{position => <<"up">>}),
 
     {ok, 400, _} = request(
-                    post,
-                    uri(PathPrefix ++ ["authentication", "jwt", "move"]),
-                    #{}),
+                     post,
+                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     #{}),
 
     {ok, 404, _} = request(
-                    post,
-                    uri(PathPrefix ++ ["authentication", "jwt", "move"]),
-                    #{position => <<"before:invalid">>}),
+                     post,
+                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     #{position => <<"before:invalid">>}),
 
     {ok, 404, _} = request(
-                    post,
-                    uri(PathPrefix ++ ["authentication", "jwt", "move"]),
-                    #{position => <<"before:password-based:redis">>}),
+                     post,
+                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     #{position => <<"before:password-based:redis">>}),
 
     {ok, 404, _} = request(
-                    post,
-                    uri(PathPrefix ++ ["authentication", "jwt", "move"]),
-                    #{position => <<"before:password-based:redis">>}),
+                     post,
+                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     #{position => <<"before:password-based:redis">>}),
 
     % Valid moves
 
     {ok, 204, _} = request(
-                    post,
-                    uri(PathPrefix ++ ["authentication", "jwt", "move"]),
-                    #{position => <<"top">>}),
+                     post,
+                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     #{position => <<"top">>}),
 
     ?assertAuthenticatorsMatch(
-        [
-            #{<<"mechanism">> := <<"jwt">>},
-            #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
-            #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>}
-        ],
-        PathPrefix ++ ["authentication"]),
+       [
+        #{<<"mechanism">> := <<"jwt">>},
+        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
+        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>}
+       ],
+       PathPrefix ++ ["authentication"]),
 
     {ok, 204, _} = request(
-                    post,
-                    uri(PathPrefix ++ ["authentication", "jwt", "move"]),
-                    #{position => <<"bottom">>}),
+                     post,
+                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     #{position => <<"bottom">>}),
 
     ?assertAuthenticatorsMatch(
-        [
-            #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
-            #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>},
-            #{<<"mechanism">> := <<"jwt">>}
-        ],
-        PathPrefix ++ ["authentication"]),
+       [
+        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
+        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>},
+        #{<<"mechanism">> := <<"jwt">>}
+       ],
+       PathPrefix ++ ["authentication"]),
 
     {ok, 204, _} = request(
-                    post,
-                    uri(PathPrefix ++ ["authentication", "jwt", "move"]),
-                    #{position => <<"before:password-based:built-in-database">>}),
+                     post,
+                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     #{position => <<"before:password-based:built-in-database">>}),
 
     ?assertAuthenticatorsMatch(
-        [
-            #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
-            #{<<"mechanism">> := <<"jwt">>},
-            #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>}
-        ],
-        PathPrefix ++ ["authentication"]).
+       [
+        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
+        #{<<"mechanism">> := <<"jwt">>},
+        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>}
+       ],
+       PathPrefix ++ ["authentication"]).
 
 test_authenticator_import_users(PathPrefix) ->
+    ImportUri = uri(
+                  PathPrefix ++
+                  ["authentication", "password-based:built-in-database", "import_users"]),
+
+
     {ok, 200, _} = request(
-                        post,
-                        uri(PathPrefix ++ ["authentication"]),
-                        emqx_authn_test_lib:built_in_database_example()),
+                     post,
+                     uri(PathPrefix ++ ["authentication"]),
+                     emqx_authn_test_lib:built_in_database_example()),
 
-    {ok, 400, _} = request(
-                        post,
-                        uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "import_users"]),
-                        #{}),
+    {ok, 400, _} = request(post, ImportUri, #{}),
 
-    {ok, 400, _} = request(
-                        post,
-                        uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "import_users"]),
-                        #{filename => <<"/etc/passwd">>}),
+    {ok, 400, _} = request(post, ImportUri, #{filename => <<"/etc/passwd">>}),
 
-    {ok, 400, _} = request(
-                        post,
-                        uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "import_users"]),
-                        #{filename => <<"/not_exists.csv">>}),
+    {ok, 400, _} = request(post, ImportUri, #{filename => <<"/not_exists.csv">>}),
 
     Dir = code:lib_dir(emqx_authn, test),
     JSONFileName = filename:join([Dir, <<"data/user-credentials.json">>]),
     CSVFileName = filename:join([Dir, <<"data/user-credentials.csv">>]),
 
-    {ok, 204, _} = request(
-                        post,
-                        uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "import_users"]),
-                        #{filename => JSONFileName}),
+    {ok, 204, _} = request(post, ImportUri, #{filename => JSONFileName}),
 
-    {ok, 204, _} = request(
-                        post,
-                        uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "import_users"]),
-                        #{filename => CSVFileName}).
+    {ok, 204, _} = request(post, ImportUri, #{filename => CSVFileName}).
 
 %%------------------------------------------------------------------------------
 %% Helpers
