@@ -23,16 +23,16 @@
         , check/3
         , info/1
         , interval/2
+        , reset/3
         ]).
 
--record(heartbeater, {interval, statval, repeat}).
+-record(heartbeater, {interval, statval, repeat, repeat_max}).
 
 -type name() :: incoming | outgoing.
 
 -type heartbeat() :: #{incoming => #heartbeater{},
                        outgoing => #heartbeater{}
                       }.
-
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -43,18 +43,22 @@ init({0, 0}) ->
     #{};
 init({Cx, Cy}) ->
     maps:filter(fun(_, V) -> V /= undefined end,
-      #{incoming => heartbeater(Cx),
-        outgoing => heartbeater(Cy)
+      #{incoming => heartbeater(incoming, Cx),
+        outgoing => heartbeater(outgoing, Cy)
        }).
 
-heartbeater(0) ->
+heartbeater(_, 0) ->
     undefined;
-heartbeater(I) ->
+heartbeater(N, I) ->
     #heartbeater{
        interval = I,
        statval = 0,
-       repeat = 0
+       repeat = 0,
+       repeat_max = repeat_max(N)
       }.
+
+repeat_max(incoming) -> 1;
+repeat_max(outgoing) -> 0.
 
 -spec check(name(), pos_integer(), heartbeat())
     -> {ok, heartbeat()}
@@ -68,11 +72,12 @@ check(Name, NewVal, HrtBt) ->
     end.
 
 check(NewVal, HrtBter = #heartbeater{statval = OldVal,
-                                     repeat = Repeat}) ->
+                                     repeat = Repeat,
+                                     repeat_max = Max}) ->
     if
         NewVal =/= OldVal ->
             {ok, HrtBter#heartbeater{statval = NewVal, repeat = 0}};
-        Repeat < 1 ->
+        Repeat < Max ->
             {ok, HrtBter#heartbeater{repeat = Repeat + 1}};
         true -> {error, timeout}
     end.
@@ -89,4 +94,11 @@ interval(Type, HrtBt) ->
     case maps:get(Type, HrtBt, undefined) of
         undefined -> undefined;
         #heartbeater{interval = Intv} -> Intv
+    end.
+
+reset(Type, StatVal, HrtBt) ->
+    case maps:get(Type, HrtBt, undefined) of
+        undefined -> HrtBt;
+        HrtBter ->
+            HrtBt#{Type => HrtBter#heartbeater{statval = StatVal, repeat = 0}}
     end.

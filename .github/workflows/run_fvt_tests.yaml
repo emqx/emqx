@@ -223,7 +223,7 @@ jobs:
         - name: Generate matrix
           id: generate-matrix
           run: |
-            matrix=$(echo -n "$OLD_VSNS" | jq -R -s -c 'split(" ")')
+            matrix=$(echo -n "$OLD_VSNS" | sed 's/ $//g' | jq -R -s -c 'split(" ")')
             echo "::set-output name=matrix::$matrix"
 
     relup_test_build:
@@ -275,6 +275,7 @@ jobs:
         runs-on: ubuntu-20.04
         container: emqx/relup-test-env:erl23.2.7.2-emqx-2-ubuntu20.04
         strategy:
+          fail-fast: false
           matrix:
             old_vsn: ${{ fromJson(needs.relup_test_plan.outputs.matrix) }}
         env:
