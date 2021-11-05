@@ -97,11 +97,11 @@ maps_key_take(Ks, M) ->
     maps_key_take(Ks, M, []).
 maps_key_take([], M, Acc) ->
     {lists:reverse(Acc), M};
-maps_key_take([K|Ks], M, Acc) ->
+maps_key_take([K | Ks], M, Acc) ->
     case maps:take(K, M) of
         error -> throw(bad_key);
         {V, M1} ->
-            maps_key_take(Ks, M1, [V|Acc])
+            maps_key_take(Ks, M1, [V | Acc])
     end.
 
 -spec update_gateway(atom_or_bin(), map()) -> ok_or_err().
@@ -384,7 +384,7 @@ pre_config_update(UnknownReq, _RawConf) ->
     -> ok | {ok, Result::any()} | {error, Reason::term()}.
 
 post_config_update(Req, NewConfig, OldConfig, _AppEnvs) when is_tuple(Req) ->
-    [_Tag, GwName0|_] = tuple_to_list(Req),
+    [_Tag, GwName0 | _] = tuple_to_list(Req),
     GwName = binary_to_existing_atom(GwName0),
 
     case {maps:get(GwName, NewConfig, undefined),
