@@ -292,13 +292,10 @@ handle_info({timeout, _TRef, emit_stats},
 handle_info({timeout, TRef, TMsg}, State) ->
     with_proto(timeout, [TRef, TMsg], State);
 
-handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
+handle_info(activate_socket, State) ->
     case activate_socket(State) of
-        {ok, NState = #state{sockstate = NewSst}} ->
-            case OldSst =/= NewSst of
-                true -> {ok, {event, NewSst}, NState};
-                false -> {ok, NState}
-            end;
+        {ok, NState} ->
+            noreply(NState);
         {error, Reason} ->
             handle_info({sock_error, Reason}, State)
     end;
