@@ -158,7 +158,6 @@ init(ConnInfo = #{socktype := Socktype,
                        conn_state = connecting,
                        timers = #{}
                       },
-    %% Check license limitation
     case emqx_hooks:run_fold('client.connect', [NConnInfo], #{}) of
         {error, _Reason} ->
             throw(nopermission);

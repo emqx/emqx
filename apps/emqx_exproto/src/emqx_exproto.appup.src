@@ -1,6 +1,7 @@
 %% -*-: erlang -*-
 {VSN,
  [
+    {"4.3.3", []}, %% 4.3.3 is used by ee
     {"4.3.2", [
       {load_module, emqx_exproto_conn, brutal_purge, soft_purge, []},
       {load_module, emqx_exproto_channel, brutal_purge, soft_purge, []}
@@ -14,6 +15,7 @@
     {<<".*">>, []}
  ],
  [
+    {"4.3.3", []}, %% 4.3.3 is used by ee
     {"4.3.2", [
       {load_module, emqx_exproto_conn, brutal_purge, soft_purge, []},
       {load_module, emqx_exproto_channel, brutal_purge, soft_purge, []}
