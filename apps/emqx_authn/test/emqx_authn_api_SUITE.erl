@@ -204,10 +204,13 @@ test_authenticator_users(PathPrefix) ->
 
     lists:foreach(
         fun(User) ->
-            {ok, 201, _} = request(
+            {ok, 201, UserData} = request(
                                 post,
                                 uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]),
-                                User)
+                                User),
+            CreatedUser = jiffy:decode(UserData, [return_maps]),
+            ?assertMatch(#{<<"user_id">> := _}, CreatedUser)
+
         end,
         ValidUsers),
 
@@ -216,14 +219,24 @@ test_authenticator_users(PathPrefix) ->
             get,
             uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]) ++ "?page=1&limit=2"),
 
-    Page1Users = response_data(Page1Data),
+    #{<<"data">> := Page1Users,
+      <<"meta">> :=
+          #{<<"page">> := 1,
+            <<"limit">> := 2,
+            <<"count">> := 3}} =
+        jiffy:decode(Page1Data, [return_maps]),
 
     {ok, 200, Page2Data} =
         request(
             get,
             uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]) ++ "?page=2&limit=2"),
 
-    Page2Users = response_data(Page2Data),
+    #{<<"data">> := Page2Users,
+      <<"meta">> :=
+          #{<<"page">> := 2,
+            <<"limit">> := 2,
+            <<"count">> := 3}} =
+        jiffy:decode(Page2Data, [return_maps]),
 
     ?assertEqual(2, length(Page1Users)),
     ?assertEqual(1, length(Page2Users)),
@@ -439,10 +452,6 @@ delete_authenticators(Path, Chain) ->
                 end,
                 Authenticators)
     end.
-
-response_data(Response) ->
-    #{<<"data">> := Data} = jiffy:decode(Response, [return_maps]),
-    Data.
 
 request(Method, Url) ->
     request(Method, Url, []).

@@ -53,7 +53,14 @@
         , listener_authenticator_user/2
         ]).
 
--export([authenticator_examples/0]).
+-export([ authenticator_examples/0
+        , request_move_examples/0
+        , request_import_users_examples/0
+        , request_user_create_examples/0
+        , request_user_update_examples/0
+        , response_user_examples/0
+        , response_users_example/0
+        ]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -78,6 +85,7 @@ roots() -> [ request_user_create
            , request_move
            , request_import_users
            , response_user
+           , response_users
            ].
 
 fields(request_user_create) ->
@@ -103,6 +111,16 @@ fields(response_user) ->
     [
         {user_id, binary()},
         {is_superuser, mk(boolean(), #{default => false, nullable => true})}
+    ];
+
+fields(response_users) ->
+    paginated_list_type(ref(response_user));
+
+fields(pagination_meta) ->
+    [
+        {page, non_neg_integer()},
+        {limit, non_neg_integer()},
+        {count, non_neg_integer()}
     ].
 
 schema("/authentication") ->
@@ -264,7 +282,9 @@ schema("/authentication/:id/move") ->
             tags => [<<"authentication">>, <<"global">>],
             description => <<"Move authenticator in global authentication chain">>,
             parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
-            requestBody => ref(request_move),
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_move),
+                request_move_examples()),
             responses => #{
                 204 => <<"Authenticator moved">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -283,7 +303,9 @@ schema("/listeners/:listener_id/authentication/:id/move") ->
                 {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
                 {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
             ],
-            requestBody => ref(request_move),
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_move),
+                request_move_examples()),
             responses => #{
                 204 => <<"Authenticator moved">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -299,7 +321,9 @@ schema("/authentication/:id/import_users") ->
             tags => [<<"authentication">>, <<"global">>],
             description => <<"Import users into authenticator in global authentication chain">>,
             parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
-            requestBody => ref(request_import_users),
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_import_users),
+                request_import_users_examples()),
             responses => #{
                 204 => <<"Users imported">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -318,7 +342,9 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
                 {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
                 {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
             ],
-            requestBody => ref(request_import_users),
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_import_users),
+                request_import_users_examples()),
             responses => #{
                 204 => <<"Users imported">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -334,9 +360,13 @@ schema("/authentication/:id/users") ->
             tags => [<<"authentication">>, <<"global">>],
             description => <<"Create users for authenticator in global authentication chain">>,
             parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
-            requestBody => ref(request_user_create),
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_user_create),
+                request_user_create_examples()),
             responses => #{
-                201 => ref(response_user),
+                201 => emqx_dashboard_swagger:schema_with_examples(
+                    ref(response_user),
+                    response_user_examples()),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
@@ -350,7 +380,9 @@ schema("/authentication/:id/users") ->
                 {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, nullable => true})}
             ],
             responses => #{
-                200 => mk(hoconsc:array(ref(response_user)), #{}),
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(response_users),
+                    response_users_example()),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
 
@@ -367,9 +399,13 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
                 {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
                 {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
             ],
-            requestBody => ref(request_user_create),
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_user_create),
+                request_user_create_examples()),
             responses => #{
-                201 => ref(response_user),
+                201 => emqx_dashboard_swagger:schema_with_examples(
+                    ref(response_user),
+                    response_user_examples()),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
@@ -384,7 +420,9 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
                 {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, nullable => true})}
             ],
             responses => #{
-                200 => mk(hoconsc:array(ref(response_user)), #{}),
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(response_users),
+                    response_users_example()),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
 
@@ -402,7 +440,9 @@ schema("/authentication/:id/users/:user_id") ->
                 {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
             ],
             responses => #{
-                200 => ref(response_user),
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    ref(response_user),
+                    response_user_examples()),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         },
@@ -413,9 +453,13 @@ schema("/authentication/:id/users/:user_id") ->
                 {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
                 {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
             ],
-            requestBody => ref(request_user_update),
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_user_update),
+                request_user_update_examples()),
             responses => #{
-                200 => mk(hoconsc:array(ref(response_user)), #{}),
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(response_user),
+                    response_user_examples()),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
@@ -446,7 +490,9 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
                 {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
             ],
             responses => #{
-                200 => ref(response_user),
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(response_user),
+                    response_user_examples()),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         },
@@ -458,9 +504,13 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
                 {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
                 {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
             ],
-            requestBody => ref(request_user_update),
+            requestBody => emqx_dashboard_swagger:schema_with_example(
+                ref(request_user_update),
+                request_user_update_examples()),
             responses => #{
-                200 => mk(hoconsc:array(ref(response_user)), #{}),
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(response_user),
+                    response_user_examples()),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
@@ -860,6 +910,12 @@ ensure_list(L) when is_list(L) -> L.
 
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
 
+paginated_list_type(Type) ->
+    [
+        {data, hoconsc:array(Type)},
+        {meta, ref(pagination_meta)}
+    ].
+
 authenticator_array_example() ->
     [Config || #{value := Config} <- maps:values(authenticator_examples())].
 
@@ -939,5 +995,114 @@ authenticator_examples() ->
                 password_hash_algorithm => <<"sha256">>,
                 salt_position => <<"prefix">>
             }
+        }
+    }.
+
+request_user_create_examples() ->
+    #{
+        regular_user => #{
+            summary => <<"Regular user">>,
+            value => #{
+                user_id => <<"user1">>,
+                password => <<"secret">>
+            }
+        },
+        super_user => #{
+            summary => <<"Superuser">>,
+            value => #{
+                user_id => <<"user2">>,
+                password => <<"secret">>,
+                is_superuser => true
+            }
+        }
+    }.
+
+request_user_update_examples() ->
+    #{
+        regular_user => #{
+            summary => <<"Update regular user">>,
+            value => #{
+                password => <<"newsecret">>
+            }
+        },
+        super_user => #{
+            summary => <<"Update user and promote to superuser">>,
+            value => #{
+                password => <<"newsecret">>,
+                is_superuser => true
+            }
+        }
+    }.
+
+request_move_examples() ->
+    #{
+        move_to_top => #{
+            summary => <<"Move authenticator to the beginning of the chain">>,
+            value => #{
+                position => <<"top">>
+            }
+        },
+        move_to_bottom => #{
+            summary => <<"Move authenticator to the end of the chain">>,
+            value => #{
+                position => <<"bottom">>
+            }
+        },
+        'move_before_password-based:built-in-database' => #{
+            summary => <<"Move authenticator to the position preceding some other authenticator">>,
+            value => #{
+                position => <<"before:password-based:built-in-database">>
+            }
+        }
+    }.
+
+request_import_users_examples() ->
+    #{
+        import_csv => #{
+            summary => <<"Import users from CSV file">>,
+            value => #{
+                filename => <<"/path/to/user/data.csv">>
+            }
+        },
+        import_json => #{
+            summary => <<"Import users from JSON file">>,
+            value => #{
+                filename => <<"/path/to/user/data.json">>
+            }
+        }
+    }.
+
+response_user_examples() ->
+    #{
+        regular_user => #{
+            summary => <<"Regular user">>,
+            value => #{
+                user_id => <<"user1">>
+            }
+        },
+        super_user => #{
+            summary => <<"Superuser">>,
+            value => #{
+                user_id => <<"user2">>,
+                is_superuser => true
+            }
+        }
+    }.
+
+response_users_example() ->
+    #{
+        data => [
+            #{
+                user_id => <<"user1">>
+            },
+            #{
+                user_id => <<"user2">>,
+                is_superuser => true
+            }
+        ],
+        meta => #{
+            page => 0,
+            limit => 20,
+            count => 300
         }
     }.
