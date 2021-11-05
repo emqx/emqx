@@ -1179,19 +1179,25 @@ terminate(_, #channel{conn_state = idle}) -> ok;
 terminate(normal, Channel) ->
     run_terminate_hook(normal, Channel);
 terminate({shutdown, kicked}, Channel) ->
-    _ = emqx_persistent_session:persist(Channel#channel.clientinfo,
-                                        Channel#channel.conninfo,
-                                        Channel#channel.session),
     run_terminate_hook(kicked, Channel);
 terminate({shutdown, Reason}, Channel) when Reason =:= discarded;
                                             Reason =:= takeovered ->
     run_terminate_hook(Reason, Channel);
 terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
     (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
-    _ = emqx_persistent_session:persist(Channel#channel.clientinfo,
-                                        Channel#channel.conninfo,
-                                        Channel#channel.session),
+    (Reason =:= expired) andalso persist_if_session(Channel),
     run_terminate_hook(Reason, Channel).
+
+persist_if_session(#channel{session = Session} = Channel) ->
+    case emqx_session:is_session(Session) of
+        true ->
+            _ = emqx_persistent_session:persist(Channel#channel.clientinfo,
+                                                Channel#channel.conninfo,
+                                                Channel#channel.session),
+            ok;
+        false ->
+            ok
+    end.
 
 run_terminate_hook(_Reason, #channel{session = undefined}) -> ok;
 run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session}) ->

@@ -352,10 +352,13 @@ listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).
 
 parse_listener_id(Id) ->
-    [Type, Name] = string:split(str(Id), ":", leading),
-    case lists:member(Type, ?TYPES_STRING) of
-        true -> {list_to_existing_atom(Type), list_to_atom(Name)};
-        false -> {error, {invalid_listener_id, Id}}
+    case string:split(str(Id), ":", leading) of
+        [Type, Name] ->
+            case lists:member(Type, ?TYPES_STRING) of
+                true -> {list_to_existing_atom(Type), list_to_atom(Name)};
+                false -> {error, {invalid_listener_id, Id}}
+            end;
+        _ -> {error, {invalid_listener_id, Id}}
     end.
 
 zone(Opts) ->

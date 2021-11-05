@@ -58,7 +58,10 @@
         , lookup_channels/2
         ]).
 
--export([all_channels/0]).
+%% Test/debug interface
+-export([ all_channels/0
+        , all_client_ids/0
+        ]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -395,10 +398,16 @@ with_channel(ClientId, Fun) ->
         Pids  -> Fun(lists:last(Pids))
     end.
 
-%% @doc Get all channels registed.
+%% @doc Get all registed channel pids. Debugg/test interface
 all_channels() ->
     Pat = [{{'_', '$1'}, [], ['$1']}],
     ets:select(?CHAN_TAB, Pat).
+
+%% @doc Get all registed clientIDs. Debugg/test interface
+all_client_ids() ->
+    Pat = [{{'$1', '_'}, [], ['$1']}],
+    ets:select(?CHAN_TAB, Pat).
+
 
 %% @doc Lookup channels.
 -spec(lookup_channels(emqx_types:clientid()) -> list(chan_pid())).

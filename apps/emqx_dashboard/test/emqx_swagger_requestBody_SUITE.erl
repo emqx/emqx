@@ -10,7 +10,7 @@
     t_ref_array_with_key/1, t_ref_array_without_key/1
 ]).
 -export([
-    t_object_trans/1, t_nest_object_trans/1, t_local_ref_trans/1,
+    t_object_trans/1, t_object_notrans/1, t_nest_object_trans/1, t_local_ref_trans/1,
     t_remote_ref_trans/1, t_nest_ref_trans/1,
     t_ref_array_with_key_trans/1, t_ref_array_without_key_trans/1,
     t_ref_trans_error/1, t_object_trans_error/1
@@ -32,7 +32,7 @@ groups() -> [
         t_ref_array_with_key, t_ref_array_without_key, t_nest_ref]},
     {validation, [parallel],
         [
-            t_object_trans, t_local_ref_trans, t_remote_ref_trans,
+            t_object_trans, t_object_notrans, t_local_ref_trans, t_remote_ref_trans,
             t_ref_array_with_key_trans, t_ref_array_without_key_trans, t_nest_ref_trans,
             t_ref_trans_error, t_object_trans_error
             %% t_nest_object_trans,
@@ -173,8 +173,29 @@ t_ref_array_without_key(_Config) ->
     ok.
 
 t_api_spec(_Config) ->
-    emqx_dashboard_swagger:spec(?MODULE),
-    ok.
+    {Spec0, _} = emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}),
+    Path = "/object",
+    Body = #{
+        <<"per_page">> => 1,
+        <<"timeout">> => <<"infinity">>,
+        <<"inner_ref">> => #{
+            <<"webhook-host">> => <<"127.0.0.1:80">>,
+            <<"log_dir">> => <<"var/log/test">>,
+            <<"tag">> => <<"god_tag">>
+        }
+    },
+
+    Filter0 = filter(Spec0, Path),
+    ?assertMatch(
+        {ok, #{body := #{<<"timeout">> := <<"infinity">>}}},
+        trans_requestBody(Path, Body, Filter0)),
+
+    {Spec1, _} = emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}),
+    Filter1 = filter(Spec1, Path),
+    ?assertMatch(
+        {ok, #{body := #{<<"timeout">> := infinity}}},
+        trans_requestBody(Path, Body, Filter1)).
+
 
 t_object_trans(_Config) ->
     Path = "/object",
@@ -203,6 +224,21 @@ t_object_trans(_Config) ->
         },
     {ok, ActualBody} = trans_requestBody(Path, Body),
     ?assertEqual(Expect, ActualBody),
+    ok.
+
+t_object_notrans(_Config) ->
+    Path = "/object",
+    Body = #{
+        <<"per_page">> => 1,
+        <<"timeout">> => <<"infinity">>,
+        <<"inner_ref">> => #{
+            <<"webhook-host">> => <<"127.0.0.1:80">>,
+            <<"log_dir">> => <<"var/log/test">>,
+            <<"tag">> => <<"god_tag">>
+        }
+    },
+    {ok, #{body := ActualBody}} = trans_requestBody(Path, Body, fun emqx_dashboard_swagger:filter_check_request/2),
+    ?assertEqual(Body, ActualBody),
     ok.
 
 t_nest_object_trans(_Config) ->
@@ -337,6 +373,7 @@ t_ref_array_with_key_trans(_Config) ->
     {ok, NewRequest} = trans_requestBody(Path, Body),
     ?assertEqual(Expect, NewRequest),
     ok.
+
 t_ref_array_without_key_trans(_Config) ->
     Path = "/ref/array/without/key",
     Body = [#{
@@ -401,10 +438,18 @@ validate(Path, ExpectSpec, ExpectRefs) ->
     ?assertEqual(ExpectRefs, Refs),
     {Spec, emqx_dashboard_swagger:components(Refs)}.
 
+
+filter(ApiSpec, Path) ->
+    [Filter] = [F || {P, _, _, #{filter := F}} <- ApiSpec, P =:= Path],
+    Filter.
+
 trans_requestBody(Path, Body) ->
+    trans_requestBody(Path, Body, fun emqx_dashboard_swagger:filter_check_request_and_translate_body/2).
+
+trans_requestBody(Path, Body, Filter) ->
     Meta = #{module => ?MODULE, method => post, path => Path},
     Request = #{bindings => #{}, query_string => #{}, body => Body},
-    emqx_dashboard_swagger:translate_req(Request, Meta).
+    Filter(Request, Meta).
 
 api_spec() -> emqx_dashboard_swagger:spec(?MODULE).
 paths() ->

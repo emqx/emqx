@@ -100,7 +100,8 @@ on_start(InstId, #{redis_type := Type,
     Options = case maps:get(enable, SSL) of
                   true ->
                       [{ssl, true},
-                       {ssl_options, emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)}
+                       {ssl_options,
+                        emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)}
                       ];
                   false -> [{ssl, false}]
               end ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
