@@ -22,11 +22,20 @@
 -define(DEFAULT_FIELDS, [example, allowReserved, style,
     explode, maxLength, allowEmptyValue, deprecated, minimum, maximum]).
 
--define(INIT_SCHEMA, #{fields => #{}, translations => #{}, validations => [], namespace => undefined}).
+-define(INIT_SCHEMA, #{
+                       fields => #{},
+                       translations => #{},
+                       validations => [],
+                       namespace => undefined
+                      }).
 
 -define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
--define(TO_COMPONENTS_SCHEMA(_M_, _F_), iolist_to_binary([<<"#/components/schemas/">>, ?TO_REF(namespace(_M_), _F_)])).
--define(TO_COMPONENTS_PARAM(_M_, _F_), iolist_to_binary([<<"#/components/parameters/">>, ?TO_REF(namespace(_M_), _F_)])).
+-define(
+   TO_COMPONENTS_SCHEMA(_M_, _F_),
+   iolist_to_binary([<<"#/components/schemas/">>, ?TO_REF(namespace(_M_), _F_)])).
+-define(
+    TO_COMPONENTS_PARAM(_M_, _F_),
+    iolist_to_binary([<<"#/components/parameters/">>, ?TO_REF(namespace(_M_), _F_)])).
 
 -define(MAX_ROW_LIMIT, 100).
 
@@ -106,6 +115,20 @@ error_codes(Codes = [_ | _], MsgExample) ->
 %% Private functions
 %%------------------------------------------------------------------------------
 
+normalize_keys(KeyMapping, Map) ->
+    lists:foldl(
+        fun({Key, NormKey}, MapAcc) ->
+            case MapAcc of
+                #{Key := Value} ->
+                    NewMapAcc = maps:remove(Key, MapAcc),
+                    NewMapAcc#{NormKey => Value};
+                _ ->
+                    MapAcc
+            end
+        end,
+        Map,
+        maps:to_list(KeyMapping)).
+
 filter_check_request_and_translate_body(Request, RequestMeta) ->
     translate_req(Request, RequestMeta, fun check_and_translate/3).
 
@@ -116,9 +139,9 @@ translate_req(Request, #{module := Module, path := Path, method := Method}, Chec
     #{Method := Spec} = apply(Module, schema, [Path]),
     try
         Params = maps:get(parameters, Spec, []),
-        Body = maps:get(requestBody, Spec, []),
+        Body = maps:get(request_body, Spec, []),
         {Bindings, QueryStr} = check_parameters(Request, Params, Module),
-        NewBody = check_requestBody(Request, Body, Module, CheckFun, hoconsc:is_schema(Body)),
+        NewBody = check_request_body(Request, Body, Module, CheckFun, hoconsc:is_schema(Body)),
         {ok, Request#{bindings => Bindings, query_string => QueryStr, body => NewBody}}
     catch throw:Error ->
         {_, [{validation_error, ValidErr}]} = Error,
@@ -143,37 +166,85 @@ support_check_schema(_) ->
     #{filter => undefined}.
 
 parse_spec_ref(Module, Path) ->
-    Schema =
+    Schema0 =
         try
             erlang:apply(Module, schema, [Path])
         catch error: Reason -> %% better error message
             throw({error, #{mfa => {Module, schema, [Path]}, reason => Reason}})
         end,
+    Schema = normalize_keys(
+                #{'operationId' => operation_id,
+                  'requestBody' => request_body},
+                Schema0),
     {Specs, Refs} = maps:fold(fun(Method, Meta, {Acc, RefsAcc}) ->
         (not lists:member(Method, ?METHODS))
             andalso throw({error, #{module => Module, path => Path, method => Method}}),
         {Spec, SubRefs} = meta_to_spec(Meta, Module),
         {Acc#{Method => Spec}, SubRefs ++ RefsAcc}
                               end, {#{}, []},
-        maps:without([operationId], Schema)),
-    {maps:get(operationId, Schema), Specs, Refs}.
+        maps:without([operation_id], Schema)),
+    OperationId = maps:get(operation_id, Schema),
+    {OperationId, Specs, Refs}.
 
 check_parameters(Request, Spec, Module) ->
     #{bindings := Bindings, query_string := QueryStr} = Request,
-    BindingsBin = maps:fold(fun(Key, Value, Acc) -> Acc#{atom_to_binary(Key) => Value} end, #{}, Bindings),
+    BindingsBin = maps:fold(
+                    fun(Key, Value, Acc) ->
+                            Acc#{atom_to_binary(Key) => Value}
+                    end,
+                    #{},
+                    Bindings),
     check_parameter(Spec, BindingsBin, QueryStr, Module, #{}, #{}).
 
-check_parameter([?REF(Fields) | Spec], Bindings, QueryStr, LocalMod, BindingsAcc, QueryStrAcc) ->
-    check_parameter([?R_REF(LocalMod, Fields) | Spec], Bindings, QueryStr, LocalMod, BindingsAcc, QueryStrAcc);
-check_parameter([?R_REF(Module, Fields) | Spec], Bindings, QueryStr, LocalMod, BindingsAcc, QueryStrAcc) ->
+check_parameter(
+  [?REF(Fields) | Spec],
+  Bindings,
+  QueryStr,
+  LocalMod,
+  BindingsAcc,
+  QueryStrAcc) ->
+    check_parameter(
+      [?R_REF(LocalMod, Fields) | Spec],
+      Bindings,
+      QueryStr,
+      LocalMod,
+      BindingsAcc,
+      QueryStrAcc);
+
+check_parameter(
+  [?R_REF(Module, Fields) | Spec],
+  Bindings,
+  QueryStr,
+  LocalMod,
+  BindingsAcc,
+  QueryStrAcc) ->
     Params = apply(Module, fields, [Fields]),
     check_parameter(Params ++ Spec, Bindings, QueryStr, LocalMod, BindingsAcc, QueryStrAcc);
-check_parameter([], _Bindings, _QueryStr, _Module, NewBindings, NewQueryStr) -> {NewBindings, NewQueryStr};
-check_parameter([{Name, Type} | Spec], Bindings, QueryStr, Module, BindingsAcc, QueryStrAcc) ->
+
+check_parameter(
+  [],
+  _Bindings,
+  _QueryStr,
+  _Module,
+  NewBindings,
+  NewQueryStr) ->
+    {NewBindings, NewQueryStr};
+
+check_parameter(
+  [{Name, Type} | Spec],
+  Bindings,
+  QueryStr,
+  Module,
+  BindingsAcc,
+  QueryStrAcc) ->
     Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
     case hocon_schema:field_schema(Type, in) of
         path ->
-            NewBindings = hocon_schema:check_plain(Schema, Bindings, #{atom_key => true, override_env => false}),
+            NewBindings =
+                hocon_schema:check_plain(
+                  Schema,
+                  Bindings,
+                  #{atom_key => true, override_env => false}),
             NewBindingsAcc = maps:merge(BindingsAcc, NewBindings),
             check_parameter(Spec, Bindings, QueryStr, Module, NewBindingsAcc, QueryStrAcc);
         query ->
@@ -182,7 +253,7 @@ check_parameter([{Name, Type} | Spec], Bindings, QueryStr, Module, BindingsAcc, 
             check_parameter(Spec, Bindings, QueryStr, Module,BindingsAcc, NewQueryStrAcc)
     end.
 
-check_requestBody(#{body := Body}, Schema, Module, CheckFun, true) ->
+check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
     Type0 = hocon_schema:field_schema(Schema, type),
     Type =
         case Type0 of
@@ -199,7 +270,7 @@ check_requestBody(#{body := Body}, Schema, Module, CheckFun, true) ->
 %%                   {good_nest_2, mk(ref(?MODULE, good_ref), #{})}
 %%                ]}
 %% ]
-check_requestBody(#{body := Body}, Spec, _Module, CheckFun, false) ->
+check_request_body(#{body := Body}, Spec, _Module, CheckFun, false) ->
     lists:foldl(fun({Name, Type}, Acc) ->
         Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
         maps:merge(Acc, CheckFun(Schema, Body, #{}))
@@ -208,7 +279,7 @@ check_requestBody(#{body := Body}, Spec, _Module, CheckFun, false) ->
 %% tags, description, summary, security, deprecated
 meta_to_spec(Meta, Module) ->
     {Params, Refs1} = parameters(maps:get(parameters, Meta, []), Module),
-    {RequestBody, Refs2} = requestBody(maps:get(requestBody, Meta, []), Module),
+    {RequestBody, Refs2} = request_body(maps:get(request_body, Meta, []), Module),
     {Responses, Refs3} = responses(maps:get(responses, Meta, #{}), Module),
     {
         to_spec(Meta, Params, RequestBody, Responses),
@@ -216,36 +287,41 @@ meta_to_spec(Meta, Module) ->
     }.
 
 to_spec(Meta, Params, [], Responses) ->
-    Spec = maps:without([parameters, requestBody, responses], Meta),
+    Spec = maps:without([parameters, request_body, responses], Meta),
     Spec#{parameters => Params, responses => Responses};
 to_spec(Meta, Params, RequestBody, Responses) ->
     Spec = to_spec(Meta, Params, [], Responses),
-    maps:put(requestBody, RequestBody, Spec).
+    maps:put(request_body, RequestBody, Spec).
 
 parameters(Params, Module) ->
     {SpecList, AllRefs} =
         lists:foldl(fun(Param, {Acc, RefsAcc}) ->
-            case Param of
-                ?REF(StructName) ->
-                    {[#{<<"$ref">> => ?TO_COMPONENTS_PARAM(Module, StructName)} | Acc],
-                        [{Module, StructName, parameter} | RefsAcc]};
-                ?R_REF(RModule, StructName) ->
-                    {[#{<<"$ref">> => ?TO_COMPONENTS_PARAM(RModule, StructName)} | Acc],
-                        [{RModule, StructName, parameter} | RefsAcc]};
-                {Name, Type} ->
-                    In = hocon_schema:field_schema(Type, in),
-                    In =:= undefined andalso throw({error, <<"missing in:path/query field in parameters">>}),
-                    Nullable = hocon_schema:field_schema(Type, nullable),
-                    Default = hocon_schema:field_schema(Type, default),
-                    HoconType = hocon_schema:field_schema(Type, type),
-                    Meta = init_meta(Nullable, Default),
-                    {ParamType, Refs} = hocon_schema_to_spec(HoconType, Module),
-                    Spec0 = init_prop([required | ?DEFAULT_FIELDS],
-                        #{schema => maps:merge(ParamType, Meta), name => Name, in => In}, Type),
-                    Spec1 = trans_required(Spec0, Nullable, In),
-                    Spec2 = trans_desc(Spec1, Type),
-                    {[Spec2 | Acc], Refs ++ RefsAcc}
-            end
+            {NewSpec, NewRefs} =
+                case Param of
+                    ?REF(StructName) ->
+                        {#{<<"$ref">> => ?TO_COMPONENTS_PARAM(Module, StructName)},
+                         [{Module, StructName, parameter}]};
+                    ?R_REF(RModule, StructName) ->
+                        {#{<<"$ref">> => ?TO_COMPONENTS_PARAM(RModule, StructName)},
+                         [{RModule, StructName, parameter}]};
+                    {Name, Type} ->
+                        In = case hocon_schema:field_schema(Type, in) of
+                            undefined ->
+                                 throw({error, <<"missing in:path/query field in parameters">>});
+                            Val -> Val
+                        end,
+                        Nullable = hocon_schema:field_schema(Type, nullable),
+                        Default = hocon_schema:field_schema(Type, default),
+                        HoconType = hocon_schema:field_schema(Type, type),
+                        Meta = init_meta(Nullable, Default),
+                        {ParamType, Refs} = hocon_schema_to_spec(HoconType, Module),
+                        Spec0 = init_prop([required | ?DEFAULT_FIELDS],
+                            #{schema => maps:merge(ParamType, Meta), name => Name, in => In}, Type),
+                        Spec1 = trans_required(Spec0, Nullable, In),
+                        Spec2 = trans_desc(Spec1, Type),
+                        {Spec2, Refs}
+                end,
+            {[NewSpec | Acc], NewRefs ++ RefsAcc}
                     end, {[], []}, Params),
     {lists:reverse(SpecList), AllRefs}.
 
@@ -278,8 +354,8 @@ trans_desc(Spec, Hocon) ->
         Desc -> Spec#{description => to_bin(Desc)}
     end.
 
-requestBody([], _Module) -> {[], []};
-requestBody(Schema, Module) ->
+request_body([], _Module) -> {[], []};
+request_body(Schema, Module) ->
     {{Props, Refs}, Examples} =
         case hoconsc:is_schema(Schema) of
             true ->
@@ -311,7 +387,9 @@ response(Status, Schema, {Acc, RefsAcc, Module}) ->
             {Spec, Refs} = hocon_schema_to_spec(Hocon, Module),
             Init = trans_desc(#{}, Schema),
             Content = content(Spec, Examples),
-            {Acc#{integer_to_binary(Status) => Init#{<<"content">> => Content}}, Refs ++ RefsAcc, Module};
+            {Acc#{integer_to_binary(Status) => Init#{<<"content">> => Content}},
+             Refs ++ RefsAcc,
+             Module};
         false ->
             {Props, Refs} = parse_object(Schema, Module),
             Content = #{<<"content">> => content(Props)},
@@ -402,10 +480,12 @@ typename_to_spec("bytesize()", _Mod) -> #{type => string, example => <<"32MB">>}
 typename_to_spec("wordsize()", _Mod) -> #{type => string, example => <<"1024KB">>};
 typename_to_spec("map()", _Mod) -> #{type => object, example => #{}};
 typename_to_spec("comma_separated_list()", _Mod) -> #{type => string, example => <<"item1,item2">>};
-typename_to_spec("comma_separated_atoms()", _Mod) -> #{type => string, example => <<"item1,item2">>};
+typename_to_spec("comma_separated_atoms()", _Mod) ->
+    #{type => string, example => <<"item1,item2">>};
 typename_to_spec("pool_type()", _Mod) -> #{type => string, enum => [random, hash], example => hash};
 typename_to_spec("log_level()", _Mod) ->
-    #{type => string, enum => [debug, info, notice, warning, error, critical, alert, emergency, all]};
+    #{type => string,
+      enum => [debug, info, notice, warning, error, critical, alert, emergency, all]};
 typename_to_spec("rate()", _Mod) ->
     #{type => string, example => <<"10M/s">>};
 typename_to_spec("bucket_rate()", _Mod) ->

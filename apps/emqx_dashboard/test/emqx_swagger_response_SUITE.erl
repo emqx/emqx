@@ -37,35 +37,81 @@ t_simple_binary(_config) ->
 t_object(_config) ->
     Path = "/object",
     Object =
-        #{<<"content">> => #{<<"application/json">> =>
-        #{<<"schema">> => #{required => [<<"timeout">>, <<"per_page">>],
-            <<"properties">> => [
-                {<<"per_page">>, #{description => <<"good per page desc">>, example => 1, maximum => 100, minimum => 1, type => integer}},
-                {<<"timeout">>, #{default => 5, <<"oneOf">> => [#{example => <<"1h">>, type => string}, #{enum => [infinity], type => string}]}},
-                {<<"inner_ref">>, #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>}}],
-            <<"type">> => object}}}},
+        #{
+            <<"content">> => #{
+                <<"application/json">> =>
+                    #{
+                        <<"schema">> => #{
+                            required => [<<"timeout">>, <<"per_page">>],
+                            <<"properties">> => [
+                                {<<"per_page">>, #{
+                                    description => <<"good per page desc">>,
+                                    example => 1,
+                                    maximum => 100,
+                                    minimum => 1,
+                                    type => integer
+                                }},
+                                {<<"timeout">>, #{
+                                    default => 5,
+                                    <<"oneOf">> => [
+                                        #{example => <<"1h">>, type => string},
+                                        #{enum => [infinity], type => string}
+                                    ]
+                                }},
+                                {<<"inner_ref">>, #{
+                    <<"$ref">> =>
+                        <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>
+                                }}
+                            ],
+                            <<"type">> => object
+                        }
+                    }
+            }
+        },
     ExpectRefs = [{?MODULE, good_ref}],
     validate(Path, Object, ExpectRefs),
     ok.
 
 t_error(_Config) ->
     Path = "/error",
-    Error400 = #{<<"content">> =>
-    #{<<"application/json">> => #{<<"schema">> => #{<<"type">> => object,
-        <<"properties">> =>
-        [
-            {<<"code">>, #{enum => ['Bad1', 'Bad2'], type => string}},
-            {<<"message">>, #{description => <<"Details description of the error.">>,
-                example => <<"Bad request desc">>, type => string}}]
-    }}}},
-    Error404 = #{<<"content">> =>
-    #{<<"application/json">> => #{<<"schema">> => #{<<"type">> => object,
-        <<"properties">> =>
-        [
-            {<<"code">>, #{enum => ['Not-Found'], type => string}},
-            {<<"message">>, #{description => <<"Details description of the error.">>,
-                example => <<"Error code to troubleshoot problems.">>, type => string}}]
-    }}}},
+    Error400 = #{
+        <<"content">> =>
+            #{
+                <<"application/json">> => #{
+                    <<"schema">> => #{
+                        <<"type">> => object,
+                        <<"properties">> =>
+                            [
+                                {<<"code">>, #{enum => ['Bad1', 'Bad2'], type => string}},
+                                {<<"message">>, #{
+                                    description => <<"Details description of the error.">>,
+                                    example => <<"Bad request desc">>,
+                                    type => string
+                                }}
+                            ]
+                    }
+                }
+            }
+    },
+    Error404 = #{
+        <<"content">> =>
+            #{
+                <<"application/json">> => #{
+                    <<"schema">> => #{
+                        <<"type">> => object,
+                        <<"properties">> =>
+                            [
+                                {<<"code">>, #{enum => ['Not-Found'], type => string}},
+                                {<<"message">>, #{
+                                    description => <<"Details description of the error.">>,
+                                    example => <<"Error code to troubleshoot problems.">>,
+                                    type => string
+                                }}
+                            ]
+                    }
+                }
+            }
+    },
     {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
     ?assertEqual(test, OperationId),
     Response = maps:get(responses, maps:get(get, Spec)),
@@ -78,108 +124,232 @@ t_error(_Config) ->
 t_nest_object(_Config) ->
     Path = "/nest/object",
     Object =
-        #{<<"content">> => #{<<"application/json">> => #{<<"schema">> =>
-        #{required => [<<"timeout">>], <<"type">> => object, <<"properties">> => [
-            {<<"per_page">>, #{description => <<"good per page desc">>, example => 1, maximum => 100, minimum => 1, type => integer}},
-            {<<"timeout">>, #{default => 5, <<"oneOf">> =>
-            [#{example => <<"1h">>, type => string}, #{enum => [infinity], type => string}]}},
-            {<<"nest_object">>, #{<<"type">> => object, <<"properties">> => [
-                {<<"good_nest_1">>, #{example => 100, type => integer}},
-                {<<"good_nest_2">>, #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>}
-                }]}},
-            {<<"inner_ref">>, #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>}}]
-        }}}},
+        #{
+            <<"content">> => #{
+                <<"application/json">> => #{
+                    <<"schema">> =>
+                        #{
+                            required => [<<"timeout">>],
+                            <<"type">> => object,
+                            <<"properties">> => [
+                                {<<"per_page">>, #{
+                                    description => <<"good per page desc">>,
+                                    example => 1,
+                                    maximum => 100,
+                                    minimum => 1,
+                                    type => integer
+                                }},
+                                {<<"timeout">>, #{
+                                    default => 5,
+                                    <<"oneOf">> =>
+                                        [
+                                            #{example => <<"1h">>, type => string},
+                                            #{enum => [infinity], type => string}
+                                        ]
+                                }},
+                                {<<"nest_object">>, #{
+                                    <<"type">> => object,
+                                    <<"properties">> => [
+                                        {<<"good_nest_1">>, #{example => 100, type => integer}},
+                                        {<<"good_nest_2">>, #{
+                        <<"$ref">> =>
+                            <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>
+                                        }}
+                                    ]
+                                }},
+                                {<<"inner_ref">>, #{
+                            <<"$ref">> =>
+                                <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>
+                                }}
+                            ]
+                        }
+                }
+            }
+        },
     ExpectRefs = [{?MODULE, good_ref}],
     validate(Path, Object, ExpectRefs),
     ok.
 
 t_empty(_Config) ->
-    ?assertThrow({error,
-        #{msg := <<"Object only supports not empty proplists">>,
-            args := [], module := ?MODULE}}, validate("/empty", error, [])),
+    ?assertThrow(
+        {error, #{
+            msg := <<"Object only supports not empty proplists">>,
+            args := [],
+            module := ?MODULE
+        }},
+        validate("/empty", error, [])
+    ),
     ok.
 
 t_raw_local_ref(_Config) ->
     Path = "/raw/ref/local",
-    Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => #{
-        <<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>}}}},
+    Object = #{
+        <<"content">> => #{
+            <<"application/json">> => #{
+                <<"schema">> => #{
+                    <<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>
+                }
+            }
+        }
+    },
     ExpectRefs = [{?MODULE, good_ref}],
     validate(Path, Object, ExpectRefs),
     ok.
 
 t_raw_remote_ref(_Config) ->
     Path = "/raw/ref/remote",
-    Object = #{<<"content">> =>
-    #{<<"application/json">> => #{<<"schema">> => #{
-        <<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref1">>}}}},
+    Object = #{
+        <<"content">> =>
+            #{
+                <<"application/json">> => #{
+                    <<"schema">> => #{
+                        <<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref1">>
+                    }
+                }
+            }
+    },
     ExpectRefs = [{emqx_swagger_remote_schema, "ref1"}],
     validate(Path, Object, ExpectRefs),
     ok.
 
 t_local_ref(_Config) ->
     Path = "/ref/local",
-    Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => #{
-        <<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>}}}},
+    Object = #{
+        <<"content">> => #{
+            <<"application/json">> => #{
+                <<"schema">> => #{
+                    <<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>
+                }
+            }
+        }
+    },
     ExpectRefs = [{?MODULE, good_ref}],
     validate(Path, Object, ExpectRefs),
     ok.
 
 t_remote_ref(_Config) ->
     Path = "/ref/remote",
-    Object = #{<<"content">> =>
-    #{<<"application/json">> => #{<<"schema">> => #{
-        <<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref1">>}}}},
+    Object = #{
+        <<"content">> =>
+            #{
+                <<"application/json">> => #{
+                    <<"schema">> => #{
+                        <<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref1">>
+                    }
+                }
+            }
+    },
     ExpectRefs = [{emqx_swagger_remote_schema, "ref1"}],
     validate(Path, Object, ExpectRefs),
     ok.
 
 t_bad_ref(_Config) ->
     Path = "/ref/bad",
-    Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> =>
-    #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.bad_ref">>}}}},
+    Object = #{
+        <<"content">> => #{
+            <<"application/json">> => #{
+                <<"schema">> =>
+                    #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.bad_ref">>}
+            }
+        }
+    },
     ExpectRefs = [{?MODULE, bad_ref}],
-    ?assertThrow({error, #{module := ?MODULE, msg := <<"Object only supports not empty proplists">>}},
-        validate(Path, Object, ExpectRefs)),
+    ?assertThrow(
+        {error, #{module := ?MODULE, msg := <<"Object only supports not empty proplists">>}},
+        validate(Path, Object, ExpectRefs)
+    ),
     ok.
 
 t_none_ref(_Config) ->
     Path = "/ref/none",
-    ?assertThrow({error, #{mfa := {?MODULE, schema, ["/ref/none"]},
-        reason := function_clause}}, validate(Path, #{}, [])),
+    ?assertThrow(
+        {error, #{
+            mfa := {?MODULE, schema, ["/ref/none"]},
+            reason := function_clause
+        }},
+        validate(Path, #{}, [])
+    ),
     ok.
 
 t_nest_ref(_Config) ->
     Path = "/ref/nest/ref",
-    Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => #{
-        <<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.nest_ref">>}}}},
+    Object = #{
+        <<"content">> => #{
+            <<"application/json">> => #{
+                <<"schema">> => #{
+                    <<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.nest_ref">>
+                }
+            }
+        }
+    },
     ExpectRefs = [{?MODULE, nest_ref}],
     validate(Path, Object, ExpectRefs),
     ok.
-
 t_complicated_type(_Config) ->
     Path = "/ref/complicated_type",
-    Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => #{<<"properties">> =>
-    [
-        {<<"no_neg_integer">>, #{example => 100, minimum => 1, type => integer}},
-        {<<"url">>, #{example => <<"http://127.0.0.1">>, type => string}},
-        {<<"server">>, #{example => <<"127.0.0.1:80">>, type => string}},
-        {<<"connect_timeout">>, #{example => infinity, <<"oneOf">> => [
-            #{example => infinity, type => string},
-            #{example => 100, type => integer}]}},
-        {<<"pool_type">>, #{enum => [random, hash], example => hash, type => string}},
-        {<<"timeout">>, #{example => infinity,
-            <<"oneOf">> =>
-            [#{example => infinity, type => string}, #{example => 100, type => integer}]}},
-        {<<"bytesize">>, #{example => <<"32MB">>, type => string}},
-        {<<"wordsize">>, #{example => <<"1024KB">>, type => string}},
-        {<<"maps">>, #{example => #{}, type => object}},
-        {<<"comma_separated_list">>, #{example => <<"item1,item2">>, type => string}},
-        {<<"comma_separated_atoms">>, #{example => <<"item1,item2">>, type => string}},
-        {<<"log_level">>,
-            #{enum => [debug, info, notice, warning, error, critical, alert, emergency, all], type => string}},
-        {<<"fix_integer">>, #{default => 100, enum => [100], example => 100,type => integer}}
-    ],
-        <<"type">> => object}}}},
+    Object = #{
+        <<"content">> => #{
+            <<"application/json">> => #{
+                <<"schema">> => #{
+                    <<"properties">> =>
+                        [
+                            {<<"no_neg_integer">>, #{
+                                example => 100,
+                                minimum => 1,
+                                type => integer
+                            }},
+                            {<<"url">>, #{example => <<"http://127.0.0.1">>, type => string}},
+                            {<<"server">>, #{example => <<"127.0.0.1:80">>, type => string}},
+                            {<<"connect_timeout">>, #{
+                                example => infinity,
+                                <<"oneOf">> => [
+                                    #{example => infinity, type => string},
+                                    #{example => 100, type => integer}
+                                ]
+                            }},
+                            {<<"pool_type">>, #{
+                                enum => [random, hash], example => hash, type => string
+                            }},
+                            {<<"timeout">>, #{
+                                example => infinity,
+                                <<"oneOf">> =>
+                                    [
+                                        #{example => infinity, type => string},
+                                        #{example => 100, type => integer}
+                                    ]
+                            }},
+                            {<<"bytesize">>, #{example => <<"32MB">>, type => string}},
+                            {<<"wordsize">>, #{example => <<"1024KB">>, type => string}},
+                            {<<"maps">>, #{example => #{}, type => object}},
+                            {<<"comma_separated_list">>, #{
+                                example => <<"item1,item2">>, type => string
+                            }},
+                            {<<"comma_separated_atoms">>, #{
+                                example => <<"item1,item2">>, type => string
+                            }},
+                            {<<"log_level">>, #{
+                                enum => [
+                                    debug,
+                                    info,
+                                    notice,
+                                    warning,
+                                    error,
+                                    critical,
+                                    alert,
+                                    emergency,
+                                    all
+                                ],
+                                type => string
+                            }},
+                            {<<"fix_integer">>, #{
+                                default => 100, enum => [100], example => 100, type => integer
+                            }}
+                        ],
+                    <<"type">> => object
+                }
+            }
+        }
+    },
     {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
     ?assertEqual(test, OperationId),
     Response = maps:get(responses, maps:get(post, Spec)),
@@ -187,66 +357,171 @@ t_complicated_type(_Config) ->
     ?assertEqual([], Refs),
     ok.
 
-
 t_ref_array_with_key(_Config) ->
     Path = "/ref/array/with/key",
-    Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => #{
-        required => [<<"timeout">>], <<"type">> => object, <<"properties">> => [
-            {<<"per_page">>, #{description => <<"good per page desc">>, example => 1, maximum => 100, minimum => 1, type => integer}},
-            {<<"timeout">>, #{default => 5, <<"oneOf">> =>
-            [#{example => <<"1h">>, type => string}, #{enum => [infinity], type => string}]}},
-            {<<"assert">>, #{description => <<"money">>, example => 3.14159, type => number}},
-            {<<"number_ex">>, #{description => <<"number example">>, example => 42, type => number}},
-            {<<"percent_ex">>, #{description => <<"percent example">>, example => <<"12%">>, type => number}},
-            {<<"duration_ms_ex">>, #{description => <<"duration ms example">>, example => <<"32s">>, type => string}},
-            {<<"atom_ex">>, #{description => <<"atom ex">>, example => atom, type => string}},
-            {<<"array_refs">>, #{items => #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>}, type => array}}
-        ]}
-    }}},
+    Object = #{
+        <<"content">> => #{
+            <<"application/json">> => #{
+                <<"schema">> => #{
+                    required => [<<"timeout">>],
+                    <<"type">> => object,
+                    <<"properties">> => [
+                        {<<"per_page">>, #{
+                            description => <<"good per page desc">>,
+                            example => 1,
+                            maximum => 100,
+                            minimum => 1,
+                            type => integer
+                        }},
+                        {<<"timeout">>, #{
+                            default => 5,
+                            <<"oneOf">> =>
+                                [
+                                    #{example => <<"1h">>, type => string},
+                                    #{enum => [infinity], type => string}
+                                ]
+                        }},
+                        {<<"assert">>, #{
+                            description => <<"money">>, example => 3.14159, type => number
+                        }},
+                        {<<"number_ex">>, #{
+                            description => <<"number example">>, example => 42, type => number
+                        }},
+                        {<<"percent_ex">>, #{
+                            description => <<"percent example">>,
+                            example => <<"12%">>,
+                            type => number
+                        }},
+                        {<<"duration_ms_ex">>, #{
+                            description => <<"duration ms example">>,
+                            example => <<"32s">>,
+                            type => string
+                        }},
+                        {<<"atom_ex">>, #{
+                            description => <<"atom ex">>, example => atom, type => string
+                        }},
+                        {<<"array_refs">>, #{
+                            items => #{
+                                <<"$ref">> =>
+                                    <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>
+                            },
+                            type => array
+                        }}
+                    ]
+                }
+            }
+        }
+    },
     ExpectRefs = [{?MODULE, good_ref}],
     validate(Path, Object, ExpectRefs),
     ok.
 
 t_ref_array_without_key(_Config) ->
     Path = "/ref/array/without/key",
-    Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => #{
-        items => #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>},
-        type => array}}}},
+    Object = #{
+        <<"content">> => #{
+            <<"application/json">> => #{
+                <<"schema">> => #{
+                    items => #{
+                        <<"$ref">> =>
+                            <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>
+                    },
+                    type => array
+                }
+            }
+        }
+    },
     ExpectRefs = [{?MODULE, good_ref}],
     validate(Path, Object, ExpectRefs),
     ok.
 t_hocon_schema_function(_Config) ->
     Path = "/ref/hocon/schema/function",
-    Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> =>
-    #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.root">>}}}},
+    Object = #{
+        <<"content">> => #{
+            <<"application/json">> => #{
+                <<"schema">> =>
+                    #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.root">>}
+            }
+        }
+    },
     ExpectComponents = [
-        #{<<"emqx_swagger_remote_schema.ref1">> => #{<<"type">> => object,
-            <<"properties">> => [
-                {<<"protocol">>, #{enum => [http, https], type => string}},
-                {<<"port">>, #{default => 18083, example => 100, type => integer}}]
-        }},
-        #{<<"emqx_swagger_remote_schema.ref2">> => #{<<"type">> => object,
-            <<"properties">> => [
-                {<<"page">>, #{description => <<"good page">>, example => 1, maximum => 100, minimum => 1, type => integer}},
-                {<<"another_ref">>, #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref3">>}}
-            ]
-        }},
-        #{<<"emqx_swagger_remote_schema.ref3">> => #{<<"type">> => object,
-            <<"properties">> => [
-                {<<"ip">>, #{description => <<"IP:Port">>, example => <<"127.0.0.1:80">>, type => string}},
-                {<<"version">>, #{description => <<"a good version">>, example => <<"1.0.0">>, type => string}}]
-        }},
-        #{<<"emqx_swagger_remote_schema.root">> => #{required => [<<"default_password">>, <<"default_username">>],
-            <<"properties">> => [{<<"listeners">>, #{items =>
-            #{<<"oneOf">> =>
-            [#{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref2">>},
-                #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref1">>}]}, type => array}},
-                {<<"default_username">>,
-                    #{default => <<"admin">>, example => <<"string-example">>, type => string}},
-                {<<"default_password">>, #{default => <<"public">>, example => <<"string-example">>, type => string}},
-                {<<"sample_interval">>, #{default => <<"10s">>, example => <<"1h">>, type => string}},
-                {<<"token_expired_time">>, #{default => <<"30m">>, example => <<"12m">>, type => string}}],
-            <<"type">> => object}}],
+        #{
+            <<"emqx_swagger_remote_schema.ref1">> => #{
+                <<"type">> => object,
+                <<"properties">> => [
+                    {<<"protocol">>, #{enum => [http, https], type => string}},
+                    {<<"port">>, #{default => 18083, example => 100, type => integer}}
+                ]
+            }
+        },
+        #{
+            <<"emqx_swagger_remote_schema.ref2">> => #{
+                <<"type">> => object,
+                <<"properties">> => [
+                    {<<"page">>, #{
+                        description => <<"good page">>,
+                        example => 1,
+                        maximum => 100,
+                        minimum => 1,
+                        type => integer
+                    }},
+                    {<<"another_ref">>, #{
+                        <<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref3">>
+                    }}
+                ]
+            }
+        },
+        #{
+            <<"emqx_swagger_remote_schema.ref3">> => #{
+                <<"type">> => object,
+                <<"properties">> => [
+                    {<<"ip">>, #{
+                        description => <<"IP:Port">>, example => <<"127.0.0.1:80">>, type => string
+                    }},
+                    {<<"version">>, #{
+                        description => <<"a good version">>, example => <<"1.0.0">>, type => string
+                    }}
+                ]
+            }
+        },
+        #{
+            <<"emqx_swagger_remote_schema.root">> => #{
+                required => [<<"default_password">>, <<"default_username">>],
+                <<"properties">> => [
+                    {<<"listeners">>, #{
+                        items =>
+                            #{
+                                <<"oneOf">> =>
+                                    [
+                                        #{
+                        <<"$ref">> =>
+                            <<"#/components/schemas/emqx_swagger_remote_schema.ref2">>
+                                        },
+                                        #{
+                        <<"$ref">> =>
+                            <<"#/components/schemas/emqx_swagger_remote_schema.ref1">>
+                                        }
+                                    ]
+                            },
+                        type => array
+                    }},
+                    {<<"default_username">>, #{
+                        default => <<"admin">>, example => <<"string-example">>, type => string
+                    }},
+                    {<<"default_password">>, #{
+                        default => <<"public">>, example => <<"string-example">>, type => string
+                    }},
+                    {<<"sample_interval">>, #{
+                        default => <<"10s">>, example => <<"1h">>, type => string
+                    }},
+                    {<<"token_expired_time">>, #{
+                        default => <<"30m">>, example => <<"12m">>, type => string
+                    }}
+                ],
+                <<"type">> => object
+            }
+        }
+    ],
     ExpectRefs = [{emqx_swagger_remote_schema, "root"}],
     {_, Components} = validate(Path, Object, ExpectRefs),
     ?assertEqual(ExpectComponents, Components),
@@ -259,10 +534,18 @@ t_api_spec(_Config) ->
 api_spec() -> emqx_dashboard_swagger:spec(?MODULE).
 
 paths() ->
-    ["/simple/bin", "/object", "/nest/object", "/ref/local",
-        "/ref/nest/ref", "/raw/ref/local", "/raw/ref/remote",
-        "/ref/array/with/key", "/ref/array/without/key",
-        "/ref/hocon/schema/function"].
+    [
+        "/simple/bin",
+        "/object",
+        "/nest/object",
+        "/ref/local",
+        "/ref/nest/ref",
+        "/raw/ref/local",
+        "/raw/ref/remote",
+        "/ref/array/with/key",
+        "/ref/array/without/key",
+        "/ref/hocon/schema/function"
+    ].
 
 schema("/simple/bin") ->
     to_schema(<<"binary ok">>);
@@ -317,7 +600,7 @@ schema("/ref/hocon/schema/function") ->
     to_schema(mk(hoconsc:ref(emqx_swagger_remote_schema, "root"), #{}));
 schema("/error") ->
     #{
-        operationId => test,
+        operation_id => test,
         get => #{responses => #{
             400 => emqx_dashboard_swagger:error_codes(['Bad1', 'Bad2'], <<"Bad request desc">>),
             404 => emqx_dashboard_swagger:error_codes(['Not-Found'])
@@ -325,7 +608,7 @@ schema("/error") ->
     };
 schema("/ref/complicated_type") ->
     #{
-        operationId => test,
+        operation_id => test,
         post => #{responses => #{
             200 => [
                 {no_neg_integer, hoconsc:mk(non_neg_integer(), #{})},
@@ -357,7 +640,7 @@ validate(Path, ExpectObject, ExpectRefs) ->
 
 to_schema(Object) ->
     #{
-        operationId => test,
+        operation_id => test,
         post => #{responses => #{200 => Object, 201 => Object}}
     }.
 

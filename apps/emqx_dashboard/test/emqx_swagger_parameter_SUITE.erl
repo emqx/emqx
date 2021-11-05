@@ -61,45 +61,99 @@ t_public_ref(_Config) ->
     Expect = [
         #{<<"$ref">> => <<"#/components/parameters/public.page">>},
         #{<<"$ref">> => <<"#/components/parameters/public.limit">>}
-        ],
+    ],
     {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
     ?assertEqual(test, OperationId),
     Params = maps:get(parameters, maps:get(post, Spec)),
     ?assertEqual(Expect, Params),
-    ?assertEqual([
-        {emqx_dashboard_swagger, limit, parameter},
-        {emqx_dashboard_swagger, page, parameter}
-    ], Refs),
-    ExpectRefs = [
-        #{<<"public.limit">> => #{description => <<"Results per page(max 100)">>, example => 50,in => query,name => limit,
-            schema => #{default => 100,example => 1,maximum => 100, minimum => 1,type => integer}}},
-        #{<<"public.page">> => #{description => <<"Page number of the results to fetch.">>,
-            example => 1,in => query,name => page,
-            schema => #{default => 1,example => 100,type => integer}}}],
+    ?assertEqual(
+        [
+            {emqx_dashboard_swagger, limit, parameter},
+            {emqx_dashboard_swagger, page, parameter}
+        ],
+        Refs
+    ),
+    ExpectRefs =
+        [
+            #{
+                <<"public.limit">> => #{
+                    description => <<"Results per page(max 100)">>,
+                    example => 50,
+                    in => query,
+                    name => limit,
+                    schema => #{
+                        default => 100,
+                        example => 1,
+                        maximum => 100,
+                        minimum => 1,
+                        type => integer
+                    }
+                }
+            },
+            #{
+                <<"public.page">> => #{
+                    description => <<"Page number of the results to fetch.">>,
+                    example => 1,
+                    in => query,
+                    name => page,
+                    schema => #{
+                        default => 1,
+                        example => 100,
+                        type => integer
+                    }
+                }
+            }
+        ],
     ?assertEqual(ExpectRefs, emqx_dashboard_swagger:components(Refs)),
     ok.
 
 t_in_mix(_Config) ->
     Expect =
-        [#{description => <<"Indicates which sorts of issues to return">>,
-            example => <<"all">>,in => query,name => filter,
-            schema => #{enum => [assigned,created,mentioned,all],type => string}},
-            #{description => <<"Indicates the state of the issues to return.">>,
-                example => <<"12m">>,in => path,name => state,required => true,
-                schema => #{example => <<"1h">>,type => string}},
-            #{example => 10,in => query,name => per_page, required => false,
-                schema => #{default => 5,example => 1,maximum => 50,minimum => 1, type => integer}},
-            #{in => query,name => is_admin, schema => #{example => true,type => boolean}},
-            #{in => query,name => timeout,
-                schema => #{<<"oneOf">> => [#{enum => [infinity],type => string},
-                    #{example => 30,maximum => 60,minimum => 30, type => integer}]}}],
+        [
+            #{
+                description => <<"Indicates which sorts of issues to return">>,
+                example => <<"all">>,
+                in => query,
+                name => filter,
+                schema => #{enum => [assigned, created, mentioned, all], type => string}
+            },
+            #{
+                description => <<"Indicates the state of the issues to return.">>,
+                example => <<"12m">>,
+                in => path,
+                name => state,
+                required => true,
+                schema => #{example => <<"1h">>, type => string}
+            },
+            #{
+                example => 10,
+                in => query,
+                name => per_page,
+                required => false,
+                schema => #{
+                    default => 5, example => 1, maximum => 50, minimum => 1, type => integer
+                }
+            },
+            #{in => query, name => is_admin, schema => #{example => true, type => boolean}},
+            #{
+                in => query,
+                name => timeout,
+                schema => #{
+                    <<"oneOf">> => [
+                        #{enum => [infinity], type => string},
+                        #{example => 30, maximum => 60, minimum => 30, type => integer}
+                    ]
+                }
+            }
+        ],
     ExpectMeta = #{
-            tags => [tags, good],
-            description => <<"good description">>,
-            summary => <<"good summary">>,
-            security => [],
-            deprecated => true,
-            responses => #{<<"200">> => #{description => <<"ok">>}}},
+        tags => [tags, good],
+        description => <<"good description">>,
+        summary => <<"good summary">>,
+        security => [],
+        deprecated => true,
+        responses => #{<<"200">> => #{description => <<"ok">>}}
+    },
     GotSpec = validate("/test/in/mix/:state", Expect),
     ?assertEqual(ExpectMeta, maps:without([parameters], maps:get(post, GotSpec))),
     ok.
@@ -173,10 +227,17 @@ t_in_mix_trans(_Config) ->
         <<"is_admin">> => true,
         <<"timeout">> => <<"34">>
     },
-    Expect = {ok,
-        #{body => #{},
+    Expect =
+        {ok, #{
+            body => #{},
             bindings => #{state => 720},
-            query_string => #{<<"filter">> => created,<<"is_admin">> => true, <<"per_page">> => 5,<<"timeout">> => 34}}},
+            query_string => #{
+                <<"filter">> => created,
+                <<"is_admin">> => true,
+                <<"per_page">> => 5,
+                <<"timeout">> => 34
+            }
+        }},
     ?assertEqual(Expect, trans_parameters(Path, Bindings, Query)),
     ok.
 
@@ -263,31 +324,35 @@ paths() -> ["/test/in/:filter", "/test/in/query", "/test/in/mix/:state", "/test/
 
 schema("/test/in/:filter") ->
     #{
-        operationId => test,
+        operation_id => test,
         post => #{
             parameters => [
                 {filter,
-                    mk(hoconsc:enum([assigned, created, mentioned, all]),
-                        #{in => path, desc => <<"Indicates which sorts of issues to return">>, example => "all"})}
+                    mk(hoconsc:enum([assigned, created, mentioned, all]), #{
+                        in => path,
+                        desc => <<"Indicates which sorts of issues to return">>,
+                        example => "all"
+                    })}
             ],
             responses => #{200 => <<"ok">>}
         }
     };
 schema("/test/in/query") ->
     #{
-        operationId => test,
+        operation_id => test,
         post => #{
             parameters => [
                 {per_page,
-                    mk(range(1, 100),
-                        #{in => query, desc => <<"results per page (max 100)">>, example => 1})}
+                    mk(range(1, 100), #{
+                        in => query, desc => <<"results per page (max 100)">>, example => 1
+                    })}
             ],
             responses => #{200 => <<"ok">>}
         }
     };
 schema("/test/in/ref/local") ->
     #{
-        operationId => test,
+        operation_id => test,
         post => #{
             parameters => [hoconsc:ref(page)],
             responses => #{200 => <<"ok">>}
@@ -295,7 +360,7 @@ schema("/test/in/ref/local") ->
     };
 schema("/test/in/ref") ->
     #{
-        operationId => test,
+        operation_id => test,
         post => #{
             parameters => [hoconsc:ref(?MODULE, page)],
             responses => #{200 => <<"ok">>}
@@ -303,7 +368,7 @@ schema("/test/in/ref") ->
     };
 schema("/test/in/ref/public") ->
     #{
-        operationId => test,
+        operation_id => test,
         post => #{
             parameters => [
                 hoconsc:ref(emqx_dashboard_swagger, page),
@@ -314,7 +379,7 @@ schema("/test/in/ref/public") ->
     };
 schema("/test/in/mix/:state") ->
     #{
-        operationId => test,
+        operation_id => test,
         post => #{
             tags => [tags, good],
             description => <<"good description">>,
@@ -322,12 +387,22 @@ schema("/test/in/mix/:state") ->
             security => [],
             deprecated => true,
             parameters => [
-                {filter, hoconsc:mk(hoconsc:enum([assigned, created, mentioned, all]),
-                    #{in => query, desc => <<"Indicates which sorts of issues to return">>, example => "all"})},
-                {state, mk(emqx_schema:duration_s(),
-                    #{in => path, required => true, example => "12m", desc => <<"Indicates the state of the issues to return.">>})},
-                {per_page, mk(range(1, 50),
-                    #{in => query, required => false, example => 10, default => 5})},
+                {filter,
+                    hoconsc:mk(hoconsc:enum([assigned, created, mentioned, all]), #{
+                        in => query,
+                        desc => <<"Indicates which sorts of issues to return">>,
+                        example => "all"
+                    })},
+                {state,
+                    mk(emqx_schema:duration_s(), #{
+                        in => path,
+                        required => true,
+                        example => "12m",
+                        desc => <<"Indicates the state of the issues to return.">>
+                    })},
+                {per_page,
+                    mk(range(1, 50),
+                       #{in => query, required => false, example => 10, default => 5})},
                 {is_admin, mk(boolean(), #{in => query})},
                 {timeout, mk(hoconsc:union([range(30, 60), infinity]), #{in => query})}
             ],
@@ -336,7 +411,7 @@ schema("/test/in/mix/:state") ->
     };
 schema("/test/without/in") ->
     #{
-        operationId => test,
+        operation_id => test,
         post => #{
             parameters => [
                 {'x-request-id', mk(binary(), #{})}
@@ -352,20 +427,25 @@ schema("/nullable/true") ->
     to_schema([{'userid', mk(binary(), #{in => query, nullable => true})}]);
 schema("/method/ok") ->
     Response = #{responses => #{200 => <<"ok">>}},
-    lists:foldl(fun(Method, Acc) ->  Acc#{Method => Response} end,
-        #{operationId => test}, ?METHODS);
+    lists:foldl(
+      fun(Method, Acc) -> Acc#{Method => Response} end,
+      #{operation_id => test},
+      ?METHODS);
 schema("/method/error") ->
-    #{operationId => test, bar => #{200 => <<"ok">>}}.
+    #{operation_id => test, bar => #{200 => <<"ok">>}}.
 
 fields(page) ->
     [
         {per_page,
-            mk(range(1, 100),
-                #{in => query, desc => <<"results per page (max 100)">>, example => 1})}
+            mk(range(1, 100), #{
+                in => query,
+                desc => <<"results per page (max 100)">>,
+                example => 1
+            })}
     ].
 to_schema(Params) ->
     #{
-        operationId => test,
+        operation_id => test,
         post => #{
             parameters => Params,
             responses => #{200 => <<"ok">>}
