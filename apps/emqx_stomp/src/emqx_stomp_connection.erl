@@ -91,6 +91,8 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
+-elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_stomp_connection]}}]).
+
 -dialyzer({nowarn_function, [ ensure_stats_timer/2
                             ]}).
 
@@ -101,7 +103,7 @@
 start_link(Transport, Sock, ProtoEnv) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[Transport, Sock, ProtoEnv]])}.
 
--spec info(pid()|state()) -> emqx_types:infos().
+-spec info(pid() | state()) -> emqx_types:infos().
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
 info(State = #state{pstate = PState}) ->
@@ -123,7 +125,7 @@ info(sockstate, #state{sockstate = SockSt}) ->
 info(active_n, #state{active_n = ActiveN}) ->
     ActiveN.
 
--spec stats(pid()|state()) -> emqx_types:stats().
+-spec stats(pid() | state()) -> emqx_types:stats().
 stats(CPid) when is_pid(CPid) ->
     call(CPid, stats);
 stats(#state{transport = Transport,

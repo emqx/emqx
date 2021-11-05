@@ -233,7 +233,11 @@ init(Parent, WrappedSock, Peername0, Options) ->
     case esockd_wait(WrappedSock) of
         {ok, NWrappedSock} ->
             Peername = esockd_peername(NWrappedSock, Peername0),
-            run_loop(Parent, init_state(NWrappedSock, Peername, Options));
+            try
+                run_loop(Parent, init_state(NWrappedSock, Peername, Options))
+            catch
+                throw : nopermission -> erlang:exit(normal)
+            end;
         {error, Reason} ->
             ok = esockd_close(WrappedSock),
             exit_on_sock_error(Reason)
