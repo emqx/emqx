@@ -257,17 +257,57 @@ clientinfo(ClientInfo =
       cn => maybe(maps:get(cn, ClientInfo, undefined)),
       dn => maybe(maps:get(dn, ClientInfo, undefined))}.
 
-message(#message{id = Id, qos = Qos, from = From, topic = Topic, payload = Payload, timestamp = Ts}) ->
+message(#message{id = Id, qos = Qos, from = From, topic = Topic,
+                 payload = Payload, timestamp = Ts, headers = Headers}) ->
     #{node => stringfy(node()),
       id => emqx_guid:to_hexstr(Id),
       qos => Qos,
       from => stringfy(From),
       topic => Topic,
       payload => Payload,
-      timestamp => Ts}.
+      timestamp => Ts,
+      headers => headers(Headers)
+     }.
 
-assign_to_message(#{qos := Qos, topic := Topic, payload := Payload}, Message) ->
-    Message#message{qos = Qos, topic = Topic, payload = Payload}.
+headers(undefined) ->
+    #{};
+headers(Headers) ->
+    Ls = [username, protocol, peerhost, allow_publish],
+    maps:fold(
+      fun
+          (_, undefined, Acc) ->
+              Acc; %% Ignore undefined value
+          (K, V, Acc) ->
+              case lists:member(K, Ls) of
+                  true ->
+                      Acc#{atom_to_binary(K) => bin(K, V)};
+                  _ ->
+                      Acc
+              end
+    end, #{}, Headers).
+
+bin(K, V) when K == username;
+               K == protocol;
+               K == allow_publish ->
+    bin(V);
+bin(peerhost, V) ->
+    bin(inet:ntoa(V)).
+
+bin(V) when is_binary(V) -> V;
+bin(V) when is_atom(V) -> atom_to_binary(V);
+bin(V) when is_list(V) -> iolist_to_binary(V).
+
+assign_to_message(InMessage = #{qos := Qos, topic := Topic,
+                                payload := Payload}, Message) ->
+    NMsg = Message#message{qos = Qos, topic = Topic, payload = Payload},
+    enrich_header(maps:get(headers, InMessage, #{}), NMsg).
+
+enrich_header(Headers, Message) ->
+    AllowPub = case maps:get(<<"allow_publish">>, Headers, <<"true">>) of
+                   <<"false">> -> false;
+                   _ -> true
+               end,
+    emqx_message:set_header(allow_publish, AllowPub, Message).
 
 topicfilters(Tfs) when is_list(Tfs) ->
     [#{name => Topic, qos => Qos} || {Topic, #{qos := Qos}} <- Tfs].

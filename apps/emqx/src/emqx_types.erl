@@ -192,7 +192,8 @@
                      username   => username(),
                      peerhost   => peerhost(),
                      properties => properties(),
-                     atom()     => term()}).
+                     allow_publish => boolean(),
+                     atom() => term()}).
 
 -type(banned() :: #banned{}).
 -type(deliver() :: {deliver, topic(), message()}).
