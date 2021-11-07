@@ -99,10 +99,13 @@ jobs:
         ./.ci/docker-compose-file/scripts/run-emqx.sh
     - name: make paho tests
       run: |
-        if ! docker exec -i python /scripts/pytest.sh; then
+        if ! docker exec -i python /scripts/pytest.sh "${{ matrix.cluster_db_backend }}"; then
           echo "DUMP_CONTAINER_LOGS_BGN"
+          echo "============== haproxy =============="
           docker logs haproxy
+          echo "==============  node1  =============="
           docker logs node1.emqx.io
+          echo "==============  node2  =============="
           docker logs node2.emqx.io
           echo "DUMP_CONTAINER_LOGS_END"
           exit 1
