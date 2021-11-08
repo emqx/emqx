@@ -171,7 +171,7 @@ t_subscribe_case02(_) ->
     {ok, Socket} = gen_udp:open(0, [binary]),
 
     ClientId = ?CLIENTID,
-    send_connect_msg(Socket, ?CLIENTID),
+    send_connect_msg(Socket, ClientId),
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
 
     Topic1 = ?PREDEF_TOPIC_NAME1,
