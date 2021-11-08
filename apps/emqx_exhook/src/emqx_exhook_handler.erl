@@ -270,8 +270,6 @@ message(#message{id = Id, qos = Qos, from = From, topic = Topic,
       headers => headers(Headers)
      }.
 
-headers(undefined) ->
-    #{};
 headers(Headers) ->
     Ls = [username, protocol, peerhost, allow_publish],
     maps:fold(
