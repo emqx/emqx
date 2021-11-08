@@ -96,8 +96,10 @@ t_destroy(_) ->
     {ok, _} = emqx_authn_mnesia:lookup_user(<<"u">>, State0),
 
     ok = emqx_authn_mnesia:destroy(State0),
+    % destroying authenticator should not remove users permanently
+
     {ok, State1} = emqx_authn_mnesia:create(Config),
-    {error, not_found} = emqx_authn_mnesia:lookup_user(<<"u">>, State1).
+    {ok, _} = emqx_authn_mnesia:lookup_user(<<"u">>, State1).
 
 t_authenticate(_) ->
     Config = config(),
@@ -228,5 +230,5 @@ config() ->
     #{user_id_type => username,
       password_hash_algorithm => #{name => bcrypt,
                                    salt_rounds => 8},
-      '_unique' => <<"unique">>
+      user_group => <<"default">>
      }.

@@ -142,15 +142,17 @@ refs() ->
 create(#{verify_claims := VerifyClaims} = Config) ->
     create2(Config#{verify_claims => handle_verify_claims(VerifyClaims)}).
 
-update(#{use_jwks := false} = Config, #{jwk := Connector})
+update(#{use_jwks := false} = Config,
+       #{jwk := Connector})
   when is_pid(Connector) ->
     _ = emqx_authn_jwks_connector:stop(Connector),
     create(Config);
 
-update(#{use_jwks := false} = Config, _) ->
+update(#{use_jwks := false} = Config, _State) ->
     create(Config);
 
-update(#{use_jwks := true} = Config, #{jwk := Connector} = State)
+update(#{use_jwks := true} = Config,
+       #{jwk := Connector} = State)
   when is_pid(Connector) ->
     ok = emqx_authn_jwks_connector:update(Connector, Config),
     case maps:get(verify_cliams, Config, undefined) of
@@ -160,7 +162,7 @@ update(#{use_jwks := true} = Config, #{jwk := Connector} = State)
             {ok, State#{verify_claims => handle_verify_claims(VerifyClaims)}}
     end;
 
-update(#{use_jwks := true} = Config, _) ->
+update(#{use_jwks := true} = Config, _State) ->
     create(Config).
 
 authenticate(#{auth_method := _}, _) ->

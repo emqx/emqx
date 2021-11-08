@@ -77,18 +77,18 @@ query(_) -> undefined.
 refs() ->
     [hoconsc:ref(?MODULE, config)].
 
-create(#{ query := Query0
-        , password_hash_algorithm := Algorithm
-        , salt_position := SaltPosition
-        , '_unique' := Unique
-        } = Config) ->
+create(
+  #{query := Query0,
+    password_hash_algorithm := Algorithm,
+    salt_position := SaltPosition} = Config) ->
     {Query, PlaceHolders} = parse_query(Query0),
+    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     State = #{query => Query,
               placeholders => PlaceHolders,
               password_hash_algorithm => Algorithm,
               salt_position => SaltPosition,
-              '_unique' => Unique},
-    case emqx_resource:create_local(Unique, emqx_connector_pgsql, Config) of
+              resource_id => ResourceId},
+    case emqx_resource:create_local(ResourceId, emqx_connector_pgsql, Config) of
         {ok, already_created} ->
             {ok, State};
         {ok, _} ->
@@ -111,9 +111,9 @@ authenticate(#{auth_method := _}, _) ->
 authenticate(#{password := Password} = Credential,
              #{query := Query,
                placeholders := PlaceHolders,
-               '_unique' := Unique} = State) ->
+               resource_id := ResourceId} = State) ->
     Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
-    case emqx_resource:query(Unique, {sql, Query, Params}) of
+    case emqx_resource:query(ResourceId, {sql, Query, Params}) of
         {ok, _Columns, []} -> ignore;
         {ok, Columns, [Row | _]} ->
             NColumns = [Name || #column{name = Name} <- Columns],
@@ -126,13 +126,13 @@ authenticate(#{password := Password} = Credential,
             end;
         {error, Reason} ->
             ?SLOG(error, #{msg => "postgresql_query_failed",
-                           resource => Unique,
+                           resource => ResourceId,
                            reason => Reason}),
             ignore
     end.
 
-destroy(#{'_unique' := Unique}) ->
-    _ = emqx_resource:remove_local(Unique),
+destroy(#{resource_id := ResourceId}) ->
+    _ = emqx_resource:remove_local(ResourceId),
     ok.
 
 %%------------------------------------------------------------------------------

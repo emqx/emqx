@@ -119,15 +119,15 @@ conn_opts(Opts) ->
     conn_opts(Opts, []).
 conn_opts([], Acc) ->
     Acc;
-conn_opts([Opt = {database, _}|Opts], Acc) ->
-    conn_opts(Opts, [Opt|Acc]);
-conn_opts([Opt = {ssl, _}|Opts], Acc) ->
-    conn_opts(Opts, [Opt|Acc]);
-conn_opts([Opt = {port, _}|Opts], Acc) ->
-    conn_opts(Opts, [Opt|Acc]);
-conn_opts([Opt = {timeout, _}|Opts], Acc) ->
-    conn_opts(Opts, [Opt|Acc]);
-conn_opts([Opt = {ssl_opts, _}|Opts], Acc) ->
-    conn_opts(Opts, [Opt|Acc]);
-conn_opts([_Opt|Opts], Acc) ->
+conn_opts([Opt = {database, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
+conn_opts([Opt = {ssl, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
+conn_opts([Opt = {port, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
+conn_opts([Opt = {timeout, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
+conn_opts([Opt = {ssl_opts, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
+conn_opts([_Opt | Opts], Acc) ->
     conn_opts(Opts, Acc).

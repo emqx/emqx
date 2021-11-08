@@ -61,7 +61,10 @@ on_start(InstId, #{servers := Servers0,
     SslOpts = case maps:get(enable, SSL) of
                   true ->
                       [{ssl, true},
-                       {sslopts, emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)}
+                       {sslopts, emqx_plugin_libs_ssl:save_files_return_opts(
+                                   SSL,
+                                   "connectors",
+                                   InstId)}
                       ];
                   false -> [{ssl, false}]
               end,
@@ -87,7 +90,10 @@ on_query(InstId, {search, Base, Filter, Attributes}, AfterQuery, #{poolname := P
     ?SLOG(debug, #{msg => "ldap connector received request",
                    request => Request, connector => InstId,
                    state => State}),
-    case Result = ecpool:pick_and_do(PoolName, {?MODULE, search, [Base, Filter, Attributes]}, no_handover) of
+    case Result = ecpool:pick_and_do(
+                    PoolName,
+                    {?MODULE, search, [Base, Filter, Attributes]},
+                    no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{msg => "ldap connector do request failed",
                            request => Request, connector => InstId,
@@ -111,7 +117,7 @@ search(Conn, Base, Filter, Attributes) ->
     eldap2:search(Conn, [{base, Base},
                          {filter, Filter},
                          {attributes, Attributes},
-                         {deref, eldap2:derefFindingBaseObj()}]).
+                         {deref, eldap2:'derefFindingBaseObj'()}]).
 
 %% ===================================================================
 connect(Opts) ->

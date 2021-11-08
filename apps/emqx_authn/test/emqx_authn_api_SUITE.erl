@@ -43,8 +43,14 @@ groups() ->
     [].
 
 init_per_testcase(_, Config) ->
-    delete_authenticators([authentication], ?GLOBAL),
-    delete_authenticators([listeners, tcp, default, authentication], ?TCP_DEFAULT),
+    emqx_authn_test_lib:delete_authenticators(
+      [authentication],
+      ?GLOBAL),
+
+    emqx_authn_test_lib:delete_authenticators(
+      [listeners, tcp, default, authentication],
+      ?TCP_DEFAULT),
+
     {atomic, ok} = mria:clear_table(emqx_authn_mnesia),
     Config.
 
@@ -393,20 +399,6 @@ test_authenticator_import_users(PathPrefix) ->
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
-
-delete_authenticators(Path, Chain) ->
-    case emqx_authentication:list_authenticators(Chain) of
-        {error, _} -> ok;
-        {ok, Authenticators} ->
-            lists:foreach(
-                fun(#{id := ID}) ->
-                    emqx:update_config(
-                        Path,
-                        {delete_authenticator, Chain, ID},
-                        #{rawconf_with_defaults => true})
-                end,
-                Authenticators)
-    end.
 
 request(Method, Url) ->
     request(Method, Url, []).

@@ -388,6 +388,7 @@ hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
     {#{type => string, enum => [Atom]}, []}.
 
 %% todo: Find a way to fetch enum value from user_id_type().
+typename_to_spec("user_group()", _Mod) -> #{type => string, example => <<"user_group">>};
 typename_to_spec("user_id_type()", _Mod) -> #{type => string, enum => [clientid, username]};
 typename_to_spec("term()", _Mod) -> #{type => string, example => "term"};
 typename_to_spec("boolean()", _Mod) -> #{type => boolean, example => true};

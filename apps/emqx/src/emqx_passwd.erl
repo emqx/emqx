@@ -22,7 +22,7 @@
 
 -include("logger.hrl").
 
--type(hash_type() :: plain | md5 | sha | sha256 | pbkdf2 | bcrypt).
+-type(hash_type() :: plain | md5 | sha | sha256 | sha512 | pbkdf2 | bcrypt).
 
 -export_type([hash_type/0]).
 
@@ -95,4 +95,3 @@ hexstring(<<X:256/big-unsigned-integer>>) ->
     iolist_to_binary(io_lib:format("~64.16.0b", [X]));
 hexstring(<<X:512/big-unsigned-integer>>) ->
     iolist_to_binary(io_lib:format("~128.16.0b", [X])).
-

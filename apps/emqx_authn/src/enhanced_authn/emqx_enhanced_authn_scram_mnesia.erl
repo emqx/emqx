@@ -46,6 +46,8 @@
 -define(TAB, ?MODULE).
 -define(FORMAT_FUN, {?MODULE, format_user_info}).
 
+-type(user_group() :: binary()).
+
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
@@ -57,6 +59,8 @@
         , salt
         , is_superuser
         }).
+
+-reflect_type([user_group/0]).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -83,9 +87,14 @@ roots() -> [config].
 fields(config) ->
     [ {mechanism,       {enum, [scram]}}
     , {backend,         {enum, ['built-in-database']}}
+    , {user_group,      fun user_group/1}
     , {algorithm,       fun algorithm/1}
     , {iteration_count, fun iteration_count/1}
     ] ++ emqx_authn_schema:common_fields().
+
+user_group(type) -> user_group();
+user_group(default) -> <<"authn_scram_users">>;
+user_group(_) -> undefined.
 
 algorithm(type) -> hoconsc:enum([sha256, sha512]);
 algorithm(default) -> sha256;
@@ -102,17 +111,17 @@ iteration_count(_) -> undefined.
 refs() ->
    [hoconsc:ref(?MODULE, config)].
 
-create(#{ algorithm := Algorithm
-        , iteration_count := IterationCount
-        , '_unique' := Unique
-        }) ->
-    State = #{user_group => Unique,
+create(#{algorithm := Algorithm,
+         iteration_count := IterationCount,
+         user_group := UserGroup}) ->
+    State = #{user_group => UserGroup,
               algorithm => Algorithm,
               iteration_count => IterationCount},
     {ok, State}.
 
-update(Config, #{user_group := Unique}) ->
-    create(Config#{'_unique' => Unique}).
+
+update(Config, _State) ->
+    create(Config).
 
 authenticate(#{auth_method := AuthMethod,
                auth_data := AuthData,
@@ -131,14 +140,7 @@ authenticate(#{auth_method := AuthMethod,
 authenticate(_Credential, _State) ->
     ignore.
 
-destroy(#{user_group := UserGroup}) ->
-    trans(
-        fun() ->
-            MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_', '_', '_'}, [], ['$_']}],
-            ok = lists:foreach(fun(UserInfo) ->
-                                  mnesia:delete_object(?TAB, UserInfo, write)
-                               end, mnesia:select(?TAB, MatchSpec, write))
-        end).
+destroy(_St) -> ok.
 
 add_user(#{user_id := UserID,
            password := Password} = UserInfo, #{user_group := UserGroup} = State) ->

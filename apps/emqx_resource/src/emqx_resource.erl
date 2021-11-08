@@ -36,7 +36,6 @@
         , check_and_create_local/3
         , check_and_recreate/4
         , check_and_recreate_local/4
-        , resource_type_from_str/1
         ]).
 
 %% Sync resource instances and files
@@ -72,14 +71,15 @@
 -export([ list_instances/0 %% list all the instances, id only.
         , list_instances_verbose/0 %% list all the instances
         , get_instance/1 %% return the data of the instance
-        , filter_instances/1 %% return instnces with id matching filter
         , list_instances_by_type/1 %% return all the instances of the same resource type
-        % , dependents/1
-        % , inc_counter/2 %% increment the counter of the instance
-        % , inc_counter/3 %% increment the counter by a given integer
+        , generate_id/1
+        , generate_id/2
+        , list_group_instances/1
         ]).
 
 -define(HOCON_CHECK_OPTS, #{atom_key => true, nullable => false}).
+
+-define(DEFAULT_RESOURCE_GROUP, <<"default">>).
 
 -optional_callbacks([ on_query/4
                     , on_health_check/2
@@ -134,7 +134,7 @@ query_failed({_, {OnFailed, Args}}) ->
 %% APIs for resource instances
 %% =================================================================================
 -spec create(instance_id(), resource_type(), resource_config()) ->
-    {ok, resource_data() |'already_created'} | {error, Reason :: term()}.
+    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create(InstId, ResourceType, Config) ->
     cluster_call(create_local, [InstId, ResourceType, Config]).
 
@@ -212,18 +212,32 @@ get_instance(InstId) ->
 list_instances() ->
     [Id || #{id := Id} <- list_instances_verbose()].
 
--spec filter_instances(fun((instance_id(), module()) -> boolean())) -> [instance_id()].
-filter_instances(Filter) ->
-    [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
-
 -spec list_instances_verbose() -> [resource_data()].
 list_instances_verbose() ->
     emqx_resource_instance:list_all().
 
--spec list_instances_by_type(module()) -> [resource_data()].
+-spec list_instances_by_type(module()) -> [instance_id()].
 list_instances_by_type(ResourceType) ->
-    filter_instances(fun(_, ResourceType) -> true;
+    filter_instances(fun(_, RT) when RT =:= ResourceType -> true;
                         (_, _) -> false
+                     end).
+
+-spec generate_id(term()) -> instance_id().
+generate_id(Name) when is_binary(Name) ->
+    generate_id(?DEFAULT_RESOURCE_GROUP, Name).
+
+-spec generate_id(resource_group(), binary()) -> instance_id().
+generate_id(Group, Name) when is_binary(Group) and is_binary(Name) ->
+    Id = integer_to_binary(erlang:unique_integer([positive])),
+    <<Group/binary, "/", Name/binary, ":", Id/binary>>.
+
+-spec list_group_instances(resource_group()) -> [instance_id()].
+list_group_instances(Group) ->
+    filter_instances(fun(Id, _) ->
+                             case binary:split(Id, <<"/">>) of
+                                 [Group | _] -> true;
+                                 _ -> false
+                             end
                      end).
 
 -spec call_start(instance_id(), module(), resource_config()) ->
@@ -273,7 +287,7 @@ check_config(ResourceType, RawConfigTerm) ->
     end.
 
 -spec check_and_create(instance_id(), resource_type(), raw_resource_config()) ->
-    {ok, resource_data() |'already_created'} | {error, term()}.
+    {ok, resource_data() | 'already_created'} | {error, term()}.
 check_and_create(InstId, ResourceType, RawConfig) ->
     check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> create(InstId, ResourceType, InstConf) end).
@@ -304,25 +318,14 @@ check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
 
 %% =================================================================================
 
--spec resource_type_from_str(string()) -> {ok, resource_type()} | {error, term()}.
-resource_type_from_str(ResourceType) ->
-    try Mod = list_to_existing_atom(str(ResourceType)),
-        case emqx_resource:is_resource_mod(Mod) of
-            true -> {ok, Mod};
-            false -> {error, {invalid_resource, Mod}}
-        end
-    catch error:badarg ->
-        {error, {resource_not_found, ResourceType}}
-    end.
+filter_instances(Filter) ->
+    [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
 
 call_instance(InstId, Query) ->
     emqx_resource_instance:hash_call(InstId, Query).
 
 safe_apply(Func, Args) ->
     ?SAFE_CALL(erlang:apply(Func, Args)).
-
-str(S) when is_binary(S) -> binary_to_list(S);
-str(S) when is_list(S) -> S.
 
 cluster_call(Func, Args) ->
     case emqx_cluster_rpc:multicall(?MODULE, Func, Args) of

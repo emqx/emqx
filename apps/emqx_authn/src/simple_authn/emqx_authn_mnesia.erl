@@ -45,8 +45,7 @@
 -export([format_user_info/1]).
 
 -type user_id_type() :: clientid | username.
-
--type user_group() :: {binary(), binary()}.
+-type user_group() :: binary().
 -type user_id() :: binary().
 
 -record(user_info,
@@ -56,7 +55,7 @@
         , is_superuser :: boolean()
         }).
 
--reflect_type([ user_id_type/0 ]).
+-reflect_type([user_id_type/0, user_group/0]).
 
 -export([mnesia/1]).
 
@@ -91,6 +90,7 @@ fields(config) ->
     [ {mechanism,               {enum, ['password-based']}}
     , {backend,                 {enum, ['built-in-database']}}
     , {user_id_type,            fun user_id_type/1}
+    , {user_group,              fun user_group/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     ] ++ emqx_authn_schema:common_fields();
 
@@ -106,6 +106,10 @@ fields(other_algorithms) ->
 user_id_type(type) -> user_id_type();
 user_id_type(default) -> username;
 user_id_type(_) -> undefined.
+
+user_group(type) -> user_group();
+user_group(default) -> <<"authn_users">>;
+user_group(_) -> undefined.
 
 password_hash_algorithm(type) -> hoconsc:union([hoconsc:ref(?MODULE, bcrypt),
                                                 hoconsc:ref(?MODULE, other_algorithms)]);
@@ -123,29 +127,28 @@ salt_rounds(_) -> undefined.
 refs() ->
    [hoconsc:ref(?MODULE, config)].
 
-create(#{ user_id_type := Type
-        , password_hash_algorithm := #{name := bcrypt,
-                                       salt_rounds := SaltRounds}
-        , '_unique' := Unique
-        }) ->
-    {ok, _} = application:ensure_all_started(bcrypt),
-    State = #{user_group => Unique,
+create(#{user_id_type := Type,
+         user_group := UserGroup,
+         password_hash_algorithm := #{name := bcrypt,
+                                      salt_rounds := SaltRounds}}) ->
+    ok = emqx_authn_utils:ensure_apps_started(bcrypt),
+    State = #{user_group => UserGroup,
               user_id_type => Type,
               password_hash_algorithm => bcrypt,
               salt_rounds => SaltRounds},
     {ok, State};
 
-create(#{ user_id_type := Type
-        , password_hash_algorithm := #{name := Name}
-        , '_unique' := Unique
-        }) ->
-    State = #{user_group => Unique,
+create(#{user_id_type := Type,
+         user_group := UserGroup,
+         password_hash_algorithm := #{name := Name}}) ->
+    ok = emqx_authn_utils:ensure_apps_started(Name),
+    State = #{user_group => UserGroup,
               user_id_type => Type,
               password_hash_algorithm => Name},
     {ok, State}.
 
-update(Config, #{user_group := Unique}) ->
-    create(Config#{'_unique' => Unique}).
+update(Config, _) ->
+    create(Config).
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
@@ -168,12 +171,7 @@ authenticate(#{password := Password} = Credential,
             end
     end.
 
-destroy(#{user_group := UserGroup}) ->
-    trans(
-        fun() ->
-            MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_', '_'}, [], ['$_']}],
-            ok = lists:foreach(fun delete_user2/1, mnesia:select(?TAB, MatchSpec, write))
-        end).
+destroy(_St) -> ok.
 
 import_users(Filename0, State) ->
     Filename = to_binary(Filename0),
@@ -373,9 +371,6 @@ insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
                            salt = Salt,
                            is_superuser = IsSuperuser},
     mnesia:write(?TAB, UserInfo, write).
-
-delete_user2(UserInfo) ->
-    mnesia:delete_object(?TAB, UserInfo, write).
 
 %% TODO: Support other type
 get_user_identity(#{username := Username}, username) ->

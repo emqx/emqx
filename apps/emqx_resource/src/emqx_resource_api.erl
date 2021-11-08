@@ -15,9 +15,9 @@
 %%--------------------------------------------------------------------
 -module(emqx_resource_api).
 
--export([stringnify/1]).
+-export([stringify/1]).
 
-stringnify(Bin) when is_binary(Bin) -> Bin;
-stringnify(Str) when is_list(Str) -> list_to_binary(Str);
-stringnify(Reason) ->
+stringify(Bin) when is_binary(Bin) -> Bin;
+stringify(Str) when is_list(Str) -> list_to_binary(Str);
+stringify(Reason) ->
     iolist_to_binary(io_lib:format("~p", [Reason])).

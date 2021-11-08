@@ -193,7 +193,7 @@ crud_bridges(_, put, #{bindings := #{id := Id}, body := Conf}) ->
                 {ok, Data} = emqx_bridge:get_bridge(BridgeType, BridgeName),
                 {200, format_resp(Data)};
             {error, Reason} ->
-                {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
+                {500, #{code => 102, message => emqx_resource_api:stringify(Reason)}}
         end);
 
 crud_bridges(_, delete, #{bindings := #{id := Id}}) ->
@@ -201,7 +201,7 @@ crud_bridges(_, delete, #{bindings := #{id := Id}}) ->
         case emqx:remove_config(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName]) of
             {ok, _} -> {200};
             {error, Reason} ->
-                {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
+                {500, #{code => 102, message => emqx_resource_api:stringify(Reason)}}
         end).
 
 manage_bridges(post, #{bindings := #{node := Node, id := Id, operation := Op}}) ->
@@ -215,7 +215,7 @@ manage_bridges(post, #{bindings := #{node := Node, id := Id, operation := Op}}) 
                 [BridgeType, BridgeName]) of
             ok -> {200};
             {error, Reason} ->
-                {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
+                {500, #{code => 102, message => emqx_resource_api:stringify(Reason)}}
         end).
 
 format_resp(#{id := Id, raw_config := RawConf, resource_data := #{mod := Mod, status := Status}}) ->

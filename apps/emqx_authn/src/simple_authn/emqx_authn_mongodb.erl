@@ -102,19 +102,21 @@ refs() ->
     , hoconsc:ref(?MODULE, 'sharded-cluster')
     ].
 
-create(#{ selector := Selector
-        , '_unique' := Unique
-        } = Config) ->
+create(#{selector := Selector} = Config) ->
     NSelector = parse_selector(Selector),
-    State = maps:with([ collection
-                      , password_hash_field
-                      , salt_field
-                      , is_superuser_field
-                      , password_hash_algorithm
-                      , salt_position
-                      , '_unique'], Config),
-    NState = State#{selector => NSelector},
-    case emqx_resource:create_local(Unique, emqx_connector_mongo, Config) of
+    State = maps:with(
+              [collection,
+               password_hash_field,
+               salt_field,
+               is_superuser_field,
+               password_hash_algorithm,
+               salt_position],
+              Config),
+    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+    NState = State#{
+               selector => NSelector,
+               resource_id => ResourceId},
+    case emqx_resource:create_local(ResourceId, emqx_connector_mongo, Config) of
         {ok, already_created} ->
             {ok, NState};
         {ok, _} ->
@@ -135,17 +137,16 @@ update(Config, State) ->
 authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(#{password := Password} = Credential,
-             #{ collection := Collection
-              , selector := Selector0
-              , '_unique' := Unique
-              } = State) ->
+             #{collection := Collection,
+               selector := Selector0,
+               resource_id := ResourceId} = State) ->
     Selector1 = replace_placeholders(Selector0, Credential),
     Selector2 = normalize_selector(Selector1),
-    case emqx_resource:query(Unique, {find_one, Collection, Selector2, #{}}) of
+    case emqx_resource:query(ResourceId, {find_one, Collection, Selector2, #{}}) of
         undefined -> ignore;
         {error, Reason} ->
             ?SLOG(error, #{msg => "mongodb_query_failed",
-                           resource => Unique,
+                           resource => ResourceId,
                            reason => Reason}),
             ignore;
         Doc ->
@@ -154,7 +155,7 @@ authenticate(#{password := Password} = Credential,
                     {ok, #{is_superuser => is_superuser(Doc, State)}};
                 {error, {cannot_find_password_hash_field, PasswordHashField}} ->
                     ?SLOG(error, #{msg => "cannot_find_password_hash_field",
-                                   resource => Unique,
+                                   resource => ResourceId,
                                    password_hash_field => PasswordHashField}),
                     ignore;
                 {error, Reason} ->
@@ -162,8 +163,8 @@ authenticate(#{password := Password} = Credential,
             end
     end.
 
-destroy(#{'_unique' := Unique}) ->
-    _ = emqx_resource:remove_local(Unique),
+destroy(#{resource_id := ResourceId}) ->
+    _ = emqx_resource:remove_local(ResourceId),
     ok.
 
 %%------------------------------------------------------------------------------

@@ -36,7 +36,8 @@ init_per_testcase(_, Config) ->
 
 init_per_suite(Config) ->
     code:ensure_loaded(?TEST_RESOURCE),
-    ok = emqx_common_test_helpers:start_apps([emqx_resource]),
+    ok = emqx_common_test_helpers:start_apps([]),
+    {ok, _} = application:ensure_all_started(emqx_resource),
     Config.
 
 end_per_suite(_Config) ->
@@ -154,19 +155,19 @@ t_stop_start(_) ->
 
 t_list_filter(_) ->
     {ok, _} = emqx_resource:create_local(
-                {a, 1},
+                emqx_resource:generate_id(<<"a">>),
                 ?TEST_RESOURCE,
-                #{name => <<"test_resource0">>}),
+                #{name => a}),
     {ok, _} = emqx_resource:create_local(
-                {b, 2},
+                emqx_resource:generate_id(<<"group">>, <<"a">>),
                 ?TEST_RESOURCE,
-                #{name => <<"test_resource1">>}),
+                #{name => grouped_a}),
 
-    Filter = fun({a, _}, ?TEST_RESOURCE) -> true;
-                (_, _) -> false
-             end,
+    [Id1] = emqx_resource:list_group_instances(<<"default">>),
+    {ok, #{config := #{name := a}}} = emqx_resource:get_instance(Id1),
 
-    [{a, 1}] = emqx_resource:filter_instances(Filter).
+    [Id2] = emqx_resource:list_group_instances(<<"group">>),
+    {ok, #{config := #{name := grouped_a}}} = emqx_resource:get_instance(Id2).
 
 %%------------------------------------------------------------------------------
 %% Helpers
