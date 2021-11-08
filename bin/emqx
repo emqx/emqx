@@ -46,7 +46,6 @@ export EMU="beam"
 export PROGNAME="erl"
 export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
 export ERTS_LIB_DIR="$ERTS_DIR/../lib"
-MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
 
 # Echo to stderr on errors
 echoerr() { echo "ERROR: $*" 1>&2; }
@@ -374,6 +373,7 @@ fi
 
 # force to use 'emqx' short name
 [ -z "$NAME" ] && NAME='emqx'
+MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
 
 case "$NAME" in
     *@*)
