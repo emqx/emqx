@@ -108,9 +108,10 @@ load(Name, Opts0, ReqOpts) ->
 
 %% @private
 channel_opts(Opts = #{url := URL}) ->
+    ClientOpts = #{pool_size => emqx_exhook_mngr:get_pool_size()},
     case uri_string:parse(URL) of
         #{scheme := "http", host := Host, port := Port} ->
-            {format_http_uri("http", Host, Port), #{}};
+            {format_http_uri("http", Host, Port), ClientOpts};
         #{scheme := "https", host := Host, port := Port} ->
             SslOpts =
                 case maps:get(ssl, Opts, undefined) of
@@ -122,8 +123,12 @@ channel_opts(Opts = #{url := URL}) ->
                            {keyfile, maps:get(keyfile, MapOpts, undefined)}
                           ])
                 end,
-            {format_http_uri("https", Host, Port),
-             #{gun_opts => #{transport => ssl, transport_opts => SslOpts}}};
+            NClientOpts = ClientOpts#{
+                            gun_opts =>
+                              #{transport => ssl,
+                                transport_opts => SslOpts}
+                           },
+            {format_http_uri("https", Host, Port), NClientOpts};
         _ ->
             error(bad_server_url)
     end.

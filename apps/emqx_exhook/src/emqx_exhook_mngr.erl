@@ -36,6 +36,8 @@
         , server/1
         , put_request_failed_action/1
         , get_request_failed_action/0
+        , put_pool_size/1
+        , get_pool_size/0
         ]).
 
 %% gen_server callbacks
@@ -116,6 +118,9 @@ init([Servers, AutoReconnect, ReqOpts0]) ->
     %% put the global option
     put_request_failed_action(
       maps:get(request_failed_action, ReqOpts0, deny)
+     ),
+    put_pool_size(
+      maps:get(pool_size, ReqOpts0, erlang:system_info(schedulers))
      ),
 
     %% Load the hook servers
@@ -290,6 +295,12 @@ put_request_failed_action(Val) ->
 
 get_request_failed_action() ->
     persistent_term:get({?APP, request_failed_action}).
+
+put_pool_size(Val) ->
+    persistent_term:put({?APP, pool_size}, Val).
+
+get_pool_size() ->
+    persistent_term:get({?APP, pool_size}).
 
 save(Name, ServerState) ->
     Saved = persistent_term:get(?APP, []),
