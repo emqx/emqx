@@ -50,6 +50,7 @@
 
 %% Utils
 -export([ message/1
+        , headers/1
         , stringfy/1
         , merge_responsed_bool/2
         , merge_responsed_message/2
@@ -302,11 +303,14 @@ assign_to_message(InMessage = #{qos := Qos, topic := Topic,
     enrich_header(maps:get(headers, InMessage, #{}), NMsg).
 
 enrich_header(Headers, Message) ->
-    AllowPub = case maps:get(<<"allow_publish">>, Headers, <<"true">>) of
-                   <<"false">> -> false;
-                   _ -> true
-               end,
-    emqx_message:set_header(allow_publish, AllowPub, Message).
+    case maps:get(<<"allow_publish">>, Headers, undefined) of
+        <<"false">> ->
+            emqx_message:set_header(allow_publish, false, Message);
+        <<"true">> ->
+            emqx_message:set_header(allow_publish, true, Message);
+        _ ->
+            Message
+    end.
 
 topicfilters(Tfs) when is_list(Tfs) ->
     [#{name => Topic, qos => Qos} || {Topic, #{qos := Qos}} <- Tfs].
