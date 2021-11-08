@@ -46,24 +46,6 @@
 
 -export([format/1]).
 
--define(TYPE_NAMES,
-        { 'CONNECT'
-        , 'CONNACK'
-        , 'PUBLISH'
-        , 'PUBACK'
-        , 'PUBREC'
-        , 'PUBREL'
-        , 'PUBCOMP'
-        , 'SUBSCRIBE'
-        , 'SUBACK'
-        , 'UNSUBSCRIBE'
-        , 'UNSUBACK'
-        , 'PINGREQ'
-        , 'PINGRESP'
-        , 'DISCONNECT'
-        , 'AUTH'
-        }).
-
 -type(connect() :: #mqtt_packet_connect{}).
 -type(publish() :: #mqtt_packet_publish{}).
 -type(subscribe() :: #mqtt_packet_subscribe{}).
@@ -520,4 +502,3 @@ format_password(_Password) -> '******'.
 i(true)  -> 1;
 i(false) -> 0;
 i(I) when is_integer(I) -> I.
-

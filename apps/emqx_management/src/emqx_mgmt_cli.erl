@@ -412,7 +412,7 @@ log(_) ->
 %% @doc Trace Command
 
 trace(["list"]) ->
-    lists:foreach(fun({{Who, Name}, {Level, LogFile}}) ->
+    lists:foreach(fun({{Who, Name, _}, {Level, LogFile}}) ->
                 emqx_ctl:print("Trace(~s=~s, level=~s, destination=~p)~n", [Who, Name, Level, LogFile])
             end, emqx_tracer:lookup_traces());
 
@@ -441,8 +441,9 @@ trace(_) ->
                     {"trace start topic  <Topic>    <File> [<Level>] ", "Traces for a topic"},
                     {"trace stop  topic  <Topic> ", "Stop tracing for a topic"}]).
 
+-dialyzer({nowarn_function, [trace_on/4, trace_off/2]}).
 trace_on(Who, Name, Level, LogFile) ->
-    case emqx_tracer:start_trace({Who, iolist_to_binary(Name)}, Level, LogFile) of
+    case emqx_tracer:start_trace(Who, Name, Level, LogFile) of
         ok ->
             emqx_ctl:print("trace ~s ~s successfully~n", [Who, Name]);
         {error, Error} ->
@@ -450,7 +451,7 @@ trace_on(Who, Name, Level, LogFile) ->
     end.
 
 trace_off(Who, Name) ->
-    case emqx_tracer:stop_trace({Who, iolist_to_binary(Name)}) of
+    case emqx_tracer:stop_trace(Who, Name) of
         ok ->
             emqx_ctl:print("stop tracing ~s ~s successfully~n", [Who, Name]);
         {error, Error} ->
