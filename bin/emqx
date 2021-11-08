@@ -27,7 +27,6 @@ export EMU="beam"
 export PROGNAME="erl"
 DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
 ERTS_LIB_DIR="$ERTS_DIR/../lib"
-MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
 
 # Echo to stderr on errors
 echoerr() { echo "$*" 1>&2; }
@@ -409,6 +408,7 @@ case $NAME in
         NAME=$NAME@$(relx_get_nodename)
         ;;
 esac
+MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
 
 # Check the first argument for instructions
 case "$1" in

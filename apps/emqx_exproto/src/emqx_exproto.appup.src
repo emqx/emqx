@@ -1,31 +1,26 @@
-%% -*-: erlang -*-
+%% -*- mode: erlang -*-
 {VSN,
- [
-    {"4.3.1", [
-      {load_module, emqx_exproto_gsvr, brutal_purge, soft_purge, []},
-      {load_module, emqx_exproto_gcli, brutal_purge, soft_purge, []},
-      {load_module, emqx_exproto_channel, brutal_purge, soft_purge, []}
-    ]},
-    {"4.3.0", [
-      {load_module, emqx_exproto_gsvr, brutal_purge, soft_purge, []},
-      {load_module, emqx_exproto_gcli, brutal_purge, soft_purge, []},
-      {load_module, emqx_exproto_conn, brutal_purge, soft_purge, []},
-      {load_module, emqx_exproto_channel, brutal_purge, soft_purge, []}
-    ]},
-    {<<".*">>, []}
- ],
- [
-    {"4.3.1", [
-      {load_module, emqx_exproto_gsvr, brutal_purge, soft_purge, []},
-      {load_module, emqx_exproto_gcli, brutal_purge, soft_purge, []},
-      {load_module, emqx_exproto_channel, brutal_purge, soft_purge, []}
-    ]},
-    {"4.3.0", [
-      {load_module, emqx_exproto_gsvr, brutal_purge, soft_purge, []},
-      {load_module, emqx_exproto_gcli, brutal_purge, soft_purge, []},
-      {load_module, emqx_exproto_conn, brutal_purge, soft_purge, []},
-      {load_module, emqx_exproto_channel, brutal_purge, soft_purge, []}
-    ]},
-    {<<".*">>, []}
- ]
-}.
+  [{"4.3.3",
+    [{load_module,emqx_exproto_conn,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
+   {"4.3.2",
+    [{load_module,emqx_exproto_conn,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
+   {<<"4.3.[0-1]">>,
+    [{load_module,emqx_exproto_gsvr,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exproto_gcli,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exproto_conn,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}],
+  [{"4.3.3",
+    [{load_module,emqx_exproto_conn,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
+   {"4.3.2",
+    [{load_module,emqx_exproto_conn,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
+   {<<"4.3.[0-1]">>,
+    [{load_module,emqx_exproto_gsvr,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exproto_gcli,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exproto_conn,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}]}.

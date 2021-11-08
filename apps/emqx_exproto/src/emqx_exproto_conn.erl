@@ -115,7 +115,7 @@ start_link(esockd_transport, Sock, Options) ->
 %%--------------------------------------------------------------------
 
 %% @doc Get infos of the connection/channel.
--spec(info(pid()|state()) -> emqx_types:infos()).
+-spec(info(pid() | state()) -> emqx_types:infos()).
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
 info(State = #state{channel = Channel}) ->
@@ -137,7 +137,7 @@ info(sockstate, #state{sockstate = SockSt}) ->
 info(active_n, #state{active_n = ActiveN}) ->
     ActiveN.
 
--spec(stats(pid()|state()) -> emqx_types:stats()).
+-spec(stats(pid() | state()) -> emqx_types:stats()).
 stats(CPid) when is_pid(CPid) ->
     call(CPid, stats);
 stats(#state{socket  = Socket,
@@ -233,7 +233,11 @@ init(Parent, WrappedSock, Peername0, Options) ->
     case esockd_wait(WrappedSock) of
         {ok, NWrappedSock} ->
             Peername = esockd_peername(NWrappedSock, Peername0),
-            run_loop(Parent, init_state(NWrappedSock, Peername, Options));
+            try
+                run_loop(Parent, init_state(NWrappedSock, Peername, Options))
+            catch
+                throw : nopermission -> erlang:exit(normal)
+            end;
         {error, Reason} ->
             ok = esockd_close(WrappedSock),
             exit_on_sock_error(Reason)
@@ -337,7 +341,7 @@ cancel_stats_timer(State) -> State.
 
 process_msg([], Parent, State) -> recvloop(Parent, State);
 
-process_msg([Msg|More], Parent, State) ->
+process_msg([Msg | More], Parent, State) ->
     case catch handle_msg(Msg, State) of
         ok ->
             process_msg(More, Parent, State);
@@ -413,7 +417,7 @@ handle_msg({Passive, _Sock}, State)
 
 handle_msg(Deliver = {deliver, _Topic, _Msg},
            State = #state{active_n = ActiveN}) ->
-    Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
+    Delivers = [Deliver | emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 
 %% Something sent
@@ -601,9 +605,9 @@ handle_outgoing(IoData, State = #state{socket = Socket}) ->
 handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
     case activate_socket(State) of
         {ok, NState = #state{sockstate = NewSst}} ->
-            if OldSst =/= NewSst ->
-                   {ok, {event, NewSst}, NState};
-               true -> {ok, NState}
+            case OldSst =/= NewSst of
+                true -> {ok, {event, NewSst}, NState};
+                false -> {ok, NState}
             end;
         {error, Reason} ->
             handle_info({sock_error, Reason}, State)

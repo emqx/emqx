@@ -94,7 +94,10 @@
 -type(ver() :: ?MQTT_PROTO_V3
              | ?MQTT_PROTO_V4
              | ?MQTT_PROTO_V5
-             | non_neg_integer()).
+             | non_neg_integer()
+             %% Some non-MQTT versions of protocol may be a binary type
+             | binary()
+             ).
 
 -type(qos() :: ?QOS_0 | ?QOS_1 | ?QOS_2).
 -type(qos_name() :: qos0 | at_most_once |
