@@ -131,7 +131,8 @@ channel_opts(Opts) ->
                              transport_opts => SslOpts}};
                      _ -> #{}
                  end,
-    {SvrAddr, ClientOpts}.
+    NClientOpts = ClientOpts#{pool_size => emqx_exhook_mngr:get_pool_size()},
+    {SvrAddr, NClientOpts}.
 
 format_http_uri(Scheme, Host0, Port) ->
     Host = case is_tuple(Host0) of
