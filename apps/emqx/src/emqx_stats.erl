@@ -233,7 +233,7 @@ handle_cast({update_interval, Update = #update{name = Name}},
                                       name => Name
                                      }),
                      State;
-                 false -> State#state{updates = [Update|Updates]}
+                 false -> State#state{updates = [Update | Updates]}
              end,
     {noreply, NState};
 

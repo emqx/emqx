@@ -102,6 +102,11 @@
 
 -define(T_TAKEOVER, 15000).
 
+%% linting overrides
+-elvis([ {elvis_style, invalid_dynamic_call, #{ignore => [emqx_cm]}}
+       , {elvis_style, god_modules, #{ignore => [emqx_cm]}}
+       ]).
+
 %% @doc Start the channel manager.
 -spec(start_link() -> startlink_ret()).
 start_link() ->
@@ -245,7 +250,10 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                                      pendings => Pendings}};
                           {living, ConnMod, ChanPid, Session} ->
                               ok = emqx_session:resume(ClientInfo, Session),
-                              Session1 = emqx_persistent_session:persist(ClientInfo, ConnInfo, Session),
+                              Session1 = emqx_persistent_session:persist( ClientInfo
+                                                                        , ConnInfo
+                                                                        , Session
+                                                                        ),
                               Pendings = ConnMod:call(ChanPid, {takeover, 'end'}, ?T_TAKEOVER),
                               register_channel(ClientId, Self, ConnInfo),
                               {ok, #{session  => Session1,
@@ -254,12 +262,18 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                           {expired, OldSession} ->
                               _ = emqx_persistent_session:discard(ClientId, OldSession),
                               Session = create_session(ClientInfo, ConnInfo),
-                              Session1 = emqx_persistent_session:persist(ClientInfo, ConnInfo, Session),
+                              Session1 = emqx_persistent_session:persist( ClientInfo
+                                                                        , ConnInfo
+                                                                        , Session
+                                                                        ),
                               register_channel(ClientId, Self, ConnInfo),
                               {ok, #{session => Session1, present => false}};
                           none ->
                               Session = create_session(ClientInfo, ConnInfo),
-                              Session1 = emqx_persistent_session:persist(ClientInfo, ConnInfo, Session),
+                              Session1 = emqx_persistent_session:persist( ClientInfo
+                                                                        , ConnInfo
+                                                                        , Session
+                                                                        ),
                               register_channel(ClientId, Self, ConnInfo),
                               {ok, #{session => Session1, present => false}}
                       end
@@ -309,7 +323,7 @@ takeover_session(ClientId) ->
         [ChanPid] ->
             takeover_session(ClientId, ChanPid);
         ChanPids ->
-            [ChanPid|StalePids] = lists:reverse(ChanPids),
+            [ChanPid | StalePids] = lists:reverse(ChanPids),
             ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
             lists:foreach(fun(StalePid) ->
                                   catch discard_session(ClientId, StalePid)
@@ -374,7 +388,7 @@ kick_session(ClientId) ->
         [ChanPid] ->
             kick_session(ClientId, ChanPid);
         ChanPids ->
-            [ChanPid|StalePids] = lists:reverse(ChanPids),
+            [ChanPid | StalePids] = lists:reverse(ChanPids),
             ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
             lists:foreach(fun(StalePid) ->
                                   catch discard_session(ClientId, StalePid)

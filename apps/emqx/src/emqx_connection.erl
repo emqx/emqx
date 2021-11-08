@@ -149,7 +149,7 @@ start_link(Transport, Socket, Options) ->
 %%--------------------------------------------------------------------
 
 %% @doc Get infos of the connection/channel.
--spec(info(pid()|state()) -> emqx_types:infos()).
+-spec(info(pid() | state()) -> emqx_types:infos()).
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
 info(State = #state{channel = Channel}) ->
@@ -176,7 +176,7 @@ info(limiter, #state{limiter = Limiter}) ->
     maybe_apply(fun emqx_limiter:info/1, Limiter).
 
 %% @doc Get stats of the connection/channel.
--spec(stats(pid()|state()) -> emqx_types:stats()).
+-spec(stats(pid() | state()) -> emqx_types:stats()).
 stats(CPid) when is_pid(CPid) ->
     call(CPid, stats);
 stats(#state{transport = Transport,
@@ -373,7 +373,7 @@ cancel_stats_timer(State) -> State.
 
 process_msg([], State) ->
     {ok, State};
-process_msg([Msg|More], State) ->
+process_msg([Msg | More], State) ->
     try
         case handle_msg(Msg, State) of
             ok ->
@@ -475,7 +475,7 @@ handle_msg({Passive, _Sock}, State)
 handle_msg(Deliver = {deliver, _Topic, _Msg}, #state{
         listener = {Type, Listener}} = State) ->
     ActiveN = get_active_n(Type, Listener),
-    Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
+    Delivers = [Deliver | emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 
 %% Something sent
@@ -649,7 +649,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             {Packets, State#state{parse_state = NParseState}};
         {ok, Packet, Rest, NParseState} ->
             NState = State#state{parse_state = NParseState},
-            parse_incoming(Rest, [Packet|Packets], NState)
+            parse_incoming(Rest, [Packet | Packets], NState)
     catch
         throw : ?FRAME_PARSE_ERROR(Reason) ->
             ?SLOG(info, #{ reason => Reason
