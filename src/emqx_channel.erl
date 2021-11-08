@@ -1536,6 +1536,8 @@ ensure_connected(Channel = #channel{conninfo = ConnInfo,
                                     clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
+    ChanPid = self(),
+    emqx_cm:mark_channel_connected(ChanPid),
     Channel#channel{conninfo   = NConnInfo,
                     conn_state = connected
                    }.
@@ -1624,6 +1626,8 @@ ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
                                                clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
+    ChanPid = self(),
+    emqx_cm:mark_channel_disconnected(ChanPid),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
 %%--------------------------------------------------------------------
@@ -1725,4 +1729,3 @@ flag(false) -> 0.
 set_field(Name, Value, Channel) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, channel)),
     setelement(Pos+1, Channel, Value).
-
