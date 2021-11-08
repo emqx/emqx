@@ -94,6 +94,9 @@
          awaiting_rel_max
         ]).
 
+-define(CHANMOCK(P), {exproto_anonymous_client, P}).
+-define(CHAN_CONN_TAB, emqx_channel_conn).
+
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------
@@ -103,7 +106,7 @@
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
 
--spec(info(list(atom())|atom(), channel()) -> term()).
+-spec(info(list(atom()) | atom(), channel()) -> term()).
 info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
@@ -155,13 +158,19 @@ init(ConnInfo = #{socktype := Socktype,
                        conn_state = connecting,
                        timers = #{}
                       },
-
-    Req = #{conninfo =>
-            peercert(Peercert,
-                     #{socktype => socktype(Socktype),
-                       peername => address(Peername),
-                       sockname => address(Sockname)})},
-    try_dispatch(on_socket_created, wrap(Req), Channel).
+    case emqx_hooks:run_fold('client.connect', [NConnInfo], #{}) of
+        {error, _Reason} ->
+            throw(nopermission);
+        _ ->
+            ConnMod = maps:get(conn_mod, NConnInfo),
+            true = ets:insert(?CHAN_CONN_TAB, {?CHANMOCK(self()), ConnMod}),
+            Req = #{conninfo =>
+                    peercert(Peercert,
+                             #{socktype => socktype(Socktype),
+                               peername => address(Peername),
+                               sockname => address(Sockname)})},
+            try_dispatch(on_socket_created, wrap(Req), Channel)
+    end.
 
 %% @private
 peercert(NoSsl, ConnInfo) when NoSsl == nossl;
@@ -283,6 +292,7 @@ handle_call({auth, ClientInfo0, Password},
                 emqx_metrics:inc('client.auth.anonymous'),
             NClientInfo = maps:merge(ClientInfo1, AuthResult),
             NChannel = Channel1#channel{clientinfo = NClientInfo},
+            clean_anonymous_clients(),
             case emqx_cm:open_session(true, NClientInfo, NConnInfo) of
                 {ok, _Session} ->
                     ?LOG(debug, "Client ~s (Username: '~s') authorized successfully!",
@@ -399,11 +409,15 @@ handle_info(Info, Channel) ->
 
 -spec(terminate(any(), channel()) -> channel()).
 terminate(Reason, Channel) ->
+    clean_anonymous_clients(),
     Req = #{reason => stringfy(Reason)},
     try_dispatch(on_socket_closed, wrap(Req), Channel).
 
 is_anonymous(#{anonymous := true}) -> true;
 is_anonymous(_AuthResult)          -> false.
+
+clean_anonymous_clients() ->
+    ets:delete(?CHAN_CONN_TAB, ?CHANMOCK(self())).
 
 %%--------------------------------------------------------------------
 %% Sub/UnSub
@@ -577,7 +591,6 @@ default_conninfo(ConnInfo) ->
     ConnInfo#{clean_start => true,
               clientid => undefined,
               username => undefined,
-              conn_mod => undefined,
               conn_props => #{},
               connected => true,
               connected_at => erlang:system_time(millisecond),
