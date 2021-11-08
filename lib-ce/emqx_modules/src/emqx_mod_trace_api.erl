@@ -123,7 +123,7 @@ download_zip_log(#{name := Name}, _Param) ->
             ZipFileName = ZipDir ++ TraceLog,
             {ok, ZipFile} = zip:zip(ZipFileName, Zips),
             emqx_mod_trace:delete_files_after_send(ZipFileName, Zips),
-            minirest:return_file(ZipFile);
+            {ok, #{}, {sendfile, 0, filelib:file_size(ZipFile), ZipFile}};
         {error, Reason} ->
             return({error, Reason})
     end.

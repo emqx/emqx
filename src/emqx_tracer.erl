@@ -22,7 +22,9 @@
 -logger_header("[Tracer]").
 
 %% APIs
--export([ trace/2
+-export([ trace_publish/1
+        , trace_subscribe/3
+        , trace_unsubscribe/2
         , start_trace/3
         , start_trace/4
         , lookup_traces/0
@@ -80,14 +82,26 @@
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
-trace(publish, #message{topic = <<"$SYS/", _/binary>>}) ->
+trace_publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     %% Do not trace '$SYS' publish
     ignore;
-trace(publish, #message{from = From, topic = Topic, payload = Payload})
+trace_publish(#message{from = From, topic = Topic, payload = Payload})
         when is_binary(From); is_atom(From) ->
     emqx_logger:info(#{topic => Topic,
                        mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY} },
                      "PUBLISH to ~s: ~0p", [Topic, Payload]).
+
+trace_subscribe(<<"$SYS/", _/binary>>, _SubId, _SubOpts) -> ignore;
+trace_subscribe(Topic, SubId, SubOpts) ->
+    emqx_logger:info(#{topic => Topic,
+        mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}},
+        "~s SUBSCRIBE ~s: Options: ~0p", [SubId, Topic, SubOpts]).
+
+trace_unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) -> ignore;
+trace_unsubscribe(Topic, SubOpts) ->
+    emqx_logger:info(#{topic => Topic, mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}},
+        "~s UNSUBSCRIBE ~s: Options: ~0p",
+        [maps:get(subid, SubOpts, ""), Topic, SubOpts]).
 
 -spec(start_trace(clientid | topic, emqx_types:clientid() | emqx_types:topic(), logger:level() | all, string()) ->
     ok | {error, term()}).

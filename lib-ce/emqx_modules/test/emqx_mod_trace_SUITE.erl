@@ -22,7 +22,6 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
--import(emqx_ct_http, [request_api/3, request_api/5]).
 
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v4").
@@ -325,7 +324,7 @@ t_http_test(_Config) ->
     ?assertEqual(#{<<"code">> => 0, <<"data">> => []}, json(Empty)),
     %% create
     ErrorTrace = #{},
-    {ok, Error} = request_api(post, api_path("trace"), [], Header, ErrorTrace),
+    {ok, Error} = request_api(post, api_path("trace"), Header, ErrorTrace),
     ?assertEqual(#{<<"message">> => <<"unknown field: {}">>, <<"code">> => <<"INCORRECT_PARAMS">>}, json(Error)),
 
     Name = <<"test-name">>,
@@ -336,7 +335,7 @@ t_http_test(_Config) ->
         {<<"topic">>, <<"/x/y/z">>}
     ],
 
-    {ok, Create} = request_api(post, api_path("trace"), [], Header, Trace),
+    {ok, Create} = request_api(post, api_path("trace"), Header, Trace),
     ?assertEqual(#{<<"code">> => 0}, json(Create)),
 
     {ok, List} = request_api(get, api_path("trace"), Header),
@@ -344,7 +343,7 @@ t_http_test(_Config) ->
     ?assertEqual(Name, maps:get(<<"name">>, Data)),
 
     %% update
-    {ok, Update} = request_api(put, api_path("trace/test-name/disable"), [], Header, #{}),
+    {ok, Update} = request_api(put, api_path("trace/test-name/disable"), Header, #{}),
     ?assertEqual(#{<<"code">> => 0,
         <<"data">> => #{<<"enable">> => false,
             <<"name">> => <<"test-name">>}}, json(Update)),
@@ -365,7 +364,7 @@ t_http_test(_Config) ->
     ?assertEqual(#{<<"code">> => 0, <<"data">> => []}, json(List2)),
 
     %% clear
-    {ok, Create1} = request_api(post, api_path("trace"), [], Header, Trace),
+    {ok, Create1} = request_api(post, api_path("trace"), Header, Trace),
     ?assertEqual(#{<<"code">> => 0}, json(Create1)),
 
     {ok, Clear} = request_api(delete, api_path("trace"), Header),
@@ -380,12 +379,16 @@ t_download_log(_Config) ->
     ClientId = <<"client-test">>,
     Now = erlang:system_time(second),
     Start = to_rfc3339(Now),
-    ok = emqx_mod_trace:create([{<<"name">>, <<"test_client_id">>},
+    Name = <<"test_client_id">>,
+    ok = emqx_mod_trace:create([{<<"name">>, Name},
         {<<"type">>, <<"clientid">>}, {<<"clientid">>, ClientId}, {<<"start_at">>, Start}]),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     [begin _ = emqtt:ping(Client) end ||_ <- lists:seq(1, 10)],
     ct:sleep(100),
+
+    {ok, #{}, {sendfile, 0, _ZipFileSize, _ZipFile}} =
+        emqx_mod_trace_api:download_zip_log(#{name => Name}, []),
     Header = auth_header_(),
     {ok, ZipBin} = request_api(get, api_path("trace/test_client_id/download"), Header),
     {ok, ZipHandler} = zip:zip_open(ZipBin),
@@ -406,7 +409,7 @@ t_stream_log(_Config) ->
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     [begin _ = emqtt:ping(Client) end ||_ <- lists:seq(1, 10)],
-    ct:sleep(100),
+    ct:sleep(500),
     Header = auth_header_(),
     {ok, Binary} = request_api(get, api_path("trace/test_client_id/log?_bytes=10"), Header),
     #{<<"code">> := 0, <<"data">> := #{<<"meta">> := Meta, <<"bin">> := Bin}} = json(Binary),
@@ -428,6 +431,26 @@ auth_header_() ->
 auth_header_(User, Pass) ->
     Encoded = base64:encode_to_string(lists:append([User, ":", Pass])),
     {"Authorization", "Basic " ++ Encoded}.
+
+request_api(Method, Url, Auth) -> do_request_api(Method, {Url, [Auth]}).
+
+request_api(Method, Url, Auth, Body) ->
+    Request = {Url, [Auth], "application/json", emqx_json:encode(Body)},
+    do_request_api(Method, Request).
+
+do_request_api(Method, Request) ->
+    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
+    case httpc:request(Method, Request, [{max_keep_alive_length, 1}], [{body_format, binary}]) of
+        {error, socket_closed_remotely} ->
+            {error, socket_closed_remotely};
+        {error,{shutdown, server_closed}} ->
+            {error, server_closed};
+        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return} }
+            when Code =:= 200 orelse Code =:= 201 ->
+            {ok, Return};
+        {ok, {Reason, _, _}} ->
+            {error, Reason}
+    end.
 
 api_path(Path) ->
     ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION, Path]).

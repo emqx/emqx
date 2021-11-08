@@ -126,6 +126,7 @@ subscribe(Topic, SubOpts) when is_binary(Topic), is_map(SubOpts) ->
 -spec(subscribe(emqx_topic:topic(), emqx_types:subid(), emqx_types:subopts()) -> ok).
 subscribe(Topic, SubId, SubOpts0) when is_binary(Topic), ?is_subid(SubId), is_map(SubOpts0) ->
     SubOpts = maps:merge(?DEFAULT_SUBOPTS, SubOpts0),
+    _ = emqx_tracer:trace_subscribe(Topic, SubId, SubOpts),
     case ets:member(?SUBOPTION, {SubPid = self(), Topic}) of
         false -> %% New
             ok = emqx_broker_helper:register_sub(SubPid, SubId),
@@ -171,6 +172,7 @@ unsubscribe(Topic) when is_binary(Topic) ->
     SubPid = self(),
     case ets:lookup(?SUBOPTION, {SubPid, Topic}) of
         [{_, SubOpts}] ->
+            emqx_tracer:trace_unsubscribe(Topic, SubOpts),
             _ = emqx_broker_helper:reclaim_seq(Topic),
             do_unsubscribe(Topic, SubPid, SubOpts);
         [] -> ok
@@ -199,7 +201,7 @@ do_unsubscribe(Group, Topic, SubPid, _SubOpts) ->
 
 -spec(publish(emqx_types:message()) -> emqx_types:publish_result()).
 publish(Msg) when is_record(Msg, message) ->
-    _ = emqx_tracer:trace(publish, Msg),
+    _ = emqx_tracer:trace_publish(Msg),
     emqx_message:is_sys(Msg) orelse emqx_metrics:inc('messages.publish'),
     case emqx_hooks:run_fold('message.publish', [], emqx_message:clean_dup(Msg)) of
         #message{headers = #{allow_publish := false}} ->
@@ -498,4 +500,3 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
