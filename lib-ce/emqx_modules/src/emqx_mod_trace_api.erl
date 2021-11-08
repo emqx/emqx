@@ -147,20 +147,21 @@ collect_trace_file(TraceLog) ->
     BadNodes =/= [] andalso ?LOG(error, "download log rpc failed on ~p", [BadNodes]),
     File.
 
+%% _page as position and _limit as bytes for front-end reusing components
 stream_log_file(#{name := Name}, Params) ->
     Node0 = proplists:get_value(<<"node">>, Params, atom_to_binary(node())),
-    Position0 = proplists:get_value(<<"_position">>, Params, <<"0">>),
-    Bytes0 = proplists:get_value(<<"_bytes">>, Params, <<"500">>),
+    Position0 = proplists:get_value(<<"_page">>, Params, <<"0">>),
+    Bytes0 = proplists:get_value(<<"_limit">>, Params, <<"500">>),
     Node = binary_to_existing_atom(Node0),
     Position = binary_to_integer(Position0),
     Bytes = binary_to_integer(Bytes0),
     case rpc:call(Node, ?MODULE, read_trace_file, [Name, Position, Bytes]) of
         {ok, Bin} ->
-            Meta = #{<<"_position">> => Position + byte_size(Bin), <<"_bytes">> => Bytes},
-            return({ok, #{meta => Meta, bin => Bin}});
+            Meta = #{<<"_page">> => Position + byte_size(Bin), <<"_limit">> => Bytes},
+            return({ok, #{meta => Meta, items => Bin}});
         eof ->
-            Meta = #{<<"_position">> => Position, <<"_bytes">> => Bytes},
-            return({ok, #{meta => Meta, bin => <<"">>}});
+            Meta = #{<<"_page">> => Position, <<"_limit">> => Bytes},
+            return({ok, #{meta => Meta, items => <<"">>}});
         {error, Reason} ->
             logger:log(error, "read_file_failed by ~p", [{Name, Reason, Position, Bytes}]),
             return({error, Reason})
