@@ -9,7 +9,8 @@ set +e
 EMQX_TEST_DB_BACKEND=$1
 if [ "$EMQX_TEST_DB_BACKEND" = "rlog" ]
 then
-  # target only replica to avoid replication races
+  # TODO: target only replica to avoid replication races
+  # see: https://github.com/emqx/emqx/issues/6094
   TARGET_HOST="node2.emqx.io"
 else
   # use loadbalancer
