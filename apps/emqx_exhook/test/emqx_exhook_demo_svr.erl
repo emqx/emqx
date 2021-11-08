@@ -306,8 +306,8 @@ on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
             {ok, #{type => 'STOP_AND_RETURN',
                    value => {message, NMsg}}, Md};
         <<"gooduser">> ->
-            NMsg = Msg#{topic => From,
-                        payload => From},
+            NMsg = allow(Msg#{topic => From,
+                              payload => From}),
             {ok, #{type => 'STOP_AND_RETURN',
                    value => {message, NMsg}}, Md};
         _ ->
@@ -316,6 +316,11 @@ on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
 
 deny(Msg) ->
     NHeader = maps:put(<<"allow_publish">>, <<"false">>,
+                       maps:get(headers, Msg, #{})),
+    maps:put(headers, NHeader, Msg).
+
+allow(Msg) ->
+    NHeader = maps:put(<<"allow_publish">>, <<"true">>,
                        maps:get(headers, Msg, #{})),
     maps:put(headers, NHeader, Msg).
 
