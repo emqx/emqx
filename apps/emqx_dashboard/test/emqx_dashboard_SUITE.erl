@@ -37,7 +37,18 @@
 
 -define(BASE_PATH, "api").
 
--define(OVERVIEWS, ['alarms/activated', 'alarms/deactivated', banned, brokers, stats, metrics, listeners, clients, subscriptions, routes, plugins]).
+-define(OVERVIEWS, ['alarms/activated',
+                    'alarms/deactivated',
+                    banned,
+                    brokers,
+                    stats,
+                    metrics,
+                    listeners,
+                    clients,
+                    subscriptions,
+                    routes,
+                    plugins
+                   ]).
 
 all() ->
 %%    TODO: V5 API
@@ -45,7 +56,8 @@ all() ->
     [t_cli, t_lookup_by_username_jwt, t_clean_expired_jwt].
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([emqx_management, emqx_dashboard],fun set_special_configs/1),
+    emqx_common_test_helpers:start_apps([emqx_management, emqx_dashboard],
+        fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
@@ -53,7 +65,8 @@ end_per_suite(_Config) ->
     mria:stop().
 
 set_special_configs(emqx_management) ->
-    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
+    Listeners = [#{protocol => http, port => 8081}],
+    emqx_config:put([emqx_management], #{listeners => Listeners,
         applications =>[#{id => "admin", secret => "public"}]}),
     ok;
 set_special_configs(_) ->
@@ -62,27 +75,33 @@ set_special_configs(_) ->
 t_overview(_) ->
     mnesia:clear_table(?ADMIN),
     emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"tag">>),
-    [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)), auth_header_()))|| Overview <- ?OVERVIEWS].
+    [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)),
+        auth_header_()))|| Overview <- ?OVERVIEWS].
 
 t_admins_add_delete(_) ->
     mnesia:clear_table(?ADMIN),
-    ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, <<"tag">>),
-    ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, <<"tag1">>),
+    Tag = <<"tag">>,
+    ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, Tag),
+    ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, Tag),
     Admins = emqx_dashboard_admin:all_users(),
     ?assertEqual(2, length(Admins)),
     ok = emqx_dashboard_admin:remove_user(<<"username1">>),
     Users = emqx_dashboard_admin:all_users(),
     ?assertEqual(1, length(Users)),
-    ok = emqx_dashboard_admin:change_password(<<"username">>, <<"password">>, <<"pwd">>),
+    ok = emqx_dashboard_admin:change_password(<<"username">>,
+                                              <<"password">>,
+                                              <<"pwd">>),
     timer:sleep(10),
-    ?assert(request_dashboard(get, api_path("brokers"), auth_header_("username", "pwd"))),
+    Header = auth_header_("username", "pwd"),
+    ?assert(request_dashboard(get, api_path("brokers"), Header)),
 
     ok = emqx_dashboard_admin:remove_user(<<"username">>),
-    ?assertNotEqual(true, request_dashboard(get, api_path("brokers"), auth_header_("username", "pwd"))).
+    ?assertNotEqual(true, request_dashboard(get, api_path("brokers"), Header)).
 
 t_rest_api(_Config) ->
     mnesia:clear_table(?ADMIN),
-    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"administrator">>),
+    Tag = <<"administrator">>,
+    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, Tag),
     {ok, Res0} = http_get("users"),
 
     ?assertEqual([#{<<"username">> => <<"admin">>,
@@ -93,11 +112,15 @@ t_rest_api(_Config) ->
                     end,
     [AssertSuccess(R)
      || R <- [ http_put("users/admin", #{<<"tags">> => <<"a_new_tag">>})
-             , http_post("users", #{<<"username">> => <<"usera">>, <<"password">> => <<"passwd">>})
-             , http_post("auth", #{<<"username">> => <<"usera">>, <<"password">> => <<"passwd">>})
+             , http_post("users", #{<<"username">> => <<"usera">>,
+                                    <<"password">> => <<"passwd">>})
+             , http_post("auth", #{<<"username">> => <<"usera">>,
+                                   <<"password">> => <<"passwd">>})
              , http_delete("users/usera")
-             , http_put("users/admin/change_pwd", #{<<"old_pwd">> => <<"public">>, <<"new_pwd">> => <<"newpwd">>})
-             , http_post("auth", #{<<"username">> => <<"admin">>, <<"password">> => <<"newpwd">>})
+             , http_put("users/admin/change_pwd", #{<<"old_pwd">> => <<"public">>,
+                                                    <<"new_pwd">> => <<"newpwd">>})
+             , http_post("auth", #{<<"username">> => <<"admin">>,
+                                   <<"password">> => <<"newpwd">>})
              ]],
     ok.
 
@@ -106,11 +129,11 @@ t_cli(_Config) ->
     emqx_dashboard_cli:admins(["add", "username", "password"]),
     [#?ADMIN{ username = <<"username">>, pwdhash = <<Salt:4/binary, Hash/binary>>}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
-    ?assertEqual(Hash, erlang:md5(<<Salt/binary, <<"password">>/binary>>)),
+    ?assertEqual(Hash, crypto:hash(sha3_256, <<Salt/binary, <<"password">>/binary>>)),
     emqx_dashboard_cli:admins(["passwd", "username", "newpassword"]),
     [#?ADMIN{username = <<"username">>, pwdhash = <<Salt1:4/binary, Hash1/binary>>}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
-    ?assertEqual(Hash1, erlang:md5(<<Salt1/binary, <<"newpassword">>/binary>>)),
+    ?assertEqual(Hash1, crypto:hash(sha3_256, <<Salt1/binary, <<"newpassword">>/binary>>)),
     emqx_dashboard_cli:admins(["del", "username"]),
     [] = emqx_dashboard_admin:lookup_user(<<"username">>),
     emqx_dashboard_cli:admins(["add", "admin1", "pass1"]),
