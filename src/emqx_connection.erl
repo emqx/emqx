@@ -702,7 +702,7 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
     ok = emqx_metrics:inc('bytes.sent', Oct),
     inc_counter(outgoing_bytes, Oct),
     emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
-    case Transport:async_send(Socket, IoData, [nosuspend]) of
+    case Transport:async_send(Socket, IoData, []) of
         ok -> ok;
         Error = {error, _Reason} ->
             %% Send an inet_reply to postpone handling the error
