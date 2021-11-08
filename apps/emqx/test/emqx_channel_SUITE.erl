@@ -144,6 +144,8 @@ set_test_listenser_confs() ->
 init_per_suite(Config) ->
     %% CM Meck
     ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
+    ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
     %% Access Control Meck
     ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_access_control, authenticate,

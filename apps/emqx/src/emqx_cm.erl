@@ -73,7 +73,11 @@
         ]).
 
 %% Internal export
--export([stats_fun/0]).
+-export([ stats_fun/0
+        , mark_channel_connected/1
+        , mark_channel_disconnected/1
+        , get_connected_client_count/0
+        ]).
 
 -type(chan_pid() :: pid()).
 
@@ -81,11 +85,13 @@
 -define(CHAN_TAB, emqx_channel).
 -define(CHAN_CONN_TAB, emqx_channel_conn).
 -define(CHAN_INFO_TAB, emqx_channel_info).
+-define(CHAN_LIVE_TAB, emqx_channel_live).
 
 -define(CHAN_STATS,
         [{?CHAN_TAB, 'channels.count', 'channels.max'},
          {?CHAN_TAB, 'sessions.count', 'sessions.max'},
-         {?CHAN_CONN_TAB, 'connections.count', 'connections.max'}
+         {?CHAN_CONN_TAB, 'connections.count', 'connections.max'},
+         {?CHAN_LIVE_TAB, 'live_connections.count', 'live_connections.max'}
         ]).
 
 %% Batch drain
@@ -446,8 +452,10 @@ init([]) ->
     ok = emqx_tables:new(?CHAN_TAB, [bag, {read_concurrency, true} | TabOpts]),
     ok = emqx_tables:new(?CHAN_CONN_TAB, [bag | TabOpts]),
     ok = emqx_tables:new(?CHAN_INFO_TAB, [set, compressed | TabOpts]),
+    ok = emqx_tables:new(?CHAN_LIVE_TAB, [set, {write_concurrency, true} | TabOpts]),
     ok = emqx_stats:update_interval(chan_stats, fun ?MODULE:stats_fun/0),
-    {ok, #{chan_pmon => emqx_pmon:new()}}.
+    State = #{chan_pmon => emqx_pmon:new()},
+    {ok, State}.
 
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -456,17 +464,21 @@ handle_call(Req, _From, State) ->
 handle_cast({registered, {ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
     PMon1 = emqx_pmon:monitor(ChanPid, ClientId, PMon),
     {noreply, State#{chan_pmon := PMon1}};
-
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{chan_pmon := PMon}) ->
+    ?tp(emqx_cm_process_down, #{pid => Pid, reason => _Reason}),
     ChanPids = [Pid | emqx_misc:drain_down(?BATCH_SIZE)],
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
+    lists:foreach(
+      fun({ChanPid, _ClientID}) ->
+              mark_channel_disconnected(ChanPid)
+      end,
+      Items),
     ok = emqx_pool:async_submit(fun lists:foreach/2, [fun clean_down/1, Items]),
     {noreply, State#{chan_pmon := PMon1}};
-
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
 
@@ -503,3 +515,18 @@ get_chann_conn_mod(ClientId, ChanPid) when node(ChanPid) == node() ->
 get_chann_conn_mod(ClientId, ChanPid) ->
     rpc_call(node(ChanPid), get_chann_conn_mod, [ClientId, ChanPid]).
 
+mark_channel_connected(ChanPid) ->
+    ?tp(emqx_cm_connected_client_count_inc, #{}),
+    ets:insert_new(?CHAN_LIVE_TAB, {ChanPid, true}),
+    ok.
+
+mark_channel_disconnected(ChanPid) ->
+    ?tp(emqx_cm_connected_client_count_dec, #{}),
+    ets:delete(?CHAN_LIVE_TAB, ChanPid),
+    ok.
+
+get_connected_client_count() ->
+    case ets:info(?CHAN_LIVE_TAB, size) of
+        undefined -> 0;
+        Size -> Size
+    end.
