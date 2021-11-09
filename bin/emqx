@@ -225,7 +225,7 @@ relx_gen_id() {
 # Control a node
 relx_nodetool() {
     command="$1"; shift
-    ERL_FLAGS="$ERL_FLAGS $EPMD_ARG" \
+    ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARG" \
     "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" "$NAME_TYPE" "$NAME" \
                                 -setcookie "$COOKIE" "$command" "$@"
 }
@@ -356,7 +356,7 @@ wait_for() {
 }
 
 IS_BOOT_COMMAND='no'
-case "$1" in
+case "${1:-}" in
     start|start_boot)
         IS_BOOT_COMMAND='yes'
         ;;
@@ -365,6 +365,8 @@ case "$1" in
         ;;
     foreground)
         IS_BOOT_COMMAND='yes'
+        ;;
+    *)
         ;;
 esac
 
@@ -419,7 +421,9 @@ fi
 
 cd "$ROOTDIR"
 
-case "$1" in
+COMMAND="${1:-}"
+
+case "${COMMAND}" in
     start|start_boot)
         # Make sure a node IS not running
         if relx_nodetool "ping" >/dev/null 2>&1; then
@@ -430,11 +434,9 @@ case "$1" in
 
         # this flag passes down to console mode
         # so we know it's intended to be run in daemon mode
-        export _EMQX_START_MODE="$1"
+        export _EMQX_START_MODE="$COMMAND"
 
-        # Save this for later.
-        CMD=$1
-        case "$1" in
+        case "$COMMAND" in
             start)
                 shift
                 START_OPTION="console"
@@ -453,7 +455,7 @@ case "$1" in
         [ "$RUN_PARAM" ] && set -- "$@" "$RUN_PARAM"
 
         # Export the HEART_COMMAND
-        HEART_COMMAND="$RUNNER_SCRIPT $CMD"
+        HEART_COMMAND="$RUNNER_SCRIPT $COMMAND"
         export HEART_COMMAND
 
         ## See: http://erlang.org/doc/man/run_erl.html
@@ -546,17 +548,17 @@ case "$1" in
         ;;
 
     upgrade|downgrade|install|unpack|uninstall)
-        if [ -z "$2" ]; then
+        if [ -z "${2:-}" ]; then
             echo "Missing version argument"
-            echo "Usage: $REL_NAME $1 {version}"
+            echo "Usage: $REL_NAME $COMMAND {version}"
             exit 1
         fi
 
-        COMMAND="$1"; shift
+        shift
 
         assert_node_alive
 
-        ERL_FLAGS="$ERL_FLAGS $EPMD_ARG" \
+        ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARG" \
         exec "$BINDIR/escript" "$ROOTDIR/bin/install_upgrade.escript" \
              "$COMMAND" "{'$REL_NAME', \"$NAME_TYPE\", '$NAME', '$COOKIE'}" "$@"
         ;;
@@ -564,9 +566,9 @@ case "$1" in
     versions)
         assert_node_alive
 
-        COMMAND="$1"; shift
+        shift
 
-        ERL_FLAGS="$ERL_FLAGS $EPMD_ARG" \
+        ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARG" \
         exec "$BINDIR/escript" "$ROOTDIR/bin/install_upgrade.escript" \
              "versions" "{'$REL_NAME', \"$NAME_TYPE\", '$NAME', '$COOKIE'}" "$@"
         ;;
@@ -578,7 +580,7 @@ case "$1" in
         # .boot file typically just $REL_NAME (ie, the app name)
         # however, for debugging, sometimes start_clean.boot is useful.
         # For e.g. 'setup', one may even want to name another boot script.
-        case "$1" in
+        case "$COMMAND" in
             console)
                 if [ -f "$REL_DIR/$REL_NAME.boot" ]; then
                   BOOTFILE="$REL_DIR/$REL_NAME"
@@ -707,7 +709,7 @@ case "$1" in
         relx_nodetool "eval" "$@"
         ;;
     *)
-        relx_usage "$1"
+        relx_usage "$COMMAND"
         exit 1
         ;;
 esac
