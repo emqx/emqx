@@ -945,7 +945,7 @@ handle_info({sock_closed, Reason}, Channel =
         Shutdown -> Shutdown
     end;
 
-handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}) ->
+handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected}) ->
     %% Since sock_closed messages can be generated multiple times,
     %% we can simply ignore errors of this type in the disconnected state.
     %% e.g. when the socket send function returns an error, there is already

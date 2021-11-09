@@ -211,9 +211,9 @@ test_kick_session(Action, Reason) ->
         end,
     {Pid1, _} = spawn_monitor(FakeSessionFun),
     {Pid2, _} = spawn_monitor(FakeSessionFun),
-    ok = emqx_cm:register_channel(ClientId, Pid1, ConnInfo),
-    ok = emqx_cm:register_channel(ClientId, Pid1, ConnInfo),
-    ok = emqx_cm:register_channel(ClientId, Pid2, ConnInfo),
+    ok = emqx_cm:register_channel_(ClientId, Pid1, ConnInfo),
+    ok = emqx_cm:register_channel_(ClientId, Pid1, ConnInfo),
+    ok = emqx_cm:register_channel_(ClientId, Pid2, ConnInfo),
     ?assertEqual([Pid1, Pid2], lists:sort(emqx_cm:lookup_channels(ClientId))),
     case Reason of
         noproc -> exit(Pid1, kill), exit(Pid2, kill);
@@ -225,14 +225,17 @@ test_kick_session(Action, Reason) ->
          end,
     case Reason =:= timeout orelse Reason =:= noproc of
         true ->
-            ?assertEqual(killed, ?WAIT({'DOWN', _, process, Pid1, R}, 2_000, R)),
-            ?assertEqual(killed, ?WAIT({'DOWN', _, process, Pid2, R}, 2_000, R));
+            ?assertEqual(killed, ?WAIT({'DOWN', _, process, Pid1, R}, 2000, R)),
+            ?assertEqual(killed, ?WAIT({'DOWN', _, process, Pid2, R}, 2000, R));
         false ->
-            ?assertEqual(Reason, ?WAIT({'DOWN', _, process, Pid1, R}, 2_000, R)),
-            ?assertEqual(Reason, ?WAIT({'DOWN', _, process, Pid2, R}, 2_000, R))
+            ?assertEqual(Reason, ?WAIT({'DOWN', _, process, Pid1, R}, 2000, R)),
+            ?assertEqual(Reason, ?WAIT({'DOWN', _, process, Pid2, R}, 2000, R))
     end,
     ok = flush_emqx_pool(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
+
+rand_client_id() ->
+    list_to_binary("client-id-" ++ integer_to_list(erlang:system_time())).
 
 %% Channel deregistration is delegated to emqx_pool as a sync tasks.
 %% The emqx_pool is pool of workers, and there is no way to know

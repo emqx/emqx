@@ -72,6 +72,9 @@
 %% Internal export
 -export([stats_fun/0, clean_down/1]).
 
+%% Test export
+-export([register_channel_/3]).
+
 -type(chan_pid() :: pid()).
 
 %% Tables for channel management.
@@ -88,14 +91,12 @@
 %% Batch drain
 -define(BATCH_SIZE, 100000).
 
--define(T_TAKEOVER, 15000).
-
 %% Server name
 -define(CM, ?MODULE).
 
--define(T_KICK, 5_000).
--define(T_GET_INFO, 5_000).
--define(T_TAKEOVER, 15_000).
+-define(T_KICK, 5000).
+-define(T_GET_INFO, 5000).
+-define(T_TAKEOVER, 15000).
 
 %% @doc Start the channel manager.
 -spec(start_link() -> startlink_ret()).
@@ -298,28 +299,26 @@ kick_or_kill(Action, ConnMod, Pid) ->
         ok = apply(ConnMod, call, [Pid, Action, ?T_KICK])
     catch
         _ : noproc -> % emqx_ws_connection: call
-            ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action});
+            ?LOG(debug, "session_already_gone: ~p, action: ~p", [Pid, Action]),
+            ok;
         _ : {noproc, _} -> % emqx_connection: gen_server:call
-            ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action});
+            ?LOG(debug, "session_already_gone: ~p, action: ~p", [Pid, Action]),
+            ok;
         _ : {shutdown, _} ->
-            ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action});
+            ?LOG(debug, "session_already_shutdown: ~p, action: ~p", [Pid, Action]),
+            ok;
         _ : {{shutdown, _}, _} ->
-            ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action});
+            ?LOG(debug, "session_already_shutdown: ~p, action: ~p", [Pid, Action]),
+            ok;
         _ : {timeout, {gen_server, call, _}} ->
-            ?tp(warning, "session_kick_timeout",
-                #{pid => Pid,
-                  action => Action,
-                  stale_channel => stale_channel_info(Pid)
-                 }),
+            ?LOG(warning, "session_kick_timeout: ~p, action: ~p, "
+                          "stale_channel: ~p",
+                          [Pid, Action, stale_channel_info(Pid)]),
             ok = force_kill(Pid);
-        _ : Error : St ->
-            ?tp(error, "session_kick_exception",
-                #{pid => Pid,
-                  action => Action,
-                  reason => Error,
-                  stacktrace => St,
-                  stale_channel => stale_channel_info(Pid)
-                 }),
+        _ : Error ->
+            ?LOG(error, "session_kick_exception: ~p, action: ~p, "
+                        "reason: ~p, stacktrace: ~p, stale_channel: ~p",
+                        [Pid, Action, Error, erlang:get_stacktrace(), stale_channel_info(Pid)]),
             ok = force_kill(Pid)
     end.
 
