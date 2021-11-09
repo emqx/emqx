@@ -17,7 +17,9 @@
         , monitor_nodes_counters/2
         , current_counters/2
         ]).
-
+-export([ sampling/1,
+          sampling/2
+        ]).
 -define(COUNTERS, [ connection
                   , route
                   , subscriptions
@@ -174,8 +176,10 @@ format_current_metrics(Collects) ->
     format_current_metrics(Collects, {0,0,0,0}).
 format_current_metrics([], Acc) ->
     Acc;
-format_current_metrics([{Received, Sent, Sub, Conn} | Collects], {Received1, Sent1, Sub1, Conn1}) ->
-    format_current_metrics(Collects, {Received1 + Received, Sent1 + Sent, Sub1 + Sub, Conn1 + Conn}).
+format_current_metrics([{Received, Sent, Sub, Conn} | Collects],
+    {Received1, Sent1, Sub1, Conn1}) ->
+    format_current_metrics(Collects,
+        {Received1 + Received, Sent1 + Sent, Sub1 + Sub, Conn1 + Conn}).
 
 
 %%%==============================================================================================
@@ -260,18 +264,20 @@ key_replace([Term | List], All, Comparison, Default) ->
     end.
 
 sampling(Node) when Node =:= node() ->
-    Time = emqx_dashboard_collection:get_local_time() - 7200000,
-    All = dets:select(emqx_collect, [{{mqtt_collect,'$1','$2'}, [{'>', '$1', Time}], ['$_']}]),
+    All = select_collect_by_time(),
     format(lists:sort(All));
 sampling(Node) ->
     rpc:call(Node, ?MODULE, sampling, [Node]).
 
 sampling(Node, Counter) when Node =:= node() ->
-    Time = emqx_dashboard_collection:get_local_time() - 7200000,
-    All = dets:select(emqx_collect, [{{mqtt_collect,'$1','$2'}, [{'>', '$1', Time}], ['$_']}]),
+    All = select_collect_by_time(),
     format_single(lists:sort(All), Counter);
 sampling(Node, Counter) ->
     rpc:call(Node, ?MODULE, sampling, [Node, Counter]).
+
+select_collect_by_time() ->
+    Time = emqx_dashboard_collection:get_local_time() - 7200000,
+    dets:select(emqx_collect, [{{mqtt_collect, '$1', '$2'}, [{'>', '$1', Time}], ['$_']}]).
 
 format(Collects) ->
     format(Collects, {[],[],[],[],[],[]}).
