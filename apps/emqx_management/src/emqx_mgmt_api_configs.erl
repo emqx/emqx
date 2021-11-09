@@ -147,7 +147,7 @@ config_reset(post, _Params, Req) ->
 
 configs(get, Params, _Req) ->
     Node = maps:get(node, Params, node()),
-    Res = rpc:call(Node, ?MODULE, get_full_config, [[]]),
+    Res = rpc:call(Node, ?MODULE, get_full_config, []),
     {200, Res}.
 
 conf_path_reset(Req) ->
