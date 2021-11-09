@@ -40,7 +40,7 @@
 %% gen server part
 -behaviour(gen_server).
 
--export([start_link/0]).
+-export([start_link/0, salt/0]).
 
 -export([ init/1
         , handle_call/3
@@ -74,6 +74,12 @@ destroy(Token) when is_binary(Token)->
 -spec(destroy_by_username(Username :: binary()) -> ok).
 destroy_by_username(Username) ->
     do_destroy_by_username(Username).
+
+%% @doc create 4 bytes salt.
+-spec(salt() -> binary()).
+salt() ->
+    <<X:16/big-unsigned-integer>> = crypto:strong_rand_bytes(2),
+    iolist_to_binary(io_lib:format("~4.16.0b", [X])).
 
 mnesia(boot) ->
     ok = mria:create_table(?TAB, [
@@ -110,7 +116,9 @@ do_verify(Token)->
             case ExpTime > erlang:system_time(millisecond) of
                 true ->
                     NewJWT = JWT#?ADMIN_JWT{exptime = jwt_expiration_time()},
-                    {atomic, Res} = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [NewJWT]),
+                    {atomic, Res} = mria:transaction(?DASHBOARD_SHARD,
+                                                     fun mnesia:write/1,
+                                                     [NewJWT]),
                     Res;
                 _ ->
                     {error, token_timeout}
@@ -145,7 +153,7 @@ lookup_by_username(Username) ->
     List.
 
 jwk(Username, Password, Salt) ->
-    Key = erlang:md5(<<Salt/binary, Username/binary, Password/binary>>),
+    Key = crypto:hash(md5, <<Salt/binary, Username/binary, Password/binary>>),
     #{
         <<"kty">> => <<"oct">>,
         <<"k">> => jose_base64url:encode(Key)
@@ -156,11 +164,6 @@ jwt_expiration_time() ->
 
 token_ttl() ->
     emqx_conf:get([emqx_dashboard, token_expired_time], ?EXPTIME).
-
-salt() ->
-    _ = emqx_misc:rand_seed(),
-    Salt = rand:uniform(16#ffffffff),
-    <<Salt:32>>.
 
 format(Token, Username, ExpTime) ->
     #?ADMIN_JWT{

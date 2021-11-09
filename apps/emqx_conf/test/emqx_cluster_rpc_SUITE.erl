@@ -121,22 +121,16 @@ t_catch_up_status_handle_next_commit(_Config) ->
 t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
-    Now = erlang:system_time(millisecond),
+    ets:new(test, [named_table, public]),
     ct:pal("111:~p~n", [ets:tab2list(cluster_rpc_commit)]),
-    {M, F, A} = {?MODULE, failed_on_other_recover_after_5_second, [erlang:whereis(?NODE1), Now]},
+    {M, F, A} = {?MODULE, failed_on_other_recover_after_retry, [erlang:whereis(?NODE1)]},
     {ok, 1, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
     ct:pal("222:~p~n", [ets:tab2list(cluster_rpc_commit)]),
-    {ok, 2, ok} = emqx_cluster_rpc:multicall(io, format, ["test"], 1, 1000),
-    ct:pal("333:~p~n", [ets:tab2list(cluster_rpc_commit)]),
-    ct:pal("444:~p~n", [emqx_cluster_rpc:status()]),
-    {atomic, [Status|L]} = emqx_cluster_rpc:status(),
+    ct:pal("333:~p~n", [emqx_cluster_rpc:status()]),
+    {atomic, [_Status|L]} = emqx_cluster_rpc:status(),
     ?assertEqual([], L),
-    ?assertEqual({io, format, ["test"]}, maps:get(mfa, Status)),
-    ?assertEqual(node(), maps:get(node, Status)),
-    ct:sleep(2300),
-    {atomic, [Status1]} = emqx_cluster_rpc:status(),
-    ?assertEqual(Status, Status1),
-    ct:sleep(3600),
+    {ok, 2, ok} = emqx_cluster_rpc:multicall(io, format, ["test"], 1, 1000),
+    ct:sleep(1000),
     {atomic, NewStatus} = emqx_cluster_rpc:status(),
     ?assertEqual(3, length(NewStatus)),
     Pid = self(),
@@ -244,12 +238,12 @@ failed_on_node_by_odd(Pid) ->
             end
     end.
 
-failed_on_other_recover_after_5_second(Pid, CreatedAt) ->
-    Now = erlang:system_time(millisecond),
+failed_on_other_recover_after_retry(Pid) ->
+    Counter = ets:update_counter(test, counter, 1, {counter, 0}),
     case Pid =:= self() of
         true -> ok;
         false ->
-            case Now < CreatedAt + 5001 of
+            case Counter < 4 of
                 true -> "MFA return not ok";
                 false -> ok
             end

@@ -167,7 +167,7 @@ check(_, undefined) ->
 check(Username, Password) ->
     case lookup_user(Username) of
         [#?ADMIN{pwdhash = <<Salt:4/binary, Hash/binary>>}] ->
-            case Hash =:= md5_hash(Salt, Password) of
+            case Hash =:= sha3_hash(Salt, Password) of
                 true  -> ok;
                 false -> {error, <<"BAD_USERNAME_OR_PASSWORD">>}
             end;
@@ -201,16 +201,11 @@ destroy_token_by_username(Username, Token) ->
 %%--------------------------------------------------------------------
 
 hash(Password) ->
-    SaltBin = salt(),
-    <<SaltBin/binary, (md5_hash(SaltBin, Password))/binary>>.
+    SaltBin = emqx_dashboard_token:salt(),
+    <<SaltBin/binary, (sha3_hash(SaltBin, Password))/binary>>.
 
-md5_hash(SaltBin, Password) ->
-    erlang:md5(<<SaltBin/binary, Password/binary>>).
-
-salt() ->
-    _ = emqx_misc:rand_seed(),
-    Salt = rand:uniform(16#ffffffff),
-    <<Salt:32>>.
+sha3_hash(SaltBin, Password) ->
+    crypto:hash('sha3_256', <<SaltBin/binary, Password/binary>>).
 
 add_default_user() ->
     add_default_user(binenv(default_username), binenv(default_password)).
