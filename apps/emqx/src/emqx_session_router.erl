@@ -215,7 +215,7 @@ handle_call({pending, SessionID, MarkerIDs}, _From, State) ->
     Res = emqx_persistent_session:pending_messages_in_db(SessionID, MarkerIDs),
     {reply, Res, State};
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
 
 handle_cast({delete_routes, SessionID, Subscriptions}, State) ->
@@ -233,11 +233,11 @@ handle_cast({resume_end, SessionID, Pid}, State) ->
     _ = emqx_session_router_worker_sup:abort_worker(Pid),
     {noreply, State#{ pmon => Pmon }};
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

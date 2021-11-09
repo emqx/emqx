@@ -41,22 +41,22 @@ init([State]) ->
     {ok, ensure_timer(State)}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "unexpected msg: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_msg", cast => Msg}),
     {noreply, State}.
 
 handle_info({timeout, TRef, del_stale_mfa}, State = #{timer := TRef, max_history := MaxHistory}) ->
     case mria:transaction(?CLUSTER_RPC_SHARD, fun del_stale_mfa/1, [MaxHistory]) of
         {atomic, ok} -> ok;
-        Error -> ?LOG(error, "del_stale_cluster_rpc_mfa error:~p", [Error])
+        Error -> ?SLOG(error, #{msg => "del_stale_cluster_rpc_mfa_error", error => Error})
     end,
     {noreply, ensure_timer(State), hibernate};
 
 handle_info(Info, State) ->
-    ?LOG(error, "unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{timer := TRef}) ->

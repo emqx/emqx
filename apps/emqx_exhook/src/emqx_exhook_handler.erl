@@ -304,7 +304,7 @@ merge_responsed_bool(Req, #{type := Type, value := {bool_result, NewBool}})
         'STOP_AND_RETURN' -> {stop, NReq}
     end;
 merge_responsed_bool(_Req, Resp) ->
-    ?LOG(warning, "Unknown responsed value ~0p to merge to callback chain", [Resp]),
+    ?SLOG(warning, #{msg => "unknown_responsed_value", resp => Resp}),
     ignore.
 
 merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
@@ -316,5 +316,5 @@ merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
         'STOP_AND_RETURN' -> {stop, NReq}
     end;
 merge_responsed_message(_Req, Resp) ->
-    ?LOG(warning, "Unknown responsed value ~0p to merge to callback chain", [Resp]),
+    ?SLOG(warning, #{msg => "unknown_responsed_value", resp => Resp}),
     ignore.
