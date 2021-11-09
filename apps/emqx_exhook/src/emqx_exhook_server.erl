@@ -183,7 +183,7 @@ resovle_hookspec(HookSpecs) when is_list(HookSpecs) ->
             Name0 ->
                 Name = try
                            binary_to_existing_atom(Name0, utf8)
-                       catch T:R:_ -> {T,R}
+                       catch T:R -> {T,R}
                        end,
                 case {lists:member(Name, AvailableHooks),
                       lists:member(Name, MessageHooks)} of
