@@ -9,6 +9,9 @@ labels: "Support, needs-triage"
 <!-- Note, lacking of information will delay the handling of issue
      See our github issue handling flow here:
      https://github.com/emqx/emqx/blob/master/.github/ISSUE_TEMPLATE/assets/issue-handling.png
+
+     For support in Chinese, please visit https://askemq.com/
+     中文支持 请访问： https://askemq.com/
 -->
 
 ### Subject of the support
