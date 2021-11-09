@@ -355,15 +355,6 @@ wait_for() {
     done
 }
 
-# Use $CWD/etc/sys.config if exists
-if [ -z "$RELX_CONFIG_PATH" ]; then
-    if [ -f "$RUNNER_ETC_DIR/sys.config" ]; then
-        RELX_CONFIG_PATH="-config $RUNNER_ETC_DIR/sys.config"
-    else
-        RELX_CONFIG_PATH=""
-    fi
-fi
-
 IS_BOOT_COMMAND='no'
 case "$1" in
     start|start_boot)
@@ -424,14 +415,6 @@ fi
 
 if [ -z "$COOKIE" ]; then
     die "Please set node.cookie in $RUNNER_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE_COOKIE"
-fi
-
-# Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
-PROTO_DIST="$(call_hocon -s $SCHEMA_MOD -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get cluster.proto_dist | tr -d \")"
-if [ -z "$PROTO_DIST" ]; then
-    PROTO_DIST_ARG=""
-else
-    PROTO_DIST_ARG="-proto_dist $PROTO_DIST"
 fi
 
 cd "$ROOTDIR"
@@ -631,14 +614,14 @@ case "$1" in
         # Store passed arguments since they will be erased by `set`
         ARGS="$*"
 
-        # shellcheck disable=SC2086 # $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
+        # shellcheck disable=SC2086 # $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
         set -- "$BINDIR/erlexec" \
             -boot "$BOOTFILE" -mode "$CODE_LOADING_MODE" \
             -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
             -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
-            $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
+            $CONFIG_ARGS $EPMD_ARG
 
         # Log the startup
         logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS}"
@@ -672,14 +655,14 @@ case "$1" in
         # Store passed arguments since they will be erased by `set`
         ARGS="$*"
 
-        # shellcheck disable=SC2086 # $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
+        # shellcheck disable=SC2086 # $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
         set -- "$BINDIR/erlexec" $FOREGROUNDOPTIONS \
             -boot "$REL_DIR/$BOOTFILE" -mode "$CODE_LOADING_MODE" \
             -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
             -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
-            $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
+            $CONFIG_ARGS $EPMD_ARG
 
         # Log the startup
         logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS}"
