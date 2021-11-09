@@ -21,7 +21,9 @@
 
 -include("emqx_mgmt.hrl").
 
--define(PRINT_CMD(Cmd, Descr), io:format("~-48s# ~s~n", [Cmd, Descr])).
+-elvis([{elvis_style, invalid_dynamic_call, #{ ignore => [emqx_mgmt_cli]}}]).
+
+-define(PRINT_CMD(Cmd, Desc), io:format("~-48s# ~s~n", [Cmd, Desc])).
 
 -export([load/0]).
 
@@ -74,11 +76,8 @@ mgmt(["insert", AppId, Name]) ->
 
 mgmt(["lookup", AppId]) ->
     case emqx_mgmt_auth:lookup_app(list_to_binary(AppId)) of
-        {AppId1, AppSecret, Name, Desc, Status, Expired} ->
-            emqx_ctl:print("app_id: ~s~nsecret: ~s~nname: ~s~ndesc: ~s~nstatus: ~s~nexpired: ~p~n",
-                           [AppId1, AppSecret, Name, Desc, Status, Expired]);
-        undefined ->
-            emqx_ctl:print("Not Found.~n")
+        undefined -> emqx_ctl:print("Not Found.~n");
+        App -> print_app_info(App)
     end;
 
 mgmt(["update", AppId, Status]) ->
@@ -99,10 +98,7 @@ mgmt(["delete", AppId]) ->
     end;
 
 mgmt(["list"]) ->
-    lists:foreach(fun({AppId, AppSecret, Name, Desc, Status, Expired}) ->
-                      emqx_ctl:print("app_id: ~s, secret: ~s, name: ~s, desc: ~s, status: ~s, expired: ~p~n",
-                                    [AppId, AppSecret, Name, Desc, Status, Expired])
-                  end, emqx_mgmt_auth:list_apps());
+    lists:foreach(fun print_app_info/1, emqx_mgmt_auth:list_apps());
 
 mgmt(_) ->
     emqx_ctl:usage([{"mgmt list",                    "List Applications"},
@@ -128,10 +124,12 @@ broker([]) ->
     [emqx_ctl:print("~-10s: ~s~n", [Fun, emqx_sys:Fun()]) || Fun <- Funs];
 
 broker(["stats"]) ->
-    [emqx_ctl:print("~-30s: ~w~n", [Stat, Val]) || {Stat, Val} <- lists:sort(emqx_stats:getstats())];
+    [emqx_ctl:print("~-30s: ~w~n", [Stat, Val]) ||
+        {Stat, Val} <- lists:sort(emqx_stats:getstats())];
 
 broker(["metrics"]) ->
-    [emqx_ctl:print("~-30s: ~w~n", [Metric, Val]) || {Metric, Val} <- lists:sort(emqx_metrics:all())];
+    [emqx_ctl:print("~-30s: ~w~n", [Metric, Val]) ||
+        {Metric, Val} <- lists:sort(emqx_metrics:all())];
 
 broker(_) ->
     emqx_ctl:usage([{"broker",         "Show broker version, uptime and description"},
@@ -256,10 +254,12 @@ subscriptions(["del", ClientId, Topic]) ->
     end;
 
 subscriptions(_) ->
-    emqx_ctl:usage([{"subscriptions list",                         "List all subscriptions"},
-                    {"subscriptions show <ClientId>",              "Show subscriptions of a client"},
-                    {"subscriptions add <ClientId> <Topic> <QoS>", "Add a static subscription manually"},
-                    {"subscriptions del <ClientId> <Topic>",       "Delete a static subscription manually"}]).
+    emqx_ctl:usage([{"subscriptions list", "List all subscriptions"},
+                    {"subscriptions show <ClientId>", "Show subscriptions of a client"},
+                    {"subscriptions add <ClientId> <Topic> <QoS>",
+                        "Add a static subscription manually"},
+                    {"subscriptions del <ClientId> <Topic>",
+                        "Delete a static subscription manually"}]).
 
 if_valid_qos(QoS, Fun) ->
     try list_to_integer(QoS) of
@@ -328,14 +328,20 @@ vm(["memory"]) ->
     [emqx_ctl:print("memory/~-17s: ~w~n", [Cat, Val]) || {Cat, Val} <- erlang:memory()];
 
 vm(["process"]) ->
-    [emqx_ctl:print("process/~-16s: ~w~n", [Name, erlang:system_info(Key)]) || {Name, Key} <- [{limit, process_limit}, {count, process_count}]];
+    [emqx_ctl:print("process/~-16s: ~w~n",
+        [Name, erlang:system_info(Key)]) ||
+        {Name, Key} <- [{limit, process_limit}, {count, process_count}]];
 
 vm(["io"]) ->
     IoInfo = lists:usort(lists:flatten(erlang:system_info(check_io))),
-    [emqx_ctl:print("io/~-21s: ~w~n", [Key, proplists:get_value(Key, IoInfo)]) || Key <- [max_fds, active_fds]];
+    [emqx_ctl:print("io/~-21s: ~w~n",
+        [Key, proplists:get_value(Key, IoInfo)]) ||
+        Key <- [max_fds, active_fds]];
 
 vm(["ports"]) ->
-    [emqx_ctl:print("ports/~-16s: ~w~n", [Name, erlang:system_info(Key)]) || {Name, Key} <- [{count, port_count}, {limit, port_limit}]];
+    [emqx_ctl:print("ports/~-16s: ~w~n",
+        [Name, erlang:system_info(Key)]) ||
+        {Name, Key} <- [{count, port_count}, {limit, port_limit}]];
 
 vm(_) ->
     emqx_ctl:usage([{"vm all",     "Show info of Erlang VM"},
@@ -372,8 +378,9 @@ log(["primary-level", Level]) ->
     emqx_ctl:print("~s~n", [emqx_logger:get_primary_log_level()]);
 
 log(["handlers", "list"]) ->
-    _ = [emqx_ctl:print("LogHandler(id=~s, level=~s, destination=~s, status=~s)~n", [Id, Level, Dst, Status])
-        || #{id := Id, level := Level, dst := Dst, status := Status} <- emqx_logger:get_log_handlers()],
+    _ = [emqx_ctl:print("LogHandler(id=~s, level=~s, destination=~s, status=~s)~n",
+        [Id, Level, Dst, Status]) || #{id := Id, level := Level, dst := Dst, status := Status}
+        <- emqx_logger:get_log_handlers()],
     ok;
 
 log(["handlers", "start", HandlerId]) ->
@@ -406,15 +413,16 @@ log(_) ->
                     {"log handlers list", "Show log handlers"},
                     {"log handlers start <HandlerId>", "Start a log handler"},
                     {"log handlers stop  <HandlerId>", "Stop a log handler"},
-                    {"log handlers set-level <HandlerId> <Level>", "Set log level of a log handler"}]).
+                    {"log handlers set-level <HandlerId> <Level>",
+                        "Set log level of a log handler"}]).
 
 %%--------------------------------------------------------------------
 %% @doc Trace Command
 
 trace(["list"]) ->
     lists:foreach(fun({{Who, Name, _}, {Level, LogFile}}) ->
-                emqx_ctl:print("Trace(~s=~s, level=~s, destination=~p)~n", [Who, Name, Level, LogFile])
-            end, emqx_tracer:lookup_traces());
+        emqx_ctl:print("Trace(~s=~s, level=~s, destination=~p)~n", [Who, Name, Level, LogFile])
+                  end, emqx_tracer:lookup_traces());
 
 trace(["stop", "client", ClientId]) ->
     trace_off(clientid, ClientId);
@@ -473,18 +481,20 @@ listeners([]) ->
                 lists:foreach(fun indent_print/1, Info)
             end, esockd:listeners()),
     lists:foreach(fun({Protocol, Opts}) ->
-                Port = proplists:get_value(port, Opts),
-                Info = [{listen_on,      {string, emqx_listeners:format_listen_on(Port)}},
-                        {acceptors,      maps:get(num_acceptors, proplists:get_value(transport_options, Opts, #{}), 0)},
-                        {max_conns,      proplists:get_value(max_connections, Opts)},
-                        {current_conn,   proplists:get_value(all_connections, Opts)},
-                        {shutdown_count, []}],
-                    emqx_ctl:print("~s~n", [listener_identifier(Protocol, Port)]),
-                lists:foreach(fun indent_print/1, Info)
-            end, ranch:info());
+        Port = proplists:get_value(port, Opts),
+        Acceptors = maps:get(num_acceptors, proplists:get_value(transport_options, Opts, #{}), 0),
+        Info = [{listen_on,      {string, emqx_listeners:format_listen_on(Port)}},
+            {acceptors,      Acceptors},
+            {max_conns,      proplists:get_value(max_connections, Opts)},
+            {current_conn,   proplists:get_value(all_connections, Opts)},
+            {shutdown_count, []}],
+        emqx_ctl:print("~s~n", [listener_identifier(Protocol, Port)]),
+        lists:foreach(fun indent_print/1, Info)
+                  end, ranch:info());
 
 listeners(["stop",  Name = "http" ++ _N | _MaybePort]) ->
-    %% _MaybePort is to be backward compatible, to stop http listener, there is no need for the port number
+    %% _MaybePort is to be backward compatible, to stop http listener,
+    %% there is no need for the port number
     case minirest:stop_http(list_to_atom(Name)) of
         ok ->
             emqx_ctl:print("Stop ~s listener successfully.~n", [Name]);
@@ -565,7 +575,8 @@ data(["import", Filename, "--env", Env]) ->
         {error, unsupported_version} ->
             emqx_ctl:print("The emqx data import failed: Unsupported version.~n");
         {error, Reason} ->
-            emqx_ctl:print("The emqx data import failed: ~0p while reading ~s.~n", [Reason, Filename])
+            emqx_ctl:print("The emqx data import failed: ~0p while reading ~s.~n",
+                [Reason, Filename])
     end;
 
 data(_) ->
@@ -658,19 +669,23 @@ print({client, {ClientId, ChanPid}}) ->
                         maps:with([created_at], Session)]),
     InfoKeys = [clientid, username, peername,
                 clean_start, keepalive, expiry_interval,
-                subscriptions_cnt, inflight_cnt, awaiting_rel_cnt, send_msg, mqueue_len, mqueue_dropped,
-                connected, created_at, connected_at] ++ case maps:is_key(disconnected_at, Info) of
-                                                            true  -> [disconnected_at];
-                                                            false -> []
-                                                        end,
+                subscriptions_cnt, inflight_cnt, awaiting_rel_cnt,
+                send_msg, mqueue_len, mqueue_dropped,
+                connected, created_at, connected_at] ++
+                case maps:is_key(disconnected_at, Info) of
+                    true  -> [disconnected_at];
+                    false -> []
+                end,
     emqx_ctl:print("Client(~s, username=~s, peername=~s, "
-                    "clean_start=~s, keepalive=~w, session_expiry_interval=~w, "
-                    "subscriptions=~w, inflight=~w, awaiting_rel=~w, delivered_msgs=~w, enqueued_msgs=~w, dropped_msgs=~w, "
-                    "connected=~s, created_at=~w, connected_at=~w" ++ case maps:is_key(disconnected_at, Info) of
-                                                                          true  -> ", disconnected_at=~w)~n";
-                                                                          false -> ")~n"
-                                                                      end,
-                    [format(K, maps:get(K, Info)) || K <- InfoKeys]);
+                   "clean_start=~s, keepalive=~w, session_expiry_interval=~w, "
+                   "subscriptions=~w, inflight=~w, awaiting_rel=~w, "
+                   "delivered_msgs=~w, enqueued_msgs=~w, dropped_msgs=~w, "
+                   "connected=~s, created_at=~w, connected_at=~w" ++
+                   case maps:is_key(disconnected_at, Info) of
+                       true  -> ", disconnected_at=~w)~n";
+                       false -> ")~n"
+                   end,
+        [format(K, maps:get(K, Info)) || K <- InfoKeys]);
 
 print({emqx_route, #route{topic = Topic, dest = {_, Node}}}) ->
     emqx_ctl:print("~s -> ~s~n", [Topic, Node]);
@@ -722,3 +737,7 @@ restart_http_listener(Scheme, AppName) ->
 
 http_mod_name(emqx_management) -> emqx_mgmt_http;
 http_mod_name(Name) -> Name.
+
+print_app_info({AppId, AppSecret, Name, Desc, Status, Expired}) ->
+    emqx_ctl:print("app_id: ~s, secret: ~s, name: ~s, desc: ~s, status: ~s, expired: ~p~n",
+        [AppId, AppSecret, Name, Desc, Status, Expired]).

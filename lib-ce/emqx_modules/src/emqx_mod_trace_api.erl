@@ -29,7 +29,7 @@
 -export([read_trace_file/3]).
 
 -define(TO_BIN(_B_), iolist_to_binary(_B_)).
--define(TEXT_HEADER, #{<<"content-type">> => <<"text/plain">>}).
+-define(RETURN_NOT_FOUND(N), return({error, 'NOT_FOUND', ?TO_BIN([N, "NOT FOUND"])})).
 
 -import(minirest, [return/1]).
 
@@ -97,8 +97,7 @@ create_trace(_, Param) ->
 delete_trace(#{name := Name}, _Param) ->
     case emqx_mod_trace:delete(Name) of
         ok -> return(ok);
-        {error, not_found} ->
-            return({error, 'NOT_FOUND', ?TO_BIN([Name, "NOT FOUND"])})
+        {error, not_found} -> ?RETURN_NOT_FOUND(Name)
     end.
 
 clear_traces(_, _) ->
@@ -108,8 +107,7 @@ update_trace(#{name := Name, operation := Operation}, _Param) ->
     Enable = case Operation of disable -> false; enable -> true end,
     case emqx_mod_trace:update(Name, Enable) of
         ok -> return({ok, #{enable => Enable, name => Name}});
-        {error, not_found} ->
-            return({error, 'NOT_FOUND', ?TO_BIN([Name, "NOT FOUND"])})
+        {error, not_found} -> ?RETURN_NOT_FOUND(Name)
     end.
 
 %% if HTTP request headers include accept-encoding: gzip and file size > 300 bytes.

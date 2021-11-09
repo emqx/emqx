@@ -158,7 +158,7 @@ update(Name, Enable) ->
     transaction(Tran).
 
 -spec get_trace_filename(Name :: binary()) ->
-    {ok, FileName :: string()} |{error, not_found}.
+    {ok, FileName :: string()} | {error, not_found}.
 get_trace_filename(Name) ->
     Tran = fun() ->
         case mnesia:read(?TRACE, Name, read) of
@@ -215,7 +215,7 @@ handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', _ref, process, Pid, _Reason}, State = #{monitors := Monitors}) ->
+handle_info({'DOWN', _Ref, process, Pid, _Reason}, State = #{monitors := Monitors}) ->
     case maps:take(Pid, Monitors) of
         error -> {noreply, State};
         {Files, NewMonitors} ->
@@ -238,7 +238,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #{timer := TRef, primary_log_level := OriginLogLevel}) ->
-    ok = recover_log_primary_level(OriginLogLevel),
+    ok = set_log_primary_level(OriginLogLevel),
     _ = mnesia:unsubscribe({table, ?TRACE, simple}),
     emqx_misc:cancel_timer(TRef),
     stop_all_trace_handler(),
@@ -252,8 +252,10 @@ create_new_trace(Trace) ->
     Tran = fun() ->
         case mnesia:read(?TRACE, Trace#?TRACE.name) of
             [] ->
-                #?TRACE{start_at = StartAt, topic = Topic, clientid = ClientId, packets = Packets} = Trace,
-                Match = #?TRACE{_ = '_', start_at = StartAt, topic = Topic, clientid = ClientId, packets = Packets},
+                #?TRACE{start_at = StartAt, topic = Topic,
+                    clientid = ClientId, packets = Packets} = Trace,
+                Match = #?TRACE{_ = '_', start_at = StartAt, topic = Topic,
+                    clientid = ClientId, packets = Packets},
                 case mnesia:match_object(?TRACE, Match, read) of
                     [] -> mnesia:write(?TRACE, Trace, write);
                     [#?TRACE{name = Name}] -> mnesia:abort({duplicate_condition, Name})
@@ -293,15 +295,14 @@ get_enable_trace() ->
 
 find_closest_time(Traces, Now) ->
     Sec =
-        lists:foldl(fun(#?TRACE{start_at = Start, end_at = End}, Closest) ->
-            if
-                Start >= Now andalso Now < End -> %% running
-                    min(End - Now, Closest);
-                Start < Now -> %% waiting
+        lists:foldl(
+            fun(#?TRACE{start_at = Start, end_at = End}, Closest)
+                when Start >= Now andalso Now < End -> %% running
+                min(End - Now, Closest);
+                (#?TRACE{start_at = Start}, Closest) when Start < Now -> %% waiting
                     min(Now - Start, Closest);
-                true -> Closest %% finished
-            end
-                    end, 60 * 15, Traces),
+                (_, Closest) -> Closest %% finished
+            end, 60 * 15, Traces),
     timer:seconds(Sec).
 
 disable_finished([]) -> ok;
@@ -315,7 +316,8 @@ disable_finished(Traces) ->
             case mnesia:read(?TRACE, Name, write) of
                 [] -> ok;
                 [Trace = #?TRACE{log_size = Logs}] ->
-                    mnesia:write(?TRACE, Trace#?TRACE{enable = false, log_size = Logs#{node() => LogSize}}, write)
+                    mnesia:write(?TRACE, Trace#?TRACE{enable = false,
+                        log_size = Logs#{node() => LogSize}}, write)
             end end, NameWithLogSize)
                 end).
 
@@ -381,9 +383,11 @@ classify_by_time(Traces, Now) ->
     classify_by_time(Traces, Now, [], [], []).
 
 classify_by_time([], _Now, Wait, Run, Finish) -> {Wait, Run, Finish};
-classify_by_time([Trace = #?TRACE{start_at = Start} | Traces], Now, Wait, Run, Finish) when Start > Now ->
+classify_by_time([Trace = #?TRACE{start_at = Start} | Traces],
+    Now, Wait, Run, Finish) when Start > Now ->
     classify_by_time(Traces, Now, [Trace | Wait], Run, Finish);
-classify_by_time([Trace = #?TRACE{end_at = End} | Traces], Now, Wait, Run, Finish) when End =< Now ->
+classify_by_time([Trace = #?TRACE{end_at = End} | Traces],
+    Now, Wait, Run, Finish) when End =< Now ->
     classify_by_time(Traces, Now, Wait, Run, [Trace | Finish]);
 classify_by_time([Trace | Traces], Now, Wait, Run, Finish) ->
     classify_by_time(Traces, Now, Wait, [Trace | Run], Finish).
@@ -494,17 +498,11 @@ transaction(Tran) ->
         {aborted, Reason} -> {error, Reason}
     end.
 
-update_log_primary_level([], OriginLevel) -> recover_log_primary_level(OriginLevel);
+update_log_primary_level([], OriginLevel) -> set_log_primary_level(OriginLevel);
 update_log_primary_level(_, _) -> set_log_primary_level(debug).
 
 set_log_primary_level(NewLevel) ->
     case NewLevel =/= emqx_logger:get_primary_log_level() of
         true -> emqx_logger:set_primary_log_level(NewLevel);
-        false -> ok
-    end.
-
-recover_log_primary_level(OriginLevel) ->
-    case OriginLevel =/= emqx_logger:get_primary_log_level() of
-        true -> emqx_logger:set_primary_log_level(OriginLevel);
         false -> ok
     end.

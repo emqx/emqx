@@ -41,7 +41,7 @@
                  'UNSUBACK' | 'PINGREQ' | 'PINGRESP' | 'DISCONNECT' | 'AUTH').
 
 -type(tracer() :: #{name := binary(),
-                    type := clientid|topic,
+                    type := clientid | topic,
                     clientid => emqx_types:clientid(),
                     topic => emqx_types:topic(),
                     labels := [label()]}).
@@ -62,8 +62,10 @@
                    }}).
 -define(TOPIC_COMBINATOR, <<"_trace_topic_">>).
 -define(CLIENTID_COMBINATOR, <<"_trace_clientid_">>).
--define(TOPIC_TRACE_ID(T, N), binary_to_atom(<<(N)/binary, ?TOPIC_COMBINATOR/binary, (T)/binary>>)).
--define(CLIENT_TRACE_ID(C, N), binary_to_atom(<<(N)/binary, ?CLIENTID_COMBINATOR/binary, (C)/binary>>)).
+-define(TOPIC_TRACE_ID(T, N),
+    binary_to_atom(<<(N)/binary, ?TOPIC_COMBINATOR/binary, (T)/binary>>)).
+-define(CLIENT_TRACE_ID(C, N),
+    binary_to_atom(<<(N)/binary, ?CLIENTID_COMBINATOR/binary, (C)/binary>>)).
 -define(TOPIC_TRACE(T, N, M), {topic, T, N, M}).
 -define(CLIENT_TRACE(C, N, M), {clientid, C, N, M}).
 -define(TOPIC_TRACE(T, N), {topic, T, N}).
@@ -103,8 +105,8 @@ trace_unsubscribe(Topic, SubOpts) ->
         "~s UNSUBSCRIBE ~s: Options: ~0p",
         [maps:get(subid, SubOpts, ""), Topic, SubOpts]).
 
--spec(start_trace(clientid | topic, emqx_types:clientid() | emqx_types:topic(), logger:level() | all, string()) ->
-    ok | {error, term()}).
+-spec(start_trace(clientid | topic, emqx_types:clientid() | emqx_types:topic(),
+    logger:level() | all, string()) -> ok | {error, term()}).
 start_trace(clientid, ClientId, Level, LogFile) ->
     Who = #{type => clientid, clientid => ClientId, name => ClientId, labels => []},
     start_trace(Who, Level, LogFile);
@@ -151,7 +153,7 @@ stop_trace(topic, Topic, Name) ->
     uninstall_trance_handler(Who).
 
 %% @doc Lookup all traces
--spec(lookup_traces() -> [#{ type => topic |clientid,
+-spec(lookup_traces() -> [#{ type => topic | clientid,
                              name => binary(),
                              topic => emqx_types:topic(),
                              level => logger:level(),
@@ -195,7 +197,7 @@ filter_traces(#{id := Id, level := Level, dst := Dst}, Acc) ->
                 name => Name,
                 topic => Topic,
                 level => Level,
-                dst => Dst} |Acc];
+                dst => Dst} | Acc];
         _ ->
             case binary:split(IdStr, [?CLIENTID_COMBINATOR]) of
                 [Name, ClientId] ->
@@ -203,7 +205,7 @@ filter_traces(#{id := Id, level := Level, dst := Dst}, Acc) ->
                         name => Name,
                         clientid => ClientId,
                         level => Level,
-                        dst => Dst} |Acc];
+                        dst => Dst} | Acc];
                 _ -> Acc
             end
     end.
@@ -250,5 +252,5 @@ format(Atom)when is_atom(Atom) ->
 format(Bin0)when is_binary(Bin0) ->
     case byte_size(Bin0) of
         Size when Size =< 200 -> Bin0;
-        _ -> emqx_misc:bin2hexstr_A_F(Bin0)
+        _ -> emqx_misc:bin2hexstr_a_f_upper(Bin0)
     end.
