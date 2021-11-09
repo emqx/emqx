@@ -149,7 +149,9 @@ t_update_source(_) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, []).
 
 t_move_source(_) ->
-    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE,
+                                [?SOURCE1, ?SOURCE2, ?SOURCE3,
+                                 ?SOURCE4, ?SOURCE5, ?SOURCE6]),
     ?assertMatch([ #{type := http}
                  , #{type := mongodb}
                  , #{type := mysql}

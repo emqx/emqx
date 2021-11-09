@@ -26,7 +26,6 @@
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
 
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -82,7 +81,9 @@ t_api(_) ->
                , uri(["authorization", "sources", "built-in-database", "username", "user1"])
                , []),
     #{<<"data">> := [#{<<"username">> := <<"user1">>, <<"rules">> := Rules1}],
-      <<"meta">> := #{<<"count">> := 1,<<"limit">> := 100,<<"page">> := 1}} = jsx:decode(Request1),
+      <<"meta">> := #{<<"count">> := 1,
+                      <<"limit">> := 100,
+                      <<"page">> := 1}} = jsx:decode(Request1),
     #{<<"username">> := <<"user1">>, <<"rules">> := Rules1} = jsx:decode(Request2),
     ?assertEqual(3, length(Rules1)),
 

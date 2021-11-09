@@ -110,11 +110,17 @@ t_authz(_) ->
     ?assertEqual(deny, emqx_access_control:authorize(ClientInfo2, subscribe, <<"+">>)),
 
     meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?COLUMNS, ?SOURCE3 ++ ?SOURCE4} end),
-    ?assertEqual(allow, emqx_access_control:authorize(ClientInfo2, subscribe, <<"test/test_clientid">>)),
-    ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo2, publish,   <<"test/test_clientid">>)),
-    ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo2, subscribe, <<"test/test_username">>)),
-    ?assertEqual(allow, emqx_access_control:authorize(ClientInfo2, publish,   <<"test/test_username">>)),
-    ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo3, subscribe, <<"test">>)), % nomatch
-    ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo3, publish,   <<"test">>)), % nomatch
+    ?assertEqual(allow, emqx_access_control:authorize(
+                          ClientInfo2, subscribe, <<"test/test_clientid">>)),
+    ?assertEqual(deny,  emqx_access_control:authorize(
+                          ClientInfo2, publish,   <<"test/test_clientid">>)),
+    ?assertEqual(deny,  emqx_access_control:authorize(
+                          ClientInfo2, subscribe, <<"test/test_username">>)),
+    ?assertEqual(allow, emqx_access_control:authorize(
+                          ClientInfo2, publish,   <<"test/test_username">>)),
+    ?assertEqual(deny,  emqx_access_control:authorize(
+                          ClientInfo3, subscribe, <<"test">>)), % nomatch
+    ?assertEqual(deny,  emqx_access_control:authorize(
+                          ClientInfo3, publish,   <<"test">>)), % nomatch
     ok.
 

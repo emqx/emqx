@@ -110,8 +110,11 @@ t_lookup_cmd_read(Config) ->
     test_send_coap_request( UdpSock,
                             post,
                             sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
-                            #coap_content{content_format = <<"text/plain">>,
-                                          payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
+                            #coap_content{
+                               content_format = <<"text/plain">>,
+                               payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,"
+                                           "</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>
+                              },
                             [],
                             MsgId1),
     #coap_message{method = Method1} = test_recv_coap_response(UdpSock),
@@ -141,7 +144,14 @@ t_lookup_cmd_read(Config) ->
     ?LOGT("LwM2M client got ~p", [Request2]),
     timer:sleep(50),
 
-    test_send_coap_response(UdpSock, "127.0.0.1", ?PORT, {ok, content}, #coap_content{content_format = <<"text/plain">>, payload = <<"EMQ">>}, Request2, true),
+    test_send_coap_response(
+      UdpSock,
+      "127.0.0.1",
+      ?PORT,
+      {ok, content},
+      #coap_content{content_format = <<"text/plain">>, payload = <<"EMQ">>},
+      Request2,
+      true),
 
     timer:sleep(200),
     normal_received_request(Epn, <<"/3/0/0">>, <<"read">>).
@@ -177,13 +187,14 @@ t_lookup_cmd_discover(Config) ->
     timer:sleep(50),
 
     PayloadDiscover = <<"</3/0/7>;dim=8;pmin=10;pmax=60;gt=50;lt=42.2,</3/0/8>">>,
-    test_send_coap_response(UdpSock,
-                            "127.0.0.1",
-                            ?PORT,
-                            {ok, content},
-                            #coap_content{content_format = <<"application/link-format">>, payload = PayloadDiscover},
-                            Request2,
-                            true),
+    test_send_coap_response(
+      UdpSock,
+      "127.0.0.1",
+      ?PORT,
+      {ok, content},
+      #coap_content{content_format = <<"application/link-format">>, payload = PayloadDiscover},
+      Request2,
+      true),
     timer:sleep(200),
     discover_received_request(Epn, <<"/3/0/7">>, <<"discover">>).
 

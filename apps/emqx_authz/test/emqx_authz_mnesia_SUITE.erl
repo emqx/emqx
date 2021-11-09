@@ -92,13 +92,19 @@ t_authz(_) ->
                     listener => {tcp, default}
                    },
 
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)),
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"#">>)),
+    ?assertEqual(deny, emqx_access_control:authorize(
+                         ClientInfo1, subscribe, <<"#">>)),
+    ?assertEqual(deny, emqx_access_control:authorize(
+                         ClientInfo1, publish, <<"#">>)),
 
-    ?assertEqual(allow, emqx_access_control:authorize(ClientInfo2, publish, <<"test/test_username">>)),
-    ?assertEqual(allow, emqx_access_control:authorize(ClientInfo2, subscribe, <<"#">>)),
+    ?assertEqual(allow, emqx_access_control:authorize(
+                          ClientInfo2, publish, <<"test/test_username">>)),
+    ?assertEqual(allow, emqx_access_control:authorize(
+                          ClientInfo2, subscribe, <<"#">>)),
 
-    ?assertEqual(allow, emqx_access_control:authorize(ClientInfo3, publish, <<"test/test_clientid">>)),
-    ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo3, subscribe, <<"#">>)),
+    ?assertEqual(allow, emqx_access_control:authorize(
+                          ClientInfo3, publish, <<"test/test_clientid">>)),
+    ?assertEqual(deny,  emqx_access_control:authorize(
+                          ClientInfo3, subscribe, <<"#">>)),
 
     ok.

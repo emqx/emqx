@@ -87,35 +87,36 @@ t_connect(_) ->
 
     %% Connect will be failed, because of bad login or passcode
     %% FIXME: Waiting for authentication works
-    %with_connection(fun(Sock) ->
-    %                    gen_tcp:send(Sock, serialize(<<"CONNECT">>,
-    %                                                 [{<<"accept-version">>, ?STOMP_VER},
-    %                                                  {<<"host">>, <<"127.0.0.1:61613">>},
-    %                                                  {<<"login">>, <<"admin">>},
-    %                                                  {<<"passcode">>, <<"admin">>},
-    %                                                  {<<"heart-beat">>, <<"1000,2000">>}])),
-    %                    {ok, Data} = gen_tcp:recv(Sock, 0),
-    %                    {ok, #stomp_frame{command = <<"ERROR">>,
-    %                                      headers = _,
-    %                                      body    = <<"Login or passcode error!">>}, _, _} =
-    %                                                   parse(Data)
-    %                end),
+    %with_connection(
+    %    fun(Sock) ->
+    %        gen_tcp:send(Sock, serialize(<<"CONNECT">>,
+    %                                     [{<<"accept-version">>, ?STOMP_VER},
+    %                                      {<<"host">>, <<"127.0.0.1:61613">>},
+    %                                      {<<"login">>, <<"admin">>},
+    %                                      {<<"passcode">>, <<"admin">>},
+    %                                      {<<"heart-beat">>, <<"1000,2000">>}])),
+    %          {ok, Data} = gen_tcp:recv(Sock, 0),
+    %          {ok, Frame, _, _} = parse(Data),
+    %          #stomp_frame{command = <<"ERROR">>,
+    %                       headers = _,
+    %                       body    = <<"Login or passcode error!">>} = Frame
+    %      end),
 
     %% Connect will be failed, because of bad version
     with_connection(fun(Sock) ->
-        gen_tcp:send(Sock, serialize(<<"CONNECT">>,
-                                     [{<<"accept-version">>, <<"2.0,2.1">>},
-                                      {<<"host">>, <<"127.0.0.1:61613">>},
-                                      {<<"login">>, <<"guest">>},
-                                      {<<"passcode">>, <<"guest">>},
-                                      {<<"heart-beat">>, <<"1000,2000">>}])),
+        gen_tcp:send(Sock,
+                     serialize(<<"CONNECT">>,
+                               [{<<"accept-version">>, <<"2.0,2.1">>},
+                                {<<"host">>, <<"127.0.0.1:61613">>},
+                                {<<"login">>, <<"guest">>},
+                                {<<"passcode">>, <<"guest">>},
+                                {<<"heart-beat">>, <<"1000,2000">>}])),
         {ok, Data} = gen_tcp:recv(Sock, 0),
-        {ok,
-         #stomp_frame{command = <<"ERROR">>,
-                      headers = _,
-                      body    = <<"Login Failed: Supported protocol versions < 1.2">>},
-         _,
-         _ } = parse(Data)
+        {ok, Frame, _, _} = parse(Data),
+        #stomp_frame{
+           command = <<"ERROR">>,
+           headers = _,
+           body    = <<"Login Failed: Supported protocol versions < 1.2">>} = Frame
     end).
 
 t_heartbeat(_) ->
@@ -407,7 +408,7 @@ t_rest_clienit_info(_) ->
 
         %% kickout
         {204, _} = request(delete, ClientPath),
-        ignored = gen_server:call(?CM, ignore, infinity). % sync
+        ignored = gen_server:call(emqx_cm, ignore, infinity), % sync
         ok = emqx_pool:flush_async_tasks(),
         {200, Clients2} = request(get, "/gateway/stomp/clients"),
         ?assertEqual(0, length(maps:get(data, Clients2)))

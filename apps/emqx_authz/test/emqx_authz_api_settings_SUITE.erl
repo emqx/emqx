@@ -36,11 +36,11 @@ init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps(
            [emqx_conf, emqx_authz, emqx_dashboard],
            fun set_special_configs/1),
-
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_dashboard]),
+    {ok, _} = emqx_authz:update(replace, []),
+    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf]),
     ok.
 
 set_special_configs(emqx_dashboard) ->

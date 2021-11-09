@@ -75,6 +75,8 @@
 -export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1, default_ciphers/1]).
 -export([sc/2, map/2]).
 
+-elvis([{elvis_style, god_modules, disable}]).
+
 namespace() -> undefined.
 
 roots() ->
@@ -898,7 +900,8 @@ fields("alarm") ->
 Currently supports two actions, 'log' and 'publish'.
 'log' is to write the alarm to log (console or file).
 'publish' is to publish the alarm as an MQTT message to the system topics:
-<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/activate</code> and <code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate</code>"""
+<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/activate</code> and
+<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate</code>"""
            })
       }
     , {"size_limit",
@@ -916,8 +919,9 @@ When this limit is exceeded, the oldest deactivated alarms are deleted to cap th
           #{ default => "24h",
              example => "24h",
              desc =>
-             """Retention time of deactivated alarms. Alarms are not deleted immediately when deactivated, but after the retention time.
-             """
+"""Retention time of deactivated alarms. Alarms are not deleted immediately
+when deactivated, but after the retention time.
+"""
            })
       }
     ].
@@ -1181,7 +1185,8 @@ default_tls_vsns(dtls_all_available) ->
 default_tls_vsns(tls_all_available) ->
     emqx_tls_lib:default_versions().
 
--spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined) -> hocon_schema:field_schema().
+-spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined)
+    -> hocon_schema:field_schema().
 ciphers_schema(Default) ->
     sc(hoconsc:array(string()),
        #{ default => default_ciphers(Default)

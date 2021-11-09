@@ -45,6 +45,7 @@
               , comma_separated_list/0
               , ip_port/0
               ]).
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
 -export([namespace/0, roots/0 , fields/1]).
 
@@ -324,7 +325,8 @@ the LwM2M client"
        sc(ref(translator),
           #{ desc =>
 "The topic for gateway to publish the notify events from LwM2M client.<br>
-After succeed observe a resource of LwM2M client, Gateway will send the notifyevents via this topic, if the client reports any resource changes"
+After succeed observe a resource of LwM2M client, Gateway will send the
+notifyevents via this topic, if the client reports any resource changes"
            })}
     , {register,
        sc(ref(translator),
