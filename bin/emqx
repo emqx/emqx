@@ -139,7 +139,7 @@ relx_usage() {
             echo "                      don't make it permanent"
             ;;
         *)
-            echo "Usage: $REL_NAME {start|start_boot <file>|ertspath|foreground|stop|pid|ping|console|console_clean|console_boot <file>|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|ctl|rpc|rpcterms|eval|root_dir}"
+            echo "Usage: $REL_NAME {start|ertspath|foreground|stop|pid|ping|console|console_clean|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|ctl|rpc|rpcterms|eval|root_dir}"
             ;;
     esac
 }
@@ -357,10 +357,10 @@ wait_for() {
 
 IS_BOOT_COMMAND='no'
 case "${1:-}" in
-    start|start_boot)
+    start)
         IS_BOOT_COMMAND='yes'
         ;;
-    console|console_clean|console_boot)
+    console|console_clean)
         IS_BOOT_COMMAND='yes'
         ;;
     foreground)
@@ -424,7 +424,7 @@ cd "$ROOTDIR"
 COMMAND="${1:-}"
 
 case "${COMMAND}" in
-    start|start_boot)
+    start)
         # Make sure a node IS not running
         if relx_nodetool "ping" >/dev/null 2>&1; then
             die "node_is_already_running!"
@@ -441,11 +441,6 @@ case "${COMMAND}" in
                 shift
                 START_OPTION="console"
                 HEART_OPTION="start"
-                ;;
-            start_boot)
-                shift
-                START_OPTION="console_boot"
-                HEART_OPTION="start_boot"
                 ;;
         esac
         RUN_PARAM="$*"
@@ -573,7 +568,7 @@ case "${COMMAND}" in
              "versions" "{'$REL_NAME', \"$NAME_TYPE\", '$NAME', '$COOKIE'}" "$@"
         ;;
 
-    console|console_clean|console_boot)
+    console|console_clean)
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
         bootstrapd
 
@@ -590,11 +585,6 @@ case "${COMMAND}" in
                 ;;
             console_clean)
                 BOOTFILE="$REL_DIR/start_clean"
-                ;;
-            console_boot)
-                shift
-                BOOTFILE="$1"
-                shift
                 ;;
         esac
 
