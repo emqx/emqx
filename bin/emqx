@@ -66,8 +66,140 @@ assert_node_alive() {
 echoerr() { echo "$*" 1>&2; }
 
 check_erlang_start() {
-    "$BINDIR/$PROGNAME" -noshell -boot "$REL_DIR/start_clean" -s crypto start -s init stop
+    "$BINDIR/$PROGNAME" -noshell -boot "$REL_DIR/start_clean" -s crypto start -s erlang halt
 }
+
+usage() {
+    local command="$1"
+
+    case "$command" in
+    start)
+        echo "Start EMQ X service in daemon mode"
+        ;;
+    stop)
+        echo "Stop the running EMQ X program"
+        ;;
+    restart|reboot)
+        echo "Restart $EMQX_DESCRIPTION"
+        ;;
+    pid)
+        echo "Print out $EMQX_DESCRIPTION process identifier"
+        ;;
+    ping)
+        echo "Check if the $EMQX_DESCRIPTION node is up and running"
+        echo "This command exit with 0 silently if node is running"
+        ;;
+    escript)
+        echo "Execute a escript using the Erlang runtime from EMQ X package installation"
+        echo "For example $REL_NAME escript /path/to/my/escript my_arg1 my_arg2"
+        ;;
+    attach)
+        echo "This command is applicable when $EMQX_DESCRIPTION is started in daemon"
+        echo "mode. it attaches the current shell to EMQ X's control console"
+        echo "through a named pipe"
+        echo "WARNING: try to use the safer alternative, remote_console command."
+        ;;
+    remote_console)
+        echo "Start a dummy Erlang node and hidden-connect $EMQX_DESCRIPTION to"
+        echo "with an interactive Erlang shell"
+        ;;
+    console)
+        echo "Boot up $EMQX_DESCRIPTION service in an interactive Erlang shell"
+        echo "This command is useful for troubleshooting"
+        ;;
+    console_clean)
+        echo "This command does NOT boot up the $EMQX_DESCRIPTION service"
+        echo "It only starts an interactive Erlang console with all the"
+        echo "EMQ X code available"
+        ;;
+    foreground)
+        echo "Start $EMQX_DESCRIPTION in foreground mode"
+        ;;
+    ertspath)
+        echo "Print path to Erlang runtime dir"
+        ;;
+    rpc)
+        echo "Usge $REL_NAME rpc MODULE FUNCTION [ARGS, ...]"
+        echo "Connect to the $EMQX_DESCRIPTION node and make an Erlang RPC"
+        echo "The result of the RPC call must be 'ok'"
+        echo "This command blocks for at most 60 seconds in case the node"
+        echo "does not reply the call in time"
+        ;;
+    rpcterms)
+        echo "Usge $REL_NAME rpcterms MODULE FUNCTION [ARGS, ...]"
+        echo "Connect to the $EMQX_DESCRIPTION node and make an Erlang RPC"
+        echo "The result of the RPC call is pretty-printed as an Erlang term"
+        ;;
+    root_dir)
+        echo "Print EMQ X installation root dir"
+        ;;
+    eval)
+        echo "Evaluate an Erlang expression in the EMQ X node"
+        ;;
+    versions)
+        echo "List installed EMQ X versions and their status"
+        ;;
+    unpack)
+        echo "Usage: $REL_NAME unpack [VERSION]"
+        echo "Unpacks a release package VERSION, it assumes that this"
+        echo "release package tarball has already been deployed at one"
+        echo "of the following locations:"
+        echo "      releases/<relname>-<version>.tar.gz"
+        echo "      releases/<relname>-<version>.zip"
+        ;;
+    install)
+        echo "Usage: $REL_NAME install [VERSION]"
+        echo "Installs a release package VERSION, it assumes that this"
+        echo "release package tarball has already been deployed at one"
+        echo "of the following locations:"
+        echo "      releases/<relname>-<version>.tar.gz"
+        echo "      releases/<relname>-<version>.zip"
+        echo ""
+        echo "     --no-permanent   Install release package VERSION but"
+        echo "                      don't make it permanent"
+        ;;
+    uninstall)
+        echo "Usage: $REL_NAME uninstall [VERSION]"
+        echo "Uninstalls a release VERSION, it will only accept"
+        echo "versions that are not currently in use"
+        ;;
+    upgrade)
+        echo "Usage: $REL_NAME upgrade [VERSION]"
+        echo "Upgrades the currently running release to VERSION, it assumes"
+        echo "that a release package tarball has already been deployed at one"
+        echo "of the following locations:"
+        echo "      releases/<relname>-<version>.tar.gz"
+        echo "      releases/<relname>-<version>.zip"
+        echo ""
+        echo "     --no-permanent   Install release package VERSION but"
+        echo "                      don't make it permanent"
+        ;;
+    downgrade)
+        echo "Usage: $REL_NAME downgrade [VERSION]"
+        echo "Downgrades the currently running release to VERSION, it assumes"
+        echo "that a release package tarball has already been deployed at one"
+        echo "of the following locations:"
+        echo "      releases/<relname>-<version>.tar.gz"
+        echo "      releases/<relname>-<version>.zip"
+        echo ""
+        echo "     --no-permanent   Install release package VERSION but"
+        echo "                      don't make it permanent"
+        ;;
+    *)
+        echo "Usage: $REL_NAME {start|ertspath|foreground|stop|pid|ping|console|console_clean|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|ctl|rpc|rpcterms|eval|root_dir} <help>"
+    ;;
+    esac
+}
+
+COMMAND="${1:-}"
+
+if [ "${2:-}" = 'help' ]; then
+    ## 'ctl' command has its own usage info
+    if [ "$COMMAND" != 'ctl' ]; then
+        usage "$COMMAND"
+        exit 0
+    fi
+fi
 
 if ! check_erlang_start >/dev/null 2>&1; then
     BUILT_ON="$(head -1 "${REL_DIR}/BUILT_ON")"
@@ -87,62 +219,6 @@ fi
 if [ -d "$ERTS_DIR/lib" ]; then
     export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
 fi
-
-relx_usage() {
-    command="$1"
-
-    case "$command" in
-        unpack)
-            echo "Usage: $REL_NAME unpack [VERSION]"
-            echo "Unpacks a release package VERSION, it assumes that this"
-            echo "release package tarball has already been deployed at one"
-            echo "of the following locations:"
-            echo "      releases/<relname>-<version>.tar.gz"
-            echo "      releases/<relname>-<version>.zip"
-            ;;
-        install)
-            echo "Usage: $REL_NAME install [VERSION]"
-            echo "Installs a release package VERSION, it assumes that this"
-            echo "release package tarball has already been deployed at one"
-            echo "of the following locations:"
-            echo "      releases/<relname>-<version>.tar.gz"
-            echo "      releases/<relname>-<version>.zip"
-            echo ""
-            echo "     --no-permanent   Install release package VERSION but"
-            echo "                      don't make it permanent"
-            ;;
-        uninstall)
-            echo "Usage: $REL_NAME uninstall [VERSION]"
-            echo "Uninstalls a release VERSION, it will only accept"
-            echo "versions that are not currently in use"
-            ;;
-        upgrade)
-            echo "Usage: $REL_NAME upgrade [VERSION]"
-            echo "Upgrades the currently running release to VERSION, it assumes"
-            echo "that a release package tarball has already been deployed at one"
-            echo "of the following locations:"
-            echo "      releases/<relname>-<version>.tar.gz"
-            echo "      releases/<relname>-<version>.zip"
-            echo ""
-            echo "     --no-permanent   Install release package VERSION but"
-            echo "                      don't make it permanent"
-            ;;
-        downgrade)
-            echo "Usage: $REL_NAME downgrade [VERSION]"
-            echo "Downgrades the currently running release to VERSION, it assumes"
-            echo "that a release package tarball has already been deployed at one"
-            echo "of the following locations:"
-            echo "      releases/<relname>-<version>.tar.gz"
-            echo "      releases/<relname>-<version>.zip"
-            echo ""
-            echo "     --no-permanent   Install release package VERSION but"
-            echo "                      don't make it permanent"
-            ;;
-        *)
-            echo "Usage: $REL_NAME {start|ertspath|foreground|stop|pid|ping|console|console_clean|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|ctl|rpc|rpcterms|eval|root_dir}"
-            ;;
-    esac
-}
 
 # Simple way to check the correct user and fail early
 check_user() {
@@ -355,18 +431,13 @@ wait_for() {
     done
 }
 
-IS_BOOT_COMMAND='no'
-case "${1:-}" in
-    start)
-        IS_BOOT_COMMAND='yes'
-        ;;
-    console|console_clean)
-        IS_BOOT_COMMAND='yes'
-        ;;
-    foreground)
+## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
+case "${COMMAND}" in
+    start|console|console_clean|foreground)
         IS_BOOT_COMMAND='yes'
         ;;
     *)
+        IS_BOOT_COMMAND='no'
         ;;
 esac
 
@@ -420,8 +491,6 @@ if [ -z "$COOKIE" ]; then
 fi
 
 cd "$ROOTDIR"
-
-COMMAND="${1:-}"
 
 case "${COMMAND}" in
     start)
@@ -500,8 +569,8 @@ case "${COMMAND}" in
         ;;
 
     restart|reboot)
-        echo "$EMQX_DESCRIPTION $REL_VSN is stopped: $("$RUNNER_BIN_DIR"/emqx stop)"
-        "$RUNNER_BIN_DIR"/emqx start
+        echo "$EMQX_DESCRIPTION $REL_VSN is stopped: $("$RUNNER_BIN_DIR/$REL_NAME" stop)"
+        "$RUNNER_BIN_DIR/$REL_NAME" start
         ;;
 
     pid)
@@ -699,7 +768,7 @@ case "${COMMAND}" in
         relx_nodetool "eval" "$@"
         ;;
     *)
-        relx_usage "$COMMAND"
+        usage "$COMMAND"
         exit 1
         ;;
 esac
