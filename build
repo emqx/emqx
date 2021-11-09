@@ -120,6 +120,18 @@ make_relup() {
     ./rebar3 as "$PROFILE" relup --relname emqx --relvsn "${PKG_VSN}"
 }
 
+cp_dyn_libs() {
+    local rel_dir="$1"
+    local target_dir="${rel_dir}/dynlibs"
+    if ! [ "$(uname -s)" = 'Linux' ]; then
+        return 0;
+    fi
+    mkdir -p "$target_dir"
+    while read -r so_file; do
+        cp -L "$so_file" "$target_dir/"
+    done < <(find "$rel_dir" -type f \( -name "*.so*" -o -name "beam.smp" \) -print0 | xargs -0 ldd | grep -E '^\s+.*=>\s(/lib|/usr)' | awk '{print $3}')
+}
+
 ## make_zip turns .tar.gz into a .zip with a slightly different name.
 ## It assumes the .tar.gz has been built -- relies on Makefile dependency
 make_zip() {
@@ -139,6 +151,9 @@ make_zip() {
     local zipball
     zipball="${pkgpath}/${PROFILE}-${SYSTEM}-${PKG_VSN}-${ARCH}.zip"
     tar zxf "${tarball}" -C "${tard}/emqx"
+    ## try to be portable for zip packages.
+    ## for DEB and RPM packages the dependencies are resoved by yum and apt
+    cp_dyn_libs "${tard}/emqx"
     (cd "${tard}" && zip -qr - emqx) > "${zipball}"
 }
 
