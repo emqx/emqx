@@ -73,6 +73,8 @@
         , terminate/2
         ]).
 
+-elvis([{elvis_style, god_modules, disable}]).
+
 -ifndef(TEST).
 -define(SECS_5M, 300).
 -define(SAMPLING, 10).
@@ -235,7 +237,7 @@ start_link() ->
 init([]) ->
     erlang:process_flag(trap_exit, true),
     %% the overall counters
-    [ok = emqx_metrics:ensure(Metric)|| Metric <- overall_metrics()],
+    [ok = emqx_metrics:ensure(Metric) || Metric <- overall_metrics()],
     %% the speed metrics
     erlang:send_after(timer:seconds(?SAMPLING), self(), ticking),
     {ok, #state{overall_rule_speed = #rule_speed{}}}.
@@ -388,17 +390,19 @@ calculate_speed(CurrVal, #rule_speed{max = MaxSpeed0, last_v = LastVal,
 
     %% calculate the max speed since the emqx startup
     MaxSpeed =
-        if MaxSpeed0 >= CurrSpeed -> MaxSpeed0;
-           true -> CurrSpeed
+        case MaxSpeed0 >= CurrSpeed of
+           true -> MaxSpeed0;
+           false -> CurrSpeed
         end,
 
     %% calculate the average speed in last 5 mins
     {Last5MinSamples, Acc5Min, Last5Min} =
-        if Tick =< ?SAMPCOUNT_5M ->
+        case Tick =< ?SAMPCOUNT_5M of
+            true ->
                 Acc = AccSpeed5Min0 + CurrSpeed,
                 {lists:reverse([CurrSpeed | lists:reverse(Last5MinSamples0)]),
                  Acc, Acc / Tick};
-           true ->
+            false ->
                 [FirstSpeed | Speeds] = Last5MinSamples0,
                 Acc =  AccSpeed5Min0 + CurrSpeed - FirstSpeed,
                 {lists:reverse([CurrSpeed | lists:reverse(Speeds)]),
