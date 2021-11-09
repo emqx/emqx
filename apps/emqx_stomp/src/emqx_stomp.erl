@@ -33,6 +33,8 @@
         , stop_listener/3
         ]).
 
+-export([force_clear_after_app_stoped/0]).
+
 -export([init/1]).
 
 -define(APP, ?MODULE).
@@ -51,6 +53,18 @@ start(_StartType, _StartArgs) ->
 
 stop(_State) ->
     stop_listeners().
+
+force_clear_after_app_stoped() ->
+    lists:foreach(fun({Name = {ProtoName, _}, _}) ->
+        case is_stomp_listener(ProtoName) of
+            true -> esockd:close(Name);
+            _ -> ok
+        end
+    end, esockd:listeners()).
+
+is_stomp_listener('stomp:tcp') -> true;
+is_stomp_listener('stomp:ssl') -> true;
+is_stomp_listener(_) -> false.
 
 %%--------------------------------------------------------------------
 %% Supervisor callbacks
