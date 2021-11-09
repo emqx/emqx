@@ -2,8 +2,7 @@
 # -*- tab-width:4;indent-tabs-mode:nil -*-
 # ex: ts=4 sw=4 et
 
-set -e
-set -o pipefail
+set -euo pipefail
 
 DEBUG="${DEBUG:-0}"
 if [ "$DEBUG" -eq 1 ]; then
@@ -171,11 +170,9 @@ if [ "$ES" -ne 0 ]; then
     exit $ES
 fi
 
-if [ -z "$WITH_EPMD" ]; then
-    EPMD_ARG="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
-else
-    EPMD_ARG="-start_epmd true $PROTO_DIST_ARG"
-fi
+# EPMD_ARG="-start_epmd true $PROTO_DIST_ARG"
+NO_EPMD="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
+EPMD_ARG="${EPMD_ARG:-${NO_EPMD}}"
 
 # Warn the user if ulimit -n is less than 1024
 ULIMIT_F=$(ulimit -n)
