@@ -61,7 +61,14 @@ t_log_and_pub(_) ->
                   end,
                   lists:seq(1, 10)),
 
-    ?assert(ets:info(?LOG_TAB, size) =:= 5),
+    timer:sleep(100),
+
+    case ets:info(?LOG_TAB, size) of
+        5 ->
+            ok;
+        _ ->
+            ?assert(ets:info(?TOPK_TAB, size) =/= 0)
+    end,
 
     timer:sleep(2400),
 
