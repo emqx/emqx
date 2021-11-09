@@ -86,11 +86,11 @@
 start_link(Servers, AutoReconnect, ReqOpts) ->
     gen_server:start_link(?MODULE, [Servers, AutoReconnect, ReqOpts], []).
 
--spec enable(pid(), atom()|string()) -> ok | {error, term()}.
+-spec enable(pid(), atom() | string()) -> ok | {error, term()}.
 enable(Pid, Name) ->
     call(Pid, {load, Name}).
 
--spec disable(pid(), atom()|string()) -> ok | {error, term()}.
+-spec disable(pid(), atom() | string()) -> ok | {error, term()}.
 disable(Pid, Name) ->
     call(Pid, {unload, Name}).
 
@@ -141,7 +141,7 @@ load_all_servers(Servers, ReqOpts) ->
     load_all_servers(Servers, ReqOpts, #{}, #{}).
 load_all_servers([], _Request, Waiting, Running) ->
     {Waiting, Running};
-load_all_servers([{Name, Options}|More], ReqOpts, Waiting, Running) ->
+load_all_servers([{Name, Options} | More], ReqOpts, Waiting, Running) ->
     {NWaiting, NRunning} =
         case emqx_exhook_server:load(Name, Options, ReqOpts) of
             {ok, ServerState} ->

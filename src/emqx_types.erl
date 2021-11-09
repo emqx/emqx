@@ -147,7 +147,7 @@
                         dn           => binary(),
                         atom()       => term()
                        }).
--type(clientid() :: binary()|atom()).
+-type(clientid() :: binary() | atom()).
 -type(username() :: maybe(binary())).
 -type(password() :: maybe(binary())).
 -type(peerhost() :: inet:ip_address()).
