@@ -410,7 +410,7 @@ calculate_speed(CurrVal, #rule_speed{max = MaxSpeed0, last_v = LastVal,
                 last5m_smpl = Last5MinSamples, tick = Tick + 1}.
 
 format_rule_speed(#rule_speed{max = Max, current = Current, last5m = Last5Min}) ->
-    #{max => Max, current => precision(Current, 2), last5m => precision(Last5Min, 2)}.
+    #{max => precision(Max, 2), current => precision(Current, 2), last5m => precision(Last5Min, 2)}.
 
 precision(Float, N) ->
     Base = math:pow(10, N),
