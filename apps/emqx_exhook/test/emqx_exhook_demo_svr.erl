@@ -295,7 +295,7 @@ on_session_terminated(Req, Md) ->
      | {error, grpc_cowboy_h:error_response()}.
 on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    io:format(standard_error, "fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %io:format(standard_error, "fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     %% some cases for testing
     case From of
         <<"baduser">> ->
