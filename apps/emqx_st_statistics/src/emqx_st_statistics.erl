@@ -25,7 +25,7 @@
 -logger_header("[SLOW TOPICS]").
 
 -export([ start_link/1, on_publish_done/3, enable/0
-        , disable/0
+        , disable/0, clear_history/0
         ]).
 
 %% gen_server callbacks
@@ -78,6 +78,12 @@
 -type top_k() :: #top_k{}.
 -type top_k_map() :: #{emqx_types:topic() => top_k()}.
 
+-ifdef(TEST).
+-define(TOPK_ACCESS, public).
+-else.
+-define(TOPK_ACCESS, protected).
+-endif.
+
 %% erlang term order
 %% number < atom < reference < fun < port < pid < tuple < list < bit string
 
@@ -105,6 +111,9 @@ on_publish_done(#message{timestamp = Timestamp} = Msg, Threshold, Counter) ->
         _ ->
             ok
     end.
+
+clear_history() ->
+    gen_server:call(?MODULE, ?FUNCTION_NAME).
 
 enable() ->
     gen_server:call(?MODULE, {enable, true}).
@@ -146,6 +155,10 @@ handle_call({enable, Enable}, _From,
              end,
     {reply, ok, State2};
 
+handle_call(clear_history, _, State) ->
+    ets:delete_all_objects(?TOPK_TAB),
+    {reply, ok, State};
+
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
@@ -185,7 +198,7 @@ init_log_tab(_) ->
                                  ]).
 
 init_topk_tab(_) ->
-    ?TOPK_TAB = ets:new(?TOPK_TAB, [ set, protected, named_table
+    ?TOPK_TAB = ets:new(?TOPK_TAB, [ set, ?TOPK_ACCESS, named_table
                                    , {keypos, #top_k.rank}, {write_concurrency, false}
                                    , {read_concurrency, true}
                                    ]).
