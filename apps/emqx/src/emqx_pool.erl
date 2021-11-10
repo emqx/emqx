@@ -32,7 +32,7 @@
         ]).
 
 -ifdef(TEST).
--export([worker/0]).
+-export([worker/0, flush_async_tasks/0]).
 -endif.
 
 %% gen_server callbacks
@@ -139,3 +139,15 @@ run({F, A}) when is_function(F), is_list(A) ->
 run(Fun) when is_function(Fun) ->
     Fun().
 
+-ifdef(TEST).
+%% This help function creates a large enough number of async tasks
+%% to force flush the pool workers.
+%% The number of tasks should be large enough to ensure all workers have
+%% the chance to work on at least one of the tasks.
+flush_async_tasks() ->
+    Ref = make_ref(),
+    Self = self(),
+    L = lists:seq(1, 997),
+    lists:foreach(fun(I) -> emqx_pool:async_submit(fun() -> Self ! {done, Ref, I} end, []) end, L),
+    lists:foreach(fun(I) -> receive {done, Ref, I} -> ok end end, L).
+-endif.
