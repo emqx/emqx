@@ -248,15 +248,20 @@ parse_version(V) when is_list(V) ->
     hd(string:tokens(V,"/")).
 
 check_and_install(TargetNode, Vsn) ->
-    {ok, [[CurrAppConf]]} = rpc:call(TargetNode, init, get_argument, [config], ?TIMEOUT),
+    %% Backup the vm.args. VM args should be unchanged during hot upgrade
+    %% but we still backup it here
     {ok, [[CurrVmArgs]]} = rpc:call(TargetNode, init, get_argument, [vm_args], ?TIMEOUT),
-    case filename:extension(CurrAppConf) of
-        ".config" ->
-            {ok, _} = file:copy(CurrAppConf, filename:join(["releases", Vsn, "sys.config"]));
-        _ ->
-            {ok, _} = file:copy(CurrAppConf++".config", filename:join(["releases", Vsn, "sys.config"]))
-    end,
     {ok, _} = file:copy(CurrVmArgs, filename:join(["releases", Vsn, "vm.args"])),
+    %% Backup the sys.config, this will be used when we check and install release
+    %% NOTE: We cannot backup the old sys.config directly, because the
+    %% configs for plugins are only in app-envs, not in the old sys.config
+    Configs0 =
+        [{AppName, rpc:call(TargetNode, application, get_all_env, [AppName], ?TIMEOUT)}
+         || {AppName, _, _} <- rpc:call(TargetNode, application, which_applications, [], ?TIMEOUT)],
+    Configs1 = [{AppName, Conf} || {AppName, Conf} <- Configs0, Conf =/= []],
+    ok = file:write_file(filename:join(["releases", Vsn, "sys.config"]), io_lib:format("~p.", [Configs1])),
+
+    %% check and install release
     case rpc:call(TargetNode, release_handler,
                   check_install_release, [Vsn], ?TIMEOUT) of
         {ok, _OtherVsn, _Desc} ->
