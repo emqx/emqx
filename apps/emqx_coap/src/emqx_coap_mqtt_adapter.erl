@@ -244,15 +244,26 @@ chann_publish(Topic, Payload, State = #state{clientid = ClientId}) ->
     case emqx_access_control:check_acl(clientinfo(State), publish, Topic) of
         allow ->
             _ = emqx_broker:publish(
-                    emqx_message:set_flag(retain, false,
-                        emqx_message:make(ClientId, ?QOS_0, Topic, Payload))),
-            ok;
+                  packet_to_message(Topic, Payload, State)), ok;
         deny  ->
             ?LOG(warning, "publish to ~p by clientid ~p failed due to acl check.",
                  [Topic, ClientId]),
             {error, forbidden}
     end.
 
+packet_to_message(Topic, Payload,
+                  #state{clientid = ClientId,
+                         username = Username,
+                         peername = {PeerHost, _}}) ->
+    Message = emqx_message:set_flag(
+                retain, false,
+                emqx_message:make(ClientId, ?QOS_0, Topic, Payload)
+               ),
+    emqx_message:set_headers(
+      #{ proto_ver => 1
+       , protocol => coap
+       , username => Username
+       , peerhost => PeerHost}, Message).
 
 %%--------------------------------------------------------------------
 %% Deliver
@@ -384,4 +395,3 @@ clientinfo(#state{peername = {PeerHost, _},
       mountpoint => undefined,
       ws_cookie  => undefined
      }.
-

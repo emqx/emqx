@@ -340,17 +340,14 @@ handle_call({unsubscribe, TopicFilter},
 handle_call({publish, Topic, Qos, Payload},
             Channel = #channel{
                          conn_state = connected,
-                         clientinfo = ClientInfo
-                                    = #{clientid := From,
-                                        mountpoint := Mountpoint}}) ->
+                         clientinfo = ClientInfo}) ->
     case is_acl_enabled(ClientInfo) andalso
          emqx_access_control:check_acl(ClientInfo, publish, Topic) of
         deny ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"ACL deny">>}, Channel};
         _ ->
-            Msg = emqx_message:make(From, Qos, Topic, Payload),
-            NMsg = emqx_mountpoint:mount(Mountpoint, Msg),
-            _ = emqx:publish(NMsg),
+            Msg = packet_to_message(Topic, Qos, Payload, Channel),
+            _ = emqx:publish(Msg),
             {reply, ok, Channel}
     end;
 
@@ -418,6 +415,24 @@ is_anonymous(_AuthResult)          -> false.
 
 clean_anonymous_clients() ->
     ets:delete(?CHAN_CONN_TAB, ?CHANMOCK(self())).
+
+packet_to_message(Topic, Qos, Payload,
+                  #channel{
+                     conninfo = #{proto_ver := ProtoVer},
+                     clientinfo = #{
+                         protocol := Protocol,
+                         clientid := ClientId,
+                         username := Username,
+                         peerhost := PeerHost,
+                         mountpoint := Mountpoint}}) ->
+    Msg = emqx_message:make(
+            ClientId, Qos,
+            Topic, Payload, #{},
+            #{proto_ver => ProtoVer,
+              protocol => Protocol,
+              username => Username,
+              peerhost => PeerHost}),
+    emqx_mountpoint:mount(Mountpoint, Msg).
 
 %%--------------------------------------------------------------------
 %% Sub/UnSub
@@ -591,6 +606,8 @@ default_conninfo(ConnInfo) ->
     ConnInfo#{clean_start => true,
               clientid => undefined,
               username => undefined,
+              proto_name => undefined,
+              proto_ver => undefined,
               conn_props => #{},
               connected => true,
               connected_at => erlang:system_time(millisecond),

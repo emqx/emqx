@@ -235,8 +235,20 @@ unsubscribe(Topic, Lwm2mState = #lwm2m_state{endpoint_name = _EndpointName}) ->
     emqx_broker:unsubscribe(Topic),
     emqx_hooks:run('session.unsubscribed', [clientinfo(Lwm2mState), Topic, Opts]).
 
-publish(Topic, Payload, Qos, EndpointName) ->
-    emqx_broker:publish(emqx_message:set_flag(retain, false, emqx_message:make(EndpointName, Qos, Topic, Payload))).
+publish(Topic, Payload, Qos,
+        #lwm2m_state{
+           version = ProtoVer,
+           peername = {PeerHost, _},
+           endpoint_name = EndpointName}) ->
+    Message = emqx_message:set_flag(
+                retain, false,
+                emqx_message:make(EndpointName, Qos, Topic, Payload)
+               ),
+    NMessage = emqx_message:set_headers(
+                 #{proto_ver => ProtoVer,
+                   protocol => lwm2m,
+                   peerhost => PeerHost}, Message),
+    emqx_broker:publish(NMessage).
 
 time_now() -> erlang:system_time(millisecond).
 
@@ -281,7 +293,7 @@ do_send_to_broker(EventType, #{<<"data">> := Data} = Payload, #lwm2m_state{endpo
     emqx_lwm2m_cm:register_cmd(EndpointName, ReqPath, EventType, {Code, CodeMsg, Content}),
     NewPayload = maps:put(<<"msgType">>, EventType, Payload),
     Topic = uplink_topic(EventType, Lwm2mState),
-    publish(Topic, emqx_json:encode(NewPayload), _Qos = 0, Lwm2mState#lwm2m_state.endpoint_name).
+    publish(Topic, emqx_json:encode(NewPayload), _Qos = 0, Lwm2mState).
 
 %%--------------------------------------------------------------------
 %% Auto Observe
