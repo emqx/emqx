@@ -104,7 +104,7 @@ api_rules_crud() ->
             description => <<"Delete a rule by given Id from all nodes in the cluster">>,
             parameters => [param_path_id()],
             responses => #{
-                <<"200">> =>
+                <<"204">> =>
                     emqx_mgmt_util:schema(<<"Delete rule successfully">>)}}
     },
     {"/rules/:id", Metadata, crud_rules_by_id}.
@@ -291,7 +291,7 @@ crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params}) ->
 crud_rules_by_id(delete, #{bindings := #{id := Id}}) ->
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
     case emqx:remove_config(ConfPath, #{}) of
-        {ok, _} -> {200};
+        {ok, _} -> {204};
         {error, Reason} ->
             ?SLOG(error, #{msg => "delete_rule_failed",
                            id => Id, reason => Reason}),

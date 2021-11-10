@@ -88,7 +88,7 @@ with_topic_api() ->
             description => <<"delete matching messages">>,
             parameters => parameters(),
             responses => #{
-                <<"200">> => schema(<<"Successed">>),
+                <<"204">> => schema(<<"Successed">>),
                 <<"405">> => schema(<<"NotAllowed">>)
             }
         }
@@ -147,7 +147,7 @@ with_topic(get, #{bindings := Bindings} = Params) ->
 with_topic(delete, #{bindings := Bindings}) ->
     Topic = maps:get(topic, Bindings),
     emqx_retainer_mnesia:delete_message(undefined, Topic),
-    {200}.
+    {204}.
 
 -spec lookup(undefined | binary(),
              map(),

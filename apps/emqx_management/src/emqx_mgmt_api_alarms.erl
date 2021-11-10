@@ -56,7 +56,7 @@ schema("/alarms") ->
         delete  => #{
             description => <<"Remove all deactivated alarms">>,
             responses => #{
-                200 => <<"Remove all deactivated alarms ok">>
+                204 => <<"Remove all deactivated alarms ok">>
             }
         }
     }.
@@ -94,7 +94,7 @@ alarms(get, #{query_string := Qs}) ->
 
 alarms(delete, _Params) ->
     _ = emqx_mgmt:delete_all_deactivated_alarms(),
-    {200}.
+    {204}.
 
 %%%==============================================================================================
 %% internal

@@ -90,7 +90,7 @@ schema("/mqtt/delayed/messages/:msgid") ->
             description => <<"Delete delayed message">>,
             parameters => [{msgid, mk(binary(), #{in => path, desc => <<"delay message ID">>})}],
             responses => #{
-                200 => <<"Delete delayed message success">>,
+                204 => <<"Delete delayed message success">>,
                 400 => emqx_dashboard_swagger:error_codes([?MESSAGE_ID_SCHEMA_ERROR], <<"Bad MsgId format">>),
                 404 => emqx_dashboard_swagger:error_codes([?MESSAGE_ID_NOT_FOUND], <<"MsgId not found">>)
             }
@@ -166,7 +166,7 @@ delayed_message(delete, #{bindings := #{msgid := Id}}) ->
     case emqx_delayed:get_delayed_message(Id) of
         {ok, _Message} ->
             _ = emqx_delayed:delete_delayed_message(Id),
-            {200};
+            {204};
         {error, id_schema_error} ->
             {400, generate_http_code_map(id_schema_error, Id)};
         {error, not_found} ->

@@ -110,7 +110,7 @@ api_list_update_listeners_by_id() ->
             responses => #{
                 <<"404">> =>
                     emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
-                <<"200">> =>
+                <<"204">> =>
                     emqx_mgmt_util:schema(<<"Delete listener successfully">>)}}
     },
     {"/listeners/:id", Metadata, crud_listeners_by_id}.
@@ -160,7 +160,7 @@ api_get_update_listener_by_id_on_node() ->
             responses => #{
                 <<"404">> =>
                     emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
-                <<"200">> =>
+                <<"204">> =>
                     emqx_mgmt_util:schema(<<"Delete listener successfully">>)}}
     },
     {"/nodes/:node/listeners/:id", Metadata, crud_listener_by_id_on_node}.
@@ -251,7 +251,7 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Conf}) ->
 crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
     Results = emqx_mgmt:remove_listener(Id),
     case lists:filter(fun filter_errors/1, Results) of
-        [] -> {200};
+        [] -> {204};
         Errors -> {500, #{code => 'UNKNOW_ERROR', message => err_msg(Errors)}}
     end.
 
@@ -291,7 +291,7 @@ crud_listener_by_id_on_node(put, #{bindings := #{id := Id, node := Node}, body :
     end;
 crud_listener_by_id_on_node(delete, #{bindings := #{id := Id, node := Node}}) ->
     case emqx_mgmt:remove_listener(atom(Node), Id) of
-        ok -> {200};
+        ok -> {204};
         {error, Reason} -> {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}}
     end.
 

@@ -148,7 +148,7 @@ schema("/authorization/sources/built-in-database/username/:username") ->
             description => <<"Delete one record for username">>,
             parameters => [hoconsc:ref(username)],
             responses => #{
-                204 => <<"No Content">>,
+                204 => <<"Deleted">>,
                 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad username">>)
             }
         }
@@ -183,7 +183,7 @@ schema("/authorization/sources/built-in-database/clientid/:clientid") ->
             description => <<"Delete one record for clientid">>,
             parameters => [hoconsc:ref(clientid)],
             responses => #{
-                204 => <<"No Content">>,
+                204 => <<"Deleted">>,
                 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad clientid">>)
             }
         }
@@ -216,7 +216,7 @@ schema("/authorization/sources/built-in-database/purge-all") ->
             tags => [<<"authorization">>],
             description => <<"Purge all records">>,
             responses => #{
-                204 => <<"No Content">>,
+                204 => <<"Deleted">>,
                 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
             }
         }

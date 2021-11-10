@@ -115,7 +115,7 @@ operation_topic_metrics_api() ->
             description => <<"Deregister topic metrics">>,
             parameters => [topic_param()],
             responses => #{
-                <<"200">> => schema(<<"Deregister topic metrics">>),
+                <<"204">> => schema(<<"Deregister topic metrics">>),
                 <<"404">> => error_schema(<<"Topic not found">>, [?ERROR_TOPIC])
             }
         }

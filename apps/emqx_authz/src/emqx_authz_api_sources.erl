@@ -250,7 +250,7 @@ source_api() ->
                 }
             ],
             responses => #{
-                <<"204">> => #{description => <<"No Content">>},
+                <<"204">> => #{description => <<"Deleted">>},
                 <<"400">> => emqx_mgmt_util:bad_request()
             }
         }

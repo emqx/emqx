@@ -131,7 +131,7 @@ schema("/users/:username") ->
             parameters => [{username, mk(binary(),
                 #{in => path, example => <<"admin">>})}],
             responses => #{
-                200 => <<"Delete User successfully">>,
+                204 => <<"Delete User successfully">>,
                 400 => [
                     {code, mk(string(), #{example => 'CANNOT_DELETE_ADMIN'})},
                     {message, mk(string(), #{example => "CANNOT DELETE ADMIN"})}]}}
@@ -220,7 +220,7 @@ user(delete, #{bindings := #{username := Username}}) ->
             message => <<"Cannot delete admin">>}};
         false ->
             _ = emqx_dashboard_admin:remove_user(Username),
-            {200}
+            {204}
     end.
 
 change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->

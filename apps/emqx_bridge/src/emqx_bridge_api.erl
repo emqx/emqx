@@ -104,7 +104,7 @@ crud_bridges_apis() ->
             description => <<"Delete a bridge">>,
             parameters => [param_path_id()],
             responses => #{
-                <<"200">> => emqx_mgmt_util:schema(<<"Bridge deleted">>),
+                <<"204">> => emqx_mgmt_util:schema(<<"Bridge deleted">>),
                 <<"404">> => emqx_mgmt_util:error_schema(<<"Bridge not found">>, ['NOT_FOUND'])
             }
         }
