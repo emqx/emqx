@@ -433,10 +433,10 @@ t_stream_log(_Config) ->
     {ok, Binary} = request_api(get, api_path("trace/test_stream_log/log?_limit=10"), Header),
     #{<<"code">> := 0, <<"data">> := #{<<"meta">> := Meta, <<"items">> := Bin}} = json(Binary),
     ?assertEqual(10, byte_size(Bin)),
-    ?assertEqual(#{<<"_page">> => 10, <<"_limit">> => 10}, Meta),
+    ?assertEqual(#{<<"page">> => 10, <<"limit">> => 10}, Meta),
     {ok, Binary1} = request_api(get, api_path("trace/test_stream_log/log?_page=20&_limit=10"), Header),
     #{<<"code">> := 0, <<"data">> := #{<<"meta">> := Meta1, <<"items">> := Bin1}} = json(Binary1),
-    ?assertEqual(#{<<"_page">> => 30, <<"_limit">> => 10}, Meta1),
+    ?assertEqual(#{<<"page">> => 30, <<"limit">> => 10}, Meta1),
     ?assertEqual(10, byte_size(Bin1)),
     emqx_mod_trace:unload(test),
     ok.

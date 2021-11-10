@@ -155,10 +155,10 @@ stream_log_file(#{name := Name}, Params) ->
     Bytes = binary_to_integer(Bytes0),
     case rpc:call(Node, ?MODULE, read_trace_file, [Name, Position, Bytes]) of
         {ok, Bin} ->
-            Meta = #{<<"_page">> => Position + byte_size(Bin), <<"_limit">> => Bytes},
+            Meta = #{<<"page">> => Position + byte_size(Bin), <<"limit">> => Bytes},
             return({ok, #{meta => Meta, items => Bin}});
         eof ->
-            Meta = #{<<"_page">> => Position, <<"_limit">> => Bytes},
+            Meta = #{<<"page">> => Position, <<"limit">> => Bytes},
             return({ok, #{meta => Meta, items => <<"">>}});
         {error, Reason} ->
             logger:log(error, "read_file_failed by ~p", [{Name, Reason, Position, Bytes}]),
