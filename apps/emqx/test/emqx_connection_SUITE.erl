@@ -36,6 +36,8 @@ init_per_suite(Config) ->
     ok = meck:new(emqx_channel, [passthrough, no_history, no_link]),
     %% Meck Cm
     ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
+    ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
     %% Meck Limiter
     ok = meck:new(emqx_limiter, [passthrough, no_history, no_link]),
     %% Meck Pd
@@ -113,7 +115,7 @@ t_ws_pingreq_before_connected(_) ->
 
 t_info(_) ->
     CPid = spawn(fun() ->
-                    receive 
+                    receive
                         {'$gen_call', From, info} ->
                             gen_server:reply(From, emqx_connection:info(st()))
                     after
@@ -132,7 +134,7 @@ t_info_limiter(_) ->
 
 t_stats(_) ->
     CPid = spawn(fun() ->
-                        receive 
+                        receive
                             {'$gen_call', From, stats} ->
                                 gen_server:reply(From, emqx_connection:stats(st()))
                         after
@@ -147,10 +149,10 @@ t_stats(_) ->
                   {send_pend,0}| _] , Stats).
 
 t_process_msg(_) ->
-    with_conn(fun(CPid) -> 
-                        ok = meck:expect(emqx_channel, handle_in, 
-                                        fun(_Packet, Channel) -> 
-                                                {ok, Channel} 
+    with_conn(fun(CPid) ->
+                        ok = meck:expect(emqx_channel, handle_in,
+                                        fun(_Packet, Channel) ->
+                                                {ok, Channel}
                                         end),
                         CPid ! {incoming, ?PACKET(?PINGREQ)},
                         CPid ! {incoming, undefined},
@@ -320,7 +322,7 @@ t_with_channel(_) ->
 t_handle_outgoing(_) ->
     ?assertEqual(ok, emqx_connection:handle_outgoing(?PACKET(?PINGRESP), st())),
     ?assertEqual(ok, emqx_connection:handle_outgoing([?PACKET(?PINGRESP)], st())).
-    
+
 t_handle_info(_) ->
     ?assertMatch({ok, {event,running}, _NState},
                  emqx_connection:handle_info(activate_socket, st())),
@@ -347,7 +349,7 @@ t_activate_socket(_) ->
     State = st(),
     {ok, NStats} = emqx_connection:activate_socket(State),
     ?assertEqual(running, emqx_connection:info(sockstate, NStats)),
- 
+
     State1 = st(#{sockstate => blocked}),
     ?assertEqual({ok, State1}, emqx_connection:activate_socket(State1)),
 

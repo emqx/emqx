@@ -21,6 +21,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 
 %% APIs
@@ -66,8 +67,10 @@
 
 %% Connection stats
 -define(CONNECTION_STATS,
-        ['connections.count', %% Count of Concurrent Connections
-         'connections.max'    %% Maximum Number of Concurrent Connections
+        [ 'connections.count' %% Count of Concurrent Connections
+        , 'connections.max'   %% Maximum Number of Concurrent Connections
+        , 'live_connections.count' %% Count of connected clients
+        , 'live_connections.max' %% Maximum number of connected clients
         ]).
 
 %% Channel stats
@@ -215,6 +218,11 @@ handle_cast({setstat, Stat, MaxStat, Val}, State) ->
             ets:insert(?TAB, {MaxStat, Val})
     end,
     safe_update_element(Stat, Val),
+    ?tp(emqx_stats_setstat,
+        #{ count_stat => Stat
+         , max_stat => MaxStat
+         , value => Val
+         }),
     {noreply, State};
 
 handle_cast({update_interval, Update = #update{name = Name}},
@@ -225,7 +233,7 @@ handle_cast({update_interval, Update = #update{name = Name}},
                                       name => Name
                                      }),
                      State;
-                 false -> State#state{updates = [Update|Updates]}
+                 false -> State#state{updates = [Update | Updates]}
              end,
     {noreply, NState};
 
