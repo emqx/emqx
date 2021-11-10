@@ -14,24 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_st_statistics_app).
+-define(LOG_TAB, emqx_st_statistics_log).
+-define(TOPK_TAB, emqx_st_statistics_topk).
 
--behaviour(application).
+-record(top_k, { rank :: pos_integer()
+               , topic :: emqx_types:topic()
+               , average_count :: number()
+               , average_elapsed :: number()}).
 
--emqx_plugin(?MODULE).
-
--export([ start/2
-        , stop/1
-        , start/0
-        ]).
-
-start(_Type, _Args) ->
-    start().
-
-start() ->
-    Conf = application:get_all_env(emqx_st_statistics),
-    {ok, Sup} = emqx_st_statistics_sup:start_link(Conf),
-    {ok, Sup}.
-
-stop(_State) ->
-    ok.
+-type top_k() :: #top_k{}.
