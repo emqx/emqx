@@ -46,7 +46,8 @@ t_trace_clientid(_Config) ->
     emqx_logger:set_log_level(error),
     {error, _} = emqx_tracer:start_trace(clientid, <<"client">>, debug, "tmp/client.log"),
     emqx_logger:set_log_level(debug),
-    ok = emqx_tracer:start_trace(clientid, <<"client">>, debug, "tmp/client.log"),
+    %% add list clientid
+    ok = emqx_tracer:start_trace(clientid, "client", debug, "tmp/client.log"),
     ok = emqx_tracer:start_trace(clientid, <<"client2">>, all, "tmp/client2.log"),
     ok = emqx_tracer:start_trace(clientid, <<"client3">>, all, "tmp/client3.log"),
     {error, {invalid_log_level, bad_level}} =

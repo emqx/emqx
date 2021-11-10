@@ -107,10 +107,12 @@ trace_unsubscribe(Topic, SubOpts) ->
 
 -spec(start_trace(clientid | topic, emqx_types:clientid() | emqx_types:topic(),
     logger:level() | all, string()) -> ok | {error, term()}).
-start_trace(clientid, ClientId, Level, LogFile) ->
+start_trace(clientid, ClientId0, Level, LogFile) ->
+    ClientId = ensure_bin(ClientId0),
     Who = #{type => clientid, clientid => ClientId, name => ClientId, labels => []},
     start_trace(Who, Level, LogFile);
-start_trace(topic, Topic, Level, LogFile) ->
+start_trace(topic, Topic0, Level, LogFile) ->
+    Topic = ensure_bin(Topic0),
     Who = #{type => topic, topic => Topic, name => Topic, labels => []},
     start_trace(Who, Level, LogFile).
 
@@ -146,10 +148,10 @@ stop_trace(Type, ClientIdOrTopic) ->
 -spec(stop_trace(clientid | topic, emqx_types:clientid() | emqx_types:topic(), binary()) ->
     ok | {error, term()}).
 stop_trace(clientid, ClientId, Name) ->
-    Who = #{type => clientid, clientid => ClientId, name => Name},
+    Who = #{type => clientid, clientid => ensure_bin(ClientId), name => ensure_bin(Name)},
     uninstall_trance_handler(Who);
 stop_trace(topic, Topic, Name) ->
-    Who = #{type => topic, topic => Topic, name => Name},
+    Who = #{type => topic, topic => ensure_bin(Topic), name => ensure_bin(Name)},
     uninstall_trance_handler(Who).
 
 %% @doc Lookup all traces
@@ -254,3 +256,6 @@ format(Bin0)when is_binary(Bin0) ->
         Size when Size =< 200 -> Bin0;
         _ -> emqx_misc:bin2hexstr_a_f_upper(Bin0)
     end.
+
+ensure_bin(List) when is_list(List) -> iolist_to_binary(List);
+ensure_bin(Bin) when is_binary(Bin) -> Bin.
