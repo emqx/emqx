@@ -2253,15 +2253,15 @@ end}.
                    [{erlang:list_to_atom(Key), Value} || {[_, _, Key], Value} <- List]
               end,
 
-lists:append([
-              [{emqx_mod_presence, [{qos, cuttlefish:conf_get("module.presence.qos", Conf, 1)}]}],
-              [{emqx_mod_subscription, Subscriptions()}],
-              [{emqx_mod_rewrite, Rewrites()}],
-              [{emqx_mod_topic_metrics, []}],
-              [{emqx_mod_delayed, []}],
-              [{emqx_mod_st_statistics, SlowTopic()}],
-              [{emqx_mod_acl_internal, [{acl_file, cuttlefish:conf_get("acl_file", Conf1)}]}]
-             ])
+  lists:append([
+    [{emqx_mod_presence, [{qos, cuttlefish:conf_get("module.presence.qos", Conf, 1)}]}],
+    [{emqx_mod_subscription, Subscriptions()}],
+    [{emqx_mod_rewrite, Rewrites()}],
+    [{emqx_mod_topic_metrics, []}],
+    [{emqx_mod_delayed, []}],
+    [{emqx_mod_st_statistics, SlowTopic()}],
+    [{emqx_mod_acl_internal, [{acl_file, cuttlefish:conf_get("acl_file", Conf1)}]}]
+  ])
 end}.
 
 %%-------------------------------------------------------------------
