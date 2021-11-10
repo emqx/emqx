@@ -300,7 +300,9 @@ put_pool_size(Val) ->
     persistent_term:put({?APP, pool_size}, Val).
 
 get_pool_size() ->
-    persistent_term:get({?APP, pool_size}).
+    %% Avoid the scenario that the parameter is not set after
+    %% the hot upgrade completed.
+    persistent_term:get({?APP, pool_size}, erlang:system_info(schedulers)).
 
 save(Name, ServerState) ->
     Saved = persistent_term:get(?APP, []),
