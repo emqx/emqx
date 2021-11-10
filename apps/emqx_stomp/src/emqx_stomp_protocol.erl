@@ -588,15 +588,29 @@ next_ackid() ->
     put(ackid, AckId + 1),
     AckId.
 
-make_mqtt_message(Topic, Headers, Body) ->
-    Msg = emqx_message:make(stomp, Topic, Body),
-    Headers1 = lists:foldl(fun(Key, Headers0) ->
-                               proplists:delete(Key, Headers0)
-                           end, Headers, [<<"destination">>,
-                                          <<"content-length">>,
-                                          <<"content-type">>,
-                                          <<"transaction">>,
-                                          <<"receipt">>]),
+make_mqtt_message(Topic, Headers, Body,
+                  #pstate{
+                     conninfo = #{proto_ver := ProtoVer},
+                     clientinfo = #{
+                         protocol := Protocol,
+                         clientid := ClientId,
+                         username := Username,
+                         peerhost := PeerHost}}) ->
+    Msg = emqx_message:make(
+            ClientId, ?QOS_0,
+            Topic, Body, #{},
+            #{proto_ver => ProtoVer,
+              protocol => Protocol,
+              username => Username,
+              peerhost => PeerHost}),
+    Headers1 = lists:foldl(
+                 fun(Key, Headers0) ->
+                    proplists:delete(Key, Headers0)
+                 end, Headers, [<<"destination">>,
+                                <<"content-length">>,
+                                <<"content-type">>,
+                                <<"transaction">>,
+                                <<"receipt">>]),
     emqx_message:set_headers(#{stomp_headers => Headers1}, Msg).
 
 receipt_id(Headers) ->
@@ -611,7 +625,7 @@ handle_recv_send_frame(#stomp_frame{command = <<"SEND">>, headers = Headers, bod
         allow ->
             _ = maybe_send_receipt(receipt_id(Headers), State),
             _ = emqx_broker:publish(
-                make_mqtt_message(Topic, Headers, iolist_to_binary(Body))
+                make_mqtt_message(Topic, Headers, iolist_to_binary(Body), State)
             ),
             State;
         deny ->
