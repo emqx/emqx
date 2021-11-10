@@ -24,6 +24,7 @@
 -behaviour(minirest_api).
 
 -export([api_spec/0, paths/0, schema/1, fields/1]).
+-export([format/1]).
 
 -export([ banned/2
         , delete_banned/2
@@ -36,14 +37,14 @@
 -define(FORMAT_FUN, {?MODULE, format}).
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
     ["/banned", "/banned/:as/:who"].
 
 schema("/banned") ->
     #{
-        operationId =>  banned,
+        'operationId' =>  banned,
         get => #{
             description => <<"List banned">>,
             parameters => [
@@ -59,7 +60,7 @@ schema("/banned") ->
         },
         post => #{
             description => <<"Create banned">>,
-            requestBody => hoconsc:mk(hoconsc:ref(ban)),
+            'requestBody' => hoconsc:mk(hoconsc:ref(ban)),
             responses => #{
                 200 => <<"Create success">>
             }
@@ -67,7 +68,7 @@ schema("/banned") ->
     };
 schema("/banned/:as/:who") ->
     #{
-        operationId => delete_banned,
+        'operationId' => delete_banned,
         delete => #{
             description => <<"Delete banned">>,
             parameters => [
@@ -82,7 +83,8 @@ schema("/banned/:as/:who") ->
                 ],
             responses => #{
                 200 => <<"Delete banned success">>,
-                404 => emqx_dashboard_swagger:error_codes(['RESOURCE_NOT_FOUND'], <<"Banned not found">>)
+                404 => emqx_dashboard_swagger:error_codes(['RESOURCE_NOT_FOUND'],
+                                                          <<"Banned not found">>)
             }
         }
     }.
@@ -140,9 +142,12 @@ delete_banned(delete, #{bindings := Params}) ->
     case emqx_banned:look_up(Params) of
         [] ->
             #{as := As0, who := Who0} = Params,
-            Message = list_to_binary(io_lib:format("~p: ~p not found", [As0, Who0])),
+            Message = list_to_binary(io_lib:format("~p: ~s not found", [As0, Who0])),
             {404, #{code => 'RESOURCE_NOT_FOUND', message => Message}};
         _ ->
             ok = emqx_banned:delete(Params),
             {200}
     end.
+
+format(Banned) ->
+    emqx_banned:format(Banned).
