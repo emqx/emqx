@@ -51,7 +51,12 @@ check_pass({PassHash, Salt, Password}, {salt, HashType}) ->
     check_pass(PassHash, emqx_passwd:hash(HashType, <<Salt/binary, Password/binary>>));
 check_pass({PassHash, Salt, Password}, {HashType, salt}) ->
     check_pass(PassHash, emqx_passwd:hash(HashType, <<Password/binary, Salt/binary>>));
-check_pass(PassHash, PassHash) -> ok;
+check_password(PassHash1, PassHash2) when size(PassHash1) =:= size(PassHash2) ->
+    Zip = lists:zip(binary_to_list(PassHash1), binary_to_list(PassHash2)),
+    case lists:foldl(fun({C1, C2}, Acc) -> Acc bor (C1 bxor C2) end, 0, Zip) of
+        0 -> ok;
+        _ -> {error, password_error}
+    end.
 check_pass(_Hash1, _Hash2)     -> {error, password_error}.
 
 -spec(hash(hash_type(), binary() | tuple()) -> binary()).
