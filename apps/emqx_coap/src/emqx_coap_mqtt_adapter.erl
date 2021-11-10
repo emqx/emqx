@@ -58,6 +58,8 @@
 
 -define(SUBOPTS, #{rh => 0, rap => 0, nl => 0, qos => ?QOS_0, is_new => false}).
 
+-define(PROTO_VER, 1).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -260,7 +262,7 @@ packet_to_message(Topic, Payload,
                 emqx_message:make(ClientId, ?QOS_0, Topic, Payload)
                ),
     emqx_message:set_headers(
-      #{ proto_ver => 1
+      #{ proto_ver => ?PROTO_VER
        , protocol => coap
        , username => Username
        , peerhost => PeerHost}, Message).
@@ -335,7 +337,7 @@ conninfo(#state{peername = Peername,
       peercert => nossl,        %% TODO: dtls
       conn_mod => ?MODULE,
       proto_name => <<"CoAP">>,
-      proto_ver => 1,
+      proto_ver => ?PROTO_VER,
       clean_start => true,
       clientid => ClientId,
       username => undefined,
