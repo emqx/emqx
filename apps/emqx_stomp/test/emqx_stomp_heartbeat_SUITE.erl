@@ -35,8 +35,7 @@ t_check_1(_) ->
     {ok, HrtBt1} = emqx_stomp_heartbeat:check(incoming, 0, HrtBt),
     {error, timeout} = emqx_stomp_heartbeat:check(incoming, 0, HrtBt1),
 
-    {ok, HrtBt2} = emqx_stomp_heartbeat:check(outgoing, 0, HrtBt1),
-    {error, timeout} = emqx_stomp_heartbeat:check(outgoing, 0, HrtBt2),
+    {error, timeout} = emqx_stomp_heartbeat:check(outgoing, 0, HrtBt1),
     ok.
 
 t_check_2(_) ->

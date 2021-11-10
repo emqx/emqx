@@ -22,11 +22,15 @@
 
 -export([ start/2
         , stop/1
+        , start/0
         ]).
 
 start(_Type, _Args) ->
-    Env = application:get_all_env(emqx_st_statistics),
-    {ok, Sup} = emqx_st_statistics_sup:start_link(Env),
+    start().
+
+start() ->
+    Conf = application:get_all_env(emqx_st_statistics),
+    {ok, Sup} = emqx_st_statistics_sup:start_link(Conf),
     {ok, Sup}.
 
 stop(_State) ->

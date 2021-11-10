@@ -14,26 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQX_RELEASE_HRL).
--define(EMQX_RELEASE_HRL, true).
+-define(LOG_TAB, emqx_st_statistics_log).
+-define(TOPK_TAB, emqx_st_statistics_topk).
 
-%% NOTE: this is the release version which is not always the same
-%% as the emqx app version defined in emqx.app.src
-%% App (plugin) versions are bumped independently.
-%% e.g. EMQX_RELEASE being 4.3.1 does no always imply emqx app
-%% should be 4.3.1, as it might be the case that only one of the
-%% plugins had a bug to fix. So for a hot beam upgrade, only the app
-%% with beam files changed needs an upgrade.
+-record(top_k, { rank :: pos_integer()
+               , topic :: emqx_types:topic()
+               , average_count :: number()
+               , average_elapsed :: number()}).
 
-%% NOTE: This version number should be manually bumped for each release
-
--ifndef(EMQX_ENTERPRISE).
-
--define(EMQX_RELEASE, {opensource, "4.4.0"}).
-
--else.
-
-
--endif.
-
--endif.
+-type top_k() :: #top_k{}.

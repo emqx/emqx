@@ -518,7 +518,7 @@ terminate(Reason, State = #state{channel = Channel, transport = Transport,
             ?tp(warning, unclean_terminate, #{exception => E, context => C, stacktrace => S})
     end,
     ?tp(info, terminate, #{reason => Reason}),
-    maybe_raise_excption(Reason).
+    maybe_raise_exception(Reason).
 
 %% close socket, discard new state, always return ok.
 close_socket_ok(State) ->
@@ -526,12 +526,12 @@ close_socket_ok(State) ->
     ok.
 
 %% tell truth about the original exception
-maybe_raise_excption(#{exception := Exception,
+maybe_raise_exception(#{exception := Exception,
                        context := Context,
                        stacktrace := Stacktrace
                       }) ->
     erlang:raise(Exception, Context, Stacktrace);
-maybe_raise_excption(Reason) ->
+maybe_raise_exception(Reason) ->
     exit(Reason).
 
 %%--------------------------------------------------------------------
@@ -702,7 +702,7 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
     ok = emqx_metrics:inc('bytes.sent', Oct),
     inc_counter(outgoing_bytes, Oct),
     emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
-    case Transport:async_send(Socket, IoData, [nosuspend]) of
+    case Transport:async_send(Socket, IoData, []) of
         ok -> ok;
         Error = {error, _Reason} ->
             %% Send an inet_reply to postpone handling the error

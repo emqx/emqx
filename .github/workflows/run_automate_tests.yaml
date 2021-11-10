@@ -24,6 +24,7 @@ jobs:
           git config --global credential.helper store
           echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
           make deps-emqx-ee
+          make clean
         fi
         make docker
         echo "::set-output name=version::$(./pkg-vsn.sh)"
@@ -95,7 +96,7 @@ jobs:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-fvt
-        ref: integration_test_suites
+        ref: v1.4.0
         path: scripts
     - uses: actions/setup-java@v1
       with:
@@ -188,7 +189,7 @@ jobs:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-fvt
-        ref: integration_test_suites
+        ref: v1.4.0
         path: scripts
     - uses: actions/setup-java@v1
       with:
@@ -292,7 +293,7 @@ jobs:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-fvt
-        ref: integration_test_suites
+        ref: v1.4.0
         path: scripts
     - uses: actions/setup-java@v1
       with:
@@ -390,7 +391,7 @@ jobs:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-fvt
-        ref: integration_test_suites
+        ref: v1.4.0
         path: scripts
     - uses: actions/setup-java@v1
       with:

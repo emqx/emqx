@@ -21,12 +21,11 @@ support other repos too.
 
 Usage:
 
-   update_appup.escript [--check] [--repo URL] [--remote NAME] [--skip-build] [--make-commad SCRIPT] [--release-dir DIR] <current_release_tag>
+   update_appup.escript [--check] [--repo URL] [--remote NAME] [--skip-build] [--make-commad SCRIPT] [--release-dir DIR] <previous_release_tag>
 
 Options:
 
   --check           Don't update the appfile, just check that they are complete
-  --prev-tag        Specify the previous release tag. Otherwise the previous patch version is used
   --repo            Upsteam git repo URL
   --remote          Get upstream repo URL from the specified git remote
   --skip-build      Don't rebuild the releases. May produce wrong results
@@ -34,7 +33,7 @@ Options:
   --release-dir     Release directory
   --src-dirs        Directories where source code is found. Defaults to '{src,apps,lib-*}/**/'
   --binary-rel-url  Binary release URL pattern. %TAG% variable is substituted with the release tag.
-                    E.g. \"https://github.com/emqx/emqx/releases/download/v4.3.8/emqx-centos7-%TAG%-amd64.zip\"
+                    E.g. \"https://github.com/emqx/emqx/releases/download/v%TAG%/emqx-centos7-%TAG%-amd64.zip\"
 ".
 
 -record(app,
@@ -60,18 +59,12 @@ ignored_apps() ->
     [emqx_dashboard, emqx_management] ++ otp_standard_apps().
 
 main(Args) ->
-    #{current_release := CurrentRelease} = Options = parse_args(Args, default_options()),
+    #{prev_tag := Baseline} = Options = parse_args(Args, default_options()),
     init_globals(Options),
-    case find_prev_tag(CurrentRelease) of
-        {ok, Baseline} ->
-            main(Options, Baseline);
-        undefined ->
-            log("No appup update is needed for this release, nothing to be done~n", []),
-            ok
-    end.
+    main(Options, Baseline).
 
-parse_args([CurrentRelease = [A|_]], State) when A =/= $- ->
-    State#{current_release => CurrentRelease};
+parse_args([PrevTag = [A|_]], State) when A =/= $- ->
+    State#{prev_tag => PrevTag};
 parse_args(["--check"|Rest], State) ->
     parse_args(Rest, State#{check => true});
 parse_args(["--skip-build"|Rest], State) ->
@@ -86,8 +79,6 @@ parse_args(["--release-dir", Dir|Rest], State) ->
     parse_args(Rest, State#{beams_dir => Dir});
 parse_args(["--src-dirs", Pattern|Rest], State) ->
     parse_args(Rest, State#{src_dirs => Pattern});
-parse_args(["--prev-tag", Tag|Rest], State) ->
-    parse_args(Rest, State#{prev_tag => Tag});
 parse_args(["--binary-rel-url", URL|Rest], State) ->
     parse_args(Rest, State#{binary_rel_url => {ok, URL}});
 parse_args(_, _) ->
@@ -163,7 +154,7 @@ download_prev_release(Tag, #{binary_rel_url := {ok, URL0}, clone_url := Repo}) -
     Dir = filename:basename(Repo, ".git") ++ [$-|Tag],
     Filename = filename:join(BaseDir, Dir),
     Script = "mkdir -p ${OUTFILE} &&
-              { [ -f ${OUTFILE}.zip ] || wget -O ${OUTFILE}.zip ${URL}; } &&
+              wget -O ${OUTFILE}.zip ${URL} &&
               unzip -n -d ${OUTFILE} ${OUTFILE}.zip",
     Env = [{"TAG", Tag}, {"OUTFILE", Filename}, {"URL", URL}],
     bash(Script, Env),
