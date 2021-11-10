@@ -70,55 +70,64 @@ paths() ->
 
 schema("/authorization/sources/built-in-database/username") ->
     #{
-        operationId => users,
+        'operationId' => users,
         get => #{
             tags => [<<"authorization">>],
             description => <<"Show the list of record for username">>,
-            parameters => [hoconsc:ref(emqx_dashboard_swagger, page), hoconsc:ref(emqx_dashboard_swagger, limit)],
+            parameters => [ hoconsc:ref(emqx_dashboard_swagger, page)
+                          , hoconsc:ref(emqx_dashboard_swagger, limit)],
             responses => #{
-                200 => swagger_with_example({username_response_data, ?TYPE_REF}, {username, ?PAGE_QUERY_EXAMPLE})
+                200 => swagger_with_example( {username_response_data, ?TYPE_REF}
+                                           , {username, ?PAGE_QUERY_EXAMPLE})
             }
         },
         post => #{
             tags => [<<"authorization">>],
             description => <<"Add new records for username">>,
-            requestBody => swagger_with_example({rules_for_username, ?TYPE_ARRAY}, {username, ?POST_ARRAY_EXAMPLE}),
+            'requestBody' => swagger_with_example( {rules_for_username, ?TYPE_ARRAY}
+                                                 , {username, ?POST_ARRAY_EXAMPLE}),
             responses => #{
                 204 => <<"Created">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad username or bad rule schema">>)
+                400 => emqx_dashboard_swagger:error_codes( [?BAD_REQUEST]
+                                                         , <<"Bad username or bad rule schema">>)
             }
         }
     };
 schema("/authorization/sources/built-in-database/clientid") ->
     #{
-        operationId => clients,
+        'operationId' => clients,
         get => #{
             tags => [<<"authorization">>],
             description => <<"Show the list of record for clientid">>,
-            parameters => [hoconsc:ref(emqx_dashboard_swagger, page), hoconsc:ref(emqx_dashboard_swagger, limit)],
+            parameters => [ hoconsc:ref(emqx_dashboard_swagger, page)
+                          , hoconsc:ref(emqx_dashboard_swagger, limit)],
             responses => #{
-                200 => swagger_with_example({clientid_response_data, ?TYPE_REF}, {clientid, ?PAGE_QUERY_EXAMPLE})
+                200 => swagger_with_example( {clientid_response_data, ?TYPE_REF}
+                                           , {clientid, ?PAGE_QUERY_EXAMPLE})
             }
         },
         post => #{
             tags => [<<"authorization">>],
             description => <<"Add new records for clientid">>,
-            requestBody => swagger_with_example({rules_for_clientid, ?TYPE_ARRAY}, {clientid, ?POST_ARRAY_EXAMPLE}),
+            'requestBody' => swagger_with_example( {rules_for_clientid, ?TYPE_ARRAY}
+                                                 , {clientid, ?POST_ARRAY_EXAMPLE}),
             responses => #{
                 204 => <<"Created">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad clientid or bad rule schema">>)
+                400 => emqx_dashboard_swagger:error_codes( [?BAD_REQUEST]
+                                                         , <<"Bad clientid or bad rule schema">>)
             }
         }
     };
 schema("/authorization/sources/built-in-database/username/:username") ->
     #{
-        operationId => user,
+        'operationId' => user,
         get => #{
             tags => [<<"authorization">>],
             description => <<"Get record info for username">>,
             parameters => [hoconsc:ref(username)],
             responses => #{
-                200 => swagger_with_example({rules_for_username, ?TYPE_REF}, {username, ?PUT_MAP_EXAMPLE}),
+                200 => swagger_with_example( {rules_for_username, ?TYPE_REF}
+                                           , {username, ?PUT_MAP_EXAMPLE}),
                 404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         },
@@ -126,10 +135,12 @@ schema("/authorization/sources/built-in-database/username/:username") ->
             tags => [<<"authorization">>],
             description => <<"Set record for username">>,
             parameters => [hoconsc:ref(username)],
-            requestBody => swagger_with_example({rules_for_username, ?TYPE_REF}, {username, ?PUT_MAP_EXAMPLE}),
+            'requestBody' => swagger_with_example( {rules_for_username, ?TYPE_REF}
+                                                 , {username, ?PUT_MAP_EXAMPLE}),
             responses => #{
                 204 => <<"Updated">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad username or bad rule schema">>)
+                400 => emqx_dashboard_swagger:error_codes( [?BAD_REQUEST]
+                                                         , <<"Bad username or bad rule schema">>)
             }
         },
         delete => #{
@@ -144,13 +155,14 @@ schema("/authorization/sources/built-in-database/username/:username") ->
     };
 schema("/authorization/sources/built-in-database/clientid/:clientid") ->
     #{
-        operationId => client,
+        'operationId' => client,
         get => #{
             tags => [<<"authorization">>],
             description => <<"Get record info for clientid">>,
             parameters => [hoconsc:ref(clientid)],
             responses => #{
-                200 => swagger_with_example({rules_for_clientid, ?TYPE_REF}, {clientid, ?PUT_MAP_EXAMPLE}),
+                200 => swagger_with_example( {rules_for_clientid, ?TYPE_REF}
+                                           , {clientid, ?PUT_MAP_EXAMPLE}),
                 404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         },
@@ -158,10 +170,12 @@ schema("/authorization/sources/built-in-database/clientid/:clientid") ->
             tags => [<<"authorization">>],
             description => <<"Set record for clientid">>,
             parameters => [hoconsc:ref(clientid)],
-            requestBody => swagger_with_example({rules_for_clientid, ?TYPE_REF}, {clientid, ?PUT_MAP_EXAMPLE}),
+            'requestBody' => swagger_with_example( {rules_for_clientid, ?TYPE_REF}
+                                                 , {clientid, ?PUT_MAP_EXAMPLE}),
             responses => #{
                 204 => <<"Updated">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad clientid or bad rule schema">>)
+                400 => emqx_dashboard_swagger:error_codes(
+                         [?BAD_REQUEST], <<"Bad clientid or bad rule schema">>)
             }
         },
         delete => #{
@@ -176,7 +190,7 @@ schema("/authorization/sources/built-in-database/clientid/:clientid") ->
     };
 schema("/authorization/sources/built-in-database/all") ->
     #{
-        operationId => all,
+        'operationId' => all,
         get => #{
             tags => [<<"authorization">>],
             description => <<"Show the list of rules for all">>,
@@ -187,7 +201,8 @@ schema("/authorization/sources/built-in-database/all") ->
         put => #{
             tags => [<<"authorization">>],
             description => <<"Set the list of rules for all">>,
-            requestBody => swagger_with_example({rules_for_all, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE}),
+            'requestBody' =>
+                swagger_with_example({rules_for_all, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE}),
             responses => #{
                 204 => <<"Created">>,
                 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad rule schema">>)
@@ -196,7 +211,7 @@ schema("/authorization/sources/built-in-database/all") ->
     };
 schema("/authorization/sources/built-in-database/purge-all") ->
     #{
-        operationId => purge,
+        'operationId' => purge,
         delete => #{
             tags => [<<"authorization">>],
             description => <<"Purge all records">>,
@@ -209,16 +224,23 @@ schema("/authorization/sources/built-in-database/purge-all") ->
 
 fields(rule_item) ->
     [ {topic,      hoconsc:mk( string()
-                             , #{desc => <<"Rule on specific topic">>, required => true, example => <<"test/topic/1">>})}
+                             , #{ required => true
+                                , desc => <<"Rule on specific topic">>
+                                , example => <<"test/topic/1">>})}
     , {permission, hoconsc:mk( hoconsc:enum([allow, deny])
                              , #{desc => <<"Permission">>, required => true, example => allow})}
     , {action,     hoconsc:mk( hoconsc:enum([publish, subscribe, all])
-                             , #{desc => <<"Authorized action">>, required => true, example => publish})} ];
+                             , #{ required => true, example => publish
+                                , desc => <<"Authorized action">> })} ];
 fields(clientid) ->
-    [ {clientid, hoconsc:mk(binary(), #{in => path, required => true, desc => <<"ClientID">>, example => <<"client1">>})}
+    [ {clientid, hoconsc:mk( binary()
+                           , #{ in => path, required => true
+                              , desc => <<"ClientID">>, example => <<"client1">>})}
     ];
 fields(username) ->
-    [ {username, hoconsc:mk(binary(), #{in => path, required => true, desc => <<"Username">>, example => <<"user1">>})}
+    [ {username, hoconsc:mk( binary()
+                           , #{ in => path, required => true
+                              , desc => <<"Username">>, example => <<"user1">>})}
     ];
 fields(rules_for_username) ->
     [ {rules, hoconsc:mk(hoconsc:array(hoconsc:ref(rule_item)), #{})}
@@ -347,7 +369,8 @@ purge(delete, _) ->
             {204};
         [#{<<"enable">> := true}] ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => <<"'built-in-database' type source must be disabled before purge.">>}};
+                    message =>
+                        <<"'built-in-database' type source must be disabled before purge.">>}};
         [] ->
             {404, #{code => <<"BAD_REQUEST">>,
                     message => <<"'built-in-database' type source is not found.">>
@@ -380,7 +403,7 @@ format_by_clientid([{clientid, Clientid}, {rules, Rules}]) ->
 atom(B) when is_binary(B) ->
     try binary_to_existing_atom(B, utf8)
     catch
-        _ -> binary_to_atom(B)
+        _Error:_Expection -> binary_to_atom(B)
     end;
 atom(A) when is_atom(A) -> A.
 
