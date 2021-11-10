@@ -19,146 +19,214 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
-% -include_lib("common_test/include/ct.hrl").
-% -include_lib("eunit/include/eunit.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
-% -include("emqx_authn.hrl").
-
-% -define(AUTH, emqx_authn).
+-include("emqx_authn.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-% init_per_suite(Config) ->
-%     emqx_common_test_helpers:start_apps([emqx_authn]),
-%     Config.
+init_per_suite(Config) ->
+    emqx_common_test_helpers:start_apps([emqx_authn]),
+    Config.
 
-% end_per_suite(_) ->
-%     emqx_common_test_helpers:stop_apps([emqx_authn]),
-%     ok.
+end_per_suite(_) ->
+    emqx_common_test_helpers:stop_apps([emqx_authn]),
+    ok.
 
-% t_mnesia_authenticator(_) ->
-%     AuthenticatorName = <<"myauthenticator">>,
-%     AuthenticatorConfig = #{name => AuthenticatorName,
-%                             mechanism => 'password-based',
-%                             server_type => 'built-in-database',
-%                             user_id_type => username,
-%                             password_hash_algorithm => #{
-%                                 name => sha256
-%                             }},
-%     {ok, #{name := AuthenticatorName, id := ID}} = ?AUTH:create_authenticator(?CHAIN, AuthenticatorConfig),
+init_per_testcase(_Case, Config) ->
+    mnesia:clear_table(emqx_authn_mnesia),
+    Config.
 
-%     UserInfo = #{user_id => <<"myuser">>,
-%                  password => <<"mypass">>},
-%     ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:add_user(?CHAIN, ID, UserInfo)),
-%     ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:lookup_user(?CHAIN, ID, <<"myuser">>)),
+end_per_testcase(_Case, Config) ->
+    Config.
 
-%     ClientInfo = #{zone => external,
-%                    username => <<"myuser">>,
-% 			       password => <<"mypass">>},
-%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
-%     ?AUTH:enable(),
-%     ?assertEqual({ok, #{is_superuser => false}}, emqx_access_control:authenticate(ClientInfo)),
+%%------------------------------------------------------------------------------
+%% Tests
+%%------------------------------------------------------------------------------
 
-%     ClientInfo2 = ClientInfo#{username => <<"baduser">>},
-%     ?assertEqual({stop, {error, not_authorized}}, ?AUTH:authenticate(ClientInfo2, ignored)),
-%     ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo2)),
+t_check_schema(_Config) ->
+    ConfigOk = #{
+        <<"mechanism">> => <<"password-based">>,
+        <<"backend">> => <<"built-in-database">>,
+        <<"user_id_type">> => <<"username">>,
+        <<"password_hash_algorithm">> => #{
+            <<"name">> => <<"bcrypt">>,
+            <<"salt_rounds">> => <<"6">>
+        }
+    },
 
-%     ClientInfo3 = ClientInfo#{password => <<"badpass">>},
-%     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo3, ignored)),
-%     ?assertEqual({error, bad_username_or_password}, emqx_access_control:authenticate(ClientInfo3)),
+    hocon_schema:check_plain(emqx_authn_mnesia, #{<<"config">> => ConfigOk}),
 
-%     UserInfo2 = UserInfo#{password => <<"mypass2">>},
-%     ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:update_user(?CHAIN, ID, <<"myuser">>, UserInfo2)),
-%     ClientInfo4 = ClientInfo#{password => <<"mypass2">>},
-%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo4, ignored)),
+    ConfigNotOk = #{
+        <<"mechanism">> => <<"password-based">>,
+        <<"backend">> => <<"built-in-database">>,
+        <<"user_id_type">> => <<"username">>,
+        <<"password_hash_algorithm">> => #{
+            <<"name">> => <<"md6">>
+        }
+    },
 
-%     ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:update_user(?CHAIN, ID, <<"myuser">>, #{is_superuser => true})),
-%     ?assertEqual({stop, {ok, #{is_superuser => true}}}, ?AUTH:authenticate(ClientInfo4, ignored)),
+    ?assertException(
+        throw,
+        {emqx_authn_mnesia, _},
+        hocon_schema:check_plain(emqx_authn_mnesia, #{<<"config">> => ConfigNotOk})).
 
-%     ?assertEqual(ok, ?AUTH:delete_user(?CHAIN, ID, <<"myuser">>)),
-%     ?assertEqual({error, not_found}, ?AUTH:lookup_user(?CHAIN, ID, <<"myuser">>)),
+t_create(_) ->
+    Config0 = config(),
 
-%     ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:add_user(?CHAIN, ID, UserInfo)),
-%     ?assertMatch({ok, #{user_id := <<"myuser">>}}, ?AUTH:lookup_user(?CHAIN, ID, <<"myuser">>)),
-%     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID)),
+    {ok, _} = emqx_authn_mnesia:create(Config0),
 
-%     {ok, #{name := AuthenticatorName, id := ID1}} = ?AUTH:create_authenticator(?CHAIN, AuthenticatorConfig),
-%     ?assertMatch({error, not_found}, ?AUTH:lookup_user(?CHAIN, ID1, <<"myuser">>)),
-%     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID1)),
-%     ok.
+    Config1 = Config0#{password_hash_algorithm => #{name => sha256}},
+    {ok, _} = emqx_authn_mnesia:create(Config1).
 
-% t_import(_) ->
-%     AuthenticatorName = <<"myauthenticator">>,
-%     AuthenticatorConfig = #{name => AuthenticatorName,
-%                             mechanism => 'password-based',
-%                             server_type => 'built-in-database',
-%                             user_id_type => username,
-%                             password_hash_algorithm => #{
-%                                 name => sha256
-%                             }},
-%     {ok, #{name := AuthenticatorName, id := ID}} = ?AUTH:create_authenticator(?CHAIN, AuthenticatorConfig),
+t_update(_) ->
+    Config0 = config(),
+    {ok, State} = emqx_authn_mnesia:create(Config0),
 
-%     Dir = code:lib_dir(emqx_authn, test),
-%     ?assertEqual(ok, ?AUTH:import_users(?CHAIN, ID, filename:join([Dir, "data/user-credentials.json"]))),
-%     ?assertEqual(ok, ?AUTH:import_users(?CHAIN, ID, filename:join([Dir, "data/user-credentials.csv"]))),
-%     ?assertMatch({ok, #{user_id := <<"myuser1">>}}, ?AUTH:lookup_user(?CHAIN, ID, <<"myuser1">>)),
-%     ?assertMatch({ok, #{user_id := <<"myuser3">>}}, ?AUTH:lookup_user(?CHAIN, ID, <<"myuser3">>)),
+    Config1 = Config0#{password_hash_algorithm => #{name => sha256}},
+    {ok, _} = emqx_authn_mnesia:update(Config1, State).
 
-%     ClientInfo1 = #{username => <<"myuser1">>,
-% 			        password => <<"mypassword1">>},
-%     ?assertEqual({stop, {ok, #{is_superuser => true}}}, ?AUTH:authenticate(ClientInfo1, ignored)),
+t_destroy(_) ->
+    Config = config(),
+    {ok, State0} = emqx_authn_mnesia:create(Config),
 
-%     ClientInfo2 = ClientInfo1#{username => <<"myuser2">>,
-%                                password => <<"mypassword2">>},
-%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo2, ignored)),
+    User = #{user_id => <<"u">>, password => <<"p">>},
+    {ok, _} = emqx_authn_mnesia:add_user(User, State0),
+    {ok, _} = emqx_authn_mnesia:lookup_user(<<"u">>, State0),
 
-%     ClientInfo3 = ClientInfo1#{username => <<"myuser3">>,
-%                                password => <<"mypassword3">>},
-%     ?assertEqual({stop, {ok, #{is_superuser => true}}}, ?AUTH:authenticate(ClientInfo3, ignored)),
+    ok = emqx_authn_mnesia:destroy(State0),
+    {ok, State1} = emqx_authn_mnesia:create(Config),
+    {error, not_found} = emqx_authn_mnesia:lookup_user(<<"u">>, State1).
 
-%     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID)),
-%     ok.
+t_authenticate(_) ->
+    Config = config(),
+    {ok, State} = emqx_authn_mnesia:create(Config),
 
-% t_multi_mnesia_authenticator(_) ->
-%     AuthenticatorName1 = <<"myauthenticator1">>,
-%     AuthenticatorConfig1 = #{name => AuthenticatorName1,
-%                              mechanism => 'password-based',
-%                              server_type => 'built-in-database',
-%                              user_id_type => username,
-%                              password_hash_algorithm => #{
-%                                  name => sha256
-%                              }},
-%     AuthenticatorName2 = <<"myauthenticator2">>,
-%     AuthenticatorConfig2 = #{name => AuthenticatorName2,
-%                              mechanism => 'password-based',
-%                              server_type => 'built-in-database',
-%                              user_id_type => clientid,
-%                              password_hash_algorithm => #{
-%                                  name => sha256
-%                              }},
-%     {ok, #{name := AuthenticatorName1, id := ID1}} = ?AUTH:create_authenticator(?CHAIN, AuthenticatorConfig1),
-%     {ok, #{name := AuthenticatorName2, id := ID2}} = ?AUTH:create_authenticator(?CHAIN, AuthenticatorConfig2),
+    User = #{user_id => <<"u">>, password => <<"p">>},
+    {ok, _} = emqx_authn_mnesia:add_user(User, State),
 
-%     ?assertMatch({ok, #{user_id := <<"myuser">>}},
-%                  ?AUTH:add_user(?CHAIN, ID1,
-%                                 #{user_id => <<"myuser">>,
-%                                   password => <<"mypass1">>})),
-%     ?assertMatch({ok, #{user_id := <<"myclient">>}},
-%                  ?AUTH:add_user(?CHAIN, ID2,
-%                                 #{user_id => <<"myclient">>,
-%                                   password => <<"mypass2">>})),
+    {ok, _} = emqx_authn_mnesia:authenticate(
+                #{username => <<"u">>, password => <<"p">>},
+                State),
+    {error, bad_username_or_password} = emqx_authn_mnesia:authenticate(
+                                          #{username => <<"u">>, password => <<"badpass">>},
+                                          State),
+    ignore = emqx_authn_mnesia:authenticate(
+                                          #{clientid => <<"u">>, password => <<"p">>},
+                                          State).
 
-%     ClientInfo1 = #{username => <<"myuser">>,
-%                     clientid => <<"myclient">>,
-% 			        password => <<"mypass1">>},
-%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo1, ignored)),
-%     ?assertEqual(ok, ?AUTH:move_authenticator(?CHAIN, ID2, top)),
+t_add_user(_) ->
+    Config = config(),
+    {ok, State} = emqx_authn_mnesia:create(Config),
 
-%     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo1, ignored)),
-%     ClientInfo2 = ClientInfo1#{password => <<"mypass2">>},
-%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo2, ignored)),
+    User = #{user_id => <<"u">>, password => <<"p">>},
+    {ok, _} = emqx_authn_mnesia:add_user(User, State),
+    {error, already_exist} = emqx_authn_mnesia:add_user(User, State).
 
-%     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID1)),
-%     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID2)),
-%     ok.
+t_delete_user(_) ->
+    Config = config(),
+    {ok, State} = emqx_authn_mnesia:create(Config),
+
+    {error, not_found} = emqx_authn_mnesia:delete_user(<<"u">>, State),
+    User = #{user_id => <<"u">>, password => <<"p">>},
+    {ok, _} = emqx_authn_mnesia:add_user(User, State),
+
+    ok = emqx_authn_mnesia:delete_user(<<"u">>, State),
+    {error, not_found} = emqx_authn_mnesia:delete_user(<<"u">>, State).
+
+t_update_user(_) ->
+    Config = config(),
+    {ok, State} = emqx_authn_mnesia:create(Config),
+
+    User = #{user_id => <<"u">>, password => <<"p">>},
+    {ok, _} = emqx_authn_mnesia:add_user(User, State),
+
+    {error, not_found} = emqx_authn_mnesia:update_user(<<"u1">>, #{password => <<"p1">>}, State),
+    {ok,
+     #{user_id := <<"u">>,
+       is_superuser := true}} = emqx_authn_mnesia:update_user(
+                                  <<"u">>,
+                                  #{password => <<"p1">>, is_superuser => true},
+                                  State),
+
+    {ok, _} = emqx_authn_mnesia:authenticate(
+                #{username => <<"u">>, password => <<"p1">>},
+                State),
+
+    {ok, #{is_superuser := true}} = emqx_authn_mnesia:lookup_user(<<"u">>, State).
+
+t_list_users(_) ->
+    Config = config(),
+    {ok, State} = emqx_authn_mnesia:create(Config),
+
+    Users = [#{user_id => <<"u1">>, password => <<"p">>},
+             #{user_id => <<"u2">>, password => <<"p">>},
+             #{user_id => <<"u3">>, password => <<"p">>}],
+
+    lists:foreach(
+      fun(U) -> {ok, _} = emqx_authn_mnesia:add_user(U, State) end,
+      Users),
+
+    {ok,
+     #{data := [#{user_id := _}, #{user_id := _}],
+       meta := #{page := 1, limit := 2, count := 3}}} = emqx_authn_mnesia:list_users(
+                                                          #{<<"page">> => 1, <<"limit">> => 2},
+                                                          State),
+    {ok,
+     #{data := [#{user_id := _}],
+       meta := #{page := 2, limit := 2, count := 3}}} = emqx_authn_mnesia:list_users(
+                                                          #{<<"page">> => 2, <<"limit">> => 2},
+                                                          State).
+
+t_import_users(_) ->
+    Config0 = config(),
+    Config = Config0#{password_hash_algorithm => #{name => sha256}},
+    {ok, State} = emqx_authn_mnesia:create(Config),
+
+    ok = emqx_authn_mnesia:import_users(
+           data_filename(<<"user-credentials.json">>),
+           State),
+
+    ok = emqx_authn_mnesia:import_users(
+           data_filename(<<"user-credentials.csv">>),
+           State),
+
+    {error, {unsupported_file_format, _}} = emqx_authn_mnesia:import_users(
+                   <<"/file/with/unknown.extension">>,
+                   State),
+
+    {error, unknown_file_format} = emqx_authn_mnesia:import_users(
+                   <<"/file/with/no/extension">>,
+                   State),
+
+    {error, enoent} = emqx_authn_mnesia:import_users(
+                   <<"/file/that/not/exist.json">>,
+                   State),
+
+    {error, bad_format} = emqx_authn_mnesia:import_users(
+                   data_filename(<<"user-credentials-malformed-0.json">>),
+                   State),
+
+    {error, {_, invalid_json}} = emqx_authn_mnesia:import_users(
+                   data_filename(<<"user-credentials-malformed-1.json">>),
+                   State),
+
+    {error, bad_format} = emqx_authn_mnesia:import_users(
+                   data_filename(<<"user-credentials-malformed.csv">>),
+                   State).
+
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
+
+data_filename(Name) ->
+    Dir = code:lib_dir(emqx_authn, test),
+    filename:join([Dir, <<"data">>, Name]).
+
+config() ->
+    #{user_id_type => username,
+      password_hash_algorithm => #{name => bcrypt,
+                                   salt_rounds => 8},
+      '_unique' => <<"unique">>
+     }.
