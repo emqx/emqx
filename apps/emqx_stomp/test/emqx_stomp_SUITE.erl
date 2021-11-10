@@ -100,7 +100,7 @@ t_heartbeat(_) ->
                                                      {<<"host">>, <<"127.0.0.1:61613">>},
                                                      {<<"login">>, <<"guest">>},
                                                      {<<"passcode">>, <<"guest">>},
-                                                     {<<"heart-beat">>, <<"1000,800">>}])),
+                                                     {<<"heart-beat">>, <<"1000,2000">>}])),
                         {ok, Data} = gen_tcp:recv(Sock, 0),
                         {ok, #stomp_frame{command = <<"CONNECTED">>,
                                           headers = _,
