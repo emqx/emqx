@@ -606,8 +606,6 @@ default_conninfo(ConnInfo) ->
     ConnInfo#{clean_start => true,
               clientid => undefined,
               username => undefined,
-              proto_name => undefined,
-              proto_ver => undefined,
               conn_props => #{},
               connected => true,
               connected_at => erlang:system_time(millisecond),

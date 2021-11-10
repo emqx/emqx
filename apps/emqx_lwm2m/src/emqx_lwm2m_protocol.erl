@@ -74,7 +74,8 @@ call(Pid, Msg, Timeout) ->
         Error -> {error, Error}
     end.
 
-init(CoapPid, EndpointName, Peername = {_Peerhost, _Port}, RegInfo = #{<<"lt">> := LifeTime, <<"lwm2m">> := Ver}) ->
+init(CoapPid, EndpointName, Peername = {_Peerhost, _Port},
+     RegInfo = #{<<"lt">> := LifeTime, <<"lwm2m">> := Ver}) ->
     Mountpoint = proplists:get_value(mountpoint, lwm2m_coap_responder:options(), ""),
     Lwm2mState = #lwm2m_state{peername = Peername,
                               endpoint_name = EndpointName,
@@ -103,9 +104,10 @@ init(CoapPid, EndpointName, Peername = {_Peerhost, _Port}, RegInfo = #{<<"lt">> 
                 emqx_cm:register_channel(EndpointName, CoapPid, conninfo(Lwm2mState1))
             end),
             emqx_cm:insert_channel_info(EndpointName, info(Lwm2mState1), stats(Lwm2mState1)),
-	    emqx_lwm2m_cm:register_channel(EndpointName, RegInfo, LifeTime, Ver, Peername),
+            emqx_lwm2m_cm:register_channel(EndpointName, RegInfo, LifeTime, Ver, Peername),
 
-            {ok, Lwm2mState1#lwm2m_state{life_timer = emqx_lwm2m_timer:start_timer(LifeTime, {life_timer, expired})}};
+            NTimer = emqx_lwm2m_timer:start_timer(LifeTime, {life_timer, expired}),
+            {ok, Lwm2mState1#lwm2m_state{life_timer = NTimer}};
         {error, Error} ->
             _ = run_hooks('client.connack', [conninfo(Lwm2mState), not_authorized], undefined),
             {error, Error}
@@ -133,7 +135,7 @@ update_reg_info(NewRegInfo, Lwm2mState=#lwm2m_state{life_timer = LifeTimer, regi
             %% - report the registration info update, but only when objectList is updated.
             case NewRegInfo of
                 #{<<"objectList">> := _} ->
-		    emqx_lwm2m_cm:update_reg_info(Epn, NewRegInfo),
+                    emqx_lwm2m_cm:update_reg_info(Epn, NewRegInfo),
                     send_to_broker(<<"update">>, #{<<"data">> => UpdatedRegInfo}, Lwm2mState);
                 _ -> ok
             end
@@ -186,7 +188,8 @@ deliver(#message{topic = Topic, payload = Payload},
                                   started_at = StartedAt,
                                   endpoint_name = EndpointName}) ->
     IsCacheMode = is_cache_mode(RegInfo, StartedAt),
-    ?LOG(debug, "Get MQTT message from broker, IsCacheModeNow?: ~p, Topic: ~p, Payload: ~p", [IsCacheMode, Topic, Payload]),
+    ?LOG(debug, "Get MQTT message from broker, IsCacheModeNow?: ~p, "
+                "Topic: ~p, Payload: ~p", [IsCacheMode, Topic, Payload]),
     AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
     deliver_to_coap(AlternatePath, Payload, CoapPid, IsCacheMode, EndpointName),
     Lwm2mState.
@@ -256,7 +259,8 @@ time_now() -> erlang:system_time(millisecond).
 %% Deliver downlink message to coap
 %%--------------------------------------------------------------------
 
-deliver_to_coap(AlternatePath, JsonData, CoapPid, CacheMode, EndpointName) when is_binary(JsonData)->
+deliver_to_coap(AlternatePath, JsonData,
+                CoapPid, CacheMode, EndpointName) when is_binary(JsonData)->
     try
         TermData = emqx_json:decode(JsonData, [return_maps]),
         deliver_to_coap(AlternatePath, TermData, CoapPid, CacheMode, EndpointName)
@@ -285,7 +289,8 @@ deliver_to_coap(AlternatePath, TermData, CoapPid, CacheMode, EndpointName) when 
 send_to_broker(EventType, Payload = #{}, Lwm2mState) ->
     do_send_to_broker(EventType, Payload, Lwm2mState).
 
-do_send_to_broker(EventType, #{<<"data">> := Data} = Payload, #lwm2m_state{endpoint_name = EndpointName} = Lwm2mState) ->
+do_send_to_broker(EventType, #{<<"data">> := Data} = Payload,
+                  #lwm2m_state{endpoint_name = EndpointName} = Lwm2mState) ->
     ReqPath = maps:get(<<"reqPath">>, Data, undefined),
     Code = maps:get(<<"code">>, Data, undefined),
     CodeMsg = maps:get(<<"codeMsg">>, Data, undefined),
@@ -327,18 +332,27 @@ auto_observe(AlternatePath, ObjectList, CoapPid, EndpointName) ->
 
 observe_object_list(AlternatePath, ObjectList, CoapPid, EndpointName) ->
     lists:foreach(fun(ObjectPath) ->
-        [ObjId| LastPath] = emqx_lwm2m_cmd_handler:path_list(ObjectPath),
+        [ObjId | LastPath] = emqx_lwm2m_cmd_handler:path_list(ObjectPath),
         case ObjId of
             <<"19">> ->
                 [ObjInsId | _LastPath1] = LastPath,
                 case ObjInsId of
                     <<"0">> ->
-                        observe_object_slowly(AlternatePath, <<"/19/0/0">>, CoapPid, 100, EndpointName);
+                        observe_object_slowly(
+                          AlternatePath, <<"/19/0/0">>,
+                          CoapPid, 100, EndpointName
+                         );
                     _ ->
-                        observe_object_slowly(AlternatePath, ObjectPath, CoapPid, 100, EndpointName)
+                        observe_object_slowly(
+                          AlternatePath, ObjectPath,
+                          CoapPid, 100, EndpointName
+                         )
                 end;
             _ ->
-                observe_object_slowly(AlternatePath, ObjectPath, CoapPid, 100, EndpointName)
+                observe_object_slowly(
+                  AlternatePath, ObjectPath,
+                  CoapPid, 100, EndpointName
+                 )
         end
     end, ObjectList).
 
@@ -392,11 +406,12 @@ get_cached_downlink_messages() ->
 is_cache_mode(RegInfo, StartedAt) ->
     case is_psm(RegInfo) orelse is_qmode(RegInfo) of
         true ->
-            QModeTimeWind = proplists:get_value(qmode_time_window, lwm2m_coap_responder:options(), 22),
-            Now = time_now(),
-            if (Now - StartedAt) >= QModeTimeWind -> true;
-                true -> false
-            end;
+            QModeTimeWind = proplists:get_value(
+                              qmode_time_window,
+                              lwm2m_coap_responder:options(),
+                              22
+                             ),
+            (time_now() - StartedAt) >= QModeTimeWind;
         false -> false
     end.
 

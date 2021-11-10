@@ -139,7 +139,7 @@ handle_call({subscribe, Topic, CoapPid}, _From, State=#state{sub_topics = TopicL
     NewTopics = proplists:delete(Topic, TopicList),
     IsWild = emqx_topic:wildcard(Topic),
     {reply, chann_subscribe(Topic, State), State#state{sub_topics =
-        [{Topic, {IsWild, CoapPid}}|NewTopics]}, hibernate};
+        [{Topic, {IsWild, CoapPid}} | NewTopics]}, hibernate};
 
 handle_call({unsubscribe, Topic, _CoapPid}, _From, State=#state{sub_topics = TopicList}) ->
     NewTopics = proplists:delete(Topic, TopicList),
@@ -281,7 +281,7 @@ do_deliver({Topic, Payload}, Subscribers) ->
 
 deliver_to_coap(_TopicName, _Payload, []) ->
     ok;
-deliver_to_coap(TopicName, Payload, [{TopicFilter, {IsWild, CoapPid}}|T]) ->
+deliver_to_coap(TopicName, Payload, [{TopicFilter, {IsWild, CoapPid}} | T]) ->
     Matched =   case IsWild of
                     true  -> emqx_topic:match(TopicName, TopicFilter);
                     false -> TopicName =:= TopicFilter
