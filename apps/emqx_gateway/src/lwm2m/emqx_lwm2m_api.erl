@@ -20,21 +20,28 @@
 
 -export([api_spec/0]).
 
--export([lookup_cmd/2]).
+-export([lookup_cmd/2, observe/2, read/2, write/2]).
 
 -define(PREFIX, "/gateway/lwm2m/:clientid").
 
 -import(emqx_mgmt_util, [ object_schema/1
                         , error_schema/2
-                        , properties/1]).
+                        , properties/1
+                        , schema/1
+                        ]).
 
 api_spec() ->
-    {[lookup_cmd_api()], []}.
+    {[ lookup_cmd_api(), observe_api(), read_api()
+     , write_api()
+     ], []}.
 
-lookup_cmd_paramters() ->
+base_paramters() ->
     [ make_paramter(clientid, path, true, "string")
     , make_paramter(path, query, true, "string")
-    , make_paramter(action, query, true, "string")].
+    ].
+
+lookup_cmd_paramters() ->
+    base_paramters() ++ [make_paramter(action, query, true, "string")].
 
 lookup_cmd_properties() ->
     properties([ {clientid, string}
@@ -61,6 +68,50 @@ lookup_cmd_api() ->
                       }},
     {?PREFIX ++ "/lookup_cmd", Metadata, lookup_cmd}.
 
+
+observe_api() ->
+    Metadata = #{post =>
+                     #{description => <<"(cancel)observe resource">>,
+                       parameters => base_paramters() ++
+                           [make_paramter(enable, query, true, "boolean")],
+                       responses =>
+                           #{<<"200">> => schema(<<"Successed">>),
+                             <<"404">> => error_schema("client not found error", ['CLIENT_NOT_FOUND'])
+                            }
+                      }},
+    {?PREFIX ++ "/observe", Metadata, observe}.
+
+read_api() ->
+    Metadata = #{post =>
+                     #{description => <<"read resource">>,
+                       parameters => base_paramters(),
+                       responses =>
+                           #{<<"200">> => schema(<<"Successed">>),
+                             <<"404">> => error_schema("client not found error", ['CLIENT_NOT_FOUND'])
+                            }
+                      }},
+    {?PREFIX ++ "/read", Metadata, read}.
+
+write_api() ->
+    Metadata = #{post =>
+                     #{description => <<"write to resource">>,
+                       parameters => base_paramters() ++
+                           [ make_paramter(type, query, true, "string",
+                                           [<<"Integer">>,
+                                            <<"Float">>,
+                                            <<"Time">>,
+                                            <<"String">>,
+                                            <<"Boolean">>,
+                                            <<"Opaque">>,
+                                            <<"Objlnk">>])
+                           , make_paramter(value, query, true, "string")
+                           ],
+                       responses =>
+                           #{<<"200">> => schema(<<"Successed">>),
+                             <<"404">> => error_schema("client not found error", ['CLIENT_NOT_FOUND'])
+                            }
+                      }},
+    {?PREFIX ++ "/write", Metadata, write}.
 
 lookup_cmd(get, #{bindings := Bindings, query_string := QS}) ->
     ClientId = maps:get(clientid, Bindings),
@@ -143,3 +194,51 @@ make_paramter(Name, In, IsRequired, Type) ->
       in => In,
       required => IsRequired,
       schema => #{type => Type}}.
+
+make_paramter(Name, In, IsRequired, Type, Enum) ->
+    #{name => Name,
+      in => In,
+      required => IsRequired,
+      schema => #{type => Type,
+                  enum => Enum}}.
+
+observe(post, #{bindings := #{clientid := ClientId},
+                query_string := #{<<"path">> := Path, <<"enable">> := Enable}}) ->
+    MsgType = case Enable of
+                  true -> <<"observe">>;
+                  _ -> <<"cancel-observe">>
+              end,
+
+    Cmd = #{<<"msgType">> => MsgType,
+            <<"data">> => #{<<"path">> => Path}
+           },
+
+    send_cmd(ClientId, Cmd).
+
+
+read(post, #{bindings := #{clientid := ClientId},
+             query_string := Qs}) ->
+
+    Cmd = #{<<"msgType">> => <<"read">>,
+            <<"data">> => Qs
+           },
+
+    send_cmd(ClientId, Cmd).
+
+write(post, #{bindings := #{clientid := ClientId},
+              query_string := Qs}) ->
+
+    Cmd = #{<<"msgType">> => <<"write">>,
+            <<"data">> => Qs
+           },
+
+    send_cmd(ClientId, Cmd).
+
+send_cmd(ClientId, Cmd) ->
+    case emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId) of
+        [Channel | _] ->
+            ok = emqx_lwm2m_channel:send_cmd(Channel, Cmd),
+            {200};
+        _ ->
+            {404, #{code => 'CLIENT_NOT_FOUND'}}
+    end.

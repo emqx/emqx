@@ -34,6 +34,7 @@
         , handle_protocol_in/3
         , handle_deliver/3
         , timeout/3
+        , send_cmd/3
         , set_reply/2]).
 
 -export_type([session/0]).
@@ -234,6 +235,9 @@ timeout({transport, Msg}, _, Session) ->
 set_reply(Msg, #session{coap = Coap} = Session) ->
     Coap2 = emqx_coap_tm:set_reply(Msg, Coap),
     Session#session{coap = Coap2}.
+
+send_cmd(Cmd, _, Session) ->
+    return(send_cmd_impl(Cmd, Session)).
 
 %%--------------------------------------------------------------------
 %% Protocol Stack
@@ -684,6 +688,16 @@ get_expiry_time(_) ->
     0.
 
 %%--------------------------------------------------------------------
+%% Send CMD
+%%--------------------------------------------------------------------
+send_cmd_impl(Cmd, #session{reg_info = RegInfo} = Session) ->
+    CacheMode = is_cache_mode(Session),
+    AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
+    {Req, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, Cmd),
+    Session2 = record_request(Ctx, Session),
+    maybe_do_deliver_to_coap(Ctx, Req, 0, CacheMode, Session2).
+
+%%--------------------------------------------------------------------
 %% Call CoAP
 %%--------------------------------------------------------------------
 call_coap(Fun, Msg, #session{coap = Coap} = Session) ->
@@ -725,7 +739,6 @@ do_out([{Ctx, Out} | T], TM, Msgs) ->
 
 do_out(_, TM, Msgs) ->
     {ok, TM, Msgs}.
-
 
 %%--------------------------------------------------------------------
 %% CMD Record
