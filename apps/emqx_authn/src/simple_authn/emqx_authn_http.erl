@@ -133,7 +133,7 @@ create(#{ method := Method
     case emqx_resource:create_local(Unique,
                                     emqx_connector_http,
                                     Config#{base_url => maps:remove(query, URIMap),
-                                            pool_type => random}) of
+                                            pool_type => hash}) of
         {ok, already_created} ->
             {ok, State};
         {ok, _} ->

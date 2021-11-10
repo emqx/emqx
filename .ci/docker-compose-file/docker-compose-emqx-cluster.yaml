@@ -1,5 +1,15 @@
 version: '3.9'
 
+x-default-emqx: &default-emqx
+    image: $TARGET:$EMQX_TAG
+    env_file:
+      - conf.cluster.env
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+
 services:
   haproxy:
     container_name: haproxy
@@ -28,34 +38,20 @@ services:
         haproxy -f /usr/local/etc/haproxy/haproxy.cfg
 
   emqx1:
+    <<: *default-emqx
     container_name: node1.emqx.io
-    image: $TARGET:$EMQX_TAG
-    env_file:
-      - conf.cluster.env
     environment:
       - "EMQX_HOST=node1.emqx.io"
-    healthcheck:
-      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
-      interval: 5s
-      timeout: 25s
-      retries: 5
     networks:
       emqx_bridge:
         aliases:
         - node1.emqx.io
 
   emqx2:
+    <<: *default-emqx
     container_name: node2.emqx.io
-    image: $TARGET:$EMQX_TAG
-    env_file:
-      - conf.cluster.env
     environment:
       - "EMQX_HOST=node2.emqx.io"
-    healthcheck:
-      test: ["CMD", "/opt/emqx/bin/emqx", "ping"]
-      interval: 5s
-      timeout: 25s
-      retries: 5
     networks:
       emqx_bridge:
         aliases:

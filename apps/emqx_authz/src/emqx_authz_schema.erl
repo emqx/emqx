@@ -1,3 +1,19 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
 -module(emqx_authz_schema).
 
 -include_lib("typerefl/include/types.hrl").
@@ -71,7 +87,14 @@ fields(file) ->
     , {enable, #{type => boolean(),
                  default => true}}
     , {path, #{type => string(),
-               desc => "Path to the file which contains the ACL rules."
+               desc => """
+Path to the file which contains the ACL rules.<br>
+If the file provisioned before starting EMQ X node, it can be placed anywhere
+as long as EMQ X has read access to it.
+In case rule set is created from EMQ X dashboard or management HTTP API,
+the file will be placed in `certs/authz` sub directory inside EMQ X's `data_dir`,
+and the new rules will override all rules from the old config file.
+"""
               }}
     ];
 fields(http_get) ->

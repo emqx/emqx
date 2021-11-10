@@ -258,13 +258,16 @@ ms(lifetime, X) ->
 
 fuzzy_filter_fun(Fuzzy) ->
     REFuzzy = lists:map(fun({K, like, S}) ->
-        {ok, RE} = re:compile(S),
-        {K, like, RE}
-                        end, Fuzzy),
+                  {ok, RE} = re:compile(escape(S)),
+                  {K, like, RE}
+              end, Fuzzy),
     fun(MsRaws) when is_list(MsRaws) ->
             lists:filter( fun(E) -> run_fuzzy_filter(E, REFuzzy) end
                         , MsRaws)
     end.
+
+escape(B) when is_binary(B) ->
+    re:replace(B, <<"\\\\">>, <<"\\\\\\\\">>, [{return, binary}, global]).
 
 run_fuzzy_filter(_, []) ->
     true;

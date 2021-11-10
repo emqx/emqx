@@ -26,7 +26,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    PoolSpec = emqx_pool_sup:spec([emqx_retainer_pool, random, emqx_vm:schedulers(),
+    PoolSpec = emqx_pool_sup:spec([emqx_retainer_pool, hash, emqx_vm:schedulers(),
                                    {emqx_retainer_pool, start_link, []}]),
     {ok, {{one_for_one, 10, 3600},
           [#{id       => retainer,

@@ -25,6 +25,8 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
+-include_lib("stdlib/include/ms_transform.hrl").
+
 %% The authentication entrypoint.
 -export([ authenticate/2
         ]).
@@ -45,6 +47,7 @@
         , delete_chain/1
         , lookup_chain/1
         , list_chains/0
+        , list_chain_names/0
         , create_authenticator/2
         , delete_authenticator/2
         , update_authenticator/3
@@ -59,7 +62,7 @@
         , delete_user/3
         , update_user/4
         , lookup_user/3
-        , list_users/2
+        , list_users/3
         ]).
 
 %% gen_server callbacks
@@ -312,12 +315,23 @@ delete_chain(Name) ->
 
 -spec lookup_chain(chain_name()) -> {ok, chain()} | {error, term()}.
 lookup_chain(Name) ->
-    call({lookup_chain, Name}).
+    case ets:lookup(?CHAINS_TAB, Name) of
+        [] ->
+            {error, {not_found, {chain, Name}}};
+        [Chain] ->
+            {ok, serialize_chain(Chain)}
+    end.
 
 -spec list_chains() -> {ok, [chain()]}.
 list_chains() ->
     Chains = ets:tab2list(?CHAINS_TAB),
     {ok, [serialize_chain(Chain) || Chain <- Chains]}.
+
+-spec list_chain_names() -> {ok, [atom()]}.
+list_chain_names() ->
+    Select = ets:fun2ms(fun(#chain{name = Name}) -> Name end),
+    ChainNames = ets:select(?CHAINS_TAB, Select),
+    {ok, ChainNames}.
 
 -spec create_authenticator(chain_name(), config()) -> {ok, authenticator()} | {error, term()}.
 create_authenticator(ChainName, Config) ->
@@ -378,10 +392,9 @@ update_user(ChainName, AuthenticatorID, UserID, NewUserInfo) ->
 lookup_user(ChainName, AuthenticatorID, UserID) ->
     call({lookup_user, ChainName, AuthenticatorID, UserID}).
 
-%% TODO: Support pagination
--spec list_users(chain_name(), authenticator_id()) -> {ok, [user_info()]} | {error, term()}.
-list_users(ChainName, AuthenticatorID) ->
-    call({list_users, ChainName, AuthenticatorID}).
+-spec list_users(chain_name(), authenticator_id(), map()) -> {ok, [user_info()]} | {error, term()}.
+list_users(ChainName, AuthenticatorID, Params) ->
+    call({list_users, ChainName, AuthenticatorID, Params}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -431,14 +444,6 @@ handle_call({delete_chain, Name}, _From, State) ->
             _ = [do_delete_authenticator(Authenticator) || Authenticator <- Authenticators],
             true = ets:delete(?CHAINS_TAB, Name),
             reply(ok, maybe_unhook(State))
-    end;
-
-handle_call({lookup_chain, Name}, _From, State) ->
-    case ets:lookup(?CHAINS_TAB, Name) of
-        [] ->
-            reply({error, {not_found, {chain, Name}}}, State);
-        [Chain] ->
-            reply({ok, serialize_chain(Chain)}, State)
     end;
 
 handle_call({create_authenticator, ChainName, Config}, _From, #{providers := Providers} = State) ->
@@ -540,8 +545,8 @@ handle_call({lookup_user, ChainName, AuthenticatorID, UserID}, _From, State) ->
     Reply = call_authenticator(ChainName, AuthenticatorID, lookup_user, [UserID]),
     reply(Reply, State);
 
-handle_call({list_users, ChainName, AuthenticatorID}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, list_users, []),
+handle_call({list_users, ChainName, AuthenticatorID, PageParams}, _From, State) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, list_users, [PageParams]),
     reply(Reply, State);
 
 handle_call(Req, _From, State) ->

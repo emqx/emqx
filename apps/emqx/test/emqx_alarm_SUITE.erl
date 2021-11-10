@@ -32,16 +32,12 @@ init_per_testcase(t_size_limit, Config) ->
             <<"size_limit">> => 2
         }),
     Config;
-init_per_testcase(t_validity_period, Config) ->
+init_per_testcase(_, Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     {ok, _} = emqx:update_config([alarm], #{
             <<"validity_period">> => <<"1s">>
         }),
-    Config;
-init_per_testcase(_, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_testcase(_, _Config) ->
@@ -86,12 +82,73 @@ t_size_limit(_) ->
     ?assertEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))),
     emqx_alarm:delete_all_deactivated_alarms().
 
-t_validity_period(_) ->
-    ok = emqx_alarm:activate(a),
-    ok = emqx_alarm:deactivate(a),
+t_validity_period(_Config) ->
+    ok = emqx_alarm:activate(a, #{msg => "Request frequency is too high"}, <<"Reach Rate Limit">>),
+    ok = emqx_alarm:deactivate(a, #{msg => "Request frequency returns to normal"}),
     ?assertNotEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))),
+    %% call with unknown msg
+    ?assertEqual(ignored, gen_server:call(emqx_alarm, unknown_alarm)),
     ct:sleep(3000),
     ?assertEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))).
+
+t_validity_period_1(_Config) ->
+    ok = emqx_alarm:activate(a, #{msg => "Request frequency is too high"}, <<"Reach Rate Limit">>),
+    ok = emqx_alarm:deactivate(a, #{msg => "Request frequency returns to normal"}),
+    ?assertNotEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))),
+    %% info with unknown msg
+    erlang:send(emqx_alarm, unknown_alarm),
+    ct:sleep(3000),
+    ?assertEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))).
+
+t_validity_period_2(_Config) ->
+    ok = emqx_alarm:activate(a, #{msg => "Request frequency is too high"}, <<"Reach Rate Limit">>),
+    ok = emqx_alarm:deactivate(a, #{msg => "Request frequency returns to normal"}),
+    ?assertNotEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))),
+    %% cast with unknown msg
+    gen_server:cast(emqx_alarm, unknown_alarm),
+    ct:sleep(3000),
+    ?assertEqual({error, not_found}, get_alarm(a, emqx_alarm:get_alarms(deactivated))).
+
+-record(activated_alarm, {
+    name :: binary() | atom(),
+    details :: map() | list(),
+    message :: binary(),
+    activate_at :: integer()
+}).
+
+-record(deactivated_alarm, {
+    activate_at :: integer(),
+    name :: binary() | atom(),
+    details :: map() | list(),
+    message :: binary(),
+    deactivate_at :: integer() | infinity
+}).
+
+t_format(_Config) ->
+    Name = test_alarm,
+    Message = "test_msg",
+    At = erlang:system_time(microsecond),
+    Details = "test_details",
+    Node = node(),
+    Activate = #activated_alarm{name = Name, message = Message, activate_at = At, details = Details},
+    #{
+        node := Node,
+        name := Name,
+        message := Message,
+        duration := 0,
+        details := Details
+    } = emqx_alarm:format(Activate),
+    Deactivate = #deactivated_alarm{name = Name, message = Message, activate_at = At, details = Details,
+        deactivate_at = At},
+    #{
+        node := Node,
+        name := Name,
+        message := Message,
+        duration := 0,
+        details := Details
+    } = emqx_alarm:format(Deactivate),
+    ok.
+
 
 get_alarm(Name, [Alarm = #{name := Name} | _More]) ->
     Alarm;
@@ -99,4 +156,3 @@ get_alarm(Name, [_Alarm | More]) ->
     get_alarm(Name, More);
 get_alarm(_Name, []) ->
     {error, not_found}.
-

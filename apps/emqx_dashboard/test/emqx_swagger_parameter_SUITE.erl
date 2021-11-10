@@ -209,14 +209,32 @@ t_in_mix_trans_error(_Config) ->
     ok.
 
 t_api_spec(_Config) ->
-    {Spec, _Components} = emqx_dashboard_swagger:spec(?MODULE),
-    Filter = fun(V, S) -> lists:all(fun({_, _, _, #{filter := Filter}}) -> Filter =:= V end, S) end,
-    ?assertEqual(true, Filter(undefined, Spec)),
-    {Spec1, _Components1} = emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}),
-    ?assertEqual(true, Filter(fun emqx_dashboard_swagger:translate_req/2, Spec1)),
-    {Spec2, _Components2} = emqx_dashboard_swagger:spec(?MODULE, #{check_schema => fun emqx_dashboard_swagger:translate_req/2}),
-    ?assertEqual(true, Filter(fun emqx_dashboard_swagger:translate_req/2, Spec2)),
-    ok.
+    {Spec0, _} = emqx_dashboard_swagger:spec(?MODULE),
+    assert_all_filters_equal(Spec0, undefined),
+
+    {Spec1, _} = emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}),
+    assert_all_filters_equal(Spec1, undefined),
+
+    CustomFilter = fun(Request, _RequestMeta) -> {ok, Request} end,
+    {Spec2, _} = emqx_dashboard_swagger:spec(?MODULE, #{check_schema => CustomFilter}),
+    assert_all_filters_equal(Spec2, CustomFilter),
+
+    {Spec3, _} = emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}),
+    Path = "/test/in/:filter",
+
+    Filter = filter(Spec3, Path),
+    Bindings = #{filter => <<"created">>},
+
+    ?assertMatch(
+        {ok, #{bindings := #{filter := created}}},
+        trans_parameters(Path, Bindings, #{}, Filter)).
+
+assert_all_filters_equal(Spec, Filter) ->
+    lists:foreach(
+        fun({_, _, _, #{filter := F}}) ->
+            ?assertEqual(Filter, F)
+        end,
+        Spec).
 
 validate(Path, ExpectParams) ->
     {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
@@ -226,10 +244,17 @@ validate(Path, ExpectParams) ->
     ?assertEqual([], Refs),
     Spec.
 
+filter(ApiSpec, Path) ->
+    [Filter] = [F || {P, _, _, #{filter := F}} <- ApiSpec, P =:= Path],
+    Filter.
+
 trans_parameters(Path, Bindings, QueryStr) ->
+    trans_parameters(Path, Bindings, QueryStr, fun emqx_dashboard_swagger:filter_check_request/2).
+
+trans_parameters(Path, Bindings, QueryStr, Filter) ->
     Meta = #{module => ?MODULE, method => post, path => Path},
     Request = #{bindings => Bindings, query_string => QueryStr, body => #{}},
-    emqx_dashboard_swagger:translate_req(Request, Meta).
+    Filter(Request, Meta).
 
 api_spec() -> emqx_dashboard_swagger:spec(?MODULE).
 

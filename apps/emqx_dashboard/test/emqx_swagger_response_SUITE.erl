@@ -172,7 +172,7 @@ t_complicated_type(_Config) ->
             [#{example => infinity, type => string}, #{example => 100, type => integer}]}},
         {<<"bytesize">>, #{example => <<"32MB">>, type => string}},
         {<<"wordsize">>, #{example => <<"1024KB">>, type => string}},
-        {<<"maps">>, #{example => <<>>, type => string}},
+        {<<"maps">>, #{example => #{}, type => object}},
         {<<"comma_separated_list">>, #{example => <<"item1,item2">>, type => string}},
         {<<"comma_separated_atoms">>, #{example => <<"item1,item2">>, type => string}},
         {<<"log_level">>,

@@ -42,15 +42,27 @@
 %% @doc Parse ssl options input.
 %% If the input contains file content, save the files in the given dir.
 %% Returns ssl options for Erlang's ssl application.
+%%
+%% For SSL files in the input Option, it can either be a file path
+%% or a map like `#{filename := FileName, file := Content}`.
+%% In case it's a map, the file is saved in EMQ X's `data_dir'
+%% (unless `SubDir' is an absolute path).
+%% NOTE: This function is now deprecated, use emqx_tls_lib:ensure_ssl_files/2 instead.
 -spec save_files_return_opts(opts_input(), atom() | string() | binary(),
                              string() | binary()) -> opts().
 save_files_return_opts(Options, SubDir, ResId) ->
-    Dir = filename:join([emqx:get_config([node, data_dir]), SubDir, ResId]),
+    Dir = filename:join([emqx:data_dir(), SubDir, ResId]),
     save_files_return_opts(Options, Dir).
 
 %% @doc Parse ssl options input.
 %% If the input contains file content, save the files in the given dir.
 %% Returns ssl options for Erlang's ssl application.
+%%
+%% For SSL files in the input Option, it can either be a file path
+%% or a map like `#{filename := FileName, file := Content}`.
+%% In case it's a map, the file is saved in EMQ X's `data_dir'
+%% (unless `SubDir' is an absolute path).
+%% NOTE: This function is now deprecated, use emqx_tls_lib:ensure_ssl_files/2 instead.
 -spec save_files_return_opts(opts_input(), file:name_all()) -> opts().
 save_files_return_opts(Options, Dir) ->
     GetD = fun(Key, Default) -> fuzzy_map_get(Key, Options, Default) end,
@@ -76,7 +88,7 @@ save_files_return_opts(Options, Dir) ->
 %% empty string is returned if the input is empty.
 -spec save_file(file_input(), atom() | string() | binary()) -> string().
 save_file(Param, SubDir) ->
-   Dir = filename:join([emqx:get_config([node, data_dir]), SubDir]),
+   Dir = filename:join([emqx:data_dir(), SubDir]),
    do_save_file(Param, Dir).
 
 filter([]) -> [];

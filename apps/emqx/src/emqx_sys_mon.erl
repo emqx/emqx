@@ -170,9 +170,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 handle_partition_event({partition, {occurred, Node}}) ->
-    emqx_alarm:activate(partition, #{occurred => Node});
-handle_partition_event({partition, {healed, _Node}}) ->
-    emqx_alarm:deactivate(partition).
+    Message = io_lib:format("Partition occurs at node ~ts", [Node]),
+    emqx_alarm:activate(partition, #{occurred => Node}, Message);
+handle_partition_event({partition, {healed, Node}}) ->
+    Message = io_lib:format("Partition healed at node ~ts", [Node]),
+    emqx_alarm:deactivate(partition, no_details, Message).
 
 suppress(Key, SuccFun, State = #{events := Events}) ->
     case lists:member(Key, Events) of

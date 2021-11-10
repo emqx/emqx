@@ -13,21 +13,25 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-define(ADMIN, emqx_admin).
 
--record(mqtt_admin, {
-    username             :: binary(),
-    password             :: binary(),
-    tags                 :: list() | binary(),
-    role = undefined     :: atom()
+-record(?ADMIN, {
+    username         :: binary(),
+    pwdhash          :: binary(),
+    tags             :: list() | binary(),
+    role = undefined :: atom(),
+    extra = []       :: term() %% not used so far, for future extension
     }).
 
--record(mqtt_admin_jwt, {
-    token               :: binary(),
-    username            :: binary(),
-    exptime             :: integer()
-    }).
 
--type(mqtt_admin() :: #mqtt_admin{}).
+-define(ADMIN_JWT, emqx_admin_jwt).
+
+-record(?ADMIN_JWT, {
+    token      :: binary(),
+    username   :: binary(),
+    exptime    :: integer(),
+    extra = [] :: term() %% not used so far, fur future extension
+    }).
 
 -define(EMPTY_KEY(Key), ((Key == undefined) orelse (Key == <<>>))).
 

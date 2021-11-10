@@ -33,7 +33,7 @@ nested_get({var, Key}, Data, Default) ->
 nested_get({path, Path}, Data, Default) when is_list(Path) ->
     do_nested_get(Path, Data, Data, Default).
 
-do_nested_get([Key|More], Data, OrgData, Default) ->
+do_nested_get([Key | More], Data, OrgData, Default) ->
     case general_map_get(Key, Data, OrgData, undefined) of
         undefined -> Default;
         Val -> do_nested_get(More, Val, OrgData, Default)
@@ -51,7 +51,7 @@ nested_put({var, Key}, Val, Map) ->
 nested_put({path, Path}, Val, Map) when is_list(Path) ->
     do_nested_put(Path, Val, Map, Map).
 
-do_nested_put([Key|More], Val, Map, OrgData) ->
+do_nested_put([Key | More], Val, Map, OrgData) ->
     SubMap = general_map_get(Key, Map, OrgData, undefined),
     general_map_put(Key, do_nested_put(More, Val, SubMap, OrgData), Map, OrgData);
 do_nested_put([], Val, _Map, _OrgData) ->
@@ -131,13 +131,13 @@ setnth(tail, List, Val) when is_list(List) -> List ++ [Val];
 setnth(tail, _List, Val) -> [Val];
 setnth(I, List, _Val) when not is_integer(I) -> List;
 setnth(0, List, _Val) -> List;
-setnth(I, List, _Val) when is_integer(I), I > 0 ->
-    do_setnth(I, List, _Val);
-setnth(I, List, _Val) when is_integer(I), I < 0 ->
-    lists:reverse(do_setnth(-I, lists:reverse(List), _Val)).
+setnth(I, List, Val) when is_integer(I), I > 0 ->
+    do_setnth(I, List, Val);
+setnth(I, List, Val) when is_integer(I), I < 0 ->
+    lists:reverse(do_setnth(-I, lists:reverse(List), Val)).
 
-do_setnth(1, [_|Rest], Val) -> [Val|Rest];
-do_setnth(I, [E|Rest], Val) -> [E|setnth(I-1, Rest, Val)];
+do_setnth(1, [_ | Rest], Val) -> [Val | Rest];
+do_setnth(I, [E | Rest], Val) -> [E | setnth(I-1, Rest, Val)];
 do_setnth(_, [], _Val) -> [].
 
 getnth(0, _) ->

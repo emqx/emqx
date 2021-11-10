@@ -25,7 +25,6 @@
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
-%% mqtt_admin api
 -export([ add_user/3
         , force_add_user/3
         , remove_user/1
@@ -44,17 +43,19 @@
 
 -export([add_default_user/0]).
 
+-type emqx_admin() :: #?ADMIN{}.
+
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = mria:create_table(mqtt_admin, [
+    ok = mria:create_table(?ADMIN, [
                 {type, set},
                 {rlog_shard, ?DASHBOARD_SHARD},
                 {storage, disc_copies},
-                {record_name, mqtt_admin},
-                {attributes, record_info(fields, mqtt_admin)},
+                {record_name, ?ADMIN},
+                {attributes, record_info(fields, ?ADMIN)},
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]).
 
@@ -64,14 +65,15 @@ mnesia(boot) ->
 
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
-    Admin = #mqtt_admin{username = Username, password = hash(Password), tags = Tags},
+    Admin = #?ADMIN{username = Username, pwdhash = hash(Password), tags = Tags},
     return(mria:transaction(?DASHBOARD_SHARD, fun add_user_/1, [Admin])).
 
+%% black-magic: force overwrite a user
 force_add_user(Username, Password, Tags) ->
     AddFun = fun() ->
-                 mnesia:write(#mqtt_admin{username = Username,
-                                          password = Password,
-                                          tags = Tags})
+                 mnesia:write(#?ADMIN{username = Username,
+                                      pwdhash = hash(Password),
+                                      tags = Tags})
              end,
     case mria:transaction(?DASHBOARD_SHARD, AddFun) of
         {atomic, ok} -> ok;
@@ -79,8 +81,8 @@ force_add_user(Username, Password, Tags) ->
     end.
 
 %% @private
-add_user_(Admin = #mqtt_admin{username = Username}) ->
-    case mnesia:wread({mqtt_admin, Username}) of
+add_user_(Admin = #?ADMIN{username = Username}) ->
+    case mnesia:wread({?ADMIN, Username}) of
         []  -> mnesia:write(Admin);
         [_] -> mnesia:abort(<<"Username Already Exist">>)
     end.
@@ -93,7 +95,7 @@ remove_user(Username) when is_binary(Username) ->
                         mnesia:abort(<<"Username Not Found">>);
                     _  -> ok
                     end,
-                    mnesia:delete({mqtt_admin, Username})
+                    mnesia:delete({?ADMIN, Username})
             end,
     return(mria:transaction(?DASHBOARD_SHARD, Trans)).
 
@@ -103,9 +105,9 @@ update_user(Username, Tags) when is_binary(Username) ->
 
 %% @private
 update_user_(Username, Tags) ->
-    case mnesia:wread({mqtt_admin, Username}) of
+    case mnesia:wread({?ADMIN, Username}) of
         [] -> mnesia:abort(<<"Username Not Found">>);
-        [Admin] -> mnesia:write(Admin#mqtt_admin{tags = Tags})
+        [Admin] -> mnesia:write(Admin#?ADMIN{tags = Tags})
     end.
 
 change_password(Username, OldPasswd, NewPasswd) when is_binary(Username) ->
@@ -119,7 +121,7 @@ change_password(Username, Password) when is_binary(Username), is_binary(Password
 
 change_password_hash(Username, PasswordHash) ->
     update_pwd(Username, fun(User) ->
-                        User#mqtt_admin{password = PasswordHash}
+                        User#?ADMIN{pwdhash = PasswordHash}
                 end).
 
 update_pwd(Username, Fun) ->
@@ -135,14 +137,23 @@ update_pwd(Username, Fun) ->
     return(mria:transaction(?DASHBOARD_SHARD, Trans)).
 
 
--spec(lookup_user(binary()) -> [mqtt_admin()]).
+-spec(lookup_user(binary()) -> [emqx_admin()]).
 lookup_user(Username) when is_binary(Username) ->
-    Fun = fun() -> mnesia:read(mqtt_admin, Username) end,
+    Fun = fun() -> mnesia:read(?ADMIN, Username) end,
     {atomic, User} = mria:ro_transaction(?DASHBOARD_SHARD, Fun),
     User.
 
--spec(all_users() -> [#mqtt_admin{}]).
-all_users() -> ets:tab2list(mqtt_admin).
+-spec(all_users() -> [map()]).
+all_users() ->
+    lists:map(fun(#?ADMIN{username = Username,
+                          tags = Tags
+                         }) ->
+                      #{username => Username,
+                        %% named tag but not tags, for unknown reason
+                        %% TODO: fix this comment
+                        tag => Tags
+                       }
+              end, ets:tab2list(?ADMIN)).
 
 return({atomic, _}) ->
     ok;
@@ -150,18 +161,18 @@ return({aborted, Reason}) ->
     {error, Reason}.
 
 check(undefined, _) ->
-    {error, <<"Username undefined">>};
+    {error, <<"username_not_provided">>};
 check(_, undefined) ->
-    {error, <<"Password undefined">>};
+    {error, <<"password_not_provided">>};
 check(Username, Password) ->
     case lookup_user(Username) of
-        [#mqtt_admin{password = <<Salt:4/binary, Hash/binary>>}] ->
-            case Hash =:= md5_hash(Salt, Password) of
+        [#?ADMIN{pwdhash = <<Salt:4/binary, Hash/binary>>}] ->
+            case Hash =:= sha3_hash(Salt, Password) of
                 true  -> ok;
-                false -> {error, <<"PASSWORD_ERROR">>}
+                false -> {error, <<"BAD_USERNAME_OR_PASSWORD">>}
             end;
         [] ->
-            {error, <<"USERNAME_ERROR">>}
+            {error, <<"BAD_USERNAME_OR_PASSWORD">>}
     end.
 
 %%--------------------------------------------------------------------
@@ -179,7 +190,7 @@ verify_token(Token) ->
 
 destroy_token_by_username(Username, Token) ->
     case emqx_dashboard_token:lookup(Token) of
-        {ok, #mqtt_admin_jwt{username = Username}} ->
+        {ok, #?ADMIN_JWT{username = Username}} ->
             emqx_dashboard_token:destroy(Token);
         _ ->
             {error, not_found}
@@ -190,16 +201,11 @@ destroy_token_by_username(Username, Token) ->
 %%--------------------------------------------------------------------
 
 hash(Password) ->
-    SaltBin = salt(),
-    <<SaltBin/binary, (md5_hash(SaltBin, Password))/binary>>.
+    SaltBin = emqx_dashboard_token:salt(),
+    <<SaltBin/binary, (sha3_hash(SaltBin, Password))/binary>>.
 
-md5_hash(SaltBin, Password) ->
-    erlang:md5(<<SaltBin/binary, Password/binary>>).
-
-salt() ->
-    _ = emqx_misc:rand_seed(),
-    Salt = rand:uniform(16#ffffffff),
-    <<Salt:32>>.
+sha3_hash(SaltBin, Password) ->
+    crypto:hash('sha3_256', <<SaltBin/binary, Password/binary>>).
 
 add_default_user() ->
     add_default_user(binenv(default_username), binenv(default_password)).

@@ -17,7 +17,6 @@
 -module(emqx_alarm).
 
 -behaviour(gen_server).
--behaviour(emqx_config_handler).
 
 -include("emqx.hrl").
 -include("logger.hrl").
@@ -27,22 +26,19 @@
 
 -boot_mnesia({mnesia, [boot]}).
 
--export([post_config_update/4]).
-
--export([ start_link/0
-        , stop/0
+-export([start_link/0
         ]).
-
--export([format/1]).
-
 %% API
 -export([ activate/1
         , activate/2
+        , activate/3
         , deactivate/1
         , deactivate/2
+        , deactivate/3
         , delete_all_deactivated_alarms/0
         , get_alarms/0
         , get_alarms/1
+        , format/1
         ]).
 
 %% gen_server callbacks
@@ -56,33 +52,18 @@
 
 -record(activated_alarm, {
           name :: binary() | atom(),
-
           details :: map() | list(),
-
           message :: binary(),
-
           activate_at :: integer()
         }).
 
 -record(deactivated_alarm, {
           activate_at :: integer(),
-
           name :: binary() | atom(),
-
           details :: map() | list(),
-
           message :: binary(),
-
           deactivate_at :: integer() | infinity
         }).
-
--record(state, {
-          timer :: reference()
-        }).
-
--define(ACTIVATED_ALARM, emqx_activated_alarm).
-
--define(DEACTIVATED_ALARM, emqx_deactivated_alarm).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -114,20 +95,23 @@ mnesia(boot) ->
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-stop() ->
-    gen_server:stop(?MODULE).
-
 activate(Name) ->
     activate(Name, #{}).
 
 activate(Name, Details) ->
-    gen_server:call(?MODULE, {activate_alarm, Name, Details}).
+    activate(Name, Details, <<"">>).
+
+activate(Name, Details, Message) ->
+    gen_server:call(?MODULE, {activate_alarm, Name, Details, Message}).
 
 deactivate(Name) ->
-    gen_server:call(?MODULE, {deactivate_alarm, Name, no_details}).
+    deactivate(Name, no_details, <<"">>).
 
 deactivate(Name, Details) ->
-    gen_server:call(?MODULE, {deactivate_alarm, Name, Details}).
+    deactivate(Name, Details, <<"">>).
+
+deactivate(Name, Details, Message) ->
+    gen_server:call(?MODULE, {deactivate_alarm, Name, Details, Message}).
 
 delete_all_deactivated_alarms() ->
     gen_server:call(?MODULE, delete_all_deactivated_alarms).
@@ -144,12 +128,10 @@ get_alarms(activated) ->
 get_alarms(deactivated) ->
     gen_server:call(?MODULE, {get_alarms, deactivated}).
 
-post_config_update(_, #{validity_period := Period0}, _OldConf, _AppEnv) ->
-    ?MODULE ! {update_timer, Period0},
-    ok.
-
 format(#activated_alarm{name = Name, message = Message, activate_at = At, details = Details}) ->
     Now = erlang:system_time(microsecond),
+    %% mnesia db stored microsecond for high frequency alarm
+    %% format for dashboard using millisecond
     #{
         node => node(),
         name => Name,
@@ -159,20 +141,19 @@ format(#activated_alarm{name = Name, message = Message, activate_at = At, detail
         details => Details
     };
 format(#deactivated_alarm{name = Name, message = Message, activate_at = At, details = Details,
-            deactivate_at = DAt}) ->
+                    deactivate_at = DAt}) ->
     #{
         node => node(),
         name => Name,
         message => Message,
-        duration => DAt - At,
+        duration => (DAt - At) div 1000, %% to millisecond
         activate_at => to_rfc3339(At),
         deactivate_at => to_rfc3339(DAt),
         details => Details
-    };
-format(_) ->
-    {error, unknow_alarm}.
+    }.
 
 to_rfc3339(Timestamp) ->
+    %% rfc3339 accuracy to millisecond
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp div 1000, [{unit, millisecond}])).
 
 %%--------------------------------------------------------------------
@@ -180,85 +161,72 @@ to_rfc3339(Timestamp) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    _ = mria:wait_for_tables([?ACTIVATED_ALARM, ?DEACTIVATED_ALARM]),
+    ok = mria:wait_for_tables([?ACTIVATED_ALARM, ?DEACTIVATED_ALARM]),
     deactivate_all_alarms(),
-    ok = emqx_config_handler:add_handler([alarm], ?MODULE),
-    {ok, #state{timer = ensure_timer(undefined, get_validity_period())}}.
+    {ok, #{}, get_validity_period()}.
 
-%% suppress dialyzer warning due to dirty read/write race condition.
-%% TODO: change from dirty_read/write to transactional.
-%% TODO: handle mnesia write errors.
--dialyzer([{nowarn_function, [handle_call/3]}]).
-handle_call({activate_alarm, Name, Details}, _From, State) ->
-    case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
-        [#activated_alarm{name = Name}] ->
-            {reply, {error, already_existed}, State};
-        [] ->
-            Alarm = #activated_alarm{name = Name,
-                                     details = Details,
-                                     message = normalize_message(Name, Details),
-                                     activate_at = erlang:system_time(microsecond)},
-            mria:dirty_write(?ACTIVATED_ALARM, Alarm),
+handle_call({activate_alarm, Name, Details, Message}, _From, State) ->
+    Res = mria:transaction(mria:local_content_shard(),
+        fun create_activate_alarm/3,
+        [Name, Details, Message]),
+    case Res of
+        {atomic, Alarm} ->
             do_actions(activate, Alarm, emqx:get_config([alarm, actions])),
-            {reply, ok, State}
+            {reply, ok, State, get_validity_period()};
+        {aborted, Reason} ->
+            {reply, Reason, State, get_validity_period()}
     end;
 
-handle_call({deactivate_alarm, Name, Details}, _From, State) ->
+handle_call({deactivate_alarm, Name, Details, Message}, _From, State) ->
     case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
         [] ->
             {reply, {error, not_found}, State};
         [Alarm] ->
-            deactivate_alarm(Details, Alarm),
-            {reply, ok, State}
+            deactivate_alarm(Alarm, Details, Message),
+            {reply, ok, State, get_validity_period()}
     end;
 
 handle_call(delete_all_deactivated_alarms, _From, State) ->
     clear_table(?DEACTIVATED_ALARM),
-    {reply, ok, State};
+    {reply, ok, State, get_validity_period()};
 
 handle_call({get_alarms, all}, _From, State) ->
     {atomic, Alarms} =
         mria:ro_transaction(
-          ?COMMON_SHARD,
+          mria:local_content_shard(),
           fun() ->
                   [normalize(Alarm) ||
                       Alarm <- ets:tab2list(?ACTIVATED_ALARM)
                           ++ ets:tab2list(?DEACTIVATED_ALARM)]
           end),
-    {reply, Alarms, State};
+    {reply, Alarms, State, get_validity_period()};
 
 handle_call({get_alarms, activated}, _From, State) ->
     Alarms = [normalize(Alarm) || Alarm <- ets:tab2list(?ACTIVATED_ALARM)],
-    {reply, Alarms, State};
+    {reply, Alarms, State, get_validity_period()};
 
 handle_call({get_alarms, deactivated}, _From, State) ->
     Alarms = [normalize(Alarm) || Alarm <- ets:tab2list(?DEACTIVATED_ALARM)],
-    {reply, Alarms, State};
+    {reply, Alarms, State, get_validity_period()};
 
-handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
-    {reply, ignored, State}.
+handle_call(Req, From, State) ->
+    ?SLOG(error, #{msg => "unexpected_call", call_req => Req, from => From}),
+    {reply, ignored, State, get_validity_period()}.
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
-    {noreply, State}.
+    ?SLOG(error, #{msg => "unexpected_cast", cast_req => Msg}),
+    {noreply, State, get_validity_period()}.
 
-handle_info({timeout, _TRef, delete_expired_deactivated_alarm},
-       #state{timer = TRef} = State) ->
+handle_info(timeout, State) ->
     Period = get_validity_period(),
     delete_expired_deactivated_alarms(erlang:system_time(microsecond) - Period * 1000),
-    {noreply, State#state{timer = ensure_timer(TRef, Period)}};
-
-handle_info({update_timer, Period}, #state{timer = TRef} = State) ->
-    ?SLOG(warning, #{msg => "validity_timer_updated", period => Period}),
-    {noreply, State#state{timer = ensure_timer(TRef, Period)}};
+    {noreply, State, Period};
 
 handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
-    {noreply, State}.
+    ?SLOG(error, #{msg => "unexpected_info", info_req => Info}),
+    {noreply, State, get_validity_period()}.
 
 terminate(_Reason, _State) ->
-    ok = emqx_config_handler:remove_handler([alarm]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -271,8 +239,21 @@ code_change(_OldVsn, State, _Extra) ->
 get_validity_period() ->
     emqx:get_config([alarm, validity_period]).
 
-deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name,
-        details = Details0, message = Msg0}) ->
+create_activate_alarm(Name, Details, Message) ->
+    case mnesia:read(?ACTIVATED_ALARM, Name) of
+        [#activated_alarm{name = Name}] ->
+            mnesia:abort({error, already_existed});
+        [] ->
+            Alarm = #activated_alarm{name = Name,
+                details = Details,
+                message = normalize_message(Name, iolist_to_binary(Message)),
+                activate_at = erlang:system_time(microsecond)},
+            ok = mnesia:write(?ACTIVATED_ALARM, Alarm, write),
+            Alarm
+    end.
+
+deactivate_alarm(#activated_alarm{activate_at = ActivateAt, name = Name,
+        details = Details0, message = Msg0}, Details, Message) ->
     SizeLimit = emqx:get_config([alarm, size_limit]),
     case SizeLimit > 0 andalso (mnesia:table_info(?DEACTIVATED_ALARM, size) >= SizeLimit) of
         true ->
@@ -286,7 +267,7 @@ deactivate_alarm(Details, #activated_alarm{activate_at = ActivateAt, name = Name
     HistoryAlarm = make_deactivated_alarm(ActivateAt, Name, Details0, Msg0,
                         erlang:system_time(microsecond)),
     DeActAlarm = make_deactivated_alarm(ActivateAt, Name, Details,
-                    normalize_message(Name, Details),
+                    normalize_message(Name, iolist_to_binary(Message)),
                     erlang:system_time(microsecond)),
     mria:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
     mria:dirty_delete(?ACTIVATED_ALARM, Name),
@@ -329,13 +310,6 @@ clear_table(TableName) ->
             ok
     end.
 
-ensure_timer(OldTRef, Period) ->
-    _ = case is_reference(OldTRef) of
-        true -> erlang:cancel_timer(OldTRef);
-        false -> ok
-    end,
-    emqx_misc:start_timer(Period, delete_expired_deactivated_alarm).
-
 delete_expired_deactivated_alarms(Checkpoint) ->
     delete_expired_deactivated_alarms(mnesia:dirty_first(?DEACTIVATED_ALARM), Checkpoint).
 
@@ -368,15 +342,11 @@ do_actions(deactivate, Alarm = #deactivated_alarm{name = Name}, [log | More]) ->
     do_actions(deactivate, Alarm, More);
 do_actions(Operation, Alarm, [publish | More]) ->
     Topic = topic(Operation),
-    {ok, Payload} = encode_to_json(Alarm),
+    {ok, Payload} = emqx_json:safe_encode(normalize(Alarm)),
     Message = emqx_message:make(?MODULE, 0, Topic, Payload, #{sys => true},
                   #{properties => #{'Content-Type' => <<"application/json">>}}),
-    %% TODO log failed publishes
     _ = emqx_broker:safe_publish(Message),
     do_actions(Operation, Alarm, More).
-
-encode_to_json(Alarm) ->
-    emqx_json:safe_encode(normalize(Alarm)).
 
 topic(activate) ->
     emqx_topic:systop(<<"alarms/activate">>);
@@ -405,25 +375,6 @@ normalize(#deactivated_alarm{activate_at = ActivateAt,
       deactivate_at => DeactivateAt,
       activated => false}.
 
-normalize_message(Name, no_details) ->
+normalize_message(Name, <<"">>) ->
     list_to_binary(io_lib:format("~p", [Name]));
-normalize_message(runq_overload, #{node := Node, runq_length := Len}) ->
-    list_to_binary(io_lib:format("VM is overloaded on node: ~p: ~p", [Node, Len]));
-normalize_message(high_system_memory_usage, #{high_watermark := HighWatermark}) ->
-    list_to_binary(io_lib:format("System memory usage is higher than ~p%", [HighWatermark]));
-normalize_message(high_process_memory_usage, #{high_watermark := HighWatermark}) ->
-    list_to_binary(io_lib:format("Process memory usage is higher than ~p%", [HighWatermark]));
-normalize_message(high_cpu_usage, #{usage := Usage}) ->
-    list_to_binary(io_lib:format("~ts cpu usage", [Usage]));
-normalize_message(too_many_processes, #{usage := Usage}) ->
-    list_to_binary(io_lib:format("~ts process usage", [Usage]));
-normalize_message(cluster_rpc_apply_failed, #{tnx_id := TnxId}) ->
-    list_to_binary(io_lib:format("cluster_rpc_apply_failed:~w", [TnxId]));
-normalize_message(partition, #{occurred := Node}) ->
-    list_to_binary(io_lib:format("Partition occurs at node ~ts", [Node]));
-normalize_message(<<"resource", _/binary>>, #{type := Type, id := ID}) ->
-    list_to_binary(io_lib:format("Resource ~ts(~ts) is down", [Type, ID]));
-normalize_message(<<"conn_congestion/", Info/binary>>, _) ->
-    list_to_binary(io_lib:format("connection congested: ~ts", [Info]));
-normalize_message(_Name, _UnknownDetails) ->
-    <<"Unknown alarm">>.
+normalize_message(_Name, Message) -> Message.

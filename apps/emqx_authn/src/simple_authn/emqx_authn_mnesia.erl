@@ -39,8 +39,10 @@
         , delete_user/2
         , update_user/3
         , lookup_user/2
-        , list_users/1
+        , list_users/2
         ]).
+
+-export([format_user_info/1]).
 
 -type user_id_type() :: clientid | username.
 
@@ -61,6 +63,7 @@
 -boot_mnesia({mnesia, [boot]}).
 
 -define(TAB, ?MODULE).
+-define(FORMAT_FUN, {?MODULE, format_user_info}).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -237,14 +240,14 @@ update_user(UserID, UserInfo,
 lookup_user(UserID, #{user_group := UserGroup}) ->
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [UserInfo] ->
-            {ok, serialize_user_info(UserInfo)};
+            {ok, format_user_info(UserInfo)};
         [] ->
             {error, not_found}
     end.
 
-list_users(#{user_group := UserGroup}) ->
-    Users = [serialize_user_info(UserInfo) || #user_info{user_id = {UserGroup0, _}} = UserInfo <- ets:tab2list(?TAB), UserGroup0 =:= UserGroup],
-    {ok, Users}.
+list_users(PageParams, #{user_group := UserGroup}) ->
+    MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_', '_'}, [], ['$_']}],
+    {ok, emqx_mgmt_api:paginate(?TAB, MatchSpec, PageParams, ?FORMAT_FUN)}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -396,5 +399,5 @@ to_binary(B) when is_binary(B) ->
 to_binary(L) when is_list(L) ->
     iolist_to_binary(L).
 
-serialize_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) ->
+format_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) ->
     #{user_id => UserID, is_superuser => IsSuperuser}.

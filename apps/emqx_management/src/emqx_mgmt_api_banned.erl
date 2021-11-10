@@ -30,7 +30,10 @@
         ]).
 
 -define(TAB, emqx_banned).
+
 -define(BANNED_TYPES, [clientid, username, peerhost]).
+
+-define(FORMAT_FUN, {?MODULE, format}).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -127,7 +130,7 @@ is_rfc3339(Time) ->
     end.
 
 banned(get, #{query_string := Params}) ->
-    Response = emqx_mgmt_api:paginate(?TAB, Params, fun emqx_banned:format/1),
+    Response = emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN),
     {200, Response};
 banned(post, #{body := Body}) ->
     _ = emqx_banned:create(emqx_banned:parse(Body)),

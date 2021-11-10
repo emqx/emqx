@@ -57,14 +57,18 @@ init(_) ->
     {ok, []}.
 
 handle_event({set_alarm, {system_memory_high_watermark, []}}, State) ->
+    HighWatermark = emqx_os_mon:get_sysmem_high_watermark(),
+    Message = to_bin("System memory usage is higher than ~p%", [HighWatermark]),
     emqx_alarm:activate(high_system_memory_usage,
-        #{high_watermark => emqx_os_mon:get_sysmem_high_watermark()}),
+        #{high_watermark => HighWatermark}, Message),
     {ok, State};
 
 handle_event({set_alarm, {process_memory_high_watermark, Pid}}, State) ->
+    HighWatermark = emqx_os_mon:get_procmem_high_watermark(),
+    Message = to_bin("Process memory usage is higher than ~p%", [HighWatermark]),
     emqx_alarm:activate(high_process_memory_usage,
         #{pid => list_to_binary(pid_to_list(Pid)),
-          high_watermark => emqx_os_mon:get_procmem_high_watermark()}),
+          high_watermark => HighWatermark}, Message),
     {ok, State};
 
 handle_event({clear_alarm, system_memory_high_watermark}, State) ->
@@ -76,7 +80,9 @@ handle_event({clear_alarm, process_memory_high_watermark}, State) ->
     {ok, State};
 
 handle_event({set_alarm, {?LC_ALARM_ID_RUNQ, Info}}, State) ->
-    emqx_alarm:activate(runq_overload, Info),
+    #{node := Node, runq_length := Len} = Info,
+    Message = to_bin("VM is overloaded on node: ~p: ~p", [Node, Len]),
+    emqx_alarm:activate(runq_overload, Info, Message),
     {ok, State};
 
 handle_event({clear_alarm, ?LC_ALARM_ID_RUNQ}, State) ->
@@ -96,3 +102,6 @@ terminate(swap, _State) ->
     {emqx_alarm_handler, []};
 terminate(_, _) ->
     ok.
+
+to_bin(Format, Args) ->
+    io_lib:format(Format, Args).

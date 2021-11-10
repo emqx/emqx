@@ -41,7 +41,7 @@ t_lookup_subpid(_) ->
     emqx_broker_helper:register_sub(self(), <<"clientid">>),
     ct:sleep(10),
     ?assertEqual(self(), emqx_broker_helper:lookup_subpid(<<"clientid">>)).
-    
+
 t_register_sub(_) ->
     ok = emqx_broker_helper:register_sub(self(), <<"clientid">>),
     ct:sleep(10),
@@ -62,7 +62,7 @@ t_shard_seq(_) ->
 
 t_shards_num(_) ->
     ?assertEqual(emqx_vm:schedulers() * 32, emqx_broker_helper:shards_num()).
-    
+
 t_get_sub_shard(_) ->
     ?assertEqual(0, emqx_broker_helper:get_sub_shard(self(), <<"topic">>)).
 

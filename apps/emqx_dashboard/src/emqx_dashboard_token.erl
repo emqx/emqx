@@ -18,8 +18,6 @@
 
 -include("emqx_dashboard.hrl").
 
--define(TAB, mqtt_admin_jwt).
-
 -export([ sign/2
         , verify/1
         , lookup/1
@@ -31,15 +29,18 @@
 
 -export([mnesia/1]).
 
--define(EXPTIME, 60 * 60 * 1000).
+-ifdef(TEST).
+-export([lookup_by_username/1, clean_expired_jwt/1]).
+-endif.
 
--define(CLEAN_JWT_INTERVAL, 60 * 60 * 1000).
+-define(TAB, ?ADMIN_JWT).
+-define(EXPTIME, 60 * 60 * 1000).
 
 %%--------------------------------------------------------------------
 %% gen server part
 -behaviour(gen_server).
 
--export([start_link/0]).
+-export([start_link/0, salt/0]).
 
 -export([ init/1
         , handle_call/3
@@ -60,13 +61,12 @@ sign(Username, Password) ->
 verify(Token) ->
     do_verify(Token).
 
--spec(destroy(KeyOrKeys :: list() | binary() | #mqtt_admin_jwt{}) -> ok).
+-spec(destroy(KeyOrKeys :: list() | binary() | #?ADMIN_JWT{}) -> ok).
 destroy([]) ->
     ok;
 destroy(JWTorTokenList) when is_list(JWTorTokenList)->
-    [destroy(JWTorToken) || JWTorToken <- JWTorTokenList],
-    ok;
-destroy(#mqtt_admin_jwt{token = Token}) ->
+    lists:foreach(fun destroy/1, JWTorTokenList);
+destroy(#?ADMIN_JWT{token = Token}) ->
     destroy(Token);
 destroy(Token) when is_binary(Token)->
     do_destroy(Token).
@@ -75,13 +75,19 @@ destroy(Token) when is_binary(Token)->
 destroy_by_username(Username) ->
     do_destroy_by_username(Username).
 
+%% @doc create 4 bytes salt.
+-spec(salt() -> binary()).
+salt() ->
+    <<X:16/big-unsigned-integer>> = crypto:strong_rand_bytes(2),
+    iolist_to_binary(io_lib:format("~4.16.0b", [X])).
+
 mnesia(boot) ->
     ok = mria:create_table(?TAB, [
                 {type, set},
                 {rlog_shard, ?DASHBOARD_SHARD},
                 {storage, disc_copies},
-                {record_name, mqtt_admin_jwt},
-                {attributes, record_info(fields, mqtt_admin_jwt)},
+                {record_name, ?ADMIN_JWT},
+                {attributes, record_info(fields, ?ADMIN_JWT)},
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]).
 
@@ -106,11 +112,13 @@ do_sign(Username, Password) ->
 
 do_verify(Token)->
     case lookup(Token) of
-        {ok, JWT = #mqtt_admin_jwt{exptime = ExpTime}} ->
+        {ok, JWT = #?ADMIN_JWT{exptime = ExpTime}} ->
             case ExpTime > erlang:system_time(millisecond) of
                 true ->
-                    NewJWT = JWT#mqtt_admin_jwt{exptime = jwt_expiration_time()},
-                    {atomic, Res} = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [NewJWT]),
+                    NewJWT = JWT#?ADMIN_JWT{exptime = jwt_expiration_time()},
+                    {atomic, Res} = mria:transaction(?DASHBOARD_SHARD,
+                                                     fun mnesia:write/1,
+                                                     [NewJWT]),
                     Res;
                 _ ->
                     {error, token_timeout}
@@ -129,7 +137,7 @@ do_destroy_by_username(Username) ->
 
 %%--------------------------------------------------------------------
 %% jwt internal util function
--spec(lookup(Token :: binary()) -> {ok, #mqtt_admin_jwt{}} | {error, not_found}).
+-spec(lookup(Token :: binary()) -> {ok, #?ADMIN_JWT{}} | {error, not_found}).
 lookup(Token) ->
     Fun = fun() -> mnesia:read(?TAB, Token) end,
     case mria:ro_transaction(?DASHBOARD_SHARD, Fun) of
@@ -137,31 +145,28 @@ lookup(Token) ->
         {atomic, []} -> {error, not_found}
     end.
 
+-dialyzer({nowarn_function, lookup_by_username/1}).
 lookup_by_username(Username) ->
-    Spec = [{{mqtt_admin_jwt, '_', Username, '_'}, [], ['$_']}],
+    Spec = [{#?ADMIN_JWT{username = Username, _ = '_'}, [], ['$_']}],
     Fun = fun() -> mnesia:select(?TAB, Spec) end,
     {atomic, List} = mria:ro_transaction(?DASHBOARD_SHARD, Fun),
     List.
 
-
 jwk(Username, Password, Salt) ->
-    Key = erlang:md5(<<Salt/binary, Username/binary, Password/binary>>),
+    Key = crypto:hash(md5, <<Salt/binary, Username/binary, Password/binary>>),
     #{
         <<"kty">> => <<"oct">>,
         <<"k">> => jose_base64url:encode(Key)
     }.
 
 jwt_expiration_time() ->
-    ExpTime = emqx_conf:get([emqx_dashboard, token_expired_time], ?EXPTIME),
-    erlang:system_time(millisecond) + ExpTime.
+    erlang:system_time(millisecond) + token_ttl().
 
-salt() ->
-    _ = emqx_misc:rand_seed(),
-    Salt = rand:uniform(16#ffffffff),
-    <<Salt:32>>.
+token_ttl() ->
+    emqx_conf:get([emqx_dashboard, token_expired_time], ?EXPTIME).
 
 format(Token, Username, ExpTime) ->
-    #mqtt_admin_jwt{
+    #?ADMIN_JWT{
         token    = Token,
         username = Username,
         exptime  = ExpTime
@@ -189,10 +194,7 @@ handle_cast(_Request, State) ->
 handle_info(clean_jwt, State) ->
     timer_clean(self()),
     Now = erlang:system_time(millisecond),
-    Spec = [{{mqtt_admin_jwt, '_', '_', '$1'}, [{'<', '$1', Now}], ['$_']}],
-    {atomic, JWTList} = mria:ro_transaction(?DASHBOARD_SHARD,
-        fun() -> mnesia:select(?TAB, Spec) end),
-    destroy(JWTList),
+    ok = clean_expired_jwt(Now),
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -204,4 +206,12 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 timer_clean(Pid) ->
-    erlang:send_after(?CLEAN_JWT_INTERVAL, Pid, clean_jwt).
+    erlang:send_after(token_ttl(), Pid, clean_jwt).
+
+-dialyzer({nowarn_function, clean_expired_jwt/1}).
+clean_expired_jwt(Now) ->
+    Spec = [{#?ADMIN_JWT{exptime = '$1', token = '$2', _ = '_'},
+             [{'<', '$1', Now}], ['$2']}],
+    {atomic, JWTList} = mria:ro_transaction(?DASHBOARD_SHARD,
+        fun() -> mnesia:select(?TAB, Spec) end),
+    ok = destroy(JWTList).

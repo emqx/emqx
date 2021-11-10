@@ -131,7 +131,6 @@ clean_retained(Topic, Config) ->
 t_basic_test(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = nth(1, ?TOPICS),
-    ct:print("Basic test starting"),
     {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
     {ok, _} = emqtt:ConnFun(C),
     {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
@@ -332,37 +331,6 @@ t_connect_keepalive_timeout(Config) ->
     after round(timer:seconds(Keepalive) * 2 * 1.5 ) ->
         error("keepalive timeout")
     end.
-
-%% [MQTT-3.1.2-23]
-t_connect_session_expiry_interval(Config) ->
-    ConnFun = ?config(conn_fun, Config),
-    Topic = nth(1, ?TOPICS),
-    Payload = "test message",
-
-    {ok, Client1} = emqtt:start_link([ {clientid, <<"t_connect_session_expiry_interval">>},
-                                       {proto_ver, v5},
-                                       {properties, #{'Session-Expiry-Interval' => 7200}}
-                                       | Config
-                                    ]),
-    {ok, _} = emqtt:ConnFun(Client1),
-    {ok, _, [2]} = emqtt:subscribe(Client1, Topic, qos2),
-    ok = emqtt:disconnect(Client1),
-
-    {ok, Client2} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:ConnFun(Client2),
-    {ok, 2} = emqtt:publish(Client2, Topic, Payload, 2),
-    ok = emqtt:disconnect(Client2),
-
-    {ok, Client3} = emqtt:start_link([ {clientid, <<"t_connect_session_expiry_interval">>},
-                                       {proto_ver, v5},
-                                       {clean_start, false} | Config
-                                    ]),
-    {ok, _} = emqtt:ConnFun(Client3),
-    [Msg | _ ] = receive_messages(1),
-    ?assertEqual({ok, iolist_to_binary(Topic)}, maps:find(topic, Msg)),
-    ?assertEqual({ok, iolist_to_binary(Payload)}, maps:find(payload, Msg)),
-    ?assertEqual({ok, 2}, maps:find(qos, Msg)),
-    ok = emqtt:disconnect(Client3).
 
 %% [MQTT-3.1.3-9]
 %% !!!REFACTOR NEED:
