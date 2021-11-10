@@ -431,6 +431,22 @@ wait_for() {
     done
 }
 
+latest_vm_args() {
+    local hint_var_name="$1"
+    local vm_args_file
+    vm_args_file="$(find "$CONFIGS_DIR" -type f -name "vm.*.args" | sort | tail -1)"
+    if [ -f "$vm_args_file" ]; then
+        echo "$vm_args_file"
+    else
+        echoerr "ERRRO: node not initialized?"
+        echoerr "Generated config file vm.*.args is not found for command '$COMMAND'"
+        echoerr "in config dir: $CONFIGS_DIR"
+        echoerr "In case the file has been deleted while the node is running,"
+        echoerr "set environment variable '$hint_var_name' to continue"
+        exit 1
+    fi
+}
+
 ## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
 case "${COMMAND}" in
     start|console|console_clean|foreground)
@@ -452,10 +468,8 @@ if [ -z "$NAME" ]; then
         # for boot commands, inspect emqx.conf for node name
         NAME="$(call_hocon -s $SCHEMA_MOD -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
     else
-        # for non-boot commands, inspect vm.<time>.args for node name
-        # shellcheck disable=SC2012,SC2086
-        LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
-        NAME="$(grep -E '^-s?name' "$LATEST_VM_ARGS" | awk '{print $2}')"
+        vm_args_file="$(latest_vm_args 'EMQX_NODE_NAME')"
+        NAME="$(grep -E '^-s?name' "${vm_args_file}" | awk '{print $2}')"
     fi
 fi
 
@@ -480,9 +494,8 @@ if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         COOKIE="$(call_hocon -s $SCHEMA_MOD -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
     else
-        # shellcheck disable=SC2012,SC2086
-        LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
-        COOKIE="$(grep -E '^-setcookie' "$LATEST_VM_ARGS" | awk '{print $2}')"
+        vm_args_file="$(latest_vm_args 'EMQX_NODE_COOKIE')"
+        COOKIE="$(grep -E '^-setcookie' "${vm_args_file}" | awk '{print $2}')"
     fi
 fi
 
