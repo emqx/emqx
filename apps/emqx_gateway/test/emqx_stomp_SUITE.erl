@@ -97,7 +97,8 @@ t_connect(_) ->
     %                    {ok, Data} = gen_tcp:recv(Sock, 0),
     %                    {ok, #stomp_frame{command = <<"ERROR">>,
     %                                      headers = _,
-    %                                      body    = <<"Login or passcode error!">>}, _, _} = parse(Data)
+    %                                      body    = <<"Login or passcode error!">>}, _, _} =
+    %                                                   parse(Data)
     %                end),
 
     %% Connect will be failed, because of bad version
@@ -109,9 +110,12 @@ t_connect(_) ->
                                       {<<"passcode">>, <<"guest">>},
                                       {<<"heart-beat">>, <<"1000,2000">>}])),
         {ok, Data} = gen_tcp:recv(Sock, 0),
-        {ok, #stomp_frame{command = <<"ERROR">>,
-                          headers = _,
-                          body    = <<"Login Failed: Supported protocol versions < 1.2">>}, _, _} = parse(Data)
+        {ok,
+         #stomp_frame{command = <<"ERROR">>,
+                      headers = _,
+                      body    = <<"Login Failed: Supported protocol versions < 1.2">>},
+         _,
+         _ } = parse(Data)
     end).
 
 t_heartbeat(_) ->
