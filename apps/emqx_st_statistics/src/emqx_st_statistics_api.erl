@@ -45,8 +45,8 @@ clear_history(_Bindings, _Params) ->
     return(ok).
 
 get_history(_Bindings, Params) ->
-    PageT = proplists:get_value(<<"page">>, Params),
-    LimitT = proplists:get_value(<<"limit">>, Params),
+    PageT = proplists:get_value(<<"_page">>, Params),
+    LimitT = proplists:get_value(<<"_limit">>, Params),
     Page = erlang:binary_to_integer(PageT),
     Limit = erlang:binary_to_integer(LimitT),
     Start = (Page - 1) * Limit + 1,
@@ -58,7 +58,7 @@ get_history(_Bindings, Params) ->
                                        , average_count = Count
                                        , average_elapsed = Elapsed}] = ets:lookup(?TOPK_TAB, Rank),
 
-                                Info =[ {rank, erlang:integer_to_binary(Rank)}
+                                Info =[ {rank, Rank}
                                       , {topic, Topic}
                                       , {count, Count}
                                       , {elapsed, Elapsed}],

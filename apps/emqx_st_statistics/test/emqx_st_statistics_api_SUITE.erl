@@ -75,13 +75,22 @@ t_get_history(_) ->
                                  average_count = 12,
                                  average_elapsed = 1500}),
 
-    {ok, Data} = request_api(get, api_path(["slow_topic"]), "page=1&limit=10",
+    {ok, Data} = request_api(get, api_path(["slow_topic"]), "_page=1&_limit=10",
                              auth_header_()),
 
-    ShouldBe = "{\"meta\":{\"page\":1,\"limit\":10,\"hasnext\":false,\"count\":1}," ++
-        "\"data\":[{\"topic\":\"test\",\"rank\":\"1\",\"elapsed\":1500,\"count\":12}],\"code\":0}",
+    Return = #{meta => #{page => 1,
+                         limit => 10,
+                         hasnext => false,
+                         count => 1},
+               data => [#{topic => <<"test">>,
+                          rank => 1,
+                          elapsed => 1500,
+                          count => 12}],
+               code => 0},
 
-    ?assertEqual(ShouldBe, Data).
+    ShouldBe = emqx_json:encode(Return),
+
+    ?assertEqual(ShouldBe, erlang:list_to_binary(Data)).
 
 t_clear(_) ->
     ets:insert(?TOPK_TAB, #top_k{rank = 1,
