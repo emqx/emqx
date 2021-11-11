@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_trace_api).
+-module(emqx_trace_api).
 -include_lib("emqx/include/logger.hrl").
 
 %% API
@@ -78,13 +78,13 @@
 list_trace(_, Params) ->
     List =
         case Params of
-            [{<<"enable">>, Enable}] -> emqx_mod_trace:list(Enable);
-            _ -> emqx_mod_trace:list()
+            [{<<"enable">>, Enable}] -> emqx_trace:list(Enable);
+            _ -> emqx_trace:list()
         end,
-    return({ok, emqx_mod_trace:format(List)}).
+    return({ok, emqx_trace:format(List)}).
 
 create_trace(_, Param) ->
-    case emqx_mod_trace:create(Param) of
+    case emqx_trace:create(Param) of
         ok -> return(ok);
         {error, {already_existed, Name}} ->
             return({error, 'ALREADY_EXISTED', ?TO_BIN([Name, "Already Exists"])});
@@ -95,17 +95,17 @@ create_trace(_, Param) ->
     end.
 
 delete_trace(#{name := Name}, _Param) ->
-    case emqx_mod_trace:delete(Name) of
+    case emqx_trace:delete(Name) of
         ok -> return(ok);
         {error, not_found} -> ?RETURN_NOT_FOUND(Name)
     end.
 
 clear_traces(_, _) ->
-    return(emqx_mod_trace:clear()).
+    return(emqx_trace:clear()).
 
 update_trace(#{name := Name, operation := Operation}, _Param) ->
     Enable = case Operation of disable -> false; enable -> true end,
-    case emqx_mod_trace:update(Name, Enable) of
+    case emqx_trace:update(Name, Enable) of
         ok -> return({ok, #{enable => Enable, name => Name}});
         {error, not_found} -> ?RETURN_NOT_FOUND(Name)
     end.
@@ -113,14 +113,14 @@ update_trace(#{name := Name, operation := Operation}, _Param) ->
 %% if HTTP request headers include accept-encoding: gzip and file size > 300 bytes.
 %% cowboy_compress_h will auto encode gzip format.
 download_zip_log(#{name := Name}, _Param) ->
-    case emqx_mod_trace:get_trace_filename(Name) of
+    case emqx_trace:get_trace_filename(Name) of
         {ok, TraceLog} ->
             TraceFiles = collect_trace_file(TraceLog),
-            ZipDir = emqx_mod_trace:zip_dir(),
+            ZipDir = emqx_trace:zip_dir(),
             Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
             ZipFileName = ZipDir ++ TraceLog,
             {ok, ZipFile} = zip:zip(ZipFileName, Zips),
-            emqx_mod_trace:delete_files_after_send(ZipFileName, Zips),
+            emqx_trace:delete_files_after_send(ZipFileName, Zips),
             {ok, #{}, {sendfile, 0, filelib:file_size(ZipFile), ZipFile}};
         {error, Reason} ->
             return({error, Reason})
@@ -141,7 +141,7 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
 
 collect_trace_file(TraceLog) ->
     Nodes = ekka_mnesia:running_nodes(),
-    {Files, BadNodes} = rpc:multicall(Nodes, emqx_mod_trace, trace_file, [TraceLog], 60000),
+    {Files, BadNodes} = rpc:multicall(Nodes, emqx_trace, trace_file, [TraceLog], 60000),
     BadNodes =/= [] andalso ?LOG(error, "download log rpc failed on ~p", [BadNodes]),
     Files.
 
@@ -167,7 +167,7 @@ stream_log_file(#{name := Name}, Params) ->
 
 %% this is an rpc call for stream_log_file/2
 read_trace_file(Name, Position, Limit) ->
-    TraceDir = emqx_mod_trace:trace_dir(),
+    TraceDir = emqx_trace:trace_dir(),
     {ok, AllFiles} = file:list_dir(TraceDir),
     TracePrefix = "trace_" ++ binary_to_list(Name) ++ "_",
     Filter = fun(FileName) -> nomatch =/= string:prefix(FileName, TracePrefix) end,
