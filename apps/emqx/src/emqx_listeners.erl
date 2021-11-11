@@ -249,9 +249,9 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
                          , {alpn, ["mqtt"]}
                          , {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])}
                          , {idle_timeout_ms, lists:max([
-                                                emqx_config:get_zone_conf(zone(Opts), [mqtt, idle_timeout]) * 3
-                                              , timer:seconds(maps:get(idle_timeout, Opts))]
-                                              )}
+                                    emqx_config:get_zone_conf(zone(Opts), [mqtt, idle_timeout]) * 3
+                                    , timer:seconds(maps:get(idle_timeout, Opts))]
+                                    )}
                          ],
             ConnectionOpts = #{ conn_callback => emqx_quic_connection
                               , peer_unidi_stream_count => 1
@@ -294,7 +294,8 @@ flatten_listeners(Conf0) ->
                       || {Type, Conf} <- maps:to_list(Conf0)])).
 
 do_flatten_listeners(Type, Conf0) ->
-    [{listener_id(Type, Name), maps:remove(authentication, Conf)} || {Name, Conf} <- maps:to_list(Conf0)].
+    [{listener_id(Type, Name), maps:remove(authentication, Conf)} ||
+        {Name, Conf} <- maps:to_list(Conf0)].
 
 esockd_opts(Type, Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
