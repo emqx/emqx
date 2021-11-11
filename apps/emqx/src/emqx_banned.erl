@@ -37,6 +37,7 @@
         , info/1
         , format/1
         , parse/1
+        , to_timestamp/1
         ]).
 
 %% gen_server callbacks
@@ -108,8 +109,8 @@ parse(Params) ->
     Who    = pares_who(Params),
     By     = maps:get(<<"by">>, Params, <<"mgmt_api">>),
     Reason = maps:get(<<"reason">>, Params, <<"">>),
-    At     = pares_time(maps:get(<<"at">>, Params, undefined), erlang:system_time(second)),
-    Until  = pares_time(maps:get(<<"until">>, Params, undefined), At + 5 * 60),
+    At     = parse_time(maps:get(<<"at">>, Params, undefined), erlang:system_time(second)),
+    Until  = parse_time(maps:get(<<"until">>, Params, undefined), At + 5 * 60),
     #banned{
         who    = Who,
         by     = By,
@@ -120,15 +121,15 @@ parse(Params) ->
 
 pares_who(#{as := As, who := Who}) ->
     pares_who(#{<<"as">> => As, <<"who">> => Who});
-pares_who(#{<<"as">> := <<"peerhost">>, <<"who">> := Peerhost0}) ->
+pares_who(#{<<"as">> := peerhost, <<"who">> := Peerhost0}) ->
     {ok, Peerhost} = inet:parse_address(binary_to_list(Peerhost0)),
     {peerhost, Peerhost};
 pares_who(#{<<"as">> := As, <<"who">> := Who}) ->
-    {binary_to_atom(As, utf8), Who}.
+    {As, Who}.
 
-pares_time(undefined, Default) ->
+parse_time(undefined, Default) ->
     Default;
-pares_time(Rfc3339, _Default) ->
+parse_time(Rfc3339, _Default) ->
     to_timestamp(Rfc3339).
 
 maybe_format_host({peerhost, Host}) ->
