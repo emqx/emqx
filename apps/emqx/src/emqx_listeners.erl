@@ -17,6 +17,8 @@
 %% @doc Start/Stop MQTT listeners.
 -module(emqx_listeners).
 
+-elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 10000}}]).
+
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 
