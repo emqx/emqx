@@ -126,7 +126,8 @@ array_schema(Schema, Desc) ->
 object_array_schema(Properties) when is_map(Properties) ->
     json_content_schema(#{type => array, items => #{type => object, properties => Properties}}).
 object_array_schema(Properties, Desc) ->
-    json_content_schema(#{type => array, items => #{type => object, properties => Properties}}, Desc).
+    json_content_schema(#{type => array,
+        items => #{type => object, properties => Properties}}, Desc).
 
 page_schema(Ref) when is_atom(Ref) ->
     page_schema(minirest:ref(atom_to_binary(Ref, utf8)));
@@ -201,7 +202,10 @@ batch_operation(Module, Function, ArgsList) ->
     Failed = batch_operation(Module, Function, ArgsList, []),
     Len = erlang:length(Failed),
     Success = erlang:length(ArgsList) - Len,
-    Fun = fun({Args, Reason}, Detail) -> [#{data => Args, reason => io_lib:format("~p", [Reason])} | Detail] end,
+    Fun =
+        fun({Args, Reason}, Detail) ->
+            [#{data => Args, reason => io_lib:format("~p", [Reason])} | Detail]
+        end,
     #{success => Success, failed => Len, detail => lists:foldl(Fun, [], Failed)}.
 
 batch_operation(_Module, _Function, [], Failed) ->
