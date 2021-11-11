@@ -31,6 +31,7 @@ fields("emqx_dashboard") ->
     , {default_password, fun default_password/1}
     , {sample_interval, sc(emqx_schema:duration_s(), #{default => "10s"})}
     , {token_expired_time, sc(emqx_schema:duration(), #{default => "30m"})}
+    , {cors, fun cors/1}
     ];
 
 fields("http") ->
@@ -41,7 +42,7 @@ fields("http") ->
     , {"backlog", sc(integer(), #{default => 1024})}
     , {"send_timeout", sc(emqx_schema:duration(), #{default => "5s"})}
     , {"inet6", sc(boolean(), #{default => false})}
-    , {"ipv6_v6only", sc(boolean(), #{dfeault => false})}
+    , {"ipv6_v6only", sc(boolean(), #{default => false})}
     ];
 
 fields("https") ->
@@ -62,5 +63,10 @@ default_password(desc) -> """
 The initial default password for dashboard 'admin' user.
 For safty, it should be changed as soon as possible.""";
 default_password(_) -> undefined.
+
+cors(type) -> boolean();
+cors(default) -> false;
+cors(nullable) -> true;
+cors(_) -> undefined.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
