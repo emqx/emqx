@@ -77,5 +77,5 @@ init([]) ->
 
 assert_started({ok, _Pid}) -> ok;
 assert_started({ok, _Pid, _Info}) -> ok;
-assert_started({error, {already_tarted, _Pid}}) -> ok;
+assert_started({error, {already_started, _Pid}}) -> ok;
 assert_started({error, Reason}) -> erlang:error(Reason).

@@ -2259,6 +2259,7 @@ end}.
     [{emqx_mod_rewrite, Rewrites()}],
     [{emqx_mod_topic_metrics, []}],
     [{emqx_mod_delayed, []}],
+    [{emqx_mod_trace, []}],
     [{emqx_mod_st_statistics, SlowTopic()}],
     [{emqx_mod_acl_internal, [{acl_file, cuttlefish:conf_get("acl_file", Conf1)}]}]
   ])
