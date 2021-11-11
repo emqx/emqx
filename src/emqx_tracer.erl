@@ -97,12 +97,12 @@ trace_subscribe(<<"$SYS/", _/binary>>, _SubId, _SubOpts) -> ignore;
 trace_subscribe(Topic, SubId, SubOpts) ->
     emqx_logger:info(#{topic => Topic,
         mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}},
-        "~s SUBSCRIBE ~s: Options: ~0p", [SubId, Topic, SubOpts]).
+        "~ts SUBSCRIBE ~ts: Options: ~0p", [SubId, Topic, SubOpts]).
 
 trace_unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) -> ignore;
 trace_unsubscribe(Topic, SubOpts) ->
     emqx_logger:info(#{topic => Topic, mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}},
-        "~s UNSUBSCRIBE ~s: Options: ~0p",
+        "~ts UNSUBSCRIBE ~ts: Options: ~0p",
         [maps:get(subid, SubOpts, ""), Topic, SubOpts]).
 
 -spec(start_trace(clientid | topic, emqx_types:clientid() | emqx_types:topic(),

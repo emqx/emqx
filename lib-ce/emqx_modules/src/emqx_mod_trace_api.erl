@@ -141,9 +141,9 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
 
 collect_trace_file(TraceLog) ->
     Nodes = ekka_mnesia:running_nodes(),
-    {File, BadNodes} = rpc:multicall(Nodes, emqx_mod_trace, trace_file, [TraceLog], 60000),
+    {Files, BadNodes} = rpc:multicall(Nodes, emqx_mod_trace, trace_file, [TraceLog], 60000),
     BadNodes =/= [] andalso ?LOG(error, "download log rpc failed on ~p", [BadNodes]),
-    File.
+    Files.
 
 %% _page as position and _limit as bytes for front-end reusing components
 stream_log_file(#{name := Name}, Params) ->
@@ -165,6 +165,7 @@ stream_log_file(#{name := Name}, Params) ->
             return({error, Reason})
     end.
 
+%% this is an rpc call for stream_log_file/2
 read_trace_file(Name, Position, Limit) ->
     TraceDir = emqx_mod_trace:trace_dir(),
     {ok, AllFiles} = file:list_dir(TraceDir),

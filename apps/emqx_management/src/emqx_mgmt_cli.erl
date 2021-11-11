@@ -420,8 +420,10 @@ log(_) ->
 %% @doc Trace Command
 
 trace(["list"]) ->
-    lists:foreach(fun({{Who, Name, _}, {Level, LogFile}}) ->
-        emqx_ctl:print("Trace(~s=~s, level=~s, destination=~p)~n", [Who, Name, Level, LogFile])
+    lists:foreach(fun(Trace) ->
+        #{type := Type, level := Level, dst := Dst} = Trace,
+        Who = maps:get(Type, Trace),
+        emqx_ctl:print("Trace(~s=~s, level=~s, destination=~p)~n", [Type, Who, Level, Dst])
                   end, emqx_tracer:lookup_traces());
 
 trace(["stop", "client", ClientId]) ->

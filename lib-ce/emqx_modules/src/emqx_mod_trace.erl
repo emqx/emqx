@@ -121,7 +121,7 @@ create(Trace) ->
             end;
         false ->
             {error, """The number of traces created has reached the maximum,
-                       please delete the useless ones first"""}
+please delete the useless ones first"""}
     end.
 
 -spec delete(Name :: binary()) -> ok | {error, not_found}.
