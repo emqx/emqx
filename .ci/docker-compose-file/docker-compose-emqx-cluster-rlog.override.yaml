@@ -12,6 +12,7 @@ services:
   emqx1:
     <<: *default-emqx
     container_name: node1.emqx.io
+    restart: on-failure
     environment:
       - "EMQX_HOST=node1.emqx.io"
       - "EMQX_CLUSTER__DB_BACKEND=rlog"
@@ -23,6 +24,9 @@ services:
   emqx2:
     <<: *default-emqx
     container_name: node2.emqx.io
+    depends_on:
+      - emqx1
+    restart: on-failure
     environment:
       - "EMQX_HOST=node2.emqx.io"
       - "EMQX_CLUSTER__DB_BACKEND=rlog"
