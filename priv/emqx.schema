@@ -2188,6 +2188,42 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "module.st_statistics.threshold_time", "emqx.modules", [
+  {default, "10s"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "module.st_statistics.time_window", "emqx.modules", [
+  {default, "5M"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "module.st_statistics.max_log_num", "emqx.modules", [
+  {default, 500},
+  {datatype, integer}
+]}.
+
+{mapping, "module.st_statistics.top_k_num", "emqx.modules", [
+  {default, 500},
+  {datatype, integer}
+]}.
+
+{mapping, "module.st_statistics.notice_topic", "emqx.modules", [
+  {default, "$slow_topics"},
+  {datatype, string}
+]}.
+
+{mapping, "module.st_statistics.notice_qos", "emqx.modules", [
+  {default, 0},
+  {datatype, integer},
+  {validators, ["range:0-1"]}
+]}.
+
+{mapping, "module.st_statistics.notice_batch_size", "emqx.modules", [
+  {default, 500},
+  {datatype, integer}
+]}.
+
 {translation, "emqx.modules", fun(Conf, _, Conf1) ->
   Subscriptions = fun() ->
       List = cuttlefish_variable:filter_by_prefix("module.subscription", Conf),
@@ -2211,13 +2247,19 @@ end}.
                     {rewrite, list_to_atom(PubOrSub), list_to_binary(Topic), list_to_binary(Re), list_to_binary(Dest)}
                 end, TotalRules)
   end,
+
+  SlowTopic = fun() ->
+                   List = cuttlefish_variable:filter_by_prefix("module.st_statistics", Conf),
+                   [{erlang:list_to_atom(Key), Value} || {[_, _, Key], Value} <- List]
+              end,
+
   lists:append([
     [{emqx_mod_presence, [{qos, cuttlefish:conf_get("module.presence.qos", Conf, 1)}]}],
     [{emqx_mod_subscription, Subscriptions()}],
     [{emqx_mod_rewrite, Rewrites()}],
     [{emqx_mod_topic_metrics, []}],
     [{emqx_mod_delayed, []}],
-    [{emqx_mod_st_statistics, []}],
+    [{emqx_mod_st_statistics, SlowTopic()}],
     [{emqx_mod_acl_internal, [{acl_file, cuttlefish:conf_get("acl_file", Conf1)}]}]
   ])
 end}.

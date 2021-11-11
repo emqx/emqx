@@ -24,7 +24,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_management/include/emqx_mgmt.hrl").
--include_lib("emqx_st_statistics/include/emqx_st_statistics.hrl").
+-include_lib("emqx_modules/include/emqx_st_statistics.hrl").
 
 -define(CONTENT_TYPE, "application/x-www-form-urlencoded").
 
@@ -39,17 +39,19 @@ all() ->
 
 init_per_suite(Config) ->
     application:load(emqx_modules),
-    emqx_ct_helpers:start_apps([emqx_st_statistics, emqx_management]),
+    emqx_ct_helpers:start_apps([emqx_management]),
     Config.
 
 end_per_suite(Config) ->
-    emqx_ct_helpers:stop_apps([emqx_st_statistics, emqx_management]),
+    emqx_ct_helpers:stop_apps([emqx_management]),
     Config.
 
 init_per_testcase(_, Config) ->
+    emqx_mod_st_statistics:load(emqx_st_statistics_SUITE:base_conf()),
     Config.
 
 end_per_testcase(_, Config) ->
+    emqx_mod_st_statistics:unload(undefined),
     Config.
 
 get(Key, ResponseBody) ->

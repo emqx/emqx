@@ -32,7 +32,7 @@
         , get_history/2
         ]).
 
--include_lib("emqx_st_statistics/include/emqx_st_statistics.hrl").
+-include("include/emqx_st_statistics.hrl").
 
 -import(minirest, [return/1]).
 
@@ -41,7 +41,7 @@
 %%--------------------------------------------------------------------
 
 clear_history(_Bindings, _Params) ->
-    ok = emqx_st_statistics:clear_history(),
+    ok = emqx_mod_st_statistics:clear_history(),
     return(ok).
 
 get_history(_Bindings, Params) ->
