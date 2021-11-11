@@ -146,19 +146,23 @@ to_timestamp(Rfc3339) when is_binary(Rfc3339) ->
 to_timestamp(Rfc3339) ->
     calendar:rfc3339_to_system_time(Rfc3339, [{unit, second}]).
 
--spec(create(emqx_types:banned() | map()) -> ok).
+-spec(create(emqx_types:banned() | map()) -> {ok, emqx_types:banned()}).
 create(#{who    := Who,
          by     := By,
          reason := Reason,
          at     := At,
          until  := Until}) ->
-    mria:dirty_write(?BANNED_TAB, #banned{who = Who,
-                                          by = By,
-                                          reason = Reason,
-                                          at = At,
-                                          until = Until});
+    Banned = #banned{
+        who = Who,
+        by = By,
+        reason = Reason,
+        at = At,
+        until = Until
+    },
+    create(Banned);
 create(Banned) when is_record(Banned, banned) ->
-    mria:dirty_write(?BANNED_TAB, Banned).
+    mria:dirty_write(?BANNED_TAB, Banned),
+    {ok, Banned}.
 
 look_up(Who) when is_map(Who) ->
     look_up(pares_who(Who));

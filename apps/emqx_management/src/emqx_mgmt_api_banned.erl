@@ -135,8 +135,8 @@ banned(get, #{query_string := Params}) ->
     Response = emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN),
     {200, Response};
 banned(post, #{body := Body}) ->
-    _ = emqx_banned:create(emqx_banned:parse(Body)),
-    {200}.
+    {ok, Banned} = emqx_banned:create(emqx_banned:parse(Body)),
+    {200, format(Banned)}.
 
 delete_banned(delete, #{bindings := Params}) ->
     case emqx_banned:look_up(Params) of

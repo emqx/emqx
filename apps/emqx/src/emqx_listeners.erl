@@ -28,6 +28,7 @@
         , is_running/1
         , current_conns/2
         , max_conns/2
+        , id_example/0
         ]).
 
 -export([ start_listener/1
@@ -47,6 +48,18 @@
 
 -define(CONF_KEY_PATH, [listeners]).
 -define(TYPES_STRING, ["tcp","ssl","ws","wss","quic"]).
+
+-spec(id_example() -> atom()).
+id_example() ->
+    id_example(list()).
+
+id_example([]) ->
+    {ID, _} = hd(list()),
+    ID;
+id_example([{'tcp:default', _} | _]) ->
+    'tcp:default';
+id_example([_ | Listeners]) ->
+    id_example(Listeners).
 
 %% @doc List configured listeners.
 -spec(list() -> [{ListenerId :: atom(), ListenerConf :: map()}]).
