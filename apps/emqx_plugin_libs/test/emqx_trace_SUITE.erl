@@ -23,10 +23,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
--define(HOST, "http://127.0.0.1:18083/").
--define(API_VERSION, "v4").
--define(BASE_PATH, "api").
-
 -record(emqx_trace,     {
                          name,
                          type,
@@ -52,11 +48,11 @@ all() ->
 
 init_per_suite(Config) ->
     application:load(emqx_plugin_libs),
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_dashboard]),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_modules, emqx_dashboard]).
+    emqx_ct_helpers:stop_apps([]).
 
 t_base_create_delete(_Config) ->
     ok = emqx_trace:clear(),
@@ -156,7 +152,8 @@ t_create_failed(_Config) ->
     {error, Reason7} = emqx_trace:create([{<<"name">>, <<"test">>}, {<<"type">>, <<"clientid">>}]),
     ?assertEqual(<<"topic/clientid cannot be both empty">>, iolist_to_binary(Reason7)),
 
-    InvalidPackets4 = [{<<"name">>, <<"/test">>}, {<<"clientid">>, <<"t">>}, {<<"type">>, <<"clientid">>}],
+    InvalidPackets4 = [{<<"name">>, <<"/test">>}, {<<"clientid">>, <<"t">>},
+        {<<"type">>, <<"clientid">>}],
     {error, Reason9} = emqx_trace:create(InvalidPackets4),
     ?assertEqual(<<"name cannot contain /">>, iolist_to_binary(Reason9)),
 
@@ -230,11 +227,14 @@ t_load_state(_Config) ->
     load(),
     Now = erlang:system_time(second),
     Running = [{<<"name">>, <<"Running">>}, {<<"type">>, <<"topic">>},
-        {<<"topic">>, <<"/x/y/1">>}, {<<"start_at">>, to_rfc3339(Now - 1)}, {<<"end_at">>, to_rfc3339(Now + 2)}],
+        {<<"topic">>, <<"/x/y/1">>}, {<<"start_at">>, to_rfc3339(Now - 1)},
+        {<<"end_at">>, to_rfc3339(Now + 2)}],
     Waiting = [{<<"name">>, <<"Waiting">>}, {<<"type">>, <<"topic">>},
-        {<<"topic">>, <<"/x/y/2">>}, {<<"start_at">>, to_rfc3339(Now + 3)}, {<<"end_at">>, to_rfc3339(Now + 8)}],
+        {<<"topic">>, <<"/x/y/2">>}, {<<"start_at">>, to_rfc3339(Now + 3)},
+        {<<"end_at">>, to_rfc3339(Now + 8)}],
     Finished = [{<<"name">>, <<"Finished">>}, {<<"type">>, <<"topic">>},
-        {<<"topic">>, <<"/x/y/3">>}, {<<"start_at">>, to_rfc3339(Now - 5)}, {<<"end_at">>, to_rfc3339(Now)}],
+        {<<"topic">>, <<"/x/y/3">>}, {<<"start_at">>, to_rfc3339(Now - 5)},
+        {<<"end_at">>, to_rfc3339(Now)}],
     ok = emqx_trace:create(Running),
     ok = emqx_trace:create(Waiting),
     {error, "end_at time has already passed"} = emqx_trace:create(Finished),
@@ -323,64 +323,6 @@ t_trace_file(_Config) ->
     ok = file:delete(File),
     ok.
 
-t_http_test(_Config) ->
-    emqx_trace:clear(),
-    load(),
-    Header = auth_header_(),
-    %% list
-    {ok, Empty} = request_api(get, api_path("trace"), Header),
-    ?assertEqual(#{<<"code">> => 0, <<"data">> => []}, json(Empty)),
-    %% create
-    ErrorTrace = #{},
-    {ok, Error} = request_api(post, api_path("trace"), Header, ErrorTrace),
-    ?assertEqual(#{<<"message">> => <<"unknown field: {}">>, <<"code">> => <<"INCORRECT_PARAMS">>}, json(Error)),
-
-    Name = <<"test-name">>,
-    Trace = [
-        {<<"name">>, Name},
-        {<<"type">>, <<"topic">>},
-        {<<"packets">>, [<<"PUBLISH">>]},
-        {<<"topic">>, <<"/x/y/z">>}
-    ],
-
-    {ok, Create} = request_api(post, api_path("trace"), Header, Trace),
-    ?assertEqual(#{<<"code">> => 0}, json(Create)),
-
-    {ok, List} = request_api(get, api_path("trace"), Header),
-    #{<<"code">> := 0, <<"data">> := [Data]} = json(List),
-    ?assertEqual(Name, maps:get(<<"name">>, Data)),
-
-    %% update
-    {ok, Update} = request_api(put, api_path("trace/test-name/disable"), Header, #{}),
-    ?assertEqual(#{<<"code">> => 0,
-        <<"data">> => #{<<"enable">> => false,
-            <<"name">> => <<"test-name">>}}, json(Update)),
-
-    {ok, List1} = request_api(get, api_path("trace"), Header),
-    #{<<"code">> := 0, <<"data">> := [Data1]} = json(List1),
-    ?assertEqual(false, maps:get(<<"enable">>, Data1)),
-
-    %% delete
-    {ok, Delete} = request_api(delete, api_path("trace/test-name"), Header),
-    ?assertEqual(#{<<"code">> => 0}, json(Delete)),
-
-    {ok, DeleteNotFound} = request_api(delete, api_path("trace/test-name"), Header),
-    ?assertEqual(#{<<"code">> => <<"NOT_FOUND">>,
-        <<"message">> => <<"test-nameNOT FOUND">>}, json(DeleteNotFound)),
-
-    {ok, List2} = request_api(get, api_path("trace"), Header),
-    ?assertEqual(#{<<"code">> => 0, <<"data">> => []}, json(List2)),
-
-    %% clear
-    {ok, Create1} = request_api(post, api_path("trace"), Header, Trace),
-    ?assertEqual(#{<<"code">> => 0}, json(Create1)),
-
-    {ok, Clear} = request_api(delete, api_path("trace"), Header),
-    ?assertEqual(#{<<"code">> => 0}, json(Clear)),
-
-    unload(),
-    ok.
-
 t_download_log(_Config) ->
     emqx_trace:clear(),
     load(),
@@ -397,86 +339,12 @@ t_download_log(_Config) ->
     {ok, #{}, {sendfile, 0, ZipFileSize, _ZipFile}} =
         emqx_trace_api:download_zip_log(#{name => Name}, []),
     ?assert(ZipFileSize > 0),
-    %% download zip file failed by server_closed occasionally?
-    %Header = auth_header_(),
-    %{ok, ZipBin} = request_api(get, api_path("trace/test_client_id/download"), Header),
-    %{ok, ZipHandler} = zip:zip_open(ZipBin),
-    %{ok, [ZipName]} = zip:zip_get(ZipHandler),
-    %?assertNotEqual(nomatch, string:find(ZipName, "test@127.0.0.1")),
-    %{ok, _} = file:read_file(emqx_trace:log_file(<<"test_client_id">>, Now)),
     ok = emqtt:disconnect(Client),
-    unload(),
-    ok.
-
-t_stream_log(_Config) ->
-    application:set_env(emqx, allow_anonymous, true),
-    emqx_trace:clear(),
-    load(),
-    ClientId = <<"client-stream">>,
-    Now = erlang:system_time(second),
-    Name = <<"test_stream_log">>,
-    Start = to_rfc3339(Now - 10),
-    ok = emqx_trace:create([{<<"name">>, Name},
-        {<<"type">>, <<"clientid">>}, {<<"clientid">>, ClientId}, {<<"start_at">>, Start}]),
-    ct:sleep(200),
-    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
-    {ok, _} = emqtt:connect(Client),
-    [begin _ = emqtt:ping(Client) end ||_ <- lists:seq(1, 5)],
-    emqtt:publish(Client, <<"/good">>, #{}, <<"ghood1">>, [{qos, 0}]),
-    emqtt:publish(Client, <<"/good">>, #{}, <<"ghood2">>, [{qos, 0}]),
-    ok = emqtt:disconnect(Client),
-    ct:sleep(200),
-    File = emqx_trace:log_file(Name, Now),
-    ct:pal("FileName: ~p", [File]),
-    {ok, FileBin} = file:read_file(File),
-    ct:pal("FileBin: ~p ~s", [byte_size(FileBin), FileBin]),
-    Header = auth_header_(),
-    {ok, Binary} = request_api(get, api_path("trace/test_stream_log/log?_limit=10"), Header),
-    #{<<"code">> := 0, <<"data">> := #{<<"meta">> := Meta, <<"items">> := Bin}} = json(Binary),
-    ?assertEqual(10, byte_size(Bin)),
-    ?assertEqual(#{<<"page">> => 10, <<"limit">> => 10}, Meta),
-    {ok, Binary1} = request_api(get, api_path("trace/test_stream_log/log?_page=20&_limit=10"), Header),
-    #{<<"code">> := 0, <<"data">> := #{<<"meta">> := Meta1, <<"items">> := Bin1}} = json(Binary1),
-    ?assertEqual(#{<<"page">> => 30, <<"limit">> => 10}, Meta1),
-    ?assertEqual(10, byte_size(Bin1)),
     unload(),
     ok.
 
 to_rfc3339(Second) ->
     list_to_binary(calendar:system_time_to_rfc3339(Second)).
-
-auth_header_() ->
-    auth_header_("admin", "public").
-
-auth_header_(User, Pass) ->
-    Encoded = base64:encode_to_string(lists:append([User, ":", Pass])),
-    {"Authorization", "Basic " ++ Encoded}.
-
-request_api(Method, Url, Auth) -> do_request_api(Method, {Url, [Auth]}).
-
-request_api(Method, Url, Auth, Body) ->
-    Request = {Url, [Auth], "application/json", emqx_json:encode(Body)},
-    do_request_api(Method, Request).
-
-do_request_api(Method, Request) ->
-    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
-    case httpc:request(Method, Request, [], [{body_format, binary}]) of
-        {error, socket_closed_remotely} ->
-            {error, socket_closed_remotely};
-        {error,{shutdown, server_closed}} ->
-            {error, server_closed};
-        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return} }
-            when Code =:= 200 orelse Code =:= 201 ->
-            {ok, Return};
-        {ok, {Reason, _, _}} ->
-            {error, Reason}
-    end.
-
-api_path(Path) ->
-    ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION, Path]).
-
-json(Data) ->
-    {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]), Jsx.
 
 load() ->
     emqx_trace:start_link().
