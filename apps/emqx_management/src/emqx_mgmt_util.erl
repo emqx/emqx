@@ -222,7 +222,7 @@ properties(Props) ->
     properties(Props, #{}).
 properties([], Acc) ->
     Acc;
-properties([Key| Props], Acc) when is_atom(Key) ->
+properties([Key | Props], Acc) when is_atom(Key) ->
     properties(Props, maps:put(Key, #{type => string}, Acc));
 properties([{Key, Type} | Props], Acc) ->
     properties(Props, maps:put(Key, #{type => Type}, Acc));
