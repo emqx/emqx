@@ -134,7 +134,8 @@ schema("/users/:username") ->
                 204 => <<"Delete User successfully">>,
                 400 => [
                     {code, mk(string(), #{example => 'CANNOT_DELETE_ADMIN'})},
-                    {message, mk(string(), #{example => "CANNOT DELETE ADMIN"})}]}}
+                    {message, mk(string(), #{example => "CANNOT DELETE ADMIN"})}],
+                404 => emqx_dashboard_swagger:error_codes(['USER_NOT_FOUND'], <<"User Not Found">>)}}
     };
 schema("/users/:username/change_pwd") ->
     #{
@@ -216,11 +217,17 @@ user(put, #{bindings := #{username := Username}, body := Params}) ->
 
 user(delete, #{bindings := #{username := Username}}) ->
     case Username == <<"admin">> of
-        true -> {400, #{code => <<"CANNOT_DELETE_ADMIN">>,
-            message => <<"Cannot delete admin">>}};
+        true ->
+            {400, #{code => <<"ACTION_NOT_ALLOWED">>,
+                    message => <<"Cannot delete admin">>}};
         false ->
-            _ = emqx_dashboard_admin:remove_user(Username),
-            {204}
+            case emqx_dashboard_admin:remove_user(Username) of
+                {error, _Reason} ->
+                    {404, #{code => <<"USER_NOT_FOUND">>,
+                           message => <<"User not found">>}};
+                _ ->
+                    {204}
+            end
     end.
 
 change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->

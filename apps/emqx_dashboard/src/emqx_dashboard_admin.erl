@@ -91,11 +91,9 @@ add_user_(Admin = #?ADMIN{username = Username}) ->
 remove_user(Username) when is_binary(Username) ->
     Trans = fun() ->
                     case lookup_user(Username) of
-                    [] ->
-                        mnesia:abort(<<"Username Not Found">>);
-                    _  -> ok
-                    end,
-                    mnesia:delete({?ADMIN, Username})
+                        [] -> mnesia:abort(<<"Username Not Found">>);
+                        _  -> mnesia:delete({?ADMIN, Username})
+                    end
             end,
     return(mria:transaction(?DASHBOARD_SHARD, Trans)).
 
