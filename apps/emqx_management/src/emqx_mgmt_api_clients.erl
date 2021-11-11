@@ -678,6 +678,7 @@ format_channel_info({_, ClientInfo, ClientStats}) ->
         , sockname
         , retry_interval
         , upgrade_qos
+        , id %% sessionID, defined in emqx_session.erl
     ],
     TimesKeys = [created_at, connected_at, disconnected_at],
     %% format timestamp to rfc3339
