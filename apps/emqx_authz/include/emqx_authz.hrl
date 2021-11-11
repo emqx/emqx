@@ -67,3 +67,52 @@
 -define(AUTHZ_METRICS(K), ?METRICS(authz_metrics, K)).
 
 -define(CONF_KEY_PATH, [authorization, sources]).
+
+-define(USERNAME_RULES_EXAMPLE, #{username => user1,
+                                  rules => [ #{topic => <<"test/toopic/1">>,
+                                               permission => <<"allow">>,
+                                               action => <<"publish">>
+                                              }
+                                           , #{topic => <<"test/toopic/2">>,
+                                               permission => <<"allow">>,
+                                               action => <<"subscribe">>
+                                              }
+                                           , #{topic => <<"eq test/#">>,
+                                               permission => <<"deny">>,
+                                               action => <<"all">>
+                                              }
+                                           ]
+                                 }).
+-define(CLIENTID_RULES_EXAMPLE, #{clientid => client1,
+                                  rules => [ #{topic => <<"test/toopic/1">>,
+                                               permission => <<"allow">>,
+                                               action => <<"publish">>
+                                              }
+                                           , #{topic => <<"test/toopic/2">>,
+                                               permission => <<"allow">>,
+                                               action => <<"subscribe">>
+                                              }
+                                           , #{topic => <<"eq test/#">>,
+                                               permission => <<"deny">>,
+                                               action => <<"all">>
+                                              }
+                                           ]
+                                 }).
+-define(ALL_RULES_EXAMPLE,      #{rules => [ #{topic => <<"test/toopic/1">>,
+                                               permission => <<"allow">>,
+                                               action => <<"publish">>
+                                              }
+                                           , #{topic => <<"test/toopic/2">>,
+                                               permission => <<"allow">>,
+                                               action => <<"subscribe">>
+                                              }
+                                           , #{topic => <<"eq test/#">>,
+                                               permission => <<"deny">>,
+                                               action => <<"all">>
+                                              }
+                                           ]
+                                 }).
+-define(META_EXAMPLE,           #{ page => 1
+                                 , limit => 100
+                                 , count => 1
+                                 }).
