@@ -29,6 +29,8 @@
 
 -define(BASE_PATH, "/api/v5").
 
+-define(EMQX_MIDDLE, emqx_dashboard_middleware).
+
 %%--------------------------------------------------------------------
 %% Start/Stop Listeners
 %%--------------------------------------------------------------------
@@ -42,9 +44,9 @@ start_listeners() ->
         servers => [#{url => ?BASE_PATH}],
         components => #{
             schemas => #{},
-            securitySchemes => #{
+            'securitySchemes' => #{
                 application => #{
-                    type => apiKey,
+                    type => 'apiKey',
                     name => "authorization",
                     in => header}}}},
     Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
@@ -57,7 +59,8 @@ start_listeners() ->
         authorization => Authorization,
         security => [#{application => []}],
         swagger_global_spec => GlobalSpec,
-        dispatch => Dispatch
+        dispatch => Dispatch,
+        middlewares => [cowboy_router, ?EMQX_MIDDLE, cowboy_handler]
     },
     [begin
         Minirest = maps:put(protocol, Protocol, BaseMinirest),
@@ -101,19 +104,16 @@ ranch_opts(RanchOptions) ->
     R#{socket_opts => maps:fold(fun key_only/3, [], S)}.
 
 
-key_take({K, K1}, {All, R})  ->
+key_take(Key, {All, R})  ->
+    {K, KX} = case Key of
+                  {K1, K2} -> {K1, K2};
+                  _ -> {Key, Key}
+              end,
     case maps:get(K, All, undefined) of
         undefined ->
             {All, R};
         V ->
-            {maps:remove(K, All), R#{K1 => V}}
-    end;
-key_take(K, {All, R})  ->
-    case maps:get(K, All, undefined) of
-        undefined ->
-            {All, R};
-        V ->
-            {maps:remove(K, All), R#{K => V}}
+            {maps:remove(K, All), R#{KX => V}}
     end.
 
 key_only(K , true , S)  -> [K | S];
