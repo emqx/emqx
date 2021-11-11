@@ -14,9 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_st_statistics).
+-module(emqx_st_statistics).
 
--behaviour(emqx_gen_mod).
 -behaviour(gen_server).
 
 -include_lib("include/emqx.hrl").
@@ -27,12 +26,6 @@
 
 -export([ start_link/1, on_publish_done/3, enable/0
         , disable/0, clear_history/0
-        ]).
-
-%% emqx_gen_mod callbacks
--export([ load/1
-        , unload/1
-        , description/0
         ]).
 
 %% gen_server callbacks
@@ -87,23 +80,6 @@
 %% number < atom < reference < fun < port < pid < tuple < list < bit string
 
 %% ets ordered_set is ascending by term order
-
-%%--------------------------------------------------------------------
-%% Load/Unload
-%%--------------------------------------------------------------------
-
--spec(load(list()) -> ok).
-load(Env) ->
-    emqx_mod_sup:start_child(?MODULE, worker, [Env]),
-    ok.
-
--spec(unload(list()) -> ok).
-unload(_Env) ->
-    _ = emqx_mod_sup:stop_child(?MODULE),
-    ok.
-
-description() ->
-    "EMQ X Slow Topic Statistics Module".
 
 %%--------------------------------------------------------------------
 %%--------------------------------------------------------------------
