@@ -41,7 +41,8 @@
 start_listeners() ->
     lists:foreach(fun(Listener) -> start_listener(Listener) end, listeners()).
 
-%% Start HTTP Listener
+
+%% Start HTTP(S) Listener
 start_listener({Proto, Port, Options}) ->
     Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
                 {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
@@ -88,7 +89,7 @@ listener_name(Proto) ->
 http_handlers() ->
     Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),
     [{"/api/v4/",
-      minirest:handler(#{apps => Plugins ++  [emqx_modules, emqx_plugin_libs],
+      minirest:handler(#{apps => Plugins ++ [emqx_modules, emqx_plugin_libs],
                          filter => fun ?MODULE:filter/1}),
       [{authorization, fun ?MODULE:is_authorized/1}]}].
 

@@ -166,4 +166,3 @@ api_path(Path) ->
 
 json(Data) ->
     {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]), Jsx.
-
