@@ -26,6 +26,8 @@
         , stream_log_file/2
 ]).
 
+-import(minirest, [return/1]).
+
 -rest_api(#{name   => list_trace,
             method => 'GET',
             path   => "/trace/",
@@ -69,22 +71,25 @@
             descr  => "download trace's log"}).
 
 list_trace(Path, Params) ->
-    emqx_trace_api:list_trace(Path, Params).
+    return(emqx_trace_api:list_trace(Path, Params)).
 
 create_trace(Path, Params) ->
-    emqx_trace_api:create_trace(Path, Params).
+    return(emqx_trace_api:create_trace(Path, Params)).
 
 delete_trace(Path, Params) ->
-    emqx_trace_api:delete_trace(Path, Params).
+    return(emqx_trace_api:delete_trace(Path, Params)).
 
 clear_traces(Path, Params) ->
-    emqx_trace_api:clear_traces(Path, Params).
+    return(emqx_trace_api:clear_traces(Path, Params)).
 
 update_trace(Path, Params) ->
-    emqx_trace_api:update_trace(Path, Params).
+    return(emqx_trace_api:update_trace(Path, Params)).
 
 download_zip_log(Path, Params) ->
-    emqx_trace_api:download_zip_log(Path, Params).
+    case emqx_trace_api:download_zip_log(Path, Params) of
+        {ok, _Header, _File}= Return -> Return;
+        {error, _Reason} = Err ->  return(Err)
+    end.
 
 stream_log_file(Path, Params) ->
-    emqx_trace_api:stream_log_file(Path, Params).
+    return(emqx_trace_api:stream_log_file(Path, Params)).

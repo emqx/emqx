@@ -29,51 +29,7 @@
 -export([read_trace_file/3]).
 
 -define(TO_BIN(_B_), iolist_to_binary(_B_)).
--define(RETURN_NOT_FOUND(N), return({error, 'NOT_FOUND', ?TO_BIN([N, "NOT FOUND"])})).
-
--import(minirest, [return/1]).
-
--rest_api(#{name   => list_trace,
-            method => 'GET',
-            path   => "/trace/",
-            func   => list_trace,
-            descr  => "list all traces"}).
-
--rest_api(#{name   => create_trace,
-            method => 'POST',
-            path   => "/trace/",
-            func   => create_trace,
-            descr  => "create trace"}).
-
--rest_api(#{name   => delete_trace,
-            method => 'DELETE',
-            path   => "/trace/:bin:name",
-            func   => delete_trace,
-            descr  => "delete trace"}).
-
--rest_api(#{name   => clear_trace,
-            method => 'DELETE',
-            path   => "/trace/",
-            func   => clear_traces,
-            descr  => "clear all traces"}).
-
--rest_api(#{name   => update_trace,
-            method => 'PUT',
-            path   => "/trace/:bin:name/:atom:operation",
-            func   => update_trace,
-            descr  => "diable/enable trace"}).
-
--rest_api(#{name   => download_zip_log,
-            method => 'GET',
-            path   => "/trace/:bin:name/download",
-            func   => download_zip_log,
-            descr  => "download trace's log"}).
-
--rest_api(#{name   => stream_log_file,
-            method => 'GET',
-            path   => "/trace/:bin:name/log",
-            func   => stream_log_file,
-            descr  => "download trace's log"}).
+-define(NOT_FOUND(N), {error, 'NOT_FOUND', ?TO_BIN([N, "NOT FOUND"])}).
 
 list_trace(_, Params) ->
     List =
@@ -81,33 +37,33 @@ list_trace(_, Params) ->
             [{<<"enable">>, Enable}] -> emqx_trace:list(Enable);
             _ -> emqx_trace:list()
         end,
-    return({ok, emqx_trace:format(List)}).
+    {ok, emqx_trace:format(List)}.
 
 create_trace(_, Param) ->
     case emqx_trace:create(Param) of
-        ok -> return(ok);
+        ok -> ok;
         {error, {already_existed, Name}} ->
-            return({error, 'ALREADY_EXISTED', ?TO_BIN([Name, "Already Exists"])});
+            {error, 'ALREADY_EXISTED', ?TO_BIN([Name, "Already Exists"])};
         {error, {duplicate_condition, Name}} ->
-            return({error, 'DUPLICATE_CONDITION', ?TO_BIN([Name, "Duplication Condition"])});
+            {error, 'DUPLICATE_CONDITION', ?TO_BIN([Name, "Duplication Condition"])};
         {error, Reason} ->
-            return({error, 'INCORRECT_PARAMS', ?TO_BIN(Reason)})
+            {error, 'INCORRECT_PARAMS', ?TO_BIN(Reason)}
     end.
 
 delete_trace(#{name := Name}, _Param) ->
     case emqx_trace:delete(Name) of
-        ok -> return(ok);
-        {error, not_found} -> ?RETURN_NOT_FOUND(Name)
+        ok -> ok;
+        {error, not_found} -> ?NOT_FOUND(Name)
     end.
 
 clear_traces(_, _) ->
-    return(emqx_trace:clear()).
+    emqx_trace:clear().
 
 update_trace(#{name := Name, operation := Operation}, _Param) ->
     Enable = case Operation of disable -> false; enable -> true end,
     case emqx_trace:update(Name, Enable) of
-        ok -> return({ok, #{enable => Enable, name => Name}});
-        {error, not_found} -> ?RETURN_NOT_FOUND(Name)
+        ok -> {ok, #{enable => Enable, name => Name}};
+        {error, not_found} -> ?NOT_FOUND(Name)
     end.
 
 %% if HTTP request headers include accept-encoding: gzip and file size > 300 bytes.
@@ -123,7 +79,7 @@ download_zip_log(#{name := Name}, _Param) ->
             emqx_trace:delete_files_after_send(ZipFileName, Zips),
             {ok, #{}, {sendfile, 0, filelib:file_size(ZipFile), ZipFile}};
         {error, Reason} ->
-            return({error, Reason})
+            {error, Reason}
     end.
 
 group_trace_file(ZipDir, TraceLog, TraceFiles) ->
@@ -156,13 +112,13 @@ stream_log_file(#{name := Name}, Params) ->
     case rpc:call(Node, ?MODULE, read_trace_file, [Name, Position, Bytes]) of
         {ok, Bin} ->
             Meta = #{<<"page">> => Position + byte_size(Bin), <<"limit">> => Bytes},
-            return({ok, #{meta => Meta, items => Bin}});
+            {ok, #{meta => Meta, items => Bin}};
         eof ->
             Meta = #{<<"page">> => Position, <<"limit">> => Bytes},
-            return({ok, #{meta => Meta, items => <<"">>}});
+            {ok, #{meta => Meta, items => <<"">>}};
         {error, Reason} ->
             logger:log(error, "read_file_failed by ~p", [{Name, Reason, Position, Bytes}]),
-            return({error, Reason})
+            {error, Reason}
     end.
 
 %% this is an rpc call for stream_log_file/2
