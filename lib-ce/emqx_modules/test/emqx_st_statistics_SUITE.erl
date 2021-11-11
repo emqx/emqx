@@ -31,16 +31,20 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_st_statistics], fun set_special_cfg/1),
+    emqx_ct_helpers:start_apps([emqx]),
     Config.
-
-set_special_cfg(_) ->
-    application:set_env([{emqx_st_statistics, base_conf()}]),
-    ok.
 
 end_per_suite(Config) ->
-    emqx_ct_helpers:stop_apps([emqx_st_statistics]),
+    emqx_ct_helpers:stop_apps([emqx]),
     Config.
+
+init_per_testcase(_, Config) ->
+    emqx_mod_st_statistics:load(base_conf()),
+    Config.
+
+end_per_testcase(_, _) ->
+    emqx_mod_st_statistics:unload(undefined),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Test Cases

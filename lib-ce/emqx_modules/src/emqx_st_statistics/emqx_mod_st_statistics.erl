@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,18 +14,25 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_st_statistics).
+-module(emqx_mod_st_statistics).
 
+-behaviour(emqx_gen_mod).
 -behaviour(gen_server).
 
 -include_lib("include/emqx.hrl").
 -include_lib("include/logger.hrl").
--include_lib("stdlib/include/ms_transform.hrl").
+-include("include/emqx_st_statistics.hrl").
 
 -logger_header("[SLOW TOPICS]").
 
 -export([ start_link/1, on_publish_done/3, enable/0
         , disable/0, clear_history/0
+        ]).
+
+%% emqx_gen_mod callbacks
+-export([ load/1
+        , unload/1
+        , description/0
         ]).
 
 %% gen_server callbacks
@@ -60,22 +67,14 @@
                   , elapsed :: pos_integer()
                   }).
 
--record(top_k, { rank :: pos_integer()
-               , topic :: emqx_types:topic()
-               , average_count :: number()
-               , average_elapsed :: number()}).
-
 -type message() :: #message{}.
 
 -import(proplists, [get_value/2]).
 
--define(LOG_TAB, emqx_st_statistics_log).
--define(TOPK_TAB, emqx_st_statistics_topk).
 -define(NOW, erlang:system_time(millisecond)).
 -define(QUOTA_IDX, 1).
 
 -type slow_log() :: #slow_log{}.
--type top_k() :: #top_k{}.
 -type top_k_map() :: #{emqx_types:topic() => top_k()}.
 
 -ifdef(TEST).
@@ -90,9 +89,26 @@
 %% ets ordered_set is ascending by term order
 
 %%--------------------------------------------------------------------
-%% APIs
+%% Load/Unload
 %%--------------------------------------------------------------------
 
+-spec(load(list()) -> ok).
+load(Env) ->
+    emqx_mod_sup:start_child(?MODULE, worker, [Env]),
+    ok.
+
+-spec(unload(list()) -> ok).
+unload(_Env) ->
+    _ = emqx_mod_sup:stop_child(?MODULE),
+    ok.
+
+description() ->
+    "EMQ X Slow Topic Statistics Module".
+
+%%--------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% APIs
+%%--------------------------------------------------------------------
 %% @doc Start the st_statistics
 -spec(start_link(Env :: list()) -> emqx_types:startlink_ret()).
 start_link(Env) ->
