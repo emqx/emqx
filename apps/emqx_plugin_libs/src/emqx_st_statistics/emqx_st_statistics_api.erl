@@ -41,7 +41,7 @@
 %%--------------------------------------------------------------------
 
 clear_history(_Bindings, _Params) ->
-    ok = emqx_mod_st_statistics:clear_history(),
+    ok = emqx_st_statistics:clear_history(),
     return(ok).
 
 get_history(_Bindings, Params) ->

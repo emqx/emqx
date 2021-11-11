@@ -24,11 +24,11 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_management/include/emqx_mgmt.hrl").
--include_lib("emqx_modules/include/emqx_st_statistics.hrl").
+-include_lib("emqx_plugin_libs/include/emqx_st_statistics.hrl").
 
 -define(CONTENT_TYPE, "application/x-www-form-urlencoded").
 
--define(HOST, "http://127.0.0.1:8081/").
+-define(HOST, "http://127.0.0.1:18083/").
 
 -define(API_VERSION, "v4").
 
@@ -38,8 +38,9 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_modules),
-    emqx_ct_helpers:start_apps([emqx_management]),
+    emqx_ct_helpers:boot_modules(all),
+    application:load(emqx_plugin_libs),
+    emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_dashboard]),
     Config.
 
 end_per_suite(Config) ->
@@ -55,7 +56,7 @@ end_per_testcase(_, Config) ->
     Config.
 
 get(Key, ResponseBody) ->
-   maps:get(Key, jiffy:decode(list_to_binary(ResponseBody), [return_maps])).
+    maps:get(Key, jiffy:decode(list_to_binary(ResponseBody), [return_maps])).
 
 lookup_alarm(Name, [#{<<"name">> := Name} | _More]) ->
     true;
