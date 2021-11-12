@@ -345,11 +345,13 @@ t_connected_client_count_persistent(Config) when is_list(Config) ->
                              fun() -> emqtt:ConnFun(ConnPid0) end,
                              [emqx_cm_connected_client_count_inc]
                             ),
+    timer:sleep(10),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     {ok, {ok, [_]}} = wait_for_events(
                         fun() -> emqtt:disconnect(ConnPid0) end,
                         [emqx_cm_connected_client_count_dec]
                        ),
+    timer:sleep(10),
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
     %% reconnecting
     {ok, ConnPid1} = emqtt:start_link([ {clean_start, false}

@@ -413,6 +413,7 @@ t_persist_on_disconnect(Config) ->
                                        {properties, #{'Session-Expiry-Interval' => 30}}
                                      | Config]),
     {ok, _} = emqtt:ConnFun(Client2),
+    timer:sleep(10),
     %% The session should not be known, since it wasn't persisted because of the
     %% changed expiry interval in the disconnect call.
     ?assertEqual(0, client_info(session_present, Client2)),
@@ -492,7 +493,8 @@ t_process_dies_session_expires(Config) ->
             %% The session should be a fresh one
             {persistent, NewSession} = emqx_persistent_session:lookup(ClientId),
             ?assertNotEqual(SessionId, emqx_session:info(id, NewSession)),
-            %% The old session should now either be marked as abandoned or already be garbage collected.
+            %% The old session should now either
+            %% be marked as abandoned or already be garbage collected.
             ?assertMatch([], emqx_persistent_session:pending(SessionId));
         false ->
             skip
@@ -862,7 +864,7 @@ t_snabbkaffe_buffered_messages(Config) ->
            ?force_ordering( #{ ?snk_kind := ps_worker_deliver },
                             #{ ?snk_kind := ps_resume_end }),
            spawn_link(fun() ->
-                              ?block_until(#{ ?snk_kind := ps_marker_pendings_msgs }, infinity, 5000),
+                              ?block_until(#{?snk_kind := ps_marker_pendings_msgs}, infinity, 5000),
                               publish(Topic, Payloads2)
                       end),
            {ok, Client2} = emqtt:start_link([{clean_start, false} | EmqttOpts]),
