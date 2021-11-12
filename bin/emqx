@@ -2,8 +2,7 @@
 # -*- tab-width:4;indent-tabs-mode:nil -*-
 # ex: ts=4 sw=4 et
 
-set -e
-set -o pipefail
+set -euo pipefail
 
 DEBUG="${DEBUG:-0}"
 if [ "$DEBUG" -eq 1 ]; then
@@ -66,15 +65,147 @@ assert_node_alive() {
 # Echo to stderr on errors
 echoerr() { echo "$*" 1>&2; }
 
-check_eralng_start() {
-    "$BINDIR/$PROGNAME" -noshell -boot "$REL_DIR/start_clean" -s crypto start -s init stop
+check_erlang_start() {
+    "$BINDIR/$PROGNAME" -noshell -boot "$REL_DIR/start_clean" -s crypto start -s erlang halt
 }
 
-if ! check_eralng_start >/dev/null 2>&1; then
+usage() {
+    local command="$1"
+
+    case "$command" in
+    start)
+        echo "Start EMQ X service in daemon mode"
+        ;;
+    stop)
+        echo "Stop the running EMQ X program"
+        ;;
+    restart|reboot)
+        echo "Restart $EMQX_DESCRIPTION"
+        ;;
+    pid)
+        echo "Print out $EMQX_DESCRIPTION process identifier"
+        ;;
+    ping)
+        echo "Check if the $EMQX_DESCRIPTION node is up and running"
+        echo "This command exit with 0 silently if node is running"
+        ;;
+    escript)
+        echo "Execute a escript using the Erlang runtime from EMQ X package installation"
+        echo "For example $REL_NAME escript /path/to/my/escript my_arg1 my_arg2"
+        ;;
+    attach)
+        echo "This command is applicable when $EMQX_DESCRIPTION is started in daemon"
+        echo "mode. it attaches the current shell to EMQ X's control console"
+        echo "through a named pipe"
+        echo "WARNING: try to use the safer alternative, remote_console command."
+        ;;
+    remote_console)
+        echo "Start a dummy Erlang node and hidden-connect $EMQX_DESCRIPTION to"
+        echo "with an interactive Erlang shell"
+        ;;
+    console)
+        echo "Boot up $EMQX_DESCRIPTION service in an interactive Erlang shell"
+        echo "This command is useful for troubleshooting"
+        ;;
+    console_clean)
+        echo "This command does NOT boot up the $EMQX_DESCRIPTION service"
+        echo "It only starts an interactive Erlang console with all the"
+        echo "EMQ X code available"
+        ;;
+    foreground)
+        echo "Start $EMQX_DESCRIPTION in foreground mode"
+        ;;
+    ertspath)
+        echo "Print path to Erlang runtime dir"
+        ;;
+    rpc)
+        echo "Usge $REL_NAME rpc MODULE FUNCTION [ARGS, ...]"
+        echo "Connect to the $EMQX_DESCRIPTION node and make an Erlang RPC"
+        echo "The result of the RPC call must be 'ok'"
+        echo "This command blocks for at most 60 seconds in case the node"
+        echo "does not reply the call in time"
+        ;;
+    rpcterms)
+        echo "Usge $REL_NAME rpcterms MODULE FUNCTION [ARGS, ...]"
+        echo "Connect to the $EMQX_DESCRIPTION node and make an Erlang RPC"
+        echo "The result of the RPC call is pretty-printed as an Erlang term"
+        ;;
+    root_dir)
+        echo "Print EMQ X installation root dir"
+        ;;
+    eval)
+        echo "Evaluate an Erlang expression in the EMQ X node"
+        ;;
+    versions)
+        echo "List installed EMQ X versions and their status"
+        ;;
+    unpack)
+        echo "Usage: $REL_NAME unpack [VERSION]"
+        echo "Unpacks a release package VERSION, it assumes that this"
+        echo "release package tarball has already been deployed at one"
+        echo "of the following locations:"
+        echo "      releases/<relname>-<version>.tar.gz"
+        echo "      releases/<relname>-<version>.zip"
+        ;;
+    install)
+        echo "Usage: $REL_NAME install [VERSION]"
+        echo "Installs a release package VERSION, it assumes that this"
+        echo "release package tarball has already been deployed at one"
+        echo "of the following locations:"
+        echo "      releases/<relname>-<version>.tar.gz"
+        echo "      releases/<relname>-<version>.zip"
+        echo ""
+        echo "     --no-permanent   Install release package VERSION but"
+        echo "                      don't make it permanent"
+        ;;
+    uninstall)
+        echo "Usage: $REL_NAME uninstall [VERSION]"
+        echo "Uninstalls a release VERSION, it will only accept"
+        echo "versions that are not currently in use"
+        ;;
+    upgrade)
+        echo "Usage: $REL_NAME upgrade [VERSION]"
+        echo "Upgrades the currently running release to VERSION, it assumes"
+        echo "that a release package tarball has already been deployed at one"
+        echo "of the following locations:"
+        echo "      releases/<relname>-<version>.tar.gz"
+        echo "      releases/<relname>-<version>.zip"
+        echo ""
+        echo "     --no-permanent   Install release package VERSION but"
+        echo "                      don't make it permanent"
+        ;;
+    downgrade)
+        echo "Usage: $REL_NAME downgrade [VERSION]"
+        echo "Downgrades the currently running release to VERSION, it assumes"
+        echo "that a release package tarball has already been deployed at one"
+        echo "of the following locations:"
+        echo "      releases/<relname>-<version>.tar.gz"
+        echo "      releases/<relname>-<version>.zip"
+        echo ""
+        echo "     --no-permanent   Install release package VERSION but"
+        echo "                      don't make it permanent"
+        ;;
+    *)
+        echo "Usage: $REL_NAME {start|ertspath|foreground|stop|pid|ping|console|console_clean|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|ctl|rpc|rpcterms|eval|root_dir} <help>"
+    ;;
+    esac
+}
+
+COMMAND="${1:-}"
+
+if [ "${2:-}" = 'help' ]; then
+    ## 'ctl' command has its own usage info
+    if [ "$COMMAND" != 'ctl' ]; then
+        usage "$COMMAND"
+        exit 0
+    fi
+fi
+
+if ! check_erlang_start >/dev/null 2>&1; then
     BUILT_ON="$(head -1 "${REL_DIR}/BUILT_ON")"
     ## failed to start, might be due to missing libs, try to be portable
     export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
-    if ! check_eralng_start; then
+    if ! check_erlang_start; then
         ## it's hopeless
         echoerr "FATAL: Unable to start Erlang (with libcrypto)."
         echoerr "Please make sure it's running on the correct platform with all required dependencies."
@@ -88,62 +219,6 @@ fi
 if [ -d "$ERTS_DIR/lib" ]; then
     export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
 fi
-
-relx_usage() {
-    command="$1"
-
-    case "$command" in
-        unpack)
-            echo "Usage: $REL_NAME unpack [VERSION]"
-            echo "Unpacks a release package VERSION, it assumes that this"
-            echo "release package tarball has already been deployed at one"
-            echo "of the following locations:"
-            echo "      releases/<relname>-<version>.tar.gz"
-            echo "      releases/<relname>-<version>.zip"
-            ;;
-        install)
-            echo "Usage: $REL_NAME install [VERSION]"
-            echo "Installs a release package VERSION, it assumes that this"
-            echo "release package tarball has already been deployed at one"
-            echo "of the following locations:"
-            echo "      releases/<relname>-<version>.tar.gz"
-            echo "      releases/<relname>-<version>.zip"
-            echo ""
-            echo "     --no-permanent   Install release package VERSION but"
-            echo "                      don't make it permanent"
-            ;;
-        uninstall)
-            echo "Usage: $REL_NAME uninstall [VERSION]"
-            echo "Uninstalls a release VERSION, it will only accept"
-            echo "versions that are not currently in use"
-            ;;
-        upgrade)
-            echo "Usage: $REL_NAME upgrade [VERSION]"
-            echo "Upgrades the currently running release to VERSION, it assumes"
-            echo "that a release package tarball has already been deployed at one"
-            echo "of the following locations:"
-            echo "      releases/<relname>-<version>.tar.gz"
-            echo "      releases/<relname>-<version>.zip"
-            echo ""
-            echo "     --no-permanent   Install release package VERSION but"
-            echo "                      don't make it permanent"
-            ;;
-        downgrade)
-            echo "Usage: $REL_NAME downgrade [VERSION]"
-            echo "Downgrades the currently running release to VERSION, it assumes"
-            echo "that a release package tarball has already been deployed at one"
-            echo "of the following locations:"
-            echo "      releases/<relname>-<version>.tar.gz"
-            echo "      releases/<relname>-<version>.zip"
-            echo ""
-            echo "     --no-permanent   Install release package VERSION but"
-            echo "                      don't make it permanent"
-            ;;
-        *)
-            echo "Usage: $REL_NAME {start|start_boot <file>|ertspath|foreground|stop|pid|ping|console|console_clean|console_boot <file>|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|ctl|rpc|rpcterms|eval|root_dir}"
-            ;;
-    esac
-}
 
 # Simple way to check the correct user and fail early
 check_user() {
@@ -171,11 +246,9 @@ if [ "$ES" -ne 0 ]; then
     exit $ES
 fi
 
-if [ -z "$WITH_EPMD" ]; then
-    EPMD_ARG="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
-else
-    EPMD_ARG="-start_epmd true $PROTO_DIST_ARG"
-fi
+# EPMD_ARG="-start_epmd true $PROTO_DIST_ARG"
+NO_EPMD="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
+EPMD_ARG="${EPMD_ARG:-${NO_EPMD}}"
 
 # Warn the user if ulimit -n is less than 1024
 ULIMIT_F=$(ulimit -n)
@@ -228,7 +301,7 @@ relx_gen_id() {
 # Control a node
 relx_nodetool() {
     command="$1"; shift
-    ERL_FLAGS="$ERL_FLAGS $EPMD_ARG" \
+    ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARG" \
     "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" "$NAME_TYPE" "$NAME" \
                                 -setcookie "$COOKIE" "$command" "$@"
 }
@@ -358,25 +431,29 @@ wait_for() {
     done
 }
 
-# Use $CWD/etc/sys.config if exists
-if [ -z "$RELX_CONFIG_PATH" ]; then
-    if [ -f "$RUNNER_ETC_DIR/sys.config" ]; then
-        RELX_CONFIG_PATH="-config $RUNNER_ETC_DIR/sys.config"
+latest_vm_args() {
+    local hint_var_name="$1"
+    local vm_args_file
+    vm_args_file="$(find "$CONFIGS_DIR" -type f -name "vm.*.args" | sort | tail -1)"
+    if [ -f "$vm_args_file" ]; then
+        echo "$vm_args_file"
     else
-        RELX_CONFIG_PATH=""
+        echoerr "ERRRO: node not initialized?"
+        echoerr "Generated config file vm.*.args is not found for command '$COMMAND'"
+        echoerr "in config dir: $CONFIGS_DIR"
+        echoerr "In case the file has been deleted while the node is running,"
+        echoerr "set environment variable '$hint_var_name' to continue"
+        exit 1
     fi
-fi
+}
 
-IS_BOOT_COMMAND='no'
-case "$1" in
-    start|start_boot)
+## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
+case "${COMMAND}" in
+    start|console|console_clean|foreground)
         IS_BOOT_COMMAND='yes'
         ;;
-    console|console_clean|console_boot)
-        IS_BOOT_COMMAND='yes'
-        ;;
-    foreground)
-        IS_BOOT_COMMAND='yes'
+    *)
+        IS_BOOT_COMMAND='no'
         ;;
 esac
 
@@ -391,10 +468,8 @@ if [ -z "$NAME" ]; then
         # for boot commands, inspect emqx.conf for node name
         NAME="$(call_hocon -s $SCHEMA_MOD -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
     else
-        # for non-boot commands, inspect vm.<time>.args for node name
-        # shellcheck disable=SC2012,SC2086
-        LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
-        NAME="$(grep -E '^-s?name' "$LATEST_VM_ARGS" | awk '{print $2}')"
+        vm_args_file="$(latest_vm_args 'EMQX_NODE_NAME')"
+        NAME="$(grep -E '^-s?name' "${vm_args_file}" | awk '{print $2}')"
     fi
 fi
 
@@ -419,9 +494,8 @@ if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         COOKIE="$(call_hocon -s $SCHEMA_MOD -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
     else
-        # shellcheck disable=SC2012,SC2086
-        LATEST_VM_ARGS="$(ls -t $CONFIGS_DIR/vm.*.args | head -1)"
-        COOKIE="$(grep -E '^-setcookie' "$LATEST_VM_ARGS" | awk '{print $2}')"
+        vm_args_file="$(latest_vm_args 'EMQX_NODE_COOKIE')"
+        COOKIE="$(grep -E '^-setcookie' "${vm_args_file}" | awk '{print $2}')"
     fi
 fi
 
@@ -429,18 +503,10 @@ if [ -z "$COOKIE" ]; then
     die "Please set node.cookie in $RUNNER_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE_COOKIE"
 fi
 
-# Support for IPv6 Dist. See: https://github.com/emqtt/emqttd/issues/1460
-PROTO_DIST="$(call_hocon -s $SCHEMA_MOD -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get cluster.proto_dist | tr -d \")"
-if [ -z "$PROTO_DIST" ]; then
-    PROTO_DIST_ARG=""
-else
-    PROTO_DIST_ARG="-proto_dist $PROTO_DIST"
-fi
-
 cd "$ROOTDIR"
 
-case "$1" in
-    start|start_boot)
+case "${COMMAND}" in
+    start)
         # Make sure a node IS not running
         if relx_nodetool "ping" >/dev/null 2>&1; then
             die "node_is_already_running!"
@@ -450,20 +516,13 @@ case "$1" in
 
         # this flag passes down to console mode
         # so we know it's intended to be run in daemon mode
-        export _EMQX_START_MODE="$1"
+        export _EMQX_START_MODE="$COMMAND"
 
-        # Save this for later.
-        CMD=$1
-        case "$1" in
+        case "$COMMAND" in
             start)
                 shift
                 START_OPTION="console"
                 HEART_OPTION="start"
-                ;;
-            start_boot)
-                shift
-                START_OPTION="console_boot"
-                HEART_OPTION="start_boot"
                 ;;
         esac
         RUN_PARAM="$*"
@@ -473,7 +532,7 @@ case "$1" in
         [ "$RUN_PARAM" ] && set -- "$@" "$RUN_PARAM"
 
         # Export the HEART_COMMAND
-        HEART_COMMAND="$RUNNER_SCRIPT $CMD"
+        HEART_COMMAND="$RUNNER_SCRIPT $COMMAND"
         export HEART_COMMAND
 
         ## See: http://erlang.org/doc/man/run_erl.html
@@ -523,8 +582,8 @@ case "$1" in
         ;;
 
     restart|reboot)
-        echo "$EMQX_DESCRIPTION $REL_VSN is stopped: $("$RUNNER_BIN_DIR"/emqx stop)"
-        "$RUNNER_BIN_DIR"/emqx start
+        echo "$EMQX_DESCRIPTION $REL_VSN is stopped: $("$RUNNER_BIN_DIR/$REL_NAME" stop)"
+        "$RUNNER_BIN_DIR/$REL_NAME" start
         ;;
 
     pid)
@@ -566,17 +625,17 @@ case "$1" in
         ;;
 
     upgrade|downgrade|install|unpack|uninstall)
-        if [ -z "$2" ]; then
+        if [ -z "${2:-}" ]; then
             echo "Missing version argument"
-            echo "Usage: $REL_NAME $1 {version}"
+            echo "Usage: $REL_NAME $COMMAND {version}"
             exit 1
         fi
 
-        COMMAND="$1"; shift
+        shift
 
         assert_node_alive
 
-        ERL_FLAGS="$ERL_FLAGS $EPMD_ARG" \
+        ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARG" \
         exec "$BINDIR/escript" "$ROOTDIR/bin/install_upgrade.escript" \
              "$COMMAND" "{'$REL_NAME', \"$NAME_TYPE\", '$NAME', '$COOKIE'}" "$@"
         ;;
@@ -584,21 +643,21 @@ case "$1" in
     versions)
         assert_node_alive
 
-        COMMAND="$1"; shift
+        shift
 
-        ERL_FLAGS="$ERL_FLAGS $EPMD_ARG" \
+        ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARG" \
         exec "$BINDIR/escript" "$ROOTDIR/bin/install_upgrade.escript" \
              "versions" "{'$REL_NAME', \"$NAME_TYPE\", '$NAME', '$COOKIE'}" "$@"
         ;;
 
-    console|console_clean|console_boot)
+    console|console_clean)
         # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
         bootstrapd
 
         # .boot file typically just $REL_NAME (ie, the app name)
         # however, for debugging, sometimes start_clean.boot is useful.
         # For e.g. 'setup', one may even want to name another boot script.
-        case "$1" in
+        case "$COMMAND" in
             console)
                 if [ -f "$REL_DIR/$REL_NAME.boot" ]; then
                   BOOTFILE="$REL_DIR/$REL_NAME"
@@ -608,11 +667,6 @@ case "$1" in
                 ;;
             console_clean)
                 BOOTFILE="$REL_DIR/start_clean"
-                ;;
-            console_boot)
-                shift
-                BOOTFILE="$1"
-                shift
                 ;;
         esac
 
@@ -634,14 +688,14 @@ case "$1" in
         # Store passed arguments since they will be erased by `set`
         ARGS="$*"
 
-        # shellcheck disable=SC2086 # $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
+        # shellcheck disable=SC2086 # $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
         set -- "$BINDIR/erlexec" \
             -boot "$BOOTFILE" -mode "$CODE_LOADING_MODE" \
             -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
             -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
-            $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
+            $CONFIG_ARGS $EPMD_ARG
 
         # Log the startup
         logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS}"
@@ -675,14 +729,14 @@ case "$1" in
         # Store passed arguments since they will be erased by `set`
         ARGS="$*"
 
-        # shellcheck disable=SC2086 # $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
+        # shellcheck disable=SC2086 # $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
         set -- "$BINDIR/erlexec" $FOREGROUNDOPTIONS \
             -boot "$REL_DIR/$BOOTFILE" -mode "$CODE_LOADING_MODE" \
             -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
             -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
-            $RELX_CONFIG_PATH $CONFIG_ARGS $EPMD_ARG
+            $CONFIG_ARGS $EPMD_ARG
 
         # Log the startup
         logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS}"
@@ -727,7 +781,7 @@ case "$1" in
         relx_nodetool "eval" "$@"
         ;;
     *)
-        relx_usage "$1"
+        usage "$COMMAND"
         exit 1
         ;;
 esac
