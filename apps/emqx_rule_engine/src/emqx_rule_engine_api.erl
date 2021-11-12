@@ -62,7 +62,7 @@ api_rules_list_create() ->
                     emqx_mgmt_util:array_schema(resp_schema(), <<"List rules successfully">>)}},
         post => #{
             description => <<"Create a new rule using given Id to all nodes in the cluster">>,
-            requestBody => emqx_mgmt_util:schema(post_req_schema(), <<"Rule parameters">>),
+            'requestBody' => emqx_mgmt_util:schema(post_req_schema(), <<"Rule parameters">>),
             responses => #{
                 <<"400">> =>
                     emqx_mgmt_util:error_schema(<<"Invalid Parameters">>, ['BAD_ARGS']),
@@ -94,12 +94,13 @@ api_rules_crud() ->
         put => #{
             description => <<"Create or update a rule by given Id to all nodes in the cluster">>,
             parameters => [param_path_id()],
-            requestBody => emqx_mgmt_util:schema(put_req_schema(), <<"Rule parameters">>),
+            'requestBody' => emqx_mgmt_util:schema(put_req_schema(), <<"Rule parameters">>),
             responses => #{
                 <<"400">> =>
                     emqx_mgmt_util:error_schema(<<"Invalid Parameters">>, ['BAD_ARGS']),
                 <<"200">> =>
-                    emqx_mgmt_util:schema(resp_schema(), <<"Create or update rule successfully">>)}},
+                    emqx_mgmt_util:schema(resp_schema(),
+                                          <<"Create or update rule successfully">>)}},
         delete => #{
             description => <<"Delete a rule by given Id from all nodes in the cluster">>,
             parameters => [param_path_id()],
@@ -113,7 +114,7 @@ api_rule_test() ->
     Metadata = #{
         post => #{
             description => <<"Test a rule">>,
-            requestBody => emqx_mgmt_util:schema(rule_test_req_schema(), <<"Rule parameters">>),
+            'requestBody' => emqx_mgmt_util:schema(rule_test_req_schema(), <<"Rule parameters">>),
             responses => #{
                 <<"400">> =>
                     emqx_mgmt_util:error_schema(<<"Invalid Parameters">>, ['BAD_ARGS']),
@@ -141,7 +142,7 @@ put_req_schema() ->
             description => <<"The outputs of the rule">>,
             type => array,
             items => #{
-                oneOf => [
+                'oneOf' => [
                     #{
                         type => string,
                         example => <<"channel_id_of_my_bridge">>,
@@ -253,7 +254,7 @@ crud_rules(post, #{body := #{<<"id">> := Id} = Params}) ->
         not_found ->
             case emqx:update_config(ConfPath, maps:remove(<<"id">>, Params), #{}) of
                 {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
-                    [Rule] = [R || R = #{id := Id0} <- AllRules, Id0 == Id],
+                    [Rule] = get_one_rule(AllRules, Id),
                     {201, format_rule_resp(Rule)};
                 {error, Reason} ->
                     ?SLOG(error, #{msg => "create_rule_failed",
@@ -280,7 +281,7 @@ crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params}) ->
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
     case emqx:update_config(ConfPath, maps:remove(<<"id">>, Params), #{}) of
         {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
-            [Rule] = [R || R = #{id := Id0} <- AllRules, Id0 == Id],
+            [Rule] = get_one_rule(AllRules, Id),
             {200, format_rule_resp(Rule)};
         {error, Reason} ->
             ?SLOG(error, #{msg => "update_rule_failed",
@@ -339,3 +340,6 @@ do_format_output(BridgeChannelId) when is_binary(BridgeChannelId) ->
 get_rule_metrics(Id) ->
     [maps:put(node, Node, rpc:call(Node, emqx_rule_metrics, get_rule_metrics, [Id]))
      || Node <- mria_mnesia:running_nodes()].
+
+get_one_rule(AllRules, Id) ->
+    [R || R = #{id := Id0} <- AllRules, Id0 == Id].

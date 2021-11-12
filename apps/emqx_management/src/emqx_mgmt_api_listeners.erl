@@ -59,10 +59,10 @@ req_schema() ->
     Schema = [emqx_mgmt_api_configs:gen_schema(
         emqx:get_raw_config([listeners, T, default], #{}))
      || T <- ?TYPES_ATOM],
-    #{oneOf => Schema}.
+    #{'oneOf' => Schema}.
 
 resp_schema() ->
-    #{oneOf := Schema} = req_schema(),
+    #{'oneOf' := Schema} = req_schema(),
     AddMetadata = fun(Prop) ->
         Prop#{running => #{type => boolean},
               id => #{type => string},
@@ -70,7 +70,7 @@ resp_schema() ->
     end,
     Schema1 = [S#{properties => AddMetadata(Prop)}
                || S = #{properties := Prop} <- Schema],
-    #{oneOf => Schema1}.
+    #{'oneOf' => Schema1}.
 
 api_list_listeners() ->
     Metadata = #{
@@ -78,7 +78,8 @@ api_list_listeners() ->
             description => <<"List listeners from all nodes in the cluster">>,
             responses => #{
                 <<"200">> =>
-                    emqx_mgmt_util:array_schema(resp_schema(), <<"List listeners successfully">>)}}},
+                    emqx_mgmt_util:array_schema(resp_schema(),
+                                                <<"List listeners successfully">>)}}},
     {"/listeners", Metadata, list_listeners}.
 
 api_list_update_listeners_by_id() ->
@@ -92,18 +93,21 @@ api_list_update_listeners_by_id() ->
                 <<"200">> =>
                     emqx_mgmt_util:array_schema(resp_schema(), <<"List listeners successfully">>)}},
         put => #{
-            description => <<"Create or update a listener by a given Id to all nodes in the cluster">>,
+            description =>
+                <<"Create or update a listener by a given Id to all nodes in the cluster">>,
             parameters => [param_path_id()],
-            requestBody => emqx_mgmt_util:schema(req_schema(), <<"Listener Config">>),
+            'requestBody' => emqx_mgmt_util:schema(req_schema(), <<"Listener Config">>),
             responses => #{
                 <<"400">> =>
-                    emqx_mgmt_util:error_schema(?UPDATE_CONFIG_FAILED, ['BAD_LISTENER_ID', 'BAD_CONFIG_SCHEMA']),
+                    emqx_mgmt_util:error_schema(?UPDATE_CONFIG_FAILED,
+                                                ['BAD_LISTENER_ID', 'BAD_CONFIG_SCHEMA']),
                 <<"404">> =>
                     emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
                 <<"500">> =>
                     emqx_mgmt_util:error_schema(?OPERATION_FAILED, ['INTERNAL_ERROR']),
                 <<"200">> =>
-                    emqx_mgmt_util:array_schema(resp_schema(), <<"Create or update listener successfully">>)}},
+                    emqx_mgmt_util:array_schema(resp_schema(),
+                                                <<"Create or update listener successfully">>)}},
         delete => #{
             description => <<"Delete a listener by a given Id to all nodes in the cluster">>,
             parameters => [param_path_id()],
@@ -143,10 +147,11 @@ api_get_update_listener_by_id_on_node() ->
         put => #{
             description => <<"Create or update a listener by a given Id on a specific node">>,
             parameters => [param_path_node(), param_path_id()],
-            requestBody => emqx_mgmt_util:schema(req_schema(), <<"Listener Config">>),
+            'requestBody' => emqx_mgmt_util:schema(req_schema(), <<"Listener Config">>),
             responses => #{
                 <<"400">> =>
-                    emqx_mgmt_util:error_schema(?UPDATE_CONFIG_FAILED, ['BAD_LISTENER_ID', 'BAD_CONFIG_SCHEMA']),
+                    emqx_mgmt_util:error_schema(?UPDATE_CONFIG_FAILED,
+                                                ['BAD_LISTENER_ID', 'BAD_CONFIG_SCHEMA']),
                 <<"404">> =>
                     emqx_mgmt_util:error_schema(?NODE_LISTENER_NOT_FOUND,
                         ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),

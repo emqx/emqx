@@ -151,7 +151,7 @@ with_topic(delete, #{bindings := Bindings}) ->
 
 -spec lookup(undefined | binary(),
              map(),
-             fun((#message{}) -> map())) ->
+             fun((emqx_types:message()) -> map())) ->
           {200, map()}.
 lookup(Topic, #{query_string := Qs}, Formatter) ->
     Page = maps:get(page, Qs, 1),
@@ -166,11 +166,13 @@ format_message(Messages, Formatter) when is_list(Messages)->
 format_message(Message, Formatter) ->
     Formatter(Message).
 
-format_message(#message{id = ID, qos = Qos, topic = Topic, from = From, timestamp = Timestamp, headers = Headers}) ->
+format_message(#message{ id = ID, qos = Qos, topic = Topic, from = From
+                       , timestamp = Timestamp, headers = Headers}) ->
     #{msgid => emqx_guid:to_hexstr(ID),
       qos => Qos,
       topic => Topic,
-      publish_at => list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, millisecond}])),
+      publish_at => list_to_binary(calendar:system_time_to_rfc3339(
+                                     Timestamp, [{unit, millisecond}])),
       from_clientid => to_bin_string(From),
       from_username => maps:get(username, Headers, <<>>)
      }.

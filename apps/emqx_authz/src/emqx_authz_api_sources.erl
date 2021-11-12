@@ -32,7 +32,8 @@
 -define(EXAMPLE_FILE,
         #{type=> file,
           enable => true,
-          rules => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
+          rules => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n",
+                     "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
                    }).
 
 -define(EXAMPLE_RETURNED,
@@ -90,7 +91,7 @@ sources_api() ->
         },
         post => #{
             description => "Add new source",
-            requestBody => #{
+            'requestBody' => #{
                 content => #{
                     'application/json' => #{
                         schema => minirest:ref(<<"sources">>),
@@ -114,7 +115,7 @@ sources_api() ->
         },
         put => #{
             description => "Update all sources",
-            requestBody => #{
+            'requestBody' => #{
                 content => #{
                     'application/json' => #{
                         schema => #{
@@ -206,7 +207,7 @@ source_api() ->
                     required => true
                 }
             ],
-            requestBody => #{
+            'requestBody' => #{
                 content => #{
                     'application/json' => #{
                         schema => minirest:ref(<<"sources">>),
@@ -279,7 +280,7 @@ move_source_api() ->
                     required => true
                 }
             ],
-            requestBody => #{
+            'requestBody' => #{
                 content => #{
                     'application/json' => #{
                         schema => #{
@@ -287,7 +288,7 @@ move_source_api() ->
                             required => [position],
                             properties => #{
                                 position => #{
-                                    oneOf => [
+                                    'oneOf' => [
                                         #{type => string,
                                           enum => [<<"top">>, <<"bottom">>]
                                         },
@@ -326,7 +327,8 @@ move_source_api() ->
     {"/authorization/sources/:type/move", Metadata, move_source}.
 
 sources(get, _) ->
-    Sources = lists:foldl(fun (#{<<"type">> := <<"file">>, <<"enable">> := Enable, <<"path">> := Path}, AccIn) ->
+    Sources = lists:foldl(fun (#{<<"type">> := <<"file">>,
+                                 <<"enable">> := Enable, <<"path">> := Path}, AccIn) ->
                                   case file:read_file(Path) of
                                       {ok, Rules} ->
                                           lists:append(AccIn, [#{type => file,
@@ -345,7 +347,8 @@ sources(get, _) ->
     {200, #{sources => Sources}};
 sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
     {ok, Filename} = write_file(acl_conf_file(), Rules),
-    update_config(?CMD_PREPEND, [#{<<"type">> => <<"file">>, <<"enable">> => true, <<"path">> => Filename}]);
+    update_config(?CMD_PREPEND, [#{<<"type">> => <<"file">>,
+                                   <<"enable">> => true, <<"path">> => Filename}]);
 sources(post, #{body := Body}) when is_map(Body) ->
     update_config(?CMD_PREPEND, [maybe_write_certs(Body)]);
 sources(put, #{body := Body}) when is_list(Body) ->
@@ -377,9 +380,13 @@ source(get, #{bindings := #{type := Type}}) ->
         [Source] ->
             {200, read_certs(Source)}
     end;
-source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable}}) ->
+source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>,
+                                                           <<"rules">> := Rules,
+                                                           <<"enable">> := Enable}}) ->
     {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
-    case emqx_authz:update({?CMD_REPLACE, <<"file">>}, #{<<"type">> => <<"file">>, <<"enable">> => Enable, <<"path">> => Filename}) of
+    case emqx_authz:update({?CMD_REPLACE, <<"file">>}, #{<<"type">> => <<"file">>,
+                                                         <<"enable">> => Enable,
+                                                         <<"path">> => Filename}) of
         {ok, _} -> {204};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
@@ -405,7 +412,8 @@ get_raw_sources() ->
     RawSources = emqx:get_raw_config([authorization, sources], []),
     Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
     Conf = #{<<"sources">> => RawSources},
-    #{<<"sources">> := Sources} = hocon_schema:check_plain(Schema, Conf, #{only_fill_defaults => true}),
+    #{<<"sources">> := Sources} = hocon_schema:check_plain(Schema, Conf,
+                                                           #{only_fill_defaults => true}),
     Sources.
 
 get_raw_source(Type) ->

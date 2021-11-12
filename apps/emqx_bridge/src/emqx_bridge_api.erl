@@ -45,10 +45,10 @@ req_schema() ->
                 emqx_mgmt_api_configs:gen_schema(Conf)
         end
      || T <- ?TYPES],
-    #{oneOf => Schema}.
+    #{'oneOf' => Schema}.
 
 resp_schema() ->
-    #{oneOf := Schema} = req_schema(),
+    #{'oneOf' := Schema} = req_schema(),
     AddMetadata = fun(Prop) ->
         Prop#{is_connected => #{type => boolean},
               id => #{type => string},
@@ -57,7 +57,7 @@ resp_schema() ->
     end,
     Schema1 = [S#{properties => AddMetadata(Prop)}
                || S = #{properties := Prop} <- Schema],
-    #{oneOf => Schema1}.
+    #{'oneOf' => Schema1}.
 
 api_spec() ->
     {bridge_apis(), []}.
@@ -120,7 +120,8 @@ operation_apis() ->
                 param_path_id(),
                 param_path_operation()],
             responses => #{
-                <<"500">> => emqx_mgmt_util:error_schema(<<"Operation Failed">>, ['INTERNAL_ERROR']),
+                <<"500">> => emqx_mgmt_util:error_schema(<<"Operation Failed">>,
+                                                         ['INTERNAL_ERROR']),
                 <<"200">> => emqx_mgmt_util:schema(<<"Operation success">>)}}},
     {"/nodes/:node/bridges/:id/operation/:operation", Metadata, manage_bridges}.
 

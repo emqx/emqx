@@ -48,16 +48,16 @@ paths() -> ["/login", "/logout", "/users",
 
 schema("/login") ->
     #{
-        operationId => login,
+        'operationId' => login,
         post => #{
             tags => [<<"dashboard">>],
             description => <<"Dashboard Auth">>,
             summary => <<"Dashboard Auth">>,
-            requestBody =>
+            'requestBody' =>
             [
                 {username, mk(binary(),
                     #{desc => <<"The User for which to create the token.">>,
-                        maxLength => 100, example => <<"admin">>})},
+                        'maxLength' => 100, example => <<"admin">>})},
                 {password, mk(binary(),
                     #{desc => "password", example => "public"})}
             ],
@@ -76,14 +76,14 @@ schema("/login") ->
         }};
 schema("/logout") ->
     #{
-        operationId => logout,
+        'operationId' => logout,
         post => #{
             tags => [<<"dashboard">>],
             description => <<"Dashboard User logout">>,
-            requestBody => [
+            'requestBody' => [
                 {username, mk(binary(),
                     #{desc => <<"The User for which to create the token.">>,
-                        maxLength => 100, example => <<"admin">>})}
+                        'maxLength' => 100, example => <<"admin">>})}
             ],
             responses => #{
                 200 => <<"Dashboard logout successfully">>
@@ -92,7 +92,7 @@ schema("/logout") ->
     };
 schema("/users") ->
     #{
-        operationId => users,
+        'operationId' => users,
         get => #{
             tags => [<<"dashboard">>],
             description => <<"Get dashboard users">>,
@@ -104,7 +104,7 @@ schema("/users") ->
         post => #{
             tags => [<<"dashboard">>],
             description => <<"Create dashboard users">>,
-            requestBody => fields(user_password),
+            'requestBody' => fields(user_password),
             responses => #{
                 200 => <<"Create user successfully">>,
                 400 => [{code, mk(string(), #{example => 'CREATE_FAIL'})},
@@ -114,13 +114,13 @@ schema("/users") ->
 
 schema("/users/:username") ->
     #{
-        operationId => user,
+        'operationId' => user,
         put => #{
             tags => [<<"dashboard">>],
             description => <<"Update dashboard users">>,
             parameters => [{username, mk(binary(),
                 #{in => path, example => <<"admin">>})}],
-            requestBody => [{tag, mk(binary(), #{desc => <<"Tag">>})}],
+            'requestBody' => [{tag, mk(binary(), #{desc => <<"Tag">>})}],
             responses => #{
                 200 => <<"Update User successfully">>,
                 400 => [{code, mk(string(), #{example => 'UPDATE_FAIL'})},
@@ -138,13 +138,13 @@ schema("/users/:username") ->
     };
 schema("/users/:username/change_pwd") ->
     #{
-        operationId => change_pwd,
+        'operationId' => change_pwd,
         put => #{
             tags => [<<"dashboard">>],
             description => <<"Update dashboard users password">>,
             parameters => [{username, mk(binary(),
                 #{in => path, required => true, example => <<"admin">>})}],
-            requestBody => [
+            'requestBody' => [
                 {old_pwd, mk(binary(), #{required => true})},
                 {new_pwd, mk(binary(), #{required => true})}
             ],
