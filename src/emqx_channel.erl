@@ -102,7 +102,7 @@
 
 -type(reply() :: {outgoing, emqx_types:packet()}
                | {outgoing, [emqx_types:packet()]}
-               | {event, conn_state()|updated}
+               | {event, conn_state() | updated}
                | {close, Reason :: atom()}).
 
 -type(replies() :: emqx_types:packet() | reply() | [reply()]).
@@ -131,7 +131,7 @@
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
 
--spec(info(list(atom())|atom(), channel()) -> term()).
+-spec(info(list(atom()) | atom(), channel()) -> term()).
 info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
@@ -619,7 +619,7 @@ ensure_quota(PubRes, Channel = #channel{quota = Limiter}) ->
 
 -compile({inline, [puback_reason_code/1]}).
 puback_reason_code([])    -> ?RC_NO_MATCHING_SUBSCRIBERS;
-puback_reason_code([_|_]) -> ?RC_SUCCESS.
+puback_reason_code([_ | _]) -> ?RC_SUCCESS.
 
 -compile({inline, [after_message_acked/3]}).
 after_message_acked(ClientInfo, Msg, PubAckProps) ->
@@ -638,7 +638,7 @@ process_subscribe(TopicFilters, SubProps, Channel) ->
 process_subscribe([], _SubProps, Channel, Acc) ->
     {lists:reverse(Acc), Channel};
 
-process_subscribe([Topic = {TopicFilter, SubOpts}|More], SubProps, Channel, Acc) ->
+process_subscribe([Topic = {TopicFilter, SubOpts} | More], SubProps, Channel, Acc) ->
     case check_sub_caps(TopicFilter, SubOpts, Channel) of
          ok ->
             {ReasonCode, NChannel} = do_subscribe(TopicFilter,
@@ -676,9 +676,9 @@ process_unsubscribe(TopicFilters, UnSubProps, Channel) ->
 process_unsubscribe([], _UnSubProps, Channel, Acc) ->
     {lists:reverse(Acc), Channel};
 
-process_unsubscribe([{TopicFilter, SubOpts}|More], UnSubProps, Channel, Acc) ->
+process_unsubscribe([{TopicFilter, SubOpts} | More], UnSubProps, Channel, Acc) ->
     {RC, NChannel} = do_unsubscribe(TopicFilter, SubOpts#{unsub_props => UnSubProps}, Channel),
-    process_unsubscribe(More, UnSubProps, NChannel, [RC|Acc]).
+    process_unsubscribe(More, UnSubProps, NChannel, [RC | Acc]).
 
 do_unsubscribe(TopicFilter, SubOpts, Channel =
                #channel{clientinfo = ClientInfo = #{mountpoint := MountPoint},
@@ -937,6 +937,17 @@ handle_call({quota, Policy}, Channel) ->
     Zone = info(zone, Channel),
     Quota = emqx_limiter:init(Zone, Policy),
     reply(ok, Channel#channel{quota = Quota});
+
+handle_call({keepalive, Interval}, Channel = #channel{keepalive = KeepAlive,
+    conninfo = ConnInfo}) ->
+    ClientId = info(clientid, Channel),
+    NKeepalive = emqx_keepalive:set(interval, Interval * 1000, KeepAlive),
+    NConnInfo = maps:put(keepalive, Interval, ConnInfo),
+    NChannel = Channel#channel{keepalive = NKeepalive, conninfo = NConnInfo},
+    SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
+    ChanInfo1 = info(NChannel),
+    emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
+    reply(ok, reset_timer(alive_timer, NChannel));
 
 handle_call(Req, Channel) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
