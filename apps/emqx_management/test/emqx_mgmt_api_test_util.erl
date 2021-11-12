@@ -88,7 +88,7 @@ do_request_api(Method, Request)->
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
         {ok, {{"HTTP/1.1", Code, _}, _, Return} }
-            when Code =:= 200 orelse Code =:= 201 ->
+            when Code >= 200 andalso Code =< 299 ->
             {ok, Return};
         {ok, {Reason, _, _}} ->
             {error, Reason}
