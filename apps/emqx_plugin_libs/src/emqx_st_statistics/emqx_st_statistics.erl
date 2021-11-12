@@ -75,6 +75,8 @@
                              , counter := counters:counters_ref()
                              }.
 
+-type publish_done_args() :: #{session_rebirth_time => pos_integer()}.
+
 -ifdef(TEST).
 -define(TOPK_ACCESS, public).
 -else.
@@ -95,13 +97,15 @@
 start_link(Env) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Env], []).
 
--spec on_publish_done(message(), pos_integer(), publish_done_env()) -> ok.
-on_publish_done(#message{timestamp = Timestamp}, Created,
+-spec on_publish_done(message(), publish_done_args(), publish_done_env()) -> ok.
+on_publish_done(#message{timestamp = Timestamp},
+                #{session_rebirth_time := Created},
                 #{ignore_before_create := IgnoreBeforeCreate})
   when IgnoreBeforeCreate, Timestamp < Created ->
     ok;
 
-on_publish_done(#message{timestamp = Timestamp} = Msg, _,
+on_publish_done(#message{timestamp = Timestamp} = Msg,
+                _,
                 #{threshold := Threshold, counter := Counter}) ->
     case ?NOW - Timestamp of
         Elapsed when Elapsed > Threshold ->
