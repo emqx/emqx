@@ -7,7 +7,8 @@
     {"4.3.2", [
       {load_module, emqx_lwm2m_message, brutal_purge, soft_purge, []}
     ]},
-    {<<"4\\.3\\.[3-4]">>, [
+    {"4.3.3", []}, %% only config change
+    {"4.3.4", [
       {load_module, emqx_lwm2m_protocol, brutal_purge, soft_purge, []}
     ]}
   ],
@@ -18,6 +19,9 @@
     {"4.3.2", [
       {load_module, emqx_lwm2m_message, brutal_purge, soft_purge, []}
     ]},
-    {"4.3.3", []} %% only config change
+    {"4.3.3", []}, %% only config change
+    {"4.3.4", [
+      {load_module, emqx_lwm2m_protocol, brutal_purge, soft_purge, []}
+    ]}
   ]
 }.
