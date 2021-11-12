@@ -3,6 +3,7 @@ REBAR_VERSION = 3.14.3-emqx-8
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
+export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 export EMQX_DESC ?= EMQ X
 export EMQX_CE_DASHBOARD_VERSION ?= v4.3.3
