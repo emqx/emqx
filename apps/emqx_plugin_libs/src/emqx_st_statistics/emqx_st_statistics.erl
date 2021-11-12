@@ -20,11 +20,11 @@
 
 -include_lib("include/emqx.hrl").
 -include_lib("include/logger.hrl").
--include("include/emqx_st_statistics.hrl").
+-include_lib("emqx_plugin_libs/include/emqx_st_statistics.hrl").
 
 -logger_header("[SLOW TOPICS]").
 
--export([ start_link/1, on_publish_done/3, enable/0
+-export([ start_link/1, on_publish_done/5, enable/0
         , disable/0, clear_history/0
         ]).
 
@@ -90,8 +90,13 @@
 start_link(Env) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Env], []).
 
--spec on_publish_done(message(), pos_integer(), counters:counters_ref()) -> ok.
-on_publish_done(#message{timestamp = Timestamp} = Msg, Threshold, Counter) ->
+-spec on_publish_done(message(),
+                      pos_integer(), boolean(), pos_integer(), counters:counters_ref()) -> ok.
+on_publish_done(#message{timestamp = Timestamp}, Created, IgnoreBeforeCreate, _, _)
+  when IgnoreBeforeCreate, Timestamp < Created ->
+    ok;
+
+on_publish_done(#message{timestamp = Timestamp} = Msg, _, _, Threshold, Counter) ->
     case ?NOW - Timestamp of
         Elapsed when Elapsed > Threshold ->
             case get_log_quota(Counter) of
@@ -125,7 +130,8 @@ init([Env]) ->
     Counter = counters:new(1, [write_concurrency]),
     set_log_quota(Env, Counter),
     Threshold = get_value(threshold_time, Env),
-    load(Threshold, Counter),
+    IgnoreBeforeCreate = get_value(ignore_before_create, Env),
+    load(IgnoreBeforeCreate, Threshold, Counter),
     {ok, #{config => Env,
            period => 1,
            last_tick_at => ?NOW,
@@ -139,7 +145,8 @@ handle_call({enable, Enable}, _From,
                      State;
                  true ->
                      Threshold = get_value(threshold_time, Cfg),
-                     load(Threshold, Counter),
+                     IgnoreBeforeCreate = get_value(ignore_before_create, Cfg),
+                     load(IgnoreBeforeCreate, Threshold, Counter),
                      State#{enable := true};
                  _ ->
                      unload(),
@@ -319,12 +326,14 @@ publish(TickTime, Cfg, Notices) ->
                              }),
     ok.
 
-load(Threshold, Counter) ->
-    _ = emqx:hook('message.publish_done', fun ?MODULE:on_publish_done/3, [Threshold, Counter]),
+load(IgnoreBeforeCreate, Threshold, Counter) ->
+    _ = emqx:hook('message.publish_done',
+                  fun ?MODULE:on_publish_done/5,
+                  [IgnoreBeforeCreate, Threshold, Counter]),
     ok.
 
 unload() ->
-    emqx:unhook('message.publish_done', fun ?MODULE:on_publish_done/3).
+    emqx:unhook('message.publish_done', fun ?MODULE:on_publish_done/5).
 
 -spec get_topic(proplists:proplist()) -> binary().
 get_topic(Cfg) ->

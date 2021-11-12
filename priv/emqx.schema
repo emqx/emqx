@@ -2193,6 +2193,11 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
+{mapping, "module.st_statistics.ignore_before_create", "emqx.modules", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {mapping, "module.st_statistics.time_window", "emqx.modules", [
   {default, "5M"},
   {datatype, {duration, ms}}
