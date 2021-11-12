@@ -145,11 +145,18 @@ $1: $1-rel
 endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
 
+## docker target is to create docker instructions
+.PHONY: $(REL_PROFILES:%=%-docker)
+define gen-docker-target
+$1-docker: $(COMMON_DEPS)
+	@$(BUILD) $1 docker
+endef
+ALL_ZIPS = $(REL_PROFILES)
+$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target,$(zt))))
+
 .PHONY: run
 run: $(PROFILE) quickrun
 
 .PHONY: quickrun
 quickrun:
 	./_build/$(PROFILE)/rel/emqx/bin/emqx console
-
-include docker.mk

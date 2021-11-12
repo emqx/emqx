@@ -127,6 +127,20 @@ make_zip() {
     (cd "${tard}" && zip -qr - emqx) > "${zipball}"
 }
 
+make_docker() {
+    ## Build Docker image
+    echo "DOCKER BUILD: Build Docker image."
+    echo "DOCKER BUILD: build version -> $PKG_VSN."
+    echo "DOCKER BUILD: docker repo -> emqx/$PROFILE "
+
+    docker build --no-cache \
+       --build-arg BUILD_FROM="ghcr.io/emqx/emqx-builder/4.4:${OTP:-23.3.4.8-1}-alpine3.14" \
+       --build-arg RUN_FROM="alpine:3.14" \
+       --build-arg EMQX_NAME="$PROFILE" \
+       --tag "emqx/$PROFILE:$PKG_VSN" \
+       -f deploy/docker/Dockerfile .
+}
+
 log "building artifact=$ARTIFACT for profile=$PROFILE"
 
 case "$ARTIFACT" in
@@ -146,6 +160,9 @@ case "$ARTIFACT" in
         fi
         make -C "deploy/packages/${PKGERDIR}" clean
         EMQX_REL="$(pwd)" EMQX_BUILD="${PROFILE}" SYSTEM="${SYSTEM}" make -C "deploy/packages/${PKGERDIR}"
+        ;;
+    docker)
+        make_docker
         ;;
     *)
         log "Unknown artifact $ARTIFACT"

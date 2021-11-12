@@ -25,13 +25,15 @@ jobs:
               echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
               make deps-emqx-ee
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
+              echo "PROFILE=emqx-ee" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             else
               echo "TARGET=emqx/emqx" >> $GITHUB_ENV
+              echo "PROFILE=emqx" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             fi
         - name: make emqx image
-          run: make docker
+          run: make ${PROFILE}-docker
         - name: run emqx
           timeout-minutes: 5
           run: |
@@ -79,11 +81,15 @@ jobs:
               echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
               make deps-emqx-ee
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
+              echo "PROFILE=emqx-ee" >> $GITHUB_ENV
+              echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             else
               echo "TARGET=emqx/emqx" >> $GITHUB_ENV
+              echo "PROFILE=emqx" >> $GITHUB_ENV
+              echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             fi
         - name: make emqx image
-          run: make docker
+          run: make ${PROFILE}-docker
         - name: install k3s
           env:
             KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
@@ -105,11 +111,10 @@ jobs:
             KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
           timeout-minutes: 5
           run: |
-            version=$(./pkg-vsn.sh)
-            sudo docker save ${TARGET}:$version -o emqx.tar.gz
+            sudo docker save ${TARGET}:${EMQX_TAG} -o emqx.tar.gz
             sudo k3s ctr image import emqx.tar.gz
 
-            sed -i -r "s/^appVersion: .*$/appVersion: \"${version}\"/g" deploy/charts/emqx/Chart.yaml
+            sed -i -r "s/^appVersion: .*$/appVersion: \"${EMQX_TAG}\"/g" deploy/charts/emqx/Chart.yaml
             sed -i '/emqx_telemetry/d' deploy/charts/emqx/values.yaml
 
             helm install emqx \
