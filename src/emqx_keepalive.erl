@@ -20,6 +20,7 @@
         , info/1
         , info/2
         , check/2
+        , set/3
         ]).
 
 -export_type([keepalive/0]).
@@ -71,3 +72,7 @@ check(NewVal, KeepAlive = #keepalive{statval = OldVal,
         true -> {error, timeout}
     end.
 
+%% @doc Update keepalive's interval
+-spec(set(interval, non_neg_integer(), keepalive()) -> keepalive()).
+set(interval, Interval, KeepAlive) ->
+    KeepAlive#keepalive{interval = Interval}.

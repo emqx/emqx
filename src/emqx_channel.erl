@@ -938,6 +938,17 @@ handle_call({quota, Policy}, Channel) ->
     Quota = emqx_limiter:init(Zone, Policy),
     reply(ok, Channel#channel{quota = Quota});
 
+handle_call({keepalive, Interval}, Channel = #channel{keepalive = KeepAlive,
+    conninfo = ConnInfo}) ->
+    ClientId = info(clientid, Channel),
+    NKeepalive = emqx_keepalive:set(interval, Interval * 1000, KeepAlive),
+    NConnInfo = maps:put(keepalive, Interval, ConnInfo),
+    NChannel = Channel#channel{keepalive = NKeepalive, conninfo = NConnInfo},
+    SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
+    ChanInfo1 = info(NChannel),
+    emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
+    reply(ok, reset_timer(alive_timer, NChannel));
+
 handle_call(Req, Channel) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     reply(ignored, Channel).

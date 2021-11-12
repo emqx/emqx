@@ -117,6 +117,12 @@
             func   => clean_quota,
             descr  => "Clear the quota policy"}).
 
+-rest_api(#{name   => set_keepalive,
+            method => 'PUT',
+            path   => "/clients/:bin:clientid/keepalive",
+            func   => set_keepalive,
+            descr  => "Set the client keepalive"}).
+
 -import(emqx_mgmt_util, [ ntoa/1
                         , strftime/1
                         ]).
@@ -130,6 +136,7 @@
         , set_quota_policy/2
         , clean_ratelimit/2
         , clean_quota/2
+        , set_keepalive/2
         ]).
 
 -export([ query/3
@@ -238,6 +245,19 @@ clean_quota(#{clientid := ClientId}, _Params) ->
         ok -> minirest:return();
         {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
         {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
+    end.
+
+set_keepalive(#{clientid := ClientId}, Params) ->
+    case proplists:get_value(<<"interval">>, Params) of
+        undefined ->
+            minirest:return({error, ?ERROR7, params_not_found});
+        Interval0 ->
+            Interval = binary_to_integer(Interval0),
+            case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientId), Interval) of
+                ok -> minirest:return();
+                {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
+                {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
+            end
     end.
 
 %% @private

@@ -49,6 +49,7 @@
         , clean_acl_cache_all/1
         , set_ratelimit_policy/2
         , set_quota_policy/2
+        , set_keepalive/2
         ]).
 
 %% Internal funcs
@@ -272,6 +273,9 @@ set_ratelimit_policy(ClientId, Policy) ->
 
 set_quota_policy(ClientId, Policy) ->
     call_client(ClientId, {quota, Policy}).
+
+set_keepalive(ClientId, Interval) ->
+    call_client(ClientId, {keepalive, Interval}).
 
 %% @private
 call_client(ClientId, Req) ->
@@ -570,5 +574,3 @@ max_row_limit() ->
     application:get_env(?APP, max_row_limit, ?MAX_ROW_LIMIT).
 
 table_size(Tab) -> ets:info(Tab, size).
-
-

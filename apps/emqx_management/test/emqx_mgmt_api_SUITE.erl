@@ -598,7 +598,23 @@ t_data_import_content(_) ->
     Content = emqx_json:decode(Bin),
     ?assertMatch({ok, "{\"code\":0}"}, request_api(post, api_path(["data","import"]), [], auth_header_(), Content)),
     application:stop(emqx_rule_engine),
-    application:stop(emqx_dahboard).
+    application:stop(emqx_dashboard).
+
+t_keepalive(_Config) ->
+    application:ensure_all_started(emqx_dashboard),
+    Username = "user_keepalive",
+    ClientId = "client_keepalive",
+    AuthHeader = auth_header_(),
+    Path = api_path(["clients", ClientId, "keepalive"]),
+    {ok, NotFound} = request_api(put, Path, "interval=5", AuthHeader, [#{}]),
+    ?assertEqual("{\"message\":\"not_found\",\"code\":112}", NotFound),
+    {ok, C1} = emqtt:start_link(#{username => Username, clientid => ClientId}),
+    {ok, _} = emqtt:connect(C1),
+    {ok, Ok} = request_api(put, Path, "interval=5", AuthHeader, [#{}]),
+    ?assertEqual("{\"code\":0}", Ok),
+    emqtt:disconnect(C1),
+    application:stop(emqx_dashboard),
+    ok.
 
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).
