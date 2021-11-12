@@ -387,13 +387,6 @@ generate_config() {
     fi
 }
 
-# Call bootstrapd for daemon commands like start/stop/console
-bootstrapd() {
-    if [ -e "$RUNNER_DATA_DIR/.erlang.cookie" ]; then
-        chown "$RUNNER_USER" "$RUNNER_DATA_DIR"/.erlang.cookie
-    fi
-}
-
 # check if a PID is down
 is_down() {
     PID="$1"
@@ -511,8 +504,6 @@ case "${COMMAND}" in
         if relx_nodetool "ping" >/dev/null 2>&1; then
             die "node_is_already_running!"
         fi
-        # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
-        bootstrapd
 
         # this flag passes down to console mode
         # so we know it's intended to be run in daemon mode
@@ -607,18 +598,12 @@ case "${COMMAND}" in
     attach)
         assert_node_alive
 
-        # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
-        bootstrapd
-
         shift
         exec "$BINDIR/to_erl" "$PIPE_DIR"
         ;;
 
     remote_console)
         assert_node_alive
-
-        # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
-        bootstrapd
 
         shift
         relx_rem_sh
@@ -651,9 +636,6 @@ case "${COMMAND}" in
         ;;
 
     console|console_clean)
-        # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
-        bootstrapd
-
         # .boot file typically just $REL_NAME (ie, the app name)
         # however, for debugging, sometimes start_clean.boot is useful.
         # For e.g. 'setup', one may even want to name another boot script.
@@ -705,8 +687,6 @@ case "${COMMAND}" in
         ;;
 
     foreground)
-        # Bootstrap daemon command (check perms & drop to $RUNNER_USER)
-        bootstrapd
         # start up the release in the foreground for use by runit
         # or other supervision services
 
