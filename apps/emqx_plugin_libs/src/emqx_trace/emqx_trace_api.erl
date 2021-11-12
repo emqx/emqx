@@ -34,7 +34,7 @@
 list_trace(_, Params) ->
     List =
         case Params of
-            [{<<"enable">>, Enable}] -> emqx_trace:list(Enable);
+            [{<<"enable">>, Enable}] -> emqx_trace:list(binary_to_existing_atom(Enable));
             _ -> emqx_trace:list()
         end,
     {ok, emqx_trace:format(List)}.
