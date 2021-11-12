@@ -24,6 +24,7 @@
         ]).
 
 -export_type([keepalive/0]).
+-elvis([{elvis_style, no_if_expression, disable}]).
 
 -record(keepalive, {
           interval :: pos_integer(),
@@ -50,7 +51,7 @@ info(#keepalive{interval = Interval,
       repeat   => Repeat
      }.
 
--spec(info(interval|statval|repeat, keepalive())
+-spec(info(interval | statval | repeat, keepalive())
       -> non_neg_integer()).
 info(interval, #keepalive{interval = Interval}) ->
     Interval;

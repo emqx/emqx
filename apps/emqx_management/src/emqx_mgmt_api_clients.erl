@@ -143,17 +143,17 @@
         , format_channel_info/1
         ]).
 
--define(query_fun, {?MODULE, query}).
--define(format_fun, {?MODULE, format_channel_info}).
+-define(QUERY_FUN, {?MODULE, query}).
+-define(FORMAT_FUN, {?MODULE, format_channel_info}).
 
 list(Bindings, Params) when map_size(Bindings) == 0 ->
     fence(fun() ->
-        emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?query_fun)
+        emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?QUERY_FUN)
     end);
 
 list(#{node := Node}, Params) when Node =:= node() ->
     fence(fun() ->
-        emqx_mgmt_api:node_query(Node, Params, ?CLIENT_QS_SCHEMA, ?query_fun)
+        emqx_mgmt_api:node_query(Node, Params, ?CLIENT_QS_SCHEMA, ?QUERY_FUN)
     end);
 
 list(Bindings = #{node := Node}, Params) ->
@@ -176,16 +176,20 @@ fence(Func) ->
     end.
 
 lookup(#{node := Node, clientid := ClientId}, _Params) ->
-    minirest:return({ok, emqx_mgmt:lookup_client(Node, {clientid, emqx_mgmt_util:urldecode(ClientId)}, ?format_fun)});
+    minirest:return({ok, emqx_mgmt:lookup_client(Node,
+        {clientid, emqx_mgmt_util:urldecode(ClientId)}, ?FORMAT_FUN)});
 
 lookup(#{clientid := ClientId}, _Params) ->
-    minirest:return({ok, emqx_mgmt:lookup_client({clientid, emqx_mgmt_util:urldecode(ClientId)}, ?format_fun)});
+    minirest:return({ok, emqx_mgmt:lookup_client(
+        {clientid, emqx_mgmt_util:urldecode(ClientId)}, ?FORMAT_FUN)});
 
 lookup(#{node := Node, username := Username}, _Params) ->
-    minirest:return({ok, emqx_mgmt:lookup_client(Node, {username, emqx_mgmt_util:urldecode(Username)}, ?format_fun)});
+    minirest:return({ok, emqx_mgmt:lookup_client(Node,
+        {username, emqx_mgmt_util:urldecode(Username)}, ?FORMAT_FUN)});
 
 lookup(#{username := Username}, _Params) ->
-    minirest:return({ok, emqx_mgmt:lookup_client({username, emqx_mgmt_util:urldecode(Username)}, ?format_fun)}).
+    minirest:return({ok, emqx_mgmt:lookup_client({username,
+        emqx_mgmt_util:urldecode(Username)}, ?FORMAT_FUN)}).
 
 kickout(#{clientid := ClientId}, _Params) ->
     case emqx_mgmt:kickout_client(emqx_mgmt_util:urldecode(ClientId)) of
@@ -211,7 +215,7 @@ list_acl_cache(#{clientid := ClientId}, _Params) ->
 set_ratelimit_policy(#{clientid := ClientId}, Params) ->
     P = [{conn_bytes_in, proplists:get_value(<<"conn_bytes_in">>, Params)},
          {conn_messages_in, proplists:get_value(<<"conn_messages_in">>, Params)}],
-    case [{K, parse_ratelimit_str(V)} || {K, V} <- P, V =/= undefined] of
+    case filter_ratelimit_params(P) of
         [] -> minirest:return();
         Policy ->
             case emqx_mgmt:set_ratelimit_policy(emqx_mgmt_util:urldecode(ClientId), Policy) of
@@ -230,7 +234,7 @@ clean_ratelimit(#{clientid := ClientId}, _Params) ->
 
 set_quota_policy(#{clientid := ClientId}, Params) ->
     P = [{conn_messages_routing, proplists:get_value(<<"conn_messages_routing">>, Params)}],
-    case [{K, parse_ratelimit_str(V)} || {K, V} <- P, V =/= undefined] of
+    case filter_ratelimit_params(P) of
         [] -> minirest:return();
         Policy ->
             case emqx_mgmt:set_quota_policy(emqx_mgmt_util:urldecode(ClientId), Policy) of
@@ -239,6 +243,7 @@ set_quota_policy(#{clientid := ClientId}, Params) ->
                 {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
             end
     end.
+
 
 clean_quota(#{clientid := ClientId}, _Params) ->
     case emqx_mgmt:set_quota_policy(emqx_mgmt_util:urldecode(ClientId), []) of
@@ -286,7 +291,7 @@ format_channel_info({_Key, Info, Stats0}) ->
     ConnInfo = maps:get(conninfo, Info, #{}),
     Session = case maps:get(session, Info, #{}) of
                   undefined -> #{};
-                  _Sess -> _Sess
+                  Sess -> Sess
               end,
     SessCreated = maps:get(created_at, Session, maps:get(connected_at, ConnInfo)),
     Connected = case maps:get(conn_state, Info, connected) of
@@ -326,7 +331,8 @@ format(Data) when is_map(Data)->
                       created_at   => iolist_to_binary(strftime(CreatedAt div 1000))},
                case maps:get(disconnected_at, Data, undefined) of
                    undefined -> #{};
-                   DisconnectedAt -> #{disconnected_at => iolist_to_binary(strftime(DisconnectedAt div 1000))}
+                   DisconnectedAt -> #{disconnected_at =>
+                                       iolist_to_binary(strftime(DisconnectedAt div 1000))}
                end).
 
 format_acl_cache({{PubSub, Topic}, {AclResult, Timestamp}}) ->
@@ -346,7 +352,8 @@ query({Qs, []}, Start, Limit) ->
 query({Qs, Fuzzy}, Start, Limit) ->
     Ms = qs2ms(Qs),
     MatchFun = match_fun(Ms, Fuzzy),
-    emqx_mgmt_api:traverse_table(emqx_channel_info, MatchFun, Start, Limit, fun format_channel_info/1).
+    emqx_mgmt_api:traverse_table(emqx_channel_info, MatchFun,
+        Start, Limit, fun format_channel_info/1).
 
 %%--------------------------------------------------------------------
 %% Match funcs
@@ -372,7 +379,7 @@ escape(B) when is_binary(B) ->
 
 run_fuzzy_match(_, []) ->
     true;
-run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE}|Fuzzy]) ->
+run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE} | Fuzzy]) ->
     Val = case maps:get(Key, ClientInfo, "") of
               undefined -> "";
               V -> V
@@ -425,6 +432,9 @@ ms(connected_at, X) ->
     #{conninfo => #{connected_at => X}};
 ms(created_at, X) ->
     #{session => #{created_at => X}}.
+
+filter_ratelimit_params(P) ->
+    [{K, parse_ratelimit_str(V)} || {K, V} <- P, V =/= undefined].
 
 %%--------------------------------------------------------------------
 %% EUnits
