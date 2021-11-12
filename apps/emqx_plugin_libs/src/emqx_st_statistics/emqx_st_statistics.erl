@@ -24,7 +24,7 @@
 
 -logger_header("[SLOW TOPICS]").
 
--export([ start_link/1, on_publish_done/5, enable/0
+-export([ start_link/1, on_publish_done/3, enable/0
         , disable/0, clear_history/0
         ]).
 
@@ -42,7 +42,7 @@
 -type state() :: #{ config := proplist:proplist()
                   , period := pos_integer()
                   , last_tick_at := pos_integer()
-                  , counter := counters:counter_ref()
+                  , counter := counters:counters_ref()
                   , enable := boolean()
                   }.
 
@@ -70,6 +70,11 @@
 -type slow_log() :: #slow_log{}.
 -type top_k_map() :: #{emqx_types:topic() => top_k()}.
 
+-type publish_done_env() :: #{ ignore_before_create := boolean()
+                             , threshold := pos_integer()
+                             , counter := counters:counters_ref()
+                             }.
+
 -ifdef(TEST).
 -define(TOPK_ACCESS, public).
 -else.
@@ -90,13 +95,14 @@
 start_link(Env) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Env], []).
 
--spec on_publish_done(message(),
-                      pos_integer(), boolean(), pos_integer(), counters:counters_ref()) -> ok.
-on_publish_done(#message{timestamp = Timestamp}, Created, IgnoreBeforeCreate, _, _)
+-spec on_publish_done(message(), pos_integer(), publish_done_env()) -> ok.
+on_publish_done(#message{timestamp = Timestamp}, Created,
+                #{ignore_before_create := IgnoreBeforeCreate})
   when IgnoreBeforeCreate, Timestamp < Created ->
     ok;
 
-on_publish_done(#message{timestamp = Timestamp} = Msg, _, _, Threshold, Counter) ->
+on_publish_done(#message{timestamp = Timestamp} = Msg, _,
+                #{threshold := Threshold, counter := Counter}) ->
     case ?NOW - Timestamp of
         Elapsed when Elapsed > Threshold ->
             case get_log_quota(Counter) of
@@ -202,7 +208,7 @@ init_topk_tab(_) ->
                                    , {read_concurrency, true}
                                    ]).
 
--spec get_log_quota(counter:counter_ref()) -> boolean().
+-spec get_log_quota(counters:counters_ref()) -> boolean().
 get_log_quota(Counter) ->
     case counters:get(Counter, ?QUOTA_IDX) of
         Quota when Quota > 0 ->
@@ -212,7 +218,7 @@ get_log_quota(Counter) ->
             false
     end.
 
--spec set_log_quota(proplists:proplist(), counter:counter_ref()) -> ok.
+-spec set_log_quota(proplists:proplist(), counters:counters_ref()) -> ok.
 set_log_quota(Cfg, Counter) ->
     MaxLogNum = get_value(max_log_num, Cfg),
     counters:put(Counter, ?QUOTA_IDX, MaxLogNum).
@@ -328,12 +334,15 @@ publish(TickTime, Cfg, Notices) ->
 
 load(IgnoreBeforeCreate, Threshold, Counter) ->
     _ = emqx:hook('message.publish_done',
-                  fun ?MODULE:on_publish_done/5,
-                  [IgnoreBeforeCreate, Threshold, Counter]),
+                  fun ?MODULE:on_publish_done/3,
+                  [#{ignore_before_create => IgnoreBeforeCreate,
+                     threshold => Threshold,
+                     counter => Counter}
+                  ]),
     ok.
 
 unload() ->
-    emqx:unhook('message.publish_done', fun ?MODULE:on_publish_done/5).
+    emqx:unhook('message.publish_done', fun ?MODULE:on_publish_done/3).
 
 -spec get_topic(proplists:proplist()) -> binary().
 get_topic(Cfg) ->
