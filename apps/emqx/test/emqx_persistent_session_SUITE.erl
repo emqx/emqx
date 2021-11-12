@@ -413,6 +413,7 @@ t_persist_on_disconnect(Config) ->
                                        {properties, #{'Session-Expiry-Interval' => 30}}
                                      | Config]),
     {ok, _} = emqtt:ConnFun(Client2),
+    timer:sleep(10),
     %% The session should not be known, since it wasn't persisted because of the
     %% changed expiry interval in the disconnect call.
     ?assertEqual(0, client_info(session_present, Client2)),
