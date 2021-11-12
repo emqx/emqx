@@ -78,8 +78,7 @@ dispatch(Pid, Topic) ->
                false -> read_messages(Topic);
                true  -> match_messages(Topic)
            end,
-    Now = erlang:system_time(millisecond),
-    [Pid ! {deliver, Topic, Msg#message{timestamp = Now}} || Msg  <- sort_retained(Msgs)].
+    [Pid ! {deliver, Topic, Msg} || Msg  <- sort_retained(Msgs)].
 
 %% RETAIN flag set to 1 and payload containing zero bytes
 on_message_publish(Msg = #message{flags   = #{retain := true},
