@@ -122,6 +122,7 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     ets:new(test, [named_table, public]),
+    ets:insert(test, {other_mfa_result, failed}),
     ct:pal("111:~p~n", [ets:tab2list(cluster_rpc_commit)]),
     {M, F, A} = {?MODULE, failed_on_other_recover_after_retry, [erlang:whereis(?NODE1)]},
     {ok, 1, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
@@ -129,6 +130,7 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     ct:pal("333:~p~n", [emqx_cluster_rpc:status()]),
     {atomic, [_Status|L]} = emqx_cluster_rpc:status(),
     ?assertEqual([], L),
+    ets:insert(test, {other_mfa_result, ok}),
     {ok, 2, ok} = emqx_cluster_rpc:multicall(io, format, ["test"], 1, 1000),
     ct:sleep(1000),
     {atomic, NewStatus} = emqx_cluster_rpc:status(),
@@ -239,12 +241,9 @@ failed_on_node_by_odd(Pid) ->
     end.
 
 failed_on_other_recover_after_retry(Pid) ->
-    Counter = ets:update_counter(test, counter, 1, {counter, 0}),
     case Pid =:= self() of
         true -> ok;
         false ->
-            case Counter < 4 of
-                true -> "MFA return not ok";
-                false -> ok
-            end
+            [{_, Res}] = ets:lookup(test, other_mfa_result),
+            Res
     end.
