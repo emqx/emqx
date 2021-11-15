@@ -129,28 +129,22 @@ do_node_query(Node, Tab, Qs, QueryFun, Meta) ->
 do_node_query( Node, Tab, Qs, QueryFun, Continuation
              , Meta = #{limit := Limit}
              , Results) ->
-    {Len, Rows, NContinuation} = do_query(Node, Tab, Qs, QueryFun, Continuation, Limit),
-    case judge_page_with_counting(Len, Meta) of
-        {more, NMeta} ->
-            case NContinuation of
-                ?FRESH_SELECT ->
-                    #{meta => NMeta, data => []}; %% page and limit too big
-                _ ->
-                    do_node_query(Node, Tab, Qs, QueryFun, NContinuation, NMeta, [])
-            end;
-        {cutrows, NMeta} ->
-            {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
-            ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
-            NResults = lists:sublist( lists:append(Results, ThisRows)
-                                    , SubStart, Limit),
-            case NContinuation of
-                ?FRESH_SELECT ->
-                    #{meta => NMeta, data => NResults};
-                _ ->
-                    do_node_query(Node, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
-            end;
-        {enough, NMeta} ->
-            NResults = lists:sublist(lists:append(Results, Rows), 1, Limit),
+    case do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) of
+        {error, {badrpc, R}} ->
+            {error, Node, {badrpc, R}};
+        {Len, Rows, NContinuation} ->
+            {Flag, NMeta} = judge_page_with_counting(Len, Meta),
+            NResults =
+                case Flag of
+                    more ->
+                        [];
+                    cutrows ->
+                        {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
+                        ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
+                        lists:sublist( lists:append(Results, ThisRows), SubStart, Limit);
+                    enough ->
+                        lists:sublist(lists:append(Results, Rows), 1, Limit)
+                end,
             case NContinuation of
                 ?FRESH_SELECT ->
                     #{meta => NMeta, data => NResults};
@@ -177,36 +171,29 @@ do_cluster_query(Nodes, Tab, Qs, QueryFun, Meta) ->
 
 do_cluster_query([], _Tab, _Qs, _QueryFun, _Continuation, Meta, Results) ->
     #{meta => Meta, data => Results};
-do_cluster_query( [Node | Nodes], Tab, Qs, QueryFun, Continuation
-                , Meta = #{limit := Limit}
-                , Results) ->
-    {Len, Rows, NContinuation} = do_query(Node, Tab, Qs, QueryFun, Continuation, Limit),
-    case judge_page_with_counting(Len, Meta) of
-        {more, NMeta} ->
+do_cluster_query([Node | Tail] = Nodes, Tab, Qs, QueryFun, Continuation,
+        Meta = #{limit := Limit}, Results) ->
+    case do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) of
+        {error, {badrpc, R}} ->
+            {error, Node, {bar_rpc, R}};
+        {Len, Rows, NContinuation} ->
+            {Flag, NMeta} = judge_page_with_counting(Len, Meta),
+            NResults =
+                case Flag of
+                    more ->
+                        [];
+                    cutrows ->
+                        {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
+                        ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
+                        lists:sublist(lists:append(Results, ThisRows), SubStart, Limit);
+                    enough ->
+                        lists:sublist(lists:append(Results, Rows), 1, Limit)
+                end,
             case NContinuation of
                 ?FRESH_SELECT ->
-                    do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, []); %% next node with parts of results
+                    do_cluster_query(Tail, Tab, Qs, QueryFun, NContinuation, NMeta, NResults);
                 _ ->
-                    do_cluster_query([Node | Nodes], Tab, Qs, QueryFun, NContinuation, NMeta, []) %% continue this node
-            end;
-        {cutrows, NMeta} ->
-            {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
-            ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
-            NResults = lists:sublist( lists:append(Results, ThisRows)
-                                    , SubStart, Limit),
-            case NContinuation of
-                ?FRESH_SELECT ->
-                    do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, NResults); %% next node with parts of results
-                _ ->
-                    do_cluster_query([Node | Nodes], Tab, Qs, QueryFun, NContinuation, NMeta, NResults) %% continue this node
-            end;
-        {enough, NMeta} ->
-            NResults = lists:sublist(lists:append(Results, Rows), 1, Limit),
-            case NContinuation of
-                ?FRESH_SELECT ->
-                    do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, NResults); %% next node with parts of results
-                _ ->
-                    do_cluster_query([Node | Nodes], Tab, Qs, QueryFun, NContinuation, NMeta, NResults) %% continue this node
+                    do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
             end
     end.
 
@@ -294,16 +281,20 @@ pick_params_to_qs([{Key, Value} | Params], QsSchema, Acc1, Acc2) ->
                                 end,
                     case lists:keytake(OpposeKey, 1, Params) of
                         false ->
-                            pick_params_to_qs(Params, QsSchema, [qs(Key, Value, Type) | Acc1], Acc2);
+                            pick_params_to_qs(Params, QsSchema,
+                                [qs(Key, Value, Type) | Acc1], Acc2);
                         {value, {K2, V2}, NParams} ->
-                            pick_params_to_qs(NParams, QsSchema, [qs(Key, Value, K2, V2, Type) | Acc1], Acc2)
+                            pick_params_to_qs(NParams, QsSchema,
+                                [qs(Key, Value, K2, V2, Type) | Acc1], Acc2)
                     end;
                 _ ->
                     case is_fuzzy_key(Key) of
                         true ->
-                            pick_params_to_qs(Params, QsSchema, Acc1, [qs(Key, Value, Type) | Acc2]);
+                            pick_params_to_qs(Params, QsSchema, Acc1,
+                                [qs(Key, Value, Type) | Acc2]);
                         _ ->
-                            pick_params_to_qs(Params, QsSchema, [qs(Key, Value, Type) | Acc1], Acc2)
+                            pick_params_to_qs(Params, QsSchema,
+                                [qs(Key, Value, Type) | Acc1], Acc2)
 
                     end
             end
