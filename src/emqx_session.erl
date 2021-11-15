@@ -320,7 +320,8 @@ is_awaiting_full(#session{awaiting_rel = AwaitingRel,
 puback(PacketId, Session = #session{inflight = Inflight, created_at = CreatedAt}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
-            emqx:run_hook('message.publish_done', [Msg, CreatedAt]),
+            emqx:run_hook('message.publish_done',
+                          [Msg, #{session_rebirth_time => CreatedAt}]),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             return_with(Msg, dequeue(Session#session{inflight = Inflight1}));
         {value, {_Pubrel, _Ts}} ->
@@ -346,7 +347,8 @@ pubrec(PacketId, Session = #session{inflight = Inflight, created_at = CreatedAt}
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
             %% execute hook here, because message record will be replaced by pubrel
-            emqx:run_hook('message.publish_done', [Msg, CreatedAt]),
+            emqx:run_hook('message.publish_done',
+                          [Msg, #{session_rebirth_time => CreatedAt}]),
             Inflight1 = emqx_inflight:update(PacketId, with_ts(pubrel), Inflight),
             {ok, Msg, Session#session{inflight = Inflight1}};
         {value, {pubrel, _Ts}} ->
@@ -443,7 +445,8 @@ deliver([Msg | More], Acc, Session) ->
     end.
 
 deliver_msg(Msg = #message{qos = ?QOS_0}, Session) ->
-    emqx:run_hook('message.publish_done', [Msg, Session#session.created_at]),
+    emqx:run_hook('message.publish_done',
+                  [Msg, #{session_rebirth_time => Session#session.created_at}]),
     {ok, [{undefined, maybe_ack(Msg)}], Session};
 
 deliver_msg(Msg = #message{qos = QoS}, Session =
