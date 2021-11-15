@@ -21,6 +21,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-define(DEFAULT_CHECK_AVAIL_TIMEOUT, 1000).
+
 authenticator_example(Id) ->
     #{Id := #{value := Example}} = emqx_authn_api:authenticator_examples(),
     Example.
@@ -54,3 +56,13 @@ delete_config(ID) ->
             [authentication],
             {delete_authenticator, ?GLOBAL, ID},
             #{rawconf_with_defaults => false}).
+
+is_tcp_server_available(Host, Port) ->
+    case gen_tcp:connect(Host, Port, [], ?DEFAULT_CHECK_AVAIL_TIMEOUT) of
+        {ok, Socket} ->
+            gen_tcp:close(Socket),
+            true;
+        {error, _} ->
+            false
+    end.
+

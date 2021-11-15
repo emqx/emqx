@@ -67,10 +67,14 @@ jobs:
         - uses: actions/checkout@v2
         - name: docker compose up
           env:
+            MYSQL_TAG: 8
+            PGSQL_TAG: 13
             REDIS_TAG: 6
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           run: |
             docker-compose \
+                -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose.yaml \
                 up -d --build
