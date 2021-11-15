@@ -36,6 +36,8 @@
         , server/1
         , put_request_failed_action/1
         , get_request_failed_action/0
+        , put_pool_size/1
+        , get_pool_size/0
         ]).
 
 %% gen_server callbacks
@@ -84,11 +86,11 @@
 start_link(Servers, AutoReconnect, ReqOpts) ->
     gen_server:start_link(?MODULE, [Servers, AutoReconnect, ReqOpts], []).
 
--spec enable(pid(), atom()|string()) -> ok | {error, term()}.
+-spec enable(pid(), atom() | string()) -> ok | {error, term()}.
 enable(Pid, Name) ->
     call(Pid, {load, Name}).
 
--spec disable(pid(), atom()|string()) -> ok | {error, term()}.
+-spec disable(pid(), atom() | string()) -> ok | {error, term()}.
 disable(Pid, Name) ->
     call(Pid, {unload, Name}).
 
@@ -117,6 +119,9 @@ init([Servers, AutoReconnect, ReqOpts0]) ->
     put_request_failed_action(
       maps:get(request_failed_action, ReqOpts0, deny)
      ),
+    put_pool_size(
+      maps:get(pool_size, ReqOpts0, erlang:system_info(schedulers))
+     ),
 
     %% Load the hook servers
     ReqOpts = maps:without([request_failed_action], ReqOpts0),
@@ -136,7 +141,7 @@ load_all_servers(Servers, ReqOpts) ->
     load_all_servers(Servers, ReqOpts, #{}, #{}).
 load_all_servers([], _Request, Waiting, Running) ->
     {Waiting, Running};
-load_all_servers([{Name, Options}|More], ReqOpts, Waiting, Running) ->
+load_all_servers([{Name, Options} | More], ReqOpts, Waiting, Running) ->
     {NWaiting, NRunning} =
         case emqx_exhook_server:load(Name, Options, ReqOpts) of
             {ok, ServerState} ->
@@ -285,6 +290,14 @@ put_request_failed_action(Val) ->
 
 get_request_failed_action() ->
     persistent_term:get({?APP, request_failed_action}).
+
+put_pool_size(Val) ->
+    persistent_term:put({?APP, pool_size}, Val).
+
+get_pool_size() ->
+    %% Avoid the scenario that the parameter is not set after
+    %% the hot upgrade completed.
+    persistent_term:get({?APP, pool_size}, erlang:system_info(schedulers)).
 
 save(Name, ServerState) ->
     Saved = persistent_term:get(?APP, []),

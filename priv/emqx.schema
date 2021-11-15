@@ -96,6 +96,11 @@
   {datatype, string}
 ]}.
 
+{mapping, "cluster.dns.type", "ekka.cluster_discovery", [
+  {datatype, {enum, [a, srv]}},
+  {default, a}
+]}.
+
 %%--------------------------------------------------------------------
 %% Cluster using etcd
 
@@ -171,7 +176,8 @@
                   {loop, cuttlefish:conf_get("cluster.mcast.loop", Conf, true)}];
                (dns) ->
                  [{name, cuttlefish:conf_get("cluster.dns.name", Conf)},
-                  {app, cuttlefish:conf_get("cluster.dns.app", Conf)}];
+                  {app, cuttlefish:conf_get("cluster.dns.app", Conf)},
+                  {type, cuttlefish:conf_get("cluster.dns.type", Conf)}];
                (etcd) ->
                  SslOpts = fun(Conf) ->
                               Options = cuttlefish_variable:filter_by_prefix("cluster.etcd.ssl", Conf),

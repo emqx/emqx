@@ -87,9 +87,12 @@ update_trace(Path, Params) ->
 
 download_zip_log(Path, Params) ->
     case emqx_trace_api:download_zip_log(Path, Params) of
-        {ok, _Header, _File}= Return -> Return;
-        {error, _Reason} = Err ->  return(Err)
+        {ok, File} -> minirest:return_file(File);
+        {error, Reason} ->  return({error, 'NOT_FOUND', Reason})
     end.
 
 stream_log_file(Path, Params) ->
-    return(emqx_trace_api:stream_log_file(Path, Params)).
+    case emqx_trace_api:stream_log_file(Path, Params) of
+        {ok, File} -> return({ok, File});
+        {error, Reason} -> return({error, 'NOT_FOUND', Reason})
+    end.

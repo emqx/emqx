@@ -16,6 +16,7 @@
 
 -module(emqx_trace_api).
 -include_lib("emqx/include/logger.hrl").
+-include_lib("kernel/include/file.hrl").
 
 %% API
 -export([ list_trace/2
@@ -74,10 +75,10 @@ download_zip_log(#{name := Name}, _Param) ->
             TraceFiles = collect_trace_file(TraceLog),
             ZipDir = emqx_trace:zip_dir(),
             Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
-            ZipFileName = ZipDir ++ TraceLog,
-            {ok, ZipFile} = zip:zip(ZipFileName, Zips),
+            ZipFileName = ZipDir ++ binary_to_list(Name) ++ ".zip",
+            {ok, ZipFile} = zip:zip(ZipFileName, Zips, [{cwd, ZipDir}]),
             emqx_trace:delete_files_after_send(ZipFileName, Zips),
-            {ok, #{}, {sendfile, 0, filelib:file_size(ZipFile), ZipFile}};
+            {ok, ZipFile};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -88,7 +89,7 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
             {ok, Node, Bin} ->
                 ZipName = ZipDir ++ Node ++ "-" ++ TraceLog,
                 ok = file:write_file(ZipName, Bin),
-                [ZipName | Acc];
+                [Node ++ "-" ++ TraceLog | Acc];
             {error, Node, Reason} ->
                 ?LOG(error, "download trace log error:~p", [{Node, TraceLog, Reason}]),
                 Acc
@@ -101,20 +102,19 @@ collect_trace_file(TraceLog) ->
     BadNodes =/= [] andalso ?LOG(error, "download log rpc failed on ~p", [BadNodes]),
     Files.
 
-%% _page as position and _limit as bytes for front-end reusing components
 stream_log_file(#{name := Name}, Params) ->
     Node0 = proplists:get_value(<<"node">>, Params, atom_to_binary(node())),
-    Position0 = proplists:get_value(<<"_page">>, Params, <<"0">>),
-    Bytes0 = proplists:get_value(<<"_limit">>, Params, <<"500">>),
+    Position0 = proplists:get_value(<<"position">>, Params, <<"0">>),
+    Bytes0 = proplists:get_value(<<"bytes">>, Params, <<"1000">>),
     Node = binary_to_existing_atom(Node0),
     Position = binary_to_integer(Position0),
     Bytes = binary_to_integer(Bytes0),
     case rpc:call(Node, ?MODULE, read_trace_file, [Name, Position, Bytes]) of
         {ok, Bin} ->
-            Meta = #{<<"page">> => Position + byte_size(Bin), <<"limit">> => Bytes},
+            Meta = #{<<"position">> => Position + byte_size(Bin), <<"bytes">> => Bytes},
             {ok, #{meta => Meta, items => Bin}};
-        eof ->
-            Meta = #{<<"page">> => Position, <<"limit">> => Bytes},
+        {eof, Size} ->
+            Meta = #{<<"position">> => Size, <<"bytes">> => Bytes},
             {ok, #{meta => Meta, items => <<"">>}};
         {error, Reason} ->
             logger:log(error, "read_file_failed by ~p", [{Name, Reason, Position, Bytes}]),
@@ -134,6 +134,7 @@ read_trace_file(Name, Position, Limit) ->
         [] -> {error, not_found}
     end.
 
+-dialyzer({nowarn_function, read_file/3}).
 read_file(Path, Offset, Bytes) ->
     {ok, IoDevice} = file:open(Path, [read, raw, binary]),
     try
@@ -141,7 +142,13 @@ read_file(Path, Offset, Bytes) ->
                 0 -> ok;
                 _ -> file:position(IoDevice, {bof, Offset})
             end,
-        file:read(IoDevice, Bytes)
+        case file:read(IoDevice, Bytes) of
+            {ok, Bin} -> {ok, Bin};
+            {error, Reason} -> {error, Reason};
+            eof ->
+                #file_info{size = Size} = file:read_file_info(IoDevice),
+                {eof, Size}
+        end
     after
         file:close(IoDevice)
     end.
