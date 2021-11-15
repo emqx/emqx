@@ -49,6 +49,10 @@ fields(exhook) ->
        sc(hoconsc:union([false, duration()]),
           #{ default => "60s"
            })}
+    , {pool_size,
+       sc(integer(),
+          #{ nullable => true
+           })}
     , {servers,
        sc(hoconsc:array(ref(servers)),
           #{default => []})}
