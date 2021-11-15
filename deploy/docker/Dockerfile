@@ -1,4 +1,4 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4:23.3.4.8-1-alpine3.14
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-1:23.3.4.9-2-alpine3.14
 ARG RUN_FROM=alpine:3.14
 FROM ${BUILD_FROM} AS builder
 

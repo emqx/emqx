@@ -14,6 +14,8 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
 OTP_VSN="${OTP_VSN:-$(./scripts/get-otp-vsn.sh)}"
 export OTP_VSN
+EMQX_RUNNER_IMAGE='alpine:3.14'
+EMQX_BUILDER="${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/4.4-1:${OTP_VSN}-${EMQX_RUNNER_IMAGE}}"
 
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
 export PKG_VSN
@@ -134,8 +136,8 @@ make_docker() {
     echo "DOCKER BUILD: docker repo -> emqx/$PROFILE "
 
     docker build --no-cache \
-       --build-arg BUILD_FROM="ghcr.io/emqx/emqx-builder/4.4:${OTP:-23.3.4.8-1}-alpine3.14" \
-       --build-arg RUN_FROM="alpine:3.14" \
+       --build-arg BUILD_FROM="${EMQX_BUILDER}" \
+       --build-arg RUN_FROM="{EMQX_RUNNER_IMAGE}" \
        --build-arg EMQX_NAME="$PROFILE" \
        --tag "emqx/$PROFILE:$PKG_VSN" \
        -f deploy/docker/Dockerfile .
