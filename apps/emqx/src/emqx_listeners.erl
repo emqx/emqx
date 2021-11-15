@@ -250,10 +250,10 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
                          , {key, maps:get(keyfile, Opts)}
                          , {alpn, ["mqtt"]}
                          , {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])}
-                         , {idle_timeout_ms, lists:max([
-                                    emqx_config:get_zone_conf(zone(Opts), [mqtt, idle_timeout]) * 3
-                                    , timer:seconds(maps:get(idle_timeout, Opts))]
-                                    )}
+                         , {idle_timeout_ms,
+                                lists:max([
+                                    emqx_config:get_zone_conf(zone(Opts), [mqtt, idle_timeout]) * 3,
+                                    timer:seconds(maps:get(idle_timeout, Opts))])}
                          ],
             ConnectionOpts = #{ conn_callback => emqx_quic_connection
                               , peer_unidi_stream_count => 1
