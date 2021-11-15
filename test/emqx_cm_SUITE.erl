@@ -183,7 +183,8 @@ t_open_session_race_condition(_) ->
 
     exit(Winner, kill),
     receive {'DOWN', _, process, Winner, _} -> ok end,
-    ignored = gen_server:call(emqx_cm, ignore, infinity), %% sync
+    ignored = gen_server:call(?CM, ignore, infinity), %% sync
+    ok = flush_emqx_pool(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
 t_kick_session_discard_normal(_) ->
@@ -260,6 +261,7 @@ test_kick_session(Action, Reason) ->
             ?assertEqual(Reason, ?WAIT({'DOWN', _, process, Pid1, R}, 2_000, R)),
             ?assertEqual(Reason, ?WAIT({'DOWN', _, process, Pid2, R}, 2_000, R))
     end,
+    ignored = gen_server:call(?CM, ignore, infinity), %% sync
     ok = flush_emqx_pool(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
@@ -271,10 +273,11 @@ test_kick_session(Action, Reason) ->
 %% The number of tasks should be large enough to ensure all workers have
 %% the chance to work on at least one of the tasks.
 flush_emqx_pool() ->
+    Ref = make_ref(),
     Self = self(),
     L = lists:seq(1, 1000),
-    lists:foreach(fun(I) -> emqx_pool:async_submit(fun() -> Self ! {done, I} end, []) end, L),
-    lists:foreach(fun(I) -> receive {done, I} -> ok end end, L).
+    lists:foreach(fun(I) -> emqx_pool:async_submit(fun() -> Self ! {done, I, Ref} end, []) end, L),
+    lists:foreach(fun(I) -> receive {done, I, Ref} -> ok end end, L).
 
 t_discard_session_race(_) ->
     ClientId = rand_client_id(),
