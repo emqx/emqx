@@ -87,6 +87,10 @@ is_superuser(#{<<"is_superuser">> := <<"">>}) ->
     #{is_superuser => false};
 is_superuser(#{<<"is_superuser">> := <<"0">>}) ->
     #{is_superuser => false};
+is_superuser(#{<<"is_superuser">> := 0}) ->
+    #{is_superuser => false};
+is_superuser(#{<<"is_superuser">> := null}) ->
+    #{is_superuser => false};
 is_superuser(#{<<"is_superuser">> := _}) ->
     #{is_superuser => true};
 is_superuser(#{}) ->
