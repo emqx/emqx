@@ -17,6 +17,8 @@
 -module(emqx_mgmt).
 
 -include("emqx_mgmt.hrl").
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
+-elvis([{elvis_style, god_modules, disable}]).
 
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -51,6 +53,7 @@
         , clean_authz_cache_all/1
         , set_ratelimit_policy/2
         , set_quota_policy/2
+        , set_keepalive/2
         ]).
 
 %% Internal funcs
@@ -147,7 +150,8 @@ node_info(Node) when Node =:= node() ->
           memory_used       => proplists:get_value(total, Memory),
           process_available => erlang:system_info(process_limit),
           process_used      => erlang:system_info(process_count),
-          max_fds           => proplists:get_value(max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))),
+          max_fds           => proplists:get_value(max_fds,
+              lists:usort(lists:flatten(erlang:system_info(check_io)))),
           connections       => ets:info(emqx_channel, size),
           node_status       => 'Running',
           uptime            => proplists:get_value(uptime, BrokerInfo),
@@ -232,10 +236,12 @@ nodes_info_count(PropList) ->
 %%--------------------------------------------------------------------
 
 lookup_client({clientid, ClientId}, FormatFun) ->
-    lists:append([lookup_client(Node, {clientid, ClientId}, FormatFun) || Node <- mria_mnesia:running_nodes()]);
+    lists:append([lookup_client(Node, {clientid, ClientId}, FormatFun) ||
+        Node <- mria_mnesia:running_nodes()]);
 
 lookup_client({username, Username}, FormatFun) ->
-    lists:append([lookup_client(Node, {username, Username}, FormatFun) || Node <- mria_mnesia:running_nodes()]).
+    lists:append([lookup_client(Node, {username, Username}, FormatFun) ||
+        Node <- mria_mnesia:running_nodes()]).
 
 lookup_client(Node, {clientid, ClientId}, {M,F}) when Node =:= node() ->
     lists:append(lists:map(
@@ -258,10 +264,7 @@ lookup_client(Node, {username, Username}, FormatFun) ->
 
 kickout_client(ClientId) ->
     Results = [kickout_client(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
-    case lists:any(fun(Item) -> Item =:= ok end, Results) of
-        true  -> ok;
-        false -> lists:last(Results)
-    end.
+    has_any_ok(Results).
 
 kickout_client(Node, ClientId) when Node =:= node() ->
     emqx_cm:kick_session(ClientId);
@@ -280,7 +283,7 @@ list_client_subscriptions(ClientId) ->
                             end, Results),
     case Expected of
         [] -> [];
-        [Result|_] -> Result
+        [Result | _] -> Result
     end.
 
 client_subscriptions(Node, ClientId) when Node =:= node() ->
@@ -291,10 +294,7 @@ client_subscriptions(Node, ClientId) ->
 
 clean_authz_cache(ClientId) ->
     Results = [clean_authz_cache(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
-    case lists:any(fun(Item) -> Item =:= ok end, Results) of
-        true  -> ok;
-        false -> lists:last(Results)
-    end.
+    has_any_ok(Results).
 
 clean_authz_cache(Node, ClientId) when Node =:= node() ->
     case emqx_cm:lookup_channels(ClientId) of
@@ -326,6 +326,9 @@ set_ratelimit_policy(ClientId, Policy) ->
 set_quota_policy(ClientId, Policy) ->
     call_client(ClientId, {quota, Policy}).
 
+set_keepalive(ClientId, Interval) ->
+    call_client(ClientId, {keepalive, Interval}).
+
 %% @private
 call_client(ClientId, Req) ->
     Results = [call_client(Node, ClientId, Req) || Node <- mria_mnesia:running_nodes()],
@@ -334,7 +337,7 @@ call_client(ClientId, Req) ->
                             end, Results),
     case Expected of
         [] -> {error, not_found};
-        [Result|_] -> Result
+        [Result | _] -> Result
     end.
 
 %% @private
@@ -366,7 +369,8 @@ list_subscriptions(Node) ->
     rpc_call(Node, list_subscriptions, [Node]).
 
 list_subscriptions_via_topic(Topic, FormatFun) ->
-    lists:append([list_subscriptions_via_topic(Node, Topic, FormatFun) || Node <- mria_mnesia:running_nodes()]).
+    lists:append([list_subscriptions_via_topic(Node, Topic, FormatFun)
+        || Node <- mria_mnesia:running_nodes()]).
 
 list_subscriptions_via_topic(Node, Topic, {M,F}) when Node =:= node() ->
     MatchSpec = [{{{'_', '$1'}, '_'}, [{'=:=','$1', Topic}], ['$_']}],
@@ -497,8 +501,8 @@ listener_id_filter(Id, Listeners) ->
     Filter = fun(#{id := Id0}) -> Id0 =:= Id end,
     lists:filter(Filter, Listeners).
 
--spec manage_listener(Operation :: start_listener|stop_listener|restart_listener, Param :: map()) ->
-    ok | {error, Reason :: term()}.
+-spec manage_listener(Operation :: start_listener | stop_listener | restart_listener,
+    Param :: map()) -> ok | {error, Reason :: term()}.
 manage_listener(Operation, #{id := ID, node := Node}) when Node =:= node()->
     erlang:apply(emqx_listeners, Operation, [ID]);
 manage_listener(Operation, Param = #{node := Node}) ->
@@ -566,9 +570,10 @@ add_duration_field(Alarms) ->
 
 add_duration_field([], _Now, Acc) ->
     Acc;
-add_duration_field([Alarm = #{activated := true, activate_at := ActivateAt}| Rest], Now, Acc) ->
+add_duration_field([Alarm = #{activated := true, activate_at := ActivateAt} | Rest], Now, Acc) ->
     add_duration_field(Rest, Now, [Alarm#{duration => Now - ActivateAt} | Acc]);
-add_duration_field([Alarm = #{activated := false, activate_at := ActivateAt, deactivate_at := DeactivateAt}| Rest], Now, Acc) ->
+add_duration_field([Alarm = #{activated := false, activate_at := ActivateAt,
+    deactivate_at := DeactivateAt} | Rest], Now, Acc) ->
     add_duration_field(Rest, Now, [Alarm#{duration => DeactivateAt - ActivateAt} | Acc]).
 
 %%--------------------------------------------------------------------
@@ -611,7 +616,7 @@ check_row_limit(Tables) ->
 
 check_row_limit([], _Limit) ->
     ok;
-check_row_limit([Tab|Tables], Limit) ->
+check_row_limit([Tab | Tables], Limit) ->
     case table_size(Tab) > Limit of
         true  -> false;
         false -> check_row_limit(Tables, Limit)
@@ -621,3 +626,9 @@ max_row_limit() ->
     ?MAX_ROW_LIMIT.
 
 table_size(Tab) -> ets:info(Tab, size).
+
+has_any_ok(Results) ->
+    case lists:any(fun(Item) -> Item =:= ok end, Results) of
+        true -> ok;
+        false -> lists:last(Results)
+    end.
