@@ -20,10 +20,15 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+
+-ifdef(EMQX_ENTERPRISE).
 -include_lib("emqx_modules/include/emqx_modules.hrl").
+-endif.
 
 all() ->
     emqx_ct:all(?MODULE).
+
+-ifdef(EMQX_ENTERPRISE).
 
 init_per_suite(Config) ->
     application:load(emqx_modules_spec),
@@ -34,8 +39,6 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_modules, emqx_management]),
     application:unload(emqx_modules_spec),
     ok.
-
--ifdef(EMQX_ENTERPRISE).
 
 t_import_4_2(Config) ->
     ?assertMatch(ok, import("e4.2.8.json", Config)),
@@ -55,11 +58,11 @@ t_import_4_3(Config) ->
     ?assertMatch(#module{config = #{<<"srv_record">> := _}}, MongoAuthNModule),
     delete_modules().
 
--endif.
-
 import(File, Config) ->
     Filename = filename:join(proplists:get_value(data_dir, Config), File),
     emqx_mgmt_data_backup:import(Filename, "{}").
 
 delete_modules() ->
     [emqx_modules_registry:remove_module(Mod) || Mod <-  emqx_modules_registry:get_modules()].
+
+-endif.
