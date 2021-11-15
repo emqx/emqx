@@ -87,7 +87,7 @@ update_trace(Path, Params) ->
 
 download_zip_log(Path, Params) ->
     case emqx_trace_api:download_zip_log(Path, Params) of
-        {ok, _Header, _File}= Return -> Return;
+        {ok, File} -> minirest:return_file(File);
         {error, _Reason} = Err ->  return(Err)
     end.
 

@@ -75,10 +75,10 @@ download_zip_log(#{name := Name}, _Param) ->
             TraceFiles = collect_trace_file(TraceLog),
             ZipDir = emqx_trace:zip_dir(),
             Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
-            ZipFileName = ZipDir ++ TraceLog,
+            ZipFileName = ZipDir ++ binary_to_list(Name) ++ ".zip",
             {ok, ZipFile} = zip:zip(ZipFileName, Zips, [{cwd, ZipDir}]),
             emqx_trace:delete_files_after_send(ZipFileName, Zips),
-            {ok, #{}, {sendfile, 0, filelib:file_size(ZipFile), ZipFile}};
+            {ok, ZipFile};
         {error, Reason} ->
             {error, Reason}
     end.
