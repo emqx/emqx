@@ -18,6 +18,8 @@
 
 -include_lib("stdlib/include/qlc.hrl").
 
+-elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 100}}]).
+
 -define(FRESH_SELECT, fresh_select).
 
 -export([ paginate/3
