@@ -156,7 +156,7 @@ start_expire_timer(0, State) ->
 start_expire_timer(undefined, State) ->
     State;
 start_expire_timer(Ms, State) ->
-    Timer = erlang:send_after(Ms, self(), stats),
+    Timer = erlang:send_after(Ms, self(), {expire, Ms}),
     State#state{expiry_timer = Timer}.
 
 handle_call(Req, _From, State) ->
@@ -168,12 +168,14 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info(stats, State = #state{stats_fun = StatsFun}) ->
+    StatsTimer = erlang:send_after(timer:seconds(1), self(), stats),
     StatsFun(retained_count()),
-    {noreply, State, hibernate};
+    {noreply, State#state{stats_timer = StatsTimer}, hibernate};
 
-handle_info(expire, State) ->
+handle_info({expire, Ms} = Expire, State) ->
+    Timer = erlang:send_after(Ms, self(), Expire),
     ok = expire_messages(),
-    {noreply, State, hibernate};
+    {noreply, State#state{expiry_timer = Timer}, hibernate};
 
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
