@@ -58,6 +58,8 @@
 
 -define(SUBOPTS, #{rh => 0, rap => 0, nl => 0, qos => ?QOS_0, is_new => false}).
 
+-define(PROTO_VER, 1).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -139,7 +141,7 @@ handle_call({subscribe, Topic, CoapPid}, _From, State=#state{sub_topics = TopicL
     NewTopics = proplists:delete(Topic, TopicList),
     IsWild = emqx_topic:wildcard(Topic),
     {reply, chann_subscribe(Topic, State), State#state{sub_topics =
-        [{Topic, {IsWild, CoapPid}}|NewTopics]}, hibernate};
+        [{Topic, {IsWild, CoapPid}} | NewTopics]}, hibernate};
 
 handle_call({unsubscribe, Topic, _CoapPid}, _From, State=#state{sub_topics = TopicList}) ->
     NewTopics = proplists:delete(Topic, TopicList),
@@ -244,15 +246,26 @@ chann_publish(Topic, Payload, State = #state{clientid = ClientId}) ->
     case emqx_access_control:check_acl(clientinfo(State), publish, Topic) of
         allow ->
             _ = emqx_broker:publish(
-                    emqx_message:set_flag(retain, false,
-                        emqx_message:make(ClientId, ?QOS_0, Topic, Payload))),
-            ok;
+                  packet_to_message(Topic, Payload, State)), ok;
         deny  ->
             ?LOG(warning, "publish to ~p by clientid ~p failed due to acl check.",
                  [Topic, ClientId]),
             {error, forbidden}
     end.
 
+packet_to_message(Topic, Payload,
+                  #state{clientid = ClientId,
+                         username = Username,
+                         peername = {PeerHost, _}}) ->
+    Message = emqx_message:set_flag(
+                retain, false,
+                emqx_message:make(ClientId, ?QOS_0, Topic, Payload)
+               ),
+    emqx_message:set_headers(
+      #{ proto_ver => ?PROTO_VER
+       , protocol => coap
+       , username => Username
+       , peerhost => PeerHost}, Message).
 
 %%--------------------------------------------------------------------
 %% Deliver
@@ -270,7 +283,7 @@ do_deliver({Topic, Payload}, Subscribers) ->
 
 deliver_to_coap(_TopicName, _Payload, []) ->
     ok;
-deliver_to_coap(TopicName, Payload, [{TopicFilter, {IsWild, CoapPid}}|T]) ->
+deliver_to_coap(TopicName, Payload, [{TopicFilter, {IsWild, CoapPid}} | T]) ->
     Matched =   case IsWild of
                     true  -> emqx_topic:match(TopicName, TopicFilter);
                     false -> TopicName =:= TopicFilter
@@ -324,7 +337,7 @@ conninfo(#state{peername = Peername,
       peercert => nossl,        %% TODO: dtls
       conn_mod => ?MODULE,
       proto_name => <<"CoAP">>,
-      proto_ver => 1,
+      proto_ver => ?PROTO_VER,
       clean_start => true,
       clientid => ClientId,
       username => undefined,
@@ -384,4 +397,3 @@ clientinfo(#state{peername = {PeerHost, _},
       mountpoint => undefined,
       ws_cookie  => undefined
      }.
-
