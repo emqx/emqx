@@ -108,6 +108,8 @@
                             , init/2
                             ]}).
 
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
+
 -type(pstate() :: #pstate{}).
 
 %% @doc Init protocol
@@ -132,8 +134,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
 
     AllowAnonymous = get_value(allow_anonymous, Opts, false),
     DefaultUser = get_value(default_user, Opts),
-
-	#pstate{
+    #pstate{
        conninfo = NConnInfo,
        clientinfo = ClientInfo,
        heartfun = HeartFun,
@@ -165,7 +166,7 @@ default_conninfo(ConnInfo) ->
 info(State) ->
     maps:from_list(info(?INFO_KEYS, State)).
 
--spec info(list(atom())|atom(), pstate()) -> term().
+-spec info(list(atom()) | atom(), pstate()) -> term().
 info(Keys, State) when is_list(Keys) ->
     [{Key, info(Key, State)} || Key <- Keys];
 info(conninfo, #pstate{conninfo = ConnInfo}) ->
@@ -288,7 +289,12 @@ received(#stomp_frame{command = <<"CONNECT">>}, State = #pstate{connected = true
 received(Frame = #stomp_frame{command = <<"SEND">>, headers = Headers}, State) ->
     case header(<<"transaction">>, Headers) of
         undefined     -> {ok, handle_recv_send_frame(Frame, State)};
-        TransactionId -> add_action(TransactionId, {fun ?MODULE:handle_recv_send_frame/2, [Frame]}, receipt_id(Headers), State)
+        TransactionId ->
+            add_action(TransactionId,
+                       {fun ?MODULE:handle_recv_send_frame/2, [Frame]},
+                       receipt_id(Headers),
+                       State
+                      )
     end;
 
 received(#stomp_frame{command = <<"SUBSCRIBE">>, headers = Headers},
@@ -346,7 +352,11 @@ received(#stomp_frame{command = <<"UNSUBSCRIBE">>, headers = Headers},
 received(Frame = #stomp_frame{command = <<"ACK">>, headers = Headers}, State) ->
     case header(<<"transaction">>, Headers) of
         undefined     -> {ok, handle_recv_ack_frame(Frame, State)};
-        TransactionId -> add_action(TransactionId, {fun ?MODULE:handle_recv_ack_frame/2, [Frame]}, receipt_id(Headers), State)
+        TransactionId ->
+            add_action(TransactionId,
+                       {fun ?MODULE:handle_recv_ack_frame/2, [Frame]},
+                       receipt_id(Headers),
+                       State)
     end;
 
 %% NACK
@@ -357,7 +367,11 @@ received(Frame = #stomp_frame{command = <<"ACK">>, headers = Headers}, State) ->
 received(Frame = #stomp_frame{command = <<"NACK">>, headers = Headers}, State) ->
     case header(<<"transaction">>, Headers) of
         undefined     -> {ok, handle_recv_nack_frame(Frame, State)};
-        TransactionId -> add_action(TransactionId, {fun ?MODULE:handle_recv_nack_frame/2, [Frame]}, receipt_id(Headers), State)
+        TransactionId ->
+            add_action(TransactionId,
+                       {fun ?MODULE:handle_recv_nack_frame/2, [Frame]},
+                       receipt_id(Headers),
+                       State)
     end;
 
 %% BEGIN
@@ -516,9 +530,9 @@ negotiate_version(Accepts) ->
 
 negotiate_version(Ver, []) ->
     {error, <<"Supported protocol versions < ", Ver/binary>>};
-negotiate_version(Ver, [AcceptVer|_]) when Ver >= AcceptVer ->
+negotiate_version(Ver, [AcceptVer | _]) when Ver >= AcceptVer ->
     {ok, AcceptVer};
-negotiate_version(Ver, [_|T]) ->
+negotiate_version(Ver, [_ | T]) ->
     negotiate_version(Ver, T).
 
 check_login(Login, _, AllowAnonymous, _)
@@ -537,7 +551,7 @@ check_login(Login, Passcode, _, DefaultUser) ->
 add_action(Id, Action, ReceiptId, State = #pstate{transaction = Trans}) ->
     case maps:get(Id, Trans, undefined) of
         {Ts, Actions} ->
-            NTrans = Trans#{Id => {Ts, [Action|Actions]}},
+            NTrans = Trans#{Id => {Ts, [Action | Actions]}},
             {ok, State#pstate{transaction = NTrans}};
         _ ->
             send(error_frame(ReceiptId, ["Transaction ", Id, " not found"]), State)
@@ -588,15 +602,29 @@ next_ackid() ->
     put(ackid, AckId + 1),
     AckId.
 
-make_mqtt_message(Topic, Headers, Body) ->
-    Msg = emqx_message:make(stomp, Topic, Body),
-    Headers1 = lists:foldl(fun(Key, Headers0) ->
-                               proplists:delete(Key, Headers0)
-                           end, Headers, [<<"destination">>,
-                                          <<"content-length">>,
-                                          <<"content-type">>,
-                                          <<"transaction">>,
-                                          <<"receipt">>]),
+make_mqtt_message(Topic, Headers, Body,
+                  #pstate{
+                     conninfo = #{proto_ver := ProtoVer},
+                     clientinfo = #{
+                         protocol := Protocol,
+                         clientid := ClientId,
+                         username := Username,
+                         peerhost := PeerHost}}) ->
+    Msg = emqx_message:make(
+            ClientId, ?QOS_0,
+            Topic, Body, #{},
+            #{proto_ver => ProtoVer,
+              protocol => Protocol,
+              username => Username,
+              peerhost => PeerHost}),
+    Headers1 = lists:foldl(
+                 fun(Key, Headers0) ->
+                    proplists:delete(Key, Headers0)
+                 end, Headers, [<<"destination">>,
+                                <<"content-length">>,
+                                <<"content-type">>,
+                                <<"transaction">>,
+                                <<"receipt">>]),
     emqx_message:set_headers(#{stomp_headers => Headers1}, Msg).
 
 receipt_id(Headers) ->
@@ -611,7 +639,7 @@ handle_recv_send_frame(#stomp_frame{command = <<"SEND">>, headers = Headers, bod
         allow ->
             _ = maybe_send_receipt(receipt_id(Headers), State),
             _ = emqx_broker:publish(
-                make_mqtt_message(Topic, Headers, iolist_to_binary(Body))
+                make_mqtt_message(Topic, Headers, iolist_to_binary(Body), State)
             ),
             State;
         deny ->
@@ -699,7 +727,7 @@ find_sub_by_id(Id, Subs) ->
             end, Subs),
     case maps:to_list(Found) of
         [] -> undefined;
-        [Sub|_] -> Sub
+        [Sub | _] -> Sub
     end.
 
 is_acl_enabled(_) ->
