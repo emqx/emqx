@@ -124,25 +124,12 @@ do_node_query( Node, Tab, Qs, QueryFun, Continuation
     case do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) of
         {error, {badrpc, R}} ->
             {error, Node, {badrpc, R}};
-        {Len, Rows, NContinuation} ->
-            {Flag, NMeta} = judge_page_with_counting(Len, Meta),
-            NResults =
-                case Flag of
-                    more ->
-                        [];
-                    cutrows ->
-                        {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
-                        ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
-                        lists:sublist( lists:append(Results, ThisRows), SubStart, Limit);
-                    enough ->
-                        lists:sublist(lists:append(Results, Rows), 1, Limit)
-                end,
-            case NContinuation of
-                ?FRESH_SELECT ->
-                    #{meta => NMeta, data => NResults};
-                _ ->
-                    do_node_query(Node, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
-            end
+        {Len, Rows, ?FRESH_SELECT} ->
+            {NMeta, NResults} = sub_query_result(Len, Rows, Results, Meta),
+            #{meta => NMeta, data => NResults};
+        {Len, Rows, _} ->
+            {NMeta, NResults} = sub_query_result(Len, Rows, Results, Meta),
+            do_node_query(Node, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
     end.
 
 %%--------------------------------------------------------------------
@@ -166,25 +153,12 @@ do_cluster_query([Node | Tail] = Nodes, Tab, Qs, QueryFun, Continuation,
     case do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) of
         {error, {badrpc, R}} ->
             {error, Node, {bar_rpc, R}};
-        {Len, Rows, NContinuation} ->
-            {Flag, NMeta} = judge_page_with_counting(Len, Meta),
-            NResults =
-                case Flag of
-                    more ->
-                        [];
-                    cutrows ->
-                        {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
-                        ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
-                        lists:sublist(lists:append(Results, ThisRows), SubStart, Limit);
-                    enough ->
-                        lists:sublist(lists:append(Results, Rows), 1, Limit)
-                end,
-            case NContinuation of
-                ?FRESH_SELECT ->
-                    do_cluster_query(Tail, Tab, Qs, QueryFun, NContinuation, NMeta, NResults);
-                _ ->
-                    do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
-            end
+        {Len, Rows, ?FRESH_SELECT} ->
+            {NMeta, NResults} = sub_query_result(Len, Rows, Results, Meta),
+            do_cluster_query(Tail, Tab, Qs, QueryFun, NContinuation, NMeta, NResults);
+        {Len, Rows, _} ->
+            {NMeta, NResults} = sub_query_result(Len, Rows, Results, Meta),
+            do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
     end.
 
 %%--------------------------------------------------------------------
@@ -197,6 +171,21 @@ do_query(Node, Tab, Qs, {M,F}, Continuation, Limit) when Node =:= node() ->
 do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) ->
     rpc_call(Node, ?MODULE, do_query,
              [Node, Tab, Qs, QueryFun, Continuation, Limit], 50000).
+
+sub_query_result(Len, Rows, Results, Meta) ->
+    {Flag, NMeta} = judge_page_with_counting(Len, Meta),
+    NResults =
+        case Flag of
+            more ->
+                [];
+            cutrows ->
+                {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
+                ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
+                lists:sublist(lists:append(Results, ThisRows), SubStart, Limit);
+            enough ->
+                lists:sublist(lists:append(Results, Rows), 1, Limit)
+        end,
+    {NMeta, NResults}.
 
 %% @private
 rpc_call(Node, M, F, A, T) ->
