@@ -321,6 +321,8 @@ jobs:
             --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
             --var VSN="$VSN" \
             --var OLD_VSN="$OLD_VSN" \
+            --var FROM_OTP_VSN="23.3.4.9-2" \
+            --var TO_OTP_VSN="23.3.4.9-2" \
             emqx_built/.ci/fvt_tests/relup.lux
         - uses: actions/upload-artifact@v2
           name: Save debug data

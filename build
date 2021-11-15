@@ -12,10 +12,9 @@ ARTIFACT="$2"
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-OTP_VSN="${OTP_VSN:-$(./scripts/get-otp-vsn.sh)}"
-export OTP_VSN
 EMQX_RUNNER_IMAGE='alpine:3.14'
-EMQX_BUILDER="${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/4.4-1:${OTP_VSN}-${EMQX_RUNNER_IMAGE}}"
+EMQX_RUNNER_IMAGE_COMPACT="$(echo $EMQX_RUNNER_IMAGE | tr -d ':')"
+EMQX_BUILDER="${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/4.4-1:${OTP_VSN}-${EMQX_RUNNER_IMAGE_COMPACT}}"
 
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
 export PKG_VSN
@@ -81,7 +80,7 @@ make_relup() {
                 rm -rf "$tmp_dir"
             fi
             releases+=( "$base_vsn" )
-        done < <(find _upgrade_base -maxdepth 1 -name "*$PROFILE-$SYSTEM*-$ARCH.zip" -type f)
+        done < <(find _upgrade_base -maxdepth 1 -name "*$PROFILE-otp${OTP_VSN}-$SYSTEM*-$ARCH.zip" -type f)
     fi
     if [ ${#releases[@]} -eq 0 ]; then
         log "No upgrade base found, relup ignored"
@@ -121,7 +120,7 @@ make_zip() {
         log "ERROR: $tarball is not found"
     fi
     local zipball
-    zipball="${pkgpath}/${PROFILE}-${OTP_VSN}-${SYSTEM}-${PKG_VSN}-${ARCH}.zip"
+    zipball="${pkgpath}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.zip"
     tar zxf "${tarball}" -C "${tard}/emqx"
     ## try to be portable for zip packages.
     ## for DEB and RPM packages the dependencies are resoved by yum and apt

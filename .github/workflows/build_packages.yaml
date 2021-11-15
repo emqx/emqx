@@ -263,7 +263,7 @@ jobs:
       run: unzip -q source.zip
     - name: downloads old emqx zip packages
       env:
-        OTP_VSN: otp${{ matrix.otp }}
+        OTP_VSN: ${{ matrix.otp }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
@@ -282,10 +282,11 @@ jobs:
         cd source/_upgrade_base
         old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
         for tag in ${old_vsns[@]}; do
-          if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/${PROFILE}-${OTP_VSN}-${SYSTEM}-${tag#[e|v]}-${ARCH}.zip) | grep -oE "^[23]+")" ];then
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/${PROFILE}-${OTP_VSN}-${SYSTEM}-${tag#[e|v]}-${ARCH}.zip
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/${PROFILE}-${OTP_VSN}-${SYSTEM}-${tag#[e|v]}-${ARCH}.zip.sha256
-            echo "$(cat ${PROFILE}-${OTP_VSN}-${SYSTEM}-${tag#[e|v]}-${ARCH}.zip.sha256) ${PROFILE}-${OTP_VSN}-${SYSTEM}-${tag#[e|v]}-${ARCH}.zip" | sha256sum -c || exit 1
+          package_name="${PROFILE}-${tag#[e|v]}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
+          if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.zip) | grep -oE "^[23]+")" ]; then
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.zip
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.zip.sha256
+            echo "$(cat $package_name.zip.sha256) $package_name.zip" | sha256sum -c || exit 1
           fi
         done
     - name: build emqx packages

@@ -6,7 +6,7 @@ dash := -
 none :=
 space := $(none) $(none)
 RPM_VSN ?= $(shell echo $(PKG_VSN) | grep -oE "[0-9]+\.[0-9]+(\.[0-9]+)?")
-RPM_REL ?= $(shell echo $(PKG_VSN) | grep -oE "(alpha|beta|rc)\.[0-9]")
+RPM_REL ?= $(shell echo $(PKG_VSN) | grep -oE "(alpha|beta|rc)\.[0-9]+")
 
 ARCH ?= amd64
 ifeq ($(ARCH),mips64)
@@ -16,12 +16,12 @@ endif
 EMQX_NAME=$(subst -pkg,,$(EMQX_BUILD))
 
 TAR_PKG := $(EMQX_REL)/_build/$(EMQX_BUILD)/rel/emqx/emqx-$(PKG_VSN).tar.gz
-TARGET_PKG := $(EMQX_NAME)-$(OTP_VSN)-$(SYSTEM)-$(PKG_VSN)-$(ARCH)
+TARGET_PKG := $(EMQX_NAME)-$(PKG_VSN)-otp$(OTP_VSN)-$(SYSTEM)-$(ARCH)
 ifeq ($(RPM_REL),)
 	# no tail
 	RPM_REL := 1
 endif
-SOURCE_PKG := emqx-$(SYSTEM)-$(RPM_VSN)-$(RPM_REL).$(shell uname -m)
+SOURCE_PKG := emqx-$(RPM_VSN)-$(RPM_REL)-otp$(OTP_VSN)-$(SYSTEM)-$(shell uname -m)
 
 SYSTEMD := $(shell if command -v systemctl >/dev/null 2>&1; then echo yes; fi)
 # Not $(PWD) as it does not work for make -C
@@ -47,7 +47,8 @@ all: | $(BUILT)
 		--define "_service_dst $(SERVICE_DST)" \
 		--define "_post_addition $(POST_ADDITION)" \
 		--define "_preun_addition $(PREUN_ADDITION)" \
-		--define "_ostype -$(SYSTEM)" \
+		--define "_ostype $(SYSTEM)" \
+		--define "_otp_vsn $(OTP_VSN)" \
 		--define "_sharedstatedir /var/lib" \
 		emqx.spec
 	mkdir -p $(EMQX_REL)/_packages/$(EMQX_NAME)
