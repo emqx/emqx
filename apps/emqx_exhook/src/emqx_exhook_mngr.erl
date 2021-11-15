@@ -141,7 +141,7 @@ load_all_servers(Servers, ReqOpts) ->
     load_all_servers(Servers, ReqOpts, #{}, #{}).
 load_all_servers([], _Request, Waiting, Running) ->
     {Waiting, Running};
-load_all_servers([#{name := Name0} = Options0|More], ReqOpts, Waiting, Running) ->
+load_all_servers([#{name := Name0} = Options0 | More], ReqOpts, Waiting, Running) ->
     Name = iolist_to_binary(Name0),
     Options = Options0#{name => Name},
     {NWaiting, NRunning} =

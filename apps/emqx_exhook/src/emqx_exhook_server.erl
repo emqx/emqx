@@ -75,6 +75,8 @@
 
 -dialyzer({nowarn_function, [inc_metrics/2]}).
 
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
+
 %%--------------------------------------------------------------------
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
@@ -178,16 +180,19 @@ resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
         case maps:get(name, HookSpec, undefined) of
             undefined -> Acc;
             Name0 ->
-                Name = try binary_to_existing_atom(Name0, utf8) catch T:R:_ -> {T,R} end,
-                case lists:member(Name, AvailableHooks) of
-                    true ->
-                        case lists:member(Name, MessageHooks) of
-                            true ->
-                                Acc#{Name => #{topics => maps:get(topics, HookSpec, [])}};
-                            _ ->
-                                Acc#{Name => #{}}
-                        end;
-                    _ -> error({unknown_hookpoint, Name})
+                Name = try
+                           binary_to_existing_atom(Name0, utf8)
+                       catch T:R:_ -> {T,R}
+                       end,
+                case {lists:member(Name, AvailableHooks),
+                      lists:member(Name, MessageHooks)} of
+                    {false, _} ->
+                        error({unknown_hookpoint, Name});
+                    {true, false} ->
+                        Acc#{Name => #{}};
+                    {true, true} ->
+                        Acc#{Name => #{
+                              topics => maps:get(topics, HookSpec, [])}}
                 end
         end
     end, #{}, HookSpecs).
@@ -260,7 +265,7 @@ call(Hookpoint, Req, #server{name = ChannName, options = ReqOpts,
 %% @private
 inc_metrics(IncFun, Name) when is_function(IncFun) ->
     %% BACKW: e4.2.0-e4.2.2
-    {env, [Prefix|_]} = erlang:fun_info(IncFun, env),
+    {env, [Prefix | _]} = erlang:fun_info(IncFun, env),
     inc_metrics(Prefix, Name);
 inc_metrics(Prefix, Name) when is_list(Prefix) ->
     emqx_metrics:inc(list_to_atom(Prefix ++ atom_to_list(Name))).
