@@ -100,16 +100,19 @@ limit(Params) when is_map(Params) ->
 limit(Params) ->
     proplists:get_value(<<"limit">>, Params, emqx_mgmt:max_row_limit()).
 
+init_meta(Params) ->
+    Limit = b2i(limit(Params)),
+    Page  = b2i(page(Params)),
+    Meta = #{page => Page, limit => Limit, count => 0}.
+
 %%--------------------------------------------------------------------
 %% Node Query
 %%--------------------------------------------------------------------
 
 node_query(Node, Params, Tab, QsSchema, QueryFun) ->
     {_CodCnt, Qs} = params2qs(Params, QsSchema),
-    Limit = b2i(limit(Params)),
-    Page  = b2i(page(Params)),
-    Meta = #{page => Page, limit => Limit, count => 0},
-    page_limit_check_query(Meta, {fun do_node_query/5, [Node, Tab, Qs, QueryFun, Meta]}).
+    page_limit_check_query(Meta, {fun do_node_query/5,
+                                 [Node, Tab, Qs, QueryFun, init_meta(Params)]}).
 
 %% @private
 do_node_query(Node, Tab, Qs, QueryFun, Meta) ->
@@ -148,11 +151,9 @@ do_node_query( Node, Tab, Qs, QueryFun, Continuation
 
 cluster_query(Params, Tab, QsSchema, QueryFun) ->
     {_CodCnt, Qs} = params2qs(Params, QsSchema),
-    Limit = b2i(limit(Params)),
-    Page  = b2i(page(Params)),
     Nodes = mria_mnesia:running_nodes(),
-    Meta = #{page => Page, limit => Limit, count => 0},
-    page_limit_check_query(Meta, {fun do_cluster_query/5, [Nodes, Tab, Qs, QueryFun, Meta]}).
+    page_limit_check_query(Meta, {fun do_cluster_query/5,
+                                 [Nodes, Tab, Qs, QueryFun, init_meta(Params)]}).
 
 %% @private
 do_cluster_query(Nodes, Tab, Qs, QueryFun, Meta) ->
@@ -192,7 +193,7 @@ do_cluster_query([Node | Tail] = Nodes, Tab, Qs, QueryFun, Continuation,
 
 %% @private
 do_query(Node, Tab, Qs, {M,F}, Continuation, Limit) when Node =:= node() ->
-    M:F(Tab, Qs, Continuation, Limit);
+    erlang:apply(M, F, [Tab, Qs, Continuation, Limit]);
 do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) ->
     rpc_call(Node, ?MODULE, do_query,
              [Node, Tab, Qs, QueryFun, Continuation, Limit], 50000).
@@ -320,10 +321,9 @@ is_fuzzy_key(<<"match_", _/binary>>) ->
 is_fuzzy_key(_) ->
     false.
 
-page_start(Page, Limit) ->
-    if Page > 1 -> (Page-1) * Limit + 1;
-       true -> 1
-    end.
+page_start(1, _) -> 1;
+page_start(Page, Limit) -> (Page-1) * Limit + 1.
+
 
 judge_page_with_counting(Len, Meta = #{page := Page, limit := Limit, count := Count}) ->
     PageStart = page_start(Page, Limit),
@@ -339,11 +339,12 @@ judge_page_with_counting(Len, Meta = #{page := Page, limit := Limit, count := Co
 
 rows_sub_params(Len, _Meta = #{page := Page, limit := Limit, count := Count}) ->
     PageStart = page_start(Page, Limit),
-    if Count - Len < PageStart ->
+    case (Count - Len) < PageStart of
+        true ->
             NeedNowNum = Count - PageStart + 1,
             SubStart   = Len - NeedNowNum + 1,
             {SubStart, NeedNowNum};
-       true ->
+        false ->
             {_SubStart = 1, _NeedNowNum = Len}
     end.
 
