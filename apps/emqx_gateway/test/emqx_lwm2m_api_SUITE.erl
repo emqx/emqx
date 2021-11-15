@@ -107,16 +107,16 @@ t_lookup_cmd_read(Config) ->
     emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
     timer:sleep(200),
     %% step 1, device register ...
-    test_send_coap_request( UdpSock,
-                            post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
-                            #coap_content{
-                               content_format = <<"text/plain">>,
-                               payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,"
-                                           "</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>
-                              },
-                            [],
-                            MsgId1),
+    test_send_coap_request(
+      UdpSock,
+      post,
+      sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
+      #coap_content{
+         content_format = <<"text/plain">>,
+         payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,"
+                     "</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
+      [],
+      MsgId1),
     #coap_message{method = Method1} = test_recv_coap_response(UdpSock),
     ?assertEqual({ok,created}, Method1),
 
@@ -192,7 +192,8 @@ t_lookup_cmd_discover(Config) ->
       "127.0.0.1",
       ?PORT,
       {ok, content},
-      #coap_content{content_format = <<"application/link-format">>, payload = PayloadDiscover},
+      #coap_content{content_format = <<"application/link-format">>,
+                    payload = PayloadDiscover},
       Request2,
       true),
     timer:sleep(200),
@@ -206,13 +207,15 @@ t_read(Config) ->
     emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
     timer:sleep(200),
     %% step 1, device register ...
-    test_send_coap_request( UdpSock,
-                            post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
-                            #coap_content{content_format = <<"text/plain">>,
-                                          payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
-                            [],
-                            MsgId1),
+    test_send_coap_request(
+      UdpSock,
+      post,
+      sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
+      #coap_content{content_format = <<"text/plain">>,
+                    payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,"
+                                "</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
+      [],
+      MsgId1),
     #coap_message{method = Method1} = test_recv_coap_response(UdpSock),
     ?assertEqual({ok,created}, Method1),
 
@@ -236,13 +239,15 @@ t_write(Config) ->
     emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
     timer:sleep(200),
     %% step 1, device register ...
-    test_send_coap_request( UdpSock,
-                            post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
-                            #coap_content{content_format = <<"text/plain">>,
-                                          payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
-                            [],
-                            MsgId1),
+    test_send_coap_request(
+      UdpSock,
+      post,
+      sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
+      #coap_content{content_format = <<"text/plain">>,
+                    payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,"
+                                "</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
+      [],
+      MsgId1),
     #coap_message{method = Method1} = test_recv_coap_response(UdpSock),
     ?assertEqual({ok,created}, Method1),
 
@@ -268,13 +273,15 @@ t_observe(Config) ->
     emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
     timer:sleep(200),
     %% step 1, device register ...
-    test_send_coap_request( UdpSock,
-                            post,
-                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
-                            #coap_content{content_format = <<"text/plain">>,
-                                          payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
-                            [],
-                            MsgId1),
+    test_send_coap_request(
+      UdpSock,
+      post,
+      sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
+      #coap_content{content_format = <<"text/plain">>,
+                    payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,"
+                                "</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
+      [],
+      MsgId1),
     #coap_message{method = Method1} = test_recv_coap_response(UdpSock),
     ?assertEqual({ok,created}, Method1),
 

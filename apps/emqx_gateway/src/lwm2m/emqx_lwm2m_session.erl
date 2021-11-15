@@ -603,6 +603,7 @@ send_to_mqtt(Ctx, EventType, Payload, {Topic, Qos},
 proto_publish(Topic, Payload, Qos, Headers, WithContext,
               #session{endpoint_name = Epn} = Session) ->
     MountedTopic = mount(Topic, Session),
+    %% TODO: Append message metadata into headers
     Msg = emqx_message:make(Epn, Qos, MountedTopic,
                             emqx_json:encode(Payload), #{}, Headers),
     WithContext(publish, [MountedTopic, Msg]),

@@ -53,7 +53,11 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    {ok, _} = emqx_authz:update(replace, []),
+    {ok, _} = emqx:update_config(
+                [authorization],
+                #{<<"no_match">> => <<"allow">>,
+                  <<"cache">> => #{<<"enable">> => <<"true">>},
+                  <<"sources">> => []}),
     emqx_common_test_helpers:stop_apps([emqx_authz, emqx_conf]),
     meck:unload(emqx_resource),
     ok.

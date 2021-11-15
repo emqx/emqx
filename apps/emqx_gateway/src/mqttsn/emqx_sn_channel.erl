@@ -790,16 +790,26 @@ check_pub_authz({TopicName, _Flags, _Data},
     end.
 
 convert_pub_to_msg({TopicName, Flags, Data},
-                   Channel = #channel{
-                                clientinfo = #{clientid := ClientId}}) ->
+                   Channel = #channel{clientinfo = #{clientid := ClientId}}) ->
     #mqtt_sn_flags{qos = QoS, dup = Dup, retain = Retain} = Flags,
     NewQoS = get_corrected_qos(QoS),
-    Message = emqx_message:make(ClientId, NewQoS, TopicName, Data),
-    NMessage = emqx_message:set_flags(
-                 #{dup => Dup, retain => Retain},
-                 Message
-                ),
-    {ok, NMessage, Channel}.
+    Message = put_message_headers(
+                emqx_message:make(
+                  ClientId, NewQoS, TopicName, Data,
+                  #{dup => Dup, retain => Retain}, #{}), Channel),
+    {ok, Message, Channel}.
+
+put_message_headers(Msg, #channel{
+                            conninfo = #{proto_ver := ProtoVer},
+                            clientinfo = #{
+                                protocol := Protocol,
+                                username := Username,
+                                peerhost := PeerHost}}) ->
+    emqx_message:set_headers(
+      #{proto_ver => ProtoVer,
+        protocol => Protocol,
+        username => Username,
+        peerhost => PeerHost}, Msg).
 
 get_corrected_qos(?QOS_NEG1) -> ?QOS_0;
 get_corrected_qos(QoS) -> QoS.
@@ -1307,7 +1317,7 @@ ensure_disconnected(Reason, Channel = #channel{
 mabye_publish_will_msg(Channel = #channel{will_msg = undefined}) ->
     Channel;
 mabye_publish_will_msg(Channel = #channel{will_msg = WillMsg}) ->
-    ok = publish_will_msg(WillMsg),
+    ok = publish_will_msg(put_message_headers(WillMsg, Channel)),
     Channel#channel{will_msg = undefined}.
 
 publish_will_msg(Msg) ->
