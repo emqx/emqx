@@ -185,7 +185,7 @@ t_open_session_race_condition(_) ->
 
     exit(Winner, kill),
     receive {'DOWN', _, process, Winner, _} -> ok end,
-    ignored = gen_server:call(emqx_cm, ignore, infinity), %% sync
+    ignored = gen_server:call(?CM, ignore, infinity), %% sync
     ok = emqx_pool:flush_async_tasks(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
@@ -263,6 +263,7 @@ test_kick_session(Action, Reason) ->
             ?assertEqual(Reason, ?WAIT({'DOWN', _, process, Pid1, R}, 2_000, R)),
             ?assertEqual(Reason, ?WAIT({'DOWN', _, process, Pid2, R}, 2_000, R))
     end,
+    ignored = gen_server:call(?CM, ignore, infinity), % sync
     ok = flush_emqx_pool(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
