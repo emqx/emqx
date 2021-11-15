@@ -35,23 +35,14 @@
 paginate(Tables, Params, {Module, FormatFun}) ->
     Qh = query_handle(Tables),
     Count = count(Tables),
-    Page = b2i(page(Params)),
-    Limit = b2i(limit(Params)),
-    Cursor = qlc:cursor(Qh),
-    case Page > 1 of
-        true  ->
-            _ = qlc:next_answers(Cursor, (Page - 1) * Limit),
-            ok;
-        false -> ok
-    end,
-    Rows = qlc:next_answers(Cursor, Limit),
-    qlc:delete_cursor(Cursor),
-    #{meta  => #{page => Page, limit => Limit, count => Count},
-      data  => [Module:FormatFun(Row) || Row <- Rows]}.
+    do_paginate(Qh, Count, Params, {Module, FormatFun}).
 
 paginate(Tables, MatchSpec, Params, {Module, FormatFun}) ->
     Qh = query_handle(Tables, MatchSpec),
     Count = count(Tables, MatchSpec),
+    do_paginate(Qh, Count, Params, {Module, FormatFun}).
+
+do_paginate(Qh, Count, Params, {Module, FormatFun}) ->
     Page = b2i(page(Params)),
     Limit = b2i(limit(Params)),
     Cursor = qlc:cursor(Qh),
