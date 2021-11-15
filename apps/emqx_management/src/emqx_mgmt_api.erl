@@ -55,7 +55,7 @@ do_paginate(Qh, Count, Params, {Module, FormatFun}) ->
     Rows = qlc:next_answers(Cursor, Limit),
     qlc:delete_cursor(Cursor),
     #{meta  => #{page => Page, limit => Limit, count => Count},
-      data  => [Module:FormatFun(Row) || Row <- Rows]}.
+      data  => [erlang:apply(Module, FormatFun, [Row]) || Row <- Rows]}.
 
 query_handle(Table) when is_atom(Table) ->
     qlc:q([R || R <- ets:table(Table)]);
@@ -86,9 +86,7 @@ count(Table, MatchSpec) when is_atom(Table) ->
     NMatchSpec = [{MatchPattern, Where, [true]}],
     ets:select_count(Table, NMatchSpec);
 count([Table], MatchSpec) when is_atom(Table) ->
-    [{MatchPattern, Where, _Re}] = MatchSpec,
-    NMatchSpec = [{MatchPattern, Where, [true]}],
-    ets:select_count(Table, NMatchSpec);
+    count(Table, MatchSpec);
 count(Tables, MatchSpec) ->
     lists:sum([count(T, MatchSpec) || T <- Tables]).
 
