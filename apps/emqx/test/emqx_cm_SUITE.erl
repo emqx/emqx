@@ -180,7 +180,7 @@ t_open_session_race_condition(_) ->
     exit(Winner, kill),
     receive {'DOWN', _, process, Winner, _} -> ok end,
     ignored = gen_server:call(emqx_cm, ignore, infinity), %% sync
-    timer:sleep(100),
+    ok = emqx_pool:flush_async_tasks(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
 t_discard_session(_) ->
