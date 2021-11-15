@@ -1,4 +1,4 @@
-ARG BUILD_FROM=emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-1:23.3.4.9-2-ubuntu20.04
 FROM ${BUILD_FROM}
 
 ARG EMQX_NAME=emqx
