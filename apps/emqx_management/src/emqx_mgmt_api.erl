@@ -103,7 +103,11 @@ limit(Params) ->
 init_meta(Params) ->
     Limit = b2i(limit(Params)),
     Page  = b2i(page(Params)),
-    Meta = #{page => Page, limit => Limit, count => 0}.
+    #{
+        page => Page,
+        limit => Limit,
+        count => 0
+    }.
 
 %%--------------------------------------------------------------------
 %% Node Query
@@ -111,8 +115,8 @@ init_meta(Params) ->
 
 node_query(Node, Params, Tab, QsSchema, QueryFun) ->
     {_CodCnt, Qs} = params2qs(Params, QsSchema),
-    page_limit_check_query(Meta, {fun do_node_query/5,
-                                 [Node, Tab, Qs, QueryFun, init_meta(Params)]}).
+    page_limit_check_query(init_meta(Params),
+                          {fun do_node_query/5, [Node, Tab, Qs, QueryFun, init_meta(Params)]}).
 
 %% @private
 do_node_query(Node, Tab, Qs, QueryFun, Meta) ->
@@ -125,10 +129,10 @@ do_node_query( Node, Tab, Qs, QueryFun, Continuation
         {error, {badrpc, R}} ->
             {error, Node, {badrpc, R}};
         {Len, Rows, ?FRESH_SELECT} ->
-            {NMeta, NResults} = sub_query_result(Len, Rows, Results, Meta),
+            {NMeta, NResults} = sub_query_result(Len, Rows, Limit, Results, Meta),
             #{meta => NMeta, data => NResults};
-        {Len, Rows, _} ->
-            {NMeta, NResults} = sub_query_result(Len, Rows, Results, Meta),
+        {Len, Rows, NContinuation} ->
+            {NMeta, NResults} = sub_query_result(Len, Rows, Limit, Results, Meta),
             do_node_query(Node, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
     end.
 
@@ -139,8 +143,8 @@ do_node_query( Node, Tab, Qs, QueryFun, Continuation
 cluster_query(Params, Tab, QsSchema, QueryFun) ->
     {_CodCnt, Qs} = params2qs(Params, QsSchema),
     Nodes = mria_mnesia:running_nodes(),
-    page_limit_check_query(Meta, {fun do_cluster_query/5,
-                                 [Nodes, Tab, Qs, QueryFun, init_meta(Params)]}).
+    page_limit_check_query(init_meta(Params),
+                          {fun do_cluster_query/5, [Nodes, Tab, Qs, QueryFun, init_meta(Params)]}).
 
 %% @private
 do_cluster_query(Nodes, Tab, Qs, QueryFun, Meta) ->
@@ -154,10 +158,10 @@ do_cluster_query([Node | Tail] = Nodes, Tab, Qs, QueryFun, Continuation,
         {error, {badrpc, R}} ->
             {error, Node, {bar_rpc, R}};
         {Len, Rows, ?FRESH_SELECT} ->
-            {NMeta, NResults} = sub_query_result(Len, Rows, Results, Meta),
-            do_cluster_query(Tail, Tab, Qs, QueryFun, NContinuation, NMeta, NResults);
-        {Len, Rows, _} ->
-            {NMeta, NResults} = sub_query_result(Len, Rows, Results, Meta),
+            {NMeta, NResults} = sub_query_result(Len, Rows, Limit, Results, Meta),
+            do_cluster_query(Tail, Tab, Qs, QueryFun, ?FRESH_SELECT, NMeta, NResults);
+        {Len, Rows, NContinuation} ->
+            {NMeta, NResults} = sub_query_result(Len, Rows, Limit, Results, Meta),
             do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
     end.
 
@@ -172,7 +176,7 @@ do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) ->
     rpc_call(Node, ?MODULE, do_query,
              [Node, Tab, Qs, QueryFun, Continuation, Limit], 50000).
 
-sub_query_result(Len, Rows, Results, Meta) ->
+sub_query_result(Len, Rows, Limit, Results, Meta) ->
     {Flag, NMeta} = judge_page_with_counting(Len, Meta),
     NResults =
         case Flag of
