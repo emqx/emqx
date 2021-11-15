@@ -336,9 +336,8 @@ t_download_log(_Config) ->
     {ok, _} = emqtt:connect(Client),
     [begin _ = emqtt:ping(Client) end ||_ <- lists:seq(1, 5)],
     ct:sleep(100),
-    {ok, #{}, {sendfile, 0, ZipFileSize, _ZipFile}} =
-        emqx_trace_api:download_zip_log(#{name => Name}, []),
-    ?assert(ZipFileSize > 0),
+    {ok, ZipFile} = emqx_trace_api:download_zip_log(#{name => Name}, []),
+    ?assert(filelib:file_size(ZipFile) > 0),
     ok = emqtt:disconnect(Client),
     unload(),
     ok.
