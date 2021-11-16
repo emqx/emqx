@@ -141,7 +141,7 @@ make_docker() {
        --build-arg RUN_FROM="${EMQX_RUNNER_IMAGE}" \
        --build-arg EMQX_NAME="$PROFILE" \
        --tag "emqx/$PROFILE:$PKG_VSN" \
-       -f deploy/docker/Dockerfile .
+       -f "${DOCKERFILE}" .
 }
 
 log "building artifact=$ARTIFACT for profile=$PROFILE"
