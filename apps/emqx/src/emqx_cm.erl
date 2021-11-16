@@ -338,13 +338,10 @@ takeover_session(ClientId, Pid) ->
     try do_takeover_session(ClientId, Pid)
     catch
         _ : noproc -> % emqx_ws_connection: call
-            ?tp(debug, "session_gone", #{pid => Pid}),
             emqx_persistent_session:lookup(ClientId);
         _ : {noproc, _} -> % emqx_connection: gen_server:call
-            ?tp(debug, "session_gone", #{pid => Pid}),
             emqx_persistent_session:lookup(ClientId);
         _ : {'EXIT', {noproc, _}} -> % rpc_call/3
-            ?tp(debug, "session_gone", #{pid => Pid}),
             emqx_persistent_session:lookup(ClientId)
     end.
 
