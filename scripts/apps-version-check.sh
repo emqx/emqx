@@ -2,6 +2,7 @@
 set -euo pipefail
 
 latest_release=$(git describe --abbrev=0 --tags)
+echo "Compare base: $latest_release"
 
 bad_app_count=0
 
