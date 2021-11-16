@@ -15,8 +15,8 @@ PROFILE="$1"
 VSN="$2"
 OLD_VSN="$3"
 PACKAGE_PATH="$4"
-FROM_OTP_VSN="${5:-23.3.4.9-2}"
-TO_OTP_VSN="${6:-23.3.4.9-2}"
+FROM_OTP_VSN="${5:-23.3.4.9-3}"
+TO_OTP_VSN="${6:-23.3.4.9-3}"
 
 TEMPDIR=$(mktemp -d)
 trap '{ rm -rf -- "$TEMPDIR"; }' EXIT
