@@ -3,6 +3,7 @@ REBAR_VERSION = 3.14.3-emqx-8
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
+export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 export EMQX_DESC ?= EMQ X
 export EMQX_CE_DASHBOARD_VERSION ?= v4.3.3
@@ -144,11 +145,18 @@ $1: $1-rel
 endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
 
+## docker target is to create docker instructions
+.PHONY: $(REL_PROFILES:%=%-docker)
+define gen-docker-target
+$1-docker: $(COMMON_DEPS)
+	@$(BUILD) $1 docker
+endef
+ALL_ZIPS = $(REL_PROFILES)
+$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target,$(zt))))
+
 .PHONY: run
 run: $(PROFILE) quickrun
 
 .PHONY: quickrun
 quickrun:
 	./_build/$(PROFILE)/rel/emqx/bin/emqx console
-
-include docker.mk
