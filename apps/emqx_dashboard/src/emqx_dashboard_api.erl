@@ -60,8 +60,7 @@ schema("/login") ->
             tags => [<<"dashboard">>],
             description => <<"Dashboard Auth">>,
             summary => <<"Dashboard Auth">>,
-            'requestBody' =>
-            [
+            'requestBody' => [
                 {username, mk(binary(),
                     #{desc => <<"The User for which to create the token.">>,
                         'maxLength' => 100, example => <<"admin">>})},
@@ -74,10 +73,12 @@ schema("/login") ->
                     {license, [{edition,
                         mk(enum([community, enterprise]), #{desc => <<"license">>,
                             example => "community"})}]},
-                    {version, mk(string(), #{desc => <<"version">>, example => <<"5.0.0">>})}],
+                    {version, mk(string(), #{desc => <<"version">>, example => <<"5.0.0">>})}
+                ],
                 401 => [
                     {code, mk(string(), #{example => 'ERROR_USERNAME_OR_PWD'})},
-                    {message, mk(string(), #{example => "Unauthorized"})}]
+                    {message, mk(string(), #{example => "Unauthorized"})}
+                ]
             },
             security => []
         }};
@@ -93,7 +94,7 @@ schema("/logout") ->
                         'maxLength' => 100, example => <<"admin">>})}
             ],
             responses => #{
-                200 => <<"Dashboard logout successfully">>
+                204 => <<"Dashboard logout successfully">>
             }
         }
     };
@@ -116,7 +117,9 @@ schema("/users") ->
                 200 => mk( array(ref(?MODULE, user))
                          , #{desc => <<"Create User successfully">>}),
                 400 => [{code, mk(string(), #{example => 'CREATE_FAIL'})},
-                    {message, mk(string(), #{example => "Create user failed"})}]}
+                    {message, mk(string(), #{example => "Create user failed"})}
+                ]
+            }
         }
     };
 
@@ -149,8 +152,10 @@ schema("/users/:username") ->
                 204 => <<"Delete User successfully">>,
                 400 => [
                     {code, mk(string(), #{example => 'CANNOT_DELETE_ADMIN'})},
-                    {message, mk(string(), #{example => "CANNOT DELETE ADMIN"})}],
-                404 => emqx_dashboard_swagger:error_codes(['USER_NOT_FOUND'], <<"User Not Found">>)}
+                    {message, mk(string(), #{example => "CANNOT DELETE ADMIN"})}
+                ],
+                404 => emqx_dashboard_swagger:error_codes(['USER_NOT_FOUND'], <<"User Not Found">>)
+            }
         }
     };
 schema("/users/:username/change_pwd") ->
@@ -169,7 +174,10 @@ schema("/users/:username/change_pwd") ->
                 200 => <<"Update user password successfully">>,
                 400 => [
                     {code, mk(string(), #{example => 'UPDATE_FAIL'})},
-                    {message, mk(string(), #{example => "Failed Reason"})}]}}
+                    {message, mk(string(), #{example => "Failed Reason"})}
+                ]
+            }
+        }
     }.
 
 fields(user) ->
@@ -199,7 +207,7 @@ logout(_, #{body := #{<<"username">> := Username},
     headers := #{<<"authorization">> := <<"Bearer ", Token/binary>>}}) ->
     case emqx_dashboard_admin:destroy_token_by_username(Username, Token) of
         ok ->
-            200;
+            204;
         _R ->
             {401, 'BAD_TOKEN_OR_USERNAME', <<"Ensure your token & username">>}
     end.
