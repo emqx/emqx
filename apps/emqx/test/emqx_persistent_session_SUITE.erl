@@ -535,7 +535,7 @@ t_publish_while_client_is_gone(Config) ->
     {ok, _} = emqtt:ConnFun(Client2),
     Msgs = receive_messages(2),
     ?assertEqual(length(Msgs), 2),
-    [Msg1, Msg2] = Msgs,
+    [Msg2, Msg1] = Msgs,
     ?assertEqual({ok, iolist_to_binary(Payload1)}, maps:find(payload, Msg1)),
     ?assertEqual({ok, 2}, maps:find(qos, Msg1)),
     ?assertEqual({ok, iolist_to_binary(Payload2)}, maps:find(payload, Msg2)),
