@@ -65,7 +65,8 @@ load_hook() ->
         end, maps:to_list(Bridges)).
 
 load_hook(#{from_local_topic := _}) ->
-    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []});
+    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}),
+    ok;
 load_hook(_Conf) -> ok.
 
 unload_hook() ->
@@ -98,12 +99,13 @@ bridge_type(emqx_connector_http) -> http.
 post_config_update(_Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated}
         = diff_confs(NewConf, OldConf),
-    perform_bridge_changes([
+    Result = perform_bridge_changes([
         {fun remove/3, Removed},
         {fun create/3, Added},
         {fun update/3, Updated}
     ]),
-    reload_hook().
+    ok = reload_hook(),
+    Result.
 
 perform_bridge_changes(Tasks) ->
     perform_bridge_changes(Tasks, ok).
