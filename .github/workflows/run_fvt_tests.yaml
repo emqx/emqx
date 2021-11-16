@@ -13,10 +13,6 @@ jobs:
 
         steps:
         - uses: actions/checkout@v1
-        - uses: gleam-lang/setup-erlang@v1.1.2
-          id: install_erlang
-          with:
-            otp-version: 23.2
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -24,6 +20,7 @@ jobs:
               git config --global credential.helper store
               echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
               make deps-emqx-ee
+              make clean
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
               echo "PROFILE=emqx-ee" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
@@ -33,6 +30,8 @@ jobs:
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             fi
         - name: make emqx image
+          env:
+            OTP_VSN: 23.3.4.9-2
           run: make ${PROFILE}-docker
         - name: run emqx
           timeout-minutes: 5
@@ -69,10 +68,6 @@ jobs:
 
         steps:
         - uses: actions/checkout@v1
-        - uses: gleam-lang/setup-erlang@v1.1.2
-          id: install_erlang
-          with:
-            otp-version: 23.2
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -80,6 +75,7 @@ jobs:
               git config --global credential.helper store
               echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
               make deps-emqx-ee
+              make clean
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
               echo "PROFILE=emqx-ee" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
@@ -89,6 +85,8 @@ jobs:
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             fi
         - name: make emqx image
+          env:
+            OTP_VSN: 23.3.4.9-2
           run: make ${PROFILE}-docker
         - name: install k3s
           env:

@@ -12,10 +12,6 @@ ARTIFACT="$2"
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-EMQX_RUNNER_IMAGE='alpine:3.14'
-EMQX_RUNNER_IMAGE_COMPACT="$(echo $EMQX_RUNNER_IMAGE | tr -d ':')"
-EMQX_BUILDER="${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/4.4-1:${OTP_VSN}-${EMQX_RUNNER_IMAGE_COMPACT}}"
-
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
 export PKG_VSN
 
@@ -129,14 +125,20 @@ make_zip() {
 }
 
 make_docker() {
+    EMQX_RUNNER_IMAGE='alpine:3.14'
+    EMQX_RUNNER_IMAGE_COMPACT="$(echo $EMQX_RUNNER_IMAGE | tr -d ':')"
+    EMQX_BUILDER="${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/4.4-1:${OTP_VSN}-${EMQX_RUNNER_IMAGE_COMPACT}}"
+
     ## Build Docker image
     echo "DOCKER BUILD: Build Docker image."
-    echo "DOCKER BUILD: build version -> $PKG_VSN."
     echo "DOCKER BUILD: docker repo -> emqx/$PROFILE "
+    echo "DOCKER BUILD: build version -> $PKG_VSN."
+    echo "DOCKER BUILD: build from -> $EMQX_BUILDER."
+    echo "DOCKER BUILD: runner from -> $EMQX_RUNNER_IMAGE."
 
     docker build --no-cache --pull \
        --build-arg BUILD_FROM="${EMQX_BUILDER}" \
-       --build-arg RUN_FROM="{EMQX_RUNNER_IMAGE}" \
+       --build-arg RUN_FROM="${EMQX_RUNNER_IMAGE}" \
        --build-arg EMQX_NAME="$PROFILE" \
        --tag "emqx/$PROFILE:$PKG_VSN" \
        -f deploy/docker/Dockerfile .
