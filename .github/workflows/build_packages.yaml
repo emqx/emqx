@@ -65,6 +65,8 @@ jobs:
     strategy:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        otp:
+          - 23.2
         exclude:
           - profile: emqx-edge
 
@@ -79,7 +81,7 @@ jobs:
     - uses: gleam-lang/setup-erlang@v1.1.0
       id: install_erlang
       with:
-        otp-version: 23.2
+        otp-version: ${{ matrix.otp }}
     - name: build
       env:
         PYTHON: python
@@ -90,10 +92,10 @@ jobs:
         $version = $( "${{ github.ref }}" -replace "^(.*)/(.*)/" )
         if ($version -match "^v[0-9]+\.[0-9]+(\.[0-9]+)?") {
           $regex = "[0-9]+\.[0-9]+(-alpha|-beta|-rc)?\.[0-9]+"
-          $pkg_name = "${{ matrix.profile }}-windows-$([regex]::matches($version, $regex).value).zip"
+          $pkg_name = "${{ matrix.profile }}-$([regex]::matches($version, $regex).value)-otp${{ matrix.otp }}-windows-amd64.zip"
           }
         else {
-          $pkg_name = "${{ matrix.profile }}-windows-$($version -replace '/').zip"
+          $pkg_name = "${{ matrix.profile }}-$($version -replace '/')-otp${{ matrix.otp }}-windows-amd64.zip"
           }
         cd source
         ## We do not build/release bcrypt for windows package
