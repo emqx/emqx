@@ -300,16 +300,55 @@ t_discard_session_race(_) ->
 t_takeover_session(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
     none = emqx_cm:takeover_session(<<"clientid">>),
+    Parent = self(),
     erlang:spawn_link(fun() ->
         ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+        Parent ! registered,
         receive
             {'$gen_call', From, {takeover, 'begin'}} ->
                 gen_server:reply(From, test), ok
         end
     end),
-    timer:sleep(100),
+    receive registered -> ok end,
     {living, emqx_connection, _, test} = emqx_cm:takeover_session(<<"clientid">>),
     emqx_cm:unregister_channel(<<"clientid">>).
+
+t_takeover_session_process_gone(_) ->
+    #{conninfo := ConnInfo} = ?ChanInfo,
+    ClientIDTcp = <<"clientidTCP">>,
+    ClientIDWs = <<"clientidWs">>,
+    ClientIDRpc = <<"clientidRPC">>,
+    none = emqx_cm:takeover_session(ClientIDTcp),
+    none = emqx_cm:takeover_session(ClientIDWs),
+    meck:new(emqx_connection, [passthrough, no_history]),
+    meck:expect(emqx_connection, call,
+                fun(Pid, {takeover, 'begin'}, _) ->
+                        exit({noproc, {gen_server,call,[Pid, takeover_session]}});
+                   (Pid, What, Args) ->
+                        meck:passthrough([Pid, What, Args])
+                end),
+    ok = emqx_cm:register_channel(ClientIDTcp, self(), ConnInfo),
+    none = emqx_cm:takeover_session(ClientIDTcp),
+    meck:expect(emqx_connection, call,
+                fun(_Pid, {takeover, 'begin'}, _) ->
+                        exit(noproc);
+                   (Pid, What, Args) ->
+                        meck:passthrough([Pid, What, Args])
+                end),
+    ok = emqx_cm:register_channel(ClientIDWs, self(), ConnInfo),
+    none = emqx_cm:takeover_session(ClientIDWs),
+    meck:expect(emqx_connection, call,
+                fun(Pid, {takeover, 'begin'}, _) ->
+                        exit({'EXIT', {noproc, {gen_server,call,[Pid, takeover_session]}}});
+                   (Pid, What, Args) ->
+                        meck:passthrough([Pid, What, Args])
+                end),
+    ok = emqx_cm:register_channel(ClientIDRpc, self(), ConnInfo),
+    none = emqx_cm:takeover_session(ClientIDRpc),
+    emqx_cm:unregister_channel(ClientIDTcp),
+    emqx_cm:unregister_channel(ClientIDWs),
+    emqx_cm:unregister_channel(ClientIDRpc),
+    meck:unload(emqx_connection).
 
 t_all_channels(_) ->
     ?assertEqual(true, is_list(emqx_cm:all_channels())).

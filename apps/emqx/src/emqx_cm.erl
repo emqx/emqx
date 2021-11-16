@@ -334,7 +334,18 @@ takeover_session(ClientId) ->
             takeover_session(ClientId, ChanPid)
     end.
 
-takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
+takeover_session(ClientId, Pid) ->
+    try do_takeover_session(ClientId, Pid)
+    catch
+        _ : noproc -> % emqx_ws_connection: call
+            emqx_persistent_session:lookup(ClientId);
+        _ : {noproc, _} -> % emqx_connection: gen_server:call
+            emqx_persistent_session:lookup(ClientId);
+        _ : {'EXIT', {noproc, _}} -> % rpc_call/3
+            emqx_persistent_session:lookup(ClientId)
+    end.
+
+do_takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chann_conn_mod(ClientId, ChanPid) of
         undefined ->
             emqx_persistent_session:lookup(ClientId);
@@ -343,7 +354,7 @@ takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
             Session = ConnMod:call(ChanPid, {takeover, 'begin'}, ?T_TAKEOVER),
             {living, ConnMod, ChanPid, Session}
     end;
-takeover_session(ClientId, ChanPid) ->
+do_takeover_session(ClientId, ChanPid) ->
     rpc_call(node(ChanPid), takeover_session, [ClientId, ChanPid], ?T_TAKEOVER).
 
 %% @doc Discard all the sessions identified by the ClientId.
