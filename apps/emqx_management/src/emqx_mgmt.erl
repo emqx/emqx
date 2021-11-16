@@ -256,11 +256,16 @@ lookup_client(Node, {username, Username}, {M,F}) when Node =:= node() ->
 lookup_client(Node, {username, Username}, FormatFun) ->
     rpc_call(Node, lookup_client, [Node, {username, Username}, FormatFun]).
 
-kickout_client(ClientId) ->
-    Results = [kickout_client(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
-    case lists:any(fun(Item) -> Item =:= ok end, Results) of
-        true  -> ok;
-        false -> lists:last(Results)
+kickout_client({ClientId, FormatFun}) ->
+    case lookup_client({clientid, ClientID}, FormatFun) of
+        [] ->
+            {error, not_found};
+        _ ->
+            Results = [kickout_client(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
+            case lists:any(fun(Item) -> Item =:= ok end, Results) of
+                true  -> ok;
+                false -> lists:last(Results)
+            end
     end.
 
 kickout_client(Node, ClientId) when Node =:= node() ->
