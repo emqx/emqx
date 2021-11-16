@@ -74,15 +74,15 @@ set_special_configs(_) ->
 
 t_overview(_) ->
     mnesia:clear_table(?ADMIN),
-    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"tag">>),
+    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"tags">>),
     [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)),
         auth_header_()))|| Overview <- ?OVERVIEWS].
 
 t_admins_add_delete(_) ->
     mnesia:clear_table(?ADMIN),
-    Tag = <<"tag">>,
-    ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, Tag),
-    ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, Tag),
+    Tags = <<"tags">>,
+    ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, Tags),
+    ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, Tags),
     Admins = emqx_dashboard_admin:all_users(),
     ?assertEqual(2, length(Admins)),
     ok = emqx_dashboard_admin:remove_user(<<"username1">>),
@@ -100,8 +100,8 @@ t_admins_add_delete(_) ->
 
 t_rest_api(_Config) ->
     mnesia:clear_table(?ADMIN),
-    Tag = <<"administrator">>,
-    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, Tag),
+    Tags = <<"administrator">>,
+    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, Tags),
     {ok, Res0} = http_get("users"),
 
     ?assertEqual([#{<<"username">> => <<"admin">>,

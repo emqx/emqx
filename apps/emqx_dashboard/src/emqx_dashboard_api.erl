@@ -120,7 +120,7 @@ schema("/users/:username") ->
             description => <<"Update dashboard users">>,
             parameters => [{username, mk(binary(),
                 #{in => path, example => <<"admin">>})}],
-            'requestBody' => [{tag, mk(binary(), #{desc => <<"Tag">>})}],
+            'requestBody' => [{tags, mk(binary(), #{desc => <<"Tags">>})}],
             responses => #{
                 200 => <<"Update User successfully">>,
                 400 => [{code, mk(string(), #{example => 'UPDATE_FAIL'})},
@@ -158,9 +158,9 @@ schema("/users/:username/change_pwd") ->
 
 fields(user) ->
     [
-        {tag,
+        {tags,
             mk(binary(),
-                #{desc => <<"tag">>, example => "administrator"})},
+                #{desc => <<"tags">>, example => "administrator"})},
         {username,
             mk(binary(),
                 #{desc => <<"username">>, example => "emqx"})}
@@ -192,7 +192,7 @@ users(get, _Request) ->
     {200, emqx_dashboard_admin:all_users()};
 
 users(post, #{body := Params}) ->
-    Tag = maps:get(<<"tag">>, Params),
+    Tags = maps:get(<<"tags">>, Params),
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
     case ?EMPTY(Username) orelse ?EMPTY(Password) of
@@ -200,7 +200,7 @@ users(post, #{body := Params}) ->
             {400, #{code => <<"CREATE_USER_FAIL">>,
                 message => <<"Username or password undefined">>}};
         false ->
-            case emqx_dashboard_admin:add_user(Username, Password, Tag) of
+            case emqx_dashboard_admin:add_user(Username, Password, Tags) of
                 ok -> {200};
                 {error, Reason} ->
                     {400, #{code => <<"CREATE_USER_FAIL">>, message => Reason}}
@@ -208,8 +208,8 @@ users(post, #{body := Params}) ->
     end.
 
 user(put, #{bindings := #{username := Username}, body := Params}) ->
-    Tag = maps:get(<<"tag">>, Params),
-    case emqx_dashboard_admin:update_user(Username, Tag) of
+    Tags = maps:get(<<"tags">>, Params),
+    case emqx_dashboard_admin:update_user(Username, Tags) of
         ok -> {200};
         {error, Reason} ->
             {400, #{code => <<"UPDATE_FAIL">>, message => Reason}}

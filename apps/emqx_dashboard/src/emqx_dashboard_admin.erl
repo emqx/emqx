@@ -147,9 +147,7 @@ all_users() ->
                           tags = Tags
                          }) ->
                       #{username => Username,
-                        %% named tag but not tags, for unknown reason
-                        %% TODO: fix this comment
-                        tag => Tags
+                        tags => Tags
                        }
               end, ets:tab2list(?ADMIN)).
 
