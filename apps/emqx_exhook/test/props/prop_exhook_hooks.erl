@@ -31,12 +31,11 @@
         ]).
 
 -define(CONF_DEFAULT, <<"
-exhook: {
-    servers: [
-        { name: \"default\"
-          url: \"http://127.0.0.1:9000\"
-        }
-    ]
+emqx_exhook
+{servers = [
+            {name = default,
+             url = \"http://127.0.0.1:9000\"
+            }]
 }
 ">>).
 

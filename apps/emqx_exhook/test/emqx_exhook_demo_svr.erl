@@ -20,7 +20,9 @@
 
 %%
 -export([ start/0
+        , start/2
         , stop/0
+        , stop/1
         , take/0
         , in/1
         ]).
@@ -57,39 +59,45 @@
 %%--------------------------------------------------------------------
 
 start() ->
-    Pid = spawn(fun mngr_main/0),
-    register(?MODULE, Pid),
+    start(?NAME, ?PORT).
+
+start(Name, Port) ->
+    Pid = spawn(fun() ->  mgr_main(Name, Port) end),
+    register(to_atom_name(Name), Pid),
     {ok, Pid}.
 
 stop() ->
-    grpc:stop_server(?NAME),
-    ?MODULE ! stop.
+    stop(?NAME).
+
+stop(Name) ->
+    grpc:stop_server(Name),
+    to_atom_name(Name) ! stop.
 
 take() ->
-    ?MODULE ! {take, self()},
+    to_atom_name(?NAME) ! {take, self()},
     receive {value, V} -> V
     after 5000 -> error(timeout) end.
 
 in({FunName, Req}) ->
-    ?MODULE ! {in, FunName, Req}.
+    to_atom_name(?NAME) ! {in, FunName, Req}.
 
-mngr_main() ->
+mgr_main(Name, Port) ->
     application:ensure_all_started(grpc),
     Services = #{protos => [emqx_exhook_pb],
                  services => #{'emqx.exhook.v1.HookProvider' => emqx_exhook_demo_svr}
                 },
     Options = [],
-    Svr = grpc:start_server(?NAME, ?PORT, Services, Options),
-    mngr_loop([Svr, queue:new(), queue:new()]).
+    Svr = grpc:start_server(Name, Port, Services, Options),
+    mgr_loop([Svr, queue:new(), queue:new()]).
 
-mngr_loop([Svr, Q, Takes]) ->
+mgr_loop([Svr, Q, Takes]) ->
     receive
         {in, FunName, Req} ->
             {NQ1, NQ2} = reply(queue:in({FunName, Req}, Q), Takes),
-            mngr_loop([Svr, NQ1, NQ2]);
+            mgr_loop([Svr, NQ1, NQ2]);
         {take, From} ->
             {NQ1, NQ2} = reply(Q, queue:in(From, Takes)),
-            mngr_loop([Svr, NQ1, NQ2]);
+            mgr_loop([Svr, NQ1, NQ2]);
         stop ->
             exit(normal)
     end.
@@ -105,12 +113,18 @@ reply(Q1, Q2) ->
             {NQ1, NQ2}
     end.
 
+to_atom_name(Name) when is_atom(Name) ->
+    Name;
+
+to_atom_name(Name) ->
+    erlang:binary_to_atom(Name).
+
 %%--------------------------------------------------------------------
 %% callbacks
 %%--------------------------------------------------------------------
 
 -spec on_provider_loaded(emqx_exhook_pb:provider_loaded_request(), grpc:metadata())
-    -> {ok, emqx_exhook_pb:loaded_response(), grpc:metadata()}
+                        -> {ok, emqx_exhook_pb:loaded_response(), grpc:metadata()}
      | {error, grpc_cowboy_h:error_response()}.
 
 on_provider_loaded(Req, Md) ->

@@ -21,14 +21,14 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
 -define(CONF_DEFAULT, <<"
-exhook: {
-    servers: [
-        { name: \"default\"
-          url: \"http://127.0.0.1:9000\"
-        }
-    ]
+emqx_exhook
+{servers = [
+            {name = default,
+             url = \"http://127.0.0.1:9000\"
+            }]
 }
 ">>).
 
@@ -39,27 +39,53 @@ exhook: {
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Cfg) ->
+    application:load(emqx_conf),
+    ok = ekka:start(),
+    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
+    meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
+    meck:expect(emqx_alarm, activate, 3, ok),
+    meck:expect(emqx_alarm, deactivate, 3, ok),
+
     _ = emqx_exhook_demo_svr:start(),
     ok = emqx_config:init_load(emqx_exhook_schema, ?CONF_DEFAULT),
     emqx_common_test_helpers:start_apps([emqx_exhook]),
     Cfg.
 
 end_per_suite(_Cfg) ->
+    ekka:stop(),
+    mria:stop(),
+    mria_mnesia:delete_schema(),
+    meck:unload(emqx_alarm),
+
     emqx_common_test_helpers:stop_apps([emqx_exhook]),
     emqx_exhook_demo_svr:stop().
+
+init_per_testcase(_, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(),
+    timer:sleep(200),
+    Config.
+
+end_per_testcase(_, Config) ->
+    case erlang:whereis(node()) of
+        undefined -> ok;
+        P ->
+            erlang:unlink(P),
+            erlang:exit(P, kill)
+    end,
+    Config.
 
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
 
 t_noserver_nohook(_) ->
-    emqx_exhook:disable(<<"default">>),
+    emqx_exhook_mgr:disable(<<"default">>),
     ?assertEqual([], ets:tab2list(emqx_hooks)),
-    ok = emqx_exhook:enable(<<"default">>),
+    {ok, _} = emqx_exhook_mgr:enable(<<"default">>),
     ?assertNotEqual([], ets:tab2list(emqx_hooks)).
 
 t_access_failed_if_no_server_running(_) ->
-    emqx_exhook:disable(<<"default">>),
+    emqx_exhook_mgr:disable(<<"default">>),
     ClientInfo = #{clientid => <<"user-id-1">>,
                    username => <<"usera">>,
                    peerhost => {127,0,0,1},
@@ -76,30 +102,7 @@ t_access_failed_if_no_server_running(_) ->
     Message = emqx_message:make(<<"t/1">>, <<"abc">>),
     ?assertMatch({stop, Message},
                  emqx_exhook_handler:on_message_publish(Message)),
-    emqx_exhook:enable(<<"default">>).
-
-t_cli_list(_) ->
-    meck_print(),
-    ?assertEqual( [[emqx_exhook_server:format(emqx_exhook_mngr:server(Name)) || Name  <- emqx_exhook:list()]]
-                , emqx_exhook_cli:cli(["server", "list"])
-                ),
-    unmeck_print().
-
-t_cli_enable_disable(_) ->
-    meck_print(),
-    ?assertEqual([already_started], emqx_exhook_cli:cli(["server", "enable", "default"])),
-    ?assertEqual(ok, emqx_exhook_cli:cli(["server", "disable", "default"])),
-    ?assertEqual([["name=default, hooks=#{}, active=false"]], emqx_exhook_cli:cli(["server", "list"])),
-
-    ?assertEqual([not_running], emqx_exhook_cli:cli(["server", "disable", "default"])),
-    ?assertEqual(ok, emqx_exhook_cli:cli(["server", "enable", "default"])),
-    unmeck_print().
-
-t_cli_stats(_) ->
-    meck_print(),
-    _ = emqx_exhook_cli:cli(["server", "stats"]),
-    _ = emqx_exhook_cli:cli(x),
-    unmeck_print().
+    emqx_exhook_mgr:enable(<<"default">>).
 
 %%--------------------------------------------------------------------
 %% Utils
@@ -115,13 +118,13 @@ unmeck_print() ->
 
 loaded_exhook_hookpoints() ->
     lists:filtermap(fun(E) ->
-        Name = element(2, E),
-        Callbacks = element(3, E),
-        case lists:any(fun is_exhook_callback/1, Callbacks) of
-            true -> {true, Name};
-            _ -> false
-        end
-    end, ets:tab2list(emqx_hooks)).
+                            Name = element(2, E),
+                            Callbacks = element(3, E),
+                            case lists:any(fun is_exhook_callback/1, Callbacks) of
+                                true -> {true, Name};
+                                _ -> false
+                            end
+                    end, ets:tab2list(emqx_hooks)).
 
 is_exhook_callback(Cb) ->
     Action = element(2, Cb),
