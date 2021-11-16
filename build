@@ -134,7 +134,7 @@ make_docker() {
     echo "DOCKER BUILD: build version -> $PKG_VSN."
     echo "DOCKER BUILD: docker repo -> emqx/$PROFILE "
 
-    docker build --no-cache \
+    docker build --no-cache --pull \
        --build-arg BUILD_FROM="${EMQX_BUILDER}" \
        --build-arg RUN_FROM="{EMQX_RUNNER_IMAGE}" \
        --build-arg EMQX_NAME="$PROFILE" \
