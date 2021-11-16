@@ -124,24 +124,61 @@ make_zip() {
     (cd "${tard}" && zip -qr - emqx) > "${zipball}"
 }
 
+## This function builds the default docker image based on alpine:3.14 (by default)
 make_docker() {
-    EMQX_RUNNER_IMAGE='alpine:3.14'
-    EMQX_RUNNER_IMAGE_COMPACT="$(echo $EMQX_RUNNER_IMAGE | tr -d ':')"
+    EMQX_RUNNER_IMAGE="${EMQX_RUNNER_IMAGE:-alpine:3.14}"
+    EMQX_RUNNER_IMAGE_COMPACT="$(echo "$EMQX_RUNNER_IMAGE" | tr -d ':')"
     EMQX_BUILDER="${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/4.4-2:${OTP_VSN}-${EMQX_RUNNER_IMAGE_COMPACT}}"
-
-    ## Build Docker image
-    echo "DOCKER BUILD: Build Docker image."
-    echo "DOCKER BUILD: docker repo -> emqx/$PROFILE "
-    echo "DOCKER BUILD: build version -> $PKG_VSN."
-    echo "DOCKER BUILD: build from -> $EMQX_BUILDER."
-    echo "DOCKER BUILD: runner from -> $EMQX_RUNNER_IMAGE."
-
+    set -x
     docker build --no-cache --pull \
        --build-arg BUILD_FROM="${EMQX_BUILDER}" \
        --build-arg RUN_FROM="${EMQX_RUNNER_IMAGE}" \
        --build-arg EMQX_NAME="$PROFILE" \
-       --tag "emqx/$PROFILE:$PKG_VSN" \
+       --tag "emqx/$PROFILE:${PKG_VSN}" \
        -f "${DOCKERFILE}" .
+}
+
+## This function accepts any base docker image,
+## a emqx zip-image, and a image tag (for the image to be built),
+## to build a docker image which runs EMQ X
+##
+## Export below variables to quickly build an image
+##
+## Name               Default                         Example
+## ---------------------------------------------------------------------
+## EMQX_BASE_IMAGE    current os                      centos:7
+## EMQX_ZIP_PACKAGE   _packages/<current-zip-target>  /tmp/emqx-4.4.0-otp23.3.4.9-3-centos7-amd64.zip
+## EMQX_IMAGE_TAG     emqx/emqx:<current-vns-rel>     emqx/emqx:testing-tag
+##
+make_docker_testing() {
+    if [ -z "${EMQX_BASE_IMAGE:-}" ]; then
+        case "$SYSTEM" in
+            ubuntu20*)
+                EMQX_BASE_IMAGE="ubuntu:20.04"
+                ;;
+            centos8)
+                EMQX_BASE_IMAGE="centos:8"
+                ;;
+            *)
+                echo "Unsupported testing base image for $SYSTEM"
+                exit 1
+                ;;
+        esac
+    fi
+    EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-emqx/$PROFILE:${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}}"
+    local defaultzip
+    defaultzip="_packages/${PROFILE}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.zip"
+    local zip="${EMQX_ZIP_PACKAGE:-$defaultzip}"
+    if [ ! -f "$zip" ]; then
+        log "ERROR: $zip not built?"
+        exit 1
+    fi
+    set -x
+    docker build \
+       --build-arg BUILD_FROM="${EMQX_BASE_IMAGE}" \
+       --build-arg EMQX_ZIP_PACKAGE="${zip}" \
+       --tag "$EMQX_IMAGE_TAG" \
+       -f "${DOCKERFILE_TESTING}" .
 }
 
 log "building artifact=$ARTIFACT for profile=$PROFILE"
@@ -166,6 +203,9 @@ case "$ARTIFACT" in
         ;;
     docker)
         make_docker
+        ;;
+    docker-testing)
+        make_docker_testing
         ;;
     *)
         log "Unknown artifact $ARTIFACT"
