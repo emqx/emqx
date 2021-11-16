@@ -257,7 +257,9 @@ t_parse_query(_Config) ->
     ?assertEqual({<<"$1">>, [<<"${mqtt-username}">>]}, emqx_authn_pgsql:parse_query(Query1)),
 
     Query2 = <<"${mqtt-username}, ${mqtt-clientid}">>,
-    ?assertEqual({<<"$1, $2">>, [<<"${mqtt-username}">>, <<"${mqtt-clientid}">>]}, emqx_authn_pgsql:parse_query(Query2)),
+    ?assertEqual(
+       {<<"$1, $2">>, [<<"${mqtt-username}">>, <<"${mqtt-clientid}">>]},
+       emqx_authn_pgsql:parse_query(Query2)),
 
     Query3 = <<"nomatch">>,
     ?assertEqual({<<"nomatch">>, []}, emqx_authn_pgsql:parse_query(Query3)).

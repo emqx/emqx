@@ -372,8 +372,8 @@ init_seeds() ->
                        is_superuser_int TINYINT)"),
 
     Fields = [username, password_hash, salt, is_superuser_str, is_superuser_int],
-    InsertQuery = "INSERT INTO users(username, password_hash, salt, is_superuser_str, is_superuser_int)
-                VALUES(?, ?, ?, ?, ?)",
+    InsertQuery = "INSERT INTO users(username, password_hash, salt, "
+    " is_superuser_str, is_superuser_int) VALUES(?, ?, ?, ?, ?)",
 
     lists:foreach(
       fun(#{data := Values}) ->
