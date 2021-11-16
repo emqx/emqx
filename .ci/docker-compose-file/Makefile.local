@@ -1,0 +1,49 @@
+.PHONY: help up down ct ct-all bash run
+
+define usage
+make -f .ci/docker-compose-file/Makefile.local up
+make -f .ci/docker-compose-file/Makefile.local ct CONTAINER=erlang24 SUITE=apps/emqx_authn/test/emqx_authn_mnesia_SUITE.erl
+make -f .ci/docker-compose-file/Makefile.local down
+endef
+export usage
+
+help:
+	@echo "$$usage"
+
+up:
+	env \
+		MYSQL_TAG=8 \
+		REDIS_TAG=6 \
+		MONGO_TAG=4 \
+		PGSQL_TAG=13 \
+		LDAP_TAG=2.4.50 \
+	docker-compose \
+		-f .ci/docker-compose-file/docker-compose.yaml \
+		-f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
+		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
+		-f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+		-f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
+		-f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
+		up -d --build
+
+down:
+	docker-compose \
+		-f .ci/docker-compose-file/docker-compose.yaml \
+		-f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
+		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
+		-f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+		-f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
+		-f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
+		down
+
+ct:
+	docker exec -i "$(CONTAINER)" bash -c "rebar3 ct --name 'test@127.0.0.1' -v --suite $(SUITE)"
+
+ct-all:
+	docker exec -i "$(CONTAINER)" bash -c "make ct"
+
+bash:
+	docker exec -it "$(CONTAINER)" bash
+
+run:
+	docker exec -it "$(CONTAINER)" bash -c "make run";

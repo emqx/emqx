@@ -17,8 +17,13 @@
 
 -include("emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
--include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 -include_lib("emqx/include/logger.hrl").
+
+-type server() :: emqx_schema:ip_port().
+-reflect_type([server/0]).
+-typerefl_from_string({server/0, emqx_connector_schema_lib, to_ip_port}).
+
+-behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2

@@ -21,15 +21,9 @@
 
 %% APIs for resource types
 
--export([ get_type/1
-        , list_types/0
-        , list_types_verbose/0
-        ]).
+-export([list_types/0]).
 
--export([ discover_resource_mods/0
-        , is_resource_mod/1
-        , call_instance/2
-        ]).
+%% APIs for behaviour implementations
 
 -export([ query_success/1
         , query_failed/1
@@ -78,6 +72,7 @@
 -export([ list_instances/0 %% list all the instances, id only.
         , list_instances_verbose/0 %% list all the instances
         , get_instance/1 %% return the data of the instance
+        , filter_instances/1 %% return instnces with id matching filter
         , list_instances_by_type/1 %% return all the instances of the same resource type
         % , dependents/1
         % , inc_counter/2 %% increment the counter of the instance
@@ -90,10 +85,7 @@
                     , on_health_check/2
                     , on_config_merge/3
                     , on_jsonify/1
-                    , on_api_reply_format/1
                     ]).
-
--callback on_api_reply_format(resource_data()) -> jsx:json_term().
 
 -callback on_config_merge(resource_config(), resource_config(), term()) -> resource_config().
 
@@ -113,33 +105,20 @@
 -callback on_health_check(instance_id(), resource_state()) ->
     {ok, resource_state()} | {error, Reason:: term(), resource_state()}.
 
-%% load specs and return the loaded resources this time.
--spec list_types_verbose() -> [resource_spec()].
-list_types_verbose() ->
-    [get_spec(Mod) || Mod <- list_types()].
-
 -spec list_types() -> [module()].
 list_types() ->
     discover_resource_mods().
-
--spec get_type(module()) -> {ok, resource_spec()} | {error, not_found}.
-get_type(Mod) ->
-    case is_resource_mod(Mod) of
-        true -> {ok, get_spec(Mod)};
-        false -> {error, not_found}
-    end.
-
--spec get_spec(module()) -> resource_spec().
-get_spec(Mod) ->
-    maps:put(<<"resource_type">>, Mod, Mod:emqx_resource_schema()).
 
 -spec discover_resource_mods() -> [module()].
 discover_resource_mods() ->
     [Mod || {Mod, _} <- code:all_loaded(), is_resource_mod(Mod)].
 
 -spec is_resource_mod(module()) -> boolean().
-is_resource_mod(Mod) ->
-    erlang:function_exported(Mod, emqx_resource_schema, 0).
+is_resource_mod(Module) ->
+    Info = Module:module_info(attributes),
+    Behaviour = proplists:get_value(behavior, Info, []) ++
+                    proplists:get_value(behaviour, Info, []),
+    lists:member(?MODULE, Behaviour).
 
 -spec query_success(after_query()) -> ok.
 query_success(undefined) -> ok;
@@ -199,12 +178,14 @@ query(InstId, Request) ->
     query(InstId, Request, undefined).
 
 %% same to above, also defines what to do when the Module:on_query success or failed
-%% it is the duty of the Moudle to apply the `after_query()` functions.
+%% it is the duty of the Module to apply the `after_query()` functions.
 -spec query(instance_id(), Request :: term(), after_query()) -> Result :: term().
 query(InstId, Request, AfterQuery) ->
     case get_instance(InstId) of
-        {ok, #{mod := Mod, state := ResourceState}} ->
-            %% the resource state is readonly to Moudle:on_query/4
+        {ok, #{status := stopped}} ->
+            error({InstId, stopped});
+        {ok, #{mod := Mod, state := ResourceState, status := started}} ->
+            %% the resource state is readonly to Module:on_query/4
             %% and the `after_query()` functions should be thread safe
             Mod:on_query(InstId, Request, AfterQuery, ResourceState);
         {error, Reason} ->
@@ -231,13 +212,19 @@ get_instance(InstId) ->
 list_instances() ->
     [Id || #{id := Id} <- list_instances_verbose()].
 
+-spec filter_instances(fun((instance_id(), module()) -> boolean())) -> [instance_id()].
+filter_instances(Filter) ->
+    [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
+
 -spec list_instances_verbose() -> [resource_data()].
 list_instances_verbose() ->
     emqx_resource_instance:list_all().
 
 -spec list_instances_by_type(module()) -> [resource_data()].
 list_instances_by_type(ResourceType) ->
-    emqx_resource_instance:lookup_by_type(ResourceType).
+    filter_instances(fun(_, ResourceType) -> true;
+                        (_, _) -> false
+                     end).
 
 -spec call_start(instance_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.

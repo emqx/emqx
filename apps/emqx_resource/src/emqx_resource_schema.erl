@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -13,4 +13,17 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_resource_uitils).
+
+-module(emqx_resource_schema).
+
+-include_lib("typerefl/include/types.hrl").
+
+-behaviour(hocon_schema).
+
+-export([namespace/0, roots/0, fields/1]).
+
+namespace() -> emqx_resource_schema.
+
+roots() -> [config].
+
+fields(config) -> [].

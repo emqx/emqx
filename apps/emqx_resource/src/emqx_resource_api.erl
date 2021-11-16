@@ -15,17 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_resource_api).
 
--export([ list_instances/1
-        , format_data/1
-        , stringnify/1
-        ]).
-
-list_instances(Filter) ->
-    [format_data(Data) || Data <- emqx_resource:list_instances_verbose(), Filter(Data)].
-
-format_data(#{id := Id, mod := Mod, status := Status, config := Config}) ->
-    #{id => Id, status => Status, resource_type => Mod,
-      config => emqx_resource:call_jsonify(Mod, Config)}.
+-export([stringnify/1]).
 
 stringnify(Bin) when is_binary(Bin) -> Bin;
 stringnify(Str) when is_list(Str) -> list_to_binary(Str);
