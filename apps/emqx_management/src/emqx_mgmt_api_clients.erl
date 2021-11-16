@@ -505,8 +505,12 @@ lookup(#{clientid := ClientID}) ->
     end.
 
 kickout(#{clientid := ClientID}) ->
-    emqx_mgmt:kickout_client(ClientID),
-    {204}.
+    case emqx_mgmt:kickout_client({ClientID, ?FORMAT_FUN}) of
+        {error, not_found} ->
+            {404, ?CLIENT_ID_NOT_FOUND};
+        _ ->
+            {204}
+    end.
 
 get_authz_cache(#{clientid := ClientID})->
     case emqx_mgmt:list_authz_cache(ClientID) of
