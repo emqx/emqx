@@ -171,7 +171,7 @@ schema("/users/:username/change_pwd") ->
                 {new_pwd, mk(binary(), #{required => true})}
             ],
             responses => #{
-                200 => <<"Update user password successfully">>,
+                204 => <<"Update user password successfully">>,
                 400 => [
                     {code, mk(string(), #{example => 'UPDATE_FAIL'})},
                     {message, mk(string(), #{example => "Failed Reason"})}
@@ -259,7 +259,7 @@ change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->
     OldPwd = maps:get(<<"old_pwd">>, Params),
     NewPwd = maps:get(<<"new_pwd">>, Params),
     case emqx_dashboard_admin:change_password(Username, OldPwd, NewPwd) of
-        ok -> {200};
+        ok -> {204};
         {error, Reason} ->
             {400, #{code => <<"CHANGE_PWD_FAIL">>, message => Reason}}
     end.
