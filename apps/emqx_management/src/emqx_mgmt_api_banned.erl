@@ -82,7 +82,7 @@ schema("/banned/:as/:who") ->
                     example => <<"Badass">>})}
                 ],
             responses => #{
-                200 => <<"Delete banned success">>,
+                204 => <<"Delete banned success">>,
                 404 => emqx_dashboard_swagger:error_codes(['RESOURCE_NOT_FOUND'],
                                                           <<"Banned not found">>)
             }
@@ -146,7 +146,7 @@ delete_banned(delete, #{bindings := Params}) ->
             {404, #{code => 'RESOURCE_NOT_FOUND', message => Message}};
         _ ->
             ok = emqx_banned:delete(Params),
-            {200}
+            {204}
     end.
 
 format(Banned) ->

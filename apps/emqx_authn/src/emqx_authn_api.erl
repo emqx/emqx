@@ -186,7 +186,7 @@ schema("/authentication/:id") ->
             description => <<"Delete authenticator from global authentication chain">>,
             parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
             responses => #{
-                200 => <<"Authenticator deleted">>,
+                204 => <<"Authenticator deleted">>,
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         }

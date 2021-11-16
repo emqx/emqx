@@ -60,7 +60,7 @@ t_crud_rule_api(_Config) ->
     ?assertEqual(Rule3, Rule2),
     ?assertEqual(<<"select * from \"t/b\"">>, maps:get(sql, Rule3)),
 
-    ?assertMatch({200}, emqx_rule_engine_api:crud_rules_by_id(delete,
+    ?assertMatch({204}, emqx_rule_engine_api:crud_rules_by_id(delete,
         #{bindings => #{id => RuleID}})),
 
     %ct:pal("Show After Deleted: ~p", [NotFound]),
