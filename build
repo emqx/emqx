@@ -127,7 +127,7 @@ make_zip() {
 make_docker() {
     EMQX_RUNNER_IMAGE='alpine:3.14'
     EMQX_RUNNER_IMAGE_COMPACT="$(echo $EMQX_RUNNER_IMAGE | tr -d ':')"
-    EMQX_BUILDER="${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/4.4-1:${OTP_VSN}-${EMQX_RUNNER_IMAGE_COMPACT}}"
+    EMQX_BUILDER="${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/4.4-2:${OTP_VSN}-${EMQX_RUNNER_IMAGE_COMPACT}}"
 
     ## Build Docker image
     echo "DOCKER BUILD: Build Docker image."

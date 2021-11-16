@@ -33,7 +33,7 @@ jobs:
         fi
     - name: build docker image
       env:
-        OTP_VSN: 23.3.4.9-2
+        OTP_VSN: 23.3.4.9-3
       run: |
         make ${{ steps.prepare.outputs.imgname }}-docker
         docker save emqx/${{ steps.prepare.outputs.imgname }}:${{ steps.prepare.outputs.version }} -o image.tar.gz

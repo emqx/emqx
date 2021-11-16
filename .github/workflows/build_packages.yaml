@@ -11,7 +11,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: ghcr.io/emqx/emqx-builder/4.4-1:23.3.4.9-2-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-2:23.3.4.9-3-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
@@ -134,7 +134,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
-          - 23.3.4.9-2
+          - 23.3.4.9-3
         exclude:
           - profile: emqx-edge
 
@@ -213,7 +213,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
-          - 23.3.4.9-2
+          - 23.3.4.9-3
         arch:
           - amd64
           - arm64
@@ -301,7 +301,7 @@ jobs:
         -v $(pwd):/emqx \
         --workdir /emqx \
         --platform linux/$ARCH \
-        ghcr.io/emqx/emqx-builder/4.4-1:$OTP-$SYSTEM \
+        ghcr.io/emqx/emqx-builder/4.4-2:$OTP-$SYSTEM \
         bash -euc "make $PROFILE-zip || cat rebar3.crashdump; \
                    make $PROFILE-pkg || cat rebar3.crashdump; \
                    EMQX_NAME=$PROFILE && .ci/build_packages/tests.sh"
@@ -331,7 +331,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
-          - 23.3.4.9-2
+          - 23.3.4.9-3
         arch:
           - [amd64, x86_64]
           - [arm64v8, aarch64]
@@ -382,7 +382,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-1:${{ matrix.otp }}-alpine3.14
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-2:${{ matrix.otp }}-alpine3.14
           RUN_FROM=alpine:3.14
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
