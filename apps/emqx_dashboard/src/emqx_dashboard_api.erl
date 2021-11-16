@@ -132,8 +132,8 @@ schema("/users/:username") ->
             parameters => [{username, mk(binary(),
                 #{in => path, example => <<"admin">>})}],
             'requestBody' => [
-                {description, mk( binary()
-                                , #{desc => <<"User description">>, example => <<"administrator">>})}
+                { description
+                , mk(binary(), #{desc => <<"User description">>, example => <<"administrator">>})}
             ],
             responses => #{
                 200 => mk( ref(?MODULE, user)
