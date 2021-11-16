@@ -21,7 +21,7 @@ ifeq ($(RPM_REL),)
 	# no tail
 	RPM_REL := 1
 endif
-SOURCE_PKG := emqx-$(RPM_VSN)-$(RPM_REL)-otp$(OTP_VSN)-$(SYSTEM)-$(shell uname -m)
+SOURCE_PKG := emqx-$(RPM_VSN)-$(RPM_REL)-otp$(OTP_VSN)-$(SYSTEM).$(shell uname -m)
 
 SYSTEMD := $(shell if command -v systemctl >/dev/null 2>&1; then echo yes; fi)
 # Not $(PWD) as it does not work for make -C
