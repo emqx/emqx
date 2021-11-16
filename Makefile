@@ -7,6 +7,7 @@ export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 export EMQX_DESC ?= EMQ X
 export EMQX_CE_DASHBOARD_VERSION ?= v4.3.3
+export DOCKERFILE=deploy/docker/Dockerfile
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
 endif
