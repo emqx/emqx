@@ -66,16 +66,16 @@ mnesia(boot) ->
 %%--------------------------------------------------------------------
 
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
-add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
-    Admin = #?ADMIN{username = Username, pwdhash = hash(Password), tags = Tags},
+add_user(Username, Password, Desc) when is_binary(Username), is_binary(Password) ->
+    Admin = #?ADMIN{username = Username, pwdhash = hash(Password), description = Desc},
     return(mria:transaction(?DASHBOARD_SHARD, fun add_user_/1, [Admin])).
 
 %% black-magic: force overwrite a user
-force_add_user(Username, Password, Tags) ->
+force_add_user(Username, Password, Desc) ->
     AddFun = fun() ->
                  mnesia:write(#?ADMIN{username = Username,
                                       pwdhash = hash(Password),
-                                      tags = Tags})
+                                      description = Desc})
              end,
     case mria:transaction(?DASHBOARD_SHARD, AddFun) of
         {atomic, ok} -> ok;
@@ -100,14 +100,14 @@ remove_user(Username) when is_binary(Username) ->
     return(mria:transaction(?DASHBOARD_SHARD, Trans)).
 
 -spec(update_user(binary(), binary()) -> ok | {error, term()}).
-update_user(Username, Tags) when is_binary(Username) ->
-    return(mria:transaction(?DASHBOARD_SHARD, fun update_user_/2, [Username, Tags])).
+update_user(Username, Desc) when is_binary(Username) ->
+    return(mria:transaction(?DASHBOARD_SHARD, fun update_user_/2, [Username, Desc])).
 
 %% @private
-update_user_(Username, Tags) ->
+update_user_(Username, Desc) ->
     case mnesia:wread({?ADMIN, Username}) of
         [] -> mnesia:abort(<<"Username Not Found">>);
-        [Admin] -> mnesia:write(Admin#?ADMIN{tags = Tags})
+        [Admin] -> mnesia:write(Admin#?ADMIN{description = Desc})
     end.
 
 change_password(Username, OldPasswd, NewPasswd) when is_binary(Username) ->
@@ -146,21 +146,21 @@ lookup_user(Username) when is_binary(Username) ->
 -spec(all_users() -> [map()]).
 all_users() ->
     lists:map(fun(#?ADMIN{username = Username,
-                          tags = Tags
+                          description = Desc
                          }) ->
                       #{username => Username,
-                        tags => Tags
+                        description => Desc
                        }
               end, ets:tab2list(?ADMIN)).
 
 -spec(search_user(binary()) -> map()).
 search_user(Username0) ->
-    MatchSpec = ets:fun2ms(fun(#?ADMIN{username = Username, tags = Tags})
+    MatchSpec = ets:fun2ms(fun(#?ADMIN{username = Username, description = Desc})
                                  when Username =:= Username0 ->
-                                   {Username, Tags}
+                                   {Username, Desc}
                            end),
-    [{Username, Tags}] = ets:select(?ADMIN, MatchSpec),
-    #{username => Username, tags => Tags}.
+    [{Username, Desc}] = ets:select(?ADMIN, MatchSpec),
+    #{username => Username, description => Desc}.
 
 
 return({atomic, _}) ->

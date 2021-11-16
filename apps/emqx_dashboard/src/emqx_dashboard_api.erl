@@ -131,8 +131,10 @@ schema("/users/:username") ->
             description => <<"Update dashboard users">>,
             parameters => [{username, mk(binary(),
                 #{in => path, example => <<"admin">>})}],
-            'requestBody' => [{tags, mk( binary()
-                                       , #{desc => <<"Tags">>, example => <<"administrator">>})}],
+            'requestBody' => [
+                {description, mk( binary()
+                                , #{desc => <<"User description">>, example => <<"administrator">>})}
+            ],
             responses => #{
                 200 => mk( ref(?MODULE, user)
                          , #{desc => <<"Update User successfully">>}),
@@ -182,9 +184,9 @@ schema("/users/:username/change_pwd") ->
 
 fields(user) ->
     [
-        {tags,
+        {description,
             mk(binary(),
-                #{desc => <<"tags">>, example => "administrator"})},
+                #{desc => <<"User description">>, example => "administrator"})},
         {username,
             mk(binary(),
                 #{desc => <<"username">>, example => "emqx"})}
@@ -216,7 +218,7 @@ users(get, _Request) ->
     {200, emqx_dashboard_admin:all_users()};
 
 users(post, #{body := Params}) ->
-    Tags = maps:get(<<"tags">>, Params),
+    Desc = maps:get(<<"description">>, Params),
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
     case ?EMPTY(Username) orelse ?EMPTY(Password) of
@@ -224,7 +226,7 @@ users(post, #{body := Params}) ->
             {400, #{code => <<"CREATE_USER_FAIL">>,
                 message => <<"Username or password undefined">>}};
         false ->
-            case emqx_dashboard_admin:add_user(Username, Password, Tags) of
+            case emqx_dashboard_admin:add_user(Username, Password, Desc) of
                 ok ->
                     {200, emqx_dashboard_admin:all_users()};
                 {error, Reason} ->
@@ -233,8 +235,8 @@ users(post, #{body := Params}) ->
     end.
 
 user(put, #{bindings := #{username := Username}, body := Params}) ->
-    Tags = maps:get(<<"tags">>, Params),
-    case emqx_dashboard_admin:update_user(Username, Tags) of
+    Desc = maps:get(<<"description">>, Params),
+    case emqx_dashboard_admin:update_user(Username, Desc) of
         ok ->
             {200, emqx_dashboard_admin:search_user(Username)};
         {error, _Reason} ->
