@@ -1,15 +1,18 @@
 #!/bin/sh
 set -eu
 
+BASE_DIR=$(dirname "$0")
 ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+LOG_DIR="$(dirname "$(emqx eval 'hd([ File || #{module := logger_disk_log_h, config := #{file:= File} } <- logger:get_handler_config() ])' | xargs)")"
+
 
 echo "Running node dump in ${ROOT_DIR}"
 
 cd "${ROOT_DIR}"
 
-DUMP="log/node_dump_$(date +"%Y%m%d_%H%M%S").tar.gz"
-CONF_DUMP="log/conf.dump"
-SYSINFO="log/sysinfo.txt"
+DUMP="$LOG_DIR/node_dump_$(date +"%Y%m%d_%H%M%S").tar.gz"
+CONF_DUMP="$LOG_DIR/conf.dump"
+SYSINFO="$LOG_DIR/sysinfo.txt"
 
 LOG_MAX_AGE_DAYS=3
 
@@ -26,7 +29,7 @@ show_help() {
 
 USAGE:
 
-    bin/node_dump [-a DAYS]
+  $0 [-a DAYS]
 
 OPTIONS:
 
@@ -44,29 +47,29 @@ done
 
 # Collect system info:
 {
-    collect bin/emqx_ctl broker
-    collect bin/emqx eval "'emqx_node_dump:sys_info()'"
+    collect "$BASE_DIR"/emqx_ctl broker
+    collect "$BASE_DIR"/emqx eval "'emqx_node_dump:sys_info()'"
 
     collect uname -a
     collect uptime
     collect free
     collect netstat -tnl
 
-    collect bin/emqx_ctl plugins list
-    collect bin/emqx_ctl modules list
+    collect "$BASE_DIR"/emqx_ctl plugins list
+    collect "$BASE_DIR"/emqx_ctl modules list
 
-    collect bin/emqx_ctl vm all
-    collect bin/emqx_ctl listeners
+    collect "$BASE_DIR"/emqx_ctl vm all
+    collect "$BASE_DIR"/emqx_ctl listeners
 } > "${SYSINFO}"
 
 # Collect information about the configuration:
 {
-    collect bin/emqx eval "'emqx_node_dump:app_env_dump()'"
+    collect "$BASE_DIR"/emqx eval "'emqx_node_dump:app_env_dump()'"
 } > "${CONF_DUMP}"
 
 # Pack files
 {
-    find log -mtime -"${LOG_MAX_AGE_DAYS}" \( -name '*.log.*' -or -name 'run_erl.log*' \)
+    find "$LOG_DIR" -mtime -"${LOG_MAX_AGE_DAYS}" \( -name '*.log.*' -or -name 'run_erl.log*' \)
     echo "${SYSINFO}"
     echo "${CONF_DUMP}"
 } | tar czf "${DUMP}" -T -
