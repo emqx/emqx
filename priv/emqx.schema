@@ -96,6 +96,11 @@
   {datatype, string}
 ]}.
 
+{mapping, "cluster.dns.type", "ekka.cluster_discovery", [
+  {datatype, {enum, [a, srv]}},
+  {default, a}
+]}.
+
 %%--------------------------------------------------------------------
 %% Cluster using etcd
 
@@ -171,7 +176,8 @@
                   {loop, cuttlefish:conf_get("cluster.mcast.loop", Conf, true)}];
                (dns) ->
                  [{name, cuttlefish:conf_get("cluster.dns.name", Conf)},
-                  {app, cuttlefish:conf_get("cluster.dns.app", Conf)}];
+                  {app, cuttlefish:conf_get("cluster.dns.app", Conf)},
+                  {type, cuttlefish:conf_get("cluster.dns.type", Conf)}];
                (etcd) ->
                  SslOpts = fun(Conf) ->
                               Options = cuttlefish_variable:filter_by_prefix("cluster.etcd.ssl", Conf),
@@ -362,9 +368,33 @@ end}.
 ]}.
 
 %% RPC server port.
+{mapping, "rpc.driver", "gen_rpc.driver",
+[ {default, tcp}
+, {datatype, {enum, [tcp, ssl]}}
+]}.
+
 {mapping, "rpc.tcp_server_port", "gen_rpc.tcp_server_port", [
   {default, 5369},
   {datatype, integer}
+]}.
+
+%% RPC SSL server port.
+{mapping, "rpc.enable_ssl", "gen_rpc.ssl_server_port", [
+  {default, 5369},
+  {datatype, integer}
+]}.
+
+%% RPC SSL certificates
+{mapping, "rpc.certfile", "gen_rpc.certfile", [
+  {datatype, string}
+]}.
+
+{mapping, "rpc.keyfile", "gen_rpc.keyfile", [
+  {datatype, string}
+]}.
+
+{mapping, "rpc.cacertfile", "gen_rpc.cacertfile", [
+  {datatype, string}
 ]}.
 
 %% Number of tcp connections when connecting to RPC server
