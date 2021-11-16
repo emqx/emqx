@@ -19,6 +19,7 @@
 -module(emqx_dashboard_admin).
 
 -include("emqx_dashboard.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
 -boot_mnesia({mnesia, [boot]}).
 
@@ -33,6 +34,7 @@
         , change_password/2
         , change_password/3
         , all_users/0
+        , search_user/1
         , check/2
         ]).
 
@@ -150,6 +152,16 @@ all_users() ->
                         tags => Tags
                        }
               end, ets:tab2list(?ADMIN)).
+
+-spec(search_user(binary()) -> map()).
+search_user(Username0) ->
+    MatchSpec = ets:fun2ms(fun(#?ADMIN{username = Username, tags = Tags})
+                                 when Username =:= Username0 ->
+                                   {Username, Tags}
+                           end),
+    [{Username, Tags}] = ets:select(?ADMIN, MatchSpec),
+    #{username => Username, tags => Tags}.
+
 
 return({atomic, _}) ->
     ok;
