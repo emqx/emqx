@@ -26,7 +26,6 @@
 
 -define(REDIS_HOST, "redis").
 -define(REDIS_PORT, 6379).
--define(REDIS_PROBE_TIMEOUT, 1000).
 -define(REDIS_RESOURCE, <<"emqx_authn_redis_SUITE">>).
 
 
@@ -54,7 +53,7 @@ end_per_group(require_seeds, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    case is_redis_available() of
+    case emqx_authn_test_lib:is_tcp_server_available(?REDIS_HOST, ?REDIS_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
             ok = start_apps([emqx_resource, emqx_connector]),
@@ -373,15 +372,6 @@ redis_server() ->
       io_lib:format(
         "~s:~b",
         [?REDIS_HOST, ?REDIS_PORT])).
-
-is_redis_available() ->
-    case gen_tcp:connect(?REDIS_HOST, ?REDIS_PORT, [], ?REDIS_PROBE_TIMEOUT) of
-        {ok, Socket} ->
-            gen_tcp:close(Socket),
-            true;
-        {error, _} ->
-            false
-    end.
 
 redis_config() ->
     #{auto_reconnect => true,

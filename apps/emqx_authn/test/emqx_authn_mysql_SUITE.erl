@@ -26,7 +26,6 @@
 
 -define(MYSQL_HOST, "mysql").
 -define(MYSQL_PORT, 3306).
--define(MYSQL_PROBE_TIMEOUT, 1000).
 -define(MYSQL_RESOURCE, <<"emqx_authn_mysql_SUITE">>).
 
 -define(PATH, [authentication]).
@@ -53,7 +52,7 @@ end_per_group(require_seeds, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    case is_mysql_available() of
+    case emqx_authn_test_lib:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
             ok = start_apps([emqx_resource, emqx_connector]),
@@ -401,15 +400,6 @@ mysql_server() ->
       io_lib:format(
         "~s:~b",
         [?MYSQL_HOST, ?MYSQL_PORT])).
-
-is_mysql_available() ->
-    case gen_tcp:connect(?MYSQL_HOST, ?MYSQL_PORT, [], ?MYSQL_PROBE_TIMEOUT) of
-        {ok, Socket} ->
-            gen_tcp:close(Socket),
-            true;
-        {error, _} ->
-            false
-    end.
 
 mysql_config() ->
     #{auto_reconnect => true,
