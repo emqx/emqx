@@ -300,14 +300,16 @@ t_discard_session_race(_) ->
 t_takeover_session(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
     none = emqx_cm:takeover_session(<<"clientid">>),
+    Parent = self(),
     erlang:spawn_link(fun() ->
         ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+        Parent ! registered,
         receive
             {'$gen_call', From, {takeover, 'begin'}} ->
                 gen_server:reply(From, test), ok
         end
     end),
-    timer:sleep(100),
+    receive registered -> ok end,
     {living, emqx_connection, _, test} = emqx_cm:takeover_session(<<"clientid">>),
     emqx_cm:unregister_channel(<<"clientid">>).
 
