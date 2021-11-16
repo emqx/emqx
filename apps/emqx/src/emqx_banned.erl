@@ -146,7 +146,8 @@ to_timestamp(Rfc3339) when is_binary(Rfc3339) ->
 to_timestamp(Rfc3339) ->
     calendar:rfc3339_to_system_time(Rfc3339, [{unit, second}]).
 
--spec(create(emqx_types:banned() | map()) -> {ok, emqx_types:banned()}).
+-spec(create(emqx_types:banned() | map()) ->
+    {ok, emqx_types:banned()} | {error, {already_exist, emqx_types:banned()}}).
 create(#{who    := Who,
          by     := By,
          reason := Reason,
@@ -160,9 +161,21 @@ create(#{who    := Who,
         until = Until
     },
     create(Banned);
-create(Banned) when is_record(Banned, banned) ->
-    mria:dirty_write(?BANNED_TAB, Banned),
-    {ok, Banned}.
+
+create(Banned = #banned{who = Who})  ->
+    case look_up(Who) of
+        [] ->
+            mria:dirty_write(?BANNED_TAB, Banned),
+            {ok, Banned};
+        [OldBanned = #banned{until = Until}] ->
+            case Until < erlang:system_time(second) of
+                true ->
+                    {error, {already_exist, OldBanned}};
+                false ->
+                    mria:dirty_write(?BANNED_TAB, Banned),
+                    {ok, Banned}
+            end
+    end.
 
 look_up(Who) when is_map(Who) ->
     look_up(pares_who(Who));
