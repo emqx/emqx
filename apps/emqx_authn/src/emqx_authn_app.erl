@@ -58,7 +58,8 @@ initialize() ->
       chain_configs()).
 
 deinitialize() ->
-    ok = ?AUTHN:deregister_providers(provider_types()).
+    ok = ?AUTHN:deregister_providers(provider_types()),
+    ok = emqx_authn_utils:cleanup_resources().
 
 chain_configs() ->
     [global_chain_config() | listener_chain_configs()].

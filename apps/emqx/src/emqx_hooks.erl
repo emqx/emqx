@@ -77,6 +77,8 @@
           priority :: integer()
          }).
 
+-type(callback() :: #callback{}).
+
 -record(hook, {
           name :: hookpoint(),
           callbacks :: list(#callback{})
@@ -112,7 +114,7 @@ callback_priority(#callback{priority= P}) -> P.
 %%--------------------------------------------------------------------
 
 %% @doc Register a callback
--spec(add(hookpoint(), action() | #callback{}) -> ok_or_error(already_exists)).
+-spec(add(hookpoint(), action() | callback()) -> ok_or_error(already_exists)).
 add(HookPoint, Callback) when is_record(Callback, callback) ->
     gen_server:call(?SERVER, {add, HookPoint, Callback}, infinity);
 add(HookPoint, Action) when is_function(Action); is_tuple(Action) ->
@@ -131,7 +133,7 @@ add(HookPoint, Action, Filter, Priority) when is_integer(Priority) ->
     add(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
 
 %% @doc Like add/2, it register a callback, discard 'already_exists' error.
--spec(put(hookpoint(), action() | #callback{}) -> ok).
+-spec(put(hookpoint(), action() | callback()) -> ok).
 put(HookPoint, Callback) when is_record(Callback, callback) ->
     case add(HookPoint, Callback) of
         ok -> ok;
@@ -211,7 +213,7 @@ safe_execute({M, F, A}, Args) ->
                 exception => Error,
                 reason => Reason,
                 stacktrace => Stacktrace,
-                failed_call => {M, F, A}
+                failed_call => {M, F, Args ++ A}
             })
     end.
 
@@ -220,7 +222,7 @@ execute({M, F, A}, Args) ->
     erlang:apply(M, F, Args ++ A).
 
 %% @doc Lookup callbacks.
--spec(lookup(hookpoint()) -> [#callback{}]).
+-spec(lookup(hookpoint()) -> [callback()]).
 lookup(HookPoint) ->
     case ets:lookup(?TAB, HookPoint) of
         [#hook{callbacks = Callbacks}] ->
@@ -292,10 +294,10 @@ add_callback(C, Callbacks) ->
     add_callback(C, Callbacks, []).
 
 add_callback(C, [], Acc) ->
-    lists:reverse([C|Acc]);
-add_callback(C1 = #callback{priority = P1}, [C2 = #callback{priority = P2}|More], Acc)
+    lists:reverse([C | Acc]);
+add_callback(C1 = #callback{priority = P1}, [C2 = #callback{priority = P2} | More], Acc)
     when P1 =< P2 ->
-    add_callback(C1, More, [C2|Acc]);
+    add_callback(C1, More, [C2 | Acc]);
 add_callback(C1, More, Acc) ->
     lists:append(lists:reverse(Acc), [C1 | More]).
 
@@ -310,4 +312,3 @@ del_callback(Action = {M, F}, [#callback{action = {M, F, _A}} | Callbacks], Acc)
     del_callback(Action, Callbacks, Acc);
 del_callback(Action, [Callback | Callbacks], Acc) ->
     del_callback(Action, Callbacks, [Callback | Acc]).
-

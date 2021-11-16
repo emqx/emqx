@@ -16,8 +16,9 @@
 -module(emqx_connector_mysql).
 
 -include_lib("typerefl/include/types.hrl").
--include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 -include_lib("emqx/include/logger.hrl").
+
+-behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
@@ -86,7 +87,10 @@ on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := _PoolName} = Stat
 on_query(InstId, {sql, SQL, Params, Timeout}, AfterQuery, #{poolname := PoolName} = State) ->
     ?SLOG(debug, #{msg => "mysql connector received sql query",
         connector => InstId, sql => SQL, state => State}),
-    case Result = ecpool:pick_and_do(PoolName, {mysql, query, [SQL, Params, Timeout]}, no_handover) of
+    case Result = ecpool:pick_and_do(
+                    PoolName,
+                    {mysql, query, [SQL, Params, Timeout]},
+                    no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{msg => "mysql connector do sql query failed",
                 connector => InstId, sql => SQL, reason => Reason}),

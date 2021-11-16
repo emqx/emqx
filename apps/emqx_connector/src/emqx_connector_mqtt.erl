@@ -16,10 +16,10 @@
 -module(emqx_connector_mqtt).
 
 -include_lib("typerefl/include/types.hrl").
--include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -behaviour(supervisor).
+-behaviour(emqx_resource).
 
 %% API and callbacks for supervisor
 -export([ start_link/0

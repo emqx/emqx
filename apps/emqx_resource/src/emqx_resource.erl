@@ -21,15 +21,9 @@
 
 %% APIs for resource types
 
--export([ get_type/1
-        , list_types/0
-        , list_types_verbose/0
-        ]).
+-export([list_types/0]).
 
--export([ discover_resource_mods/0
-        , is_resource_mod/1
-        , call_instance/2
-        ]).
+%% APIs for behaviour implementations
 
 -export([ query_success/1
         , query_failed/1
@@ -42,7 +36,6 @@
         , check_and_create_local/3
         , check_and_recreate/4
         , check_and_recreate_local/4
-        , resource_type_from_str/1
         ]).
 
 %% Sync resource instances and files
@@ -79,21 +72,20 @@
         , list_instances_verbose/0 %% list all the instances
         , get_instance/1 %% return the data of the instance
         , list_instances_by_type/1 %% return all the instances of the same resource type
-        % , dependents/1
-        % , inc_counter/2 %% increment the counter of the instance
-        % , inc_counter/3 %% increment the counter by a given integer
+        , generate_id/1
+        , generate_id/2
+        , list_group_instances/1
         ]).
 
 -define(HOCON_CHECK_OPTS, #{atom_key => true, nullable => true}).
+
+-define(DEFAULT_RESOURCE_GROUP, <<"default">>).
 
 -optional_callbacks([ on_query/4
                     , on_health_check/2
                     , on_config_merge/3
                     , on_jsonify/1
-                    , on_api_reply_format/1
                     ]).
-
--callback on_api_reply_format(resource_data()) -> jsx:json_term().
 
 -callback on_config_merge(resource_config(), resource_config(), term()) -> resource_config().
 
@@ -113,33 +105,20 @@
 -callback on_health_check(instance_id(), resource_state()) ->
     {ok, resource_state()} | {error, Reason:: term(), resource_state()}.
 
-%% load specs and return the loaded resources this time.
--spec list_types_verbose() -> [resource_spec()].
-list_types_verbose() ->
-    [get_spec(Mod) || Mod <- list_types()].
-
 -spec list_types() -> [module()].
 list_types() ->
     discover_resource_mods().
-
--spec get_type(module()) -> {ok, resource_spec()} | {error, not_found}.
-get_type(Mod) ->
-    case is_resource_mod(Mod) of
-        true -> {ok, get_spec(Mod)};
-        false -> {error, not_found}
-    end.
-
--spec get_spec(module()) -> resource_spec().
-get_spec(Mod) ->
-    maps:put(<<"resource_type">>, Mod, Mod:emqx_resource_schema()).
 
 -spec discover_resource_mods() -> [module()].
 discover_resource_mods() ->
     [Mod || {Mod, _} <- code:all_loaded(), is_resource_mod(Mod)].
 
 -spec is_resource_mod(module()) -> boolean().
-is_resource_mod(Mod) ->
-    erlang:function_exported(Mod, emqx_resource_schema, 0).
+is_resource_mod(Module) ->
+    Info = Module:module_info(attributes),
+    Behaviour = proplists:get_value(behavior, Info, []) ++
+                    proplists:get_value(behaviour, Info, []),
+    lists:member(?MODULE, Behaviour).
 
 -spec query_success(after_query()) -> ok.
 query_success(undefined) -> ok;
@@ -155,7 +134,7 @@ query_failed({_, {OnFailed, Args}}) ->
 %% APIs for resource instances
 %% =================================================================================
 -spec create(instance_id(), resource_type(), resource_config()) ->
-    {ok, resource_data() |'already_created'} | {error, Reason :: term()}.
+    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create(InstId, ResourceType, Config) ->
     cluster_call(create_local, [InstId, ResourceType, Config]).
 
@@ -199,12 +178,14 @@ query(InstId, Request) ->
     query(InstId, Request, undefined).
 
 %% same to above, also defines what to do when the Module:on_query success or failed
-%% it is the duty of the Moudle to apply the `after_query()` functions.
+%% it is the duty of the Module to apply the `after_query()` functions.
 -spec query(instance_id(), Request :: term(), after_query()) -> Result :: term().
 query(InstId, Request, AfterQuery) ->
     case get_instance(InstId) of
-        {ok, #{mod := Mod, state := ResourceState}} ->
-            %% the resource state is readonly to Moudle:on_query/4
+        {ok, #{status := stopped}} ->
+            error({InstId, stopped});
+        {ok, #{mod := Mod, state := ResourceState, status := started}} ->
+            %% the resource state is readonly to Module:on_query/4
             %% and the `after_query()` functions should be thread safe
             Mod:on_query(InstId, Request, AfterQuery, ResourceState);
         {error, Reason} ->
@@ -235,9 +216,29 @@ list_instances() ->
 list_instances_verbose() ->
     emqx_resource_instance:list_all().
 
--spec list_instances_by_type(module()) -> [resource_data()].
+-spec list_instances_by_type(module()) -> [instance_id()].
 list_instances_by_type(ResourceType) ->
-    emqx_resource_instance:lookup_by_type(ResourceType).
+    filter_instances(fun(_, RT) when RT =:= ResourceType -> true;
+                        (_, _) -> false
+                     end).
+
+-spec generate_id(term()) -> instance_id().
+generate_id(Name) when is_binary(Name) ->
+    generate_id(?DEFAULT_RESOURCE_GROUP, Name).
+
+-spec generate_id(resource_group(), binary()) -> instance_id().
+generate_id(Group, Name) when is_binary(Group) and is_binary(Name) ->
+    Id = integer_to_binary(erlang:unique_integer([positive])),
+    <<Group/binary, "/", Name/binary, ":", Id/binary>>.
+
+-spec list_group_instances(resource_group()) -> [instance_id()].
+list_group_instances(Group) ->
+    filter_instances(fun(Id, _) ->
+                             case binary:split(Id, <<"/">>) of
+                                 [Group | _] -> true;
+                                 _ -> false
+                             end
+                     end).
 
 -spec call_start(instance_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
@@ -286,7 +287,7 @@ check_config(ResourceType, RawConfigTerm) ->
     end.
 
 -spec check_and_create(instance_id(), resource_type(), raw_resource_config()) ->
-    {ok, resource_data() |'already_created'} | {error, term()}.
+    {ok, resource_data() | 'already_created'} | {error, term()}.
 check_and_create(InstId, ResourceType, RawConfig) ->
     check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> create(InstId, ResourceType, InstConf) end).
@@ -317,25 +318,14 @@ check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
 
 %% =================================================================================
 
--spec resource_type_from_str(string()) -> {ok, resource_type()} | {error, term()}.
-resource_type_from_str(ResourceType) ->
-    try Mod = list_to_existing_atom(str(ResourceType)),
-        case emqx_resource:is_resource_mod(Mod) of
-            true -> {ok, Mod};
-            false -> {error, {invalid_resource, Mod}}
-        end
-    catch error:badarg ->
-        {error, {resource_not_found, ResourceType}}
-    end.
+filter_instances(Filter) ->
+    [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
 
 call_instance(InstId, Query) ->
     emqx_resource_instance:hash_call(InstId, Query).
 
 safe_apply(Func, Args) ->
     ?SAFE_CALL(erlang:apply(Func, Args)).
-
-str(S) when is_binary(S) -> binary_to_list(S);
-str(S) when is_list(S) -> S.
 
 cluster_call(Func, Args) ->
     case emqx_cluster_rpc:multicall(?MODULE, Func, Args) of

@@ -23,7 +23,12 @@
         , hash/4
         , gen_salt/0
         , bin/1
+        , ensure_apps_started/1
+        , cleanup_resources/0
+        , make_resource_id/1
         ]).
+
+-define(RESOURCE_GROUP, <<"emqx_authn">>).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -62,22 +67,36 @@ check_password(undefined, _Selected, _State) ->
 check_password(Password,
                #{<<"password_hash">> := Hash},
                #{password_hash_algorithm := bcrypt}) ->
-    case {ok, to_list(Hash)} =:= bcrypt:hashpw(Password, Hash) of
-        true -> ok;
-        false -> {error, bad_username_or_password}
+    case emqx_passwd:hash(bcrypt, {Hash, Password}) of
+        Hash -> ok;
+        _ ->
+            {error, bad_username_or_password}
     end;
 check_password(Password,
                #{<<"password_hash">> := Hash} = Selected,
                #{password_hash_algorithm := Algorithm,
                  salt_position := SaltPosition}) ->
     Salt = maps:get(<<"salt">>, Selected, <<>>),
-    case Hash =:= hash(Algorithm, Password, Salt, SaltPosition) of
-        true -> ok;
-        false -> {error, bad_username_or_password}
+    case hash(Algorithm, Password, Salt, SaltPosition) of
+        Hash -> ok;
+        _ ->
+            {error, bad_username_or_password}
     end.
 
-is_superuser(Selected) ->
-    #{is_superuser => maps:get(<<"is_superuser">>, Selected, false)}.
+is_superuser(#{<<"is_superuser">> := <<"">>}) ->
+    #{is_superuser => false};
+is_superuser(#{<<"is_superuser">> := <<"0">>}) ->
+    #{is_superuser => false};
+is_superuser(#{<<"is_superuser">> := _}) ->
+    #{is_superuser => true};
+is_superuser(#{}) ->
+    #{is_superuser => false}.
+
+ensure_apps_started(bcrypt) ->
+    {ok, _} = application:ensure_all_started(bcrypt),
+    ok;
+ensure_apps_started(_) ->
+    ok.
 
 hash(Algorithm, Password, Salt, prefix) ->
     emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>);
@@ -92,6 +111,15 @@ bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> list_to_binary(L);
 bin(X) -> X.
 
+cleanup_resources() ->
+    lists:foreach(
+      fun emqx_resource:remove_local/1,
+      emqx_resource:list_group_instances(?RESOURCE_GROUP)).
+
+make_resource_id(Name) ->
+    NameBin = bin(Name),
+    emqx_resource:generate_id(?RESOURCE_GROUP, NameBin).
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
@@ -100,7 +128,3 @@ convert_to_sql_param(undefined) ->
     null;
 convert_to_sql_param(V) ->
     bin(V).
-
-to_list(L) when is_list(L) -> L;
-to_list(L) when is_binary(L) -> binary_to_list(L);
-to_list(X) -> X.

@@ -23,6 +23,8 @@
 
 -include("emqx_authn.hrl").
 
+-define(AUTHN_ID, <<"mechanism:backend">>).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -75,33 +77,41 @@ t_check_schema(_Config) ->
 t_create(_) ->
     Config0 = config(),
 
-    {ok, _} = emqx_authn_mnesia:create(Config0),
+    {ok, _} = emqx_authn_mnesia:create(?AUTHN_ID, Config0),
 
     Config1 = Config0#{password_hash_algorithm => #{name => sha256}},
-    {ok, _} = emqx_authn_mnesia:create(Config1).
+    {ok, _} = emqx_authn_mnesia:create(?AUTHN_ID, Config1).
 
 t_update(_) ->
     Config0 = config(),
-    {ok, State} = emqx_authn_mnesia:create(Config0),
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config0),
 
     Config1 = Config0#{password_hash_algorithm => #{name => sha256}},
     {ok, _} = emqx_authn_mnesia:update(Config1, State).
 
 t_destroy(_) ->
     Config = config(),
-    {ok, State0} = emqx_authn_mnesia:create(Config),
+    OtherId = list_to_binary([?AUTHN_ID, <<"-other">>]),
+    {ok, State0} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+    {ok, StateOther} = emqx_authn_mnesia:create(OtherId, Config),
 
     User = #{user_id => <<"u">>, password => <<"p">>},
+
     {ok, _} = emqx_authn_mnesia:add_user(User, State0),
+    {ok, _} = emqx_authn_mnesia:add_user(User, StateOther),
+
     {ok, _} = emqx_authn_mnesia:lookup_user(<<"u">>, State0),
+    {ok, _} = emqx_authn_mnesia:lookup_user(<<"u">>, StateOther),
 
     ok = emqx_authn_mnesia:destroy(State0),
-    {ok, State1} = emqx_authn_mnesia:create(Config),
-    {error, not_found} = emqx_authn_mnesia:lookup_user(<<"u">>, State1).
+
+    {ok, State1} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+    {error,not_found} = emqx_authn_mnesia:lookup_user(<<"u">>, State1),
+    {ok, _} = emqx_authn_mnesia:lookup_user(<<"u">>, StateOther).
 
 t_authenticate(_) ->
     Config = config(),
-    {ok, State} = emqx_authn_mnesia:create(Config),
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
     User = #{user_id => <<"u">>, password => <<"p">>},
     {ok, _} = emqx_authn_mnesia:add_user(User, State),
@@ -118,7 +128,7 @@ t_authenticate(_) ->
 
 t_add_user(_) ->
     Config = config(),
-    {ok, State} = emqx_authn_mnesia:create(Config),
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
     User = #{user_id => <<"u">>, password => <<"p">>},
     {ok, _} = emqx_authn_mnesia:add_user(User, State),
@@ -126,7 +136,7 @@ t_add_user(_) ->
 
 t_delete_user(_) ->
     Config = config(),
-    {ok, State} = emqx_authn_mnesia:create(Config),
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
     {error, not_found} = emqx_authn_mnesia:delete_user(<<"u">>, State),
     User = #{user_id => <<"u">>, password => <<"p">>},
@@ -137,7 +147,7 @@ t_delete_user(_) ->
 
 t_update_user(_) ->
     Config = config(),
-    {ok, State} = emqx_authn_mnesia:create(Config),
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
     User = #{user_id => <<"u">>, password => <<"p">>},
     {ok, _} = emqx_authn_mnesia:add_user(User, State),
@@ -158,7 +168,7 @@ t_update_user(_) ->
 
 t_list_users(_) ->
     Config = config(),
-    {ok, State} = emqx_authn_mnesia:create(Config),
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
     Users = [#{user_id => <<"u1">>, password => <<"p">>},
              #{user_id => <<"u2">>, password => <<"p">>},
@@ -182,7 +192,7 @@ t_list_users(_) ->
 t_import_users(_) ->
     Config0 = config(),
     Config = Config0#{password_hash_algorithm => #{name => sha256}},
-    {ok, State} = emqx_authn_mnesia:create(Config),
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
     ok = emqx_authn_mnesia:import_users(
            data_filename(<<"user-credentials.json">>),
@@ -227,6 +237,5 @@ data_filename(Name) ->
 config() ->
     #{user_id_type => username,
       password_hash_algorithm => #{name => bcrypt,
-                                   salt_rounds => 8},
-      '_unique' => <<"unique">>
+                                   salt_rounds => 8}
      }.
