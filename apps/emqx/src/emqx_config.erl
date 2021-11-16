@@ -16,6 +16,7 @@
 -module(emqx_config).
 
 -compile({no_auto_import, [get/0, get/1, put/2, erase/1]}).
+-elvis([{elvis_style, god_modules, disable}]).
 
 -export([ init_load/1
         , init_load/2
@@ -138,10 +139,9 @@ get(KeyPath, Default) -> do_get(?CONF, KeyPath, Default).
     {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
 find([]) ->
     Ref = make_ref(),
-    Res = do_get(?CONF, [], Ref),
-    case Res =:= Ref of
-        true -> {not_found, []};
-        false -> {ok, Res}
+    case do_get(?CONF, [], Ref) of
+        Ref -> {not_found, []};
+        Res -> {ok, Res}
     end;
 find(KeyPath) ->
     ?ATOM_CONF_PATH(KeyPath, emqx_map_lib:deep_find(AtomKeyPath, get_root(KeyPath)),
@@ -151,10 +151,9 @@ find(KeyPath) ->
     {ok, term()} | {not_found, emqx_map_lib:config_key_path(), term()}.
 find_raw([]) ->
     Ref = make_ref(),
-    Res = do_get(?RAW_CONF, [], Ref),
-    case Res =:= Ref of
-        true -> {not_found, []};
-        false -> {ok, Res}
+    case do_get(?RAW_CONF, [], Ref) of
+        Ref -> {not_found, []};
+        Res -> {ok, Res}
     end;
 find_raw(KeyPath) ->
     emqx_map_lib:deep_find([bin(Key) || Key <- KeyPath], get_root_raw(KeyPath)).
@@ -288,8 +287,7 @@ check_config(SchemaMod, RawConf) ->
             },
     {AppEnvs, CheckedConf} =
         hocon_schema:map_translate(SchemaMod, RawConf, Opts),
-    Conf = maps:with(maps:keys(RawConf), CheckedConf),
-    {AppEnvs, emqx_map_lib:unsafe_atom_key_map(Conf)}.
+    {AppEnvs, emqx_map_lib:unsafe_atom_key_map(CheckedConf)}.
 
 -spec fill_defaults(raw_config()) -> map().
 fill_defaults(RawConf) ->
@@ -349,7 +347,8 @@ get_root_names() ->
 get_atom_root_names() ->
     [atom(N) || N <- get_root_names()].
 
--spec save_configs(app_envs(), config(), raw_config(), raw_config(), update_opts()) -> ok | {error, term()}.
+-spec save_configs(app_envs(), config(), raw_config(), raw_config(), update_opts()) ->
+    ok | {error, term()}.
 save_configs(_AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
     %% We may need also support hot config update for the apps that use application envs.
     %% If that is the case uncomment the following line to update the configs to app env
