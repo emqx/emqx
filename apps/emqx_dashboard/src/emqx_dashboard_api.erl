@@ -103,7 +103,7 @@ schema("/users") ->
         'operationId' => users,
         get => #{
             tags => [<<"dashboard">>],
-            description => <<"Get dashboard users">>,
+            description => <<"Get dashboard users list">>,
             responses => #{
                 200 => mk( array(ref(?MODULE, user))
                          , #{desc => "User lists"})
@@ -114,7 +114,7 @@ schema("/users") ->
             description => <<"Create dashboard users">>,
             'requestBody' => fields(user_password),
             responses => #{
-                200 => mk( array(ref(?MODULE, user))
+                200 => mk( ref(?MODULE, user)
                          , #{desc => <<"Create User successfully">>}),
                 400 => [{code, mk(string(), #{example => 'CREATE_FAIL'})},
                     {message, mk(string(), #{example => "Create user failed"})}
@@ -227,8 +227,8 @@ users(post, #{body := Params}) ->
                 message => <<"Username or password undefined">>}};
         false ->
             case emqx_dashboard_admin:add_user(Username, Password, Desc) of
-                ok ->
-                    {200, emqx_dashboard_admin:all_users()};
+                {ok, Result} ->
+                    {200, Result};
                 {error, Reason} ->
                     {400, #{code => <<"CREATE_USER_FAIL">>, message => Reason}}
             end
@@ -237,8 +237,8 @@ users(post, #{body := Params}) ->
 user(put, #{bindings := #{username := Username}, body := Params}) ->
     Desc = maps:get(<<"description">>, Params),
     case emqx_dashboard_admin:update_user(Username, Desc) of
-        ok ->
-            {200, emqx_dashboard_admin:search_user(Username)};
+        {ok, Result} ->
+            {200, Result};
         {error, _Reason} ->
             {404, ?USER_NOT_FOUND_BODY}
     end;
@@ -252,7 +252,7 @@ user(delete, #{bindings := #{username := Username}}) ->
             case emqx_dashboard_admin:remove_user(Username) of
                 {error, _Reason} ->
                     {404, ?USER_NOT_FOUND_BODY};
-                _ ->
+                {ok, _} ->
                     {204}
             end
     end.
@@ -261,7 +261,8 @@ change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->
     OldPwd = maps:get(<<"old_pwd">>, Params),
     NewPwd = maps:get(<<"new_pwd">>, Params),
     case emqx_dashboard_admin:change_password(Username, OldPwd, NewPwd) of
-        ok -> {204};
+        {ok, _} ->
+            {204};
         {error, Reason} ->
             {400, #{code => <<"CHANGE_PWD_FAIL">>, message => Reason}}
     end.

@@ -29,7 +29,7 @@ admins(["add", Username, Password]) ->
 
 admins(["add", Username, Password, Desc]) ->
     case emqx_dashboard_admin:add_user(bin(Username), bin(Password), bin(Desc)) of
-        ok ->
+        {ok, _} ->
             emqx_ctl:print("ok~n");
         {error, already_existed} ->
             emqx_ctl:print("Error: already existed~n");

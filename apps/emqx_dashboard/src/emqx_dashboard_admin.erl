@@ -34,7 +34,6 @@
         , change_password/2
         , change_password/3
         , all_users/0
-        , search_user/1
         , check/2
         ]).
 
@@ -65,10 +64,10 @@ mnesia(boot) ->
 %% API
 %%--------------------------------------------------------------------
 
--spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
-add_user(Username, Password, Desc) when is_binary(Username), is_binary(Password) ->
-    Admin = #?ADMIN{username = Username, pwdhash = hash(Password), description = Desc},
-    return(mria:transaction(?DASHBOARD_SHARD, fun add_user_/1, [Admin])).
+-spec(add_user(binary(), binary(), binary()) -> {ok, map()} | {error, any()}).
+add_user(Username, Password, Desc)
+  when is_binary(Username), is_binary(Password) ->
+    return(mria:transaction(?DASHBOARD_SHARD, fun add_user_/3, [Username, Password, Desc])).
 
 %% black-magic: force overwrite a user
 force_add_user(Username, Password, Desc) ->
@@ -83,13 +82,17 @@ force_add_user(Username, Password, Desc) ->
     end.
 
 %% @private
-add_user_(Admin = #?ADMIN{username = Username}) ->
+add_user_(Username, Password, Desc) ->
     case mnesia:wread({?ADMIN, Username}) of
-        []  -> mnesia:write(Admin);
-        [_] -> mnesia:abort(<<"Username Already Exist">>)
+        []  ->
+            Admin = #?ADMIN{username = Username, pwdhash = hash(Password), description = Desc},
+            mnesia:write(Admin),
+            #{username => Username, description => Desc};
+        [_] ->
+            mnesia:abort(<<"Username Already Exist">>)
     end.
 
--spec(remove_user(binary()) -> ok | {error, any()}).
+-spec(remove_user(binary()) -> {ok, any()} | {error, any()}).
 remove_user(Username) when is_binary(Username) ->
     Trans = fun() ->
                     case lookup_user(Username) of
@@ -99,15 +102,18 @@ remove_user(Username) when is_binary(Username) ->
             end,
     return(mria:transaction(?DASHBOARD_SHARD, Trans)).
 
--spec(update_user(binary(), binary()) -> ok | {error, term()}).
+-spec(update_user(binary(), binary()) -> {ok, map()} | {error, term()}).
 update_user(Username, Desc) when is_binary(Username) ->
     return(mria:transaction(?DASHBOARD_SHARD, fun update_user_/2, [Username, Desc])).
 
 %% @private
 update_user_(Username, Desc) ->
     case mnesia:wread({?ADMIN, Username}) of
-        [] -> mnesia:abort(<<"Username Not Found">>);
-        [Admin] -> mnesia:write(Admin#?ADMIN{description = Desc})
+        [] ->
+            mnesia:abort(<<"Username Not Found">>);
+        [Admin] ->
+            mnesia:write(Admin#?ADMIN{description = Desc}),
+            #{username => Username, description => Desc}
     end.
 
 change_password(Username, OldPasswd, NewPasswd) when is_binary(Username) ->
@@ -153,18 +159,8 @@ all_users() ->
                        }
               end, ets:tab2list(?ADMIN)).
 
--spec(search_user(binary()) -> map()).
-search_user(Username0) ->
-    MatchSpec = ets:fun2ms(fun(#?ADMIN{username = Username, description = Desc})
-                                 when Username =:= Username0 ->
-                                   {Username, Desc}
-                           end),
-    [{Username, Desc}] = ets:select(?ADMIN, MatchSpec),
-    #{username => Username, description => Desc}.
-
-
-return({atomic, _}) ->
-    ok;
+return({atomic, Result}) ->
+    {ok, Result};
 return({aborted, Reason}) ->
     {error, Reason}.
 
@@ -227,5 +223,5 @@ add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY
 add_default_user(Username, Password) ->
     case lookup_user(Username) of
         [] -> add_user(Username, Password, <<"administrator">>);
-        _  -> ok
+        _  -> {ok, default_user_exists}
     end.
