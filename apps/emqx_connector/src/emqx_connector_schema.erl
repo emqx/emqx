@@ -21,7 +21,11 @@ fields("connectors") ->
     ];
 
 fields("mqtt_connector") ->
-    emqx_connector_mqtt_schema:fields("connector").
+    emqx_connector_mqtt_schema:fields("connector");
+
+fields("mqtt_connector_info") ->
+    [{id, sc(binary(), #{desc => "The connector Id"})}]
+    ++ fields("mqtt_connector").
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 

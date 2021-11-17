@@ -14,3 +14,68 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_connector).
+
+-export([config_key_path/0]).
+
+-export([ parse_connector_id/1
+        , connector_id/2
+        ]).
+
+-export([ list/0
+        , lookup/1
+        , lookup/2
+        , update/2
+        , update/3
+        , delete/1
+        , delete/2
+        ]).
+
+config_key_path() ->
+    [connectors].
+
+connector_id(Type0, Name0) ->
+    Type = bin(Type0),
+    Name = bin(Name0),
+    <<Type/binary, ":", Name/binary>>.
+
+parse_connector_id(ConnectorId) ->
+    case string:split(bin(ConnectorId), ":", all) of
+        [Type, Name] -> {binary_to_atom(Type, utf8), binary_to_atom(Name, utf8)};
+        _ -> error({invalid_connector_id, ConnectorId})
+    end.
+
+list() ->
+    lists:foldl(fun({Type, NameAndConf}, Connectors) ->
+            lists:foldl(fun({Name, RawConf}, Acc) ->
+                   [RawConf#{<<"id">> => connector_id(Type, Name)} | Acc]
+                end, Connectors, maps:to_list(NameAndConf))
+        end, [], maps:to_list(emqx:get_raw_config(config_key_path(), #{}))).
+
+lookup(Id) when is_binary(Id) ->
+    {Type, Name} = parse_connector_id(Id),
+    lookup(Type, Name).
+
+lookup(Type, Name) ->
+    Id = connector_id(Type, Name),
+    case emqx:get_raw_config(config_key_path() ++ [Type, Name], not_found) of
+        not_found -> {error, not_found};
+        Conf -> {ok, Conf#{<<"id">> => Id}}
+    end.
+
+update(Id, Conf) when is_binary(Id) ->
+    {Type, Name} = parse_connector_id(Id),
+    update(Type, Name, Conf).
+
+update(Type, Name, Conf) ->
+    emqx_conf:update(config_key_path() ++ [Type, Name], Conf, #{override_to => cluster}).
+
+delete(Id) when is_binary(Id) ->
+    {Type, Name} = parse_connector_id(Id),
+    delete(Type, Name).
+
+delete(Type, Name) ->
+    emqx_conf:remove(config_key_path() ++ [Type, Name], #{override_to => cluster}).
+
+bin(Bin) when is_binary(Bin) -> Bin;
+bin(Str) when is_list(Str) -> list_to_binary(Str);
+bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
