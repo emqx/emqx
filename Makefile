@@ -85,8 +85,10 @@ $(REL_PROFILES:%=%): $(REBAR) get-dashboard
 clean: $(PROFILES:%=clean-%)
 $(PROFILES:%=clean-%):
 	@if [ -d _build/$(@:clean-%=%) ]; then \
+		rm rebar.lock \
 		rm -rf _build/$(@:clean-%=%)/rel; \
 		find _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
+		find _build/$(@:clean-%=%)  -type l | xargs rm -i -f ; \
 	fi
 
 .PHONY: clean-all
@@ -95,6 +97,7 @@ clean-all:
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)
+	@make clean # ensure clean at the end
 
 ## deps-<profile> is used in CI scripts to download deps and the
 ## share downloads between CI steps and/or copied into containers
@@ -102,6 +105,7 @@ deps-all: $(REBAR) $(PROFILES:%=deps-%)
 .PHONY: $(PROFILES:%=deps-%)
 $(PROFILES:%=deps-%): $(REBAR) get-dashboard
 	@$(REBAR) as $(@:deps-%=%) get-deps
+	@rm -f rebar.lock
 
 .PHONY: xref
 xref: $(REBAR)
