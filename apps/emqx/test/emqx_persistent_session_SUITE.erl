@@ -426,6 +426,8 @@ t_persist_on_disconnect(Config) ->
     %% Strangely enough, the disconnect is reported as successful by emqtt.
     ok = emqtt:disconnect(Client1, 0, #{'Session-Expiry-Interval' => 30}),
 
+    wait_for_cm_unregister(ClientId),
+
     {ok, Client2} = emqtt:start_link([ {clientid, ClientId},
                                        {proto_ver, v5},
                                        {clean_start, false},
