@@ -27,9 +27,11 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_http_connectivity(_) ->
     {ok, Socket} = gen_tcp:listen(?PORT, []),
-    ok = emqx_plugin_libs_rule:http_connectivity("http://127.0.0.1:"++emqx_plugin_libs_rule:str(?PORT), 1000),
+    ok = emqx_plugin_libs_rule:http_connectivity(
+        "http://127.0.0.1:"++emqx_plugin_libs_rule:str(?PORT), 1000),
     gen_tcp:close(Socket),
-    {error, _} = emqx_plugin_libs_rule:http_connectivity("http://127.0.0.1:"++emqx_plugin_libs_rule:str(?PORT), 1000).
+    {error, _} = emqx_plugin_libs_rule:http_connectivity(
+        "http://127.0.0.1:"++emqx_plugin_libs_rule:str(?PORT), 1000).
 
 t_tcp_connectivity(_) ->
     {ok, Socket} = gen_tcp:listen(?PORT, []),
@@ -68,69 +70,8 @@ t_atom_key(_) ->
 
 t_unsafe_atom_key(_) ->
     ?assertEqual([xyz876gv], emqx_plugin_libs_rule:unsafe_atom_key([<<"xyz876gv">>])),
-    ?assertEqual([xyz876gv33, port], emqx_plugin_libs_rule:unsafe_atom_key([<<"xyz876gv33">>, port])),
-    ?assertEqual([xyz876gv331, port1221], emqx_plugin_libs_rule:unsafe_atom_key([<<"xyz876gv331">>, <<"port1221">>])),
+    ?assertEqual([xyz876gv33, port],
+        emqx_plugin_libs_rule:unsafe_atom_key([<<"xyz876gv33">>, port])),
+    ?assertEqual([xyz876gv331, port1221],
+        emqx_plugin_libs_rule:unsafe_atom_key([<<"xyz876gv331">>, <<"port1221">>])),
     ?assertEqual(xyz876gv3312, emqx_plugin_libs_rule:unsafe_atom_key(<<"xyz876gv3312">>)).
-
-t_proc_tmpl(_) ->
-    Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
-    Tks = emqx_plugin_libs_rule:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
-    ?assertEqual(<<"a:1,b:1,c:1.0,d:{\"d1\":\"hi\"}">>,
-                 emqx_plugin_libs_rule:proc_tmpl(Tks, Selected)).
-
-t_proc_tmpl1(_) ->
-    Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
-    Tks = emqx_plugin_libs_rule:preproc_tmpl(<<"a:$a,b:b},c:{c},d:${d">>),
-    ?assertEqual(<<"a:$a,b:b},c:{c},d:${d">>,
-                 emqx_plugin_libs_rule:proc_tmpl(Tks, Selected)).
-
-t_proc_cmd(_) ->
-    Selected = #{v0 => <<"x">>, v1 => <<"1">>, v2 => #{d1 => <<"hi">>}},
-    Tks = emqx_plugin_libs_rule:preproc_cmd(<<"hset name a:${v0} ${v1} b ${v2} ">>),
-    ?assertEqual([<<"hset">>, <<"name">>,
-                  <<"a:x">>, <<"1">>,
-                  <<"b">>, <<"{\"d1\":\"hi\"}">>],
-                 emqx_plugin_libs_rule:proc_cmd(Tks, Selected)).
-
-t_preproc_sql(_) ->
-    Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
-    {PrepareStatement, ParamsTokens} = emqx_plugin_libs_rule:preproc_sql(<<"a:${a},b:${b},c:${c},d:${d}">>, '?'),
-    ?assertEqual(<<"a:?,b:?,c:?,d:?">>, PrepareStatement),
-    ?assertEqual([<<"1">>,1,1.0,<<"{\"d1\":\"hi\"}">>],
-                 emqx_plugin_libs_rule:proc_sql(ParamsTokens, Selected)).
-
-t_preproc_sql1(_) ->
-    Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
-    {PrepareStatement, ParamsTokens} = emqx_plugin_libs_rule:preproc_sql(<<"a:${a},b:${b},c:${c},d:${d}">>, '$n'),
-    ?assertEqual(<<"a:$1,b:$2,c:$3,d:$4">>, PrepareStatement),
-    ?assertEqual([<<"1">>,1,1.0,<<"{\"d1\":\"hi\"}">>],
-                 emqx_plugin_libs_rule:proc_sql(ParamsTokens, Selected)).
-t_preproc_sql2(_) ->
-    Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
-    {PrepareStatement, ParamsTokens} = emqx_plugin_libs_rule:preproc_sql(<<"a:$a,b:b},c:{c},d:${d">>, '?'),
-    ?assertEqual(<<"a:$a,b:b},c:{c},d:${d">>, PrepareStatement),
-    ?assertEqual([], emqx_plugin_libs_rule:proc_sql(ParamsTokens, Selected)).
-
-t_preproc_sql3(_) ->
-    Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
-    ParamsTokens = emqx_plugin_libs_rule:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
-    ?assertEqual(<<"a:'1',b:1,c:1.0,d:'{\"d1\":\"hi\"}'">>,
-                 emqx_plugin_libs_rule:proc_sql_param_str(ParamsTokens, Selected)).
-
-t_preproc_sql4(_) ->
-    %% with apostrophes
-    %% https://github.com/emqx/emqx/issues/4135
-    Selected = #{a => <<"1''2">>, b => 1, c => 1.0,
-                 d => #{d1 => <<"someone's phone">>}},
-    ParamsTokens = emqx_plugin_libs_rule:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
-    ?assertEqual(<<"a:'1\\'\\'2',b:1,c:1.0,d:'{\"d1\":\"someone\\'s phone\"}'">>,
-                 emqx_plugin_libs_rule:proc_sql_param_str(ParamsTokens, Selected)).
-
-t_preproc_sql5(_) ->
-    %% with apostrophes for cassandra
-    %% https://github.com/emqx/emqx/issues/4148
-    Selected = #{a => <<"1''2">>, b => 1, c => 1.0,
-                 d => #{d1 => <<"someone's phone">>}},
-    ParamsTokens = emqx_plugin_libs_rule:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
-    ?assertEqual(<<"a:'1''''2',b:1,c:1.0,d:'{\"d1\":\"someone''s phone\"}'">>,
-                 emqx_plugin_libs_rule:proc_cql_param_str(ParamsTokens, Selected)).

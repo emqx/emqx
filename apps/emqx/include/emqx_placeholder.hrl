@@ -19,10 +19,8 @@
 
 -define(PH(Type), <<"${", Type/binary, "}">>).
 
-%% publish/subscribe/all
--define(PH_PUB, ?PH(<<"publish">>)).
--define(PH_SUB, ?PH(<<"subscribe">>)).
--define(PH_PUB_SUB, ?PH(<<"all">>)).
+%% action: publish/subscribe/all
+-define(PH_ACTION, ?PH(<<"action">>)).
 
 %% cert
 -define(PH_CRET_SUBJECT, ?PH(<<"cert_subject">>)).

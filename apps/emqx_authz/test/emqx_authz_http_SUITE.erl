@@ -68,8 +68,8 @@ end_per_suite(_Config) ->
 %%------------------------------------------------------------------------------
 
 t_authz(_) ->
-    ClientInfo = #{clientid => <<"clientid">>,
-                   username => <<"username">>,
+    ClientInfo = #{clientid => <<"my-clientid">>,
+                   username => <<"my-username">>,
                    peerhost => {127,0,0,1},
                    protocol => mqtt,
                    mountpoint => <<"fake">>,
@@ -92,4 +92,3 @@ t_authz(_) ->
     ?assertEqual(deny,
         emqx_access_control:authorize(ClientInfo, publish, <<"+">>)),
     ok.
-
