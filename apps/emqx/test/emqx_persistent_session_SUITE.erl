@@ -413,7 +413,6 @@ t_persist_on_disconnect(Config) ->
                                        {properties, #{'Session-Expiry-Interval' => 30}}
                                      | Config]),
     {ok, _} = emqtt:ConnFun(Client2),
-    timer:sleep(10),
     %% The session should not be known, since it wasn't persisted because of the
     %% changed expiry interval in the disconnect call.
     ?assertEqual(0, client_info(session_present, Client2)),
@@ -774,7 +773,6 @@ check_snabbkaffe_vanilla(Trace) ->
 
 t_snabbkaffe_vanilla_stages(Config) ->
     %% Test that all stages of session resume works ok in the simplest case
-    process_flag(trap_exit, true),
     ConnFun = ?config(conn_fun, Config),
     ClientId = ?config(client_id, Config),
     EmqttOpts = [ {proto_ver, v5},
@@ -799,7 +797,6 @@ t_snabbkaffe_vanilla_stages(Config) ->
 
 t_snabbkaffe_pending_messages(Config) ->
     %% Make sure there are pending messages are fetched during the init stage.
-    process_flag(trap_exit, true),
     ConnFun = ?config(conn_fun, Config),
     ClientId = ?config(client_id, Config),
     Topic = ?config(topic, Config),
@@ -839,7 +836,6 @@ t_snabbkaffe_pending_messages(Config) ->
 
 t_snabbkaffe_buffered_messages(Config) ->
     %% Make sure to buffer messages during startup.
-    process_flag(trap_exit, true),
     ConnFun = ?config(conn_fun, Config),
     ClientId = ?config(client_id, Config),
     Topic = ?config(topic, Config),
