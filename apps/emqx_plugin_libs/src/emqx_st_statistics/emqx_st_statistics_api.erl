@@ -52,31 +52,32 @@ get_history(_Bindings, Params) ->
     Start = (Page - 1) * Limit + 1,
     Size = ets:info(?TOPK_TAB, size),
     End = Start + Limit - 1,
-    Infos = get_history(Start, End, Size),
+    {HasNext, Count, Infos} = get_history(Start, End, Size),
     return({ok, #{meta => #{page => Page,
                             limit => Limit,
-                            hasnext => End < Size,
-                            count => End - Start + 1},
+                            hasnext => HasNext,
+                            count => Count},
                   data => Infos}}).
 
 
 get_history(Start, _End, Size) when Start > Size ->
-    [];
+    {false, 0, []};
 
 get_history(Start, End, Size) when End > Size ->
     get_history(Start, Size, Size);
 
-get_history(Start, End, _Size) ->
+get_history(Start, End, Size) ->
     Fold = fun(Rank, Acc) ->
-               [#top_k{topic = Topic
-                      , average_count = Count
-                      , average_elapsed = Elapsed}] = ets:lookup(?TOPK_TAB, Rank),
+                   [#top_k{topic = Topic
+                          , average_count = Count
+                          , average_elapsed = Elapsed}] = ets:lookup(?TOPK_TAB, Rank),
 
-               Info =[ {rank, Rank}
-                     , {topic, Topic}
-                     , {count, Count}
-                     , {elapsed, Elapsed}],
+                   Info = [ {rank, Rank}
+                          , {topic, Topic}
+                          , {count, Count}
+                          , {elapsed, Elapsed}],
 
-               [Info | Acc]
+                   [Info | Acc]
            end,
-    lists:foldl(Fold, [], lists:seq(Start, End)).
+    Infos = lists:foldl(Fold, [], lists:seq(Start, End)),
+    {End < Size, End - Start + 1, Infos}.
