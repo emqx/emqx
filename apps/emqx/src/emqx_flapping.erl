@@ -129,7 +129,8 @@ handle_cast({detected, #flapping{clientid   = ClientId,
                              reason = <<"flapping is detected">>,
                              at     = Now,
                              until  = Now + (Interval div 1000)},
-            emqx_banned:create(Banned);
+            {ok, _} = emqx_banned:create(Banned),
+            ok;
         false ->
             ?SLOG(warning, #{
                 msg => "client_disconnected",

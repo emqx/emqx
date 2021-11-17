@@ -205,7 +205,7 @@ check_password(Password,
         undefined ->
             {error, {cannot_find_password_hash_field, PasswordHashField}};
         Hash ->
-            case {ok, Hash} =:= bcrypt:hashpw(Password, Hash) of
+            case {ok, to_list(Hash)} =:= bcrypt:hashpw(Password, Hash) of
                 true -> ok;
                 false -> {error, bad_username_or_password}
             end
@@ -238,3 +238,7 @@ hash(Algorithm, Password, Salt, prefix) ->
     emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>);
 hash(Algorithm, Password, Salt, suffix) ->
     emqx_passwd:hash(Algorithm, <<Password/binary, Salt/binary>>).
+
+to_list(L) when is_list(L) -> L;
+to_list(L) when is_binary(L) -> binary_to_list(L);
+to_list(X) -> X.

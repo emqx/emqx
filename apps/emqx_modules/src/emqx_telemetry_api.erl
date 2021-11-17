@@ -63,10 +63,12 @@ status_api() ->
             responses => #{<<"200">> => object_schema(Props)}
         },
         put => #{
-            description => "Enable or disbale telemetry",
+            description => "Enable or disable telemetry",
             'requestBody' => object_schema(Props),
             responses => #{
-                <<"200">> => schema(<<"Enable or disbale telemetry successfully">>),
+                <<"200">> =>
+                    object_schema(properties([{enable, boolean, <<"">>}]),
+                        <<"Enable or disable telemetry successfully">>),
                 <<"400">> => bad_request()
             }
         }
@@ -77,10 +79,7 @@ data_api() ->
     Metadata = #{
         get => #{
             responses => #{
-                <<"200">> => object_schema(properties(), <<"Get telemetry data">>)
-            }
-        }
-    },
+                <<"200">> => object_schema(properties(), <<"Get telemetry data">>)}}},
     {"/telemetry/data", Metadata, data}.
 
 %%--------------------------------------------------------------------
@@ -97,10 +96,10 @@ status(put, #{body := Body}) ->
                 true -> <<"Telemetry status is already enabled">>;
                 false -> <<"Telemetry status is already disable">>
             end,
-            {400, #{code => "BAD_REQUEST", message => Reason}};
+            {400, #{code => 'BAD_REQUEST', message => Reason}};
         false ->
             enable_telemetry(Enable),
-             {200}
+            {200, #{<<"enable">> => emqx_telemetry:get_status()}}
     end.
 
 data(get, _Request) ->

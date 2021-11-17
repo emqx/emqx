@@ -117,8 +117,8 @@ authenticate(#{password := Password} = Credential,
     Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
     case emqx_resource:query(Unique, {sql, Query, Params, Timeout}) of
         {ok, _Columns, []} -> ignore;
-        {ok, Columns, Rows} ->
-            Selected = maps:from_list(lists:zip(Columns, Rows)),
+        {ok, Columns, [Row | _]} ->
+            Selected = maps:from_list(lists:zip(Columns, Row)),
             case emqx_authn_utils:check_password(Password, Selected, State) of
                 ok ->
                     {ok, emqx_authn_utils:is_superuser(Selected)};

@@ -23,7 +23,11 @@
 
 -behaviour(minirest_api).
 
--export([api_spec/0, paths/0, schema/1, fields/1]).
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        , fields/1]).
+
 -export([format/1]).
 
 -export([ banned/2
@@ -62,7 +66,9 @@ schema("/banned") ->
             description => <<"Create banned">>,
             'requestBody' => hoconsc:mk(hoconsc:ref(ban)),
             responses => #{
-                200 => <<"Create success">>
+                200 => [{data, hoconsc:mk(hoconsc:array(hoconsc:ref(ban)), #{})}],
+                400 => emqx_dashboard_swagger:error_codes(['ALREADY_EXISTED'],
+                                                          <<"Banned already existed">>)
             }
         }
     };
@@ -82,7 +88,7 @@ schema("/banned/:as/:who") ->
                     example => <<"Badass">>})}
                 ],
             responses => #{
-                200 => <<"Delete banned success">>,
+                204 => <<"Delete banned success">>,
                 404 => emqx_dashboard_swagger:error_codes(['RESOURCE_NOT_FOUND'],
                                                           <<"Banned not found">>)
             }
@@ -135,8 +141,12 @@ banned(get, #{query_string := Params}) ->
     Response = emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN),
     {200, Response};
 banned(post, #{body := Body}) ->
-    _ = emqx_banned:create(emqx_banned:parse(Body)),
-    {200}.
+    case emqx_banned:create(emqx_banned:parse(Body)) of
+        {ok, Banned} ->
+            {200, format(Banned)};
+        {error, {already_exist, Old}} ->
+            {400, #{code => 'ALREADY_EXISTED', message => format(Old)}}
+    end.
 
 delete_banned(delete, #{bindings := Params}) ->
     case emqx_banned:look_up(Params) of
@@ -146,7 +156,7 @@ delete_banned(delete, #{bindings := Params}) ->
             {404, #{code => 'RESOURCE_NOT_FOUND', message => Message}};
         _ ->
             ok = emqx_banned:delete(Params),
-            {200}
+            {204}
     end.
 
 format(Banned) ->

@@ -17,6 +17,8 @@
 %% @doc Start/Stop MQTT listeners.
 -module(emqx_listeners).
 
+-elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 10000}}]).
+
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 
@@ -28,6 +30,7 @@
         , is_running/1
         , current_conns/2
         , max_conns/2
+        , id_example/0
         ]).
 
 -export([ start_listener/1
@@ -47,6 +50,18 @@
 
 -define(CONF_KEY_PATH, [listeners]).
 -define(TYPES_STRING, ["tcp","ssl","ws","wss","quic"]).
+
+-spec(id_example() -> atom()).
+id_example() ->
+    id_example(list()).
+
+id_example([]) ->
+    {ID, _} = hd(list()),
+    ID;
+id_example([{'tcp:default', _} | _]) ->
+    'tcp:default';
+id_example([_ | Listeners]) ->
+    id_example(Listeners).
 
 %% @doc List configured listeners.
 -spec(list() -> [{ListenerId :: atom(), ListenerConf :: map()}]).
@@ -235,10 +250,10 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
                          , {key, maps:get(keyfile, Opts)}
                          , {alpn, ["mqtt"]}
                          , {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])}
-                         , {idle_timeout_ms, lists:max([
-                                                emqx_config:get_zone_conf(zone(Opts), [mqtt, idle_timeout]) * 3
-                                              , timer:seconds(maps:get(idle_timeout, Opts))]
-                                              )}
+                         , {idle_timeout_ms,
+                                lists:max([
+                                    emqx_config:get_zone_conf(zone(Opts), [mqtt, idle_timeout]) * 3,
+                                    timer:seconds(maps:get(idle_timeout, Opts))])}
                          ],
             ConnectionOpts = #{ conn_callback => emqx_quic_connection
                               , peer_unidi_stream_count => 1
@@ -281,7 +296,8 @@ flatten_listeners(Conf0) ->
                       || {Type, Conf} <- maps:to_list(Conf0)])).
 
 do_flatten_listeners(Type, Conf0) ->
-    [{listener_id(Type, Name), maps:remove(authentication, Conf)} || {Name, Conf} <- maps:to_list(Conf0)].
+    [{listener_id(Type, Name), maps:remove(authentication, Conf)} ||
+        {Name, Conf} <- maps:to_list(Conf0)].
 
 esockd_opts(Type, Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),

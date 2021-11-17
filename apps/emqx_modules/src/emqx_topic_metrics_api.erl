@@ -96,7 +96,8 @@ topic_metrics_api() ->
             responses => #{
                 <<"200">> => schema(<<"Create topic metrics success">>),
                 <<"409">> => error_schema(<<"Topic metrics max limit">>, [?EXCEED_LIMIT]),
-                <<"400">> => error_schema(<<"Topic metrics already exist or bad topic">>, [?BAD_REQUEST, ?BAD_TOPIC])
+                <<"400">> => error_schema( <<"Topic metrics already exist or bad topic">>
+                                         , [?BAD_REQUEST, ?BAD_TOPIC])
             }
         }
     },
@@ -115,7 +116,7 @@ operation_topic_metrics_api() ->
             description => <<"Deregister topic metrics">>,
             parameters => [topic_param()],
             responses => #{
-                <<"200">> => schema(<<"Deregister topic metrics">>),
+                <<"204">> => schema(<<"Deregister topic metrics">>),
                 <<"404">> => error_schema(<<"Topic not found">>, [?ERROR_TOPIC])
             }
         }
@@ -174,8 +175,10 @@ register(Topic) ->
                                         [Topic])),
             {400, #{code => ?BAD_TOPIC, message => Message}};
         {error, {quota_exceeded, bad_topic}} ->
-            Message = list_to_binary(io_lib:format("Max topic metrics count is ~p, and topic cannot have wildcard ~p",
-                                        [emqx_topic_metrics:max_limit(), Topic])),
+            Message = list_to_binary(
+                          io_lib:format(
+                              "Max topic metrics count is ~p, and topic cannot have wildcard ~p",
+                              [emqx_topic_metrics:max_limit(), Topic])),
             {400, #{code => ?BAD_REQUEST, message => Message}};
         {error, already_existed} ->
             Message = list_to_binary(io_lib:format("Topic ~p already registered", [Topic])),

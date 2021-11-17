@@ -345,7 +345,7 @@ client_api() ->
             }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:schema(client, <<"List clients 200 OK">>)}}},
+                <<"204">> => emqx_mgmt_util:schema(<<"Kick out client successfully">>)}}},
     {"/clients/:clientid", Metadata, client}.
 
 clients_authz_cache_api() ->
@@ -371,7 +371,7 @@ clients_authz_cache_api() ->
             }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:schema(<<"Delete clients 200 OK">>)}}},
+                <<"204">> => emqx_mgmt_util:schema(<<"Clean client authz cache successfully">>)}}},
     {"/clients/:clientid/authz_cache", Metadata, authz_cache}.
 
 clients_subscriptions_api() ->
@@ -540,8 +540,12 @@ lookup(#{clientid := ClientID}) ->
     end.
 
 kickout(#{clientid := ClientID}) ->
-    emqx_mgmt:kickout_client(ClientID),
-    {200}.
+    case emqx_mgmt:kickout_client({ClientID, ?FORMAT_FUN}) of
+        {error, not_found} ->
+            {404, ?CLIENT_ID_NOT_FOUND};
+        _ ->
+            {204}
+    end.
 
 get_authz_cache(#{clientid := ClientID})->
     case emqx_mgmt:list_authz_cache(ClientID) of
