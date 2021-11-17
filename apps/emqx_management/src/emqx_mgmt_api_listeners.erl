@@ -210,7 +210,7 @@ param_path_id() ->
     #{
         name => id,
         in => path,
-        schema => #{type => string},
+        schema => #{type => string, example => emqx_listeners:id_example()},
         required => true
     }.
 

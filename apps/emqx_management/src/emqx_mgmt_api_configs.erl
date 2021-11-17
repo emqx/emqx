@@ -155,8 +155,20 @@ config_reset(post, _Params, Req) ->
 
 configs(get, Params, _Req) ->
     Node = maps:get(node, Params, node()),
-    Res = rpc:call(Node, ?MODULE, get_full_config, []),
-    {200, Res}.
+    case
+        lists:member(Node, mria_mnesia:running_nodes())
+        andalso
+        rpc:call(Node, ?MODULE, get_full_config, [])
+    of
+        false ->
+            Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
+            {500, #{code => 'BAD_NODE', message => Message}};
+        {error, {badrpc, R}} ->
+            Message = list_to_binary(io_lib:format("Bad node ~p, reason ~p", [Node, R])),
+            {500, #{code => 'BAD_NODE', message => Message}};
+        Res ->
+            {200, Res}
+    end.
 
 conf_path_reset(Req) ->
     <<"/api/v5", ?PREFIX_RESET, Path/binary>> = cowboy_req:path(Req),
