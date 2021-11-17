@@ -26,8 +26,6 @@
 -include_lib("emqx_management/include/emqx_mgmt.hrl").
 -include_lib("emqx_st_statistics/include/emqx_st_statistics.hrl").
 
--define(CONTENT_TYPE, "application/x-www-form-urlencoded").
-
 -define(HOST, "http://127.0.0.1:18083/").
 
 -define(API_VERSION, "v5").
@@ -39,10 +37,10 @@ emqx_st_statistics {
   threshold_time = 10s
   top_k_num = 500
   notice_batch_size = 500
-                    time_window = 5m
-                    max_log_num = 500
-                    ignore_before_create = true
-                   }
+  time_window = 5m
+  max_log_num = 500
+  ignore_before_create = true
+}
 """>>).
 
 all() ->
