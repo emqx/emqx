@@ -273,10 +273,13 @@ snabbkaffe_sync_publish(Topic, Payloads) ->
     do_publish(Payloads, Fun, true).
 
 publish(Topic, Payloads) ->
+    publish(Topic, Payloads, false).
+
+publish(Topic, Payloads, WaitForUnregister) ->
     Fun = fun(Client, Payload) ->
                   {ok, _} = emqtt:publish(Client, Topic, Payload, 2)
           end,
-    do_publish(Payloads, Fun, false).
+    do_publish(Payloads, Fun, WaitForUnregister).
 
 do_publish(Payloads = [_|_], PublishFun, WaitForUnregister) ->
     %% Publish from another process to avoid connection confusion.
@@ -883,7 +886,7 @@ t_snabbkaffe_buffered_messages(Config) ->
                             #{ ?snk_kind := ps_resume_end }),
            spawn_link(fun() ->
                               ?block_until(#{?snk_kind := ps_marker_pendings_msgs}, infinity, 5000),
-                              publish(Topic, Payloads2)
+                              publish(Topic, Payloads2, true)
                       end),
            {ok, Client2} = emqtt:start_link([{clean_start, false} | EmqttOpts]),
            {ok, _} = emqtt:ConnFun(Client2),
