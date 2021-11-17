@@ -262,9 +262,13 @@ wait_for_cm_unregister(ClientId, N) ->
 
 snabbkaffe_sync_publish(Topic, Payloads) ->
     Fun = fun(Client, Payload) ->
-                  ?wait_async_action( {ok, _} = emqtt:publish(Client, Topic, Payload, 2)
-                                    , #{?snk_kind := ps_persist_msg, payload := Payload}
-                                    )
+                  ?check_trace(
+                     begin
+                         ?wait_async_action( {ok, _} = emqtt:publish(Client, Topic, Payload, 2)
+                                           , #{?snk_kind := ps_persist_msg, payload := Payload}
+                                           )
+                     end,
+                     fun(_, _Trace) -> ok end)
           end,
     do_publish(Payloads, Fun, true).
 
@@ -289,7 +293,22 @@ do_publish(Payloads = [_|_], PublishFun, WaitForUnregister) ->
                   lists:foreach(fun(Payload) -> PublishFun(Client, Payload) end, Payloads),
                   ok = emqtt:disconnect(Client),
                   %% Snabbkaffe sometimes fails unless all processes are gone.
-                  [wait_for_cm_unregister(ClientID) || WaitForUnregister]
+                  case WaitForUnregister of
+                      false ->
+                          ok;
+                      true ->
+                          case emqx_cm:lookup_channels(ClientID) of
+                              [] ->
+                                  ok;
+                              [ConnectionPid] ->
+                                  ?assert(is_pid(ConnectionPid)),
+                                  Ref1 = monitor(process, ConnectionPid),
+                                  receive {'DOWN', Ref1, process, ConnectionPid, _} -> ok
+                                  after 3000 -> error(process_did_not_die)
+                                  end,
+                                  wait_for_cm_unregister(ClientID)
+                          end
+                  end
           end),
     receive
         {'DOWN', Ref, process, Pid, normal} -> ok;
