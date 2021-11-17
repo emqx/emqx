@@ -16,6 +16,8 @@
 
 -module(emqx_authn_test_lib).
 
+-include("emqx_authn.hrl").
+
 -compile(nowarn_export_all).
 -compile(export_all).
 
@@ -31,3 +33,10 @@ built_in_database_example() ->
 
 jwt_example() ->
     authenticator_example(jwt).
+
+delete_config(ID) ->
+    {ok, _} =
+        emqx:update_config(
+            [authentication],
+            {delete_authenticator, ?GLOBAL, ID},
+            #{rawconf_with_defaults => false}).

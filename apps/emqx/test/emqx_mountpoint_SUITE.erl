@@ -55,12 +55,12 @@ t_unmount(_) ->
 t_replvar(_) ->
     ?assertEqual(undefined, replvar(undefined, #{})),
     ?assertEqual(<<"mount/user/clientid/">>,
-                 replvar(<<"mount/%u/%c/">>,
+                 replvar(<<"mount/${username}/${clientid}/">>,
                          #{clientid => <<"clientid">>,
                            username => <<"user">>
                           })),
-    ?assertEqual(<<"mount/%u/clientid/">>,
-                 replvar(<<"mount/%u/%c/">>,
+    ?assertEqual(<<"mount/${username}/clientid/">>,
+                 replvar(<<"mount/${username}/${clientid}/">>,
                          #{clientid => <<"clientid">>,
                            username => undefined
                           })).

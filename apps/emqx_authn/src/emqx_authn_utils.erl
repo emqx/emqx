@@ -16,6 +16,8 @@
 
 -module(emqx_authn_utils).
 
+-include_lib("emqx/include/emqx_placeholder.hrl").
+
 -export([ replace_placeholders/2
         , replace_placeholder/2
         , check_password/3
@@ -42,17 +44,17 @@ replace_placeholders([Placeholder | More], Credential, Acc) ->
             replace_placeholders(More, Credential, [convert_to_sql_param(V) | Acc])
     end.
 
-replace_placeholder(<<"${mqtt-username}">>, Credential) ->
+replace_placeholder(?PH_USERNAME, Credential) ->
     maps:get(username, Credential, undefined);
-replace_placeholder(<<"${mqtt-clientid}">>, Credential) ->
+replace_placeholder(?PH_CLIENTID, Credential) ->
     maps:get(clientid, Credential, undefined);
-replace_placeholder(<<"${mqtt-password}">>, Credential) ->
+replace_placeholder(?PH_PASSWORD, Credential) ->
     maps:get(password, Credential, undefined);
-replace_placeholder(<<"${ip-address}">>, Credential) ->
+replace_placeholder(?PH_PEERHOST, Credential) ->
     maps:get(peerhost, Credential, undefined);
-replace_placeholder(<<"${cert-subject}">>, Credential) ->
+replace_placeholder(?PH_CERT_SUBJECT, Credential) ->
     maps:get(dn, Credential, undefined);
-replace_placeholder(<<"${cert-common-name}">>, Credential) ->
+replace_placeholder(?PH_CERT_CN_NAME, Credential) ->
     maps:get(cn, Credential, undefined);
 replace_placeholder(Constant, _) ->
     Constant.

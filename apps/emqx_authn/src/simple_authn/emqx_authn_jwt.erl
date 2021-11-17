@@ -340,7 +340,7 @@ handle_placeholder(Placeholder0) ->
             Placeholder0
     end.
 
-validate_placeholder(<<"mqtt-clientid">>) ->
+validate_placeholder(<<"clientid">>) ->
     clientid;
-validate_placeholder(<<"mqtt-username">>) ->
+validate_placeholder(<<"username">>) ->
     username.

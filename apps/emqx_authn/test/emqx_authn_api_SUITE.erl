@@ -52,6 +52,10 @@ init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps(
            [emqx_authn, emqx_dashboard],
            fun set_special_configs/1),
+
+    ?AUTHN:delete_chain(?GLOBAL),
+    {ok, Chains} = ?AUTHN:list_chains(),
+    ?assertEqual(length(Chains), 0),
     Config.
 
 end_per_suite(_Config) ->
