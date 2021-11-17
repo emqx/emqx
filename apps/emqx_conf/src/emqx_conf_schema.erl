@@ -342,8 +342,8 @@ fields("cluster_call") ->
            })}
     , {"cleanup_interval",
        sc(emqx_schema:duration(),
-          #{  desc => "Time interval to clear completed but stale transactions.
-                         Ensure that the number of completed transactions is less than the max_history."
+          #{  desc => "Time interval to clear completed but stale transactions."
+              "Ensure that the number of completed transactions is less than the max_history."
            ,  default => "5m"
            })}
     ];
@@ -506,7 +506,7 @@ fields("authorization") ->
 translations() -> ["ekka", "kernel", "emqx"].
 
 translation("ekka") ->
-    [ {"cluster_discovery", fun tr_cluster__discovery/1}];
+    [ {"cluster_discovery", fun tr_cluster_discovery/1}];
 translation("kernel") ->
     [ {"logger_level", fun tr_logger_level/1}
     , {"logger", fun tr_logger/1}];
@@ -541,7 +541,7 @@ tr_override_conf_file(Conf, Filename) ->
     [_ | _] = DataDir,
     filename:join([DataDir, "configs", Filename]).
 
-tr_cluster__discovery(Conf) ->
+tr_cluster_discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),
     {Strategy, filter(options(Strategy, Conf))}.
 
@@ -720,21 +720,16 @@ sort_log_levels(Levels) ->
 -spec(conf_get(string() | [string()], hocon:config()) -> term()).
 conf_get(Key, Conf) ->
     V = hocon_schema:get_value(Key, Conf),
-    case is_binary(V) of
-        true ->
-            binary_to_list(V);
-        false ->
-            V
-    end.
+    map_binary_to_list(V).
 
 conf_get(Key, Conf, Default) ->
     V = hocon_schema:get_value(Key, Conf, Default),
-    case is_binary(V) of
-        true ->
-            binary_to_list(V);
-        false ->
-            V
-    end.
+    map_binary_to_list(V).
+
+map_binary_to_list(V) when is_binary(V) ->
+    binary_to_list(V);
+map_binary_to_list(V) ->
+    V.
 
 filter(Opts) ->
     [{K, V} || {K, V} <- Opts, V =/= undefined].
@@ -767,8 +762,11 @@ options(dns, Conf) ->
 options(etcd, Conf) ->
     Namespace = "cluster.etcd.ssl",
     SslOpts = fun(C) ->
-        Options = keys(Namespace, C),
-        lists:map(fun(Key) -> {to_atom(Key), conf_get([Namespace, Key], Conf)} end, Options) end,
+                  Options = keys(Namespace, C),
+                  lists:map(fun(Key) ->
+                                {to_atom(Key), conf_get([Namespace, Key], Conf)}
+                            end, Options)
+              end,
     [{server, conf_get("cluster.etcd.server", Conf)},
      {prefix, conf_get("cluster.etcd.prefix", Conf, "emqxcl")},
      {node_ttl, conf_get("cluster.etcd.node_ttl", Conf, 60)},

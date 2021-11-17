@@ -314,7 +314,8 @@ unsubscribe(ClientInfo, TopicFilter, UnSubOpts,
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
             ok = emqx_persistent_session:remove_subscription(TopicFilter, SessionID, IsPS),
-            ok = emqx_hooks:run('session.unsubscribed', [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]),
+            ok = emqx_hooks:run('session.unsubscribed',
+                                [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]),
             {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}};
         error ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
