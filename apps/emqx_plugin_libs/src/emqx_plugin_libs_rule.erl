@@ -15,8 +15,9 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_plugin_libs_rule).
+-elvis([{elvis_style, god_modules, disable}]).
 
-%% preprocess and process tempalte string with place holders
+%% preprocess and process template string with place holders
 -export([ preproc_tmpl/1
         , proc_tmpl/2
         , proc_tmpl/3
@@ -76,107 +77,49 @@
 %% preprocess template string with place holders
 -spec(preproc_tmpl(binary()) -> tmpl_token()).
 preproc_tmpl(Str) ->
-    Tokens = re:split(Str, ?EX_PLACE_HOLDER, [{return,binary},group,trim]),
-    preproc_tmpl(Tokens, []).
-
-preproc_tmpl([], Acc) ->
-    lists:reverse(Acc);
-preproc_tmpl([[Str, Phld]| Tokens], Acc) ->
-    preproc_tmpl(Tokens,
-        put_head(var, parse_nested(unwrap(Phld)),
-            put_head(str, Str, Acc)));
-preproc_tmpl([[Str]| Tokens], Acc) ->
-    preproc_tmpl(Tokens, put_head(str, Str, Acc)).
-
-put_head(_Type, <<>>, List) -> List;
-put_head(Type, Term, List) ->
-    [{Type, Term} | List].
+    emqx_placeholder:preproc_tmpl(Str).
 
 -spec(proc_tmpl(tmpl_token(), map()) -> binary()).
 proc_tmpl(Tokens, Data) ->
-    proc_tmpl(Tokens, Data, #{return => full_binary}).
+    emqx_placeholder:proc_tmpl(Tokens, Data).
 
 -spec(proc_tmpl(tmpl_token(), map(), map()) -> binary() | list()).
-proc_tmpl(Tokens, Data, Opts = #{return := full_binary}) ->
-    Trans = maps:get(var_trans, Opts, fun bin/1),
-    list_to_binary(
-        proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => Trans}));
-
-proc_tmpl(Tokens, Data, Opts = #{return := rawlist}) ->
-    Trans = maps:get(var_trans, Opts, undefined),
-    lists:map(
-        fun ({str, Str}) -> Str;
-            ({var, Phld}) when is_function(Trans) ->
-                Trans(get_phld_var(Phld, Data));
-            ({var, Phld}) ->
-                get_phld_var(Phld, Data)
-        end, Tokens).
-
+proc_tmpl(Tokens, Data, Opts) ->
+    emqx_placeholder:proc_tmpl(Tokens, Data, Opts).
 
 -spec(preproc_cmd(binary()) -> tmpl_cmd()).
 preproc_cmd(Str) ->
-    SubStrList = re:split(Str, ?EX_WITHE_CHARS, [{return,binary},trim]),
-    [preproc_tmpl(SubStr) || SubStr <- SubStrList].
+    emqx_placeholder:preproc_cmd(Str).
 
 -spec(proc_cmd([tmpl_token()], map()) -> binary() | list()).
 proc_cmd(Tokens, Data) ->
-    proc_cmd(Tokens, Data, #{return => full_binary}).
+    emqx_placeholder:proc_cmd(Tokens, Data).
 -spec(proc_cmd([tmpl_token()], map(), map()) -> list()).
 proc_cmd(Tokens, Data, Opts) ->
-    [proc_tmpl(Tks, Data, Opts) || Tks <- Tokens].
+    emqx_placeholder:proc_cmd(Tokens, Data, Opts).
 
 %% preprocess SQL with place holders
 -spec(preproc_sql(Sql::binary()) -> {prepare_statement_key(), tmpl_token()}).
 preproc_sql(Sql) ->
-    preproc_sql(Sql, '?').
+    emqx_placeholder:preproc_sql(Sql).
 
 -spec(preproc_sql(Sql::binary(), ReplaceWith :: '?' | '$n')
     -> {prepare_statement_key(), tmpl_token()}).
 
 preproc_sql(Sql, ReplaceWith) ->
-    case re:run(Sql, ?EX_PLACE_HOLDER, [{capture, all_but_first, binary}, global]) of
-        {match, PlaceHolders} ->
-            PhKs = [parse_nested(unwrap(Phld)) || [Phld | _] <- PlaceHolders],
-            {replace_with(Sql, ReplaceWith), [{var, Phld} || Phld <- PhKs]};
-        nomatch ->
-            {Sql, []}
-    end.
+    emqx_placeholder:preproc_sql(Sql, ReplaceWith).
 
 -spec(proc_sql(tmpl_token(), map()) -> list()).
 proc_sql(Tokens, Data) ->
-    proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => fun sql_data/1}).
+    emqx_placeholder:proc_sql(Tokens, Data).
 
 -spec(proc_sql_param_str(tmpl_token(), map()) -> binary()).
 proc_sql_param_str(Tokens, Data) ->
-    proc_param_str(Tokens, Data, fun quote_sql/1).
+    emqx_placeholder:proc_sql_param_str(Tokens, Data).
 
 -spec(proc_cql_param_str(tmpl_token(), map()) -> binary()).
 proc_cql_param_str(Tokens, Data) ->
-    proc_param_str(Tokens, Data, fun quote_cql/1).
-
-proc_param_str(Tokens, Data, Quote) ->
-    iolist_to_binary(
-      proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => Quote})).
-
-%% backward compatibility for hot upgrading from =< e4.2.1
-get_phld_var(Fun, Data) when is_function(Fun) ->
-    Fun(Data);
-get_phld_var(Phld, Data) ->
-    emqx_rule_maps:nested_get(Phld, Data).
-
-replace_with(Tmpl, '?') ->
-    re:replace(Tmpl, ?EX_PLACE_HOLDER, "?", [{return, binary}, global]);
-replace_with(Tmpl, '$n') ->
-    Parts = re:split(Tmpl, ?EX_PLACE_HOLDER, [{return, binary}, trim, group]),
-    {Res, _} =
-        lists:foldl(
-            fun([Tkn, _Phld], {Acc, Seq}) ->
-                    Seq1 = erlang:integer_to_binary(Seq),
-                    {<<Acc/binary, Tkn/binary, "$", Seq1/binary>>, Seq + 1};
-                ([Tkn], {Acc, Seq}) ->
-                    {<<Acc/binary, Tkn/binary>>, Seq}
-            end, {<<>>, 1}, Parts),
-    Res.
+    emqx_placeholder:proc_cql_param_str(Tokens, Data).
 
 unsafe_atom_key(Key) when is_atom(Key) ->
     Key;
@@ -226,35 +169,6 @@ tcp_connectivity(Host, Port, Timeout) ->
         {ok, Sock} -> gen_tcp:close(Sock), ok;
         {error, Reason} -> {error, Reason}
     end.
-
-unwrap(<<"${", Val/binary>>) ->
-    binary:part(Val, {0, byte_size(Val)-1}).
-
-sql_data(undefined) -> null;
-sql_data(List) when is_list(List) -> List;
-sql_data(Bin) when is_binary(Bin) -> Bin;
-sql_data(Num) when is_number(Num) -> Num;
-sql_data(Bool) when is_boolean(Bool) -> Bool;
-sql_data(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
-sql_data(Map) when is_map(Map) -> emqx_json:encode(Map).
-
-quote_sql(Str) ->
-    quote(Str, <<"\\\\'">>).
-
-quote_cql(Str) ->
-    quote(Str, <<"''">>).
-
-quote(Str, ReplaceWith) when
-        is_list(Str);
-        is_binary(Str);
-        is_atom(Str);
-        is_map(Str) ->
-    [$', escape_apo(bin(Str), ReplaceWith), $'];
-quote(Val, _) ->
-    bin(Val).
-
-escape_apo(Str, ReplaceWith) ->
-    re:replace(Str, <<"'">>, ReplaceWith, [{return, binary}, global]).
 
 str(Bin) when is_binary(Bin) -> binary_to_list(Bin);
 str(Num) when is_number(Num) -> number_to_list(Num);
@@ -344,12 +258,6 @@ number_to_list(Int) when is_integer(Int) ->
     integer_to_list(Int);
 number_to_list(Float) when is_float(Float) ->
     float_to_list(Float, [{decimals, 10}, compact]).
-
-parse_nested(Attr) ->
-    case string:split(Attr, <<".">>, all) of
-        [Attr] -> {var, Attr};
-        Nested -> {path, [{key, P} || P <- Nested]}
-    end.
 
 now_ms() ->
     erlang:system_time(millisecond).
