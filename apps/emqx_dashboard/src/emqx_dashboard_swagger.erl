@@ -13,7 +13,7 @@
 
 -ifdef(TEST).
 -export([ parse_spec_ref/2
-        , components/1,
+        , components/1
         ]).
 -endif.
 
