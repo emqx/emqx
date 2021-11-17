@@ -17,6 +17,7 @@
 -module(emqx_mountpoint).
 
 -include("emqx.hrl").
+-include("emqx_placeholder.hrl").
 -include("types.hrl").
 
 -export([ mount/2
@@ -68,12 +69,12 @@ replvar(undefined, _Vars) ->
     undefined;
 replvar(MountPoint, #{clientid := ClientId, username := Username}) ->
     lists:foldl(fun feed_var/2, MountPoint,
-                [{<<"%c">>, ClientId}, {<<"%u">>, Username}]).
+                [{?PH_CLIENTID, ClientId}, {?PH_USERNAME, Username}]).
 
-feed_var({<<"%c">>, ClientId}, MountPoint) ->
-    emqx_topic:feed_var(<<"%c">>, ClientId, MountPoint);
-feed_var({<<"%u">>, undefined}, MountPoint) ->
+feed_var({?PH_CLIENTID, ClientId}, MountPoint) ->
+    emqx_topic:feed_var(?PH_CLIENTID, ClientId, MountPoint);
+feed_var({?PH_USERNAME, undefined}, MountPoint) ->
     MountPoint;
-feed_var({<<"%u">>, Username}, MountPoint) ->
-    emqx_topic:feed_var(<<"%u">>, Username, MountPoint).
+feed_var({?PH_USERNAME, Username}, MountPoint) ->
+    emqx_topic:feed_var(?PH_USERNAME, Username, MountPoint).
 

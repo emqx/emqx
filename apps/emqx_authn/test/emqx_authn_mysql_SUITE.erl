@@ -21,6 +21,7 @@
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -62,7 +63,9 @@ t_authn(_) ->
                <<"backend">> => <<"mysql">>,
                <<"server">> => <<"127.0.0.1:3306">>,
                <<"database">> => <<"mqtt">>,
-               <<"query">> => <<"SELECT password_hash, salt FROM users where username = ${mqtt-username} LIMIT 1">>
+               <<"query">> => 
+                   <<"SELECT password_hash, salt FROM users where username = ",
+                        ?PH_USERNAME/binary, " LIMIT 1">>
                },
     {ok, _} = update_config([authentication], {create_authenticator, ?GLOBAL, Config}),
 
@@ -82,7 +85,7 @@ t_authn(_) ->
 
     ClientInfo2 = ClientInfo#{username => <<"bad">>},
     ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo2)),
-
+    emqx_authn_test_lib:delete_config(<<"password-based:mysql">>),
     ?AUTHN:delete_chain(?GLOBAL).
 
 update_config(Path, ConfigRequest) ->

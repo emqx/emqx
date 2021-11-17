@@ -20,6 +20,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_authn.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 -import(hoconsc, [mk/2, ref/1]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
@@ -969,8 +970,8 @@ authenticator_examples() ->
                     <<"content-type">> => <<"application/json">>
                 },
                 body => #{
-                    <<"username">> => <<"${mqtt-username}">>,
-                    <<"password">> => <<"${mqtt-password}">>
+                    <<"username">> => ?PH_USERNAME,
+                    <<"password">> => ?PH_PASSWORD
                 },
                 pool_size => 8,
                 connect_timeout => 5000,
@@ -988,7 +989,7 @@ authenticator_examples() ->
                 secret => <<"mysecret">>,
                 secret_base64_encoded => false,
                 verify_claims => #{
-                    <<"username">> => <<"${mqtt-username}">>
+                    <<"username">> => ?PH_USERNAME
                 }
             }
         },
@@ -1001,7 +1002,7 @@ authenticator_examples() ->
                 database => example,
                 collection => users,
                 selector => #{
-                    username => <<"${mqtt-username}">>
+                    username => ?PH_USERNAME
                 },
                 password_hash_field => <<"password_hash">>,
                 salt_field => <<"salt">>,
@@ -1017,7 +1018,7 @@ authenticator_examples() ->
                 backend => <<"redis">>,
                 server => <<"127.0.0.1:6379">>,
                 database => 0,
-                query => <<"HMGET ${mqtt-username} password_hash salt">>,
+                query => <<"HMGET ${username} password_hash salt">>,
                 password_hash_algorithm => <<"sha256">>,
                 salt_position => <<"prefix">>
             }
