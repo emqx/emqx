@@ -334,17 +334,6 @@ jobs:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
           - 23.3.4.9-3
-        arch:
-          - [amd64, x86_64]
-          - [arm64v8, aarch64]
-          - [arm32v7, arm]
-          - [i386, i386]
-          - [s390x, s390x]
-        exclude:
-          - profile: emqx-ee
-            arch: [i386, i386]
-          - profile: emqx-ee
-            arch: [s390x, s390x]
 
     steps:
     - uses: actions/download-artifact@v2
@@ -368,8 +357,10 @@ jobs:
           type=ref,event=branch
           type=ref,event=pr
           type=ref,event=tag
-          type=semver,pattern={{version}}-otp${{ matrix.otp }}
-          type=semver,pattern={{major}}.{{minor}}-otp${{ matrix.otp }}
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+        labels:
+          org.opencontainers.image.otp.version=${{ matrix.otp }}
     - uses: docker/login-action@v1
       if: github.event_name == 'release'
       with:
