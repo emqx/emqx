@@ -11,7 +11,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-2:23.3.4.9-3-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
@@ -65,6 +65,8 @@ jobs:
     strategy:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        otp:
+          - 23.2
         exclude:
           - profile: emqx-edge
 
@@ -79,7 +81,7 @@ jobs:
     - uses: gleam-lang/setup-erlang@v1.1.0
       id: install_erlang
       with:
-        otp-version: 23.2
+        otp-version: ${{ matrix.otp }}
     - name: build
       env:
         PYTHON: python
@@ -90,10 +92,10 @@ jobs:
         $version = $( "${{ github.ref }}" -replace "^(.*)/(.*)/" )
         if ($version -match "^v[0-9]+\.[0-9]+(\.[0-9]+)?") {
           $regex = "[0-9]+\.[0-9]+(-alpha|-beta|-rc)?\.[0-9]+"
-          $pkg_name = "${{ matrix.profile }}-windows-$([regex]::matches($version, $regex).value).zip"
+          $pkg_name = "${{ matrix.profile }}-$([regex]::matches($version, $regex).value)-otp${{ matrix.otp }}-windows-amd64.zip"
           }
         else {
-          $pkg_name = "${{ matrix.profile }}-windows-$($version -replace '/').zip"
+          $pkg_name = "${{ matrix.profile }}-$($version -replace '/')-otp${{ matrix.otp }}-windows-amd64.zip"
           }
         cd source
         ## We do not build/release bcrypt for windows package
@@ -134,7 +136,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
-          - 23.2.7.2-emqx-2
+          - 23.3.4.9-3
         exclude:
           - profile: emqx-edge
 
@@ -212,6 +214,8 @@ jobs:
     strategy:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        otp:
+          - 23.3.4.9-3
         arch:
           - amd64
           - arm64
@@ -248,15 +252,11 @@ jobs:
         shell: bash
 
     steps:
-    - name: prepare docker
-      run: |
-        mkdir -p $HOME/.docker
-        echo '{ "experimental": "enabled" }' | tee $HOME/.docker/config.json
-        echo '{ "experimental": true, "storage-driver": "overlay2", "max-concurrent-downloads": 50, "max-concurrent-uploads": 50}' | sudo tee /etc/docker/daemon.json
-        sudo systemctl restart docker
-        docker info
-        docker buildx create --use --name mybuild
-        docker run --rm --privileged tonistiigi/binfmt --install all
+    - uses: docker/setup-buildx-action@v1
+    - uses: docker/setup-qemu-action@v1
+      with:
+        image: tonistiigi/binfmt:latest
+        platforms: all
     - uses: actions/download-artifact@v2
       with:
         name: source
@@ -265,6 +265,7 @@ jobs:
       run: unzip -q source.zip
     - name: downloads old emqx zip packages
       env:
+        OTP_VSN: ${{ matrix.otp }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
@@ -283,42 +284,35 @@ jobs:
         cd source/_upgrade_base
         old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
         for tag in ${old_vsns[@]}; do
-          if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256
-            echo "$(cat $PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256) $PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip" | sha256sum -c || exit 1
+          package_name="${PROFILE}-${tag#[e|v]}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
+          if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.zip) | grep -oE "^[23]+")" ]; then
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.zip
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.zip.sha256
+            echo "$(cat $package_name.zip.sha256) $package_name.zip" | sha256sum -c || exit 1
           fi
         done
     - name: build emqx packages
       env:
-        ERL_OTP: erl23.2.7.2-emqx-2
+        OTP: ${{ matrix.otp }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
+      working-directory: source
       run: |
-        set -e -u
-        cd source
-        docker buildx build --no-cache \
-          --platform=linux/$ARCH \
-          -t cross_build_emqx_for_$SYSTEM \
-          -f .ci/build_packages/Dockerfile \
-          --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-$SYSTEM \
-          --build-arg EMQX_NAME=$PROFILE \
-          --output type=tar,dest=/tmp/cross-build-$PROFILE-for-$SYSTEM.tar .
-
-        mkdir -p /tmp/packages/$PROFILE
-        tar -xvf /tmp/cross-build-$PROFILE-for-$SYSTEM.tar --wildcards emqx/_packages/$PROFILE/*
-        mv emqx/_packages/$PROFILE/* /tmp/packages/$PROFILE/
-        rm -rf /tmp/cross-build-$PROFILE-for-$SYSTEM.tar
-
-        docker rm -f $(docker ps -a -q)
-        docker volume prune -f
+        docker run -i --rm \
+        -v $(pwd):/emqx \
+        --workdir /emqx \
+        --platform linux/$ARCH \
+        ghcr.io/emqx/emqx-builder/4.4-2:$OTP-$SYSTEM \
+        bash -euc "make $PROFILE-zip || cat rebar3.crashdump; \
+                   make $PROFILE-pkg || cat rebar3.crashdump; \
+                   EMQX_NAME=$PROFILE && .ci/build_packages/tests.sh"
     - name: create sha256
       env:
         PROFILE: ${{ matrix.profile}}
       run: |
-        if [ -d /tmp/packages/$PROFILE ]; then
-          cd /tmp/packages/$PROFILE
+        if [ -d _packages/$PROFILE ]; then
+          cd _packages/$PROFILE
             for var in $(ls emqx-* ); do
               bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
             done
@@ -328,7 +322,7 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       with:
         name: ${{ matrix.profile }}
-        path: /tmp/packages/${{ matrix.profile }}/.
+        path: _packages/${{ matrix.profile }}/.
 
   docker:
     runs-on: ubuntu-20.04
@@ -338,17 +332,8 @@ jobs:
     strategy:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
-        arch:
-          - [amd64, x86_64]
-          - [arm64v8, aarch64]
-          - [arm32v7, arm]
-          - [i386, i386]
-          - [s390x, s390x]
-        exclude:
-          - profile: emqx-ee
-            arch: [i386, i386]
-          - profile: emqx-ee
-            arch: [s390x, s390x]
+        otp:
+          - 23.3.4.9-3
 
     steps:
     - uses: actions/download-artifact@v2
@@ -357,22 +342,44 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - name: build emqx docker image
-      env:
-        PROFILE: ${{ matrix.profile }}
-        ARCH: ${{ matrix.arch[0] }}
-        QEMU_ARCH: ${{ matrix.arch[1] }}
-      run: |
-        sudo docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-
-        cd source
-        sudo TARGET=emqx/$PROFILE ARCH=$ARCH QEMU_ARCH=$QEMU_ARCH  make docker
-        cd _packages/$PROFILE && for var in $(ls ${PROFILE}-docker-* ); do sudo bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"; done && cd -
-    - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
+    - uses: docker/setup-buildx-action@v1
+    - uses: docker/setup-qemu-action@v1
       with:
-        name: ${{ matrix.profile }}
-        path: source/_packages/${{ matrix.profile }}/.
+        image: tonistiigi/binfmt:latest
+        platforms: all
+    - uses: docker/metadata-action@v3
+      id: meta
+      with:
+        images: ${{ github.repository_owner }}/${{ matrix.profile }}
+        flavor: |
+          latest=${{ !github.event.release.prerelease }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=ref,event=tag
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+        labels:
+          org.opencontainers.image.otp.version=${{ matrix.otp }}
+    - uses: docker/login-action@v1
+      if: github.event_name == 'release'
+      with:
+        username: ${{ secrets.DOCKER_HUB_USER }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+    - uses: docker/build-push-action@v2
+      with:
+        push: ${{ github.event_name == 'release' }}
+        pull: true
+        no-cache: true
+        platforms: linux/amd64,linux/arm64
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-2:${{ matrix.otp }}-alpine3.14
+          RUN_FROM=alpine:3.14
+          EMQX_NAME=${{ matrix.profile }}
+        file: source/deploy/docker/Dockerfile
+        context: source
 
   delete-artifact:
     runs-on: ubuntu-20.04
@@ -452,15 +459,6 @@ jobs:
              -X POST \
              -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.version }}\" }" \
              ${{ secrets.EMQX_IO_RELEASE_API }}
-    - name: push docker image to docker hub
-      if: github.event_name == 'release'
-      run: |
-        set -e -x -u
-        sudo make docker-prepare
-        cd _packages/${{ matrix.profile }} && for var in $(ls |grep docker |grep -v sha256); do unzip $var; sudo docker load < ${var%.*}; rm -f ${var%.*}; done && cd -
-        echo ${{ secrets.DOCKER_HUB_TOKEN }} |sudo docker login -u ${{ secrets.DOCKER_HUB_USER }} --password-stdin
-        sudo TARGET=emqx/${{ matrix.profile }} make docker-push
-        sudo TARGET=emqx/${{ matrix.profile }} make docker-manifest-list
     - name: update repo.emqx.io
       if: github.event_name == 'release' && endsWith(github.repository, 'enterprise') && matrix.profile == 'emqx-ee'
       run: |
@@ -468,7 +466,7 @@ jobs:
           -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
           -H "Accept: application/vnd.github.v3+json" \
           -X POST \
-          -d "{\"ref\":\"v1.0.3\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ee\": \"true\"}}" \
+          -d "{\"ref\":\"v1.0.4\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ee\": \"true\"}}" \
           "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
     - name: update repo.emqx.io
       if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
@@ -477,7 +475,7 @@ jobs:
           -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
           -H "Accept: application/vnd.github.v3+json" \
           -X POST \
-          -d "{\"ref\":\"v1.0.3\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ce\": \"true\"}}" \
+          -d "{\"ref\":\"v1.0.4\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ce\": \"true\"}}" \
           "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
     - name: update homebrew packages
       if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
@@ -487,7 +485,7 @@ jobs:
               -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
               -X POST \
-              -d "{\"ref\":\"v1.0.3\",\"inputs\":{\"version\": \"${{ env.version }}\"}}" \
+              -d "{\"ref\":\"v1.0.4\",\"inputs\":{\"version\": \"${{ env.version }}\"}}" \
               "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_homebrew.yaml/dispatches"
         fi
     - uses: geekyeggo/delete-artifact@v1

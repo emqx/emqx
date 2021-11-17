@@ -518,7 +518,7 @@ terminate(Reason, State = #state{channel = Channel, transport = Transport,
             ?tp(warning, unclean_terminate, #{exception => E, context => C, stacktrace => S})
     end,
     ?tp(info, terminate, #{reason => Reason}),
-    maybe_raise_excption(Reason).
+    maybe_raise_exception(Reason).
 
 %% close socket, discard new state, always return ok.
 close_socket_ok(State) ->
@@ -526,12 +526,12 @@ close_socket_ok(State) ->
     ok.
 
 %% tell truth about the original exception
-maybe_raise_excption(#{exception := Exception,
+maybe_raise_exception(#{exception := Exception,
                        context := Context,
                        stacktrace := Stacktrace
                       }) ->
     erlang:raise(Exception, Context, Stacktrace);
-maybe_raise_excption(Reason) ->
+maybe_raise_exception(Reason) ->
     exit(Reason).
 
 %%--------------------------------------------------------------------

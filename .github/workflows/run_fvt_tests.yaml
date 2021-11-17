@@ -13,10 +13,6 @@ jobs:
 
         steps:
         - uses: actions/checkout@v1
-        - uses: gleam-lang/setup-erlang@v1.1.2
-          id: install_erlang
-          with:
-            otp-version: 23.2
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -24,14 +20,19 @@ jobs:
               git config --global credential.helper store
               echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
               make deps-emqx-ee
+              make clean
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
+              echo "PROFILE=emqx-ee" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             else
               echo "TARGET=emqx/emqx" >> $GITHUB_ENV
+              echo "PROFILE=emqx" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             fi
         - name: make emqx image
-          run: make docker
+          env:
+            OTP_VSN: 23.3.4.9-3
+          run: make ${PROFILE}-docker
         - name: run emqx
           timeout-minutes: 5
           run: |
@@ -67,10 +68,6 @@ jobs:
 
         steps:
         - uses: actions/checkout@v1
-        - uses: gleam-lang/setup-erlang@v1.1.2
-          id: install_erlang
-          with:
-            otp-version: 23.2
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -78,12 +75,19 @@ jobs:
               git config --global credential.helper store
               echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
               make deps-emqx-ee
+              make clean
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
+              echo "PROFILE=emqx-ee" >> $GITHUB_ENV
+              echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             else
               echo "TARGET=emqx/emqx" >> $GITHUB_ENV
+              echo "PROFILE=emqx" >> $GITHUB_ENV
+              echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             fi
         - name: make emqx image
-          run: make docker
+          env:
+            OTP_VSN: 23.3.4.9-3
+          run: make ${PROFILE}-docker
         - name: install k3s
           env:
             KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
@@ -105,11 +109,10 @@ jobs:
             KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
           timeout-minutes: 5
           run: |
-            version=$(./pkg-vsn.sh)
-            sudo docker save ${TARGET}:$version -o emqx.tar.gz
+            sudo docker save ${TARGET}:${EMQX_TAG} -o emqx.tar.gz
             sudo k3s ctr image import emqx.tar.gz
 
-            sed -i -r "s/^appVersion: .*$/appVersion: \"${version}\"/g" deploy/charts/emqx/Chart.yaml
+            sed -i -r "s/^appVersion: .*$/appVersion: \"${EMQX_TAG}\"/g" deploy/charts/emqx/Chart.yaml
             sed -i '/emqx_telemetry/d' deploy/charts/emqx/values.yaml
 
             helm install emqx \
@@ -180,7 +183,7 @@ jobs:
 
     relup_test_plan:
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-2:23.3.4.9-3-ubuntu20.04
         outputs:
           profile: ${{ steps.profile-and-versions.outputs.profile }}
           vsn: ${{ steps.profile-and-versions.outputs.vsn }}
@@ -229,7 +232,7 @@ jobs:
     relup_test_build:
         needs: relup_test_plan
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.2.7.2-emqx-2-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-2:23.3.4.9-3-ubuntu20.04
         defaults:
           run:
             shell: bash
@@ -316,6 +319,8 @@ jobs:
             --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
             --var VSN="$VSN" \
             --var OLD_VSN="$OLD_VSN" \
+            --var FROM_OTP_VSN="23.3.4.9-3" \
+            --var TO_OTP_VSN="23.3.4.9-3" \
             emqx_built/.ci/fvt_tests/relup.lux
         - uses: actions/upload-artifact@v2
           name: Save debug data
