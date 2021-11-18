@@ -53,7 +53,7 @@ emqx_test(){
                     exit 1
                 fi
                 IDLE_TIME=0
-                while ! curl http://localhost:18083/api/v5/status >/dev/null 2>&1; do
+                while ! curl http://127.0.0.1:18083/api/v5/status >/dev/null 2>&1; do
                     if [ $IDLE_TIME -gt 10 ]
                     then
                         echo "emqx running error"
@@ -155,7 +155,7 @@ EOF
         exit 1
     fi
     IDLE_TIME=0
-    while ! curl http://localhost:18083/api/v5/status >/dev/null 2>&1; do
+    while ! curl http://127.0.0.1:18083/api/v5/status >/dev/null 2>&1; do
         if [ $IDLE_TIME -gt 10 ]
         then
             echo "emqx running error"
@@ -184,7 +184,7 @@ EOF
             exit 1
         fi
         IDLE_TIME=0
-        while ! curl http://localhost:18083/api/v5/status >/dev/null 2>&1; do
+        while ! curl http://127.0.0.1:18083/api/v5/status >/dev/null 2>&1; do
             if [ $IDLE_TIME -gt 10 ]
             then
                 echo "emqx service error"
