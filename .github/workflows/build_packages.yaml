@@ -315,7 +315,7 @@ jobs:
         if [ -d _packages/$PROFILE ]; then
           cd _packages/$PROFILE
             for var in $(ls emqx-* ); do
-              bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
+              sudo bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
             done
           cd -
         fi
