@@ -55,23 +55,6 @@ end_per_testcase(_, Config) ->
     emqx_mod_st_statistics:unload(undefined),
     Config.
 
-get(Key, ResponseBody) ->
-    maps:get(Key, jiffy:decode(list_to_binary(ResponseBody), [return_maps])).
-
-lookup_alarm(Name, [#{<<"name">> := Name} | _More]) ->
-    true;
-lookup_alarm(Name, [_Alarm | More]) ->
-    lookup_alarm(Name, More);
-lookup_alarm(_Name, []) ->
-    false.
-
-is_existing(Name, [#{name := Name} | _More]) ->
-    true;
-is_existing(Name, [_Alarm | More]) ->
-    is_existing(Name, More);
-is_existing(_Name, []) ->
-    false.
-
 t_get_history(_) ->
     ets:insert(?TOPK_TAB, #top_k{rank = 1,
                                  topic = <<"test">>,
@@ -81,19 +64,54 @@ t_get_history(_) ->
     {ok, Data} = request_api(get, api_path(["slow_topic"]), "_page=1&_limit=10",
                              auth_header_()),
 
-    Return = #{meta => #{page => 1,
-                         limit => 10,
-                         hasnext => false,
-                         count => 1},
-               data => [#{topic => <<"test">>,
-                          rank => 1,
-                          elapsed => 1500,
-                          count => 12}],
-               code => 0},
+    ShouldRet = #{meta => #{page => 1,
+                            limit => 10,
+                            hasnext => false,
+                            count => 1},
+                   data => [#{topic => <<"test">>,
+                              rank => 1,
+                              elapsed => 1500,
+                              count => 12}],
+                   code => 0},
 
-    ShouldBe = emqx_json:encode(Return),
+    Ret = decode(Data),
 
-    ?assertEqual(ShouldBe, erlang:list_to_binary(Data)).
+    ?assertEqual(ShouldRet, Ret).
+
+t_rank_range(_) ->
+    Insert = fun(Rank) ->
+                     ets:insert(?TOPK_TAB,
+                                #top_k{rank = Rank,
+                                       topic = <<"test">>,
+                                       average_count = 12,
+                                       average_elapsed = 1500})
+             end,
+    lists:foreach(Insert, lists:seq(1, 15)),
+
+    timer:sleep(100),
+
+    {ok, Data} = request_api(get, api_path(["slow_topic"]), "_page=1&_limit=10",
+                             auth_header_()),
+
+    Meta1 = #{page => 1, limit => 10, hasnext => true, count => 10},
+    Ret1 = decode(Data),
+    ?assertEqual(Meta1, maps:get(meta, Ret1)),
+
+    %% End > Size
+    {ok, Data2} = request_api(get, api_path(["slow_topic"]), "_page=2&_limit=10",
+                              auth_header_()),
+
+    Meta2 = #{page => 2, limit => 10, hasnext => false, count => 5},
+    Ret2 = decode(Data2),
+    ?assertEqual(Meta2, maps:get(meta, Ret2)),
+
+    %% Start > Size
+    {ok, Data3} = request_api(get, api_path(["slow_topic"]), "_page=3&_limit=10",
+                              auth_header_()),
+
+    Meta3 = #{page => 3, limit => 10, hasnext => false, count => 0},
+    Ret3 = decode(Data3),
+    ?assertEqual(Meta3, maps:get(meta, Ret3)).
 
 t_clear(_) ->
     ets:insert(?TOPK_TAB, #top_k{rank = 1,
@@ -105,6 +123,25 @@ t_clear(_) ->
                           auth_header_()),
 
     ?assertEqual(0, ets:info(?TOPK_TAB, size)).
+
+decode(Data) ->
+    Pairs = emqx_json:decode(Data),
+    to_maps(Pairs).
+
+to_maps([H | _] = List) when is_tuple(H) ->
+    to_maps(List, #{});
+
+to_maps([_ | _] = List) ->
+    [to_maps(X) || X <- List];
+
+to_maps(V) -> V.
+
+to_maps([{K, V} | T], Map) ->
+    AtomKey = erlang:binary_to_atom(K),
+    to_maps(T, Map#{AtomKey => to_maps(V)});
+
+to_maps([], Map) ->
+    Map.
 
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).
@@ -148,8 +185,3 @@ auth_header_(User, Pass) ->
 
 api_path(Parts)->
     ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION] ++ Parts).
-
-filter(List, Key, Value) ->
-    lists:filter(fun(Item) ->
-        maps:get(Key, Item) == Value
-    end, List).
