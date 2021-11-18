@@ -83,8 +83,10 @@ init_db_backend() ->
     case is_store_enabled() of
         true  ->
             ok = emqx_trie:create_session_trie(),
-            emqx_persistent_session_mnesia_backend:create_tables(),
-            persistent_term:put(?db_backend_key, emqx_persistent_session_mnesia_backend),
+            % emqx_persistent_session_mnesia_backend:create_tables(),
+            % persistent_term:put(?db_backend_key, emqx_persistent_session_mnesia_backend),
+            emqx_persistent_session_fdb_backend:create_tables(),
+            persistent_term:put(?db_backend_key, emqx_persistent_session_fdb_backend),
             ok;
         false ->
             persistent_term:put(?db_backend_key, emqx_persistent_session_dummy_backend),
