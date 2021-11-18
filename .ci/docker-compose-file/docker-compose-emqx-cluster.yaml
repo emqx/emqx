@@ -1,7 +1,7 @@
 version: '3.9'
 
 x-default-emqx: &default-emqx
-    image: $TARGET:$EMQX_TAG
+    image: ${_EMQX_DOCKER_IMAGE_TAG}
     env_file:
       - conf.cluster.env
     healthcheck:

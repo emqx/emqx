@@ -332,6 +332,12 @@ pad(L, Count) ->
 -include_lib("eunit/include/eunit.hrl").
 
 ipv6_probe_test() ->
-    ?assertEqual([{ipv6_probe, true}], ipv6_probe([])).
+    try gen_tcp:ipv6_probe() of
+        true ->
+            ?assertEqual([{ipv6_probe, true}], ipv6_probe([]))
+    catch
+        _ : _ ->
+            ok
+    end.
 
 -endif.

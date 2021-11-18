@@ -1,7 +1,11 @@
 #!/bin/bash
 set -euxo pipefail
 
-if [ "$EMQX_TEST_DB_BACKEND" = "rlog" ]
+# _EMQX_DOCKER_IMAGE_TAG is shared with docker-compose file
+export _EMQX_DOCKER_IMAGE_TAG="$1"
+_EMQX_TEST_DB_BACKEND="${2:-${_EMQX_TEST_DB_BACKEND:-mnesia}}"
+
+if [ "$_EMQX_TEST_DB_BACKEND" = "rlog" ]
 then
   CLUSTER_OVERRIDES="-f .ci/docker-compose-file/docker-compose-emqx-cluster-rlog.override.yaml"
 else
