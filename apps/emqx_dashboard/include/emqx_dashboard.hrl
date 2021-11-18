@@ -18,7 +18,7 @@
 -record(?ADMIN, {
     username         :: binary(),
     pwdhash          :: binary(),
-    tags             :: list() | binary(),
+    description      :: binary(),
     role = undefined :: atom(),
     extra = []       :: term() %% not used so far, for future extension
     }).

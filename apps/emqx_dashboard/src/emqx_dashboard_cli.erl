@@ -27,9 +27,9 @@ load() ->
 admins(["add", Username, Password]) ->
     admins(["add", Username, Password, ""]);
 
-admins(["add", Username, Password, Tag]) ->
-    case emqx_dashboard_admin:add_user(bin(Username), bin(Password), bin(Tag)) of
-        ok ->
+admins(["add", Username, Password, Desc]) ->
+    case emqx_dashboard_admin:add_user(bin(Username), bin(Password), bin(Desc)) of
+        {ok, _} ->
             emqx_ctl:print("ok~n");
         {error, already_existed} ->
             emqx_ctl:print("Error: already existed~n");
@@ -46,9 +46,10 @@ admins(["del", Username]) ->
     emqx_ctl:print("~p~n", [Status]);
 
 admins(_) ->
-    emqx_ctl:usage([{"admins add <Username> <Password> <Tags>",  "Add dashboard user"},
-                    {"admins passwd <Username> <Password>",      "Reset dashboard user password"},
-                    {"admins del <Username>",                    "Delete dashboard user" }]).
+    emqx_ctl:usage(
+      [{"admins add <Username> <Password> <Description>",  "Add dashboard user"},
+       {"admins passwd <Username> <Password>",             "Reset dashboard user password"},
+       {"admins del <Username>",                           "Delete dashboard user" }]).
 
 unload() ->
     emqx_ctl:unregister_command(admins).

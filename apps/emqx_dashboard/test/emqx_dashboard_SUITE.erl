@@ -31,11 +31,14 @@
 
 -define(CONTENT_TYPE, "application/x-www-form-urlencoded").
 
--define(HOST, "http://127.0.0.1:18083/").
+-define(HOST, "http://127.0.0.1:18083").
 
--define(API_VERSION, "v4").
+%% -define(API_VERSION, "v5").
 
--define(BASE_PATH, "api").
+-define(BASE_PATH, "/api/v5").
+
+-define(APP_DASHBOARD, emqx_dashboard).
+-define(APP_MANAGEMENT, emqx_management).
 
 -define(OVERVIEWS, ['alarms/activated',
                     'alarms/deactivated',
@@ -51,9 +54,24 @@
                    ]).
 
 all() ->
-%%    TODO: V5 API
-%    emqx_common_test_helpers:all(?MODULE).
-    [t_cli, t_lookup_by_username_jwt, t_clean_expired_jwt].
+    %% TODO: V5 API
+    %% emqx_common_test_helpers:all(?MODULE).
+    [t_cli, t_lookup_by_username_jwt, t_clean_expired_jwt, t_rest_api].
+
+init_suite() ->
+    init_suite([]).
+
+init_suite(Apps) ->
+    mria:start(),
+    application:load(emqx_management),
+    emqx_common_test_helpers:start_apps(Apps ++ [emqx_dashboard], fun set_special_configs/1).
+
+end_suite() ->
+    end_suite([]).
+
+end_suite(Apps) ->
+    application:unload(emqx_management),
+    emqx_common_test_helpers:stop_apps(Apps ++ [emqx_dashboard]).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps([emqx_management, emqx_dashboard],
@@ -66,23 +84,32 @@ end_per_suite(_Config) ->
 
 set_special_configs(emqx_management) ->
     Listeners = [#{protocol => http, port => 8081}],
-    emqx_config:put([emqx_management], #{listeners => Listeners,
-        applications =>[#{id => "admin", secret => "public"}]}),
+    Config = #{listeners => Listeners,
+               applications => [#{id => "admin", secret => "public"}]},
+    emqx_config:put([emqx_management], Config),
+    ok;
+set_special_configs(emqx_dashboard) ->
+    Listeners = [#{protocol => http, port => 18083}],
+    Config = #{listeners => Listeners,
+               default_username => <<"admin">>,
+               default_password => <<"public">>
+              },
+    emqx_config:put([emqx_dashboard], Config),
     ok;
 set_special_configs(_) ->
     ok.
 
 t_overview(_) ->
     mnesia:clear_table(?ADMIN),
-    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"tag">>),
+    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"simple_description">>),
     [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)),
-        auth_header_()))|| Overview <- ?OVERVIEWS].
+                               auth_header_())) || Overview <- ?OVERVIEWS].
 
 t_admins_add_delete(_) ->
     mnesia:clear_table(?ADMIN),
-    Tag = <<"tag">>,
-    ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, Tag),
-    ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, Tag),
+    Desc = <<"simple description">>,
+    ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, Desc),
+    ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, Desc),
     Admins = emqx_dashboard_admin:all_users(),
     ?assertEqual(2, length(Admins)),
     ok = emqx_dashboard_admin:remove_user(<<"username1">>),
@@ -92,7 +119,7 @@ t_admins_add_delete(_) ->
                                               <<"password">>,
                                               <<"pwd">>),
     timer:sleep(10),
-    Header = auth_header_("username", "pwd"),
+    Header = auth_header_(<<"username">>, <<"pwd">>),
     ?assert(request_dashboard(get, api_path("brokers"), Header)),
 
     ok = emqx_dashboard_admin:remove_user(<<"username">>),
@@ -100,28 +127,22 @@ t_admins_add_delete(_) ->
 
 t_rest_api(_Config) ->
     mnesia:clear_table(?ADMIN),
-    Tag = <<"administrator">>,
-    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, Tag),
-    {ok, Res0} = http_get("users"),
-
+    Desc = <<"administrator">>,
+    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, Desc),
+    {ok, 200, Res0} = http_get(["users"]),
     ?assertEqual([#{<<"username">> => <<"admin">>,
-                    <<"tags">> => <<"administrator">>}], get_http_data(Res0)),
-
-    AssertSuccess = fun({ok, Res}) ->
-                        ?assertEqual(#{<<"code">> => 0}, json(Res))
-                    end,
-    [AssertSuccess(R)
-     || R <- [ http_put("users/admin", #{<<"tags">> => <<"a_new_tag">>})
-             , http_post("users", #{<<"username">> => <<"usera">>,
-                                    <<"password">> => <<"passwd">>})
-             , http_post("auth", #{<<"username">> => <<"usera">>,
-                                   <<"password">> => <<"passwd">>})
-             , http_delete("users/usera")
-             , http_put("users/admin/change_pwd", #{<<"old_pwd">> => <<"public">>,
-                                                    <<"new_pwd">> => <<"newpwd">>})
-             , http_post("auth", #{<<"username">> => <<"admin">>,
-                                   <<"password">> => <<"newpwd">>})
-             ]],
+                    <<"description">> => <<"administrator">>}], get_http_data(Res0)),
+    {ok, 200, _} = http_put(["users", "admin"], #{<<"description">> => <<"a_new_description">>}),
+    {ok, 200, _} = http_post(["users"], #{<<"username">> => <<"usera">>,
+                                          <<"password">> => <<"passwd">>,
+                                          <<"description">> => Desc}),
+    {ok, 204, _} = http_delete(["users", "usera"]),
+    {ok, 404, _} = http_delete(["users", "usera"]),
+    {ok, 204, _} = http_put( ["users", "admin", "change_pwd"]
+                           , #{<<"old_pwd">> => <<"public">>,
+                               <<"new_pwd">> => <<"newpwd">>}),
+    mnesia:clear_table(?ADMIN),
+    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"administrator">>),
     ok.
 
 t_cli(_Config) ->
@@ -175,17 +196,17 @@ bin(X) -> iolist_to_binary(X).
 random_num() ->
     erlang:system_time(nanosecond).
 
-http_get(Path) ->
-    request_api(get, api_path(Path), auth_header_()).
+http_get(Parts) ->
+    request_api(get, api_path(Parts), auth_header_()).
 
-http_delete(Path) ->
-    request_api(delete, api_path(Path), auth_header_()).
+http_delete(Parts) ->
+    request_api(delete, api_path(Parts), auth_header_()).
 
-http_post(Path, Body) ->
-    request_api(post, api_path(Path), [], auth_header_(), Body).
+http_post(Parts, Body) ->
+    request_api(post, api_path(Parts), [], auth_header_(), Body).
 
-http_put(Path, Body) ->
-    request_api(put, api_path(Path), [], auth_header_(), Body).
+http_put(Parts, Body) ->
+    request_api(put, api_path(Parts), [], auth_header_(), Body).
 
 request_dashboard(Method, Url, Auth) ->
     Request = {Url, [Auth]},
@@ -198,21 +219,22 @@ do_request_dashboard(Method, Request)->
     case httpc:request(Method, Request, [], []) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
-        {ok, {{"HTTP/1.1", 200, _}, _, _Return} }  ->
-            true;
+        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return} }
+          when Code >= 200 andalso Code =< 299 ->
+            {ok, Return};
         {ok, {Reason, _, _}} ->
             {error, Reason}
     end.
 
 auth_header_() ->
-    auth_header_("admin", "public").
+    auth_header_(<<"admin">>, <<"public">>).
 
-auth_header_(User, Pass) ->
-    Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
-    {"Authorization","Basic " ++ Encoded}.
+auth_header_(Username, Password) ->
+    {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {"Authorization","Bearer " ++ binary_to_list(Token)}.
 
-api_path(Path) ->
-    ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION, Path]).
+api_path(Parts) ->
+    ?HOST ++ filename:join([?BASE_PATH | Parts]).
 
 json(Data) ->
     {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]), Jsx.

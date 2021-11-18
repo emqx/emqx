@@ -213,7 +213,7 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
 check_request_body(#{body := Body}, Spec, _Module, CheckFun, false) ->
     lists:foldl(fun({Name, Type}, Acc) ->
         Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
-        maps:merge(Acc, CheckFun(Schema, Body, #{}))
+        maps:merge(Acc, CheckFun(Schema, Body, #{override_env => false}))
                 end, #{}, Spec).
 
 %% tags, description, summary, security, deprecated

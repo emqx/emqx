@@ -19,6 +19,7 @@
 -module(emqx_dashboard_admin).
 
 -include("emqx_dashboard.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
 -boot_mnesia({mnesia, [boot]}).
 
@@ -63,17 +64,17 @@ mnesia(boot) ->
 %% API
 %%--------------------------------------------------------------------
 
--spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
-add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
-    Admin = #?ADMIN{username = Username, pwdhash = hash(Password), tags = Tags},
-    return(mria:transaction(?DASHBOARD_SHARD, fun add_user_/1, [Admin])).
+-spec(add_user(binary(), binary(), binary()) -> {ok, map()} | {error, any()}).
+add_user(Username, Password, Desc)
+  when is_binary(Username), is_binary(Password) ->
+    return(mria:transaction(?DASHBOARD_SHARD, fun add_user_/3, [Username, Password, Desc])).
 
 %% black-magic: force overwrite a user
-force_add_user(Username, Password, Tags) ->
+force_add_user(Username, Password, Desc) ->
     AddFun = fun() ->
                  mnesia:write(#?ADMIN{username = Username,
                                       pwdhash = hash(Password),
-                                      tags = Tags})
+                                      description = Desc})
              end,
     case mria:transaction(?DASHBOARD_SHARD, AddFun) of
         {atomic, ok} -> ok;
@@ -81,33 +82,38 @@ force_add_user(Username, Password, Tags) ->
     end.
 
 %% @private
-add_user_(Admin = #?ADMIN{username = Username}) ->
+add_user_(Username, Password, Desc) ->
     case mnesia:wread({?ADMIN, Username}) of
-        []  -> mnesia:write(Admin);
-        [_] -> mnesia:abort(<<"Username Already Exist">>)
+        []  ->
+            Admin = #?ADMIN{username = Username, pwdhash = hash(Password), description = Desc},
+            mnesia:write(Admin),
+            #{username => Username, description => Desc};
+        [_] ->
+            mnesia:abort(<<"Username Already Exist">>)
     end.
 
--spec(remove_user(binary()) -> ok | {error, any()}).
+-spec(remove_user(binary()) -> {ok, any()} | {error, any()}).
 remove_user(Username) when is_binary(Username) ->
     Trans = fun() ->
                     case lookup_user(Username) of
-                    [] ->
-                        mnesia:abort(<<"Username Not Found">>);
-                    _  -> ok
-                    end,
-                    mnesia:delete({?ADMIN, Username})
+                        [] -> mnesia:abort(<<"Username Not Found">>);
+                        _  -> mnesia:delete({?ADMIN, Username})
+                    end
             end,
     return(mria:transaction(?DASHBOARD_SHARD, Trans)).
 
--spec(update_user(binary(), binary()) -> ok | {error, term()}).
-update_user(Username, Tags) when is_binary(Username) ->
-    return(mria:transaction(?DASHBOARD_SHARD, fun update_user_/2, [Username, Tags])).
+-spec(update_user(binary(), binary()) -> {ok, map()} | {error, term()}).
+update_user(Username, Desc) when is_binary(Username) ->
+    return(mria:transaction(?DASHBOARD_SHARD, fun update_user_/2, [Username, Desc])).
 
 %% @private
-update_user_(Username, Tags) ->
+update_user_(Username, Desc) ->
     case mnesia:wread({?ADMIN, Username}) of
-        [] -> mnesia:abort(<<"Username Not Found">>);
-        [Admin] -> mnesia:write(Admin#?ADMIN{tags = Tags})
+        [] ->
+            mnesia:abort(<<"Username Not Found">>);
+        [Admin] ->
+            mnesia:write(Admin#?ADMIN{description = Desc}),
+            #{username => Username, description => Desc}
     end.
 
 change_password(Username, OldPasswd, NewPasswd) when is_binary(Username) ->
@@ -146,17 +152,15 @@ lookup_user(Username) when is_binary(Username) ->
 -spec(all_users() -> [map()]).
 all_users() ->
     lists:map(fun(#?ADMIN{username = Username,
-                          tags = Tags
+                          description = Desc
                          }) ->
                       #{username => Username,
-                        %% named tag but not tags, for unknown reason
-                        %% TODO: fix this comment
-                        tag => Tags
+                        description => Desc
                        }
               end, ets:tab2list(?ADMIN)).
 
-return({atomic, _}) ->
-    ok;
+return({atomic, Result}) ->
+    {ok, Result};
 return({aborted, Reason}) ->
     {error, Reason}.
 
@@ -219,5 +223,5 @@ add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY
 add_default_user(Username, Password) ->
     case lookup_user(Username) of
         [] -> add_user(Username, Password, <<"administrator">>);
-        _  -> ok
+        _  -> {ok, default_user_exists}
     end.
