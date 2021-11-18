@@ -322,7 +322,7 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       with:
         name: ${{ matrix.profile }}
-        path: _packages/${{ matrix.profile }}/.
+        path: source/_packages/${{ matrix.profile }}/.
 
   docker:
     runs-on: ubuntu-20.04
