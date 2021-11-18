@@ -97,7 +97,8 @@ t_connect(_) ->
     %                    {ok, Data} = gen_tcp:recv(Sock, 0),
     %                    {ok, #stomp_frame{command = <<"ERROR">>,
     %                                      headers = _,
-    %                                      body    = <<"Login or passcode error!">>}, _, _} = parse(Data)
+    %                                      body    = <<"Login or passcode error!">>}, _, _} =
+    %                                                   parse(Data)
     %                end),
 
     %% Connect will be failed, because of bad version
@@ -109,9 +110,12 @@ t_connect(_) ->
                                       {<<"passcode">>, <<"guest">>},
                                       {<<"heart-beat">>, <<"1000,2000">>}])),
         {ok, Data} = gen_tcp:recv(Sock, 0),
-        {ok, #stomp_frame{command = <<"ERROR">>,
-                          headers = _,
-                          body    = <<"Login Failed: Supported protocol versions < 1.2">>}, _, _} = parse(Data)
+        {ok,
+         #stomp_frame{command = <<"ERROR">>,
+                      headers = _,
+                      body    = <<"Login Failed: Supported protocol versions < 1.2">>},
+         _,
+         _ } = parse(Data)
     end).
 
 t_heartbeat(_) ->
@@ -403,6 +407,7 @@ t_rest_clienit_info(_) ->
 
         %% kickout
         {204, _} = request(delete, ClientPath),
+        ok = emqx_pool:flush_async_tasks(),
         {200, Clients2} = request(get, "/gateway/stomp/clients"),
         ?assertEqual(0, length(maps:get(data, Clients2)))
     end).

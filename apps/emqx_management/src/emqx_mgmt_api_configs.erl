@@ -40,14 +40,16 @@ paths() ->
 
 schema("/configs") ->
     #{
-        operationId => configs,
+        'operationId' => configs,
         get => #{
             tags => [conf],
-            description => <<"Get all the configurations of the specified node, including hot and non-hot updatable items.">>,
+            description =>
+<<"Get all the configurations of the specified node, including hot and non-hot updatable items.">>,
             parameters => [
                 {node, hoconsc:mk(typerefl:atom(),
                     #{in => query, required => false, example => <<"emqx@127.0.0.1">>,
-                        desc => <<"Node's name: If you do not fill in the fields, this node will be used by default.">>})}],
+                        desc =>
+ <<"Node's name: If you do not fill in the fields, this node will be used by default.">>})}],
             responses => #{
                 200 => config_list([])
             }
@@ -56,17 +58,19 @@ schema("/configs") ->
 schema("/configs_reset/:rootname") ->
     Paths = lists:map(fun({Path, _}) -> Path end, config_list(?EXCLUDES)),
     #{
-        operationId => config_reset,
+        'operationId' => config_reset,
         post => #{
             tags => [conf],
-            description => <<"Reset the config entry specified by the query string parameter `conf_path`.<br/>
+            description =>
+<<"Reset the config entry specified by the query string parameter `conf_path`.<br/>
 - For a config entry that has default value, this resets it to the default value;
 - For a config entry that has no default value, an error 400 will be returned">>,
             %% We only return "200" rather than the new configs that has been changed, as
             %% the schema of the changed configs is depends on the request parameter
             %% `conf_path`, it cannot be defined here.
             parameters => [
-                {rootname, hoconsc:mk(hoconsc:enum(Paths), #{in => path, example => <<"authorization">>})},
+                {rootname, hoconsc:mk( hoconsc:enum(Paths)
+                                     , #{in => path, example => <<"authorization">>})},
                 {conf_path, hoconsc:mk(typerefl:binary(),
                     #{in => query, required => false, example => <<"cache.enable">>,
                         desc => <<"The config path separated by '.' character">>})}],
@@ -79,10 +83,12 @@ schema("/configs_reset/:rootname") ->
 schema(Path) ->
     {Root, Schema} = find_schema(Path),
     #{
-        operationId => config,
+        'operationId' => config,
         get => #{
             tags => [conf],
-            description => iolist_to_binary([<<"Get the sub-configurations under *">>, Root, <<"*">>]),
+            description => iolist_to_binary([ <<"Get the sub-configurations under *">>
+                                            , Root
+                                            , <<"*">>]),
             responses => #{
                 200 => Schema,
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
@@ -90,8 +96,10 @@ schema(Path) ->
         },
         put => #{
             tags => [conf],
-            description => iolist_to_binary([<<"Update the sub-configurations under *">>, Root, <<"*">>]),
-            requestBody => Schema,
+            description => iolist_to_binary([ <<"Update the sub-configurations under *">>
+                                            , Root
+                                            , <<"*">>]),
+            'requestBody' => Schema,
             responses => #{
                 200 => Schema,
                 400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
@@ -147,8 +155,20 @@ config_reset(post, _Params, Req) ->
 
 configs(get, Params, _Req) ->
     Node = maps:get(node, Params, node()),
-    Res = rpc:call(Node, ?MODULE, get_full_config, [[]]),
-    {200, Res}.
+    case
+        lists:member(Node, mria_mnesia:running_nodes())
+        andalso
+        rpc:call(Node, ?MODULE, get_full_config, [])
+    of
+        false ->
+            Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
+            {500, #{code => 'BAD_NODE', message => Message}};
+        {error, {badrpc, R}} ->
+            Message = list_to_binary(io_lib:format("Bad node ~p, reason ~p", [Node, R])),
+            {500, #{code => 'BAD_NODE', message => Message}};
+        Res ->
+            {200, Res}
+    end.
 
 conf_path_reset(Req) ->
     <<"/api/v5", ?PREFIX_RESET, Path/binary>> = cowboy_req:path(Req),

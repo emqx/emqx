@@ -34,6 +34,7 @@
         , subscribe/2
         , unsubscribe/2
         , subscribe_batch/2
+        , set_keepalive/2
         ]).
 
 -export([ query/4
@@ -67,8 +68,8 @@
     , {<<"gte_connected_at">>, timestamp}
     , {<<"lte_connected_at">>, timestamp}]}).
 
--define(query_fun, {?MODULE, query}).
--define(format_fun, {?MODULE, format_channel_info}).
+-define(QUERY_FUN, {?MODULE, query}).
+-define(FORMAT_FUN, {?MODULE, format_channel_info}).
 
 -define(CLIENT_ID_NOT_FOUND,
     <<"{\"code\": \"RESOURCE_NOT_FOUND\", \"reason\": \"Client id not found\"}">>).
@@ -82,7 +83,9 @@ apis() ->
     , clients_authz_cache_api()
     , clients_subscriptions_api()
     , subscribe_api()
-    , unsubscribe_api()].
+    , unsubscribe_api()
+    , keepalive_api()
+    ].
 
 schemas() ->
     Client = #{
@@ -101,43 +104,80 @@ schemas() ->
 
 properties(client) ->
     [
-        {awaiting_rel_cnt,  integer, <<"v4 api name [awaiting_rel] Number of awaiting PUBREC packet">>},
-        {awaiting_rel_max,  integer, <<"v4 api name [max_awaiting_rel]. Maximum allowed number of awaiting PUBREC packet">>},
-        {clean_start,       boolean, <<"Indicate whether the client is using a brand new session">>},
-        {clientid,          string , <<"Client identifier">>},
-        {connected,         boolean, <<"Whether the client is connected">>},
-        {connected_at,      string , <<"Client connection time, rfc3339">>},
-        {created_at,        string , <<"Session creation time, rfc3339">>},
-        {disconnected_at,   string , <<"Client offline time, This field is only valid and returned when connected is false, rfc3339">>},
-        {expiry_interval,   integer, <<"Session expiration interval, with the unit of second">>},
-        {heap_size,         integer, <<"Process heap size with the unit of byte">>},
-        {inflight_cnt,      integer, <<"Current length of inflight">>},
-        {inflight_max,      integer, <<"v4 api name [max_inflight]. Maximum length of inflight">>},
-        {ip_address,        string , <<"Client's IP address">>},
-        {port,              integer, <<"Client's port">>},
-        {is_bridge,         boolean, <<"Indicates whether the client is connectedvia bridge">>},
-        {keepalive,         integer, <<"keepalive time, with the unit of second">>},
-        {mailbox_len,       integer, <<"Process mailbox size">>},
-        {mqueue_dropped,    integer, <<"Number of messages dropped by the message queue due to exceeding the length">>},
-        {mqueue_len,        integer, <<"Current length of message queue">>},
-        {mqueue_max,        integer, <<"v4 api name [max_mqueue]. Maximum length of message queue">>},
-        {node,              string , <<"Name of the node to which the client is connected">>},
-        {proto_name,        string , <<"Client protocol name">>},
-        {proto_ver,         integer, <<"Protocol version used by the client">>},
-        {recv_cnt,          integer, <<"Number of TCP packets received">>},
-        {recv_msg,          integer, <<"Number of PUBLISH packets received">>},
-        {recv_oct,          integer, <<"Number of bytes received by EMQ X Broker (the same below)">>},
-        {recv_pkt,          integer, <<"Number of MQTT packets received">>},
-        {reductions,        integer, <<"Erlang reduction">>},
-        {send_cnt,          integer, <<"Number of TCP packets sent">>},
-        {send_msg,          integer, <<"Number of PUBLISH packets sent">>},
-        {send_oct,          integer, <<"Number of bytes sent">>},
-        {send_pkt,          integer, <<"Number of MQTT packets sent">>},
-        {subscriptions_cnt, integer, <<"Number of subscriptions established by this client.">>},
-        {subscriptions_max, integer, <<"v4 api name [max_subscriptions] Maximum number of subscriptions allowed by this client">>},
-        {username,          string , <<"User name of client when connecting">>},
-        {will_msg,          string , <<"Client will message">>},
-        {zone,              string , <<"Indicate the configuration group used by the client">>}
+    {awaiting_rel_cnt,  integer,
+     <<"v4 api name [awaiting_rel] Number of awaiting PUBREC packet">>},
+    {awaiting_rel_max,  integer,
+     <<"v4 api name [max_awaiting_rel]. Maximum allowed number of awaiting PUBREC packet">>},
+    {clean_start,       boolean,
+     <<"Indicate whether the client is using a brand new session">>},
+    {clientid,          string ,
+     <<"Client identifier">>},
+    {connected,         boolean,
+     <<"Whether the client is connected">>},
+    {connected_at,      string ,
+     <<"Client connection time, rfc3339">>},
+    {created_at,        string ,
+     <<"Session creation time, rfc3339">>},
+    {disconnected_at,   string ,
+     <<"Client offline time. It's Only valid and returned when connected is false, rfc3339">>},
+    {expiry_interval,   integer,
+     <<"Session expiration interval, with the unit of second">>},
+    {heap_size,         integer,
+     <<"Process heap size with the unit of byte">>},
+    {inflight_cnt,      integer,
+     <<"Current length of inflight">>},
+    {inflight_max,      integer,
+     <<"v4 api name [max_inflight]. Maximum length of inflight">>},
+    {ip_address,        string ,
+     <<"Client's IP address">>},
+    {port,              integer,
+     <<"Client's port">>},
+    {is_bridge,         boolean,
+     <<"Indicates whether the client is connectedvia bridge">>},
+    {keepalive,         integer,
+     <<"keepalive time, with the unit of second">>},
+    {mailbox_len,       integer,
+     <<"Process mailbox size">>},
+    {mqueue_dropped,    integer,
+     <<"Number of messages dropped by the message queue due to exceeding the length">>},
+    {mqueue_len,        integer,
+     <<"Current length of message queue">>},
+    {mqueue_max,        integer,
+     <<"v4 api name [max_mqueue]. Maximum length of message queue">>},
+    {node,              string ,
+     <<"Name of the node to which the client is connected">>},
+    {proto_name,        string ,
+     <<"Client protocol name">>},
+    {proto_ver,         integer,
+     <<"Protocol version used by the client">>},
+    {recv_cnt,          integer,
+     <<"Number of TCP packets received">>},
+    {recv_msg,          integer,
+     <<"Number of PUBLISH packets received">>},
+    {recv_oct,          integer,
+     <<"Number of bytes received by EMQ X Broker (the same below)">>},
+    {recv_pkt,          integer,
+     <<"Number of MQTT packets received">>},
+    {reductions,        integer,
+     <<"Erlang reduction">>},
+    {send_cnt,          integer,
+     <<"Number of TCP packets sent">>},
+    {send_msg,          integer,
+     <<"Number of PUBLISH packets sent">>},
+    {send_oct,          integer,
+     <<"Number of bytes sent">>},
+    {send_pkt,          integer,
+     <<"Number of MQTT packets sent">>},
+    {subscriptions_cnt, integer,
+     <<"Number of subscriptions established by this client.">>},
+    {subscriptions_max, integer,
+     <<"v4 api name [max_subscriptions] Maximum number of subscriptions allowed by this client">>},
+    {username,          string ,
+     <<"User name of client when connecting">>},
+    {will_msg,          string ,
+     <<"Client will message">>},
+    {zone,              string ,
+     <<"Indicate the configuration group used by the client">>}
     ];
 properties(authz_cache) ->
     [
@@ -197,7 +237,9 @@ clients_api() ->
                     name => conn_state,
                     in => query,
                     required => false,
-                    description => <<"The current connection status of the client, the possible values are connected,idle,disconnected">>,
+                    description =>
+                      <<"The current connection status of the client, ",
+                        "the possible values are connected,idle,disconnected">>,
                     schema => #{type => string, enum => [connected, idle, disconnected]}
                 },
                 #{
@@ -211,7 +253,9 @@ clients_api() ->
                     name => proto_name,
                     in => query,
                     required => false,
-                    description => <<"Client protocol name, the possible values are MQTT,CoAP,LwM2M,MQTT-SN">>,
+                    description =>
+                      <<"Client protocol name, ",
+                        "the possible values are MQTT,CoAP,LwM2M,MQTT-SN">>,
                     schema => #{type => string, enum => ['MQTT', 'CoAP', 'LwM2M', 'MQTT-SN']}
                 },
                 #{
@@ -239,34 +283,43 @@ clients_api() ->
                     name => gte_created_at,
                     in => query,
                     required => false,
-                    description => <<"Search client session creation time by greater than or equal method, rfc3339 or timestamp(millisecond)">>,
+                    description =>
+                      <<"Search client session creation time by greater than or equal method, "
+                        "rfc3339 or timestamp(millisecond)">>,
                     schema => #{type => string}
                 },
                 #{
                     name => lte_created_at,
                     in => query,
                     required => false,
-                    description => <<"Search client session creation time by less than or equal method, rfc3339 or timestamp(millisecond)">>,
+                    description =>
+                      <<"Search client session creation time by less than or equal method, ",
+                        "rfc3339 or timestamp(millisecond)">>,
                     schema => #{type => string}
                 },
                 #{
                     name => gte_connected_at,
                     in => query,
                     required => false,
-                    description => <<"Search client connection creation time by greater than or equal method, rfc3339 or timestamp(millisecond)">>,
+                    description =>
+                      <<"Search client connection creation time by greater than or equal method, ",
+                        "rfc3339 or timestamp(millisecond)">>,
                     schema => #{type => string}
                 },
                 #{
                     name => lte_connected_at,
                     in => query,
                     required => false,
-                    description => <<"Search client connection creation time by less than or equal method, rfc3339 or timestamp(millisecond) ">>,
+                    description =>
+                      <<"Search client connection creation time by less than or equal method, ",
+                        "rfc3339 or timestamp(millisecond) ">>,
                     schema => #{type => string}
                 }
             ],
             responses => #{
                 <<"200">> => emqx_mgmt_util:array_schema(client, <<"List clients 200 OK">>),
-                <<"400">> => emqx_mgmt_util:error_schema(<<"Invalid parameters">>, ['INVALID_PARAMETER'])}}},
+                <<"400">> => emqx_mgmt_util:error_schema( <<"Invalid parameters">>
+                                                        , ['INVALID_PARAMETER'])}}},
     {"/clients", Metadata, clients}.
 
 client_api() ->
@@ -292,7 +345,7 @@ client_api() ->
             }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:schema(client, <<"List clients 200 OK">>)}}},
+                <<"204">> => emqx_mgmt_util:schema(<<"Kick out client successfully">>)}}},
     {"/clients/:clientid", Metadata, client}.
 
 clients_authz_cache_api() ->
@@ -318,7 +371,7 @@ clients_authz_cache_api() ->
             }],
             responses => #{
                 <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
-                <<"200">> => emqx_mgmt_util:schema(<<"Delete clients 200 OK">>)}}},
+                <<"204">> => emqx_mgmt_util:schema(<<"Clean client authz cache successfully">>)}}},
     {"/clients/:clientid/authz_cache", Metadata, authz_cache}.
 
 clients_subscriptions_api() ->
@@ -385,6 +438,27 @@ subscribe_api() ->
                 <<"200">> => emqx_mgmt_util:schema(<<"Subscribe ok">>)}}},
     {"/clients/:clientid/subscribe", Metadata, subscribe}.
 
+keepalive_api() ->
+    Metadata = #{
+        put => #{
+            description => <<"set the online client keepalive by second ">>,
+            parameters => [#{
+                name => clientid,
+                in => path,
+                schema => #{type => string},
+                required => true
+            },
+                #{
+                    name => interval,
+                    in => query,
+                    schema => #{type => integer},
+                    required => true
+                }
+                ],
+            responses => #{
+                <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
+                <<"200">> => emqx_mgmt_util:schema(<<"ok">>)}}},
+    {"/clients/:clientid/keepalive", Metadata, set_keepalive}.
 %%%==============================================================================================
 %% parameters trans
 clients(get, #{query_string := Qs}) ->
@@ -428,6 +502,17 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
     end, Subs0),
     {200, Subs}.
 
+set_keepalive(put, #{bindings := #{clientid := ClientID}, query_string := Query}) ->
+    case maps:find(<<"interval">>, Query) of
+        error -> {404, "Interval Not Found"};
+        {ok, Interval0} ->
+            Interval = binary_to_integer(Interval0),
+            case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientID), Interval) of
+                ok -> {200};
+                {error, not_found} ->{404, ?CLIENT_ID_NOT_FOUND}
+            end
+    end.
+
 %%%==============================================================================================
 %% api apply
 
@@ -436,18 +521,18 @@ list(Params) ->
     case maps:get(<<"node">>, Params, undefined) of
         undefined ->
             Response = emqx_mgmt_api:cluster_query(Params, Tab,
-                                                   QuerySchema, ?query_fun),
+                                                   QuerySchema, ?QUERY_FUN),
             emqx_mgmt_util:generate_response(Response);
         Node1 ->
             Node = binary_to_atom(Node1, utf8),
             ParamsWithoutNode = maps:without([<<"node">>], Params),
             Response = emqx_mgmt_api:node_query(Node, ParamsWithoutNode,
-                                                Tab, QuerySchema, ?query_fun),
+                                                Tab, QuerySchema, ?QUERY_FUN),
             emqx_mgmt_util:generate_response(Response)
     end.
 
 lookup(#{clientid := ClientID}) ->
-    case emqx_mgmt:lookup_client({clientid, ClientID}, ?format_fun) of
+    case emqx_mgmt:lookup_client({clientid, ClientID}, ?FORMAT_FUN) of
         [] ->
             {404, ?CLIENT_ID_NOT_FOUND};
         ClientInfo ->
@@ -455,8 +540,12 @@ lookup(#{clientid := ClientID}) ->
     end.
 
 kickout(#{clientid := ClientID}) ->
-    emqx_mgmt:kickout_client(ClientID),
-    {200}.
+    case emqx_mgmt:kickout_client({ClientID, ?FORMAT_FUN}) of
+        {error, not_found} ->
+            {404, ?CLIENT_ID_NOT_FOUND};
+        _ ->
+            {204}
+    end.
 
 get_authz_cache(#{clientid := ClientID})->
     case emqx_mgmt:list_authz_cache(ClientID) of
@@ -678,6 +767,7 @@ format_channel_info({_, ClientInfo, ClientStats}) ->
         , sockname
         , retry_interval
         , upgrade_qos
+        , id %% sessionID, defined in emqx_session.erl
     ],
     TimesKeys = [created_at, connected_at, disconnected_at],
     %% format timestamp to rfc3339

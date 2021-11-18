@@ -48,12 +48,16 @@ create_resource(#{storage_type := StorageType}) ->
                  disc      -> disc_copies;
                  disc_only -> disc_only_copies
              end,
+    TableType = case StorageType of
+                    disc_only -> set;
+                    _ -> ordered_set
+                end,
     StoreProps = [{ets, [compressed,
                          {read_concurrency, true},
                          {write_concurrency, true}]},
                   {dets, [{auto_save, 1000}]}],
     ok = mria:create_table(?TAB, [
-                {type, set},
+                {type, TableType},
                 {rlog_shard, ?RETAINER_SHARD},
                 {storage, Copies},
                 {record_name, retained},

@@ -138,11 +138,11 @@ t_authenticator(Config) when is_list(Config) ->
     ID1 = <<"password-based:built-in-database">>,
 
     % CRUD of authencaticator
-    ?assertMatch({ok, #{id := ID1, state := #{mark := 1}}}, ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
+    ?assertMatch({ok, #{id := ID1, state := #{mark := 1, version := <<"2">>}}}, ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
     ?assertMatch({ok, #{id := ID1}}, ?AUTHN:lookup_authenticator(ChainName, ID1)),
     ?assertMatch({ok, [#{id := ID1}]}, ?AUTHN:list_authenticators(ChainName)),
     ?assertEqual({error, {already_exists, {authenticator, ID1}}}, ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
-    ?assertMatch({ok, #{id := ID1, state := #{mark := 2}}}, ?AUTHN:update_authenticator(ChainName, ID1, AuthenticatorConfig1)),
+    ?assertMatch({ok, #{id := ID1, state := #{mark := 2, version := <<"1">>}}}, ?AUTHN:update_authenticator(ChainName, ID1, AuthenticatorConfig1)),
     ?assertEqual(ok, ?AUTHN:delete_authenticator(ChainName, ID1)),
     ?assertEqual({error, {not_found, {authenticator, ID1}}}, ?AUTHN:update_authenticator(ChainName, ID1, AuthenticatorConfig1)),
     ?assertMatch({ok, []}, ?AUTHN:list_authenticators(ChainName)),

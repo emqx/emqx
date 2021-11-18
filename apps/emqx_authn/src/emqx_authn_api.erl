@@ -30,6 +30,9 @@
 
 % Swagger
 
+-define(API_TAGS_GLOBAL, [<<"authentication">>, <<"authentication config(global)">>]).
+-define(API_TAGS_SINGLE, [<<"authentication">>, <<"authentication config(single listener)">>]).
+
 -export([ api_spec/0
         , paths/0
         , schema/1
@@ -53,7 +56,14 @@
         , listener_authenticator_user/2
         ]).
 
--export([authenticator_examples/0]).
+-export([ authenticator_examples/0
+        , request_move_examples/0
+        , request_import_users_examples/0
+        , request_user_create_examples/0
+        , request_user_update_examples/0
+        , response_user_examples/0
+        , response_users_example/0
+        ]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -78,13 +88,13 @@ roots() -> [ request_user_create
            , request_move
            , request_import_users
            , response_user
+           , response_users
            ].
 
 fields(request_user_create) ->
     [
-        {user_id, binary()},
-        {password, binary()},
-        {is_superuser, mk(boolean(), #{default => false, nullable => true})}
+        {user_id, binary()}
+        | fields(request_user_update)
     ];
 
 fields(request_user_update) ->
@@ -103,13 +113,23 @@ fields(response_user) ->
     [
         {user_id, binary()},
         {is_superuser, mk(boolean(), #{default => false, nullable => true})}
+    ];
+
+fields(response_users) ->
+    paginated_list_type(ref(response_user));
+
+fields(pagination_meta) ->
+    [
+        {page, non_neg_integer()},
+        {limit, non_neg_integer()},
+        {count, non_neg_integer()}
     ].
 
 schema("/authentication") ->
     #{
-        operationId => authenticators,
+        'operationId' => authenticators,
         get => #{
-            tags => [<<"authentication">>, <<"global">>],
+            tags => ?API_TAGS_GLOBAL,
             description => <<"List authenticators for global authentication">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -118,9 +138,9 @@ schema("/authentication") ->
             }
         },
         post => #{
-            tags => [<<"authentication">>, <<"global">>],
+            tags => ?API_TAGS_GLOBAL,
             description => <<"Create authenticator for global authentication">>,
-            requestBody => emqx_dashboard_swagger:schema_with_examples(
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_authn_schema:authenticator_type(),
                 authenticator_examples()),
             responses => #{
@@ -135,11 +155,11 @@ schema("/authentication") ->
 
 schema("/authentication/:id") ->
     #{
-        operationId => authenticator,
+        'operationId' => authenticator,
         get => #{
-            tags => [<<"authentication">>, <<"global">>],
+            tags => ?API_TAGS_GLOBAL,
             description => <<"Get authenticator from global authentication chain">>,
-            parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
+            parameters => [param_auth_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     emqx_authn_schema:authenticator_type(),
@@ -148,10 +168,10 @@ schema("/authentication/:id") ->
             }
         },
         put => #{
-            tags => [<<"authentication">>, <<"global">>],
+            tags => ?API_TAGS_GLOBAL,
             description => <<"Update authenticator from global authentication chain">>,
-            parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
-            requestBody => emqx_dashboard_swagger:schema_with_examples(
+            parameters => [param_auth_id()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_authn_schema:authenticator_type(),
                 authenticator_examples()
             ),
@@ -165,11 +185,11 @@ schema("/authentication/:id") ->
             }
         },
         delete => #{
-            tags => [<<"authentication">>, <<"global">>],
+            tags => ?API_TAGS_GLOBAL,
             description => <<"Delete authenticator from global authentication chain">>,
-            parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
+            parameters => [param_auth_id()],
             responses => #{
-                200 => <<"Authenticator deleted">>,
+                204 => <<"Authenticator deleted">>,
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         }
@@ -177,11 +197,11 @@ schema("/authentication/:id") ->
 
 schema("/listeners/:listener_id/authentication") ->
     #{
-        operationId => listener_authenticators,
+        'operationId' => listener_authenticators,
         get => #{
-            tags => [<<"authentication">>, <<"listener">>],
+            tags => ?API_TAGS_SINGLE,
             description => <<"List authenticators for listener authentication">>,
-            parameters => [{listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})}],
+            parameters => [param_listener_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     hoconsc:array(emqx_authn_schema:authenticator_type()),
@@ -189,10 +209,10 @@ schema("/listeners/:listener_id/authentication") ->
             }
         },
         post => #{
-            tags => [<<"authentication">>, <<"listener">>],
+            tags => ?API_TAGS_SINGLE,
             description => <<"Create authenticator for listener authentication">>,
-            parameters => [{listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})}],
-            requestBody => emqx_dashboard_swagger:schema_with_examples(
+            parameters => [param_listener_id()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_authn_schema:authenticator_type(),
                 authenticator_examples()
             ),
@@ -208,14 +228,11 @@ schema("/listeners/:listener_id/authentication") ->
 
 schema("/listeners/:listener_id/authentication/:id") ->
     #{
-        operationId => listener_authenticator,
+        'operationId' => listener_authenticator,
         get => #{
-            tags => [<<"authentication">>, <<"listener">>],
+            tags => ?API_TAGS_SINGLE,
             description => <<"Get authenticator from listener authentication chain">>,
-            parameters => [
-                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
-            ],
+            parameters => [param_listener_id(), param_auth_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     emqx_authn_schema:authenticator_type(),
@@ -224,13 +241,10 @@ schema("/listeners/:listener_id/authentication/:id") ->
             }
         },
         put => #{
-            tags => [<<"authentication">>, <<"listener">>],
+            tags => ?API_TAGS_SINGLE,
             description => <<"Update authenticator from listener authentication chain">>,
-            parameters => [
-                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
-            ],
-            requestBody => emqx_dashboard_swagger:schema_with_examples(
+            parameters => [param_listener_id(), param_auth_id()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_authn_schema:authenticator_type(),
                 authenticator_examples()),
             responses => #{
@@ -243,12 +257,9 @@ schema("/listeners/:listener_id/authentication/:id") ->
             }
         },
         delete => #{
-            tags => [<<"authentication">>, <<"listener">>],
+            tags => ?API_TAGS_SINGLE,
             description => <<"Delete authenticator from listener authentication chain">>,
-            parameters => [
-                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
-            ],
+            parameters => [param_listener_id(), param_auth_id()],
             responses => #{
                 204 => <<"Authenticator deleted">>,
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -259,12 +270,14 @@ schema("/listeners/:listener_id/authentication/:id") ->
 
 schema("/authentication/:id/move") ->
     #{
-        operationId => authenticator_move,
+        'operationId' => authenticator_move,
         post => #{
-            tags => [<<"authentication">>, <<"global">>],
+            tags => ?API_TAGS_GLOBAL,
             description => <<"Move authenticator in global authentication chain">>,
-            parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
-            requestBody => ref(request_move),
+            parameters => [param_auth_id()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_move),
+                request_move_examples()),
             responses => #{
                 204 => <<"Authenticator moved">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -275,15 +288,14 @@ schema("/authentication/:id/move") ->
 
 schema("/listeners/:listener_id/authentication/:id/move") ->
     #{
-        operationId => listener_authenticator_move,
+        'operationId' => listener_authenticator_move,
         post => #{
-            tags => [<<"authentication">>, <<"listener">>],
+            tags => ?API_TAGS_SINGLE,
             description => <<"Move authenticator in listener authentication chain">>,
-            parameters => [
-                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
-            ],
-            requestBody => ref(request_move),
+            parameters => [param_listener_id(), param_auth_id()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_move),
+                request_move_examples()),
             responses => #{
                 204 => <<"Authenticator moved">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -294,12 +306,14 @@ schema("/listeners/:listener_id/authentication/:id/move") ->
 
 schema("/authentication/:id/import_users") ->
     #{
-        operationId => authenticator_import_users,
+        'operationId' => authenticator_import_users,
         post => #{
-            tags => [<<"authentication">>, <<"global">>],
+            tags => ?API_TAGS_GLOBAL,
             description => <<"Import users into authenticator in global authentication chain">>,
-            parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
-            requestBody => ref(request_import_users),
+            parameters => [param_auth_id()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_import_users),
+                request_import_users_examples()),
             responses => #{
                 204 => <<"Users imported">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -310,15 +324,14 @@ schema("/authentication/:id/import_users") ->
 
 schema("/listeners/:listener_id/authentication/:id/import_users") ->
     #{
-        operationId => listener_authenticator_import_users,
+        'operationId' => listener_authenticator_import_users,
         post => #{
-            tags => [<<"authentication">>, <<"listener">>],
+            tags => ?API_TAGS_SINGLE,
             description => <<"Import users into authenticator in listener authentication chain">>,
-            parameters => [
-                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
-            ],
-            requestBody => ref(request_import_users),
+            parameters => [param_listener_id(), param_auth_id()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_import_users),
+                request_import_users_examples()),
             responses => #{
                 204 => <<"Users imported">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -329,28 +342,34 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
 
 schema("/authentication/:id/users") ->
     #{
-        operationId => authenticator_users,
+        'operationId' => authenticator_users,
         post => #{
-            tags => [<<"authentication">>, <<"global">>],
+            tags => ?API_TAGS_GLOBAL,
             description => <<"Create users for authenticator in global authentication chain">>,
-            parameters => [{id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}],
-            requestBody => ref(request_user_create),
+            parameters => [param_auth_id()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_user_create),
+                request_user_create_examples()),
             responses => #{
-                201 => ref(response_user),
+                201 => emqx_dashboard_swagger:schema_with_examples(
+                    ref(response_user),
+                    response_user_examples()),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         },
         get => #{
-            tags => [<<"authentication">>, <<"global">>],
+            tags => ?API_TAGS_GLOBAL,
             description => <<"List users in authenticator in global authentication chain">>,
             parameters => [
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
+                param_auth_id(),
                 {page, mk(integer(), #{in => query, desc => <<"Page Index">>, nullable => true})},
                 {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, nullable => true})}
             ],
             responses => #{
-                200 => mk(hoconsc:array(ref(response_user)), #{}),
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(response_users),
+                    response_users_example()),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
 
@@ -359,32 +378,34 @@ schema("/authentication/:id/users") ->
 
 schema("/listeners/:listener_id/authentication/:id/users") ->
     #{
-        operationId => listener_authenticator_users,
+        'operationId' => listener_authenticator_users,
         post => #{
-            tags => [<<"authentication">>, <<"listener">>],
+            tags => ?API_TAGS_SINGLE,
             description => <<"Create users for authenticator in global authentication chain">>,
-            parameters => [
-                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})}
-            ],
-            requestBody => ref(request_user_create),
+            parameters => [param_auth_id(), param_listener_id()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_user_create),
+                request_user_create_examples()),
             responses => #{
-                201 => ref(response_user),
+                201 => emqx_dashboard_swagger:schema_with_examples(
+                    ref(response_user),
+                    response_user_examples()),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         },
         get => #{
-            tags => [<<"authentication">>, <<"listener">>],
+            tags => ?API_TAGS_SINGLE,
             description => <<"List users in authenticator in listener authentication chain">>,
             parameters => [
-                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
+                param_listener_id(), param_auth_id(),
                 {page, mk(integer(), #{in => query, desc => <<"Page Index">>, nullable => true})},
                 {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, nullable => true})}
             ],
             responses => #{
-                200 => mk(hoconsc:array(ref(response_user)), #{}),
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(response_users),
+                    response_users_example()),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
 
@@ -393,40 +414,37 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
 
 schema("/authentication/:id/users/:user_id") ->
     #{
-        operationId => authenticator_user,
+        'operationId' => authenticator_user,
         get => #{
-            tags => [<<"authentication">>, <<"global">>],
+            tags => ?API_TAGS_GLOBAL,
             description => <<"Get user from authenticator in global authentication chain">>,
-            parameters => [
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
-                {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
-            ],
+            parameters => [param_auth_id(), param_user_id()],
             responses => #{
-                200 => ref(response_user),
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    ref(response_user),
+                    response_user_examples()),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         },
         put => #{
-            tags => [<<"authentication">>, <<"global">>],
+            tags => ?API_TAGS_GLOBAL,
             description => <<"Update user in authenticator in global authentication chain">>,
-            parameters => [
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
-                {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
-            ],
-            requestBody => ref(request_user_update),
+            parameters => [param_auth_id(), param_user_id()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(request_user_update),
+                request_user_update_examples()),
             responses => #{
-                200 => mk(hoconsc:array(ref(response_user)), #{}),
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(response_user),
+                    response_user_examples()),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         },
         delete => #{
-            tags => [<<"authentication">>, <<"global">>],
+            tags => ?API_TAGS_GLOBAL,
             description => <<"Update user in authenticator in global authentication chain">>,
-            parameters => [
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
-                {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
-            ],
+            parameters => [param_auth_id(), param_user_id()],
             responses => #{
                 204 => <<"User deleted">>,
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -436,49 +454,71 @@ schema("/authentication/:id/users/:user_id") ->
 
 schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
     #{
-        operationId => listener_authenticator_user,
+        'operationId' => listener_authenticator_user,
         get => #{
-            tags => [<<"authentication">>, <<"listener">>],
+            tags => ?API_TAGS_SINGLE,
             description => <<"Get user from authenticator in listener authentication chain">>,
-            parameters => [
-                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
-                {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
-            ],
+            parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             responses => #{
-                200 => ref(response_user),
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(response_user),
+                    response_user_examples()),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         },
         put => #{
-            tags => [<<"authentication">>, <<"listener">>],
+            tags => ?API_TAGS_SINGLE,
             description => <<"Update user in authenticator in listener authentication chain">>,
-            parameters => [
-                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
-                {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
-            ],
-            requestBody => ref(request_user_update),
+            parameters => [param_listener_id(), param_auth_id(), param_user_id()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_example(
+                ref(request_user_update),
+                request_user_update_examples()),
             responses => #{
-                200 => mk(hoconsc:array(ref(response_user)), #{}),
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(response_user),
+                    response_user_examples()),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
 
         },
         delete => #{
-            tags => [<<"authentication">>, <<"listener">>],
+            tags => ?API_TAGS_SINGLE,
             description => <<"Update user in authenticator in listener authentication chain">>,
-            parameters => [
-                {listener_id, mk(binary(), #{in => path, desc => <<"Listener ID">>})},
-                {id, mk(binary(), #{in => path, desc => <<"Authenticator ID">>})},
-                {user_id, mk(binary(), #{in => path, desc => <<"User ID">>})}
-            ],
+            parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             responses => #{
                 204 => <<"User deleted">>,
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         }
+    }.
+
+param_auth_id() ->
+    {
+        id,
+        mk(binary(), #{
+            in => path,
+            desc => <<"Authenticator ID">>
+        })
+    }.
+
+param_listener_id() ->
+    {
+        listener_id,
+        mk(binary(), #{
+            in => path,
+            desc => <<"Listener ID">>,
+            example => emqx_listeners:id_example()
+        })
+    }.
+
+param_user_id() ->
+    {
+        user_id,
+        mk(binary(), #{
+            in => path,
+            desc => <<"User ID">>
+        })
     }.
 
 authenticators(post, #{body := Config}) ->
@@ -516,7 +556,9 @@ listener_authenticator(get, #{bindings := #{listener_id := ListenerID, id := Aut
                         list_authenticator([listeners, Type, Name, authentication],
                                        AuthenticatorID)
                   end);
-listener_authenticator(put, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := Config}) ->
+listener_authenticator(put,
+                       #{bindings := #{listener_id := ListenerID, id := AuthenticatorID},
+                         body := Config}) ->
     with_listener(ListenerID,
                   fun(Type, Name, ChainName) ->
                         update_authenticator([listeners, Type, Name, authentication],
@@ -524,7 +566,8 @@ listener_authenticator(put, #{bindings := #{listener_id := ListenerID, id := Aut
                                              AuthenticatorID,
                                              Config)
                   end);
-listener_authenticator(delete, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}}) ->
+listener_authenticator(delete,
+                       #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}}) ->
     with_listener(ListenerID,
                   fun(Type, Name, ChainName) ->
                         delete_authenticator([listeners, Type, Name, authentication],
@@ -532,12 +575,16 @@ listener_authenticator(delete, #{bindings := #{listener_id := ListenerID, id := 
                                              AuthenticatorID)
                   end).
 
-authenticator_move(post, #{bindings := #{id := AuthenticatorID}, body := #{<<"position">> := Position}}) ->
+authenticator_move(post,
+                   #{bindings := #{id := AuthenticatorID},
+                     body := #{<<"position">> := Position}}) ->
     move_authenitcator([authentication], ?GLOBAL, AuthenticatorID, Position);
 authenticator_move(post, #{bindings := #{id := _}, body := _}) ->
     serialize_error({missing_parameter, position}).
 
-listener_authenticator_move(post, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := #{<<"position">> := Position}}) ->
+listener_authenticator_move(post,
+                            #{bindings := #{listener_id := ListenerID, id := AuthenticatorID},
+                              body := #{<<"position">> := Position}}) ->
     with_listener(ListenerID,
                   fun(Type, Name, ChainName) ->
                         move_authenitcator([listeners, Type, Name, authentication],
@@ -548,22 +595,28 @@ listener_authenticator_move(post, #{bindings := #{listener_id := ListenerID, id 
 listener_authenticator_move(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
     serialize_error({missing_parameter, position}).
 
-authenticator_import_users(post, #{bindings := #{id := AuthenticatorID}, body := #{<<"filename">> := Filename}}) ->
-    case ?AUTHN:import_users(?GLOBAL, AuthenticatorID, Filename) of
+authenticator_import_users(post,
+                           #{bindings := #{id := AuthenticatorID},
+                             body := #{<<"filename">> := Filename}}) ->
+    case emqx_authentication:import_users(?GLOBAL, AuthenticatorID, Filename) of
         ok -> {204};
         {error, Reason} -> serialize_error(Reason)
     end;
 authenticator_import_users(post, #{bindings := #{id := _}, body := _}) ->
     serialize_error({missing_parameter, filename}).
 
-listener_authenticator_import_users(post, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}, body := #{<<"filename">> := Filename}}) ->
-    with_chain(ListenerID,
-                    fun(ChainName) ->
-                        case ?AUTHN:import_users(ChainName, AuthenticatorID, Filename) of
-                            ok -> {204};
-                            {error, Reason} -> serialize_error(Reason)
-                        end
-                    end);
+listener_authenticator_import_users(
+  post,
+  #{bindings := #{listener_id := ListenerID, id := AuthenticatorID},
+    body := #{<<"filename">> := Filename}}) ->
+    with_chain(
+      ListenerID,
+      fun(ChainName) ->
+              case emqx_authentication:import_users(ChainName, AuthenticatorID, Filename) of
+                  ok -> {204};
+                  {error, Reason} -> serialize_error(Reason)
+              end
+      end);
 listener_authenticator_import_users(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
     serialize_error({missing_parameter, filename}).
 
@@ -644,7 +697,7 @@ find_listener(ListenerID) ->
     end.
 
 with_chain(ListenerID, Fun) ->
-    {ok, ChainNames} = ?AUTHN:list_chain_names(),
+    {ok, ChainNames} = emqx_authentication:list_chain_names(),
     ListenerChainName =
         [ Name || Name <- ChainNames, atom_to_binary(Name) =:= ListenerID ],
     case ListenerChainName of
@@ -656,7 +709,7 @@ with_chain(ListenerID, Fun) ->
 
 create_authenticator(ConfKeyPath, ChainName, Config) ->
     case update_config(ConfKeyPath, {create_authenticator, ChainName, Config}) of
-        {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
+        {ok, #{post_config_update := #{emqx_authentication := #{id := ID}},
             raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
             {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
@@ -666,7 +719,10 @@ create_authenticator(ConfKeyPath, ChainName, Config) ->
 
 list_authenticators(ConfKeyPath) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
-    NAuthenticators = [maps:put(id, ?AUTHN:authenticator_id(AuthenticatorConfig), convert_certs(AuthenticatorConfig))
+    NAuthenticators = [ maps:put(
+                          id,
+                          emqx_authentication:authenticator_id(AuthenticatorConfig),
+                          convert_certs(AuthenticatorConfig))
                         || AuthenticatorConfig <- AuthenticatorsConfig],
     {200, NAuthenticators}.
 
@@ -681,7 +737,7 @@ list_authenticator(ConfKeyPath, AuthenticatorID) ->
 
 update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
     case update_config(ConfKeyPath, {update_authenticator, ChainName, AuthenticatorID, Config}) of
-        {ok, #{post_config_update := #{?AUTHN := #{id := ID}},
+        {ok, #{post_config_update := #{emqx_authentication := #{id := ID}},
                raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
             {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
@@ -700,7 +756,9 @@ delete_authenticator(ConfKeyPath, ChainName, AuthenticatorID) ->
 move_authenitcator(ConfKeyPath, ChainName, AuthenticatorID, Position) ->
     case parse_position(Position) of
         {ok, NPosition} ->
-            case update_config(ConfKeyPath, {move_authenticator, ChainName, AuthenticatorID, NPosition}) of
+            case update_config(
+                   ConfKeyPath,
+                   {move_authenticator, ChainName, AuthenticatorID, NPosition}) of
                 {ok, _} ->
                     {204};
                 {error, {_, _, Reason}} ->
@@ -710,9 +768,11 @@ move_authenitcator(ConfKeyPath, ChainName, AuthenticatorID, Position) ->
             serialize_error(Reason)
     end.
 
-add_user(ChainName, AuthenticatorID, #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo) ->
+add_user(ChainName,
+         AuthenticatorID,
+         #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo) ->
     IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
-    case ?AUTHN:add_user(ChainName, AuthenticatorID, #{ user_id => UserID
+    case emqx_authentication:add_user(ChainName, AuthenticatorID, #{ user_id => UserID
                                                       , password => Password
                                                       , is_superuser => IsSuperuser}) of
         {ok, User} ->
@@ -730,7 +790,7 @@ update_user(ChainName, AuthenticatorID, UserID, UserInfo) ->
         true ->
             serialize_error({missing_parameter, password});
         false ->
-            case ?AUTHN:update_user(ChainName, AuthenticatorID, UserID, UserInfo) of
+            case emqx_authentication:update_user(ChainName, AuthenticatorID, UserID, UserInfo) of
                 {ok, User} ->
                     {200, User};
                 {error, Reason} ->
@@ -739,7 +799,7 @@ update_user(ChainName, AuthenticatorID, UserID, UserInfo) ->
     end.
 
 find_user(ChainName, AuthenticatorID, UserID) ->
-    case ?AUTHN:lookup_user(ChainName, AuthenticatorID, UserID) of
+    case emqx_authentication:lookup_user(ChainName, AuthenticatorID, UserID) of
         {ok, User} ->
             {200, User};
         {error, Reason} ->
@@ -747,7 +807,7 @@ find_user(ChainName, AuthenticatorID, UserID) ->
     end.
 
 delete_user(ChainName, AuthenticatorID, UserID) ->
-    case ?AUTHN:delete_user(ChainName, AuthenticatorID, UserID) of
+    case emqx_authentication:delete_user(ChainName, AuthenticatorID, UserID) of
         ok ->
             {204};
         {error, Reason} ->
@@ -755,7 +815,7 @@ delete_user(ChainName, AuthenticatorID, UserID) ->
     end.
 
 list_users(ChainName, AuthenticatorID, PageParams) ->
-    case ?AUTHN:list_users(ChainName, AuthenticatorID, PageParams) of
+    case emqx_authentication:list_users(ChainName, AuthenticatorID, PageParams) of
         {ok, Users} ->
             {200, Users};
         {error, Reason} ->
@@ -771,7 +831,11 @@ get_raw_config_with_defaults(ConfKeyPath) ->
     ensure_list(fill_defaults(RawConfig)).
 
 find_config(AuthenticatorID, AuthenticatorsConfig) ->
-    case [AC || AC <- ensure_list(AuthenticatorsConfig), AuthenticatorID =:= ?AUTHN:authenticator_id(AC)] of
+    MatchingACs
+        = [AC
+           || AC <- ensure_list(AuthenticatorsConfig),
+              AuthenticatorID =:= emqx_authentication:authenticator_id(AC)],
+    case MatchingACs of
         [] -> {error, {not_found, {authenticator, AuthenticatorID}}};
         [AuthenticatorConfig] -> {ok, AuthenticatorConfig}
     end.
@@ -860,6 +924,12 @@ ensure_list(L) when is_list(L) -> L.
 
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
 
+paginated_list_type(Type) ->
+    [
+        {data, hoconsc:array(Type)},
+        {meta, ref(pagination_meta)}
+    ].
+
 authenticator_array_example() ->
     [Config || #{value := Config} <- maps:values(authenticator_examples())].
 
@@ -939,5 +1009,114 @@ authenticator_examples() ->
                 password_hash_algorithm => <<"sha256">>,
                 salt_position => <<"prefix">>
             }
+        }
+    }.
+
+request_user_create_examples() ->
+    #{
+        regular_user => #{
+            summary => <<"Regular user">>,
+            value => #{
+                user_id => <<"user1">>,
+                password => <<"secret">>
+            }
+        },
+        super_user => #{
+            summary => <<"Superuser">>,
+            value => #{
+                user_id => <<"user2">>,
+                password => <<"secret">>,
+                is_superuser => true
+            }
+        }
+    }.
+
+request_user_update_examples() ->
+    #{
+        regular_user => #{
+            summary => <<"Update regular user">>,
+            value => #{
+                password => <<"newsecret">>
+            }
+        },
+        super_user => #{
+            summary => <<"Update user and promote to superuser">>,
+            value => #{
+                password => <<"newsecret">>,
+                is_superuser => true
+            }
+        }
+    }.
+
+request_move_examples() ->
+    #{
+        move_to_top => #{
+            summary => <<"Move authenticator to the beginning of the chain">>,
+            value => #{
+                position => <<"top">>
+            }
+        },
+        move_to_bottom => #{
+            summary => <<"Move authenticator to the end of the chain">>,
+            value => #{
+                position => <<"bottom">>
+            }
+        },
+        'move_before_password-based:built-in-database' => #{
+            summary => <<"Move authenticator to the position preceding some other authenticator">>,
+            value => #{
+                position => <<"before:password-based:built-in-database">>
+            }
+        }
+    }.
+
+request_import_users_examples() ->
+    #{
+        import_csv => #{
+            summary => <<"Import users from CSV file">>,
+            value => #{
+                filename => <<"/path/to/user/data.csv">>
+            }
+        },
+        import_json => #{
+            summary => <<"Import users from JSON file">>,
+            value => #{
+                filename => <<"/path/to/user/data.json">>
+            }
+        }
+    }.
+
+response_user_examples() ->
+    #{
+        regular_user => #{
+            summary => <<"Regular user">>,
+            value => #{
+                user_id => <<"user1">>
+            }
+        },
+        super_user => #{
+            summary => <<"Superuser">>,
+            value => #{
+                user_id => <<"user2">>,
+                is_superuser => true
+            }
+        }
+    }.
+
+response_users_example() ->
+    #{
+        data => [
+            #{
+                user_id => <<"user1">>
+            },
+            #{
+                user_id => <<"user2">>,
+                is_superuser => true
+            }
+        ],
+        meta => #{
+            page => 0,
+            limit => 20,
+            count => 300
         }
     }.

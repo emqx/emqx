@@ -31,9 +31,9 @@
 -define(CONF_DEFAULT, <<"
 gateway.lwm2m {
   xml_dir = \"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml\"
-  lifetime_min = 1s
+  lifetime_min = 100s
   lifetime_max = 86400s
-  qmode_time_window = 22
+  qmode_time_window = 200
   auto_observe = false
   mountpoint = \"lwm2m/%u\"
   update_msg_publish_condition = contains_object_list
@@ -90,17 +90,17 @@ init_per_testcase(_AllTestCase, Config) ->
     [{sock, ClientUdpSock}, {emqx_c, C} | Config].
 
 end_per_testcase(_AllTestCase, Config) ->
-    timer:sleep(300),
     gen_udp:close(?config(sock, Config)),
     emqtt:disconnect(?config(emqx_c, Config)),
-    ok = application:stop(emqx_gateway).
+    ok = application:stop(emqx_gateway),
+    timer:sleep(300).
 
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
 t_lookup_cmd_read(Config) ->
     UdpSock = ?config(sock, Config),
-    Epn = "urn:oma:lwm2m:oma:3",
+    Epn = "urn:oma:lwm2m:oma:1",
     MsgId1 = 15,
     RespTopic = list_to_binary("lwm2m/"++Epn++"/up/resp"),
     emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
@@ -147,7 +147,7 @@ t_lookup_cmd_read(Config) ->
 
 t_lookup_cmd_discover(Config) ->
     %% step 1, device register ...
-    Epn = "urn:oma:lwm2m:oma:3",
+    Epn = "urn:oma:lwm2m:oma:2",
     MsgId1 = 15,
     UdpSock = ?config(sock, Config),
     ObjectList = <<"</1>, </2>, </3/0>, </4>, </5>">>,
@@ -186,10 +186,102 @@ t_lookup_cmd_discover(Config) ->
     timer:sleep(200),
     discover_received_request(Epn, <<"/3/0/7">>, <<"discover">>).
 
+t_read(Config) ->
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:3",
+    MsgId1 = 15,
+    RespTopic = list_to_binary("lwm2m/"++Epn++"/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+    %% step 1, device register ...
+    test_send_coap_request( UdpSock,
+                            post,
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
+                            #coap_content{content_format = <<"text/plain">>,
+                                          payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
+                            [],
+                            MsgId1),
+    #coap_message{method = Method1} = test_recv_coap_response(UdpSock),
+    ?assertEqual({ok,created}, Method1),
+
+    timer:sleep(100),
+    test_recv_mqtt_response(RespTopic),
+
+    %% step2, call Read API
+    call_send_api(Epn, "read", "path=/3/0/0"),
+    timer:sleep(100),
+    #coap_message{type = Type, method = Method, options = Opts} = test_recv_coap_request(UdpSock),
+    ?assertEqual(con, Type),
+    ?assertEqual(get, Method),
+    ?assertEqual([<<"lwm2m">>, <<"3">>, <<"0">>, <<"0">>], maps:get(uri_path, Opts)).
+
+
+t_write(Config) ->
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:4",
+    MsgId1 = 15,
+    RespTopic = list_to_binary("lwm2m/"++Epn++"/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+    %% step 1, device register ...
+    test_send_coap_request( UdpSock,
+                            post,
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
+                            #coap_content{content_format = <<"text/plain">>,
+                                          payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
+                            [],
+                            MsgId1),
+    #coap_message{method = Method1} = test_recv_coap_response(UdpSock),
+    ?assertEqual({ok,created}, Method1),
+
+    timer:sleep(100),
+    test_recv_mqtt_response(RespTopic),
+
+    %% step2, call write API
+    call_send_api(Epn, "write", "path=/3/0/13&type=Integer&value=123"),
+    timer:sleep(100),
+    #coap_message{type = Type, method = Method, options = Opts} = test_recv_coap_request(UdpSock),
+    ?assertEqual(con, Type),
+    ?assertEqual(put, Method),
+    ?assertEqual([<<"lwm2m">>, <<"3">>, <<"0">>, <<"13">>], maps:get(uri_path, Opts)),
+    ?assertEqual(<<"application/vnd.oma.lwm2m+tlv">>, maps:get(content_format, Opts)).
+
+
+
+t_observe(Config) ->
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:5",
+    MsgId1 = 15,
+    RespTopic = list_to_binary("lwm2m/"++Epn++"/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+    %% step 1, device register ...
+    test_send_coap_request( UdpSock,
+                            post,
+                            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=600&lwm2m=1", [?PORT, Epn]),
+                            #coap_content{content_format = <<"text/plain">>,
+                                          payload = <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>},
+                            [],
+                            MsgId1),
+    #coap_message{method = Method1} = test_recv_coap_response(UdpSock),
+    ?assertEqual({ok,created}, Method1),
+
+    timer:sleep(100),
+    test_recv_mqtt_response(RespTopic),
+
+    %% step2, call observe API
+    call_send_api(Epn, "observe", "path=/3/0/1&enable=false"),
+    timer:sleep(100),
+    #coap_message{type = Type, method = Method, options = Opts} = test_recv_coap_request(UdpSock),
+    ?assertEqual(con, Type),
+    ?assertEqual(get, Method),
+    ?assertEqual([<<"lwm2m">>, <<"3">>, <<"0">>, <<"1">>], maps:get(uri_path, Opts)),
+    ?assertEqual(1, maps:get(observe, Opts)).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Internal Functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-send_request(ClientId, Path, Action) ->
+call_lookup_api(ClientId, Path, Action) ->
     ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m", ClientId, "lookup_cmd"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Query = io_lib:format("path=~ts&action=~ts", [Path, Action]),
@@ -197,8 +289,15 @@ send_request(ClientId, Path, Action) ->
     ?LOGT("rest api response:~ts~n", [Response]),
     Response.
 
+call_send_api(ClientId, Cmd, Query) ->
+    ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m", ClientId, Cmd]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(post, ApiPath, Query, Auth),
+    ?LOGT("rest api response:~ts~n", [Response]),
+    Response.
+
 no_received_request(ClientId, Path, Action) ->
-    Response = send_request(ClientId, Path, Action),
+    Response = call_lookup_api(ClientId, Path, Action),
     NotReceived = #{<<"clientid">> => list_to_binary(ClientId),
                     <<"action">> => Action,
                     <<"code">> => <<"6.01">>,
@@ -206,7 +305,7 @@ no_received_request(ClientId, Path, Action) ->
                     <<"path">> => Path},
     ?assertEqual(NotReceived, emqx_json:decode(Response, [return_maps])).
 normal_received_request(ClientId, Path, Action) ->
-    Response = send_request(ClientId, Path, Action),
+    Response = call_lookup_api(ClientId, Path, Action),
     RCont = emqx_json:decode(Response, [return_maps]),
     ?assertEqual(list_to_binary(ClientId), maps:get(<<"clientid">>, RCont, undefined)),
     ?assertEqual(Path, maps:get(<<"path">>, RCont, undefined)),

@@ -495,7 +495,7 @@ handle_call({update_authenticator, ChainName, AuthenticatorID, Config}, _From, S
                             Unique = unique(ChainName, AuthenticatorID, Version),
                             case Provider:update(Config#{'_unique' => Unique}, ST) of
                                 {ok, NewST} ->
-                                    NewAuthenticator = Authenticator#authenticator{state = switch_version(NewST),
+                                    NewAuthenticator = Authenticator#authenticator{state = switch_version(NewST#{version => Version}),
                                                                                    enable = maps:get(enable, Config)},
                                     NewAuthenticators = replace_authenticator(AuthenticatorID, NewAuthenticator, Authenticators),
                                     true = ets:insert(?CHAINS_TAB, Chain#chain{authenticators = NewAuthenticators}),

@@ -36,7 +36,7 @@ paths() ->
 
 schema("/alarms") ->
     #{
-        operationId => alarms,
+        'operationId' => alarms,
         get => #{
             description => <<"EMQ X alarms">>,
             parameters => [
@@ -56,24 +56,28 @@ schema("/alarms") ->
         delete  => #{
             description => <<"Remove all deactivated alarms">>,
             responses => #{
-                200 => <<"Remove all deactivated alarms ok">>
+                204 => <<"Remove all deactivated alarms ok">>
             }
         }
     }.
 
 fields(alarm) ->
     [
-        {node, hoconsc:mk(binary(), #{desc => <<"Alarm in node">>, example => atom_to_list(node())})},
-        {name, hoconsc:mk(binary(), #{desc => <<"Alarm name">>, example => <<"high_system_memory_usage">>})},
+        {node, hoconsc:mk(binary(),
+                          #{desc => <<"Alarm in node">>, example => atom_to_list(node())})},
+        {name, hoconsc:mk(binary(),
+                          #{desc => <<"Alarm name">>, example => <<"high_system_memory_usage">>})},
         {message, hoconsc:mk(binary(), #{desc => <<"Alarm readable information">>,
             example => <<"System memory usage is higher than 70%">>})},
         {details, hoconsc:mk(map(), #{desc => <<"Alarm details information">>,
             example => #{<<"high_watermark">> => 70}})},
-        {duration, hoconsc:mk(integer(), #{desc => <<"Alarms duration time; UNIX time stamp, millisecond">>,
+        {duration, hoconsc:mk(integer(),
+                              #{desc => <<"Alarms duration time; UNIX time stamp, millisecond">>,
             example => 297056})},
         {activate_at, hoconsc:mk(binary(), #{desc => <<"Alarms activate time, RFC 3339">>,
             example => <<"2021-10-25T11:52:52.548+08:00">>})},
-        {deactivate_at, hoconsc:mk(binary(), #{desc => <<"Nullable, alarms deactivate time, RFC 3339">>,
+        {deactivate_at, hoconsc:mk(binary(),
+                                   #{desc => <<"Nullable, alarms deactivate time, RFC 3339">>,
             example => <<"2021-10-31T10:52:52.548+08:00">>})}
     ];
 
@@ -94,7 +98,7 @@ alarms(get, #{query_string := Qs}) ->
 
 alarms(delete, _Params) ->
     _ = emqx_mgmt:delete_all_deactivated_alarms(),
-    {200}.
+    {204}.
 
 %%%==============================================================================================
 %% internal

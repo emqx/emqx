@@ -21,492 +21,252 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("typerefl/include/types.hrl").
 
--define(EXAMPLE_USERNAME, #{username => user1,
-                            rules => [ #{topic => <<"test/toopic/1">>,
-                                         permission => <<"allow">>,
-                                         action => <<"publish">>
-                                        }
-                                     , #{topic => <<"test/toopic/2">>,
-                                         permission => <<"allow">>,
-                                         action => <<"subscribe">>
-                                        }
-                                     , #{topic => <<"eq test/#">>,
-                                         permission => <<"deny">>,
-                                         action => <<"all">>
-                                        }
-                                     ]
-                           }).
--define(EXAMPLE_CLIENTID, #{clientid => client1,
-                            rules => [ #{topic => <<"test/toopic/1">>,
-                                         permission => <<"allow">>,
-                                         action => <<"publish">>
-                                        }
-                                     , #{topic => <<"test/toopic/2">>,
-                                         permission => <<"allow">>,
-                                         action => <<"subscribe">>
-                                        }
-                                     , #{topic => <<"eq test/#">>,
-                                         permission => <<"deny">>,
-                                         action => <<"all">>
-                                        }
-                                     ]
-                           }).
--define(EXAMPLE_ALL ,     #{rules => [ #{topic => <<"test/toopic/1">>,
-                                         permission => <<"allow">>,
-                                         action => <<"publish">>
-                                        }
-                                     , #{topic => <<"test/toopic/2">>,
-                                         permission => <<"allow">>,
-                                         action => <<"subscribe">>
-                                        }
-                                     , #{topic => <<"eq test/#">>,
-                                         permission => <<"deny">>,
-                                         action => <<"all">>
-                                        }
-                                     ]
-                           }).
 -define(FORMAT_USERNAME_FUN, {?MODULE, format_by_username}).
 -define(FORMAT_CLIENTID_FUN, {?MODULE, format_by_clientid}).
 
-
 -export([ api_spec/0
-        , purge/2
-        , users/2
-        , user/2
+        , paths/0
+        , schema/1
+        , fields/1
+        ]).
+
+%% operation funs
+-export([ users/2
         , clients/2
+        , user/2
         , client/2
         , all/2
+        , purge/2
         ]).
 
 -export([ format_by_username/1
         , format_by_clientid/1]).
 
+-define(BAD_REQUEST, 'BAD_REQUEST').
+-define(NOT_FOUND, 'NOT_FOUND').
+
+-define(TYPE_REF, ref).
+-define(TYPE_ARRAY, array).
+-define(PAGE_QUERY_EXAMPLE, example_in_data).
+-define(PUT_MAP_EXAMPLE, in_put_requestBody).
+-define(POST_ARRAY_EXAMPLE, in_post_requestBody).
+
 api_spec() ->
-    {[ purge_api()
-     , users_api()
-     , user_api()
-     , clients_api()
-     , client_api()
-     , all_api()
-     ], definitions()}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-definitions() ->
-    Rules = #{
-        type => array,
-        items => #{
-            type => object,
-            required => [topic, permission, action],
-            properties => #{
-                topic => #{
-                    type => string,
-                    example => <<"test/topic/1">>
-                },
-                permission => #{
-                    type => string,
-                    enum => [<<"allow">>, <<"deny">>],
-                    example => <<"allow">>
-                },
-                action => #{
-                    type => string,
-                    enum => [<<"publish">>, <<"subscribe">>, <<"all">>],
-                    example => <<"publish">>
-                }
-            }
-        }
-    },
-    Username = #{
-        type => object,
-        required => [username, rules],
-        properties => #{
-           username => #{
-               type => string,
-               example => <<"username">>
-           },
-           rules => minirest:ref(<<"rules">>)
-        }
-    },
-    Clientid = #{
-        type => object,
-        required => [clientid, rules],
-        properties => #{
-           clientid => #{
-               type => string,
-               example => <<"clientid">>
-           },
-           rules => minirest:ref(<<"rules">>)
-        }
-    },
-    ALL = #{
-      type => object,
-      required => [rules],
-      properties => #{
-         rules => minirest:ref(<<"rules">>)
-      }
-    },
-    [ #{<<"rules">> => Rules}
-    , #{<<"username">> => Username}
-    , #{<<"clientid">> => Clientid}
-    , #{<<"all">> => ALL}
-    ].
+paths() ->
+    [ "/authorization/sources/built-in-database/username"
+    , "/authorization/sources/built-in-database/clientid"
+    , "/authorization/sources/built-in-database/username/:username"
+    , "/authorization/sources/built-in-database/clientid/:clientid"
+    , "/authorization/sources/built-in-database/all"
+    , "/authorization/sources/built-in-database/purge-all"].
 
-users_api() ->
-    Metadata = #{
+%%--------------------------------------------------------------------
+%% Schema for each URI
+%%--------------------------------------------------------------------
+
+schema("/authorization/sources/built-in-database/username") ->
+    #{
+        'operationId' => users,
         get => #{
-            description => "Show the list of record for username",
-            parameters => [
-                #{
-                    name => page,
-                    in => query,
-                    required => false,
-                    description => <<"Page Index">>,
-                    schema => #{type => integer}
-                },
-                #{
-                    name => limit,
-                    in => query,
-                    required => false,
-                    description => <<"Page limit">>,
-                    schema => #{type => integer}
-                }
-            ],
+            tags => [<<"authorization">>],
+            description => <<"Show the list of record for username">>,
+            parameters => [ hoconsc:ref(emqx_dashboard_swagger, page)
+                          , hoconsc:ref(emqx_dashboard_swagger, limit)],
             responses => #{
-                <<"200">> => #{
-                    description => <<"OK">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => #{
-                                type => array,
-                                items => minirest:ref(<<"username">>)
-                            },
-                            examples => #{
-                                username => #{
-                                    summary => <<"Username">>,
-                                    value => jsx:encode([?EXAMPLE_USERNAME])
-                                }
-                           }
-                        }
-                    }
-                }
+                200 => swagger_with_example( {username_response_data, ?TYPE_REF}
+                                           , {username, ?PAGE_QUERY_EXAMPLE})
             }
         },
         post => #{
-            description => "Add new records for username",
-            requestBody => #{
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => array,
-                            items => #{
-                                oneOf => [ minirest:ref(<<"username">>)
-                                         ]
-                            }
-                        },
-                        examples => #{
-                            username => #{
-                                summary => <<"Username">>,
-                                value => jsx:encode([?EXAMPLE_USERNAME])
-                            }
-                        }
-                    }
-                }
-            },
+            tags => [<<"authorization">>],
+            description => <<"Add new records for username">>,
+            'requestBody' => swagger_with_example( {rules_for_username, ?TYPE_ARRAY}
+                                                 , {username, ?POST_ARRAY_EXAMPLE}),
             responses => #{
-                <<"204">> => #{description => <<"Created">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
+                204 => <<"Created">>,
+                400 => emqx_dashboard_swagger:error_codes( [?BAD_REQUEST]
+                                                         , <<"Bad username or bad rule schema">>)
             }
         }
-    },
-    {"/authorization/sources/built-in-database/username", Metadata, users}.
-
-clients_api() ->
-    Metadata = #{
+    };
+schema("/authorization/sources/built-in-database/clientid") ->
+    #{
+        'operationId' => clients,
         get => #{
-            description => "Show the list of record for clientid",
-            parameters => [
-                #{
-                    name => page,
-                    in => query,
-                    required => false,
-                    description => <<"Page Index">>,
-                    schema => #{type => integer}
-                },
-                #{
-                    name => limit,
-                    in => query,
-                    required => false,
-                    description => <<"Page limit">>,
-                    schema => #{type => integer}
-                }
-            ],
+            tags => [<<"authorization">>],
+            description => <<"Show the list of record for clientid">>,
+            parameters => [ hoconsc:ref(emqx_dashboard_swagger, page)
+                          , hoconsc:ref(emqx_dashboard_swagger, limit)],
             responses => #{
-                <<"200">> => #{
-                    description => <<"OK">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => #{
-                                type => array,
-                                items => minirest:ref(<<"clientid">>)
-                            },
-                            examples => #{
-                                clientid => #{
-                                    summary => <<"Clientid">>,
-                                    value => jsx:encode([?EXAMPLE_CLIENTID])
-                                }
-                           }
-                        }
-                    }
-                }
+                200 => swagger_with_example( {clientid_response_data, ?TYPE_REF}
+                                           , {clientid, ?PAGE_QUERY_EXAMPLE})
             }
         },
         post => #{
-            description => "Add new records for clientid",
-            requestBody => #{
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => array,
-                            items => #{
-                                oneOf => [ minirest:ref(<<"clientid">>)
-                                         ]
-                            }
-                        },
-                        examples => #{
-                            clientid => #{
-                                summary => <<"Clientid">>,
-                                value => jsx:encode([?EXAMPLE_CLIENTID])
-                            }
-                        }
-                    }
-                }
-            },
+            tags => [<<"authorization">>],
+            description => <<"Add new records for clientid">>,
+            'requestBody' => swagger_with_example( {rules_for_clientid, ?TYPE_ARRAY}
+                                                 , {clientid, ?POST_ARRAY_EXAMPLE}),
             responses => #{
-                <<"204">> => #{description => <<"Created">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
+                204 => <<"Created">>,
+                400 => emqx_dashboard_swagger:error_codes( [?BAD_REQUEST]
+                                                         , <<"Bad clientid or bad rule schema">>)
             }
         }
-    },
-    {"/authorization/sources/built-in-database/clientid", Metadata, clients}.
-
-user_api() ->
-    Metadata = #{
+    };
+schema("/authorization/sources/built-in-database/username/:username") ->
+    #{
+        'operationId' => user,
         get => #{
-            description => "Get record info for username",
-            parameters => [
-                #{
-                    name => username,
-                    in => path,
-                    schema => #{
-                       type => string
-                    },
-                    required => true
-                }
-            ],
+            tags => [<<"authorization">>],
+            description => <<"Get record info for username">>,
+            parameters => [hoconsc:ref(username)],
             responses => #{
-                <<"200">> => #{
-                    description => <<"OK">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"username">>),
-                            examples => #{
-                                username => #{
-                                    summary => <<"Username">>,
-                                    value => jsx:encode(?EXAMPLE_USERNAME)
-                                }
-                            }
-                        }
-                    }
-                },
-                <<"404">> => emqx_mgmt_util:bad_request(<<"Not Found">>)
+                200 => swagger_with_example( {rules_for_username, ?TYPE_REF}
+                                           , {username, ?PUT_MAP_EXAMPLE}),
+                404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         },
         put => #{
-            description => "Set record for username",
-            parameters => [
-                #{
-                    name => username,
-                    in => path,
-                    schema => #{
-                       type => string
-                    },
-                    required => true
-                }
-            ],
-            requestBody => #{
-                content => #{
-                    'application/json' => #{
-                        schema => minirest:ref(<<"username">>),
-                        examples => #{
-                            username => #{
-                                summary => <<"Username">>,
-                                value => jsx:encode(?EXAMPLE_USERNAME)
-                            }
-                        }
-                    }
-                }
-            },
+            tags => [<<"authorization">>],
+            description => <<"Set record for username">>,
+            parameters => [hoconsc:ref(username)],
+            'requestBody' => swagger_with_example( {rules_for_username, ?TYPE_REF}
+                                                 , {username, ?PUT_MAP_EXAMPLE}),
             responses => #{
-                <<"204">> => #{description => <<"Updated">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
+                204 => <<"Updated">>,
+                400 => emqx_dashboard_swagger:error_codes( [?BAD_REQUEST]
+                                                         , <<"Bad username or bad rule schema">>)
             }
         },
         delete => #{
-            description => "Delete one record for username",
-            parameters => [
-                #{
-                    name => username,
-                    in => path,
-                    schema => #{
-                       type => string
-                    },
-                    required => true
-                }
-            ],
+            tags => [<<"authorization">>],
+            description => <<"Delete one record for username">>,
+            parameters => [hoconsc:ref(username)],
             responses => #{
-                <<"204">> => #{description => <<"No Content">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
+                204 => <<"Deleted">>,
+                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad username">>)
             }
         }
-    },
-    {"/authorization/sources/built-in-database/username/:username", Metadata, user}.
-
-client_api() ->
-    Metadata = #{
+    };
+schema("/authorization/sources/built-in-database/clientid/:clientid") ->
+    #{
+        'operationId' => client,
         get => #{
-            description => "Get record info for clientid",
-            parameters => [
-                #{
-                    name => clientid,
-                    in => path,
-                    schema => #{
-                       type => string
-                    },
-                    required => true
-                }
-            ],
+            tags => [<<"authorization">>],
+            description => <<"Get record info for clientid">>,
+            parameters => [hoconsc:ref(clientid)],
             responses => #{
-                <<"200">> => #{
-                    description => <<"OK">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"clientid">>),
-                            examples => #{
-                                clientid => #{
-                                    summary => <<"Clientid">>,
-                                    value => jsx:encode(?EXAMPLE_CLIENTID)
-                                }
-                            }
-                        }
-                    }
-                },
-                <<"404">> => emqx_mgmt_util:bad_request(<<"Not Found">>)
+                200 => swagger_with_example( {rules_for_clientid, ?TYPE_REF}
+                                           , {clientid, ?PUT_MAP_EXAMPLE}),
+                404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         },
         put => #{
-            description => "Set record for clientid",
-            parameters => [
-                #{
-                    name => clientid,
-                    in => path,
-                    schema => #{
-                       type => string
-                    },
-                    required => true
-                }
-            ],
-            requestBody => #{
-                content => #{
-                    'application/json' => #{
-                        schema => minirest:ref(<<"clientid">>),
-                        examples => #{
-                            clientid => #{
-                                summary => <<"Clientid">>,
-                                value => jsx:encode(?EXAMPLE_CLIENTID)
-                            }
-                        }
-                    }
-                }
-            },
+            tags => [<<"authorization">>],
+            description => <<"Set record for clientid">>,
+            parameters => [hoconsc:ref(clientid)],
+            'requestBody' => swagger_with_example( {rules_for_clientid, ?TYPE_REF}
+                                                 , {clientid, ?PUT_MAP_EXAMPLE}),
             responses => #{
-                <<"204">> => #{description => <<"Updated">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
+                204 => <<"Updated">>,
+                400 => emqx_dashboard_swagger:error_codes(
+                         [?BAD_REQUEST], <<"Bad clientid or bad rule schema">>)
             }
         },
         delete => #{
-            description => "Delete one record for clientid",
-            parameters => [
-                #{
-                    name => clientid,
-                    in => path,
-                    schema => #{
-                       type => string
-                    },
-                    required => true
-                }
-            ],
+            tags => [<<"authorization">>],
+            description => <<"Delete one record for clientid">>,
+            parameters => [hoconsc:ref(clientid)],
             responses => #{
-                <<"204">> => #{description => <<"No Content">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
+                204 => <<"Deleted">>,
+                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad clientid">>)
             }
         }
-    },
-    {"/authorization/sources/built-in-database/clientid/:clientid", Metadata, client}.
-
-all_api() ->
-    Metadata = #{
+    };
+schema("/authorization/sources/built-in-database/all") ->
+    #{
+        'operationId' => all,
         get => #{
-            description => "Show the list of rules for all",
+            tags => [<<"authorization">>],
+            description => <<"Show the list of rules for all">>,
             responses => #{
-                <<"200">> => #{
-                    description => <<"OK">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"clientid">>),
-                            examples => #{
-                                clientid => #{
-                                    summary => <<"All">>,
-                                    value => jsx:encode(?EXAMPLE_ALL)
-                                }
-                           }
-                        }
-                    }
-                }
+                200 => swagger_with_example({rules_for_all, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})
             }
         },
         put => #{
-            description => "Set the list of rules for all",
-            requestBody => #{
-                content => #{
-                    'application/json' => #{
-                        schema => minirest:ref(<<"all">>),
-                        examples => #{
-                            all => #{
-                                summary => <<"All">>,
-                                value => jsx:encode(?EXAMPLE_ALL)
-                            }
-                        }
-                    }
-                }
-            },
+            tags => [<<"authorization">>],
+            description => <<"Set the list of rules for all">>,
+            'requestBody' =>
+                swagger_with_example({rules_for_all, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE}),
             responses => #{
-                <<"204">> => #{description => <<"Created">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
+                204 => <<"Created">>,
+                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad rule schema">>)
             }
         }
-    },
-    {"/authorization/sources/built-in-database/all", Metadata, all}.
-
-purge_api() ->
-    Metadata = #{
+    };
+schema("/authorization/sources/built-in-database/purge-all") ->
+    #{
+        'operationId' => purge,
         delete => #{
-            description => "Purge all records",
+            tags => [<<"authorization">>],
+            description => <<"Purge all records">>,
             responses => #{
-                <<"204">> => #{description => <<"No Content">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
+                204 => <<"Deleted">>,
+                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
             }
         }
-     },
-    {"/authorization/sources/built-in-database/purge-all", Metadata, purge}.
+    }.
+
+fields(rule_item) ->
+    [ {topic,      hoconsc:mk( string()
+                             , #{ required => true
+                                , desc => <<"Rule on specific topic">>
+                                , example => <<"test/topic/1">>})}
+    , {permission, hoconsc:mk( hoconsc:enum([allow, deny])
+                             , #{desc => <<"Permission">>, required => true, example => allow})}
+    , {action,     hoconsc:mk( hoconsc:enum([publish, subscribe, all])
+                             , #{ required => true, example => publish
+                                , desc => <<"Authorized action">> })} ];
+fields(clientid) ->
+    [ {clientid, hoconsc:mk( binary()
+                           , #{ in => path, required => true
+                              , desc => <<"ClientID">>, example => <<"client1">>})}
+    ];
+fields(username) ->
+    [ {username, hoconsc:mk( binary()
+                           , #{ in => path, required => true
+                              , desc => <<"Username">>, example => <<"user1">>})}
+    ];
+fields(rules_for_username) ->
+    [ {rules, hoconsc:mk(hoconsc:array(hoconsc:ref(rule_item)), #{})}
+    ] ++ fields(username);
+fields(username_response_data) ->
+    [ {data, hoconsc:mk(hoconsc:array(hoconsc:ref(rules_for_username)), #{})}
+    , {meta, hoconsc:ref(meta)}
+    ];
+fields(rules_for_clientid) ->
+    [ {rules, hoconsc:mk(hoconsc:array(hoconsc:ref(rule_item)), #{})}
+    ] ++ fields(clientid);
+fields(clientid_response_data) ->
+    [ {data, hoconsc:mk(hoconsc:array(hoconsc:ref(rules_for_clientid)), #{})}
+    , {meta, hoconsc:ref(meta)}
+    ];
+fields(rules_for_all) ->
+    [ {rules, hoconsc:mk(hoconsc:array(hoconsc:ref(rule_item)), #{})}
+    ];
+fields(meta) ->
+    emqx_dashboard_swagger:fields(page)
+        ++ emqx_dashboard_swagger:fields(limit)
+        ++ [{count, hoconsc:mk(integer(), #{example => 1})}].
+
+%%--------------------------------------------------------------------
+%% HTTP API
+%%--------------------------------------------------------------------
 
 users(get, #{query_string := PageParams}) ->
     MatchSpec = ets:fun2ms(
@@ -609,7 +369,8 @@ purge(delete, _) ->
             {204};
         [#{<<"enable">> := true}] ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => <<"'built-in-database' type source must be disabled before purge.">>}};
+                    message =>
+                        <<"'built-in-database' type source must be disabled before purge.">>}};
         [] ->
             {404, #{code => <<"BAD_REQUEST">>,
                     message => <<"'built-in-database' type source is not found.">>
@@ -642,6 +403,43 @@ format_by_clientid([{clientid, Clientid}, {rules, Rules}]) ->
 atom(B) when is_binary(B) ->
     try binary_to_existing_atom(B, utf8)
     catch
-        _ -> binary_to_atom(B)
+        _Error:_Expection -> binary_to_atom(B)
     end;
 atom(A) when is_atom(A) -> A.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+swagger_with_example({Ref, TypeP}, {_Name, _Type} = Example) ->
+    emqx_dashboard_swagger:schema_with_examples(
+      case TypeP of
+          ?TYPE_REF -> hoconsc:ref(?MODULE, Ref);
+          ?TYPE_ARRAY -> hoconsc:array(hoconsc:ref(?MODULE, Ref))
+      end,
+      rules_example(Example)).
+
+rules_example({ExampleName, ExampleType}) ->
+    {Summary, Example} =
+        case ExampleName of
+            username -> {<<"Username">>, ?USERNAME_RULES_EXAMPLE};
+            clientid -> {<<"ClientID">>, ?CLIENTID_RULES_EXAMPLE};
+            all      -> {<<"All">>,      ?ALL_RULES_EXAMPLE}
+        end,
+    Value =
+        case ExampleType of
+            ?PAGE_QUERY_EXAMPLE -> #{
+                data => [Example],
+                meta => ?META_EXAMPLE
+            };
+            ?PUT_MAP_EXAMPLE ->
+                Example;
+            ?POST_ARRAY_EXAMPLE ->
+                [Example]
+        end,
+    #{
+        'password-based:built-in-database' => #{
+            summary => Summary,
+            value   => Value
+        }
+    }.

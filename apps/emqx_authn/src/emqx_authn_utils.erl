@@ -62,7 +62,7 @@ check_password(undefined, _Selected, _State) ->
 check_password(Password,
                #{<<"password_hash">> := Hash},
                #{password_hash_algorithm := bcrypt}) ->
-    case {ok, Hash} =:= bcrypt:hashpw(Password, Hash) of
+    case {ok, to_list(Hash)} =:= bcrypt:hashpw(Password, Hash) of
         true -> ok;
         false -> {error, bad_username_or_password}
     end;
@@ -100,3 +100,7 @@ convert_to_sql_param(undefined) ->
     null;
 convert_to_sql_param(V) ->
     bin(V).
+
+to_list(L) when is_list(L) -> L;
+to_list(L) when is_binary(L) -> binary_to_list(L);
+to_list(X) -> X.

@@ -103,7 +103,7 @@
 
 -type(reply() :: {outgoing, emqx_types:packet()}
                | {outgoing, [emqx_types:packet()]}
-               | {event, conn_state()|updated}
+               | {event, conn_state() | updated}
                | {close, Reason :: atom()}).
 
 -type(replies() :: emqx_types:packet() | reply() | [reply()]).
@@ -132,7 +132,7 @@
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
 
--spec(info(list(atom())|atom(), channel()) -> term()).
+-spec(info(list(atom()) | atom(), channel()) -> term()).
 info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
@@ -328,17 +328,23 @@ handle_in(Packet = ?AUTH_PACKET(ReasonCode, _Properties),
                     connecting ->
                         process_connect(NProperties, ensure_connected(NChannel));
                     _ ->
-                        handle_out(auth, {?RC_SUCCESS, NProperties}, NChannel#channel{conn_state = connected})
+                        handle_out( auth
+                                  , {?RC_SUCCESS, NProperties}
+                                  , NChannel#channel{conn_state = connected}
+                                  )
                 end;
             {continue, NProperties, NChannel} ->
-                handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, NProperties}, NChannel#channel{conn_state = reauthenticating});
+                handle_out( auth
+                          , {?RC_CONTINUE_AUTHENTICATION, NProperties}
+                          , NChannel#channel{conn_state = reauthenticating}
+                          );
             {error, NReasonCode} ->
                 case ConnState of
                     connecting ->
                         handle_out(connack, NReasonCode, Channel);
                     _ ->
                         handle_out(disconnect, NReasonCode, Channel)
-                end 
+                end
         end
     catch
         _Class:_Reason ->
@@ -632,7 +638,7 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_2},
             ?SLOG(warning, #{
                 msg => "dropped_qos2_packet",
                 reason => emqx_reason_codes:name(RC),
-                packetId => PacketId
+                packet_id => PacketId
             }),
             ok = emqx_metrics:inc('packets.publish.dropped'),
             handle_out(pubrec, {PacketId, RC}, Channel)
@@ -655,7 +661,7 @@ ensure_quota(PubRes, Channel = #channel{quota = Limiter}) ->
 
 -compile({inline, [puback_reason_code/1]}).
 puback_reason_code([])    -> ?RC_NO_MATCHING_SUBSCRIBERS;
-puback_reason_code([_|_]) -> ?RC_SUCCESS.
+puback_reason_code([_ | _]) -> ?RC_SUCCESS.
 
 -compile({inline, [after_message_acked/3]}).
 after_message_acked(ClientInfo, Msg, PubAckProps) ->
@@ -674,7 +680,7 @@ process_subscribe(TopicFilters, SubProps, Channel) ->
 process_subscribe([], _SubProps, Channel, Acc) ->
     {lists:reverse(Acc), Channel};
 
-process_subscribe([Topic = {TopicFilter, SubOpts}|More], SubProps, Channel, Acc) ->
+process_subscribe([Topic = {TopicFilter, SubOpts} | More], SubProps, Channel, Acc) ->
     case check_sub_caps(TopicFilter, SubOpts, Channel) of
          ok ->
             {ReasonCode, NChannel} = do_subscribe(TopicFilter,
@@ -716,9 +722,9 @@ process_unsubscribe(TopicFilters, UnSubProps, Channel) ->
 process_unsubscribe([], _UnSubProps, Channel, Acc) ->
     {lists:reverse(Acc), Channel};
 
-process_unsubscribe([{TopicFilter, SubOpts}|More], UnSubProps, Channel, Acc) ->
+process_unsubscribe([{TopicFilter, SubOpts} | More], UnSubProps, Channel, Acc) ->
     {RC, NChannel} = do_unsubscribe(TopicFilter, SubOpts#{unsub_props => UnSubProps}, Channel),
-    process_unsubscribe(More, UnSubProps, NChannel, [RC|Acc]).
+    process_unsubscribe(More, UnSubProps, NChannel, [RC | Acc]).
 
 do_unsubscribe(TopicFilter, SubOpts, Channel =
                #channel{clientinfo = ClientInfo = #{mountpoint := MountPoint},
@@ -790,7 +796,9 @@ handle_deliver(Delivers, Channel = #channel{takeover = true,
                                             pendings = Pendings,
                                             session = Session,
                                             clientinfo = #{clientid := ClientId}}) ->
-    NPendings = lists:append(Pendings, emqx_session:ignore_local(maybe_nack(Delivers), ClientId, Session)),
+    NPendings = lists:append(
+                  Pendings,
+                  emqx_session:ignore_local(maybe_nack(Delivers), ClientId, Session)),
     {ok, Channel#channel{pendings = NPendings}};
 
 handle_deliver(Delivers, Channel = #channel{session = Session,
@@ -994,6 +1002,17 @@ handle_call({quota, Policy}, Channel) ->
     Zone = info(zone, Channel),
     Quota = emqx_limiter:init(Zone, Policy),
     reply(ok, Channel#channel{quota = Quota});
+
+handle_call({keepalive, Interval}, Channel = #channel{keepalive = KeepAlive,
+    conninfo = ConnInfo}) ->
+    ClientId = info(clientid, Channel),
+    NKeepalive = emqx_keepalive:set(interval, Interval * 1000, KeepAlive),
+    NConnInfo = maps:put(keepalive, Interval, ConnInfo),
+    NChannel = Channel#channel{keepalive = NKeepalive, conninfo = NConnInfo},
+    SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
+    ChanInfo1 = info(NChannel),
+    emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
+    reply(ok, reset_timer(alive_timer, NChannel));
 
 handle_call(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -1365,17 +1384,20 @@ authenticate(?AUTH_PACKET(_, #{'Authentication-Method' := AuthMethod} = Properti
             {error, ?RC_BAD_AUTHENTICATION_METHOD}
     end.
 
-do_authenticate(#{auth_method := AuthMethod} = Credential, #channel{clientinfo = ClientInfo} = Channel) ->
+do_authenticate(#{auth_method := AuthMethod} = Credential,
+                #channel{clientinfo = ClientInfo} = Channel) ->
     Properties = #{'Authentication-Method' => AuthMethod},
     case emqx_access_control:authenticate(Credential) of
         {ok, Result} ->
             {ok, Properties,
-             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(is_superuser, Result, false)},
-                             auth_cache = #{}}};
+             Channel#channel{
+               clientinfo = ClientInfo#{is_superuser => maps:get(is_superuser, Result, false)},
+               auth_cache = #{}}};
         {ok, Result, AuthData} ->
             {ok, Properties#{'Authentication-Data' => AuthData},
-             Channel#channel{clientinfo = ClientInfo#{is_superuser => maps:get(is_superuser, Result, false)},
-                             auth_cache = #{}}};
+             Channel#channel{
+               clientinfo = ClientInfo#{is_superuser => maps:get(is_superuser, Result, false)},
+               auth_cache = #{}}};
         {continue, AuthCache} ->
             {continue, Properties, Channel#channel{auth_cache = AuthCache}};
         {continue, AuthData, AuthCache} ->
@@ -1612,6 +1634,8 @@ ensure_connected(Channel = #channel{conninfo = ConnInfo,
                                     clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
+    ChanPid = self(),
+    emqx_cm:mark_channel_connected(ChanPid),
     Channel#channel{conninfo   = NConnInfo,
                     conn_state = connected
                    }.
@@ -1697,6 +1721,8 @@ ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
                                                clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
+    ChanPid = self(),
+    emqx_cm:mark_channel_disconnected(ChanPid),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
 %%--------------------------------------------------------------------

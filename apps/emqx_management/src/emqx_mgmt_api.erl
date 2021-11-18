@@ -18,6 +18,8 @@
 
 -include_lib("stdlib/include/qlc.hrl").
 
+-elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 100}}]).
+
 -define(FRESH_SELECT, fresh_select).
 
 -export([ paginate/3
@@ -35,23 +37,14 @@
 paginate(Tables, Params, {Module, FormatFun}) ->
     Qh = query_handle(Tables),
     Count = count(Tables),
-    Page = b2i(page(Params)),
-    Limit = b2i(limit(Params)),
-    Cursor = qlc:cursor(Qh),
-    case Page > 1 of
-        true  ->
-            _ = qlc:next_answers(Cursor, (Page - 1) * Limit),
-            ok;
-        false -> ok
-    end,
-    Rows = qlc:next_answers(Cursor, Limit),
-    qlc:delete_cursor(Cursor),
-    #{meta  => #{page => Page, limit => Limit, count => Count},
-      data  => [Module:FormatFun(Row) || Row <- Rows]}.
+    do_paginate(Qh, Count, Params, {Module, FormatFun}).
 
 paginate(Tables, MatchSpec, Params, {Module, FormatFun}) ->
     Qh = query_handle(Tables, MatchSpec),
     Count = count(Tables, MatchSpec),
+    do_paginate(Qh, Count, Params, {Module, FormatFun}).
+
+do_paginate(Qh, Count, Params, {Module, FormatFun}) ->
     Page = b2i(page(Params)),
     Limit = b2i(limit(Params)),
     Cursor = qlc:cursor(Qh),
@@ -64,7 +57,7 @@ paginate(Tables, MatchSpec, Params, {Module, FormatFun}) ->
     Rows = qlc:next_answers(Cursor, Limit),
     qlc:delete_cursor(Cursor),
     #{meta  => #{page => Page, limit => Limit, count => Count},
-      data  => [Module:FormatFun(Row) || Row <- Rows]}.
+      data  => [erlang:apply(Module, FormatFun, [Row]) || Row <- Rows]}.
 
 query_handle(Table) when is_atom(Table) ->
     qlc:q([R || R <- ets:table(Table)]);
@@ -95,9 +88,7 @@ count(Table, MatchSpec) when is_atom(Table) ->
     NMatchSpec = [{MatchPattern, Where, [true]}],
     ets:select_count(Table, NMatchSpec);
 count([Table], MatchSpec) when is_atom(Table) ->
-    [{MatchPattern, Where, _Re}] = MatchSpec,
-    NMatchSpec = [{MatchPattern, Where, [true]}],
-    ets:select_count(Table, NMatchSpec);
+    count(Table, MatchSpec);
 count(Tables, MatchSpec) ->
     lists:sum([count(T, MatchSpec) || T <- Tables]).
 
@@ -111,16 +102,23 @@ limit(Params) when is_map(Params) ->
 limit(Params) ->
     proplists:get_value(<<"limit">>, Params, emqx_mgmt:max_row_limit()).
 
+init_meta(Params) ->
+    Limit = b2i(limit(Params)),
+    Page  = b2i(page(Params)),
+    #{
+        page => Page,
+        limit => Limit,
+        count => 0
+    }.
+
 %%--------------------------------------------------------------------
 %% Node Query
 %%--------------------------------------------------------------------
 
 node_query(Node, Params, Tab, QsSchema, QueryFun) ->
     {_CodCnt, Qs} = params2qs(Params, QsSchema),
-    Limit = b2i(limit(Params)),
-    Page  = b2i(page(Params)),
-    Meta = #{page => Page, limit => Limit, count => 0},
-    page_limit_check_query(Meta, {fun do_node_query/5, [Node, Tab, Qs, QueryFun, Meta]}).
+    page_limit_check_query(init_meta(Params),
+                          {fun do_node_query/5, [Node, Tab, Qs, QueryFun, init_meta(Params)]}).
 
 %% @private
 do_node_query(Node, Tab, Qs, QueryFun, Meta) ->
@@ -129,34 +127,15 @@ do_node_query(Node, Tab, Qs, QueryFun, Meta) ->
 do_node_query( Node, Tab, Qs, QueryFun, Continuation
              , Meta = #{limit := Limit}
              , Results) ->
-    {Len, Rows, NContinuation} = do_query(Node, Tab, Qs, QueryFun, Continuation, Limit),
-    case judge_page_with_counting(Len, Meta) of
-        {more, NMeta} ->
-            case NContinuation of
-                ?FRESH_SELECT ->
-                    #{meta => NMeta, data => []}; %% page and limit too big
-                _ ->
-                    do_node_query(Node, Tab, Qs, QueryFun, NContinuation, NMeta, [])
-            end;
-        {cutrows, NMeta} ->
-            {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
-            ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
-            NResults = lists:sublist( lists:append(Results, ThisRows)
-                                    , SubStart, Limit),
-            case NContinuation of
-                ?FRESH_SELECT ->
-                    #{meta => NMeta, data => NResults};
-                _ ->
-                    do_node_query(Node, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
-            end;
-        {enough, NMeta} ->
-            NResults = lists:sublist(lists:append(Results, Rows), 1, Limit),
-            case NContinuation of
-                ?FRESH_SELECT ->
-                    #{meta => NMeta, data => NResults};
-                _ ->
-                    do_node_query(Node, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
-            end
+    case do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) of
+        {error, {badrpc, R}} ->
+            {error, Node, {badrpc, R}};
+        {Len, Rows, ?FRESH_SELECT} ->
+            {NMeta, NResults} = sub_query_result(Len, Rows, Limit, Results, Meta),
+            #{meta => NMeta, data => NResults};
+        {Len, Rows, NContinuation} ->
+            {NMeta, NResults} = sub_query_result(Len, Rows, Limit, Results, Meta),
+            do_node_query(Node, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
     end.
 
 %%--------------------------------------------------------------------
@@ -165,11 +144,9 @@ do_node_query( Node, Tab, Qs, QueryFun, Continuation
 
 cluster_query(Params, Tab, QsSchema, QueryFun) ->
     {_CodCnt, Qs} = params2qs(Params, QsSchema),
-    Limit = b2i(limit(Params)),
-    Page  = b2i(page(Params)),
     Nodes = mria_mnesia:running_nodes(),
-    Meta = #{page => Page, limit => Limit, count => 0},
-    page_limit_check_query(Meta, {fun do_cluster_query/5, [Nodes, Tab, Qs, QueryFun, Meta]}).
+    page_limit_check_query(init_meta(Params),
+                          {fun do_cluster_query/5, [Nodes, Tab, Qs, QueryFun, init_meta(Params)]}).
 
 %% @private
 do_cluster_query(Nodes, Tab, Qs, QueryFun, Meta) ->
@@ -177,37 +154,17 @@ do_cluster_query(Nodes, Tab, Qs, QueryFun, Meta) ->
 
 do_cluster_query([], _Tab, _Qs, _QueryFun, _Continuation, Meta, Results) ->
     #{meta => Meta, data => Results};
-do_cluster_query( [Node | Nodes], Tab, Qs, QueryFun, Continuation
-                , Meta = #{limit := Limit}
-                , Results) ->
-    {Len, Rows, NContinuation} = do_query(Node, Tab, Qs, QueryFun, Continuation, Limit),
-    case judge_page_with_counting(Len, Meta) of
-        {more, NMeta} ->
-            case NContinuation of
-                ?FRESH_SELECT ->
-                    do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, []); %% next node with parts of results
-                _ ->
-                    do_cluster_query([Node | Nodes], Tab, Qs, QueryFun, NContinuation, NMeta, []) %% continue this node
-            end;
-        {cutrows, NMeta} ->
-            {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
-            ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
-            NResults = lists:sublist( lists:append(Results, ThisRows)
-                                    , SubStart, Limit),
-            case NContinuation of
-                ?FRESH_SELECT ->
-                    do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, NResults); %% next node with parts of results
-                _ ->
-                    do_cluster_query([Node | Nodes], Tab, Qs, QueryFun, NContinuation, NMeta, NResults) %% continue this node
-            end;
-        {enough, NMeta} ->
-            NResults = lists:sublist(lists:append(Results, Rows), 1, Limit),
-            case NContinuation of
-                ?FRESH_SELECT ->
-                    do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, NResults); %% next node with parts of results
-                _ ->
-                    do_cluster_query([Node | Nodes], Tab, Qs, QueryFun, NContinuation, NMeta, NResults) %% continue this node
-            end
+do_cluster_query([Node | Tail] = Nodes, Tab, Qs, QueryFun, Continuation,
+        Meta = #{limit := Limit}, Results) ->
+    case do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) of
+        {error, {badrpc, R}} ->
+            {error, Node, {bar_rpc, R}};
+        {Len, Rows, ?FRESH_SELECT} ->
+            {NMeta, NResults} = sub_query_result(Len, Rows, Limit, Results, Meta),
+            do_cluster_query(Tail, Tab, Qs, QueryFun, ?FRESH_SELECT, NMeta, NResults);
+        {Len, Rows, NContinuation} ->
+            {NMeta, NResults} = sub_query_result(Len, Rows, Limit, Results, Meta),
+            do_cluster_query(Nodes, Tab, Qs, QueryFun, NContinuation, NMeta, NResults)
     end.
 
 %%--------------------------------------------------------------------
@@ -216,10 +173,25 @@ do_cluster_query( [Node | Nodes], Tab, Qs, QueryFun, Continuation
 
 %% @private
 do_query(Node, Tab, Qs, {M,F}, Continuation, Limit) when Node =:= node() ->
-    M:F(Tab, Qs, Continuation, Limit);
+    erlang:apply(M, F, [Tab, Qs, Continuation, Limit]);
 do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) ->
     rpc_call(Node, ?MODULE, do_query,
              [Node, Tab, Qs, QueryFun, Continuation, Limit], 50000).
+
+sub_query_result(Len, Rows, Limit, Results, Meta) ->
+    {Flag, NMeta} = judge_page_with_counting(Len, Meta),
+    NResults =
+        case Flag of
+            more ->
+                [];
+            cutrows ->
+                {SubStart, NeedNowNum} = rows_sub_params(Len, NMeta),
+                ThisRows = lists:sublist(Rows, SubStart, NeedNowNum),
+                lists:sublist(lists:append(Results, ThisRows), SubStart, Limit);
+            enough ->
+                lists:sublist(lists:append(Results, Rows), 1, Limit)
+        end,
+    {NMeta, NResults}.
 
 %% @private
 rpc_call(Node, M, F, A, T) ->
@@ -294,16 +266,20 @@ pick_params_to_qs([{Key, Value} | Params], QsSchema, Acc1, Acc2) ->
                                 end,
                     case lists:keytake(OpposeKey, 1, Params) of
                         false ->
-                            pick_params_to_qs(Params, QsSchema, [qs(Key, Value, Type) | Acc1], Acc2);
+                            pick_params_to_qs(Params, QsSchema,
+                                [qs(Key, Value, Type) | Acc1], Acc2);
                         {value, {K2, V2}, NParams} ->
-                            pick_params_to_qs(NParams, QsSchema, [qs(Key, Value, K2, V2, Type) | Acc1], Acc2)
+                            pick_params_to_qs(NParams, QsSchema,
+                                [qs(Key, Value, K2, V2, Type) | Acc1], Acc2)
                     end;
                 _ ->
                     case is_fuzzy_key(Key) of
                         true ->
-                            pick_params_to_qs(Params, QsSchema, Acc1, [qs(Key, Value, Type) | Acc2]);
+                            pick_params_to_qs(Params, QsSchema, Acc1,
+                                [qs(Key, Value, Type) | Acc2]);
                         _ ->
-                            pick_params_to_qs(Params, QsSchema, [qs(Key, Value, Type) | Acc1], Acc2)
+                            pick_params_to_qs(Params, QsSchema,
+                                [qs(Key, Value, Type) | Acc1], Acc2)
 
                     end
             end
@@ -340,10 +316,9 @@ is_fuzzy_key(<<"match_", _/binary>>) ->
 is_fuzzy_key(_) ->
     false.
 
-page_start(Page, Limit) ->
-    if Page > 1 -> (Page-1) * Limit + 1;
-       true -> 1
-    end.
+page_start(1, _) -> 1;
+page_start(Page, Limit) -> (Page-1) * Limit + 1.
+
 
 judge_page_with_counting(Len, Meta = #{page := Page, limit := Limit, count := Count}) ->
     PageStart = page_start(Page, Limit),
@@ -359,11 +334,12 @@ judge_page_with_counting(Len, Meta = #{page := Page, limit := Limit, count := Co
 
 rows_sub_params(Len, _Meta = #{page := Page, limit := Limit, count := Count}) ->
     PageStart = page_start(Page, Limit),
-    if Count - Len < PageStart ->
+    case (Count - Len) < PageStart of
+        true ->
             NeedNowNum = Count - PageStart + 1,
             SubStart   = Len - NeedNowNum + 1,
             {SubStart, NeedNowNum};
-       true ->
+        false ->
             {_SubStart = 1, _NeedNowNum = Len}
     end.
 

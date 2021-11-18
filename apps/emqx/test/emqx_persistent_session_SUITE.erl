@@ -262,17 +262,24 @@ wait_for_cm_unregister(ClientId, N) ->
 
 snabbkaffe_sync_publish(Topic, Payloads) ->
     Fun = fun(Client, Payload) ->
-                  ?wait_async_action( {ok, _} = emqtt:publish(Client, Topic, Payload, 2)
-                                    , #{?snk_kind := ps_persist_msg, payload := Payload}
-                                    )
+                  ?check_trace(
+                     begin
+                         ?wait_async_action( {ok, _} = emqtt:publish(Client, Topic, Payload, 2)
+                                           , #{?snk_kind := ps_persist_msg, payload := Payload}
+                                           )
+                     end,
+                     fun(_, _Trace) -> ok end)
           end,
     do_publish(Payloads, Fun, true).
 
 publish(Topic, Payloads) ->
+    publish(Topic, Payloads, false).
+
+publish(Topic, Payloads, WaitForUnregister) ->
     Fun = fun(Client, Payload) ->
                   {ok, _} = emqtt:publish(Client, Topic, Payload, 2)
           end,
-    do_publish(Payloads, Fun, false).
+    do_publish(Payloads, Fun, WaitForUnregister).
 
 do_publish(Payloads = [_|_], PublishFun, WaitForUnregister) ->
     %% Publish from another process to avoid connection confusion.
@@ -289,7 +296,22 @@ do_publish(Payloads = [_|_], PublishFun, WaitForUnregister) ->
                   lists:foreach(fun(Payload) -> PublishFun(Client, Payload) end, Payloads),
                   ok = emqtt:disconnect(Client),
                   %% Snabbkaffe sometimes fails unless all processes are gone.
-                  [wait_for_cm_unregister(ClientID) || WaitForUnregister]
+                  case WaitForUnregister of
+                      false ->
+                          ok;
+                      true ->
+                          case emqx_cm:lookup_channels(ClientID) of
+                              [] ->
+                                  ok;
+                              [ConnectionPid] ->
+                                  ?assert(is_pid(ConnectionPid)),
+                                  Ref1 = monitor(process, ConnectionPid),
+                                  receive {'DOWN', Ref1, process, ConnectionPid, _} -> ok
+                                  after 3000 -> error(process_did_not_die)
+                                  end,
+                                  wait_for_cm_unregister(ClientID)
+                          end
+                  end
           end),
     receive
         {'DOWN', Ref, process, Pid, normal} -> ok;
@@ -407,6 +429,8 @@ t_persist_on_disconnect(Config) ->
     %% Strangely enough, the disconnect is reported as successful by emqtt.
     ok = emqtt:disconnect(Client1, 0, #{'Session-Expiry-Interval' => 30}),
 
+    wait_for_cm_unregister(ClientId),
+
     {ok, Client2} = emqtt:start_link([ {clientid, ClientId},
                                        {proto_ver, v5},
                                        {clean_start, false},
@@ -492,7 +516,8 @@ t_process_dies_session_expires(Config) ->
             %% The session should be a fresh one
             {persistent, NewSession} = emqx_persistent_session:lookup(ClientId),
             ?assertNotEqual(SessionId, emqx_session:info(id, NewSession)),
-            %% The old session should now either be marked as abandoned or already be garbage collected.
+            %% The old session should now either
+            %% be marked as abandoned or already be garbage collected.
             ?assertMatch([], emqx_persistent_session:pending(SessionId));
         false ->
             skip
@@ -531,8 +556,9 @@ t_publish_while_client_is_gone(Config) ->
                                        {clean_start, false}
                                      | Config]),
     {ok, _} = emqtt:ConnFun(Client2),
-    [Msg1] = receive_messages(1),
-    [Msg2] = receive_messages(1),
+    Msgs = receive_messages(2),
+    ?assertEqual(length(Msgs), 2),
+    [Msg2, Msg1] = Msgs,
     ?assertEqual({ok, iolist_to_binary(Payload1)}, maps:find(payload, Msg1)),
     ?assertEqual({ok, 2}, maps:find(qos, Msg1)),
     ?assertEqual({ok, iolist_to_binary(Payload2)}, maps:find(payload, Msg2)),
@@ -772,7 +798,6 @@ check_snabbkaffe_vanilla(Trace) ->
 
 t_snabbkaffe_vanilla_stages(Config) ->
     %% Test that all stages of session resume works ok in the simplest case
-    process_flag(trap_exit, true),
     ConnFun = ?config(conn_fun, Config),
     ClientId = ?config(client_id, Config),
     EmqttOpts = [ {proto_ver, v5},
@@ -797,7 +822,6 @@ t_snabbkaffe_vanilla_stages(Config) ->
 
 t_snabbkaffe_pending_messages(Config) ->
     %% Make sure there are pending messages are fetched during the init stage.
-    process_flag(trap_exit, true),
     ConnFun = ?config(conn_fun, Config),
     ClientId = ?config(client_id, Config),
     Topic = ?config(topic, Config),
@@ -837,7 +861,6 @@ t_snabbkaffe_pending_messages(Config) ->
 
 t_snabbkaffe_buffered_messages(Config) ->
     %% Make sure to buffer messages during startup.
-    process_flag(trap_exit, true),
     ConnFun = ?config(conn_fun, Config),
     ClientId = ?config(client_id, Config),
     Topic = ?config(topic, Config),
@@ -862,8 +885,8 @@ t_snabbkaffe_buffered_messages(Config) ->
            ?force_ordering( #{ ?snk_kind := ps_worker_deliver },
                             #{ ?snk_kind := ps_resume_end }),
            spawn_link(fun() ->
-                              ?block_until(#{ ?snk_kind := ps_marker_pendings_msgs }, infinity, 5000),
-                              publish(Topic, Payloads2)
+                              ?block_until(#{?snk_kind := ps_marker_pendings_msgs}, infinity, 5000),
+                              publish(Topic, Payloads2, true)
                       end),
            {ok, Client2} = emqtt:start_link([{clean_start, false} | EmqttOpts]),
            {ok, _} = emqtt:ConnFun(Client2),

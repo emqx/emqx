@@ -17,50 +17,112 @@
 -module(emqx_lwm2m_api).
 
 -behaviour(minirest_api).
+-include_lib("typerefl/include/types.hrl").
 
--export([api_spec/0]).
+-export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
--export([lookup_cmd/2]).
+-export([lookup_cmd/2, observe/2, read/2, write/2]).
 
--define(PREFIX, "/gateway/lwm2m/:clientid").
+-define(PATH(Suffix), "/gateway/lwm2m/:clientid"Suffix).
+-define(DATA_TYPE, ['Integer', 'Float', 'Time', 'String', 'Boolean', 'Opaque', 'Objlnk']).
 
--import(emqx_mgmt_util, [ object_schema/1
-                        , error_schema/2
-                        , properties/1]).
+-import(hoconsc, [mk/2, ref/1, ref/2]).
+-import(emqx_dashboard_swagger, [error_codes/2]).
+
+namespace() -> "lwm2m".
 
 api_spec() ->
-    {[lookup_cmd_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE).
 
-lookup_cmd_paramters() ->
-    [ make_paramter(clientid, path, true, "string")
-    , make_paramter(path, query, true, "string")
-    , make_paramter(action, query, true, "string")].
+paths() ->
+    [?PATH("/lookup_cmd"), ?PATH("/observe"), ?PATH("/read"), ?PATH("/write")].
 
-lookup_cmd_properties() ->
-    properties([ {clientid, string}
-               , {path, string}
-               , {action, string}
-               , {code, string}
-               , {codeMsg, string}
-               , {content, {array, object}, lookup_cmd_content_props()}]).
+schema(?PATH("/lookup_cmd")) ->
+    #{
+        'operationId' => lookup_cmd,
+        get => #{
+            tags => [<<"lwm2m">>],
+            description => <<"Look up resource">>,
+            parameters => [
+                {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
+                {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
+                {action, mk(binary(), #{in => query, required => true, example => "discover"})}
+            ],
+            'requestBody' => [],
+            responses => #{
+                200 => [
+                    {clientid, mk(binary(), #{example => "urn:oma:lwm2m:oma:2"})},
+                    {path, mk(binary(), #{example => "/3/0/7"})},
+                    {action, mk(binary(), #{example => "discover"})},
+                    {'codeMsg', mk(binary(), #{example => "reply_not_received"})},
+                    {content, mk(hoconsc:array(ref(resource)), #{})}
+                ],
+                404 => error_codes(['CLIENT_NOT_FOUND'], <<"Client not found">>)
+            }
+        }
+    };
+schema(?PATH("/observe")) ->
+    #{
+        'operationId' => observe,
+        post => #{
+            tags => [<<"lwm2m">>],
+            description => <<"(cancel) observe resource">>,
+            parameters => [
+                {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
+                {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
+                {enable, mk(boolean(), #{in => query, required => true, example => true})}
+            ],
+            'requestBody' => [],
+            responses => #{
+                200 => <<"No Content">>,
+                404 => error_codes(['CLIENT_NOT_FOUND'], <<"Clientid not found">>)
+            }
+        }
+    };
+schema(?PATH("/read")) ->
+    #{
+        'operationId' => read,
+        post => #{
+            tags => [<<"lwm2m">>],
+            description => <<"Send a read command to resource">>,
+            parameters => [
+                {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
+                {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})}
+            ],
+            responses => #{
+                200 => <<"No Content">>,
+                404 => error_codes(['CLIENT_NOT_FOUND'], <<"clientid not found">>)
+            }
+        }
+    };
+schema(?PATH("/write")) ->
+    #{
+        'operationId' => write,
+        post => #{
+            description => <<"Send a write command to resource">>,
+            tags => [<<"lwm2m">>],
+            parameters => [
+                {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
+                {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
+                {type, mk(hoconsc:enum(?DATA_TYPE),
+                    #{in => query, required => true, example => 'Integer'})},
+                {value, mk(binary(), #{in => query, required => true, example => 123})}
+            ],
+            responses => #{
+                200 => <<"No Content">>,
+                404 => error_codes(['CLIENT_NOT_FOUND'], <<"Clientid not found">>)
+            }
+        }
+    }.
 
-lookup_cmd_content_props() ->
-    [ {operations, string, <<"Resource Operations">>}
-    , {dataType, string, <<"Resource Type">>}
-    , {path, string, <<"Resource Path">>}
-    , {name, string, <<"Resource Name">>}].
-
-lookup_cmd_api() ->
-    Metadata = #{get =>
-                     #{description => <<"look up resource">>,
-                       parameters => lookup_cmd_paramters(),
-                       responses =>
-                           #{<<"200">> => object_schema(lookup_cmd_properties()),
-                             <<"404">> => error_schema("client not found error", ['CLIENT_NOT_FOUND'])
-                            }
-                      }},
-    {?PREFIX ++ "/lookup_cmd", Metadata, lookup_cmd}.
-
+fields(resource) ->
+    [
+        {operations, mk(binary(), #{desc => <<"Resource Operations">>, example => "E"})},
+        {'dataType', mk(hoconsc:enum(?DATA_TYPE), #{desc => <<"Data Type">>,
+            example => 'Integer'})},
+        {path, mk(binary(), #{desc =>  <<"Resource Path">>, example => "urn:oma:lwm2m:oma:2"})},
+        {name, mk(binary(), #{desc =>  <<"Resource Name">>, example => "lwm2m-test"})}
+    ].
 
 lookup_cmd(get, #{bindings := Bindings, query_string := QS}) ->
     ClientId = maps:get(clientid, Bindings),
@@ -99,36 +161,39 @@ format_cmd_content(Content, <<"discover">>, Result) ->
     [H | Content1] = Content,
     {_, [HObjId]} = emqx_lwm2m_session:parse_object_list(H),
     [ObjId | _]= path_list(HObjId),
-    ObjectList = case Content1 of
-                     [Content2 | _] ->
-                         {_, ObjL} = emqx_lwm2m_session:parse_object_list(Content2),
-                         ObjL;
-                     [] -> []
-                 end,
+    ObjectList =
+        case Content1 of
+            [Content2 | _] ->
+                {_, ObjL} = emqx_lwm2m_session:parse_object_list(Content2),
+                ObjL;
+            [] -> []
+        end,
 
     R = case emqx_lwm2m_xml_object:get_obj_def(binary_to_integer(ObjId), true) of
             {error, _} ->
                 lists:map(fun(Object) -> #{Object => Object} end, ObjectList);
             ObjDefinition ->
-                lists:map(
-                  fun(Object) ->
-                          [_, _, RawResId| _] = path_list(Object),
-                          ResId = binary_to_integer(RawResId),
-                          Operations = case emqx_lwm2m_xml_object:get_resource_operations(ResId, ObjDefinition) of
-                                           "E" ->
-                                               #{operations => list_to_binary("E")};
-                                           Oper ->
-                                               #{'dataType' => list_to_binary(emqx_lwm2m_xml_object:get_resource_type(ResId, ObjDefinition)),
-                                                 operations => list_to_binary(Oper)}
-                                               end,
-                          Operations#{path => Object,
-                                      name => list_to_binary(emqx_lwm2m_xml_object:get_resource_name(ResId, ObjDefinition))}
-                  end, ObjectList)
+                lists:map(fun(Obj) -> to_operations(Obj, ObjDefinition) end, ObjectList)
         end,
     Result#{content => R};
 
 format_cmd_content(Content, _, Result) ->
     Result#{content => Content}.
+
+to_operations(Obj, ObjDefinition) ->
+    [_, _, RawResId| _] = path_list(Obj),
+    ResId = binary_to_integer(RawResId),
+    Operations =
+        case emqx_lwm2m_xml_object:get_resource_operations(ResId, ObjDefinition) of
+            "E" -> #{operations => <<"E">>};
+            Oper ->
+                #{'dataType' =>
+                      list_to_binary(emqx_lwm2m_xml_object:get_resource_type(ResId, ObjDefinition)),
+                    operations => list_to_binary(Oper)
+                }
+        end,
+    Operations#{path => Obj,
+        name => list_to_binary(emqx_lwm2m_xml_object:get_resource_name(ResId, ObjDefinition))}.
 
 path_list(Path) ->
     case binary:split(binary_util:trim(Path, $/), [<<$/>>], [global]) of
@@ -138,8 +203,43 @@ path_list(Path) ->
         [ObjId] -> [ObjId]
     end.
 
-make_paramter(Name, In, IsRequired, Type) ->
-    #{name => Name,
-      in => In,
-      required => IsRequired,
-      schema => #{type => Type}}.
+observe(post, #{bindings := #{clientid := ClientId},
+                query_string := #{<<"path">> := Path, <<"enable">> := Enable}}) ->
+    MsgType = case Enable of
+                  true -> <<"observe">>;
+                  _ -> <<"cancel-observe">>
+              end,
+
+    Cmd = #{<<"msgType">> => MsgType,
+            <<"data">> => #{<<"path">> => Path}
+           },
+
+    send_cmd(ClientId, Cmd).
+
+
+read(post, #{bindings := #{clientid := ClientId},
+             query_string := Qs}) ->
+
+    Cmd = #{<<"msgType">> => <<"read">>,
+            <<"data">> => Qs
+           },
+
+    send_cmd(ClientId, Cmd).
+
+write(post, #{bindings := #{clientid := ClientId},
+              query_string := Qs}) ->
+
+    Cmd = #{<<"msgType">> => <<"write">>,
+            <<"data">> => Qs
+           },
+
+    send_cmd(ClientId, Cmd).
+
+send_cmd(ClientId, Cmd) ->
+    case emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId) of
+        [Channel | _] ->
+            ok = emqx_lwm2m_channel:send_cmd(Channel, Cmd),
+            {200};
+        _ ->
+            {404, #{code => 'CLIENT_NOT_FOUND'}}
+    end.

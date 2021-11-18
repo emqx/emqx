@@ -40,10 +40,10 @@
 -define(EXPIRE_INTERVAL, 86400000 * 7).
 
 mnesia(boot) ->
-    ok = mria:create_table(emqx_collect, [
+    ok = mria:create_table(?TAB_COLLECT, [
         {type, set},
         {local_content, true},
-        {storage, disc_only_copies},
+        {storage, disc_copies},
         {record_name, mqtt_collect},
         {attributes, record_info(fields, mqtt_collect)}]).
 
@@ -87,7 +87,10 @@ handle_call(_Req, _From, State) ->
 handle_cast(_Req, State) ->
     {noreply, State}.
 
-handle_info(collect, State = #{collect := Collect, count := 1, temp_collect := TempCollect, last_collects := LastCollect}) ->
+handle_info(collect, State = #{ collect := Collect
+                              , count := 1
+                              , temp_collect := TempCollect
+                              , last_collects := LastCollect}) ->
     timer(next_interval(), collect),
     NewLastCollect = flush(collect_all(Collect), LastCollect),
     TempCollect1 = temp_collect(TempCollect),
@@ -107,9 +110,9 @@ handle_info(clear_expire_data, State = #{expire_interval := ExpireInterval}) ->
     timer(?CLEAR_INTERVAL, clear_expire_data),
     T1 = get_local_time(),
     Spec = ets:fun2ms(fun({_, T, _C} = Data) when (T1 - T) > ExpireInterval -> Data end),
-    Collects = dets:select(emqx_collect, Spec),
+    Collects = ets:select(?TAB_COLLECT, Spec),
     lists:foreach(fun(Collect) ->
-        dets:delete_object(emqx_collect, Collect)
+        true = ets:delete_object(?TAB_COLLECT, Collect)
     end, Collects),
     {noreply, State, hibernate};
 
@@ -131,9 +134,9 @@ temp_collect({_, _, Received, Sent}) ->
      Sent1}.
 
 collect_all({Connection, Route, Subscription}) ->
-    {[collect(connections)| Connection],
-     [collect(routes)| Route],
-     [collect(subscriptions)| Subscription]}.
+    {[collect(connections) | Connection],
+     [collect(routes) | Route],
+     [collect(subscriptions) | Subscription]}.
 
 collect(connections) ->
     emqx_stats:getstat('connections.count');
@@ -159,8 +162,11 @@ flush({Connection, Route, Subscription}, {Received0, Sent0, Dropped0}) ->
                diff(Sent, Sent0),
                diff(Dropped, Dropped0)},
     Ts = get_local_time(),
-    _ = mria:transaction(mria:local_content_shard(),
-                         fun mnesia:write/1, [#mqtt_collect{timestamp = Ts, collect = Collect}]),
+    {atomic, ok} = mria:transaction(mria:local_content_shard(),
+                                    fun mnesia:write/3,
+                                    [ ?TAB_COLLECT
+                                    , #mqtt_collect{timestamp = Ts, collect = Collect}
+                                    , write]),
     {Received, Sent, Dropped}.
 
 avg(Items) ->
