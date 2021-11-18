@@ -20,18 +20,18 @@
 
 definitions() ->
     Sources = #{
-        oneOf => [ minirest:ref(<<"http">>)
-                 , minirest:ref(<<"built-in-database">>)
-                 , minirest:ref(<<"mongo_single">>)
-                 , minirest:ref(<<"mongo_rs">>)
-                 , minirest:ref(<<"mongo_sharded">>)
-                 , minirest:ref(<<"mysql">>)
-                 , minirest:ref(<<"postgresql">>)
-                 , minirest:ref(<<"redis_single">>)
-                 , minirest:ref(<<"redis_sentinel">>)
-                 , minirest:ref(<<"redis_cluster">>)
-                 , minirest:ref(<<"file">>)
-                 ]
+        'oneOf' => [ minirest:ref(<<"http">>)
+                   , minirest:ref(<<"built-in-database">>)
+                   , minirest:ref(<<"mongo_single">>)
+                   , minirest:ref(<<"mongo_rs">>)
+                   , minirest:ref(<<"mongo_sharded">>)
+                   , minirest:ref(<<"mysql">>)
+                   , minirest:ref(<<"postgresql">>)
+                   , minirest:ref(<<"redis_single">>)
+                   , minirest:ref(<<"redis_sentinel">>)
+                   , minirest:ref(<<"redis_cluster">>)
+                   , minirest:ref(<<"file">>)
+                   ]
     },
     SSL = #{
       type => object,
@@ -119,6 +119,7 @@ definitions() ->
                 type => boolean,
                 example => true
             },
+            srv_record => #{type => boolean, example => false, default => false},
             collection => #{type => string},
             selector => #{type => object},
             mongo_type => #{type => string,
@@ -175,6 +176,7 @@ definitions() ->
                 type => boolean,
                 example => true
             },
+            srv_record => #{type => boolean, example => false, default => false},
             collection => #{type => string},
             selector => #{type => object},
             mongo_type => #{type => string,
@@ -232,6 +234,7 @@ definitions() ->
                 type => boolean,
                 example => true
             },
+            srv_record => #{type => boolean, example => false, default => false},
             collection => #{type => string},
             selector => #{type => object},
             mongo_type => #{type => string,
@@ -479,7 +482,9 @@ definitions() ->
                 type => array,
                 items => #{
                   type => string,
-                  example => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
+                  example =>
+                      <<"{allow,{username,\"^dashboard?\"},","subscribe,[\"$SYS/#\"]}.\n",
+                        "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
                 }
             },
             path => #{
