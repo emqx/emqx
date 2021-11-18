@@ -56,8 +56,8 @@
                        }.
 
 -record(slow_log, { topic :: emqx_types:topic()
-                  , count :: pos_integer()
-                  , elapsed :: pos_integer()
+                  , count :: integer()     %% 0 will be used in initial value
+                  , elapsed :: integer()
                   }).
 
 -type message() :: #message{}.
