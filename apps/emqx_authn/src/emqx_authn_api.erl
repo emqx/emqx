@@ -714,6 +714,8 @@ create_authenticator(ConfKeyPath, ChainName, Config) ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
             {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
         {error, {_, _, Reason}} ->
+            serialize_error(Reason);
+        {error, Reason} ->
             serialize_error(Reason)
     end.
 
@@ -896,13 +898,13 @@ serialize_error({bad_ssl_config, Details}) ->
             message => binfmt("bad_ssl_config ~p", [Details])}};
 serialize_error({missing_parameter, Detail}) ->
     {400, #{code => <<"MISSING_PARAMETER">>,
-            message => binfmt("Missing required parameter", [Detail])}};
+            message => binfmt("Missing required parameter ~p", [Detail])}};
 serialize_error({invalid_parameter, Name}) ->
     {400, #{code => <<"INVALID_PARAMETER">>,
             message => binfmt("Invalid value for '~p'", [Name])}};
 serialize_error({unknown_authn_type, Type}) ->
     {400, #{code => <<"BAD_REQUEST">>,
-            message => binfmt("Unknown type '~ts'", [Type])}};
+            message => binfmt("Unknown authentication provider ~p", [Type])}};
 serialize_error({bad_authenticator_config, Reason}) ->
     {400, #{code => <<"BAD_REQUEST">>,
             message => binfmt("Bad authenticator config ~p", [Reason])}};

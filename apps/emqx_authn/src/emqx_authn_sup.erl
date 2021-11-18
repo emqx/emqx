@@ -26,5 +26,14 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    ChildSpecs = [],
-    {ok, {{one_for_one, 10, 10}, ChildSpecs}}.
+    SupFlags = #{strategy => one_for_one,
+                 intensity => 10,
+                 period => 10},
+    ChildSpecs = [
+        #{id => emqx_authn_initializer,
+          start => {emqx_authn_initializer, start_link, []},
+          restart => permanent,
+          type => worker,
+          modules => [emqx_authn_initializer]}
+    ],
+    {ok, {SupFlags, ChildSpecs}}.

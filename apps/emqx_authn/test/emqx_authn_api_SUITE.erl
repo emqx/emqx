@@ -124,11 +124,17 @@ test_authenticators(PathPrefix) ->
                      uri(PathPrefix ++ ["authentication"]),
                      ValidConfig),
 
-    InvalidConfig = ValidConfig#{method => <<"delete">>},
+    InvalidConfig0 = ValidConfig#{method => <<"delete">>},
     {ok, 400, _} = request(
                      post,
                      uri(PathPrefix ++ ["authentication"]),
-                     InvalidConfig),
+                     InvalidConfig0),
+
+    InvalidConfig1 = ValidConfig#{backend => <<"ftp">>},
+    {ok, 400, _} = request(
+                     post,
+                     uri(PathPrefix ++ ["authentication"]),
+                     InvalidConfig1),
 
     ?assertAuthenticatorsMatch(
        [#{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>}],
