@@ -17,6 +17,8 @@
 -module(emqx_mgmt).
 
 -include("emqx_mgmt.hrl").
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
+-elvis([{elvis_style, god_modules, disable}]).
 
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -51,6 +53,7 @@
         , clean_authz_cache_all/1
         , set_ratelimit_policy/2
         , set_quota_policy/2
+        , set_keepalive/2
         ]).
 
 %% Internal funcs
@@ -149,6 +152,7 @@ node_info(Node) when Node =:= node() ->
           memory_used       => proplists:get_value(total, Memory),
           process_available => erlang:system_info(process_limit),
           process_used      => erlang:system_info(process_count),
+
           max_fds           => proplists:get_value(
                                  max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))),
           connections       => ets:info(emqx_channel, size),
@@ -235,6 +239,7 @@ nodes_info_count(PropList) ->
 %%--------------------------------------------------------------------
 
 lookup_client({clientid, ClientId}, FormatFun) ->
+
     lists:append([lookup_client(Node, {clientid, ClientId}, FormatFun)
                   || Node <- mria_mnesia:running_nodes()]);
 
@@ -300,6 +305,7 @@ clean_authz_cache(ClientId) ->
     Results = [clean_authz_cache(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
     check_results(Results).
 
+
 clean_authz_cache(Node, ClientId) when Node =:= node() ->
     case emqx_cm:lookup_channels(ClientId) of
         [] ->
@@ -329,6 +335,9 @@ set_ratelimit_policy(ClientId, Policy) ->
 
 set_quota_policy(ClientId, Policy) ->
     call_client(ClientId, {quota, Policy}).
+
+set_keepalive(ClientId, Interval) ->
+    call_client(ClientId, {keepalive, Interval}).
 
 %% @private
 call_client(ClientId, Req) ->
@@ -372,6 +381,7 @@ list_subscriptions(Node) ->
 list_subscriptions_via_topic(Topic, FormatFun) ->
     lists:append([list_subscriptions_via_topic(Node, Topic, FormatFun)
                   || Node <- mria_mnesia:running_nodes()]).
+
 
 list_subscriptions_via_topic(Node, Topic, {M,F}) when Node =:= node() ->
     MatchSpec = [{{{'_', '$1'}, '_'}, [{'=:=','$1', Topic}], ['$_']}],
@@ -502,6 +512,7 @@ listener_id_filter(Id, Listeners) ->
     Filter = fun(#{id := Id0}) -> Id0 =:= Id end,
     lists:filter(Filter, Listeners).
 
+
 -spec manage_listener( Operation :: start_listener
                                   | stop_listener
                                   | restart_listener
@@ -576,6 +587,7 @@ add_duration_field([], _Now, Acc) ->
     Acc;
 add_duration_field([Alarm = #{activated := true, activate_at := ActivateAt} | Rest], Now, Acc) ->
     add_duration_field(Rest, Now, [Alarm#{duration => Now - ActivateAt} | Acc]);
+
 add_duration_field( [Alarm = #{ activated := false
                               , activate_at := ActivateAt
                               , deactivate_at := DeactivateAt} | Rest]
@@ -638,3 +650,4 @@ max_row_limit() ->
     ?MAX_ROW_LIMIT.
 
 table_size(Tab) -> ets:info(Tab, size).
+

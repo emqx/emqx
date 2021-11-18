@@ -34,6 +34,7 @@
         , subscribe/2
         , unsubscribe/2
         , subscribe_batch/2
+        , set_keepalive/2
         ]).
 
 -export([ query/4
@@ -82,7 +83,9 @@ apis() ->
     , clients_authz_cache_api()
     , clients_subscriptions_api()
     , subscribe_api()
-    , unsubscribe_api()].
+    , unsubscribe_api()
+    , keepalive_api()
+    ].
 
 schemas() ->
     Client = #{
@@ -435,6 +438,27 @@ subscribe_api() ->
                 <<"200">> => emqx_mgmt_util:schema(<<"Subscribe ok">>)}}},
     {"/clients/:clientid/subscribe", Metadata, subscribe}.
 
+keepalive_api() ->
+    Metadata = #{
+        put => #{
+            description => <<"set the online client keepalive by second ">>,
+            parameters => [#{
+                name => clientid,
+                in => path,
+                schema => #{type => string},
+                required => true
+            },
+                #{
+                    name => interval,
+                    in => query,
+                    schema => #{type => integer},
+                    required => true
+                }
+                ],
+            responses => #{
+                <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
+                <<"200">> => emqx_mgmt_util:schema(<<"ok">>)}}},
+    {"/clients/:clientid/keepalive", Metadata, set_keepalive}.
 %%%==============================================================================================
 %% parameters trans
 clients(get, #{query_string := Qs}) ->
@@ -477,6 +501,17 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
         #{node => Node, clientid => ClientID, topic => Topic, qos => maps:get(qos, SubOpts)}
     end, Subs0),
     {200, Subs}.
+
+set_keepalive(put, #{bindings := #{clientid := ClientID}, query_string := Query}) ->
+    case maps:find(<<"interval">>, Query) of
+        error -> {404, "Interval Not Found"};
+        {ok, Interval0} ->
+            Interval = binary_to_integer(Interval0),
+            case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientID), Interval) of
+                ok -> {200};
+                {error, not_found} ->{404, ?CLIENT_ID_NOT_FOUND}
+            end
+    end.
 
 %%%==============================================================================================
 %% api apply

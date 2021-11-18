@@ -77,22 +77,27 @@ t_clients(_) ->
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse2),
 
     %% get /clients/:clientid/authz_cache should has no authz cache
-    Client1AuthzCachePath = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "authz_cache"]),
+    Client1AuthzCachePath = emqx_mgmt_api_test_util:api_path(["clients",
+        binary_to_list(ClientId1), "authz_cache"]),
     {ok, Client1AuthzCache} = emqx_mgmt_api_test_util:request_api(get, Client1AuthzCachePath),
     ?assertEqual("[]", Client1AuthzCache),
 
     %% post /clients/:clientid/subscribe
     SubscribeBody = #{topic => Topic, qos => Qos},
-    SubscribePath = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "subscribe"]),
-    {ok, _} =  emqx_mgmt_api_test_util:request_api(post, SubscribePath, "", AuthHeader, SubscribeBody),
+    SubscribePath = emqx_mgmt_api_test_util:api_path(["clients",
+        binary_to_list(ClientId1), "subscribe"]),
+    {ok, _} =  emqx_mgmt_api_test_util:request_api(post, SubscribePath,
+        "", AuthHeader, SubscribeBody),
     timer:sleep(100),
     [{{_, AfterSubTopic}, #{qos := AfterSubQos}}] = emqx_mgmt:lookup_subscriptions(ClientId1),
     ?assertEqual(AfterSubTopic, Topic),
     ?assertEqual(AfterSubQos, Qos),
 
     %% post /clients/:clientid/unsubscribe
-    UnSubscribePath = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1), "unsubscribe"]),
-    {ok, _} =  emqx_mgmt_api_test_util:request_api(post, UnSubscribePath, "", AuthHeader, SubscribeBody),
+    UnSubscribePath = emqx_mgmt_api_test_util:api_path(["clients",
+        binary_to_list(ClientId1), "unsubscribe"]),
+    {ok, _} =  emqx_mgmt_api_test_util:request_api(post, UnSubscribePath,
+        "", AuthHeader, SubscribeBody),
     timer:sleep(100),
     ?assertEqual([], emqx_mgmt:lookup_subscriptions(Client1)),
 
@@ -123,7 +128,8 @@ t_query_clients_with_time(_) ->
     %% get /clients with time(rfc3339)
     NowTimeStampInt = erlang:system_time(millisecond),
     %% Do not uri_encode `=` to `%3D`
-    Rfc3339String   = emqx_http_lib:uri_encode(binary:bin_to_list(emqx_mgmt_api_clients:unix_ts_to_rfc3339_bin(NowTimeStampInt))),
+    Rfc3339String   = emqx_http_lib:uri_encode(binary:bin_to_list(
+        emqx_mgmt_api_clients:unix_ts_to_rfc3339_bin(NowTimeStampInt))),
     TimeStampString = emqx_http_lib:uri_encode(integer_to_list(NowTimeStampInt)),
 
     LteKeys         = ["lte_created_at=", "lte_connected_at="],
@@ -133,8 +139,10 @@ t_query_clients_with_time(_) ->
     GteParamRfc3339 = [Param ++ Rfc3339String   || Param <- GteKeys],
     GteParamStamp   = [Param ++ TimeStampString || Param <- GteKeys],
 
-    RequestResults  = [emqx_mgmt_api_test_util:request_api(get, ClientsPath, Param, AuthHeader)
-                       || Param <- LteParamRfc3339 ++ LteParamStamp ++ GteParamRfc3339 ++ GteParamStamp],
+    RequestResults  =
+        [emqx_mgmt_api_test_util:request_api(get, ClientsPath, Param, AuthHeader)
+                       || Param <- LteParamRfc3339 ++ LteParamStamp
+            ++ GteParamRfc3339 ++ GteParamStamp],
     DecodedResults  = [emqx_json:decode(Response, [return_maps])
                        || {ok, Response} <- RequestResults],
     {LteResponseDecodeds, GteResponseDecodeds} = lists:split(4, DecodedResults),
@@ -153,3 +161,22 @@ t_query_clients_with_time(_) ->
     Client2Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId2)]),
     {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client1Path),
     {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client2Path).
+
+t_keepalive(_Config) ->
+    Username = "user_keepalive",
+    ClientId = "client_keepalive",
+    AuthHeader      = emqx_mgmt_api_test_util:auth_header_(),
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "keepalive"]),
+    Query = "interval=11",
+    {error,{"HTTP/1.1",404,"Not Found"}} =
+        emqx_mgmt_api_test_util:request_api(put, Path, Query, AuthHeader, <<"">>),
+    {ok, C1} = emqtt:start_link(#{username => Username, clientid => ClientId}),
+    {ok, _} = emqtt:connect(C1),
+    {ok, Ok} = emqx_mgmt_api_test_util:request_api(put, Path, Query, AuthHeader, <<"">>),
+    ?assertEqual("", Ok),
+    [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
+    State = sys:get_state(Pid),
+    ct:pal("~p~n", [State]),
+    ?assertEqual(11000, element(2, element(5, element(11, State)))),
+    emqtt:disconnect(C1),
+    ok.
