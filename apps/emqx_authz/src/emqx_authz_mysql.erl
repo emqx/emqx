@@ -55,7 +55,9 @@ authorize(Client, PubSub, Topic,
         {ok, Columns, Rows} ->
             do_authorize(Client, PubSub, Topic, Columns, Rows);
         {error, Reason} ->
-            ?SLOG(error, #{msg => "query_mysql_error", reason => Reason, resource_id => ResourceID}),
+            ?SLOG(error, #{ msg => "query_mysql_error"
+                          , reason => Reason
+                          , resource_id => ResourceID}),
             nomatch
     end.
 
@@ -94,9 +96,9 @@ replvar(["'%c'" | Params], ClientInfo = #{clientid := ClientId}, Acc) ->
 replvar(["'%a'" | Params], ClientInfo = #{peerhost := IpAddr}, Acc) ->
     replvar(Params, ClientInfo, [inet_parse:ntoa(IpAddr) | Acc]);
 replvar(["'%C'" | Params], ClientInfo, Acc) ->
-    replvar(Params, ClientInfo, [safe_get(cn, ClientInfo)| Acc]);
+    replvar(Params, ClientInfo, [safe_get(cn, ClientInfo) | Acc]);
 replvar(["'%d'" | Params], ClientInfo, Acc) ->
-    replvar(Params, ClientInfo, [safe_get(dn, ClientInfo)| Acc]);
+    replvar(Params, ClientInfo, [safe_get(dn, ClientInfo) | Acc]);
 replvar([Param | Params], ClientInfo, Acc) ->
     replvar(Params, ClientInfo, [Param | Acc]).
 
@@ -107,4 +109,3 @@ bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B;
 bin(L) when is_list(L) -> list_to_binary(L);
 bin(X) -> X.
-

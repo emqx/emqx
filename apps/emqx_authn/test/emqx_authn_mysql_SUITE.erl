@@ -63,7 +63,7 @@ t_authn(_) ->
                <<"backend">> => <<"mysql">>,
                <<"server">> => <<"127.0.0.1:3306">>,
                <<"database">> => <<"mqtt">>,
-               <<"query">> => 
+               <<"query">> =>
                    <<"SELECT password_hash, salt FROM users where username = ",
                         ?PH_USERNAME/binary, " LIMIT 1">>
                },
@@ -80,7 +80,7 @@ t_authn(_) ->
                    listener => 'tcp:default',
                    protocol => mqtt,
                    username => <<"good">>,
-			       password => Password},
+                   password => Password},
     ?assertEqual({ok, #{is_superuser => false}}, emqx_access_control:authenticate(ClientInfo)),
 
     ClientInfo2 = ClientInfo#{username => <<"bad">>},
@@ -90,4 +90,3 @@ t_authn(_) ->
 
 update_config(Path, ConfigRequest) ->
     emqx:update_config(Path, ConfigRequest, #{rawconf_with_defaults => true}).
-

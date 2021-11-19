@@ -42,7 +42,7 @@ authorize(Client, PubSub, Topic,
               annotations := #{id := ResourceID}
              } = Source) ->
     Request = case Method of
-                  get  -> 
+                  get  ->
                       Query = maps:get(query, Url, ""),
                       Path1 = replvar(Path ++ "?" ++ Query, PubSub, Topic, Client),
                       {Path1, maps:to_list(Headers)};
@@ -68,7 +68,9 @@ query_string([], Acc) ->
     <<$&, Str/binary>> = iolist_to_binary(lists:reverse(Acc)),
     Str;
 query_string([{K, V} | More], Acc) ->
-    query_string(More, [["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)] | Acc]).
+    query_string( More
+                , [ ["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)]
+                  | Acc]).
 
 serialize_body(<<"application/json">>, Body) ->
     jsx:encode(Body);
