@@ -72,8 +72,7 @@ roots() ->
        sc(hoconsc:ref("cluster"),
           #{ desc => "EMQ X nodes can form a cluster to scale up the total capacity.<br>"
                      "Here holds the configs to instruct how individual nodes "
-                     "can discover each other, also the database replication "
-                     "role of this node etc."
+                     "can discover each other."
            })}
     , {"log",
        sc(hoconsc:ref("log"),
@@ -100,6 +99,10 @@ natively in the EMQ X node;<br>
 'http' source to make EMQ X call an external HTTP API to make the decision;<br>
 'postgresql' etc. to look up clients or rules from external databases;<br>
 """
+           })}
+    , {"db",
+       sc(ref("db"),
+          #{ desc => "Settings of the embedded database."
            })}
     ] ++
     emqx_schema:roots(medium) ++
@@ -145,14 +148,6 @@ fields("cluster") ->
           #{})}
     , {"k8s",
        sc(ref(cluster_k8s),
-          #{})}
-    , {"db_backend",
-        sc(hoconsc:enum([mnesia, rlog]),
-          #{ mapping => "mria.db_backend"
-           , default => mnesia
-           })}
-    , {"rlog",
-       sc(ref("rlog"),
           #{})}
     ];
 
@@ -251,19 +246,6 @@ fields(cluster_k8s) ->
            })}
     ];
 
-fields("rlog") ->
-    [ {"role",
-       sc(hoconsc:enum([core, replicant]),
-          #{ mapping => "mria.node_role"
-           , default => core
-           })}
-    , {"core_nodes",
-       sc(emqx_schema:comma_separated_atoms(),
-          #{ mapping => "mria.core_nodes"
-           , default => []
-           })}
-    ];
-
 fields("node") ->
     [ {"name",
        sc(string(),
@@ -326,6 +308,46 @@ fields("node") ->
         #{
           }
         )}
+    ];
+
+fields("db") ->
+    [ {"backend",
+       sc(hoconsc:enum([mnesia, rlog]),
+          #{ mapping => "mria.db_backend"
+           , default => mnesia
+           , desc => """
+Select the backend for the embedded database.<br/>
+<strong>Important!</strong> This setting should be the same on all nodes in the cluster.<br/>
+<strong>Important!</strong> Changing this setting in the runtime is not allowed.<br/>
+<code>mnesia</code> is the default backend, that offers decent performance in small clusters.<br/>
+<code>rlog</code> is a new experimantal backend that is suitable for very large clusters.
+"""
+           })}
+    , {"role",
+       sc(hoconsc:enum([core, replicant]),
+          #{ mapping => "mria.node_role"
+           , default => core
+           , desc => """
+Select a node role.<br/>
+<code>core</code> nodes provide durability of the data, and take care of writes.
+It is recommended to place core nodes in different racks or different availability zones.<br/>
+<code>replicant</code> nodes are ephemeral worker nodes. Removing them from the cluster
+doesn't affect database redundancy<br/>
+It is recommended to have more replicant nodes than core nodes.<br/>
+Note: this parameter only takes effect when the <code>backend</code> is set
+to <code>rlog</code>.
+"""
+           })}
+    , {"core_nodes",
+       sc(emqx_schema:comma_separated_atoms(),
+          #{ mapping => "mria.core_nodes"
+           , default => []
+           , desc => """
+List of core nodes that the replicant will connect to.<br/>
+Note: this parameter only takes effect when the <code>backend</code> is set
+to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.
+"""
+           })}
     ];
 
 fields("cluster_call") ->
@@ -719,22 +741,10 @@ sort_log_levels(Levels) ->
 %% utils
 -spec(conf_get(string() | [string()], hocon:config()) -> term()).
 conf_get(Key, Conf) ->
-    V = hocon_schema:get_value(Key, Conf),
-    case is_binary(V) of
-        true ->
-            binary_to_list(V);
-        false ->
-            V
-    end.
+    ensure_list(hocon_schema:get_value(Key, Conf)).
 
 conf_get(Key, Conf, Default) ->
-    V = hocon_schema:get_value(Key, Conf, Default),
-    case is_binary(V) of
-        true ->
-            binary_to_list(V);
-        false ->
-            V
-    end.
+    ensure_list(hocon_schema:get_value(Key, Conf, Default)).
 
 filter(Opts) ->
     [{K, V} || {K, V} <- Opts, V =/= undefined].
@@ -789,6 +799,15 @@ to_atom(Str) when is_list(Str) ->
     list_to_atom(Str);
 to_atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8).
+
+-spec ensure_list(binary() | list(char())) -> list(char()).
+ensure_list(V) ->
+    case is_binary(V) of
+        true ->
+            binary_to_list(V);
+        false ->
+            V
+    end.
 
 roots(Module) ->
     lists:map(fun({_BinName, Root}) -> Root end, hocon_schema:roots(Module)).
