@@ -34,12 +34,11 @@
 start(_StartType, _StartArgs) ->
     ok = mria_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
-    ok = ?AUTHN:register_providers(emqx_authn:providers()),
     ok = initialize(),
     {ok, Sup}.
 
 stop(_State) ->
-    ok = ?AUTHN:deregister_providers(provider_types()),
+    ok = deinitialize(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -47,12 +46,37 @@ stop(_State) ->
 %%------------------------------------------------------------------------------
 
 initialize() ->
-    RawConfigs = emqx:get_raw_config([authentication], []),
-    Config = emqx_authn:check_configs(RawConfigs),
-    ?AUTHN:initialize_authentication(?GLOBAL, Config),
-    lists:foreach(fun({ListenerID, ListenerConfig}) ->
-                      ?AUTHN:initialize_authentication(ListenerID, maps:get(authentication, ListenerConfig, []))
-                  end, emqx_listeners:list()).
+    ok = ?AUTHN:register_providers(emqx_authn:providers()),
+
+    lists:foreach(
+      fun({ChainName, RawAuthConfigs}) ->
+              AuthConfig = emqx_authn:check_configs(RawAuthConfigs),
+              ?AUTHN:initialize_authentication(
+                 ChainName,
+                 AuthConfig)
+      end,
+      chain_configs()).
+
+deinitialize() ->
+    ok = ?AUTHN:deregister_providers(provider_types()).
+
+chain_configs() ->
+    [global_chain_config() | listener_chain_configs()].
+
+global_chain_config() ->
+    {?GLOBAL, emqx:get_raw_config([<<"authentication">>], [])}.
+
+listener_chain_configs() ->
+    lists:map(
+     fun({ListenerID, _}) ->
+        {ListenerID, emqx:get_raw_config(auth_config_path(ListenerID), [])}
+     end,
+     emqx_listeners:list()).
+
+auth_config_path(ListenerID) ->
+    [<<"listeners">>]
+    ++ binary:split(atom_to_binary(ListenerID), <<":">>)
+    ++ [<<"authentication">>].
 
 provider_types() ->
     lists:map(fun({Type, _Module}) -> Type end, emqx_authn:providers()).

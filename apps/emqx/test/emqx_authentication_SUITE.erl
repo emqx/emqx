@@ -258,6 +258,22 @@ t_update_config({'end', Config}) ->
     ?AUTHN:deregister_providers([?config("auth1"), ?config("auth2")]),
     ok.
 
+t_restart({'init', Config}) -> Config;
+t_restart(Config) when is_list(Config) ->
+    ?assertEqual({ok, []}, ?AUTHN:list_chain_names()),
+
+    ?AUTHN:create_chain(test_chain),
+    ?assertEqual({ok, [test_chain]}, ?AUTHN:list_chain_names()),
+
+    ok = supervisor:terminate_child(emqx_authentication_sup, ?AUTHN),
+    {ok, _} = supervisor:restart_child(emqx_authentication_sup, ?AUTHN),
+
+    ?assertEqual({ok, [test_chain]}, ?AUTHN:list_chain_names());
+
+t_restart({'end', Config}) ->
+    ?AUTHN:delete_chain(test_chain),
+    ok.
+
 t_convert_certs({_, Config}) -> Config;
 t_convert_certs(Config) when is_list(Config) ->
     Global = <<"mqtt:global">>,
