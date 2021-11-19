@@ -1,5 +1,9 @@
 name: Cross build packages
 
+concurrency:
+  group: build-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   schedule:
     - cron:  '0 */6 * * *'
@@ -11,11 +15,12 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
+    # prepare source with any OTP version, no need for a matrix
     container: ghcr.io/emqx/emqx-builder/4.4-2:23.3.4.9-3-ubuntu20.04
 
     outputs:
-      profiles: ${{ steps.set_profile.outputs.profiles}}
-      old_vsns: ${{ steps.set_profile.outputs.old_vsns}}
+      profiles: ${{ steps.set_profile.outputs.profiles }}
+      old_vsns: ${{ steps.set_profile.outputs.old_vsns }}
 
     steps:
       - uses: actions/checkout@v2
@@ -25,8 +30,8 @@ jobs:
       - name: set profile
         id: set_profile
         shell: bash
+        working-directory: source
         run: |
-          cd source
           vsn="$(./pkg-vsn.sh)"
           pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
           if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -43,7 +48,7 @@ jobs:
         run: |
           make -C source deps-all
           zip -ryq source.zip source/* source/.[^.]*
-      - name: get_all_deps
+      - name: get_all_deps_ee
         if: endsWith(github.repository, 'enterprise')
         run: |
           echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
@@ -63,6 +68,7 @@ jobs:
     if: endsWith(github.repository, 'emqx')
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
@@ -78,14 +84,16 @@ jobs:
     - name: unzip source code
       run: Expand-Archive -Path source.zip -DestinationPath ./
     - uses: ilammy/msvc-dev-cmd@v1
-    - uses: gleam-lang/setup-erlang@v1.1.0
+    - uses: gleam-lang/setup-erlang@v1.1.2
       id: install_erlang
+      ## gleam-lang/setup-erlang does not yet support the installation of otp24 on windows
       with:
         otp-version: ${{ matrix.otp }}
     - name: build
       env:
         PYTHON: python
         DIAGNOSTIC: 1
+      working-directory: source
       run: |
         $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
 
@@ -97,7 +105,6 @@ jobs:
         else {
           $pkg_name = "${{ matrix.profile }}-$($version -replace '/')-otp${{ matrix.otp }}-windows-amd64.zip"
           }
-        cd source
         ## We do not build/release bcrypt for windows package
         Remove-Item -Recurse -Force -Path _build/default/lib/bcrypt/
         if (Test-Path rebar.lock) {
@@ -114,8 +121,8 @@ jobs:
         Get-FileHash -Path "_packages/${{ matrix.profile }}/$pkg_name" | Format-List | grep 'Hash' | awk '{print $3}'  > _packages/${{ matrix.profile }}/$pkg_name.sha256
     - name: run emqx
       timeout-minutes: 1
+      working-directory: source
       run: |
-        cd source
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
         Start-Sleep -s 5
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
@@ -128,18 +135,19 @@ jobs:
         path: source/_packages/${{ matrix.profile }}/.
 
   mac:
-    runs-on: macos-10.15
-
     needs: prepare
-
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
           - 23.3.4.9-3
+        macos:
+          - macos-11
+          - macos-10.15
         exclude:
           - profile: emqx-edge
-
+    runs-on: ${{ matrix.macos }}
     steps:
     - uses: actions/download-artifact@v2
       with:
@@ -157,7 +165,7 @@ jobs:
       id: cache
       with:
         path: ~/.kerl
-        key: erl${{ matrix.erl_otp }}-macos10.15
+        key: erl${{ matrix.erl_otp }}-${{ matrix.macos }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
@@ -169,18 +177,19 @@ jobs:
         kerl build ${{ matrix.erl_otp }}
         kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
     - name: build
+      working-directory: source
       run: |
         . $HOME/.kerl/${{ matrix.erl_otp }}/activate
-        cd source
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
         rm -rf _build/${{ matrix.profile }}/lib
         make ${{ matrix.profile }}-zip
     - name: test
+      working-directory: source
       run: |
-        cd source
-        pkg_name=$(basename _packages/${{ matrix.profile }}/${{ matrix.profile }}-*.zip)
-        unzip -q _packages/${{ matrix.profile }}/$pkg_name
+        set -x
+        pkg_name=$(find _packages/${{ matrix.profile }} -mindepth 1 -maxdepth 1 -iname \*.zip)
+        unzip -q $pkg_name
         gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
@@ -199,11 +208,11 @@ jobs:
         ./emqx/bin/emqx_ctl status
         ./emqx/bin/emqx stop
         rm -rf emqx
-        openssl dgst -sha256 ./_packages/${{ matrix.profile }}/$pkg_name | awk '{print $2}'  > ./_packages/${{ matrix.profile }}/$pkg_name.sha256
+        openssl dgst -sha256 $pkg_name | awk '{print $2}'  > $pkg_name.sha256
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: source/_packages/${{ matrix.profile }}/.
 
   linux:
@@ -212,6 +221,7 @@ jobs:
     needs: prepare
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
@@ -270,6 +280,7 @@ jobs:
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
         OLD_VSNS: ${{ needs.prepare.outputs.old_vsns }}
+      working-directory: source
       run: |
         set -e -x -u
         broker=$PROFILE
@@ -280,8 +291,8 @@ jobs:
             export ARCH="arm"
         fi
 
-        mkdir -p source/_upgrade_base
-        cd source/_upgrade_base
+        mkdir -p _upgrade_base
+        cd _upgrade_base
         old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
         for tag in ${old_vsns[@]}; do
           package_name="${PROFILE}-${tag#[e|v]}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
@@ -311,6 +322,7 @@ jobs:
       working-directory: source
       env:
         PROFILE: ${{ matrix.profile}}
+      working-directory: source
       run: |
         if [ -d _packages/$PROFILE ]; then
           cd _packages/$PROFILE
@@ -322,15 +334,15 @@ jobs:
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: source/_packages/${{ matrix.profile }}/.
 
   docker:
     runs-on: ubuntu-20.04
-
     needs: prepare
 
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
@@ -399,6 +411,8 @@ jobs:
     strategy:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        otp:
+          - 23.3.4.9-3
 
     steps:
     - uses: actions/checkout@v2
@@ -409,7 +423,7 @@ jobs:
         echo 'EOF' >> $GITHUB_ENV
     - uses: actions/download-artifact@v2
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: ./_packages/${{ matrix.profile }}
     - name: install dos2unix
       run: sudo apt-get update && sudo apt install -y dos2unix
@@ -460,7 +474,7 @@ jobs:
              -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.version }}\" }" \
              ${{ secrets.EMQX_IO_RELEASE_API }}
     - name: update repo.emqx.io
-      if: github.event_name == 'release' && endsWith(github.repository, 'enterprise') && matrix.profile == 'emqx-ee'
+      if: github.event_name == 'release' && matrix.profile == 'emqx-ee'
       run: |
         curl --silent --show-error \
           -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
@@ -469,7 +483,7 @@ jobs:
           -d "{\"ref\":\"v1.0.4\",\"inputs\":{\"version\": \"${{ env.version }}\", \"emqx_ee\": \"true\"}}" \
           "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
     - name: update repo.emqx.io
-      if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
+      if: github.event_name == 'release' && matrix.profile == 'emqx'
       run: |
         curl --silent --show-error \
           -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
