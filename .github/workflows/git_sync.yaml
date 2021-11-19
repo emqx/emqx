@@ -24,11 +24,7 @@ jobs:
         id: create_pull_request
         run: |
           set -euo pipefail
-          if [ "$GITHUB_REF" = "refs/heads/master" ]; then
-            EE_REF="refs/heads/enterprise"
-          else
-            EE_REF="${GITHUB_REF}-enterprise"
-          fi
+          EE_REF="${GITHUB_REF}-enterprise"
           R=$(curl --silent --show-error \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
