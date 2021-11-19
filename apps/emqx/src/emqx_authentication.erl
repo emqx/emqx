@@ -401,9 +401,7 @@ list_users(ChainName, AuthenticatorID, Params) ->
 %%--------------------------------------------------------------------
 
 init(_Opts) ->
-    _ = ets:new(?CHAINS_TAB, [ named_table, set, public
-                             , {keypos, #chain.name}
-                             , {read_concurrency, true}]),
+    ok = create_chain_table(),
     ok = emqx_config_handler:add_handler([authentication], ?MODULE),
     ok = emqx_config_handler:add_handler([listeners, '?', '?', authentication], ?MODULE),
     {ok, #{hooked => false, providers => #{}}}.
@@ -577,6 +575,28 @@ code_change(_OldVsn, State, _Extra) ->
 
 reply(Reply, State) ->
     {reply, Reply, State}.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+create_chain_table() ->
+    Status = try
+                 _ = ets:new(?CHAINS_TAB, [named_table, set, public,
+                                           {keypos, #chain.name},
+                                           {read_concurrency, true}]),
+                 created
+             catch
+                 error:badarg -> already_exists
+             end,
+
+    case Status of
+        created ->
+            ets:give_away(?CHAINS_TAB, whereis(emqx_authentication_sup), undefined),
+            ok;
+        already_exists ->
+            ok
+    end.
 
 global_chain(mqtt) ->
     'mqtt:global';
