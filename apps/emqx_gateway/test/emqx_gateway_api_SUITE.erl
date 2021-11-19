@@ -28,6 +28,10 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(CONF_DEFAULT, <<"
+gateway {}
+">>).
+
 %%--------------------------------------------------------------------
 %% Setup
 %%--------------------------------------------------------------------
@@ -35,18 +39,12 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
-    %% FIXME: Magic line. for saving gateway schema name for emqx_config
-    emqx_config:init_load(emqx_gateway_schema, <<"gateway {}">>),
-    emqx_mgmt_api_test_util:init_suite([emqx_gateway]),
-    %% Start emqx-authn separately, due to emqx_authn_schema
-    %% not implementing the roots/0 method, it cannot be started with
-    %% emqx-ct-helpers at the moment.
-    {ok, _} = application:ensure_all_started(emqx_authn),
+    emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),
     Conf.
 
 end_per_suite(Conf) ->
-    application:stop(emqx_authn),
-    emqx_mgmt_api_test_util:end_suite([emqx_gateway]),
+    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_authn, emqx_conf]),
     Conf.
 
 %%--------------------------------------------------------------------

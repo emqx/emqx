@@ -22,8 +22,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -31,26 +29,28 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_schema, fields, fun("authorization") ->
-                                             meck:passthrough(["authorization"]) ++
-                                             emqx_authz_schema:fields("authorization");
-                                        (F) -> meck:passthrough([F])
-                                     end),
-
-    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
-    ok = emqx_common_test_helpers:start_apps([emqx_authz]),
-
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-    Rules = [#{<<"type">> => <<"built-in-database">>}],
-    {ok, _} = emqx_authz:update(replace, Rules),
+    ok = emqx_common_test_helpers:start_apps(
+           [emqx_conf, emqx_authz],
+           fun set_special_configs/1
+          ),
     Config.
 
 end_per_suite(_Config) ->
-    {ok, _} = emqx_authz:update(replace, []),
-    emqx_common_test_helpers:stop_apps([emqx_authz]),
-    meck:unload(emqx_schema),
+    {ok, _} = emqx:update_config(
+                [authorization],
+                #{<<"no_match">> => <<"allow">>,
+                  <<"cache">> => #{<<"enable">> => <<"true">>},
+                  <<"sources">> => []}),
+    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_conf]),
+    ok.
+
+set_special_configs(emqx_authz) ->
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
+    {ok, _} = emqx:update_config([authorization, sources],
+                                 [#{<<"type">> => <<"built-in-database">>}]),
+    ok;
+set_special_configs(_App) ->
     ok.
 
 init_per_testcase(t_authz, Config) ->
@@ -96,13 +96,19 @@ t_authz(_) ->
                     listener => {tcp, default}
                    },
 
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)),
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"#">>)),
+    ?assertEqual(deny, emqx_access_control:authorize(
+                         ClientInfo1, subscribe, <<"#">>)),
+    ?assertEqual(deny, emqx_access_control:authorize(
+                         ClientInfo1, publish, <<"#">>)),
 
-    ?assertEqual(allow, emqx_access_control:authorize(ClientInfo2, publish, <<"test/test_username">>)),
-    ?assertEqual(allow, emqx_access_control:authorize(ClientInfo2, subscribe, <<"#">>)),
+    ?assertEqual(allow, emqx_access_control:authorize(
+                          ClientInfo2, publish, <<"test/test_username">>)),
+    ?assertEqual(allow, emqx_access_control:authorize(
+                          ClientInfo2, subscribe, <<"#">>)),
 
-    ?assertEqual(allow, emqx_access_control:authorize(ClientInfo3, publish, <<"test/test_clientid">>)),
-    ?assertEqual(deny,  emqx_access_control:authorize(ClientInfo3, subscribe, <<"#">>)),
+    ?assertEqual(allow, emqx_access_control:authorize(
+                          ClientInfo3, publish, <<"test/test_clientid">>)),
+    ?assertEqual(deny,  emqx_access_control:authorize(
+                          ClientInfo3, subscribe, <<"#">>)),
 
     ok.

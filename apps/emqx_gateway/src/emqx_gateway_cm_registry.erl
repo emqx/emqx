@@ -19,11 +19,7 @@
 
 -behaviour(gen_server).
 
-
 -export([start_link/1]).
-
-%% XXX: needless
-%-export([is_enabled/0]).
 
 -export([ register_channel/2
         , unregister_channel/2
@@ -40,8 +36,7 @@
         , code_change/3
         ]).
 
--include_lib("emqx/include/emqx.hrl").
-
+-define(CM_SHARD, emqx_gateway_cm_shard).
 -define(LOCK, {?MODULE, cleanup_down}).
 
 -record(channel, {chid, pid}).
@@ -113,8 +108,7 @@ handle_info({membership, {mnesia, down, Node}}, State = #{type := Type}) ->
     Tab = tabname(Type),
     global:trans({?LOCK, self()},
                  fun() ->
-                     %% FIXME: The shard name should be fixed later
-                     mria:transaction(?MODULE, fun cleanup_channels/2, [Node, Tab])
+                     mria:transaction(?CM_SHARD, fun cleanup_channels/2, [Node, Tab])
                  end),
     {noreply, State};
 

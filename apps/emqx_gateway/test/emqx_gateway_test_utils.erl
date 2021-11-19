@@ -21,7 +21,7 @@
 
 assert_confs(Expected0, Effected) ->
     Expected = maybe_unconvert_listeners(Expected0),
-    case do_assert_confs(Expected, Effected) of
+    case do_assert_confs(root, Expected, Effected) of
         false ->
             io:format(standard_error, "Expected config: ~p,\n"
                                       "Effected config: ~p",
@@ -31,23 +31,36 @@ assert_confs(Expected0, Effected) ->
             ok
     end.
 
-do_assert_confs(Expected, Effected) when is_map(Expected),
-                                         is_map(Effected) ->
+do_assert_confs(_Key, Expected, Effected) when is_map(Expected),
+                                               is_map(Effected) ->
     Ks1 = maps:keys(Expected),
     lists:all(fun(K) ->
-        do_assert_confs(maps:get(K, Expected),
+        do_assert_confs(K,
+                        maps:get(K, Expected),
                         maps:get(K, Effected, undefined))
     end, Ks1);
 
-do_assert_confs([Expected|More1], [Effected|More2]) ->
-    do_assert_confs(Expected, Effected) andalso do_assert_confs(More1, More2);
-do_assert_confs([], []) ->
+do_assert_confs(Key, Expected, Effected) when Key == <<"cacertfile">>;
+                                              Key == <<"certfile">>;
+                                              Key == <<"keyfile">> ->
+    case Expected == Effected of
+        true -> true;
+        false ->
+            case file:read_file(Effected) of
+                {ok, Content} -> Expected == Content;
+                _ -> false
+            end
+    end;
+do_assert_confs(Key, [Expected|More1], [Effected|More2]) ->
+    do_assert_confs(Key, Expected, Effected)
+    andalso do_assert_confs(Key, More1, More2);
+do_assert_confs(_Key, [], []) ->
     true;
-do_assert_confs(Expected, Effected) ->
+do_assert_confs(Key, Expected, Effected) ->
     Res = Expected =:= Effected,
     Res == false andalso
-    ct:pal("Errors: conf not match, "
-           "expected: ~p, got: ~p~n", [Expected, Effected]),
+    ct:pal("Errors: ~p value not match, "
+           "expected: ~p, got: ~p~n", [Key, Expected, Effected]),
     Res.
 
 maybe_unconvert_listeners(Conf) when is_map(Conf) ->

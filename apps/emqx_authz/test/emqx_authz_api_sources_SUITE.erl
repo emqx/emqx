@@ -22,8 +22,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
-
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
@@ -83,7 +81,9 @@
                   }).
 -define(SOURCE6, #{<<"type">> => <<"file">>,
                    <<"enable">> => true,
-                   <<"rules">> => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
+                   <<"rules">> =>
+<<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}."
+  "\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
                   }).
 
 all() ->
@@ -94,35 +94,29 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_schema, fields, fun("authorization") ->
-                                             meck:passthrough(["authorization"]) ++
-                                             emqx_authz_schema:fields("authorization");
-                                        (F) -> meck:passthrough([F])
-                                     end),
-
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
-    meck:expect(emqx_resource, create_dry_run, fun(emqx_connector_mysql, _) -> {ok, meck_data}; 
-                                                  (T, C) -> meck:passthrough([T, C])
-                                               end),
+    meck:expect(emqx_resource, create_dry_run,
+                fun(emqx_connector_mysql, _) -> {ok, meck_data};
+                   (T, C) -> meck:passthrough([T, C])
+                end),
     meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, health_check, fun(_) -> ok end),
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
-    ok = emqx_config:init_load(emqx_authz_schema, ?CONF_DEFAULT),
-
-    ok = emqx_common_test_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-
+    ok = emqx_common_test_helpers:start_apps(
+           [emqx_conf, emqx_authz, emqx_dashboard],
+           fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    {ok, _} = emqx_authz:update(replace, []),
-    emqx_common_test_helpers:stop_apps([emqx_resource, emqx_authz, emqx_dashboard]),
+    {ok, _} = emqx:update_config(
+                [authorization],
+                #{<<"no_match">> => <<"allow">>,
+                  <<"cache">> => #{<<"enable">> => <<"true">>},
+                  <<"sources">> => []}),
+    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf]),
     meck:unload(emqx_resource),
-    meck:unload(emqx_schema),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -137,7 +131,9 @@ set_special_configs(emqx_dashboard) ->
     emqx_config:put([emqx_dashboard], Config),
     ok;
 set_special_configs(emqx_authz) ->
-    emqx_config:put([authorization], #{sources => []}),
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
+    {ok, _} = emqx:update_config([authorization, sources], []),
     ok;
 set_special_configs(_App) ->
     ok.
@@ -147,10 +143,11 @@ init_per_testcase(t_api, Config) ->
     meck:expect(emqx_misc, gen_id, fun() -> "fake" end),
 
     meck:new(emqx, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx, data_dir, fun() ->
-                                        {data_dir, Data} = lists:keyfind(data_dir, 1, Config),
-                                        Data
-                                end),
+    meck:expect(emqx, data_dir,
+                fun() ->
+                    {data_dir, Data} = lists:keyfind(data_dir, 1, Config),
+                    Data
+                end),
     Config;
 init_per_testcase(_, Config) -> Config.
 
@@ -168,7 +165,8 @@ t_api(_) ->
     {ok, 200, Result1} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual([], get_sources(Result1)),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources"]), [?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
+    {ok, 204, _} = request(put, uri(["authorization", "sources"]),
+                           [?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
     {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE1),
 
     {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
@@ -182,7 +180,8 @@ t_api(_) ->
                  ], Sources),
     ?assert(filelib:is_file(emqx_authz:acl_conf_file())),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]),  ?SOURCE1#{<<"enable">> := false}),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]),
+                           ?SOURCE1#{<<"enable">> := false}),
     {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result3)),
 
@@ -207,14 +206,28 @@ t_api(_) ->
     ?assert(filelib:is_file(filename:join([data_dir(), "certs", "cert-fake.pem"]))),
     ?assert(filelib:is_file(filename:join([data_dir(), "certs", "key-fake.pem"]))),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources", "mysql"]),  ?SOURCE3#{<<"server">> := <<"192.168.1.100:3306">>}),
+    {ok, 204, _} = request(
+                     put,
+                     uri(["authorization", "sources", "mysql"]),
+                     ?SOURCE3#{<<"server">> := <<"192.168.1.100:3306">>}),
 
-    {ok, 400, _} = request(put, uri(["authorization", "sources", "postgresql"]),  ?SOURCE4#{<<"server">> := <<"fake">>}),
-    {ok, 400, _} = request(put, uri(["authorization", "sources", "redis"]),  ?SOURCE5#{<<"servers">> := [<<"192.168.1.100:6379">>, <<"192.168.1.100:6380">>]}),
+    {ok, 400, _} = request(
+                     put,
+                     uri(["authorization", "sources", "postgresql"]),
+                     ?SOURCE4#{<<"server">> := <<"fake">>}),
+    {ok, 400, _} = request(
+                     put,
+                     uri(["authorization", "sources", "redis"]),
+                     ?SOURCE5#{<<"servers">> := [<<"192.168.1.100:6379">>,
+                                                 <<"192.168.1.100:6380">>]}),
 
-    lists:foreach(fun(#{<<"type">> := Type}) ->
-                    {ok, 204, _} = request(delete, uri(["authorization", "sources", binary_to_list(Type)]), [])
-                  end, Sources),
+    lists:foreach(
+      fun(#{<<"type">> := Type}) ->
+        {ok, 204, _} = request(
+                         delete,
+                         uri(["authorization", "sources", binary_to_list(Type)]),
+                         [])
+      end, Sources),
     {ok, 200, Result5} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual([], get_sources(Result5)),
     ?assertEqual([], emqx:get_config([authorization, sources])),

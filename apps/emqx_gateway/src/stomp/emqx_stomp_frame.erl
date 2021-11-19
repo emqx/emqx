@@ -123,7 +123,7 @@ initial_parse_state(Opts) ->
 limit(Opts) ->
     #frame_limit{
        max_header_num = g(max_header_num, Opts, ?MAX_HEADER_NUM),
-       max_header_length = g(max_header_length, Opts, ?MAX_BODY_LENGTH),
+       max_header_length = g(max_header_length, Opts, ?MAX_HEADER_LENGTH),
        max_body_length = g(max_body_length, Opts, ?MAX_BODY_LENGTH)
       }.
 

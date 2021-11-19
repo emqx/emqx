@@ -22,8 +22,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
-
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
@@ -35,14 +33,18 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_authz, emqx_dashboard], fun set_special_configs/1),
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-
+    ok = emqx_common_test_helpers:start_apps(
+           [emqx_conf, emqx_authz, emqx_dashboard],
+           fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_resource, emqx_authz, emqx_dashboard]),
+    {ok, _} = emqx:update_config(
+                [authorization],
+                #{<<"no_match">> => <<"allow">>,
+                  <<"cache">> => #{<<"enable">> => <<"true">>},
+                  <<"sources">> => []}),
+    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf]),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -55,6 +57,11 @@ set_special_configs(emqx_dashboard) ->
         }]
     },
     emqx_config:put([emqx_dashboard], Config),
+    ok;
+set_special_configs(emqx_authz) ->
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
+    {ok, _} = emqx:update_config([authorization, sources], []),
     ok;
 set_special_configs(_App) ->
     ok.

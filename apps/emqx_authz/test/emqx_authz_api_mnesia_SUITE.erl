@@ -22,25 +22,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"""
-authorization
-    {sources = [
-        { type = \"built-in-database\"
-          enable = true
-        }
-    ]}
-""">>).
-
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
-
-
-roots() -> ["authorization"].
-
-fields("authorization") ->
-    emqx_authz_schema:fields("authorization") ++
-    emqx_schema:fields("authorization").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -49,13 +33,18 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_authz, emqx_dashboard],
-                                             fun set_special_configs/1),
+    ok = emqx_common_test_helpers:start_apps(
+           [emqx_conf, emqx_authz, emqx_dashboard],
+           fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    {ok, _} = emqx_authz:update(replace, []),
-    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_dashboard]),
+    {ok, _} = emqx:update_config(
+                [authorization],
+                #{<<"no_match">> => <<"allow">>,
+                  <<"cache">> => #{<<"enable">> => <<"true">>},
+                  <<"sources">> => []}),
+    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf]),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -70,9 +59,10 @@ set_special_configs(emqx_dashboard) ->
     emqx_config:put([emqx_dashboard], Config),
     ok;
 set_special_configs(emqx_authz) ->
-    ok = emqx_config:init_load(?MODULE, ?CONF_DEFAULT),
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
+    {ok, _} = emqx:update_config([authorization, sources],
+                                 [#{<<"type">> => <<"built-in-database">>}]),
     ok;
 set_special_configs(_App) ->
     ok.
@@ -95,7 +85,9 @@ t_api(_) ->
                , uri(["authorization", "sources", "built-in-database", "username", "user1"])
                , []),
     #{<<"data">> := [#{<<"username">> := <<"user1">>, <<"rules">> := Rules1}],
-      <<"meta">> := #{<<"count">> := 1,<<"limit">> := 100,<<"page">> := 1}} = jsx:decode(Request1),
+      <<"meta">> := #{<<"count">> := 1,
+                      <<"limit">> := 100,
+                      <<"page">> := 1}} = jsx:decode(Request1),
     #{<<"username">> := <<"user1">>, <<"rules">> := Rules1} = jsx:decode(Request2),
     ?assertEqual(3, length(Rules1)),
 

@@ -341,8 +341,9 @@ fields("cluster_call") ->
            })}
     , {"cleanup_interval",
        sc(emqx_schema:duration(),
-          #{  desc => "Time interval to clear completed but stale transactions.
-                         Ensure that the number of completed transactions is less than the max_history."
+          #{  desc =>
+"Time interval to clear completed but stale transactions.
+Ensure that the number of completed transactions is less than the max_history."
            ,  default => "5m"
            })}
     ];
@@ -505,7 +506,7 @@ fields("authorization") ->
 translations() -> ["ekka", "kernel", "emqx"].
 
 translation("ekka") ->
-    [ {"cluster_discovery", fun tr_cluster__discovery/1}];
+    [ {"cluster_discovery", fun tr_cluster_discovery/1}];
 translation("kernel") ->
     [ {"logger_level", fun tr_logger_level/1}
     , {"logger", fun tr_logger/1}];
@@ -540,7 +541,7 @@ tr_override_conf_file(Conf, Filename) ->
     [_ | _] = DataDir,
     filename:join([DataDir, "configs", Filename]).
 
-tr_cluster__discovery(Conf) ->
+tr_cluster_discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),
     {Strategy, filter(options(Strategy, Conf))}.
 

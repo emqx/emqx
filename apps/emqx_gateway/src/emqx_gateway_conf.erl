@@ -17,6 +17,8 @@
 %% @doc The gateway configuration management module
 -module(emqx_gateway_conf).
 
+-include_lib("emqx/include/logger.hrl").
+
 %% Load/Unload
 -export([ load/0
         , unload/0
@@ -87,18 +89,19 @@ load_gateway(GwName, Conf) ->
 unconvert_listeners(Ls) when is_list(Ls) ->
     lists:foldl(fun(Lis, Acc) ->
         {[Type, Name], Lis1} = maps_key_take([<<"type">>, <<"name">>], Lis),
-        emqx_map_lib:deep_merge(Acc, #{Type => #{Name => Lis1}})
+        NLis1 = maps:without([<<"id">>], Lis1),
+        emqx_map_lib:deep_merge(Acc, #{Type => #{Name => NLis1}})
     end, #{}, Ls).
 
 maps_key_take(Ks, M) ->
     maps_key_take(Ks, M, []).
 maps_key_take([], M, Acc) ->
     {lists:reverse(Acc), M};
-maps_key_take([K|Ks], M, Acc) ->
+maps_key_take([K | Ks], M, Acc) ->
     case maps:take(K, M) of
         error -> throw(bad_key);
         {V, M1} ->
-            maps_key_take(Ks, M1, [V|Acc])
+            maps_key_take(Ks, M1, [V | Acc])
     end.
 
 -spec update_gateway(atom_or_bin(), map()) -> ok_or_err().
@@ -106,6 +109,8 @@ update_gateway(GwName, Conf0) ->
     Conf = maps:without([listeners, authentication,
                          <<"listeners">>, <<"authentication">>], Conf0),
     update({?FUNCTION_NAME, bin(GwName), Conf}).
+
+%% FIXME: delete cert files ??
 
 -spec unload_gateway(atom_or_bin()) -> ok_or_err().
 unload_gateway(GwName) ->
@@ -224,10 +229,10 @@ remove_authn(GwName, ListenerRef) ->
 
 %% @private
 update(Req) ->
-    res(emqx:update_config([gateway], Req)).
+    res(emqx_conf:update([gateway], Req, #{override_to => cluster})).
 
 res({ok, _Result}) -> ok;
-res({error, {pre_config_update,emqx_gateway_conf,Reason}}) -> {error, Reason};
+res({error, {error, {pre_config_update,emqx_gateway_conf,Reason}}}) -> {error, Reason};
 res({error, Reason}) -> {error, Reason}.
 
 bin({LType, LName}) ->
@@ -247,7 +252,8 @@ bin(B) when is_binary(B) ->
 pre_config_update({load_gateway, GwName, Conf}, RawConf) ->
     case maps:get(GwName, RawConf, undefined) of
         undefined ->
-            {ok, emqx_map_lib:deep_merge(RawConf, #{GwName => Conf})};
+            NConf = tune_gw_certs(fun convert_certs/2, GwName, Conf),
+            {ok, emqx_map_lib:deep_merge(RawConf, #{GwName => NConf})};
         _ ->
             {error, already_exist}
     end;
@@ -261,13 +267,18 @@ pre_config_update({update_gateway, GwName, Conf}, RawConf) ->
             {ok, emqx_map_lib:deep_merge(RawConf, #{GwName => NConf})}
     end;
 pre_config_update({unload_gateway, GwName}, RawConf) ->
+    _ = tune_gw_certs(fun clear_certs/2,
+                      GwName,
+                      maps:get(GwName, RawConf, #{})
+                     ),
     {ok, maps:remove(GwName, RawConf)};
 
 pre_config_update({add_listener, GwName, {LType, LName}, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
            [GwName, <<"listeners">>, LType, LName], RawConf, undefined) of
         undefined ->
-            NListener = #{LType => #{LName => Conf}},
+            NConf = convert_certs(certs_dir(GwName), Conf),
+            NListener = #{LType => #{LName => NConf}},
             {ok, emqx_map_lib:deep_merge(
                    RawConf,
                    #{GwName => #{<<"listeners">> => NListener}})};
@@ -279,16 +290,23 @@ pre_config_update({update_listener, GwName, {LType, LName}, Conf}, RawConf) ->
            [GwName, <<"listeners">>, LType, LName], RawConf, undefined) of
         undefined ->
             {error, not_found};
-        _OldConf ->
-            NListener = #{LType => #{LName => Conf}},
+        OldConf ->
+            NConf = convert_certs(certs_dir(GwName), Conf, OldConf),
+            NListener = #{LType => #{LName => NConf}},
             {ok, emqx_map_lib:deep_merge(
                    RawConf,
                    #{GwName => #{<<"listeners">> => NListener}})}
 
     end;
 pre_config_update({remove_listener, GwName, {LType, LName}}, RawConf) ->
-    {ok, emqx_map_lib:deep_remove(
-           [GwName, <<"listeners">>, LType, LName], RawConf)};
+    Path = [GwName, <<"listeners">>, LType, LName],
+    case emqx_map_lib:deep_get(Path, RawConf, undefined) of
+         undefined ->
+            {ok, RawConf};
+        OldConf ->
+            clear_certs(certs_dir(GwName), OldConf),
+            {ok, emqx_map_lib:deep_remove(Path, RawConf)}
+    end;
 
 pre_config_update({add_authn, GwName, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
@@ -366,7 +384,7 @@ pre_config_update(UnknownReq, _RawConf) ->
     -> ok | {ok, Result::any()} | {error, Reason::term()}.
 
 post_config_update(Req, NewConfig, OldConfig, _AppEnvs) when is_tuple(Req) ->
-    [_Tag, GwName0|_] = tuple_to_list(Req),
+    [_Tag, GwName0 | _] = tuple_to_list(Req),
     GwName = binary_to_existing_atom(GwName0),
 
     case {maps:get(GwName, NewConfig, undefined),
@@ -382,3 +400,56 @@ post_config_update(Req, NewConfig, OldConfig, _AppEnvs) when is_tuple(Req) ->
     end;
 post_config_update(_Req, _NewConfig, _OldConfig, _AppEnvs) ->
     ok.
+
+%%--------------------------------------------------------------------
+%% Internal funcs
+%%--------------------------------------------------------------------
+
+
+tune_gw_certs(Fun, GwName, Conf) ->
+    SubDir = certs_dir(GwName),
+    case maps:get(<<"listeners">>, Conf, undefined) of
+        undefined -> Conf;
+        Liss ->
+            maps:put(<<"listeners">>,
+                maps:map(fun(_, Lis) ->
+                    maps:map(fun(_, LisConf) ->
+                        erlang:apply(Fun, [SubDir, LisConf])
+                    end, Lis)
+                end, Liss),
+                Conf)
+   end.
+
+certs_dir(GwName) when is_binary(GwName) ->
+    GwName.
+
+convert_certs(SubDir, Conf) ->
+    case emqx_tls_lib:ensure_ssl_files(
+           SubDir,
+           maps:get(<<"ssl">>, Conf, undefined)
+          ) of
+        {ok, SSL} ->
+            new_ssl_config(Conf, SSL);
+        {error, Reason} ->
+            ?SLOG(error, Reason#{msg => bad_ssl_config}),
+            throw({bad_ssl_config, Reason})
+    end.
+
+convert_certs(SubDir, NConf, OConf) ->
+    OSSL = maps:get(<<"ssl">>, OConf, undefined),
+    NSSL = maps:get(<<"ssl">>, NConf, undefined),
+    case emqx_tls_lib:ensure_ssl_files(SubDir, NSSL) of
+        {ok, NSSL1} ->
+            ok = emqx_tls_lib:delete_ssl_files(SubDir, NSSL1, OSSL),
+            new_ssl_config(NConf, NSSL1);
+        {error, Reason} ->
+            ?SLOG(error, Reason#{msg => bad_ssl_config}),
+            throw({bad_ssl_config, Reason})
+    end.
+
+new_ssl_config(Conf, undefined) -> Conf;
+new_ssl_config(Conf, SSL) -> Conf#{<<"ssl">> => SSL}.
+
+clear_certs(SubDir, Conf) ->
+    SSL = maps:get(<<"ssl">>, Conf, undefined),
+    ok = emqx_tls_lib:delete_ssl_files(SubDir, undefined, SSL).
