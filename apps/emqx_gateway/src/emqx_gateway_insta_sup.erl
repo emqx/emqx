@@ -219,23 +219,6 @@ detailed_gateway_info(State) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-%% same with emqx_authentication:global_chain/1
-global_chain(mqtt) ->
-    'mqtt:global';
-global_chain('mqtt-sn') ->
-    'mqtt-sn:global';
-global_chain(coap) ->
-    'coap:global';
-global_chain(lwm2m) ->
-    'lwm2m:global';
-global_chain(stomp) ->
-    'stomp:global';
-global_chain(_) ->
-    'unknown:global'.
-
-listener_chain(GwName, Type, LisName) ->
-    emqx_gateway_utils:listener_id(GwName, Type, LisName).
-
 %% There are two layer authentication configs
 %%       stomp.authn
 %%           /                   \
@@ -266,10 +249,11 @@ do_init_authn([_BadConf|More], Names) ->
 authns(GwName, Config) ->
     Listeners = maps:to_list(maps:get(listeners, Config, #{})),
     lists:append(
-      [ [{listener_chain(GwName, LisType, LisName), authn_conf(Opts)}
+      [ [{emqx_gateway_utils:listener_chain(GwName, LisType, LisName),
+          authn_conf(Opts)}
         || {LisName, Opts} <- maps:to_list(LisNames) ]
       || {LisType, LisNames} <- Listeners])
-    ++ [{global_chain(GwName), authn_conf(Config)}].
+    ++ [{emqx_gateway_utils:global_chain(GwName), authn_conf(Config)}].
 
 authn_conf(Conf) ->
     maps:get(authentication, Conf, #{enable => false}).

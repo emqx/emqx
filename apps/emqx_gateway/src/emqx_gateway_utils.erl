@@ -34,6 +34,8 @@
         , listener_id/3
         , parse_listener_id/1
         , is_running/2
+        , global_chain/1
+        , listener_chain/3
         ]).
 
 -export([ stringfy/1
@@ -158,6 +160,23 @@ is_running(ListenerId, #{<<"bind">> := ListenOn0}) ->
     catch _:_ ->
         false
     end.
+
+%% same with emqx_authentication:global_chain/1
+global_chain(mqtt) ->
+    'mqtt:global';
+global_chain('mqtt-sn') ->
+    'mqtt-sn:global';
+global_chain(coap) ->
+    'coap:global';
+global_chain(lwm2m) ->
+    'lwm2m:global';
+global_chain(stomp) ->
+    'stomp:global';
+global_chain(_) ->
+    'unknown:global'.
+
+listener_chain(GwName, Type, LisName) ->
+    listener_id(GwName, Type, LisName).
 
 bin(A) when is_atom(A) ->
     atom_to_binary(A);

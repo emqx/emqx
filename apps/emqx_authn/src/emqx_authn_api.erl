@@ -65,6 +65,15 @@
         , response_users_example/0
         ]).
 
+%% export these funcs for gateway
+-export([ list_users/3
+        , add_user/3
+        , delete_user/3
+        , find_user/3
+        , update_user/4
+        , serialize_error/1
+        ]).
+
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
