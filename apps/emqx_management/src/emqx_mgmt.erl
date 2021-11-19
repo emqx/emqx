@@ -274,8 +274,10 @@ set_ratelimit_policy(ClientId, Policy) ->
 set_quota_policy(ClientId, Policy) ->
     call_client(ClientId, {quota, Policy}).
 
-set_keepalive(ClientId, Interval) ->
-    call_client(ClientId, {keepalive, Interval}).
+set_keepalive(ClientId, Interval)when Interval >= 0 andalso Interval =< 65535 ->
+    call_client(ClientId, {keepalive, Interval});
+set_keepalive(_ClientId, _Interval) ->
+    {error, ?ERROR2, <<"mqtt3.1.1 specification: keepalive must between 0~65535">>}.
 
 %% @private
 call_client(ClientId, Req) ->
