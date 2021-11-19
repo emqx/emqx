@@ -66,7 +66,6 @@ snabbkaffe_overrides() ->
 config(HasElixir) ->
     [ {cover_enabled, is_cover_enabled()}
     , {profiles, profiles()}
-    , {project_app_dirs, project_app_dirs()}
     , {plugins, plugins(HasElixir)}
     | [ {provider_hooks, [ {pre,  [{compile, {mix, find_elixir_libs}}]}
                          , {post, [{compile, {mix, consolidate_protocols}}]}
@@ -80,8 +79,8 @@ is_cover_enabled() ->
         _ -> false
     end.
 
-is_enterprise() ->
-    filelib:is_regular("EMQX_ENTERPRISE").
+is_enterprise(ce) -> false;
+is_enterprise(ee) -> true.
 
 is_quicer_supported() ->
     not (false =/= os:getenv("BUILD_WITHOUT_QUIC") orelse
@@ -101,9 +100,9 @@ is_centos_6() ->
 is_win32() ->
     win32 =:= element(1, os:type()).
 
-project_app_dirs() ->
+project_app_dirs(Edition) ->
     ["apps/*"] ++
-    case is_enterprise() of
+    case is_enterprise(Edition) of
         true -> ["lib-ee/*"];
         false -> []
     end.
@@ -131,74 +130,81 @@ test_deps() ->
     , {proper, "1.4.0"}
     ].
 
-common_compile_opts() ->
+common_compile_opts(Edition) ->
     [ debug_info % alwyas include debug_info
     , {compile_info, [{emqx_vsn, get_vsn()}]}
     ] ++
-    [{d, 'EMQX_ENTERPRISE'} || is_enterprise()] ++
+    [{d, 'EMQX_ENTERPRISE'} || is_enterprise(Edition)] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
 
-prod_compile_opts() ->
+prod_compile_opts(Edition) ->
     [ compressed
     , deterministic
     , warnings_as_errors
-    | common_compile_opts()
+    | common_compile_opts(Edition)
     ].
 
 prod_overrides() ->
     [{add, [ {erl_opts, [deterministic]}]}].
 
 profiles() ->
-    CommonCompileOpts = lists:keydelete('EMQX_EXT_SCHEMAS', 2, common_compile_opts()),
     Vsn = get_vsn(),
-    [ {'emqx',          [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx(Vsn, cloud, bin)}
+    ce_profiles(Vsn) ++ ee_profiles(Vsn).
+
+ce_profiles(Vsn) ->
+    [ {'emqx',          [ {erl_opts, prod_compile_opts(ce)}
+                        , {relx, relx(Vsn, cloud, bin, ce)}
                         , {overrides, prod_overrides()}
+                        , {project_app_dirs, project_app_dirs(ce)}
                         ]}
-    , {'emqx-pkg',      [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx(Vsn, cloud, pkg)}
+    , {'emqx-pkg',      [ {erl_opts, prod_compile_opts(ce)}
+                        , {relx, relx(Vsn, cloud, pkg, ce)}
                         , {overrides, prod_overrides()}
+                        , {project_app_dirs, project_app_dirs(ce)}
                         ]}
-    , {'emqx-edge',     [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx(Vsn, edge, bin)}
+    , {'emqx-edge',     [ {erl_opts, prod_compile_opts(ce)}
+                        , {relx, relx(Vsn, edge, bin, ce)}
                         , {overrides, prod_overrides()}
+                        , {project_app_dirs, project_app_dirs(ce)}
                         ]}
-    , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx(Vsn, edge, pkg)}
+    , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts(ce)}
+                        , {relx, relx(Vsn, edge, pkg, ce)}
                         , {overrides, prod_overrides()}
+                        , {project_app_dirs, project_app_dirs(ce)}
                         ]}
-    , {check,           [ {erl_opts, CommonCompileOpts}
+    , {check,           [ {erl_opts, common_compile_opts(ce)}
+                        , {project_app_dirs, project_app_dirs(ce)}
                         ]}
     , {test,            [ {deps, test_deps()}
-                        , {erl_opts, CommonCompileOpts ++ erl_opts_i() }
-                        , {extra_src_dirs, [{"test", [{recursive,true}]}]}
+                        , {erl_opts, common_compile_opts(ce) ++ erl_opts_i(ce) }
+                        , {extra_src_dirs, [{"test", [{recursive, true}]}]}
+                        , {project_app_dirs, project_app_dirs(ce)}
                         ]}
-    ] ++ ee_profiles(Vsn).
+    ].
 
 %% RelType: cloud (full size) | edge (slim size)
 %% PkgType: bin | pkg
-relx(Vsn, RelType, PkgType) ->
-    IsEnterprise = is_enterprise(),
+relx(Vsn, RelType, PkgType, Edition) ->
     [ {include_src,false}
     , {include_erts, true}
     , {extended_start_script,false}
     , {generate_start_script,false}
     , {sys_config,false}
     , {vm_args,false}
-    , {release, {emqx, Vsn}, relx_apps(RelType)}
-    , {overlay, relx_overlay(RelType)}
+    , {release, {emqx, Vsn}, relx_apps(RelType, Edition)}
+    , {overlay, relx_overlay(RelType, Edition)}
     , {overlay_vars, [ {built_on_arch, rebar_utils:get_arch()}
-                     , {emqx_description, emqx_description(RelType, IsEnterprise)}
-                     | overlay_vars(RelType, PkgType, IsEnterprise)]}
+                     , {emqx_description, emqx_description(RelType, Edition)}
+                     | overlay_vars(RelType, PkgType, Edition)]}
     ].
 
-emqx_description(cloud, true) -> "EMQ X Enterprise";
-emqx_description(cloud, false) -> "EMQ X Broker";
-emqx_description(edge, _) -> "EMQ X Edge".
+emqx_description(cloud, ee) -> "EMQ X Enterprise";
+emqx_description(cloud, ce) -> "EMQ X Broker";
+emqx_description(edge, ce)  -> "EMQ X Edge".
 
-overlay_vars(_RelType, PkgType, true) ->
+overlay_vars(_RelType, PkgType, ee) ->
     ee_overlay_vars(PkgType);
-overlay_vars(RelType, PkgType, false) ->
+overlay_vars(RelType, PkgType, ce) ->
     overlay_vars_rel(RelType) ++ overlay_vars_pkg(PkgType).
 
 %% vars per release type, cloud or edge
@@ -243,7 +249,7 @@ overlay_vars_pkg(pkg) ->
     , {runner_user, "emqx"}
     ].
 
-relx_apps(ReleaseType) ->
+relx_apps(ReleaseType, Edition) ->
     [ kernel
     , sasl
     , crypto
@@ -283,13 +289,13 @@ relx_apps(ReleaseType) ->
     , emqx_limiter
     ]
     ++ [quicer || is_quicer_supported()]
-    ++ [emqx_license || is_enterprise()]
+    ++ [emqx_license || is_enterprise(Edition)]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)
        %% NOTE: applications below are only loaded after node start/restart
        %% TODO: Add loaded/unloaded state to plugin apps
        %%       then we can always start plugin apps
-    ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
+    ++ [{N, load} || N <- relx_plugin_apps(ReleaseType, Edition)].
 
 relx_apps_per_rel(cloud) ->
     [ xmerl
@@ -305,9 +311,9 @@ is_app(Name) ->
         _ -> false
     end.
 
-relx_plugin_apps(ReleaseType) ->
+relx_plugin_apps(ReleaseType, Edition) ->
     relx_plugin_apps_per_rel(ReleaseType)
-    ++ relx_plugin_apps_enterprise(is_enterprise())
+    ++ relx_plugin_apps_enterprise(Edition)
     ++ relx_plugin_apps_extra().
 
 relx_plugin_apps_per_rel(cloud) ->
@@ -315,16 +321,16 @@ relx_plugin_apps_per_rel(cloud) ->
 relx_plugin_apps_per_rel(edge) ->
     [].
 
-relx_plugin_apps_enterprise(true) ->
+relx_plugin_apps_enterprise(ee) ->
     [list_to_atom(A) || A <- filelib:wildcard("*", "lib-ee"),
                         filelib:is_dir(filename:join(["lib-ee", A]))];
-relx_plugin_apps_enterprise(false) -> [].
+relx_plugin_apps_enterprise(ce) -> [].
 
 relx_plugin_apps_extra() ->
     {_HasElixir, ExtraDeps} = extra_deps(),
     [Plugin || {Plugin, _} <- ExtraDeps].
 
-relx_overlay(ReleaseType) ->
+relx_overlay(ReleaseType, Edition) ->
     [ {mkdir, "log/"}
     , {mkdir, "data/"}
     , {mkdir, "plugins"}
@@ -347,12 +353,9 @@ relx_overlay(ReleaseType) ->
     , {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"}
     , {copy, "bin/nodetool", "bin/nodetool"}
     , {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
-    ] ++ case is_enterprise() of
-             true -> ee_etc_overlay(ReleaseType);
-             false -> etc_overlay(ReleaseType)
-         end.
+    ] ++ etc_overlay(ReleaseType, Edition).
 
-etc_overlay(ReleaseType) ->
+etc_overlay(ReleaseType, _Edition) ->
     Templates = emqx_etc_overlay(ReleaseType),
     [ {mkdir, "etc/"}
     , {copy, "{{base_dir}}/lib/emqx/etc/certs","etc/"}
@@ -408,10 +411,10 @@ provide_bcrypt_dep() ->
 provide_bcrypt_release(ReleaseType) ->
     provide_bcrypt_dep() andalso ReleaseType =:= cloud.
 
-erl_opts_i() ->
+erl_opts_i(Edition) ->
     [{i, "apps"}] ++
     [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "*", "include"]))] ++
-    case is_enterprise() of
+    case is_enterprise(Edition) of
         true ->
             [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["lib-ee", "*", "include"]))];
         false -> []
@@ -472,6 +475,35 @@ list_dir(Dir) ->
 
 %% ==== Enterprise supports below ==================================================================
 
-ee_profiles(_Vsn) -> [].
-ee_etc_overlay(_) -> [].
-ee_overlay_vars(_PkgType) -> [].
+ee_profiles(Vsn) ->
+    [ {'emqx-ee',       [ {erl_opts, prod_compile_opts(ee)}
+                        , {relx, relx(Vsn, cloud, bin, ee)}
+                        , {overrides, prod_overrides()}
+                        , {project_app_dirs, project_app_dirs(ee)}
+                        ]}
+    , {'emqx-ee-pkg',   [ {erl_opts, prod_compile_opts(ee)}
+                        , {relx, relx(Vsn, cloud, pkg, ee)}
+                        , {overrides, prod_overrides()}
+                        , {project_app_dirs, project_app_dirs(ee)}
+                        ]}
+    , {'check-ee',      [ {erl_opts, common_compile_opts(ee)}
+                        , {project_app_dirs, project_app_dirs(ee)}
+                        ]}
+    , {'test-ee',       [ {deps, test_deps()}
+                        , {erl_opts, common_compile_opts(ee) ++ erl_opts_i(ee) }
+                        , {extra_src_dirs, [{"test", [{recursive, true}]}]}
+                        , {project_app_dirs, project_app_dirs(ee)}
+                        ]}
+    ].
+
+ee_overlay_vars(PkgType) ->
+    Common = [],
+    Common ++ ee_overlay_vars_pkg(PkgType).
+
+%% vars per packaging type, bin(zip/tar.gz/docker) or pkg(rpm/deb)
+ee_overlay_vars_pkg(bin) ->
+    [
+    ];
+ee_overlay_vars_pkg(pkg) ->
+    [
+    ].
