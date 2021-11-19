@@ -150,7 +150,7 @@ ensure_content_type_header(Method, Headers)
   when Method =:= post orelse Method =:= put ->
     Headers;
 ensure_content_type_header(_Method, Headers) ->
-    lists:keydelete("content-type", 1, Headers).
+    lists:keydelete(<<"content-type">>, 1, Headers).
 
 path(#{path := "", 'query' := Query}) ->
     "?" ++ Query;
