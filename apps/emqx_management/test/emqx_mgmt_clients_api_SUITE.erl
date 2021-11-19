@@ -175,8 +175,7 @@ t_keepalive(_Config) ->
     {ok, Ok} = emqx_mgmt_api_test_util:request_api(put, Path, Query, AuthHeader, <<"">>),
     ?assertEqual("", Ok),
     [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
-    State = sys:get_state(Pid),
-    ct:pal("~p~n", [State]),
-    ?assertEqual(11000, element(2, element(5, element(9, State)))),
+    #{conninfo := #{keepalive := Keepalive}} = emqx_connection:info(Pid),
+    ?assertEqual(11, Keepalive),
     emqtt:disconnect(C1),
     ok.
