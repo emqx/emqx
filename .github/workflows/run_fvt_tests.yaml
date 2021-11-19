@@ -73,8 +73,7 @@ jobs:
           - 24.1.1-emqx-1
         cluster_db_backend:
           - "mnesia"
-          # FIXME: temporarily disabled: too flaky at the moment
-          # - "rlog"
+          - "rlog"
 
     steps:
     - uses: actions/download-artifact@v2
