@@ -437,10 +437,11 @@ update_config(Cmd, Sources) ->
 
 read_certs(#{<<"ssl">> := SSL} = Source) ->
     case emqx_tls_lib:file_content_as_options(SSL) of
-        {ok, NewSSL} -> Source#{<<"ssl">> => NewSSL};
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => failed_to_readd_ssl_file}),
-            throw(failed_to_readd_ssl_file)
+            throw(failed_to_readd_ssl_file);
+        NewSSL ->
+            Source#{<<"ssl">> => NewSSL}
     end;
 read_certs(Source) -> Source.
 
