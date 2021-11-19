@@ -270,7 +270,7 @@ t_restart(Config) when is_list(Config) ->
 
     ?assertEqual({ok, [test_chain]}, ?AUTHN:list_chain_names());
 
-t_restart({'end', Config}) ->
+t_restart({'end', _Config}) ->
     ?AUTHN:delete_chain(test_chain),
     ok.
 

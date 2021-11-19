@@ -65,20 +65,12 @@ maybe_parse_ip(Host) ->
     end.
 
 %% @doc Add `ipv6_probe' socket option if it's supported.
+%% gen_tcp:ipv6_probe() -> true. is added to EMQ's OTP forks
 ipv6_probe(Opts) ->
-    case persistent_term:get({?MODULE, ipv6_probe_supported}, unknown) of
-        unknown ->
-            %% e.g. 23.2.7.1-emqx-2-x86_64-unknown-linux-gnu-64
-            OtpVsn = emqx_vm:get_otp_version(),
-            Bool = (match =:= re:run(OtpVsn, "emqx", [{capture, none}])),
-            _ = persistent_term:put({?MODULE, ipv6_probe_supported}, Bool),
-            ipv6_probe(Bool, Opts);
-        Bool ->
-            ipv6_probe(Bool, Opts)
+    case erlang:function_exported(gen_tcp, ipv6_probe, 0) of
+        true -> [{ipv6_probe, true} | Opts];
+        false -> Opts
     end.
-
-ipv6_probe(false, Opts) -> Opts;
-ipv6_probe(true, Opts) -> [{ipv6_probe, true} | Opts].
 
 %% @doc Merge options
 -spec(merge_opts(Opts, Opts) -> Opts when Opts :: proplists:proplist()).

@@ -11,9 +11,7 @@ find_app() {
 }
 
 find_app 'apps'
-if [ -f 'EMQX_ENTERPRISE' ]; then
-    find_app 'lib-ee'
-fi
+find_app 'lib-ee'
 
 ## find directories in lib-extra
 find_app 'lib-extra'

@@ -51,10 +51,6 @@
         , run_fold_hook/3
         ]).
 
-%% Troubleshooting
--export([ set_debug_secret/1
-        ]).
-
 %% Configs APIs
 -export([ get_config/1
         , get_config/2
@@ -70,29 +66,6 @@
         ]).
 
 -define(APP, ?MODULE).
-
-%% @hidden Path to the file which has debug_info encryption secret in it.
-%% Evaluate this function if there is a need to access encrypted debug_info.
-%% NOTE: Do not change the API to accept the secret text because it may
-%% get logged everywhere.
-set_debug_secret(PathToSecretFile) ->
-    SecretText =
-        case file:read_file(PathToSecretFile) of
-            {ok, Secret} ->
-                try string:trim(binary_to_list(Secret))
-                catch _ : _ -> error({badfile, PathToSecretFile})
-                end;
-            {error, Reason} ->
-                ?ULOG("Failed to read debug_info encryption key file ~ts: ~p~n",
-                      [PathToSecretFile, Reason]),
-                error(Reason)
-        end,
-    F = fun(init) -> ok;
-           (clear) -> ok;
-           ({debug_info, _Mode, _Module, _Filename}) -> SecretText
-        end,
-    _ = beam_lib:clear_crypto_key_fun(),
-    ok = beam_lib:crypto_key_fun(F).
 
 %%--------------------------------------------------------------------
 %% Bootstrap, is_running...

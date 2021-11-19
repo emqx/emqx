@@ -130,18 +130,17 @@ test_deps() ->
     , {proper, "1.4.0"}
     ].
 
-common_compile_opts(Edition) ->
+common_compile_opts() ->
     [ debug_info % alwyas include debug_info
     , {compile_info, [{emqx_vsn, get_vsn()}]}
     ] ++
-    [{d, 'EMQX_ENTERPRISE'} || is_enterprise(Edition)] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
 
-prod_compile_opts(Edition) ->
+prod_compile_opts() ->
     [ compressed
     , deterministic
     , warnings_as_errors
-    | common_compile_opts(Edition)
+    | common_compile_opts()
     ].
 
 prod_overrides() ->
@@ -149,34 +148,41 @@ prod_overrides() ->
 
 profiles() ->
     Vsn = get_vsn(),
-    ce_profiles(Vsn) ++ ee_profiles(Vsn).
-
-ce_profiles(Vsn) ->
-    [ {'emqx',          [ {erl_opts, prod_compile_opts(ce)}
+    [ {'emqx',          [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, bin, ce)}
                         , {overrides, prod_overrides()}
                         , {project_app_dirs, project_app_dirs(ce)}
                         ]}
-    , {'emqx-pkg',      [ {erl_opts, prod_compile_opts(ce)}
+    , {'emqx-pkg',      [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, pkg, ce)}
                         , {overrides, prod_overrides()}
                         , {project_app_dirs, project_app_dirs(ce)}
                         ]}
-    , {'emqx-edge',     [ {erl_opts, prod_compile_opts(ce)}
+    , {'emqx-ee',       [ {erl_opts, prod_compile_opts()}
+                        , {relx, relx(Vsn, cloud, bin, ee)}
+                        , {overrides, prod_overrides()}
+                        , {project_app_dirs, project_app_dirs(ee)}
+                        ]}
+    , {'emqx-ee-pkg',   [ {erl_opts, prod_compile_opts()}
+                        , {relx, relx(Vsn, cloud, pkg, ee)}
+                        , {overrides, prod_overrides()}
+                        , {project_app_dirs, project_app_dirs(ee)}
+                        ]}
+    , {'emqx-edge',     [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, bin, ce)}
                         , {overrides, prod_overrides()}
                         , {project_app_dirs, project_app_dirs(ce)}
                         ]}
-    , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts(ce)}
+    , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, pkg, ce)}
                         , {overrides, prod_overrides()}
                         , {project_app_dirs, project_app_dirs(ce)}
                         ]}
-    , {check,           [ {erl_opts, common_compile_opts(ce)}
+    , {check,           [ {erl_opts, common_compile_opts()}
                         , {project_app_dirs, project_app_dirs(ce)}
                         ]}
     , {test,            [ {deps, test_deps()}
-                        , {erl_opts, common_compile_opts(ce) ++ erl_opts_i(ce) }
+                        , {erl_opts, common_compile_opts() ++ erl_opts_i(ce) }
                         , {extra_src_dirs, [{"test", [{recursive, true}]}]}
                         , {project_app_dirs, project_app_dirs(ce)}
                         ]}
@@ -198,13 +204,11 @@ relx(Vsn, RelType, PkgType, Edition) ->
                      | overlay_vars(RelType, PkgType, Edition)]}
     ].
 
-emqx_description(cloud, ee) -> "EMQ X Enterprise";
-emqx_description(cloud, ce) -> "EMQ X Broker";
-emqx_description(edge, ce)  -> "EMQ X Edge".
+emqx_description(cloud, ee) -> "EMQ X Enterprise Edition";
+emqx_description(cloud, ce) -> "EMQ X Community Edition";
+emqx_description(edge, ce)  -> "EMQ X Edge Edition".
 
-overlay_vars(_RelType, PkgType, ee) ->
-    ee_overlay_vars(PkgType);
-overlay_vars(RelType, PkgType, ce) ->
+overlay_vars(RelType, PkgType, _Edition) ->
     overlay_vars_rel(RelType) ++ overlay_vars_pkg(PkgType).
 
 %% vars per release type, cloud or edge
@@ -289,7 +293,7 @@ relx_apps(ReleaseType, Edition) ->
     , emqx_limiter
     ]
     ++ [quicer || is_quicer_supported()]
-    ++ [emqx_license || is_enterprise(Edition)]
+    %++ [emqx_license || is_enterprise(Edition)]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)
        %% NOTE: applications below are only loaded after node start/restart
@@ -472,38 +476,3 @@ list_dir(Dir) ->
         false ->
             []
     end.
-
-%% ==== Enterprise supports below ==================================================================
-
-ee_profiles(Vsn) ->
-    [ {'emqx-ee',       [ {erl_opts, prod_compile_opts(ee)}
-                        , {relx, relx(Vsn, cloud, bin, ee)}
-                        , {overrides, prod_overrides()}
-                        , {project_app_dirs, project_app_dirs(ee)}
-                        ]}
-    , {'emqx-ee-pkg',   [ {erl_opts, prod_compile_opts(ee)}
-                        , {relx, relx(Vsn, cloud, pkg, ee)}
-                        , {overrides, prod_overrides()}
-                        , {project_app_dirs, project_app_dirs(ee)}
-                        ]}
-    , {'check-ee',      [ {erl_opts, common_compile_opts(ee)}
-                        , {project_app_dirs, project_app_dirs(ee)}
-                        ]}
-    , {'test-ee',       [ {deps, test_deps()}
-                        , {erl_opts, common_compile_opts(ee) ++ erl_opts_i(ee) }
-                        , {extra_src_dirs, [{"test", [{recursive, true}]}]}
-                        , {project_app_dirs, project_app_dirs(ee)}
-                        ]}
-    ].
-
-ee_overlay_vars(PkgType) ->
-    Common = [],
-    Common ++ ee_overlay_vars_pkg(PkgType).
-
-%% vars per packaging type, bin(zip/tar.gz/docker) or pkg(rpm/deb)
-ee_overlay_vars_pkg(bin) ->
-    [
-    ];
-ee_overlay_vars_pkg(pkg) ->
-    [
-    ].

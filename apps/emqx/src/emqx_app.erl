@@ -30,7 +30,6 @@
         ]).
 
 -include("emqx.hrl").
--include("emqx_release.hrl").
 -include("logger.hrl").
 
 -define(APP, emqx).
@@ -40,6 +39,7 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
+    ok = emqx_release:put_edition(),
     ok = maybe_load_config(),
     ok = emqx_persistent_session:init_db_backend(),
     ok = maybe_start_quicer(),
@@ -107,30 +107,7 @@ is_quicer_app_present() ->
 is_quic_listener_configured() ->
     emqx_listeners:has_enabled_listener_conf_by_type(quic).
 
-get_description() ->
-    {ok, Descr0} = application:get_key(?APP, description),
-    case os:getenv("EMQX_DESCRIPTION") of
-        false -> Descr0;
-        "" -> Descr0;
-        Str -> string:strip(Str, both, $\n)
-    end.
+get_description() -> emqx_release:description().
 
 get_release() ->
-    case lists:keyfind(emqx_vsn, 1, ?MODULE:module_info(compile)) of
-        false ->    %% For TEST build or depedency build.
-            release_in_macro();
-        {_, Vsn} -> %% For emqx release build
-            VsnStr = release_in_macro(),
-            case string:str(Vsn, VsnStr) of
-                1 -> ok;
-                _ ->
-                    erlang:error(#{ reason => version_mismatch
-                                  , source => VsnStr
-                                  , built_for => Vsn
-                                  })
-            end,
-            Vsn
-    end.
-
-release_in_macro() ->
-    element(2, ?EMQX_RELEASE).
+    emqx_release:version().
