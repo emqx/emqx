@@ -20,6 +20,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-elvis([{elvis_style, god_modules, disable}]).
 
 %% Start/Stop the application
 -export([ start/0
