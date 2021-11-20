@@ -81,10 +81,7 @@ get_node_and_config(KeyPath) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update(KeyPath, UpdateReq, Opts0) ->
     Args = [KeyPath, UpdateReq, Opts0],
-    case multicall(emqx, update_config, Args) of
-        {ok, _TnxId, Res} -> Res;
-        {error, Res} -> Res
-    end.
+    multicall(emqx, update_config, Args).
 
 %% @doc Update the specified node's key path in local-override.conf.
 -spec update(node(), emqx_map_lib:config_key_path(), emqx_config:update_request(),
