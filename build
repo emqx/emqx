@@ -126,13 +126,12 @@ make_zip() {
 
 ## This function builds the default docker image based on alpine:3.14 (by default)
 make_docker() {
-    EMQX_RUNNER_IMAGE="${EMQX_RUNNER_IMAGE:-alpine:3.14}"
-    EMQX_RUNNER_IMAGE_COMPACT="$(echo "$EMQX_RUNNER_IMAGE" | tr -d ':')"
-    EMQX_BUILDER="${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/4.4-2:${OTP_VSN}-${EMQX_RUNNER_IMAGE_COMPACT}}"
+    EMQX_BUILDER="${EMQX_BUILDER:-${EMQX_DEFAULT_BUILDER}}"
+    EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"
     set -x
     docker build --no-cache --pull \
        --build-arg BUILD_FROM="${EMQX_BUILDER}" \
-       --build-arg RUN_FROM="${EMQX_RUNNER_IMAGE}" \
+       --build-arg RUN_FROM="${EMQX_RUNNER}" \
        --build-arg EMQX_NAME="$PROFILE" \
        --tag "emqx/$PROFILE:${PKG_VSN}" \
        -f "${DOCKERFILE}" .
