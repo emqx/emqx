@@ -1,5 +1,10 @@
 name: Build slim packages
 
+concurrency:
+  group: slim-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
 on:
   push:
     tags:
@@ -13,6 +18,7 @@ jobs:
     runs-on: ubuntu-20.04
 
     strategy:
+      fail-fast: false
       matrix:
         erl_otp:
         - 23.3.4.9-3
@@ -43,7 +49,7 @@ jobs:
       with:
         name: rebar3.crashdump
         path: ./rebar3.crashdump
-    - name: pakcages test
+    - name: packages test
       run: |
         export CODE_PATH=$GITHUB_WORKSPACE
         .ci/build_packages/tests.sh
@@ -53,12 +59,17 @@ jobs:
         path: _packages/**/*.zip
 
   mac:
-    runs-on: macos-10.15
 
     strategy:
+      fail-fast: false
       matrix:
         erl_otp:
         - 23.3.4.9-3
+        macos:
+        - macos-11
+        - macos-10.15
+
+    runs-on: ${{  matrix.macos }}
 
     steps:
     - uses: actions/checkout@v1
@@ -82,7 +93,7 @@ jobs:
       id: cache
       with:
         path: ~/.kerl
-        key: erl${{ matrix.erl_otp }}-macos10.15
+        key: otp-${{ matrix.erl_otp }}-${{ matrix.macos }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
@@ -106,8 +117,8 @@ jobs:
         path: ./rebar3.crashdump
     - name: test
       run: |
-        pkg_name=$(basename _packages/${EMQX_NAME}/emqx-*.zip)
-        unzip -q _packages/${EMQX_NAME}/$pkg_name
+        pkg_name=$(find _packages/${EMQX_NAME} -mindepth 1 -maxdepth 1 -iname \*.zip)
+        unzip -q $pkg_name
         gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
