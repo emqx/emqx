@@ -11,8 +11,8 @@ ifeq ($(OS),Windows_NT)
 endif
 
 PROFILE ?= emqx
-REL_PROFILES := emqx emqx-edge
-PKG_PROFILES := emqx-pkg emqx-edge-pkg
+REL_PROFILES := emqx emqx-edge emqx-ee
+PKG_PROFILES := emqx-pkg emqx-edge-pkg emqx-ee-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 CT_NODE_NAME ?= 'test@127.0.0.1'
