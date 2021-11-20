@@ -17,14 +17,14 @@
 -ifndef(EMQ_X_PLACEHOLDER_HRL).
 -define(EMQ_X_PLACEHOLDER_HRL, true).
 
--define(PH(Type),                   <<"${", Type/binary, "}">>).
+-define(PH(Type),                   <<"${", Type/binary, "}">>  ).
 
 %% action: publish/subscribe/all
--define(PH_ACTION,                  <<"${action}">>).
+-define(PH_ACTION,                  <<"${action}">>             ).
 
 %% cert
--define(PH_CERT_SUBJECT,            <<"${cert_subject}">>).
--define(PH_CERT_CN_NAME,            <<"${cert_common_name}">>).
+-define(PH_CERT_SUBJECT,            <<"${cert_subject}">>       ).
+-define(PH_CERT_CN_NAME,            <<"${cert_common_name}">>   ).
 
 %% MQTT
 -define(PH_PASSWORD,                <<"${password}">>           ).
