@@ -104,7 +104,7 @@ $(PROFILES:%=clean-%):
 		rm rebar.lock \
 		rm -rf _build/$(@:clean-%=%)/rel; \
 		find _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
-		find _build/$(@:clean-%=%)  -type l | xargs rm -i -f ; \
+		find _build/$(@:clean-%=%)  -type l -delete; \
 	fi
 
 .PHONY: clean-all
