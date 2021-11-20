@@ -238,11 +238,11 @@ get_enabled(Authenticators) ->
 %% APIs
 %%------------------------------------------------------------------------------
 
-pre_config_update(_, UpdateReq, OldConfig) ->
-    emqx_authentication_config:pre_config_update(UpdateReq, OldConfig).
+pre_config_update(Path, UpdateReq, OldConfig) ->
+    emqx_authentication_config:pre_config_update(Path, UpdateReq, OldConfig).
 
-post_config_update(_, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
-    emqx_authentication_config:post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs).
+post_config_update(Path, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
+    emqx_authentication_config:post_config_update(Path, UpdateReq, NewConfig, OldConfig, AppEnvs).
 
 %% @doc Get all registered authentication providers.
 get_providers() ->
