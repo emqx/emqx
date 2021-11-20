@@ -59,13 +59,14 @@
 @set node_type="-name"
 @set schema_mod="emqx_conf_schema"
 
+@set conf_path="%etc_dir%\emqx.conf"
 :: Extract node name from emqx.conf
-@for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %etc_dir%\emqx.conf get node.name"`) do @(
+@for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %conf_path% get node.name"`) do @(
   @call :set_trim node_name %%I
 )
 
 :: Extract node cookie from emqx.conf
-@for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %etc_dir%\emqx.conf get node.cookie"`) do @(
+@for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %conf_path% get node.cookie"`) do @(
   @call :set_trim node_cookie %%I
 )
 
@@ -124,7 +125,7 @@
 
 :find_vm_args
 @set possible_vm=%etc_dir%\vm.args
-@if exist %possible_vm% (
+@if exist "%possible_vm%" (
   set args_file=-args_file "%possible_vm%"
 )
 @goto :eof
@@ -132,16 +133,17 @@
 :: Find the sys.config file
 :find_sys_config
 @set possible_sys=%etc_dir%\sys.config
-@if exist %possible_sys% (
+@if exist "%possible_sys%" (
   set sys_config=-config "%possible_sys%"
 )
 @goto :eof
 
 :create_mnesia_dir
-@set create_dir_cmd=%escript% %nodetool% mnesia_dir %data_dir%\mnesia %node_name%
+@set create_dir_cmd=%escript% %nodetool% mnesia_dir "%data_dir%\mnesia" %node_name%
 @for /f "delims=" %%Z in ('%%create_dir_cmd%%') do @(
   set mnesia_dir=%%Z
 )
+@set mnesia_dir="%mnesia_dir%"
 @goto :eof
 
 :: get the current time with hocon
@@ -154,11 +156,11 @@
 :generate_app_config
 @call :get_cur_time
 %escript% %nodetool% hocon -v -t %now_time% -s %schema_mod% -c "%etc_dir%\emqx.conf" -d "%data_dir%\configs" generate
-@set generated_config_args=-config %data_dir%\configs\app.%now_time%.config -args_file %data_dir%\configs\vm.%now_time%.args
+@set generated_config_args=-config "%data_dir%\configs\app.%now_time%.config" -args_file "%data_dir%\configs\vm.%now_time%.args"
 :: create one new line
-@echo.>>%data_dir%\configs\vm.%now_time%.args
+@echo.>>"%data_dir%\configs\vm.%now_time%.args"
 :: write the node type and node name in to vm args file
-@echo %node_type% %node_name%>>%data_dir%\configs\vm.%now_time%.args
+@echo %node_type% %node_name%>>"%data_dir%\configs\vm.%now_time%.args"
 @goto :eof
 
 :: set boot_script variable
@@ -218,7 +220,7 @@
 @call :generate_app_config
 @set args=-detached %sys_config% %generated_config_args% -mnesia dir '%mnesia_dir%'
 @echo off
-cd /d %rel_root_dir%
+cd /d "%rel_root_dir%"
 @echo on
 @start "%rel_name%" %werl% -boot  "%boot_script%" -mode embedded %args%
 @goto :eof
