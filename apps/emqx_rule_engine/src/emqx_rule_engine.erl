@@ -25,7 +25,7 @@
 
 -export([start_link/0]).
 
--export([ post_config_update/4
+-export([ post_config_update/5
         , config_key_path/0
         ]).
 
@@ -81,7 +81,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 %% The config handler for emqx_rule_engine
 %%------------------------------------------------------------------------------
-post_config_update(_Req, NewRules, OldRules, _AppEnvs) ->
+post_config_update(_, _Req, NewRules, OldRules, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Updated}
         = emqx_map_lib:diff_maps(NewRules, OldRules),
     maps_foreach(fun({Id, {_Old, New}}) ->

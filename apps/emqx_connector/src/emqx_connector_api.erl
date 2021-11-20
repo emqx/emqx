@@ -28,11 +28,13 @@
 -export([api_spec/0, paths/0, schema/1, namespace/0]).
 
 %% API callbacks
--export(['/connectors'/2, '/connectors/:id'/2]).
+-export(['/connectors_test'/2, '/connectors'/2, '/connectors/:id'/2]).
 
 -define(TRY_PARSE_ID(ID, EXPR),
     try emqx_connector:parse_connector_id(Id) of
-        {ConnType, ConnName} -> EXPR
+        {ConnType, ConnName} ->
+            _ = ConnName,
+            EXPR
     catch
         error:{invalid_bridge_id, Id0} ->
             {400, #{code => 'INVALID_ID', message => <<"invalid_bridge_id: ", Id0/binary,
@@ -44,7 +46,7 @@ namespace() -> "connector".
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
 
-paths() -> ["/connectors", "/connectors/:id"].
+paths() -> ["/connectors_test", "/connectors", "/connectors/:id"].
 
 error_schema(Code, Message) ->
     [ {code, mk(string(), #{example => Code})}
@@ -55,12 +57,32 @@ connector_info() ->
     hoconsc:union([ ref(emqx_connector_schema, "mqtt_connector_info")
                   ]).
 
+connector_test_info() ->
+    hoconsc:union([ ref(emqx_connector_schema, "mqtt_connector_test_info")
+                  ]).
+
 connector_req() ->
     hoconsc:union([ ref(emqx_connector_schema, "mqtt_connector")
                   ]).
 
 param_path_id() ->
     [{id, mk(binary(), #{in => path, example => <<"mqtt:my_mqtt_connector">>})}].
+
+schema("/connectors_test") ->
+    #{
+        operationId => '/connectors_test',
+        post => #{
+            tags => [<<"connectors">>],
+            description => <<"Test creating a new connector by given Id <br>"
+                             "The Id must be of format <type>:<name>">>,
+            summary => <<"Test creating connector">>,
+            requestBody => connector_test_info(),
+            responses => #{
+                200 => <<"Test connector OK">>,
+                400 => error_schema('TEST_FAILED', "connector test failed")
+            }
+        }
+    };
 
 schema("/connectors") ->
     #{
@@ -116,10 +138,17 @@ schema("/connectors/:id") ->
             summary => <<"Delete connector">>,
             parameters => param_path_id(),
             responses => #{
-                200 => <<"Delete connector successfully">>,
+                204 => <<"Delete connector successfully">>,
                 400 => error_schema('DELETE_FAIL', "Delete failed")
             }}
     }.
+
+'/connectors_test'(post, #{body := #{<<"bridge_type">> := ConnType} = Params}) ->
+    case emqx_connector:create_dry_run(ConnType, maps:remove(<<"bridge_type">>, Params)) of
+        ok -> {200};
+        {error, Error} ->
+            {400, error_msg('BAD_ARG', Error)}
+    end.
 
 '/connectors'(get, _Request) ->
     {200, emqx_connector:list()};
@@ -161,7 +190,7 @@ schema("/connectors/:id") ->
         case emqx_connector:lookup(ConnType, ConnName) of
             {ok, _} ->
                 case emqx_connector:delete(ConnType, ConnName) of
-                    {ok, _} -> {200};
+                    {ok, _} -> {204};
                     {error, Error} -> {400, error_msg('BAD_ARG', Error)}
                 end;
             {error, not_found} ->

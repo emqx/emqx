@@ -18,7 +18,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([post_config_update/4]).
+-export([post_config_update/5]).
 
 -export([ load_hook/0
         , reload_hook/0
@@ -39,6 +39,9 @@
         , lookup/3
         , list/0
         , create/3
+        , recreate/2
+        , recreate/3
+        , create_dry_run/2
         , remove/3
         , update/3
         , start/2
@@ -90,13 +93,15 @@ send_message(BridgeId, Message) ->
 config_key_path() ->
     [bridges].
 
+resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
 resource_type(mqtt) -> emqx_connector_mqtt;
+resource_type(<<"http">>) -> emqx_connector_http;
 resource_type(http) -> emqx_connector_http.
 
 bridge_type(emqx_connector_mqtt) -> mqtt;
 bridge_type(emqx_connector_http) -> http.
 
-post_config_update(_Req, NewConf, OldConf, _AppEnv) ->
+post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated}
         = diff_confs(NewConf, OldConf),
     Result = perform_bridge_changes([
@@ -179,7 +184,7 @@ create(Type, Name, Conf) ->
     ?SLOG(info, #{msg => "create bridge", type => Type, name => Name,
         config => Conf}),
     ResId = resource_id(Type, Name),
-    case emqx_resource:create(ResId,
+    case emqx_resource:create_local(ResId,
             emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf)) of
         {ok, already_created} ->
             emqx_resource:get_instance(ResId);
@@ -200,12 +205,27 @@ update(Type, Name, {_OldConf, Conf}) ->
     %%
     ?SLOG(info, #{msg => "update bridge", type => Type, name => Name,
         config => Conf}),
-    emqx_resource:recreate(resource_id(Type, Name),
+    recreate(Type, Name, Conf).
+
+recreate(Type, Name) ->
+    recreate(Type, Name, emqx:get_raw_config([bridges, Type, Name])).
+
+recreate(Type, Name, Conf) ->
+    emqx_resource:recreate_local(resource_id(Type, Name),
         emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf), []).
+
+create_dry_run(Type, Conf) ->
+    Conf0 = Conf#{<<"ingress">> => #{<<"from_remote_topic">> => <<"t">>}},
+    case emqx_resource:check_config(emqx_bridge:resource_type(Type), Conf0) of
+        {ok, Conf1} ->
+            emqx_resource:create_dry_run_local(emqx_bridge:resource_type(Type), Conf1);
+        {error, _} = Error ->
+            Error
+    end.
 
 remove(Type, Name, _Conf) ->
     ?SLOG(info, #{msg => "remove bridge", type => Type, name => Name}),
-    case emqx_resource:remove(resource_id(Type, Name)) of
+    case emqx_resource:remove_local(resource_id(Type, Name)) of
         ok -> ok;
         {error, not_found} -> ok;
         {error, Reason} ->
@@ -264,8 +284,18 @@ parse_confs(http, _Name,
              , request_timeout => ReqTimeout
              }
          };
-parse_confs(Type, Name, #{connector := ConnName, direction := Direction} = Conf) ->
-    ConnectorConfs = emqx:get_config([connectors, Type, ConnName]),
+parse_confs(Type, Name, #{connector := ConnId, direction := Direction} = Conf)
+        when is_binary(ConnId) ->
+    case emqx_connector:parse_connector_id(ConnId) of
+        {Type, ConnName} ->
+            ConnectorConfs = emqx:get_config([connectors, Type, ConnName]),
+            make_resource_confs(Direction, ConnectorConfs,
+                maps:without([connector, direction], Conf), Name);
+        {_ConnType, _ConnName} ->
+            error({cannot_use_connector_with_different_type, ConnId})
+    end;
+parse_confs(_Type, Name, #{connector := ConnectorConfs, direction := Direction} = Conf)
+        when is_map(ConnectorConfs) ->
     make_resource_confs(Direction, ConnectorConfs,
         maps:without([connector, direction], Conf), Name).
 

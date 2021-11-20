@@ -128,7 +128,7 @@ t_http_crud_apis(_) ->
     %% assert we there's no bridges at first
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
-    %% then we add a http bridge, using PUT
+    %% then we add a http bridge, using POST
     %% POST /bridges/ will create a bridge
     URL1 = ?URL(Port, "path1"),
     {ok, 201, Bridge} = request(post, uri(["bridges"]),

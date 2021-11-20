@@ -1326,7 +1326,7 @@ to_bar_separated_list(Str) ->
     {ok, string:tokens(Str, "| ")}.
 
 to_ip_port(Str) ->
-    case string:tokens(Str, ":") of
+    case string:tokens(Str, ": ") of
         [Ip, Port] ->
             PortVal = list_to_integer(Port),
             case inet:parse_address(Ip) of
@@ -1377,7 +1377,7 @@ validate_alarm_actions(Actions) ->
     end.
 
 parse_user_lookup_fun(StrConf) ->
-    [ModStr, FunStr] = string:tokens(str(StrConf), ":"),
+    [ModStr, FunStr] = string:tokens(str(StrConf), ": "),
     Mod = list_to_atom(ModStr),
     Fun = list_to_atom(FunStr),
     {fun Mod:Fun/3, undefined}.

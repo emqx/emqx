@@ -22,8 +22,8 @@
 -export([ list_create_bridges_in_cluster/2
         , list_local_bridges/1
         , crud_bridges_in_cluster/2
-        , crud_local_bridges/4
         , manage_bridges/2
+        , lookup_from_local_node/2
         ]).
 
 -define(TYPES, [mqtt, http]).
@@ -220,7 +220,15 @@ param_path_operation()->
     }.
 
 list_create_bridges_in_cluster(post, #{body := #{<<"id">> := Id} = Conf}) ->
-    crud_bridges_in_cluster(post, Id, maps:remove(<<"id">>, Conf));
+    ?TRY_PARSE_ID(Id,
+        case emqx_bridge:lookup(BridgeType, BridgeName) of
+            {ok, _} -> {400, #{code => 'ALREADY_EXISTS', message => <<"bridge already exists">>}};
+            {error, not_found} ->
+                case ensure_bridge(BridgeType, BridgeName, maps:remove(<<"id">>, Conf)) of
+                    ok -> lookup_from_all_nodes(Id, BridgeType, BridgeName, 201);
+                    {error, Error} -> {400, Error}
+                end
+        end);
 list_create_bridges_in_cluster(get, _Params) ->
     {200, zip_bridges([list_local_bridges(Node) || Node <- mria_mnesia:running_nodes()])}.
 
@@ -229,66 +237,45 @@ list_local_bridges(Node) when Node =:= node() ->
 list_local_bridges(Node) ->
     rpc_call(Node, list_local_bridges, [Node]).
 
-crud_bridges_in_cluster(Method, #{bindings := #{id := Id}, body := Body}) ->
-    crud_bridges_in_cluster(Method, Id, Body).
+crud_bridges_in_cluster(get, #{bindings := #{id := Id}}) ->
+    ?TRY_PARSE_ID(Id, lookup_from_all_nodes(Id, BridgeType, BridgeName, 200));
 
-crud_bridges_in_cluster(Method, Id, Body) ->
-    Results = [crud_local_bridges(Node, Method, Id, Body) || Node <- mria_mnesia:running_nodes()],
-    Filter = fun ({200}) -> false;
-                 ({Code, _}) when Code == 200; Code == 201 -> false;
-                 (_) -> true
-             end,
-    case lists:filter(Filter, Results) of
-        [] ->
-            case Results of
-                [{200} | _] -> {200};
-                [{Code, _} | _] when Code == 200; Code == 201 ->
-                    {Code, format_bridge_info([Bridge || {_, Bridge} <- Results])}
-            end;
-        Errors ->
-            hd(Errors)
-    end.
-
-crud_local_bridges(Node, Method, Id, Body) when Node =/= node() ->
-    rpc_call(Node, crud_local_bridges, [Node, Method, Id, Body]);
-
-crud_local_bridges(_, get, Id, _Body) ->
-    ?TRY_PARSE_ID(Id, case emqx_bridge:lookup(BridgeType, BridgeName) of
-        {ok, Data} -> {200, format_resp(Data)};
-        {error, not_found} ->
-            {404, #{code => 102, message => <<"not_found: ", Id/binary>>}}
-    end);
-
-crud_local_bridges(_, post, Id, Conf) ->
-    ?TRY_PARSE_ID(Id,
-        case emqx_bridge:lookup(BridgeType, BridgeName) of
-            {ok, _} -> {400, #{code => 'ALREADY_EXISTS', message => <<"bridge already exists">>}};
-            {error, not_found} ->
-                case ensure_bridge(Id, BridgeType, BridgeName, Conf) of
-                    {ok, Resp} -> {201, Resp};
-                    {error, Error} -> {400, Error}
-                end
-        end);
-
-crud_local_bridges(_, put, Id, Conf) ->
+crud_bridges_in_cluster(put, #{bindings := #{id := Id}, body := Conf}) ->
     ?TRY_PARSE_ID(Id,
         case emqx_bridge:lookup(BridgeType, BridgeName) of
             {ok, _} ->
-                case ensure_bridge(Id, BridgeType, BridgeName, Conf) of
-                    {ok, Resp} -> {200, Resp};
+                case ensure_bridge(BridgeType, BridgeName, Conf) of
+                    ok -> lookup_from_all_nodes(Id, BridgeType, BridgeName, 200);
                     {error, Error} -> {400, Error}
                 end;
             {error, not_found} ->
                 {404, #{code => 'NOT_FOUND', message => <<"bridge not found">>}}
         end);
 
-crud_local_bridges(_, delete, Id, _Body) ->
+crud_bridges_in_cluster(delete, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id,
-        case emqx:remove_config(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName]) of
+        case emqx_conf:remove(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
+                #{override_to => cluster}) of
             {ok, _} -> {204};
             {error, Reason} ->
                 {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
         end).
+
+lookup_from_all_nodes(Id, BridgeType, BridgeName, SuccCode) ->
+    case rpc_multicall(lookup_from_local_node, [BridgeType, BridgeName]) of
+        {ok, [{ok, _} | _] = Results} ->
+            {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
+        {ok, [{error, not_found} | _]} ->
+            {404, error_msg('NOT_FOUND', <<"not_found: ", Id/binary>>)};
+        {error, ErrL} ->
+            {500, error_msg('UNKNOWN_ERROR', ErrL)}
+    end.
+
+lookup_from_local_node(BridgeType, BridgeName) ->
+    case emqx_bridge:lookup(BridgeType, BridgeName) of
+        {ok, Res} -> {ok, format_resp(Res)};
+        Error -> Error
+    end.
 
 manage_bridges(post, #{bindings := #{node := Node, id := Id, operation := Op}}) ->
     OperFun =
@@ -304,13 +291,12 @@ manage_bridges(post, #{bindings := #{node := Node, id := Id, operation := Op}}) 
                 {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
         end).
 
-ensure_bridge(Id, BridgeType, BridgeName, Conf) ->
-    case emqx:update_config(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName], Conf,
-            #{rawconf_with_defaults => true}) of
-        {ok, #{raw_config := RawConf, post_config_update := #{emqx_bridge := Data}}} ->
-            {ok, format_resp(#{id => Id, raw_config => RawConf, resource_data => Data})};
+ensure_bridge(BridgeType, BridgeName, Conf) ->
+    case emqx_conf:update(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName], Conf,
+            #{override_to => cluster}) of
+        {ok, _} -> ok;
         {error, Reason} ->
-            {error, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
+            {error, error_msg('BAD_ARG', Reason)}
     end.
 
 zip_bridges([BridgesFirstNode | _] = BridgesAllNodes) ->
@@ -368,6 +354,14 @@ format_resp(#{id := Id, raw_config := RawConf, resource_data := #{mod := Mod, st
         metrics => ?METRICS(0,0,0,0,0)
     }.
 
+rpc_multicall(Func, Args) ->
+    Nodes = mria_mnesia:running_nodes(),
+    ResL = erpc:multicall(Nodes, ?MODULE, Func, Args, 15000),
+    case lists:filter(fun({ok, _}) -> false; (_) -> true end, ResL) of
+        [] -> {ok, [Res || {ok, Res} <- ResL]};
+        ErrL -> {error, ErrL}
+    end.
+
 rpc_call(Node, Fun, Args) ->
     rpc_call(Node, ?MODULE, Fun, Args).
 
@@ -378,3 +372,8 @@ rpc_call(Node, Mod, Fun, Args) ->
         {badrpc, Reason} -> {error, Reason};
         Res -> Res
     end.
+
+error_msg(Code, Msg) when is_binary(Msg) ->
+    #{code => Code, message => Msg};
+error_msg(Code, Msg) ->
+    #{code => Code, message => list_to_binary(io_lib:format("~p", [Msg]))}.

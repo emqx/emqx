@@ -24,14 +24,44 @@
 -export([ list/0
         , lookup/1
         , lookup/2
+        , create_dry_run/2
         , update/2
         , update/3
         , delete/1
         , delete/2
         ]).
 
+-export([ post_config_update/5
+        ]).
+
 config_key_path() ->
     [connectors].
+
+post_config_update([connectors, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
+    ConnId = connector_id(Type, Name),
+    LinkedBridgeIds = lists:foldl(fun
+        (#{id := BId, raw_config := #{<<"connector">> := ConnId0}}, Acc)
+                when ConnId0 == ConnId ->
+            [BId | Acc];
+        (_, Acc) -> Acc
+    end, [], emqx_bridge:list()),
+    case LinkedBridgeIds of
+        [] -> ok;
+        _ -> {error, {dependency_bridges_exist, LinkedBridgeIds}}
+    end;
+post_config_update([connectors, Type, Name], _Req, NewConf, _OldConf, _AppEnvs) ->
+    ConnId = connector_id(Type, Name),
+    lists:foreach(fun
+        (#{id := BId, raw_config := #{<<"connector">> := ConnId0}}) when ConnId0 == ConnId ->
+            {BType, BName} = emqx_bridge:parse_bridge_id(BId),
+            BridgeConf = emqx:get_config([bridges, BType, BName]),
+            case emqx_bridge:recreate(BType, BName, BridgeConf#{connector => NewConf}) of
+                {ok, _} -> ok;
+                {error, Reason} -> error({update_bridge_error, Reason})
+            end;
+        (_) ->
+            ok
+    end, emqx_bridge:list()).
 
 connector_id(Type0, Name0) ->
     Type = bin(Type0),
@@ -61,6 +91,9 @@ lookup(Type, Name) ->
         not_found -> {error, not_found};
         Conf -> {ok, Conf#{<<"id">> => Id}}
     end.
+
+create_dry_run(Type, Conf) ->
+    emqx_bridge:create_dry_run(Type, Conf).
 
 update(Id, Conf) when is_binary(Id) ->
     {Type, Name} = parse_connector_id(Id),

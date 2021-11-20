@@ -52,8 +52,8 @@
         ]).
 
 %% callbacks for emqx_config_handler
--export([ pre_config_update/2
-        , post_config_update/4
+-export([ pre_config_update/3
+        , post_config_update/5
         ]).
 
 -type atom_or_bin() :: atom() | binary().
@@ -246,10 +246,11 @@ bin(B) when is_binary(B) ->
 %% Config Handler
 %%--------------------------------------------------------------------
 
--spec pre_config_update(emqx_config:update_request(),
+-spec pre_config_update(list(atom()),
+                        emqx_config:update_request(),
                         emqx_config:raw_config()) ->
     {ok, emqx_config:update_request()} | {error, term()}.
-pre_config_update({load_gateway, GwName, Conf}, RawConf) ->
+pre_config_update(_, {load_gateway, GwName, Conf}, RawConf) ->
     case maps:get(GwName, RawConf, undefined) of
         undefined ->
             NConf = tune_gw_certs(fun convert_certs/2, GwName, Conf),
@@ -257,7 +258,7 @@ pre_config_update({load_gateway, GwName, Conf}, RawConf) ->
         _ ->
             {error, already_exist}
     end;
-pre_config_update({update_gateway, GwName, Conf}, RawConf) ->
+pre_config_update(_, {update_gateway, GwName, Conf}, RawConf) ->
     case maps:get(GwName, RawConf, undefined) of
         undefined ->
             {error, not_found};
@@ -266,14 +267,14 @@ pre_config_update({update_gateway, GwName, Conf}, RawConf) ->
                                   <<"authentication">>], Conf),
             {ok, emqx_map_lib:deep_merge(RawConf, #{GwName => NConf})}
     end;
-pre_config_update({unload_gateway, GwName}, RawConf) ->
+pre_config_update(_, {unload_gateway, GwName}, RawConf) ->
     _ = tune_gw_certs(fun clear_certs/2,
                       GwName,
                       maps:get(GwName, RawConf, #{})
                      ),
     {ok, maps:remove(GwName, RawConf)};
 
-pre_config_update({add_listener, GwName, {LType, LName}, Conf}, RawConf) ->
+pre_config_update(_, {add_listener, GwName, {LType, LName}, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
            [GwName, <<"listeners">>, LType, LName], RawConf, undefined) of
         undefined ->
@@ -285,7 +286,7 @@ pre_config_update({add_listener, GwName, {LType, LName}, Conf}, RawConf) ->
         _ ->
             {error, already_exist}
     end;
-pre_config_update({update_listener, GwName, {LType, LName}, Conf}, RawConf) ->
+pre_config_update(_, {update_listener, GwName, {LType, LName}, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
            [GwName, <<"listeners">>, LType, LName], RawConf, undefined) of
         undefined ->
@@ -298,7 +299,7 @@ pre_config_update({update_listener, GwName, {LType, LName}, Conf}, RawConf) ->
                    #{GwName => #{<<"listeners">> => NListener}})}
 
     end;
-pre_config_update({remove_listener, GwName, {LType, LName}}, RawConf) ->
+pre_config_update(_, {remove_listener, GwName, {LType, LName}}, RawConf) ->
     Path = [GwName, <<"listeners">>, LType, LName],
     case emqx_map_lib:deep_get(Path, RawConf, undefined) of
          undefined ->
@@ -308,7 +309,7 @@ pre_config_update({remove_listener, GwName, {LType, LName}}, RawConf) ->
             {ok, emqx_map_lib:deep_remove(Path, RawConf)}
     end;
 
-pre_config_update({add_authn, GwName, Conf}, RawConf) ->
+pre_config_update(_, {add_authn, GwName, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
            [GwName, <<"authentication">>], RawConf, undefined) of
         undefined ->
@@ -318,7 +319,7 @@ pre_config_update({add_authn, GwName, Conf}, RawConf) ->
         _ ->
             {error, already_exist}
     end;
-pre_config_update({add_authn, GwName, {LType, LName}, Conf}, RawConf) ->
+pre_config_update(_, {add_authn, GwName, {LType, LName}, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
            [GwName, <<"listeners">>, LType, LName],
            RawConf, undefined) of
@@ -336,7 +337,7 @@ pre_config_update({add_authn, GwName, {LType, LName}, Conf}, RawConf) ->
                     {error, already_exist}
             end
     end;
-pre_config_update({update_authn, GwName, Conf}, RawConf) ->
+pre_config_update(_, {update_authn, GwName, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
            [GwName, <<"authentication">>], RawConf, undefined) of
         undefined ->
@@ -346,7 +347,7 @@ pre_config_update({update_authn, GwName, Conf}, RawConf) ->
                    RawConf,
                    #{GwName => #{<<"authentication">> => Conf}})}
     end;
-pre_config_update({update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
+pre_config_update(_, {update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
            [GwName, <<"listeners">>, LType, LName],
            RawConf, undefined) of
@@ -368,22 +369,24 @@ pre_config_update({update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
                     {ok, emqx_map_lib:deep_merge(RawConf, NGateway)}
             end
     end;
-pre_config_update({remove_authn, GwName}, RawConf) ->
+pre_config_update(_, {remove_authn, GwName}, RawConf) ->
     {ok, emqx_map_lib:deep_remove(
            [GwName, <<"authentication">>], RawConf)};
-pre_config_update({remove_authn, GwName, {LType, LName}}, RawConf) ->
+pre_config_update(_, {remove_authn, GwName, {LType, LName}}, RawConf) ->
     Path = [GwName, <<"listeners">>, LType, LName, <<"authentication">>],
     {ok, emqx_map_lib:deep_remove(Path, RawConf)};
 
-pre_config_update(UnknownReq, _RawConf) ->
+pre_config_update(_, UnknownReq, _RawConf) ->
     logger:error("Unknown configuration update request: ~0p", [UnknownReq]),
     {error, badreq}.
 
--spec post_config_update(emqx_config:update_request(), emqx_config:config(),
+-spec post_config_update(list(atom()),
+                         emqx_config:update_request(),
+                         emqx_config:config(),
                          emqx_config:config(), emqx_config:app_envs())
     -> ok | {ok, Result::any()} | {error, Reason::term()}.
 
-post_config_update(Req, NewConfig, OldConfig, _AppEnvs) when is_tuple(Req) ->
+post_config_update(_, Req, NewConfig, OldConfig, _AppEnvs) when is_tuple(Req) ->
     [_Tag, GwName0 | _] = tuple_to_list(Req),
     GwName = binary_to_existing_atom(GwName0),
 
@@ -398,7 +401,7 @@ post_config_update(Req, NewConfig, OldConfig, _AppEnvs) when is_tuple(Req) ->
         {New, Old} when is_map(New), is_map(Old) ->
             emqx_gateway:update(GwName, New)
     end;
-post_config_update(_Req, _NewConfig, _OldConfig, _AppEnvs) ->
+post_config_update(_, _Req, _NewConfig, _OldConfig, _AppEnvs) ->
     ok.
 
 %%--------------------------------------------------------------------

@@ -138,6 +138,8 @@ on_health_check(_InstId, #{name := InstanceId} = State) ->
         _ -> {error, {connector_down, InstanceId}, State}
     end.
 
+make_sub_confs(EmptyMap) when map_size(EmptyMap) == 0 ->
+    undefined;
 make_sub_confs(undefined) ->
     undefined;
 make_sub_confs(SubRemoteConf) ->
@@ -148,6 +150,8 @@ make_sub_confs(SubRemoteConf) ->
             SubConf#{on_message_received => MFA}
     end.
 
+make_forward_confs(EmptyMap) when map_size(EmptyMap) == 0 ->
+    undefined;
 make_forward_confs(undefined) ->
     undefined;
 make_forward_confs(FrowardConf) ->

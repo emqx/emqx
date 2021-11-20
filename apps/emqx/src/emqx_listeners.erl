@@ -46,7 +46,7 @@
         , parse_listener_id/1
         ]).
 
--export([post_config_update/4]).
+-export([post_config_update/5]).
 
 -define(CONF_KEY_PATH, [listeners]).
 -define(TYPES_STRING, ["tcp","ssl","ws","wss","quic"]).
@@ -272,7 +272,7 @@ delete_authentication(Type, ListenerName, _Conf) ->
     emqx_authentication:delete_chain(listener_id(Type, ListenerName)).
 
 %% Update the listeners at runtime
-post_config_update(_Req, NewListeners, OldListeners, _AppEnvs) ->
+post_config_update(_, _Req, NewListeners, OldListeners, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Updated}
         = diff_listeners(NewListeners, OldListeners),
     perform_listener_changes(fun stop_listener/3, Removed),

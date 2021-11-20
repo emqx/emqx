@@ -45,14 +45,14 @@
 -type handler_name() :: module().
 -type handlers() :: #{emqx_config:config_key() => handlers(), ?MOD => handler_name()}.
 
--optional_callbacks([ pre_config_update/2
-                    , post_config_update/4
+-optional_callbacks([ pre_config_update/3
+                    , post_config_update/5
                     ]).
 
--callback pre_config_update(emqx_config:update_request(), emqx_config:raw_config()) ->
+-callback pre_config_update([atom()], emqx_config:update_request(), emqx_config:raw_config()) ->
     {ok, emqx_config:update_request()} | {error, term()}.
 
--callback post_config_update(emqx_config:update_request(), emqx_config:config(),
+-callback post_config_update([atom()], emqx_config:update_request(), emqx_config:config(),
     emqx_config:config(), emqx_config:app_envs()) ->
         ok | {ok, Result::any()} | {error, Reason::term()}.
 
@@ -181,14 +181,20 @@ process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, Opts}) ->
         Error -> Error
     end.
 
-do_update_config([], Handlers, OldRawConf, UpdateReq) ->
-    call_pre_config_update(Handlers, OldRawConf, UpdateReq);
-do_update_config([ConfKey | ConfKeyPath], Handlers, OldRawConf, UpdateReq) ->
+do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq) ->
+    do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq, []).
+
+do_update_config([], Handlers, OldRawConf, UpdateReq, ConfKeyPath) ->
+    call_pre_config_update(Handlers, OldRawConf, UpdateReq, ConfKeyPath);
+do_update_config([ConfKey | SubConfKeyPath], Handlers, OldRawConf,
+        UpdateReq, ConfKeyPath0) ->
+    ConfKeyPath = ConfKeyPath0 ++ [ConfKey],
     SubOldRawConf = get_sub_config(bin(ConfKey), OldRawConf),
     SubHandlers = get_sub_handlers(ConfKey, Handlers),
-    case do_update_config(ConfKeyPath, SubHandlers, SubOldRawConf, UpdateReq) of
+    case do_update_config(SubConfKeyPath, SubHandlers, SubOldRawConf, UpdateReq, ConfKeyPath) of
         {ok, NewUpdateReq} ->
-            call_pre_config_update(Handlers, OldRawConf, #{bin(ConfKey) => NewUpdateReq});
+            call_pre_config_update(Handlers, OldRawConf, #{bin(ConfKey) => NewUpdateReq},
+                ConfKeyPath);
         Error ->
             Error
     end.
@@ -211,18 +217,25 @@ check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf, Override
         Error -> Error
     end.
 
-do_post_config_update([], Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, Result) ->
-    call_post_config_update(Handlers, OldConf, NewConf, AppEnvs, up_req(UpdateArgs), Result);
-do_post_config_update([ConfKey | ConfKeyPath], Handlers, OldConf, NewConf, AppEnvs, UpdateArgs,
-        Result) ->
+do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, Result) ->
+    do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs,
+        Result, []).
+
+do_post_config_update([], Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, Result,
+        ConfKeyPath) ->
+    call_post_config_update(Handlers, OldConf, NewConf, AppEnvs, up_req(UpdateArgs),
+        Result, ConfKeyPath);
+do_post_config_update([ConfKey | SubConfKeyPath], Handlers, OldConf, NewConf, AppEnvs,
+        UpdateArgs, Result, ConfKeyPath0) ->
+    ConfKeyPath = ConfKeyPath0 ++ [ConfKey],
     SubOldConf = get_sub_config(ConfKey, OldConf),
     SubNewConf = get_sub_config(ConfKey, NewConf),
     SubHandlers = get_sub_handlers(ConfKey, Handlers),
-    case do_post_config_update(ConfKeyPath, SubHandlers, SubOldConf, SubNewConf, AppEnvs,
-            UpdateArgs, Result) of
+    case do_post_config_update(SubConfKeyPath, SubHandlers, SubOldConf, SubNewConf, AppEnvs,
+            UpdateArgs, Result, ConfKeyPath) of
         {ok, Result1} ->
             call_post_config_update(Handlers, OldConf, NewConf, AppEnvs, up_req(UpdateArgs),
-                Result1);
+                Result1, ConfKeyPath);
         Error -> Error
     end.
 
@@ -237,22 +250,23 @@ get_sub_config(ConfKey, Conf) when is_map(Conf) ->
 get_sub_config(_, _Conf) -> %% the Conf is a primitive
     undefined.
 
-call_pre_config_update(Handlers, OldRawConf, UpdateReq) ->
+call_pre_config_update(Handlers, OldRawConf, UpdateReq, ConfKeyPath) ->
     HandlerName = maps:get(?MOD, Handlers, undefined),
-    case erlang:function_exported(HandlerName, pre_config_update, 2) of
+    case erlang:function_exported(HandlerName, pre_config_update, 3) of
         true ->
-            case HandlerName:pre_config_update(UpdateReq, OldRawConf) of
+            case HandlerName:pre_config_update(ConfKeyPath, UpdateReq, OldRawConf) of
                 {ok, NewUpdateReq} -> {ok, NewUpdateReq};
                 {error, Reason} -> {error, {pre_config_update, HandlerName, Reason}}
             end;
         false -> merge_to_old_config(UpdateReq, OldRawConf)
     end.
 
-call_post_config_update(Handlers, OldConf, NewConf, AppEnvs, UpdateReq, Result) ->
+call_post_config_update(Handlers, OldConf, NewConf, AppEnvs, UpdateReq, Result, ConfKeyPath) ->
     HandlerName = maps:get(?MOD, Handlers, undefined),
-    case erlang:function_exported(HandlerName, post_config_update, 4) of
+    case erlang:function_exported(HandlerName, post_config_update, 5) of
         true ->
-            case HandlerName:post_config_update(UpdateReq, NewConf, OldConf, AppEnvs) of
+            case HandlerName:post_config_update(ConfKeyPath, UpdateReq, NewConf, OldConf,
+                    AppEnvs) of
                 ok -> {ok, Result};
                 {ok, Result1} ->
                     {ok, Result#{HandlerName => Result1}};
