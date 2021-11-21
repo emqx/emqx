@@ -56,7 +56,7 @@ init_per_suite(Config) ->
             port => 18083
         }]
     }),
-    ok = application:load(emqx_conf),
+    _ = application:load(emqx_conf),
     ok = emqx_common_test_helpers:start_apps([emqx_bridge, emqx_dashboard]),
     ok = emqx_config:init_load(emqx_bridge_schema, ?CONF_DEFAULT),
     Config.

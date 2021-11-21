@@ -896,7 +896,7 @@ serialize_error({bad_ssl_config, Details}) ->
             message => binfmt("bad_ssl_config ~p", [Details])}};
 serialize_error({missing_parameter, Detail}) ->
     {400, #{code => <<"MISSING_PARAMETER">>,
-            message => binfmt("Missing required parameter", [Detail])}};
+            message => binfmt("Missing required parameter: ~p", [Detail])}};
 serialize_error({invalid_parameter, Name}) ->
     {400, #{code => <<"INVALID_PARAMETER">>,
             message => binfmt("Invalid value for '~p'", [Name])}};

@@ -101,6 +101,7 @@ For example: http://localhost:9901/
     , {request, hoconsc:mk(
         ref("request"),
         #{ default => undefined
+         , nullable => true
          , desc => """
 If the request is provided, the caller can send HTTP requests via
 <code>emqx_resource:query(ResourceId, {send_message, BridgeId, Message})</code>
@@ -109,13 +110,13 @@ If the request is provided, the caller can send HTTP requests via
     ] ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("request") ->
-    [ {method, hoconsc:mk(hoconsc:enum([post, put, get, delete]), #{})}
-    , {path, hoconsc:mk(binary(), #{})}
-    , {body, hoconsc:mk(binary(), #{})}
-    , {headers, hoconsc:mk(map(), #{})}
+    [ {method, hoconsc:mk(hoconsc:enum([post, put, get, delete]), #{nullable => true})}
+    , {path, hoconsc:mk(binary(), #{nullable => true})}
+    , {body, hoconsc:mk(binary(), #{nullable => true})}
+    , {headers, hoconsc:mk(map(), #{nullable => true})}
     , {request_timeout,
         sc(emqx_schema:duration_ms(),
-           #{ default => "30s"
+           #{ nullable => true
             , desc => "The timeout when sending request to the HTTP server"
             })}
     ].
@@ -222,20 +223,22 @@ on_health_check(_InstId, #{host := Host, port := Port} = State) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
 preprocess_request(undefined) ->
+    undefined;
+preprocess_request(Req) when map_size(Req) == 0 ->
     undefined;
 preprocess_request(#{
             method := Method,
             path := Path,
             body := Body,
-            headers := Headers,
-            request_timeout := ReqTimeout
-        }) ->
+            headers := Headers
+        } = Req) ->
     #{ method => emqx_plugin_libs_rule:preproc_tmpl(bin(Method))
      , path => emqx_plugin_libs_rule:preproc_tmpl(Path)
      , body => emqx_plugin_libs_rule:preproc_tmpl(Body)
      , headers => preproc_headers(Headers)
-     , request_timeout => ReqTimeout
+     , request_timeout => maps:get(request_timeout, Req, 30000)
      }.
 
 preproc_headers(Headers) ->

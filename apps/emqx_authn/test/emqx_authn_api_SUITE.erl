@@ -136,12 +136,10 @@ test_authenticators(PathPrefix) ->
 
 test_authenticator(PathPrefix) ->
     ValidConfig0 = emqx_authn_test_lib:http_example(),
-
     {ok, 200, _} = request(
                      post,
                      uri(PathPrefix ++ ["authentication"]),
                      ValidConfig0),
-
     {ok, 200, _} = request(
                      get,
                      uri(PathPrefix ++ ["authentication", "password-based:http"])),
@@ -262,9 +260,7 @@ test_authenticator_user(PathPrefix) ->
       fun(UserUpdate) -> {ok, 200, _} = request(put, UsersUri ++ "/u1", UserUpdate) end,
       ValidUserUpdates),
 
-    InvalidUserUpdates = [
-                          #{user_id => <<"u1">>, password => <<"p1">>},
-                          #{is_superuser => true}],
+    InvalidUserUpdates = [#{user_id => <<"u1">>, password => <<"p1">>}],
 
     lists:foreach(
       fun(UserUpdate) -> {ok, 400, _} = request(put, UsersUri ++ "/u1", UserUpdate) end,

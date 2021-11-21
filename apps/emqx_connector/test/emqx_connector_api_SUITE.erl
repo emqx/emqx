@@ -67,7 +67,7 @@ init_per_suite(Config) ->
             port => 18083
         }]
     }),
-    ok = application:load(emqx_conf),
+    _ = application:load(emqx_conf),
     ok = emqx_common_test_helpers:start_apps([emqx_connector, emqx_bridge, emqx_dashboard]),
     ok = emqx_config:init_load(emqx_connector_schema, ?CONF_DEFAULT),
     ok = emqx_config:init_load(emqx_bridge_schema, ?BRIDGE_CONF_DEFAULT),
@@ -76,6 +76,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok = ekka:stop(),
     emqx_common_test_helpers:stop_apps([emqx_connector, emqx_bridge, emqx_dashboard]),
+    application:unload(emqx_conf),
     ok.
 
 init_per_testcase(_, Config) ->

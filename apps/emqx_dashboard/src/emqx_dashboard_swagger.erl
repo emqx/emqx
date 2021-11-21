@@ -200,7 +200,7 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
             _ -> Type0
         end,
     NewSchema = ?INIT_SCHEMA#{roots => [{root, Type}]},
-    Option = #{override_env => false},
+    Option = #{override_env => false, nullable => true},
     #{<<"root">> := NewBody} = CheckFun(NewSchema, #{<<"root">> => Body}, Option),
     NewBody;
 %% TODO not support nest object check yet, please use ref!
