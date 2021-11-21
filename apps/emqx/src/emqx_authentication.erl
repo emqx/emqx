@@ -277,6 +277,9 @@ initialize_authentication(ChainName, AuthenticatorsConfig) ->
 
 -spec start_link() -> {ok, pid()} | ignore | {error, term()}.
 start_link() ->
+    %% Create chains ETS table here so that it belongs to the supervisor
+    %% and survives `emqx_authentication` crashes.
+    ok = create_chain_table(),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 -spec stop() -> ok.
@@ -401,7 +404,6 @@ list_users(ChainName, AuthenticatorID, Params) ->
 %%--------------------------------------------------------------------
 
 init(_Opts) ->
-    ok = create_chain_table(),
     ok = emqx_config_handler:add_handler([authentication], ?MODULE),
     ok = emqx_config_handler:add_handler([listeners, '?', '?', authentication], ?MODULE),
     {ok, #{hooked => false, providers => #{}}}.
@@ -581,21 +583,13 @@ reply(Reply, State) ->
 %%--------------------------------------------------------------------
 
 create_chain_table() ->
-    Status = try
-                 _ = ets:new(?CHAINS_TAB, [named_table, set, public,
-                                           {keypos, #chain.name},
-                                           {read_concurrency, true}]),
-                 created
-             catch
-                 error:badarg -> already_exists
-             end,
-
-    case Status of
-        created ->
-            ets:give_away(?CHAINS_TAB, whereis(emqx_authentication_sup), undefined),
-            ok;
-        already_exists ->
-            ok
+    try
+        _ = ets:new(?CHAINS_TAB, [named_table, set, public,
+                                  {keypos, #chain.name},
+                                  {read_concurrency, true}]),
+        ok
+    catch
+        error:badarg -> ok
     end.
 
 global_chain(mqtt) ->
