@@ -11,6 +11,9 @@ on:
     types:
       - published
   workflow_dispatch:
+    inputs:
+      which_branch:
+        required: false
 
 jobs:
   prepare:
@@ -24,6 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
+          ref: ${{ github.event.inputs.which_branch }}
           path: source
           fetch-depth: 0
       - name: find old versions
