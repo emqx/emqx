@@ -56,8 +56,8 @@
                        }.
 
 -record(slow_log, { topic :: emqx_types:topic()
-                  , count :: pos_integer()
-                  , elapsed :: pos_integer()
+                  , count :: integer()     %% 0 will be used in initial value
+                  , elapsed :: integer()
                   }).
 
 -type message() :: #message{}.
@@ -233,8 +233,8 @@ update_log(#message{topic = Topic}, Elapsed) ->
                            Topic,
                            [{#slow_log.count, 1}, {#slow_log.elapsed, Elapsed}],
                            #slow_log{topic = Topic,
-                                     count = 1,
-                                     elapsed = Elapsed}),
+                                     count = 0,
+                                     elapsed = 0}),
     ok.
 
 -spec do_notification(state()) -> true.
