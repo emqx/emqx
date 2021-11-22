@@ -52,14 +52,13 @@ t_http_test(_Config) ->
     %% create
     ErrorTrace = #{},
     {ok, Error} = request_api(post, api_path("trace"), Header, ErrorTrace),
-    ?assertEqual(#{<<"message">> => <<"unknown field: {}">>,
+    ?assertEqual(#{<<"message">> => <<"name required">>,
         <<"code">> => <<"INCORRECT_PARAMS">>}, json(Error)),
 
     Name = <<"test-name">>,
     Trace = [
         {<<"name">>, Name},
         {<<"type">>, <<"topic">>},
-        {<<"packets">>, [<<"PUBLISH">>]},
         {<<"topic">>, <<"/x/y/z">>}
     ],
 
@@ -71,14 +70,23 @@ t_http_test(_Config) ->
     ?assertEqual(Name, maps:get(<<"name">>, Data)),
 
     %% update
-    {ok, Update} = request_api(put, api_path("trace/test-name/disable"), Header, #{}),
+    {ok, Update} = request_api(put, api_path("trace/test-name/stop"), Header, #{}),
     ?assertEqual(#{<<"code">> => 0,
         <<"data">> => #{<<"enable">> => false,
             <<"name">> => <<"test-name">>}}, json(Update)),
 
     {ok, List1} = request_api(get, api_path("trace"), Header),
     #{<<"code">> := 0, <<"data">> := [Data1]} = json(List1),
-    ?assertEqual(false, maps:get(<<"enable">>, Data1)),
+    Node = atom_to_binary(node()),
+    ?assertMatch(#{
+        <<"status">> := <<"stopped">>,
+        <<"name">> := <<"test-name">>,
+        <<"log_size">> := #{Node := _},
+        <<"start_at">> := _,
+        <<"end_at">> := _,
+        <<"type">> := <<"topic">>,
+        <<"topic">> := <<"/x/y/z">>
+    }, Data1),
 
     %% delete
     {ok, Delete} = request_api(delete, api_path("trace/test-name"), Header),
@@ -86,7 +94,7 @@ t_http_test(_Config) ->
 
     {ok, DeleteNotFound} = request_api(delete, api_path("trace/test-name"), Header),
     ?assertEqual(#{<<"code">> => <<"NOT_FOUND">>,
-        <<"message">> => <<"test-nameNOT FOUND">>}, json(DeleteNotFound)),
+        <<"message">> => <<"test-name NOT FOUND">>}, json(DeleteNotFound)),
 
     {ok, List2} = request_api(get, api_path("trace"), Header),
     ?assertEqual(#{<<"code">> => 0, <<"data">> => []}, json(List2)),

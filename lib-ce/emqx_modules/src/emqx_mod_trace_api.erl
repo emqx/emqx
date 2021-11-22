@@ -19,7 +19,7 @@
 %% API
 -export([ list_trace/2
         , create_trace/2
-        , update_trace/2
+        , disable_trace/2
         , delete_trace/2
         , clear_traces/2
         , download_zip_log/2
@@ -52,11 +52,11 @@
             func   => clear_traces,
             descr  => "clear all traces"}).
 
--rest_api(#{name   => update_trace,
+-rest_api(#{name   => disable_trace,
             method => 'PUT',
-            path   => "/trace/:bin:name/:atom:operation",
-            func   => update_trace,
-            descr  => "diable/enable trace"}).
+            path   => "/trace/:bin:name/stop",
+            func   => disable_trace,
+            descr  => "stop trace"}).
 
 -rest_api(#{name   => download_zip_log,
             method => 'GET',
@@ -82,8 +82,8 @@ delete_trace(Path, Params) ->
 clear_traces(Path, Params) ->
     return(emqx_trace_api:clear_traces(Path, Params)).
 
-update_trace(Path, Params) ->
-    return(emqx_trace_api:update_trace(Path, Params)).
+disable_trace(#{name := Name}, Params) ->
+    return(emqx_trace_api:update_trace(#{name => Name, operation => disable}, Params)).
 
 download_zip_log(Path, Params) ->
     case emqx_trace_api:download_zip_log(Path, Params) of

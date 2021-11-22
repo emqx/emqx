@@ -21,7 +21,7 @@
 
 -include("emqx_mgmt.hrl").
 
--elvis([{elvis_style, invalid_dynamic_call, #{ ignore => [emqx_mgmt_cli]}}]).
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
 -define(PRINT_CMD(Cmd, Desc), io:format("~-48s# ~s~n", [Cmd, Desc])).
 
@@ -38,6 +38,7 @@
         , vm/1
         , mnesia/1
         , trace/1
+        , traces/1
         , log/1
         , mgmt/1
         , data/1
@@ -421,39 +422,43 @@ log(_) ->
 
 trace(["list"]) ->
     lists:foreach(fun(Trace) ->
-        #{type := Type, level := Level, dst := Dst} = Trace,
-        Who = maps:get(Type, Trace),
-        emqx_ctl:print("Trace(~s=~s, level=~s, destination=~p)~n", [Type, Who, Level, Dst])
-                  end, emqx_tracer:lookup_traces());
+        #{type := Type, filter := Filter, level := Level, dst := Dst} = Trace,
+        emqx_ctl:print("Trace(~s=~s, level=~s, destination=~p)~n", [Type, Filter, Level, Dst])
+                  end, emqx_trace_handler:running());
 
-trace(["stop", "client", ClientId]) ->
-    trace_off(clientid, ClientId);
+trace(["stop", Operation, ClientId]) ->
+    case trace_type(Operation) of
+        {ok, Type} -> trace_off(Type, ClientId);
+        error -> trace([])
+    end;
 
-trace(["start", "client", ClientId, LogFile]) ->
-    trace_on(clientid, ClientId, all, LogFile);
+trace(["start", Operation, ClientId, LogFile]) ->
+    trace(["start", Operation, ClientId, LogFile, "all"]);
 
-trace(["start", "client", ClientId, LogFile, Level]) ->
-    trace_on(clientid, ClientId, list_to_atom(Level), LogFile);
-
-trace(["stop", "topic", Topic]) ->
-    trace_off(topic, Topic);
-
-trace(["start", "topic", Topic, LogFile]) ->
-    trace_on(topic, Topic, all, LogFile);
-
-trace(["start", "topic", Topic, LogFile, Level]) ->
-    trace_on(topic, Topic, list_to_atom(Level), LogFile);
+trace(["start", Operation, ClientId, LogFile, Level]) ->
+    case trace_type(Operation) of
+        {ok, Type} -> trace_on(Type, ClientId, list_to_existing_atom(Level), LogFile);
+        error -> trace([])
+    end;
 
 trace(_) ->
-    emqx_ctl:usage([{"trace list", "List all traces started"},
-                    {"trace start client <ClientId> <File> [<Level>]", "Traces for a client"},
-                    {"trace stop  client <ClientId>", "Stop tracing for a client"},
-                    {"trace start topic  <Topic>    <File> [<Level>] ", "Traces for a topic"},
-                    {"trace stop  topic  <Topic> ", "Stop tracing for a topic"}]).
+    emqx_ctl:usage([{"trace list", "List all traces started on local node"},
+                    {"trace start client <ClientId> <File> [<Level>]",
+                        "Traces for a client on local node"},
+                    {"trace stop  client <ClientId>",
+                        "Stop tracing for a client on local node"},
+                    {"trace start topic  <Topic>    <File> [<Level>] ",
+                        "Traces for a topic on local node"},
+                    {"trace stop  topic  <Topic> ",
+                        "Stop tracing for a topic on local node"},
+                    {"trace start ip_address  <IP>    <File> [<Level>] ",
+                        "Traces for a client ip on local node"},
+                    {"trace stop  ip_addresss  <IP> ",
+                        "Stop tracing for a client ip on local node"}
+                   ]).
 
--dialyzer({nowarn_function, [trace_on/4, trace_off/2]}).
 trace_on(Who, Name, Level, LogFile) ->
-    case emqx_tracer:start_trace(Who, Name, Level, LogFile) of
+    case emqx_trace_handler:install(Who, Name, Level, LogFile) of
         ok ->
             emqx_ctl:print("trace ~s ~s successfully~n", [Who, Name]);
         {error, Error} ->
@@ -461,13 +466,94 @@ trace_on(Who, Name, Level, LogFile) ->
     end.
 
 trace_off(Who, Name) ->
-    case emqx_tracer:stop_trace(Who, Name) of
+    case emqx_trace_handler:uninstall(Who, Name) of
         ok ->
             emqx_ctl:print("stop tracing ~s ~s successfully~n", [Who, Name]);
         {error, Error} ->
             emqx_ctl:print("[error] stop tracing ~s ~s: ~p~n", [Who, Name, Error])
     end.
 
+%%--------------------------------------------------------------------
+%% @doc Trace Cluster Command
+traces(["list"]) ->
+    {ok, List} = emqx_trace_api:list_trace(get, []),
+    case List of
+        [] ->
+            emqx_ctl:print("Cluster Trace is empty~n", []);
+        _ ->
+            lists:foreach(fun(Trace) ->
+                #{type := Type, name := Name, status := Status,
+                    log_size := LogSize} = Trace,
+                emqx_ctl:print("Trace(~s: ~s=~s, ~s, LogSize:~p)~n",
+                    [Name, Type, maps:get(Type, Trace), Status, LogSize])
+                          end, List)
+    end,
+    length(List);
+
+traces(["stop", Name]) ->
+    trace_cluster_off(Name);
+
+traces(["delete", Name]) ->
+    trace_cluster_del(Name);
+
+traces(["start", Name, Operation, Filter]) ->
+    traces(["start", Name, Operation, Filter, "900"]);
+
+traces(["start", Name, Operation, Filter, DurationS]) ->
+    case trace_type(Operation) of
+        {ok, Type} ->  trace_cluster_on(Name, Type, Filter, DurationS);
+        error -> traces([])
+    end;
+
+traces(_) ->
+    emqx_ctl:usage([{"traces list", "List all cluster traces started"},
+        {"traces start <Name> client <ClientId>", "Traces for a client in cluster"},
+        {"traces start <Name> topic <Topic>", "Traces for a topic in cluster"},
+        {"traces start <Name> ip_address <IPAddr>", "Traces for a IP in cluster"},
+        {"traces stop  <Name>", "Stop trace in cluster"},
+        {"traces delete  <Name>", "Delete trace in cluster"}
+    ]).
+
+trace_cluster_on(Name, Type, Filter, DurationS0) ->
+    case erlang:whereis(emqx_trace) of
+        undefined ->
+            emqx_ctl:print("[error] Tracer module not started~n"
+            "Please run `emqx_ctl modules start tracer` "
+            "or `emqx_ctl modules start emqx_mod_trace` first~n", []);
+        _ ->
+            DurationS = list_to_integer(DurationS0),
+            Now = erlang:system_time(second),
+            Trace = #{ name => list_to_binary(Name)
+                     , type => atom_to_binary(Type)
+                     , Type => list_to_binary(Filter)
+                     , start_at => list_to_binary(calendar:system_time_to_rfc3339(Now))
+                     , end_at => list_to_binary(calendar:system_time_to_rfc3339(Now + DurationS))
+                     },
+            case emqx_trace:create(Trace) of
+                ok ->
+                    emqx_ctl:print("Cluster_trace ~p ~s ~s successfully~n", [Type, Filter, Name]);
+                {error, Error} ->
+                    emqx_ctl:print("[error] Cluster_trace ~s ~s=~s ~p~n",
+                        [Name, Type, Filter, Error])
+            end
+    end.
+
+trace_cluster_del(Name) ->
+    case emqx_trace:delete(list_to_binary(Name)) of
+        ok -> emqx_ctl:print("Del cluster_trace ~s successfully~n", [Name]);
+        {error, Error} -> emqx_ctl:print("[error] Del cluster_trace ~s: ~p~n", [Name, Error])
+    end.
+
+trace_cluster_off(Name) ->
+    case emqx_trace:update(list_to_binary(Name), false) of
+        ok -> emqx_ctl:print("Stop cluster_trace ~s successfully~n", [Name]);
+        {error, Error} -> emqx_ctl:print("[error] Stop cluster_trace ~s: ~p~n", [Name, Error])
+    end.
+
+trace_type("client") -> {ok, clientid};
+trace_type("topic") -> {ok, topic};
+trace_type("ip_address") -> {ok, ip_address};
+trace_type(_) -> error.
 %%--------------------------------------------------------------------
 %% @doc Listeners Command
 

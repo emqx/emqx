@@ -23,21 +23,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
--record(emqx_trace,     {
-                         name,
-                         type,
-                         topic,
-                         clientid,
-                         packets = [],
-                         enable = true,
-                         start_at,
-                         end_at,
-                         log_size = #{}
-                        }).
-
--define(PACKETS, ['CONNECT', 'CONNACK', 'PUBLISH', 'PUBACK', 'PUBREC', 'PUBREL'
-    , 'PUBCOMP', 'SUBSCRIBE', 'SUBACK', 'UNSUBSCRIBE', 'UNSUBACK'
-    , 'PINGREQ', 'PINGRESP', 'DISCONNECT', 'AUTH']).
+-record(emqx_trace, {name, type, filter, enable = true, start_at, end_at}).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -61,16 +47,14 @@ t_base_create_delete(_Config) ->
     End = to_rfc3339(Now + 30 * 60),
     Name = <<"name1">>,
     ClientId = <<"test-device">>,
-    Packets = [atom_to_binary(E) || E <- ?PACKETS],
-    Trace = [
-        {<<"name">>, Name},
-        {<<"type">>, <<"clientid">>},
-        {<<"clientid">>, ClientId},
-        {<<"packets">>, Packets},
-        {<<"start_at">>, Start},
-        {<<"end_at">>, End}
-    ],
-    AnotherTrace = lists:keyreplace(<<"name">>, 1, Trace, {<<"name">>, <<"AnotherName">>}),
+    Trace = #{
+        name => Name,
+        type => <<"clientid">>,
+        clientid => ClientId,
+        start_at => Start,
+        end_at => End
+    },
+    AnotherTrace = Trace#{name => <<"anotherTrace">>},
     ok = emqx_trace:create(Trace),
     ?assertEqual({error, {already_existed, Name}}, emqx_trace:create(Trace)),
     ?assertEqual({error, {duplicate_condition, Name}}, emqx_trace:create(AnotherTrace)),
@@ -78,24 +62,19 @@ t_base_create_delete(_Config) ->
     Expect = #emqx_trace{
         name     = Name,
         type     = clientid,
-        topic    = undefined,
-        clientid = ClientId,
-        packets  = ?PACKETS,
+        filter   = ClientId,
         start_at = Now,
         end_at   = Now + 30 * 60
     },
     ?assertEqual(Expect, TraceRec),
     ExpectFormat = [
         #{
-            clientid => <<"test-device">>,
+            filter => <<"test-device">>,
             enable => true,
             type => clientid,
-            packets => ?PACKETS,
             name => <<"name1">>,
-            start_at => Start,
-            end_at => End,
-            log_size => #{},
-            topic => undefined
+            start_at => Now,
+            end_at => Now + 30 * 60
         }
     ],
     ?assertEqual(ExpectFormat, emqx_trace:format([TraceRec])),
@@ -108,13 +87,12 @@ t_create_size_max(_Config) ->
     emqx_trace:clear(),
     lists:map(fun(Seq) ->
         Name = list_to_binary("name" ++ integer_to_list(Seq)),
-        Trace = [{<<"name">>, Name}, {<<"type">>, <<"topic">>},
-            {<<"packets">>, [<<"PUBLISH">>]},
-            {<<"topic">>, list_to_binary("/x/y/" ++ integer_to_list(Seq))}],
+        Trace = [{name, Name}, {type, <<"topic">>},
+            {topic, list_to_binary("/x/y/" ++ integer_to_list(Seq))}],
         ok = emqx_trace:create(Trace)
               end, lists:seq(1, 30)),
-    Trace31 = [{<<"name">>, <<"name31">>}, {<<"type">>, <<"topic">>},
-        {<<"packets">>, [<<"PUBLISH">>]}, {<<"topic">>, <<"/x/y/31">>}],
+    Trace31 = [{<<"name">>, <<"name31">>},
+        {<<"type">>, <<"topic">>}, {<<"topic">>, <<"/x/y/31">>}],
     {error, _} = emqx_trace:create(Trace31),
     ok = emqx_trace:delete(<<"name30">>),
     ok = emqx_trace:create(Trace31),
@@ -125,11 +103,11 @@ t_create_failed(_Config) ->
     ok = emqx_trace:clear(),
     UnknownField = [{<<"unknown">>, 12}],
     {error, Reason1} = emqx_trace:create(UnknownField),
-    ?assertEqual(<<"unknown field: {<<\"unknown\">>,12}">>, iolist_to_binary(Reason1)),
+    ?assertEqual(<<"unknown field: {unknown,12}">>, iolist_to_binary(Reason1)),
 
     InvalidTopic = [{<<"topic">>, "#/#//"}],
     {error, Reason2} = emqx_trace:create(InvalidTopic),
-    ?assertEqual(<<"#/#// invalid by function_clause">>, iolist_to_binary(Reason2)),
+    ?assertEqual(<<"topic: #/#// invalid by function_clause">>, iolist_to_binary(Reason2)),
 
     InvalidStart = [{<<"start_at">>, <<"2021-12-3:12">>}],
     {error, Reason3} = emqx_trace:create(InvalidStart),
@@ -141,41 +119,34 @@ t_create_failed(_Config) ->
     ?assertEqual(<<"The rfc3339 specification not satisfied: 2021-12-3:12">>,
         iolist_to_binary(Reason4)),
 
-    InvalidPackets = [{<<"packets">>, [<<"publish">>]}],
-    {error, Reason5} = emqx_trace:create(InvalidPackets),
-    ?assertEqual(<<"unsupport packets: [publish]">>, iolist_to_binary(Reason5)),
-
-    InvalidPackets2 = [{<<"packets">>, <<"publish">>}],
-    {error, Reason6} = emqx_trace:create(InvalidPackets2),
-    ?assertEqual(<<"unsupport packets: <<\"publish\">>">>, iolist_to_binary(Reason6)),
-
     {error, Reason7} = emqx_trace:create([{<<"name">>, <<"test">>}, {<<"type">>, <<"clientid">>}]),
-    ?assertEqual(<<"topic/clientid cannot be both empty">>, iolist_to_binary(Reason7)),
+    ?assertEqual(<<"topic/clientid/ip_address filter required">>, iolist_to_binary(Reason7)),
 
     InvalidPackets4 = [{<<"name">>, <<"/test">>}, {<<"clientid">>, <<"t">>},
         {<<"type">>, <<"clientid">>}],
     {error, Reason9} = emqx_trace:create(InvalidPackets4),
     ?assertEqual(<<"name cannot contain /">>, iolist_to_binary(Reason9)),
 
-    ?assertEqual({error, "type required"}, emqx_trace:create([{<<"name">>, <<"test-name">>},
-        {<<"packets">>, []}, {<<"clientid">>, <<"good">>}])),
+    ?assertEqual({error, "type=[topic,clientid,ip_address] required"},
+        emqx_trace:create([{<<"name">>, <<"test-name">>}, {<<"clientid">>, <<"good">>}])),
 
-    ?assertEqual({error, "incorrect type: only support clientid/topic"},
+    ?assertEqual({error, "incorrect type: only support clientid/topic/ip_address"},
         emqx_trace:create([{<<"name">>, <<"test-name">>},
-            {<<"packets">>, []}, {<<"clientid">>, <<"good">>}, {<<"type">>, <<"typeerror">> }])),
+            {<<"clientid">>, <<"good">>}, {<<"type">>, <<"typeerror">> }])),
+
+    ?assertEqual({error, "ip address: einval"},
+        emqx_trace:create([{<<"ip_address">>, <<"test-name">>}])),
     ok.
 
 t_create_default(_Config) ->
     ok = emqx_trace:clear(),
     {error, "name required"} = emqx_trace:create([]),
     ok = emqx_trace:create([{<<"name">>, <<"test-name">>},
-        {<<"type">>, <<"clientid">>}, {<<"packets">>, []}, {<<"clientid">>, <<"good">>}]),
-    [#emqx_trace{packets = Packets}] = emqx_trace:list(),
-    ?assertEqual([], Packets),
+        {<<"type">>, <<"clientid">>}, {<<"clientid">>, <<"good">>}]),
+    [#emqx_trace{name = <<"test-name">>}] = emqx_trace:list(),
     ok = emqx_trace:clear(),
     Trace = [
         {<<"name">>, <<"test-name">>},
-        {<<"packets">>, [<<"PUBLISH">>]},
         {<<"type">>, <<"topic">>},
         {<<"topic">>, <<"/x/y/z">>},
         {<<"start_at">>, <<"2021-10-28T10:54:47+08:00">>},
@@ -186,15 +157,13 @@ t_create_default(_Config) ->
     Trace2 = [
         {<<"name">>, <<"test-name">>},
         {<<"type">>, <<"topic">>},
-        {<<"packets">>, [<<"PUBLISH">>]},
         {<<"topic">>, <<"/x/y/z">>},
         {<<"start_at">>, to_rfc3339(Now + 10)},
         {<<"end_at">>, to_rfc3339(Now + 3)}
     ],
     {error, "failed by start_at >= end_at"} = emqx_trace:create(Trace2),
     ok = emqx_trace:create([{<<"name">>, <<"test-name">>},
-        {<<"type">>, <<"topic">>},
-        {<<"packets">>, [<<"PUBLISH">>]}, {<<"topic">>, <<"/x/y/z">>}]),
+        {<<"type">>, <<"topic">>}, {<<"topic">>, <<"/x/y/z">>}]),
     [#emqx_trace{start_at = Start, end_at = End}] = emqx_trace:list(),
     ?assertEqual(10 * 60, End - Start),
     ?assertEqual(true, Start - erlang:system_time(second) < 5),
@@ -205,8 +174,8 @@ t_update_enable(_Config) ->
     Name = <<"test-name">>,
     Now = erlang:system_time(second),
     End = list_to_binary(calendar:system_time_to_rfc3339(Now + 2)),
-    ok = emqx_trace:create([{<<"name">>, Name}, {<<"packets">>, [<<"PUBLISH">>]},
-        {<<"type">>, <<"topic">>}, {<<"topic">>, <<"/x/y/z">>}, {<<"end_at">>, End}]),
+    ok = emqx_trace:create([{<<"name">>, Name}, {<<"type">>, <<"topic">>},
+        {<<"topic">>, <<"/x/y/z">>}, {<<"end_at">>, End}]),
     [#emqx_trace{enable = Enable}] = emqx_trace:list(),
     ?assertEqual(Enable, true),
     ok = emqx_trace:update(Name, false),
@@ -293,13 +262,10 @@ t_get_log_filename(_Config) ->
     Start = calendar:system_time_to_rfc3339(Now),
     End = calendar:system_time_to_rfc3339(Now + 2),
     Name = <<"name1">>,
-    ClientId = <<"test-device">>,
-    Packets = [atom_to_binary(E) || E <- ?PACKETS],
     Trace = [
         {<<"name">>, Name},
-        {<<"type">>, <<"clientid">>},
-        {<<"clientid">>, ClientId},
-        {<<"packets">>, Packets},
+        {<<"type">>, <<"ip_address">>},
+        {<<"ip_address">>, <<"127.0.0.1">>},
         {<<"start_at">>, list_to_binary(Start)},
         {<<"end_at">>, list_to_binary(End)}
     ],
