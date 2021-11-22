@@ -15,12 +15,14 @@ jobs:
   relup_test:
     strategy:
       matrix:
-        otp:
-          - "23.2.7.2-emqx-2"
-          - "24.1.1-emqx-1"
+        profile:
+          - emqx
+          - emqx-ee
+        otp_vsn:
+          - 24.1.5-2
 
     runs-on: ubuntu-20.04
-    container: "ghcr.io/emqx/emqx-builder/5.0:${{ matrix.otp }}-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-2:${{ matrix.otp_vsn }}-ubuntu20.04"
 
     defaults:
       run:
@@ -43,7 +45,7 @@ jobs:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqtt-bench
-        ref: 0.3.4 
+        ref: 0.3.4
         path: emqtt-bench
     - uses: actions/checkout@v2
       with:
@@ -55,26 +57,18 @@ jobs:
         repository: ${{ github.repository }}
         path: emqx
         fetch-depth: 0
-    - name: prepare
-      run: |
-        if make -C emqx emqx-ee --dry-run > /dev/null 2>&1; then
-          echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
-          git config --global credential.helper store
-          echo "${{ secrets.CI_GIT_TOKEN }}" >> emqx/scripts/git-token
-          echo "PROFILE=emqx-ee" >> $GITHUB_ENV
-        else
-          echo "PROFILE=emqx" >> $GITHUB_ENV
-        fi
     - name: get version
       run: |
         set -e -x -u
         cd emqx
+        export PROFILE=${{ matrix.profile }}
+        export OTP_VSN=${{ matrix.otp_vsn }}
+        echo "PROFILE=$PROFILE" >> $GITHUB_ENV
+        echo "OTP_VSN=$OTP_VSN" >> $GITHUB_ENV
         if [ $PROFILE = "emqx" ];then
             broker="emqx-ce"
-            edition='opensource'
         else
             broker="emqx-ee"
-            edition='enterprise'
         fi
         echo "BROKER=$broker" >> $GITHUB_ENV
 
@@ -82,11 +76,7 @@ jobs:
         echo "VSN=$vsn" >> $GITHUB_ENV
 
         pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
-        if [ $PROFILE = "emqx" ]; then
-            old_vsns="$(git tag -l "v$pre_vsn.[0-9]" | xargs echo -n | sed "s/v$vsn//")"
-        else
-            old_vsns="$(git tag -l "e$pre_vsn.[0-9]" | xargs echo -n | sed "s/e$vsn//")"
-        fi
+        old_vsns="$(git tag -l "v$pre_vsn.[0-9]" | xargs echo -n | sed "s/v$vsn//")"
         echo "OLD_VSNS=$old_vsns" >> $GITHUB_ENV
     - name: download emqx
       run: |
@@ -95,7 +85,7 @@ jobs:
         cd emqx/_upgrade_base
         old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
         for old_vsn in ${old_vsns[@]}; do
-          wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$old_vsn/$PROFILE-ubuntu20.04-${old_vsn#[e|v]}-amd64.zip
+          wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$old_vsn/$PROFILE-${old_vsn#[e|v]}-otp${OTP_VSN}-ubuntu20.04-amd64.zip
         done
     - name: build emqx
       run: make -C emqx ${PROFILE}-zip

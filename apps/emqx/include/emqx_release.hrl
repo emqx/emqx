@@ -14,9 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQX_RELEASE_HRL).
--define(EMQX_RELEASE_HRL, true).
-
 %% NOTE: this is the release version which is not always the same
 %% as the emqx app version defined in emqx.app.src
 %% App (plugin) versions are bumped independently.
@@ -27,13 +24,4 @@
 
 %% NOTE: This version number should be manually bumped for each release
 
--ifndef(EMQX_ENTERPRISE).
-
--define(EMQX_RELEASE, {opensource, "5.0-beta.1"}).
-
--else.
-
-
--endif.
-
--endif.
+-define(EMQX_RELEASE, "5.0-beta.2").

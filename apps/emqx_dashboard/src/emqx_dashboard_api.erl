@@ -16,16 +16,6 @@
 
 -module(emqx_dashboard_api).
 
--ifndef(EMQX_ENTERPRISE).
-
--define(RELEASE, community).
-
--else.
-
--define(VERSION, enterprise).
-
--endif.
-
 -behaviour(minirest_api).
 
 -include("emqx_dashboard.hrl").
@@ -200,7 +190,10 @@ login(post, #{body := Params}) ->
     case emqx_dashboard_admin:sign_token(Username, Password) of
         {ok, Token} ->
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
-            {200, #{token => Token, version => Version, license => #{edition => ?RELEASE}}};
+            {200, #{token => Token,
+                    version => Version,
+                    license => #{edition => emqx_release:edition()}
+                   }};
         {error, _} ->
             {401, #{code => ?ERROR_USERNAME_OR_PWD, message => <<"Auth filed">>}}
     end.

@@ -150,11 +150,11 @@ t_cli(_Config) ->
     emqx_dashboard_cli:admins(["add", "username", "password"]),
     [#?ADMIN{ username = <<"username">>, pwdhash = <<Salt:4/binary, Hash/binary>>}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
-    ?assertEqual(Hash, crypto:hash(sha3_256, <<Salt/binary, <<"password">>/binary>>)),
+    ?assertEqual(Hash, crypto:hash(sha256, <<Salt/binary, <<"password">>/binary>>)),
     emqx_dashboard_cli:admins(["passwd", "username", "newpassword"]),
     [#?ADMIN{username = <<"username">>, pwdhash = <<Salt1:4/binary, Hash1/binary>>}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
-    ?assertEqual(Hash1, crypto:hash(sha3_256, <<Salt1/binary, <<"newpassword">>/binary>>)),
+    ?assertEqual(Hash1, crypto:hash(sha256, <<Salt1/binary, <<"newpassword">>/binary>>)),
     emqx_dashboard_cli:admins(["del", "username"]),
     [] = emqx_dashboard_admin:lookup_user(<<"username">>),
     emqx_dashboard_cli:admins(["add", "admin1", "pass1"]),

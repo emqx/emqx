@@ -6,14 +6,8 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "$0")"
 
-if [ -f EMQX_ENTERPRISE ]; then
-    EDITION='enterprise'
-else
-    EDITION='opensource'
-fi
-
 ## emqx_release.hrl is the single source of truth for release version
-RELEASE="$(grep -E "define.+EMQX_RELEASE.+${EDITION}" apps/emqx/include/emqx_release.hrl | cut -d '"' -f2)"
+RELEASE="$(grep -E "define.+EMQX_RELEASE" apps/emqx/include/emqx_release.hrl | cut -d '"' -f2)"
 
 git_exact_vsn() {
     local tag

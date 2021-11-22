@@ -8,58 +8,27 @@ on:
   push:
     tags:
       - v*
-      - e*
   pull_request:
 
 jobs:
   prepare:
-    strategy:
-      matrix:
-        otp:
-          - "23.2.7.2-emqx-2"
-          - "24.1.1-emqx-1"
-
     runs-on: ubuntu-20.04
-    container: "ghcr.io/emqx/emqx-builder/5.0:${{ matrix.otp }}-ubuntu20.04"
-
-    outputs:
-      profile: ${{ steps.profile.outputs.profile }}
+    # prepare source with any OTP version, no need for a matrix
+    container: ghcr.io/emqx/emqx-builder/5.0-2:24.1.5-2-alpine3.14
 
     steps:
-      - name: get otp version
-        id: get_otp_version
-        run: |
-          otp="$(erl -eval '{ok, Version} = file:read_file(filename:join([code:root_dir(), "releases", erlang:system_info(otp_release), "OTP_VERSION"])), io:fwrite(Version), halt().' -noshell)"
-          echo "::set-output name=otp::$otp"
       - uses: actions/checkout@v2
         with:
           path: source
           fetch-depth: 0
-      - name: set profile
-        id: profile
-        shell: bash
-        working-directory: source
-        run: |
-          vsn="$(./pkg-vsn.sh)"
-          if make emqx-ee --dry-run > /dev/null 2>&1; then
-            echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
-            git config --global credential.helper store
-            echo "::set-output name=profile::emqx-ee"
-          else
-            echo "::set-output name=profile::emqx"
-          fi
       - name: get deps
-        working-directory: source
         run: |
-          make ensure-rebar3
-          ./rebar3 as default get-deps
-          rm -rf rebar.lock
-      - name: gen zip file
-        run: zip -ryq source-${{ steps.get_otp_version.outputs.otp }}.zip source/* source/.[^.]*
+          make -C source deps-all
+          zip -ryq source.zip source/* source/.[^.]*
       - uses: actions/upload-artifact@v2
         with:
-          name: source-${{ steps.get_otp_version.outputs.otp }}
-          path: source-${{ steps.get_otp_version.outputs.otp }}.zip
+          name: source
+          path: source.zip
 
   docker_test:
     runs-on: ubuntu-20.04
@@ -68,35 +37,34 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        otp:
-          - 23.2.7.2-emqx-2
-          - 24.1.1-emqx-1
+        profile:
+          - emqx-edge
+          - emqx
+          - emqx-ee
         cluster_db_backend:
-          - "mnesia"
-          - "rlog"
+          - mnesia
+          - rlog
 
     steps:
     - uses: actions/download-artifact@v2
       with:
-        name: source-${{ matrix.otp }}
+        name: source
         path: .
     - name: unzip source code
-      run: unzip -q source-${{ matrix.otp }}.zip
+      run: unzip -q source.zip
     - name: make docker image
       working-directory: source
       env:
-        OTP: ${{ matrix.otp }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-2:24.1.5-2-alpine3.14
       run: |
-        make ${{ needs.prepare.outputs.profile }}-docker
-        echo "TARGET=emqx/${{ needs.prepare.outputs.profile }}" >> $GITHUB_ENV
-        echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
+        make ${{ matrix.profile }}-docker
     - name: run emqx
       timeout-minutes: 5
       working-directory: source
       run: |
         set -x
-        export EMQX_TEST_DB_BACKEND="${{ matrix.cluster_db_backend }}"
-        ./.ci/docker-compose-file/scripts/run-emqx.sh
+        IMAGE=emqx/${{ matrix.profile }}:$(./pkg-vsn.sh)
+        ./.ci/docker-compose-file/scripts/run-emqx.sh $IMAGE ${{ matrix.cluster_db_backend }}
     - name: make paho tests
       run: |
         if ! docker exec -i python /scripts/pytest.sh "${{ matrix.cluster_db_backend }}"; then
@@ -118,24 +86,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        otp:
-        - 23.2.7.2-emqx-2
-        - 24.1.1-emqx-1
+        profile:
+        - emqx
+      # - emqx-ee # TODO test enterprise
 
     steps:
     - uses: actions/download-artifact@v2
       with:
-        name: source-${{ matrix.otp }}
+        name: source
         path: .
     - name: unzip source code
-      run: unzip -q source-${{ matrix.otp }}.zip
+      run: unzip -q source.zip
     - name: make docker image
       working-directory: source
       env:
-        OTP: ${{ matrix.otp }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-2:24.1.5-2-alpine3.14
       run: |
-        make ${{ needs.prepare.outputs.profile }}-docker
-        echo "TARGET=emqx/${{ needs.prepare.outputs.profile }}" >> $GITHUB_ENV
+        make ${{ matrix.profile }}-docker
+        echo "TARGET=emqx/${{ matrix.profile }}" >> $GITHUB_ENV
         echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
     - run: minikube start
     - name: run emqx on chart

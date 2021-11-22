@@ -1,5 +1,4 @@
 x-default-emqx: &default-emqx
-    image: $TARGET:$EMQX_TAG
     env_file:
       - conf.cluster.env
     healthcheck:
@@ -15,8 +14,8 @@ services:
     restart: on-failure
     environment:
       - "EMQX_HOST=node1.emqx.io"
-      - "EMQX_CLUSTER__DB_BACKEND=rlog"
-      - "EMQX_CLUSTER__RLOG__ROLE=core"
+      - "EMQX_DB__BACKEND=rlog"
+      - "EMQX_DB__ROLE=core"
       - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io]"
       - "EMQX_LISTENERS__TCP__DEFAULT__PROXY_PROTOCOL=false"
       - "EMQX_LISTENERS__WS__DEFAULT__PROXY_PROTOCOL=false"
@@ -29,9 +28,9 @@ services:
     restart: on-failure
     environment:
       - "EMQX_HOST=node2.emqx.io"
-      - "EMQX_CLUSTER__DB_BACKEND=rlog"
-      - "EMQX_CLUSTER__RLOG__ROLE=replicant"
-      - "EMQX_CLUSTER__RLOG__CORE_NODES=emqx@node1.emqx.io"
+      - "EMQX_DB__BACKEND=rlog"
+      - "EMQX_DB__ROLE=replicant"
+      - "EMQX_DB__CORE_NODES=emqx@node1.emqx.io"
       - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io]"
       - "EMQX_LISTENERS__TCP__DEFAULT__PROXY_PROTOCOL=false"
       - "EMQX_LISTENERS__WS__DEFAULT__PROXY_PROTOCOL=false"

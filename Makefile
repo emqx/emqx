@@ -3,16 +3,20 @@ REBAR_VERSION = 3.16.1-emqx-1
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/4.4-2:23.3.4.9-3-alpine3.14
+export EMQX_DEFAULT_RUNNER = alpine:3.14
+export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
-export EMQX_DESC ?= EMQ X
 export EMQX_DASHBOARD_VERSION ?= v5.0.0-beta.18
+export DOCKERFILE := deploy/docker/Dockerfile
+export DOCKERFILE_TESTING := deploy/docker/Dockerfile.testing
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
 endif
 
 PROFILE ?= emqx
-REL_PROFILES := emqx emqx-edge
-PKG_PROFILES := emqx-pkg emqx-edge-pkg
+REL_PROFILES := emqx emqx-edge emqx-ee
+PKG_PROFILES := emqx-pkg emqx-edge-pkg emqx-ee-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 CT_NODE_NAME ?= 'test@127.0.0.1'
@@ -85,7 +89,6 @@ coveralls: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
 
 .PHONY: $(REL_PROFILES)
-
 $(REL_PROFILES:%=%): $(REBAR) get-dashboard conf-segs
 	@$(REBAR) as $(@) do compile,release
 
@@ -98,8 +101,10 @@ $(REL_PROFILES:%=%): $(REBAR) get-dashboard conf-segs
 clean: $(PROFILES:%=clean-%)
 $(PROFILES:%=clean-%):
 	@if [ -d _build/$(@:clean-%=%) ]; then \
+		rm rebar.lock \
 		rm -rf _build/$(@:clean-%=%)/rel; \
 		find _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
+		find _build/$(@:clean-%=%)  -type l -delete; \
 	fi
 
 .PHONY: clean-all
@@ -109,6 +114,7 @@ clean-all:
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)
+	@make clean # ensure clean at the end
 
 ## deps-<profile> is used in CI scripts to download deps and the
 ## share downloads between CI steps and/or copied into containers
@@ -116,6 +122,7 @@ deps-all: $(REBAR) $(PROFILES:%=deps-%)
 .PHONY: $(PROFILES:%=deps-%)
 $(PROFILES:%=deps-%): $(REBAR) get-dashboard
 	@$(REBAR) as $(@:deps-%=%) get-deps
+	@rm -f rebar.lock
 
 .PHONY: xref
 xref: $(REBAR)
@@ -173,6 +180,18 @@ $1-docker: $(COMMON_DEPS)
 endef
 ALL_ZIPS = $(REL_PROFILES)
 $(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target,$(zt))))
+
+## emqx-docker-testing
+## emqx-ee-docker-testing
+## is to directly copy a unzipped zip-package to a
+## base image such as ubuntu20.04. Mostly for testing
+.PHONY: $(REL_PROFILES:%=%-docker-testing)
+define gen-docker-target-testing
+$1-docker-testing: $(COMMON_DEPS)
+	@$(BUILD) $1 docker-testing
+endef
+ALL_ZIPS = $(REL_PROFILES)
+$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target-testing,$(zt))))
 
 conf-segs:
 	@scripts/merge-config.escript
