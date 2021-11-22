@@ -335,7 +335,7 @@ with_authn(GwName0, Fun) ->
 
 -spec with_listener_authn(binary(), binary(), function()) -> any().
 with_listener_authn(GwName0, Id, Fun) ->
-    with_gateway(GwName0, fun(GwName) ->
+    with_gateway(GwName0, fun(GwName, _GwConf) ->
         Authn = emqx_gateway_http:authn(GwName, Id),
         Fun(GwName, Authn)
     end).

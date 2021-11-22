@@ -796,11 +796,12 @@ add_user(_, _, #{<<"user_id">> := _}) ->
 add_user(_, _, _) ->
     serialize_error({missing_parameter, user_id}).
 
-update_user(ChainName, AuthenticatorID, UserID, UserInfo) ->
-    case maps:with([<<"password">>, <<"is_superuser">>], UserInfo) =:= #{} of
+update_user(ChainName, AuthenticatorID, UserID, UserInfo0) ->
+    case maps:with([<<"password">>, <<"is_superuser">>], UserInfo0) =:= #{} of
         true ->
             serialize_error({missing_parameter, password});
         false ->
+            UserInfo = emqx_map_lib:safe_atom_key_map(UserInfo0),
             case emqx_authentication:update_user(ChainName, AuthenticatorID, UserID, UserInfo) of
                 {ok, User} ->
                     {200, User};
@@ -907,7 +908,7 @@ serialize_error({bad_ssl_config, Details}) ->
             message => binfmt("bad_ssl_config ~p", [Details])}};
 serialize_error({missing_parameter, Detail}) ->
     {400, #{code => <<"MISSING_PARAMETER">>,
-            message => binfmt("Missing required parameter", [Detail])}};
+            message => binfmt("Missing required parameter: ~p", [Detail])}};
 serialize_error({invalid_parameter, Name}) ->
     {400, #{code => <<"INVALID_PARAMETER">>,
             message => binfmt("Invalid value for '~p'", [Name])}};

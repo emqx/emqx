@@ -286,9 +286,7 @@ schema("/gateway/:name/authentication/users/:uid") ->
                 , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
                 , 500 => error_codes([?INTERNAL_ERROR],
                                      <<"Ineternal Server Error">>)
-                , 200 => emqx_dashboard_swagger:schema_with_example(
-                           ref(emqx_authn_api, response_user),
-                           emqx_authn_api:response_user_examples())
+                , 204 => <<"User Deleted">>
                 }
            }
      };
