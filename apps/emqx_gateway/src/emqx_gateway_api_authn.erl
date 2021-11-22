@@ -82,6 +82,7 @@ authn(get, #{bindings := #{name := Name0}}) ->
 authn(put, #{bindings := #{name := Name0},
              body := Body}) ->
     with_gateway(Name0, fun(GwName, _) ->
+        %% TODO: return the authn instances?
         ok = emqx_gateway_http:update_authn(GwName, Body),
         {204}
     end);
@@ -89,6 +90,7 @@ authn(put, #{bindings := #{name := Name0},
 authn(post, #{bindings := #{name := Name0},
               body := Body}) ->
     with_gateway(Name0, fun(GwName, _) ->
+        %% TODO: return the authn instances?
         ok = emqx_gateway_http:add_authn(GwName, Body),
         {204}
     end);
@@ -210,7 +212,8 @@ schema("/gateway/:name/authentication/users") ->
     #{ 'operationId' => users
      , get =>
          #{ description => <<"Get the users for the authentication">>
-          , parameters => params_gateway_name_in_path()
+          , parameters => params_gateway_name_in_path() ++
+                          params_paging_in_qs()
           , responses =>
               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -224,6 +227,9 @@ schema("/gateway/:name/authentication/users") ->
        post =>
          #{ description => <<"Add user for the authentication">>
           , parameters => params_gateway_name_in_path()
+          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                               ref(emqx_authn_api, request_user_create),
+                               emqx_authn_api:request_user_create_examples())
           , responses =>
               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -257,6 +263,9 @@ schema("/gateway/:name/authentication/users/:uid") ->
                               "authentication">>
            , parameters => params_gateway_name_in_path() ++
                            params_userid_in_path()
+           , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                                ref(emqx_authn_api, request_user_update),
+                                emqx_authn_api:request_user_update_examples())
            , responses =>
                #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
                 , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -271,8 +280,7 @@ schema("/gateway/:name/authentication/users/:uid") ->
           #{ description => <<"Delete the user for the gateway "
                               "authentication">>
            , parameters => params_gateway_name_in_path() ++
-                           params_userid_in_path() ++
-                           params_paging_in_qs()
+                           params_userid_in_path()
            , responses =>
                #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
                 , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -325,10 +333,12 @@ params_userid_in_path() ->
 params_paging_in_qs() ->
     [{page, mk(integer(),
                #{ in => query
-                , desc => <<"Page Number">>
+                , nullable => true
+                , desc => <<"Page Index">>
                 })},
      {limit, mk(integer(),
                 #{ in => query
+                 , nullable => true
                  , desc => <<"Page Limit">>
                  })}
     ].

@@ -353,7 +353,8 @@ schema("/gateway/:name/listeners/:id/authentication/users") ->
      , get =>
          #{ description => <<"Get the users for the authentication">>
           , parameters => params_gateway_name_in_path() ++
-                          params_listener_id_in_path()
+                          params_listener_id_in_path() ++
+                          params_paging_in_qs()
           , responses =>
               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -368,6 +369,9 @@ schema("/gateway/:name/listeners/:id/authentication/users") ->
          #{ description => <<"Add user for the authentication">>
           , parameters => params_gateway_name_in_path() ++
                           params_listener_id_in_path()
+          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                               ref(emqx_authn_api, request_user_create),
+                               emqx_authn_api:request_user_create_examples())
           , responses =>
               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -403,6 +407,9 @@ schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
            , parameters => params_gateway_name_in_path() ++
                            params_listener_id_in_path() ++
                            params_userid_in_path()
+          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                               ref(emqx_authn_api, request_user_update),
+                               emqx_authn_api:request_user_update_examples())
            , responses =>
                #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
                 , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -418,8 +425,7 @@ schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
                               "authentication">>
            , parameters => params_gateway_name_in_path() ++
                            params_listener_id_in_path() ++
-                           params_userid_in_path() ++
-                           params_paging_in_qs()
+                           params_userid_in_path()
            , responses =>
                #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
                 , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -481,10 +487,12 @@ params_userid_in_path() ->
 params_paging_in_qs() ->
     [{page, mk(integer(),
                #{ in => query
-                , desc => <<"Page Number">>
+                , nullable => true
+                , desc => <<"Page Index">>
                 })},
      {limit, mk(integer(),
                 #{ in => query
+                 , nullable => true
                  , desc => <<"Page Limit">>
                  })}
     ].
@@ -630,7 +638,7 @@ common_listener_opts() ->
 %% examples
 
 examples_listener_list() ->
-    [examples_listener()].
+    #{stomp_listeners => [examples_listener()]}.
 
 examples_listener() ->
-    #{id => true}.
+    #{}.

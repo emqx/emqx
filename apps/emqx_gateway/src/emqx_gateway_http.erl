@@ -328,7 +328,7 @@ codestr(500) -> 'UNKNOW_ERROR'.
 
 -spec with_authn(binary(), function()) -> any().
 with_authn(GwName0, Fun) ->
-    with_gateway(GwName0, fun(GwName) ->
+    with_gateway(GwName0, fun(GwName, _GwConf) ->
         Authn = emqx_gateway_http:authn(GwName),
         Fun(GwName, Authn)
     end).
