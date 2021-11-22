@@ -121,8 +121,12 @@ do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewCo
             {error, Reason}
     end;
 do_post_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, NewConfig, _OldConfig, _AppEnvs) ->
-    NConfig = get_authenticator_config(authenticator_id(Config), NewConfig),
-    emqx_authentication:update_authenticator(ChainName, AuthenticatorID, NConfig);
+    case get_authenticator_config(authenticator_id(Config), NewConfig) of
+        {error, not_found} ->
+            {error, {not_found, {authenticator, AuthenticatorID}}};
+        NConfig ->
+            emqx_authentication:update_authenticator(ChainName, AuthenticatorID, NConfig)
+    end;
 do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}, _NewConfig, _OldConfig, _AppEnvs) ->
     emqx_authentication:move_authenticator(ChainName, AuthenticatorID, Position).
 
@@ -205,8 +209,10 @@ clear_certs(CertsDir, Config) ->
     ok = emqx_tls_lib:delete_ssl_files(CertsDir, undefined, OldSSL).
 
 get_authenticator_config(AuthenticatorID, AuthenticatorsConfig) ->
-    [C] = [C0 || C0 <- AuthenticatorsConfig, AuthenticatorID == authenticator_id(C0)],
-    C.
+    case [C0 || C0 <- AuthenticatorsConfig, AuthenticatorID == authenticator_id(C0)] of
+        [C | _] -> C;
+        [] -> {error, not_found}
+    end.
 
 split_by_id(ID, AuthenticatorsConfig) ->
     case lists:foldl(
