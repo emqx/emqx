@@ -207,9 +207,10 @@ if ! check_erlang_start >/dev/null 2>&1; then
     export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
     if ! check_erlang_start; then
         ## it's hopeless
-        echoerr "FATAL: Unable to start Erlang (with libcrypto)."
-        echoerr "Please make sure it's running on the correct platform with all required dependencies."
-        echoerr "This EMQ X release is built for $BUILT_ON"
+        echoerr "FATAL: Unable to start Erlang."
+        echoerr "Please make sure openssl-1.1.1 (libcrypto) and libncurses are installed."
+        echoerr "Also ensure it's running on the correct platform,"
+        echoerr "this EMQ X release is built for $BUILT_ON"
         exit 1
     fi
     echoerr "WARNING: There seem to be missing dynamic libs from the OS. Using libs from ${DYNLIBS_DIR}"

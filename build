@@ -116,7 +116,11 @@ cp_dyn_libs() {
     mkdir -p "$target_dir"
     while read -r so_file; do
         cp -L "$so_file" "$target_dir/"
-    done < <(find "$rel_dir" -type f \( -name "*.so*" -o -name "beam.smp" \) -print0 | xargs -0 ldd | grep -E '^\s+.*=>\s(/lib|/usr)' | awk '{print $3}')
+    done < <(find "$rel_dir" -type f \( -name "*.so*" -o -name "beam.smp" \) -print0 \
+        | xargs -0 ldd \
+        | grep -E '(libcrypto)|(libtinfo)' \
+        | awk '{print $3}' \
+        | sort -u)
 }
 
 ## make_zip turns .tar.gz into a .zip with a slightly different name.
