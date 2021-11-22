@@ -338,7 +338,19 @@ do_format_output(BridgeChannelId) when is_binary(BridgeChannelId) ->
     BridgeChannelId.
 
 get_rule_metrics(Id) ->
-    [maps:put(node, Node, rpc:call(Node, emqx_rule_metrics, get_rule_metrics, [Id]))
+    Format = fun (Node, #{matched := Matched,
+                          speed := Current,
+                          speed_max := Max,
+                          speed_last5m := Last5M
+                        }) ->
+        #{ matched => Matched
+         , speed => Current
+         , speed_max => Max
+         , speed_last5m => Last5M
+         , node => Node
+         }
+    end,
+    [Format(Node, rpc:call(Node, emqx_plugin_libs_metrics, get_metrics, [rule_metrics, Id]))
      || Node <- mria_mnesia:running_nodes()].
 
 get_one_rule(AllRules, Id) ->

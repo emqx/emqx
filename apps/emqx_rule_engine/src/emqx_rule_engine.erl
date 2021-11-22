@@ -163,10 +163,10 @@ load_hooks_for_rule(#{from := Topics}) ->
     lists:foreach(fun emqx_rule_events:load/1, Topics).
 
 add_metrics_for_rule(#{id := Id}) ->
-    ok = emqx_rule_metrics:create_rule_metrics(Id).
+    ok = emqx_plugin_libs_metrics:create_metrics(rule_metrics, Id).
 
 clear_metrics_for_rule(#{id := Id}) ->
-    ok = emqx_rule_metrics:clear_rule_metrics(Id).
+    ok = emqx_plugin_libs_metrics:clear_metrics(rule_metrics, Id).
 
 unload_hooks_for_rule(#{id := Id, from := Topics}) ->
     lists:foreach(fun(Topic) ->

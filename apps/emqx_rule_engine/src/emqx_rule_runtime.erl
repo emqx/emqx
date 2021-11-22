@@ -99,7 +99,7 @@ do_apply_rule(#{
     case ?RAISE(match_conditions(Conditions, ColumnsAndSelected),
                 {match_conditions_error, {_EXCLASS_,_EXCPTION_,_ST_}}) of
         true ->
-            ok = emqx_rule_metrics:inc(RuleId, 'rules.matched'),
+            ok = emqx_plugin_libs_metrics:inc_matched(rule_metrics, RuleId),
             Collection2 = filter_collection(Input, InCase, DoEach, Collection),
             {ok, [handle_output_list(Outputs, Coll, Input) || Coll <- Collection2]};
         false ->
@@ -117,7 +117,7 @@ do_apply_rule(#{id := RuleId,
     case ?RAISE(match_conditions(Conditions, maps:merge(Input, Selected)),
                 {match_conditions_error, {_EXCLASS_,_EXCPTION_,_ST_}}) of
         true ->
-            ok = emqx_rule_metrics:inc(RuleId, 'rules.matched'),
+            ok = emqx_plugin_libs_metrics:inc_matched(rule_metrics, RuleId),
             {ok, handle_output_list(Outputs, Selected, Input)};
         false ->
             {error, nomatch}
