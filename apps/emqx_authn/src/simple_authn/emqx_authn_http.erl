@@ -133,7 +133,7 @@ create(#{ method := Method
     case emqx_resource:create_local(Unique,
                                     emqx_connector_http,
                                     Config#{base_url => maps:remove(query, URIMap),
-                                            pool_type => hash}) of
+                                            pool_type => random}) of
         {ok, already_created} ->
             {ok, State};
         {ok, _} ->
@@ -165,7 +165,7 @@ authenticate(Credential, #{'_unique' := Unique,
                 {ok, NBody} ->
                     %% TODO: Return by user property
                     {ok, #{is_superuser => maps:get(<<"is_superuser">>, NBody, false),
-                           user_property => NBody}};
+                           user_property => maps:remove(<<"is_superuser">>, NBody)}};
                 {error, _Reason} ->
                     {ok, #{is_superuser => false}}
             end;
@@ -173,7 +173,23 @@ authenticate(Credential, #{'_unique' := Unique,
             ?SLOG(error, #{msg => "http_server_query_failed",
                            resource => Unique,
                            reason => Reason}),
-            ignore
+            ignore;
+        Other ->
+            Output = may_append_body(#{resource => Unique}, Other),
+            case erlang:element(2, Other) of
+                Code5xx when Code5xx >= 500 andalso Code5xx < 600 ->
+                    ?SLOG(error, Output#{msg => "http_server_error",
+                                         code => Code5xx}),
+                    ignore;
+                Code4xx when Code4xx >= 400 andalso Code4xx < 500 ->
+                    ?SLOG(warning, Output#{msg => "refused_by_http_server",
+                                           code => Code4xx}),
+                    {error, not_authorized};
+                OtherCode ->
+                    ?SLOG(error, Output#{msg => "undesired_response_code",
+                                           code => OtherCode}),
+                    ignore
+            end
     end.
 
 destroy(#{'_unique' := Unique}) ->
@@ -304,6 +320,11 @@ parse_body(<<"application/x-www-form-urlencoded">>, Body) ->
     {ok, maps:from_list(cow_qs:parse_qs(Body))};
 parse_body(ContentType, _) ->
     {error, {unsupported_content_type, ContentType}}.
+
+may_append_body(Output, {ok, _, _, Body}) ->
+    Output#{body => Body};
+may_append_body(Output, {ok, _, _}) ->
+    Output.
 
 to_list(A) when is_atom(A) ->
     atom_to_list(A);
