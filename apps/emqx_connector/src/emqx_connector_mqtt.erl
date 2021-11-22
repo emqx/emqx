@@ -127,10 +127,11 @@ on_stop(_InstId, #{name := InstanceId}) ->
                 connector => InstanceId, reason => Reason})
     end.
 
-on_query(_InstId, {send_message, Msg}, _AfterQuery, #{name := InstanceId}) ->
+on_query(_InstId, {send_message, Msg}, AfterQuery, #{name := InstanceId}) ->
     ?SLOG(debug, #{msg => "send msg to remote node", message => Msg,
         connector => InstanceId}),
-    emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg).
+    emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg),
+    emqx_resource:query_success(AfterQuery).
 
 on_health_check(_InstId, #{name := InstanceId} = State) ->
     case emqx_connector_mqtt_worker:ping(InstanceId) of

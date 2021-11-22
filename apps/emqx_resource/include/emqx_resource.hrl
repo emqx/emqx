@@ -28,7 +28,7 @@
     status => started | stopped
 }.
 -type resource_group() :: binary().
--type after_query() :: {OnSuccess :: after_query_fun(), OnFailed :: after_query_fun()} |
+-type after_query() :: {[OnSuccess :: after_query_fun()], [OnFailed :: after_query_fun()]} |
     undefined.
 
 %% the `after_query_fun()` is mainly for callbacks that increment counters or do some fallback

@@ -32,17 +32,20 @@ init([]) ->
     _ = ets:new(emqx_resource_instance, TabOpts),
 
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
+    Metrics = emqx_plugin_libs_metrics:child_spec(resource_metrics),
+
     Pool = ?RESOURCE_INST_MOD,
     Mod = ?RESOURCE_INST_MOD,
     ensure_pool(Pool, hash, [{size, ?POOL_SIZE}]),
-    {ok, {SupFlags, [
+    ResourceInsts = [
         begin
             ensure_pool_worker(Pool, {Pool, Idx}, Idx),
             #{id => {Mod, Idx},
               start => {Mod, start_link, [Pool, Idx]},
               restart => transient,
               shutdown => 5000, type => worker, modules => [Mod]}
-        end || Idx <- lists:seq(1, ?POOL_SIZE)]}}.
+        end || Idx <- lists:seq(1, ?POOL_SIZE)],
+    {ok, {SupFlags, [Metrics | ResourceInsts]}}.
 
 %% internal functions
 ensure_pool(Pool, Type, Opts) ->

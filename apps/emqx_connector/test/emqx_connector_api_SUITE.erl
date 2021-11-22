@@ -25,7 +25,8 @@
 -define(CONF_DEFAULT, <<"connectors: {}">>).
 -define(BRIDGE_CONF_DEFAULT, <<"bridges: {}">>).
 -define(CONNECTR_ID, <<"mqtt:test_connector">>).
--define(BRIDGE_ID, <<"mqtt:test_bridge">>).
+-define(BRIDGE_ID_INGRESS, <<"mqtt:ingress_test_bridge">>).
+-define(BRIDGE_ID_EGRESS, <<"mqtt:egress_test_bridge">>).
 -define(MQTT_CONNECOTR(Username),
 #{
     <<"server">> => <<"127.0.0.1:1883">>,
@@ -37,7 +38,7 @@
 -define(MQTT_CONNECOTR2(Server),
     ?MQTT_CONNECOTR(<<"user1">>)#{<<"server">> => Server}).
 
--define(MQTT_BRIDGE(ID),
+-define(MQTT_BRIDGE_INGRESS(ID),
 #{
     <<"connector">> => ID,
     <<"direction">> => <<"ingress">>,
@@ -48,6 +49,22 @@
     <<"qos">> => <<"${qos}">>,
     <<"retain">> => <<"${retain}">>
 }).
+
+-define(MQTT_BRIDGE_EGRESS(ID),
+#{
+    <<"connector">> => ID,
+    <<"direction">> => <<"egress">>,
+    <<"from_local_topic">> => <<"local_topic/#">>,
+    <<"to_remote_topic">> => <<"remote_topic/${topic}">>,
+    <<"payload">> => <<"${payload}">>,
+    <<"qos">> => <<"${qos}">>,
+    <<"retain">> => <<"${retain}">>
+}).
+
+-define(metrics(MATCH, SUCC, FAILED, SPEED, SPEED5M, SPEEDMAX),
+    #{<<"matched">> := MATCH, <<"success">> := SUCC,
+      <<"failed">> := FAILED, <<"speed">> := SPEED,
+      <<"speed_last5m">> := SPEED5M, <<"speed_max">> := SPEEDMAX}).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -162,7 +179,7 @@ t_mqtt_crud_apis(_) ->
          }, jsx:decode(ErrMsg2)),
     ok.
 
-t_mqtt_conn_bridge(_) ->
+t_mqtt_conn_bridge_ingress(_) ->
     %% assert we there's no connectors and no bridges at first
     {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
@@ -184,10 +201,10 @@ t_mqtt_conn_bridge(_) ->
     %% ... and a MQTT bridge, using POST
     %% we bind this bridge to the connector created just now
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
-                                ?MQTT_BRIDGE(?CONNECTR_ID)#{<<"id">> => ?BRIDGE_ID}),
+                                ?MQTT_BRIDGE_INGRESS(?CONNECTR_ID)#{<<"id">> => ?BRIDGE_ID_INGRESS}),
 
     %ct:pal("---bridge: ~p", [Bridge]),
-    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
+    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_INGRESS
                   , <<"bridge_type">> := <<"mqtt">>
                   , <<"status">> := <<"connected">>
                   , <<"connector">> := ?CONNECTR_ID
@@ -217,7 +234,77 @@ t_mqtt_conn_bridge(_) ->
         end),
 
     %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID_INGRESS]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    %% delete the connector
+    {ok, 204, <<>>} = request(delete, uri(["connectors", ?CONNECTR_ID]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
+    ok.
+
+t_mqtt_conn_bridge_egress(_) ->
+    %% assert we there's no connectors and no bridges at first
+    {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    %% then we add a mqtt connector, using POST
+    User1 = <<"user1">>,
+    {ok, 201, Connector} = request(post, uri(["connectors"]),
+                                ?MQTT_CONNECOTR(User1)#{<<"id">> => ?CONNECTR_ID}),
+
+    %ct:pal("---connector: ~p", [Connector]),
+    ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
+                  , <<"server">> := <<"127.0.0.1:1883">>
+                  , <<"username">> := User1
+                  , <<"password">> := <<"">>
+                  , <<"proto_ver">> := <<"v4">>
+                  , <<"ssl">> := #{<<"enable">> := false}
+                  }, jsx:decode(Connector)),
+
+    %% ... and a MQTT bridge, using POST
+    %% we bind this bridge to the connector created just now
+    {ok, 201, Bridge} = request(post, uri(["bridges"]),
+                                ?MQTT_BRIDGE_EGRESS(?CONNECTR_ID)#{<<"id">> => ?BRIDGE_ID_EGRESS}),
+
+    %ct:pal("---bridge: ~p", [Bridge]),
+    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_EGRESS
+                  , <<"bridge_type">> := <<"mqtt">>
+                  , <<"status">> := <<"connected">>
+                  , <<"connector">> := ?CONNECTR_ID
+                  }, jsx:decode(Bridge)),
+
+    %% we now test if the bridge works as expected
+    LocalTopic = <<"local_topic/1">>,
+    RemoteTopic = <<"remote_topic/", LocalTopic/binary>>,
+    Payload = <<"hello">>,
+    emqx:subscribe(RemoteTopic),
+    %% PUBLISH a message to the 'local' broker, as we have only one broker,
+    %% the remote broker is also the local one.
+    emqx:publish(emqx_message:make(LocalTopic, Payload)),
+
+    %% we should receive a message on the "remote" broker, with specified topic
+    ?assert(
+        receive
+            {deliver, RemoteTopic, #message{payload = Payload}} ->
+                ct:pal("local broker got message: ~p on topic ~p", [Payload, RemoteTopic]),
+                true;
+            Msg ->
+                ct:pal("Msg: ~p", [Msg]),
+                false
+        after 100 ->
+            false
+        end),
+
+    %% verify the metrics of the bridge
+    {ok, 200, BridgeStr} = request(get, uri(["bridges", ?BRIDGE_ID_EGRESS]), []),
+    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_EGRESS
+                  , <<"metrics">> := ?metrics(1, 1, 0, _, _, _)
+                  , <<"node_metrics">> :=
+                      [#{<<"node">> := _, <<"metrics">> := ?metrics(1, 1, 0, _, _, _)}]
+                  }, jsx:decode(BridgeStr)),
+
+    %% delete the bridge
+    {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID_EGRESS]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     %% delete the connector
@@ -245,8 +332,8 @@ t_mqtt_conn_update(_) ->
     %% ... and a MQTT bridge, using POST
     %% we bind this bridge to the connector created just now
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
-                                ?MQTT_BRIDGE(?CONNECTR_ID)#{<<"id">> => ?BRIDGE_ID}),
-    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
+                                ?MQTT_BRIDGE_EGRESS(?CONNECTR_ID)#{<<"id">> => ?BRIDGE_ID_EGRESS}),
+    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_EGRESS
                   , <<"bridge_type">> := <<"mqtt">>
                   , <<"status">> := <<"connected">>
                   , <<"connector">> := ?CONNECTR_ID
@@ -260,7 +347,7 @@ t_mqtt_conn_update(_) ->
     {ok, 200, _} = request(put, uri(["connectors", ?CONNECTR_ID]),
                                  ?MQTT_CONNECOTR2(<<"127.0.0.1 : 1883">>)),
     %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID_EGRESS]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     %% delete the connector
