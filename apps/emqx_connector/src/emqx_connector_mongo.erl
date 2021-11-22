@@ -181,11 +181,12 @@ health_check(PoolName) ->
 
 %% ===================================================================
 connect(Opts) ->
-    Type = proplists:get_value(mongo_type, Opts, single),
+    Type = proplists:get_value(type, Opts, single),
     Hosts = proplists:get_value(hosts, Opts, []),
     Options = proplists:get_value(options, Opts, []),
     WorkerOptions = proplists:get_value(worker_options, Opts, []),
     mongo_api:connect(Type, Hosts, Options, WorkerOptions).
+
 
 mongo_query(Conn, find, Collection, Selector, Projector) ->
     mongo_api:find(Conn, Collection, Selector, Projector);

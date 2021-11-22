@@ -14,7 +14,7 @@ up:
 	env \
 		MYSQL_TAG=8 \
 		REDIS_TAG=6 \
-		MONGO_TAG=4 \
+		MONGO_TAG=5 \
 		PGSQL_TAG=13 \
 		LDAP_TAG=2.4.50 \
 	docker-compose \
