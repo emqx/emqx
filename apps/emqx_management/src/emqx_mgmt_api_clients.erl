@@ -457,6 +457,7 @@ keepalive_api() ->
                 ],
             responses => #{
                 <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
+                <<"400">> => emqx_mgmt_util:error_schema(<<"">>, 'PARAMS_ERROR'),
                 <<"200">> => emqx_mgmt_util:schema(<<"ok">>)}}},
     {"/clients/:clientid/keepalive", Metadata, set_keepalive}.
 %%%==============================================================================================
@@ -509,7 +510,8 @@ set_keepalive(put, #{bindings := #{clientid := ClientID}, query_string := Query}
             Interval = binary_to_integer(Interval0),
             case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientID), Interval) of
                 ok -> {200};
-                {error, not_found} ->{404, ?CLIENT_ID_NOT_FOUND}
+                {error, not_found} ->{404, ?CLIENT_ID_NOT_FOUND};
+                {error, Reason} -> {400, #{code => 'PARAMS_ERROR', message => Reason}}
             end
     end.
 
