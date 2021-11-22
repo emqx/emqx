@@ -471,27 +471,20 @@ traces(_) ->
     ]).
 
 trace_cluster_on(Name, Type, Filter, DurationS0) ->
-    case erlang:whereis(emqx_trace) of
-        undefined ->
-            emqx_ctl:print("[error] Tracer module not started~n"
-            "Please run `emqxctl modules start tracer` "
-            "or `emqxctl modules start emqx_trace` first~n", []);
-        _ ->
-            DurationS = list_to_integer(DurationS0),
-            Now = erlang:system_time(second),
-            Trace = #{ name => list_to_binary(Name)
-                , type => atom_to_binary(Type)
-                , Type => list_to_binary(Filter)
-                , start_at => list_to_binary(calendar:system_time_to_rfc3339(Now))
-                , end_at => list_to_binary(calendar:system_time_to_rfc3339(Now + DurationS))
-            },
-            case emqx_trace:create(Trace) of
-                ok ->
-                    emqx_ctl:print("cluster_trace ~p ~s ~s successfully~n", [Type, Filter, Name]);
-                {error, Error} ->
-                    emqx_ctl:print("[error] cluster_trace ~s ~s=~s ~p~n",
-                        [Name, Type, Filter, Error])
-            end
+    DurationS = list_to_integer(DurationS0),
+    Now = erlang:system_time(second),
+    Trace = #{ name => list_to_binary(Name)
+             , type => atom_to_binary(Type)
+             , Type => list_to_binary(Filter)
+             , start_at => list_to_binary(calendar:system_time_to_rfc3339(Now))
+             , end_at => list_to_binary(calendar:system_time_to_rfc3339(Now + DurationS))
+             },
+    case emqx_trace:create(Trace) of
+        ok ->
+            emqx_ctl:print("cluster_trace ~p ~s ~s successfully~n", [Type, Filter, Name]);
+        {error, Error} ->
+            emqx_ctl:print("[error] cluster_trace ~s ~s=~s ~p~n",
+                [Name, Type, Filter, Error])
     end.
 
 trace_cluster_del(Name) ->

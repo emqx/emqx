@@ -31,12 +31,12 @@
 all() -> [t_trace_clientid, t_trace_topic, t_trace_ip_address].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([]).
 
 init_per_testcase(t_trace_clientid, Config) ->
     Config;
@@ -70,12 +70,12 @@ t_trace_clientid(_Config) ->
     ?assert(filelib:is_regular("tmp/client3.log")),
 
     %% Get current traces
-    ?assertEqual([#{type => clientid, filter => "client", name => <<"client">>,
-        id => trace_clientid_client, level => debug, dst => "tmp/client.log"},
-        #{type => clientid, filter => "client2", name => <<"client2">>,
-            id => trace_clientid_client2, level => debug, dst => "tmp/client2.log"},
-        #{type => clientid, filter => "client3", name => <<"client3">>,
-            id => trace_clientid_client3, level => debug, dst => "tmp/client3.log"}
+    ?assertMatch([#{type := clientid, filter := "client", name := <<"client">>,
+        level := debug, dst := "tmp/client.log"},
+        #{type := clientid, filter := "client2", name := <<"client2">>
+            , level := debug, dst := "tmp/client2.log"},
+        #{type := clientid, filter := "client3", name := <<"client3">>,
+            level := debug, dst := "tmp/client3.log"}
     ], emqx_trace_handler:running()),
 
     %% Client with clientid = "client" publishes a "hi" message to "a/b/c".
@@ -116,10 +116,10 @@ t_trace_topic(_Config) ->
     ?assert(filelib:is_regular("tmp/topic_trace_y.log")),
 
     %% Get current traces
-    ?assertEqual([#{type => topic, filter => <<"x/#">>, id => 'trace_topic_x/#',
-                    level => debug, dst => "tmp/topic_trace_x.log", name => <<"x/#">>},
-                  #{type => topic, filter => <<"y/#">>, id => 'trace_topic_y/#',
-                      name => <<"y/#">>, level => debug, dst => "tmp/topic_trace_y.log"}
+    ?assertMatch([#{type := topic, filter := <<"x/#">>,
+                    level := debug, dst := "tmp/topic_trace_x.log", name := <<"x/#">>},
+                  #{type := topic, filter := <<"y/#">>,
+                      name := <<"y/#">>, level := debug, dst := "tmp/topic_trace_y.log"}
                  ],
         emqx_trace_handler:running()),
 
@@ -159,12 +159,12 @@ t_trace_ip_address(_Config) ->
     ?assert(filelib:is_regular("tmp/ip_trace_y.log")),
 
     %% Get current traces
-    ?assertEqual([#{type => ip_address, filter => "127.0.0.1",
-                    id => 'trace_ip_address_127.0.0.1', name => <<"127.0.0.1">>,
-                    level => debug, dst => "tmp/ip_trace_x.log"},
-                  #{type => ip_address, filter => "192.168.1.1",
-                    id => 'trace_ip_address_192.168.1.1', name => <<"192.168.1.1">>,
-                    level => debug, dst => "tmp/ip_trace_y.log"}
+    ?assertMatch([#{type := ip_address, filter := "127.0.0.1",
+                    name := <<"127.0.0.1">>,
+                    level := debug, dst := "tmp/ip_trace_x.log"},
+                  #{type := ip_address, filter := "192.168.1.1",
+                      name := <<"192.168.1.1">>,
+                    level := debug, dst := "tmp/ip_trace_y.log"}
                  ],
         emqx_trace_handler:running()),
 

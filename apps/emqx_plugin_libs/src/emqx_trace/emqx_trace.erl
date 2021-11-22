@@ -20,6 +20,8 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-logger_header("[Tracer]").
+
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
@@ -124,7 +126,7 @@ create(Trace) ->
                 {error, Reason} -> {error, Reason}
             end;
         false ->
-            {error, "The number of traces created has reached the maximum"
+            {error, "The number of traces created has reache the maximum"
             " please delete the useless ones first"}
     end.
 
@@ -282,7 +284,7 @@ get_enable_trace() ->
     {atomic, Traces} =
         mria:transaction(?COMMON_SHARD, fun() ->
             mnesia:match_object(?TRACE, #?TRACE{enable = true, _ = '_'}, read)
-                                        end),
+                           end),
     Traces.
 
 find_closest_time(Traces, Now) ->
@@ -375,11 +377,16 @@ to_trace(TraceParam) ->
             {error, "type=[topic,clientid,ip_address] required"};
         {ok, #?TRACE{filter = undefined}} ->
             {error, "topic/clientid/ip_address filter required"};
-        {ok, TraceRec0} ->
-            case fill_default(TraceRec0) of
-                #?TRACE{start_at = Start, end_at = End} when End =< Start ->
-                    {error, "failed by start_at >= end_at"};
-                TraceRec -> {ok, TraceRec}
+        {ok, TraceRec0 = #?TRACE{name = Name, type = Type}} ->
+            case emqx_trace_handler:handler_id(Name, Type) of
+                {ok, _} ->
+                    case fill_default(TraceRec0) of
+                        #?TRACE{start_at = Start, end_at = End} when End =< Start ->
+                            {error, "failed by start_at >= end_at"};
+                        TraceRec -> {ok, TraceRec}
+                    end;
+                {error, Reason} ->
+                    {error, Reason}
             end
     end.
 
@@ -399,10 +406,13 @@ fill_default(Trace) -> Trace.
 
 to_trace([], Rec) -> {ok, Rec};
 to_trace([{name, Name} | Trace], Rec) ->
-    case binary:match(Name, [<<"/">>], []) of
-        nomatch when byte_size(Name) < 200 -> to_trace(Trace, Rec#?TRACE{name = Name});
-        nomatch -> {error, "name(latin1) length must < 200"};
-        _ -> {error, "name cannot contain /"}
+    case io_lib:printable_unicode_list(binary_to_list(Name)) of
+        true ->
+            case binary:match(Name, [<<"/">>], []) of
+                nomatch -> to_trace(Trace, Rec#?TRACE{name = Name});
+                _ -> {error, "name cannot contain /"}
+            end;
+        false -> {error, "name must printable unicode"}
     end;
 to_trace([{type, Type} | Trace], Rec) ->
     case lists:member(Type, [<<"clientid">>, <<"topic">>, <<"ip_address">>]) of

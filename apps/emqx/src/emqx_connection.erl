@@ -679,7 +679,7 @@ next_incoming_msgs(Packets) ->
 
 handle_incoming(Packet, State) when is_record(Packet, mqtt_packet) ->
     ok = inc_incoming_stats(Packet),
-    ?SLOG(debug, #{msg => "RECV_packet", packet => Packet}),
+    ?SLOG(debug, #{msg => "RECV_packet", packet => emqx_packet:format(Packet)}),
     with_channel(handle_in, [Packet], State);
 
 handle_incoming(FrameError, State) ->

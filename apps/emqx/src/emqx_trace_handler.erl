@@ -19,6 +19,8 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
+-logger_header("[Tracer]").
+
 %% APIs
 -export([ running/0
         , install/3
@@ -32,6 +34,8 @@
         , filter_topic/2
         , filter_ip_address/2
         ]).
+
+-export([handler_id/2]).
 
 -type tracer() :: #{
                     name := binary(),
@@ -109,8 +113,10 @@ install(Who, Level, LogFile) ->
 -spec uninstall(Type :: clientid | topic | ip_address,
                 Name :: binary() | list()) -> ok | {error, term()}.
 uninstall(Type, Name) ->
-    HandlerId = handler_id(#{type => Type, name => ensure_bin(Name)}),
-    uninstall(HandlerId).
+    case handler_id(ensure_bin(Name), Type) of
+        {ok, HandlerId} -> uninstall(HandlerId);
+        {error, Reason} -> {error, Reason}
+    end.
 
 -spec uninstall(HandlerId :: atom()) -> ok | {error, term()}.
 uninstall(HandlerId) ->
@@ -133,64 +139,74 @@ uninstall(HandlerId) ->
 running() ->
     lists:foldl(fun filter_traces/2, [], emqx_logger:get_log_handlers(started)).
 
--spec filter_clientid(logger:log_event(), string()) -> logger:log_event() | ignore.
-filter_clientid(#{meta := #{clientid := ClientId}} = Log, ClientId) -> Log;
+-spec filter_clientid(logger:log_event(), {string(), atom()}) -> logger:log_event() | ignore.
+filter_clientid(#{meta := #{clientid := ClientId}} = Log, {ClientId, _Name}) -> Log;
 filter_clientid(_Log, _ExpectId) -> ignore.
 
--spec filter_topic(logger:log_event(), string()) -> logger:log_event() | ignore.
-filter_topic(#{meta := #{topic := Topic}} = Log, TopicFilter) ->
+-spec filter_topic(logger:log_event(), {string(), atom()}) -> logger:log_event() | ignore.
+filter_topic(#{meta := #{topic := Topic}} = Log, {TopicFilter, _Name}) ->
     case emqx_topic:match(Topic, TopicFilter) of
         true -> Log;
         false -> ignore
     end;
 filter_topic(_Log, _ExpectId) -> ignore.
 
--spec filter_ip_address(logger:log_event(), string()) -> logger:log_event() | ignore.
-filter_ip_address(#{meta := #{peername := Peername}} = Log, IP) ->
+-spec filter_ip_address(logger:log_event(), {string(), atom()}) -> logger:log_event() | ignore.
+filter_ip_address(#{meta := #{peername := Peername}} = Log, {IP, _Name}) ->
     case lists:prefix(IP, Peername) of
         true -> Log;
         false -> ignore
     end;
 filter_ip_address(_Log, _ExpectId) -> ignore.
 
-install_handler(Who, Level, LogFile) ->
-    HandlerId = handler_id(Who),
-    Config = #{
-        level => Level,
-        formatter => ?FORMAT,
-        filter_default => stop,
-        filters => filters(Who),
-        config => ?CONFIG(LogFile)
-    },
-    Res = logger:add_handler(HandlerId, logger_disk_log_h, Config),
-    show_prompts(Res, Who, "Start trace"),
-    Res.
+install_handler(Who = #{name := Name, type := Type}, Level, LogFile) ->
+    case handler_id(Name, Type) of
+        {ok, HandlerId} ->
+            Config = #{
+                level => Level,
+                formatter => ?FORMAT,
+                filter_default => stop,
+                filters => filters(Who),
+                config => ?CONFIG(LogFile)
+            },
+            Res = logger:add_handler(HandlerId, logger_disk_log_h, Config),
+            show_prompts(Res, Who, "Start trace"),
+            Res;
+        {error, _Reason} = Error ->
+            show_prompts(Error, Who, "Start trace"),
+            Error
+    end.
 
-filters(#{type := clientid, filter := Filter}) ->
-    [{clientid, {fun ?MODULE:filter_clientid/2, ensure_list(Filter)}}];
-filters(#{type := topic, filter := Filter}) ->
-    [{topic, {fun ?MODULE:filter_topic/2, ensure_bin(Filter)}}];
-filters(#{type := ip_address, filter := Filter}) ->
-    [{ip_address, {fun ?MODULE:filter_ip_address/2, ensure_list(Filter)}}].
+filters(#{type := clientid, filter := Filter, name := Name}) ->
+    [{clientid, {fun ?MODULE:filter_clientid/2, {ensure_list(Filter), Name}}}];
+filters(#{type := topic, filter := Filter, name := Name}) ->
+    [{topic, {fun ?MODULE:filter_topic/2, {ensure_bin(Filter), Name}}}];
+filters(#{type := ip_address, filter := Filter, name := Name}) ->
+    [{ip_address, {fun ?MODULE:filter_ip_address/2, {ensure_list(Filter), Name}}}].
 
 filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) ->
     Init = #{id => Id, level => Level, dst => Dst},
     case Filters of
-        [{topic, {_FilterFun, Filter}}] ->
-            <<"trace_topic_", Name/binary>> = atom_to_binary(Id),
-            [Init#{type => topic, filter => Filter, name => Name} | Acc];
-        [{clientid, {_FilterFun, Filter}}] ->
-            <<"trace_clientid_", Name/binary>> = atom_to_binary(Id),
-            [Init#{type => clientid, filter => Filter, name => Name} | Acc];
-        [{ip_address, {_FilterFun, Filter}}] ->
-            <<"trace_ip_address_", Name/binary>> = atom_to_binary(Id),
-            [Init#{type => ip_address, filter => Filter, name => Name} | Acc];
+        [{Type, {_FilterFun, {Filter, Name}}}] when
+                Type =:= topic orelse
+                Type =:= clientid orelse
+                Type =:= ip_address ->
+            [Init#{type => Type, filter => Filter, name => Name} | Acc];
         _ ->
             Acc
     end.
 
-handler_id(#{type := Type, name := Name}) ->
-    binary_to_atom(<<"trace_", (atom_to_binary(Type))/binary, "_", Name/binary>>).
+handler_id(Name, Type) ->
+    TypeBin = atom_to_binary(Type),
+    case io_lib:printable_unicode_list(binary_to_list(Name)) of
+        true when byte_size(Name) < 256 ->
+            NameHash = emqx_misc:bin2hexstr_a_f(crypto:hash(sha, Name)),
+            {ok, binary_to_atom(<<"trace_", TypeBin/binary, "_", NameHash/binary>>)};
+        true ->
+            {error, <<"Name length must < 256">>};
+        false ->
+            {error, <<"Name must printable unicode">>}
+    end.
 
 ensure_bin(List) when is_list(List) -> iolist_to_binary(List);
 ensure_bin(Bin) when is_binary(Bin) -> Bin.
@@ -201,4 +217,4 @@ ensure_list(List) when is_list(List) -> List.
 show_prompts(ok, Who, Msg) ->
     ?LOG(info, Msg ++ " ~p " ++ "successfully~n", [Who]);
 show_prompts({error, Reason}, Who, Msg) ->
-    ?LOG(error, Msg ++ " ~p " ++ "failed by ~p~n", [Who, Reason]).
+    ?LOG(error, Msg ++ " ~p " ++ "failed with ~p~n", [Who, Reason]).

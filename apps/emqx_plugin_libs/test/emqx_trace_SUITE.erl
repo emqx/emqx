@@ -30,15 +30,15 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     application:load(emqx_plugin_libs),
-    emqx_ct_helpers:start_apps([]),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([]).
 
 t_base_create_delete(_Config) ->
     ok = emqx_trace:clear(),
