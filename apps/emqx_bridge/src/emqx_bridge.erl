@@ -18,51 +18,58 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([post_config_update/4]).
+-export([post_config_update/5]).
 
--export([reload_hook/0, unload_hook/0]).
+-export([ load_hook/0
+        , reload_hook/0
+        , unload_hook/0
+        ]).
 
 -export([on_message_publish/1]).
-
--export([ load_bridges/0
-        , get_bridge/2
-        , get_bridge/3
-        , list_bridges/0
-        , create_bridge/3
-        , remove_bridge/3
-        , update_bridge/3
-        , start_bridge/2
-        , stop_bridge/2
-        , restart_bridge/2
-        , send_message/2
-        ]).
-
--export([ config_key_path/0
-        ]).
 
 -export([ resource_type/1
         , bridge_type/1
         , resource_id/1
         , resource_id/2
         , parse_bridge_id/1
-        , channel_id/4
-        , parse_channel_id/1
+        ]).
+
+-export([ load/0
+        , lookup/2
+        , lookup/3
+        , list/0
+        , create/3
+        , recreate/2
+        , recreate/3
+        , create_dry_run/2
+        , remove/3
+        , update/3
+        , start/2
+        , stop/2
+        , restart/2
+        ]).
+
+-export([ send_message/2
+        ]).
+
+-export([ config_key_path/0
         ]).
 
 reload_hook() ->
     unload_hook(),
-    Bridges = emqx_conf:get([bridges], #{}),
+    load_hook().
+
+load_hook() ->
+    Bridges = emqx:get_config([bridges], #{}),
     lists:foreach(fun({_Type, Bridge}) ->
             lists:foreach(fun({_Name, BridgeConf}) ->
                     load_hook(BridgeConf)
                 end, maps:to_list(Bridge))
         end, maps:to_list(Bridges)).
 
-load_hook(#{egress_channels := Channels}) ->
-    case has_subscribe_local_topic(Channels) of
-        true -> ok;
-        false -> emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []})
-    end;
+load_hook(#{from_local_topic := _}) ->
+    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}),
+    ok;
 load_hook(_Conf) -> ok.
 
 unload_hook() ->
@@ -71,40 +78,39 @@ unload_hook() ->
 on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
     case maps:get(sys, Flags, false) of
         false ->
-            ChannelIds = get_matched_channels(Topic),
-            lists:foreach(fun(ChannelId) ->
-                    send_message(ChannelId, emqx_message:to_map(Message))
-                end, ChannelIds);
+            lists:foreach(fun (Id) ->
+                    send_message(Id, emqx_rule_events:eventmsg_publish(Message))
+                end, get_matched_bridges(Topic));
         true -> ok
     end,
     {ok, Message}.
 
-%% TODO: remove this clause, treat mqtt bridges the same as other bridges
-send_message(ChannelId, Message) ->
-    {BridgeType, BridgeName, _, _} = parse_channel_id(ChannelId),
+send_message(BridgeId, Message) ->
+    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
     ResId = emqx_bridge:resource_id(BridgeType, BridgeName),
-    do_send_message(ResId, ChannelId, Message).
-
-do_send_message(ResId, ChannelId, Message) ->
-    emqx_resource:query(ResId, {send_message, ChannelId, Message}).
+    emqx_resource:query(ResId, {send_message, Message}).
 
 config_key_path() ->
     [bridges].
 
+resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
 resource_type(mqtt) -> emqx_connector_mqtt;
+resource_type(<<"http">>) -> emqx_connector_http;
 resource_type(http) -> emqx_connector_http.
 
 bridge_type(emqx_connector_mqtt) -> mqtt;
 bridge_type(emqx_connector_http) -> http.
 
-post_config_update(_Req, NewConf, OldConf, _AppEnv) ->
+post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated}
         = diff_confs(NewConf, OldConf),
-    perform_bridge_changes([
-        {fun remove_bridge/3, Removed},
-        {fun create_bridge/3, Added},
-        {fun update_bridge/3, Updated}
-    ]).
+    Result = perform_bridge_changes([
+        {fun remove/3, Removed},
+        {fun create/3, Added},
+        {fun update/3, Updated}
+    ]),
+    ok = reload_hook(),
+    Result.
 
 perform_bridge_changes(Tasks) ->
     perform_bridge_changes(Tasks, ok).
@@ -123,8 +129,8 @@ perform_bridge_changes([{Action, MapConfs} | Tasks], Result0) ->
         end, Result0, MapConfs),
     perform_bridge_changes(Tasks, Result).
 
-load_bridges() ->
-    Bridges = emqx_conf:get([bridges], #{}),
+load() ->
+    Bridges = emqx:get_config([bridges], #{}),
     emqx_bridge_monitor:ensure_all_started(Bridges).
 
 resource_id(BridgeId) when is_binary(BridgeId) ->
@@ -145,55 +151,41 @@ parse_bridge_id(BridgeId) ->
         _ -> error({invalid_bridge_id, BridgeId})
     end.
 
-channel_id(BridgeType, BridgeName, ChannelType, ChannelName) ->
-    BType = bin(BridgeType),
-    BName = bin(BridgeName),
-    CType = bin(ChannelType),
-    CName = bin(ChannelName),
-    <<BType/binary, ":", BName/binary, ":", CType/binary, ":", CName/binary>>.
-
-parse_channel_id(ChannelId) ->
-    case string:split(bin(ChannelId), ":", all) of
-        [BridgeType, BridgeName, ChannelType, ChannelName] ->
-            {BridgeType, BridgeName, ChannelType, ChannelName};
-        _ -> error({invalid_bridge_id, ChannelId})
-    end.
-
-list_bridges() ->
+list() ->
     lists:foldl(fun({Type, NameAndConf}, Bridges) ->
             lists:foldl(fun({Name, RawConf}, Acc) ->
-                    case get_bridge(Type, Name, RawConf) of
+                    case lookup(Type, Name, RawConf) of
                         {error, not_found} -> Acc;
                         {ok, Res} -> [Res | Acc]
                     end
                 end, Bridges, maps:to_list(NameAndConf))
-        end, [], maps:to_list(emqx:get_raw_config([bridges]))).
+        end, [], maps:to_list(emqx:get_raw_config([bridges], #{}))).
 
-get_bridge(Type, Name) ->
+lookup(Type, Name) ->
     RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),
-    get_bridge(Type, Name, RawConf).
-get_bridge(Type, Name, RawConf) ->
+    lookup(Type, Name, RawConf).
+lookup(Type, Name, RawConf) ->
     case emqx_resource:get_instance(resource_id(Type, Name)) of
         {error, not_found} -> {error, not_found};
         {ok, Data} -> {ok, #{id => bridge_id(Type, Name), resource_data => Data,
                              raw_config => RawConf}}
     end.
 
-start_bridge(Type, Name) ->
-    restart_bridge(Type, Name).
+start(Type, Name) ->
+    restart(Type, Name).
 
-stop_bridge(Type, Name) ->
+stop(Type, Name) ->
     emqx_resource:stop(resource_id(Type, Name)).
 
-restart_bridge(Type, Name) ->
+restart(Type, Name) ->
     emqx_resource:restart(resource_id(Type, Name)).
 
-create_bridge(Type, Name, Conf) ->
+create(Type, Name, Conf) ->
     ?SLOG(info, #{msg => "create bridge", type => Type, name => Name,
         config => Conf}),
     ResId = resource_id(Type, Name),
-    case emqx_resource:create(ResId,
-            emqx_bridge:resource_type(Type), Conf) of
+    case emqx_resource:create_local(ResId,
+            emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf)) of
         {ok, already_created} ->
             emqx_resource:get_instance(ResId);
         {ok, Data} ->
@@ -202,23 +194,38 @@ create_bridge(Type, Name, Conf) ->
             {error, Reason}
     end.
 
-update_bridge(Type, Name, {_OldConf, Conf}) ->
+update(Type, Name, {_OldConf, Conf}) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
     %%
-    %% - if the connection related configs like `username` is updated, we should restart/start
+    %% - if the connection related configs like `servers` is updated, we should restart/start
     %% or stop bridges according to the change.
-    %% - if the connection related configs are not update, but channel configs `ingress_channels` or
-    %% `egress_channels` are changed, then we should not restart the bridge, we only restart/start
-    %% the channels.
+    %% - if the connection related configs are not update, only non-connection configs like
+    %% the `method` or `headers` of a HTTP bridge is changed, then the bridge can be updated
+    %% without restarting the bridge.
     %%
     ?SLOG(info, #{msg => "update bridge", type => Type, name => Name,
         config => Conf}),
-    emqx_resource:recreate(resource_id(Type, Name),
-        emqx_bridge:resource_type(Type), Conf, []).
+    recreate(Type, Name, Conf).
 
-remove_bridge(Type, Name, _Conf) ->
+recreate(Type, Name) ->
+    recreate(Type, Name, emqx:get_raw_config([bridges, Type, Name])).
+
+recreate(Type, Name, Conf) ->
+    emqx_resource:recreate_local(resource_id(Type, Name),
+        emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf), []).
+
+create_dry_run(Type, Conf) ->
+    Conf0 = Conf#{<<"ingress">> => #{<<"from_remote_topic">> => <<"t">>}},
+    case emqx_resource:check_config(emqx_bridge:resource_type(Type), Conf0) of
+        {ok, Conf1} ->
+            emqx_resource:create_dry_run_local(emqx_bridge:resource_type(Type), Conf1);
+        {error, _} = Error ->
+            Error
+    end.
+
+remove(Type, Name, _Conf) ->
     ?SLOG(info, #{msg => "remove bridge", type => Type, name => Name}),
-    case emqx_resource:remove(resource_id(Type, Name)) of
+    case emqx_resource:remove_local(resource_id(Type, Name)) of
         ok -> ok;
         {error, not_found} -> ok;
         {error, Reason} ->
@@ -238,34 +245,83 @@ flatten_confs(Conf0) ->
 do_flatten_confs(Type, Conf0) ->
     [{{Type, Name}, Conf} || {Name, Conf} <- maps:to_list(Conf0)].
 
-has_subscribe_local_topic(Channels) ->
-    lists:any(fun (#{subscribe_local_topic := _}) -> true;
-                  (_) -> false
-        end, maps:to_list(Channels)).
-
-get_matched_channels(Topic) ->
-    Bridges = emqx_conf:get([bridges], #{}),
-    maps:fold(fun
-        %% TODO: also trigger 'message.publish' for mqtt bridges.
-        (mqtt, _Conf, Acc0) -> Acc0;
-        (BType, Conf, Acc0) ->
-            maps:fold(fun
-                (BName, #{egress_channels := Channels}, Acc1) ->
-                    do_get_matched_channels(Topic, Channels, BType, BName, egress_channels)
-                    ++ Acc1;
-                (_Name, _BridgeConf, Acc1) -> Acc1
-            end, Acc0, Conf)
+get_matched_bridges(Topic) ->
+    Bridges = emqx:get_config([bridges], #{}),
+    maps:fold(fun (BType, Conf, Acc0) ->
+        maps:fold(fun
+            %% Confs for MQTT, Kafka bridges have the `direction` flag
+            (_BName, #{direction := ingress}, Acc1) ->
+                Acc1;
+            (BName, #{direction := egress} = Egress, Acc1) ->
+                get_matched_bridge_id(Egress, Topic, BType, BName, Acc1);
+            %% HTTP, MySQL bridges only have egress direction
+            (BName, BridgeConf, Acc1) ->
+                get_matched_bridge_id(BridgeConf, Topic, BType, BName, Acc1)
+        end, Acc0, Conf)
     end, [], Bridges).
 
-do_get_matched_channels(Topic, Channels, BType, BName, CType) ->
-    maps:fold(fun
-        (ChannName, #{subscribe_local_topic := Filter}, Acc) ->
-            case emqx_topic:match(Topic, Filter) of
-                true -> [channel_id(BType, BName, CType, ChannName) | Acc];
-                false -> Acc
+get_matched_bridge_id(#{from_local_topic := Filter}, Topic, BType, BName, Acc) ->
+    case emqx_topic:match(Topic, Filter) of
+        true -> [bridge_id(BType, BName) | Acc];
+        false -> Acc
+    end.
+
+parse_confs(http, _Name,
+        #{ url := Url
+         , method := Method
+         , body := Body
+         , headers := Headers
+         , request_timeout := ReqTimeout
+         } = Conf) ->
+    {BaseUrl, Path} = parse_url(Url),
+    {ok, BaseUrl2} = emqx_http_lib:uri_parse(BaseUrl),
+    Conf#{ base_url => BaseUrl2
+         , request =>
+            #{ path => Path
+             , method => Method
+             , body => Body
+             , headers => Headers
+             , request_timeout => ReqTimeout
+             }
+         };
+parse_confs(Type, Name, #{connector := ConnId, direction := Direction} = Conf)
+        when is_binary(ConnId) ->
+    case emqx_connector:parse_connector_id(ConnId) of
+        {Type, ConnName} ->
+            ConnectorConfs = emqx:get_config([connectors, Type, ConnName]),
+            make_resource_confs(Direction, ConnectorConfs,
+                maps:without([connector, direction], Conf), Name);
+        {_ConnType, _ConnName} ->
+            error({cannot_use_connector_with_different_type, ConnId})
+    end;
+parse_confs(_Type, Name, #{connector := ConnectorConfs, direction := Direction} = Conf)
+        when is_map(ConnectorConfs) ->
+    make_resource_confs(Direction, ConnectorConfs,
+        maps:without([connector, direction], Conf), Name).
+
+make_resource_confs(ingress, ConnectorConfs, BridgeConf, Name) ->
+    BName = bin(Name),
+    ConnectorConfs#{
+        ingress => BridgeConf#{hookpoint => <<"$bridges/", BName/binary>>}
+    };
+make_resource_confs(egress, ConnectorConfs, BridgeConf, _Name) ->
+    ConnectorConfs#{
+        egress => BridgeConf
+    }.
+
+parse_url(Url) ->
+    case string:split(Url, "//", leading) of
+        [Scheme, UrlRem] ->
+            case string:split(UrlRem, "/", leading) of
+                [HostPort, Path] ->
+                    {iolist_to_binary([Scheme, "//", HostPort]), Path};
+                [HostPort] ->
+                    {iolist_to_binary([Scheme, "//", HostPort]), <<>>}
             end;
-        (_ChannName, _ChannConf, Acc) -> Acc
-    end, [], Channels).
+        [Url] ->
+            error({invalid_url, Url})
+    end.
+
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);

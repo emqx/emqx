@@ -67,18 +67,6 @@ code_change(_OldVsn, State, _Extra) ->
 load_bridges(Configs) ->
     lists:foreach(fun({Type, NamedConf}) ->
             lists:foreach(fun({Name, Conf}) ->
-                    load_bridge(Name, Type, Conf)
+                    emqx_bridge:create(Type, Name, Conf)
                 end, maps:to_list(NamedConf))
         end, maps:to_list(Configs)).
-
-%% TODO: move this monitor into emqx_resource
-%% emqx_resource:check_and_create_local(ResourceId, ResourceType, Config, #{keep_retry => true}).
-load_bridge(Name, Type, Config) ->
-    case emqx_resource:create_local(
-            emqx_bridge:resource_id(Type, Name),
-            emqx_bridge:resource_type(Type), Config) of
-        {ok, already_created} -> ok;
-        {ok, _} -> ok;
-        {error, Reason} ->
-            error({load_bridge, Reason})
-    end.

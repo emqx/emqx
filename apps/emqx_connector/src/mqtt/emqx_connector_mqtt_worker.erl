@@ -101,14 +101,12 @@
 -export([msg_marshaller/1]).
 
 -export_type([ config/0
-             , batch/0
              , ack_ref/0
              ]).
 
 -type id() :: atom() | string() | pid().
 -type qos() :: emqx_types:qos().
 -type config() :: map().
--type batch() :: [emqx_connector_mqtt_msg:exp_msg()].
 -type ack_ref() :: term().
 -type topic() :: emqx_types:topic().
 
@@ -117,7 +115,7 @@
 
 
 %% same as default in-flight limit for emqtt
--define(DEFAULT_BATCH_SIZE, 32).
+-define(DEFAULT_INFLIGHT_SIZE, 32).
 -define(DEFAULT_RECONNECT_DELAY_MS, timer:seconds(5)).
 -define(DEFAULT_SEG_BYTES, (1 bsl 20)).
 -define(DEFAULT_MAX_TOTAL_SIZE, (1 bsl 31)).
@@ -205,12 +203,10 @@ init_state(Opts) ->
     ReconnDelayMs = maps:get(reconnect_interval, Opts, ?DEFAULT_RECONNECT_DELAY_MS),
     StartType = maps:get(start_type, Opts, manual),
     Mountpoint = maps:get(forward_mountpoint, Opts, undefined),
-    MaxInflightSize = maps:get(max_inflight, Opts, ?DEFAULT_BATCH_SIZE),
-    BatchSize = maps:get(batch_size, Opts, ?DEFAULT_BATCH_SIZE),
+    MaxInflightSize = maps:get(max_inflight, Opts, ?DEFAULT_INFLIGHT_SIZE),
     Name = maps:get(name, Opts, undefined),
     #{start_type => StartType,
       reconnect_interval => ReconnDelayMs,
-      batch_size => BatchSize,
       mountpoint => format_mountpoint(Mountpoint),
       inflight => [],
       max_inflight => MaxInflightSize,
@@ -235,8 +231,8 @@ pre_process_opts(#{subscriptions := InConf, forwards := OutConf} = ConnectOpts) 
 
 pre_process_in_out(undefined) -> undefined;
 pre_process_in_out(Conf) when is_map(Conf) ->
-    Conf1 = pre_process_conf(local_topic, Conf),
-    Conf2 = pre_process_conf(remote_topic, Conf1),
+    Conf1 = pre_process_conf(to_local_topic, Conf),
+    Conf2 = pre_process_conf(to_remote_topic, Conf1),
     Conf3 = pre_process_conf(payload, Conf2),
     Conf4 = pre_process_conf(qos, Conf3),
     pre_process_conf(retain, Conf4).
@@ -327,10 +323,6 @@ common(_StateName, {call, From}, get_forwards, #{connect_opts := #{forwards := F
     {keep_state_and_data, [{reply, From, Forwards}]};
 common(_StateName, {call, From}, get_subscriptions, #{connection := Connection}) ->
     {keep_state_and_data, [{reply, From, maps:get(subscriptions, Connection, #{})}]};
-common(_StateName, info, {deliver, _, Msg}, State = #{replayq := Q}) ->
-    Msgs = collect([Msg]),
-    NewQ = replayq:append(Q, Msgs),
-    {keep_state, State#{replayq => NewQ}, {next_event, internal, maybe_send}};
 common(_StateName, info, {'EXIT', _, _}, State) ->
     {keep_state, State};
 common(_StateName, cast, {send_to_remote, Msg}, #{replayq := Q} = State) ->
@@ -342,13 +334,9 @@ common(StateName, Type, Content, #{name := Name} = State) ->
         content => Content}),
     {keep_state, State}.
 
-do_connect(#{connect_opts := ConnectOpts = #{forwards := Forwards},
+do_connect(#{connect_opts := ConnectOpts,
              inflight := Inflight,
              name := Name} = State) ->
-    case Forwards of
-        undefined -> ok;
-        #{subscribe_local_topic := Topic} -> subscribe_local_topic(Topic, Name)
-    end,
     case emqx_connector_mqtt_mod:start(ConnectOpts) of
         {ok, Conn} ->
             ?tp(info, connected, #{name => Name, inflight => length(Inflight)}),
@@ -360,19 +348,10 @@ do_connect(#{connect_opts := ConnectOpts = #{forwards := Forwards},
             {error, Reason, State}
     end.
 
-collect(Acc) ->
-    receive
-        {deliver, _, Msg} ->
-            collect([Msg | Acc])
-    after
-        0 ->
-            lists:reverse(Acc)
-    end.
-
 %% Retry all inflight (previously sent but not acked) batches.
 retry_inflight(State, []) -> {ok, State};
-retry_inflight(State, [#{q_ack_ref := QAckRef, batch := Batch} | Rest] = OldInf) ->
-    case do_send(State, QAckRef, Batch) of
+retry_inflight(State, [#{q_ack_ref := QAckRef, msg := Msg} | Rest] = OldInf) ->
+    case do_send(State, QAckRef, Msg) of
         {ok, State1} ->
             retry_inflight(State1, Rest);
         {error, #{inflight := NewInf} = State1} ->
@@ -393,34 +372,33 @@ pop_and_send_loop(#{replayq := Q} = State, N) ->
         false ->
             BatchSize = 1,
             Opts = #{count_limit => BatchSize, bytes_limit => 999999999},
-            {Q1, QAckRef, Batch} = replayq:pop(Q, Opts),
-            case do_send(State#{replayq := Q1}, QAckRef, Batch) of
+            {Q1, QAckRef, [Msg]} = replayq:pop(Q, Opts),
+            case do_send(State#{replayq := Q1}, QAckRef, Msg) of
                 {ok, NewState} -> pop_and_send_loop(NewState, N - 1);
                 {error, NewState} -> {error, NewState}
             end
     end.
 
-%% Assert non-empty batch because we have a is_empty check earlier.
-do_send(#{connect_opts := #{forwards := undefined}}, _QAckRef, Batch) ->
+do_send(#{connect_opts := #{forwards := undefined}}, _QAckRef, Msg) ->
     ?SLOG(error, #{msg => "cannot forward messages to remote broker"
-                          " as egress_channel is not configured",
-                   messages => Batch});
+                          " as 'egress' is not configured",
+                   messages => Msg});
 do_send(#{inflight := Inflight,
           connection := Connection,
           mountpoint := Mountpoint,
-          connect_opts := #{forwards := Forwards}} = State, QAckRef, [_ | _] = Batch) ->
+          connect_opts := #{forwards := Forwards}} = State, QAckRef, Msg) ->
     Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Forwards),
     ExportMsg = fun(Message) ->
                     emqx_metrics:inc('bridge.mqtt.message_sent_to_remote'),
                     emqx_connector_mqtt_msg:to_remote_msg(Message, Vars)
                 end,
     ?SLOG(debug, #{msg => "publish to remote broker",
-        message => Batch, vars => Vars}),
-    case emqx_connector_mqtt_mod:send(Connection, [ExportMsg(M) || M <- Batch]) of
+        message => Msg, vars => Vars}),
+    case emqx_connector_mqtt_mod:send(Connection, [ExportMsg(Msg)]) of
         {ok, Refs} ->
             {ok, State#{inflight := Inflight ++ [#{q_ack_ref => QAckRef,
                                                    send_ack_ref => map_set(Refs),
-                                                   batch => Batch}]}};
+                                                   msg => Msg}]}};
         {error, Reason} ->
             ?SLOG(info, #{msg => "mqtt_bridge_produce_failed",
                 reason => Reason}),
@@ -472,27 +450,6 @@ drop_acked_batches(Q, [#{send_ack_ref := Refs,
             %% the head (oldest) inflight batch is not acked, keep waiting
             All
     end.
-
-subscribe_local_topic(undefined, _Name) ->
-    ok;
-subscribe_local_topic(Topic, Name) ->
-    do_subscribe(Topic, Name).
-
-topic(T) -> iolist_to_binary(T).
-
-validate(RawTopic) ->
-    Topic = topic(RawTopic),
-    try emqx_topic:validate(Topic) of
-        _Success -> Topic
-    catch
-        error:Reason ->
-            error({bad_topic, Topic, Reason})
-    end.
-
-do_subscribe(RawTopic, Name) ->
-    TopicFilter = validate(RawTopic),
-    {Topic, SubOpts} = emqx_topic:parse(TopicFilter, #{qos => ?QOS_2}),
-    emqx_broker:subscribe(Topic, Name, SubOpts).
 
 disconnect(#{connection := Conn} = State) when Conn =/= undefined ->
     emqx_connector_mqtt_mod:stop(Conn),

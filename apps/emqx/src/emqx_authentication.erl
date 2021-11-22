@@ -79,8 +79,8 @@
         ]).
 
 %% proxy callback
--export([ pre_config_update/2
-        , post_config_update/4
+-export([ pre_config_update/3
+        , post_config_update/5
         ]).
 
 -export_type([ authenticator_id/0
@@ -238,11 +238,11 @@ get_enabled(Authenticators) ->
 %% APIs
 %%------------------------------------------------------------------------------
 
-pre_config_update(UpdateReq, OldConfig) ->
-    emqx_authentication_config:pre_config_update(UpdateReq, OldConfig).
+pre_config_update(Path, UpdateReq, OldConfig) ->
+    emqx_authentication_config:pre_config_update(Path, UpdateReq, OldConfig).
 
-post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs) ->
-    emqx_authentication_config:post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs).
+post_config_update(Path, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
+    emqx_authentication_config:post_config_update(Path, UpdateReq, NewConfig, OldConfig, AppEnvs).
 
 %% @doc Get all registered authentication providers.
 get_providers() ->

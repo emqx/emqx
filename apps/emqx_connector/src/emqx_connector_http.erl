@@ -38,7 +38,8 @@
         , fields/1
         , validations/0]).
 
--export([ check_ssl_opts/2 ]).
+-export([ check_ssl_opts/2
+        ]).
 
 -type connect_timeout() :: emqx_schema:duration() | infinity.
 -type pool_type() :: random | hash.
@@ -50,73 +51,84 @@
 %%=====================================================================
 %% Hocon schema
 roots() ->
-    [{config, #{type => hoconsc:ref(?MODULE, config)}}].
-
-fields("http_request") ->
-    [ {subscribe_local_topic, hoconsc:mk(binary())}
-    , {method, hoconsc:mk(method(), #{default => post})}
-    , {path, hoconsc:mk(binary(), #{default => <<"">>})}
-    , {headers, hoconsc:mk(map(),
-        #{default => #{
-            <<"accept">> => <<"application/json">>,
-            <<"cache-control">> => <<"no-cache">>,
-            <<"connection">> => <<"keep-alive">>,
-            <<"content-type">> => <<"application/json">>,
-            <<"keep-alive">> => <<"timeout=5">>}})
-      }
-    , {body, hoconsc:mk(binary(), #{default => <<"${payload}">>})}
-    , {request_timeout, hoconsc:mk(emqx_schema:duration_ms(), #{default => <<"30s">>})}
-    ];
+    fields(config).
 
 fields(config) ->
-    [ {base_url,          fun base_url/1}
-    , {connect_timeout,   fun connect_timeout/1}
-    , {max_retries,       fun max_retries/1}
-    , {retry_interval,    fun retry_interval/1}
-    , {pool_type,         fun pool_type/1}
-    , {pool_size,         fun pool_size/1}
-    , {enable_pipelining, fun enable_pipelining/1}
-    ] ++ emqx_connector_schema_lib:ssl_fields().
+    [ {base_url,
+       sc(url(),
+          #{ nullable => false
+           , validator => fun(#{query := _Query}) ->
+                            {error, "There must be no query in the base_url"};
+                            (_) -> ok
+                          end
+           , desc => """
+The base URL is the URL includes only the scheme, host and port.<br>
+When send an HTTP request, the real URL to be used is the concatenation of the base URL and the
+path parameter (passed by the emqx_resource:query/2,3 or provided by the request parameter).<br>
+For example: http://localhost:9901/
+"""
+           })}
+    , {connect_timeout,
+        sc(emqx_schema:duration_ms(),
+           #{ default => "30s"
+            , desc => "The timeout when connecting to the HTTP server"
+            })}
+    , {max_retries,
+        sc(non_neg_integer(),
+           #{ default => 5
+            , desc => "Max retry times if error on sending request"
+            })}
+    , {retry_interval,
+        sc(emqx_schema:duration(),
+           #{ default => "1s"
+            , desc => "Interval before next retry if error on sending request"
+            })}
+    , {pool_type,
+        sc(pool_type(),
+           #{ default => random
+            , desc => "The type of the pool. Canbe one of random, hash"
+            })}
+    , {pool_size,
+        sc(non_neg_integer(),
+           #{ default => 8
+            , desc => "The pool size"
+            })}
+    , {enable_pipelining,
+        sc(boolean(),
+           #{ default => true
+            , desc => "Enable the HTTP pipeline"
+            })}
+    , {request, hoconsc:mk(
+        ref("request"),
+        #{ default => undefined
+         , nullable => true
+         , desc => """
+If the request is provided, the caller can send HTTP requests via
+<code>emqx_resource:query(ResourceId, {send_message, BridgeId, Message})</code>
+"""
+         })}
+    ] ++ emqx_connector_schema_lib:ssl_fields();
 
-method() ->
-    hoconsc:enum([post, put, get, delete]).
+fields("request") ->
+    [ {method, hoconsc:mk(hoconsc:enum([post, put, get, delete]), #{nullable => true})}
+    , {path, hoconsc:mk(binary(), #{nullable => true})}
+    , {body, hoconsc:mk(binary(), #{nullable => true})}
+    , {headers, hoconsc:mk(map(), #{nullable => true})}
+    , {request_timeout,
+        sc(emqx_schema:duration_ms(),
+           #{ nullable => true
+            , desc => "The timeout when sending request to the HTTP server"
+            })}
+    ].
 
 validations() ->
     [ {check_ssl_opts, fun check_ssl_opts/1} ].
 
-base_url(type) -> url();
-base_url(nullable) -> false;
-base_url(validator) -> fun(#{query := _Query}) ->
-                           {error, "There must be no query in the base_url"};
-                          (_) -> ok
-                       end;
-base_url(_) -> undefined.
-
-connect_timeout(type) -> emqx_schema:duration_ms();
-connect_timeout(default) -> <<"5s">>;
-connect_timeout(_) -> undefined.
-
-max_retries(type) -> non_neg_integer();
-max_retries(default) -> 5;
-max_retries(_) -> undefined.
-
-retry_interval(type) -> emqx_schema:duration();
-retry_interval(default) -> <<"1s">>;
-retry_interval(_) -> undefined.
-
-pool_type(type) -> pool_type();
-pool_type(default) -> hash;
-pool_type(_) -> undefined.
-
-pool_size(type) -> non_neg_integer();
-pool_size(default) -> 8;
-pool_size(_) -> undefined.
-
-enable_pipelining(type) -> boolean();
-enable_pipelining(default) -> true;
-enable_pipelining(_) -> undefined.
+sc(Type, Meta) -> hoconsc:mk(Type, Meta).
+ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 %% ===================================================================
+
 on_start(InstId, #{base_url := #{scheme := Scheme,
                                  host := Host,
                                  port := Port,
@@ -153,7 +165,7 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
         host => Host,
         port => Port,
         base_path => BasePath,
-        channels => preproc_channels(InstId, Config)
+        request => preprocess_request(maps:get(request, Config, undefined))
     },
     case ehttpc_sup:start_pool(PoolName, PoolOpts) of
         {ok, _} -> {ok, State};
@@ -167,12 +179,12 @@ on_stop(InstId, #{pool_name := PoolName}) ->
                   connector => InstId}),
     ehttpc_sup:stop_pool(PoolName).
 
-on_query(InstId, {send_message, ChannelId, Msg}, AfterQuery, #{channels := Channels} = State) ->
-    case maps:find(ChannelId, Channels) of
-        error -> ?SLOG(error, #{msg => "channel not found", channel_id => ChannelId});
-        {ok, ChannConf} ->
+on_query(InstId, {send_message, Msg}, AfterQuery, State) ->
+    case maps:get(request, State, undefined) of
+        undefined -> ?SLOG(error, #{msg => "request not found", connector => InstId});
+        Request ->
             #{method := Method, path := Path, body := Body, headers := Headers,
-              request_timeout := Timeout} = proc_channel_conf(ChannConf, Msg),
+              request_timeout := Timeout} = process_request(Request, Msg),
             on_query(InstId, {Method, {Path, Headers, Body}, Timeout}, AfterQuery, State)
     end;
 on_query(InstId, {Method, Request}, AfterQuery, State) ->
@@ -212,25 +224,22 @@ on_health_check(_InstId, #{host := Host, port := Port} = State) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-preproc_channels(<<"bridge:", BridgeId/binary>>, Config) ->
-    {BridgeType, BridgeName} = emqx_bridge:parse_bridge_id(BridgeId),
-    maps:fold(fun(ChannName, ChannConf, Acc) ->
-            Acc#{emqx_bridge:channel_id(BridgeType, BridgeName, egress_channels, ChannName) =>
-                 preproc_channel_conf(ChannConf)}
-        end, #{}, maps:get(egress_channels, Config, #{}));
-preproc_channels(_InstId, _Config) ->
-    #{}.
-
-preproc_channel_conf(#{
-        method := Method,
-        path := Path,
-        body := Body,
-        headers := Headers} = Conf) ->
-    Conf#{ method => emqx_plugin_libs_rule:preproc_tmpl(bin(Method))
-         , path => emqx_plugin_libs_rule:preproc_tmpl(Path)
-         , body => emqx_plugin_libs_rule:preproc_tmpl(Body)
-         , headers => preproc_headers(Headers)
-         }.
+preprocess_request(undefined) ->
+    undefined;
+preprocess_request(Req) when map_size(Req) == 0 ->
+    undefined;
+preprocess_request(#{
+            method := Method,
+            path := Path,
+            body := Body,
+            headers := Headers
+        } = Req) ->
+    #{ method => emqx_plugin_libs_rule:preproc_tmpl(bin(Method))
+     , path => emqx_plugin_libs_rule:preproc_tmpl(Path)
+     , body => emqx_plugin_libs_rule:preproc_tmpl(Body)
+     , headers => preproc_headers(Headers)
+     , request_timeout => maps:get(request_timeout, Req, 30000)
+     }.
 
 preproc_headers(Headers) ->
     maps:fold(fun(K, V, Acc) ->
@@ -238,15 +247,18 @@ preproc_headers(Headers) ->
                  emqx_plugin_libs_rule:preproc_tmpl(bin(V))}
         end, #{}, Headers).
 
-proc_channel_conf(#{
-        method := MethodTks,
-        path := PathTks,
-        body := BodyTks,
-        headers := HeadersTks} = Conf, Msg) ->
+process_request(#{
+            method := MethodTks,
+            path := PathTks,
+            body := BodyTks,
+            headers := HeadersTks,
+            request_timeout := ReqTimeout
+        } = Conf, Msg) ->
     Conf#{ method => make_method(emqx_plugin_libs_rule:proc_tmpl(MethodTks, Msg))
          , path => emqx_plugin_libs_rule:proc_tmpl(PathTks, Msg)
          , body => emqx_plugin_libs_rule:proc_tmpl(BodyTks, Msg)
          , headers => maps:to_list(proc_headers(HeadersTks, Msg))
+         , request_timeout => ReqTimeout
          }.
 
 proc_headers(HeaderTks, Msg) ->
@@ -264,7 +276,7 @@ check_ssl_opts(Conf) ->
     check_ssl_opts("base_url", Conf).
 
 check_ssl_opts(URLFrom, Conf) ->
-    #{schema := Scheme} = hocon_schema:get_value(URLFrom, Conf),
+    #{scheme := Scheme} = hocon_schema:get_value(URLFrom, Conf),
     SSL= hocon_schema:get_value("ssl", Conf),
     case {Scheme, maps:get(enable, SSL, false)} of
         {http, false} -> true;

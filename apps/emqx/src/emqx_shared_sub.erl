@@ -292,6 +292,7 @@ subscribers(Group, Topic) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    ok = mria:wait_for_tables([?TAB]),
     {ok, _} = mnesia:subscribe({table, ?TAB, simple}),
     {atomic, PMon} = mria:transaction(?SHARED_SUB_SHARD, fun init_monitors/0),
     ok = emqx_tables:new(?SHARED_SUBS, [protected, bag]),

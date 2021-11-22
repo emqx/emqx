@@ -84,7 +84,7 @@
         % , inc_counter/3 %% increment the counter by a given integer
         ]).
 
--define(HOCON_CHECK_OPTS, #{atom_key => true, nullable => false}).
+-define(HOCON_CHECK_OPTS, #{atom_key => true, nullable => true}).
 
 -optional_callbacks([ on_query/4
                     , on_health_check/2

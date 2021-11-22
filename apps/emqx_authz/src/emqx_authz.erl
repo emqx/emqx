@@ -36,7 +36,7 @@
         , authorize/5
         ]).
 
--export([post_config_update/4, pre_config_update/2]).
+-export([post_config_update/5, pre_config_update/3]).
 
 -export([acl_conf_file/0]).
 
@@ -127,13 +127,13 @@ do_update({_, Sources}, _Conf) when is_list(Sources)->
 do_update({Op, Sources}, Conf) ->
     error({bad_request, #{op => Op, sources => Sources, conf => Conf}}).
 
-pre_config_update(Cmd, Conf) ->
+pre_config_update(_, Cmd, Conf) ->
     {ok, do_update(Cmd, Conf)}.
 
 
-post_config_update(_, undefined, _Conf, _AppEnvs) ->
+post_config_update(_, _, undefined, _Conf, _AppEnvs) ->
     ok;
-post_config_update(Cmd, NewSources, _OldSource, _AppEnvs) ->
+post_config_update(_, Cmd, NewSources, _OldSource, _AppEnvs) ->
     ok = do_post_update(Cmd, NewSources),
     ok = emqx_authz_cache:drain_cache().
 

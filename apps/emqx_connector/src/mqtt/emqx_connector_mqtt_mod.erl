@@ -65,7 +65,7 @@ start(Config) ->
             case emqtt:connect(Pid) of
                 {ok, _} ->
                     try
-                        ok = subscribe_remote_topics(Pid, Subscriptions),
+                        ok = from_remote_topics(Pid, Subscriptions),
                         {ok, #{client_pid => Pid, subscriptions => Subscriptions}}
                     catch
                         throw : Reason ->
@@ -160,14 +160,18 @@ handle_puback(#{packet_id := PktId, reason_code := RC}, _Parent) ->
 
 handle_publish(Msg, undefined) ->
     ?SLOG(error, #{msg => "cannot publish to local broker as"
-                          " ingress_channles' is not configured",
+                          " 'ingress' is not configured",
                    message => Msg});
-handle_publish(Msg, #{on_message_received := {OnMsgRcvdFunc, Args}} = Vars) ->
+handle_publish(Msg, Vars) ->
     ?SLOG(debug, #{msg => "publish to local broker",
                    message => Msg, vars => Vars}),
     emqx_metrics:inc('bridge.mqtt.message_received_from_remote', 1),
-    _ = erlang:apply(OnMsgRcvdFunc, [Msg | Args]),
-    case maps:get(local_topic, Vars, undefined) of
+    case Vars of
+        #{on_message_received := {Mod, Func, Args}} ->
+            _ = erlang:apply(Mod, Func, [Msg | Args]);
+        _ -> ok
+    end,
+    case maps:get(to_local_topic, Vars, undefined) of
         undefined -> ok;
         _Topic ->
             emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars))
@@ -182,8 +186,8 @@ make_hdlr(Parent, Vars) ->
       disconnected => {fun ?MODULE:handle_disconnected/2, [Parent]}
      }.
 
-subscribe_remote_topics(_ClientPid, undefined) -> ok;
-subscribe_remote_topics(ClientPid, #{subscribe_remote_topic := FromTopic, subscribe_qos := QoS}) ->
+from_remote_topics(_ClientPid, undefined) -> ok;
+from_remote_topics(ClientPid, #{from_remote_topic := FromTopic, subscribe_qos := QoS}) ->
     case emqtt:subscribe(ClientPid, FromTopic, QoS) of
         {ok, _, _} -> ok;
         Error -> throw(Error)

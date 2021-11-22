@@ -70,7 +70,7 @@
         , stop_log_handler/1
         ]).
 
--export([post_config_update/4]).
+-export([post_config_update/5]).
 
 -type(peername_str() :: list()).
 -type(logger_dst() :: file:filename() | console | unknown).
@@ -123,7 +123,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% emqx_config_handler callbacks
 %%--------------------------------------------------------------------
-post_config_update(_Req, _NewConf, _OldConf, AppEnvs) ->
+post_config_update(_, _Req, _NewConf, _OldConf, AppEnvs) ->
     gen_server:call(?MODULE, {update_config, AppEnvs}, 5000).
 
 %%--------------------------------------------------------------------

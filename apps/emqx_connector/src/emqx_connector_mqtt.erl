@@ -46,7 +46,7 @@
 %%=====================================================================
 %% Hocon schema
 roots() ->
-    [{config, #{type => hoconsc:ref(?MODULE, "config")}}].
+    fields("config").
 
 fields("config") ->
     emqx_connector_mqtt_schema:fields("config").
@@ -89,110 +89,73 @@ drop_bridge(Name) ->
 %% ===================================================================
 %% When use this bridge as a data source, ?MODULE:on_message_received/2 will be called
 %% if the bridge received msgs from the remote broker.
-on_message_received(Msg, ChannId) ->
-    Name = atom_to_binary(ChannId, utf8),
-    emqx:run_hook(<<"$bridges/", Name/binary>>, [Msg]).
+on_message_received(Msg, HookPoint) ->
+    emqx:run_hook(HookPoint, [Msg]).
 
 %% ===================================================================
 on_start(InstId, Conf) ->
+    InstanceId = binary_to_atom(InstId, utf8),
     ?SLOG(info, #{msg => "starting mqtt connector",
-                  connector => InstId, config => Conf}),
-    "bridge:" ++ NamePrefix = binary_to_list(InstId),
+                  connector => InstanceId, config => Conf}),
     BasicConf = basic_config(Conf),
-    InitRes = {ok, #{name_prefix => NamePrefix, baisc_conf => BasicConf, channels => []}},
-    InOutConfigs = taged_map_list(ingress_channels, maps:get(ingress_channels, Conf, #{}))
-                ++ taged_map_list(egress_channels, maps:get(egress_channels, Conf, #{})),
-    lists:foldl(fun
-            (_InOutConf, {error, Reason}) ->
-                {error, Reason};
-            (InOutConf, {ok, #{channels := SubBridges} = Res}) ->
-                case create_channel(InOutConf, NamePrefix, BasicConf) of
-                    {error, Reason} -> {error, Reason};
-                    {ok, Name} -> {ok, Res#{channels => [Name | SubBridges]}}
-                end
-        end, InitRes, InOutConfigs).
-
-on_stop(InstId, #{channels := NameList}) ->
-    ?SLOG(info, #{msg => "stopping mqtt connector",
-                  connector => InstId}),
-    lists:foreach(fun(Name) ->
-            remove_channel(Name)
-        end, NameList).
-
-%% TODO: let the emqx_resource trigger on_query/4 automatically according to the
-%%  `ingress_channels` and `egress_channels` config
-on_query(_InstId, {create_channel, Conf}, _AfterQuery, #{name_prefix := Prefix,
-        baisc_conf := BasicConf}) ->
-    create_channel(Conf, Prefix, BasicConf);
-on_query(_InstId, {send_message, ChannelId, Msg}, _AfterQuery, _State) ->
-    ?SLOG(debug, #{msg => "send msg to remote node", message => Msg,
-        channel_id => ChannelId}),
-    emqx_connector_mqtt_worker:send_to_remote(ChannelId, Msg).
-
-on_health_check(_InstId, #{channels := NameList} = State) ->
-    Results = [{Name, emqx_connector_mqtt_worker:ping(Name)} || Name <- NameList],
-    case lists:all(fun({_, pong}) -> true; ({_, _}) -> false end, Results) of
-        true -> {ok, State};
-        false -> {error, {some_channel_down, Results}, State}
-    end.
-
-create_channel({{ingress_channels, Id}, #{subscribe_remote_topic := RemoteT} = Conf},
-        NamePrefix, BasicConf) ->
-    LocalT = maps:get(local_topic, Conf, undefined),
-    ChannId = ingress_channel_id(NamePrefix, Id),
-    ?SLOG(info, #{msg => "creating ingress channel",
-        remote_topic => RemoteT,
-        local_topic => LocalT,
-        channel_id => ChannId}),
-    do_create_channel(BasicConf#{
-        name => ChannId,
-        clientid => clientid(ChannId),
-        subscriptions => Conf#{
-            local_topic => LocalT,
-            on_message_received => {fun ?MODULE:on_message_received/2, [ChannId]}
-        },
-        forwards => undefined});
-
-create_channel({{egress_channels, Id}, #{remote_topic := RemoteT} = Conf},
-        NamePrefix, BasicConf) ->
-    LocalT = maps:get(subscribe_local_topic, Conf, undefined),
-    ChannId = egress_channel_id(NamePrefix, Id),
-    ?SLOG(info, #{msg => "creating egress channel",
-        remote_topic => RemoteT,
-        local_topic => LocalT,
-        channel_id => ChannId}),
-    do_create_channel(BasicConf#{
-        name => ChannId,
-        clientid => clientid(ChannId),
-        subscriptions => undefined,
-        forwards => Conf#{subscribe_local_topic => LocalT}}).
-
-remove_channel(ChannId) ->
-    ?SLOG(info, #{msg => "removing channel",
-        channel_id => ChannId}),
-    case ?MODULE:drop_bridge(ChannId) of
-        ok -> ok;
-        {error, not_found} -> ok;
-        {error, Reason} ->
-            ?SLOG(error, #{msg => "stop channel failed",
-                channel_id => ChannId, reason => Reason})
-    end.
-
-do_create_channel(#{name := Name} = Conf) ->
-    case ?MODULE:create_bridge(Conf) of
+    BridgeConf = BasicConf#{
+        name => InstanceId,
+        clientid => clientid(InstanceId),
+        subscriptions => make_sub_confs(maps:get(ingress, Conf, undefined)),
+        forwards => make_forward_confs(maps:get(egress, Conf, undefined))
+    },
+    case ?MODULE:create_bridge(BridgeConf) of
         {ok, _Pid} ->
-            start_channel(Name);
+            case emqx_connector_mqtt_worker:ensure_started(InstanceId) of
+                ok -> {ok, #{name => InstanceId}};
+                {error, Reason} -> {error, Reason}
+            end;
         {error, {already_started, _Pid}} ->
-            {ok, Name};
+            {ok, #{name => InstanceId}};
         {error, Reason} ->
             {error, Reason}
     end.
 
-start_channel(Name) ->
-    case emqx_connector_mqtt_worker:ensure_started(Name) of
-        ok -> {ok, Name};
-        {error, Reason} -> {error, Reason}
+on_stop(_InstId, #{name := InstanceId}) ->
+    ?SLOG(info, #{msg => "stopping mqtt connector",
+                  connector => InstanceId}),
+    case ?MODULE:drop_bridge(InstanceId) of
+        ok -> ok;
+        {error, not_found} -> ok;
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "stop mqtt connector",
+                connector => InstanceId, reason => Reason})
     end.
+
+on_query(_InstId, {send_message, Msg}, _AfterQuery, #{name := InstanceId}) ->
+    ?SLOG(debug, #{msg => "send msg to remote node", message => Msg,
+        connector => InstanceId}),
+    emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg).
+
+on_health_check(_InstId, #{name := InstanceId} = State) ->
+    case emqx_connector_mqtt_worker:ping(InstanceId) of
+        pong -> {ok, State};
+        _ -> {error, {connector_down, InstanceId}, State}
+    end.
+
+make_sub_confs(EmptyMap) when map_size(EmptyMap) == 0 ->
+    undefined;
+make_sub_confs(undefined) ->
+    undefined;
+make_sub_confs(SubRemoteConf) ->
+    case maps:take(hookpoint, SubRemoteConf) of
+        error -> SubRemoteConf;
+        {HookPoint, SubConf} ->
+            MFA = {?MODULE, on_message_received, [HookPoint]},
+            SubConf#{on_message_received => MFA}
+    end.
+
+make_forward_confs(EmptyMap) when map_size(EmptyMap) == 0 ->
+    undefined;
+make_forward_confs(undefined) ->
+    undefined;
+make_forward_confs(FrowardConf) ->
+    FrowardConf.
 
 basic_config(#{
         server := Server,
@@ -225,23 +188,5 @@ basic_config(#{
         if_record_metrics => true
     }.
 
-taged_map_list(Tag, Map) ->
-    [{{Tag, K}, V} || {K, V} <- maps:to_list(Map)].
-
-ingress_channel_id(Prefix, Id) ->
-    channel_name("ingress_channels", Prefix, Id).
-egress_channel_id(Prefix, Id) ->
-    channel_name("egress_channels", Prefix, Id).
-
-channel_name(Type, Prefix, Id) ->
-    list_to_atom(str(Prefix) ++ ":" ++ Type ++ ":" ++ str(Id)).
-
 clientid(Id) ->
-    list_to_binary(str(Id) ++ ":" ++ emqx_misc:gen_id(8)).
-
-str(A) when is_atom(A) ->
-    atom_to_list(A);
-str(B) when is_binary(B) ->
-    binary_to_list(B);
-str(S) when is_list(S) ->
-    S.
+    list_to_binary(lists:concat([Id, ":", node()])).

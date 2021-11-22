@@ -105,7 +105,7 @@ servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be em
 servers(_) -> undefined.
 
 to_ip_port(Str) ->
-     case string:tokens(Str, ":") of
+     case string:tokens(Str, ": ") of
          [Ip, Port] ->
              case inet:parse_address(Ip) of
                  {ok, R} -> {ok, {R, list_to_integer(Port)}};
@@ -121,7 +121,7 @@ ip_port_to_string({Ip, Port}) when is_tuple(Ip) ->
 
 to_servers(Str) ->
     {ok, lists:map(fun(Server) ->
-             case string:tokens(Server, ":") of
+             case string:tokens(Server, ": ") of
                  [Ip] ->
                      [{host, Ip}];
                  [Ip, Port] ->

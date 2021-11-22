@@ -9,12 +9,12 @@
 -export([schema_with_example/2, schema_with_examples/2]).
 -export([error_codes/1, error_codes/2]).
 
+-export([filter_check_request/2, filter_check_request_and_translate_body/2]).
+
 -ifdef(TEST).
--export([
-    parse_spec_ref/2,
-    components/1,
-    filter_check_request/2,
-    filter_check_request_and_translate_body/2]).
+-export([ parse_spec_ref/2
+        , components/1
+        ]).
 -endif.
 
 -define(METHODS, [get, post, put, head, delete, patch, options, trace]).
@@ -137,9 +137,9 @@ check_only(Schema, Map, Opts) ->
     Map.
 
 support_check_schema(#{check_schema := true, translate_body := true}) ->
-    #{filter => fun filter_check_request_and_translate_body/2};
+    #{filter => fun ?MODULE:filter_check_request_and_translate_body/2};
 support_check_schema(#{check_schema := true}) ->
-    #{filter => fun filter_check_request/2};
+    #{filter => fun ?MODULE:filter_check_request/2};
 support_check_schema(#{check_schema := Filter}) when is_function(Filter, 2) ->
     #{filter => Filter};
 support_check_schema(_) ->
@@ -200,7 +200,7 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
             _ -> Type0
         end,
     NewSchema = ?INIT_SCHEMA#{roots => [{root, Type}]},
-    Option = #{override_env => false},
+    Option = #{override_env => false, nullable => true},
     #{<<"root">> := NewBody} = CheckFun(NewSchema, #{<<"root">> => Body}, Option),
     NewBody;
 %% TODO not support nest object check yet, please use ref!

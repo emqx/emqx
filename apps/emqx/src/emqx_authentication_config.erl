@@ -19,8 +19,8 @@
 
 -behaviour(emqx_config_handler).
 
--export([ pre_config_update/2
-        , post_config_update/4
+-export([ pre_config_update/3
+        , post_config_update/5
         ]).
 
 -export([ authenticator_id/1
@@ -53,9 +53,9 @@
 %% Callbacks of config handler
 %%------------------------------------------------------------------------------
 
--spec pre_config_update(update_request(), emqx_config:raw_config())
+-spec pre_config_update(list(atom()), update_request(), emqx_config:raw_config())
     -> {ok, map() | list()} | {error, term()}.
-pre_config_update(UpdateReq, OldConfig) ->
+pre_config_update(_, UpdateReq, OldConfig) ->
     try do_pre_config_update(UpdateReq, to_list(OldConfig)) of
         {error, Reason} -> {error, Reason};
         {ok, NewConfig} -> {ok, return_map(NewConfig)}
@@ -102,9 +102,9 @@ do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}
             end
     end.
 
--spec post_config_update(update_request(), map() | list(), emqx_config:raw_config(), emqx_config:app_envs())
+-spec post_config_update(list(atom()), update_request(), map() | list(), emqx_config:raw_config(), emqx_config:app_envs())
     -> ok | {ok, map()} | {error, term()}.
-post_config_update(UpdateReq, NewConfig, OldConfig, AppEnvs) ->
+post_config_update(_, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
     do_post_config_update(UpdateReq, check_configs(to_list(NewConfig)), OldConfig, AppEnvs).
 
 do_post_config_update({create_authenticator, ChainName, Config}, _NewConfig, _OldConfig, _AppEnvs) ->
