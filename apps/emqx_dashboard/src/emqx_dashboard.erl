@@ -49,10 +49,16 @@ start_listeners() ->
                     type => 'apiKey',
                     name => "authorization",
                     in => header}}}},
-    Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
-                {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
-                {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
-               ],
+    Dispatch =
+        case os:getenv("_EMQX_ENABLE_DASHBOARD") of
+            V when V =:= "true" orelse V =:= "1" ->
+                [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
+                 {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
+                 {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
+                ];
+            _ ->
+                []
+        end,
     BaseMinirest = #{
         base_path => ?BASE_PATH,
         modules => minirest_api:find_api_modules(apps()),
