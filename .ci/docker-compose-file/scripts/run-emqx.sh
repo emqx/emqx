@@ -25,6 +25,16 @@ is_node_up() {
          bash -c "emqx eval \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1
 }
 
+current_cluster_status() {
+  local node
+  node="$1"
+  echo "================"
+  echo "cluster status seen by node $node:"
+  docker exec -i "$node" \
+         bash -c "emqx eval \"ekka_cluster:info().\"" || true
+  echo "================"
+}
+
 is_node_listening() {
   local node
   node="$1"
@@ -46,6 +56,8 @@ docker-compose \
   up -d
 
 while ! is_cluster_up; do
-  echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:waiting emqx";
-  sleep 5;
+  echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']: waiting emqx"
+  current_cluster_status node1.emqx.io || docker logs node1.emqx.io
+  current_cluster_status node2.emqx.io || docker logs node2.emqx.io
+  sleep 5
 done
