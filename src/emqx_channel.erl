@@ -275,7 +275,7 @@ take_ws_cookie(ClientInfo, ConnInfo) ->
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connected}) ->
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 
-handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
+handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
     case pipeline([fun enrich_conninfo/2,
                    fun run_conn_hooks/2,
                    fun check_connect/2,
@@ -285,6 +285,7 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                    fun auth_connect/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
+            ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
             NChannel1 = NChannel#channel{
                                         will_msg = emqx_packet:will_msg(NConnPkt),
                                         alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)

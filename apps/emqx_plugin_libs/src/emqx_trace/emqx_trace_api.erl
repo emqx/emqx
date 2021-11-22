@@ -27,18 +27,37 @@
         , download_zip_log/2
         , stream_log_file/2
 ]).
--export([read_trace_file/3]).
+-export([ read_trace_file/3
+        , get_trace_size/0
+        ]).
 
 -define(TO_BIN(_B_), iolist_to_binary(_B_)).
--define(NOT_FOUND(N), {error, 'NOT_FOUND', ?TO_BIN([N, "NOT FOUND"])}).
+-define(NOT_FOUND(N), {error, 'NOT_FOUND', ?TO_BIN([N, " NOT FOUND"])}).
 
-list_trace(_, Params) ->
-    List =
-        case Params of
-            [{<<"enable">>, Enable}] -> emqx_trace:list(binary_to_existing_atom(Enable));
-            _ -> emqx_trace:list()
-        end,
-    {ok, emqx_trace:format(List)}.
+list_trace(_, _Params) ->
+    case emqx_trace:list() of
+        [] -> {ok, []};
+        List0 ->
+            List = lists:sort(fun(#{start_at := A}, #{start_at := B}) -> A > B end, List0),
+            Nodes = ekka_mnesia:running_nodes(),
+            TraceSize = cluster_call(?MODULE, get_trace_size, [], 30000),
+            AllFileSize = lists:foldl(fun(F, Acc) -> maps:merge(Acc, F) end, #{}, TraceSize),
+            Now = erlang:system_time(second),
+            Traces =
+                lists:map(fun(Trace = #{name := Name, start_at := Start,
+                    end_at := End, enable := Enable, type := Type, filter := Filter}) ->
+                    FileName = emqx_trace:filename(Name, Start),
+                    LogSize = collect_file_size(Nodes, FileName, AllFileSize),
+                    Trace0 = maps:without([enable, filter], Trace),
+                    Trace0#{ log_size => LogSize
+                           , Type => Filter
+                           , start_at => list_to_binary(calendar:system_time_to_rfc3339(Start))
+                           , end_at => list_to_binary(calendar:system_time_to_rfc3339(End))
+                           , status => status(Enable, Start, End, Now)
+                           }
+                          end, emqx_trace:format(List)),
+            {ok, Traces}
+    end.
 
 create_trace(_, Param) ->
     case emqx_trace:create(Param) of
@@ -97,28 +116,48 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
                 end, [], TraceFiles).
 
 collect_trace_file(TraceLog) ->
+    cluster_call(emqx_trace, trace_file, [TraceLog], 60000).
+
+cluster_call(Mod, Fun, Args, Timeout) ->
     Nodes = ekka_mnesia:running_nodes(),
-    {Files, BadNodes} = rpc:multicall(Nodes, emqx_trace, trace_file, [TraceLog], 60000),
-    BadNodes =/= [] andalso ?LOG(error, "download log rpc failed on ~p", [BadNodes]),
-    Files.
+    {GoodRes, BadNodes} = rpc:multicall(Nodes, Mod, Fun, Args, Timeout),
+    BadNodes =/= [] andalso ?LOG(error, "rpc call failed on ~p ~p", [BadNodes, {Mod, Fun, Args}]),
+    GoodRes.
 
 stream_log_file(#{name := Name}, Params) ->
     Node0 = proplists:get_value(<<"node">>, Params, atom_to_binary(node())),
     Position0 = proplists:get_value(<<"position">>, Params, <<"0">>),
     Bytes0 = proplists:get_value(<<"bytes">>, Params, <<"1000">>),
-    Node = binary_to_existing_atom(Node0),
-    Position = binary_to_integer(Position0),
-    Bytes = binary_to_integer(Bytes0),
-    case rpc:call(Node, ?MODULE, read_trace_file, [Name, Position, Bytes]) of
-        {ok, Bin} ->
-            Meta = #{<<"position">> => Position + byte_size(Bin), <<"bytes">> => Bytes},
-            {ok, #{meta => Meta, items => Bin}};
-        {eof, Size} ->
-            Meta = #{<<"position">> => Size, <<"bytes">> => Bytes},
-            {ok, #{meta => Meta, items => <<"">>}};
-        {error, Reason} ->
-            logger:log(error, "read_file_failed by ~p", [{Name, Reason, Position, Bytes}]),
-            {error, Reason}
+    case to_node(Node0) of
+        {ok, Node} ->
+            Position = binary_to_integer(Position0),
+            Bytes = binary_to_integer(Bytes0),
+            case rpc:call(Node, ?MODULE, read_trace_file, [Name, Position, Bytes]) of
+                {ok, Bin} ->
+                    Meta = #{<<"position">> => Position + byte_size(Bin), <<"bytes">> => Bytes},
+                    {ok, #{meta => Meta, items => Bin}};
+                {eof, Size} ->
+                    Meta = #{<<"position">> => Size, <<"bytes">> => Bytes},
+                    {ok, #{meta => Meta, items => <<"">>}};
+                {error, Reason} ->
+                    logger:log(error, "read_file_failed by ~p", [{Name, Reason, Position, Bytes}]),
+                    {error, Reason};
+                {badrpc, nodedown} ->
+                    {error, "BadRpc node down"}
+            end;
+        {error, Reason} -> {error, Reason}
+    end.
+
+get_trace_size() ->
+    TraceDir = emqx_trace:trace_dir(),
+    Node = node(),
+    case file:list_dir(TraceDir) of
+        {ok, AllFiles} ->
+            lists:foldl(fun(File, Acc) ->
+                FullFileName = filename:join(TraceDir, File),
+                Acc#{{Node, File} => filelib:file_size(FullFileName)}
+                        end, #{}, lists:delete("zip", AllFiles));
+        _ -> #{}
     end.
 
 %% this is an rpc call for stream_log_file/2
@@ -134,7 +173,6 @@ read_trace_file(Name, Position, Limit) ->
         [] -> {error, not_found}
     end.
 
--dialyzer({nowarn_function, read_file/3}).
 read_file(Path, Offset, Bytes) ->
     {ok, IoDevice} = file:open(Path, [read, raw, binary]),
     try
@@ -146,9 +184,27 @@ read_file(Path, Offset, Bytes) ->
             {ok, Bin} -> {ok, Bin};
             {error, Reason} -> {error, Reason};
             eof ->
-                #file_info{size = Size} = file:read_file_info(IoDevice),
+                {ok, #file_info{size = Size}} = file:read_file_info(IoDevice),
                 {eof, Size}
         end
     after
         file:close(IoDevice)
     end.
+
+to_node(Node) ->
+    try {ok, binary_to_existing_atom(Node)}
+    catch _:_ ->
+        {error, "node not found"}
+    end.
+
+collect_file_size(Nodes, FileName, AllFiles) ->
+    lists:foldl(fun(Node, Acc) ->
+        Size = maps:get({Node, FileName}, AllFiles, 0),
+        Acc#{Node => Size}
+                end, #{}, Nodes).
+
+%% status(false, _Start, End, Now) when End > Now -> <<"stopped">>;
+status(false, _Start, _End, _Now) -> <<"stopped">>;
+status(true, Start, _End, Now) when Now < Start -> <<"waiting">>;
+status(true, _Start, End, Now) when Now >= End -> <<"stopped">>;
+status(true, _Start, _End, _Now) -> <<"running">>.

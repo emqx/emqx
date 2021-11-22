@@ -18,16 +18,20 @@
 -behaviour(gen_server).
 
 -include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[Trace]").
+-logger_header("[Tracer]").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
+
+-export([ publish/1
+        , subscribe/3
+        , unsubscribe/2
+        ]).
 
 -export([ start_link/0
         , list/0
@@ -41,6 +45,7 @@
 
 -export([ format/1
         , zip_dir/0
+        , filename/2
         , trace_dir/0
         , trace_file/1
         , delete_files_after_send/2
@@ -49,23 +54,22 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -define(TRACE, ?MODULE).
--define(PACKETS, tuple_to_list(?TYPE_NAMES)).
 -define(MAX_SIZE, 30).
 
 -ifdef(TEST).
 -export([log_file/2]).
 -endif.
 
+-export_type([ip_address/0]).
+-type ip_address() :: string().
+
 -record(?TRACE,
         { name :: binary() | undefined | '_'
-        , type :: clientid | topic | undefined | '_'
-        , topic :: emqx_types:topic() | undefined | '_'
-        , clientid :: emqx_types:clientid() | undefined | '_'
-        , packets = [] :: list() | '_'
+        , type :: clientid | topic | ip_address | undefined | '_'
+        , filter :: emqx_types:topic() | emqx_types:clientid() | ip_address() | undefined | '_'
         , enable = true :: boolean() | '_'
-        , start_at :: integer() | undefined | binary() | '_'
-        , end_at :: integer() | undefined | binary()  | '_'
-        , log_size = #{} :: map() | '_'
+        , start_at :: integer() | undefined | '_'
+        , end_at :: integer() | undefined | '_'
         }).
 
 mnesia(boot) ->
@@ -76,6 +80,31 @@ mnesia(boot) ->
         {attributes, record_info(fields, ?TRACE)}]);
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TRACE, disc_copies).
+
+publish(#message{topic = <<"$SYS/", _/binary>>}) -> ignore;
+publish(#message{from = From, topic = Topic, payload = Payload}) when
+    is_binary(From); is_atom(From) ->
+    emqx_logger:info(
+        #{topic => Topic, mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}},
+        "PUBLISH to ~s: ~0p",
+        [Topic, Payload]
+    ).
+
+subscribe(<<"$SYS/", _/binary>>, _SubId, _SubOpts) -> ignore;
+subscribe(Topic, SubId, SubOpts) ->
+    emqx_logger:info(
+        #{topic => Topic, mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}},
+        "~ts SUBSCRIBE ~ts: Options: ~0p",
+        [SubId, Topic, SubOpts]
+    ).
+
+unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) -> ignore;
+unsubscribe(Topic, SubOpts) ->
+    emqx_logger:info(
+        #{topic => Topic, mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}},
+        "~ts UNSUBSCRIBE ~ts: Options: ~0p",
+        [maps:get(subid, SubOpts, ""), Topic, SubOpts]
+    ).
 
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
@@ -89,18 +118,18 @@ list() ->
 list(Enable) ->
     ets:match_object(?TRACE, #?TRACE{enable = Enable, _ = '_'}).
 
--spec create([{Key :: binary(), Value :: binary()}]) ->
+-spec create([{Key :: binary(), Value :: binary()}] | #{atom() => binary()}) ->
     ok | {error, {duplicate_condition, iodata()} | {already_existed, iodata()} | iodata()}.
 create(Trace) ->
     case mnesia:table_info(?TRACE, size) < ?MAX_SIZE of
         true ->
             case to_trace(Trace) of
-                {ok, TraceRec} -> create_new_trace(TraceRec);
+                {ok, TraceRec} -> insert_new_trace(TraceRec);
                 {error, Reason} -> {error, Reason}
             end;
         false ->
-            {error, """The number of traces created has reached the maximum,
-please delete the useless ones first"""}
+            {error, "The number of traces created has reached the maximum"
+            " please delete the useless ones first"}
     end.
 
 -spec delete(Name :: binary()) -> ok | {error, not_found}.
@@ -163,12 +192,8 @@ delete_files_after_send(TraceLog, Zips) ->
 -spec format(list(#?TRACE{})) -> list(map()).
 format(Traces) ->
     Fields = record_info(fields, ?TRACE),
-    lists:map(fun(Trace0 = #?TRACE{start_at = StartAt, end_at = EndAt}) ->
-        Trace = Trace0#?TRACE{
-            start_at = list_to_binary(calendar:system_time_to_rfc3339(StartAt)),
-            end_at   = list_to_binary(calendar:system_time_to_rfc3339(EndAt))
-        },
-        [_ | Values] = tuple_to_list(Trace),
+    lists:map(fun(Trace0 = #?TRACE{}) ->
+        [_ | Values] = tuple_to_list(Trace0),
         maps:from_list(lists:zip(Fields, Values))
               end, Traces).
 
@@ -198,7 +223,7 @@ handle_info({'DOWN', _Ref, process, Pid, _Reason}, State = #{monitors := Monitor
     case maps:take(Pid, Monitors) of
         error -> {noreply, State};
         {Files, NewMonitors} ->
-            lists:foreach(fun(F) -> file:delete(F) end, Files),
+            lists:foreach(fun file:delete/1, Files),
             {noreply, State#{monitors => NewMonitors}}
     end;
 handle_info({timeout, TRef, update_trace},
@@ -227,14 +252,12 @@ terminate(_Reason, #{timer := TRef, primary_log_level := OriginLogLevel}) ->
 code_change(_, State, _Extra) ->
     {ok, State}.
 
-create_new_trace(Trace) ->
+insert_new_trace(Trace) ->
     Tran = fun() ->
         case mnesia:read(?TRACE, Trace#?TRACE.name) of
             [] ->
-                #?TRACE{start_at = StartAt, topic = Topic,
-                    clientid = ClientId, packets = Packets} = Trace,
-                Match = #?TRACE{_ = '_', start_at = StartAt, topic = Topic,
-                    clientid = ClientId, packets = Packets},
+                #?TRACE{start_at = StartAt, type = Type, filter = Filter} = Trace,
+                Match = #?TRACE{_ = '_', start_at = StartAt, type = Type, filter = Filter},
                 case mnesia:match_object(?TRACE, Match, read) of
                     [] -> mnesia:write(?TRACE, Trace, write);
                     [#?TRACE{name = Name}] -> mnesia:abort({duplicate_condition, Name})
@@ -248,7 +271,7 @@ update_trace(Traces) ->
     Now = erlang:system_time(second),
     {_Waiting, Running, Finished} = classify_by_time(Traces, Now),
     disable_finished(Finished),
-    Started = already_running(),
+    Started = emqx_trace_handler:running(),
     {NeedRunning, AllStarted} = start_trace(Running, Started),
     NeedStop = AllStarted -- NeedRunning,
     ok = stop_trace(NeedStop, Started),
@@ -257,14 +280,8 @@ update_trace(Traces) ->
     emqx_misc:start_timer(NextTime, update_trace).
 
 stop_all_trace_handler() ->
-    lists:foreach(fun(#{type := Type, name := Name} = Trace) ->
-        _ = emqx_tracer:stop_trace(Type, maps:get(Type, Trace), Name)
-                  end
-        , already_running()).
-
-already_running() ->
-    emqx_tracer:lookup_traces().
-
+    lists:foreach(fun(#{id := Id}) -> emqx_trace_handler:uninstall(Id) end,
+        emqx_trace_handler:running()).
 get_enable_trace() ->
     {atomic, Traces} =
         mnesia:transaction(fun() ->
@@ -286,31 +303,24 @@ find_closest_time(Traces, Now) ->
 
 disable_finished([]) -> ok;
 disable_finished(Traces) ->
-    NameWithLogSize =
-        lists:map(fun(#?TRACE{name = Name, start_at = StartAt}) ->
-            FileSize = filelib:file_size(log_file(Name, StartAt)),
-            {Name, FileSize} end, Traces),
     transaction(fun() ->
-        lists:map(fun({Name, LogSize}) ->
+        lists:map(fun(#?TRACE{name = Name}) ->
             case mnesia:read(?TRACE, Name, write) of
                 [] -> ok;
-                [Trace = #?TRACE{log_size = Logs}] ->
-                    mnesia:write(?TRACE, Trace#?TRACE{enable = false,
-                        log_size = Logs#{node() => LogSize}}, write)
-            end end, NameWithLogSize)
+                [Trace] -> mnesia:write(?TRACE, Trace#?TRACE{enable = false}, write)
+            end end, Traces)
                 end).
 
 start_trace(Traces, Started0) ->
     Started = lists:map(fun(#{name := Name}) -> Name end, Started0),
     lists:foldl(fun(#?TRACE{name = Name} = Trace, {Running, StartedAcc}) ->
         case lists:member(Name, StartedAcc) of
-            true -> {[Name | Running], StartedAcc};
+            true ->
+                {[Name | Running], StartedAcc};
             false ->
                 case start_trace(Trace) of
                     ok -> {[Name | Running], [Name | StartedAcc]};
-                    Error ->
-                        ?LOG(error, "(~p)start trace failed by:~p", [Name, Error]),
-                        {[Name | Running], StartedAcc}
+                    {error, _Reason} -> {[Name | Running], StartedAcc}
                 end
         end
                 end, {[], Started}, Traces).
@@ -318,27 +328,16 @@ start_trace(Traces, Started0) ->
 start_trace(Trace) ->
     #?TRACE{name   = Name
         , type     = Type
-        , clientid = ClientId
-        , topic    = Topic
-        , packets  = Packets
+        , filter   = Filter
         , start_at = Start
     } = Trace,
-    Who0 = #{name => Name, labels => Packets},
-    Who =
-        case Type of
-            topic -> Who0#{type => topic, topic => Topic};
-            clientid -> Who0#{type => clientid, clientid => ClientId}
-        end,
-    case emqx_tracer:start_trace(Who, debug, log_file(Name, Start)) of
-        ok -> ok;
-        {error, {already_exist, _}} -> ok;
-        {error, Reason} -> {error, Reason}
-    end.
+    Who = #{name => Name, type => Type, filter => Filter},
+    emqx_trace_handler:install(Who, debug, log_file(Name, Start)).
 
 stop_trace(Finished, Started) ->
-    lists:foreach(fun(#{name := Name, type := Type} = Trace) ->
+    lists:foreach(fun(#{name := Name, type := Type}) ->
         case lists:member(Name, Finished) of
-            true -> emqx_tracer:stop_trace(Type, maps:get(Type, Trace), Name);
+            true -> emqx_trace_handler:uninstall(Type, Name);
             false -> ok
         end
                   end, Started).
@@ -371,22 +370,30 @@ classify_by_time([Trace = #?TRACE{end_at = End} | Traces],
 classify_by_time([Trace | Traces], Now, Wait, Run, Finish) ->
     classify_by_time(Traces, Now, Wait, [Trace | Run], Finish).
 
-to_trace(TraceList) ->
-    case to_trace(TraceList, #?TRACE{}) of
+to_trace(TraceParam) ->
+    case to_trace(ensure_proplists(TraceParam), #?TRACE{}) of
         {error, Reason} -> {error, Reason};
         {ok, #?TRACE{name = undefined}} ->
             {error, "name required"};
         {ok, #?TRACE{type = undefined}} ->
-            {error, "type required"};
-        {ok, #?TRACE{topic = undefined, clientid = undefined}} ->
-            {error, "topic/clientid cannot be both empty"};
-        {ok, Trace} ->
-            case fill_default(Trace) of
+            {error, "type=[topic,clientid,ip_address] required"};
+        {ok, #?TRACE{filter = undefined}} ->
+            {error, "topic/clientid/ip_address filter required"};
+        {ok, TraceRec0} ->
+            case fill_default(TraceRec0) of
                 #?TRACE{start_at = Start, end_at = End} when End =< Start ->
                     {error, "failed by start_at >= end_at"};
-                Trace1 -> {ok, Trace1}
+                TraceRec -> {ok, TraceRec}
             end
     end.
+
+ensure_proplists(#{} = Trace) -> maps:to_list(Trace);
+ensure_proplists(Trace) when is_list(Trace) ->
+    lists:foldl(
+        fun({K, V}, Acc) when is_binary(K) -> [{binary_to_existing_atom(K), V} | Acc];
+            ({K, V}, Acc) when is_atom(K) -> [{K, V} | Acc];
+            (_, Acc) -> Acc
+        end, [], Trace).
 
 fill_default(Trace = #?TRACE{start_at = undefined}) ->
     fill_default(Trace#?TRACE{start_at = erlang:system_time(second)});
@@ -395,27 +402,35 @@ fill_default(Trace = #?TRACE{end_at = undefined, start_at = StartAt}) ->
 fill_default(Trace) -> Trace.
 
 to_trace([], Rec) -> {ok, Rec};
-to_trace([{<<"name">>, Name} | Trace], Rec) ->
+to_trace([{name, Name} | Trace], Rec) ->
     case binary:match(Name, [<<"/">>], []) of
-        nomatch -> to_trace(Trace, Rec#?TRACE{name = Name});
+        nomatch when byte_size(Name) < 200 -> to_trace(Trace, Rec#?TRACE{name = Name});
+        nomatch -> {error, "name(latin1) length must < 200"};
         _ -> {error, "name cannot contain /"}
     end;
-to_trace([{<<"type">>, Type} | Trace], Rec) ->
-    case lists:member(Type, [<<"clientid">>, <<"topic">>]) of
+to_trace([{type, Type} | Trace], Rec) ->
+    case lists:member(Type, [<<"clientid">>, <<"topic">>, <<"ip_address">>]) of
         true -> to_trace(Trace, Rec#?TRACE{type = binary_to_existing_atom(Type)});
-        false -> {error, "incorrect type: only support clientid/topic"}
+        false -> {error, "incorrect type: only support clientid/topic/ip_address"}
     end;
-to_trace([{<<"topic">>, Topic} | Trace], Rec) ->
+to_trace([{topic, Topic} | Trace], Rec) ->
     case validate_topic(Topic) of
-        ok -> to_trace(Trace, Rec#?TRACE{topic = Topic});
+        ok -> to_trace(Trace, Rec#?TRACE{filter = Topic});
         {error, Reason} -> {error, Reason}
     end;
-to_trace([{<<"start_at">>, StartAt} | Trace], Rec) ->
+to_trace([{clientid, ClientId} | Trace], Rec) ->
+    to_trace(Trace, Rec#?TRACE{filter = ClientId});
+to_trace([{ip_address, IP} | Trace], Rec) ->
+    case inet:parse_address(binary_to_list(IP)) of
+        {ok, _} -> to_trace(Trace, Rec#?TRACE{filter = binary_to_list(IP)});
+        {error, Reason} -> {error, lists:flatten(io_lib:format("ip address: ~p", [Reason]))}
+    end;
+to_trace([{start_at, StartAt} | Trace], Rec) ->
     case to_system_second(StartAt) of
         {ok, Sec} -> to_trace(Trace, Rec#?TRACE{start_at = Sec});
         {error, Reason} -> {error, Reason}
     end;
-to_trace([{<<"end_at">>, EndAt} | Trace], Rec) ->
+to_trace([{end_at, EndAt} | Trace], Rec) ->
     Now = erlang:system_time(second),
     case to_system_second(EndAt) of
         {ok, Sec} when Sec > Now ->
@@ -425,21 +440,14 @@ to_trace([{<<"end_at">>, EndAt} | Trace], Rec) ->
         {error, Reason} ->
             {error, Reason}
     end;
-to_trace([{<<"clientid">>, ClientId} | Trace], Rec) ->
-    to_trace(Trace, Rec#?TRACE{clientid = ClientId});
-to_trace([{<<"packets">>, PacketList} | Trace], Rec) ->
-    case to_packets(PacketList) of
-        {ok, Packets} -> to_trace(Trace, Rec#?TRACE{packets = Packets});
-        {error, Reason} -> {error, io_lib:format("unsupport packets: ~p", [Reason])}
-    end;
 to_trace([Unknown | _Trace], _Rec) -> {error, io_lib:format("unknown field: ~p", [Unknown])}.
 
 validate_topic(TopicName) ->
-    try emqx_topic:validate(name, TopicName) of
+    try emqx_topic:validate(filter, TopicName) of
         true -> ok
     catch
         error:Error ->
-            {error, io_lib:format("~s invalid by ~p", [TopicName, Error])}
+            {error, io_lib:format("topic: ~s invalid by ~p", [TopicName, Error])}
     end.
 
 to_system_second(At) ->
@@ -449,14 +457,6 @@ to_system_second(At) ->
     catch error: {badmatch, _} ->
         {error, ["The rfc3339 specification not satisfied: ", At]}
     end.
-
-to_packets(Packets) when is_list(Packets) ->
-    AtomTypes = lists:map(fun(Type) -> binary_to_existing_atom(Type) end, Packets),
-    case lists:filter(fun(T) -> not lists:member(T, ?PACKETS) end, AtomTypes) of
-        [] -> {ok, AtomTypes};
-        InvalidE -> {error, InvalidE}
-    end;
-to_packets(Packets) -> {error, Packets}.
 
 zip_dir() ->
     trace_dir() ++ "zip/".
