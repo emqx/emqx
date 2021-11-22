@@ -32,7 +32,7 @@ request(PoolName, get, Path, Headers, Params, Timeout) ->
     reply(ehttpc:request(PoolName, get, {NewPath, Headers}, Timeout));
 
 request(PoolName, post, Path, Headers, Params, Timeout) ->
-    Body = case proplists:get_value("content-type", Headers) of
+    Body = case proplists:get_value(<<"content-type">>, Headers) of
                "application/x-www-form-urlencoded" ->
                    cow_qs:qs(bin_kw(Params));
                "application/json" -> 

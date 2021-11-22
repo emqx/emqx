@@ -19,6 +19,12 @@ BuildRoot: %{_tmppath}/%{_name}-%{_version}-root
 Provides: %{_name}
 AutoReq: 0
 
+%if "%{_arch} %{?rhel}" == "amd64 7"
+Requires: openssl11 libatomic
+%else
+Requires: libatomic
+%endif
+
 %description
 EMQX, a distributed, massively scalable, highly extensible MQTT message broker written in Erlang/OTP.
 

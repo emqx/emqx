@@ -295,7 +295,7 @@ create_req(_, Path, Headers, Body) ->
 parse_action_params(Params = #{<<"url">> := URL}) ->
     {ok, #{path := CommonPath}} = emqx_http_lib:uri_parse(URL),
     Method = method(maps:get(<<"method">>, Params, <<"POST">>)),
-    Headers = headers(maps:get(<<"headers">>, Params, undefined)),
+    Headers = headers(maps:get(<<"headers">>, Params, #{})),
     NHeaders = ensure_content_type_header(Headers, Method),
     #{method => Method,
       path => merge_path(CommonPath, maps:get(<<"path">>, Params, <<>>)),
@@ -307,7 +307,7 @@ parse_action_params(Params = #{<<"url">> := URL}) ->
 ensure_content_type_header(Headers, Method) when Method =:= post orelse Method =:= put ->
     Headers;
 ensure_content_type_header(Headers, _Method) ->
-    lists:keydelete("content-type", 1, Headers).
+    lists:keydelete(<<"content-type">>, 1, Headers).
 
 merge_path(CommonPath, <<>>) ->
     l2b(CommonPath);
@@ -326,11 +326,8 @@ method(POST) when POST == <<"POST">>; POST == <<"post">> -> post;
 method(PUT) when PUT == <<"PUT">>; PUT == <<"put">> -> put;
 method(DEL) when DEL == <<"DELETE">>; DEL == <<"delete">> -> delete.
 
-headers(undefined) -> [];
-headers(Headers) when is_map(Headers) ->
-    headers(maps:to_list(Headers));
-headers(Headers) when is_list(Headers) ->
-    [{string:to_lower(str(K)), str(V)} || {K, V} <- Headers].
+headers(Headers) ->
+    emqx_http_lib:normalise_headers(maps:to_list(Headers)).
 
 str(Str) when is_list(Str) -> Str;
 str(Atom) when is_atom(Atom) -> atom_to_list(Atom);
