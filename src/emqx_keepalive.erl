@@ -73,7 +73,19 @@ check(NewVal, KeepAlive = #keepalive{statval = OldVal,
         true -> {error, timeout}
     end.
 
+%% from mqtt-v3.1.1 specific
+%% A Keep Alive value of zero (0) has the effect of turning off the keep alive mechanism.
+%% This means that, in this case, the Server is not required
+%% to disconnect the Client on the grounds of inactivity.
+%% Note that a Server is permitted to disconnect a Client that it determines
+%% to be inactive or non-responsive at any time,
+%% regardless of the Keep Alive value provided by that Client.
+%%  Non normative comment
+%%The actual value of the Keep Alive is application specific;
+%% typically this is a few minutes.
+%% The maximum value is (65535s) 18 hours 12 minutes and 15 seconds.
+
 %% @doc Update keepalive's interval
 -spec(set(interval, non_neg_integer(), keepalive()) -> keepalive()).
-set(interval, Interval, KeepAlive) ->
+set(interval, Interval, KeepAlive) when Interval >= 0 andalso Interval =< 65535000 ->
     KeepAlive#keepalive{interval = Interval}.

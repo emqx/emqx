@@ -261,6 +261,7 @@ set_keepalive(#{clientid := ClientId}, Params) ->
             case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientId), Interval) of
                 ok -> minirest:return();
                 {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
+                {error, Code, Reason} -> minirest:return({error, Code, Reason});
                 {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
             end
     end.
