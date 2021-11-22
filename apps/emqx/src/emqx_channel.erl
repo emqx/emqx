@@ -287,7 +287,7 @@ handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState})
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connecting}) ->
     handle_out(connack, ?RC_PROTOCOL_ERROR, Channel);
 
-handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
+handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
     case pipeline([fun overload_protection/2,
                    fun enrich_conninfo/2,
                    fun run_conn_hooks/2,
@@ -297,6 +297,7 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                    fun check_banned/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
+            ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
             NChannel1 = NChannel#channel{
                                         will_msg = emqx_packet:will_msg(NConnPkt),
                                         alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)

@@ -20,6 +20,7 @@
 
 -behaviour(gen_server).
 -behaviour(emqx_config_handler).
+-elvis([{elvis_style, god_modules, disable}]).
 
 %% gen_server callbacks
 -export([ start_link/0
@@ -78,10 +79,11 @@
         id := logger:handler_id(),
         level := logger:level(),
         dst := logger_dst(),
+        filters := [{logger:filter_id(), logger:filter()}],
         status := started | stopped
       }).
 
--define(stopped_handlers, {?MODULE, stopped_handlers}).
+-define(STOPPED_HANDLERS, {?MODULE, stopped_handlers}).
 -define(CONF_PATH, [log]).
 
 start_link() ->
@@ -238,19 +240,19 @@ get_log_handlers() ->
 
 -spec(get_log_handlers(started | stopped) -> [logger_handler_info()]).
 get_log_handlers(started) ->
-    [log_hanlder_info(Conf, started) || Conf <- logger:get_handler_config()];
+    [log_handler_info(Conf, started) || Conf <- logger:get_handler_config()];
 get_log_handlers(stopped) ->
-    [log_hanlder_info(Conf, stopped) || Conf <- list_stopped_handler_config()].
+    [log_handler_info(Conf, stopped) || Conf <- list_stopped_handler_config()].
 
 -spec(get_log_handler(logger:handler_id()) -> logger_handler_info()).
 get_log_handler(HandlerId) ->
     case logger:get_handler_config(HandlerId) of
         {ok, Conf} ->
-            log_hanlder_info(Conf, started);
+            log_handler_info(Conf, started);
         {error, _} ->
             case read_stopped_handler_config(HandlerId) of
                 error -> {error, {not_found, HandlerId}};
-                {ok, Conf} -> log_hanlder_info(Conf, stopped)
+                {ok, Conf} -> log_handler_info(Conf, stopped)
             end
     end.
 
@@ -305,21 +307,21 @@ set_log_level(Level) ->
 %% Internal Functions
 %%--------------------------------------------------------------------
 
-log_hanlder_info(#{id := Id, level := Level, module := logger_std_h,
-                   config := #{type := Type}}, Status) when
+log_handler_info(#{id := Id, level := Level, module := logger_std_h,
+                   filters := Filters, config := #{type := Type}}, Status) when
                 Type =:= standard_io;
                 Type =:= standard_error ->
-    #{id => Id, level => Level, dst => console, status => Status};
-log_hanlder_info(#{id := Id, level := Level, module := logger_std_h,
-                   config := Config = #{type := file}}, Status) ->
-    #{id => Id, level => Level, status => Status,
+    #{id => Id, level => Level, dst => console, status => Status, filters => Filters};
+log_handler_info(#{id := Id, level := Level, module := logger_std_h,
+                   filters := Filters, config := Config = #{type := file}}, Status) ->
+    #{id => Id, level => Level, status => Status, filters => Filters,
       dst => maps:get(file, Config, atom_to_list(Id))};
 
-log_hanlder_info(#{id := Id, level := Level, module := logger_disk_log_h,
-                   config := #{file := Filename}}, Status) ->
-    #{id => Id, level => Level, dst => Filename, status => Status};
-log_hanlder_info(#{id := Id, level := Level, module := _OtherModule}, Status) ->
-    #{id => Id, level => Level, dst => unknown, status => Status}.
+log_handler_info(#{id := Id, level := Level, module := logger_disk_log_h,
+                   filters := Filters, config := #{file := Filename}}, Status) ->
+    #{id => Id, level => Level, dst => Filename, status => Status, filters => Filters};
+log_handler_info(#{id := Id, level := Level, filters := Filters}, Status) ->
+    #{id => Id, level => Level, dst => unknown, status => Status, filters => Filters}.
 
 %% set level for all log handlers in one command
 set_all_log_handlers_level(Level) ->
@@ -341,29 +343,29 @@ rollback([{ID, Level} | List]) ->
 rollback([]) -> ok.
 
 save_stopped_handler_config(HandlerId, Config) ->
-    case persistent_term:get(?stopped_handlers, undefined) of
+    case persistent_term:get(?STOPPED_HANDLERS, undefined) of
         undefined ->
-            persistent_term:put(?stopped_handlers, #{HandlerId => Config});
+            persistent_term:put(?STOPPED_HANDLERS, #{HandlerId => Config});
         ConfList ->
-            persistent_term:put(?stopped_handlers, ConfList#{HandlerId => Config})
+            persistent_term:put(?STOPPED_HANDLERS, ConfList#{HandlerId => Config})
     end.
 read_stopped_handler_config(HandlerId) ->
-    case persistent_term:get(?stopped_handlers, undefined) of
+    case persistent_term:get(?STOPPED_HANDLERS, undefined) of
         undefined -> error;
         ConfList -> maps:find(HandlerId, ConfList)
     end.
 remove_stopped_handler_config(HandlerId) ->
-    case persistent_term:get(?stopped_handlers, undefined) of
+    case persistent_term:get(?STOPPED_HANDLERS, undefined) of
         undefined -> ok;
         ConfList ->
             case maps:find(HandlerId, ConfList) of
                 error -> ok;
                 {ok, _} ->
-                    persistent_term:put(?stopped_handlers, maps:remove(HandlerId, ConfList))
+                    persistent_term:put(?STOPPED_HANDLERS, maps:remove(HandlerId, ConfList))
             end
     end.
 list_stopped_handler_config() ->
-    case persistent_term:get(?stopped_handlers, undefined) of
+    case persistent_term:get(?STOPPED_HANDLERS, undefined) of
         undefined -> [];
         ConfList -> maps:values(ConfList)
     end.
