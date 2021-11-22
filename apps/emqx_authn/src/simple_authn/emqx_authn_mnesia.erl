@@ -17,6 +17,7 @@
 -module(emqx_authn_mnesia).
 
 -include("emqx_authn.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
@@ -28,7 +29,7 @@
         ]).
 
 -export([ refs/0
-        , create/1
+        , create/2
         , update/2
         , authenticate/2
         , destroy/1
@@ -45,8 +46,7 @@
 -export([format_user_info/1]).
 
 -type user_id_type() :: clientid | username.
-
--type user_group() :: {binary(), binary()}.
+-type user_group() :: binary().
 -type user_id() :: binary().
 
 -record(user_info,
@@ -56,7 +56,7 @@
         , is_superuser :: boolean()
         }).
 
--reflect_type([ user_id_type/0 ]).
+-reflect_type([user_id_type/0]).
 
 -export([mnesia/1]).
 
@@ -123,29 +123,28 @@ salt_rounds(_) -> undefined.
 refs() ->
    [hoconsc:ref(?MODULE, config)].
 
-create(#{ user_id_type := Type
-        , password_hash_algorithm := #{name := bcrypt,
-                                       salt_rounds := SaltRounds}
-        , '_unique' := Unique
-        }) ->
-    {ok, _} = application:ensure_all_started(bcrypt),
-    State = #{user_group => Unique,
+create(AuthenticatorID,
+       #{user_id_type := Type,
+         password_hash_algorithm := #{name := bcrypt,
+                                      salt_rounds := SaltRounds}}) ->
+    ok = emqx_authn_utils:ensure_apps_started(bcrypt),
+    State = #{user_group => AuthenticatorID,
               user_id_type => Type,
               password_hash_algorithm => bcrypt,
               salt_rounds => SaltRounds},
     {ok, State};
 
-create(#{ user_id_type := Type
-        , password_hash_algorithm := #{name := Name}
-        , '_unique' := Unique
-        }) ->
-    State = #{user_group => Unique,
+create(AuthenticatorID,
+       #{user_id_type := Type,
+         password_hash_algorithm := #{name := Name}}) ->
+    ok = emqx_authn_utils:ensure_apps_started(Name),
+    State = #{user_group => AuthenticatorID,
               user_id_type => Type,
               password_hash_algorithm => Name},
     {ok, State}.
 
-update(Config, #{user_group := Unique}) ->
-    create(Config#{'_unique' => Unique}).
+update(Config, #{user_group := ID}) ->
+    create(ID, Config).
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
@@ -170,10 +169,14 @@ authenticate(#{password := Password} = Credential,
 
 destroy(#{user_group := UserGroup}) ->
     trans(
-        fun() ->
-            MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_', '_'}, [], ['$_']}],
-            ok = lists:foreach(fun delete_user2/1, mnesia:select(?TAB, MatchSpec, write))
-        end).
+      fun() ->
+              ok = lists:foreach(
+                     fun(User) ->
+                             mnesia:delete_object(?TAB, User, write)
+                     end,
+                     mnesia:select(?TAB, group_match_spec(UserGroup), write))
+      end).
+
 
 import_users(Filename0, State) ->
     Filename = to_binary(Filename0),
@@ -246,8 +249,7 @@ lookup_user(UserID, #{user_group := UserGroup}) ->
     end.
 
 list_users(PageParams, #{user_group := UserGroup}) ->
-    MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_', '_'}, [], ['$_']}],
-    {ok, emqx_mgmt_api:paginate(?TAB, MatchSpec, PageParams, ?FORMAT_FUN)}.
+    {ok, emqx_mgmt_api:paginate(?TAB, group_match_spec(UserGroup), PageParams, ?FORMAT_FUN)}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -374,9 +376,6 @@ insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
                            is_superuser = IsSuperuser},
     mnesia:write(?TAB, UserInfo, write).
 
-delete_user2(UserInfo) ->
-    mnesia:delete_object(?TAB, UserInfo, write).
-
 %% TODO: Support other type
 get_user_identity(#{username := Username}, username) ->
     Username;
@@ -401,3 +400,9 @@ to_binary(L) when is_list(L) ->
 
 format_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) ->
     #{user_id => UserID, is_superuser => IsSuperuser}.
+
+group_match_spec(UserGroup) ->
+    ets:fun2ms(
+      fun(#user_info{user_id = {Group, _}} = User) when Group =:= UserGroup ->
+              User
+      end).

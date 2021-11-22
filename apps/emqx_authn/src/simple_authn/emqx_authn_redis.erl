@@ -29,7 +29,7 @@
         ]).
 
 -export([ refs/0
-        , create/1
+        , create/2
         , update/2
         , authenticate/2
         , destroy/1
@@ -56,11 +56,11 @@ fields(sentinel) ->
     common_fields() ++ emqx_connector_redis:fields(sentinel).
 
 common_fields() ->
-    [ {mechanism,               {enum, ['password-based']}}
-    , {backend,                 {enum, [redis]}}
-    , {query,                   fun query/1}
-    , {password_hash_algorithm, fun password_hash_algorithm/1}
-    , {salt_position,           fun salt_position/1}
+    [{mechanism,               {enum, ['password-based']}},
+     {backend,                 {enum, [redis]}},
+     {query,                   fun query/1},
+     {password_hash_algorithm, fun password_hash_algorithm/1},
+     {salt_position,           fun salt_position/1}
     ] ++ emqx_authn_schema:common_fields().
 
 query(type) -> string();
@@ -84,16 +84,22 @@ refs() ->
     , hoconsc:ref(?MODULE, sentinel)
     ].
 
-create(#{ query := Query
-        , '_unique' := Unique
-        } = Config) ->
+create(_AuthenticatorID, Config) ->
+    create(Config).
+
+create(#{query := Query,
+         password_hash_algorithm := Algorithm} = Config) ->
     try
         NQuery = parse_query(Query),
-        State = maps:with([ password_hash_algorithm
-                          , salt_position
-                          , '_unique'], Config),
-        NState = State#{query => NQuery},
-        case emqx_resource:create_local(Unique, emqx_connector_redis, Config) of
+        ok = emqx_authn_utils:ensure_apps_started(Algorithm),
+        State = maps:with(
+                  [password_hash_algorithm, salt_position],
+                  Config),
+        ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+        NState = State#{
+                   query => NQuery,
+                   resource_id => ResourceId},
+        case emqx_resource:create_local(ResourceId, emqx_connector_redis, Config) of
             {ok, already_created} ->
                 {ok, NState};
             {ok, _} ->
@@ -102,12 +108,12 @@ create(#{ query := Query
                 {error, Reason}
         end
     catch
-        error:{unsupported_query, Query} ->
+        error:{unsupported_query, _Query} ->
             {error, {unsupported_query, Query}};
         error:missing_password_hash ->
             {error, missing_password_hash};
-        error:{unsupported_field, Field} ->
-            {error, {unsupported_field, Field}}
+        error:{unsupported_fields, Fields} ->
+            {error, {unsupported_fields, Fields}}
     end.
 
 update(Config, State) ->
@@ -122,11 +128,10 @@ update(Config, State) ->
 authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(#{password := Password} = Credential,
-             #{ query := {Command, Key, Fields}
-              , '_unique' := Unique
-              } = State) ->
+             #{query := {Command, Key, Fields},
+               resource_id := ResourceId} = State) ->
     NKey = binary_to_list(iolist_to_binary(replace_placeholders(Key, Credential))),
-    case emqx_resource:query(Unique, {cmd, [Command, NKey | Fields]}) of
+    case emqx_resource:query(ResourceId, {cmd, [Command, NKey | Fields]}) of
         {ok, Values} ->
             case merge(Fields, Values) of
                 #{<<"password_hash">> := _} = Selected ->
@@ -138,18 +143,18 @@ authenticate(#{password := Password} = Credential,
                     end;
                 _ ->
                     ?SLOG(error, #{msg => "cannot_find_password_hash_field",
-                                   resource => Unique}),
+                                   resource => ResourceId}),
                     ignore
             end;
         {error, Reason} ->
             ?SLOG(error, #{msg => "redis_query_failed",
-                           resource => Unique,
+                           resource => ResourceId,
                            reason => Reason}),
             ignore
     end.
 
-destroy(#{'_unique' := Unique}) ->
-    _ = emqx_resource:remove_local(Unique),
+destroy(#{resource_id := ResourceId}) ->
+    _ = emqx_resource:remove_local(ResourceId),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -169,20 +174,15 @@ parse_query(Query) ->
     end.
 
 check_fields(Fields) ->
-    check_fields(Fields, false).
+    HasPassHash = lists:member("password_hash", Fields),
+    KnownFields = ["password_hash", "salt", "is_superuser"],
+    UnknownFields = [F || F <- Fields, not lists:member(F, KnownFields)],
 
-check_fields([], false) ->
-    error(missing_password_hash);
-check_fields([], true) ->
-    ok;
-check_fields(["password_hash" | More], false) ->
-    check_fields(More, true);
-check_fields(["salt" | More], HasPassHash) ->
-    check_fields(More, HasPassHash);
-check_fields(["is_superuser" | More], HasPassHash) ->
-    check_fields(More, HasPassHash);
-check_fields([Field | _], _) ->
-    error({unsupported_field, Field}).
+    case {HasPassHash, UnknownFields} of
+        {true, []} -> ok;
+        {true, _} -> error({unsupported_fields, UnknownFields});
+        {false, _} -> error(missing_password_hash)
+    end.
 
 parse_key(Key) ->
     Tokens = re:split(Key, "(" ++ ?RE_PLACEHOLDER ++ ")", [{return, binary}, group, trim]),

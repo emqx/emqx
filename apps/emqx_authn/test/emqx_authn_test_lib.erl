@@ -31,3 +31,17 @@ built_in_database_example() ->
 
 jwt_example() ->
     authenticator_example(jwt).
+
+delete_authenticators(Path, Chain) ->
+    case emqx_authentication:list_authenticators(Chain) of
+        {error, _} -> ok;
+        {ok, Authenticators} ->
+            lists:foreach(
+                fun(#{id := ID}) ->
+                    emqx:update_config(
+                        Path,
+                        {delete_authenticator, Chain, ID},
+                        #{rawconf_with_defaults => true})
+                end,
+                Authenticators)
+    end.

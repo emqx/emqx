@@ -44,7 +44,7 @@
         rate_last5m => RATE_5,
         rate_max => RATE_MAX
     }).
--define(metrics(SUCC, FAILED, RATE, RATE_5, RATE_MAX),
+-define(MATCH_METRICS(SUCC, FAILED, RATE, RATE_5, RATE_MAX),
     #{
         success := SUCC,
         failed := FAILED,
@@ -107,7 +107,7 @@ resp_schema() ->
     more_props_resp_schema(AddMetadata).
 
 more_props_resp_schema(AddMetadata) ->
-    #{oneOf := Schema} = req_schema(),
+    #{'oneOf' := Schema} = req_schema(),
     Schema1 = [S#{properties => AddMetadata(Prop)}
                || S = #{properties := Prop} <- Schema],
     #{'oneOf' => Schema1}.
@@ -258,7 +258,7 @@ crud_bridges_in_cluster(delete, #{bindings := #{id := Id}}) ->
                 #{override_to => cluster}) of
             {ok, _} -> {204};
             {error, Reason} ->
-                {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
+                {500, #{code => 102, message => emqx_resource_api:stringify(Reason)}}
         end).
 
 lookup_from_all_nodes(Id, BridgeType, BridgeName, SuccCode) ->
@@ -288,7 +288,7 @@ manage_bridges(post, #{bindings := #{node := Node, id := Id, operation := Op}}) 
                 [BridgeType, BridgeName]) of
             ok -> {200};
             {error, Reason} ->
-                {500, #{code => 102, message => emqx_resource_api:stringnify(Reason)}}
+                {500, #{code => 102, message => emqx_resource_api:stringify(Reason)}}
         end).
 
 ensure_bridge(BridgeType, BridgeName, Conf) ->
@@ -338,8 +338,8 @@ collect_metrics(Bridges) ->
 
 aggregate_metrics(AllMetrics) ->
     InitMetrics = ?METRICS(0,0,0,0,0),
-    lists:foldl(fun(#{metrics := ?metrics(Succ1, Failed1, Rate1, Rate5m1, RateMax1)},
-                    ?metrics(Succ0, Failed0, Rate0, Rate5m0, RateMax0)) ->
+    lists:foldl(fun(#{metrics := ?MATCH_METRICS(Succ1, Failed1, Rate1, Rate5m1, RateMax1)},
+                    ?MATCH_METRICS(Succ0, Failed0, Rate0, Rate5m0, RateMax0)) ->
             ?METRICS(Succ1 + Succ0, Failed1 + Failed0,
                      Rate1 + Rate0, Rate5m1 + Rate5m0, RateMax1 + RateMax0)
         end, InitMetrics, AllMetrics).

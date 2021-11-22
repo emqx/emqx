@@ -17,6 +17,7 @@
 -module(emqx_enhanced_authn_scram_mnesia).
 
 -include("emqx_authn.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
@@ -28,7 +29,7 @@
         ]).
 
 -export([ refs/0
-        , create/1
+        , create/2
         , update/2
         , authenticate/2
         , destroy/1
@@ -46,6 +47,8 @@
 -define(TAB, ?MODULE).
 -define(FORMAT_FUN, {?MODULE, format_user_info}).
 
+-type(user_group() :: binary()).
+
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
@@ -57,6 +60,8 @@
         , salt
         , is_superuser
         }).
+
+-reflect_type([user_group/0]).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -102,17 +107,17 @@ iteration_count(_) -> undefined.
 refs() ->
    [hoconsc:ref(?MODULE, config)].
 
-create(#{ algorithm := Algorithm
-        , iteration_count := IterationCount
-        , '_unique' := Unique
-        }) ->
-    State = #{user_group => Unique,
+create(AuthenticatorID,
+       #{algorithm := Algorithm,
+         iteration_count := IterationCount}) ->
+    State = #{user_group => AuthenticatorID,
               algorithm => Algorithm,
               iteration_count => IterationCount},
     {ok, State}.
 
-update(Config, #{user_group := Unique}) ->
-    create(Config#{'_unique' => Unique}).
+
+update(Config, #{user_group := ID}) ->
+    create(ID, Config).
 
 authenticate(#{auth_method := AuthMethod,
                auth_data := AuthData,
@@ -132,9 +137,12 @@ authenticate(_Credential, _State) ->
     ignore.
 
 destroy(#{user_group := UserGroup}) ->
+    MatchSpec = ets:fun2ms(
+                  fun(#user_info{user_id = {Group, _}} = User) when Group =:= UserGroup ->
+                          User
+                  end),
     trans(
         fun() ->
-            MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_', '_', '_'}, [], ['$_']}],
             ok = lists:foreach(fun(UserInfo) ->
                                   mnesia:delete_object(?TAB, UserInfo, write)
                                end, mnesia:select(?TAB, MatchSpec, write))

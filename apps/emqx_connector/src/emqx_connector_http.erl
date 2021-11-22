@@ -19,9 +19,9 @@
 -include("emqx_connector.hrl").
 
 -include_lib("typerefl/include/types.hrl").
--include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
-
 -include_lib("emqx/include/logger.hrl").
+
+-behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2

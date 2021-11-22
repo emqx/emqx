@@ -28,7 +28,7 @@
 
 -export([ roots/0, fields/1 ]).
 
--export([ create/1
+-export([ create/2
         , update/2
         , authenticate/2
         , destroy/1
@@ -70,7 +70,7 @@ check_config(C) ->
                                  #{atom_key => true}),
     R.
 
-create(_Config) ->
+create(_AuthenticatorID, _Config) ->
     {ok, #{mark => 1}}.
 
 update(_Config, _State) ->
@@ -103,7 +103,9 @@ end_per_testcase(Case, Config) ->
     _ = ?MODULE:Case({'end', Config}),
     ok.
 
+
 t_chain({_, Config}) -> Config;
+
 t_chain(Config) when is_list(Config) ->
     % CRUD of authentication chain
     ChainName = 'test',
@@ -118,9 +120,11 @@ t_chain(Config) when is_list(Config) ->
     ?assertMatch({error, {not_found, {chain, ChainName}}}, ?AUTHN:lookup_chain(ChainName)),
     ok.
 
+
 t_authenticator({'init', Config}) ->
     [{"auth1", {'password-based', 'built-in-database'}},
      {"auth2", {'password-based', mysql}} | Config];
+
 t_authenticator(Config) when is_list(Config) ->
     ChainName = 'test',
     AuthenticatorConfig1 = #{mechanism => 'password-based',
@@ -128,23 +132,43 @@ t_authenticator(Config) when is_list(Config) ->
                              enable => true},
 
     % Create an authenticator when the authentication chain does not exist
-    ?assertEqual({error, {not_found, {chain, ChainName}}}, ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
+    ?assertEqual(
+       {error, {not_found, {chain, ChainName}}},
+       ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
+
     ?AUTHN:create_chain(ChainName),
     % Create an authenticator when the provider does not exist
-    ?assertEqual({error, no_available_provider}, ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
+
+    ?assertEqual(
+       {error, no_available_provider},
+       ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
 
     AuthNType1 = ?config("auth1"),
     register_provider(AuthNType1, ?MODULE),
     ID1 = <<"password-based:built-in-database">>,
 
     % CRUD of authencaticator
-    ?assertMatch({ok, #{id := ID1, state := #{mark := 1, version := <<"2">>}}}, ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
+    ?assertMatch(
+       {ok, #{id := ID1, state := #{mark := 1}}},
+       ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
+
     ?assertMatch({ok, #{id := ID1}}, ?AUTHN:lookup_authenticator(ChainName, ID1)),
     ?assertMatch({ok, [#{id := ID1}]}, ?AUTHN:list_authenticators(ChainName)),
-    ?assertEqual({error, {already_exists, {authenticator, ID1}}}, ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
-    ?assertMatch({ok, #{id := ID1, state := #{mark := 2, version := <<"1">>}}}, ?AUTHN:update_authenticator(ChainName, ID1, AuthenticatorConfig1)),
+
+    ?assertEqual(
+       {error, {already_exists, {authenticator, ID1}}},
+       ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
+
+    ?assertMatch(
+       {ok, #{id := ID1, state := #{mark := 2}}},
+       ?AUTHN:update_authenticator(ChainName, ID1, AuthenticatorConfig1)),
+
     ?assertEqual(ok, ?AUTHN:delete_authenticator(ChainName, ID1)),
-    ?assertEqual({error, {not_found, {authenticator, ID1}}}, ?AUTHN:update_authenticator(ChainName, ID1, AuthenticatorConfig1)),
+
+    ?assertEqual(
+       {error, {not_found, {authenticator, ID1}}},
+       ?AUTHN:update_authenticator(ChainName, ID1, AuthenticatorConfig1)),
+
     ?assertMatch({ok, []}, ?AUTHN:list_authenticators(ChainName)),
 
     % Multiple authenticators exist at the same time
@@ -154,25 +178,37 @@ t_authenticator(Config) when is_list(Config) ->
     AuthenticatorConfig2 = #{mechanism => 'password-based',
                              backend => mysql,
                              enable => true},
-    ?assertMatch({ok, #{id := ID1}}, ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
-    ?assertMatch({ok, #{id := ID2}}, ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig2)),
+
+    ?assertMatch(
+       {ok, #{id := ID1}},
+       ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)),
+
+    ?assertMatch(
+       {ok, #{id := ID2}},
+       ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig2)),
 
     % Move authenticator
     ?assertMatch({ok, [#{id := ID1}, #{id := ID2}]}, ?AUTHN:list_authenticators(ChainName)),
+
     ?assertEqual(ok, ?AUTHN:move_authenticator(ChainName, ID2, top)),
     ?assertMatch({ok, [#{id := ID2}, #{id := ID1}]}, ?AUTHN:list_authenticators(ChainName)),
+
     ?assertEqual(ok, ?AUTHN:move_authenticator(ChainName, ID2, bottom)),
     ?assertMatch({ok, [#{id := ID1}, #{id := ID2}]}, ?AUTHN:list_authenticators(ChainName)),
+
     ?assertEqual(ok, ?AUTHN:move_authenticator(ChainName, ID2, {before, ID1})),
     ?assertMatch({ok, [#{id := ID2}, #{id := ID1}]}, ?AUTHN:list_authenticators(ChainName));
+
 t_authenticator({'end', Config}) ->
     ?AUTHN:delete_chain(test),
     ?AUTHN:deregister_providers([?config("auth1"), ?config("auth2")]),
     ok.
 
+
 t_authenticate({init, Config}) ->
     [{listener_id, 'tcp:default'},
      {authn_type, {'password-based', 'built-in-database'}} | Config];
+
 t_authenticate(Config) when is_list(Config) ->
     ListenerID = ?config(listener_id),
     AuthNType = ?config(authn_type),
@@ -190,12 +226,20 @@ t_authenticate(Config) when is_list(Config) ->
                             enable => true},
     ?AUTHN:create_chain(ListenerID),
     ?assertMatch({ok, _}, ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig)),
-    ?assertEqual({ok, #{is_superuser => true}}, emqx_access_control:authenticate(ClientInfo)),
-    ?assertEqual({error, bad_username_or_password}, emqx_access_control:authenticate(ClientInfo#{username => <<"bad">>}));
+
+    ?assertEqual(
+       {ok, #{is_superuser => true}},
+       emqx_access_control:authenticate(ClientInfo)),
+
+    ?assertEqual(
+       {error, bad_username_or_password},
+       emqx_access_control:authenticate(ClientInfo#{username => <<"bad">>}));
+
 t_authenticate({'end', Config}) ->
     ?AUTHN:delete_chain(?config(listener_id)),
     ?AUTHN:deregister_provider(?config(authn_type)),
     ok.
+
 
 t_update_config({init, Config}) ->
     Global = 'mqtt:global',
@@ -204,6 +248,7 @@ t_update_config({init, Config}) ->
     [{global, Global},
      {"auth1", AuthNType1},
      {"auth2", AuthNType2} | Config];
+
 t_update_config(Config) when is_list(Config) ->
     emqx_config_handler:add_handler([authentication], emqx_authentication),
     ok = register_provider(?config("auth1"), ?MODULE),
@@ -219,46 +264,113 @@ t_update_config(Config) when is_list(Config) ->
     ID2 = <<"password-based:mysql">>,
 
     ?assertMatch({ok, []}, ?AUTHN:list_chains()),
-    ?assertMatch({ok, _}, update_config([authentication], {create_authenticator, Global, AuthenticatorConfig1})),
-    ?assertMatch({ok, #{id := ID1, state := #{mark := 1}}}, ?AUTHN:lookup_authenticator(Global, ID1)),
 
-    ?assertMatch({ok, _}, update_config([authentication], {create_authenticator, Global, AuthenticatorConfig2})),
-    ?assertMatch({ok, #{id := ID2, state := #{mark := 1}}}, ?AUTHN:lookup_authenticator(Global, ID2)),
+    ?assertMatch(
+       {ok, _},
+       update_config([authentication], {create_authenticator, Global, AuthenticatorConfig1})),
 
-    ?assertMatch({ok, _}, update_config([authentication], {update_authenticator, Global, ID1, AuthenticatorConfig1#{<<"enable">> => false}})),
-    ?assertMatch({ok, #{id := ID1, state := #{mark := 2}}}, ?AUTHN:lookup_authenticator(Global, ID1)),
+    ?assertMatch(
+       {ok, #{id := ID1, state := #{mark := 1}}},
+       ?AUTHN:lookup_authenticator(Global, ID1)),
 
-    ?assertMatch({ok, _}, update_config([authentication], {move_authenticator, Global, ID2, top})),
+    ?assertMatch(
+       {ok, _},
+       update_config([authentication], {create_authenticator, Global, AuthenticatorConfig2})),
+
+    ?assertMatch(
+       {ok, #{id := ID2, state := #{mark := 1}}},
+       ?AUTHN:lookup_authenticator(Global, ID2)),
+
+    ?assertMatch(
+       {ok, _},
+       update_config([authentication],
+                     {update_authenticator,
+                      Global,
+                      ID1,
+                      AuthenticatorConfig1#{<<"enable">> => false}
+                     })),
+
+    ?assertMatch(
+       {ok, #{id := ID1, state := #{mark := 2}}},
+       ?AUTHN:lookup_authenticator(Global, ID1)),
+
+    ?assertMatch(
+       {ok, _},
+       update_config([authentication], {move_authenticator, Global, ID2, top})),
+
     ?assertMatch({ok, [#{id := ID2}, #{id := ID1}]}, ?AUTHN:list_authenticators(Global)),
 
     ?assertMatch({ok, _}, update_config([authentication], {delete_authenticator, Global, ID1})),
-    ?assertEqual({error, {not_found, {authenticator, ID1}}}, ?AUTHN:lookup_authenticator(Global, ID1)),
+    ?assertEqual(
+       {error, {not_found, {authenticator, ID1}}},
+       ?AUTHN:lookup_authenticator(Global, ID1)),
 
-    ?assertMatch({ok, _}, update_config([authentication], {delete_authenticator, Global, ID2})),
-    ?assertEqual({error, {not_found, {authenticator, ID2}}}, ?AUTHN:lookup_authenticator(Global, ID2)),
+    ?assertMatch(
+       {ok, _},
+       update_config([authentication], {delete_authenticator, Global, ID2})),
+
+    ?assertEqual(
+       {error, {not_found, {authenticator, ID2}}},
+       ?AUTHN:lookup_authenticator(Global, ID2)),
 
     ListenerID = 'tcp:default',
     ConfKeyPath = [listeners, tcp, default, authentication],
-    ?assertMatch({ok, _}, update_config(ConfKeyPath, {create_authenticator, ListenerID, AuthenticatorConfig1})),
-    ?assertMatch({ok, #{id := ID1, state := #{mark := 1}}}, ?AUTHN:lookup_authenticator(ListenerID, ID1)),
 
-    ?assertMatch({ok, _}, update_config(ConfKeyPath, {create_authenticator, ListenerID, AuthenticatorConfig2})),
-    ?assertMatch({ok, #{id := ID2, state := #{mark := 1}}}, ?AUTHN:lookup_authenticator(ListenerID, ID2)),
+    ?assertMatch(
+       {ok, _},
+       update_config(ConfKeyPath,
+                     {create_authenticator, ListenerID, AuthenticatorConfig1})),
 
-    ?assertMatch({ok, _}, update_config(ConfKeyPath, {update_authenticator, ListenerID, ID1, AuthenticatorConfig1#{<<"enable">> => false}})),
-    ?assertMatch({ok, #{id := ID1, state := #{mark := 2}}}, ?AUTHN:lookup_authenticator(ListenerID, ID1)),
+    ?assertMatch(
+       {ok, #{id := ID1, state := #{mark := 1}}},
+       ?AUTHN:lookup_authenticator(ListenerID, ID1)),
 
-    ?assertMatch({ok, _}, update_config(ConfKeyPath, {move_authenticator, ListenerID, ID2, top})),
-    ?assertMatch({ok, [#{id := ID2}, #{id := ID1}]}, ?AUTHN:list_authenticators(ListenerID)),
+    ?assertMatch(
+       {ok, _},
+       update_config(ConfKeyPath,
+                     {create_authenticator, ListenerID, AuthenticatorConfig2})),
 
-    ?assertMatch({ok, _}, update_config(ConfKeyPath, {delete_authenticator, ListenerID, ID1})),
-    ?assertEqual({error, {not_found, {authenticator, ID1}}}, ?AUTHN:lookup_authenticator(ListenerID, ID1));
+    ?assertMatch(
+       {ok, #{id := ID2, state := #{mark := 1}}},
+       ?AUTHN:lookup_authenticator(ListenerID, ID2)),
+
+    ?assertMatch(
+       {ok, _},
+       update_config(ConfKeyPath,
+                     {update_authenticator,
+                      ListenerID,
+                      ID1,
+                      AuthenticatorConfig1#{<<"enable">> => false}
+                     })),
+
+    ?assertMatch(
+       {ok, #{id := ID1, state := #{mark := 2}}},
+       ?AUTHN:lookup_authenticator(ListenerID, ID1)),
+
+    ?assertMatch(
+       {ok, _},
+       update_config(ConfKeyPath, {move_authenticator, ListenerID, ID2, top})),
+
+    ?assertMatch(
+       {ok, [#{id := ID2}, #{id := ID1}]},
+       ?AUTHN:list_authenticators(ListenerID)),
+
+    ?assertMatch(
+       {ok, _},
+       update_config(ConfKeyPath, {delete_authenticator, ListenerID, ID1})),
+
+    ?assertEqual(
+       {error, {not_found, {authenticator, ID1}}},
+       ?AUTHN:lookup_authenticator(ListenerID, ID1));
+
 t_update_config({'end', Config}) ->
     ?AUTHN:delete_chain(?config(global)),
     ?AUTHN:deregister_providers([?config("auth1"), ?config("auth2")]),
     ok.
 
+
 t_restart({'init', Config}) -> Config;
+
 t_restart(Config) when is_list(Config) ->
     ?assertEqual({ok, []}, ?AUTHN:list_chain_names()),
 
@@ -274,7 +386,9 @@ t_restart({'end', _Config}) ->
     ?AUTHN:delete_chain(test_chain),
     ok.
 
+
 t_convert_certs({_, Config}) -> Config;
+
 t_convert_certs(Config) when is_list(Config) ->
     Global = <<"mqtt:global">>,
     Certs = certs([ {<<"keyfile">>, "key.pem"}
@@ -288,7 +402,11 @@ t_convert_certs(Config) when is_list(Config) ->
     Certs2 = certs([ {<<"keyfile">>, "key.pem"}
                    , {<<"certfile">>, "cert.pem"}
                    ]),
-    #{<<"ssl">> := NCerts2} = convert_certs(CertsDir, #{<<"ssl">> => Certs2}, #{<<"ssl">> => NCerts}),
+
+    #{<<"ssl">> := NCerts2} = convert_certs(
+                                CertsDir,
+                                #{<<"ssl">> => Certs2}, #{<<"ssl">> => NCerts}),
+
     ?assertEqual(maps:get(<<"keyfile">>, NCerts), maps:get(<<"keyfile">>, NCerts2)),
     ?assertEqual(maps:get(<<"certfile">>, NCerts), maps:get(<<"certfile">>, NCerts2)),
 
@@ -296,7 +414,11 @@ t_convert_certs(Config) when is_list(Config) ->
                    , {<<"certfile">>, "client-cert.pem"}
                    , {<<"cacertfile">>, "cacert.pem"}
                    ]),
-    #{<<"ssl">> := NCerts3} = convert_certs(CertsDir, #{<<"ssl">> => Certs3}, #{<<"ssl">> => NCerts2}),
+
+    #{<<"ssl">> := NCerts3} = convert_certs(
+                                CertsDir,
+                                #{<<"ssl">> => Certs3}, #{<<"ssl">> => NCerts2}),
+
     ?assertNotEqual(maps:get(<<"keyfile">>, NCerts2), maps:get(<<"keyfile">>, NCerts3)),
     ?assertNotEqual(maps:get(<<"certfile">>, NCerts2), maps:get(<<"certfile">>, NCerts3)),
 

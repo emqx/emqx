@@ -10,9 +10,9 @@ RUN wget ftp://ftp.openldap.org/pub/OpenLDAP/openldap-release/openldap-${LDAP_TA
     && cd .. && rm -rf  openldap-${LDAP_TAG}
 
 COPY .ci/docker-compose-file/openldap/slapd.conf /usr/local/etc/openldap/slapd.conf
-COPY apps/emqx_auth_ldap/emqx.io.ldif /usr/local/etc/openldap/schema/emqx.io.ldif
-COPY apps/emqx_auth_ldap/emqx.schema /usr/local/etc/openldap/schema/emqx.schema
-COPY apps/emqx_auth_ldap/test/certs/*.pem /usr/local/etc/openldap/
+COPY apps/emqx_authn/test/data/emqx.io.ldif /usr/local/etc/openldap/schema/emqx.io.ldif
+COPY apps/emqx_authn/test/data/emqx.schema /usr/local/etc/openldap/schema/emqx.schema
+COPY apps/emqx_authn/test/data/certs/*.pem /usr/local/etc/openldap/
 
 RUN mkdir -p /usr/local/etc/openldap/data \
     && slapadd -l /usr/local/etc/openldap/schema/emqx.io.ldif -f /usr/local/etc/openldap/slapd.conf

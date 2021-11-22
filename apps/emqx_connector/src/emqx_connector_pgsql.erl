@@ -16,10 +16,11 @@
 -module(emqx_connector_pgsql).
 
 -include_lib("typerefl/include/types.hrl").
--include_lib("emqx_resource/include/emqx_resource_behaviour.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -export([roots/0, fields/1]).
+
+-behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
@@ -118,15 +119,15 @@ conn_opts(Opts) ->
     conn_opts(Opts, []).
 conn_opts([], Acc) ->
     Acc;
-conn_opts([Opt = {database, _}|Opts], Acc) ->
-    conn_opts(Opts, [Opt|Acc]);
-conn_opts([Opt = {ssl, _}|Opts], Acc) ->
-    conn_opts(Opts, [Opt|Acc]);
-conn_opts([Opt = {port, _}|Opts], Acc) ->
-    conn_opts(Opts, [Opt|Acc]);
-conn_opts([Opt = {timeout, _}|Opts], Acc) ->
-    conn_opts(Opts, [Opt|Acc]);
-conn_opts([Opt = {ssl_opts, _}|Opts], Acc) ->
-    conn_opts(Opts, [Opt|Acc]);
-conn_opts([_Opt|Opts], Acc) ->
+conn_opts([Opt = {database, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
+conn_opts([Opt = {ssl, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
+conn_opts([Opt = {port, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
+conn_opts([Opt = {timeout, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
+conn_opts([Opt = {ssl_opts, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
+conn_opts([_Opt | Opts], Acc) ->
     conn_opts(Opts, Acc).
