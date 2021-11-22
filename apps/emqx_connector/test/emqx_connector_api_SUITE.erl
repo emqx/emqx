@@ -68,15 +68,16 @@ init_per_suite(Config) ->
         }]
     }),
     _ = application:load(emqx_conf),
+    %% some testcases (may from other app) already get emqx_connector started
+    _ = application:stop(emqx_resource),
+    _ = application:stop(emqx_connector),
     ok = emqx_common_test_helpers:start_apps([emqx_connector, emqx_bridge, emqx_dashboard]),
     ok = emqx_config:init_load(emqx_connector_schema, ?CONF_DEFAULT),
     ok = emqx_config:init_load(emqx_bridge_schema, ?BRIDGE_CONF_DEFAULT),
     Config.
 
 end_per_suite(_Config) ->
-    ok = ekka:stop(),
     emqx_common_test_helpers:stop_apps([emqx_connector, emqx_bridge, emqx_dashboard]),
-    application:unload(emqx_conf),
     ok.
 
 init_per_testcase(_, Config) ->
