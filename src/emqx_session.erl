@@ -74,7 +74,7 @@
         ]).
 
 -export([ deliver/2
-        , enqueue/2
+        , enqueue_with_stats/2
         , dequeue/1
         , retry/1
         , terminate/3
@@ -84,6 +84,8 @@
         , resume/2
         , replay/1
         ]).
+
+-export([ update_slow_stats/3 ]).
 
 -export([expire/2]).
 
@@ -95,34 +97,36 @@
 -import(emqx_zone, [get_env/3]).
 
 -record(session, {
-          %% Client’s Subscriptions.
-          subscriptions :: map(),
-          %% Max subscriptions allowed
-          max_subscriptions :: non_neg_integer(),
-          %% Upgrade QoS?
-          upgrade_qos :: boolean(),
-          %% Client <- Broker: QoS1/2 messages sent to the client but
-          %% have not been unacked.
-          inflight :: emqx_inflight:inflight(),
-          %% All QoS1/2 messages published to when client is disconnected,
-          %% or QoS1/2 messages pending transmission to the Client.
-          %%
-          %% Optionally, QoS0 messages pending transmission to the Client.
-          mqueue :: emqx_mqueue:mqueue(),
-          %% Next packet id of the session
-          next_pkt_id = 1 :: emqx_types:packet_id(),
-          %% Retry interval for redelivering QoS1/2 messages (Unit: millsecond)
-          retry_interval :: timeout(),
-          %% Client -> Broker: QoS2 messages received from the client, but
-          %% have not been completely acknowledged
-          awaiting_rel :: map(),
-          %% Maximum number of awaiting QoS2 messages allowed
-          max_awaiting_rel :: non_neg_integer(),
-          %% Awaiting PUBREL Timeout (Unit: millsecond)
-          await_rel_timeout :: timeout(),
-          %% Created at
-          created_at :: pos_integer()
-         }).
+                  %% Client’s Subscriptions.
+                  subscriptions :: map(),
+                  %% Max subscriptions allowed
+                  max_subscriptions :: non_neg_integer(),
+                  %% Upgrade QoS?
+                  upgrade_qos :: boolean(),
+                  %% Client <- Broker: QoS1/2 messages sent to the client but
+                  %% have not been unacked.
+                  inflight :: emqx_inflight:inflight(),
+                  %% All QoS1/2 messages published to when client is disconnected,
+                  %% or QoS1/2 messages pending transmission to the Client.
+                  %%
+                  %% Optionally, QoS0 messages pending transmission to the Client.
+                  mqueue :: emqx_mqueue:mqueue(),
+                  %% Next packet id of the session
+                  next_pkt_id = 1 :: emqx_types:packet_id(),
+                  %% Retry interval for redelivering QoS1/2 messages (Unit: millsecond)
+                  retry_interval :: timeout(),
+                  %% Client -> Broker: QoS2 messages received from the client, but
+                  %% have not been completely acknowledged
+                  awaiting_rel :: map(),
+                  %% Maximum number of awaiting QoS2 messages allowed
+                  max_awaiting_rel :: non_neg_integer(),
+                  %% Awaiting PUBREL Timeout (Unit: millsecond)
+                  await_rel_timeout :: timeout(),
+                  %% Created at
+                  created_at :: pos_integer(),
+                  %% slow subs stats
+                  slow_stats :: emqx_slow_subs_stats:stats()
+                 }).
 
 -type(session() :: #session{}).
 
@@ -148,11 +152,12 @@
                      mqueue_dropped,
                      next_pkt_id,
                      awaiting_rel_cnt,
-                     awaiting_rel_max
+                     awaiting_rel_max,
+                     slow_stats
                     ]).
 
 -define(DEFAULT_BATCH_N, 1000).
-
+-define(SLOW_STATS, emqx_slow_subs_stats).
 
 %%--------------------------------------------------------------------
 %% Init a Session
@@ -170,7 +175,8 @@ init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
              awaiting_rel      = #{},
              max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
              await_rel_timeout = timer:seconds(get_env(Zone, await_rel_timeout, 300)),
-             created_at        = erlang:system_time(millisecond)
+             created_at        = erlang:system_time(millisecond),
+             slow_stats        = emqx_slow_subs_stats:new()
             }.
 
 %% @private init mq
@@ -227,7 +233,9 @@ info(awaiting_rel_max, #session{max_awaiting_rel = Max}) ->
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout div 1000;
 info(created_at, #session{created_at = CreatedAt}) ->
-    CreatedAt.
+    CreatedAt;
+info(slow_stats, #session{slow_stats = Stats}) ->
+    Stats.
 
 %% @doc Get stats of the session.
 -spec(stats(session()) -> emqx_types:stats()).
@@ -317,13 +325,12 @@ is_awaiting_full(#session{awaiting_rel = AwaitingRel,
       -> {ok, emqx_types:message(), session()}
        | {ok, emqx_types:message(), replies(), session()}
        | {error, emqx_types:reason_code()}).
-puback(PacketId, Session = #session{inflight = Inflight, created_at = CreatedAt}) ->
+puback(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
-            emqx:run_hook('message.publish_done',
-                          [Msg, #{session_rebirth_time => CreatedAt}]),
+            Session1 = slow_stats_out(1, Session),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            return_with(Msg, dequeue(Session#session{inflight = Inflight1}));
+            return_with(Msg, dequeue(Session1#session{inflight = Inflight1}));
         {value, {_Pubrel, _Ts}} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
@@ -381,8 +388,9 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
 pubcomp(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {pubrel, _Ts}} ->
+            Session1 = slow_stats_out(1, Session),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            dequeue(Session#session{inflight = Inflight1});
+            dequeue(Session1#session{inflight = Inflight1});
         {value, _Other} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
@@ -397,21 +405,21 @@ dequeue(Session = #session{inflight = Inflight, mqueue = Q}) ->
     case emqx_mqueue:is_empty(Q) of
         true  -> {ok, Session};
         false ->
-            {Msgs, Q1} = dequeue(batch_n(Inflight), [], Q),
-            deliver(Msgs, [], Session#session{mqueue = Q1})
+            {Msgs, Expired, Q1} = dequeue(batch_n(Inflight), 0, [], Q),
+            deliver(Msgs, [], slow_stats_expire(Expired, Session#session{mqueue = Q1}))
     end.
 
-dequeue(0, Msgs, Q) ->
-    {lists:reverse(Msgs), Q};
+dequeue(0, Expired, Msgs, Q) ->
+    {lists:reverse(Msgs), Expired, Q};
 
-dequeue(Cnt, Msgs, Q) ->
+dequeue(Cnt, Expired, Msgs, Q) ->
     case emqx_mqueue:out(Q) of
-        {empty, _Q} -> dequeue(0, Msgs, Q);
+        {empty, _Q} -> dequeue(0, Expired, Msgs, Q);
         {{value, Msg}, Q1} ->
             case emqx_message:is_expired(Msg) of
                 true  -> ok = inc_expired_cnt(delivery),
-                         dequeue(Cnt, Msgs, Q1);
-                false -> dequeue(acc_cnt(Msg, Cnt), [Msg | Msgs], Q1)
+                         dequeue(Cnt, Expired + 1, Msgs, Q1);
+                false -> dequeue(acc_cnt(Msg, Cnt), Expired, [Msg | Msgs], Q1)
             end
     end.
 
@@ -427,11 +435,15 @@ acc_cnt(_Msg, Cnt) -> Cnt - 1.
       -> {ok, session()} | {ok, replies(), session()}).
 deliver([Deliver], Session) -> %% Optimize
     Enrich = enrich_fun(Session),
-    deliver_msg(Enrich(Deliver), Session);
+    deliver_msg(Enrich(Deliver), slow_stats_in(1, Session));
 
 deliver(Delivers, Session) ->
-    Msgs = lists:map(enrich_fun(Session), Delivers),
-    deliver(Msgs, [], Session).
+    EnrichFun = enrich_fun(Session),
+    Fold = fun(Msg, {Enrich, Count}) ->
+               {[EnrichFun(Msg) | Enrich], Count + 1}
+           end,
+    {Msgs, Count} = lists:foldl(Fold, {[], 0}, Delivers),
+    deliver(Msgs, [], slow_stats_in(Count, Session)).
 
 deliver([], Publishes, Session) ->
     {ok, lists:reverse(Publishes), Session};
@@ -445,9 +457,7 @@ deliver([Msg | More], Acc, Session) ->
     end.
 
 deliver_msg(Msg = #message{qos = ?QOS_0}, Session) ->
-    emqx:run_hook('message.publish_done',
-                  [Msg, #{session_rebirth_time => Session#session.created_at}]),
-    {ok, [{undefined, maybe_ack(Msg)}], Session};
+    {ok, [{undefined, maybe_ack(Msg)}], slow_stats_out(1, Session)};
 
 deliver_msg(Msg = #message{qos = QoS}, Session =
                 #session{next_pkt_id = PacketId, inflight = Inflight})
@@ -455,7 +465,7 @@ deliver_msg(Msg = #message{qos = QoS}, Session =
     case emqx_inflight:is_full(Inflight) of
         true ->
             Session1 = case maybe_nack(Msg) of
-                           true  -> Session;
+                           true  -> slow_stats_drop(1, Session);
                            false -> enqueue(Msg, Session)
                        end,
             {ok, Session1};
@@ -464,6 +474,11 @@ deliver_msg(Msg = #message{qos = QoS}, Session =
             Session1 = await(PacketId, Msg, Session),
             {ok, [Publish], next_pkt_id(Session1)}
     end.
+
+-spec(enqueue_with_stats(list(emqx_types:deliver()) | emqx_types:message(),
+                         session()) -> session()).
+enqueue_with_stats(Delivers, Session) ->
+    slow_stats_in(length(Delivers), enqueue(Delivers, Session)).
 
 -spec(enqueue(list(emqx_types:deliver()) | emqx_types:message(),
               session()) -> session()).
@@ -477,8 +492,14 @@ enqueue(Delivers, Session) when is_list(Delivers) ->
 
 enqueue(Msg, Session = #session{mqueue = Q}) when is_record(Msg, message) ->
     {Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
-    (Dropped =/= undefined) andalso log_dropped(Dropped, Session),
-    Session#session{mqueue = NewQ}.
+    Session2 = Session#session{mqueue = NewQ},
+    case Dropped of
+        undefined ->
+            Session2;
+        _ ->
+            log_dropped(Dropped, Session),
+            slow_stats_drop(1, Session2)
+    end.
 
 log_dropped(Msg = #message{qos = QoS}, #session{mqueue = Q}) ->
     case (QoS == ?QOS_0) andalso (not emqx_mqueue:info(store_qos0, Q)) of
@@ -553,37 +574,42 @@ await(PacketId, Msg, Session = #session{inflight = Inflight}) ->
 retry(Session = #session{inflight = Inflight}) ->
     case emqx_inflight:is_empty(Inflight) of
         true  -> {ok, Session};
-        false -> retry_delivery(emqx_inflight:to_list(sort_fun(), Inflight),
-                                [], erlang:system_time(millisecond), Session)
+        false ->
+            retry_delivery(emqx_inflight:to_list(sort_fun(), Inflight),
+                           [],
+                           erlang:system_time(millisecond),
+                           0,
+                           Session)
     end.
 
-retry_delivery([], Acc, _Now, Session = #session{retry_interval = Interval}) ->
-    {ok, lists:reverse(Acc), Interval, Session};
+retry_delivery([], Acc, _Now, Expired, Session = #session{retry_interval = Interval}) ->
+    {ok, lists:reverse(Acc), Interval, slow_stats_expire(Expired, Session)};
 
-retry_delivery([{PacketId, {Msg, Ts}} | More], Acc, Now, Session =
+retry_delivery([{PacketId, {Msg, Ts}} | More], Acc, Now, Expired, Session =
                    #session{retry_interval = Interval, inflight = Inflight}) ->
     case (Age = age(Now, Ts)) >= Interval of
         true ->
-            {Acc1, Inflight1} = retry_delivery(PacketId, Msg, Now, Acc, Inflight),
-            retry_delivery(More, Acc1, Now, Session#session{inflight = Inflight1});
+            {Acc1, ExpiredInc, Inflight1} = retry_delivery2(PacketId, Msg, Now, Acc, Inflight),
+            retry_delivery(More, Acc1, Now,
+                           Expired + ExpiredInc, Session#session{inflight = Inflight1});
         false ->
             {ok, lists:reverse(Acc), Interval - max(0, Age), Session}
     end.
 
-retry_delivery(PacketId, Msg, Now, Acc, Inflight) when is_record(Msg, message) ->
+retry_delivery2(PacketId, Msg, Now, Acc, Inflight) when is_record(Msg, message) ->
     case emqx_message:is_expired(Msg) of
         true ->
             ok = inc_expired_cnt(delivery),
-            {Acc, emqx_inflight:delete(PacketId, Inflight)};
+            {Acc, 1, emqx_inflight:delete(PacketId, Inflight)};
         false ->
             Msg1 = emqx_message:set_flag(dup, true, Msg),
             Inflight1 = emqx_inflight:update(PacketId, {Msg1, Now}, Inflight),
-            {[{PacketId, Msg1} | Acc], Inflight1}
+            {[{PacketId, Msg1} | Acc], 0, Inflight1}
     end;
 
-retry_delivery(PacketId, pubrel, Now, Acc, Inflight) ->
+retry_delivery2(PacketId, pubrel, Now, Acc, Inflight) ->
     Inflight1 = emqx_inflight:update(PacketId, {pubrel, Now}, Inflight),
-    {[{pubrel, PacketId} | Acc], Inflight1}.
+    {[{pubrel, PacketId} | Acc], 0, Inflight1}.
 
 %%--------------------------------------------------------------------
 %% Expire Awaiting Rel
@@ -676,6 +702,27 @@ next_pkt_id(Session = #session{next_pkt_id = ?MAX_PACKET_ID}) ->
 
 next_pkt_id(Session = #session{next_pkt_id = Id}) ->
     Session#session{next_pkt_id = Id + 1}.
+
+%%--------------------------------------------------------------------
+%% Slow subs stats
+%%--------------------------------------------------------------------
+update_slow_stats(Interval, #session{slow_stats = Stats} = Session, Channel) ->
+    Stats2 = emqx_slow_subs_stats:update(Interval, Stats, Channel),
+    Session#session{slow_stats = Stats2}.
+
+slow_stats_in(Inc, #session{slow_stats = Stats} = S) ->
+    S#session{slow_stats = emqx_slow_subs_stats:in(Inc, Stats)}.
+
+slow_stats_out(Inc, #session{slow_stats = Stats} = S) ->
+    S#session{slow_stats = emqx_slow_subs_stats:out(Inc, Stats)}.
+
+slow_stats_drop(Inc, #session{slow_stats = Stats} = S) ->
+    S#session{slow_stats = emqx_slow_subs_stats:drop(Inc, Stats)}.
+
+slow_stats_expire(0, Session) ->
+    Session;
+slow_stats_expire(Inc, #session{slow_stats = Stats} = S) ->
+    S#session{slow_stats = emqx_slow_subs_stats:expire(Inc, Stats)}.
 
 %%--------------------------------------------------------------------
 %% Helper functions

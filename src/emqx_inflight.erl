@@ -124,4 +124,3 @@ size(?INFLIGHT(Tree)) ->
 -spec(max_size(inflight()) -> non_neg_integer()).
 max_size(?INFLIGHT(MaxSize, _Tree)) ->
     MaxSize.
-

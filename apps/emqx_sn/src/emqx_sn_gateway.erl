@@ -521,7 +521,7 @@ handle_event(info, {deliver, _Topic, Msg}, asleep,
     % section 6.14, Support of sleeping clients
     ?LOG(debug, "enqueue downlink message in asleep state, msg: ~0p, pending_topic_ids: ~0p",
          [Msg, Pendings]),
-    Session = emqx_session:enqueue(Msg, emqx_channel:get_session(Channel)),
+    Session = emqx_session:enqueue_with_stats(Msg, emqx_channel:get_session(Channel)),
     {keep_state, State#state{channel = emqx_channel:set_session(Session, Channel)}};
 
 handle_event(info, Deliver = {deliver, _Topic, _Msg}, _StateName,

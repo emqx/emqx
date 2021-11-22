@@ -2218,45 +2218,19 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "module.st_statistics.threshold_time", "emqx.modules", [
-  {default, "10s"},
-  {datatype, {duration, ms}}
+{mapping, "module.slow_subs.congestion", "emqx.modules", [
+  {default, "10%"},
+  {datatype, {percent, float}}
 ]}.
 
-{mapping, "module.st_statistics.ignore_before_create", "emqx.modules", [
-  {default, true},
-  {datatype, {enum, [true, false]}}
-]}.
-
-{mapping, "module.st_statistics.time_window", "emqx.modules", [
-  {default, "5M"},
-  {datatype, {duration, ms}}
-]}.
-
-{mapping, "module.st_statistics.max_log_num", "emqx.modules", [
+{mapping, "module.slow_subs.max_size", "emqx.modules", [
   {default, 500},
   {datatype, integer}
 ]}.
 
-{mapping, "module.st_statistics.top_k_num", "emqx.modules", [
-  {default, 500},
-  {datatype, integer}
-]}.
-
-{mapping, "module.st_statistics.notice_topic", "emqx.modules", [
-  {default, "$slow_topics"},
-  {datatype, string}
-]}.
-
-{mapping, "module.st_statistics.notice_qos", "emqx.modules", [
-  {default, 0},
-  {datatype, integer},
-  {validators, ["range:0-1"]}
-]}.
-
-{mapping, "module.st_statistics.notice_batch_size", "emqx.modules", [
-  {default, 500},
-  {datatype, integer}
+{mapping, "module.slow_subs.interval", "emqx.modules", [
+  {datatype, {duration, ms}},
+  {default, "1m"}
 ]}.
 
 {translation, "emqx.modules", fun(Conf, _, Conf1) ->
@@ -2283,8 +2257,8 @@ end}.
                 end, TotalRules)
   end,
 
-  SlowTopic = fun() ->
-                   List = cuttlefish_variable:filter_by_prefix("module.st_statistics", Conf),
+  SlowSubs = fun() ->
+                   List = cuttlefish_variable:filter_by_prefix("module.slow_subs", Conf),
                    [{erlang:list_to_atom(Key), Value} || {[_, _, Key], Value} <- List]
               end,
 
@@ -2295,7 +2269,7 @@ end}.
     [{emqx_mod_topic_metrics, []}],
     [{emqx_mod_delayed, []}],
     [{emqx_mod_trace, []}],
-    [{emqx_mod_st_statistics, SlowTopic()}],
+    [{emqx_mod_slow_subs, SlowSubs()}],
     [{emqx_mod_acl_internal, [{acl_file, cuttlefish:conf_get("acl_file", Conf1)}]}]
   ])
 end}.

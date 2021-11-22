@@ -93,8 +93,10 @@
           %% Resume
           resuming :: boolean(),
           %% Pending delivers when takeovering
-          pendings :: list()
-         }).
+                  pendings :: list()
+
+
+                 }).
 
 -type(channel() :: #channel{}).
 
@@ -115,8 +117,9 @@
           await_timer  => expire_awaiting_rel,
           expire_timer => expire_session,
           will_timer   => will_message,
-          quota_timer  => expire_quota_limit
-         }).
+                       quota_timer  => expire_quota_limit,
+                       slow_stats_timer => slow_stats
+                      }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 
@@ -216,19 +219,20 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                      is_superuser => false
                     }, Options),
     {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
-    #channel{conninfo   = NConnInfo,
-             clientinfo = NClientInfo,
-             topic_aliases = #{inbound => #{},
-                               outbound => #{}
-                              },
-             auth_cache = #{},
-             quota      = emqx_limiter:init(Zone, QuotaPolicy),
-             timers     = #{},
-             conn_state = idle,
-             takeover   = false,
-             resuming   = false,
-             pendings   = []
-            }.
+    Channel = #channel{conninfo   = NConnInfo,
+                       clientinfo = NClientInfo,
+                       topic_aliases = #{inbound => #{},
+                                         outbound => #{}
+                                        },
+                       auth_cache = #{},
+                       quota      = emqx_limiter:init(Zone, QuotaPolicy),
+                       timers     = #{},
+                       conn_state = idle,
+                       takeover   = false,
+                       resuming   = false,
+                       pendings   = []
+                      },
+    start_slow_subs_stats(Channel).
 
 setting_peercert_infos(NoSSL, ClientInfo, _Options)
   when NoSSL =:= nossl;
@@ -723,7 +727,7 @@ maybe_update_expiry_interval(_Properties, Channel) -> Channel.
 handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
                                             session    = Session,
                                             clientinfo = #{clientid := ClientId}}) ->
-    NSession = emqx_session:enqueue(ignore_local(maybe_nack(Delivers), ClientId, Session), Session),
+    NSession = emqx_session:enqueue_with_stats(ignore_local(maybe_nack(Delivers), ClientId, Session), Session),
     {ok, Channel#channel{session = NSession}};
 
 handle_deliver(Delivers, Channel = #channel{takeover = true,
@@ -1062,6 +1066,12 @@ handle_timeout(_TRef, will_message, Channel = #channel{will_msg = WillMsg}) ->
 handle_timeout(_TRef, expire_quota_limit, Channel) ->
     {ok, clean_timer(quota_timer, Channel)};
 
+handle_timeout(_TRef, slow_stats, #channel{session = Session} = Channel) ->
+    Interval = emqx_slow_subs:get_stats_interval(),
+    Session2 = emqx_session:update_slow_stats(Interval, Session, Channel),
+    Channel2 = reset_timer(slow_stats_timer, Interval, Channel#channel{session = Session2}),
+    {ok, Channel2};
+
 handle_timeout(_TRef, Msg, Channel) ->
     ?LOG(error, "Unexpected timeout: ~p~n", [Msg]),
     {ok, Channel}.
@@ -1106,7 +1116,9 @@ interval(await_timer, #channel{session = Session}) ->
 interval(expire_timer, #channel{conninfo = ConnInfo}) ->
     timer:seconds(maps:get(expiry_interval, ConnInfo));
 interval(will_timer, #channel{will_msg = WillMsg}) ->
-    timer:seconds(will_delay_interval(WillMsg)).
+    timer:seconds(will_delay_interval(WillMsg));
+interval(slow_stats_timer, _Channel) ->
+    emqx_slow_subs:get_stats_interval().
 
 %%--------------------------------------------------------------------
 %% Terminate
@@ -1732,6 +1744,9 @@ sp(false) -> 0.
 
 flag(true)  -> 1;
 flag(false) -> 0.
+
+start_slow_subs_stats(Channel) ->
+    ensure_timer(slow_stats_timer, Channel).
 
 %%--------------------------------------------------------------------
 %% For CT tests

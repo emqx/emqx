@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_st_statistics_api).
+-module(emqx_slow_subs_api).
 
 -rest_api(#{name   => clear_history,
             method => 'DELETE',
@@ -32,7 +32,7 @@
         , get_history/2
         ]).
 
--include("include/emqx_st_statistics.hrl").
+-include_lib("emqx_plugin_libs/include/emqx_slow_subs.hrl").
 
 -import(minirest, [return/1]).
 
@@ -41,7 +41,7 @@
 %%--------------------------------------------------------------------
 
 clear_history(_Bindings, _Params) ->
-    ok = emqx_st_statistics:clear_history(),
+    ok = emqx_slow_subs:clear_history(),
     return(ok).
 
 get_history(_Bindings, Params) ->
@@ -50,7 +50,8 @@ get_history(_Bindings, Params) ->
     Page = erlang:binary_to_integer(PageT),
     Limit = erlang:binary_to_integer(LimitT),
     Start = (Page - 1) * Limit + 1,
-    Size = ets:info(?TOPK_TAB, size),
+    %%    Size = ets:info(?TOPK_TAB, size),
+    Size = 0,
     End = Start + Limit - 1,
     {HasNext, Count, Infos} = get_history(Start, End, Size),
     return({ok, #{meta => #{page => Page,
@@ -67,17 +68,18 @@ get_history(Start, End, Size) when End > Size ->
     get_history(Start, Size, Size);
 
 get_history(Start, End, Size) ->
-    Fold = fun(Rank, Acc) ->
-                   [#top_k{topic = Topic
-                          , average_count = Count
-                          , average_elapsed = Elapsed}] = ets:lookup(?TOPK_TAB, Rank),
+    Fold = fun(_Rank, Acc) ->
+               %% [#top_k{topic = Topic
+               %%        , average_count = Count
+               %%        , average_elapsed = Elapsed}] = ets:lookup(?TOPK_TAB, Rank),
 
-                   Info = [ {rank, Rank}
-                          , {topic, Topic}
-                          , {count, Count}
-                          , {elapsed, Elapsed}],
+               %% Info = [ {rank, Rank}
+               %%        , {topic, Topic}
+               %%        , {count, Count}
+               %%        , {elapsed, Elapsed}],
 
-                   [Info | Acc]
+               %% [Info | Acc]
+               Acc
            end,
     Infos = lists:foldl(Fold, [], lists:seq(Start, End)),
     {End < Size, End - Start + 1, Infos}.

@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_st_statistics_api_SUITE).
+-module(emqx_slow_subs_api_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).

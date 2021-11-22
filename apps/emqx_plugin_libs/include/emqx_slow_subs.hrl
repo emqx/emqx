@@ -14,12 +14,23 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(LOG_TAB, emqx_st_statistics_log).
--define(TOPK_TAB, emqx_st_statistics_topk).
+-define(TOPK_TAB, emqx_slow_subs_topk).
+-define(BASE_FACTOR, 10000).
+-define(TO_BASIS(X), erlang:floor((X) * ?BASE_FACTOR)).
+-define(MAKE_INDEX(Basis, ClientId), {Basis, ClientId}).
 
--record(top_k, { rank :: pos_integer()
-               , topic :: emqx_types:topic()
-               , average_count :: number()
-               , average_elapsed :: number()}).
+-type basis_point() :: integer().
+-type index() :: {basis_point(), emqx_types:clientid()}.
 
--type top_k() :: #top_k{}.
+-record(slow_sub, { index :: index()
+                  , last_stats :: emqx_slow_subs_stats:summary()
+                  , mqueue_len :: integer()
+                  , inflight_len :: integer()
+                  , wait_ack :: integer()
+                  , wait_rec :: integer()
+                  , wait_comp :: integer()
+                  }).
+
+-type slow_sub() :: #slow_sub{}.
+
+-type slow_subs_stats_args() :: emqx_channel:channel().
