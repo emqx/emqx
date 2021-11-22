@@ -75,6 +75,7 @@
 %% @doc Start emqx application
 -spec(start() -> {ok, list(atom())} | {error, term()}).
 start() ->
+    io:format("testci"),
     application:ensure_all_started(?APP).
 
 %% @doc Stop emqx application.
