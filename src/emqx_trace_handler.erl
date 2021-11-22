@@ -113,10 +113,8 @@ install(Who, Level, LogFile) ->
 -spec uninstall(Type :: clientid | topic | ip_address,
                 Name :: binary() | list()) -> ok | {error, term()}.
 uninstall(Type, Name) ->
-    case handler_id(ensure_bin(Name), Type) of
-        {ok, HandlerId} -> uninstall(HandlerId);
-        {error, Reason} -> {error, Reason}
-    end.
+    HandlerId = handler_id(ensure_bin(Name), Type),
+    uninstall(HandlerId).
 
 -spec uninstall(HandlerId :: atom()) -> ok | {error, term()}.
 uninstall(HandlerId) ->
