@@ -54,6 +54,7 @@
 -export([ return_http_error/2
         , with_gateway/2
         , with_authn/2
+        , with_listener_authn/3
         , checks/2
         , schema_bad_request/0
         , schema_not_found/0
@@ -329,6 +330,13 @@ codestr(500) -> 'UNKNOW_ERROR'.
 with_authn(GwName0, Fun) ->
     with_gateway(GwName0, fun(GwName) ->
         Authn = emqx_gateway_http:authn(GwName),
+        Fun(GwName, Authn)
+    end).
+
+-spec with_listener_authn(binary(), binary(), function()) -> any().
+with_listener_authn(GwName0, Id, Fun) ->
+    with_gateway(GwName0, fun(GwName) ->
+        Authn = emqx_gateway_http:authn(GwName, Id),
         Fun(GwName, Authn)
     end).
 

@@ -30,6 +30,7 @@
 -import(emqx_gateway_http,
         [ return_http_error/2
         , with_gateway/2
+        , with_listener_authn/3
         , checks/2
         ]).
 
@@ -49,6 +50,9 @@
 -export([ listeners/2
         , listeners_insta/2
         , listeners_insta_authn/2
+        , users/2
+        , users_insta/2
+        , import_users/2
         ]).
 
 %%--------------------------------------------------------------------
@@ -62,6 +66,9 @@ paths() ->
     [ "/gateway/:name/listeners"
     , "/gateway/:name/listeners/:id"
     , "/gateway/:name/listeners/:id/authentication"
+    , "/gateway/:name/listeners/:id/authentication/users"
+    , "/gateway/:name/listeners/:id/authentication/users/:uid"
+    , "/gateway/:name/listeners/:id/authentication/import_users"
     ].
 
 %%--------------------------------------------------------------------
@@ -156,6 +163,58 @@ listeners_insta_authn(delete, #{bindings := #{name := Name0,
         ok = emqx_gateway_http:remove_authn(GwName, ListenerId),
         {204}
     end).
+
+users(get, #{bindings := #{name := Name0, id := Id}, query_string := Qs}) ->
+    with_listener_authn(Name0, Id,
+      fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+        emqx_authn_api:list_users(ChainName, AuthId, page_pramas(Qs))
+    end);
+users(post, #{bindings := #{name := Name0, id := Id},
+              body := Body}) ->
+    with_listener_authn(Name0, Id,
+      fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+        emqx_authn_api:add_user(ChainName, AuthId, Body)
+    end).
+
+users_insta(get, #{bindings := #{name := Name0, id := Id, uid := UserId}}) ->
+    with_listener_authn(Name0, Id,
+      fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+        emqx_authn_api:find_user(ChainName, AuthId, UserId)
+    end);
+users_insta(put, #{bindings := #{name := Name0, id := Id, uid := UserId},
+                   body := Body}) ->
+    with_listener_authn(Name0, Id,
+      fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+        emqx_authn_api:update_user(ChainName, AuthId, UserId, Body)
+    end);
+users_insta(delete, #{bindings := #{name := Name0, id := Id, uid := UserId}}) ->
+    with_listener_authn(Name0, Id,
+      fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+        emqx_authn_api:delete_user(ChainName, AuthId, UserId)
+    end).
+
+import_users(post, #{bindings := #{name := Name0, id := Id},
+                     body := Body}) ->
+    with_listener_authn(Name0, Id,
+      fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+        case maps:get(<<"filename">>, Body, undefined) of
+            undefined ->
+                emqx_authn_api:serialize_error({missing_parameter, filename});
+            Filename ->
+                case emqx_authentication:import_users(
+                       ChainName, AuthId, Filename) of
+                    ok -> {204};
+                    {error, Reason} ->
+                        emqx_authn_api:serialize_error(Reason)
+                end
+        end
+    end).
+
+%%--------------------------------------------------------------------
+%% Utils
+
+page_pramas(Qs) ->
+    maps:with([<<"page">>, <<"limit">>], Qs).
 
 %%--------------------------------------------------------------------
 %% Swagger defines
@@ -288,6 +347,109 @@ schema("/gateway/:name/listeners/:id/authentication") ->
               , 204 => <<"Deleted">>
               }
           }
+     };
+schema("/gateway/:name/listeners/:id/authentication/users") ->
+    #{ 'operationId' => users
+     , get =>
+         #{ description => <<"Get the users for the authentication">>
+          , parameters => params_gateway_name_in_path() ++
+                          params_listener_id_in_path()
+          , responses =>
+              #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+               , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+               , 200 => emqx_dashboard_swagger:schema_with_example(
+                          ref(emqx_authn_api, response_user),
+                          emqx_authn_api:response_user_examples())
+              }
+          },
+       post =>
+         #{ description => <<"Add user for the authentication">>
+          , parameters => params_gateway_name_in_path() ++
+                          params_listener_id_in_path()
+          , responses =>
+              #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+               , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+               , 201 => emqx_dashboard_swagger:schema_with_example(
+                          ref(emqx_authn_api, response_user),
+                          emqx_authn_api:response_user_examples())
+              }
+          }
+     };
+schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
+    #{ 'operationId' => users_insta
+      , get =>
+          #{ description => <<"Get user info from the gateway "
+                              "authentication">>
+           , parameters => params_gateway_name_in_path() ++
+                           params_listener_id_in_path() ++
+                           params_userid_in_path()
+           , responses =>
+               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                , 500 => error_codes([?INTERNAL_ERROR],
+                                     <<"Ineternal Server Error">>)
+                , 200 => emqx_dashboard_swagger:schema_with_example(
+                           ref(emqx_authn_api, response_user),
+                           emqx_authn_api:response_user_examples())
+                }
+           },
+        put =>
+          #{ description => <<"Update the user info for the gateway "
+                              "authentication">>
+           , parameters => params_gateway_name_in_path() ++
+                           params_listener_id_in_path() ++
+                           params_userid_in_path()
+           , responses =>
+               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                , 500 => error_codes([?INTERNAL_ERROR],
+                                     <<"Ineternal Server Error">>)
+                , 200 => emqx_dashboard_swagger:schema_with_example(
+                           ref(emqx_authn_api, response_user),
+                           emqx_authn_api:response_user_examples())
+                }
+           },
+        delete =>
+          #{ description => <<"Delete the user for the gateway "
+                              "authentication">>
+           , parameters => params_gateway_name_in_path() ++
+                           params_listener_id_in_path() ++
+                           params_userid_in_path() ++
+                           params_paging_in_qs()
+           , responses =>
+               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                , 500 => error_codes([?INTERNAL_ERROR],
+                                     <<"Ineternal Server Error">>)
+                , 200 => emqx_dashboard_swagger:schema_with_example(
+                           ref(emqx_authn_api, response_user),
+                           emqx_authn_api:response_user_examples())
+                }
+           }
+     };
+schema("/gateway/:name/listeners/:id/authentication/import_users") ->
+    #{ 'operationId' => import_users
+     , post =>
+         #{ description => <<"Import users into the gateway authentication">>
+          , parameters => params_gateway_name_in_path() ++
+                          params_listener_id_in_path()
+          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                             ref(emqx_authn_api, request_import_users),
+                             emqx_authn_api:request_import_users_examples()
+                            )
+          , responses =>
+              #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+               , 500 => error_codes([?INTERNAL_ERROR],
+                                     <<"Ineternal Server Error">>)
+               %% XXX: Put a hint message into 204 return ?
+               , 204 => <<"Imported">>
+              }
+          }
      }.
 
 %%--------------------------------------------------------------------
@@ -307,6 +469,24 @@ params_listener_id_in_path() ->
          #{ in => path
           , desc => <<"Listener ID">>
           })}
+    ].
+
+params_userid_in_path() ->
+    [{uid, mk(binary(),
+              #{ in => path
+               , desc => <<"User ID">>
+               })}
+    ].
+
+params_paging_in_qs() ->
+    [{page, mk(integer(),
+               #{ in => query
+                , desc => <<"Page Number">>
+                })},
+     {limit, mk(integer(),
+                #{ in => query
+                 , desc => <<"Page Limit">>
+                 })}
     ].
 
 %%--------------------------------------------------------------------
