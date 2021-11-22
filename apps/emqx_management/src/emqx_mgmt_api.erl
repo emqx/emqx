@@ -213,9 +213,9 @@ select_table_with_count(Tab, {Ms, FuzzyFilterFun}, ?FRESH_SELECT, Limit, FmtFun)
             Rows = FuzzyFilterFun(RawResult),
             {length(Rows), lists:map(FmtFun, Rows), NContinuation}
     end;
-select_table_with_count(_Tab, {_Ms, FuzzyFilterFun}, Continuation, _Limit, FmtFun)
+select_table_with_count(_Tab, {Ms, FuzzyFilterFun}, Continuation, _Limit, FmtFun)
   when is_function(FuzzyFilterFun) ->
-    case ets:select(Continuation) of
+    case ets:select(ets:repair_continuation(Continuation, Ms)) of
         '$end_of_table' ->
             {0, [], ?FRESH_SELECT};
         {RawResult, NContinuation} ->
@@ -230,8 +230,8 @@ select_table_with_count(Tab, Ms, ?FRESH_SELECT, Limit, FmtFun)
         {RawResult, NContinuation} ->
             {length(RawResult), lists:map(FmtFun, RawResult), NContinuation}
     end;
-select_table_with_count(_Tab, _Ms, Continuation, _Limit, FmtFun) ->
-    case ets:select(Continuation) of
+select_table_with_count(_Tab, Ms, Continuation, _Limit, FmtFun) ->
+    case ets:select(ets:repair_continuation(Continuation, Ms)) of
         '$end_of_table' ->
             {0, [], ?FRESH_SELECT};
         {RawResult, NContinuation} ->
