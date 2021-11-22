@@ -23,13 +23,13 @@ jobs:
         - emqx-edge
         - emqx
         - emqx-ee
-        otp_vsn:
+        otp:
         - 24.1.5-2
         os:
         - ubuntu20.04
         - centos7
 
-    container: "ghcr.io/emqx/emqx-builder/5.0-2:${{ matrix.otp_vsn }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/5.0-2:${{ matrix.otp }}-${{ matrix.os }}"
 
     steps:
     - uses: actions/checkout@v1
@@ -43,7 +43,7 @@ jobs:
         EMQX_NAME=${{ matrix.profile }} .ci/build_packages/tests.sh
     - uses: actions/upload-artifact@v2
       with:
-        name: ${{ matrix.profile}}-${{ matrix.otp_vsn }}-${{ matrix.os }}
+        name: ${{ matrix.profile}}-${{ matrix.otp }}-${{ matrix.os }}
         path: _packages/**/*.zip
 
   mac:
@@ -54,7 +54,7 @@ jobs:
         profile:
         - emqx
         - emqx-ee
-        otp_vsn:
+        otp:
         - 24.1.5-2
         macos:
         - macos-11
@@ -74,7 +74,7 @@ jobs:
       id: cache
       with:
         path: ~/.kerl
-        key: otp-${{ matrix.otp_vsn }}-${{ matrix.macos }}
+        key: otp-${{ matrix.otp }}-${{ matrix.macos }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
@@ -83,11 +83,11 @@ jobs:
         OTP_GITHUB_URL: https://github.com/emqx/otp
       run: |
         kerl update releases
-        kerl build ${{ matrix.otp_vsn }}
-        kerl install ${{ matrix.otp_vsn }} $HOME/.kerl/${{ matrix.otp_vsn }}
+        kerl build ${{ matrix.otp }}
+        kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
     - name: build ${{ matrix.profile }}
       run: |
-        . $HOME/.kerl/${{ matrix.otp_vsn }}/activate
+        . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
         make ${{ matrix.profile }}-zip

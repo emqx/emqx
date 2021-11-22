@@ -40,7 +40,6 @@ jobs:
           old_vsns="$(git tag -l "v$pre_vsn.[0-9]" | xargs echo -n | sed "s/v$vsn//")"
           echo "::set-output name=old_vsns::$old_vsns"
       - name: get_all_deps
-        if: endsWith(github.repository, 'emqx')
         run: |
           make -C source deps-all
           zip -ryq source.zip source/* source/.[^.]*
