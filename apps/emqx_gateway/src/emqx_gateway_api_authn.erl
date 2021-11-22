@@ -173,7 +173,7 @@ schema("/gateway/:name/authentication") ->
        put =>
          #{ description => <<"Update authentication for the gateway">>
           , parameters => params_gateway_name_in_path()
-          , requestBody => schema_authn()
+          , 'requestBody' => schema_authn()
           , responses =>
               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -185,7 +185,7 @@ schema("/gateway/:name/authentication") ->
        post =>
          #{ description => <<"Add authentication for the gateway">>
           , parameters => params_gateway_name_in_path()
-          , requestBody => schema_authn()
+          , 'requestBody' => schema_authn()
           , responses =>
               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -289,7 +289,7 @@ schema("/gateway/:name/authentication/import_users") ->
      , post =>
          #{ description => <<"Import users into the gateway authentication">>
           , parameters => params_gateway_name_in_path()
-          , requestBody => emqx_dashboard_swagger:schema_with_examples(
+          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                              ref(emqx_authn_api, request_import_users),
                              emqx_authn_api:request_import_users_examples()
                             )

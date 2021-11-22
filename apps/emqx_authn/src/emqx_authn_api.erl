@@ -74,6 +74,8 @@
         , serialize_error/1
         ]).
 
+-elvis([{elvis_style, god_modules, disable}]).
+
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 

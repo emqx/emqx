@@ -70,6 +70,10 @@
          , listeners => []
          }.
 
+-elvis([{elvis_style, god_modules, disable}]).
+-elvis([{elvis_style, no_nested_try_catch, disable}]).
+
+
 -define(DEFAULT_CALL_TIMEOUT, 15000).
 
 %%--------------------------------------------------------------------
@@ -371,7 +375,7 @@ with_gateway(GwName0, Fun) ->
 -spec checks(list(), map()) -> ok.
 checks([], _) ->
     ok;
-checks([K|Ks], Map) ->
+checks([K | Ks], Map) ->
     case maps:is_key(K, Map) of
         true -> checks(Ks, Map);
         false ->

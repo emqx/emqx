@@ -66,6 +66,8 @@
 -define(DEFAULT_OOM_POLICY, #{max_heap_size => 4194304,
                               message_queue_len => 32000}).
 
+-elvis([{elvis_style, god_modules, disable}]).
+
 -spec childspec(supervisor:worker(), Mod :: atom())
     -> supervisor:child_spec().
 childspec(Type, Mod) ->
@@ -202,7 +204,7 @@ stringfy(T) when is_list(T); is_binary(T) ->
 stringfy(T) ->
     iolist_to_binary(io_lib:format("~0p", [T])).
 
--spec parse_address(binary()|list()) -> {list(), integer()}.
+-spec parse_address(binary() | list()) -> {list(), integer()}.
 parse_address(S) when is_binary(S); is_list(S) ->
     S1 = case is_binary(S) of
             true -> lists:reverse(binary_to_list(S));
@@ -234,9 +236,9 @@ normalize_config(RawConf) ->
                                [bind, tcp, ssl, udp, dtls]
                                ++ proplists:get_keys(SocketOpts), Confs),
                 Cfg = maps:merge(Cfg0, RemainCfgs),
-                [{Type, Name, ListenOn, SocketOpts, Cfg}|AccIn2]
+                [{Type, Name, ListenOn, SocketOpts, Cfg} | AccIn2]
             end, [], Liss),
-            [Listeners|AccIn1]
+            [Listeners | AccIn1]
     end, [], LisMap)).
 
 esockd_opts(Type, Opts0) ->

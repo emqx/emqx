@@ -179,7 +179,7 @@ schema("/gateway/:name/listeners") ->
        post =>
          #{ description => <<"Create the gateway listener">>
           , parameters => params_gateway_name_in_path()
-          , requestBody => emqx_dashboard_swagger:schema_with_examples(
+          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                              ref(listener),
                              examples_listener())
           , responses =>
@@ -223,7 +223,7 @@ schema("/gateway/:name/listeners/:id") ->
          #{ description => <<"Update the gateway listener">>
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
-          , requestBody => emqx_dashboard_swagger:schema_with_examples(
+          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                              ref(listener),
                              examples_listener())
           , responses =>
@@ -254,7 +254,7 @@ schema("/gateway/:name/listeners/:id/authentication") ->
          #{ description => <<"Add authentication for the listener">>
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
-          , requestBody => schema_authn()
+          , 'requestBody' => schema_authn()
           , responses =>
              #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -267,7 +267,7 @@ schema("/gateway/:name/listeners/:id/authentication") ->
          #{ description => <<"Update authentication for the listener">>
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
-          , requestBody => schema_authn()
+          , 'requestBody' => schema_authn()
           , responses =>
              #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -387,7 +387,7 @@ fields(dtls_listener_opts) ->
 
 lists_key_without([], _N, L) ->
     L;
-lists_key_without([K|Ks], N, L) ->
+lists_key_without([K | Ks], N, L) ->
     lists_key_without(Ks, N, lists:keydelete(K, N, L)).
 
 common_listener_opts() ->
