@@ -21,15 +21,16 @@
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 -define(SOURCE1, {deny,  all}).
 -define(SOURCE2, {allow, {ipaddr,  "127.0.0.1"}, all, [{eq, "#"}, {eq, "+"}]}).
--define(SOURCE3, {allow, {ipaddrs, ["127.0.0.1", "192.168.1.0/24"]}, subscribe, ["%c"]}).
+-define(SOURCE3, {allow, {ipaddrs, ["127.0.0.1", "192.168.1.0/24"]}, subscribe, [?PH_S_CLIENTID]}).
 -define(SOURCE4, {allow, {'and', [{client, "test"}, {user, "test"}]}, publish, ["topic/test"]}).
 -define(SOURCE5, {allow, {'or',
                           [{username, {re, "^test"}},
                            {clientid, {re, "test?"}}]},
-                  publish, ["%u", "%c"]}).
+                  publish, [?PH_S_USERNAME, ?PH_S_CLIENTID]}).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -67,7 +68,7 @@ t_compile(_) ->
                   {ipaddrs,[{{127,0,0,1},{127,0,0,1},32},
                             {{192,168,1,0},{192,168,1,255},24}]},
                   subscribe,
-                  [{pattern,[<<"%c">>]}]
+                  [{pattern,[?PH_CLIENTID]}]
                }, emqx_authz_rule:compile(?SOURCE3)),
 
     ?assertMatch({allow,
@@ -79,7 +80,7 @@ t_compile(_) ->
     ?assertMatch({allow,
                   {'or', [{username, {re_pattern, _, _, _, _}},
                           {clientid, {re_pattern, _, _, _, _}}]},
-                  publish, [{pattern, [<<"%u">>]},  {pattern, [<<"%c">>]}]
+                  publish, [{pattern, [?PH_USERNAME]},  {pattern, [?PH_CLIENTID]}]
                  }, emqx_authz_rule:compile(?SOURCE5)),
     ok.
 

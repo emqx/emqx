@@ -21,6 +21,7 @@
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
@@ -77,7 +78,7 @@
                    <<"password">> => <<"ee">>,
                    <<"auto_reconnect">> => true,
                    <<"ssl">> => #{<<"enable">> => false},
-                   <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
+                   <<"cmd">> => <<"HGETALL mqtt_authz:", ?PH_USERNAME/binary>>
                   }).
 -define(SOURCE6, #{<<"type">> => <<"file">>,
                    <<"enable">> => true,

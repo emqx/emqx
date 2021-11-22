@@ -21,6 +21,7 @@
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -74,10 +75,10 @@ set_special_configs(_App) ->
 -define(SOURCE2,[#{<<"topics">> => [<<"eq #">>],
                  <<"permission">> => <<"allow">>,
                  <<"action">> => <<"all">>}]).
--define(SOURCE3,[#{<<"topics">> => [<<"test/%c">>],
+-define(SOURCE3,[#{<<"topics">> => [<<"test/", ?PH_CLIENTID/binary>>],
                  <<"permission">> => <<"allow">>,
                  <<"action">> => <<"subscribe">>}]).
--define(SOURCE4,[#{<<"topics">> => [<<"test/%u">>],
+-define(SOURCE4,[#{<<"topics">> => [<<"test/", ?PH_USERNAME/binary>>],
                  <<"permission">> => <<"allow">>,
                  <<"action">> => <<"publish">>}]).
 
@@ -131,4 +132,3 @@ t_authz(_) ->
     ?assertEqual(deny,  emqx_access_control:authorize(
                           ClientInfo3, publish,   <<"test">>)), % nomatch
     ok.
-

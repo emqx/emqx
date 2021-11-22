@@ -21,6 +21,7 @@
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 -define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
 
 all() ->
@@ -45,7 +46,7 @@ init_per_suite(Config) ->
                <<"password">> => <<"ee">>,
                <<"auto_reconnect">> => true,
                <<"ssl">> => #{<<"enable">> => false},
-               <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
+               <<"cmd">> => <<"HGETALL mqtt_authz:", ?PH_USERNAME/binary>>
               }],
     {ok, _} = emqx_authz:update(replace, Rules),
     Config.
@@ -68,8 +69,8 @@ set_special_configs(emqx_authz) ->
 set_special_configs(_App) ->
     ok.
 
--define(SOURCE1, [<<"test/%u">>, <<"publish">>]).
--define(SOURCE2, [<<"test/%c">>, <<"publish">>]).
+-define(SOURCE1, [<<"test/", ?PH_USERNAME/binary>>, <<"publish">>]).
+-define(SOURCE2, [<<"test/", ?PH_CLIENTID/binary>>, <<"publish">>]).
 -define(SOURCE3, [<<"#">>, <<"subscribe">>]).
 
 %%------------------------------------------------------------------------------
@@ -113,4 +114,3 @@ t_authz(_) ->
     ?assertEqual(deny,
         emqx_access_control:authorize(ClientInfo, publish, <<"#">>)),
     ok.
-

@@ -21,6 +21,7 @@
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -55,12 +56,12 @@ set_special_configs(_App) ->
 
 init_per_testcase(t_authz, Config) ->
     mria:dirty_write(#emqx_acl{who = {?ACL_TABLE_USERNAME, <<"test_username">>},
-                               rules = [{allow, publish, <<"test/%u">>},
+                               rules = [{allow, publish, <<"test/", ?PH_S_USERNAME>>},
                                         {allow, subscribe, <<"eq #">>}
                                        ]
                               }),
     mria:dirty_write(#emqx_acl{who = {?ACL_TABLE_CLIENTID, <<"test_clientid">>},
-                               rules = [{allow, publish, <<"test/%c">>},
+                               rules = [{allow, publish, <<"test/", ?PH_S_CLIENTID>>},
                                         {deny, subscribe, <<"eq #">>}
                                        ]
                               }),

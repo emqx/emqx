@@ -21,6 +21,7 @@
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -107,7 +108,7 @@ set_special_configs(_App) ->
                    <<"password">> => <<"ee">>,
                    <<"auto_reconnect">> => true,
                    <<"ssl">> => #{<<"enable">> => false},
-                   <<"cmd">> => <<"HGETALL mqtt_authz:%u">>
+                   <<"cmd">> => <<"HGETALL mqtt_authz:", ?PH_USERNAME/binary>>
                   }).
 -define(SOURCE6, #{<<"type">> => <<"file">>,
                    <<"enable">> => true,
