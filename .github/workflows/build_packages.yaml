@@ -461,6 +461,13 @@ jobs:
         echo ${{ secrets.DOCKER_HUB_TOKEN }} |sudo docker login -u ${{ secrets.DOCKER_HUB_USER }} --password-stdin
         sudo TARGET=emqx/${{ matrix.profile }} make docker-push
         sudo TARGET=emqx/${{ matrix.profile }} make docker-manifest-list
+    - name: push docker image to aws ecr
+      if: github.event_name == 'release'
+      run: |
+        set -e -x -u
+        aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+        docker tag emqx/emqx:${version#v} public.ecr.aws/emqx/emqx:${version#v}
+        docker push public.ecr.aws/emqx/emqx:${version#v}
     - name: update repo.emqx.io
       if: github.event_name == 'release' && endsWith(github.repository, 'enterprise') && matrix.profile == 'emqx-ee'
       run: |
