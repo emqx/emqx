@@ -901,12 +901,16 @@ t_snabbkaffe_buffered_messages(Config) ->
            %% Make the resume init phase wait until the first message is delivered.
            ?force_ordering( #{ ?snk_kind := ps_worker_deliver },
                             #{ ?snk_kind := ps_resume_end }),
+           Parent = self(),
            spawn_link(fun() ->
                               ?block_until(#{?snk_kind := ps_marker_pendings_msgs}, infinity, 5000),
-                              publish(Topic, Payloads2, true)
+                              publish(Topic, Payloads2, true),
+                              Parent ! publish_done,
+                              ok
                       end),
            {ok, Client2} = emqtt:start_link([{clean_start, false} | EmqttOpts]),
            {ok, _} = emqtt:ConnFun(Client2),
+           receive publish_done -> ok after 10000 -> error(too_long_to_publish) end,
            Msgs = receive_messages(length(Payloads1) + length(Payloads2) + 1),
            ReceivedPayloads = [P || #{ payload := P } <- Msgs],
            ?assertEqual(lists:sort(Payloads1 ++ Payloads2),
