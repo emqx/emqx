@@ -857,7 +857,7 @@ fill_defaults(Configs) when is_list(Configs) ->
 fill_defaults(Config) ->
     emqx_authn:check_config(Config, #{only_fill_defaults => true}).
 
-convert_certs(#{<<"ssl">> := SSLOpts} = Config) ->
+convert_certs(#{ssl := SSLOpts} = Config) ->
     NSSLOpts = lists:foldl(fun(K, Acc) ->
                                case maps:get(K, Acc, undefined) of
                                    undefined -> Acc;
@@ -865,8 +865,8 @@ convert_certs(#{<<"ssl">> := SSLOpts} = Config) ->
                                        {ok, Bin} = file:read_file(Filename),
                                        Acc#{K => Bin}
                                end
-                           end, SSLOpts, [<<"certfile">>, <<"keyfile">>, <<"cacertfile">>]),
-    Config#{<<"ssl">> => NSSLOpts};
+                           end, SSLOpts, [certfile, keyfile, cacertfile]),
+    Config#{ssl => NSSLOpts};
 convert_certs(Config) ->
     Config.
 
