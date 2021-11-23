@@ -56,9 +56,11 @@ groups() ->
     , {persistent_store_disabled, [ {group, no_kill_connection_process}
                                   ]}
     , {  ram_tables, [], [ {group, no_kill_connection_process}
+                         , {group,    kill_connection_process}
                          , {group, snabbkaffe}
                          , {group, gc_tests}]}
     , { disc_tables, [], [ {group, no_kill_connection_process}
+                         , {group,    kill_connection_process}
                          , {group, snabbkaffe}
                          , {group, gc_tests}]}
     , {no_kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]}
