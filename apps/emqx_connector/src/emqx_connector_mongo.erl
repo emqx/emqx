@@ -105,7 +105,7 @@ on_start(InstId, Config = #{mongo_type := Type,
               sharded -> "starting_mongodb_sharded_connector"
           end,
     ?SLOG(info, #{msg => Msg, connector => InstId, config => Config}),
-    NConfig = may_parse_srv_and_txt_records(Config),
+    NConfig = #{hosts := Hosts} = may_parse_srv_and_txt_records(Config),
     SslOpts = case maps:get(enable, SSL) of
                   true ->
                       [{ssl, true},
@@ -119,6 +119,7 @@ on_start(InstId, Config = #{mongo_type := Type,
               end,
     Topology = maps:get(topology, NConfig, #{}),
     Opts = [{type, init_type(NConfig)},
+            {hosts, Hosts},
             {pool_size, PoolSize},
             {options, init_topology_options(maps:to_list(Topology), [])},
             {worker_options, init_worker_options(maps:to_list(NConfig), SslOpts)}],
@@ -193,9 +194,9 @@ mongo_query(Conn, find_one, Collection, Selector, Projector) ->
 mongo_query(_Conn, _Action, _Collection, _Selector, _Projector) ->
     ok.
 
-init_type(#{type := rs, replica_set_name := ReplicaSetName}) ->
+init_type(#{mongo_type := rs, replica_set_name := ReplicaSetName}) ->
     {rs, ReplicaSetName};
-init_type(#{type := Type}) ->
+init_type(#{mongo_type := Type}) ->
     Type.
 
 init_topology_options([{pool_size, Val} | R], Acc) ->

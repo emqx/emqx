@@ -1163,7 +1163,7 @@ client_ssl_opts_schema(Defaults) ->
     common_ssl_opts_schema(Defaults) ++
     [ { "server_name_indication",
         sc(hoconsc:union([disable, string()]),
-           #{ default => disable
+           #{ nullable => true
             , desc =>
 """Specify the host name to be used in TLS Server Name Indication extension.<br>
 For instance, when connecting to \"server.example.net\", the genuine server

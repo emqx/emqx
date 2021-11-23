@@ -73,10 +73,7 @@ save_files_return_opts(Options, Dir) ->
     Key = do_save_file(KeyFile, Dir),
     Cert = do_save_file(CertFile, Dir),
     CA = do_save_file(CAFile, Dir),
-    Verify = case GetD(verify, false) of
-                  false -> verify_none;
-                  _ -> verify_peer
-             end,
+    Verify = GetD(verify, verify_none),
     SNI = Get(server_name_indication),
     Versions = emqx_tls_lib:integral_versions(Get(tls_versions)),
     Ciphers = emqx_tls_lib:integral_ciphers(Versions, Get(ciphers)),
@@ -92,6 +89,7 @@ save_file(Param, SubDir) ->
    do_save_file(Param, Dir).
 
 filter([]) -> [];
+filter([{_, undefined} | T]) -> filter(T);
 filter([{_, ""} | T]) -> filter(T);
 filter([H | T]) -> [H | filter(T)].
 
