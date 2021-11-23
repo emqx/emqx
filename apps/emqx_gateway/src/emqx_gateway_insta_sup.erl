@@ -52,6 +52,8 @@
           stopped_at :: integer() | undefined
          }).
 
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -219,23 +221,6 @@ detailed_gateway_info(State) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-%% same with emqx_authentication:global_chain/1
-global_chain(mqtt) ->
-    'mqtt:global';
-global_chain('mqtt-sn') ->
-    'mqtt-sn:global';
-global_chain(coap) ->
-    'coap:global';
-global_chain(lwm2m) ->
-    'lwm2m:global';
-global_chain(stomp) ->
-    'stomp:global';
-global_chain(_) ->
-    'unknown:global'.
-
-listener_chain(GwName, Type, LisName) ->
-    emqx_gateway_utils:listener_id(GwName, Type, LisName).
-
 %% There are two layer authentication configs
 %%       stomp.authn
 %%           /                   \
@@ -254,22 +239,23 @@ init_authn(GwName, Config) ->
 
 do_init_authn([], Names) ->
     Names;
-do_init_authn([{_ChainName, _AuthConf = #{enable := false}}|More], Names) ->
+do_init_authn([{_ChainName, _AuthConf = #{enable := false}} | More], Names) ->
     do_init_authn(More, Names);
-do_init_authn([{ChainName, AuthConf}|More], Names) when is_map(AuthConf) ->
+do_init_authn([{ChainName, AuthConf} | More], Names) when is_map(AuthConf) ->
     _ = application:ensure_all_started(emqx_authn),
     do_create_authn_chain(ChainName, AuthConf),
-    do_init_authn(More, [ChainName|Names]);
-do_init_authn([_BadConf|More], Names) ->
+    do_init_authn(More, [ChainName | Names]);
+do_init_authn([_BadConf | More], Names) ->
     do_init_authn(More, Names).
 
 authns(GwName, Config) ->
     Listeners = maps:to_list(maps:get(listeners, Config, #{})),
     lists:append(
-      [ [{listener_chain(GwName, LisType, LisName), authn_conf(Opts)}
+      [ [{emqx_gateway_utils:listener_chain(GwName, LisType, LisName),
+          authn_conf(Opts)}
         || {LisName, Opts} <- maps:to_list(LisNames) ]
       || {LisType, LisNames} <- Listeners])
-    ++ [{global_chain(GwName), authn_conf(Config)}].
+    ++ [{emqx_gateway_utils:global_chain(GwName), authn_conf(Config)}].
 
 authn_conf(Conf) ->
     maps:get(authentication, Conf, #{enable => false}).
@@ -328,13 +314,13 @@ do_update_one_by_one(NCfg, State = #state{
     OAuths = authns(GwName, OCfg),
     NAuths = authns(GwName, NCfg),
 
-    if
-        Status == stopped, NEnable == true ->
+    case {Status, NEnable} of
+        {stopped, true} ->
             NState = State#state{config = NCfg},
             cb_gateway_load(NState);
-        Status == stopped, NEnable == false ->
+        {stopped, false} ->
             {ok, State#state{config = NCfg}};
-        Status == running, NEnable == true ->
+        {running, true} ->
             NState = case NAuths == OAuths of
                          true -> State;
                          false ->
@@ -345,12 +331,12 @@ do_update_one_by_one(NCfg, State = #state{
                      end,
             %% XXX: minimum impact update ???
             cb_gateway_update(NCfg, NState);
-        Status == running, NEnable == false ->
+        {running, false} ->
             case cb_gateway_unload(State) of
                 {ok, NState} -> {ok, NState#state{config = NCfg}};
                 {error, Reason} -> {error, Reason}
             end;
-        true ->
+        _ ->
             throw(nomatch)
     end.
 
@@ -448,7 +434,7 @@ cb_gateway_update(Config,
     end.
 
 start_child_process([]) -> [];
-start_child_process([Indictor|_] = ChildPidOrSpecs) ->
+start_child_process([Indictor | _] = ChildPidOrSpecs) ->
     case erlang:is_pid(Indictor) of
         true ->
             ChildPidOrSpecs;

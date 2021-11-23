@@ -18,25 +18,41 @@
 
 -behaviour(minirest_api).
 
+-include_lib("typerefl/include/types.hrl").
+
+-define(BAD_REQUEST, 'BAD_REQUEST').
+-define(NOT_FOUND, 'NOT_FOUND').
+-define(INTERNAL_ERROR, 'INTERNAL_SERVER_ERROR').
+
+-import(hoconsc, [mk/2, ref/1, ref/2]).
+-import(emqx_dashboard_swagger, [error_codes/2]).
+
 -import(emqx_gateway_http,
         [ return_http_error/2
-        , schema_bad_request/0
-        , schema_not_found/0
-        , schema_internal_error/0
-        , schema_no_content/0
         , with_gateway/2
+        , with_listener_authn/3
         , checks/2
         ]).
 
 -import(emqx_gateway_api_authn, [schema_authn/0]).
 
-%% minirest behaviour callbacks
--export([api_spec/0]).
+%% minirest/dashbaord_swagger behaviour callbacks
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        ]).
+
+-export([ roots/0
+        , fields/1
+        ]).
 
 %% http handlers
 -export([ listeners/2
         , listeners_insta/2
         , listeners_insta_authn/2
+        , users/2
+        , users_insta/2
+        , import_users/2
         ]).
 
 %%--------------------------------------------------------------------
@@ -44,12 +60,15 @@
 %%--------------------------------------------------------------------
 
 api_spec() ->
-    {metadata(apis()), []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-apis() ->
-    [ {"/gateway/:name/listeners", listeners}
-    , {"/gateway/:name/listeners/:id", listeners_insta}
-    , {"/gateway/:name/listeners/:id/authentication", listeners_insta_authn}
+paths() ->
+    [ "/gateway/:name/listeners"
+    , "/gateway/:name/listeners/:id"
+    , "/gateway/:name/listeners/:id/authentication"
+    , "/gateway/:name/listeners/:id/authentication/users"
+    , "/gateway/:name/listeners/:id/authentication/users/:uid"
+    , "/gateway/:name/listeners/:id/authentication/import_users"
     ].
 
 %%--------------------------------------------------------------------
@@ -145,247 +164,481 @@ listeners_insta_authn(delete, #{bindings := #{name := Name0,
         {204}
     end).
 
+users(get, #{bindings := #{name := Name0, id := Id}, query_string := Qs}) ->
+    with_listener_authn(Name0, Id,
+      fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+        emqx_authn_api:list_users(ChainName, AuthId, page_pramas(Qs))
+    end);
+users(post, #{bindings := #{name := Name0, id := Id},
+              body := Body}) ->
+    with_listener_authn(Name0, Id,
+      fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+        emqx_authn_api:add_user(ChainName, AuthId, Body)
+    end).
+
+users_insta(get, #{bindings := #{name := Name0, id := Id, uid := UserId}}) ->
+    with_listener_authn(Name0, Id,
+      fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+        emqx_authn_api:find_user(ChainName, AuthId, UserId)
+    end);
+users_insta(put, #{bindings := #{name := Name0, id := Id, uid := UserId},
+                   body := Body}) ->
+    with_listener_authn(Name0, Id,
+      fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+        emqx_authn_api:update_user(ChainName, AuthId, UserId, Body)
+    end);
+users_insta(delete, #{bindings := #{name := Name0, id := Id, uid := UserId}}) ->
+    with_listener_authn(Name0, Id,
+      fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+        emqx_authn_api:delete_user(ChainName, AuthId, UserId)
+    end).
+
+import_users(post, #{bindings := #{name := Name0, id := Id},
+                     body := Body}) ->
+    with_listener_authn(Name0, Id,
+      fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+        case maps:get(<<"filename">>, Body, undefined) of
+            undefined ->
+                emqx_authn_api:serialize_error({missing_parameter, filename});
+            Filename ->
+                case emqx_authentication:import_users(
+                       ChainName, AuthId, Filename) of
+                    ok -> {204};
+                    {error, Reason} ->
+                        emqx_authn_api:serialize_error(Reason)
+                end
+        end
+    end).
+
+%%--------------------------------------------------------------------
+%% Utils
+
+page_pramas(Qs) ->
+    maps:with([<<"page">>, <<"limit">>], Qs).
+
 %%--------------------------------------------------------------------
 %% Swagger defines
 %%--------------------------------------------------------------------
 
-metadata(APIs) ->
-    metadata(APIs, []).
-metadata([], APIAcc) ->
-    lists:reverse(APIAcc);
-metadata([{Path, Fun}|More], APIAcc) ->
-    Methods = [get, post, put, delete, patch],
-    Mds = lists:foldl(fun(M, Acc) ->
-              try
-                  Acc#{M => swagger(Path, M)}
-              catch
-                  error : function_clause ->
-                      Acc
-              end
-          end, #{}, Methods),
-    metadata(More, [{Path, Mds, Fun} | APIAcc]).
-
-swagger("/gateway/:name/listeners", get) ->
-    #{ description => <<"Get the gateway listeners">>
-     , parameters => params_gateway_name_in_path()
-     , responses =>
-        #{ <<"400">> => schema_bad_request()
-         , <<"404">> => schema_not_found()
-         , <<"500">> => schema_internal_error()
-         , <<"200">> => schema_listener_list()
-         }
+schema("/gateway/:name/listeners") ->
+    #{ 'operationId' => listeners,
+       get =>
+         #{ description => <<"Get the gateway listeners">>
+          , parameters => params_gateway_name_in_path()
+          , responses =>
+             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+              , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+              , 200 => emqx_dashboard_swagger:schema_with_examples(
+                         hoconsc:array(ref(listener)),
+                         examples_listener_list())
+              }
+          },
+       post =>
+         #{ description => <<"Create the gateway listener">>
+          , parameters => params_gateway_name_in_path()
+          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                             ref(listener),
+                             examples_listener())
+          , responses =>
+             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+              , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+              , 204 => <<"Created">>
+              }
+          }
      };
-swagger("/gateway/:name/listeners", post) ->
-    #{ description => <<"Create the gateway listener">>
-     , parameters => params_gateway_name_in_path()
-     , requestBody => schema_listener()
-     , responses =>
-        #{ <<"400">> => schema_bad_request()
-         , <<"404">> => schema_not_found()
-         , <<"500">> => schema_internal_error()
-         , <<"200">> => schema_listener_list()
-         }
+schema("/gateway/:name/listeners/:id") ->
+    #{ 'operationId' => listeners_insta,
+       get =>
+         #{ description => <<"Get the gateway listener configurations">>
+          , parameters => params_gateway_name_in_path()
+                          ++ params_listener_id_in_path()
+          , responses =>
+             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+              , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+              , 200 => emqx_dashboard_swagger:schema_with_examples(
+                         ref(listener),
+                         examples_listener())
+              }
+           },
+       delete =>
+         #{ description => <<"Delete the gateway listener">>
+          , parameters => params_gateway_name_in_path()
+                          ++ params_listener_id_in_path()
+          , responses =>
+             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+              , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+              , 204 => <<"Deleted">>
+              }
+           },
+       put =>
+         #{ description => <<"Update the gateway listener">>
+          , parameters => params_gateway_name_in_path()
+                          ++ params_listener_id_in_path()
+          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                             ref(listener),
+                             examples_listener())
+          , responses =>
+             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+              , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+              , 200 => <<"Updated">>
+              }
+          }
      };
-swagger("/gateway/:name/listeners/:id", get) ->
-    #{ description => <<"Get the gateway listener configurations">>
-     , parameters => params_gateway_name_in_path()
-                     ++ params_listener_id_in_path()
-     , responses =>
-        #{ <<"400">> => schema_bad_request()
-         , <<"404">> => schema_not_found()
-         , <<"500">> => schema_internal_error()
-         , <<"200">> => schema_listener()
-         }
-      };
-swagger("/gateway/:name/listeners/:id", delete) ->
-    #{ description => <<"Delete the gateway listener">>
-     , parameters => params_gateway_name_in_path()
-                     ++ params_listener_id_in_path()
-     , responses =>
-        #{ <<"400">> => schema_bad_request()
-         , <<"404">> => schema_not_found()
-         , <<"500">> => schema_internal_error()
-         , <<"204">> => schema_no_content()
-         }
-      };
-swagger("/gateway/:name/listeners/:id", put) ->
-    #{ description => <<"Update the gateway listener">>
-     , parameters => params_gateway_name_in_path()
-                     ++ params_listener_id_in_path()
-     , requestBody => schema_listener()
-     , responses =>
-        #{ <<"400">> => schema_bad_request()
-         , <<"404">> => schema_not_found()
-         , <<"500">> => schema_internal_error()
-         , <<"200">> => schema_no_content()
-         }
+schema("/gateway/:name/listeners/:id/authentication") ->
+    #{ 'operationId' => listeners_insta_authn,
+       get =>
+         #{ description => <<"Get the listener's authentication info">>
+          , parameters => params_gateway_name_in_path()
+                          ++ params_listener_id_in_path()
+          , responses =>
+             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+              , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+              , 200 => schema_authn()
+              , 204 => <<"Authentication does not initiated">>
+              }
+          },
+       post =>
+         #{ description => <<"Add authentication for the listener">>
+          , parameters => params_gateway_name_in_path()
+                          ++ params_listener_id_in_path()
+          , 'requestBody' => schema_authn()
+          , responses =>
+             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+              , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+              , 204 => <<"Added">>
+              }
+          },
+       put =>
+         #{ description => <<"Update authentication for the listener">>
+          , parameters => params_gateway_name_in_path()
+                          ++ params_listener_id_in_path()
+          , 'requestBody' => schema_authn()
+          , responses =>
+             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+              , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+              , 204 => <<"Updated">>
+              }
+          },
+       delete =>
+         #{ description => <<"Remove authentication for the listener">>
+          , parameters => params_gateway_name_in_path()
+                          ++ params_listener_id_in_path()
+          , responses =>
+             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+              , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+              , 204 => <<"Deleted">>
+              }
+          }
      };
-swagger("/gateway/:name/listeners/:id/authentication", get) ->
-    #{ description => <<"Get the listener's authentication info">>
-     , parameters => params_gateway_name_in_path()
-                     ++ params_listener_id_in_path()
-     , responses =>
-        #{ <<"400">> => schema_bad_request()
-         , <<"404">> => schema_not_found()
-         , <<"500">> => schema_internal_error()
-         , <<"200">> => schema_authn()
-         , <<"204">> => schema_no_content()
-         }
+schema("/gateway/:name/listeners/:id/authentication/users") ->
+    #{ 'operationId' => users
+     , get =>
+         #{ description => <<"Get the users for the authentication">>
+          , parameters => params_gateway_name_in_path() ++
+                          params_listener_id_in_path() ++
+                          params_paging_in_qs()
+          , responses =>
+              #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+               , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+               , 200 => emqx_dashboard_swagger:schema_with_example(
+                          ref(emqx_authn_api, response_user),
+                          emqx_authn_api:response_user_examples())
+              }
+          },
+       post =>
+         #{ description => <<"Add user for the authentication">>
+          , parameters => params_gateway_name_in_path() ++
+                          params_listener_id_in_path()
+          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                               ref(emqx_authn_api, request_user_create),
+                               emqx_authn_api:request_user_create_examples())
+          , responses =>
+              #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+               , 500 => error_codes([?INTERNAL_ERROR],
+                                   <<"Ineternal Server Error">>)
+               , 201 => emqx_dashboard_swagger:schema_with_example(
+                          ref(emqx_authn_api, response_user),
+                          emqx_authn_api:response_user_examples())
+              }
+          }
      };
-swagger("/gateway/:name/listeners/:id/authentication", post) ->
-    #{ description => <<"Add authentication for the listener">>
-     , parameters => params_gateway_name_in_path()
-                     ++ params_listener_id_in_path()
-     , requestBody => schema_authn()
-     , responses =>
-        #{ <<"400">> => schema_bad_request()
-         , <<"404">> => schema_not_found()
-         , <<"500">> => schema_internal_error()
-         , <<"204">> => schema_no_content()
-         }
+schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
+    #{ 'operationId' => users_insta
+      , get =>
+          #{ description => <<"Get user info from the gateway "
+                              "authentication">>
+           , parameters => params_gateway_name_in_path() ++
+                           params_listener_id_in_path() ++
+                           params_userid_in_path()
+           , responses =>
+               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                , 500 => error_codes([?INTERNAL_ERROR],
+                                     <<"Ineternal Server Error">>)
+                , 200 => emqx_dashboard_swagger:schema_with_example(
+                           ref(emqx_authn_api, response_user),
+                           emqx_authn_api:response_user_examples())
+                }
+           },
+        put =>
+          #{ description => <<"Update the user info for the gateway "
+                              "authentication">>
+           , parameters => params_gateway_name_in_path() ++
+                           params_listener_id_in_path() ++
+                           params_userid_in_path()
+          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                               ref(emqx_authn_api, request_user_update),
+                               emqx_authn_api:request_user_update_examples())
+           , responses =>
+               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                , 500 => error_codes([?INTERNAL_ERROR],
+                                     <<"Ineternal Server Error">>)
+                , 200 => emqx_dashboard_swagger:schema_with_example(
+                           ref(emqx_authn_api, response_user),
+                           emqx_authn_api:response_user_examples())
+                }
+           },
+        delete =>
+          #{ description => <<"Delete the user for the gateway "
+                              "authentication">>
+           , parameters => params_gateway_name_in_path() ++
+                           params_listener_id_in_path() ++
+                           params_userid_in_path()
+           , responses =>
+               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                , 500 => error_codes([?INTERNAL_ERROR],
+                                     <<"Ineternal Server Error">>)
+                , 200 => emqx_dashboard_swagger:schema_with_example(
+                           ref(emqx_authn_api, response_user),
+                           emqx_authn_api:response_user_examples())
+                }
+           }
      };
-swagger("/gateway/:name/listeners/:id/authentication", put) ->
-    #{ description => <<"Update authentication for the listener">>
-     , parameters => params_gateway_name_in_path()
-                     ++ params_listener_id_in_path()
-     , requestBody => schema_authn()
-     , responses =>
-        #{ <<"400">> => schema_bad_request()
-         , <<"404">> => schema_not_found()
-         , <<"500">> => schema_internal_error()
-         , <<"204">> => schema_no_content()
-         }
-     };
-swagger("/gateway/:name/listeners/:id/authentication", delete) ->
-    #{ description => <<"Remove authentication for the listener">>
-     , parameters => params_gateway_name_in_path()
-                     ++ params_listener_id_in_path()
-     , responses =>
-        #{ <<"400">> => schema_bad_request()
-         , <<"404">> => schema_not_found()
-         , <<"500">> => schema_internal_error()
-         , <<"204">> => schema_no_content()
-         }
+schema("/gateway/:name/listeners/:id/authentication/import_users") ->
+    #{ 'operationId' => import_users
+     , post =>
+         #{ description => <<"Import users into the gateway authentication">>
+          , parameters => params_gateway_name_in_path() ++
+                          params_listener_id_in_path()
+          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                             ref(emqx_authn_api, request_import_users),
+                             emqx_authn_api:request_import_users_examples()
+                            )
+          , responses =>
+              #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+               , 500 => error_codes([?INTERNAL_ERROR],
+                                     <<"Ineternal Server Error">>)
+               %% XXX: Put a hint message into 204 return ?
+               , 204 => <<"Imported">>
+              }
+          }
      }.
 
 %%--------------------------------------------------------------------
 %% params defines
 
 params_gateway_name_in_path() ->
-    [#{ name => name
-      , in => path
-      , schema => #{type => string}
-      , required => true
-      }].
+    [{name,
+      mk(binary(),
+         #{ in => path
+          , desc => <<"Gateway Name">>
+          })}
+    ].
 
 params_listener_id_in_path() ->
-    [#{ name => id
-      , in => path
-      , schema => #{type => string}
-      , required => true
-      }].
+    [{id,
+      mk(binary(),
+         #{ in => path
+          , desc => <<"Listener ID">>
+          })}
+    ].
+
+params_userid_in_path() ->
+    [{uid, mk(binary(),
+              #{ in => path
+               , desc => <<"User ID">>
+               })}
+    ].
+
+params_paging_in_qs() ->
+    [{page, mk(integer(),
+               #{ in => query
+                , nullable => true
+                , desc => <<"Page Index">>
+                })},
+     {limit, mk(integer(),
+                #{ in => query
+                 , nullable => true
+                 , desc => <<"Page Limit">>
+                 })}
+    ].
 
 %%--------------------------------------------------------------------
 %% schemas
 
-schema_listener_list() ->
-    emqx_mgmt_util:array_schema(
-      #{ type => object
-       , properties => properties_listener()
-       },
-      <<"Listener list">>
-     ).
-
-schema_listener() ->
-    emqx_mgmt_util:schema(
-      #{ type => object
-       , properties => properties_listener()
-       }
-     ).
-
-%%--------------------------------------------------------------------
-%% properties
-
-properties_listener() ->
-    emqx_mgmt_util:properties(
-      raw_properties_common_listener() ++
-      [ {tcp, object, raw_properties_tcp_opts()}
-      , {ssl, object, raw_properties_ssl_opts()}
-      , {udp, object, raw_properties_udp_opts()}
-      , {dtls, object, raw_properties_dtls_opts()}
-      ]).
-
-raw_properties_tcp_opts() ->
-    [ {active_n, integer, <<>>}
-    , {backlog, integer, <<>>}
-    , {buffer, string, <<>>}
-    , {recbuf, string, <<>>}
-    , {sndbuf, string, <<>>}
-    , {high_watermark, string, <<>>}
-    , {nodelay, boolean, <<>>}
-    , {reuseaddr, boolean, <<>>}
-    , {send_timeout, string, <<>>}
-    , {send_timeout_close, boolean, <<>>}
+roots() ->
+    [ listener
     ].
 
-raw_properties_ssl_opts() ->
-    [ {cacertfile, string, <<>>}
-    , {certfile, string, <<>>}
-    , {keyfile, string, <<>>}
-    , {verify, string, <<>>}
-    , {fail_if_no_peer_cert, boolean, <<>>}
-    , {server_name_indication, boolean, <<>>}
-    , {depth, integer, <<>>}
-    , {password, string, <<>>}
-    , {handshake_timeout, string, <<>>}
-    , {versions, {array, string}, <<>>}
-    , {ciphers, {array, string}, <<>>}
-    , {user_lookup_fun, string, <<>>}
-    , {reuse_sessions, boolean, <<>>}
-    , {secure_renegotiate, boolean, <<>>}
-    , {honor_cipher_order, boolean, <<>>}
-    , {dhfile, string, <<>>}
-    ].
-
-raw_properties_udp_opts() ->
-    [ {active_n, integer, <<>>}
-    , {buffer, string, <<>>}
-    , {recbuf, string, <<>>}
-    , {sndbuf, string, <<>>}
-    , {reuseaddr, boolean, <<>>}
-    ].
-
-raw_properties_dtls_opts() ->
+fields(listener) ->
+    common_listener_opts() ++
+    [ {tcp,
+       mk(ref(tcp_listener_opts),
+          #{ nullable => {true, recursively}
+           , desc => <<"The tcp socket options for tcp or ssl listener">>
+           })}
+    , {ssl,
+       mk(ref(ssl_listener_opts),
+          #{ nullable => {true, recursively}
+           , desc => <<"The ssl socket options for ssl listener">>
+           })}
+    , {udp,
+       mk(ref(udp_listener_opts),
+          #{ nullable => {true, recursively}
+           , desc => <<"The udp socket options for udp or dtls listener">>
+           })}
+    , {dtls,
+       mk(ref(dtls_listener_opts),
+          #{ nullable => {true, recursively}
+           , desc => <<"The dtls socket options for dtls listener">>
+           })}
+    ];
+fields(tcp_listener_opts) ->
+    [ {active_n, mk(integer(), #{})}
+    , {backlog, mk(integer(), #{})}
+    , {buffer, mk(binary(), #{})}
+    , {recbuf, mk(binary(), #{})}
+    , {sndbuf, mk(binary(), #{})}
+    , {high_watermark, mk(binary(), #{})}
+    , {nodelay, mk(boolean(), #{})}
+    , {reuseaddr, boolean()}
+    , {send_timeout, binary()}
+    , {send_timeout_close, boolean()}
+    ];
+fields(ssl_listener_opts) ->
+    [ {cacertfile, binary()}
+    , {certfile, binary()}
+    , {keyfile, binary()}
+    , {verify, binary()}
+    , {fail_if_no_peer_cert, boolean()}
+    , {server_name_indication, boolean()}
+    , {depth, integer()}
+    , {password, binary()}
+    , {handshake_timeout, binary()}
+    , {versions, hoconsc:array(binary())}
+    , {ciphers, hoconsc:array(binary())}
+    , {user_lookup_fun, binary()}
+    , {reuse_sessions, boolean()}
+    , {secure_renegotiate, boolean()}
+    , {honor_cipher_order, boolean()}
+    , {dhfile, binary()}
+    ];
+fields(udp_listener_opts) ->
+    [ {active_n, integer()}
+    , {buffer, binary()}
+    , {recbuf, binary()}
+    , {sndbuf, binary()}
+    , {reuseaddr, boolean()}
+    ];
+fields(dtls_listener_opts) ->
     Ls = lists_key_without(
       [versions,ciphers,handshake_timeout], 1,
-      raw_properties_ssl_opts()
+      fields(ssl_listener_opts)
      ),
-    [ {versions, {array, string}, <<>>}
-    , {ciphers, {array, string}, <<>>}
+    [ {versions, hoconsc:array(binary())}
+    , {ciphers, hoconsc:array(binary())}
     | Ls].
 
 lists_key_without([], _N, L) ->
     L;
-lists_key_without([K|Ks], N, L) ->
+lists_key_without([K | Ks], N, L) ->
     lists_key_without(Ks, N, lists:keydelete(K, N, L)).
 
-raw_properties_common_listener() ->
-    [ {enable, boolean, <<"Whether to enable this listener">>}
-    , {id, string, <<"Listener Id">>}
-    , {name, string, <<"Listener name">>}
-    , {type, string,
-       <<"Listener type. Enum: tcp, udp, ssl, dtls">>,
-       [<<"tcp">>, <<"ssl">>, <<"udp">>, <<"dtls">>]}
-    , {running, boolean, <<"Listener running status">>}
-    , {bind, string, <<"Listener bind address or port">>}
-    , {acceptors, integer, <<"Listener acceptors number">>}
-    , {access_rules, {array, string}, <<"Listener Access rules for client">>}
-    , {max_conn_rate, integer, <<"Max connection rate for the listener">>}
-    , {max_connections, integer, <<"Max connections for the listener">>}
-    , {mountpoint, string,
-       <<"The Mounpoint for clients of the listener. "
-         "The gateway-level mountpoint configuration can be overloaded "
-         "when it is not null or empty string">>}
+common_listener_opts() ->
+    [ {enable,
+       mk(boolean(),
+          #{ nullable => true
+           , desc => <<"Whether to enable this listener">>})}
+    , {id,
+       mk(binary(),
+          #{ nullable => true
+           , desc => <<"Listener Id">>})}
+    , {name,
+       mk(binary(),
+          #{ nullable => true
+           , desc => <<"Listener name">>})}
+    , {type,
+       mk(hoconsc:enum([tcp, ssl, udp, dtls]),
+          #{ nullable => true
+           , desc => <<"Listener type. Enum: tcp, udp, ssl, dtls">>})}
+    , {running,
+       mk(boolean(),
+          #{ nullable => true
+           , desc => <<"Listener running status">>})}
+    , {bind,
+       mk(binary(),
+          #{ nullable => true
+           , desc => <<"Listener bind address or port">>})}
+    , {acceptors,
+       mk(integer(),
+          #{ nullable => true
+           , desc => <<"Listener acceptors number">>})}
+    , {access_rules,
+       mk(hoconsc:array(binary()),
+          #{ nullable => true
+           , desc => <<"Listener Access rules for client">>})}
+    , {max_conn_rate,
+       mk(integer(),
+          #{ nullable => true
+           , desc => <<"Max connection rate for the listener">>})}
+    , {max_connections,
+       mk(integer(),
+          #{ nullable => true
+           , desc => <<"Max connections for the listener">>})}
+    , {mountpoint,
+       mk(binary(),
+          #{ nullable => true
+           , desc =>
+<<"The Mounpoint for clients of the listener. "
+  "The gateway-level mountpoint configuration can be overloaded "
+  "when it is not null or empty string">>})}
     %% FIXME:
-    , {authentication, string, <<"NOT-SUPPORTED-NOW">>}
-   ].
+    , {authentication,
+       mk(emqx_authn_schema:authenticator_type(),
+          #{ nullable => {true, recursively}
+           , desc => <<"The authenticatior for this listener">>
+           })}
+    ].
+
+%%--------------------------------------------------------------------
+%% examples
+
+examples_listener_list() ->
+    #{stomp_listeners => [examples_listener()]}.
+
+examples_listener() ->
+    #{}.

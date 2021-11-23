@@ -34,6 +34,8 @@
         , listener_id/3
         , parse_listener_id/1
         , is_running/2
+        , global_chain/1
+        , listener_chain/3
         ]).
 
 -export([ stringfy/1
@@ -63,6 +65,8 @@
 -define(DEFAULT_GC_OPTS, #{count => 1000, bytes => 1024*1024}).
 -define(DEFAULT_OOM_POLICY, #{max_heap_size => 4194304,
                               message_queue_len => 32000}).
+
+-elvis([{elvis_style, god_modules, disable}]).
 
 -spec childspec(supervisor:worker(), Mod :: atom())
     -> supervisor:child_spec().
@@ -159,6 +163,23 @@ is_running(ListenerId, #{<<"bind">> := ListenOn0}) ->
         false
     end.
 
+%% same with emqx_authentication:global_chain/1
+global_chain(mqtt) ->
+    'mqtt:global';
+global_chain('mqtt-sn') ->
+    'mqtt-sn:global';
+global_chain(coap) ->
+    'coap:global';
+global_chain(lwm2m) ->
+    'lwm2m:global';
+global_chain(stomp) ->
+    'stomp:global';
+global_chain(_) ->
+    'unknown:global'.
+
+listener_chain(GwName, Type, LisName) ->
+    listener_id(GwName, Type, LisName).
+
 bin(A) when is_atom(A) ->
     atom_to_binary(A);
 bin(L) when is_list(L); is_binary(L) ->
@@ -183,7 +204,7 @@ stringfy(T) when is_list(T); is_binary(T) ->
 stringfy(T) ->
     iolist_to_binary(io_lib:format("~0p", [T])).
 
--spec parse_address(binary()|list()) -> {list(), integer()}.
+-spec parse_address(binary() | list()) -> {list(), integer()}.
 parse_address(S) when is_binary(S); is_list(S) ->
     S1 = case is_binary(S) of
             true -> lists:reverse(binary_to_list(S));
@@ -215,9 +236,9 @@ normalize_config(RawConf) ->
                                [bind, tcp, ssl, udp, dtls]
                                ++ proplists:get_keys(SocketOpts), Confs),
                 Cfg = maps:merge(Cfg0, RemainCfgs),
-                [{Type, Name, ListenOn, SocketOpts, Cfg}|AccIn2]
+                [{Type, Name, ListenOn, SocketOpts, Cfg} | AccIn2]
             end, [], Liss),
-            [Listeners|AccIn1]
+            [Listeners | AccIn1]
     end, [], LisMap)).
 
 esockd_opts(Type, Opts0) ->

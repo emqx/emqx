@@ -164,7 +164,7 @@ t_random_test(_) ->
 random_test_body() ->
     Data = generate_random_binary(),
     case catch parse(Data) of
-        {ok, _Msg} -> ok;
+        Msg when is_record(Msg, mqtt_sn_message) -> ok;
         {'EXIT', {Err, _Stack}}
           when Err =:= unkown_message_type;
                Err =:= malformed_message_len;

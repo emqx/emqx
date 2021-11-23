@@ -65,6 +65,17 @@
         , response_users_example/0
         ]).
 
+%% export these funcs for gateway
+-export([ list_users/3
+        , add_user/3
+        , delete_user/3
+        , find_user/3
+        , update_user/4
+        , serialize_error/1
+        ]).
+
+-elvis([{elvis_style, god_modules, disable}]).
+
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
@@ -785,11 +796,12 @@ add_user(_, _, #{<<"user_id">> := _}) ->
 add_user(_, _, _) ->
     serialize_error({missing_parameter, user_id}).
 
-update_user(ChainName, AuthenticatorID, UserID, UserInfo) ->
-    case maps:with([<<"password">>, <<"is_superuser">>], UserInfo) =:= #{} of
+update_user(ChainName, AuthenticatorID, UserID, UserInfo0) ->
+    case maps:with([<<"password">>, <<"is_superuser">>], UserInfo0) =:= #{} of
         true ->
             serialize_error({missing_parameter, password});
         false ->
+            UserInfo = emqx_map_lib:safe_atom_key_map(UserInfo0),
             case emqx_authentication:update_user(ChainName, AuthenticatorID, UserID, UserInfo) of
                 {ok, User} ->
                     {200, User};

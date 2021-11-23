@@ -53,6 +53,8 @@
 %% Utils for http, swagger, etc.
 -export([ return_http_error/2
         , with_gateway/2
+        , with_authn/2
+        , with_listener_authn/3
         , checks/2
         , schema_bad_request/0
         , schema_not_found/0
@@ -68,6 +70,10 @@
          , current_connections => integer()
          , listeners => []
          }.
+
+-elvis([{elvis_style, god_modules, disable}]).
+-elvis([{elvis_style, no_nested_try_catch, disable}]).
+
 
 -define(DEFAULT_CALL_TIMEOUT, 15000).
 
@@ -159,14 +165,31 @@ remove_listener(ListenerId) ->
 
 -spec authn(gateway_name()) -> map().
 authn(GwName) ->
+    %% XXX: Need append chain-nanme, authenticator-id?
     Path = [gateway, GwName, authentication],
-    emqx_map_lib:jsonable_map(emqx:get_config(Path)).
+    ChainName = emqx_gateway_utils:global_chain(GwName),
+    wrap_chain_name(
+      ChainName,
+      emqx_map_lib:jsonable_map(emqx:get_config(Path))
+     ).
 
 -spec authn(gateway_name(), binary()) -> map().
 authn(GwName, ListenerId) ->
     {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
     Path = [gateway, GwName, listeners, Type, Name, authentication],
-    emqx_map_lib:jsonable_map(emqx:get_config(Path)).
+    ChainName = emqx_gateway_utils:listener_chain(GwName, Type, Name),
+    wrap_chain_name(
+      ChainName,
+      emqx_map_lib:jsonable_map(emqx:get_config(Path))
+     ).
+
+wrap_chain_name(ChainName, Conf) ->
+    case emqx_authentication:list_authenticators(ChainName) of
+        {ok, [#{id := Id} | _]} ->
+            Conf#{chain_name => ChainName, id => Id};
+        _ ->
+            Conf
+    end.
 
 -spec add_authn(gateway_name(), map()) -> ok.
 add_authn(GwName, AuthConf) ->
@@ -303,6 +326,20 @@ codestr(401) -> 'NOT_SUPPORTED_NOW';
 codestr(404) -> 'RESOURCE_NOT_FOUND';
 codestr(500) -> 'UNKNOW_ERROR'.
 
+-spec with_authn(binary(), function()) -> any().
+with_authn(GwName0, Fun) ->
+    with_gateway(GwName0, fun(GwName, _GwConf) ->
+        Authn = emqx_gateway_http:authn(GwName),
+        Fun(GwName, Authn)
+    end).
+
+-spec with_listener_authn(binary(), binary(), function()) -> any().
+with_listener_authn(GwName0, Id, Fun) ->
+    with_gateway(GwName0, fun(GwName, _GwConf) ->
+        Authn = emqx_gateway_http:authn(GwName, Id),
+        Fun(GwName, Authn)
+    end).
+
 -spec with_gateway(binary(), function()) -> any().
 with_gateway(GwName0, Fun) ->
     try
@@ -346,7 +383,7 @@ with_gateway(GwName0, Fun) ->
 -spec checks(list(), map()) -> ok.
 checks([], _) ->
     ok;
-checks([K|Ks], Map) ->
+checks([K | Ks], Map) ->
     case maps:is_key(K, Map) of
         true -> checks(Ks, Map);
         false ->
