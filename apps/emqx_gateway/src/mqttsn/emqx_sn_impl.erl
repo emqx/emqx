@@ -108,8 +108,8 @@ start_listener(GwName, Ctx, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) of
         {ok, Pid} ->
-            ?ULOG("Gateway ~ts:~ts:~ts on ~ts started.~n",
-                  [GwName, Type, LisName, ListenOnStr]),
+            console_print("Gateway ~ts:~ts:~ts on ~ts started.~n",
+                          [GwName, Type, LisName, ListenOnStr]),
             Pid;
         {error, Reason} ->
             ?ELOG("Failed to start gateway ~ts:~ts:~ts on ~ts: ~0p~n",
@@ -142,8 +142,9 @@ stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(GwName, Type, LisName, ListenOn, SocketOpts, Cfg),
     ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
     case StopRet of
-        ok -> ?ULOG("Gateway ~ts:~ts:~ts on ~ts stopped.~n",
-                    [GwName, Type, LisName, ListenOnStr]);
+        ok ->
+            console_print("Gateway ~ts:~ts:~ts on ~ts stopped.~n",
+                          [GwName, Type, LisName, ListenOnStr]);
         {error, Reason} ->
             ?ELOG("Failed to stop gateway ~ts:~ts:~ts on ~ts: ~0p~n",
                   [GwName, Type, LisName, ListenOnStr, Reason])
@@ -153,3 +154,9 @@ stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
 stop_listener(GwName, Type, LisName, ListenOn, _SocketOpts, _Cfg) ->
     Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     esockd:close(Name, ListenOn).
+
+-ifndef(TEST).
+console_print(Fmt, Args) -> ?ULOG(Fmt, Args).
+-else.
+console_print(_Fmt, _Args) -> ok.
+-endif.

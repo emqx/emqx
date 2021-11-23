@@ -36,7 +36,7 @@
 -define(FLAG_RETAIN(X),X).
 -define(FLAG_SESSION(X),X).
 
--define(LOG(Format, Args), ct:print("TEST: " ++ Format, Args)).
+-define(LOG(Format, Args), ct:pal("TEST: " ++ Format, Args)).
 
 -define(MAX_PRED_TOPIC_ID, 2).
 -define(PREDEF_TOPIC_ID1, 1).

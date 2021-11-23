@@ -40,7 +40,7 @@
         , on_received_messages/2
         ]).
 
--define(LOG(Fmt, Args), io:format(standard_error, Fmt, Args)).
+-define(LOG(Fmt, Args), ct:pal(Fmt, Args)).
 
 -define(HTTP, #{grpc_opts => #{service_protos => [emqx_exproto_pb],
                                services => #{'emqx.exproto.v1.ConnectionHandler' => ?MODULE}},
@@ -194,7 +194,7 @@ handle_in(Conn, ?TYPE_CONNECT, #{<<"clientinfo">> := ClientInfo, <<"password">> 
             case maps:get(keepalive, NClientInfo, 0) of
                 0 -> ok;
                 Intv ->
-                    io:format("Try call start_timer with ~ps", [Intv]),
+                    ?LOG("Try call start_timer with ~ps", [Intv]),
                     ?start_timer(#{conn => Conn, type => 'KEEPALIVE', interval => Intv})
             end,
             handle_out(Conn, ?TYPE_CONNACK, 0);
