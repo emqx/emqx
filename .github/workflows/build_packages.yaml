@@ -382,6 +382,20 @@ jobs:
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
         context: source
+    - uses: aws-actions/configure-aws-credentials@v1
+      if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx'
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+    - name: Push image to aws ecr
+      if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx'
+      run: |
+        version=${GITHUB_REF##*/}
+        docker pull emqx/emqx:${version#v}
+        docker tag emqx/emqx:${version#v} public.ecr.aws/emqx/emqx:${version#v}
+        aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+        docker push public.ecr.aws/emqx/emqx:${version#v}
 
   delete-artifact:
     runs-on: ubuntu-20.04
