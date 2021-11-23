@@ -28,7 +28,7 @@ exec docker run \
     -v "$TEMPDIR:/relup_test" \
     -w "/relup_test" \
     -e REBAR_COLOR=none \
-    -it emqx/relup-test-env:erl23.2.7.2-emqx-2-ubuntu20.04 \
+    -it emqx/relup-test-env:erl23.2.7.2-emqx-3-ubuntu20.04 \
         lux \
         --progress verbose \
         --case_timeout infinity \
