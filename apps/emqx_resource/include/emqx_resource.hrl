@@ -21,11 +21,12 @@
 -type resource_spec() :: map().
 -type resource_state() :: term().
 -type resource_data() :: #{
-    id => instance_id(),
-    mod => module(),
-    config => resource_config(),
-    state => resource_state(),
-    status => started | stopped
+    id := instance_id(),
+    mod := module(),
+    config := resource_config(),
+    state := resource_state(),
+    status := started | stopped,
+    metrics := emqx_plugin_libs_metrics:metrics()
 }.
 -type resource_group() :: binary().
 -type after_query() :: {[OnSuccess :: after_query_fun()], [OnFailed :: after_query_fun()]} |

@@ -59,6 +59,16 @@
 -define(SAMPLING, 1).
 -endif.
 
+-export_type([metrics/0]).
+
+-type metrics() :: #{
+    matched => integer(),
+    success => integer(),
+    failed => integer(),
+    speed => float(),
+    speed_max => float(),
+    speed_last5m => float()
+}.
 -type handler_name() :: atom().
 -type metric_id() :: binary().
 
@@ -116,7 +126,7 @@ get(Name, Id, Metric) ->
 get_speed(Name, Id) ->
     gen_server:call(Name, {get_speed, Id}).
 
--spec(get_metrics(handler_name(), metric_id()) -> map()).
+-spec(get_metrics(handler_name(), metric_id()) -> metrics()).
 get_metrics(Name, Id) ->
     #{max := Max, current := Current, last5m := Last5M} = get_speed(Name, Id),
     #{matched => get_matched(Name, Id),
