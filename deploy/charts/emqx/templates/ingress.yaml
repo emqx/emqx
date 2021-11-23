@@ -1,6 +1,6 @@
 {{- if .Values.ingress.dashboard.enabled -}}
 {{- if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
-apiVersion: networking.k8s.io/v1beta1
+apiVersion: networking.k8s.io/v1
 {{- else -}}
 apiVersion: extensions/v1beta1
 {{- end }}
@@ -23,9 +23,12 @@ spec:
     http:
       paths:
       - path: /
+        pathType: Exact
         backend:
-          serviceName: {{ include "emqx.fullname" $ }}
-          servicePort: {{ $.Values.service.dashboard }}
+          service:
+            name: {{ include "emqx.fullname" $ }}
+            port:
+              number: {{ $.Values.service.dashboard }}
   {{- end -}}
   {{- if .Values.ingress.dashboard.tls }}
   tls:
@@ -35,7 +38,7 @@ spec:
 {{- end }}
 {{- if .Values.ingress.mgmt.enabled -}}
 {{- if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
-apiVersion: networking.k8s.io/v1beta1
+apiVersion: networking.k8s.io/v1
 {{- else -}}
 apiVersion: extensions/v1beta1
 {{- end }}
@@ -58,9 +61,12 @@ spec:
     http:
       paths:
       - path: /
+        pathType: Exact
         backend:
-          serviceName: {{ include "emqx.fullname" $ }}
-          servicePort: {{ $.Values.service.mgmt }}
+          service:
+            name: {{ include "emqx.fullname" $ }}
+            port:
+              number: {{ $.Values.service.mgmt }}
   {{- end -}}
   {{- if .Values.ingress.mgmt.tls }}
   tls:
