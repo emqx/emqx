@@ -479,6 +479,7 @@ t_connected_client_stats(Config) when is_list(Config) ->
                              fun() -> emqtt:ConnFun(ConnPid) end,
                              [emqx_cm_connected_client_count_inc]
                             ),
+    timer:sleep(20),
     %% ensure stats are synchronized
     {_, {ok, [_]}} = wait_for_stats(
                        fun emqx_cm:stats_fun/0,
@@ -491,6 +492,7 @@ t_connected_client_stats(Config) when is_list(Config) ->
                         fun() -> emqtt:disconnect(ConnPid) end,
                         [emqx_cm_connected_client_count_dec]
                        ),
+    timer:sleep(20),
     %% ensure stats are synchronized
     {_, {ok, [_]}} = wait_for_stats(
                        fun emqx_cm:stats_fun/0,
