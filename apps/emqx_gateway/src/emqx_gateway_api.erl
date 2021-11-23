@@ -16,6 +16,8 @@
 %%
 -module(emqx_gateway_api).
 
+-include_lib("emqx/include/emqx_placeholder.hrl").
+
 -behaviour(minirest_api).
 
 -import(emqx_gateway_http,
@@ -293,7 +295,7 @@ schema_gateway_overview_list() ->
         <<"type">> => <<"udp">>,
         <<"running">> => true,
         <<"bind">> => 5783}],
-  <<"mountpoint">> => <<"lwm2m/%e/">>,
+  <<"mountpoint">> => <<"lwm2m/", ?PH_S_ENDPOINT_NAME, "/">>,
   <<"qmode_time_windonw">> => 22,
   <<"translators">> =>
       #{<<"command">> => <<"dn/#">>,<<"notify">> => <<"up/notify">>,

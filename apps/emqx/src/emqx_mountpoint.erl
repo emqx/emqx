@@ -67,14 +67,17 @@ unmount(MountPoint, Msg = #message{topic = Topic}) ->
 -spec(replvar(maybe(mountpoint()), map()) -> maybe(mountpoint())).
 replvar(undefined, _Vars) ->
     undefined;
-replvar(MountPoint, #{clientid := ClientId, username := Username}) ->
-    lists:foldl(fun feed_var/2, MountPoint,
-                [{?PH_CLIENTID, ClientId}, {?PH_USERNAME, Username}]).
+replvar(MountPoint, Vars) ->
+    ClientID     = maps:get(clientid, Vars, undefined),
+    UserName     = maps:get(username, Vars, undefined),
+    EndpointName = maps:get(endpoint_name, Vars, undefined),
+    List = [ {?PH_CLIENTID, ClientID}
+           , {?PH_USERNAME, UserName}
+           , {?PH_ENDPOINT_NAME, EndpointName}
+           ],
+    lists:foldl(fun feed_var/2, MountPoint, List).
 
-feed_var({?PH_CLIENTID, ClientId}, MountPoint) ->
-    emqx_topic:feed_var(?PH_CLIENTID, ClientId, MountPoint);
-feed_var({?PH_USERNAME, undefined}, MountPoint) ->
+feed_var({_PlaceHolder, undefined}, MountPoint) ->
     MountPoint;
-feed_var({?PH_USERNAME, Username}, MountPoint) ->
-    emqx_topic:feed_var(?PH_USERNAME, Username, MountPoint).
-
+feed_var({PlaceHolder, Value}, MountPoint) ->
+    emqx_topic:feed_var(PlaceHolder, Value, MountPoint).

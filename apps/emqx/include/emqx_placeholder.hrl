@@ -76,6 +76,8 @@
 -define(PH_NODE,                    <<"${node}">>               ).
 -define(PH_REASON,                  <<"${reason}">>             ).
 
+-define(PH_ENDPOINT_NAME,           <<"${endpoint_name}">>      ).
+
 %% sync change these place holder with binary def.
 -define(PH_S_ACTION,                  "${action}"               ).
 -define(PH_S_CERT_SUBJECT,            "${cert_subject}"         ).
@@ -108,5 +110,6 @@
 -define(PH_S_DISCONNECTED_AT,         "${disconnected_at}"      ).
 -define(PH_S_NODE,                    "${node}"                 ).
 -define(PH_S_REASON,                  "${reason}"               ).
+-define(PH_S_ENDPOINT_NAME,           "${endpoint_name}"        ).
 
 -endif.
