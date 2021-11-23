@@ -16,6 +16,8 @@
 
 -module(emqx_authn_test_lib).
 
+-include("emqx_authn.hrl").
+
 -compile(nowarn_export_all).
 -compile(export_all).
 
@@ -45,3 +47,10 @@ delete_authenticators(Path, Chain) ->
                 end,
                 Authenticators)
     end.
+
+delete_config(ID) ->
+    {ok, _} =
+        emqx:update_config(
+            [authentication],
+            {delete_authenticator, ?GLOBAL, ID},
+            #{rawconf_with_defaults => false}).

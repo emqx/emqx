@@ -19,6 +19,7 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 %% AuthZ Callbacks
 -export([ description/0
@@ -55,7 +56,9 @@ authorize(Client, PubSub, Topic,
         {ok, Columns, Rows} ->
             do_authorize(Client, PubSub, Topic, Columns, Rows);
         {error, Reason} ->
-            ?SLOG(error, #{msg => "query_mysql_error", reason => Reason, resource_id => ResourceID}),
+            ?SLOG(error, #{ msg => "query_mysql_error"
+                          , reason => Reason
+                          , resource_id => ResourceID}),
             nomatch
     end.
 
@@ -87,16 +90,16 @@ replvar(Params, ClientInfo) ->
 replvar([], _ClientInfo, Acc) ->
     lists:reverse(Acc);
 
-replvar(["'%u'" | Params], ClientInfo, Acc) ->
+replvar([?PH_S_USERNAME | Params], ClientInfo, Acc) ->
     replvar(Params, ClientInfo, [safe_get(username, ClientInfo) | Acc]);
-replvar(["'%c'" | Params], ClientInfo = #{clientid := ClientId}, Acc) ->
+replvar([?PH_S_CLIENTID | Params], ClientInfo = #{clientid := ClientId}, Acc) ->
     replvar(Params, ClientInfo, [ClientId | Acc]);
-replvar(["'%a'" | Params], ClientInfo = #{peerhost := IpAddr}, Acc) ->
+replvar([?PH_S_PEERHOST | Params], ClientInfo = #{peerhost := IpAddr}, Acc) ->
     replvar(Params, ClientInfo, [inet_parse:ntoa(IpAddr) | Acc]);
-replvar(["'%C'" | Params], ClientInfo, Acc) ->
-    replvar(Params, ClientInfo, [safe_get(cn, ClientInfo)| Acc]);
-replvar(["'%d'" | Params], ClientInfo, Acc) ->
-    replvar(Params, ClientInfo, [safe_get(dn, ClientInfo)| Acc]);
+replvar([?PH_S_CERT_CN_NAME | Params], ClientInfo, Acc) ->
+    replvar(Params, ClientInfo, [safe_get(cn, ClientInfo) | Acc]);
+replvar([?PH_S_CERT_SUBJECT | Params], ClientInfo, Acc) ->
+    replvar(Params, ClientInfo, [safe_get(dn, ClientInfo) | Acc]);
 replvar([Param | Params], ClientInfo, Acc) ->
     replvar(Params, ClientInfo, [Param | Acc]).
 
@@ -107,4 +110,3 @@ bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B;
 bin(L) when is_list(L) -> list_to_binary(L);
 bin(X) -> X.
-

@@ -22,6 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("epgsql/include/epgsql.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -55,11 +56,12 @@ end_per_testcase(_, _Config) ->
 %%------------------------------------------------------------------------------
 
 t_parse_query(_) ->
-    Query1 = <<"${mqtt-username}">>,
-    ?assertEqual({<<"$1">>, [<<"${mqtt-username}">>]}, emqx_authn_pgsql:parse_query(Query1)),
+    Query1 = ?PH_USERNAME,
+    ?assertEqual({<<"$1">>, [?PH_USERNAME]}, emqx_authn_pgsql:parse_query(Query1)),
 
-    Query2 = <<"${mqtt-username}, ${mqtt-clientid}">>,
-    ?assertEqual({<<"$1, $2">>, [<<"${mqtt-username}">>, <<"${mqtt-clientid}">>]}, emqx_authn_pgsql:parse_query(Query2)),
+    Query2 = <<?PH_USERNAME/binary, ", ", ?PH_CLIENTID/binary>>,
+    ?assertEqual({<<"$1, $2">>, [?PH_USERNAME, ?PH_CLIENTID]},
+        emqx_authn_pgsql:parse_query(Query2)),
 
     Query3 = <<"nomatch">>,
     ?assertEqual({<<"nomatch">>, []}, emqx_authn_pgsql:parse_query(Query3)).
@@ -73,13 +75,16 @@ t_authn(_) ->
                <<"backend">> => <<"postgresql">>,
                <<"server">> => <<"127.0.0.1:5432">>,
                <<"database">> => <<"mqtt">>,
-               <<"query">> => <<"SELECT password_hash, salt FROM users where username = ${mqtt-username} LIMIT 1">>
+               <<"query">> =>
+                   <<"SELECT password_hash, salt FROM users where username = ",
+                    ?PH_USERNAME/binary, " LIMIT 1">>
                },
     {ok, _} = update_config([authentication], {create_authenticator, ?GLOBAL, Config}),
 
     meck:expect(emqx_resource, query,
         fun(_, {sql, _, [<<"good">>]}) ->
-            {ok, [#column{name = <<"password_hash">>}, #column{name = <<"salt">>}], [{PasswordHash, Salt}]};
+            {ok, [#column{name = <<"password_hash">>}, #column{name = <<"salt">>}],
+                    [{PasswordHash, Salt}]};
            (_, {sql, _, _}) ->
             {error, this_is_a_fictitious_reason}
         end),
@@ -94,6 +99,7 @@ t_authn(_) ->
     ClientInfo2 = ClientInfo#{username => <<"bad">>},
     ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo2)),
 
+    emqx_authn_test_lib:delete_config(<<"password-based:postgresql">>),
     ?AUTHN:delete_chain(?GLOBAL).
 
 update_config(Path, ConfigRequest) ->

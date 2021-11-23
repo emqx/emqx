@@ -19,6 +19,7 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 %% AuthZ Callbacks
 -export([ authorize/4
@@ -40,12 +41,16 @@ authorize(Client, PubSub, Topic,
              }) ->
     case emqx_resource:query(ResourceID, {find, Collection, replvar(Selector, Client), #{}}) of
         {error, Reason} ->
-            ?SLOG(error, #{msg => "query_mongo_error", reason => Reason, resource_id => ResourceID}),
+            ?SLOG(error, #{msg => "query_mongo_error",
+                           reason => Reason,
+                           resource_id => ResourceID}),
             nomatch;
         [] -> nomatch;
         Rows ->
             Rules = [ emqx_authz_rule:compile({Permission, all, Action, Topics})
-                     || #{<<"topics">> := Topics, <<"permission">> := Permission, <<"action">> := Action} <- Rows],
+                     || #{<<"topics">> := Topics,
+                          <<"permission">> := Permission,
+                          <<"action">> := Action} <- Rows],
             do_authorize(Client, PubSub, Topic, Rules)
     end.
 
@@ -62,19 +67,23 @@ replvar(Selector, #{clientid := Clientid,
                     peerhost := IpAddress
                    }) ->
     Fun = fun
-              _Fun(K, V, AccIn) when is_map(V) -> maps:put(K, maps:fold(_Fun, AccIn, V), AccIn);
-              _Fun(K, V, AccIn) when is_list(V) ->
+              InFun(K, V, AccIn) when is_map(V) ->
+                  maps:put(K, maps:fold(InFun, AccIn, V), AccIn);
+              InFun(K, V, AccIn) when is_list(V) ->
                   maps:put(K, [ begin
                                     [{K1, V1}] = maps:to_list(M),
-                                    _Fun(K1, V1, AccIn)
+                                    InFun(K1, V1, AccIn)
                                 end || M <- V],
                            AccIn);
-              _Fun(K, V, AccIn) when is_binary(V) ->
-                  V1 = re:replace(V,  "%c", bin(Clientid), [global, {return, binary}]),
-                  V2 = re:replace(V1, "%u", bin(Username), [global, {return, binary}]),
-                  V3 = re:replace(V2, "%a", inet_parse:ntoa(IpAddress), [global, {return, binary}]),
+              InFun(K, V, AccIn) when is_binary(V) ->
+                  V1 = re:replace( V,  ?PH_S_CLIENTID
+                                 , bin(Clientid), [global, {return, binary}]),
+                  V2 = re:replace( V1, ?PH_S_USERNAME
+                                 , bin(Username), [global, {return, binary}]),
+                  V3 = re:replace( V2, ?PH_S_HOST
+                                 , inet_parse:ntoa(IpAddress), [global, {return, binary}]),
                   maps:put(K, V3, AccIn);
-              _Fun(K, V, AccIn) -> maps:put(K, V, AccIn)
+              InFun(K, V, AccIn) -> maps:put(K, V, AccIn)
           end,
     maps:fold(Fun, #{}, Selector).
 
@@ -82,4 +91,3 @@ bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B;
 bin(L) when is_list(L) -> list_to_binary(L);
 bin(X) -> X.
-

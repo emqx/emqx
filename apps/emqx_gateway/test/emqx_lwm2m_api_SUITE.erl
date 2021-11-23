@@ -35,7 +35,7 @@ gateway.lwm2m {
   lifetime_max = 86400s
   qmode_time_window = 200
   auto_observe = false
-  mountpoint = \"lwm2m/%u\"
+  mountpoint = \"lwm2m/${username}\"
   update_msg_publish_condition = contains_object_list
   translators {
     command = {topic = \"/dn/#\", qos = 0}

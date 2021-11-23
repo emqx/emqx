@@ -19,6 +19,7 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 %% AuthZ Callbacks
 -export([ authorize/4
@@ -42,7 +43,7 @@ authorize(Client, PubSub, Topic,
               annotations := #{id := ResourceID}
              } = Source) ->
     Request = case Method of
-                  get  -> 
+                  get  ->
                       Query = maps:get(query, Url, ""),
                       Path1 = replvar(Path ++ "?" ++ Query, PubSub, Topic, Client),
                       {Path1, maps:to_list(Headers)};
@@ -68,7 +69,9 @@ query_string([], Acc) ->
     <<$&, Str/binary>> = iolist_to_binary(lists:reverse(Acc)),
     Str;
 query_string([{K, V} | More], Acc) ->
-    query_string(More, [["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)] | Acc]).
+    query_string( More
+                , [ ["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)]
+                  | Acc]).
 
 serialize_body(<<"application/json">>, Body) ->
     jsx:encode(Body);
@@ -84,13 +87,20 @@ replvar(Str0, PubSub, Topic,
          }) when is_list(Str0);
                  is_binary(Str0) ->
     NTopic = emqx_http_lib:uri_encode(Topic),
-    Str1 = re:replace(Str0, "%c", Clientid, [global, {return, binary}]),
-    Str2 = re:replace(Str1, "%u", bin(Username), [global, {return, binary}]),
-    Str3 = re:replace(Str2, "%a", inet_parse:ntoa(IpAddress), [global, {return, binary}]),
-    Str4 = re:replace(Str3, "%r", bin(Protocol), [global, {return, binary}]),
-    Str5 = re:replace(Str4, "%m", Mountpoint, [global, {return, binary}]),
-    Str6 = re:replace(Str5, "%t", NTopic, [global, {return, binary}]),
-    Str7 = re:replace(Str6, "%A", bin(PubSub), [global, {return, binary}]),
+    Str1 = re:replace( Str0, ?PH_S_CLIENTID
+                     , Clientid, [global, {return, binary}]),
+    Str2 = re:replace( Str1, ?PH_S_USERNAME
+                     , bin(Username), [global, {return, binary}]),
+    Str3 = re:replace( Str2, ?PH_S_HOST
+                     , inet_parse:ntoa(IpAddress), [global, {return, binary}]),
+    Str4 = re:replace( Str3, ?PH_S_PROTONAME
+                     , bin(Protocol), [global, {return, binary}]),
+    Str5 = re:replace( Str4, ?PH_S_MOUNTPOINT
+                     , Mountpoint, [global, {return, binary}]),
+    Str6 = re:replace( Str5, ?PH_S_TOPIC
+                     , NTopic, [global, {return, binary}]),
+    Str7 = re:replace( Str6, ?PH_S_ACTION
+                     , bin(PubSub), [global, {return, binary}]),
     Str7.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);

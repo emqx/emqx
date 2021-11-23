@@ -19,6 +19,7 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 %% AuthZ Callbacks
 -export([ authorize/4
@@ -43,7 +44,9 @@ authorize(Client, PubSub, Topic,
         {ok, Rows} ->
             do_authorize(Client, PubSub, Topic, Rows);
         {error, Reason} ->
-            ?SLOG(error, #{msg => "query_redis_error", reason => Reason, resource_id => ResourceID}),
+            ?SLOG(error, #{ msg => "query_redis_error"
+                          , reason => Reason
+                          , resource_id => ResourceID}),
             nomatch
     end.
 
@@ -58,13 +61,13 @@ do_authorize(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
     end.
 
 replvar(Cmd, Client = #{cn := CN}) ->
-    replvar(repl(Cmd, "%C", CN), maps:remove(cn, Client));
+    replvar(repl(Cmd, ?PH_S_CERT_CN_NAME, CN), maps:remove(cn, Client));
 replvar(Cmd, Client = #{dn := DN}) ->
-    replvar(repl(Cmd, "%d", DN), maps:remove(dn, Client));
+    replvar(repl(Cmd, ?PH_S_CERT_SUBJECT, DN), maps:remove(dn, Client));
 replvar(Cmd, Client = #{clientid := ClientId}) ->
-    replvar(repl(Cmd, "%c", ClientId), maps:remove(clientid, Client));
+    replvar(repl(Cmd, ?PH_S_CLIENTID, ClientId), maps:remove(clientid, Client));
 replvar(Cmd, Client = #{username := Username}) ->
-    replvar(repl(Cmd, "%u", Username), maps:remove(username, Client));
+    replvar(repl(Cmd, ?PH_S_USERNAME, Username), maps:remove(username, Client));
 replvar(Cmd, _) ->
     Cmd.
 

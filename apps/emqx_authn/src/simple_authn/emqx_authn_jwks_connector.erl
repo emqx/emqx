@@ -82,10 +82,10 @@ handle_info({refresh_jwks, _TRef, refresh}, #{request_id := RequestID} = State) 
         _ ->
             ok = httpc:cancel_request(RequestID),
             receive
-				{http, _} -> ok
-			after 0 ->
-				ok
-			end
+                {http, _} -> ok
+            after 0 ->
+                    ok
+            end
     end,
     {noreply, refresh_jwks(State)};
 

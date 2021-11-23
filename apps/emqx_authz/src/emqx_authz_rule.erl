@@ -18,6 +18,7 @@
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -32,9 +33,12 @@
 
 -export_type([rule/0]).
 
-compile({Permission, all}) when ?ALLOW_DENY(Permission) -> {Permission, all, all, [compile_topic(<<"#">>)]};
-compile({Permission, Who, Action, TopicFilters}) when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(TopicFilters) ->
-    {atom(Permission), compile_who(Who), atom(Action), [compile_topic(Topic) || Topic <- TopicFilters]}.
+compile({Permission, all})
+  when ?ALLOW_DENY(Permission) -> {Permission, all, all, [compile_topic(<<"#">>)]};
+compile({Permission, Who, Action, TopicFilters})
+  when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(TopicFilters) ->
+    { atom(Permission), compile_who(Who), atom(Action)
+    , [compile_topic(Topic) || Topic <- TopicFilters]}.
 
 compile_who(all) -> all;
 compile_who({user, Username}) -> compile_who({username, Username});
@@ -68,12 +72,12 @@ compile_topic(Topic) ->
     end.
 
 pattern(Words) ->
-    lists:member(<<"%u">>, Words) orelse lists:member(<<"%c">>, Words).
+    lists:member(?PH_USERNAME, Words) orelse lists:member(?PH_CLIENTID, Words).
 
 atom(B) when is_binary(B) ->
     try binary_to_existing_atom(B, utf8)
     catch
-        _ -> binary_to_atom(B)
+        _E:_S -> binary_to_atom(B)
     end;
 atom(A) when is_atom(A) -> A.
 
@@ -143,11 +147,11 @@ match_who(_, _) -> false.
 
 match_topics(_ClientInfo, _Topic, []) ->
     false;
-match_topics(ClientInfo, Topic, [{pattern, PatternFilter}|Filters]) ->
+match_topics(ClientInfo, Topic, [{pattern, PatternFilter} | Filters]) ->
     TopicFilter = feed_var(ClientInfo, PatternFilter),
     match_topic(emqx_topic:words(Topic), TopicFilter)
         orelse match_topics(ClientInfo, Topic, Filters);
-match_topics(ClientInfo, Topic, [TopicFilter|Filters]) ->
+match_topics(ClientInfo, Topic, [TopicFilter | Filters]) ->
    match_topic(emqx_topic:words(Topic), TopicFilter)
        orelse match_topics(ClientInfo, Topic, Filters).
 
@@ -160,13 +164,13 @@ feed_var(ClientInfo, Pattern) ->
     feed_var(ClientInfo, Pattern, []).
 feed_var(_ClientInfo, [], Acc) ->
     lists:reverse(Acc);
-feed_var(ClientInfo = #{clientid := undefined}, [<<"%c">>|Words], Acc) ->
-    feed_var(ClientInfo, Words, [<<"%c">>|Acc]);
-feed_var(ClientInfo = #{clientid := ClientId}, [<<"%c">>|Words], Acc) ->
-    feed_var(ClientInfo, Words, [ClientId |Acc]);
-feed_var(ClientInfo = #{username := undefined}, [<<"%u">>|Words], Acc) ->
-    feed_var(ClientInfo, Words, [<<"%u">>|Acc]);
-feed_var(ClientInfo = #{username := Username}, [<<"%u">>|Words], Acc) ->
-    feed_var(ClientInfo, Words, [Username|Acc]);
-feed_var(ClientInfo, [W|Words], Acc) ->
-    feed_var(ClientInfo, Words, [W|Acc]).
+feed_var(ClientInfo = #{clientid := undefined}, [?PH_CLIENTID | Words], Acc) ->
+    feed_var(ClientInfo, Words, [?PH_CLIENTID | Acc]);
+feed_var(ClientInfo = #{clientid := ClientId}, [?PH_CLIENTID | Words], Acc) ->
+    feed_var(ClientInfo, Words, [ClientId | Acc]);
+feed_var(ClientInfo = #{username := undefined}, [?PH_USERNAME | Words], Acc) ->
+    feed_var(ClientInfo, Words, [?PH_USERNAME | Acc]);
+feed_var(ClientInfo = #{username := Username}, [?PH_USERNAME | Words], Acc) ->
+    feed_var(ClientInfo, Words, [Username | Acc]);
+feed_var(ClientInfo, [W | Words], Acc) ->
+    feed_var(ClientInfo, Words, [W | Acc]).
