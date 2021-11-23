@@ -88,7 +88,7 @@ t_query(_) ->
     Failure = fun() -> Pid ! failure end,
 
     #{pid := _} = emqx_resource:query(?ID, get_state),
-    #{pid := _} = emqx_resource:query(?ID, get_state, {{Success, []}, {Failure, []}}),
+    #{pid := _} = emqx_resource:query(?ID, get_state, {[{Success, []}], [{Failure, []}]}),
 
     receive
         Message -> ?assertEqual(success, Message)

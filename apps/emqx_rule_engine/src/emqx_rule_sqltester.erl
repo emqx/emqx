@@ -41,7 +41,7 @@ test(#{sql := Sql, context := Context}) ->
 
 test_rule(Sql, Select, Context, EventTopics) ->
     RuleId = iolist_to_binary(["sql_tester:", emqx_misc:gen_id(16)]),
-    ok = emqx_rule_metrics:create_rule_metrics(RuleId),
+    ok = emqx_plugin_libs_metrics:create_metrics(rule_metrics, RuleId),
     Rule = #{
         id => RuleId,
         sql => Sql,
@@ -62,7 +62,7 @@ test_rule(Sql, Select, Context, EventTopics) ->
         {ok, Data} -> {ok, flatten(Data)};
         {error, nomatch} -> {error, nomatch}
     after
-        emqx_rule_metrics:clear_rule_metrics(RuleId)
+        ok = emqx_plugin_libs_metrics:clear_metrics(rule_metrics, RuleId)
     end.
 
 get_selected_data(Selected, _Envs, _Args) ->

@@ -21,7 +21,6 @@
 -export([post_config_update/5]).
 
 -export([ load_hook/0
-        , reload_hook/0
         , unload_hook/0
         ]).
 
@@ -55,22 +54,21 @@
 -export([ config_key_path/0
         ]).
 
-reload_hook() ->
-    unload_hook(),
-    load_hook().
-
 load_hook() ->
     Bridges = emqx:get_config([bridges], #{}),
+    load_hook(Bridges).
+
+load_hook(Bridges) ->
     lists:foreach(fun({_Type, Bridge}) ->
             lists:foreach(fun({_Name, BridgeConf}) ->
-                    load_hook(BridgeConf)
+                    do_load_hook(BridgeConf)
                 end, maps:to_list(Bridge))
         end, maps:to_list(Bridges)).
 
-load_hook(#{from_local_topic := _}) ->
+do_load_hook(#{from_local_topic := _}) ->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}),
     ok;
-load_hook(_Conf) -> ok.
+do_load_hook(_Conf) -> ok.
 
 unload_hook() ->
     ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}).
@@ -109,7 +107,8 @@ post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
         {fun create/3, Added},
         {fun update/3, Updated}
     ]),
-    ok = reload_hook(),
+    ok = unload_hook(),
+    ok = load_hook(NewConf),
     Result.
 
 perform_bridge_changes(Tasks) ->

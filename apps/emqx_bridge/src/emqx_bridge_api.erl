@@ -36,21 +36,21 @@
                 ". Bridge Ids must be of format <bridge_type>:<name>">>}}
     end).
 
--define(METRICS(SUCC, FAILED, RATE, RATE_5, RATE_MAX),
-    #{
+-define(METRICS(MATCH, SUCC, FAILED, RATE, RATE_5, RATE_MAX),
+    #{  matched => MATCH,
         success => SUCC,
         failed => FAILED,
-        rate => RATE,
-        rate_last5m => RATE_5,
-        rate_max => RATE_MAX
+        speed => RATE,
+        speed_last5m => RATE_5,
+        speed_max => RATE_MAX
     }).
--define(MATCH_METRICS(SUCC, FAILED, RATE, RATE_5, RATE_MAX),
-    #{
+-define(metrics(MATCH, SUCC, FAILED, RATE, RATE_5, RATE_MAX),
+    #{  matched := MATCH,
         success := SUCC,
         failed := FAILED,
-        rate := RATE,
-        rate_last5m := RATE_5,
-        rate_max := RATE_MAX
+        speed := RATE,
+        speed_last5m := RATE_5,
+        speed_max := RATE_MAX
     }).
 
 req_schema() ->
@@ -73,11 +73,12 @@ status_schema() ->
 metrics_schema() ->
     #{ type => object
      , properties => #{
+           matched => #{type => integer, example => "0"},
            success => #{type => integer, example => "0"},
            failed => #{type => integer, example => "0"},
-           rate => #{type => number, format => float, example => "0.0"},
-           rate_last5m => #{type => number, format => float, example => "0.0"},
-           rate_max => #{type => number, format => float, example => "0.0"}
+           speed => #{type => number, format => float, example => "0.0"},
+           speed_last5m => #{type => number, format => float, example => "0.0"},
+           speed_max => #{type => number, format => float, example => "0.0"}
        }
     }.
 
@@ -337,21 +338,22 @@ collect_metrics(Bridges) ->
     [maps:with([node, metrics], B) || B <- Bridges].
 
 aggregate_metrics(AllMetrics) ->
-    InitMetrics = ?METRICS(0,0,0,0,0),
-    lists:foldl(fun(#{metrics := ?MATCH_METRICS(Succ1, Failed1, Rate1, Rate5m1, RateMax1)},
-                    ?MATCH_METRICS(Succ0, Failed0, Rate0, Rate5m0, RateMax0)) ->
-            ?METRICS(Succ1 + Succ0, Failed1 + Failed0,
+    InitMetrics = ?METRICS(0,0,0,0,0,0),
+    lists:foldl(fun(#{metrics := ?metrics(Match1, Succ1, Failed1, Rate1, Rate5m1, RateMax1)},
+                    ?metrics(Match0, Succ0, Failed0, Rate0, Rate5m0, RateMax0)) ->
+            ?METRICS(Match1 + Match0, Succ1 + Succ0, Failed1 + Failed0,
                      Rate1 + Rate0, Rate5m1 + Rate5m0, RateMax1 + RateMax0)
         end, InitMetrics, AllMetrics).
 
-format_resp(#{id := Id, raw_config := RawConf, resource_data := #{mod := Mod, status := Status}}) ->
+format_resp(#{id := Id, raw_config := RawConf,
+              resource_data := #{mod := Mod, status := Status, metrics := Metrics}}) ->
     IsConnected = fun(started) -> connected; (_) -> disconnected end,
     RawConf#{
         id => Id,
         node => node(),
         bridge_type => emqx_bridge:bridge_type(Mod),
         status => IsConnected(Status),
-        metrics => ?METRICS(0,0,0,0,0)
+        metrics => Metrics
     }.
 
 rpc_multicall(Func, Args) ->

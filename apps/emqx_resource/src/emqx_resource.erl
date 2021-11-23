@@ -122,13 +122,18 @@ is_resource_mod(Module) ->
 
 -spec query_success(after_query()) -> ok.
 query_success(undefined) -> ok;
-query_success({{OnSucc, Args}, _}) ->
-    safe_apply(OnSucc, Args).
+query_success({OnSucc, _}) ->
+    apply_query_after_calls(OnSucc).
 
 -spec query_failed(after_query()) -> ok.
 query_failed(undefined) -> ok;
-query_failed({_, {OnFailed, Args}}) ->
-    safe_apply(OnFailed, Args).
+query_failed({_, OnFailed}) ->
+    apply_query_after_calls(OnFailed).
+
+apply_query_after_calls(Funcs) ->
+    lists:foreach(fun({Fun, Args}) ->
+            safe_apply(Fun, Args)
+        end, Funcs).
 
 %% =================================================================================
 %% APIs for resource instances
@@ -175,7 +180,7 @@ remove_local(InstId) ->
 %% =================================================================================
 -spec query(instance_id(), Request :: term()) -> Result :: term().
 query(InstId, Request) ->
-    query(InstId, Request, undefined).
+    query(InstId, Request, inc_metrics_funcs(InstId)).
 
 %% same to above, also defines what to do when the Module:on_query success or failed
 %% it is the duty of the Module to apply the `after_query()` functions.
@@ -320,6 +325,13 @@ check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
 
 filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
+
+inc_metrics_funcs(InstId) ->
+    OnFailed = [{fun emqx_plugin_libs_metrics:inc_failed/2, [resource_metrics, InstId]}],
+    OnSucc = [ {fun emqx_plugin_libs_metrics:inc_matched/2, [resource_metrics, InstId]}
+             , {fun emqx_plugin_libs_metrics:inc_success/2, [resource_metrics, InstId]}
+             ],
+    {OnSucc, OnFailed}.
 
 call_instance(InstId, Query) ->
     emqx_resource_instance:hash_call(InstId, Query).
