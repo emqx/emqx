@@ -38,6 +38,7 @@ start_link() ->
 %%--------------------------------------------------------------------
 init([]) ->
     {ok, {{one_for_one, 10, 3600},
-          [?CHILD(emqx_telemetry),
-           ?CHILD(emqx_topic_metrics),
-           ?CHILD(emqx_delayed)]}}.
+          [ ?CHILD(emqx_telemetry)
+          , ?CHILD(emqx_topic_metrics)
+          , ?CHILD(emqx_trace)
+          , ?CHILD(emqx_delayed)]}}.

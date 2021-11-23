@@ -81,7 +81,7 @@
 -define(SUBSCRIPTION, emqx_subscription).
 
 %% Guards
--define(is_subid(Id), (is_binary(Id) orelse is_atom(Id))).
+-define(IS_SUBID(Id), (is_binary(Id) orelse is_atom(Id))).
 
 -spec(start_link(atom(), pos_integer()) -> startlink_ret()).
 start_link(Pool, Id) ->
@@ -117,15 +117,17 @@ subscribe(Topic) when is_binary(Topic) ->
     subscribe(Topic, undefined).
 
 -spec(subscribe(emqx_types:topic(), emqx_types:subid() | emqx_types:subopts()) -> ok).
-subscribe(Topic, SubId) when is_binary(Topic), ?is_subid(SubId) ->
+subscribe(Topic, SubId) when is_binary(Topic), ?IS_SUBID(SubId) ->
     subscribe(Topic, SubId, ?DEFAULT_SUBOPTS);
 subscribe(Topic, SubOpts) when is_binary(Topic), is_map(SubOpts) ->
     subscribe(Topic, undefined, SubOpts).
 
 -spec(subscribe(emqx_types:topic(), emqx_types:subid(), emqx_types:subopts()) -> ok).
-subscribe(Topic, SubId, SubOpts0) when is_binary(Topic), ?is_subid(SubId), is_map(SubOpts0) ->
+subscribe(Topic, SubId, SubOpts0) when is_binary(Topic), ?IS_SUBID(SubId), is_map(SubOpts0) ->
     SubOpts = maps:merge(?DEFAULT_SUBOPTS, SubOpts0),
-    case ets:member(?SUBOPTION, {SubPid = self(), Topic}) of
+    _ = emqx_trace:subscribe(Topic, SubId, SubOpts),
+    SubPid = self(),
+    case ets:member(?SUBOPTION, {SubPid, Topic}) of
         false -> %% New
             ok = emqx_broker_helper:register_sub(SubPid, SubId),
             do_subscribe(Topic, SubPid, with_subid(SubId, SubOpts));
@@ -171,6 +173,7 @@ unsubscribe(Topic) when is_binary(Topic) ->
     case ets:lookup(?SUBOPTION, {SubPid, Topic}) of
         [{_, SubOpts}] ->
             _ = emqx_broker_helper:reclaim_seq(Topic),
+            _ = emqx_trace:unsubscribe(Topic, SubOpts),
             do_unsubscribe(Topic, SubPid, SubOpts);
         [] -> ok
     end.
@@ -198,7 +201,7 @@ do_unsubscribe(Group, Topic, SubPid, _SubOpts) ->
 
 -spec(publish(emqx_types:message()) -> emqx_types:publish_result()).
 publish(Msg) when is_record(Msg, message) ->
-    _ = emqx_tracer:trace(publish, Msg),
+    _ = emqx_trace:publish(Msg),
     emqx_message:is_sys(Msg) orelse emqx_metrics:inc('messages.publish'),
     case emqx_hooks:run_fold('message.publish', [], emqx_message:clean_dup(Msg)) of
         #message{headers = #{allow_publish := false}} ->
@@ -267,7 +270,7 @@ aggre(Routes) ->
       end, [], Routes).
 
 %% @doc Forward message to another node.
--spec(forward(node(), emqx_types:topic(), emqx_types:delivery(), RpcMode::sync|async)
+-spec(forward(node(), emqx_types:topic(), emqx_types:delivery(), RpcMode::sync | async)
     -> emqx_types:deliver_result()).
 forward(Node, To, Delivery, async) ->
     case emqx_rpc:cast(To, Node, ?BROKER, dispatch, [To, Delivery]) of
@@ -380,14 +383,14 @@ subscriptions(SubId) ->
 -spec(subscribed(pid() | emqx_types:subid(), emqx_types:topic()) -> boolean()).
 subscribed(SubPid, Topic) when is_pid(SubPid) ->
     ets:member(?SUBOPTION, {SubPid, Topic});
-subscribed(SubId, Topic) when ?is_subid(SubId) ->
+subscribed(SubId, Topic) when ?IS_SUBID(SubId) ->
     SubPid = emqx_broker_helper:lookup_subpid(SubId),
     ets:member(?SUBOPTION, {SubPid, Topic}).
 
 -spec(get_subopts(pid(), emqx_types:topic()) -> maybe(emqx_types:subopts())).
 get_subopts(SubPid, Topic) when is_pid(SubPid), is_binary(Topic) ->
     lookup_value(?SUBOPTION, {SubPid, Topic});
-get_subopts(SubId, Topic) when ?is_subid(SubId) ->
+get_subopts(SubId, Topic) when ?IS_SUBID(SubId) ->
     case emqx_broker_helper:lookup_subpid(SubId) of
         SubPid when is_pid(SubPid) ->
             get_subopts(SubPid, Topic);
@@ -455,7 +458,8 @@ handle_call({subscribe, Topic}, _From, State) ->
     {reply, Ok, State};
 
 handle_call({subscribe, Topic, I}, _From, State) ->
-    Ok = case get(Shard = {Topic, I}) of
+    Shard = {Topic, I},
+    Ok = case get(Shard) of
              undefined ->
                  _ = put(Shard, true),
                  true = ets:insert(?SUBSCRIBER, {Topic, {shard, I}}),
@@ -512,4 +516,3 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
