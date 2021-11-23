@@ -113,10 +113,8 @@ install(Who, Level, LogFile) ->
 -spec uninstall(Type :: clientid | topic | ip_address,
                 Name :: binary() | list()) -> ok | {error, term()}.
 uninstall(Type, Name) ->
-    case handler_id(ensure_bin(Name), Type) of
-        {ok, HandlerId} -> uninstall(HandlerId);
-        {error, Reason} -> {error, Reason}
-    end.
+    HandlerId = handler_id(ensure_bin(Name), Type),
+    uninstall(HandlerId).
 
 -spec uninstall(HandlerId :: atom()) -> ok | {error, term()}.
 uninstall(HandlerId) ->
@@ -160,22 +158,16 @@ filter_ip_address(#{meta := #{peername := Peername}} = Log, {IP, _Name}) ->
 filter_ip_address(_Log, _ExpectId) -> ignore.
 
 install_handler(Who = #{name := Name, type := Type}, Level, LogFile) ->
-    case handler_id(Name, Type) of
-        {ok, HandlerId} ->
-            Config = #{
-                level => Level,
+    HandlerId = handler_id(Name, Type),
+    Config = #{ level => Level,
                 formatter => ?FORMAT,
                 filter_default => stop,
                 filters => filters(Who),
                 config => ?CONFIG(LogFile)
-            },
-            Res = logger:add_handler(HandlerId, logger_disk_log_h, Config),
-            show_prompts(Res, Who, "Start trace"),
-            Res;
-        {error, _Reason} = Error ->
-            show_prompts(Error, Who, "Start trace"),
-            Error
-    end.
+                },
+    Res = logger:add_handler(HandlerId, logger_disk_log_h, Config),
+    show_prompts(Res, Who, "Start trace"),
+    Res.
 
 filters(#{type := clientid, filter := Filter, name := Name}) ->
     [{clientid, {fun ?MODULE:filter_clientid/2, {ensure_list(Filter), Name}}}];
@@ -197,16 +189,22 @@ filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) 
     end.
 
 handler_id(Name, Type) ->
-    TypeBin = atom_to_binary(Type),
-    case io_lib:printable_unicode_list(binary_to_list(Name)) of
-        true when byte_size(Name) < 256 ->
-            NameHash = emqx_misc:bin2hexstr_a_f(crypto:hash(sha, Name)),
-            {ok, binary_to_atom(<<"trace_", TypeBin/binary, "_", NameHash/binary>>)};
-        true ->
-            {error, <<"Name length must < 256">>};
-        false ->
-            {error, <<"Name must printable unicode">>}
+    try
+        do_handler_id(Name, Type)
+    catch
+        _ : _ ->
+            Hash = emqx_misc:bin2hexstr_a_f(crypto:hash(md5, Name)),
+            do_handler_id(Hash, Type)
     end.
+
+%% Handler ID must be an atom.
+do_handler_id(Name, Type) ->
+    TypeStr = atom_to_list(Type),
+    NameStr = unicode:characters_to_list(Name, utf8),
+    FullNameStr = "trace_" ++ TypeStr ++ "_" ++  NameStr,
+    true = io_lib:printable_unicode_list(FullNameStr),
+    FullNameBin = unicode:characters_to_binary(FullNameStr, utf8),
+    binary_to_atom(FullNameBin, utf8).
 
 ensure_bin(List) when is_list(List) -> iolist_to_binary(List);
 ensure_bin(Bin) when is_binary(Bin) -> Bin.
