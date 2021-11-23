@@ -267,7 +267,7 @@ maybe_kill_connection_process(ClientId, Config) ->
     end.
 
 wait_for_cm_unregister(ClientId) ->
-    wait_for_cm_unregister(ClientId, 10).
+    wait_for_cm_unregister(ClientId, 100).
 
 wait_for_cm_unregister(_ClientId, 0) ->
     error(cm_did_not_unregister);
