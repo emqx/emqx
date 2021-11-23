@@ -161,7 +161,7 @@ roots(low) ->
 fields("persistent_session_store") ->
     [ {"enabled",
        sc(boolean(),
-          #{ default => "false"
+          #{ default => false
            , description => """
 Use the database to store information about persistent sessions.
 This makes it possible to migrate a client connection to another
