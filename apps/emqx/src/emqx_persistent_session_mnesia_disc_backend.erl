@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_persistent_session_mnesia_backend).
+-module(emqx_persistent_session_mnesia_disc_backend).
 
 -include("emqx.hrl").
 -include("emqx_persistent_session.hrl").
@@ -36,7 +36,7 @@
         ]).
 
 create_tables() ->
-    ok = mria:create_table(?SESSION_STORE, [
+    ok = mria:create_table(?SESSION_STORE_DISC, [
                 {type, set},
                 {rlog_shard, ?PERSISTENT_SESSION_SHARD},
                 {storage, disc_copies},
@@ -44,7 +44,7 @@ create_tables() ->
                 {attributes, record_info(fields, session_store)},
                 {storage_properties, [{ets, [{read_concurrency, true}]}]}]),
 
-    ok = mria:create_table(?SESS_MSG_TAB, [
+    ok = mria:create_table(?SESS_MSG_TAB_DISC, [
                 {type, ordered_set},
                 {rlog_shard, ?PERSISTENT_SESSION_SHARD},
                 {storage, disc_copies},
@@ -53,7 +53,7 @@ create_tables() ->
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]),
 
-    ok = mria:create_table(?MSG_TAB, [
+    ok = mria:create_table(?MSG_TAB_DISC, [
                 {type, ordered_set},
                 {rlog_shard, ?PERSISTENT_SESSION_SHARD},
                 {storage, disc_copies},
@@ -63,43 +63,43 @@ create_tables() ->
                                              {write_concurrency, true}]}]}]).
 
 first_session_message() ->
-    mnesia:dirty_first(?SESS_MSG_TAB).
+    mnesia:dirty_first(?SESS_MSG_TAB_DISC).
 
 next_session_message(Key) ->
-    mnesia:dirty_next(?SESS_MSG_TAB, Key).
+    mnesia:dirty_next(?SESS_MSG_TAB_DISC, Key).
 
 first_message_id() ->
-    mnesia:dirty_first(?MSG_TAB).
+    mnesia:dirty_first(?MSG_TAB_DISC).
 
 next_message_id(Key) ->
-    mnesia:dirty_next(?MSG_TAB, Key).
+    mnesia:dirty_next(?MSG_TAB_DISC, Key).
 
 delete_message(Key) ->
-    mria:dirty_delete(?MSG_TAB, Key).
+    mria:dirty_delete(?MSG_TAB_DISC, Key).
 
 delete_session_message(Key) ->
-    mria:dirty_delete(?SESS_MSG_TAB, Key).
+    mria:dirty_delete(?SESS_MSG_TAB_DISC, Key).
 
 put_session_store(SS) ->
-    mria:dirty_write(?SESSION_STORE, SS).
+    mria:dirty_write(?SESSION_STORE_DISC, SS).
 
 delete_session_store(ClientID) ->
-    mria:dirty_delete(?SESSION_STORE, ClientID).
+    mria:dirty_delete(?SESSION_STORE_DISC, ClientID).
 
 lookup_session_store(ClientID) ->
-    case mnesia:dirty_read(?SESSION_STORE, ClientID) of
+    case mnesia:dirty_read(?SESSION_STORE_DISC, ClientID) of
         [] -> none;
         [SS] -> {value, SS}
     end.
 
 put_session_message(SessMsg) ->
-    mria:dirty_write(?SESS_MSG_TAB, SessMsg).
+    mria:dirty_write(?SESS_MSG_TAB_DISC, SessMsg).
 
 put_message(Msg) ->
-    mria:dirty_write(?MSG_TAB, Msg).
+    mria:dirty_write(?MSG_TAB_DISC, Msg).
 
 get_message(MsgId) ->
-    case mnesia:read(?MSG_TAB, MsgId) of
+    case mnesia:read(?MSG_TAB_DISC, MsgId) of
         [] -> error({msg_not_found, MsgId});
         [Msg] -> Msg
     end.

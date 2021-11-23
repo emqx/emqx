@@ -163,6 +163,10 @@ fields("persistent_session_store") ->
        sc(boolean(),
           #{ default => "false"
            })},
+      {"storage_type",
+       sc(hoconsc:union([ram, disc]),
+          #{ default => disc
+           })},
       {"max_retain_undelivered",
        sc(duration(),
           #{ default => "1h"

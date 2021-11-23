@@ -14,9 +14,14 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(SESSION_STORE, emqx_session_store).
--define(SESS_MSG_TAB, emqx_session_msg).
--define(MSG_TAB, emqx_persistent_msg).
+-define(SESSION_STORE_DISC, emqx_session_store_disc).
+-define(SESSION_STORE_RAM, emqx_session_store_ram).
+
+-define(SESS_MSG_TAB_DISC, emqx_session_msg_disc).
+-define(SESS_MSG_TAB_RAM, emqx_session_msg_ram).
+
+-define(MSG_TAB_DISC, emqx_persistent_msg_disc).
+-define(MSG_TAB_RAM, emqx_persistent_msg_ram).
 
 -record(session_store, { client_id        :: binary()
                        , expiry_interval  :: non_neg_integer()
@@ -28,6 +33,7 @@
 
 -define(db_backend_key, [persistent_session_store, db_backend]).
 -define(is_enabled_key, [persistent_session_store, enabled]).
+-define(storage_type_key, [persistent_session_store, storage_type]).
 -define(msg_retain, [persistent_session_store, max_retain_undelivered]).
 
 -define(db_backend, (persistent_term:get(?db_backend_key))).

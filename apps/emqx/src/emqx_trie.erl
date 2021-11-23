@@ -48,7 +48,8 @@
 -endif.
 
 -define(TRIE, emqx_trie).
--define(SESSION_TRIE, emqx_session_trie).
+-define(SESSION_DISC_TRIE, emqx_session_trie_disc).
+-define(SESSION_RAM_TRIE, emqx_session_trie_ram).
 -define(PREFIX(Prefix), {Prefix, 0}).
 -define(TOPIC(Topic), {Topic, 1}).
 
@@ -79,9 +80,16 @@ create_session_trie() ->
     StoreProps = [{ets, [{read_concurrency, true},
                          {write_concurrency, true}
                         ]}],
-    ok = mria:create_table(?SESSION_TRIE,
+    ok = mria:create_table(?SESSION_DISC_TRIE,
                            [{rlog_shard, ?ROUTE_SHARD},
                             {storage, disc_copies},
+                            {record_name, ?TRIE},
+                            {attributes, record_info(fields, ?TRIE)},
+                            {type, ordered_set},
+                            {storage_properties, StoreProps}]),
+    ok = mria:create_table(?SESSION_RAM_TRIE,
+                           [{rlog_shard, ?ROUTE_SHARD},
+                            {storage, ram_copies},
                             {record_name, ?TRIE},
                             {attributes, record_info(fields, ?TRIE)},
                             {type, ordered_set},
@@ -98,7 +106,7 @@ insert(Topic) when is_binary(Topic) ->
 
 -spec(insert_session(emqx_topic:topic()) -> ok).
 insert_session(Topic) when is_binary(Topic) ->
-    insert(Topic, ?SESSION_TRIE).
+    insert(Topic, session_trie()).
 
 insert(Topic, Trie) when is_binary(Topic) ->
     {TopicKey, PrefixKeys} = make_keys(Topic),
@@ -115,7 +123,7 @@ delete(Topic) when is_binary(Topic) ->
 %% @doc Delete a topic filter from the trie.
 -spec(delete_session(emqx_topic:topic()) -> ok).
 delete_session(Topic) when is_binary(Topic) ->
-    delete(Topic, ?SESSION_TRIE).
+    delete(Topic, session_trie()).
 
 delete(Topic, Trie) when is_binary(Topic) ->
     {TopicKey, PrefixKeys} = make_keys(Topic),
@@ -131,7 +139,7 @@ match(Topic) when is_binary(Topic) ->
 
 -spec(match_session(emqx_topic:topic()) -> list(emqx_topic:topic())).
 match_session(Topic) when is_binary(Topic) ->
-    match(Topic, ?SESSION_TRIE).
+    match(Topic, session_trie()).
 
 match(Topic, Trie) when is_binary(Topic) ->
     Words = emqx_topic:words(Topic),
@@ -154,7 +162,7 @@ match(Topic, Trie) when is_binary(Topic) ->
 empty() -> empty(?TRIE).
 
 empty_session() ->
-    empty(?SESSION_TRIE).
+    empty(session_trie()).
 
 empty(Trie) -> ets:first(Trie) =:= '$end_of_table'.
 
@@ -164,11 +172,18 @@ lock_tables() ->
 
 -spec lock_session_tables() -> ok.
 lock_session_tables() ->
-    mnesia:write_lock_table(?SESSION_TRIE).
+    mnesia:write_lock_table(session_trie()).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+session_trie() ->
+    case emqx_persistent_session:storage_type() of
+        disc -> ?SESSION_DISC_TRIE;
+        ram  -> ?SESSION_RAM_TRIE
+    end.
+
 
 make_keys(Topic) ->
     Words = emqx_topic:words(Topic),
