@@ -87,7 +87,7 @@ translate_env() ->
     application:set_env(?APP, path, Path),
     application:set_env(?APP, pool_opts, PoolOpts),
     Headers = application:get_env(?APP, headers, []),
-    NHeaders = set_content_type(Headers),
+    NHeaders = set_content_type(emqx_http_lib:normalise_headers(Headers)),
     application:set_env(?APP, headers, NHeaders).
 
 path(#{path := "", 'query' := Query}) ->
@@ -100,5 +100,5 @@ path(#{path := Path}) ->
     Path.
 
 set_content_type(Headers) ->
-    NHeaders = proplists:delete(<<"Content-Type">>, proplists:delete(<<"content-type">>, Headers)),
+    NHeaders = proplists:delete(<<"content-type">>, Headers),
     [{<<"content-type">>, <<"application/json">>} | NHeaders].

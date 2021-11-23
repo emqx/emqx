@@ -379,16 +379,12 @@ to_trace(TraceParam) ->
             {error, "type=[topic,clientid,ip_address] required"};
         {ok, #?TRACE{filter = undefined}} ->
             {error, "topic/clientid/ip_address filter required"};
-        {ok, TraceRec0 = #?TRACE{name = Name, type = Type}} ->
-            case emqx_trace_handler:handler_id(Name, Type) of
-                {ok, _} ->
-                    case fill_default(TraceRec0) of
-                        #?TRACE{start_at = Start, end_at = End} when End =< Start ->
-                            {error, "failed by start_at >= end_at"};
-                        TraceRec -> {ok, TraceRec}
-                    end;
-                {error, Reason} ->
-                    {error, Reason}
+        {ok, TraceRec0 = #?TRACE{}} ->
+            case fill_default(TraceRec0) of
+                #?TRACE{start_at = Start, end_at = End} when End =< Start ->
+                    {error, "failed by start_at >= end_at"};
+                TraceRec ->
+                    {ok, TraceRec}
             end
     end.
 
@@ -408,7 +404,7 @@ fill_default(Trace) -> Trace.
 
 to_trace([], Rec) -> {ok, Rec};
 to_trace([{name, Name} | Trace], Rec) ->
-    case io_lib:printable_unicode_list(binary_to_list(Name)) of
+    case io_lib:printable_unicode_list(unicode:characters_to_list(Name, utf8)) of
         true ->
             case binary:match(Name, [<<"/">>], []) of
                 nomatch -> to_trace(Trace, Rec#?TRACE{name = Name});

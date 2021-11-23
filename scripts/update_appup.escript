@@ -163,18 +163,6 @@ download_prev_release(Tag, #{binary_rel_url := {ok, URL0}, clone_url := Repo}) -
 find_upstream_repo(Remote) ->
     string:trim(os:cmd("git remote get-url " ++ Remote)).
 
-find_prev_tag(CurrentRelease) ->
-    case getopt(prev_tag) of
-        undefined ->
-            {Maj, Min, Patch} = parse_semver(CurrentRelease),
-            case Patch of
-                0 -> undefined;
-                _ -> {ok, semver(Maj, Min, Patch - 1)}
-            end;
-        Tag ->
-            {ok, Tag}
-    end.
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Appup action creation and updating
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -208,10 +196,21 @@ find_old_appup_actions(App, PrevVersion) ->
     {Upgrade0, Downgrade0} =
         case locate(ebin_current, App, ".appup") of
             {ok, AppupFile} ->
+                log("Found the previous appup file: ~s~n", [AppupFile]),
                 {_, U, D} = read_appup(AppupFile),
                 {U, D};
             undefined ->
-                {[], []}
+                %% Fallback to the app.src file, in case the
+                %% application doesn't have a release (useful for the
+                %% apps that live outside the EMQX monorepo):
+                case locate(src, App, ".appup.src") of
+                    {ok, AppupSrcFile} ->
+                        log("Using ~s as a source of previous update actions~n", [AppupSrcFile]),
+                        {_, U, D} = read_appup(AppupSrcFile),
+                        {U, D};
+                    undefined ->
+                        {[], []}
+                end
         end,
     {ensure_version(PrevVersion, Upgrade0), ensure_version(PrevVersion, Downgrade0)}.
 
@@ -390,17 +389,6 @@ is_valid() ->
 %% Utility functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-parse_semver(Version) ->
-    case re(Version, "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(\\.[0-9]+)?$") of
-        {match, [Maj, Min, Patch|_]} ->
-            {list_to_integer(Maj), list_to_integer(Min), list_to_integer(Patch)};
-        _ ->
-            error({not_a_semver, Version})
-    end.
-
-semver(Maj, Min, Patch) ->
-    lists:flatten(io_lib:format("~p.~p.~p", [Maj, Min, Patch])).
-
 %% Locate a file in a specified application
 locate(ebin_current, App, Suffix) ->
     ReleaseDir = getopt(beams_dir),
@@ -425,6 +413,7 @@ bash(Script) ->
     bash(Script, []).
 
 bash(Script, Env) ->
+    log("+ ~s~n+ Env: ~p~n", [Script, Env]),
     case cmd("bash", #{args => ["-c", Script], env => Env}) of
         0 -> true;
         _ -> fail("Failed to run command: ~s", [Script])
@@ -455,9 +444,6 @@ fail(Str) ->
 fail(Str, Args) ->
     log(Str ++ "~n", Args),
     halt(1).
-
-re(Subject, RE) ->
-    re:run(Subject, RE, [{capture, all_but_first, list}]).
 
 log(Msg) ->
     log(Msg, []).
