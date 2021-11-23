@@ -256,7 +256,7 @@ gateway.lwm2m {
   enable_stats = true
 
   ## When publishing or subscribing, prefix all topics with a mountpoint string.
-  mountpoint = "lwm2m/%u"
+  mountpoint = "lwm2m/${username}"
 
   xml_dir = "{{ platform_etc_dir }}/lwm2m_xml"
 
