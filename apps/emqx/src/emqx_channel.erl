@@ -1065,7 +1065,7 @@ handle_info(clean_authz_cache, Channel) ->
 
 handle_info(die_if_test = Info, Channel) ->
     die_if_test_compiled(),
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {ok, Channel};
 
 handle_info(Info, Channel) ->
@@ -1145,7 +1145,7 @@ handle_timeout(_TRef, expire_quota_limit, Channel) ->
     {ok, clean_timer(quota_timer, Channel)};
 
 handle_timeout(_TRef, Msg, Channel) ->
-    ?SLOG(error, #{msg => "unexpected_timeout", timeout_message => Msg}),
+    ?SLOG(error, #{msg => "unexpected_timeout", timeout_msg => Msg}),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------

@@ -155,8 +155,10 @@ do_init(ChannName, ReqOpts) ->
             try
                 {ok, resolve_hookspec(maps:get(hooks, InitialResp, []))}
             catch _:Reason:Stk ->
-                ?LOG(error, "try to init ~p failed, reason: ~p, stacktrace: ~0p",
-                             [ChannName, Reason, Stk]),
+                ?SLOG(error, #{msg => "failed_to_init_channel",
+                               channel_name => ChannName,
+                               reason => Reason,
+                               stacktrace => Stk}),
                 {error, Reason}
             end;
         {error, Reason} ->
@@ -194,7 +196,7 @@ ensure_hooks(HookSpecs) ->
     lists:foreach(fun(Hookpoint) ->
         case lists:keyfind(Hookpoint, 1, ?ENABLED_HOOKS) of
             false ->
-                ?LOG(error, "Unknown name ~ts to hook, skip it!", [Hookpoint]);
+                ?SLOG(error, #{msg => "skipped_unknown_hookpoint", hookpoint => Hookpoint});
             {Hookpoint, {M, F, A}} ->
                 emqx_hooks:put(Hookpoint, {M, F, A}),
                 ets:update_counter(?CNTER, Hookpoint, {2, 1}, {Hookpoint, 0})
@@ -267,22 +269,23 @@ match_topic_filter(TopicName, TopicFilter) ->
 -spec do_call(binary(), atom(), map(), map()) -> {ok, map()} | {error, term()}.
 do_call(ChannName, Fun, Req, ReqOpts) ->
     Options = ReqOpts#{channel => ChannName},
-    ?LOG(debug, "Call ~0p:~0p(~0p, ~0p)", [?PB_CLIENT_MOD, Fun, Req, Options]),
+    ?SLOG(debug, #{msg => "do_call", module => ?PB_CLIENT_MOD, function => Fun,
+        req => Req, options => Options}),
     case catch apply(?PB_CLIENT_MOD, Fun, [Req, Options]) of
-        {ok, Resp, _Metadata} ->
-            ?LOG(debug, "Response {ok, ~0p, ~0p}", [Resp, _Metadata]),
+        {ok, Resp, Metadata} ->
+            ?SLOG(debug, #{msg => "do_call_ok", resp => Resp, metadata => Metadata}),
             {ok, Resp};
         {error, {Code, Msg}, _Metadata} ->
-            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) response errcode: ~0p, errmsg: ~0p",
-                        [?PB_CLIENT_MOD, Fun, Req, Options, Code, Msg]),
+            ?SLOG(error, #{msg => "exhook_call_error", module => ?PB_CLIENT_MOD, function => Fun,
+                req => Req, options => Options, code => Code, packet => Msg}),
             {error, {Code, Msg}};
         {error, Reason} ->
-            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) error: ~0p",
-                        [?PB_CLIENT_MOD, Fun, Req, Options, Reason]),
+            ?SLOG(error, #{msg => "exhook_call_error", module => ?PB_CLIENT_MOD, function => Fun,
+                req => Req, options => Options, reason => Reason}),
             {error, Reason};
         {'EXIT', {Reason, Stk}} ->
-            ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) throw an exception: ~0p, stacktrace: ~0p",
-                        [?PB_CLIENT_MOD, Fun, Req, Options, Reason, Stk]),
+            ?SLOG(error, #{msg => "exhook_call_exception", module => ?PB_CLIENT_MOD, function => Fun,
+                req => Req, options => Options, stacktrace => Stk}),
             {error, Reason}
     end.
 
