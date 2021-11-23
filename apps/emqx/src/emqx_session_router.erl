@@ -25,7 +25,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([ create_init_tab/0
-        , create_router_tab/0
+        , create_router_tab/1
         , start_link/2]).
 
 %% Route APIs
@@ -65,7 +65,7 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
-create_router_tab() ->
+create_router_tab(disc) ->
     ok = mria:create_table(?ROUTE_DISC_TAB, [
                 {type, bag},
                 {rlog_shard, ?ROUTE_SHARD},
@@ -73,7 +73,8 @@ create_router_tab() ->
                 {record_name, route},
                 {attributes, record_info(fields, route)},
                 {storage_properties, [{ets, [{read_concurrency, true},
-                                             {write_concurrency, true}]}]}]),
+                                             {write_concurrency, true}]}]}]);
+create_router_tab(ram) ->
     ok = mria:create_table(?ROUTE_RAM_TAB, [
                 {type, bag},
                 {rlog_shard, ?ROUTE_SHARD},

@@ -83,9 +83,10 @@
 init_db_backend() ->
     case is_store_enabled() of
         true  ->
-            ok = emqx_trie:create_session_trie(),
-            ok = emqx_session_router:create_router_tab(),
-            case storage_type() of
+            StorageType = storage_type(),
+            ok = emqx_trie:create_session_trie(StorageType),
+            ok = emqx_session_router:create_router_tab(StorageType),
+            case StorageType of
                 disc ->
                     emqx_persistent_session_mnesia_disc_backend:create_tables(),
                     persistent_term:put(?db_backend_key, emqx_persistent_session_mnesia_disc_backend);
