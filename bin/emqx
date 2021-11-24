@@ -587,6 +587,7 @@ case "${COMMAND}" in
 
     ping)
         assert_node_alive
+        echo pong
         ;;
 
     escript)

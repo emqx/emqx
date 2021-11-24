@@ -31,7 +31,8 @@
 -define(TO_COMPONENTS_PARAM(_M_, _F_), iolist_to_binary([<<"#/components/parameters/">>,
                                                          ?TO_REF(namespace(_M_), _F_)])).
 
--define(MAX_ROW_LIMIT, 100).
+-define(MAX_ROW_LIMIT, 1000).
+-define(DEFAULT_ROW, 100).
 
 -type(request() :: #{bindings => map(), query_string => map(), body => map()}).
 -type(request_meta() :: #{module => module(), path => string(), method => atom()}).
@@ -80,7 +81,7 @@ fields(page) ->
 fields(limit) ->
     Desc = iolist_to_binary([<<"Results per page(max ">>,
         integer_to_binary(?MAX_ROW_LIMIT), <<")">>]),
-    Meta = #{in => query, desc => Desc, default => ?MAX_ROW_LIMIT, example => 50},
+    Meta = #{in => query, desc => Desc, default => ?DEFAULT_ROW, example => 50},
     [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}].
 
 -spec(schema_with_example(hocon_schema:type(), term()) -> hocon_schema:field_schema_map()).
@@ -123,10 +124,10 @@ translate_req(Request, #{module := Module, path := Path, method := Method}, Chec
         {Bindings, QueryStr} = check_parameters(Request, Params, Module),
         NewBody = check_request_body(Request, Body, Module, CheckFun, hoconsc:is_schema(Body)),
         {ok, Request#{bindings => Bindings, query_string => QueryStr, body => NewBody}}
-    catch throw:Error ->
-        {_, [{validation_error, ValidErr}]} = Error,
-        #{path := Key, reason := Reason} = ValidErr,
-        {400, 'BAD_REQUEST', iolist_to_binary(io_lib:format("~ts : ~p", [Key, Reason]))}
+    catch throw:{_, ValidErrors} ->
+        Msg = [io_lib:format("~ts : ~p", [Key, Reason]) ||
+            {validation_error, #{path := Key, reason := Reason}} <- ValidErrors],
+        {400, 'BAD_REQUEST', iolist_to_binary(string:join(Msg, ","))}
     end.
 
 check_and_translate(Schema, Map, Opts) ->
