@@ -187,10 +187,22 @@ suppress(Key, SuccFun, State = #{events := Events}) ->
 
 procinfo(Pid) ->
     [{pid, Pid} | procinfo_l(emqx_vm:get_process_gc_info(Pid))] ++
+    get_proc_lib_initial_call(Pid) ++
     procinfo_l(emqx_vm:get_process_info(Pid)).
 
 procinfo_l(undefined) -> [];
 procinfo_l(List) -> List.
+
+%% FIXME: impossible case in practice; it's always a PID
+get_proc_lib_initial_call(undefined) ->
+    [];
+get_proc_lib_initial_call(Pid) ->
+    case proc_lib:initial_call(Pid) of
+        false ->
+            [];
+        InitialCall ->
+            [{proc_lib_initial_call, InitialCall}]
+    end.
 
 portinfo(Port) ->
     [{port, Port} | erlang:port_info(Port)].

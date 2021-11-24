@@ -62,6 +62,7 @@
 
 -define(PROCESS_INFO_KEYS, [initial_call,
                             current_function,
+                            current_stacktrace,
                             registered_name,
                             status,
                             message_queue_len,
