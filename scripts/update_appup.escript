@@ -298,12 +298,14 @@ render_appfile(File, Upgrade, Downgrade) ->
     ok = file:write_file(File, IOList).
 
 create_stub(App) ->
-    case locate(src, App, ".app.src") of
+    case locate(src, App, Ext = ".app.src") of
         {ok, AppSrc} ->
-            AppupFile = filename:basename(AppSrc) ++ ".appup.src",
+            DirName = filename:dirname(AppSrc),
+            AppupFile = filename:basename(AppSrc, Ext) ++ ".appup.src",
             Default = {<<".*">>, []},
-            render_appfile(AppupFile, [Default], [Default]),
-            {ok, AppupFile};
+            AppupFileFullpath = filename:join(DirName, AppupFile),
+            render_appfile(AppupFileFullpath, [Default], [Default]),
+            {ok, AppupFileFullpath};
         undefined ->
             false
     end.
