@@ -38,7 +38,7 @@ description() ->
 parse_query(undefined) ->
     undefined;
 parse_query(Sql) ->
-    case re:run(Sql, "'%[ucCad]'", [global, {capture, all, list}]) of
+    case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
         {match, Variables} ->
             Params = [Var || [Var] <- Variables],
             Vars = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(Params))],
