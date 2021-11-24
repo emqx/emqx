@@ -24,12 +24,8 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
-%% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
-
 -export([ create_init_tab/0
+        , create_router_tab/1
         , start_link/2]).
 
 %% Route APIs
@@ -60,7 +56,8 @@
 
 -type(dest() :: node() | {group(), node()}).
 
--define(ROUTE_TAB, emqx_session_route).
+-define(ROUTE_RAM_TAB, emqx_session_route_ram).
+-define(ROUTE_DISC_TAB, emqx_session_route_disc).
 
 -define(SESSION_INIT_TAB, session_init_tab).
 
@@ -68,11 +65,20 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
-mnesia(boot) ->
-    ok = mria:create_table(?ROUTE_TAB, [
+create_router_tab(disc) ->
+    ok = mria:create_table(?ROUTE_DISC_TAB, [
                 {type, bag},
                 {rlog_shard, ?ROUTE_SHARD},
                 {storage, disc_copies},
+                {record_name, route},
+                {attributes, record_info(fields, route)},
+                {storage_properties, [{ets, [{read_concurrency, true},
+                                             {write_concurrency, true}]}]}]);
+create_router_tab(ram) ->
+    ok = mria:create_table(?ROUTE_RAM_TAB, [
+                {type, bag},
+                {rlog_shard, ?ROUTE_SHARD},
+                {storage, ram_copies},
                 {record_name, route},
                 {attributes, record_info(fields, route)},
                 {storage_properties, [{ets, [{read_concurrency, true},
@@ -103,11 +109,11 @@ do_add_route(Topic, SessionID) when is_binary(Topic) ->
         false ->
             case emqx_topic:wildcard(Topic) of
                 true  ->
-                    Fun = fun emqx_router_utils:insert_trie_route/2,
-                    emqx_router_utils:maybe_trans(Fun, [?ROUTE_TAB, Route],
+                    Fun = fun emqx_router_utils:insert_session_trie_route/2,
+                    emqx_router_utils:maybe_trans(Fun, [route_tab(), Route],
                                                   ?PERSISTENT_SESSION_SHARD);
                 false ->
-                    emqx_router_utils:insert_direct_route(?ROUTE_TAB, Route)
+                    emqx_router_utils:insert_direct_route(route_tab(), Route)
             end
     end.
 
@@ -136,10 +142,10 @@ do_delete_route(Topic, SessionID) ->
     Route = #route{topic = Topic, dest = SessionID},
     case emqx_topic:wildcard(Topic) of
         true  ->
-            Fun = fun emqx_router_utils:delete_trie_route/2,
-            emqx_router_utils:maybe_trans(Fun, [?ROUTE_TAB, Route], ?PERSISTENT_SESSION_SHARD);
+            Fun = fun emqx_router_utils:delete_session_trie_route/2,
+            emqx_router_utils:maybe_trans(Fun, [route_tab(), Route], ?PERSISTENT_SESSION_SHARD);
         false ->
-            emqx_router_utils:delete_direct_route(?ROUTE_TAB, Route)
+            emqx_router_utils:delete_direct_route(route_tab(), Route)
     end.
 
 %% @doc Print routes to a topic
@@ -273,4 +279,10 @@ init_resume_worker(RemotePid, SessionID, #{ pmon := Pmon } = State) ->
 %%--------------------------------------------------------------------
 
 lookup_routes(Topic) ->
-    ets:lookup(?ROUTE_TAB, Topic).
+    ets:lookup(route_tab(), Topic).
+
+route_tab() ->
+    case emqx_persistent_session:storage_type() of
+        disc -> ?ROUTE_DISC_TAB;
+        ram  -> ?ROUTE_RAM_TAB
+    end.

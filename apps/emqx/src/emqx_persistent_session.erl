@@ -18,6 +18,7 @@
 
 -export([ is_store_enabled/0
         , init_db_backend/0
+        , storage_type/0
         ]).
 
 -export([ discard/2
@@ -82,9 +83,17 @@
 init_db_backend() ->
     case is_store_enabled() of
         true  ->
-            ok = emqx_trie:create_session_trie(),
-            emqx_persistent_session_mnesia_backend:create_tables(),
-            persistent_term:put(?db_backend_key, emqx_persistent_session_mnesia_backend),
+            StorageType = storage_type(),
+            ok = emqx_trie:create_session_trie(StorageType),
+            ok = emqx_session_router:create_router_tab(StorageType),
+            case StorageType of
+                disc ->
+                    emqx_persistent_session_mnesia_disc_backend:create_tables(),
+                    persistent_term:put(?db_backend_key, emqx_persistent_session_mnesia_disc_backend);
+                ram ->
+                    emqx_persistent_session_mnesia_ram_backend:create_tables(),
+                    persistent_term:put(?db_backend_key, emqx_persistent_session_mnesia_ram_backend)
+            end,
             ok;
         false ->
             persistent_term:put(?db_backend_key, emqx_persistent_session_dummy_backend),
@@ -93,6 +102,9 @@ init_db_backend() ->
 
 is_store_enabled() ->
     emqx_config:get(?is_enabled_key).
+
+storage_type() ->
+    emqx_config:get(?storage_type_key).
 
 %%--------------------------------------------------------------------
 %% Session message ADT API

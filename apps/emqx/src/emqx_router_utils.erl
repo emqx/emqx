@@ -20,8 +20,10 @@
 
 -export([ delete_direct_route/2
         , delete_trie_route/2
+        , delete_session_trie_route/2
         , insert_direct_route/2
         , insert_trie_route/2
+        , insert_session_trie_route/2
         , maybe_trans/3
         ]).
 
@@ -30,8 +32,14 @@ insert_direct_route(Tab, Route) ->
 
 insert_trie_route(RouteTab, Route = #route{topic = Topic}) ->
     case mnesia:wread({RouteTab, Topic}) of
-        [] when RouteTab =:= emqx_route         -> emqx_trie:insert(Topic);
-        [] when RouteTab =:= emqx_session_route -> emqx_trie:insert_session(Topic);
+        [] -> emqx_trie:insert(Topic);
+        _  -> ok
+    end,
+    mnesia:write(RouteTab, Route, sticky_write).
+
+insert_session_trie_route(RouteTab, Route = #route{topic = Topic}) ->
+    case mnesia:wread({RouteTab, Topic}) of
+        []  -> emqx_trie:insert_session(Topic);
         _  -> ok
     end,
     mnesia:write(RouteTab, Route, sticky_write).
@@ -39,14 +47,20 @@ insert_trie_route(RouteTab, Route = #route{topic = Topic}) ->
 delete_direct_route(RouteTab, Route) ->
     mria:dirty_delete_object(RouteTab, Route).
 
-delete_trie_route(RouteTab, Route = #route{topic = Topic}) ->
+delete_trie_route(RouteTab, Route) ->
+    delete_trie_route(RouteTab, Route, normal).
+
+delete_session_trie_route(RouteTab, Route) ->
+    delete_trie_route(RouteTab, Route, session).
+
+delete_trie_route(RouteTab, Route = #route{topic = Topic}, Type) ->
     case mnesia:wread({RouteTab, Topic}) of
         [R] when R =:= Route ->
             %% Remove route and trie
             ok = mnesia:delete_object(RouteTab, Route, sticky_write),
-            case RouteTab of
-                emqx_route         -> emqx_trie:delete(Topic);
-                emqx_session_route -> emqx_trie:delete_session(Topic)
+            case Type of
+                normal  -> emqx_trie:delete(Topic);
+                session -> emqx_trie:delete_session(Topic)
             end;
         [_|_]   ->
             %% Remove route only

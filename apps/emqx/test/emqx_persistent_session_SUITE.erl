@@ -50,13 +50,19 @@ groups() ->
     SnabbkaffeTCs = [TC || TC <- TCs, is_snabbkaffe_tc(TC)],
     GCTests  = [TC || TC <- TCs, is_gc_tc(TC)],
     OtherTCs = (TCs -- SnabbkaffeTCs) -- GCTests,
-    [ {persistent_store_enabled, [ {group, no_kill_connection_process}
-                                 , {group,    kill_connection_process}
-                                 , {group, snabbkaffe}
-                                 , {group, gc_tests}
+    [ {persistent_store_enabled, [ {group, ram_tables}
+                                 , {group, disc_tables}
                                  ]}
     , {persistent_store_disabled, [ {group, no_kill_connection_process}
                                   ]}
+    , {  ram_tables, [], [ {group, no_kill_connection_process}
+                         , {group,    kill_connection_process}
+                         , {group, snabbkaffe}
+                         , {group, gc_tests}]}
+    , { disc_tables, [], [ {group, no_kill_connection_process}
+                         , {group,    kill_connection_process}
+                         , {group, snabbkaffe}
+                         , {group, gc_tests}]}
     , {no_kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]}
     , {   kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]}
     , {snabbkaffe, [], [{group, tcp_snabbkaffe}, {group, quic_snabbkaffe}, {group, ws_snabbkaffe}]}
@@ -76,15 +82,23 @@ is_gc_tc(TC) ->
     re:run(atom_to_list(TC), "^t_gc_") /= nomatch.
 
 init_per_group(persistent_store_enabled, Config) ->
+    [{persistent_store_enabled, true}|Config];
+init_per_group(Group, Config) when Group =:= ram_tables; Group =:= disc_tables ->
     %% Start Apps
+    Reply = case Group =:= ram_tables of
+                true  -> ram;
+                false -> disc
+            end,
     emqx_common_test_helpers:boot_modules(all),
     meck:new(emqx_config, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_config, get, fun(?is_enabled_key) -> true;
-                                   (Other) -> meck:passthrough([Other])
+    meck:expect(emqx_config, get, fun(?storage_type_key) -> Reply;
+                                     (?is_enabled_key) -> true;
+                                     (Other) -> meck:passthrough([Other])
                                 end),
     emqx_common_test_helpers:start_apps([], fun set_special_confs/1),
     ?assertEqual(true, emqx_persistent_session:is_store_enabled()),
-    [{persistent_store_enabled, true}|Config];
+    ?assertEqual(Reply, emqx_persistent_session:storage_type()),
+    Config;
 init_per_group(persistent_store_disabled, Config) ->
     %% Start Apps
     emqx_common_test_helpers:boot_modules(all),
@@ -125,15 +139,20 @@ init_per_group(gc_tests, Config) ->
                         receive stop -> ok end
                 end),
     meck:new(mnesia, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(mnesia, dirty_first, fun(?SESS_MSG_TAB) -> ets:first(SessionMsgEts);
-                                        (?MSG_TAB) -> ets:first(MsgEts);
-                                        (X) -> meck:passthrough(X)
+    meck:expect(mnesia, dirty_first, fun(?SESS_MSG_TAB_RAM) -> ets:first(SessionMsgEts);
+                                        (?SESS_MSG_TAB_DISC) -> ets:first(SessionMsgEts);
+                                        (?MSG_TAB_RAM) -> ets:first(MsgEts);
+                                        (?MSG_TAB_DISC) -> ets:first(MsgEts);
+                                        (X) -> meck:passthrough([X])
                                      end),
-    meck:expect(mnesia, dirty_next, fun(?SESS_MSG_TAB, X) -> ets:next(SessionMsgEts, X);
-                                       (?MSG_TAB, X) -> ets:next(MsgEts, X);
+    meck:expect(mnesia, dirty_next, fun(?SESS_MSG_TAB_RAM, X) -> ets:next(SessionMsgEts, X);
+                                       (?SESS_MSG_TAB_DISC, X) -> ets:next(SessionMsgEts, X);
+                                       (?MSG_TAB_RAM, X) -> ets:next(MsgEts, X);
+                                       (?MSG_TAB_DISC, X) -> ets:next(MsgEts, X);
                                        (Tab, X) -> meck:passthrough([Tab, X])
                                     end),
-    meck:expect(mnesia, dirty_delete, fun(?MSG_TAB, X) -> ets:delete(MsgEts, X);
+    meck:expect(mnesia, dirty_delete, fun(?MSG_TAB_RAM, X) -> ets:delete(MsgEts, X);
+                                         (?MSG_TAB_DISC, X) -> ets:delete(MsgEts, X);
                                          (Tab, X) -> meck:passthrough([Tab, X])
                                       end),
     [{store_owner, Pid}, {session_msg_store, SessionMsgEts}, {msg_store, MsgEts} | Config].
@@ -154,7 +173,7 @@ end_per_group(gc_tests, Config) ->
     meck:unload(mnesia),
     ?config(store_owner, Config) ! stop,
     ok;
-end_per_group(persistent_store_enabled, _Config) ->
+end_per_group(Group, _Config) when Group =:= ram_tables; Group =:= disc_tables ->
     meck:unload(emqx_config),
     emqx_common_test_helpers:stop_apps([]);
 end_per_group(persistent_store_disabled, _Config) ->
@@ -250,7 +269,7 @@ maybe_kill_connection_process(ClientId, Config) ->
     end.
 
 wait_for_cm_unregister(ClientId) ->
-    wait_for_cm_unregister(ClientId, 10).
+    wait_for_cm_unregister(ClientId, 100).
 
 wait_for_cm_unregister(_ClientId, 0) ->
     error(cm_did_not_unregister);
@@ -884,12 +903,16 @@ t_snabbkaffe_buffered_messages(Config) ->
            %% Make the resume init phase wait until the first message is delivered.
            ?force_ordering( #{ ?snk_kind := ps_worker_deliver },
                             #{ ?snk_kind := ps_resume_end }),
+           Parent = self(),
            spawn_link(fun() ->
                               ?block_until(#{?snk_kind := ps_marker_pendings_msgs}, infinity, 5000),
-                              publish(Topic, Payloads2, true)
+                              publish(Topic, Payloads2, true),
+                              Parent ! publish_done,
+                              ok
                       end),
            {ok, Client2} = emqtt:start_link([{clean_start, false} | EmqttOpts]),
            {ok, _} = emqtt:ConnFun(Client2),
+           receive publish_done -> ok after 10000 -> error(too_long_to_publish) end,
            Msgs = receive_messages(length(Payloads1) + length(Payloads2) + 1),
            ReceivedPayloads = [P || #{ payload := P } <- Msgs],
            ?assertEqual(lists:sort(Payloads1 ++ Payloads2),

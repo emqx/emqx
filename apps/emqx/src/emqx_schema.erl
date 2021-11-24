@@ -161,19 +161,50 @@ roots(low) ->
 fields("persistent_session_store") ->
     [ {"enabled",
        sc(boolean(),
-          #{ default => "false"
+          #{ default => false
+           , description => """
+Use the database to store information about persistent sessions.
+This makes it possible to migrate a client connection to another
+cluster node if a node is stopped.
+"""
+           })},
+      {"storage_type",
+       sc(hoconsc:union([ram, disc]),
+          #{ default => disc
+           , description => """
+Store information about persistent sessions on disc or in ram.
+If ram is chosen, all information about persistent sessions remains
+as long as at least one node in a cluster is alive to keep the information.
+If disc is chosen, the information is persisted on disc and will survive
+cluster restart, at the price of more disc usage and less throughput.
+"""
            })},
       {"max_retain_undelivered",
        sc(duration(),
           #{ default => "1h"
+           , description => """
+The time messages that was not delivered to a persistent session
+is stored before being garbage collected if the node the previous
+session was handled on restarts of is stopped.
+"""
            })},
       {"message_gc_interval",
        sc(duration(),
           #{ default => "1h"
+           , description => """
+The starting interval for garbage collection of undelivered messages to
+a persistent session. This affects how often the \"max_retain_undelivered\"
+is checked for removal.
+"""
            })},
       {"session_message_gc_interval",
        sc(duration(),
           #{ default => "1m"
+           , description => """
+The starting interval for garbage collection of transient data for
+persistent session messages. This does not affect the life time length
+of persistent session messages.
+"""
            })}
     ];
 
