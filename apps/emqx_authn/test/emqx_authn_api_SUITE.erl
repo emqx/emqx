@@ -134,11 +134,23 @@ test_authenticators(PathPrefix) ->
                      uri(PathPrefix ++ ["authentication"]),
                      ValidConfig),
 
-    InvalidConfig = ValidConfig#{method => <<"delete">>},
+    {ok, 409, _} = request(
+                     post,
+                     uri(PathPrefix ++ ["authentication"]),
+                     ValidConfig),
+
+    InvalidConfig0 = ValidConfig#{method => <<"delete">>},
     {ok, 400, _} = request(
                      post,
                      uri(PathPrefix ++ ["authentication"]),
-                     InvalidConfig),
+                     InvalidConfig0),
+
+    InvalidConfig1 = ValidConfig#{method => <<"get">>,
+                                  headers => #{<<"content-type">> => <<"application/json">>}},
+    {ok, 400, _} = request(
+                     post,
+                     uri(PathPrefix ++ ["authentication"]),
+                     InvalidConfig1),
 
     ?assertAuthenticatorsMatch(
        [#{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>}],
@@ -169,6 +181,13 @@ test_authenticator(PathPrefix) ->
                      put,
                      uri(PathPrefix ++ ["authentication", "password-based:http"]),
                      InvalidConfig0),
+
+    InvalidConfig1 = ValidConfig0#{method => <<"get">>,
+                                  headers => #{<<"content-type">> => <<"application/json">>}},
+    {ok, 400, _} = request(
+                     put,
+                     uri(PathPrefix ++ ["authentication", "password-based:http"]),
+                     InvalidConfig1),
 
     ValidConfig1 = ValidConfig0#{pool_size => 9},
     {ok, 200, _} = request(

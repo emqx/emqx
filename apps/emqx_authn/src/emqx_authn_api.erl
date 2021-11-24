@@ -725,7 +725,9 @@ create_authenticator(ConfKeyPath, ChainName, Config) ->
             raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
             {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
-        {error, {_, _, Reason}} ->
+        {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
+            serialize_error(Reason);
+        {error, Reason} ->
             serialize_error(Reason)
     end.
 
@@ -753,7 +755,9 @@ update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
                raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
             {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
-        {error, {_, _, Reason}} ->
+        {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
+            serialize_error(Reason);
+        {error, Reason} ->
             serialize_error(Reason)
     end.
 
@@ -761,7 +765,9 @@ delete_authenticator(ConfKeyPath, ChainName, AuthenticatorID) ->
     case update_config(ConfKeyPath, {delete_authenticator, ChainName, AuthenticatorID}) of
         {ok, _} ->
             {204};
-        {error, {_, _, Reason}} ->
+        {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
+            serialize_error(Reason);
+        {error, Reason} ->
             serialize_error(Reason)
     end.
 
@@ -773,7 +779,9 @@ move_authenitcator(ConfKeyPath, ChainName, AuthenticatorID, Position) ->
                    {move_authenticator, ChainName, AuthenticatorID, NPosition}) of
                 {ok, _} ->
                     {204};
-                {error, {_, _, Reason}} ->
+                {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
+                    serialize_error(Reason);
+                {error, Reason} ->
                     serialize_error(Reason)
             end;
         {error, Reason} ->
