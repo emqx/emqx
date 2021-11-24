@@ -154,7 +154,7 @@ download_prev_release(Tag, #{binary_rel_url := {ok, URL0}, clone_url := Repo}) -
     Dir = filename:basename(Repo, ".git") ++ [$-|Tag],
     Filename = filename:join(BaseDir, Dir),
     Script = "mkdir -p ${OUTFILE} &&
-              wget -O ${OUTFILE}.zip ${URL} &&
+              wget -c -O ${OUTFILE}.zip ${URL} &&
               unzip -n -d ${OUTFILE} ${OUTFILE}.zip",
     Env = [{"TAG", Tag}, {"OUTFILE", Filename}, {"URL", URL}],
     bash(Script, Env),
@@ -298,12 +298,15 @@ render_appfile(File, Upgrade, Downgrade) ->
     ok = file:write_file(File, IOList).
 
 create_stub(App) ->
-    case locate(src, App, ".app.src") of
+    Ext = ".app.src",
+    case locate(src, App, Ext) of
         {ok, AppSrc} ->
-            AppupFile = filename:basename(AppSrc) ++ ".appup.src",
+            DirName = filename:dirname(AppSrc),
+            AppupFile = filename:basename(AppSrc, Ext) ++ ".appup.src",
             Default = {<<".*">>, []},
-            render_appfile(AppupFile, [Default], [Default]),
-            AppupFile;
+            AppupFileFullpath = filename:join(DirName, AppupFile),
+            render_appfile(AppupFileFullpath, [Default], [Default]),
+            {ok, AppupFileFullpath};
         undefined ->
             false
     end.
