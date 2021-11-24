@@ -154,7 +154,7 @@ download_prev_release(Tag, #{binary_rel_url := {ok, URL0}, clone_url := Repo}) -
     Dir = filename:basename(Repo, ".git") ++ [$-|Tag],
     Filename = filename:join(BaseDir, Dir),
     Script = "mkdir -p ${OUTFILE} &&
-              wget -O ${OUTFILE}.zip ${URL} &&
+              wget -c -O ${OUTFILE}.zip ${URL} &&
               unzip -n -d ${OUTFILE} ${OUTFILE}.zip",
     Env = [{"TAG", Tag}, {"OUTFILE", Filename}, {"URL", URL}],
     bash(Script, Env),
@@ -303,7 +303,7 @@ create_stub(App) ->
             AppupFile = filename:basename(AppSrc) ++ ".appup.src",
             Default = {<<".*">>, []},
             render_appfile(AppupFile, [Default], [Default]),
-            AppupFile;
+            {ok, AppupFile};
         undefined ->
             false
     end.
