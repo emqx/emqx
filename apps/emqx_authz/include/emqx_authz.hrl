@@ -68,6 +68,8 @@
 
 -define(CONF_KEY_PATH, [authorization, sources]).
 
+-define(RE_PLACEHOLDER, "\\$\\{[a-z0-9\\-]+\\}").
+
 -define(USERNAME_RULES_EXAMPLE, #{username => user1,
                                   rules => [ #{topic => <<"test/toopic/1">>,
                                                permission => <<"allow">>,
