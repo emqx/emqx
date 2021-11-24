@@ -59,7 +59,8 @@
 -define(AUTHN_BIN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY).
 
 -type atom_or_bin() :: atom() | binary().
--type ok_or_err() :: ok_or_err().
+-type ok_or_err() :: ok | {error, term()}.
+-type map_or_err() :: map() | {error, term()}.
 -type listener_ref() :: {ListenerType :: atom_or_bin(),
                          ListenerName :: atom_or_bin()}.
 
@@ -85,7 +86,8 @@ load_gateway(GwName, Conf) ->
                 {Ls, Conf1} ->
                     Conf1#{<<"listeners">> => unconvert_listeners(Ls)}
             end,
-    update({?FUNCTION_NAME, bin(GwName), NConf}).
+    %% TODO:
+    ret_ok_err(update({?FUNCTION_NAME, bin(GwName), NConf})).
 
 %% @doc convert listener array to map
 unconvert_listeners(Ls) when is_list(Ls) ->
@@ -111,13 +113,14 @@ update_gateway(GwName, Conf0) ->
     Exclude0 = [listeners, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM],
     Exclude1 = [atom_to_binary(K, utf8) || K <- Exclude0],
     Conf = maps:without(Exclude0 ++ Exclude1, Conf0),
-    update({?FUNCTION_NAME, bin(GwName), Conf}).
+
+    ret_ok_err(update({?FUNCTION_NAME, bin(GwName), Conf})).
 
 %% FIXME: delete cert files ??
 
 -spec unload_gateway(atom_or_bin()) -> ok_or_err().
 unload_gateway(GwName) ->
-    update({?FUNCTION_NAME, bin(GwName)}).
+    ret_ok_err(update({?FUNCTION_NAME, bin(GwName)})).
 
 %% @doc Get the gateway configurations.
 %% Missing fields are filled with default values. This function is typically
@@ -139,18 +142,20 @@ convert_listeners(GwName, Ls) when is_map(Ls) ->
     lists:append([do_convert_listener(GwName, Type, maps:to_list(Conf))
                   || {Type, Conf} <- maps:to_list(Ls)]).
 
-do_convert_listener(GwName, Type, Conf) ->
-    [begin
-         ListenerId = emqx_gateway_utils:listener_id(GwName, Type, LName),
-         Running = emqx_gateway_utils:is_running(ListenerId, LConf),
-         bind2str(
-           LConf#{
-             id => ListenerId,
-             type => Type,
-             name => LName,
-             running => Running
-            })
-     end || {LName, LConf} <- Conf, is_map(LConf)].
+do_convert_listener(GwName, LType, Conf) ->
+    [ do_convert_listener2(GwName, LType, LName, LConf)
+      || {LName, LConf} <- Conf, is_map(LConf)].
+
+do_convert_listener2(GwName, LType, LName, LConf) ->
+     ListenerId = emqx_gateway_utils:listener_id(GwName, LType, LName),
+     Running = emqx_gateway_utils:is_running(ListenerId, LConf),
+     bind2str(
+       LConf#{
+         id => ListenerId,
+         type => LType,
+         name => LName,
+         running => Running
+        }).
 
 bind2str(LConf = #{bind := Bind}) when is_integer(Bind) ->
     maps:put(bind, integer_to_binary(Bind), LConf);
@@ -194,48 +199,56 @@ listener(ListenerId) ->
             {error, Reason}
     end.
 
--spec add_listener(atom_or_bin(), listener_ref(), map()) -> ok_or_err().
+-spec add_listener(atom_or_bin(), listener_ref(), map()) -> map_or_err().
 add_listener(GwName, ListenerRef, Conf) ->
-    update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef), Conf}).
+    ret_listener_or_err(
+      GwName, ListenerRef,
+      update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef), Conf})).
 
--spec update_listener(atom_or_bin(), listener_ref(), map()) -> ok_or_err().
+-spec update_listener(atom_or_bin(), listener_ref(), map()) -> map_or_err().
 update_listener(GwName, ListenerRef, Conf) ->
-    update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef), Conf}).
+    ret_listener_or_err(
+      GwName, ListenerRef,
+      update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef), Conf})).
 
 -spec remove_listener(atom_or_bin(), listener_ref()) -> ok_or_err().
 remove_listener(GwName, ListenerRef) ->
-    update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef)}).
+    ret_ok_err(update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef)})).
 
--spec add_authn(atom_or_bin(), map()) -> ok_or_err().
+-spec add_authn(atom_or_bin(), map()) -> map_or_err().
 add_authn(GwName, Conf) ->
-    update({?FUNCTION_NAME, bin(GwName), Conf}).
+    ret_authn(GwName, update({?FUNCTION_NAME, bin(GwName), Conf})).
 
--spec add_authn(atom_or_bin(), listener_ref(), map()) -> ok_or_err().
+-spec add_authn(atom_or_bin(), listener_ref(), map()) -> map_or_err().
 add_authn(GwName, ListenerRef, Conf) ->
-    update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef), Conf}).
+    ret_authn(
+      GwName, ListenerRef,
+      update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef), Conf})).
 
--spec update_authn(atom_or_bin(), map()) -> ok_or_err().
+-spec update_authn(atom_or_bin(), map()) -> map_or_err().
 update_authn(GwName, Conf) ->
-    update({?FUNCTION_NAME, bin(GwName), Conf}).
+    ret_authn(GwName, update({?FUNCTION_NAME, bin(GwName), Conf})).
 
--spec update_authn(atom_or_bin(), listener_ref(), map()) -> ok_or_err().
+-spec update_authn(atom_or_bin(), listener_ref(), map()) -> map_or_err().
 update_authn(GwName, ListenerRef, Conf) ->
-    update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef), Conf}).
+    ret_authn(
+      GwName, ListenerRef,
+      update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef), Conf})).
 
 -spec remove_authn(atom_or_bin()) -> ok_or_err().
 remove_authn(GwName) ->
-    update({?FUNCTION_NAME, bin(GwName)}).
+    ret_ok_err(update({?FUNCTION_NAME, bin(GwName)})).
 
 -spec remove_authn(atom_or_bin(), listener_ref()) -> ok_or_err().
 remove_authn(GwName, ListenerRef) ->
-    update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef)}).
+    ret_ok_err(update({?FUNCTION_NAME, bin(GwName), bin(ListenerRef)})).
 
 %% @private
 update(Req) ->
     res(emqx_conf:update([gateway], Req, #{override_to => cluster})).
 
-res({ok, _Result}) -> ok;
-res({error, {pre_config_update, emqx_gateway_conf, Reason}}) -> {error, Reason};
+res({ok, Result}) -> {ok, Result};
+res({error, {error, {pre_config_update,emqx_gateway_conf,Reason}}}) -> {error, Reason};
 res({error, Reason}) -> {error, Reason}.
 
 bin({LType, LName}) ->
@@ -244,6 +257,32 @@ bin(A) when is_atom(A) ->
     atom_to_binary(A);
 bin(B) when is_binary(B) ->
     B.
+
+ret_ok_err({ok, _}) -> ok;
+ret_ok_err(Err) -> Err.
+
+ret_authn(GwName, {ok, #{raw_config := GwConf}}) ->
+    Authn = emqx_map_lib:deep_get(
+              [bin(GwName), <<"authentication">>],
+              GwConf),
+    {ok, Authn};
+ret_authn(_GwName, Err) -> Err.
+
+ret_authn(GwName, {LType, LName}, {ok, #{raw_config := GwConf}}) ->
+    Authn = emqx_map_lib:deep_get(
+              [bin(GwName), <<"listeners">>, bin(LType),
+               bin(LName), <<"authentication">>],
+              GwConf),
+    {ok, Authn};
+ret_authn(_, _, Err) -> Err.
+
+ret_listener_or_err(GwName, {LType, LName}, {ok, #{raw_config := GwConf}}) ->
+    LConf = emqx_map_lib:deep_get(
+              [bin(GwName), <<"listeners">>, bin(LType), bin(LName)],
+              GwConf),
+    {ok, do_convert_listener2(GwName, LType, LName, LConf)};
+ret_listener_or_err(_, _, Err) ->
+    Err.
 
 %%--------------------------------------------------------------------
 %% Config Handler

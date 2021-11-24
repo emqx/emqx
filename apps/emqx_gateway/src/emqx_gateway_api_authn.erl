@@ -82,17 +82,15 @@ authn(get, #{bindings := #{name := Name0}}) ->
 authn(put, #{bindings := #{name := Name0},
              body := Body}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        %% TODO: return the authn instances?
-        ok = emqx_gateway_http:update_authn(GwName, Body),
-        {204}
+        {ok, Authn} = emqx_gateway_http:update_authn(GwName, Body),
+        {200, Authn}
     end);
 
 authn(post, #{bindings := #{name := Name0},
               body := Body}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        %% TODO: return the authn instances?
-        ok = emqx_gateway_http:add_authn(GwName, Body),
-        {204}
+        {ok, Authn} = emqx_gateway_http:add_authn(GwName, Body),
+        {201, Authn}
     end);
 
 authn(delete, #{bindings := #{name := Name0}}) ->
@@ -181,7 +179,7 @@ schema("/gateway/:name/authentication") ->
                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
                , 500 => error_codes([?INTERNAL_ERROR],
                                    <<"Ineternal Server Error">>)
-               , 204 => <<"Updated">> %% XXX: ??? return the updated object
+               , 200 => schema_authn()
                }
           },
        post =>
@@ -193,7 +191,7 @@ schema("/gateway/:name/authentication") ->
                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
                , 500 => error_codes([?INTERNAL_ERROR],
                                    <<"Ineternal Server Error">>)
-               , 204 => <<"Added">>
+               , 201 => schema_authn()
                }
           },
        delete =>

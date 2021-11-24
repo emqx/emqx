@@ -93,8 +93,9 @@ listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
             undefined ->
                 ListenerId = emqx_gateway_utils:listener_id(
                                GwName, Type, LName),
-                ok = emqx_gateway_http:add_listener(ListenerId, LConf),
-                {204};
+                {ok, RespConf} = emqx_gateway_http:add_listener(
+                                   ListenerId, LConf),
+                {201, RespConf};
             _ ->
                 return_http_error(400, "Listener name has occupied")
         end
@@ -123,8 +124,8 @@ listeners_insta(put, #{body := LConf,
                       }) ->
     ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(_GwName, _) ->
-        ok = emqx_gateway_http:update_listener(ListenerId, LConf),
-        {204}
+        {ok, RespConf} = emqx_gateway_http:update_listener(ListenerId, LConf),
+        {200, RespConf}
     end).
 
 listeners_insta_authn(get, #{bindings := #{name := Name0,
@@ -145,16 +146,17 @@ listeners_insta_authn(post, #{body := Conf,
                                             id := ListenerId0}}) ->
     ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(GwName, _) ->
-        ok = emqx_gateway_http:add_authn(GwName, ListenerId, Conf),
-        {204}
+        {ok, Authn} = emqx_gateway_http:add_authn(GwName, ListenerId, Conf),
+        {201, Authn}
     end);
 listeners_insta_authn(put, #{body := Conf,
                              bindings := #{name := Name0,
                                            id := ListenerId0}}) ->
     ListenerId = emqx_mgmt_util:urldecode(ListenerId0),
     with_gateway(Name0, fun(GwName, _) ->
-        ok = emqx_gateway_http:update_authn(GwName, ListenerId, Conf),
-        {204}
+        {ok, Authn} = emqx_gateway_http:update_authn(
+                        GwName, ListenerId, Conf),
+        {200, Authn}
     end);
 listeners_insta_authn(delete, #{bindings := #{name := Name0,
                                               id := ListenerId0}}) ->
@@ -246,7 +248,9 @@ schema("/gateway/:name/listeners") ->
               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
               , 500 => error_codes([?INTERNAL_ERROR],
                                    <<"Ineternal Server Error">>)
-              , 204 => <<"Created">>
+              , 201 => emqx_dashboard_swagger:schema_with_examples(
+                         ref(listener),
+                         examples_listener_list())
               }
           }
      };
@@ -290,7 +294,9 @@ schema("/gateway/:name/listeners/:id") ->
               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
               , 500 => error_codes([?INTERNAL_ERROR],
                                    <<"Ineternal Server Error">>)
-              , 200 => <<"Updated">>
+              , 200 => emqx_dashboard_swagger:schema_with_examples(
+                         ref(listener),
+                         examples_listener())
               }
           }
      };
@@ -319,7 +325,7 @@ schema("/gateway/:name/listeners/:id/authentication") ->
               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
               , 500 => error_codes([?INTERNAL_ERROR],
                                    <<"Ineternal Server Error">>)
-              , 204 => <<"Added">>
+              , 201 => schema_authn()
               }
           },
        put =>
@@ -332,7 +338,7 @@ schema("/gateway/:name/listeners/:id/authentication") ->
               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
               , 500 => error_codes([?INTERNAL_ERROR],
                                    <<"Ineternal Server Error">>)
-              , 204 => <<"Updated">>
+              , 200 => schema_authn()
               }
           },
        delete =>
@@ -344,7 +350,7 @@ schema("/gateway/:name/listeners/:id/authentication") ->
               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
               , 500 => error_codes([?INTERNAL_ERROR],
                                    <<"Ineternal Server Error">>)
-              , 204 => <<"Deleted">>
+              , 200 => <<"Deleted">>
               }
           }
      };
@@ -431,9 +437,7 @@ schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
                 , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
                 , 500 => error_codes([?INTERNAL_ERROR],
                                      <<"Ineternal Server Error">>)
-                , 200 => emqx_dashboard_swagger:schema_with_example(
-                           ref(emqx_authn_api, response_user),
-                           emqx_authn_api:response_user_examples())
+                , 204 =>  <<"Deleted">>
                 }
            }
      };
@@ -451,8 +455,7 @@ schema("/gateway/:name/listeners/:id/authentication/import_users") ->
               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
                , 500 => error_codes([?INTERNAL_ERROR],
-                                     <<"Ineternal Server Error">>)
-               %% XXX: Put a hint message into 204 return ?
+                                    <<"Ineternal Server Error">>)
                , 204 => <<"Imported">>
               }
           }
