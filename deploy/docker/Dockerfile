@@ -28,6 +28,7 @@ RUN cd /emqx \
 
 FROM $RUN_FROM
 
+## define ARG again after 'FROM $RUN_FROM'
 ARG EMQX_NAME=emqx
 
 COPY deploy/docker/docker-entrypoint.sh /usr/bin/

@@ -127,7 +127,7 @@ jobs:
       matrix:
         profile: # no EDGE for mac
           - emqx
-          - emqx-ee
+          - emqx-enterprise
         otp:
           - 24.1.5-2
         macos:
@@ -213,7 +213,7 @@ jobs:
         profile: ## all editions for linux
           - emqx-edge
           - emqx
-          - emqx-ee
+          - emqx-enterprise
         otp:
           - 24.1.5-2 # we test with OTP 23, but only build package on OTP 24 versions
         arch:
@@ -240,9 +240,9 @@ jobs:
         - os: raspbian10
           profile: emqx
         - os: raspbian9
-          profile: emqx-ee
+          profile: emqx-enterprise
         - os: raspbian10
-          profile: emqx-ee
+          profile: emqx-enterprise
 
     defaults:
       run:
@@ -333,7 +333,7 @@ jobs:
         profile: # all editions for docker
           - emqx-edge
           - emqx
-          - emqx-ee
+          - emqx-enterprise
         # NOTE: for docker, only support latest otp version, not a matrix
         otp:
           - 24.1.5-2 # update to latest
@@ -403,7 +403,7 @@ jobs:
         profile:
           - emqx-edge
           - emqx
-          - emqx-ee
+          - emqx-enterprise
         otp:
           - 24.1.5-2
 
@@ -463,7 +463,7 @@ jobs:
     - name: update repo.emqx.io
       if: github.event_name == 'release'
       run: |
-        if [ "${{ matrix. profile }}" = 'emqx-ee' ]; then
+        if [ "${{ matrix.profile }}" = 'emqx-enterprise' ]; then
           BOOL_FLAG_NAME="emqx_ee"
         else
           BOOL_FLAG_NAME="emqx_ce"

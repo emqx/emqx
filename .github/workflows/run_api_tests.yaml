@@ -27,7 +27,7 @@ jobs:
       run: |
         echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
         git config --global credential.helper store
-        make emqx-ee-zip
+        make emqx-enterprise-zip
     - uses: actions/upload-artifact@v2
       with:
         name: emqx-broker

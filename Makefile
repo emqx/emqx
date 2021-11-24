@@ -15,8 +15,8 @@ ifeq ($(OS),Windows_NT)
 endif
 
 PROFILE ?= emqx
-REL_PROFILES := emqx emqx-edge emqx-ee
-PKG_PROFILES := emqx-pkg emqx-edge-pkg emqx-ee-pkg
+REL_PROFILES := emqx emqx-edge emqx-enterprise
+PKG_PROFILES := emqx-pkg emqx-edge-pkg emqx-enterprise-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 CT_NODE_NAME ?= 'test@127.0.0.1'
@@ -182,7 +182,7 @@ ALL_ZIPS = $(REL_PROFILES)
 $(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target,$(zt))))
 
 ## emqx-docker-testing
-## emqx-ee-docker-testing
+## emqx-enterprise-docker-testing
 ## is to directly copy a unzipped zip-package to a
 ## base image such as ubuntu20.04. Mostly for testing
 .PHONY: $(REL_PROFILES:%=%-docker-testing)

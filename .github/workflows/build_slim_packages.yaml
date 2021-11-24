@@ -22,7 +22,7 @@ jobs:
         profile:
         - emqx-edge
         - emqx
-        - emqx-ee
+        - emqx-enterprise
         otp:
         - 24.1.5-2
         os:
@@ -53,7 +53,7 @@ jobs:
       matrix:
         profile:
         - emqx
-        - emqx-ee
+        - emqx-enterprise
         otp:
         - 24.1.5-2
         macos:
