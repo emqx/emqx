@@ -82,7 +82,7 @@ t_chan_caps(_) ->
      #{max_clientid_len := 65535,
        max_qos_allowed := 2,
        max_topic_alias := 65535,
-       max_topic_levels := 0,
+       max_topic_levels := 128,
        retain_available := true,
        shared_subscription := true,
        subscription_identifiers := true,
@@ -768,4 +768,3 @@ session(InitFields) when is_map(InitFields) ->
 quota() ->
     emqx_limiter:init(zone, [{conn_messages_routing, {5, 1}},
                              {overall_messages_routing, {10, 1}}]).
-
