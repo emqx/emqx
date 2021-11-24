@@ -301,7 +301,7 @@ t_observe(Config) ->
 %%% Internal Functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 call_lookup_api(ClientId, Path, Action) ->
-    ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m", ClientId, "lookup_cmd"]),
+    ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m/clients", ClientId, "lookup_cmd"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Query = io_lib:format("path=~ts&action=~ts", [Path, Action]),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, ApiPath, Query, Auth),
@@ -309,7 +309,7 @@ call_lookup_api(ClientId, Path, Action) ->
     Response.
 
 call_send_api(ClientId, Cmd, Query) ->
-    ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m", ClientId, Cmd]),
+    ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m/clients", ClientId, Cmd]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(post, ApiPath, Query, Auth),
     ?LOGT("rest api response:~ts~n", [Response]),

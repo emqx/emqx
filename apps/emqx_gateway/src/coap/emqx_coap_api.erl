@@ -25,7 +25,7 @@
 
 -export([request/2]).
 
--define(PREFIX, "/gateway/coap/:clientid").
+-define(PREFIX, "/gateway/coap/clients/:clientid").
 -define(DEF_WAIT_TIME, 10).
 
 -import(emqx_mgmt_util, [ schema/1
