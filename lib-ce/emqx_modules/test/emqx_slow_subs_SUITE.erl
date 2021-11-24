@@ -14,18 +14,18 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_st_statistics_SUITE).
+-module(emqx_slow_subs_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include("include/emqx_mqtt.hrl").
 -include_lib("include/emqx.hrl").
 
 %-define(LOGT(Format, Args), ct:pal(Format, Args)).
 
--define(LOG_TAB, emqx_st_statistics_log).
--define(TOPK_TAB, emqx_st_statistics_topk).
+-define(TOPK_TAB, emqx_slow_subs_topk).
 -define(NOW, erlang:system_time(millisecond)).
 
 all() -> emqx_ct:all(?MODULE).
@@ -39,11 +39,11 @@ end_per_suite(Config) ->
     Config.
 
 init_per_testcase(_, Config) ->
-    emqx_mod_st_statistics:load(base_conf()),
+    emqx_mod_slow_subs:load(base_conf()),
     Config.
 
 end_per_testcase(_, _) ->
-    emqx_mod_st_statistics:unload(undefined),
+    emqx_mod_slow_subs:unload([]),
     ok.
 
 %%--------------------------------------------------------------------
@@ -51,52 +51,62 @@ end_per_testcase(_, _) ->
 %%--------------------------------------------------------------------
 t_log_and_pub(_) ->
     %% Sub topic first
-    SubBase = "/test",
-    emqx:subscribe("$slow_topics"),
-    Clients = start_client(SubBase),
+    Subs = [{<<"/test1/+">>, ?QOS_1}, {<<"/test2/+">>, ?QOS_2}],
+    Clients = start_client(Subs),
+    emqx:subscribe("$SYS/brokers/+/slow_subs"),
     timer:sleep(1000),
     Now = ?NOW,
     %% publish
-    ?assert(ets:info(?LOG_TAB, size) =:= 0),
+
     lists:foreach(fun(I) ->
-                          Topic = list_to_binary(io_lib:format("~s~p", [SubBase, I])),
-                          Msg = emqx_message:make(Topic, <<"Hello">>),
-                          emqx:publish(Msg#message{timestamp = Now - 1000})
+                      Topic = list_to_binary(io_lib:format("/test1/~p", [I])),
+                      Msg = emqx_message:make(undefined, ?QOS_1, Topic, <<"Hello">>),
+                      emqx:publish(Msg#message{timestamp = Now - 500})
                   end,
                   lists:seq(1, 10)),
 
-    timer:sleep(2400),
+    lists:foreach(fun(I) ->
+                      Topic = list_to_binary(io_lib:format("/test2/~p", [I])),
+                      Msg = emqx_message:make(undefined, ?QOS_2, Topic, <<"Hello">>),
+                      emqx:publish(Msg#message{timestamp = Now - 500})
+                  end,
+                  lists:seq(1, 10)),
 
-    ?assert(ets:info(?LOG_TAB, size) =:= 0),
-    ?assert(ets:info(?TOPK_TAB, size) =:= 3),
+    timer:sleep(1000),
+    Size = ets:info(?TOPK_TAB, size),
+    %% some time record maybe delete due to it expired
+    ?assert(Size =< 5 andalso Size >= 4),
+
+    timer:sleep(1500),
     try_receive(3),
     try_receive(2),
+
+    timer:sleep(2000),
+    ?assert(ets:info(?TOPK_TAB, size) =:= 0),
     [Client ! stop || Client <- Clients],
     ok.
-
 base_conf() ->
-    [{top_k_num, 3},
-     {threshold_time, 10},
-     {notice_qos, 0},
-     {notice_batch_size, 3},
-     {notice_topic,"$slow_topics"},
-     {time_window, 2000},
-     {max_log_num, 5}].
+    [ {top_k_num, 5}
+    , {expire_interval, timer:seconds(3)}
+    , {notice_interval, 1500}
+    , {notice_qos, 0}
+    , {notice_batch_size, 3}
+    ].
 
-start_client(Base) ->
-    [spawn(fun() ->
-                   Topic = list_to_binary(io_lib:format("~s~p", [Base, I])),
-                   client(Topic)
-           end)
-     || I <- lists:seq(1, 10)].
+start_client(Subs) ->
+    [spawn(fun() -> client(I, Subs) end) || I <- lists:seq(1, 10)].
 
-client(Topic) ->
+client(I, Subs) ->
     {ok, C} = emqtt:start_link([{host,      "localhost"},
-                                {clientid,  Topic},
+                                {clientid,  io_lib:format("slow_subs_~p", [I])},
                                 {username,  <<"plain">>},
                                 {password,  <<"plain">>}]),
     {ok, _} = emqtt:connect(C),
-    {ok, _, _} = emqtt:subscribe(C, Topic),
+
+    Len = erlang:length(Subs),
+    Sub = lists:nth(I rem Len + 1, Subs),
+    _ = emqtt:subscribe(C, Sub),
+
     receive
         stop ->
             ok
@@ -108,5 +118,5 @@ try_receive(L) ->
             #{<<"logs">> := Logs} =  emqx_json:decode(Payload, [return_maps]),
             ?assertEqual(length(Logs), L)
     after 500 ->
-            ?assert(false)
+            ?assert(false, "no publish")
     end.

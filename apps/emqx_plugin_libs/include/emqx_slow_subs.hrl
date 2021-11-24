@@ -14,12 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(LOG_TAB, emqx_st_statistics_log).
--define(TOPK_TAB, emqx_st_statistics_topk).
+-define(TOPK_TAB, emqx_slow_subs_topk).
 
--record(top_k, { rank :: pos_integer()
-               , topic :: emqx_types:topic()
-               , average_count :: number()
-               , average_elapsed :: number()}).
+-define(INDEX(Elapsed, ClientId), {Elapsed, ClientId}).
+
+-record(top_k, { index :: index()
+               , type :: elapsed_type()
+               , timestamp :: pos_integer()
+               }).
 
 -type top_k() :: #top_k{}.
+-type index() :: ?INDEX(float(), emqx_types:clientid()).
+-type elapsed_type() :: average
+                      | expire.

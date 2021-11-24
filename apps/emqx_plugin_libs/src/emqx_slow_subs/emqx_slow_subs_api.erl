@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_st_statistics_api).
+-module(emqx_slow_subs_api).
 
 -rest_api(#{name   => clear_history,
             method => 'DELETE',
@@ -32,7 +32,7 @@
         , get_history/2
         ]).
 
--include("include/emqx_st_statistics.hrl").
+-include("include/emqx_slow_subs.hrl").
 
 -import(minirest, [return/1]).
 
@@ -41,43 +41,17 @@
 %%--------------------------------------------------------------------
 
 clear_history(_Bindings, _Params) ->
-    ok = emqx_st_statistics:clear_history(),
+    ok = emqx_slow_subs:clear_history(),
     return(ok).
 
 get_history(_Bindings, Params) ->
-    PageT = proplists:get_value(<<"_page">>, Params),
-    LimitT = proplists:get_value(<<"_limit">>, Params),
-    Page = erlang:binary_to_integer(PageT),
-    Limit = erlang:binary_to_integer(LimitT),
-    Start = (Page - 1) * Limit + 1,
-    Size = ets:info(?TOPK_TAB, size),
-    End = Start + Limit - 1,
-    {HasNext, Count, Infos} = get_history(Start, End, Size),
-    return({ok, #{meta => #{page => Page,
-                            limit => Limit,
-                            hasnext => HasNext,
-                            count => Count},
-                  data => Infos}}).
-
-
-get_history(Start, _End, Size) when Start > Size ->
-    {false, 0, []};
-
-get_history(Start, End, Size) when End > Size ->
-    get_history(Start, Size, Size);
-
-get_history(Start, End, Size) ->
-    Fold = fun(Rank, Acc) ->
-                   [#top_k{topic = Topic
-                          , average_count = Count
-                          , average_elapsed = Elapsed}] = ets:lookup(?TOPK_TAB, Rank),
-
-                   Info = [ {rank, Rank}
-                          , {topic, Topic}
-                          , {count, Count}
-                          , {elapsed, Elapsed}],
-
-                   [Info | Acc]
-           end,
-    Infos = lists:foldl(Fold, [], lists:seq(Start, End)),
-    {End < Size, End - Start + 1, Infos}.
+    RowFun = fun(#top_k{index = ?INDEX(Elapsed, ClientId),
+                        type = Type,
+                        timestamp = Ts}) ->
+                 [{clientid, ClientId},
+                  {elapsed, Elapsed},
+                  {type, Type},
+                  {timestamp, Ts}]
+             end,
+    Return = emqx_mgmt_api:paginate({?TOPK_TAB, [{traverse, last_prev}]}, Params, RowFun),
+    return({ok, Return}).
