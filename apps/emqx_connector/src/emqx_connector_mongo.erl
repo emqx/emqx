@@ -170,9 +170,7 @@ health_check(PoolName) ->
             {ok, Conn} ->
                 %% we don't care if this returns something or not, we just to test the connection
                 try mongo_api:find_one(Conn, <<"foo">>, {}, #{}) of
-                    undefined -> true;
-                    Res when is_map(Res) -> true;
-                    _ -> false
+                    _ -> true
                 catch
                     _Class:_Error -> false
                 end;
