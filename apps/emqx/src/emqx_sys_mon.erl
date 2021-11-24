@@ -193,9 +193,6 @@ procinfo(Pid) ->
 procinfo_l(undefined) -> [];
 procinfo_l(List) -> List.
 
-%% FIXME: impossible case in practice; it's always a PID
-get_proc_lib_initial_call(undefined) ->
-    [];
 get_proc_lib_initial_call(Pid) ->
     case proc_lib:initial_call(Pid) of
         false ->

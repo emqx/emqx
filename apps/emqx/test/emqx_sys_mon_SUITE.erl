@@ -89,11 +89,6 @@ end_per_testcase(_, _Config) ->
 
 t_procinfo(_) ->
     ok = meck:expect(emqx_vm, get_process_info, fun(_) -> [] end),
-    ok = meck:expect(emqx_vm, get_process_gc_info, fun(_) -> [] end),
-    %% FIXME: `procinfo' will actually crash if `undefined' is passed
-    %% to it
-    ?assertEqual([{pid, undefined}], emqx_sys_mon:procinfo(undefined)),
-    ok = meck:expect(emqx_vm, get_process_info, fun(_) -> [] end),
     ok = meck:expect(emqx_vm, get_process_gc_info, fun(_) -> undefined end),
     ?assertEqual([{pid, self()}], emqx_sys_mon:procinfo(self())).
 
