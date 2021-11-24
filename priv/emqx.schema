@@ -800,7 +800,7 @@ end}.
 
 %% @doc Set the Maximum topic levels.
 {mapping, "mqtt.max_topic_levels", "emqx.max_topic_levels", [
-  {default, 0},
+  {default, 128},
   {datatype, integer}
 ]}.
 
