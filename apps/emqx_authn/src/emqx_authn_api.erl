@@ -21,6 +21,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_authn.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -import(hoconsc, [mk/2, ref/1]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
@@ -590,7 +591,7 @@ listener_authenticator(delete,
 authenticator_move(post,
                    #{bindings := #{id := AuthenticatorID},
                      body := #{<<"position">> := Position}}) ->
-    move_authenitcator([authentication], ?GLOBAL, AuthenticatorID, Position);
+    move_authenticator([authentication], ?GLOBAL, AuthenticatorID, Position);
 authenticator_move(post, #{bindings := #{id := _}, body := _}) ->
     serialize_error({missing_parameter, position}).
 
@@ -599,7 +600,7 @@ listener_authenticator_move(post,
                               body := #{<<"position">> := Position}}) ->
     with_listener(ListenerID,
                   fun(Type, Name, ChainName) ->
-                        move_authenitcator([listeners, Type, Name, authentication],
+                        move_authenticator([listeners, Type, Name, authentication],
                                            ChainName,
                                            AuthenticatorID,
                                            Position)
@@ -771,7 +772,7 @@ delete_authenticator(ConfKeyPath, ChainName, AuthenticatorID) ->
             serialize_error(Reason)
     end.
 
-move_authenitcator(ConfKeyPath, ChainName, AuthenticatorID, Position) ->
+move_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Position) ->
     case parse_position(Position) of
         {ok, NPosition} ->
             case update_config(
