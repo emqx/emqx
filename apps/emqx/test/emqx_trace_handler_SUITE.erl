@@ -83,7 +83,7 @@ t_trace_clientid(_Config) ->
     emqtt:connect(T),
     emqtt:publish(T, <<"a/b/c">>, <<"hi">>),
     emqtt:ping(T),
-    ct:sleep(200),
+    ct:sleep(300),
 
     %% Verify messages are logged to "tmp/client.log" but not "tmp/client2.log".
     {ok, Bin} = file:read_file("tmp/client.log"),
@@ -128,7 +128,7 @@ t_trace_topic(_Config) ->
     emqtt:publish(T, <<"x/y/z">>, <<"hi2">>),
     emqtt:subscribe(T, <<"x/y/z">>),
     emqtt:unsubscribe(T, <<"x/y/z">>),
-    ct:sleep(200),
+    ct:sleep(300),
 
     {ok, Bin} = file:read_file("tmp/topic_trace_x.log"),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"hi1">>])),
@@ -173,7 +173,7 @@ t_trace_ip_address(_Config) ->
     emqtt:publish(T, <<"x/y/z">>, <<"hi2">>),
     emqtt:subscribe(T, <<"x/y/z">>),
     emqtt:unsubscribe(T, <<"x/y/z">>),
-    ct:sleep(200),
+    ct:sleep(300),
 
     {ok, Bin} = file:read_file("tmp/ip_trace_x.log"),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"hi1">>])),
