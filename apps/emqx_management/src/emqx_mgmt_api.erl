@@ -37,10 +37,10 @@ paginate(Tables, Params, RowFun) ->
     Limit = limit(Params),
     Cursor = qlc:cursor(Qh),
     case Page > 1 of
-    true  ->
-        _ = qlc:next_answers(Cursor, (Page - 1) * Limit),
-        ok;
-    false -> ok
+        true  ->
+            _ = qlc:next_answers(Cursor, (Page - 1) * Limit),
+            ok;
+        false -> ok
     end,
     Rows = qlc:next_answers(Cursor, Limit),
     qlc:delete_cursor(Cursor),
@@ -61,11 +61,11 @@ query_handle([{Table, Opts}]) when is_atom(Table) ->
 
 query_handle(Tables) ->
     Fold = fun({Table, Opts}, Acc) ->
-               Handle = qlc:q([R|| R <- ets:table(Table, Opts)]),
-               [Handle | Acc];
+                   Handle = qlc:q([R|| R <- ets:table(Table, Opts)]),
+                   [Handle | Acc];
               (Table, Acc) ->
-               Handle = qlc:q([R|| R <- ets:table(Table)]),
-               [Handle | Acc]
+                   Handle = qlc:q([R|| R <- ets:table(Table)]),
+                   [Handle | Acc]
             end,
     Handles = lists:foldl(Fold, [], Tables),
     qlc:append(lists:reverse(Handles)).
@@ -84,9 +84,9 @@ count([{Table, _Opts}]) when is_atom(Table) ->
 
 count(Tables) ->
     Fold = fun({Table, _Opts}, Acc) ->
-               count(Table) ++ Acc;
+                   count(Table) ++ Acc;
               (Table, Acc) ->
-               count(Table) ++ Acc
+                   count(Table) ++ Acc
            end,
     lists:foldl(Fold, 0, Tables).
 
