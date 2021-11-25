@@ -18,13 +18,13 @@
 
 -rest_api(#{name   => clear_history,
             method => 'DELETE',
-            path   => "/slow_topic",
+            path   => "/slow_subscriptions",
             func   => clear_history,
             descr  => "Clear current data and re count slow topic"}).
 
 -rest_api(#{name   => get_history,
             method => 'GET',
-            path   => "/slow_topic",
+            path   => "/slow_subscriptions",
             func   => get_history,
             descr  => "Get slow topics statistics record data"}).
 
