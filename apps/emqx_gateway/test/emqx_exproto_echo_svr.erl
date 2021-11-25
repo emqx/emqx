@@ -40,7 +40,7 @@
         , on_received_messages/2
         ]).
 
--define(LOG(Fmt, Args), io:format(standard_error, Fmt, Args)).
+-define(LOG(Fmt, Args), ct:pal(Fmt, Args)).
 
 -define(HTTP, #{grpc_opts => #{service_protos => [emqx_exproto_pb],
                                services => #{'emqx.exproto.v1.ConnectionHandler' => ?MODULE}},
