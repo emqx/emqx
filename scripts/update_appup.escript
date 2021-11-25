@@ -99,8 +99,31 @@ main(Options, Baseline) ->
                 [] ->
                     ok;
                 _ ->
-                    set_invalid(),
-                    log("ERROR: The appup files are incomplete. Missing changes:~n   ~p", [AppupChanges])
+                    Diffs =
+                        lists:filtermap(
+                          fun({App, {Upgrade, Downgrade, OldUpgrade, OldDowngrade}}) ->
+                                  DiffUp = diff_appup_instructions(Upgrade, OldUpgrade),
+                                  DiffDown = diff_appup_instructions(Downgrade, OldDowngrade),
+                                  case {DiffUp, DiffDown} of
+                                      {[], []} ->
+                                          %% no diff for external dependency
+                                          false;
+                                      _ ->
+                                          Diffs = #{ up => DiffUp
+                                                   , down => DiffDown
+                                                   },
+                                          {true, {App, Diffs}}
+                                  end
+                          end,
+                          AppupChanges),
+                    case Diffs =:= [] of
+                        true ->
+                            ok;
+                        false ->
+                            set_invalid(),
+                            log("ERROR: The appup files are incomplete. Missing changes:~n   ~p",
+                                [Diffs])
+                    end
             end;
         false ->
             update_appups(AppupChanges)
@@ -189,8 +212,34 @@ find_appup_actions(App, CurrAppIdx, PrevAppIdx = #app{version = PrevVersion}) ->
             %% The appup file has been already updated:
             [];
        true ->
-            [{App, {Upgrade, Downgrade}}]
+            [{App, {Upgrade, Downgrade, OldUpgrade, OldDowngrade}}]
     end.
+
+%% For external dependencies, show only the changes that are missing
+%% in their current appup.
+diff_appup_instructions(ComputedChanges, PresentChanges) ->
+    lists:foldr(
+      fun({Vsn, ComputedActions}, Acc) ->
+              case find_matching_version(Vsn, PresentChanges) of
+                  undefined ->
+                      [{Vsn, ComputedActions} | Acc];
+                  PresentActions ->
+                      DiffActions = ComputedActions -- PresentActions,
+                      case DiffActions of
+                          [] ->
+                              %% no diff
+                              Acc;
+                          _ ->
+                              [{Vsn, DiffActions} | Acc]
+                      end
+              end
+      end,
+      [],
+      ComputedChanges).
+
+%% TODO: handle regexes
+find_matching_version(Vsn, PresentChanges) ->
+    proplists:get_value(Vsn, PresentChanges).
 
 find_old_appup_actions(App, PrevVersion) ->
     {Upgrade0, Downgrade0} =
@@ -270,12 +319,12 @@ check_appup_files() ->
 
 update_appups(Changes) ->
     lists:foreach(
-      fun({App, {Upgrade, Downgrade}}) ->
-              do_update_appup(App, Upgrade, Downgrade)
+      fun({App, {Upgrade, Downgrade, OldUpgrade, OldDowngrade}}) ->
+              do_update_appup(App, Upgrade, Downgrade, OldUpgrade, OldDowngrade)
       end,
       Changes).
 
-do_update_appup(App, Upgrade, Downgrade) ->
+do_update_appup(App, Upgrade, Downgrade, OldUpgrade, OldDowngrade) ->
     case locate(src, App, ".appup.src") of
         {ok, AppupFile} ->
             render_appfile(AppupFile, Upgrade, Downgrade);
@@ -284,8 +333,20 @@ do_update_appup(App, Upgrade, Downgrade) ->
                 {ok, AppupFile} ->
                     render_appfile(AppupFile, Upgrade, Downgrade);
                 false ->
-                    set_invalid(),
-                    log("ERROR: Appup file for the external dependency '~p' is not complete.~n       Missing changes: ~p~n", [App, Upgrade])
+                    DiffUp = diff_appup_instructions(Upgrade, OldUpgrade),
+                    DiffDown = diff_appup_instructions(Downgrade, OldDowngrade),
+                    case {DiffUp, DiffDown} of
+                        {[], []} ->
+                            %% no diff for external dependency; ignore
+                            ok;
+                        _ ->
+                            set_invalid(),
+                            Diffs = #{ up => DiffUp
+                                     , down => DiffDown
+                                     },
+                            log("ERROR: Appup file for the external dependency '~p' is not complete.~n       Missing changes: ~100p~n", [App, Diffs]),
+                            log("NOTE: Some changes above might be already covered by regexes.~n")
+                    end
             end
     end.
 
