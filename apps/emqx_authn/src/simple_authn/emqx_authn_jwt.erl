@@ -238,7 +238,7 @@ may_decode_secret(true, Secret) ->
     try base64:decode(Secret)
     catch
         error : _ ->
-            {error, {invalid_parameter, Secret}}
+            {error, {invalid_parameter, secret}}
     end.
 
 replace_placeholder(L, Variables) ->
