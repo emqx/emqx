@@ -24,4 +24,4 @@
                }).
 
 -type top_k() :: #top_k{}.
--type index() :: ?INDEX(float(), emqx_types:clientid()).
+-type index() :: ?INDEX(non_neg_integer(), emqx_types:clientid()).

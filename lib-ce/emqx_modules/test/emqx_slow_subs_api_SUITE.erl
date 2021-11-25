@@ -75,7 +75,7 @@ t_get_history(_) ->
 
     lists:foreach(Each, lists:seq(1, 5)),
 
-    {ok, Data} = request_api(get, api_path(["slow_topic"]), "_page=1&_limit=10",
+    {ok, Data} = request_api(get, api_path(["slow_subscriptions"]), "_page=1&_limit=10",
                              auth_header_()),
     #{meta := Meta, data := [First | _]} = decode(Data),
 
@@ -94,7 +94,7 @@ t_clear(_) ->
                                  type = average,
                                  last_update_time = ?NOW}),
 
-    {ok, _} = request_api(delete, api_path(["slow_topic"]), [],
+    {ok, _} = request_api(delete, api_path(["slow_subscriptions"]), [],
                           auth_header_()),
 
     ?assertEqual(0, ets:info(?TOPK_TAB, size)).

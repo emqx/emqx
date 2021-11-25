@@ -46,7 +46,7 @@
 
 -type log() :: #{ rank := pos_integer()
                 , clientid := emqx_types:clientid()
-                , latency := float()
+                , latency := non_neg_integer()
                 , type := emqx_message_latency_stats:latency_type()
                 }.
 
@@ -59,10 +59,10 @@
 -import(proplists, [get_value/2]).
 
 -type stats_update_args() :: #{ clientid := emqx_types:clientid()
-                              , latency := float()
+                              , latency := non_neg_integer()
                               , type := emqx_message_latency_stats:latency_type()
                               , last_insert_value := non_neg_integer()
-                              , update_time := pos_integer()
+                              , update_time := timer:time()
                               }.
 
 -type stats_update_env() :: #{max_size := pos_integer()}.
@@ -99,33 +99,26 @@ on_stats_update(#{clientid := ClientId,
                   update_time := Ts},
                 #{max_size := MaxSize}) ->
 
+    LastIndex = ?INDEX(LIV, ClientId),
     Index = ?INDEX(Latency, ClientId),
 
-    case ets:info(?TOPK_TAB, size) of
-        Size when Size < MaxSize - 1, LIV =:= 0 ->
-            %% if the size is enough and it is the first time this client try to insert, insert it directly
+    %% check whether the client is in the table
+    case ets:lookup(?TOPK_TAB, LastIndex) of
+        [#top_k{index = Index}] ->
+            %% if last value == the new value, return
+            true;
+        [_] ->
+            %% if Latency > minimum value, we should update it
+            %% if Latency < minimum value, maybe it can replace the minimum value
+            %% so alwyas update at here
+            %% do we need check if Latency == minimum ???
             ets:insert(?TOPK_TAB,
-                       #top_k{index = Index, type = Type, last_update_time = Ts});
-        _Size ->
-            case ets:first(?TOPK_TAB) of
-                '$end_of_table' ->
-                    %% if there are no elements, insert directly
-                    ets:insert(?TOPK_TAB,
-                               #top_k{index = Index, type = Type, last_update_time = Ts});
-                ?INDEX(First, _) ->
-                    %% this client may already be in topk, try to delete
-                    try_delete(First, LIV, ClientId),
+                       #top_k{index = Index, type = Type, last_update_time = Ts}),
 
-                    case Latency =< First of
-                        true -> true;
-                        _ ->
-                            %% update record, and remove the first one
-                            ets:insert(?TOPK_TAB,
-                                       #top_k{index = Index, type = Type, last_update_time = Ts}),
-
-                            ets:delete(?TOPK_TAB, ets:first(?TOPK_TAB))
-                    end
-            end
+            ets:delete(?TOPK_TAB, LastIndex);
+        [] ->
+            %% try to insert
+            try_insert_to_topk(MaxSize, Index, Latency, Type, Ts)
     end.
 
 clear_history() ->
@@ -288,17 +281,12 @@ load(MaxSize) ->
 unload() ->
     emqx:unhook('message.slow_subs_stats', fun ?MODULE:on_stats_update/2).
 
-try_delete(First, LIV, _) when First > LIV ->
-    true;
-
-try_delete(_, LIV, ClientId) ->
-    ets:delete(?TOPK_TAB, ?INDEX(LIV, ClientId)).
 
 do_clear(Cfg, Logs) ->
     Now = ?NOW,
     Interval = get_value(expire_interval, Cfg),
     Each = fun(#top_k{index = Index, last_update_time = Ts}) ->
-               case Now - Ts >= Interval of
+                   case Now - Ts >= Interval of
                    true ->
                        ets:delete(?TOPK_TAB, Index);
                    _ ->
@@ -306,3 +294,28 @@ do_clear(Cfg, Logs) ->
                end
            end,
     lists:foreach(Each, Logs).
+
+try_insert_to_topk(MaxSize, Index, Latency, Type, Ts) ->
+    case ets:info(?TOPK_TAB, size) of
+        Size when Size < MaxSize - 1 ->
+            %% if the size is enough, insert it directly
+            ets:insert(?TOPK_TAB,
+                       #top_k{index = Index, type = Type, last_update_time = Ts});
+        _ ->
+            %% find the minimum value
+            ?INDEX(Min, _) = First =
+                case ets:first(?TOPK_TAB) of
+                    ?INDEX(_, _) = I ->  I;
+                    _ -> ?INDEX(Latency - 1, <<>>)
+                end,
+
+            case Latency of
+                LessEql when LessEql =< Min ->
+                    true;
+                _ ->
+                    ets:insert(?TOPK_TAB,
+                               #top_k{index = Index, type = Type, last_update_time = Ts}),
+
+                    ets:delete(?TOPK_TAB, First)
+            end
+    end.

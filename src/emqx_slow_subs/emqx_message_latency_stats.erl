@@ -29,7 +29,7 @@
                     , ema := emqx_moving_average:ema()
                     , last_update_time := timestamp()
                     , last_access_time := timestamp()  %% timestamp of last access top-k
-                    , last_insert_value := number()
+                    , last_insert_value := non_neg_integer()
                     }.
 
 -type timestamp() :: non_neg_integer().
@@ -99,7 +99,7 @@ call_hook(_, _, Latency, #{threshold := Threshold} = S)
 
 call_hook(Now, Type, Latency, #{clientid := ClientId, last_insert_value := LIV} = Stats) ->
     Arg = #{clientid => ClientId,
-            latency => Latency,
+            latency => erlang:floor(Latency),
             type => Type,
             last_insert_value => LIV,
             update_time => Now},

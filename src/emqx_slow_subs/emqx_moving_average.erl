@@ -38,7 +38,7 @@
                         | cma().
 
 -define(DEF_EMA_ARG, #{period => 10}).
--define(DEF_AVG_TYPE, cumulative).
+-define(DEF_AVG_TYPE, exponential).
 
 -export_type([type/0, moving_average/0, ema/0, cma/0]).
 
