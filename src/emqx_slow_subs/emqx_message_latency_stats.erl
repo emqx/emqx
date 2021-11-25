@@ -65,7 +65,7 @@ new(ClientId, SamplesT, ThresholdT) ->
      , last_insert_value => 0
      }.
 
--spec update(float(), stats()) -> stats().
+-spec update(number(), stats()) -> stats().
 update(Val, #{ema := EMA} = Stats) ->
     Now = ?NOW,
     #{average := Latency} = EMA2 = emqx_moving_average:update(Val, EMA),
