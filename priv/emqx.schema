@@ -1007,14 +1007,14 @@ end}.
   {datatype, {duration, s}}
 ]}.
 
-%% @doc the number of smaples for calculate the average time of delivery
-{mapping, "zone.$name.elapsed_samples", "emqx.zones", [
+%% @doc the number of smaples for calculate the average latency of delivery
+{mapping, "zone.$name.latency_samples", "emqx.zones", [
   {default, 10},
   {datatype, integer}
 ]}.
 
-%% @doc Threshold for judging the speed of message delivery
-{mapping, "zone.$name.elapsed_threshold", "emqx.zones", [
+%% @doc Threshold for slow subscription statistics
+{mapping, "zone.$name.latency_stats_threshold", "emqx.zones", [
   {default, "100ms"},
   {datatype, {duration, ms}}
 ]}.

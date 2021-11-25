@@ -19,18 +19,18 @@
 -module(emqx_moving_average).
 
 %% API
--export([ new/1, new/2, update/2]).
+-export([new/0, new/1, new/2, update/2]).
 
 -type type() :: cumulative
               | exponential.
 
 -type ema() :: #{ type := exponential
-                , average := float()
+                , average := 0 | float()
                 , coefficient := float()
                 }.
 
 -type cma() :: #{ type := cumulative
-                , average := float()
+                , average := 0 | float()
                 , count := non_neg_integer()
                 }.
 
@@ -38,12 +38,17 @@
                         | cma().
 
 -define(DEF_EMA_ARG, #{period => 10}).
+-define(DEF_AVG_TYPE, cumulative).
 
 -export_type([type/0, moving_average/0, ema/0, cma/0]).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+-spec new() -> moving_average().
+new() ->
+    new(?DEF_AVG_TYPE, #{}).
+
 -spec new(type()) -> moving_average().
 new(Type) ->
     new(Type, #{}).
@@ -59,10 +64,15 @@ new(exponential, Arg) ->
     #{period := Period} = maps:merge(?DEF_EMA_ARG, Arg),
     #{ type => exponential
      , average => 0
+       %% coefficient = 2/(N+1) is a common convention, see the wiki link for details
      , coefficient => 2 / (Period + 1)
      }.
 
 -spec update(number(), moving_average()) -> moving_average().
+
+update(Val, #{average := 0} = Avg) ->
+    Avg#{average := Val};
+
 update(Val, #{ type := cumulative
              , average := Average
              , count := Count} = CMA) ->

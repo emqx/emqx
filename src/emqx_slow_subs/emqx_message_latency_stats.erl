@@ -14,34 +14,45 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_message_elapsed_stats).
+-module(emqx_message_latency_stats).
 
 %% API
--export([new/3, update/2, check_expire/3]).
+-export([ new/1, new/3, update/2
+        , check_expire/3, latency/1]).
 
 -define(NOW, erlang:system_time(millisecond)).
 -define(MINIMUM_INSERT_INTERVAL, 1000).
 -define(MINIMUM_THRESHOLD, 100).
 
--type stats() :: #{ clientid := emqx_types:clientid()
-                  , threshold := number()
-                  , ema := emqx_moving_average:ema()
-                  , last_update_time := timestamp()
-                  , last_access_time := timestamp()  %% timestamp of last access top-k
-                  , last_insert_value := float()
-                  }.
+-opaque stats() :: #{ clientid := emqx_types:clientid()
+                    , threshold := number()
+                    , ema := emqx_moving_average:ema()
+                    , last_update_time := timestamp()
+                    , last_access_time := timestamp()  %% timestamp of last access top-k
+                    , last_insert_value := number()
+                    }.
 
--type timestamp() :: pos_integer().
--type timespan() :: pos_integer().
+-type timestamp() :: non_neg_integer().
+-type timespan() :: number().
 
--type elapsed_type() :: average
+-type latency_type() :: average
                       | expire.
 
--export_type([stats/0]).
+-import(emqx_zone, [get_env/3]).
+
+-export_type([stats/0, latency_type/0]).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+-spec new(emqx_types:clientinfo()) -> stats().
+new(#{zone := Zone} = CInfo) ->
+    %% add this for some test case which has no clientid field
+    ClientId = maps:get(clientid, CInfo, <<>>),
+    Samples = get_env(Zone, latency_samples, 1),
+    Threshold = get_env(Zone, latency_stats_threshold, ?MINIMUM_THRESHOLD),
+    new(ClientId, Samples, Threshold).
+
 -spec new(emqx_types:clientid(), non_neg_integer(), number()) -> stats().
 new(ClientId, SamplesT, ThresholdT) ->
     Samples = erlang:max(1, SamplesT),
@@ -49,7 +60,7 @@ new(ClientId, SamplesT, ThresholdT) ->
     #{ clientid => ClientId
      , ema => emqx_moving_average:new(exponential, #{period => Samples})
      , threshold => Threshold
-     , last_updated_time => 0
+     , last_update_time => 0
      , last_access_time => 0
      , last_insert_value => 0
      }.
@@ -57,10 +68,10 @@ new(ClientId, SamplesT, ThresholdT) ->
 -spec update(float(), stats()) -> stats().
 update(Val, #{ema := EMA} = Stats) ->
     Now = ?NOW,
-    #{average := Elapsed} = EMA2 = emqx_moving_average:update(Val, EMA),
-    Stats2 = call_hook(Now, average, Elapsed, Stats),
+    #{average := Latency} = EMA2 = emqx_moving_average:update(Val, EMA),
+    Stats2 = call_hook(Now, average, Latency, Stats),
     Stats2#{ ema := EMA2
-           , last_updated_time := ?NOW}.
+           , last_update_time := ?NOW}.
 
 -spec check_expire(timestamp(), timespan(), stats()) -> stats().
 check_expire(Now, Interval, #{last_update_time := LUT} = S)
@@ -68,26 +79,30 @@ check_expire(Now, Interval, #{last_update_time := LUT} = S)
     S;
 
 check_expire(Now, _Interval, #{last_update_time := LUT} = S) ->
-    Elapsed = Now - LUT,
-    call_hook(Now, expire, Elapsed, S).
+    Latency = Now - LUT,
+    call_hook(Now, expire, Latency, S).
+
+-spec latency(stats()) -> number().
+latency(#{ema := #{average := Average}}) ->
+    Average.
 
 %%--------------------------------------------------------------------
 %%  Internal functions
 %%--------------------------------------------------------------------
--spec call_hook(timestamp(), elapsed_type(), timespan(), stats()) -> stats().
+-spec call_hook(timestamp(), latency_type(), timespan(), stats()) -> stats().
 call_hook(Now, _, _, #{last_access_time := LIT} = S) when LIT >= Now - ?MINIMUM_INSERT_INTERVAL ->
     S;
 
-call_hook(_, _, Elapsed, #{threshold := Threshold} = S)
-  when Elapsed =< Threshold ->
+call_hook(_, _, Latency, #{threshold := Threshold} = S)
+  when Latency =< Threshold ->
     S;
 
-call_hook(Now, Type, Elapsed, #{clientid := ClientId, last_insert_value := LIV} = Stats) ->
+call_hook(Now, Type, Latency, #{clientid := ClientId, last_insert_value := LIV} = Stats) ->
     Arg = #{clientid => ClientId,
-            elapsed => Elapsed,
+            latency => Latency,
             type => Type,
             last_insert_value => LIV,
-            timestamp => Now},
+            update_time => Now},
     emqx:run_hook('message.slow_subs_stats', [Arg]),
-    Stats#{last_insert_value := Elapsed,
+    Stats#{last_insert_value := Latency,
            last_access_time := Now}.

@@ -16,14 +16,12 @@
 
 -define(TOPK_TAB, emqx_slow_subs_topk).
 
--define(INDEX(Elapsed, ClientId), {Elapsed, ClientId}).
+-define(INDEX(Latency, ClientId), {Latency, ClientId}).
 
 -record(top_k, { index :: index()
-               , type :: elapsed_type()
-               , timestamp :: pos_integer()
+               , type :: emqx_message_latency_stats:latency_type()
+               , last_update_time :: pos_integer()
                }).
 
 -type top_k() :: #top_k{}.
 -type index() :: ?INDEX(float(), emqx_types:clientid()).
--type elapsed_type() :: average
-                      | expire.

@@ -70,8 +70,8 @@ t_get_history(_) ->
                ClientId = erlang:list_to_binary(io_lib:format("test_~p", [I])),
                ets:insert(?TOPK_TAB, #top_k{index = ?INDEX(I, ClientId),
                                             type = average,
-                                            timestamp = Now})
-        end,
+                                            last_update_time = Now})
+           end,
 
     lists:foreach(Each, lists:seq(1, 5)),
 
@@ -83,16 +83,16 @@ t_get_history(_) ->
     ?assertEqual(RMeta, Meta),
 
     RFirst = #{clientid => <<"test_5">>,
-               elapsed => 5,
+               latency => 5,
                type => <<"average">>,
-               timestamp => Now},
+               last_update_time => Now},
 
     ?assertEqual(RFirst, First).
 
 t_clear(_) ->
     ets:insert(?TOPK_TAB, #top_k{index = ?INDEX(1, <<"test">>),
                                  type = average,
-                                 timestamp = ?NOW}),
+                                 last_update_time = ?NOW}),
 
     {ok, _} = request_api(delete, api_path(["slow_topic"]), [],
                           auth_header_()),

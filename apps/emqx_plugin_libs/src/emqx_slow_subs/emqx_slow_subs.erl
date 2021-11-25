@@ -25,7 +25,7 @@
 -logger_header("[SLOW Subs]").
 
 -export([ start_link/1, on_stats_update/2, enable/0
-        , disable/0, clear_history/0
+        , disable/0, clear_history/0, init_topk_tab/0
         ]).
 
 %% gen_server callbacks
@@ -46,8 +46,8 @@
 
 -type log() :: #{ rank := pos_integer()
                 , clientid := emqx_types:clientid()
-                , elapsed := float()
-                , type := elapsed_type()
+                , latency := float()
+                , type := emqx_message_latency_stats:latency_type()
                 }.
 
 -type window_log() :: #{ last_tick_at := pos_integer()
@@ -59,24 +59,23 @@
 -import(proplists, [get_value/2]).
 
 -type stats_update_args() :: #{ clientid := emqx_types:clientid()
-                              , elapsed := float()
-                              , type := elapsed_type()
+                              , latency := float()
+                              , type := emqx_message_latency_stats:latency_type()
                               , last_insert_value := non_neg_integer()
-                              , timestamp := pos_integer()
+                              , update_time := pos_integer()
                               }.
 
 -type stats_update_env() :: #{max_size := pos_integer()}.
 
 -ifdef(TEST).
--define(TOPK_ACCESS, public).
 -define(EXPIRE_CHECK_INTERVAL, timer:seconds(1)).
 -else.
--define(TOPK_ACCESS, protected).
 -define(EXPIRE_CHECK_INTERVAL, timer:seconds(10)).
 -endif.
 
 -define(NOW, erlang:system_time(millisecond)).
 -define(NOTICE_TOPIC_NAME, "slow_subs").
+-define(DEF_CALL_TIMEOUT, timer:seconds(10)).
 
 %% erlang term order
 %% number < atom < reference < fun < port < pid < tuple < list < bit string
@@ -94,57 +93,67 @@ start_link(Env) ->
 
 -spec on_stats_update(stats_update_args(), stats_update_env()) -> true.
 on_stats_update(#{clientid := ClientId,
-                  elapsed := Elapsed,
+                  latency := Latency,
                   type := Type,
                   last_insert_value := LIV,
-                  timestamp := Ts},
+                  update_time := Ts},
                 #{max_size := MaxSize}) ->
 
-    Index = ?INDEX(Elapsed, ClientId),
+    Index = ?INDEX(Latency, ClientId),
 
     case ets:info(?TOPK_TAB, size) of
         Size when Size < MaxSize - 1, LIV =:= 0 ->
             %% if the size is enough and it is the first time this client try to insert, insert it directly
             ets:insert(?TOPK_TAB,
-                       #top_k{index = Index, type = Type, timestamp = Ts});
+                       #top_k{index = Index, type = Type, last_update_time = Ts});
         _Size ->
             case ets:first(?TOPK_TAB) of
                 '$end_of_table' ->
                     %% if there are no elements, insert directly
                     ets:insert(?TOPK_TAB,
-                               #top_k{index = Index, type = Type, timestamp = Ts});
-                First ->
+                               #top_k{index = Index, type = Type, last_update_time = Ts});
+                ?INDEX(First, _) ->
                     %% this client may already be in topk, try to delete
                     try_delete(First, LIV, ClientId),
 
-                    case Elapsed =< First of
+                    case Latency =< First of
                         true -> true;
                         _ ->
-                            %% update record, and remove the first on
+                            %% update record, and remove the first one
                             ets:insert(?TOPK_TAB,
-                                       #top_k{index = Index, type = Type, timestamp = Ts}),
+                                       #top_k{index = Index, type = Type, last_update_time = Ts}),
 
-                            ets:delete(ets:first(?TOPK_TAB))
+                            ets:delete(?TOPK_TAB, ets:first(?TOPK_TAB))
                     end
             end
     end.
 
 clear_history() ->
-    gen_server:call(?MODULE, ?FUNCTION_NAME).
+    gen_server:call(?MODULE, ?FUNCTION_NAME, ?DEF_CALL_TIMEOUT).
 
 enable() ->
-    gen_server:call(?MODULE, {enable, true}).
+    gen_server:call(?MODULE, {enable, true}, ?DEF_CALL_TIMEOUT).
 
 disable() ->
-    gen_server:call(?MODULE, {enable, false}).
+    gen_server:call(?MODULE, {enable, false}, ?DEF_CALL_TIMEOUT).
+
+init_topk_tab() ->
+    case ets:whereis(?TOPK_TAB) of
+        undefined ->
+            ?TOPK_TAB = ets:new(?TOPK_TAB,
+                                [ ordered_set, public, named_table
+                                , {keypos, #top_k.index}, {write_concurrency, true}
+                                , {read_concurrency, true}
+                                ]);
+        _ ->
+            ?TOPK_TAB
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([Conf]) ->
-    erlang:process_flag(trap_exit, true),
-    init_topk_tab(Conf),
     notice_tick(Conf),
     expire_tick(Conf),
     MaxSize = get_value(top_k_num, Conf),
@@ -211,17 +220,11 @@ expire_tick(_) ->
 
 notice_tick(Cfg) ->
     case get_value(notice_interval, Cfg) of
-        0 ->
-            ok;
+        0 -> ok;
         Interval ->
-            erlang:send_after(Interval, self(), ?FUNCTION_NAME)
+            erlang:send_after(Interval, self(), ?FUNCTION_NAME),
+            ok
     end.
-
-init_topk_tab(_) ->
-    ?TOPK_TAB = ets:new(?TOPK_TAB, [ ordered_set, ?TOPK_ACCESS, named_table
-                                   , {keypos, #top_k.index}, {write_concurrency, true}
-                                   , {read_concurrency, true}
-                                   ]).
 
 -spec do_notification(list(), state()) -> ok.
 do_notification([], _) ->
@@ -253,12 +256,12 @@ do_publish([], _, _Rank, TickTime, Cfg, Cache) ->
     publish(TickTime, Cfg, Cache),
     ok.
 
-convert_to_notice(Rank, #top_k{index = ?INDEX(Elapsed, ClientId),
+convert_to_notice(Rank, #top_k{index = ?INDEX(Latency, ClientId),
                                type = Type,
-                               timestamp = Ts}) ->
+                               last_update_time = Ts}) ->
     #{rank => Rank,
       clientid => ClientId,
-      elapsed => Elapsed,
+      latency => Latency,
       type => Type,
       timestamp => Ts}.
 
@@ -266,13 +269,14 @@ publish(TickTime, Cfg, Notices) ->
     WindowLog = #{last_tick_at => TickTime,
                   logs => lists:reverse(Notices)},
     Payload = emqx_json:encode(WindowLog),
-    _ = emqx:publish(#message{ id = emqx_guid:gen()
-                             , qos = get_value(notice_qos, Cfg)
-                             , from = ?MODULE
-                             , topic = emqx_topic:systop(?NOTICE_TOPIC_NAME)
-                             , payload = Payload
-                             , timestamp = ?NOW
-                             }),
+    Msg = #message{ id = emqx_guid:gen()
+                  , qos = get_value(notice_qos, Cfg)
+                  , from = ?MODULE
+                  , topic = emqx_topic:systop(?NOTICE_TOPIC_NAME)
+                  , payload = Payload
+                  , timestamp = ?NOW
+                  },
+    _ = emqx_broker:safe_publish(Msg),
     ok.
 
 load(MaxSize) ->
@@ -288,12 +292,12 @@ try_delete(First, LIV, _) when First > LIV ->
     true;
 
 try_delete(_, LIV, ClientId) ->
-    ets:delete(?INDEX(LIV, ClientId)).
+    ets:delete(?TOPK_TAB, ?INDEX(LIV, ClientId)).
 
 do_clear(Cfg, Logs) ->
     Now = ?NOW,
     Interval = get_value(expire_interval, Cfg),
-    Each = fun(#top_k{index = Index, timestamp = Ts}) ->
+    Each = fun(#top_k{index = Index, last_update_time = Ts}) ->
                case Now - Ts >= Interval of
                    true ->
                        ets:delete(?TOPK_TAB, Index);

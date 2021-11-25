@@ -116,7 +116,7 @@ try_receive(L) ->
     receive
         {deliver, _, #message{payload = Payload}} ->
             #{<<"logs">> := Logs} =  emqx_json:decode(Payload, [return_maps]),
-            ?assertEqual(length(Logs), L)
+            ?assertEqual(L, length(Logs))
     after 500 ->
             ?assert(false, "no publish")
     end.

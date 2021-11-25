@@ -45,13 +45,13 @@ clear_history(_Bindings, _Params) ->
     return(ok).
 
 get_history(_Bindings, Params) ->
-    RowFun = fun(#top_k{index = ?INDEX(Elapsed, ClientId),
+    RowFun = fun(#top_k{index = ?INDEX(Latency, ClientId),
                         type = Type,
-                        timestamp = Ts}) ->
+                        last_update_time = Ts}) ->
                  [{clientid, ClientId},
-                  {elapsed, Elapsed},
+                  {latency, Latency},
                   {type, Type},
-                  {timestamp, Ts}]
+                  {last_update_time, Ts}]
              end,
     Return = emqx_mgmt_api:paginate({?TOPK_TAB, [{traverse, last_prev}]}, Params, RowFun),
     return({ok, Return}).

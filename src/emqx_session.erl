@@ -119,14 +119,19 @@
           %% Maximum number of awaiting QoS2 messages allowed
           max_awaiting_rel :: non_neg_integer(),
           %% Awaiting PUBREL Timeout (Unit: millsecond)
-                  await_rel_timeout :: timeout(),
-                  %% Created at
-                  created_at :: pos_integer(),
+          await_rel_timeout :: timeout(),
+          %% Created at
+          created_at :: pos_integer(),
 
-                  %% Message Elapsed Stats
-                  elapsed_stats :: emqx_message_elapsed_stats:stats()
+          %% Message deliver latency stats
+          latency_stats :: emqx_message_latency_stats:stats()
 
-                 }).
+          }).
+
+%% in the previous code, we will replace the message record with the pubrel atom
+%% in the pubrec function, this will lose the creation time of the message,
+%% but now we need this time to calculate latency, so now pubrel atom is changed to this record
+-record(pubrel_await, {timestamp :: non_neg_integer()}).
 
 -type(session() :: #session{}).
 
@@ -153,22 +158,17 @@
                      next_pkt_id,
                      awaiting_rel_cnt,
                      awaiting_rel_max,
-                     elapsed_average
+                     latency_stats
                     ]).
 
 -define(DEFAULT_BATCH_N, 1000).
--define(PUBREL_AWAIT(Ts), {pubrel, Ts}).
-
 
 %%--------------------------------------------------------------------
 %% Init a Session
 %%--------------------------------------------------------------------
 
 -spec(init(emqx_types:clientinfo(), emqx_types:conninfo()) -> session()).
-init(#{zone := Zone, clientid := ClientId}, #{receive_maximum := MaxInflight}) ->
-    ElapsedThreshold = get_env(Zone, elapsed_threshold, 0),
-    ElapsedSamples = get_env(Zone, elapsed_samples, 0),
-    Stats = emqx_message_elapsed_stats:new(ClientId, ElapsedSamples, ElapsedThreshold),
+init(#{zone := Zone} = CInfo, #{receive_maximum := MaxInflight}) ->
     #session{max_subscriptions = get_env(Zone, max_subscriptions, 0),
              subscriptions     = #{},
              upgrade_qos       = get_env(Zone, upgrade_qos, false),
@@ -180,7 +180,7 @@ init(#{zone := Zone, clientid := ClientId}, #{receive_maximum := MaxInflight}) -
              max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
              await_rel_timeout = timer:seconds(get_env(Zone, await_rel_timeout, 300)),
              created_at        = erlang:system_time(millisecond),
-             elapsed_stats     = Stats
+             latency_stats     = emqx_message_latency_stats:new(CInfo)
             }.
 
 %% @private init mq
@@ -238,9 +238,8 @@ info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout div 1000;
 info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt;
-info(elapsed_average, #session{elapsed_stats = Stats}) ->
-    #{ema := #{average := Average}} = Stats,
-    Average.
+info(latency_stats, #session{latency_stats = Stats}) ->
+    emqx_message_latency_stats:latency(Stats).
 
 %% @doc Get stats of the session.
 -spec(stats(session()) -> emqx_types:stats()).
@@ -334,7 +333,7 @@ puback(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            Session2 = elapsed_update(Msg, Session),
+            Session2 = update_latency(Msg, Session),
             return_with(Msg, dequeue(Session2#session{inflight = Inflight1}));
         {value, {_Pubrel, _Ts}} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
@@ -358,7 +357,7 @@ return_with(Msg, {ok, Publishes, Session}) ->
 pubrec(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
-            Update = with_ts(?PUBREL_AWAIT(Msg#message.timestamp)),
+            Update = with_ts(#pubrel_await{timestamp = Msg#message.timestamp}),
             Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
             {ok, Msg, Session#session{inflight = Inflight1}};
         {value, {_PUBREL, _Ts}} ->
@@ -390,8 +389,8 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
        | {error, emqx_types:reason_code()}).
 pubcomp(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {Pubrel, _Ts}} ->
-            Session2 = elapsed_update(Pubrel, Session),
+        {value, {Pubrel, _Ts}} when is_record(Pubrel, pubrel_await) ->
+            Session2 = update_latency(Pubrel, Session),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             dequeue(Session2#session{inflight = Inflight1});
         {value, _Other} ->
@@ -566,7 +565,7 @@ retry(Session = #session{inflight = Inflight, retry_interval = RetryInterval}) -
         true  -> {ok, Session};
         false ->
             Now = erlang:system_time(millisecond),
-            Session2 = elapsed_check_expire(Now, RetryInterval, Session),
+            Session2 = check_expire_latency(Now, RetryInterval, Session),
             retry_delivery(emqx_inflight:to_list(sort_fun(), Inflight),
                            [],
                            Now,
@@ -642,7 +641,7 @@ resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = 
 
 -spec(replay(session()) -> {ok, replies(), session()}).
 replay(Session = #session{inflight = Inflight}) ->
-    Pubs = lists:map(fun({PacketId, {?PUBREL_AWAIT(_), _Ts}}) ->
+    Pubs = lists:map(fun({PacketId, {Pubrel,  _Ts}}) when is_record(Pubrel, pubrel_await) ->
                          {pubrel, PacketId};
                         ({PacketId, {Msg, _Ts}}) ->
                          {PacketId, emqx_message:set_flag(dup, true, Msg)}
@@ -694,25 +693,25 @@ next_pkt_id(Session = #session{next_pkt_id = Id}) ->
     Session#session{next_pkt_id = Id + 1}.
 
 %%--------------------------------------------------------------------
-%% Message Elapsed Stats
+%% Message Latency Stats
 %%--------------------------------------------------------------------
-elapsed_update(Msg, #session{elapsed_stats = Stats, created_at = CreateAt} = S) ->
+update_latency(Msg, #session{latency_stats = Stats, created_at = CreateAt} = S) ->
     case get_birth_timestamp(Msg, CreateAt) of
         0 -> S;
         Ts ->
-            Elapsed = erlang:system_time(millisecond) - Ts,
-            Stats2 = emqx_message_elapsed_stats:update(Elapsed, Stats),
-            S#session{elapsed_stats = Stats2}
+            Latency = erlang:system_time(millisecond) - Ts,
+            Stats2 = emqx_message_latency_stats:update(Latency, Stats),
+            S#session{latency_stats = Stats2}
     end.
 
-elapsed_check_expire(Now, Interval, #session{elapsed_stats = Stats} = S) ->
-    Stats2 = emqx_message_elapsed_stats:check_expire(Now, Interval, Stats),
-    S#session{elapsed_stats = Stats2}.
+check_expire_latency(Now, Interval, #session{latency_stats = Stats} = S) ->
+    Stats2 = emqx_message_latency_stats:check_expire(Now, Interval, Stats),
+    S#session{latency_stats = Stats2}.
 
 get_birth_timestamp(#message{timestamp = Ts}, CreateAt) when CreateAt =< Ts ->
     Ts;
 
-get_birth_timestamp({pubrel, Ts}, CreateAt) when CreateAt =< Ts ->
+get_birth_timestamp(#pubrel_await{timestamp = Ts}, CreateAt) when CreateAt =< Ts ->
     Ts;
 
 get_birth_timestamp(_, _) ->
