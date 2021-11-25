@@ -300,7 +300,7 @@ try_insert_to_topk(MaxSize, Index, Latency, Type, Ts) ->
             %% if the size is under limit, insert it directly
             ets:insert(?TOPK_TAB,
                        #top_k{index = Index, type = Type, last_update_time = Ts});
-        Size ->
+        _Size ->
             %% find the minimum value
             ?INDEX(Min, _) = First =
                 case ets:first(?TOPK_TAB) of
