@@ -22,7 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
-
+-import(emqx_trace_handler_SUITE, [filesync/2]).
 -record(emqx_trace, {name, type, filter, enable = true, start_at, end_at}).
 
 %%--------------------------------------------------------------------
@@ -237,15 +237,16 @@ t_client_event(_Config) ->
     emqtt:ping(Client),
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"1">>, [{qos, 0}]),
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"2">>, [{qos, 0}]),
-    ct:sleep(200),
     ok = emqx_trace:create([{<<"name">>, <<"test_topic">>},
         {<<"type">>, <<"topic">>}, {<<"topic">>, <<"/test">>}, {<<"start_at">>, Start}]),
-    ct:sleep(200),
+    ok = filesync(Name, clientid),
+    ok = filesync(<<"test_topic">>, topic),
     {ok, Bin} = file:read_file(emqx_trace:log_file(Name, Now)),
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"3">>, [{qos, 0}]),
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"4">>, [{qos, 0}]),
     ok = emqtt:disconnect(Client),
-    ct:sleep(200),
+    ok = filesync(Name, clientid),
+    ok = filesync(<<"test_topic">>, topic),
     {ok, Bin2} = file:read_file(emqx_trace:log_file(Name, Now)),
     {ok, Bin3} = file:read_file(emqx_trace:log_file(<<"test_topic">>, Now)),
     ct:pal("Bin ~p Bin2 ~p Bin3 ~p", [byte_size(Bin), byte_size(Bin2), byte_size(Bin3)]),
@@ -301,7 +302,7 @@ t_download_log(_Config) ->
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     [begin _ = emqtt:ping(Client) end ||_ <- lists:seq(1, 5)],
-    ct:sleep(100),
+    ok = filesync(Name, clientid),
     {ok, ZipFile} = emqx_trace_api:download_zip_log(#{name => Name}, []),
     ?assert(filelib:file_size(ZipFile) > 0),
     ok = emqtt:disconnect(Client),
