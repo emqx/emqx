@@ -19,7 +19,6 @@ up:
 		LDAP_TAG=2.4.50 \
 	docker-compose \
 		-f .ci/docker-compose-file/docker-compose.yaml \
-		-f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
@@ -29,7 +28,6 @@ up:
 down:
 	docker-compose \
 		-f .ci/docker-compose-file/docker-compose.yaml \
-		-f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
