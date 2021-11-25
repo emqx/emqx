@@ -125,7 +125,7 @@ verify_claims(default) -> #{};
 verify_claims(validator) -> [fun do_check_verify_claims/1];
 verify_claims(converter) ->
     fun(VerifyClaims) ->
-        maps:to_list(VerifyClaims)
+        [{to_binary(K), V} || {K, V} <- maps:to_list(VerifyClaims)]
     end;
 verify_claims(_) -> undefined.
 
@@ -349,3 +349,8 @@ validate_placeholder(<<"clientid">>) ->
     clientid;
 validate_placeholder(<<"username">>) ->
     username.
+
+to_binary(A) when is_atom(A) ->
+    atom_to_binary(A);
+to_binary(B) when is_binary(B) ->
+    B.
