@@ -17,15 +17,14 @@
 -module(emqx_message_latency_stats).
 
 %% API
--export([ new/1, new/3, update/2
-        , check_expire/3, latency/1]).
+-export([ new/1, new/2, update/3
+        , check_expire/4, latency/1]).
 
 -define(NOW, erlang:system_time(millisecond)).
 -define(MINIMUM_INSERT_INTERVAL, 1000).
 -define(MINIMUM_THRESHOLD, 100).
 
--opaque stats() :: #{ clientid := emqx_types:clientid()
-                    , threshold := number()
+-opaque stats() :: #{ threshold := number()
                     , ema := emqx_moving_average:ema()
                     , last_update_time := timestamp()
                     , last_access_time := timestamp()  %% timestamp of last access top-k
@@ -45,42 +44,39 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
--spec new(emqx_types:clientinfo()) -> stats().
-new(#{zone := Zone} = CInfo) ->
-    %% add this for some test case which has no clientid field
-    ClientId = maps:get(clientid, CInfo, <<>>),
+-spec new(emqx_types:zone()) -> stats().
+new(Zone) ->
     Samples = get_env(Zone, latency_samples, 1),
     Threshold = get_env(Zone, latency_stats_threshold, ?MINIMUM_THRESHOLD),
-    new(ClientId, Samples, Threshold).
+    new(Samples, Threshold).
 
--spec new(emqx_types:clientid(), non_neg_integer(), number()) -> stats().
-new(ClientId, SamplesT, ThresholdT) ->
+-spec new(non_neg_integer(), number()) -> stats().
+new(SamplesT, ThresholdT) ->
     Samples = erlang:max(1, SamplesT),
     Threshold = erlang:max(?MINIMUM_THRESHOLD, ThresholdT),
-    #{ clientid => ClientId
-     , ema => emqx_moving_average:new(exponential, #{period => Samples})
+    #{ ema => emqx_moving_average:new(exponential, #{period => Samples})
      , threshold => Threshold
      , last_update_time => 0
      , last_access_time => 0
      , last_insert_value => 0
      }.
 
--spec update(number(), stats()) -> stats().
-update(Val, #{ema := EMA} = Stats) ->
+-spec update(emqx_types:clientid(), number(), stats()) -> stats().
+update(ClientId, Val, #{ema := EMA} = Stats) ->
     Now = ?NOW,
     #{average := Latency} = EMA2 = emqx_moving_average:update(Val, EMA),
-    Stats2 = call_hook(Now, average, Latency, Stats),
+    Stats2 = call_hook(ClientId, Now, average, Latency, Stats),
     Stats2#{ ema := EMA2
            , last_update_time := ?NOW}.
 
--spec check_expire(timestamp(), timespan(), stats()) -> stats().
-check_expire(Now, Interval, #{last_update_time := LUT} = S)
+-spec check_expire(emqx_types:clientid(), timestamp(), timespan(), stats()) -> stats().
+check_expire(_, Now, Interval, #{last_update_time := LUT} = S)
   when LUT >= Now - Interval ->
     S;
 
-check_expire(Now, _Interval, #{last_update_time := LUT} = S) ->
+check_expire(ClientId, Now, _Interval, #{last_update_time := LUT} = S) ->
     Latency = Now - LUT,
-    call_hook(Now, expire, Latency, S).
+    call_hook(ClientId, Now, expire, Latency, S).
 
 -spec latency(stats()) -> number().
 latency(#{ema := #{average := Average}}) ->
@@ -89,15 +85,16 @@ latency(#{ema := #{average := Average}}) ->
 %%--------------------------------------------------------------------
 %%  Internal functions
 %%--------------------------------------------------------------------
--spec call_hook(timestamp(), latency_type(), timespan(), stats()) -> stats().
-call_hook(Now, _, _, #{last_access_time := LIT} = S) when LIT >= Now - ?MINIMUM_INSERT_INTERVAL ->
+-spec call_hook(emqx_types:clientid(), timestamp(), latency_type(), timespan(), stats()) -> stats().
+call_hook(_, Now, _, _, #{last_access_time := LIT} = S)
+  when LIT >= Now - ?MINIMUM_INSERT_INTERVAL ->
     S;
 
-call_hook(_, _, Latency, #{threshold := Threshold} = S)
+call_hook(_, _, _, Latency, #{threshold := Threshold} = S)
   when Latency =< Threshold ->
     S;
 
-call_hook(Now, Type, Latency, #{clientid := ClientId, last_insert_value := LIV} = Stats) ->
+call_hook(ClientId, Now, Type, Latency, #{last_insert_value := LIV} = Stats) ->
     Arg = #{clientid => ClientId,
             latency => erlang:floor(Latency),
             type => Type,

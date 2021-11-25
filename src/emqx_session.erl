@@ -95,6 +95,8 @@
 -import(emqx_zone, [get_env/3]).
 
 -record(session, {
+          %% Client's id
+          clientid :: emqx_types:clientid(),
           %% Client’s Subscriptions.
           subscriptions :: map(),
           %% Max subscriptions allowed
@@ -122,10 +124,8 @@
           await_rel_timeout :: timeout(),
           %% Created at
           created_at :: pos_integer(),
-
           %% Message deliver latency stats
           latency_stats :: emqx_message_latency_stats:stats()
-
           }).
 
 %% in the previous code, we will replace the message record with the pubrel atom
@@ -163,13 +163,20 @@
 
 -define(DEFAULT_BATCH_N, 1000).
 
+-ifdef(TEST).
+-define(GET_CLIENT_ID(C), maps:get(clientid, C, <<>>)).
+-else.
+-define(GET_CLIENT_ID(C), maps:get(clientid, C)).
+-endif.
+
 %%--------------------------------------------------------------------
 %% Init a Session
 %%--------------------------------------------------------------------
 
 -spec(init(emqx_types:clientinfo(), emqx_types:conninfo()) -> session()).
 init(#{zone := Zone} = CInfo, #{receive_maximum := MaxInflight}) ->
-    #session{max_subscriptions = get_env(Zone, max_subscriptions, 0),
+    #session{clientid          = ?GET_CLIENT_ID(CInfo),
+             max_subscriptions = get_env(Zone, max_subscriptions, 0),
              subscriptions     = #{},
              upgrade_qos       = get_env(Zone, upgrade_qos, false),
              inflight          = emqx_inflight:new(MaxInflight),
@@ -180,7 +187,7 @@ init(#{zone := Zone} = CInfo, #{receive_maximum := MaxInflight}) ->
              max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
              await_rel_timeout = timer:seconds(get_env(Zone, await_rel_timeout, 300)),
              created_at        = erlang:system_time(millisecond),
-             latency_stats     = emqx_message_latency_stats:new(CInfo)
+             latency_stats     = emqx_message_latency_stats:new(Zone)
             }.
 
 %% @private init mq
@@ -695,17 +702,21 @@ next_pkt_id(Session = #session{next_pkt_id = Id}) ->
 %%--------------------------------------------------------------------
 %% Message Latency Stats
 %%--------------------------------------------------------------------
-update_latency(Msg, #session{latency_stats = Stats, created_at = CreateAt} = S) ->
+update_latency(Msg,
+               #session{clientid = ClientId,
+                        latency_stats = Stats,
+                        created_at = CreateAt} = S) ->
     case get_birth_timestamp(Msg, CreateAt) of
         0 -> S;
         Ts ->
             Latency = erlang:system_time(millisecond) - Ts,
-            Stats2 = emqx_message_latency_stats:update(Latency, Stats),
+            Stats2 = emqx_message_latency_stats:update(ClientId, Latency, Stats),
             S#session{latency_stats = Stats2}
     end.
 
-check_expire_latency(Now, Interval, #session{latency_stats = Stats} = S) ->
-    Stats2 = emqx_message_latency_stats:check_expire(Now, Interval, Stats),
+check_expire_latency(Now, Interval,
+                     #session{clientid = ClientId, latency_stats = Stats} = S) ->
+    Stats2 = emqx_message_latency_stats:check_expire(ClientId, Now, Interval, Stats),
     S#session{latency_stats = Stats2}.
 
 get_birth_timestamp(#message{timestamp = Ts}, CreateAt) when CreateAt =< Ts ->
