@@ -160,13 +160,15 @@ authenticate(Credential, #{resource_id := ResourceId,
     Request = generate_request(Credential, State),
     case emqx_resource:query(ResourceId, {Method, Request, RequestTimeout}) of
         {ok, 204, _Headers} -> {ok, #{is_superuser => false}};
+        {ok, 200, _Headers} -> {ok, #{is_superuser => false}};
         {ok, 200, Headers, Body} ->
             ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
             case safely_parse_body(ContentType, Body) of
                 {ok, NBody} ->
                     %% TODO: Return by user property
-                    {ok, #{is_superuser => maps:get(<<"is_superuser">>, NBody, false),
-                           user_property => maps:remove(<<"is_superuser">>, NBody)}};
+                    UserProperty = maps:remove(<<"is_superuser">>, NBody),
+                    IsSuperuser = emqx_authn_utils:is_superuser(NBody),
+                    {ok, IsSuperuser#{user_property => UserProperty}};
                 {error, _Reason} ->
                     {ok, #{is_superuser => false}}
             end;
@@ -208,9 +210,9 @@ check_url(URL) ->
     end.
 
 check_body(Body) ->
-    maps:fold(fun(_K, _V, false) -> false;
-                 (_K, V, true) -> is_binary(V)
-              end, true, Body).
+    lists:all(
+      fun erlang:is_binary/1,
+      maps:values(Body)).
 
 default_headers() ->
     maps:put(<<"content-type">>,
@@ -242,12 +244,9 @@ check_ssl_opts(Conf) ->
     end.
 
 check_headers(Conf) ->
-    Method = hocon_schema:get_value("config.method", Conf),
+    Method = to_bin(hocon_schema:get_value("config.method", Conf)),
     Headers = hocon_schema:get_value("config.headers", Conf),
-    case Method =:= get andalso maps:get(<<"content-type">>, Headers, undefined) =/= undefined of
-        true -> false;
-        false -> true
-    end.
+    Method =:= <<"post">> orelse (not maps:is_key(<<"content-type">>, Headers)).
 
 parse_url(URL) ->
     {ok, URIMap} = emqx_http_lib:uri_parse(URL),
@@ -300,7 +299,7 @@ qs([], Acc) ->
     <<$&, Qs/binary>> = iolist_to_binary(lists:reverse(Acc)),
     Qs;
 qs([{K, V} | More], Acc) ->
-    qs(More, [["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)] | Acc]).
+    qs(More, [["&", uri_encode(K), "=", uri_encode(V)] | Acc]).
 
 serialize_body(<<"application/json">>, Body) ->
     emqx_json:encode(Body);
@@ -327,7 +326,17 @@ may_append_body(Output, {ok, _, _, Body}) ->
 may_append_body(Output, {ok, _, _}) ->
     Output.
 
+uri_encode(T) ->
+    emqx_http_lib:uri_encode(to_bin(T)).
+
 to_list(A) when is_atom(A) ->
     atom_to_list(A);
 to_list(B) when is_binary(B) ->
     binary_to_list(B).
+
+to_bin(A) when is_atom(A) ->
+    atom_to_binary(A);
+to_bin(B) when is_binary(B) ->
+    B;
+to_bin(L) when is_list(L) ->
+    list_to_binary(L).
