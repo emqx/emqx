@@ -91,6 +91,7 @@
 start_link(Env) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Env], []).
 
+%% XXX NOTE:pay attention to the performance here
 -spec on_stats_update(stats_update_args(), stats_update_env()) -> true.
 on_stats_update(#{clientid := ClientId,
                   latency := Latency,
@@ -295,7 +296,7 @@ do_clear(Cfg, Logs) ->
 
 try_insert_to_topk(MaxSize, Index, Latency, Type, Ts) ->
     case ets:info(?TOPK_TAB, size) of
-        Size when Size < MaxSize - 1 ->
+        Size when Size < MaxSize ->
             %% if the size is under limit, insert it directly
             ets:insert(?TOPK_TAB,
                        #top_k{index = Index, type = Type, last_update_time = Ts});
