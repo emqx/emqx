@@ -93,7 +93,13 @@ t_procinfo(_) ->
     ?assertEqual([{pid, self()}], emqx_sys_mon:procinfo(self())).
 
 t_procinfo_initial_call_and_stacktrace(_) ->
-    SomePid = proc_lib:spawn(?MODULE, some_function, [arg1, arg2]),
+    SomePid = proc_lib:spawn(?MODULE, some_function, [self(), arg2]),
+    receive
+        {spawned, SomePid} ->
+            ok
+    after 100 ->
+            error(process_not_spawned)
+    end,
     ProcInfo = emqx_sys_mon:procinfo(SomePid),
     ?assertEqual(
        {?MODULE, some_function, ['Argument__1','Argument__2']},
@@ -139,7 +145,8 @@ validate_sys_mon_info(PidOrPort, SysMonName, ValidateInfo, InfoOrPort) ->
 
 fmt(Fmt, Args) -> lists:flatten(io_lib:format(Fmt, Args)).
 
-some_function(_Arg1, _Arg2) ->
+some_function(Parent, _Arg2) ->
+    Parent ! {spawned, self()},
     receive
         stop ->
             ok
