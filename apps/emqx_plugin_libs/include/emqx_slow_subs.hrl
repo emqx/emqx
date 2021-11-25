@@ -21,6 +21,7 @@
 -record(top_k, { index :: index()
                , type :: emqx_message_latency_stats:latency_type()
                , last_update_time :: pos_integer()
+               , extra = []
                }).
 
 -type top_k() :: #top_k{}.

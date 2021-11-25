@@ -114,7 +114,6 @@ on_stats_update(#{clientid := ClientId,
             %% do we need check if Latency == minimum ???
             ets:insert(?TOPK_TAB,
                        #top_k{index = Index, type = Type, last_update_time = Ts}),
-
             ets:delete(?TOPK_TAB, LastIndex);
         [] ->
             %% try to insert
@@ -281,16 +280,15 @@ load(MaxSize) ->
 unload() ->
     emqx:unhook('message.slow_subs_stats', fun ?MODULE:on_stats_update/2).
 
-
 do_clear(Cfg, Logs) ->
     Now = ?NOW,
     Interval = get_value(expire_interval, Cfg),
     Each = fun(#top_k{index = Index, last_update_time = Ts}) ->
                    case Now - Ts >= Interval of
-                   true ->
-                       ets:delete(?TOPK_TAB, Index);
-                   _ ->
-                       true
+                       true ->
+                           ets:delete(?TOPK_TAB, Index);
+                       _ ->
+                           true
                end
            end,
     lists:foreach(Each, Logs).
@@ -298,10 +296,10 @@ do_clear(Cfg, Logs) ->
 try_insert_to_topk(MaxSize, Index, Latency, Type, Ts) ->
     case ets:info(?TOPK_TAB, size) of
         Size when Size < MaxSize - 1 ->
-            %% if the size is enough, insert it directly
+            %% if the size is under limit, insert it directly
             ets:insert(?TOPK_TAB,
                        #top_k{index = Index, type = Type, last_update_time = Ts});
-        _ ->
+        Size ->
             %% find the minimum value
             ?INDEX(Min, _) = First =
                 case ets:first(?TOPK_TAB) of
@@ -309,9 +307,8 @@ try_insert_to_topk(MaxSize, Index, Latency, Type, Ts) ->
                     _ -> ?INDEX(Latency - 1, <<>>)
                 end,
 
-            case Latency of
-                LessEql when LessEql =< Min ->
-                    true;
+            case Latency =< Min of
+                true -> true;
                 _ ->
                     ets:insert(?TOPK_TAB,
                                #top_k{index = Index, type = Type, last_update_time = Ts}),

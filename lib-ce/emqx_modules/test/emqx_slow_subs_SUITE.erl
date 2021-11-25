@@ -75,11 +75,13 @@ t_log_and_pub(_) ->
     timer:sleep(1000),
     Size = ets:info(?TOPK_TAB, size),
     %% some time record maybe delete due to it expired
-    ?assert(Size =< 5 andalso Size >= 4),
+    ?assert(Size =< 6 andalso Size >= 4),
 
     timer:sleep(1500),
-    try_receive(3),
-    try_receive(2),
+    Recs = try_receive([]),
+    RecSum = lists:sum(Recs),
+    ?assert(RecSum >= 5),
+    ?assert(lists:all(fun(E) -> E =< 3 end, Recs)),
 
     timer:sleep(2000),
     ?assert(ets:info(?TOPK_TAB, size) =:= 0),
@@ -112,11 +114,11 @@ client(I, Subs) ->
             ok
     end.
 
-try_receive(L) ->
+try_receive(Acc) ->
     receive
         {deliver, _, #message{payload = Payload}} ->
             #{<<"logs">> := Logs} =  emqx_json:decode(Payload, [return_maps]),
-            ?assertEqual(L, length(Logs))
+            try_receive([length(Logs) | Acc])
     after 500 ->
-            ?assert(false, "no publish")
+            Acc
     end.
