@@ -98,6 +98,12 @@ headers_no_content_type(_) -> undefined.
 
 body(type) -> map();
 body(validator) -> [fun check_body/1];
+body(converter) ->
+    fun(Body) ->
+        maps:fold(fun(K, V, Acc) ->
+                      maps:put(to_binary(K), V, Acc)
+                  end, #{}, Body)
+    end;
 body(_) -> undefined.
 
 request_timeout(type) -> emqx_schema:duration_ms();
@@ -331,3 +337,8 @@ to_list(A) when is_atom(A) ->
     atom_to_list(A);
 to_list(B) when is_binary(B) ->
     binary_to_list(B).
+
+to_binary(A) when is_atom(A) ->
+    atom_to_binary(A);
+to_binary(B) when is_binary(B) ->
+    B.
