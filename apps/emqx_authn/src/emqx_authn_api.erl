@@ -793,9 +793,10 @@ add_user(ChainName,
          AuthenticatorID,
          #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo) ->
     IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
-    case emqx_authentication:add_user(ChainName, AuthenticatorID, #{ user_id => UserID
-                                                      , password => Password
-                                                      , is_superuser => IsSuperuser}) of
+    case emqx_authentication:add_user(ChainName, AuthenticatorID,
+                                      #{ user_id => UserID
+                                       , password => Password
+                                       , is_superuser => IsSuperuser}) of
         {ok, User} ->
             {201, User};
         {error, Reason} ->
@@ -845,7 +846,8 @@ list_users(ChainName, AuthenticatorID, PageParams) ->
     end.
 
 update_config(Path, ConfigRequest) ->
-    emqx:update_config(Path, ConfigRequest, #{rawconf_with_defaults => true}).
+    emqx_conf:update(Path, ConfigRequest, #{rawconf_with_defaults => true,
+                                            override_to => cluster}).
 
 get_raw_config_with_defaults(ConfKeyPath) ->
     NConfKeyPath = [atom_to_binary(Key, utf8) || Key <- ConfKeyPath],
