@@ -70,23 +70,51 @@ init_per_testcase(t_sys_mon2, Config) ->
            (_) -> ok
         end),
     Config;
+init_per_testcase(t_procinfo, Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([]),
+    ok = meck:new(emqx_vm, [passthrough, no_history]),
+    Config;
 init_per_testcase(_, Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
     Config.
 
+end_per_testcase(t_procinfo, _Config) ->
+    ok = meck:unload(emqx_vm),
+    emqx_ct_helpers:stop_apps([]);
 end_per_testcase(_, _Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 t_procinfo(_) ->
-    ok = meck:new(emqx_vm, [passthrough, no_history]),
     ok = meck:expect(emqx_vm, get_process_info, fun(_) -> [] end),
     ok = meck:expect(emqx_vm, get_process_gc_info, fun(_) -> [] end),
     ?assertEqual([], emqx_sys_mon:procinfo([])),
     ok = meck:expect(emqx_vm, get_process_info, fun(_) -> ok end),
     ok = meck:expect(emqx_vm, get_process_gc_info, fun(_) -> undefined end),
-    ?assertEqual(undefined, emqx_sys_mon:procinfo([])),
-    ok = meck:unload(emqx_vm).
+    ?assertEqual(undefined, emqx_sys_mon:procinfo([])).
+
+t_procinfo_initial_call_and_stacktrace(_) ->
+    SomePid = proc_lib:spawn(?MODULE, some_function, [self(), arg2]),
+    receive
+        {spawned, SomePid} ->
+            ok
+    after 100 ->
+            error(process_not_spawned)
+    end,
+    ProcInfo = emqx_sys_mon:procinfo(SomePid),
+    ?assertEqual(
+       {?MODULE, some_function, ['Argument__1','Argument__2']},
+       proplists:get_value(proc_lib_initial_call, ProcInfo)),
+    ?assertMatch(
+       [{?MODULE, some_function, 2,
+         [{file, _},
+          {line, _}]},
+        {proc_lib, init_p_do_apply, 3,
+         [{file, _},
+          {line, _}]}],
+       proplists:get_value(current_stacktrace, ProcInfo)),
+    SomePid ! stop.
 
 t_sys_mon(_Config) ->
     lists:foreach(
@@ -120,3 +148,10 @@ validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort) ->
 concat_str(ValidateInfo, InfoOrPort, Info) ->
     WarnInfo = io_lib:format(ValidateInfo, [InfoOrPort, Info]),
     lists:flatten(WarnInfo).
+
+some_function(Parent, _Arg2) ->
+    Parent ! {spawned, self()},
+    receive
+        stop ->
+            ok
+    end.

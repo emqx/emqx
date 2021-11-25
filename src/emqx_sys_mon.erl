@@ -182,7 +182,15 @@ procinfo(Pid) ->
     case {emqx_vm:get_process_info(Pid), emqx_vm:get_process_gc_info(Pid)} of
         {undefined, _} -> undefined;
         {_, undefined} -> undefined;
-        {Info, GcInfo} -> Info ++ GcInfo
+        {Info, GcInfo} -> get_proc_lib_initial_call(Pid) ++ GcInfo ++ Info
+    end.
+
+get_proc_lib_initial_call(Pid) ->
+    case proc_lib:initial_call(Pid) of
+        false ->
+            [];
+        InitialCall ->
+            [{proc_lib_initial_call, InitialCall}]
     end.
 
 safe_publish(Event, WarnMsg) ->
