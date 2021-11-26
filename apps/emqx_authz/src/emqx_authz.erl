@@ -66,11 +66,14 @@ move(Type, Cmd) ->
     move(Type, Cmd, #{}).
 
 move(Type, #{<<"before">> := Before}, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))}, Opts);
+    emqx:update_config( ?CONF_KEY_PATH
+                      , {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))}, Opts);
 move(Type, #{<<"after">> := After}, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_AFTER(type(After))}, Opts);
+    emqx:update_config( ?CONF_KEY_PATH
+                      , {?CMD_MOVE, type(Type), ?CMD_MOVE_AFTER(type(After))}, Opts);
 move(Type, Position, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), Position}, Opts).
+    emqx:update_config( ?CONF_KEY_PATH
+                      , {?CMD_MOVE, type(Type), Position}, Opts).
 
 update(Cmd, Sources) ->
     update(Cmd, Sources, #{}).
@@ -157,7 +160,8 @@ do_post_update({{?CMD_REPLACE, Type}, Source}, _NewSources) when is_map(Source) 
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     ok = ensure_resource_deleted(OldSource),
     InitedSources = init_sources(check_sources([Source])),
-    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Front ++ InitedSources ++ Rear]}, -1),
+    ok = emqx_hooks:put( 'client.authorize'
+                       , {?MODULE, authorize, [Front ++ InitedSources ++ Rear]}, -1),
     ok = emqx_authz_cache:drain_cache();
 do_post_update({{?CMD_DELETE, Type}, _Source}, _NewSources) ->
     OldInitedSources = lookup(),
@@ -269,7 +273,7 @@ init_source(#{type := DB,
         {error, Reason} -> error({load_config_error, Reason});
         Id -> Source#{annotations =>
                       #{id => Id,
-                        query => Mod:parse_query(SQL)
+                        query => erlang:apply(Mod, parse_query, [SQL])
                        }
                    }
     end.
@@ -279,22 +283,36 @@ init_source(#{type := DB,
 %%--------------------------------------------------------------------
 
 %% @doc Check AuthZ
--spec(authorize(emqx_types:clientinfo(), emqx_types:all(), emqx_types:topic(), allow | deny, sources())
+-spec(authorize( emqx_types:clientinfo()
+               , emqx_types:all()
+               , emqx_types:topic()
+               , allow | deny
+               , sources())
       -> {stop, allow} | {ok, deny}).
 authorize(#{username := Username,
             peerhost := IpAddress
            } = Client, PubSub, Topic, DefaultResult, Sources) ->
     case do_authorize(Client, PubSub, Topic, Sources) of
         {matched, allow} ->
-            ?SLOG(info, #{msg => "authorization_permission_allowed", username => Username, ipaddr => IpAddress, topic => Topic}),
+            ?SLOG(info, #{msg => "authorization_permission_allowed",
+                          username => Username,
+                          ipaddr => IpAddress,
+                          topic => Topic}),
             emqx_metrics:inc(?AUTHZ_METRICS(allow)),
             {stop, allow};
         {matched, deny} ->
-            ?SLOG(info, #{msg => "authorization_permission_denied", username => Username, ipaddr => IpAddress, topic => Topic}),
+            ?SLOG(info, #{msg => "authorization_permission_denied",
+                          username => Username,
+                          ipaddr => IpAddress,
+                          topic => Topic}),
             emqx_metrics:inc(?AUTHZ_METRICS(deny)),
             {stop, deny};
         nomatch ->
-            ?SLOG(info, #{msg => "authorization_failed_nomatch", username => Username, ipaddr => IpAddress, topic => Topic, reason => "no-match rule"}),
+            ?SLOG(info, #{msg => "authorization_failed_nomatch",
+                          username => Username,
+                          ipaddr => IpAddress,
+                          topic => Topic,
+                          reason => "no-match rule"}),
             {stop, DefaultResult}
     end.
 
@@ -311,7 +329,7 @@ do_authorize(Client, PubSub, Topic, [#{type := file} = F | Tail]) ->
 do_authorize(Client, PubSub, Topic,
                [Connector = #{type := Type} | Tail] ) ->
     Mod = authz_module(Type),
-    case Mod:authorize(Client, PubSub, Topic, Connector) of
+    case erlang:apply(Mod, authorize, [Client, PubSub, Topic, Connector]) of
         nomatch -> do_authorize(Client, PubSub, Topic, Tail);
         Matched -> Matched
     end.
@@ -383,7 +401,8 @@ type(postgresql) -> postgresql;
 type(<<"postgresql">>) -> postgresql;
 type('built-in-database') -> 'built-in-database';
 type(<<"built-in-database">>) -> 'built-in-database';
-type(Unknown) -> error({unknown_authz_source_type, Unknown}). % should never happend if the input is type-checked by hocon schema
+%% should never happend if the input is type-checked by hocon schema
+type(Unknown) -> error({unknown_authz_source_type, Unknown}).
 
 %% @doc where the acl.conf file is stored.
 acl_conf_file() ->
