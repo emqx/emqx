@@ -14,14 +14,14 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_st_statistics).
+-module(emqx_mod_slow_subs).
 
 -behaviour(emqx_gen_mod).
 
 -include_lib("include/emqx.hrl").
 -include_lib("include/logger.hrl").
 
--logger_header("[SLOW TOPICS]").
+-logger_header("[SLOW Subs]").
 
 %% emqx_gen_mod callbacks
 -export([ load/1
@@ -29,7 +29,7 @@
         , description/0
         ]).
 
--define(LIB, emqx_st_statistics).
+-define(LIB, emqx_slow_subs).
 
 %%--------------------------------------------------------------------
 %% Load/Unload
@@ -46,4 +46,4 @@ unload(_Env) ->
     ok.
 
 description() ->
-    "EMQ X Slow Topic Statistics Module".
+    "EMQ X Slow Subscribers Statistics Module".

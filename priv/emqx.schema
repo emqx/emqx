@@ -1007,6 +1007,18 @@ end}.
   {datatype, {duration, s}}
 ]}.
 
+%% @doc the number of smaples for calculate the average latency of delivery
+{mapping, "zone.$name.latency_samples", "emqx.zones", [
+  {default, 10},
+  {datatype, integer}
+]}.
+
+%% @doc Threshold for slow subscription statistics
+{mapping, "zone.$name.latency_stats_threshold", "emqx.zones", [
+  {default, "100ms"},
+  {datatype, {duration, ms}}
+]}.
+
 %% @doc Max Packets that Awaiting PUBREL, 0 means no limit
 {mapping, "zone.$name.max_awaiting_rel", "emqx.zones", [
   {default, 0},
@@ -2218,43 +2230,28 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "module.st_statistics.threshold_time", "emqx.modules", [
-  {default, "10s"},
+{mapping, "module.slow_subs.expire_interval", "emqx.modules", [
+  {default, "5m"},
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "module.st_statistics.ignore_before_create", "emqx.modules", [
-  {default, true},
-  {datatype, {enum, [true, false]}}
-]}.
-
-{mapping, "module.st_statistics.time_window", "emqx.modules", [
-  {default, "5M"},
-  {datatype, {duration, ms}}
-]}.
-
-{mapping, "module.st_statistics.max_log_num", "emqx.modules", [
+{mapping, "module.slow_subs.top_k_num", "emqx.modules", [
   {default, 500},
   {datatype, integer}
 ]}.
 
-{mapping, "module.st_statistics.top_k_num", "emqx.modules", [
-  {default, 500},
-  {datatype, integer}
+{mapping, "module.slow_subs.notice_interval", "emqx.modules", [
+  {default, "0s"},
+  {datatype, {duration, ms}}
 ]}.
 
-{mapping, "module.st_statistics.notice_topic", "emqx.modules", [
-  {default, "$slow_topics"},
-  {datatype, string}
-]}.
-
-{mapping, "module.st_statistics.notice_qos", "emqx.modules", [
+{mapping, "module.slow_subs.notice_qos", "emqx.modules", [
   {default, 0},
   {datatype, integer},
   {validators, ["range:0-1"]}
 ]}.
 
-{mapping, "module.st_statistics.notice_batch_size", "emqx.modules", [
+{mapping, "module.slow_subs.notice_batch_size", "emqx.modules", [
   {default, 500},
   {datatype, integer}
 ]}.
@@ -2283,8 +2280,8 @@ end}.
                 end, TotalRules)
   end,
 
-  SlowTopic = fun() ->
-                   List = cuttlefish_variable:filter_by_prefix("module.st_statistics", Conf),
+  SlowSubs = fun() ->
+                   List = cuttlefish_variable:filter_by_prefix("module.slow_subs", Conf),
                    [{erlang:list_to_atom(Key), Value} || {[_, _, Key], Value} <- List]
               end,
 
@@ -2295,7 +2292,7 @@ end}.
     [{emqx_mod_topic_metrics, []}],
     [{emqx_mod_delayed, []}],
     [{emqx_mod_trace, []}],
-    [{emqx_mod_st_statistics, SlowTopic()}],
+    [{emqx_mod_slow_subs, SlowSubs()}],
     [{emqx_mod_acl_internal, [{acl_file, cuttlefish:conf_get("acl_file", Conf1)}]}]
   ])
 end}.

@@ -14,12 +14,15 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(LOG_TAB, emqx_st_statistics_log).
--define(TOPK_TAB, emqx_st_statistics_topk).
+-define(TOPK_TAB, emqx_slow_subs_topk).
 
--record(top_k, { rank :: pos_integer()
-               , topic :: emqx_types:topic()
-               , average_count :: number()
-               , average_elapsed :: number()}).
+-define(INDEX(Latency, ClientId), {Latency, ClientId}).
+
+-record(top_k, { index :: index()
+               , type :: emqx_message_latency_stats:latency_type()
+               , last_update_time :: pos_integer()
+               , extra = []
+               }).
 
 -type top_k() :: #top_k{}.
+-type index() :: ?INDEX(non_neg_integer(), emqx_types:clientid()).

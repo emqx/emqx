@@ -12,9 +12,9 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%%--------------------------------------------------------------------
+%%--------------------------------------------------------------------n
 
--module(emqx_st_statistics_api_SUITE).
+-module(emqx_slow_subs_api_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -24,7 +24,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_management/include/emqx_mgmt.hrl").
--include_lib("emqx_plugin_libs/include/emqx_st_statistics.hrl").
+-include_lib("emqx_plugin_libs/include/emqx_slow_subs.hrl").
 
 -define(CONTENT_TYPE, "application/x-www-form-urlencoded").
 
@@ -33,6 +33,7 @@
 -define(API_VERSION, "v4").
 
 -define(BASE_PATH, "api").
+-define(NOW, erlang:system_time(millisecond)).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -48,78 +49,52 @@ end_per_suite(Config) ->
     Config.
 
 init_per_testcase(_, Config) ->
-    emqx_mod_st_statistics:load(emqx_st_statistics_SUITE:base_conf()),
+    emqx_mod_slow_subs:load(base_conf()),
     Config.
 
 end_per_testcase(_, Config) ->
-    emqx_mod_st_statistics:unload(undefined),
+    emqx_mod_slow_subs:unload([]),
     Config.
 
+base_conf() ->
+    [ {top_k_num, 5}
+    , {expire_interval, timer:seconds(60)}
+    , {notice_interval, 0}
+    , {notice_qos, 0}
+    , {notice_batch_size, 3}
+    ].
+
 t_get_history(_) ->
-    ets:insert(?TOPK_TAB, #top_k{rank = 1,
-                                 topic = <<"test">>,
-                                 average_count = 12,
-                                 average_elapsed = 1500}),
+    Now = ?NOW,
+    Each = fun(I) ->
+               ClientId = erlang:list_to_binary(io_lib:format("test_~p", [I])),
+               ets:insert(?TOPK_TAB, #top_k{index = ?INDEX(I, ClientId),
+                                            type = average,
+                                            last_update_time = Now})
+           end,
 
-    {ok, Data} = request_api(get, api_path(["slow_topic"]), "_page=1&_limit=10",
+    lists:foreach(Each, lists:seq(1, 5)),
+
+    {ok, Data} = request_api(get, api_path(["slow_subscriptions"]), "_page=1&_limit=10",
                              auth_header_()),
+    #{meta := Meta, data := [First | _]} = decode(Data),
 
-    ShouldRet = #{meta => #{page => 1,
-                            limit => 10,
-                            hasnext => false,
-                            count => 1},
-                   data => [#{topic => <<"test">>,
-                              rank => 1,
-                              elapsed => 1500,
-                              count => 12}],
-                   code => 0},
+    RMeta = #{page => 1, limit => 10, count => 5},
+    ?assertEqual(RMeta, Meta),
 
-    Ret = decode(Data),
+    RFirst = #{clientid => <<"test_5">>,
+               latency => 5,
+               type => <<"average">>,
+               last_update_time => Now},
 
-    ?assertEqual(ShouldRet, Ret).
-
-t_rank_range(_) ->
-    Insert = fun(Rank) ->
-                     ets:insert(?TOPK_TAB,
-                                #top_k{rank = Rank,
-                                       topic = <<"test">>,
-                                       average_count = 12,
-                                       average_elapsed = 1500})
-             end,
-    lists:foreach(Insert, lists:seq(1, 15)),
-
-    timer:sleep(100),
-
-    {ok, Data} = request_api(get, api_path(["slow_topic"]), "_page=1&_limit=10",
-                             auth_header_()),
-
-    Meta1 = #{page => 1, limit => 10, hasnext => true, count => 10},
-    Ret1 = decode(Data),
-    ?assertEqual(Meta1, maps:get(meta, Ret1)),
-
-    %% End > Size
-    {ok, Data2} = request_api(get, api_path(["slow_topic"]), "_page=2&_limit=10",
-                              auth_header_()),
-
-    Meta2 = #{page => 2, limit => 10, hasnext => false, count => 5},
-    Ret2 = decode(Data2),
-    ?assertEqual(Meta2, maps:get(meta, Ret2)),
-
-    %% Start > Size
-    {ok, Data3} = request_api(get, api_path(["slow_topic"]), "_page=3&_limit=10",
-                              auth_header_()),
-
-    Meta3 = #{page => 3, limit => 10, hasnext => false, count => 0},
-    Ret3 = decode(Data3),
-    ?assertEqual(Meta3, maps:get(meta, Ret3)).
+    ?assertEqual(RFirst, First).
 
 t_clear(_) ->
-    ets:insert(?TOPK_TAB, #top_k{rank = 1,
-                                 topic = <<"test">>,
-                                 average_count = 12,
-                                 average_elapsed = 1500}),
+    ets:insert(?TOPK_TAB, #top_k{index = ?INDEX(1, <<"test">>),
+                                 type = average,
+                                 last_update_time = ?NOW}),
 
-    {ok, _} = request_api(delete, api_path(["slow_topic"]), [],
+    {ok, _} = request_api(delete, api_path(["slow_subscriptions"]), [],
                           auth_header_()),
 
     ?assertEqual(0, ets:info(?TOPK_TAB, size)).
