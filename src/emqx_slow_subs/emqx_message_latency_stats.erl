@@ -95,11 +95,12 @@ call_hook(_, _, _, Latency, #{threshold := Threshold} = S)
     S;
 
 call_hook(ClientId, Now, Type, Latency, #{last_insert_value := LIV} = Stats) ->
+    ToInsert = erlang:floor(Latency),
     Arg = #{clientid => ClientId,
-            latency => erlang:floor(Latency),
+            latency => ToInsert,
             type => Type,
             last_insert_value => LIV,
             update_time => Now},
     emqx:run_hook('message.slow_subs_stats', [Arg]),
-    Stats#{last_insert_value := Latency,
+    Stats#{last_insert_value := ToInsert,
            last_access_time := Now}.
