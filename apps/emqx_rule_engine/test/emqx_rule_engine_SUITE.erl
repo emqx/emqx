@@ -148,7 +148,6 @@ init_per_testcase(t_events, Config) ->
         #{id => <<"rule:t_events">>,
             sql => SQL,
             outputs => [
-                #{function => console},
                 #{function => <<"emqx_rule_engine_SUITE:output_record_triggered_events">>,
                   args => #{}}
             ],
