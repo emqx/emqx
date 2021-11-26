@@ -19,140 +19,142 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
-% -include_lib("common_test/include/ct.hrl").
-% -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
-% -include("emqx_authn.hrl").
+-include("emqx_authn.hrl").
 
-% -define(AUTH, emqx_authn).
+-define(AUTHN_ID, <<"mechanism:jwt">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-% init_per_suite(Config) ->
-%     emqx_common_test_helpers:start_apps([emqx_authn]),
-%     Config.
+init_per_suite(Config) ->
+    emqx_common_test_helpers:start_apps([emqx_authn]),
+    Config.
 
-% end_per_suite(_) ->
-%     emqx_common_test_helpers:stop_apps([emqx_authn]),
-%     ok.
+end_per_suite(_) ->
+    emqx_common_test_helpers:stop_apps([emqx_authn]),
+    ok.
 
-% t_jwt_authenticator(_) ->
-%     AuthenticatorName = <<"myauthenticator">>,
-%     Config = #{name => AuthenticatorName,
-%                mechanism => jwt,
-%                use_jwks => false,
-%                algorithm => 'hmac-based',
-%                secret => <<"abcdef">>,
-%                secret_base64_encoded => false,
-%                verify_claims => []},
-%     {ok, #{name := AuthenticatorName, id := ID}} = ?AUTH:create_authenticator(?CHAIN, Config),
+t_jwt_authenticator(_) ->
+    Secret = <<"abcdef">>,
+    Config = #{mechanism => jwt,
+               use_jwks => false,
+               algorithm => 'hmac-based',
+               secret => Secret,
+               secret_base64_encoded => false,
+               verify_claims => []},
+    {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
-%     Payload = #{<<"username">> => <<"myuser">>},
-%     JWS = generate_jws('hmac-based', Payload, <<"abcdef">>),
-%     ClientInfo = #{username => <<"myuser">>,
-% 			       password => JWS},
-%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
+    Payload = #{<<"username">> => <<"myuser">>},
+    JWS = generate_jws('hmac-based', Payload, Secret),
+    Credential = #{username => <<"myuser">>,
+			       password => JWS},
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential, State)),
 
-%     Payload1 = #{<<"username">> => <<"myuser">>, <<"is_superuser">> => true},
-%     JWS1 = generate_jws('hmac-based', Payload1, <<"abcdef">>),
-%     ClientInfo1 = #{username => <<"myuser">>,
-% 			        password => JWS1},
-%     ?assertEqual({stop, {ok, #{is_superuser => true}}}, ?AUTH:authenticate(ClientInfo1, ignored)),
+    Payload1 = #{<<"username">> => <<"myuser">>, <<"is_superuser">> => true},
+    JWS1 = generate_jws('hmac-based', Payload1, Secret),
+    Credential1 = #{username => <<"myuser">>,
+			        password => JWS1},
+    ?assertEqual({ok, #{is_superuser => true}}, emqx_authn_jwt:authenticate(Credential1, State)),
 
-%     BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
-%     ClientInfo2 = ClientInfo#{password => BadJWS},
-%     ?assertEqual({stop, {error, not_authorized}}, ?AUTH:authenticate(ClientInfo2, ignored)),
+    BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
+    Credential2 = Credential#{password => BadJWS},
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential2, State)),
 
-%     %% secret_base64_encoded
-%     Config2 = Config#{secret => base64:encode(<<"abcdef">>),
-%                       secret_base64_encoded => true},
-%     ?assertMatch({ok, _}, ?AUTH:update_authenticator(?CHAIN, ID, Config2)),
-%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
+    %% secret_base64_encoded
+    Config2 = Config#{secret => base64:encode(Secret),
+                      secret_base64_encoded => true},
+    {ok, State2} = emqx_authn_jwt:update(Config2, State),
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential, State2)),
 
-%     Config3 = Config#{verify_claims => [{<<"username">>, <<"${mqtt-username}">>}]},
-%     ?assertMatch({ok, _}, ?AUTH:update_authenticator(?CHAIN, ID, Config3)),
-%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
-%     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo#{username => <<"otheruser">>}, ok)),
+    %% invalid secret
+    BadConfig = Config#{secret => <<"emqxsecret">>,
+                        secret_base64_encoded => true},
+    {error, {invalid_parameter, secret}} = emqx_authn_jwt:create(?AUTHN_ID, BadConfig),
 
-%     %% Expiration
-%     Payload3 = #{ <<"username">> => <<"myuser">>
-%                 , <<"exp">> => erlang:system_time(second) - 60},
-%     JWS3 = generate_jws('hmac-based', Payload3, <<"abcdef">>),
-%     ClientInfo3 = ClientInfo#{password => JWS3},
-%     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo3, ignored)),
+    Config3 = Config#{verify_claims => [{<<"username">>, <<"${username}">>}]},
+    {ok, State3} = emqx_authn_jwt:update(Config3, State2),
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential, State3)),
+    ?assertEqual({error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential#{username => <<"otheruser">>}, State3)),
 
-%     Payload4 = #{ <<"username">> => <<"myuser">>
-%                 , <<"exp">> => erlang:system_time(second) + 60},
-%     JWS4 = generate_jws('hmac-based', Payload4, <<"abcdef">>),
-%     ClientInfo4 = ClientInfo#{password => JWS4},
-%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo4, ignored)),
+    %% Expiration
+    Payload3 = #{ <<"username">> => <<"myuser">>
+                , <<"exp">> => erlang:system_time(second) - 60},
+    JWS3 = generate_jws('hmac-based', Payload3, Secret),
+    Credential3 = Credential#{password => JWS3},
+    ?assertEqual({error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential3, State3)),
 
-%     %% Issued At
-%     Payload5 = #{ <<"username">> => <<"myuser">>
-%                 , <<"iat">> => erlang:system_time(second) - 60},
-%     JWS5 = generate_jws('hmac-based', Payload5, <<"abcdef">>),
-%     ClientInfo5 = ClientInfo#{password => JWS5},
-%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo5, ignored)),
+    Payload4 = #{ <<"username">> => <<"myuser">>
+                , <<"exp">> => erlang:system_time(second) + 60},
+    JWS4 = generate_jws('hmac-based', Payload4, Secret),
+    Credential4 = Credential#{password => JWS4},
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential4, State3)),
 
-%     Payload6 = #{ <<"username">> => <<"myuser">>
-%                 , <<"iat">> => erlang:system_time(second) + 60},
-%     JWS6 = generate_jws('hmac-based', Payload6, <<"abcdef">>),
-%     ClientInfo6 = ClientInfo#{password => JWS6},
-%     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo6, ignored)),
+    %% Issued At
+    Payload5 = #{ <<"username">> => <<"myuser">>
+                , <<"iat">> => erlang:system_time(second) - 60},
+    JWS5 = generate_jws('hmac-based', Payload5, Secret),
+    Credential5 = Credential#{password => JWS5},
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential5, State3)),
 
-%     %% Not Before
-%     Payload7 = #{ <<"username">> => <<"myuser">>
-%                 , <<"nbf">> => erlang:system_time(second) - 60},
-%     JWS7 = generate_jws('hmac-based', Payload7, <<"abcdef">>),
-%     ClientInfo7 = ClientInfo#{password => JWS7},
-%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo7, ignored)),
+    Payload6 = #{ <<"username">> => <<"myuser">>
+                , <<"iat">> => erlang:system_time(second) + 60},
+    JWS6 = generate_jws('hmac-based', Payload6, Secret),
+    Credential6 = Credential#{password => JWS6},
+    ?assertEqual({error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential6, State3)),
 
-%     Payload8 = #{ <<"username">> => <<"myuser">>
-%                 , <<"nbf">> => erlang:system_time(second) + 60},
-%     JWS8 = generate_jws('hmac-based', Payload8, <<"abcdef">>),
-%     ClientInfo8 = ClientInfo#{password => JWS8},
-%     ?assertEqual({stop, {error, bad_username_or_password}}, ?AUTH:authenticate(ClientInfo8, ignored)),
+    %% Not Before
+    Payload7 = #{ <<"username">> => <<"myuser">>
+                , <<"nbf">> => erlang:system_time(second) - 60},
+    JWS7 = generate_jws('hmac-based', Payload7, Secret),
+    Credential7 = Credential6#{password => JWS7},
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential7, State3)),
 
-%     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID)),
-%     ok.
+    Payload8 = #{ <<"username">> => <<"myuser">>
+                , <<"nbf">> => erlang:system_time(second) + 60},
+    JWS8 = generate_jws('hmac-based', Payload8, Secret),
+    Credential8 = Credential#{password => JWS8},
+    ?assertEqual({error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential8, State3)),
 
-% t_jwt_authenticator2(_) ->
-%     Dir = code:lib_dir(emqx_authn, test),
-%     PublicKey = list_to_binary(filename:join([Dir, "data/public_key.pem"])),
-%     PrivateKey = list_to_binary(filename:join([Dir, "data/private_key.pem"])),
-%     AuthenticatorName = <<"myauthenticator">>,
-%     Config = #{name => AuthenticatorName,
-%                mechanism => jwt,
-%                use_jwks => false,
-%                algorithm => 'public-key',
-%                certificate => PublicKey,
-%                verify_claims => []},
-%     {ok, #{name := AuthenticatorName, id := ID}} = ?AUTH:create_authenticator(?CHAIN, Config),
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State3)),
+    ok.
 
-%     Payload = #{<<"username">> => <<"myuser">>},
-%     JWS = generate_jws('public-key', Payload, PrivateKey),
-%     ClientInfo = #{username => <<"myuser">>,
-% 			       password => JWS},
-%     ?assertEqual({stop, {ok, #{is_superuser => false}}}, ?AUTH:authenticate(ClientInfo, ignored)),
-%     ?assertEqual({stop, {error, not_authorized}}, ?AUTH:authenticate(ClientInfo#{password => <<"badpassword">>}, ignored)),
+t_jwt_authenticator2(_) ->
+    Dir = code:lib_dir(emqx_authn, test),
+    PublicKey = list_to_binary(filename:join([Dir, "data/public_key.pem"])),
+    PrivateKey = list_to_binary(filename:join([Dir, "data/private_key.pem"])),
+    Config = #{mechanism => jwt,
+               use_jwks => false,
+               algorithm => 'public-key',
+               certificate => PublicKey,
+               verify_claims => []},
+    {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
-%     ?assertEqual(ok, ?AUTH:delete_authenticator(?CHAIN, ID)),
-%     ok.
+    Payload = #{<<"username">> => <<"myuser">>},
+    JWS = generate_jws('public-key', Payload, PrivateKey),
+    Credential = #{username => <<"myuser">>,
+			       password => JWS},
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential, State)),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State)),
 
-% generate_jws('hmac-based', Payload, Secret) ->
-%     JWK = jose_jwk:from_oct(Secret),
-%     Header = #{ <<"alg">> => <<"HS256">>
-%               , <<"typ">> => <<"JWT">>
-%               },
-%     Signed = jose_jwt:sign(JWK, Header, Payload),
-%     {_, JWS} = jose_jws:compact(Signed),
-%     JWS;
-% generate_jws('public-key', Payload, PrivateKey) ->
-%     JWK = jose_jwk:from_pem_file(PrivateKey),
-%     Header = #{ <<"alg">> => <<"RS256">>
-%               , <<"typ">> => <<"JWT">>
-%               },
-%     Signed = jose_jwt:sign(JWK, Header, Payload),
-%     {_, JWS} = jose_jws:compact(Signed),
-%     JWS.
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
+    ok.
+
+generate_jws('hmac-based', Payload, Secret) ->
+    JWK = jose_jwk:from_oct(Secret),
+    Header = #{ <<"alg">> => <<"HS256">>
+              , <<"typ">> => <<"JWT">>
+              },
+    Signed = jose_jwt:sign(JWK, Header, Payload),
+    {_, JWS} = jose_jws:compact(Signed),
+    JWS;
+generate_jws('public-key', Payload, PrivateKey) ->
+    JWK = jose_jwk:from_pem_file(PrivateKey),
+    Header = #{ <<"alg">> => <<"RS256">>
+              , <<"typ">> => <<"JWT">>
+              },
+    Signed = jose_jwt:sign(JWK, Header, Payload),
+    {_, JWS} = jose_jws:compact(Signed),
+    JWS.

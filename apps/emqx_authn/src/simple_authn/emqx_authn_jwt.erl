@@ -125,7 +125,7 @@ verify_claims(default) -> #{};
 verify_claims(validator) -> [fun do_check_verify_claims/1];
 verify_claims(converter) ->
     fun(VerifyClaims) ->
-        maps:to_list(VerifyClaims)
+        [{to_binary(K), V} || {K, V} <- maps:to_list(VerifyClaims)]
     end;
 verify_claims(_) -> undefined.
 
@@ -201,15 +201,14 @@ create2(#{use_jwks := false,
           secret := Secret0,
           secret_base64_encoded := Base64Encoded,
           verify_claims := VerifyClaims}) ->
-    Secret = case Base64Encoded of
-                 true ->
-                     base64:decode(Secret0);
-                 false ->
-                     Secret0
-             end,
-    JWK = jose_jwk:from_oct(Secret),
-    {ok, #{jwk => JWK,
-           verify_claims => VerifyClaims}};
+    case may_decode_secret(Base64Encoded, Secret0) of
+        {error, Reason} ->
+            {error, Reason};
+        Secret ->
+            JWK = jose_jwk:from_oct(Secret),
+            {ok, #{jwk => JWK,
+                   verify_claims => VerifyClaims}}
+    end;                                                                                           
 
 create2(#{use_jwks := false,
           algorithm := 'public-key',
@@ -232,6 +231,14 @@ create2(#{use_jwks := true,
                    verify_claims => VerifyClaims}};
         {error, Reason} ->
             {error, Reason}
+    end.
+
+may_decode_secret(false, Secret) -> Secret;
+may_decode_secret(true, Secret) ->
+    try base64:decode(Secret)
+    catch
+        error : _ ->
+            {error, {invalid_parameter, secret}}
     end.
 
 replace_placeholder(L, Variables) ->
@@ -349,3 +356,8 @@ validate_placeholder(<<"clientid">>) ->
     clientid;
 validate_placeholder(<<"username">>) ->
     username.
+
+to_binary(A) when is_atom(A) ->
+    atom_to_binary(A);
+to_binary(B) when is_binary(B) ->
+    B.

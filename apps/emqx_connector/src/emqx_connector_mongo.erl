@@ -169,8 +169,11 @@ health_check(PoolName) ->
         case ecpool_worker:client(Worker) of
             {ok, Conn} ->
                 %% we don't care if this returns something or not, we just to test the connection
-                Res = mongo_api:find_one(Conn, <<"foo">>, {}, #{}),
-                Res == undefined orelse is_map(Res);
+                try mongo_api:find_one(Conn, <<"foo">>, {}, #{}) of
+                    _ -> true
+                catch
+                    _Class:_Error -> false
+                end;
             _ -> false
         end
     end || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
