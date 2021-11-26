@@ -71,8 +71,10 @@ t_public_ref(_Config) ->
         {emqx_dashboard_swagger, page, parameter}
     ], Refs),
     ExpectRefs = [
-        #{<<"public.limit">> => #{description => <<"Results per page(max 100)">>, example => 50,in => query,name => limit,
-            schema => #{default => 100,example => 1,maximum => 100, minimum => 1,type => integer}}},
+        #{<<"public.limit">> => #{description => <<"Results per page(max 1000)">>,
+            example => 50,in => query,name => limit,
+            schema => #{default => 100,example => 1,maximum => 1000,
+                minimum => 1,type => integer}}},
         #{<<"public.page">> => #{description => <<"Page number of the results to fetch.">>,
             example => 1,in => query,name => page,
             schema => #{default => 1,example => 100,type => integer}}}],
@@ -176,7 +178,8 @@ t_in_mix_trans(_Config) ->
     Expect = {ok,
         #{body => #{},
             bindings => #{state => 720},
-            query_string => #{<<"filter">> => created,<<"is_admin">> => true, <<"per_page">> => 5,<<"timeout">> => 34}}},
+            query_string => #{<<"filter">> => created,<<"is_admin">> => true,
+                <<"per_page">> => 5,<<"timeout">> => 34}}},
     ?assertEqual(Expect, trans_parameters(Path, Bindings, Query)),
     ok.
 
@@ -268,7 +271,10 @@ schema("/test/in/:filter") ->
             parameters => [
                 {filter,
                     mk(hoconsc:enum([assigned, created, mentioned, all]),
-                        #{in => path, desc => <<"Indicates which sorts of issues to return">>, example => "all"})}
+                        #{in => path,
+                          desc => <<"Indicates which sorts of issues to return">>,
+                          example => "all"
+                        })}
             ],
             responses => #{200 => <<"ok">>}
         }
@@ -323,9 +329,11 @@ schema("/test/in/mix/:state") ->
             deprecated => true,
             parameters => [
                 {filter, hoconsc:mk(hoconsc:enum([assigned, created, mentioned, all]),
-                    #{in => query, desc => <<"Indicates which sorts of issues to return">>, example => "all"})},
+                    #{in => query, desc => <<"Indicates which sorts of issues to return">>,
+                        example => "all"})},
                 {state, mk(emqx_schema:duration_s(),
-                    #{in => path, required => true, example => "12m", desc => <<"Indicates the state of the issues to return.">>})},
+                    #{in => path, required => true, example => "12m",
+                        desc => <<"Indicates the state of the issues to return.">>})},
                 {per_page, mk(range(1, 50),
                     #{in => query, required => false, example => 10, default => 5})},
                 {is_admin, mk(boolean(), #{in => query})},

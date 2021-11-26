@@ -62,7 +62,9 @@ t_trace_clientid(_Config) ->
         emqx_trace_handler:install(clientid, <<"client4">>, bad_level, "tmp/client4.log"),
     {error, {handler_not_added, {file_error, ".", eisdir}}} =
         emqx_trace_handler:install(clientid, <<"client5">>, debug, "."),
-    ct:sleep(100),
+    ok = filesync(<<"client">>, clientid),
+    ok = filesync(<<"client2">>, clientid),
+    ok = filesync(<<"client3">>, clientid),
 
     %% Verify the tracing file exits
     ?assert(filelib:is_regular("tmp/client.log")),
@@ -83,7 +85,10 @@ t_trace_clientid(_Config) ->
     emqtt:connect(T),
     emqtt:publish(T, <<"a/b/c">>, <<"hi">>),
     emqtt:ping(T),
-    ct:sleep(200),
+
+    ok = filesync(<<"client">>, clientid),
+    ok = filesync(<<"client2">>, clientid),
+    ok = filesync(<<"client3">>, clientid),
 
     %% Verify messages are logged to "tmp/client.log" but not "tmp/client2.log".
     {ok, Bin} = file:read_file("tmp/client.log"),
@@ -109,7 +114,8 @@ t_trace_topic(_Config) ->
     emqx_logger:set_log_level(debug),
     ok = emqx_trace_handler:install(topic, <<"x/#">>, all, "tmp/topic_trace_x.log"),
     ok = emqx_trace_handler:install(topic, <<"y/#">>, all, "tmp/topic_trace_y.log"),
-    ct:sleep(100),
+    ok = filesync(<<"x/#">>, topic),
+    ok = filesync(<<"y/#">>, topic),
 
     %% Verify the tracing file exits
     ?assert(filelib:is_regular("tmp/topic_trace_x.log")),
@@ -128,7 +134,8 @@ t_trace_topic(_Config) ->
     emqtt:publish(T, <<"x/y/z">>, <<"hi2">>),
     emqtt:subscribe(T, <<"x/y/z">>),
     emqtt:unsubscribe(T, <<"x/y/z">>),
-    ct:sleep(200),
+    ok = filesync(<<"x/#">>, topic),
+    ok = filesync(<<"y/#">>, topic),
 
     {ok, Bin} = file:read_file("tmp/topic_trace_x.log"),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"hi1">>])),
@@ -152,8 +159,8 @@ t_trace_ip_address(_Config) ->
     %% Start tracing
     ok = emqx_trace_handler:install(ip_address, "127.0.0.1", all, "tmp/ip_trace_x.log"),
     ok = emqx_trace_handler:install(ip_address, "192.168.1.1", all, "tmp/ip_trace_y.log"),
-    ct:sleep(100),
-
+    ok = filesync(<<"127.0.0.1">>, ip_address),
+    ok = filesync(<<"192.168.1.1">>, ip_address),
     %% Verify the tracing file exits
     ?assert(filelib:is_regular("tmp/ip_trace_x.log")),
     ?assert(filelib:is_regular("tmp/ip_trace_y.log")),
@@ -173,7 +180,8 @@ t_trace_ip_address(_Config) ->
     emqtt:publish(T, <<"x/y/z">>, <<"hi2">>),
     emqtt:subscribe(T, <<"x/y/z">>),
     emqtt:unsubscribe(T, <<"x/y/z">>),
-    ct:sleep(200),
+    ok = filesync(<<"127.0.0.1">>, ip_address),
+    ok = filesync(<<"192.168.1.1">>, ip_address),
 
     {ok, Bin} = file:read_file("tmp/ip_trace_x.log"),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"hi1">>])),
@@ -189,3 +197,19 @@ t_trace_ip_address(_Config) ->
     {error, _Reason} = emqx_trace_handler:uninstall(ip_address, <<"127.0.0.2">>),
     emqtt:disconnect(T),
     ?assertEqual([], emqx_trace_handler:running()).
+
+filesync(Name, Type) ->
+    filesync(Name, Type, 3).
+
+%% sometime the handler process is not started yet.
+filesync(_Name, _Type, 0) -> ok;
+filesync(Name, Type, Retry) ->
+    try
+        Handler = binary_to_atom(<<"trace_",
+            (atom_to_binary(Type))/binary, "_", Name/binary>>),
+        ok = logger_disk_log_h:filesync(Handler)
+    catch E:R ->
+        ct:pal("Filesync error:~p ~p~n", [{Name, Type, Retry}, {E, R}]),
+        ct:sleep(100),
+        filesync(Name, Type, Retry - 1)
+    end.
