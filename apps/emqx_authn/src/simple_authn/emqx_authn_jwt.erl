@@ -207,7 +207,7 @@ create2(#{use_jwks := false,
         Secret ->
             JWK = jose_jwk:from_oct(Secret),
             {ok, #{jwk => JWK,
-                verify_claims => VerifyClaims}}
+                   verify_claims => VerifyClaims}}
     end;                                                                                           
 
 create2(#{use_jwks := false,
