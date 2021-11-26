@@ -21,10 +21,15 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -include("emqx_authn.hrl").
 
 -define(AUTHN_ID, <<"mechanism:jwt">>).
+
+-define(JWKS_PORT, 33333).
+-define(JWKS_PATH, "/jwks.json").
+
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -37,7 +42,11 @@ end_per_suite(_) ->
     emqx_common_test_helpers:stop_apps([emqx_authn]),
     ok.
 
-t_jwt_authenticator(_) ->
+%%------------------------------------------------------------------------------
+%% Tests
+%%------------------------------------------------------------------------------
+
+t_jwt_authenticator_hmac_based(_) ->
     Secret = <<"abcdef">>,
     Config = #{mechanism => jwt,
                use_jwks => false,
@@ -121,10 +130,9 @@ t_jwt_authenticator(_) ->
     ?assertEqual(ok, emqx_authn_jwt:destroy(State3)),
     ok.
 
-t_jwt_authenticator2(_) ->
-    Dir = code:lib_dir(emqx_authn, test),
-    PublicKey = list_to_binary(filename:join([Dir, "data/public_key.pem"])),
-    PrivateKey = list_to_binary(filename:join([Dir, "data/private_key.pem"])),
+t_jwt_authenticator_public_key(_) ->
+    PublicKey = test_rsa_key(public),
+    PrivateKey = test_rsa_key(private),
     Config = #{mechanism => jwt,
                use_jwks => false,
                algorithm => 'public-key',
@@ -141,6 +149,78 @@ t_jwt_authenticator2(_) ->
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
     ok.
+
+t_jwks_renewal(_Config) ->
+    ok = emqx_authn_http_test_server:start(?JWKS_PORT, ?JWKS_PATH),
+    ok = emqx_authn_http_test_server:set_handler(fun jwks_handler/2),
+
+    PrivateKey = test_rsa_key(private),
+    Payload = #{<<"username">> => <<"myuser">>},
+    JWS = generate_jws('public-key', Payload, PrivateKey),
+    Credential = #{username => <<"myuser">>,
+			       password => JWS},
+
+    BadConfig = #{mechanism => jwt,
+                  algorithm => 'public-key',
+                  ssl => #{enable => false},
+                  verify_claims => [],
+
+                  use_jwks => true,
+                  endpoint => "http://127.0.0.1:" ++ integer_to_list(?JWKS_PORT + 1) ++ ?JWKS_PATH,
+                  refresh_interval => 1000
+                 },
+
+    ok = snabbkaffe:start_trace(),
+
+    {{ok, State0}, _} = ?wait_async_action(
+                           emqx_authn_jwt:create(?AUTHN_ID, BadConfig),
+                           #{?snk_kind := jwks_endpoint_response},
+                           1000),
+
+    ok = snabbkaffe:stop(),
+
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, State0)),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State0)),
+
+    GoodConfig = BadConfig#{endpoint =>
+                            "http://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH},
+
+    ok = snabbkaffe:start_trace(),
+
+    {{ok, State1}, _} = ?wait_async_action(
+                           emqx_authn_jwt:update(GoodConfig, State0),
+                           #{?snk_kind := jwks_endpoint_response},
+                           1000),
+
+    ok = snabbkaffe:stop(),
+
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential, State1)),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State1)),
+
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State1)),
+    ok = emqx_authn_http_test_server:stop().
+
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
+
+jwks_handler(Req0, State) ->
+    JWK = jose_jwk:from_pem_file(test_rsa_key(public)),
+    JWKS = jose_jwk_set:to_map([JWK], #{}),
+    Req = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            jiffy:encode(JWKS),
+            Req0),
+    {ok, Req, State}.
+
+test_rsa_key(public) ->
+    Dir = code:lib_dir(emqx_authn, test),
+    list_to_binary(filename:join([Dir, "data/public_key.pem"]));
+
+test_rsa_key(private) ->
+    Dir = code:lib_dir(emqx_authn, test),
+    list_to_binary(filename:join([Dir, "data/private_key.pem"])).
 
 generate_jws('hmac-based', Payload, Secret) ->
     JWK = jose_jwk:from_oct(Secret),
