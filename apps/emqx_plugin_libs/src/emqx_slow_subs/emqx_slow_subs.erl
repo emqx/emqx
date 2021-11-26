@@ -106,8 +106,10 @@ on_stats_update(#{clientid := ClientId,
     %% check whether the client is in the table
     case ets:lookup(?TOPK_TAB, LastIndex) of
         [#top_k{index = Index}] ->
-            %% if last value == the new value, return
-            true;
+            %% if last value == the new value, update the type and last_update_time
+            %% XXX for clients whose latency are stable for a long time, is it possible to reduce updates?
+            ets:insert(?TOPK_TAB,
+                       #top_k{index = Index, type = Type, last_update_time = Ts});
         [_] ->
             %% if Latency > minimum value, we should update it
             %% if Latency < minimum value, maybe it can replace the minimum value
