@@ -45,7 +45,7 @@ spec:
     metadata:
       labels:
         app: {{ include "emqx.name" . }}
-        version: {{ .Chart.AppVersion }}
+        version: {{ .Values.image.tag  }}
         app.kubernetes.io/name: {{ include "emqx.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
       {{- if .Values.recreatePods }}
@@ -85,7 +85,7 @@ spec:
       {{- end }}
       containers:
         - name: emqx
-          image: "{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- if .Values.containerSecurityContext.enabled }}
           securityContext: {{- omit .Values.containerSecurityContext "enabled" | toYaml | nindent 12 }}
