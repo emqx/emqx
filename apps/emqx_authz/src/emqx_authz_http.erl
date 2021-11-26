@@ -87,19 +87,19 @@ replvar(Str0, PubSub, Topic,
          }) when is_list(Str0);
                  is_binary(Str0) ->
     NTopic = emqx_http_lib:uri_encode(Topic),
-    Str1 = re:replace( Str0, ?PH_S_CLIENTID
+    Str1 = re:replace( Str0, emqx_authz:ph_to_re(?PH_S_CLIENTID)
                      , Clientid, [global, {return, binary}]),
-    Str2 = re:replace( Str1, ?PH_S_USERNAME
+    Str2 = re:replace( Str1, emqx_authz:ph_to_re(?PH_S_USERNAME)
                      , bin(Username), [global, {return, binary}]),
-    Str3 = re:replace( Str2, ?PH_S_HOST
+    Str3 = re:replace( Str2, emqx_authz:ph_to_re(?PH_S_HOST)
                      , inet_parse:ntoa(IpAddress), [global, {return, binary}]),
-    Str4 = re:replace( Str3, ?PH_S_PROTONAME
+    Str4 = re:replace( Str3, emqx_authz:ph_to_re(?PH_S_PROTONAME)
                      , bin(Protocol), [global, {return, binary}]),
-    Str5 = re:replace( Str4, ?PH_S_MOUNTPOINT
+    Str5 = re:replace( Str4, emqx_authz:ph_to_re(?PH_S_MOUNTPOINT)
                      , Mountpoint, [global, {return, binary}]),
-    Str6 = re:replace( Str5, ?PH_S_TOPIC
+    Str6 = re:replace( Str5, emqx_authz:ph_to_re(?PH_S_TOPIC)
                      , NTopic, [global, {return, binary}]),
-    Str7 = re:replace( Str6, ?PH_S_ACTION
+    Str7 = re:replace( Str6, emqx_authz:ph_to_re(?PH_S_ACTION)
                      , bin(PubSub), [global, {return, binary}]),
     Str7.
 

@@ -218,4 +218,3 @@ parse(TopicFilter = <<"$share/", Rest/binary>>, Options) ->
     end;
 parse(TopicFilter, Options) ->
     {TopicFilter, Options}.
-

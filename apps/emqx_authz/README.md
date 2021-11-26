@@ -23,7 +23,7 @@ authz:{
                 keyfile: "etc/certs/client-key.pem"
               }
            }
-           sql: "select ipaddress, username, clientid, action, permission, topic from mqtt_authz where ipaddr = '%a' or username = '%u' or clientid = '%c'"
+           sql: "select ipaddress, username, clientid, action, permission, topic from mqtt_authz where ipaddr = ${peerhost} or username = ${username} or clientid = ${clientid}"
        },
        {
            type: postgresql
@@ -36,7 +36,7 @@ authz:{
               auto_reconnect: true
               ssl: {enable: false}
            }
-           sql: "select ipaddress, username, clientid, action, permission, topic from mqtt_authz where ipaddr = '%a' or username = '%u' or username = '$all' or clientid = '%c'"
+           sql: "select ipaddress, username, clientid, action, permission, topic from mqtt_authz where ipaddr = ${peerhost} or username = ${username} or username = '$all' or clientid = ${clientid}"
        },
        {
            type: redis
@@ -48,7 +48,7 @@ authz:{
               auto_reconnect: true
               ssl: {enable: false}
            }
-           cmd: "HGETALL mqtt_authz:%u"
+           cmd: "HGETALL mqtt_authz:${username}"
        },
        {
            principal: {username: "^admin?"}

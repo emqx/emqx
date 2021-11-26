@@ -71,8 +71,9 @@ replvar(Cmd, Client = #{username := Username}) ->
 replvar(Cmd, _) ->
     Cmd.
 
-repl(S, _Var, undefined) ->
+repl(S, _VarPH, undefined) ->
     S;
-repl(S, Var, Val) ->
-    NVal = re:replace(Val, "&", "\\\\&", [global, {return, list}]),
-    re:replace(S, Var, NVal, [{return, list}]).
+repl(S, VarPH, Val) ->
+    NVal   = re:replace(Val, "&", "\\\\&", [global, {return, list}]),
+    NVarPH = emqx_authz:ph_to_re(VarPH),
+    re:replace(S, NVarPH, NVal, [{return, list}]).

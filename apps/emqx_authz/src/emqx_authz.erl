@@ -40,6 +40,8 @@
 
 -export([acl_conf_file/0]).
 
+-export([ph_to_re/1]).
+
 -spec(register_metrics() -> ok).
 register_metrics() ->
     lists:foreach(fun emqx_metrics:ensure/1, ?AUTHZ_METRICS).
@@ -386,3 +388,6 @@ type(Unknown) -> error({unknown_authz_source_type, Unknown}). % should never hap
 %% @doc where the acl.conf file is stored.
 acl_conf_file() ->
     filename:join([emqx:data_dir(), "authz", "acl.conf"]).
+
+ph_to_re(VarPH) ->
+    re:replace(VarPH, "[\\$\\{\\}]", "\\\\&", [global, {return, list}]).
