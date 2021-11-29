@@ -41,11 +41,11 @@
 
 namespace() -> "authn-mysql".
 
-roots() -> [config].
+roots() -> [?CONF_NS].
 
-fields(config) ->
-    [ {mechanism,               {enum, ['password-based']}}
-    , {backend,                 {enum, [mysql]}}
+fields(?CONF_NS) ->
+    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
+    , {backend, emqx_authn_schema:backend(mysql)}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           fun salt_position/1}
     , {query,                   fun query/1}
@@ -74,7 +74,7 @@ query_timeout(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-   [hoconsc:ref(?MODULE, config)].
+   [hoconsc:ref(?MODULE, ?CONF_NS)].
 
 create(_AuthenticatorID, Config) ->
     create(Config).

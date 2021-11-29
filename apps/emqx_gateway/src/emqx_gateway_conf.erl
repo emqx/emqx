@@ -17,8 +17,6 @@
 %% @doc The gateway configuration management module
 -module(emqx_gateway_conf).
 
--include_lib("emqx/include/logger.hrl").
-
 %% Load/Unload
 -export([ load/0
         , unload/0
@@ -55,6 +53,10 @@
 -export([ pre_config_update/3
         , post_config_update/5
         ]).
+
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_authentication.hrl").
+-define(AUTHN_BIN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY).
 
 -type atom_or_bin() :: atom() | binary().
 -type ok_or_err() :: ok_or_err().
@@ -106,8 +108,9 @@ maps_key_take([K | Ks], M, Acc) ->
 
 -spec update_gateway(atom_or_bin(), map()) -> ok_or_err().
 update_gateway(GwName, Conf0) ->
-    Conf = maps:without([listeners, authentication,
-                         <<"listeners">>, <<"authentication">>], Conf0),
+    Exclude0 = [listeners, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM],
+    Exclude1 = [atom_to_binary(K, utf8) || K <- Exclude0],
+    Conf = maps:without(Exclude0 ++ Exclude1, Conf0),
     update({?FUNCTION_NAME, bin(GwName), Conf}).
 
 %% FIXME: delete cert files ??
@@ -263,8 +266,7 @@ pre_config_update(_, {update_gateway, GwName, Conf}, RawConf) ->
         undefined ->
             {error, not_found};
         _ ->
-            NConf = maps:without([<<"listeners">>,
-                                  <<"authentication">>], Conf),
+            NConf = maps:without([<<"listeners">>, ?AUTHN_BIN], Conf),
             {ok, emqx_map_lib:deep_merge(RawConf, #{GwName => NConf})}
     end;
 pre_config_update(_, {unload_gateway, GwName}, RawConf) ->
@@ -311,11 +313,11 @@ pre_config_update(_, {remove_listener, GwName, {LType, LName}}, RawConf) ->
 
 pre_config_update(_, {add_authn, GwName, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
-           [GwName, <<"authentication">>], RawConf, undefined) of
+           [GwName, ?AUTHN_BIN], RawConf, undefined) of
         undefined ->
             {ok, emqx_map_lib:deep_merge(
                    RawConf,
-                   #{GwName => #{<<"authentication">> => Conf}})};
+                   #{GwName => #{?AUTHN_BIN => Conf}})};
         _ ->
             {error, already_exist}
     end;
@@ -326,9 +328,9 @@ pre_config_update(_, {add_authn, GwName, {LType, LName}, Conf}, RawConf) ->
         undefined ->
             {error, not_found};
         Listener ->
-            case maps:get(<<"authentication">>, Listener, undefined) of
+            case maps:get(?AUTHN_BIN, Listener, undefined) of
                 undefined ->
-                    NListener = maps:put(<<"authentication">>, Conf, Listener),
+                    NListener = maps:put(?AUTHN_BIN, Conf, Listener),
                     NGateway = #{GwName =>
                                  #{<<"listeners">> =>
                                    #{LType => #{LName => NListener}}}},
@@ -339,13 +341,13 @@ pre_config_update(_, {add_authn, GwName, {LType, LName}, Conf}, RawConf) ->
     end;
 pre_config_update(_, {update_authn, GwName, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
-           [GwName, <<"authentication">>], RawConf, undefined) of
+           [GwName, ?AUTHN_BIN], RawConf, undefined) of
         undefined ->
             {error, not_found};
         _ ->
             {ok, emqx_map_lib:deep_merge(
                    RawConf,
-                   #{GwName => #{<<"authentication">> => Conf}})}
+                   #{GwName => #{?AUTHN_BIN => Conf}})}
     end;
 pre_config_update(_, {update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
@@ -354,12 +356,12 @@ pre_config_update(_, {update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
         undefined ->
             {error, not_found};
         Listener ->
-            case maps:get(<<"authentication">>, Listener, undefined) of
+            case maps:get(?AUTHN_BIN, Listener, undefined) of
                 undefined ->
                     {error, not_found};
                 Auth ->
                     NListener = maps:put(
-                                  <<"authentication">>,
+                                  ?AUTHN_BIN,
                                   emqx_map_lib:deep_merge(Auth, Conf),
                                   Listener
                                  ),
@@ -371,9 +373,9 @@ pre_config_update(_, {update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
     end;
 pre_config_update(_, {remove_authn, GwName}, RawConf) ->
     {ok, emqx_map_lib:deep_remove(
-           [GwName, <<"authentication">>], RawConf)};
+           [GwName, ?AUTHN_BIN], RawConf)};
 pre_config_update(_, {remove_authn, GwName, {LType, LName}}, RawConf) ->
-    Path = [GwName, <<"listeners">>, LType, LName, <<"authentication">>],
+    Path = [GwName, <<"listeners">>, LType, LName, ?AUTHN_BIN],
     {ok, emqx_map_lib:deep_remove(Path, RawConf)};
 
 pre_config_update(_, UnknownReq, _RawConf) ->

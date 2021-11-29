@@ -19,6 +19,9 @@
 
 -include("include/emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_authentication.hrl").
+
+-define(AUTHN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 
 %% Mgmt APIs - gateway
 -export([ gateways/1
@@ -166,7 +169,7 @@ remove_listener(ListenerId) ->
 -spec authn(gateway_name()) -> map().
 authn(GwName) ->
     %% XXX: Need append chain-nanme, authenticator-id?
-    Path = [gateway, GwName, authentication],
+    Path = [gateway, GwName, ?AUTHN],
     ChainName = emqx_gateway_utils:global_chain(GwName),
     wrap_chain_name(
       ChainName,
@@ -176,7 +179,7 @@ authn(GwName) ->
 -spec authn(gateway_name(), binary()) -> map().
 authn(GwName, ListenerId) ->
     {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    Path = [gateway, GwName, listeners, Type, Name, authentication],
+    Path = [gateway, GwName, listeners, Type, Name, ?AUTHN],
     ChainName = emqx_gateway_utils:listener_chain(GwName, Type, Name),
     wrap_chain_name(
       ChainName,

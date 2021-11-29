@@ -24,8 +24,11 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("emqx_authentication.hrl").
 
 -include_lib("stdlib/include/ms_transform.hrl").
+
+-define(CONF_ROOT, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 
 %% The authentication entrypoint.
 -export([ authenticate/2
@@ -383,8 +386,8 @@ list_users(ChainName, AuthenticatorID, Params) ->
 %%--------------------------------------------------------------------
 
 init(_Opts) ->
-    ok = emqx_config_handler:add_handler([authentication], ?MODULE),
-    ok = emqx_config_handler:add_handler([listeners, '?', '?', authentication], ?MODULE),
+    ok = emqx_config_handler:add_handler([?CONF_ROOT], ?MODULE),
+    ok = emqx_config_handler:add_handler([listeners, '?', '?', ?CONF_ROOT], ?MODULE),
     {ok, #{hooked => false, providers => #{}}}.
 
 handle_call(get_providers, _From, #{providers := Providers} = State) ->
@@ -496,8 +499,8 @@ terminate(Reason, _State) ->
         Other -> ?SLOG(error, #{msg => "emqx_authentication_terminating",
                                 reason => Other})
     end,
-    emqx_config_handler:remove_handler([authentication]),
-    emqx_config_handler:remove_handler([listeners, '?', '?', authentication]),
+    emqx_config_handler:remove_handler([?CONF_ROOT]),
+    emqx_config_handler:remove_handler([listeners, '?', '?', ?CONF_ROOT]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

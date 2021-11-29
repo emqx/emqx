@@ -268,12 +268,13 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
                           }),
             error(failed_to_load_hocon_conf)
     end;
-init_load(SchemaMod, RawConf0) when is_map(RawConf0) ->
+init_load(SchemaMod, RawConf) when is_map(RawConf) ->
     ok = save_schema_mod_and_names(SchemaMod),
     %% check and save configs
-    {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf0),
+    {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf),
+    RootNames = get_root_names(),
     ok = save_to_config_map(maps:with(get_atom_root_names(), CheckedConf),
-            maps:with(get_root_names(), RawConf0)).
+                            maps:with(RootNames, RawConf)).
 
 include_dirs() ->
     [filename:join(emqx:data_dir(), "configs")].

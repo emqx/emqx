@@ -16,6 +16,7 @@
 
 -module(emqx_authn_jwt).
 
+-include("emqx_authn.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
@@ -40,9 +41,9 @@
 namespace() -> "authn-jwt".
 
 roots() ->
-    [ {config, hoconsc:mk(hoconsc:union(refs()),
-                          #{}
-                         )}
+    [ {?CONF_NS,
+       hoconsc:mk(hoconsc:union(refs()),
+                  #{})}
     ].
 
 fields('hmac-based') ->
@@ -82,7 +83,7 @@ fields(ssl_disable) ->
     [ {enable, #{type => false}} ].
 
 common_fields() ->
-    [ {mechanism,       {enum, [jwt]}}
+    [ {mechanism, emqx_authn_schema:mechanism('jwt')}
     , {verify_claims,   fun verify_claims/1}
     ] ++ emqx_authn_schema:common_fields().
 

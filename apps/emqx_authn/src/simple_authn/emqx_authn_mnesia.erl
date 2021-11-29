@@ -85,11 +85,11 @@ mnesia(boot) ->
 
 namespace() -> "authn-builtin_db".
 
-roots() -> [config].
+roots() -> [?CONF_NS].
 
-fields(config) ->
-    [ {mechanism,               {enum, ['password-based']}}
-    , {backend,                 {enum, ['built-in-database']}}
+fields(?CONF_NS) ->
+    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
+    , {backend, emqx_authn_schema:backend('built-in-database')}
     , {user_id_type,            fun user_id_type/1}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     ] ++ emqx_authn_schema:common_fields();
@@ -104,7 +104,7 @@ fields(other_algorithms) ->
     ].
 
 user_id_type(type) -> user_id_type();
-user_id_type(default) -> username;
+user_id_type(default) -> <<"username">>;
 user_id_type(_) -> undefined.
 
 password_hash_algorithm(type) -> hoconsc:union([hoconsc:ref(?MODULE, bcrypt),
@@ -121,7 +121,7 @@ salt_rounds(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-   [hoconsc:ref(?MODULE, config)].
+   [hoconsc:ref(?MODULE, ?CONF_NS)].
 
 create(AuthenticatorID,
        #{user_id_type := Type,

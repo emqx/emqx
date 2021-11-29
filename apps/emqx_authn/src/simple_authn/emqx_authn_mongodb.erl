@@ -42,8 +42,8 @@
 namespace() -> "authn-mongodb".
 
 roots() ->
-    [ {config, hoconsc:mk(hoconsc:union(refs()),
-                          #{})}
+    [ {?CONF_NS, hoconsc:mk(hoconsc:union(refs()),
+                            #{})}
     ].
 
 fields(standalone) ->
@@ -56,8 +56,8 @@ fields('sharded-cluster') ->
     common_fields() ++ emqx_connector_mongo:fields(sharded).
 
 common_fields() ->
-    [ {mechanism,               {enum, ['password-based']}}
-    , {backend,                 {enum, [mongodb]}}
+    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
+    , {backend, emqx_authn_schema:backend(mongodb)}
     , {collection,              fun collection/1}
     , {selector,                fun selector/1}
     , {password_hash_field,     fun password_hash_field/1}

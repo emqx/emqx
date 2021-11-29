@@ -22,6 +22,7 @@
 -dialyzer(no_unused).
 -dialyzer(no_fail_call).
 
+-include("emqx_authentication.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -type duration() :: integer().
@@ -105,7 +106,7 @@ and can not be deleted."""
 The configs here work as default values which can be overriden
 in <code>zone</code> configs"""
           })}
-    , {"authentication",
+    , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
        authentication(
 """Default authentication configs for all MQTT listeners.<br>
 For per-listener overrides see <code>authentication</code>
@@ -972,7 +973,7 @@ mqtt_listener() ->
        sc(duration(),
           #{})
       }
-    , {"authentication",
+    , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
        authentication("Per-listener authentication override")
       }
     ].
@@ -1436,8 +1437,21 @@ str(S) when is_list(S) ->
     S.
 
 authentication(Desc) ->
-    #{ type => hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())]))
-     , desc => iolist_to_binary([Desc, "<br>", """
+    %% authentication schemais lazy to make it more 'plugable'
+    %% the type checks are done in emqx_auth application when it boots.
+    %% and in emqx_authentication_config module for rutime changes.
+    Default = hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())])),
+    %% as the type is lazy, the runtime module injection from EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
+    %% is for now only affecting document generation.
+    %% maybe in the future, we can find a more straightforward way to support
+    %% * document generation (at compile time)
+    %% * type checks before boot (in bin/emqx config generation)
+    %% * type checks at runtime (when changing configs via management API)
+    #{ type => case persistent_term:get(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY, undefined) of
+                   undefined -> Default;
+                   Module -> hoconsc:lazy(Module:root_type())
+               end
+     , desc => iolist_to_binary([Desc, """
 Authentication can be one single authenticator instance or a chain of authenticators as an array.
 When authenticating a login (username, client ID, etc.) the authenticators are checked
 in the configured order.<br>

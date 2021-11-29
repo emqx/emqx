@@ -47,11 +47,11 @@
 
 namespace() -> "authn-postgresql".
 
-roots() -> [config].
+roots() -> [?CONF_NS].
 
-fields(config) ->
-    [ {mechanism,               {enum, ['password-based']}}
-    , {backend,                 {enum, [postgresql]}}
+fields(?CONF_NS) ->
+    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
+    , {backend, emqx_authn_schema:backend(postgresql)}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
     , {salt_position,           fun salt_position/1}
     , {query,                   fun query/1}
@@ -75,7 +75,7 @@ query(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [hoconsc:ref(?MODULE, config)].
+    [hoconsc:ref(?MODULE, ?CONF_NS)].
 
 create(_AuthenticatorID, Config) ->
     create(Config).
