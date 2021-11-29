@@ -102,16 +102,11 @@ main(Options, Baseline) ->
                     Diffs =
                         lists:filtermap(
                           fun({App, {Upgrade, Downgrade, OldUpgrade, OldDowngrade}}) ->
-                                  DiffUp = diff_appup_instructions(Upgrade, OldUpgrade),
-                                  DiffDown = diff_appup_instructions(Downgrade, OldDowngrade),
-                                  case {DiffUp, DiffDown} of
-                                      {[], []} ->
-                                          %% no diff for external dependency
+                                  case parse_appup_diffs(Upgrade, OldUpgrade,
+                                                         Downgrade, OldDowngrade) of
+                                      ok ->
                                           false;
-                                      _ ->
-                                          Diffs = #{ up => DiffUp
-                                                   , down => DiffDown
-                                                   },
+                                      {diffs, Diffs} ->
                                           {true, {App, Diffs}}
                                   end
                           end,
@@ -237,6 +232,23 @@ diff_appup_instructions(ComputedChanges, PresentChanges) ->
       [],
       ComputedChanges).
 
+%% For external dependencies, checks if any missing diffs are present
+%% and groups them by `up' and `down' types.
+parse_appup_diffs(Upgrade, OldUpgrade, Downgrade, OldDowngrade) ->
+    DiffUp = diff_appup_instructions(Upgrade, OldUpgrade),
+    DiffDown = diff_appup_instructions(Downgrade, OldDowngrade),
+    case {DiffUp, DiffDown} of
+        {[], []} ->
+            %% no diff for external dependency; ignore
+            ok;
+        _ ->
+            set_invalid(),
+            Diffs = #{ up => DiffUp
+                     , down => DiffDown
+                     },
+            {diffs, Diffs}
+    end.
+
 %% TODO: handle regexes
 find_matching_version(Vsn, PresentChanges) ->
     proplists:get_value(Vsn, PresentChanges).
@@ -333,17 +345,13 @@ do_update_appup(App, Upgrade, Downgrade, OldUpgrade, OldDowngrade) ->
                 {ok, AppupFile} ->
                     render_appfile(AppupFile, Upgrade, Downgrade);
                 false ->
-                    DiffUp = diff_appup_instructions(Upgrade, OldUpgrade),
-                    DiffDown = diff_appup_instructions(Downgrade, OldDowngrade),
-                    case {DiffUp, DiffDown} of
-                        {[], []} ->
+                    case parse_appup_diffs(Upgrade, OldUpgrade,
+                                           Downgrade, OldDowngrade) of
+                        ok ->
                             %% no diff for external dependency; ignore
                             ok;
-                        _ ->
+                        {diffs, Diffs} ->
                             set_invalid(),
-                            Diffs = #{ up => DiffUp
-                                     , down => DiffDown
-                                     },
                             log("ERROR: Appup file for the external dependency '~p' is not complete.~n       Missing changes: ~100p~n", [App, Diffs]),
                             log("NOTE: Some changes above might be already covered by regexes.~n")
                     end
