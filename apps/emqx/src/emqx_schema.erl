@@ -1232,16 +1232,18 @@ ciphers_schema(Default) ->
                            false -> fun validate_ciphers/1
                        end
         , desc =>
-"""TLS cipher suite names separated by comma, or as an array of strings
+"""This config holds TLS cipher suite names separated by comma,
+or as an array of strings. e.g.
 <code>\"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256\"</code> or
-<code>[\"TLS_AES_256_GCM_SHA384\",\"TLS_AES_128_GCM_SHA256\"]</code].
+<code>[\"TLS_AES_256_GCM_SHA384\",\"TLS_AES_128_GCM_SHA256\"]</code>.
 <br>
 Ciphers (and their ordering) define the way in which the
-client and server encrypts information over the wire.
+client and server encrypts information over the network connection.
 Selecting a good cipher suite is critical for the
 application's data security, confidentiality and performance.
-The names should be in OpenSSL sting format (not RFC format).
-Default values and examples proveded by EMQ X config
+
+The names should be in OpenSSL string format (not RFC format).
+All default values and examples proveded by EMQ X config
 documentation are all in OpenSSL format.<br>
 
 NOTE: Certain cipher suites are only compatible with
@@ -1455,7 +1457,5 @@ authentication(Desc) ->
 Authentication can be one single authenticator instance or a chain of authenticators as an array.
 When authenticating a login (username, client ID, etc.) the authenticators are checked
 in the configured order.<br>
-EMQ X comes with a set of pre-built autenticators, for more details, see
-<a href=\"#root-authenticator_config\">autenticator_config<a>
 """])
      }.
