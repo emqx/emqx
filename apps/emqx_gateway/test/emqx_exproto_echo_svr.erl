@@ -188,13 +188,15 @@ on_received_messages(Stream, _Md) ->
 %%--------------------------------------------------------------------
 
 handle_in(Conn, ?TYPE_CONNECT, #{<<"clientinfo">> := ClientInfo, <<"password">> := Password}) ->
-    NClientInfo = maps:from_list([{binary_to_atom(K, utf8), V} || {K, V} <- maps:to_list(ClientInfo)]),
+    NClientInfo = maps:from_list(
+                    [{binary_to_atom(K, utf8), V}
+                     || {K, V} <- maps:to_list(ClientInfo)]),
     case ?authenticate(#{conn => Conn, clientinfo => NClientInfo, password => Password}) of
         {ok, #{code := 'SUCCESS'}, _} ->
             case maps:get(keepalive, NClientInfo, 0) of
                 0 -> ok;
                 Intv ->
-                    io:format("Try call start_timer with ~ps", [Intv]),
+                    ?LOG("Try call start_timer with ~ps", [Intv]),
                     ?start_timer(#{conn => Conn, type => 'KEEPALIVE', interval => Intv})
             end,
             handle_out(Conn, ?TYPE_CONNACK, 0);
