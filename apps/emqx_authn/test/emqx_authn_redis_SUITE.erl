@@ -124,9 +124,9 @@ t_authenticate(_Config) ->
            user_seeds()).
 
 test_user_auth(#{credentials := Credentials0,
-                 config_params := SpecificConfgParams,
+                 config_params := SpecificConfigParams,
                  result := Result}) ->
-    AuthConfig = maps:merge(raw_redis_auth_config(), SpecificConfgParams),
+    AuthConfig = maps:merge(raw_redis_auth_config(), SpecificConfigParams),
 
     {ok, _} = emqx:update_config(
                 ?PATH,
