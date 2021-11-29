@@ -17,7 +17,7 @@ jobs:
       matrix:
         profile:
           - emqx
-          - emqx-ee
+          - emqx-enterprise
         otp_vsn:
           - 24.1.5-2
 
@@ -68,7 +68,7 @@ jobs:
         if [ $PROFILE = "emqx" ];then
             broker="emqx-ce"
         else
-            broker="emqx-ee"
+            broker="emqx-enterprise"
         fi
         echo "BROKER=$broker" >> $GITHUB_ENV
 

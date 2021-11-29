@@ -148,44 +148,52 @@ prod_overrides() ->
 
 profiles() ->
     Vsn = get_vsn(),
-    [ {'emqx',          [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx(Vsn, cloud, bin, ce)}
-                        , {overrides, prod_overrides()}
-                        , {project_app_dirs, project_app_dirs(ce)}
-                        ]}
-    , {'emqx-pkg',      [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx(Vsn, cloud, pkg, ce)}
-                        , {overrides, prod_overrides()}
-                        , {project_app_dirs, project_app_dirs(ce)}
-                        ]}
-    , {'emqx-ee',       [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx(Vsn, cloud, bin, ee)}
-                        , {overrides, prod_overrides()}
-                        , {project_app_dirs, project_app_dirs(ee)}
-                        ]}
-    , {'emqx-ee-pkg',   [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx(Vsn, cloud, pkg, ee)}
-                        , {overrides, prod_overrides()}
-                        , {project_app_dirs, project_app_dirs(ee)}
-                        ]}
-    , {'emqx-edge',     [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx(Vsn, edge, bin, ce)}
-                        , {overrides, prod_overrides()}
-                        , {project_app_dirs, project_app_dirs(ce)}
-                        ]}
-    , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts()}
-                        , {relx, relx(Vsn, edge, pkg, ce)}
-                        , {overrides, prod_overrides()}
-                        , {project_app_dirs, project_app_dirs(ce)}
-                        ]}
-    , {check,           [ {erl_opts, common_compile_opts()}
-                        , {project_app_dirs, project_app_dirs(ce)}
-                        ]}
-    , {test,            [ {deps, test_deps()}
-                        , {erl_opts, common_compile_opts() ++ erl_opts_i(ce) }
-                        , {extra_src_dirs, [{"test", [{recursive, true}]}]}
-                        , {project_app_dirs, project_app_dirs(ce)}
-                        ]}
+    [ {'emqx',
+       [ {erl_opts, prod_compile_opts()}
+       , {relx, relx(Vsn, cloud, bin, ce)}
+       , {overrides, prod_overrides()}
+       , {project_app_dirs, project_app_dirs(ce)}
+       ]}
+    , {'emqx-pkg',
+       [ {erl_opts, prod_compile_opts()}
+       , {relx, relx(Vsn, cloud, pkg, ce)}
+       , {overrides, prod_overrides()}
+       , {project_app_dirs, project_app_dirs(ce)}
+       ]}
+    , {'emqx-enterprise',
+       [ {erl_opts, prod_compile_opts()}
+       , {relx, relx(Vsn, cloud, bin, ee)}
+       , {overrides, prod_overrides()}
+       , {project_app_dirs, project_app_dirs(ee)}
+       ]}
+    , {'emqx-enterprise-pkg',
+       [ {erl_opts, prod_compile_opts()}
+       , {relx, relx(Vsn, cloud, pkg, ee)}
+       , {overrides, prod_overrides()}
+       , {project_app_dirs, project_app_dirs(ee)}
+       ]}
+    , {'emqx-edge',
+       [ {erl_opts, prod_compile_opts()}
+       , {relx, relx(Vsn, edge, bin, ce)}
+       , {overrides, prod_overrides()}
+       , {project_app_dirs, project_app_dirs(ce)}
+       ]}
+    , {'emqx-edge-pkg',
+       [ {erl_opts, prod_compile_opts()}
+       , {relx, relx(Vsn, edge, pkg, ce)}
+       , {overrides, prod_overrides()}
+       , {project_app_dirs, project_app_dirs(ce)}
+       ]}
+    , {check,
+       [ {erl_opts, common_compile_opts()}
+       , {project_app_dirs, project_app_dirs(ce)}
+       ]}
+    , {test,
+       [ {deps, test_deps()}
+       , {erl_opts, common_compile_opts() ++ erl_opts_i(ce) }
+       , {extra_src_dirs, [{"test", [{recursive, true}]}]}
+       , {project_app_dirs, project_app_dirs(ce)}
+       ]}
     ].
 
 %% RelType: cloud (full size) | edge (slim size)
