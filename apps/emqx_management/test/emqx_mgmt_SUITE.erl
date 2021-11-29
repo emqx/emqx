@@ -240,7 +240,7 @@ t_trace_cmd(_) ->
     logger:set_primary_config(level, error).
 
 t_traces_cmd(_) ->
-    emqx_trace:mnesia(boot),
+    emqx_trace:create_table(),
     Count1 = emqx_mgmt_cli:traces(["list"]),
     ?assertEqual(0, Count1),
     Error1 = emqx_mgmt_cli:traces(["start", "test-name", "client", "clientid-dev"]),
