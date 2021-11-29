@@ -20,6 +20,8 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("jose/include/jose_jwk.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 
 -export([ start_link/1
         , stop/1
@@ -66,9 +68,9 @@ init([Opts]) ->
 handle_call(get_cached_jwks, _From, #{jwks := Jwks} = State) ->
     {reply, {ok, Jwks}, State};
 
-handle_call({update, Opts}, _From, State) ->
-    State = handle_options(Opts),
-    {reply, ok, refresh_jwks(State)};
+handle_call({update, Opts}, _From, _State) ->
+    NewState = handle_options(Opts),
+    {reply, ok, refresh_jwks(NewState)};
 
 handle_call(_Req, _From, State) ->
     {reply, ok, State}.
@@ -91,25 +93,27 @@ handle_info({refresh_jwks, _TRef, refresh}, #{request_id := RequestID} = State) 
 
 handle_info({http, {RequestID, Result}},
             #{request_id := RequestID, endpoint := Endpoint} = State0) ->
+    ?tp(debug, jwks_endpoint_response, #{request_id => RequestID}),
     State1 = State0#{request_id := undefined},
-    case Result of
-        {error, Reason} ->
-            ?SLOG(warning, #{msg => "failed_to_request_jwks_endpoint",
-                             endpoint => Endpoint,
-                             reason => Reason}),
-            State1;
-        {_StatusLine, _Headers, Body} ->
-            try
-                JWKS = jose_jwk:from(emqx_json:decode(Body, [return_maps])),
-                {_, JWKs} = JWKS#jose_jwk.keys,
-                State1#{jwks := JWKs}
-            catch _:_ ->
-                ?SLOG(warning, #{msg => "invalid_jwks_returned",
-                                 endpoint => Endpoint,
-                                 body => Body}),
-                State1
-            end
-    end;
+    NewState = case Result of
+                   {error, Reason} ->
+                       ?SLOG(warning, #{msg => "failed_to_request_jwks_endpoint",
+                                        endpoint => Endpoint,
+                                        reason => Reason}),
+                       State1;
+                   {_StatusLine, _Headers, Body} ->
+                       try
+                           JWKS = jose_jwk:from(emqx_json:decode(Body, [return_maps])),
+                           {_, JWKs} = JWKS#jose_jwk.keys,
+                           State1#{jwks := JWKs}
+                       catch _:_ ->
+                                 ?SLOG(warning, #{msg => "invalid_jwks_returned",
+                                                  endpoint => Endpoint,
+                                                  body => Body}),
+                                 State1
+                       end
+               end,
+    {noreply, NewState};
 
 handle_info({http, {_, _}}, State) ->
     %% ignore
@@ -147,17 +151,18 @@ refresh_jwks(#{endpoint := Endpoint,
     NState = case httpc:request(get, {Endpoint, [{"Accept", "application/json"}]}, HTTPOpts,
                                 [{body_format, binary}, {sync, false}, {receiver, self()}]) of
                  {error, Reason} ->
-                     ?SLOG(warning, #{msg => "failed_to_request_jwks_endpoint",
-                                      endpoint => Endpoint,
-                                      reason => Reason}),
+                     ?tp(warning, jwks_endpoint_request_fail, #{endpoint => Endpoint,
+                                                                http_opts => HTTPOpts,
+                                                                reason => Reason}),
                      State;
                  {ok, RequestID} ->
+                     ?tp(debug, jwks_endpoint_request_ok, #{request_id => RequestID}),
                      State#{request_id := RequestID}
              end,
     ensure_expiry_timer(NState).
 
 ensure_expiry_timer(State = #{refresh_interval := Interval}) ->
-    State#{refresh_timer := emqx_misc:start_timer(timer:seconds(Interval), refresh_jwks)}.
+    State#{refresh_timer => emqx_misc:start_timer(timer:seconds(Interval), refresh_jwks)}.
 
 cancel_timer(State = #{refresh_timer := undefined}) ->
     State;

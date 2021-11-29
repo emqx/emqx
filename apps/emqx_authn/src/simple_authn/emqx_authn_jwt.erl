@@ -157,7 +157,7 @@ update(#{use_jwks := false} = Config, _State) ->
 update(#{use_jwks := true} = Config,
        #{jwk := Connector} = State)
   when is_pid(Connector) ->
-    ok = emqx_authn_jwks_connector:update(Connector, Config),
+    ok = emqx_authn_jwks_connector:update(Connector, connector_opts(Config)),
     case maps:get(verify_cliams, Config, undefined) of
         undefined ->
             {ok, State};
@@ -208,7 +208,7 @@ create2(#{use_jwks := false,
             JWK = jose_jwk:from_oct(Secret),
             {ok, #{jwk => JWK,
                    verify_claims => VerifyClaims}}
-    end;                                                                                           
+    end;
 
 create2(#{use_jwks := false,
           algorithm := 'public-key',
@@ -219,19 +219,22 @@ create2(#{use_jwks := false,
            verify_claims => VerifyClaims}};
 
 create2(#{use_jwks := true,
-          verify_claims := VerifyClaims,
-          ssl := #{enable := Enable} = SSL} = Config) ->
-    SSLOpts = case Enable of
-                  true -> maps:without([enable], SSL);
-                  false -> #{}
-              end,
-    case emqx_authn_jwks_connector:start_link(Config#{ssl_opts => SSLOpts}) of
+          verify_claims := VerifyClaims} = Config) ->
+    case emqx_authn_jwks_connector:start_link(connector_opts(Config)) of
         {ok, Connector} ->
             {ok, #{jwk => Connector,
                    verify_claims => VerifyClaims}};
         {error, Reason} ->
             {error, Reason}
     end.
+
+connector_opts(#{ssl := #{enable := Enable} = SSL} = Config) ->
+    SSLOpts = case Enable of
+                  true -> maps:without([enable], SSL);
+                  false -> #{}
+              end,
+    Config#{ssl_opts => SSLOpts}.
+
 
 may_decode_secret(false, Secret) -> Secret;
 may_decode_secret(true, Secret) ->
@@ -260,7 +263,7 @@ verify(JWS, [JWK | More], VerifyClaims) ->
             Claims = emqx_json:decode(Payload, [return_maps]),
             case verify_claims(Claims, VerifyClaims) of
                 ok ->
-                    {ok, #{is_superuser => maps:get(<<"is_superuser">>, Claims, false)}};
+                    {ok, emqx_authn_utils:is_superuser(Claims)};
                 {error, Reason} ->
                     {error, Reason}
             end;
