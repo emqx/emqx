@@ -118,7 +118,7 @@ on_start(InstId, Config = #{mongo_type := Type,
                   false -> [{ssl, false}]
               end,
     Topology = maps:get(topology, NConfig, #{}),
-    Opts = [{type, init_type(NConfig)},
+    Opts = [{mongo_type, init_type(NConfig)},
             {hosts, Hosts},
             {pool_size, PoolSize},
             {options, init_topology_options(maps:to_list(Topology), [])},
@@ -181,7 +181,7 @@ health_check(PoolName) ->
 
 %% ===================================================================
 connect(Opts) ->
-    Type = proplists:get_value(type, Opts, single),
+    Type = proplists:get_value(mongo_type, Opts, single),
     Hosts = proplists:get_value(hosts, Opts, []),
     Options = proplists:get_value(options, Opts, []),
     WorkerOptions = proplists:get_value(worker_options, Opts, []),
