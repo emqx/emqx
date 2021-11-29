@@ -401,7 +401,7 @@ t_pubsub(_) ->
 
     ClientId = <<"client1">>,
     Options = #{clientid => ClientId,
-                proto_ver => 5},
+                proto_ver => v5},
     Topic = <<"mytopic">>,
     {ok, C1} = emqtt:start_link(Options),
     {ok, _} = emqtt:connect(C1),
@@ -536,11 +536,29 @@ t_pubsub(_) ->
         api_path(["mqtt/unsubscribe_batch"]), [], auth_header_(), Body3),
     loop(maps:get(<<"data">>, jiffy:decode(list_to_binary(Data3), [return_maps]))),
 
+    {ok, _, [1]} = emqtt:subscribe(C1, <<"mytopic">>, qos1),
+    timer:sleep(50),
+
+    %% user properties
+    {ok, Code} = request_api(post, api_path(["mqtt/publish"]), [], auth_header_(),
+                             #{<<"clientid">> => ClientId,
+                               <<"topic">> => <<"mytopic">>,
+                               <<"qos">> => 1,
+                               <<"payload">> => <<"hello world">>,
+                               <<"user_properties">> => #{<<"porp_1">> => <<"porp_1">>}}),
+    ?assert(receive
+                {publish, #{payload := <<"hello world">>,
+                            properties := #{'User-Property' := [{<<"porp_1">>,<<"porp_1">>}]}}} ->
+                    true
+            after 100 ->
+                    false
+            end),
+
     ok = emqtt:disconnect(C1),
 
-    ?assertEqual(3, emqx_metrics:val('messages.qos1.received') - Qos1Received),
+    ?assertEqual(4, emqx_metrics:val('messages.qos1.received') - Qos1Received),
     ?assertEqual(2, emqx_metrics:val('messages.qos2.received') - Qos2Received),
-    ?assertEqual(5, emqx_metrics:val('messages.received') - Received).
+    ?assertEqual(6, emqx_metrics:val('messages.received') - Received).
 
 loop([]) -> [];
 
