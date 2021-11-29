@@ -18,14 +18,10 @@
 
 -behaviour(minirest_api).
 
+-include("emqx_gateway_http.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--define(BAD_REQUEST, 'BAD_REQUEST').
--define(NOT_FOUND, 'NOT_FOUND').
--define(INTERNAL_ERROR, 'INTERNAL_SERVER_ERROR').
-
 -import(hoconsc, [mk/2, ref/1, ref/2]).
--import(emqx_dashboard_swagger, [error_codes/2]).
 
 -import(emqx_gateway_http,
         [ return_http_error/2
@@ -228,14 +224,11 @@ schema("/gateway/:name/listeners") ->
          #{ description => <<"Get the gateway listeners">>
           , parameters => params_gateway_name_in_path()
           , responses =>
-             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-              , 500 => error_codes([?INTERNAL_ERROR],
-                                   <<"Ineternal Server Error">>)
-              , 200 => emqx_dashboard_swagger:schema_with_examples(
-                         hoconsc:array(ref(listener)),
-                         examples_listener_list())
-              }
+              ?STANDARD_RESP(
+                 #{ 200 => emqx_dashboard_swagger:schema_with_examples(
+                             hoconsc:array(ref(listener)),
+                             examples_listener_list())
+                  })
           },
        post =>
          #{ description => <<"Create the gateway listener">>
@@ -244,14 +237,11 @@ schema("/gateway/:name/listeners") ->
                              ref(listener),
                              examples_listener())
           , responses =>
-             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-              , 500 => error_codes([?INTERNAL_ERROR],
-                                   <<"Ineternal Server Error">>)
-              , 201 => emqx_dashboard_swagger:schema_with_examples(
-                         ref(listener),
-                         examples_listener_list())
-              }
+              ?STANDARD_RESP(
+                 #{ 201 => emqx_dashboard_swagger:schema_with_examples(
+                             ref(listener),
+                             examples_listener_list())
+                  })
           }
      };
 schema("/gateway/:name/listeners/:id") ->
@@ -261,26 +251,18 @@ schema("/gateway/:name/listeners/:id") ->
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
           , responses =>
-             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-              , 500 => error_codes([?INTERNAL_ERROR],
-                                   <<"Ineternal Server Error">>)
-              , 200 => emqx_dashboard_swagger:schema_with_examples(
-                         ref(listener),
-                         examples_listener())
-              }
+              ?STANDARD_RESP(
+                 #{ 200 => emqx_dashboard_swagger:schema_with_examples(
+                             ref(listener),
+                             examples_listener())
+                  })
            },
        delete =>
          #{ description => <<"Delete the gateway listener">>
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
           , responses =>
-             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-              , 500 => error_codes([?INTERNAL_ERROR],
-                                   <<"Ineternal Server Error">>)
-              , 204 => <<"Deleted">>
-              }
+              ?STANDARD_RESP(#{204 => <<"Deleted">>})
            },
        put =>
          #{ description => <<"Update the gateway listener">>
@@ -290,14 +272,11 @@ schema("/gateway/:name/listeners/:id") ->
                              ref(listener),
                              examples_listener())
           , responses =>
-             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-              , 500 => error_codes([?INTERNAL_ERROR],
-                                   <<"Ineternal Server Error">>)
-              , 200 => emqx_dashboard_swagger:schema_with_examples(
-                         ref(listener),
-                         examples_listener())
-              }
+              ?STANDARD_RESP(
+                 #{ 200 => emqx_dashboard_swagger:schema_with_examples(
+                             ref(listener),
+                             examples_listener())
+                  })
           }
      };
 schema("/gateway/:name/listeners/:id/authentication") ->
@@ -307,13 +286,10 @@ schema("/gateway/:name/listeners/:id/authentication") ->
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
           , responses =>
-             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-              , 500 => error_codes([?INTERNAL_ERROR],
-                                   <<"Ineternal Server Error">>)
-              , 200 => schema_authn()
-              , 204 => <<"Authentication does not initiated">>
-              }
+              ?STANDARD_RESP(
+                 #{ 200 => schema_authn()
+                  , 204 => <<"Authentication does not initiated">>
+                  })
           },
        post =>
          #{ description => <<"Add authentication for the listener">>
@@ -321,12 +297,7 @@ schema("/gateway/:name/listeners/:id/authentication") ->
                           ++ params_listener_id_in_path()
           , 'requestBody' => schema_authn()
           , responses =>
-             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-              , 500 => error_codes([?INTERNAL_ERROR],
-                                   <<"Ineternal Server Error">>)
-              , 201 => schema_authn()
-              }
+               ?STANDARD_RESP(#{201 => schema_authn()})
           },
        put =>
          #{ description => <<"Update authentication for the listener">>
@@ -334,24 +305,14 @@ schema("/gateway/:name/listeners/:id/authentication") ->
                           ++ params_listener_id_in_path()
           , 'requestBody' => schema_authn()
           , responses =>
-             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-              , 500 => error_codes([?INTERNAL_ERROR],
-                                   <<"Ineternal Server Error">>)
-              , 200 => schema_authn()
-              }
+              ?STANDARD_RESP(#{200 => schema_authn()})
           },
        delete =>
          #{ description => <<"Remove authentication for the listener">>
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
           , responses =>
-             #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-              , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-              , 500 => error_codes([?INTERNAL_ERROR],
-                                   <<"Ineternal Server Error">>)
-              , 200 => <<"Deleted">>
-              }
+              ?STANDARD_RESP(#{200 => <<"Deleted">>})
           }
      };
 schema("/gateway/:name/listeners/:id/authentication/users") ->
@@ -362,14 +323,11 @@ schema("/gateway/:name/listeners/:id/authentication/users") ->
                           params_listener_id_in_path() ++
                           params_paging_in_qs()
           , responses =>
-              #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-               , 500 => error_codes([?INTERNAL_ERROR],
-                                   <<"Ineternal Server Error">>)
-               , 200 => emqx_dashboard_swagger:schema_with_example(
-                          ref(emqx_authn_api, response_user),
-                          emqx_authn_api:response_user_examples())
-              }
+              ?STANDARD_RESP(
+                 #{ 200 => emqx_dashboard_swagger:schema_with_example(
+                             ref(emqx_authn_api, response_user),
+                             emqx_authn_api:response_user_examples())
+                  })
           },
        post =>
          #{ description => <<"Add user for the authentication">>
@@ -379,14 +337,11 @@ schema("/gateway/:name/listeners/:id/authentication/users") ->
                                ref(emqx_authn_api, request_user_create),
                                emqx_authn_api:request_user_create_examples())
           , responses =>
-              #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-               , 500 => error_codes([?INTERNAL_ERROR],
-                                   <<"Ineternal Server Error">>)
-               , 201 => emqx_dashboard_swagger:schema_with_example(
-                          ref(emqx_authn_api, response_user),
-                          emqx_authn_api:response_user_examples())
-              }
+              ?STANDARD_RESP(
+                 #{ 201 => emqx_dashboard_swagger:schema_with_example(
+                             ref(emqx_authn_api, response_user),
+                             emqx_authn_api:response_user_examples())
+                  })
           }
      };
 schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
@@ -398,14 +353,11 @@ schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
                            params_listener_id_in_path() ++
                            params_userid_in_path()
            , responses =>
-               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-                , 500 => error_codes([?INTERNAL_ERROR],
-                                     <<"Ineternal Server Error">>)
-                , 200 => emqx_dashboard_swagger:schema_with_example(
-                           ref(emqx_authn_api, response_user),
-                           emqx_authn_api:response_user_examples())
-                }
+               ?STANDARD_RESP(
+                  #{ 200 => emqx_dashboard_swagger:schema_with_example(
+                              ref(emqx_authn_api, response_user),
+                              emqx_authn_api:response_user_examples())
+                   })
            },
         put =>
           #{ description => <<"Update the user info for the gateway "
@@ -417,14 +369,11 @@ schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
                                ref(emqx_authn_api, request_user_update),
                                emqx_authn_api:request_user_update_examples())
            , responses =>
-               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-                , 500 => error_codes([?INTERNAL_ERROR],
-                                     <<"Ineternal Server Error">>)
-                , 200 => emqx_dashboard_swagger:schema_with_example(
-                           ref(emqx_authn_api, response_user),
-                           emqx_authn_api:response_user_examples())
-                }
+               ?STANDARD_RESP(
+                  #{ 200 => emqx_dashboard_swagger:schema_with_example(
+                              ref(emqx_authn_api, response_user),
+                              emqx_authn_api:response_user_examples())
+                   })
            },
         delete =>
           #{ description => <<"Delete the user for the gateway "
@@ -433,12 +382,7 @@ schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
                            params_listener_id_in_path() ++
                            params_userid_in_path()
            , responses =>
-               #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-                , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-                , 500 => error_codes([?INTERNAL_ERROR],
-                                     <<"Ineternal Server Error">>)
-                , 204 =>  <<"Deleted">>
-                }
+               ?STANDARD_RESP(#{204 =>  <<"Deleted">>})
            }
      };
 schema("/gateway/:name/listeners/:id/authentication/import_users") ->
@@ -452,12 +396,7 @@ schema("/gateway/:name/listeners/:id/authentication/import_users") ->
                              emqx_authn_api:request_import_users_examples()
                             )
           , responses =>
-              #{ 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-               , 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-               , 500 => error_codes([?INTERNAL_ERROR],
-                                    <<"Ineternal Server Error">>)
-               , 204 => <<"Imported">>
-              }
+              ?STANDARD_RESP(#{204 => <<"Imported">>})
           }
      }.
 
