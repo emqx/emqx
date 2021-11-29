@@ -83,9 +83,9 @@ mnesia(boot) ->
 
 namespace() -> "authn-scram-builtin_db".
 
-roots() -> [config].
+roots() -> [?CONF_NS].
 
-fields(config) ->
+fields(?CONF_NS) ->
     [ {mechanism,       {enum, [scram]}}
     , {backend,         {enum, ['built-in-database']}}
     , {algorithm,       fun algorithm/1}
@@ -105,7 +105,7 @@ iteration_count(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-   [hoconsc:ref(?MODULE, config)].
+   [hoconsc:ref(?MODULE, ?CONF_NS)].
 
 create(AuthenticatorID,
        #{algorithm := Algorithm,

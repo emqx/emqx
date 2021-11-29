@@ -25,6 +25,8 @@
         , stop/1
         ]).
 
+-include_lib("emqx/include/emqx_authentication.hrl").
+
 -dialyzer({nowarn_function, [start/2]}).
 
 %%------------------------------------------------------------------------------
@@ -65,7 +67,7 @@ chain_configs() ->
     [global_chain_config() | listener_chain_configs()].
 
 global_chain_config() ->
-    {?GLOBAL, emqx:get_raw_config([<<"authentication">>], [])}.
+    {?GLOBAL, emqx:get_raw_config([?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY], [])}.
 
 listener_chain_configs() ->
     lists:map(
@@ -77,7 +79,7 @@ listener_chain_configs() ->
 auth_config_path(ListenerID) ->
     [<<"listeners">>]
     ++ binary:split(atom_to_binary(ListenerID), <<":">>)
-    ++ [<<"authentication">>].
+    ++ [?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY].
 
 provider_types() ->
     lists:map(fun({Type, _Module}) -> Type end, emqx_authn:providers()).

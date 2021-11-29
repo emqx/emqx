@@ -17,6 +17,7 @@
 -module(emqx_gateway_api).
 
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx/include/emqx_authentication.hrl").
 
 -behaviour(minirest_api).
 
@@ -243,7 +244,7 @@ schema_gateway_overview_list() ->
 %%
 %% NOTE: It is a temporary measure to generate swagger-schema
 -define(COAP_GATEWAY_CONFS,
-#{<<"authentication">> =>
+#{?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY =>
       #{<<"mechanism">> => <<"password-based">>,
         <<"name">> => <<"authenticator1">>,
         <<"server_type">> => <<"built-in-database">>,
@@ -331,7 +332,7 @@ schema_gateway_overview_list() ->
 ).
 
 -define(STOMP_GATEWAY_CONFS,
-#{<<"authentication">> =>
+#{?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY =>
       #{<<"mechanism">> => <<"password-based">>,
         <<"name">> => <<"authenticator1">>,
         <<"server_type">> => <<"built-in-database">>,

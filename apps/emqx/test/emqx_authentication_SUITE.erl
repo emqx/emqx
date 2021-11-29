@@ -25,18 +25,11 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("typerefl/include/types.hrl").
-
--export([ roots/0, fields/1 ]).
-
--export([ create/2
-        , update/2
-        , authenticate/2
-        , destroy/1
-        , check_config/1
-        ]).
+-include("emqx_authentication.hrl").
 
 -define(AUTHN, emqx_authentication).
 -define(config(KEY), (fun() -> {KEY, _V_} = lists:keyfind(KEY, 1, Config), _V_ end)()).
+-define(CONF_ROOT, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -250,7 +243,7 @@ t_update_config({init, Config}) ->
      {"auth2", AuthNType2} | Config];
 
 t_update_config(Config) when is_list(Config) ->
-    emqx_config_handler:add_handler([authentication], emqx_authentication),
+    emqx_config_handler:add_handler([?CONF_ROOT], emqx_authentication),
     ok = register_provider(?config("auth1"), ?MODULE),
     ok = register_provider(?config("auth2"), ?MODULE),
     Global = ?config(global),
@@ -267,7 +260,7 @@ t_update_config(Config) when is_list(Config) ->
 
     ?assertMatch(
        {ok, _},
-       update_config([authentication], {create_authenticator, Global, AuthenticatorConfig1})),
+       update_config([?CONF_ROOT], {create_authenticator, Global, AuthenticatorConfig1})),
 
     ?assertMatch(
        {ok, #{id := ID1, state := #{mark := 1}}},
@@ -275,7 +268,7 @@ t_update_config(Config) when is_list(Config) ->
 
     ?assertMatch(
        {ok, _},
-       update_config([authentication], {create_authenticator, Global, AuthenticatorConfig2})),
+       update_config([?CONF_ROOT], {create_authenticator, Global, AuthenticatorConfig2})),
 
     ?assertMatch(
        {ok, #{id := ID2, state := #{mark := 1}}},
@@ -283,7 +276,7 @@ t_update_config(Config) when is_list(Config) ->
 
     ?assertMatch(
        {ok, _},
-       update_config([authentication],
+       update_config([?CONF_ROOT],
                      {update_authenticator,
                       Global,
                       ID1,
@@ -296,25 +289,25 @@ t_update_config(Config) when is_list(Config) ->
 
     ?assertMatch(
        {ok, _},
-       update_config([authentication], {move_authenticator, Global, ID2, top})),
+       update_config([?CONF_ROOT], {move_authenticator, Global, ID2, top})),
 
     ?assertMatch({ok, [#{id := ID2}, #{id := ID1}]}, ?AUTHN:list_authenticators(Global)),
 
-    ?assertMatch({ok, _}, update_config([authentication], {delete_authenticator, Global, ID1})),
+    ?assertMatch({ok, _}, update_config([?CONF_ROOT], {delete_authenticator, Global, ID1})),
     ?assertEqual(
        {error, {not_found, {authenticator, ID1}}},
        ?AUTHN:lookup_authenticator(Global, ID1)),
 
     ?assertMatch(
        {ok, _},
-       update_config([authentication], {delete_authenticator, Global, ID2})),
+       update_config([?CONF_ROOT], {delete_authenticator, Global, ID2})),
 
     ?assertEqual(
        {error, {not_found, {authenticator, ID2}}},
        ?AUTHN:lookup_authenticator(Global, ID2)),
 
     ListenerID = 'tcp:default',
-    ConfKeyPath = [listeners, tcp, default, authentication],
+    ConfKeyPath = [listeners, tcp, default, ?CONF_ROOT],
 
     ?assertMatch(
        {ok, _},

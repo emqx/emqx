@@ -24,6 +24,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_authentication.hrl").
 
 -type log_level() :: debug | info | notice | warning | error | critical | alert | emergency | all.
 -type file() :: string().
@@ -62,6 +63,11 @@
 namespace() -> undefined.
 
 roots() ->
+    PtKey = ?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY,
+    case persistent_term:get(PtKey, undefined) of
+        undefined -> persistent_term:put(PtKey, emqx_authn_schema);
+        _ -> ok
+    end,
     %% authorization configs are merged in THIS schema's "authorization" fields
     lists:keydelete("authorization", 1, emqx_schema:roots(high)) ++
     [ {"node",

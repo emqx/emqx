@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,24 +14,17 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQX_AUTHN_HRL).
--define(EMQX_AUTHN_HRL, true).
+-ifndef(EMQX_AUTHENTICATION_HRL).
+-define(EMQX_AUTHENTICATION_HRL, true).
 
--include_lib("emqx/include/emqx_authentication.hrl").
+%% config root name all auth providers have to agree on.
+-define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, "authentication").
+-define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM, authentication).
+-define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY, <<"authentication">>).
 
--define(APP, emqx_authn).
-
--define(AUTHN, emqx_authentication).
-
--define(GLOBAL, 'mqtt:global').
-
--define(RE_PLACEHOLDER, "\\$\\{[a-z0-9\\-]+\\}").
-
--define(AUTH_SHARD, emqx_authn_shard).
-
-%% has to be the same as the root field name defined in emqx_schema
--define(CONF_NS, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME).
--define(CONF_NS_ATOM, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
--define(CONF_NS_BINARY, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY).
+%% persistent term key to put all authn config schemas as on HOCON schema type.
+%% see emqx_schema.erl for more details
+%% and emqx_conf_schema for an examples
+-define(EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY, emqx_authentication_schema_module).
 
 -endif.

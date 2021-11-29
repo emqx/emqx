@@ -85,9 +85,9 @@ mnesia(boot) ->
 
 namespace() -> "authn-builtin_db".
 
-roots() -> [config].
+roots() -> [?CONF_NS].
 
-fields(config) ->
+fields(?CONF_NS) ->
     [ {mechanism,               {enum, ['password-based']}}
     , {backend,                 {enum, ['built-in-database']}}
     , {user_id_type,            fun user_id_type/1}
@@ -121,7 +121,7 @@ salt_rounds(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-   [hoconsc:ref(?MODULE, config)].
+   [hoconsc:ref(?MODULE, ?CONF_NS)].
 
 create(AuthenticatorID,
        #{user_id_type := Type,

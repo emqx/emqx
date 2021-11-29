@@ -47,9 +47,9 @@
 
 namespace() -> "authn-postgresql".
 
-roots() -> [config].
+roots() -> [?CONF_NS].
 
-fields(config) ->
+fields(?CONF_NS) ->
     [ {mechanism,               {enum, ['password-based']}}
     , {backend,                 {enum, [postgresql]}}
     , {password_hash_algorithm, fun password_hash_algorithm/1}
@@ -75,7 +75,7 @@ query(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [hoconsc:ref(?MODULE, config)].
+    [hoconsc:ref(?MODULE, ?CONF_NS)].
 
 create(_AuthenticatorID, Config) ->
     create(Config).
