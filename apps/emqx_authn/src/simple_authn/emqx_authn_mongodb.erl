@@ -49,10 +49,10 @@ roots() ->
 fields(standalone) ->
     common_fields() ++ emqx_connector_mongo:fields(single);
 
-fields('replica-set') ->
+fields(replica_set) ->
     common_fields() ++ emqx_connector_mongo:fields(rs);
 
-fields('sharded-cluster') ->
+fields(sharded_cluster) ->
     common_fields() ++ emqx_connector_mongo:fields(sharded).
 
 common_fields() ->
@@ -98,8 +98,8 @@ salt_position(_) -> undefined.
 
 refs() ->
     [ hoconsc:ref(?MODULE, standalone)
-    , hoconsc:ref(?MODULE, 'replica-set')
-    , hoconsc:ref(?MODULE, 'sharded-cluster')
+    , hoconsc:ref(?MODULE, replica_set)
+    , hoconsc:ref(?MODULE, sharded_cluster)
     ].
 
 create(_AuthenticatorID, Config) ->

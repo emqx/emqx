@@ -994,7 +994,7 @@ authenticator_examples() ->
             value => #{
                 mechanism => <<"jwt">>,
                 use_jwks => false,
-                algorithm => <<"hmac-based">>,
+                algorithm => <<"hmac_based">>,
                 secret => <<"mysecret">>,
                 secret_base64_encoded => false,
                 verify_claims => #{

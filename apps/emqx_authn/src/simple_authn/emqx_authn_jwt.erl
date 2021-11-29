@@ -45,16 +45,16 @@ roots() ->
                          )}
     ].
 
-fields('hmac-based') ->
+fields(hmac_based) ->
     [ {use_jwks,              {enum, [false]}}
-    , {algorithm,             {enum, ['hmac-based']}}
+    , {algorithm,             {enum, [hmac_based]}}
     , {secret,                fun secret/1}
     , {secret_base64_encoded, fun secret_base64_encoded/1}
     ] ++ common_fields();
 
-fields('public-key') ->
+fields(public_key) ->
     [ {use_jwks,              {enum, [false]}}
-    , {algorithm,             {enum, ['public-key']}}
+    , {algorithm,             {enum, [public_key]}}
     , {certificate,           fun certificate/1}
     ] ++ common_fields();
 
@@ -134,8 +134,8 @@ verify_claims(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-   [ hoconsc:ref(?MODULE, 'hmac-based')
-   , hoconsc:ref(?MODULE, 'public-key')
+   [ hoconsc:ref(?MODULE, hmac_based)
+   , hoconsc:ref(?MODULE, public_key)
    , hoconsc:ref(?MODULE, 'jwks')
    ].
 
@@ -197,7 +197,7 @@ destroy(_) ->
 %%--------------------------------------------------------------------
 
 create2(#{use_jwks := false,
-          algorithm := 'hmac-based',
+          algorithm := hmac_based,
           secret := Secret0,
           secret_base64_encoded := Base64Encoded,
           verify_claims := VerifyClaims}) ->
@@ -211,7 +211,7 @@ create2(#{use_jwks := false,
     end;
 
 create2(#{use_jwks := false,
-          algorithm := 'public-key',
+          algorithm := public_key,
           certificate := Certificate,
           verify_claims := VerifyClaims}) ->
     JWK = jose_jwk:from_pem_file(Certificate),
