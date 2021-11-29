@@ -248,8 +248,8 @@ parse_packet(#mqtt_packet_header{type = ?CONNECT}, FrameBin, _Options) ->
                                      },
     {ConnPacket1, Rest5} = parse_will_message(ConnPacket, Rest4),
     {Username, Rest6} = parse_utf8_string(Rest5, bool(UsernameFlag)),
-    {Passsword, <<>>} = parse_utf8_string(Rest6, bool(PasswordFlag)),
-    ConnPacket1#mqtt_packet_connect{username = Username, password = Passsword};
+    {Password, <<>>} = parse_utf8_string(Rest6, bool(PasswordFlag)),
+    ConnPacket1#mqtt_packet_connect{username = Username, password = Password};
 
 parse_packet(#mqtt_packet_header{type = ?CONNACK},
              <<AckFlags:8, ReasonCode:8, Rest/binary>>, #{version := Ver}) ->
