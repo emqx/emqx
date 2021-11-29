@@ -318,20 +318,26 @@ listeners_schema(?R_REF(_Mod, udp_tcp_listeners)) ->
 %% examples
 
 examples_gateway_confs() ->
-    #{ a_stomp_gateway =>
-        #{ enable => true
-         , enable_stats => true
-         , idle_timeout => <<"30s">>
-         , mountpoint => <<"stomp/">>
-         , frame =>
-            #{ max_header => 10
-             , make_header_length => 1024
-             , max_body_length => 65535
+    #{ stomp_gateway =>
+        #{ summary => <<"A simple STOMP gateway configs">>
+         , value =>
+            #{ enable => true
+             , enable_stats => true
+             , idle_timeout => <<"30s">>
+             , mountpoint => <<"stomp/">>
+             , frame =>
+                #{ max_header => 10
+                 , make_header_length => 1024
+                 , max_body_length => 65535
+                 }
              }
          }
-     , a_mqttsn_gateway =>
-        #{ enable => true
-         , enable_stats => true
+     , mqttsn_gateway =>
+        #{ summary => <<"A simple MQTT-SN gateway configs">>
+         , value =>
+            #{ enable => true
+             , enable_stats => true
+             }
          }
      }.
 

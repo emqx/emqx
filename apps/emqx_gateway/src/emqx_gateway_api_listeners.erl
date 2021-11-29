@@ -225,7 +225,7 @@ schema("/gateway/:name/listeners") ->
           , parameters => params_gateway_name_in_path()
           , responses =>
               ?STANDARD_RESP(
-                 #{ 200 => emqx_dashboard_swagger:schema_with_examples(
+                 #{ 200 => emqx_dashboard_swagger:schema_with_example(
                              hoconsc:array(ref(listener)),
                              examples_listener_list())
                   })
@@ -240,7 +240,7 @@ schema("/gateway/:name/listeners") ->
               ?STANDARD_RESP(
                  #{ 201 => emqx_dashboard_swagger:schema_with_examples(
                              ref(listener),
-                             examples_listener_list())
+                             examples_listener())
                   })
           }
      };
@@ -580,7 +580,96 @@ common_listener_opts() ->
 %% examples
 
 examples_listener_list() ->
-    #{stomp_listeners => [examples_listener()]}.
+    [Config || #{value := Config} <- maps:values(examples_listener())].
 
 examples_listener() ->
-    #{}.
+    #{ tcp_listener=>
+        #{ summary => <<"A simple tcp listener example">>
+         , value =>
+            #{ bind => <<"61613">>
+             , acceptors => 16
+             , max_connections => 1024000
+             , max_conn_rate => 1000
+             , tcp =>
+                #{ active_n => 100
+                 , backlog => 1024
+                 , send_timeout => <<"15s">>
+                 , send_timeout_close => true
+                 , recbuf => <<"10KB">>
+                 , sndbuf => <<"10KB">>
+                 , buffer => <<"10KB">>
+                 , high_watermark => <<"1MB">>
+                 , nodelay => false
+                 , reuseaddr => true
+                 }
+             }
+         }
+     , ssl_listener =>
+        #{ summary => <<"A simple ssl listener example">>
+         , value =>
+            #{ bind => <<"61614">>
+             , acceptors => 16
+             , max_connections => 1024000
+             , max_conn_rate => 1000
+             , access_rules => [<<"allow all">>]
+             , ssl =>
+                #{ versions => [<<"tlsv1.3">>, <<"tlsv1.2">>,
+                                <<"tlsv1.1">>, <<"tlsv1">>]
+                 , cacertfile => <<"etc/certs/cacert.pem">>
+                 , certfile => <<"etc/certs/cert.pem">>
+                 , keyfile => <<"etc/certs/key.pem">>
+                 , verify => <<"verify_none">>
+                 , fail_if_no_peer_cert => false
+                 , server_name_indication => disable
+                 }
+             , tcp =>
+                #{ active_n => 100
+                 , backlog => 1024
+                 }
+             }
+         }
+     , udp_listener =>
+        #{ summary => <<"A simple udp listener example">>
+         , value =>
+            #{ bind => <<"0.0.0.0:1884">>
+             , udp =>
+                #{ active_n => 100
+                 , recbuf => <<"10KB">>
+                 , sndbuf => <<"10KB">>
+                 , buffer => <<"10KB">>
+                 , reuseaddr => true
+                 }
+             }
+         }
+     , dtls_listener =>
+        #{ summary => <<"A simple dtls listener example">>
+         , value =>
+            #{ bind => <<"5684">>
+             , acceptors => 16
+             , max_connections => 1024000
+             , max_conn_rate => 1000
+             , access_rules => [<<"allow all">>]
+             , ssl =>
+                #{ versions => [<<"dtlsv1.2">>, <<"dtlsv1">>]
+                 , cacertfile => <<"etc/certs/cacert.pem">>
+                 , certfile => <<"etc/certs/cert.pem">>
+                 , keyfile => <<"etc/certs/key.pem">>
+                 , verify => <<"verify_none">>
+                 , fail_if_no_peer_cert => false
+                 , server_name_indication => disable
+                 }
+             , tcp =>
+                #{ active_n => 100
+                 , backlog => 1024
+                 }
+             }
+         }
+     , dtls_listener_with_psk_ciphers =>
+        #{ summary => <<"todo">>
+         , value =>
+            #{}
+         }
+     , lisetner_with_authn =>
+        #{ summary => <<"todo">>
+         , value => #{}}
+     }.

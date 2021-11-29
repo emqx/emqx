@@ -70,9 +70,9 @@ gateway.stomp {
     ## SSL options
     ## See ${example_common_ssl_options} for more information
     ssl.versions = ["tlsv1.3", "tlsv1.2", "tlsv1.1", "tlsv1"]
-    ssl.keyfile = "{{ platform_etc_dir }}/certs/key.pem"
-    ssl.certfile = "{{ platform_etc_dir }}/certs/cert.pem"
     ssl.cacertfile = "{{ platform_etc_dir }}/certs/cacert.pem"
+    ssl.certfile = "{{ platform_etc_dir }}/certs/cert.pem"
+    ssl.keyfile = "{{ platform_etc_dir }}/certs/key.pem"
     #ssl.verify = verify_none
     #ssl.fail_if_no_peer_cert = false
     #ssl.server_name_indication = disable
