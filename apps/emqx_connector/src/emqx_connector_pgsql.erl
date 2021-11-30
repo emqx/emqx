@@ -128,7 +128,7 @@ prepared_query(Conn, Name, SQL, Params) ->
         {error, #error{severity = error,
                        code = <<"26000">>,
                        codename = invalid_sql_statement_name}} ->
-            {ok, _Stmt} = epgsql:parse(Conn, Name, SQL),
+            {ok, _Stmt} = epgsql:parse(Conn, Name, SQL, []),
             epgsql:prepared_query(Conn, Name, Params);
         Other ->
             Other
