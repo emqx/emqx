@@ -22,12 +22,6 @@
 
 -logger_header("[Tracer]").
 
-%% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
-
 -export([ publish/1
         , subscribe/3
         , unsubscribe/2
@@ -57,7 +51,9 @@
 -define(MAX_SIZE, 30).
 
 -ifdef(TEST).
--export([log_file/2]).
+-export([ log_file/2
+        , create_table/0
+        ]).
 -endif.
 
 -export_type([ip_address/0]).
@@ -71,15 +67,6 @@
         , start_at :: integer() | undefined | '_'
         , end_at :: integer() | undefined | '_'
         }).
-
-mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TRACE, [
-        {type, set},
-        {disc_copies, [node()]},
-        {record_name, ?TRACE},
-        {attributes, record_info(fields, ?TRACE)}]);
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TRACE, disc_copies).
 
 publish(#message{topic = <<"$SYS/", _/binary>>}) -> ignore;
 publish(#message{from = From, topic = Topic, payload = Payload}) when
@@ -198,6 +185,7 @@ format(Traces) ->
               end, Traces).
 
 init([]) ->
+    ok = create_table(),
     erlang:process_flag(trap_exit, true),
     OriginLogLevel = emqx_logger:get_primary_log_level(),
     ok = filelib:ensure_dir(trace_dir()),
@@ -207,6 +195,14 @@ init([]) ->
     ok = update_log_primary_level(Traces, OriginLogLevel),
     TRef = update_trace(Traces),
     {ok, #{timer => TRef, monitors => #{}, primary_log_level => OriginLogLevel}}.
+
+create_table() ->
+    ok = ekka_mnesia:create_table(?TRACE, [
+        {type, set},
+        {disc_copies, [node()]},
+        {record_name, ?TRACE},
+        {attributes, record_info(fields, ?TRACE)}]),
+    ok = ekka_mnesia:copy_table(?TRACE, disc_copies).
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),

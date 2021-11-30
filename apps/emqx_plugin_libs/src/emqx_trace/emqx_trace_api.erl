@@ -107,8 +107,10 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
         case Res of
             {ok, Node, Bin} ->
                 ZipName = ZipDir ++ Node ++ "-" ++ TraceLog,
-                ok = file:write_file(ZipName, Bin),
-                [Node ++ "-" ++ TraceLog | Acc];
+                case file:write_file(ZipName, Bin) of
+                    ok -> [Node ++ "-" ++ TraceLog | Acc];
+                    _ -> Acc
+                end;
             {error, Node, Reason} ->
                 ?LOG(error, "download trace log error:~p", [{Node, TraceLog, Reason}]),
                 Acc
