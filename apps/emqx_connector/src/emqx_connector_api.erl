@@ -38,7 +38,7 @@
     catch
         error:{invalid_bridge_id, Id0} ->
             {400, #{code => 'INVALID_ID', message => <<"invalid_bridge_id: ", Id0/binary,
-                ". Bridge Ids must be of format <bridge_type>:<name>">>}}
+                ". Bridge ID must be of format 'bridge_type:name'">>}}
     end).
 
 namespace() -> "connector".
@@ -74,7 +74,7 @@ schema("/connectors_test") ->
         post => #{
             tags => [<<"connectors">>],
             description => <<"Test creating a new connector by given Id <br>"
-                             "The Id must be of format <type>:<name>">>,
+                             "The ID must be of format 'type:name'">>,
             summary => <<"Test creating connector">>,
             requestBody => connector_test_info(),
             responses => #{
@@ -98,7 +98,7 @@ schema("/connectors") ->
         post => #{
             tags => [<<"connectors">>],
             description => <<"Create a new connector by given Id <br>"
-                             "The Id must be of format <type>:<name>">>,
+                             "The ID must be of format 'type:name'">>,
             summary => <<"Create connector">>,
             requestBody => connector_info(),
             responses => #{

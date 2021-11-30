@@ -33,7 +33,7 @@
     catch
         error:{invalid_bridge_id, Id0} ->
             {400, #{code => 'INVALID_ID', message => <<"invalid_bridge_id: ", Id0/binary,
-                ". Bridge Ids must be of format <bridge_type>:<name>">>}}
+                ". Bridge ID must be of format 'bridge_type:name'">>}}
     end).
 
 -define(METRICS(MATCH, SUCC, FAILED, RATE, RATE_5, RATE_MAX),

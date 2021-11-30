@@ -56,7 +56,7 @@ A list of outputs of the rule.<br>
 An output can be a string that refers to the channel Id of a emqx bridge, or a object
 that refers to a function.<br>
 There a some built-in functions like \"republish\" and \"console\", and we also support user
-provided functions like \"<SomeModule>:<SomeFunction>\".<br>
+provided functions like \"ModuleName:FunctionName\".<br>
 The outputs in the list is executed one by one in order.
 This means that if one of the output is executing slowly, all of the outputs comes after it will not
 be executed until it returns.<br>
