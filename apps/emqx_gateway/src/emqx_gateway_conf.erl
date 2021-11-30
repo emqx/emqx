@@ -60,7 +60,7 @@
 
 -type atom_or_bin() :: atom() | binary().
 -type ok_or_err() :: ok | {error, term()}.
--type map_or_err() :: map() | {error, term()}.
+-type map_or_err() :: {ok, map()} | {error, term()}.
 -type listener_ref() :: {ListenerType :: atom_or_bin(),
                          ListenerName :: atom_or_bin()}.
 
