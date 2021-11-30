@@ -142,13 +142,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 get_config(enable) ->
-    emqx_conf:get([psk, enable]);
+    emqx_conf:get([psk_authentication, enable]);
 get_config(init_file) ->
-    emqx_conf:get([psk, init_file], undefined);
+    emqx_conf:get([psk_authentication, init_file], undefined);
 get_config(separator) ->
-    emqx_conf:get([psk, separator], ?DEFAULT_DELIMITER);
+    emqx_conf:get([psk_authentication, separator], ?DEFAULT_DELIMITER);
 get_config(chunk_size) ->
-    emqx_conf:get([psk, chunk_size]).
+    emqx_conf:get([psk_authentication, chunk_size]).
 
 import_psks(SrcFile) ->
     case file:open(SrcFile, [read, raw, binary, read_ahead]) of
