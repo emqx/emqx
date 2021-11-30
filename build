@@ -65,7 +65,7 @@ docgen() {
 
 make_rel() {
     # shellcheck disable=SC1010
-    ./rebar3 as "$PROFILE" do release,tar
+    ./rebar3 as "$PROFILE" do tar
     if [ "$(find "_build/$PROFILE/rel/emqx/lib/" -maxdepth 1 -name 'gpb-*' -type d)" != "" ]; then
         echo "gpb should not be included in the release"
         exit 1
