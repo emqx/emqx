@@ -37,7 +37,7 @@ end_per_suite(_) ->
     ok.
 
 init_per_testcase(_Case, Config) ->
-    mnesia:clear_table(emqx_authn_mnesia),
+    mria:clear_table(emqx_authn_mnesia),
     Config.
 
 end_per_testcase(_Case, Config) ->
