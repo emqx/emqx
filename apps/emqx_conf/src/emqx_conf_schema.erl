@@ -355,19 +355,15 @@ to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.
            , default => gen_rpc
            , desc => """
 Protocol used for pushing transaction logs to the replicant nodes.
-<strong>Important!</strong> This setting should be the same on all nodes in the cluster.<br/>
-<strong>Important!</strong> Changing this setting in the runtime is not allowed.<br/>
 """
            })}
     , {"tlog_push_mode",
        sc(hoconsc:enum([sync, async]),
           #{ mapping => "mria.tlog_push_mode"
-           , default => sync
+           , default => async
            , desc => """
 In sync mode the core node waits for an ack from the replicant nodes before sending the next
 transaction log entry.
-<strong>Important!</strong> This setting should be the same on all nodes in the cluster.<br/>
-<strong>Important!</strong> Changing this setting in the runtime is not allowed.<br/>
 """
            })}
     ];
