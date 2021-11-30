@@ -115,7 +115,7 @@ authenticate(#{password := Password} = Credential,
                placeholders := PlaceHolders,
                resource_id := ResourceId} = State) ->
     Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
-    case emqx_resource:query(ResourceId, {sql, Query, Params}) of
+    case emqx_resource:query(ResourceId, {prepared_sql, Query, Params}) of
         {ok, _Columns, []} -> ignore;
         {ok, Columns, [Row | _]} ->
             NColumns = [Name || #column{name = Name} <- Columns],

@@ -33,7 +33,9 @@
 
 -export([connect/1]).
 
--export([query/4]).
+-export([ query/3
+        , prepared_query/4
+        ]).
 
 -export([do_health_check/1]).
 
@@ -80,12 +82,18 @@ on_stop(InstId, #{poolname := PoolName}) ->
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
-on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
-    on_query(InstId, {sql, SQL, []}, AfterQuery, State);
-on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := PoolName} = State) ->
+on_query(InstId, {Type, SQL}, AfterQuery, #{poolname := _PoolName} = State)
+  when Type =:= sql orelse Type =:= prepared_sql ->
+    on_query(InstId, {Type, SQL, []}, AfterQuery, State);
+on_query(InstId, {Type, SQL, Params}, AfterQuery, #{poolname := PoolName} = State)
+  when Type =:= sql orelse Type =:= prepared_sql ->
     ?SLOG(debug, #{msg => "postgresql connector received sql query",
         connector => InstId, sql => SQL, state => State}),
-    case Result = ecpool:pick_and_do(PoolName, {?MODULE, query, [binary_to_list(InstId), SQL, Params]}, no_handover) of
+    {Query, Args} = case Type of
+                        sql -> {query, [SQL, Params]};
+                        prepared_sql -> {prepared_query, [binary_to_list(InstId), SQL, Params]}
+                    end,
+    case Result = ecpool:pick_and_do(PoolName, {?MODULE, Query, Args}, no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "postgresql connector do sql query failed",
@@ -112,7 +120,10 @@ connect(Opts) ->
     Password = proplists:get_value(password, Opts),
     epgsql:connect(Host, Username, Password, conn_opts(Opts)).
 
-query(Conn, Name, SQL, Params) ->
+query(Conn, SQL, Params) ->
+    epgsql:equery(Conn, SQL, Params).
+
+prepared_query(Conn, Name, SQL, Params) ->
     case epgsql:prepared_query(Conn, Name, Params) of
         {error, #error{severity = error,
                        code = <<"26000">>,
