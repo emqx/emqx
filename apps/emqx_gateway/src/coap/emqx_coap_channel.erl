@@ -98,10 +98,10 @@ info(ctx, #channel{ctx = Ctx}) ->
 stats(_) ->
     [].
 
-init(ConnInfo = #{peername := {PeerHost, _},
-                  sockname := {_, SockPort}},
+init(ConnInfoT = #{peername := {PeerHost, _},
+                   sockname := {_, SockPort}},
      #{ctx := Ctx} = Config) ->
-    Peercert = maps:get(peercert, ConnInfo, undefined),
+    Peercert = maps:get(peercert, ConnInfoT, undefined),
     Mountpoint = maps:get(mountpoint, Config, <<>>),
     ListenerId = case maps:get(listener, Config, undefined) of
                      undefined -> undefined;
@@ -122,6 +122,10 @@ init(ConnInfo = #{peername := {PeerHost, _},
                     , mountpoint => Mountpoint
                     }
                   ),
+
+    %% because it is possible to disconnect after init, and then trigger the $event.disconnected hook
+    %% and these two fields are required in the hook
+    ConnInfo = ConnInfoT#{proto_name => <<"CoAP">>, proto_ver => <<"1">>},
 
     Heartbeat = ?GET_IDLE_TIME(Config),
     #channel{ ctx = Ctx
@@ -349,8 +353,6 @@ ensure_connected(Channel = #channel{ctx = Ctx,
                                     conninfo = ConnInfo,
                                     clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{ connected_at => erlang:system_time(millisecond)
-                         , proto_name => <<"COAP">>
-                         , proto_ver => <<"1">>
                          },
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
     _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, []]),
