@@ -17,6 +17,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("epgsql/include/epgsql.hrl").
 
 -export([roots/0, fields/1]).
 
@@ -32,7 +33,7 @@
 
 -export([connect/1]).
 
--export([query/3]).
+-export([query/4]).
 
 -export([do_health_check/1]).
 
@@ -60,8 +61,7 @@ on_start(InstId, #{server := {Host, Port},
                   connector => InstId, config => Config}),
     SslOpts = case maps:get(enable, SSL) of
         true ->
-            [{ssl, [{server_name_indication, disable} |
-                    emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)]}];
+            [{ssl, [emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)]}];
         false -> []
     end,
     Options = [{host, Host},
@@ -85,7 +85,7 @@ on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
 on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := PoolName} = State) ->
     ?SLOG(debug, #{msg => "postgresql connector received sql query",
         connector => InstId, sql => SQL, state => State}),
-    case Result = ecpool:pick_and_do(PoolName, {?MODULE, query, [SQL, Params]}, no_handover) of
+    case Result = ecpool:pick_and_do(PoolName, {?MODULE, query, [InstId, SQL, Params]}, no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "postgresql connector do sql query failed",
@@ -112,8 +112,16 @@ connect(Opts) ->
     Password = proplists:get_value(password, Opts),
     epgsql:connect(Host, Username, Password, conn_opts(Opts)).
 
-query(Conn, SQL, Params) ->
-    epgsql:equery(Conn, SQL, Params).
+query(Conn, Name, SQL, Params) ->
+    case epgsql:prepared_query(Conn, Name, Params) of
+        {error, #error{severity = error,
+                       code = <<"26000">>,
+                       codename = invalid_sql_statement_name}} ->
+            {ok, _Stmt} = epgsql:parse(Conn, Name, SQL),
+            epgsql:prepared_query(Conn, Name, Params);
+        Other ->
+            Other
+    end.
 
 conn_opts(Opts) ->
     conn_opts(Opts, []).
