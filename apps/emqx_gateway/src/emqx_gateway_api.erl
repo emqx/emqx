@@ -269,12 +269,18 @@ fields(gateway_listener_overview) ->
 fields(Gw) when Gw == stomp; Gw == mqttsn;
                 Gw == coap;  Gw == lwm2m;
                 Gw == exproto ->
-    convert_listener_struct(emqx_gateway_schema:fields(Gw));
+    [{name,
+      mk(string(), #{ desc => <<"Gateway Name">>})}
+    ] ++ convert_listener_struct(emqx_gateway_schema:fields(Gw));
 fields(Listener) when Listener == tcp_listener;
                       Listener == ssl_listener;
                       Listener == udp_listener;
                       Listener == dtls_listener ->
-    [ {type,
+    [ {id,
+       mk(string(),
+          #{ nullable => true
+           , desc => <<"Listener ID">>})}
+    , {type,
        mk(hoconsc:union([tcp, ssl, udp, dtls]),
           #{ desc => <<"Listener type">>})}
     , {name,
@@ -282,7 +288,8 @@ fields(Listener) when Listener == tcp_listener;
           #{ desc => <<"Listener Name">>})}
     , {running,
        mk(boolean(),
-          #{ desc => <<"Listener running status">>})}
+          #{ nullable => true
+           , desc => <<"Listener running status">>})}
     ] ++ emqx_gateway_schema:fields(Listener);
 
 fields(gateway_stats) ->
@@ -292,8 +299,9 @@ schema_gateways_conf() ->
     %% XXX: We need convert the emqx_gateway_schema's listener map
     %% structure to array
     emqx_dashboard_swagger:schema_with_examples(
-      hoconsc:union([ref(stomp), ref(mqttsn),
-                     ref(coap), ref(lwm2m), ref(exproto)]),
+      hoconsc:union([ref(?MODULE, stomp), ref(?MODULE, mqttsn),
+                     ref(?MODULE, coap), ref(?MODULE, lwm2m),
+                     ref(?MODULE, exproto)]),
       examples_gateway_confs()
      ).
 
