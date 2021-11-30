@@ -141,7 +141,6 @@ destroy(#{resource_id := ResourceId}) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-%% TODO: Support prepare
 parse_query(Query) ->
     case re:run(Query, ?RE_PLACEHOLDER, [global, {capture, all, binary}]) of
         {match, Captured} ->

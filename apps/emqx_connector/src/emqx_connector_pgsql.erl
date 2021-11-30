@@ -34,7 +34,7 @@
 -export([connect/1]).
 
 -export([ query/3
-        , prepared_query/4
+        , prepared_query/3
         ]).
 
 -export([do_health_check/1]).
@@ -85,15 +85,16 @@ on_stop(InstId, #{poolname := PoolName}) ->
 on_query(InstId, {Type, SQL}, AfterQuery, #{poolname := _PoolName} = State)
   when Type =:= sql orelse Type =:= prepared_sql ->
     on_query(InstId, {Type, SQL, []}, AfterQuery, State);
+
 on_query(InstId, {Type, SQL, Params}, AfterQuery, #{poolname := PoolName} = State)
   when Type =:= sql orelse Type =:= prepared_sql ->
     ?SLOG(debug, #{msg => "postgresql connector received sql query",
         connector => InstId, sql => SQL, state => State}),
-    {Query, Args} = case Type of
-                        sql -> {query, [SQL, Params]};
-                        prepared_sql -> {prepared_query, [binary_to_list(InstId), SQL, Params]}
-                    end,
-    case Result = ecpool:pick_and_do(PoolName, {?MODULE, Query, Args}, no_handover) of
+    Query = case Type of
+                sql -> query;
+                prepared_sql -> prepared_query
+            end,
+    case Result = ecpool:pick_and_do(PoolName, {?MODULE, Query, [SQL, Params]}, no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "postgresql connector do sql query failed",
@@ -123,7 +124,9 @@ connect(Opts) ->
 query(Conn, SQL, Params) ->
     epgsql:equery(Conn, SQL, Params).
 
-prepared_query(Conn, Name, SQL, Params) ->
+prepared_query(Conn, SQL, Params) ->
+    %% use sql as name
+    Name = to_list(SQL),
     case epgsql:prepared_query(Conn, Name, Params) of
         {error, #error{severity = error,
                        code = <<"26000">>,
@@ -150,3 +153,8 @@ conn_opts([Opt = {ssl_opts, _} | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]);
 conn_opts([_Opt | Opts], Acc) ->
     conn_opts(Opts, Acc).
+
+to_list(B) when is_binary(B) ->
+    binary_to_list(B);
+to_list(L) when is_list(L) ->
+    L.
