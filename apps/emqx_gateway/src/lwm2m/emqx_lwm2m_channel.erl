@@ -93,10 +93,10 @@ info(ctx, #channel{ctx = Ctx}) ->
 stats(_) ->
     [].
 
-init(ConnInfo = #{peername := {PeerHost, _},
-                  sockname := {_, SockPort}},
+init(ConnInfoT = #{peername := {PeerHost, _},
+                   sockname := {_, SockPort}},
      #{ctx := Ctx} = Config) ->
-    Peercert = maps:get(peercert, ConnInfo, undefined),
+    Peercert = maps:get(peercert, ConnInfoT, undefined),
     Mountpoint = maps:get(mountpoint, Config, undefined),
     ListenerId = case maps:get(listener, Config, undefined) of
                      undefined -> undefined;
@@ -118,18 +118,20 @@ init(ConnInfo = #{peername := {PeerHost, _},
                     }
                   ),
 
+    ConnInfo = ConnInfoT#{proto_name => <<"LwM2M">>, proto_ver => <<"0.0">>},
+
     #channel{ ctx = Ctx
             , conninfo = ConnInfo
             , clientinfo = ClientInfo
             , timers = #{}
             , session = emqx_lwm2m_session:new()
-            %% FIXME: don't store anonymouse func
+              %% FIXME: don't store anonymouse func
             , with_context = with_context(Ctx, ClientInfo)
             }.
 
 with_context(Ctx, ClientInfo) ->
     fun(Type, Topic) ->
-        with_context(Type, Topic, Ctx, ClientInfo)
+            with_context(Type, Topic, Ctx, ClientInfo)
     end.
 
 lookup_cmd(Channel, Path, Action) ->
@@ -293,7 +295,6 @@ check_lwm2m_version(#coap_message{options = Opts},
               end,
     if IsValid ->
             NConnInfo = ConnInfo#{ connected_at => erlang:system_time(millisecond)
-                                 , proto_name => <<"LwM2M">>
                                  , proto_ver => Ver
                                  },
             {ok, Channel#channel{conninfo = NConnInfo}};
