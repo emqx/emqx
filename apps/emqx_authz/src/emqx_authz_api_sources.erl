@@ -440,7 +440,7 @@ read_certs(#{<<"ssl">> := SSL} = Source) ->
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => failed_to_readd_ssl_file}),
             throw(failed_to_readd_ssl_file);
-        NewSSL ->
+        {ok, NewSSL} ->
             Source#{<<"ssl">> => NewSSL}
     end;
 read_certs(Source) -> Source.

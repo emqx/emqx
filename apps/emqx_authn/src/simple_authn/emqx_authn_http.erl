@@ -284,7 +284,7 @@ replace_placeholders([{K, V0} | More], Credential, Acc) ->
         undefined ->
             error({cannot_get_variable, V0});
         V ->
-            replace_placeholders(More, Credential, [{K, emqx_authn_utils:bin(V)} | Acc])
+            replace_placeholders(More, Credential, [{K, to_bin(V)} | Acc])
     end.
 
 append_query(Path, []) ->

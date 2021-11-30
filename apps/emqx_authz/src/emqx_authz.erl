@@ -207,7 +207,12 @@ check_dup_types([Source | Sources], Checked) ->
 create_dry_run(T, Source) ->
     case is_connector_source(T) of
         true ->
-            [NSource] = check_sources([Source]),
+            [CheckedSource] = check_sources([Source]),
+            case T of
+                http ->
+                    URIMap = maps:get(url, CheckedSource),
+                    NSource = maps:put(base_url, maps:remove(query, URIMap), CheckedSource)
+            end,
             emqx_resource:create_dry_run(connector_module(T), NSource);
         false ->
             ok
