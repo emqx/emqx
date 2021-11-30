@@ -54,11 +54,11 @@ wildcard(Topic) when is_binary(Topic) ->
     wildcard(words(Topic));
 wildcard([]) ->
     false;
-wildcard(['#'|_]) ->
+wildcard(['#' | _]) ->
     true;
-wildcard(['+'|_]) ->
+wildcard(['+' | _]) ->
     true;
-wildcard([_H|T]) ->
+wildcard([_H | T]) ->
     wildcard(T).
 
 %% @doc Match Topic name with filter.
@@ -73,17 +73,17 @@ match(Name, Filter) when is_binary(Name), is_binary(Filter) ->
     match(words(Name), words(Filter));
 match([], []) ->
     true;
-match([H|T1], [H|T2]) ->
+match([H | T1], [H | T2]) ->
     match(T1, T2);
-match([_H|T1], ['+'|T2]) ->
+match([_H | T1], ['+' | T2]) ->
     match(T1, T2);
 match(_, ['#']) ->
     true;
-match([_H1|_], [_H2|_]) ->
+match([_H1 | _], [_H2 | _]) ->
     false;
-match([_H1|_], []) ->
+match([_H1 | _], []) ->
     false;
-match([], [_H|_T2]) ->
+match([], [_H | _T2]) ->
     false.
 
 %% @doc Validate topic name or filter
@@ -110,13 +110,13 @@ validate2([]) ->
     true;
 validate2(['#']) -> % end with '#'
     true;
-validate2(['#'|Words]) when length(Words) > 0 ->
+validate2(['#' | Words]) when length(Words) > 0 ->
     error('topic_invalid_#');
-validate2([''|Words]) ->
+validate2(['' | Words]) ->
     validate2(Words);
-validate2(['+'|Words]) ->
+validate2(['+' | Words]) ->
     validate2(Words);
-validate2([W|Words]) ->
+validate2([W | Words]) ->
     validate3(W) andalso validate2(Words).
 
 validate3(<<>>) ->
@@ -164,7 +164,7 @@ word(<<"#">>) -> '#';
 word(Bin)     -> Bin.
 
 %% @doc '$SYS' Topic.
--spec(systop(atom()|string()|binary()) -> topic()).
+-spec(systop(atom() | string() | binary()) -> topic()).
 systop(Name) when is_atom(Name); is_list(Name) ->
     iolist_to_binary(lists:concat(["$SYS/brokers/", node(), "/", Name]));
 systop(Name) when is_binary(Name) ->
@@ -175,10 +175,10 @@ feed_var(Var, Val, Topic) ->
     feed_var(Var, Val, words(Topic), []).
 feed_var(_Var, _Val, [], Acc) ->
     join(lists:reverse(Acc));
-feed_var(Var, Val, [Var|Words], Acc) ->
-    feed_var(Var, Val, Words, [Val|Acc]);
-feed_var(Var, Val, [W|Words], Acc) ->
-    feed_var(Var, Val, Words, [W|Acc]).
+feed_var(Var, Val, [Var | Words], Acc) ->
+    feed_var(Var, Val, Words, [Val | Acc]);
+feed_var(Var, Val, [W | Words], Acc) ->
+    feed_var(Var, Val, Words, [W | Acc]).
 
 -spec(join(list(binary())) -> binary()).
 join([]) ->
@@ -218,4 +218,3 @@ parse(TopicFilter = <<"$share/", Rest/binary>>, Options) ->
     end;
 parse(TopicFilter, Options) ->
     {TopicFilter, Options}.
-

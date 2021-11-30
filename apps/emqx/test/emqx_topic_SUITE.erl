@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 -import(emqx_topic,
         [ wildcard/1
@@ -183,9 +184,11 @@ t_feed_var(_) ->
     ?assertEqual(<<"$queue/client/clientId">>,
                  feed_var(<<"$c">>, <<"clientId">>, <<"$queue/client/$c">>)),
     ?assertEqual(<<"username/test/client/x">>,
-                 feed_var(<<"%u">>, <<"test">>, <<"username/%u/client/x">>)),
+                 feed_var( ?PH_USERNAME, <<"test">>
+                         , <<"username/", ?PH_USERNAME/binary, "/client/x">>)),
     ?assertEqual(<<"username/test/client/clientId">>,
-                 feed_var(<<"%c">>, <<"clientId">>, <<"username/test/client/%c">>)).
+                 feed_var( ?PH_CLIENTID, <<"clientId">>
+                         , <<"username/test/client/", ?PH_CLIENTID/binary>>)).
 
 long_topic() ->
     iolist_to_binary([[integer_to_list(I), "/"] || I <- lists:seq(0, 66666)]).
