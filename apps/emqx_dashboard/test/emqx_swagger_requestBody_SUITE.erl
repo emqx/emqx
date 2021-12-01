@@ -7,7 +7,7 @@
 -export([paths/0, api_spec/0, schema/1, fields/1]).
 -export([t_object/1, t_nest_object/1, t_api_spec/1,
     t_local_ref/1, t_remote_ref/1, t_bad_ref/1, t_none_ref/1, t_nest_ref/1,
-    t_ref_array_with_key/1, t_ref_array_without_key/1
+    t_ref_array_with_key/1, t_ref_array_without_key/1, t_sub_fields/1
 ]).
 -export([
     t_object_trans/1, t_object_notrans/1, t_nest_object_trans/1, t_local_ref_trans/1,
@@ -152,6 +152,17 @@ t_none_ref(_Config) ->
     Path = "/ref/none",
     ?assertThrow({error, #{mfa := {?MODULE, schema, [Path]}}},
         emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path)),
+    ok.
+
+t_sub_fields(_Config) ->
+    Spec = #{
+        post => #{parameters => [],
+            requestBody => #{<<"content">> => #{<<"application/json">> =>
+            #{<<"schema">> => #{<<"$ref">> =>
+            <<"#/components/schemas/emqx_swagger_requestBody_SUITE.sub_fields">>}}}},
+            responses => #{<<"200">> => #{description => <<"ok">>}}}},
+    Refs = [{?MODULE, sub_fields}],
+    validate("/fields/sub", Spec, Refs),
     ok.
 
 t_bad_ref(_Config) ->
@@ -483,7 +494,7 @@ trans_requestBody(Path, Body, Filter) ->
 
 api_spec() -> emqx_dashboard_swagger:spec(?MODULE).
 paths() ->
-    ["/object", "/nest/object", "/ref/local", "/ref/nest/ref",
+    ["/object", "/nest/object", "/ref/local", "/ref/nest/ref", "/fields/sub",
         "/ref/array/with/key", "/ref/array/without/key"].
 
 schema("/object") ->
@@ -506,6 +517,8 @@ schema("/nest/object") ->
     ]);
 schema("/ref/local") ->
     to_schema(mk(hoconsc:ref(good_ref), #{}));
+schema("/fields/sub") ->
+    to_schema(mk(hoconsc:ref(sub_fields), #{}));
 schema("/ref/remote") ->
     to_schema(mk(hoconsc:ref(emqx_swagger_remote_schema, "ref2"), #{}));
 schema("/ref/bad") ->
@@ -544,4 +557,20 @@ fields(bad_ref) -> %% don't support maps
     #{
         username => mk(string(), #{}),
         is_admin => mk(boolean(), #{})
-    }.
+    };
+fields(sub_fields) ->
+    #{fields => [
+        {enable,     fun enable/1},
+        {init_file,  fun init_file/1}
+    ],
+        desc => <<"test sub fields">>}.
+
+enable(type) -> boolean();
+enable(desc) -> <<"Whether to enable tls psk support">>;
+enable(default) -> false;
+enable(_) -> undefined.
+
+init_file(type) -> binary();
+init_file(desc) -> <<"test test desc">>;
+init_file(nullable) -> true;
+init_file(_) -> undefined.
