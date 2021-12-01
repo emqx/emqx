@@ -26,13 +26,13 @@ all() ->
 
 init_per_suite(Config) ->
     meck:new(emqx_config, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_config, get, fun([psk, enable]) -> true;
-                                     ([psk, chunk_size]) -> 50;
+    meck:expect(emqx_config, get, fun([psk_authentication, enable]) -> true;
+                                     ([psk_authentication, chunk_size]) -> 50;
                                      (KeyPath) -> meck:passthrough([KeyPath])
                                   end),
-    meck:expect(emqx_config, get, fun([psk, init_file], _) ->
+    meck:expect(emqx_config, get, fun([psk_authentication, init_file], _) ->
                                          filename:join([code:lib_dir(emqx_psk, test), "data/init.psk"]);
-                                     ([psk, separator], _) -> <<":">>;
+                                     ([psk_authentication, separator], _) -> <<":">>;
                                      (KeyPath, Default) -> meck:passthrough([KeyPath, Default])
                                   end),
     emqx_common_test_helpers:start_apps([emqx_psk]),

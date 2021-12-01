@@ -337,18 +337,27 @@ components(Refs) ->
 components([], SpecAcc, []) -> SpecAcc;
 components([], SpecAcc, SubRefAcc) -> components(SubRefAcc, SpecAcc, []);
 components([{Module, Field} | Refs], SpecAcc, SubRefsAcc) ->
-    Props = apply(Module, fields, [Field]),
+    Props = hocon_schema_fields(Module, Field),
     Namespace = namespace(Module),
     {Object, SubRefs} = parse_object(Props, Module),
     NewSpecAcc = SpecAcc#{?TO_REF(Namespace, Field) => Object},
     components(Refs, NewSpecAcc, SubRefs ++ SubRefsAcc);
 %% parameters in ref only have one value, not array
 components([{Module, Field, parameter} | Refs], SpecAcc, SubRefsAcc) ->
-    Props = apply(Module, fields, [Field]),
+    Props = hocon_schema_fields(Module, Field),
     {[Param], SubRefs} = parameters(Props, Module),
     Namespace = namespace(Module),
     NewSpecAcc = SpecAcc#{?TO_REF(Namespace, Field) => Param},
     components(Refs, NewSpecAcc, SubRefs ++ SubRefsAcc).
+
+hocon_schema_fields(Module, StructName) ->
+    case apply(Module, fields, [StructName]) of
+        #{fields := Fields, desc := _} ->
+            %% evil here, as it's match hocon_schema's internal representation
+            Fields; %% TODO: make use of desc ?
+        Other ->
+            Other
+    end.
 
 %% Semantic error at components.schemas.xxx:xx:xx
 %% Component names can only contain the characters A-Z a-z 0-9 - . _

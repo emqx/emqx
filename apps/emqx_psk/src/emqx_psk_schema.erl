@@ -24,9 +24,24 @@
         , fields/1
         ]).
 
-roots() -> ["psk"].
+roots() -> ["psk_authentication"].
 
-fields("psk") ->
+fields("psk_authentication") ->
+    #{fields => fields(),
+      desc => """PSK stands for 'Pre-Shared Keys'.
+This config to enable TLS-PSK authentication.
+
+<strong>Important!</strong> Make sure the SSL listener with
+only <code>tlsv1.2</code> enabled, and also PSK cipher suites
+configured, such as <code>RSA-PSK-AES256-GCM-SHA384</code>.
+See listener SSL options config for more details.
+
+The IDs and secrets can be provided from a file the path
+to which is configurable by the <code>init_file</code> field.
+"""
+     }.
+
+fields() ->
     [ {enable,     fun enable/1}
     , {init_file,  fun init_file/1}
     , {separator,  fun separator/1}
@@ -43,7 +58,7 @@ init_file(desc) ->
     <<"If init_file is specified, emqx will import PSKs from the file ",
       "into the built-in database at startup for use by the runtime. ",
       "The file has to be structured line-by-line, each line must be in ",
-      "the format: <PSKIdentity>:<SharedSecret>">>;
+      "the format of 'PSKIdentity:SharedSecret' for example: mydevice1:c2VjcmV0">>;
 init_file(nullable) -> true;
 init_file(_) -> undefined.
 
