@@ -116,26 +116,11 @@ fields(mnesia) ->
                  default => true}}
     ];
 fields(mongo_single) ->
-    [ {collection, #{type => atom()}}
-    , {selector, #{type => map()}}
-    , {type, #{type => mongodb}}
-    , {enable, #{type => boolean(),
-                 default => true}}
-    ] ++ emqx_connector_mongo:fields(single);
+    mongo_common_fields() ++ emqx_connector_mongo:fields(single);
 fields(mongo_rs) ->
-    [ {collection, #{type => atom()}}
-    , {selector, #{type => map()}}
-    , {type, #{type => mongodb}}
-    , {enable, #{type => boolean(),
-                 default => true}}
-    ] ++ emqx_connector_mongo:fields(rs);
+    mongo_common_fields() ++ emqx_connector_mongo:fields(rs);
 fields(mongo_sharded) ->
-    [ {collection, #{type => atom()}}
-    , {selector, #{type => map()}}
-    , {type, #{type => mongodb}}
-    , {enable, #{type => boolean(),
-                 default => true}}
-    ] ++ emqx_connector_mongo:fields(sharded);
+    mongo_common_fields() ++ emqx_connector_mongo:fields(sharded);
 fields(mysql) ->
     connector_fields(mysql) ++
     [ {query, query()} ];
@@ -162,6 +147,14 @@ http_common_fields() ->
     , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
     , {body,            #{type => map(), nullable => true}}
     ] ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
+
+mongo_common_fields() ->
+    [ {collection, #{type => atom()}}
+    , {selector, #{type => map()}}
+    , {type, #{type => mongodb}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    ].
 
 validations() ->
     [ {check_ssl_opts, fun check_ssl_opts/1}
@@ -250,7 +243,7 @@ connector_fields(DB, Fields) ->
     [ {type, #{type => DB}}
     , {enable, #{type => boolean(),
                  default => true}}
-    ] ++ Mod:fields(Fields).
+    ] ++ erlang:apply(Mod, fields, [Fields]).
 
 to_list(A) when is_atom(A) ->
     atom_to_list(A);
