@@ -42,6 +42,8 @@ init_per_testcase(TestCase, Config) ->
     case TestCase of
         t_message_expiry_2 ->
             application:set_env(emqx_retainer, expiry_interval, 2000);
+        t_stop_publish_clear_msg ->
+            application:set_env(emqx_retainer, stop_publish_clear_msg, true);
         _ ->
             application:set_env(emqx_retainer, expiry_interval, 0)
     end,
@@ -170,6 +172,19 @@ t_clean(_) ->
     2 = emqx_retainer:clean(<<"retained/+">>),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(0, length(receive_messages(3))),
+
+    ok = emqtt:disconnect(C1).
+
+t_stop_publish_clear_msg(_) ->
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+    emqtt:publish(C1, <<"retained/0">>, <<"this is a retained message 0">>, [{qos, 0}, {retain, true}]),
+
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
+    ?assertEqual(1, length(receive_messages(1))),
+
+    emqtt:publish(C1, <<"retained/0">>, <<"">>, [{qos, 0}, {retain, true}]),
+    ?assertEqual(0, length(receive_messages(1))),
 
     ok = emqtt:disconnect(C1).
 
