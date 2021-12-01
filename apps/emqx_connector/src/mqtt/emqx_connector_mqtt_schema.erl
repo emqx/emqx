@@ -66,8 +66,7 @@ fields("connector") ->
             })}
     , {clientid,
         sc(binary(),
-           #{ default => "emqx_${nodename}"
-            , desc => "The clientid of the MQTT protocol"
+           #{ desc => "The clientid of the MQTT protocol"
             })}
     , {clean_start,
         sc(boolean(),

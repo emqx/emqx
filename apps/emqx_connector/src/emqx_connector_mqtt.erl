@@ -100,7 +100,7 @@ on_start(InstId, Conf) ->
     BasicConf = basic_config(Conf),
     BridgeConf = BasicConf#{
         name => InstanceId,
-        clientid => clientid(InstanceId),
+        clientid => clientid(maps:get(clientid, Conf, InstanceId)),
         subscriptions => make_sub_confs(maps:get(ingress, Conf, undefined)),
         forwards => make_forward_confs(maps:get(egress, Conf, undefined))
     },
@@ -190,4 +190,4 @@ basic_config(#{
     }.
 
 clientid(Id) ->
-    list_to_binary(lists:concat([Id, ":", node()])).
+    unicode:characters_to_binary([Id, ":", atom_to_list(node())], utf8).

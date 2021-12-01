@@ -92,7 +92,7 @@ api_rules_crud() ->
                 <<"200">> =>
                     emqx_mgmt_util:schema(resp_schema(), <<"Get rule successfully">>)}},
         put => #{
-            description => <<"Create or update a rule by given Id to all nodes in the cluster">>,
+            description => <<"Update a rule by given Id to all nodes in the cluster">>,
             parameters => [param_path_id()],
             'requestBody' => emqx_mgmt_util:schema(put_req_schema(), <<"Rule parameters">>),
             responses => #{
@@ -100,7 +100,7 @@ api_rules_crud() ->
                     emqx_mgmt_util:error_schema(<<"Invalid Parameters">>, ['BAD_ARGS']),
                 <<"200">> =>
                     emqx_mgmt_util:schema(resp_schema(),
-                                          <<"Create or update rule successfully">>)}},
+                                          <<"Update rule successfully">>)}},
         delete => #{
             description => <<"Delete a rule by given Id from all nodes in the cluster">>,
             parameters => [param_path_id()],

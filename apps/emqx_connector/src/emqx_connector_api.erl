@@ -38,7 +38,7 @@
     catch
         error:{invalid_bridge_id, Id0} ->
             {400, #{code => 'INVALID_ID', message => <<"invalid_bridge_id: ", Id0/binary,
-                ". Bridge ID must be of format 'bridge_type:name'">>}}
+                ". Bridge Ids must be of format {type}:{name}">>}}
     end).
 
 namespace() -> "connector".
@@ -53,17 +53,60 @@ error_schema(Code, Message) ->
     , {message, mk(string(), #{example => Message})}
     ].
 
+put_request_body_schema() ->
+    emqx_dashboard_swagger:schema_with_examples(
+        connector_info(put_req), connector_info_examples()).
+
+post_request_body_schema() ->
+    emqx_dashboard_swagger:schema_with_examples(
+        connector_info(post_req), connector_info_examples()).
+
+get_response_body_schema() ->
+    emqx_dashboard_swagger:schema_with_example(
+        connector_info(), connector_info_examples()).
+
 connector_info() ->
+    connector_info(resp).
+
+connector_info(resp) ->
     hoconsc:union([ ref(emqx_connector_schema, "mqtt_connector_info")
-                  ]).
-
-connector_test_info() ->
-    hoconsc:union([ ref(emqx_connector_schema, "mqtt_connector_test_info")
-                  ]).
-
-connector_req() ->
+                  ]);
+connector_info(put_req) ->
+    hoconsc:union([ ref(emqx_connector_mqtt_schema, "connector")
+                  ]);
+connector_info(post_req) ->
     hoconsc:union([ ref(emqx_connector_schema, "mqtt_connector")
                   ]).
+
+connector_info_array_example() ->
+    [Config || #{value := Config} <- maps:values(connector_info_examples())].
+
+connector_info_examples() ->
+    #{
+        mqtt => #{
+            summary => <<"MQTT Bridge">>,
+            value => mqtt_info_example()
+        }
+    }.
+
+mqtt_info_example() ->
+    #{
+        type => <<"mqtt">>,
+        server => <<"127.0.0.1:1883">>,
+        reconnect_interval => <<"30s">>,
+        proto_ver => <<"v4">>,
+        bridge_mode => true,
+        username => <<"foo">>,
+        password => <<"bar">>,
+        clientid => <<"foo">>,
+        clean_start => true,
+        keepalive => <<"300s">>,
+        retry_interval => <<"30s">>,
+        max_inflight => 100,
+        ssl => #{
+            enable => false
+        }
+    }.
 
 param_path_id() ->
     [{id, mk(binary(), #{in => path, example => <<"mqtt:my_mqtt_connector">>})}].
@@ -74,9 +117,9 @@ schema("/connectors_test") ->
         post => #{
             tags => [<<"connectors">>],
             description => <<"Test creating a new connector by given Id <br>"
-                             "The ID must be of format 'type:name'">>,
+                             "The ID must be of format '{type}:{name}'">>,
             summary => <<"Test creating connector">>,
-            requestBody => connector_test_info(),
+            requestBody => post_request_body_schema(),
             responses => #{
                 200 => <<"Test connector OK">>,
                 400 => error_schema('TEST_FAILED', "connector test failed")
@@ -92,17 +135,19 @@ schema("/connectors") ->
             description => <<"List all connectors">>,
             summary => <<"List connectors">>,
             responses => #{
-                200 => mk(array(connector_info()), #{desc => "List of connectors"})
+                200 => emqx_dashboard_swagger:schema_with_example(
+                            array(connector_info()),
+                            connector_info_array_example())
             }
         },
         post => #{
             tags => [<<"connectors">>],
             description => <<"Create a new connector by given Id <br>"
-                             "The ID must be of format 'type:name'">>,
+                             "The ID must be of format '{type}:{name}'">>,
             summary => <<"Create connector">>,
-            requestBody => connector_info(),
+            requestBody => post_request_body_schema(),
             responses => #{
-                201 => connector_info(),
+                201 => get_response_body_schema(),
                 400 => error_schema('ALREADY_EXISTS', "connector already exists")
             }
         }
@@ -117,7 +162,7 @@ schema("/connectors/:id") ->
             summary => <<"Get connector">>,
             parameters => param_path_id(),
             responses => #{
-                200 => connector_info(),
+                200 => get_response_body_schema(),
                 404 => error_schema('NOT_FOUND', "Connector not found")
             }
         },
@@ -126,9 +171,9 @@ schema("/connectors/:id") ->
             description => <<"Update an existing connector by Id">>,
             summary => <<"Update connector">>,
             parameters => param_path_id(),
-            requestBody => connector_req(),
+            requestBody => put_request_body_schema(),
             responses => #{
-                200 => <<"Update connector successfully">>,
+                200 => get_response_body_schema(),
                 400 => error_schema('UPDATE_FAIL', "Update failed"),
                 404 => error_schema('NOT_FOUND', "Connector not found")
             }},
@@ -143,8 +188,8 @@ schema("/connectors/:id") ->
             }}
     }.
 
-'/connectors_test'(post, #{body := #{<<"bridge_type">> := ConnType} = Params}) ->
-    case emqx_connector:create_dry_run(ConnType, maps:remove(<<"bridge_type">>, Params)) of
+'/connectors_test'(post, #{body := #{<<"type">> := ConnType} = Params}) ->
+    case emqx_connector:create_dry_run(ConnType, maps:remove(<<"type">>, Params)) of
         ok -> {200};
         {error, Error} ->
             {400, error_msg('BAD_ARG', Error)}
