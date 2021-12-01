@@ -127,12 +127,34 @@ query(Conn, SQL, Params) ->
 prepared_query(Conn, SQL, Params) ->
     %% use sql as name
     Name = to_list(SQL),
+    case prepared_query(Conn, Name, SQL, Params) of
+        {error, sync_required} ->
+            %% try again
+            prepared_query(Conn, Name, SQL, Params);
+        Other ->
+            Other
+    end.
+
+prepared_query(Conn, Name, SQL, Params) ->
     case epgsql:prepared_query(Conn, Name, Params) of
         {error, #error{severity = error,
                        code = <<"26000">>,
                        codename = invalid_sql_statement_name}} ->
-            {ok, _Stmt} = epgsql:parse(Conn, Name, SQL, []),
-            epgsql:prepared_query(Conn, Name, Params);
+            case parse(Conn, Name, SQL) of
+                {ok, _Stmt} ->
+                    epgsql:prepared_query(Conn, Name, Params);
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        Other ->
+            Other
+    end.
+
+parse(Conn, Name, SQL) ->
+    case epgsql:parse(Conn, Name, SQL, []) of
+        {error, sync_required} ->
+            %% try again
+            epgsql:parse(Conn, Name, SQL, []);
         Other ->
             Other
     end.
