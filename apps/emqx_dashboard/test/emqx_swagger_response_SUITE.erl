@@ -14,7 +14,7 @@
 -export([paths/0, api_spec/0, schema/1, fields/1]).
 -export([t_simple_binary/1, t_object/1, t_nest_object/1, t_empty/1, t_error/1,
     t_raw_local_ref/1, t_raw_remote_ref/1, t_hocon_schema_function/1, t_complicated_type/1,
-    t_local_ref/1, t_remote_ref/1, t_bad_ref/1, t_none_ref/1, t_nest_ref/1,
+    t_local_ref/1, t_remote_ref/1, t_bad_ref/1, t_none_ref/1, t_nest_ref/1, t_sub_fields/1,
     t_ref_array_with_key/1, t_ref_array_without_key/1, t_api_spec/1]).
 
 all() -> [{group, spec}].
@@ -23,7 +23,7 @@ groups() -> [
     {spec, [parallel], [
         t_api_spec, t_simple_binary, t_object, t_nest_object, t_error, t_complicated_type,
         t_raw_local_ref, t_raw_remote_ref, t_empty, t_hocon_schema_function,
-        t_local_ref, t_remote_ref, t_bad_ref, t_none_ref,
+        t_local_ref, t_remote_ref, t_bad_ref, t_none_ref, t_sub_fields,
         t_ref_array_with_key, t_ref_array_without_key, t_nest_ref]}
 ].
 
@@ -160,6 +160,14 @@ t_nest_ref(_Config) ->
     Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => #{
         <<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.nest_ref">>}}}},
     ExpectRefs = [{?MODULE, nest_ref}],
+    validate(Path, Object, ExpectRefs),
+    ok.
+
+t_sub_fields(_Config) ->
+    Path = "/fields/sub",
+    Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => #{
+        <<"$ref">> => <<"#/components/schemas/emqx_swagger_response_SUITE.sub_fields">>}}}},
+    ExpectRefs = [{?MODULE, sub_fields}],
     validate(Path, Object, ExpectRefs),
     ok.
 
@@ -366,7 +374,9 @@ schema("/ref/complicated_type") ->
                 {fix_integer, hoconsc:mk(typerefl:integer(100), #{})}
             ]
         }}
-    }.
+    };
+schema("/fields/sub") ->
+    to_schema(hoconsc:ref(sub_fields)).
 
 validate(Path, ExpectObject, ExpectRefs) ->
     {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
@@ -400,4 +410,20 @@ fields(bad_ref) -> %% don't support maps
     #{
         username => mk(string(), #{}),
         is_admin => mk(boolean(), #{})
-    }.
+    };
+fields(sub_fields) ->
+    #{fields => [
+        {enable,     fun enable/1},
+        {init_file,  fun init_file/1}
+    ],
+        desc => <<"test sub fields">>}.
+
+enable(type) -> boolean();
+enable(desc) -> <<"Whether to enable tls psk support">>;
+enable(default) -> false;
+enable(_) -> undefined.
+
+init_file(type) -> binary();
+init_file(desc) -> <<"test test desc">>;
+init_file(nullable) -> true;
+init_file(_) -> undefined.
