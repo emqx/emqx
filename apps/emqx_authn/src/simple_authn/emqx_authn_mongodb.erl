@@ -237,7 +237,9 @@ check_password(Password,
 
 is_superuser(Doc, #{is_superuser_field := IsSuperuserField}) ->
     IsSuperuser = maps:get(IsSuperuserField, Doc, false),
-    emqx_authn_utils:is_superuser(#{<<"is_superuser">> => IsSuperuser}).
+    emqx_authn_utils:is_superuser(#{<<"is_superuser">> => IsSuperuser});
+is_superuser(_, _) ->
+    emqx_authn_utils:is_superuser(#{<<"is_superuser">> => false}).
 
 hash(Algorithm, Password, Salt, prefix) ->
     emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>);
