@@ -98,11 +98,11 @@ t_create_invalid(_Config) ->
          AuthConfig#{password => <<"wrongpass">>},
          AuthConfig#{database => <<"5678">>},
          AuthConfig#{
-           query => <<"MGET password_hash:${username} salt:${username}">>},
+           cmd => <<"MGET password_hash:${username} salt:${username}">>},
          AuthConfig#{
-           query => <<"HMGET mqtt_user:${username} password_hash invalid_field">>},
+           cmd => <<"HMGET mqtt_user:${username} password_hash invalid_field">>},
          AuthConfig#{
-           query => <<"HMGET mqtt_user:${username} salt is_superuser">>}
+           cmd => <<"HMGET mqtt_user:${username} salt is_superuser">>}
         ],
 
     lists:foreach(
@@ -177,7 +177,7 @@ t_update(_Config) ->
     CorrectConfig = raw_redis_auth_config(),
     IncorrectConfig =
         CorrectConfig#{
-             query => <<"HMGET invalid_key:${username} password_hash salt is_superuser">>},
+             cmd => <<"HMGET invalid_key:${username} password_hash salt is_superuser">>},
 
     {ok, _} = emqx:update_config(
                 ?PATH,
@@ -214,7 +214,7 @@ raw_redis_auth_config() ->
         enable => <<"true">>,
 
         backend => <<"redis">>,
-        query => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
+        cmd => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
         database => <<"1">>,
         password => <<"public">>,
         server => redis_server()
@@ -262,7 +262,7 @@ user_seeds() ->
                        },
        key => "mqtt_user:sha256",
        config_params => #{
-              query => <<"HMGET mqtt_user:${clientid} password_hash salt is_superuser">>,
+              cmd => <<"HMGET mqtt_user:${clientid} password_hash salt is_superuser">>,
               password_hash_algorithm => <<"sha256">>,
               salt_position => <<"prefix">>
              },
@@ -298,7 +298,7 @@ user_seeds() ->
        key => "mqtt_user:bcrypt0",
        config_params => #{
               % clientid variable & username credentials
-              query => <<"HMGET mqtt_client:${clientid} password_hash salt is_superuser">>,
+              cmd => <<"HMGET mqtt_client:${clientid} password_hash salt is_superuser">>,
               password_hash_algorithm => <<"bcrypt">>,
               salt_position => <<"suffix">>
              },
@@ -316,8 +316,8 @@ user_seeds() ->
                        },
        key => "mqtt_user:bcrypt1",
        config_params => #{
-              % Bad key in query
-              query => <<"HMGET badkey:${username} password_hash salt is_superuser">>,
+              % Bad key in cmd
+              cmd => <<"HMGET badkey:${username} password_hash salt is_superuser">>,
               password_hash_algorithm => <<"bcrypt">>,
               salt_position => <<"suffix">>
              },
@@ -336,7 +336,7 @@ user_seeds() ->
                        },
        key => "mqtt_user:bcrypt2",
        config_params => #{
-              query => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
+              cmd => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
               password_hash_algorithm => <<"bcrypt">>,
               salt_position => <<"suffix">>
              },
