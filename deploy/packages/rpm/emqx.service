@@ -10,6 +10,8 @@ Environment=HOME=/var/lib/emqx
 ExecStart=/bin/sh /usr/bin/emqx start
 LimitNOFILE=1048576
 ExecStop=/bin/sh /usr/bin/emqx stop
+Restart=on-failure
+RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
