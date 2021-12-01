@@ -60,21 +60,28 @@ start_link() ->
 start_link(Node, Name, RetryMs) ->
     gen_server:start_link({local, Name}, ?MODULE, [Node, RetryMs], []).
 
--spec multicall(Module, Function, Args) -> {ok, TnxId, term()} | {error, Reason} when
+%% @doc return {ok, TnxId, MFARes} the first MFA result when all MFA run ok.
+%% return {error, MFARes} when the first MFA result is no ok or {ok, term()}.
+%% return {retry, TnxId, MFARes, Nodes} when some Nodes failed and some Node ok.
+-spec multicall(Module, Function, Args) ->
+    {ok, TnxId, term()} | {error, Reason} | {retry, TnxId, MFARes, node()} when
     Module :: module(),
     Function :: atom(),
     Args :: [term()],
+    MFARes :: term(),
     TnxId :: pos_integer(),
     Reason :: string().
 multicall(M, F, A) ->
     multicall(M, F, A, all, timer:minutes(2)).
 
--spec multicall(Module, Function, Args, SucceedNum, Timeout) -> {ok, TnxId, term()} |{error, Reason} when
+-spec multicall(Module, Function, Args, SucceedNum, Timeout) ->
+    {ok, TnxId, MFARes} | {error, Reason} | {retry, TnxId, MFARes, node()} when
     Module :: module(),
     Function :: atom(),
     Args :: [term()],
     SucceedNum :: pos_integer() | all,
     TnxId :: pos_integer(),
+    MFARes :: term(),
     Timeout :: timeout(),
     Reason :: string().
 multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNum >= 1 ->
@@ -108,7 +115,10 @@ multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNu
         end,
     case OkOrFailed of
         ok -> InitRes;
-        _ -> OkOrFailed
+        {error, Error0} -> {error, Error0};
+        {retry, Node0} ->
+            {ok, TnxId0, MFARes} = InitRes,
+            {retry, TnxId0, MFARes, Node0}
     end.
 
 -spec query(pos_integer()) -> {'atomic', map()} | {'aborted', Reason :: term()}.
@@ -136,6 +146,13 @@ get_node_tnx_id(Node) ->
 skip_failed_commit(Node) ->
     gen_server:call({?MODULE, Node}, skip_failed_commit).
 
+%% Regardless of what MFA is returned, consider it a success),
+%% then skip the specified TnxId.
+%% If CurrTnxId >= TnxId, nothing happened.
+%% If CurrTnxId < TnxId, the CurrTnxId will skip to TnxId.
+-spec fast_forward_to_commit(node(), pos_integer()) -> pos_integer().
+fast_forward_to_commit(Node, ToTnxId) ->
+    gen_server:call({?MODULE, Node}, {fast_forward_to_commit, ToTnxId}).
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -165,8 +182,13 @@ handle_call({initiate, MFA}, _From, State = #{node := Node}) ->
         {aborted, Reason} ->
             {reply, {error, Reason}, State, {continue, ?CATCH_UP}}
     end;
-handle_call(skip_failed_commit, _From, State) ->
-    {reply, ok, State, catch_up(State, true)};
+handle_call(skip_failed_commit, _From, State = #{node := Node}) ->
+    Timeout = catch_up(State, true),
+    {atomic, LatestId} = transaction(fun get_node_tnx_id/1, [Node]),
+    {reply, LatestId, State, Timeout};
+handle_call({fast_forward_to_commit, ToTnxId}, _From, State) ->
+    NodeId = do_fast_forward_to_commit(ToTnxId, State),
+    {reply, NodeId, State, catch_up(State)};
 handle_call(_, _From, State) ->
     {reply, ok, State, catch_up(State)}.
 
@@ -258,6 +280,20 @@ do_catch_up(ToTnxId, Node) ->
 commit(Node, TnxId) ->
     ok = mnesia:write(?CLUSTER_COMMIT, #cluster_rpc_commit{node = Node, tnx_id = TnxId}, write).
 
+do_fast_forward_to_commit(ToTnxId, State = #{node := Node}) ->
+    {atomic, NodeId} = transaction(fun get_node_tnx_id/1, [Node]),
+    case NodeId >= ToTnxId of
+        true -> NodeId;
+        false ->
+            {atomic, LatestId} = transaction(fun get_latest_id/0, []),
+            case LatestId =< NodeId of
+                true -> NodeId;
+                false ->
+                    catch_up(State, true),
+                    do_fast_forward_to_commit(ToTnxId, State)
+            end
+    end.
+
 get_latest_id() ->
     case mnesia:last(?CLUSTER_MFA) of
         '$end_of_table' -> 0;
@@ -269,7 +305,8 @@ init_mfa(Node, MFA) ->
     LatestId = get_latest_id(),
     ok = do_catch_up_in_one_trans(LatestId, Node),
     TnxId = LatestId + 1,
-    MFARec = #cluster_rpc_mfa{tnx_id = TnxId, mfa = MFA, initiator = Node, created_at = erlang:localtime()},
+    MFARec = #cluster_rpc_mfa{tnx_id = TnxId, mfa = MFA,
+        initiator = Node, created_at = erlang:localtime()},
     ok = mnesia:write(?CLUSTER_MFA, MFARec, write),
     ok = commit(Node, TnxId),
     case apply_mfa(TnxId, MFA) of
@@ -344,7 +381,7 @@ wait_for_all_nodes_commit(TnxId, Delay, Remain) ->
             ok = timer:sleep(Delay),
             wait_for_all_nodes_commit(TnxId, Delay, Remain - Delay);
         [] -> ok;
-        Nodes -> {error, Nodes}
+        Nodes -> {retry, Nodes}
     end.
 
 wait_for_nodes_commit(RequiredNum, TnxId, Delay, Remain) ->
@@ -356,7 +393,7 @@ wait_for_nodes_commit(RequiredNum, TnxId, Delay, Remain) ->
         false ->
             case lagging_node(TnxId) of
                 [] -> ok; %% All commit but The succeedNum > length(nodes()).
-                Nodes -> {error, Nodes}
+                Nodes -> {retry, Nodes}
             end
     end.
 
