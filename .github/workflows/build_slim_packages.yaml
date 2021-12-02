@@ -24,12 +24,12 @@ jobs:
         - emqx
         - emqx-enterprise
         otp:
-        - 24.1.5-2
+        - 24.1.5-3
         os:
         - ubuntu20.04
         - centos7
 
-    container: "ghcr.io/emqx/emqx-builder/5.0-2:${{ matrix.otp }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-${{ matrix.os }}"
 
     steps:
     - uses: actions/checkout@v1
@@ -55,7 +55,7 @@ jobs:
         - emqx
         - emqx-enterprise
         otp:
-        - 24.1.5-2
+        - 24.1.5-3
         macos:
         - macos-11
         - macos-10.15
