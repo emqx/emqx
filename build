@@ -60,7 +60,7 @@ docgen() {
     conf_doc_markdown="$(pwd)/_build/${PROFILE}/rel/emqx/etc/emqx-config-doc.md"
     echo "===< Generating config document $conf_doc_markdown"
     # shellcheck disable=SC2086
-    erl -noshell -pa $libs_dir1 $libs_dir2 -eval "file:write_file('$conf_doc_markdown', hocon_schema_doc:gen(emqx_conf_schema)), halt(0)."
+    erl -noshell -pa $libs_dir1 $libs_dir2 -eval "file:write_file('$conf_doc_markdown', hocon_schema_doc:gen(emqx_conf_schema, \"EMQ X ${PKG_VSN} Configuration\")), halt(0)."
 }
 
 make_rel() {

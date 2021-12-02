@@ -272,9 +272,15 @@ init_load(SchemaMod, RawConf) when is_map(RawConf) ->
     ok = save_schema_mod_and_names(SchemaMod),
     %% check and save configs
     {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf),
+    %% fill default values for raw config
+    Opts = #{only_fill_defaults => true,
+             logger => fun(_, _) -> ok end, %% everything should have been logged already
+             nullable => true %% TODO: evil, remove, nullable should be declared in schema
+            },
+    RawConfWithDefaults = hocon_schema:check_plain(SchemaMod, RawConf, Opts),
     RootNames = get_root_names(),
     ok = save_to_config_map(maps:with(get_atom_root_names(), CheckedConf),
-                            maps:with(RootNames, RawConf)).
+                            maps:with(RootNames, RawConfWithDefaults)).
 
 include_dirs() ->
     [filename:join(emqx:data_dir(), "configs")].
@@ -283,7 +289,7 @@ include_dirs() ->
     when AppEnvs :: app_envs(), CheckedConf :: config().
 check_config(SchemaMod, RawConf) ->
     Opts = #{return_plain => true,
-             nullable => true,
+             nullable => true, %% TODO: evil, remove, nullable should be declared in schema
              format => map
             },
     {AppEnvs, CheckedConf} =
