@@ -205,12 +205,13 @@ t_fast_forward_commit(_Config) ->
     {ok, 3, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
     {ok, 4, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
     {ok, 5, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
+    {retry, 6, ok, _} = emqx_cluster_rpc:multicall(M, F, A, 2, 1000),
     3 = gen_server:call(?NODE2, {fast_forward_to_commit, 3}, 5000),
     4 = gen_server:call(?NODE2, {fast_forward_to_commit, 4}, 5000),
-    5 = gen_server:call(?NODE2, {fast_forward_to_commit, 6}, 5000),
+    6 = gen_server:call(?NODE2, {fast_forward_to_commit, 7}, 5000),
     2 = gen_server:call(?NODE3, {fast_forward_to_commit, 2}, 5000),
     {atomic, List2} = emqx_cluster_rpc:status(),
-    ?assertEqual([{Node, 5}, {{Node, ?NODE2}, 5}, {{Node, ?NODE3}, 2}],
+    ?assertEqual([{Node, 6}, {{Node, ?NODE2}, 6}, {{Node, ?NODE3}, 2}],
         tnx_ids(List2)),
     ok.
 

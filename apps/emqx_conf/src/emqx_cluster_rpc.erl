@@ -18,8 +18,9 @@
 
 %% API
 -export([start_link/0, mnesia/1]).
--export([multicall/3, multicall/5, query/1, reset/0, status/0, skip_failed_commit/1]).
--export([get_node_tnx_id/1]).
+-export([multicall/3, multicall/5, query/1, reset/0, status/0,
+         skip_failed_commit/1, fast_forward_to_commit/2]).
+-export([get_node_tnx_id/1, latest_tnx_id/0]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
     handle_continue/2, code_change/3]).
@@ -131,6 +132,11 @@ reset() -> gen_server:call(?MODULE, reset).
 -spec status() -> {'atomic', [map()]} | {'aborted', Reason :: term()}.
 status() ->
     transaction(fun trans_status/0, []).
+
+-spec latest_tnx_id() -> pos_integer().
+latest_tnx_id() ->
+    {atomic, TnxId} = transaction(fun get_latest_id/0, []),
+    TnxId.
 
 -spec get_node_tnx_id(node()) -> integer().
 get_node_tnx_id(Node) ->
@@ -267,7 +273,8 @@ do_catch_up(ToTnxId, Node) ->
                 {false, Error} -> mnesia:abort(Error)
             end;
         [#cluster_rpc_commit{tnx_id = LastAppliedId}] ->
-            Reason = lists:flatten(io_lib:format("~p catch up failed by LastAppliedId(~p) > ToTnxId(~p)",
+            Reason = lists:flatten(
+                io_lib:format("~p catch up failed by LastAppliedId(~p) > ToTnxId(~p)",
                 [Node, LastAppliedId, ToTnxId])),
             ?SLOG(error, #{
                 msg => "catch up failed!",
