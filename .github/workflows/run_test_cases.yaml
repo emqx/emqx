@@ -16,7 +16,7 @@ jobs:
         strategy:
           matrix:
             emqx_builder:
-              - 5.0-2:24.1.5-2 # run dialyzer on latest OTP
+              - 5.0-3:24.1.5-3 # run dialyzer on latest OTP
 
         runs-on: ubuntu-20.04
         container: "ghcr.io/emqx/emqx-builder/${{ matrix.emqx_builder }}-ubuntu20.04"
@@ -32,7 +32,7 @@ jobs:
         strategy:
           matrix:
             emqx_builder:
-              - 5.0-2:24.1.5-2
+              - 5.0-3:24.1.5-3
 
         runs-on: ubuntu-20.04
         container: "ghcr.io/emqx/emqx-builder/${{ matrix.emqx_builder }}-ubuntu20.04"

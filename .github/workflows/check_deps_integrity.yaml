@@ -5,7 +5,7 @@ on: [pull_request]
 jobs:
   check_deps_integrity:
     runs-on: ubuntu-20.04
-    container: "ghcr.io/emqx/emqx-builder/5.0-2:24.1.5-2-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-3:24.1.5-3-ubuntu20.04"
 
     steps:
       - uses: actions/checkout@v2
