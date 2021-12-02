@@ -5,9 +5,6 @@
 
 set -e
 
-# install startup script
-update-rc.d emqx defaults >/dev/null
-
 # create group
 if ! getent group emqx >/dev/null; then
         addgroup --system emqx

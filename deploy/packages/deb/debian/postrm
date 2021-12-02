@@ -23,9 +23,6 @@ case "$1" in
     purge)
         rm -f /etc/default/emqx
 
-        # ensure we remove the rc.d scripts installed by postinst
-        update-rc.d emqx remove >/dev/null
-
         if [ -d /var/lib/emqx ]; then
                 rm -r /var/lib/emqx
         fi
