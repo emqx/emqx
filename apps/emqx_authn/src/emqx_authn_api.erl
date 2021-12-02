@@ -1027,7 +1027,7 @@ authenticator_examples() ->
                 backend => <<"redis">>,
                 server => <<"127.0.0.1:6379">>,
                 database => 0,
-                query => <<"HMGET ${username} password_hash salt">>,
+                cmd => <<"HMGET ${username} password_hash salt">>,
                 password_hash_algorithm => <<"sha256">>,
                 salt_position => <<"prefix">>
             }
