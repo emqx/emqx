@@ -124,25 +124,19 @@ connect(Opts) ->
 query(Conn, SQL, Params) ->
     epgsql:equery(Conn, SQL, Params).
 
+%% TODO: Use Statement rather than Name
 prepared_query(Conn, SQL, Params) ->
     %% use sql as name
     Name = to_list(SQL),
-    case prepared_query(Conn, Name, SQL, Params) of
-        {error, sync_required} ->
-            %% try again
-            prepared_query(Conn, Name, SQL, Params);
-        Other ->
-            Other
-    end.
-
-prepared_query(Conn, Name, SQL, Params) ->
-    case epgsql:prepared_query(Conn, Name, Params) of
+    case do_prepared_query(Conn, Name, Params) of
         {error, #error{severity = error,
                        code = <<"26000">>,
                        codename = invalid_sql_statement_name}} ->
             case parse(Conn, Name, SQL) of
-                {ok, _Stmt} ->
-                    epgsql:prepared_query(Conn, Name, Params);
+                ok ->
+                    do_prepared_query(Conn, Name, Params);
+                {ok, Stmt} ->
+                    do_prepared_query(Conn, Stmt, Params);
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -151,9 +145,26 @@ prepared_query(Conn, Name, SQL, Params) ->
     end.
 
 parse(Conn, Name, SQL) ->
-    case epgsql:parse(Conn, Name, SQL, []) of
+    case do_parse(Conn, Name, SQL) of
+        {error, #error{severity = error,
+                       code = <<"42P50">>,
+                       codename = duplicate_prepared_statement}} ->
+            ok;
+        Other ->
+           Other
+    end.
+
+do_prepared_query(Conn, NameOrStmt, Params) ->
+    case epgsql:prepared_query(Conn, NameOrStmt, Params) of
         {error, sync_required} ->
-            %% try again
+            epgsql:prepared_query(Conn, NameOrStmt, Params);
+        Other ->
+            Other
+    end.
+
+do_parse(Conn, Name, SQL) ->
+    case epgsql:parse(Conn, Name, SQL, []) of
+         {error, sync_required} ->
             epgsql:parse(Conn, Name, SQL, []);
         Other ->
             Other
