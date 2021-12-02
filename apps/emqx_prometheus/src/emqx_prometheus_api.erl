@@ -52,7 +52,13 @@ prometheus_data_api() ->
     Metadata = #{
         get => #{
             description => <<"Get Prometheus Data">>,
-            responses => #{<<"200">> => schema(#{type => object})}
+            responses => #{<<"200">> =>
+                #{content =>
+                #{
+                    'application/json' => #{schema => #{type => object}},
+                    'text/plain' => #{schema => #{type => string}}
+                }}
+            }
         }
     },
     {"/prometheus/stats", Metadata, stats}.
@@ -72,8 +78,12 @@ prometheus(put, #{body := Body}) ->
         end,
     {200, emqx:get_raw_config([<<"prometheus">>], #{})}.
 
-stats(get, #{query_string := Qs}) ->
-    Type = maps:get(<<"format_type">>, Qs, <<"json">>),
+stats(get, #{headers := Headers}) ->
+    Type =
+        case maps:get(<<"accept">>, Headers, <<"text/plain">>) of
+            <<"application/json">> -> <<"json">>;
+            _ -> <<"prometheus">>
+        end,
     Data = emqx_prometheus:collect(Type),
     case Type of
         <<"json">> -> {200, Data};
