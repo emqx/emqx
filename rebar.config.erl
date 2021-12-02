@@ -305,6 +305,7 @@ relx_apps(ReleaseType, Edition) ->
     , emqx_statsd
     , emqx_prometheus
     , emqx_psk
+    , emqx_slow_subs
     ]
     ++ [quicer || is_quicer_supported()]
     %++ [emqx_license || is_enterprise(Edition)]

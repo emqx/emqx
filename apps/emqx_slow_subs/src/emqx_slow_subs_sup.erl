@@ -14,26 +14,23 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_zone_schema).
+-module(emqx_slow_subs_sup).
 
--export([namespace/0, roots/0, fields/1]).
+-behaviour(supervisor).
 
-namespace() -> zone.
+-export([start_link/0]).
 
-%% this shcema module is not used at root level.
-%% roots are added only for document generation.
-roots() -> ["mqtt", "stats", "flapping_detect", "force_shutdown",
-            "conn_congestion", "rate_limit", "quota", "force_gc",
-            "overload_protection", "latency_stats"
-           ].
+-export([init/1]).
 
-%% zone schemas are clones from the same name from root level
-%% only not allowed to have default values.
-fields(Name) ->
-    [{N, no_default(Sc)} || {N, Sc} <- emqx_schema:fields(Name)].
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-%% no default values for zone settings
-no_default(Sc) ->
-    fun(default) -> undefined;
-       (Other) -> hocon_schema:field_schema(Sc, Other)
-    end.
+init([]) ->
+    emqx_slow_subs:init_topk_tab(),
+    {ok, {{one_for_one, 10, 3600},
+          [#{id       => st_statistics,
+             start    => {emqx_slow_subs, start_link, []},
+             restart  => permanent,
+             shutdown => 5000,
+             type     => worker,
+             modules  => [emqx_slow_subs]}]}}.

@@ -175,6 +175,9 @@ roots(low) ->
    , {"persistent_session_store",
        sc(ref("persistent_session_store"),
           #{})}
+    , {"latency_stats",
+       sc(ref("latency_stats"),
+          #{})}
     ].
 
 fields("persistent_session_store") ->
@@ -974,6 +977,11 @@ when deactivated, but after the retention time.
 """
            })
       }
+    ];
+
+fields("latency_stats") ->
+    [ {"samples", sc(integer(), #{default => 10,
+                                  desc => "the number of smaples for calculate the average latency of delivery"})}
     ].
 
 mqtt_listener() ->
