@@ -440,14 +440,15 @@ read_certs(#{<<"ssl">> := SSL} = Source) ->
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => failed_to_readd_ssl_file}),
             throw(failed_to_readd_ssl_file);
-        NewSSL ->
+        {ok, NewSSL} ->
             Source#{<<"ssl">> => NewSSL}
     end;
 read_certs(Source) -> Source.
 
 maybe_write_certs(#{<<"ssl">> := #{<<"enable">> := true} = SSL} = Source) ->
     Type = maps:get(<<"type">>, Source),
-    emqx_tls_lib:ensure_ssl_files(filename:join(["authz", Type]), SSL);
+    {ok, Return} = emqx_tls_lib:ensure_ssl_files(filename:join(["authz", Type]), SSL),
+    maps:put(<<"ssl">>, Return, Source);
 maybe_write_certs(Source) -> Source.
 
 write_file(Filename, Bytes0) ->

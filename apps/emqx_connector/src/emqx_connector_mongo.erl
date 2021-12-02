@@ -269,7 +269,7 @@ srv_record(_) -> undefined.
 parse_servers(Type, Servers) when is_binary(Servers) ->
     parse_servers(Type, binary_to_list(Servers));
 parse_servers(Type, Servers) when is_list(Servers) ->
-    case string:split(Servers, ",", trailing) of
+    case string:split(Servers, ",", all) of
         [Host | _] when Type =:= single ->
             [Host];
         Hosts ->
