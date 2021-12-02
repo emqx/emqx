@@ -73,6 +73,9 @@ authorize(Client, PubSub, Topic,
             ignore
     end.
 
+parse_url(URL)
+  when URL =:= undefined ->
+    #{};
 parse_url(URL) ->
     {ok, URIMap} = emqx_http_lib:uri_parse(URL),
     case maps:get(query, URIMap, undefined) of

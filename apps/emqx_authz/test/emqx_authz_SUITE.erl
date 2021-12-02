@@ -36,7 +36,8 @@ init_per_suite(Config) ->
     meck:expect(emqx_resource, remove, fun(_) -> ok end ),
 
     ok = emqx_common_test_helpers:start_apps(
-           [emqx_conf, emqx_authz], fun set_special_configs/1),
+           [emqx_connector, emqx_conf, emqx_authz],
+           fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->

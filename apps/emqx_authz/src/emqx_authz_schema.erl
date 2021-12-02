@@ -199,6 +199,9 @@ transform_header_name(Headers) ->
                       maps:put(K, V, Acc)
               end, #{}, Headers).
 
+check_ssl_opts(Conf)
+  when Conf =:= #{} ->
+    true;
 check_ssl_opts(Conf) ->
     case emqx_authz_http:parse_url(hocon_schema:get_value("config.url", Conf)) of
         #{scheme := https} ->
@@ -210,6 +213,9 @@ check_ssl_opts(Conf) ->
             ok
     end.
 
+check_headers(Conf)
+    when Conf =:= #{} ->
+    true;
 check_headers(Conf) ->
     Method = to_bin(hocon_schema:get_value("config.method", Conf)),
     Headers = hocon_schema:get_value("config.headers", Conf),
