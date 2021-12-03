@@ -275,7 +275,7 @@ fields("node") ->
          #{  mapping => "emqx_machine.global_gc_interval"
           ,  default => "15m"
           })}
-    , {"crash_dump_dir",
+    , {"crash_dump_file",
        sc(file(),
           #{ mapping => "vm_args.-env ERL_CRASH_DUMP"
            })}
