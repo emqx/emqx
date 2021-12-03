@@ -23,6 +23,4 @@
                      [?BAD_REQUEST], <<"Bad request">>)
           , 404 => emqx_dashboard_swagger:error_codes(
                      [?NOT_FOUND], <<"Not Found">>)
-          , 500 => emqx_dashboard_swagger:error_codes(
-                     [?INTERNAL_ERROR], <<"Internal Server Error">>)
          }).
