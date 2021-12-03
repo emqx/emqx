@@ -328,13 +328,15 @@ read_override_conf(#{} = Opts) ->
     File = override_conf_file(Opts),
     load_hocon_file(File, map).
 
-override_conf_file(Opts) ->
+override_conf_file(Opts) when is_map(Opts) ->
     Key =
         case maps:get(override_to, Opts, local) of
             local -> local_override_conf_file;
             cluster -> cluster_override_conf_file
         end,
-    application:get_env(emqx, Key, undefined).
+    application:get_env(emqx, Key, undefined);
+override_conf_file(Which) when is_atom(Which) ->
+    application:get_env(emqx, Which, undefined).
 
 -spec save_schema_mod_and_names(module()) -> ok.
 save_schema_mod_and_names(SchemaMod) ->
