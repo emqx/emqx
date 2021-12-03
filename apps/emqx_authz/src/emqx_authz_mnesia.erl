@@ -20,10 +20,15 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-behaviour(emqx_authz).
+
 %% AuthZ Callbacks
 -export([ mnesia/1
-        , authorize/4
         , description/0
+        , init/1
+        , destroy/1
+        , dry_run/1
+        , authorize/4
         ]).
 
 -ifdef(TEST).
@@ -44,6 +49,12 @@ mnesia(boot) ->
 
 description() ->
     "AuthZ with Mnesia".
+
+init(Source) -> Source.
+
+destroy(_Source) -> ok.
+
+dry_run(_Source) -> ok.
 
 authorize(#{username := Username,
             clientid := Clientid

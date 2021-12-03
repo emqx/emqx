@@ -34,7 +34,7 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 stop(_State) ->
-    emqx_conf:remove_handler(?CONF_KEY_PATH),
+    ok = emqx_authz:deinit(),
     ok.
 
 %% internal functions
