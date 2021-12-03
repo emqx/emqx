@@ -27,7 +27,7 @@
 -export([ inc/3
         , inc/4
         , get/3
-        , get_speed/2
+        , get_rate/2
         , create_metrics/2
         , clear_metrics/2
         ]).
@@ -54,7 +54,7 @@
 -define(SECS_5M, 300).
 -define(SAMPLING, 10).
 -else.
-%% Use 5 secs average speed instead of 5 mins in case of testing
+%% Use 5 secs average rate instead of 5 mins in case of testing
 -define(SECS_5M, 5).
 -define(SAMPLING, 1).
 -endif.
@@ -65,9 +65,9 @@
     matched => integer(),
     success => integer(),
     failed => integer(),
-    speed => float(),
-    speed_max => float(),
-    speed_last5m => float()
+    rate => float(),
+    rate_max => float(),
+    rate_last5m => float()
 }.
 -type handler_name() :: atom().
 -type metric_id() :: binary().
@@ -75,22 +75,22 @@
 -define(CntrRef(Name), {?MODULE, Name}).
 -define(SAMPCOUNT_5M, (?SECS_5M div ?SAMPLING)).
 
-%% the speed of 'matched'
--record(speed, {
+%% the rate of 'matched'
+-record(rate, {
             max = 0 :: number(),
             current = 0 :: number(),
             last5m = 0 :: number(),
-            %% metadata for calculating the avg speed
+            %% metadata for calculating the avg rate
             tick = 1 :: number(),
             last_v = 0 :: number(),
-            %% metadata for calculating the 5min avg speed
+            %% metadata for calculating the 5min avg rate
             last5m_acc = 0 :: number(),
             last5m_smpl = [] :: list()
         }).
 
 -record(state, {
             metric_ids = sets:new(),
-            speeds :: undefined | #{metric_id() => #speed{}}
+            rates :: undefined | #{metric_id() => #rate{}}
         }).
 
 %%------------------------------------------------------------------------------
@@ -122,19 +122,19 @@ get(Name, Id, Metric) ->
         Ref -> counters:get(Ref, metrics_idx(Metric))
     end.
 
--spec(get_speed(handler_name(), metric_id()) -> map()).
-get_speed(Name, Id) ->
-    gen_server:call(Name, {get_speed, Id}).
+-spec(get_rate(handler_name(), metric_id()) -> map()).
+get_rate(Name, Id) ->
+    gen_server:call(Name, {get_rate, Id}).
 
 -spec(get_metrics(handler_name(), metric_id()) -> metrics()).
 get_metrics(Name, Id) ->
-    #{max := Max, current := Current, last5m := Last5M} = get_speed(Name, Id),
+    #{max := Max, current := Current, last5m := Last5M} = get_rate(Name, Id),
     #{matched => get_matched(Name, Id),
       success => get_success(Name, Id),
       failed => get_failed(Name, Id),
-      speed => Current,
-      speed_max => Max,
-      speed_last5m => Last5M
+      rate => Current,
+      rate_max => Max,
+      rate_last5m => Last5M
     }.
 
 -spec inc(handler_name(), metric_id(), atom()) -> ok.
@@ -176,35 +176,35 @@ start_link(Name) ->
 
 init(Name) ->
     erlang:process_flag(trap_exit, true),
-    %% the speed metrics
+    %% the rate metrics
     erlang:send_after(timer:seconds(?SAMPLING), self(), ticking),
     persistent_term:put(?CntrRef(Name), #{}),
     {ok, #state{}}.
 
-handle_call({get_speed, _Id}, _From, State = #state{speeds = undefined}) ->
-    {reply, format_speed(#speed{}), State};
-handle_call({get_speed, Id}, _From, State = #state{speeds = Speeds}) ->
-    {reply, case maps:get(Id, Speeds, undefined) of
-                undefined -> format_speed(#speed{});
-                Speed -> format_speed(Speed)
+handle_call({get_rate, _Id}, _From, State = #state{rates = undefined}) ->
+    {reply, format_rate(#rate{}), State};
+handle_call({get_rate, Id}, _From, State = #state{rates = Rates}) ->
+    {reply, case maps:get(Id, Rates, undefined) of
+                undefined -> format_rate(#rate{});
+                Rate -> format_rate(Rate)
             end, State};
 
 handle_call({create_metrics, Id}, _From,
-            State = #state{metric_ids = MIDs, speeds = Speeds}) ->
+            State = #state{metric_ids = MIDs, rates = Rates}) ->
     {reply, create_counters(get_self_name(), Id),
      State#state{metric_ids = sets:add_element(Id, MIDs),
-                 speeds =  case Speeds of
-                                    undefined -> #{Id => #speed{}};
-                                    _ -> Speeds#{Id => #speed{}}
+                 rates =  case Rates of
+                                    undefined -> #{Id => #rate{}};
+                                    _ -> Rates#{Id => #rate{}}
                                 end}};
 
 handle_call({delete_metrics, Id}, _From,
-            State = #state{metric_ids = MIDs, speeds = Speeds}) ->
+            State = #state{metric_ids = MIDs, rates = Rates}) ->
     {reply, delete_counters(get_self_name(), Id),
      State#state{metric_ids = sets:del_element(Id, MIDs),
-                 speeds =  case Speeds of
+                 rates =  case Rates of
                                     undefined -> undefined;
-                                    _ -> maps:remove(Id, Speeds)
+                                    _ -> maps:remove(Id, Rates)
                                 end}};
 
 handle_call(_Request, _From, State) ->
@@ -213,17 +213,17 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(ticking, State = #state{speeds = undefined}) ->
+handle_info(ticking, State = #state{rates = undefined}) ->
     erlang:send_after(timer:seconds(?SAMPLING), self(), ticking),
     {noreply, State};
 
-handle_info(ticking, State = #state{speeds = Speeds0}) ->
-    Speeds = maps:map(
-                    fun(Id, Speed) ->
-                        calculate_speed(get_matched(get_self_name(), Id), Speed)
-                    end, Speeds0),
+handle_info(ticking, State = #state{rates = Rates0}) ->
+    Rates = maps:map(
+                    fun(Id, Rate) ->
+                        calculate_rate(get_matched(get_self_name(), Id), Rate)
+                    end, Rates0),
     erlang:send_after(timer:seconds(?SAMPLING), self(), ticking),
-    {noreply, State#state{speeds = Speeds}};
+    {noreply, State#state{rates = Rates}};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -261,38 +261,38 @@ get_couters_ref(Name, Id) ->
 get_all_counters(Name) ->
     persistent_term:get(?CntrRef(Name), #{}).
 
-calculate_speed(_CurrVal, undefined) ->
+calculate_rate(_CurrVal, undefined) ->
     undefined;
-calculate_speed(CurrVal, #speed{max = MaxSpeed0, last_v = LastVal,
-                                     tick = Tick, last5m_acc = AccSpeed5Min0,
+calculate_rate(CurrVal, #rate{max = MaxRate0, last_v = LastVal,
+                                     tick = Tick, last5m_acc = AccRate5Min0,
                                      last5m_smpl = Last5MinSamples0}) ->
-    %% calculate the current speed based on the last value of the counter
-    CurrSpeed = (CurrVal - LastVal) / ?SAMPLING,
+    %% calculate the current rate based on the last value of the counter
+    CurrRate = (CurrVal - LastVal) / ?SAMPLING,
 
-    %% calculate the max speed since the emqx startup
-    MaxSpeed =
-        if MaxSpeed0 >= CurrSpeed -> MaxSpeed0;
-           true -> CurrSpeed
+    %% calculate the max rate since the emqx startup
+    MaxRate =
+        if MaxRate0 >= CurrRate -> MaxRate0;
+           true -> CurrRate
         end,
 
-    %% calculate the average speed in last 5 mins
+    %% calculate the average rate in last 5 mins
     {Last5MinSamples, Acc5Min, Last5Min} =
         if Tick =< ?SAMPCOUNT_5M ->
-                Acc = AccSpeed5Min0 + CurrSpeed,
-                {lists:reverse([CurrSpeed | lists:reverse(Last5MinSamples0)]),
+                Acc = AccRate5Min0 + CurrRate,
+                {lists:reverse([CurrRate | lists:reverse(Last5MinSamples0)]),
                  Acc, Acc / Tick};
            true ->
-                [FirstSpeed | Speeds] = Last5MinSamples0,
-                Acc =  AccSpeed5Min0 + CurrSpeed - FirstSpeed,
-                {lists:reverse([CurrSpeed | lists:reverse(Speeds)]),
+                [FirstRate | Rates] = Last5MinSamples0,
+                Acc =  AccRate5Min0 + CurrRate - FirstRate,
+                {lists:reverse([CurrRate | lists:reverse(Rates)]),
                  Acc, Acc / ?SAMPCOUNT_5M}
         end,
 
-    #speed{max = MaxSpeed, current = CurrSpeed, last5m = Last5Min,
+    #rate{max = MaxRate, current = CurrRate, last5m = Last5Min,
                 last_v = CurrVal, last5m_acc = Acc5Min,
                 last5m_smpl = Last5MinSamples, tick = Tick + 1}.
 
-format_speed(#speed{max = Max, current = Current, last5m = Last5Min}) ->
+format_rate(#rate{max = Max, current = Current, last5m = Last5Min}) ->
     #{max => Max, current => precision(Current, 2), last5m => precision(Last5Min, 2)}.
 
 precision(Float, N) ->

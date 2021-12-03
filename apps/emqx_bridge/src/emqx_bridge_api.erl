@@ -40,17 +40,17 @@
     #{  matched => MATCH,
         success => SUCC,
         failed => FAILED,
-        speed => RATE,
-        speed_last5m => RATE_5,
-        speed_max => RATE_MAX
+        rate => RATE,
+        rate_last5m => RATE_5,
+        rate_max => RATE_MAX
     }).
 -define(metrics(MATCH, SUCC, FAILED, RATE, RATE_5, RATE_MAX),
     #{  matched := MATCH,
         success := SUCC,
         failed := FAILED,
-        speed := RATE,
-        speed_last5m := RATE_5,
-        speed_max := RATE_MAX
+        rate := RATE,
+        rate_last5m := RATE_5,
+        rate_max := RATE_MAX
     }).
 
 req_schema() ->
@@ -76,9 +76,9 @@ metrics_schema() ->
            matched => #{type => integer, example => "0"},
            success => #{type => integer, example => "0"},
            failed => #{type => integer, example => "0"},
-           speed => #{type => number, format => float, example => "0.0"},
-           speed_last5m => #{type => number, format => float, example => "0.0"},
-           speed_max => #{type => number, format => float, example => "0.0"}
+           rate => #{type => number, format => float, example => "0.0"},
+           rate_last5m => #{type => number, format => float, example => "0.0"},
+           rate_max => #{type => number, format => float, example => "0.0"}
        }
     }.
 

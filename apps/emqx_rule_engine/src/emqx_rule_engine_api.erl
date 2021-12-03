@@ -339,14 +339,14 @@ do_format_output(BridgeChannelId) when is_binary(BridgeChannelId) ->
 
 get_rule_metrics(Id) ->
     Format = fun (Node, #{matched := Matched,
-                          speed := Current,
-                          speed_max := Max,
-                          speed_last5m := Last5M
+                          rate := Current,
+                          rate_max := Max,
+                          rate_last5m := Last5M
                         }) ->
         #{ matched => Matched
-         , speed => Current
-         , speed_max => Max
-         , speed_last5m => Last5M
+         , rate => Current
+         , rate_max => Max
+         , rate_last5m => Last5M
          , node => Node
          }
     end,
