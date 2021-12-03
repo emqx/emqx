@@ -57,7 +57,8 @@ end_per_testcase(_, Config) ->
     Config.
 
 base_conf() ->
-    [ {top_k_num, 5}
+    [ {threshold, 500}
+    , {top_k_num, 5}
     , {expire_interval, timer:seconds(60)}
     , {notice_interval, 0}
     , {notice_qos, 0}

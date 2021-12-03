@@ -1013,12 +1013,6 @@ end}.
   {datatype, integer}
 ]}.
 
-%% @doc Threshold for slow subscription statistics
-{mapping, "zone.$name.latency_stats_threshold", "emqx.zones", [
-  {default, "100ms"},
-  {datatype, {duration, ms}}
-]}.
-
 %% @doc Max Packets that Awaiting PUBREL, 0 means no limit
 {mapping, "zone.$name.max_awaiting_rel", "emqx.zones", [
   {default, 0},
@@ -2228,6 +2222,11 @@ end}.
 
 {mapping, "module.rewrite.sub.rule.$id", "emqx.modules", [
   {datatype, string}
+]}.
+
+{mapping, "module.slow_subs.threshold", "emqx.modules", [
+  {default, "500ms"},
+  {datatype, {duration, ms}}
 ]}.
 
 {mapping, "module.slow_subs.expire_interval", "emqx.modules", [

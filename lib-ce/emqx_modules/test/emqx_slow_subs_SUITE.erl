@@ -88,7 +88,8 @@ t_log_and_pub(_) ->
     [Client ! stop || Client <- Clients],
     ok.
 base_conf() ->
-    [ {top_k_num, 5}
+    [ {threshold, 500}
+    , {top_k_num, 5}
     , {expire_interval, timer:seconds(3)}
     , {notice_interval, 1500}
     , {notice_qos, 0}
