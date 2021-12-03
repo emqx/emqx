@@ -45,11 +45,16 @@ roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
+    [{named_queries, fun named_queries/1}] ++
     emqx_connector_schema_lib:relational_db_fields() ++
     emqx_connector_schema_lib:ssl_fields().
 
 on_jsonify(#{server := Server}= Config) ->
     Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}.
+
+named_queries(type) -> map();
+named_queries(nullable) -> true;
+named_queries(_) -> undefined.
 
 %% ===================================================================
 on_start(InstId, #{server := {Host, Port},
@@ -58,7 +63,7 @@ on_start(InstId, #{server := {Host, Port},
                    password := Password,
                    auto_reconnect := AutoReconn,
                    pool_size := PoolSize,
-                   ssl := SSL } = Config) ->
+                   ssl := SSL} = Config) ->
     ?SLOG(info, #{msg => "starting postgresql connector",
                   connector => InstId, config => Config}),
     SslOpts = case maps:get(enable, SSL) of
@@ -72,7 +77,8 @@ on_start(InstId, #{server := {Host, Port},
                {password, Password},
                {database, DB},
                {auto_reconnect, reconn_interval(AutoReconn)},
-               {pool_size, PoolSize}],
+               {pool_size, PoolSize},
+               {named_queries, maps:to_list(maps:get(named_queries, Config, #{}))}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts),
     {ok, #{poolname => PoolName}}.
@@ -86,19 +92,19 @@ on_query(InstId, {Type, SQL}, AfterQuery, #{poolname := _PoolName} = State)
   when Type =:= sql orelse Type =:= prepared_sql ->
     on_query(InstId, {Type, SQL, []}, AfterQuery, State);
 
-on_query(InstId, {Type, SQL, Params}, AfterQuery, #{poolname := PoolName} = State)
+on_query(InstId, {Type, NameOrSQL, Params}, AfterQuery, #{poolname := PoolName} = State)
   when Type =:= sql orelse Type =:= prepared_sql ->
     ?SLOG(debug, #{msg => "postgresql connector received sql query",
-        connector => InstId, sql => SQL, state => State}),
+        connector => InstId, sql => NameOrSQL, state => State}),
     Query = case Type of
                 sql -> query;
                 prepared_sql -> prepared_query
             end,
-    case Result = ecpool:pick_and_do(PoolName, {?MODULE, Query, [SQL, Params]}, no_handover) of
+    case Result = ecpool:pick_and_do(PoolName, {?MODULE, Query, [NameOrSQL, Params]}, no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "postgresql connector do sql query failed",
-                connector => InstId, sql => SQL, reason => Reason}),
+                connector => InstId, sql => NameOrSQL, reason => Reason}),
             emqx_resource:query_failed(AfterQuery);
         _ ->
             emqx_resource:query_success(AfterQuery)
@@ -119,53 +125,29 @@ connect(Opts) ->
     Host     = proplists:get_value(host, Opts),
     Username = proplists:get_value(username, Opts),
     Password = proplists:get_value(password, Opts),
-    epgsql:connect(Host, Username, Password, conn_opts(Opts)).
+    NamedQueries = proplists:get_value(named_queries, Opts),
+    case epgsql:connect(Host, Username, Password, conn_opts(Opts)) of
+        {ok, Conn} ->
+            parse(Conn, NamedQueries),
+            {ok, Conn};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 
 query(Conn, SQL, Params) ->
     epgsql:equery(Conn, SQL, Params).
 
 %% TODO: Use Statement rather than Name
-prepared_query(Conn, SQL, Params) ->
-    %% use sql as name
-    Name = to_list(SQL),
-    case do_prepared_query(Conn, Name, Params) of
-        {error, #error{severity = error,
-                       code = <<"26000">>,
-                       codename = invalid_sql_statement_name}} ->
-            case parse(Conn, Name, SQL) of
-                ok ->
-                    do_prepared_query(Conn, Name, Params);
-                {ok, Stmt} ->
-                    do_prepared_query(Conn, Stmt, Params);
-                {error, Reason} ->
-                    {error, Reason}
-            end;
-        Other ->
-            Other
-    end.
+prepared_query(Conn, Name, Params) ->
+    epgsql:prepared_query(Conn, to_list(Name), Params).
 
-parse(Conn, Name, SQL) ->
-    case do_parse(Conn, Name, SQL) of
-        {error, #error{severity = error,
-                       code = <<"42P50">>,
-                       codename = duplicate_prepared_statement}} ->
-            ok;
-        Other ->
-           Other
-    end.
-
-do_prepared_query(Conn, NameOrStmt, Params) ->
-    case epgsql:prepared_query(Conn, NameOrStmt, Params) of
-        {error, sync_required} ->
-            epgsql:prepared_query(Conn, NameOrStmt, Params);
-        Other ->
-            Other
-    end.
-
-do_parse(Conn, Name, SQL) ->
-    case epgsql:parse(Conn, Name, SQL, []) of
-         {error, sync_required} ->
-            epgsql:parse(Conn, Name, SQL, []);
+parse(_Conn, []) ->
+    ok;
+parse(Conn, [{Name, Query} | More]) ->
+    case epgsql:parse(Conn, Name, Query, []) of
+        {ok, _Statement} ->
+            parse(Conn, More);
         Other ->
             Other
     end.

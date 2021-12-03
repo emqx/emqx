@@ -90,7 +90,7 @@ create(#{query := Query0,
               password_hash_algorithm => Algorithm,
               salt_position => SaltPosition,
               resource_id => ResourceId},
-    case emqx_resource:create_local(ResourceId, emqx_connector_pgsql, Config) of
+    case emqx_resource:create_local(ResourceId, emqx_connector_pgsql, Config#{named_queries => #{ResourceId => Query}}) of
         {ok, already_created} ->
             {ok, State};
         {ok, _} ->
@@ -111,11 +111,10 @@ update(Config, State) ->
 authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(#{password := Password} = Credential,
-             #{query := Query,
-               placeholders := PlaceHolders,
+             #{placeholders := PlaceHolders,
                resource_id := ResourceId} = State) ->
     Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
-    case emqx_resource:query(ResourceId, {prepared_sql, Query, Params}) of
+    case emqx_resource:query(ResourceId, {prepared_sql, ResourceId, Params}) of
         {ok, _Columns, []} -> ignore;
         {ok, Columns, [Row | _]} ->
             NColumns = [Name || #column{name = Name} <- Columns],
