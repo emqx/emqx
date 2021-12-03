@@ -270,28 +270,37 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     end;
 init_load(SchemaMod, RawConf) when is_map(RawConf) ->
     ok = save_schema_mod_and_names(SchemaMod),
-    %% check and save configs
-    {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf),
+    %% check configs agains the schema, with environment variables applied on top
+    {_AppEnvs, CheckedConf} =
+        check_config(SchemaMod, RawConf, #{apply_override_envs => true}),
     %% fill default values for raw config
-    Opts = #{only_fill_defaults => true,
-             logger => fun(_, _) -> ok end, %% everything should have been logged already
-             nullable => true %% TODO: evil, remove, nullable should be declared in schema
-            },
-    RawConfWithDefaults = hocon_schema:check_plain(SchemaMod, RawConf, Opts),
+    RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
     RootNames = get_root_names(),
     ok = save_to_config_map(maps:with(get_atom_root_names(), CheckedConf),
-                            maps:with(RootNames, RawConfWithDefaults)).
+                            maps:with(RootNames, RawConfWithEnvs)).
 
 include_dirs() ->
     [filename:join(emqx:data_dir(), "configs")].
 
+merge_envs(SchemaMod, RawConf) ->
+    Opts = #{logger => fun(_, _) -> ok end, %% everything should have been logged already when check_config
+             nullable => true, %% TODO: evil, remove, nullable should be declared in schema
+             format => map,
+             apply_override_envs => true
+            },
+    hocon_schema:merge_env_overrides(SchemaMod, RawConf, all, Opts).
+
 -spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().
 check_config(SchemaMod, RawConf) ->
-    Opts = #{return_plain => true,
-             nullable => true, %% TODO: evil, remove, nullable should be declared in schema
-             format => map
-            },
+    check_config(SchemaMod, RawConf, #{}).
+
+check_config(SchemaMod, RawConf, Opts0) ->
+    Opts1 = #{return_plain => true,
+              nullable => true, %% TODO: evil, remove, nullable should be declared in schema
+              format => map
+             },
+    Opts = maps:merge(Opts0, Opts1),
     {AppEnvs, CheckedConf} =
         hocon_schema:map_translate(SchemaMod, RawConf, Opts),
     {AppEnvs, emqx_map_lib:unsafe_atom_key_map(CheckedConf)}.

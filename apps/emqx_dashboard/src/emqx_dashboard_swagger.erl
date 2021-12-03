@@ -182,12 +182,12 @@ check_parameter([{Name, Type} | Spec], Bindings, QueryStr, Module, BindingsAcc, 
     Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
     case hocon_schema:field_schema(Type, in) of
         path ->
-            Option = #{atom_key => true, override_env => false},
+            Option = #{atom_key => true},
             NewBindings = hocon_schema:check_plain(Schema, Bindings, Option),
             NewBindingsAcc = maps:merge(BindingsAcc, NewBindings),
             check_parameter(Spec, Bindings, QueryStr, Module, NewBindingsAcc, QueryStrAcc);
         query ->
-            Option = #{override_env => false},
+            Option = #{},
             NewQueryStr = hocon_schema:check_plain(Schema, QueryStr, Option),
             NewQueryStrAcc = maps:merge(QueryStrAcc, NewQueryStr),
             check_parameter(Spec, Bindings, QueryStr, Module,BindingsAcc, NewQueryStrAcc)
@@ -201,7 +201,7 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
             _ -> Type0
         end,
     NewSchema = ?INIT_SCHEMA#{roots => [{root, Type}]},
-    Option = #{override_env => false, nullable => true},
+    Option = #{nullable => true},
     #{<<"root">> := NewBody} = CheckFun(NewSchema, #{<<"root">> => Body}, Option),
     NewBody;
 %% TODO not support nest object check yet, please use ref!
@@ -214,7 +214,7 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
 check_request_body(#{body := Body}, Spec, _Module, CheckFun, false) ->
     lists:foldl(fun({Name, Type}, Acc) ->
         Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
-        maps:merge(Acc, CheckFun(Schema, Body, #{override_env => false}))
+        maps:merge(Acc, CheckFun(Schema, Body, #{}))
                 end, #{}, Spec).
 
 %% tags, description, summary, security, deprecated
