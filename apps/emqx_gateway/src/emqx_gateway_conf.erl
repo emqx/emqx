@@ -248,7 +248,7 @@ update(Req) ->
     res(emqx_conf:update([gateway], Req, #{override_to => cluster})).
 
 res({ok, Result}) -> {ok, Result};
-res({error, {error, {pre_config_update,emqx_gateway_conf,Reason}}}) -> {error, Reason};
+res({error, {pre_config_update,emqx_gateway_conf,Reason}}) -> {error, Reason};
 res({error, Reason}) -> {error, Reason}.
 
 bin({LType, LName}) ->
