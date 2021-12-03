@@ -349,6 +349,23 @@ Note: this parameter only takes effect when the <code>backend</code> is set
 to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.
 """
            })}
+    , {"rpc_module",
+       sc(hoconsc:enum([gen_rpc, rpc]),
+          #{ mapping => "mria.rlog_rpc_module"
+           , default => gen_rpc
+           , desc => """
+Protocol used for pushing transaction logs to the replicant nodes.
+"""
+           })}
+    , {"tlog_push_mode",
+       sc(hoconsc:enum([sync, async]),
+          #{ mapping => "mria.tlog_push_mode"
+           , default => async
+           , desc => """
+In sync mode the core node waits for an ack from the replicant nodes before sending the next
+transaction log entry.
+"""
+           })}
     ];
 
 fields("cluster_call") ->
