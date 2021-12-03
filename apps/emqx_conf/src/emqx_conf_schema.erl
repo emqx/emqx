@@ -257,14 +257,12 @@ fields("node") ->
     [ {"name",
        sc(string(),
           #{ default => "emqx@127.0.0.1"
-           , override_env => "EMQX_NODE_NAME"
            })}
     , {"cookie",
        sc(string(),
           #{ mapping => "vm_args.-setcookie",
              default => "emqxsecretcookie",
-             sensitive => true,
-             override_env => "EMQX_NODE_COOKIE"
+             sensitive => true
            })}
     , {"data_dir",
        sc(string(),
