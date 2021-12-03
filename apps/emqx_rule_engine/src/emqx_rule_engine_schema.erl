@@ -44,19 +44,17 @@ fields("rules") ->
 SQL query to transform the messages.<br>
 Example: <code>SELECT * FROM \"test/topic\" WHERE payload.x = 1</code><br>
 """
+         , example => "SELECT * FROM \"test/topic\" WHERE payload.x = 1"
          , nullable => false
-         , validator => fun ?MODULE:validate_sql/1})}
-    , {"outputs", sc(hoconsc:array(hoconsc:union(
-                                   [ binary()
-                                   , ref("builtin_output_republish")
-                                   , ref("builtin_output_console")
-                                   ])),
+         , validator => fun ?MODULE:validate_sql/1
+         })}
+    , {"outputs", sc(hoconsc:array(hoconsc:union(outputs())),
         #{ desc => """
 A list of outputs of the rule.<br>
 An output can be a string that refers to the channel Id of a emqx bridge, or a object
 that refers to a function.<br>
 There a some built-in functions like \"republish\" and \"console\", and we also support user
-provided functions like \"ModuleName:FunctionName\".<br>
+provided functions in the format: \"{module}:{function}\".<br>
 The outputs in the list is executed one by one in order.
 This means that if one of the output is executing slowly, all of the outputs comes after it will not
 be executed until it returns.<br>
@@ -66,9 +64,19 @@ If there's any error when running an output, there will be an error message, and
 counter of the function output or the bridge channel will increase.
 """
         , default => []
+        , example => [
+            <<"http:my_http_bridge">>,
+            #{function => republish, args => #{
+                topic => <<"t/1">>, payload => <<"${payload}">>}},
+            #{function => console}
+          ]
         })}
     , {"enable", sc(boolean(), #{desc => "Enable or disable the rule", default => true})}
-    , {"description", sc(binary(), #{desc => "The description of the rule", default => <<>>})}
+    , {"description", sc(binary(),
+        #{ desc => "The description of the rule"
+         , example => "Some description"
+         , default => <<>>
+         })}
     ];
 
 fields("builtin_output_republish") ->
@@ -106,6 +114,27 @@ fields("builtin_output_console") ->
     %    default => #{}})}
     ];
 
+fields("user_provided_function") ->
+    [ {function, sc(binary(),
+        #{ desc => """
+The user provided function. Should be in the format: '{module}:{function}'.<br>
+Where the <module> is the erlang callback module and the {function} is the erlang function.<br>
+To write your own function, checkout the function <code>console</code> and
+<code>republish</code> in the source file:
+<code>apps/emqx_rule_engine/src/emqx_rule_outputs.erl</code> as an example.
+"""
+        , example => "module:function"
+        })}
+    , {args, sc(map(),
+        #{ desc => """
+The args will be passed as the 3rd argument to module:function/3,
+checkout the function <code>console</code> and <code>republish</code> in the source file:
+<code>apps/emqx_rule_engine/src/emqx_rule_outputs.erl</code> as an example.
+"""
+         , default => #{}
+         })}
+    ];
+
 fields("republish_args") ->
     [ {topic, sc(binary(),
         #{ desc =>"""
@@ -113,8 +142,9 @@ The target topic of message to be re-published.<br>
 Template with variables is allowed, see description of the 'republish_args'.
 """
           , nullable => false
+          , example => <<"a/1">>
           })}
-    , {qos, sc(binary(),
+    , {qos, sc(qos(),
         #{ desc => """
 The qos of the message to be re-published.
 Template with with variables is allowed, see description of the 'republish_args.<br>
@@ -122,8 +152,9 @@ Defaults to ${qos}. If variable ${qos} is not found from the selected result of 
 0 is used.
 """
          , default => <<"${qos}">>
+         , example => <<"${qos}">>
          })}
-    , {retain, sc(binary(),
+    , {retain, sc(hoconsc:union([binary(), boolean()]),
         #{ desc => """
 The retain flag of the message to be re-published.
 Template with with variables is allowed, see description of the 'republish_args.<br>
@@ -131,6 +162,7 @@ Defaults to ${retain}. If variable ${retain} is not found from the selected resu
 of the rule, false is used.
 """
         , default => <<"${retain}">>
+        , example => <<"${retain}">>
         })}
     , {payload, sc(binary(),
         #{ desc => """
@@ -140,8 +172,19 @@ Defaults to ${payload}. If variable ${payload} is not found from the selected re
 of the rule, then the string \"undefined\" is used.
 """
          , default => <<"${payload}">>
+         , example => <<"${payload}">>
          })}
     ].
+
+outputs() ->
+    [ binary()
+    , ref("builtin_output_republish")
+    , ref("builtin_output_console")
+    , ref("user_provided_function")
+    ].
+
+qos() ->
+    hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2), binary()]).
 
 validate_sql(Sql) ->
     case emqx_rule_sqlparser:parse(Sql) of

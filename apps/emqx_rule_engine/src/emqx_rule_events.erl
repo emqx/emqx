@@ -25,7 +25,9 @@
         , load/1
         , unload/0
         , unload/1
+        , event_names/0
         , event_name/1
+        , event_topic/1
         , eventmsg_publish/1
         ]).
 
@@ -45,23 +47,23 @@
         , columns_with_exam/1
         ]).
 
--define(SUPPORTED_HOOK,
-        [ 'client.connected'
-        , 'client.disconnected'
-        , 'session.subscribed'
-        , 'session.unsubscribed'
-        , 'message.publish'
-        , 'message.delivered'
-        , 'message.acked'
-        , 'message.dropped'
-        ]).
-
 -ifdef(TEST).
 -export([ reason/1
         , hook_fun/1
         , printable_maps/1
         ]).
 -endif.
+
+event_names() ->
+    [ 'client.connected'
+    , 'client.disconnected'
+    , 'session.subscribed'
+    , 'session.unsubscribed'
+    , 'message.publish'
+    , 'message.delivered'
+    , 'message.acked'
+    , 'message.dropped'
+    ].
 
 reload() ->
     lists:foreach(fun(Rule) ->
@@ -78,7 +80,7 @@ load(Topic) ->
 unload() ->
     lists:foreach(fun(HookPoint) ->
             emqx_hooks:del(HookPoint, {?MODULE, hook_fun(HookPoint)})
-        end, ?SUPPORTED_HOOK).
+        end, event_names()).
 
 unload(Topic) ->
     HookPoint = event_name(Topic),
