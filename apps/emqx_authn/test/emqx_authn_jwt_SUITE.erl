@@ -34,7 +34,12 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
+init_per_testcase(_, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    Config.
+
 init_per_suite(Config) ->
+    _ = application:load(emqx_conf),
     emqx_common_test_helpers:start_apps([emqx_authn]),
     Config.
 

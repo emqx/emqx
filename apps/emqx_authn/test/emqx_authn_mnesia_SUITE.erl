@@ -29,6 +29,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    _ = application:load(emqx_conf),
     emqx_common_test_helpers:start_apps([emqx_authn]),
     Config.
 
@@ -37,6 +38,7 @@ end_per_suite(_) ->
     ok.
 
 init_per_testcase(_Case, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     mria:clear_table(emqx_authn_mnesia),
     Config.
 

@@ -33,8 +33,8 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-
 init_per_testcase(_TestCase, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authentication:initialize_authentication(?GLOBAL, []),
     emqx_authn_test_lib:delete_authenticators(
       [authentication],
@@ -45,8 +45,8 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     ok = mc_worker_api:disconnect(?MONGO_CLIENT).
 
-
 init_per_suite(Config) ->
+    _ = application:load(emqx_conf),
     case emqx_authn_test_lib:is_tcp_server_available(?MONGO_HOST, ?MONGO_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
