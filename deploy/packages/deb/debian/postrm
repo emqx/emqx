@@ -55,6 +55,11 @@ case "$1" in
         if [ -d /usr/lib/emqx ]; then
                 rm -r /usr/lib/emqx
         fi
+
+        if pidof systemd; then
+          systemctl disable emqx;
+          rm -f /etc/systemd/emqx.service
+        fi
     ;;
 
     remove)

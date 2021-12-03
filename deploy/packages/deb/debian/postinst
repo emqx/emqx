@@ -35,6 +35,12 @@ chmod -R 0755 /usr/lib/emqx/bin
 ln -s /usr/lib/emqx/bin/emqx /usr/bin/emqx
 ln -s /usr/lib/emqx/bin/emqx_ctl /usr/bin/emqx_ctl
 
+if systemctl status --no-pager; then
+    systemctl enable emqx;
+else
+    echo "systemd is not in use, skip enable emqx"
+fi
+
 case "$1" in
     configure)
     ;;
