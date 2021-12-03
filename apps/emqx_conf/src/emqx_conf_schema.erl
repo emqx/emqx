@@ -278,6 +278,22 @@ fields("node") ->
     , {"crash_dump_file",
        sc(file(),
           #{ mapping => "vm_args.-env ERL_CRASH_DUMP"
+           , desc => "Location of the crash dump file"
+           })}
+    , {"crash_dump_seconds",
+       sc(emqx_schema:duration_s(),
+          #{ mapping => "vm_args.-env ERL_CRASH_DUMP_SECONDS"
+           , default => "30s"
+           , desc => """
+The number of seconds that the broker is allowed to spend writing
+a crash dump
+"""
+           })}
+    , {"crash_dump_bytes",
+       sc(emqx_schema:bytesize(),
+          #{ mapping => "vm_args.-env ERL_CRASH_DUMP_BYTES"
+           , default => "100MB"
+           , desc => "The maximum size of a crash dump file in bytes."
            })}
     , {"dist_net_ticktime",
        sc(emqx_schema:duration(),
