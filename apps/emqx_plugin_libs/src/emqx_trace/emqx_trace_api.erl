@@ -38,7 +38,8 @@ list_trace(_, _Params) ->
     case emqx_trace:list() of
         [] -> {ok, []};
         List0 ->
-            List = lists:sort(fun(#{start_at := A}, #{start_at := B}) -> A > B end, List0),
+            List = lists:sort(fun(#{start_at := A}, #{start_at := B}) -> A > B end,
+                emqx_trace:format(List0)),
             Nodes = ekka_mnesia:running_nodes(),
             TraceSize = cluster_call(?MODULE, get_trace_size, [], 30000),
             AllFileSize = lists:foldl(fun(F, Acc) -> maps:merge(Acc, F) end, #{}, TraceSize),
@@ -50,12 +51,12 @@ list_trace(_, _Params) ->
                     LogSize = collect_file_size(Nodes, FileName, AllFileSize),
                     Trace0 = maps:without([enable, filter], Trace),
                     Trace0#{ log_size => LogSize
-                           , Type => Filter
+                           , Type => iolist_to_binary(Filter)
                            , start_at => list_to_binary(calendar:system_time_to_rfc3339(Start))
                            , end_at => list_to_binary(calendar:system_time_to_rfc3339(End))
                            , status => status(Enable, Start, End, Now)
                            }
-                          end, emqx_trace:format(List)),
+                          end, List),
             {ok, Traces}
     end.
 
