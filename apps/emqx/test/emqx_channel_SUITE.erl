@@ -132,7 +132,7 @@ basic_conf() ->
       zones => zone_conf()
     }.
 
-set_test_listenser_confs() ->
+set_test_listener_confs() ->
     Conf = emqx_config:get([]),
     emqx_config:put(basic_conf()),
     Conf.
@@ -179,7 +179,7 @@ end_per_suite(_Config) ->
                 ]).
 
 init_per_testcase(_TestCase, Config) ->
-    NewConf = set_test_listenser_confs(),
+    NewConf = set_test_listener_confs(),
     [{config, NewConf}|Config].
 
 end_per_testcase(_TestCase, Config) ->
