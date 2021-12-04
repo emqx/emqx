@@ -333,8 +333,6 @@ find_action_in_hooks() ->
 
 authz_module('built-in-database') ->
     emqx_authz_mnesia;
-authz_module(file) ->
-    emqx_authz_rule;
 authz_module(Type) ->
     list_to_existing_atom("emqx_authz_" ++ atom_to_list(Type)).
 

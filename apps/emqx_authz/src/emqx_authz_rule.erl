@@ -20,48 +20,32 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--behaviour(emqx_authz).
-
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
 
 %% APIs
--export([ description/0
-        , init/1
-        , destroy/1
-        , dry_run/1
-        , authorize/4
+-export([ match/4
+        , matches/4
+        , compile/1
         ]).
 
+-type(ipaddress() :: {ipaddr,  esockd_cidr:cidr_string()} |
+                     {ipaddrs, list(esockd_cidr:cidr_string())}).
+
+-type(username() :: {username, binary()}).
+
+-type(clientid() :: {clientid, binary()}).
+
+-type(who() :: ipaddress() | username() | clientid() |
+               {'and', [ipaddress() | username() | clientid()]} |
+               {'or',  [ipaddress() | username() | clientid()]} |
+               all).
+
+-type(rule() :: {permission(), who(), action(), list(emqx_types:topic())}).
+
 -export_type([rule/0]).
-
-description() ->
-    "AuthZ with static rules".
-
-init(#{path := Path} = Source) ->
-    Rules = case file:consult(Path) of
-                {ok, Terms} ->
-                    [compile(Term) || Term <- Terms];
-                {error, eacces} ->
-                    ?SLOG(alert, #{msg => "insufficient_permissions_to_read_file", path => Path}),
-                    error(eaccess);
-                {error, enoent} ->
-                    ?SLOG(alert, #{msg => "file_does_not_exist", path => Path}),
-                    error(enoent);
-                {error, Reason} ->
-                    ?SLOG(alert, #{msg => "failed_to_read_file", path => Path, reason => Reason}),
-                    error(Reason)
-            end,
-    Source#{annotations => #{rules => Rules}}.
-
-destroy(_Source) -> ok.
-
-dry_run(_Source) -> ok.
-
-authorize(Client, PubSub, Topic, #{annotations := #{rules := Rules}}) ->
-    matches(Client, PubSub, Topic, Rules).
 
 compile({Permission, all})
   when ?ALLOW_DENY(Permission) -> {Permission, all, all, [compile_topic(<<"#">>)]};
