@@ -24,7 +24,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--define(PATH, [authentication]).
+-define(PATH, [?CONF_NS_ATOM]).
 
 -define(HTTP_PORT, 33333).
 -define(HTTP_PATH, "/auth").
