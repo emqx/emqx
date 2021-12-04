@@ -62,7 +62,7 @@ post_request_body_schema() ->
         connector_info(post_req), connector_info_examples()).
 
 get_response_body_schema() ->
-    emqx_dashboard_swagger:schema_with_example(
+    emqx_dashboard_swagger:schema_with_examples(
         connector_info(), connector_info_examples()).
 
 connector_info() ->
