@@ -108,9 +108,27 @@ in <code>zone</code> configs"""
           })}
     , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
        authentication(
-"""Default authentication configs for all MQTT listeners.<br>
+"""Default authentication configs for all MQTT listeners.
+<br>
 For per-listener overrides see <code>authentication</code>
-in listener configs""")}
+in listener configs
+<br>
+<br>
+EMQ X can be configured with:
+<br>
+<ul>
+<li><code>[]</code>: The default value, it allows *ALL* logins</li>
+<li>one: For example <code>{enable:true,backend:\"built-in-database\",mechanism=\"password-based\"}</code></li>
+<li>chain: An array of structs.</li>
+</ul>
+<br>
+When a chain is configured, the login credentials are checked against the backends
+per the configured order, until an 'allow' or 'deny' decision can be made.
+<br>
+If there is no decision after a full chain exhaustion, the login is rejected.
+""")}
+    %% NOTE: authorization schema here is only to keep emqx app prue
+    %% the full schema for EMQ X node is injected in emqx_conf_schema.
     , {"authorization",
        sc(ref("authorization"),
           #{})}

@@ -68,8 +68,7 @@ roots() ->
         undefined -> persistent_term:put(PtKey, emqx_authn_schema);
         _ -> ok
     end,
-    %% authorization configs are merged in THIS schema's "authorization" fields
-    lists:keydelete("authorization", 1, emqx_schema:roots(high)) ++
+    emqx_schema_high_prio_roots() ++
     [ {"node",
        sc(hoconsc:ref("node"),
           #{ desc => "Node name, cookie, config & data directories "
@@ -92,20 +91,6 @@ roots() ->
                      "inter-broker RPCs.<br>Most of the time the default config "
                      "should work, but in case you need to do performance "
                      "fine-turning or experiment a bit, this is where to look."
-           })}
-    , {"authorization",
-       sc(hoconsc:ref("authorization"),
-          #{ desc => """
-Authorization a.k.a ACL.<br>
-In EMQ X, MQTT client access control is extremly flexible.<br>
-An out of the box set of authorization data sources are supported.
-For example,<br>
-'file' source is to support concise and yet generic ACL rules in a file;<br>
-'built-in-database' source can be used to store per-client customisable rule sets,
-natively in the EMQ X node;<br>
-'http' source to make EMQ X call an external HTTP API to make the decision;<br>
-'postgresql' etc. to look up clients or rules from external databases;<br>
-"""
            })}
     , {"db",
        sc(ref("db"),
@@ -849,3 +834,22 @@ ensure_list(V) ->
 
 roots(Module) ->
     lists:map(fun({_BinName, Root}) -> Root end, hocon_schema:roots(Module)).
+
+%% Like authentication schema, authorization schema is incomplete in emqx_schema
+%% module, this function replaces the root filed "authorization" with a new schema
+emqx_schema_high_prio_roots() ->
+    Roots = emqx_schema:roots(high),
+    Authz = {"authorization",
+             sc(hoconsc:ref("authorization"),
+             #{ desc => """
+Authorization a.k.a ACL.<br>
+In EMQ X, MQTT client access control is extremly flexible.<br>
+An out of the box set of authorization data sources are supported.
+For example,<br>
+'file' source is to support concise and yet generic ACL rules in a file;<br>
+'built-in-database' source can be used to store per-client customisable rule sets,
+natively in the EMQ X node;<br>
+'http' source to make EMQ X call an external HTTP API to make the decision;<br>
+'postgresql' etc. to look up clients or rules from external databases;<br>
+""" })},
+    lists:keyreplace("authorization", 1, Roots, Authz).
