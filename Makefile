@@ -57,7 +57,7 @@ APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
 ## app/name-ct targets are intended for local tests hence cover is not enabled
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
-$1-ct:
+$1-ct: conf-segs
 	$(REBAR) ct --name $(CT_NODE_NAME) -v --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
