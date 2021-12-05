@@ -153,36 +153,42 @@ profiles() ->
        , {relx, relx(Vsn, cloud, bin, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
+       , {post_hooks, [{compile, "./build emqx doc"}]}
        ]}
     , {'emqx-pkg',
        [ {erl_opts, prod_compile_opts()}
        , {relx, relx(Vsn, cloud, pkg, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
+       , {post_hooks, [{compile, "./build emqx-pkg doc"}]}
        ]}
     , {'emqx-enterprise',
        [ {erl_opts, prod_compile_opts()}
        , {relx, relx(Vsn, cloud, bin, ee)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ee)}
+       , {post_hooks, [{compile, "./build emqx-enterprise doc"}]}
        ]}
     , {'emqx-enterprise-pkg',
        [ {erl_opts, prod_compile_opts()}
        , {relx, relx(Vsn, cloud, pkg, ee)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ee)}
+       , {post_hooks, [{compile, "./build emqx-enterprise-pkg doc"}]}
        ]}
     , {'emqx-edge',
        [ {erl_opts, prod_compile_opts()}
        , {relx, relx(Vsn, edge, bin, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
+       , {post_hooks, [{compile, "./build emqx-edge doc"}]}
        ]}
     , {'emqx-edge-pkg',
        [ {erl_opts, prod_compile_opts()}
        , {relx, relx(Vsn, edge, pkg, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
+       , {post_hooks, [{compile, "./build emqx-edge-pkg doc"}]}
        ]}
     , {check,
        [ {erl_opts, common_compile_opts()}

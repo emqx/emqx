@@ -24,6 +24,7 @@
 -export([update/3, update/4]).
 -export([remove/2, remove/3]).
 -export([reset/2, reset/3]).
+-export([gen_doc/1]).
 
 %% for rpc
 -export([get_node_and_config/1]).
@@ -122,6 +123,16 @@ reset(Node, KeyPath, Opts) when Node =:= node() ->
     emqx:reset_config(KeyPath, Opts#{override_to => local});
 reset(Node, KeyPath, Opts) ->
     rpc:call(Node, ?MODULE, reset, [KeyPath, Opts]).
+
+-spec gen_doc(file:name_all()) -> ok.
+gen_doc(File) ->
+    Version = emqx_release:version(),
+    Title = "# EMQ X " ++ Version ++ " Configuration",
+    BodyFile = filename:join([code:lib_dir(emqx_conf), "etc", "emqx_conf.md"]),
+    {ok, Body} = file:read_file(BodyFile),
+    Doc = hocon_schema_doc:gen(emqx_conf_schema, #{title => Title,
+                                                   body => Body}),
+    file:write_file(File, Doc).
 
 %%--------------------------------------------------------------------
 %% Internal functions
