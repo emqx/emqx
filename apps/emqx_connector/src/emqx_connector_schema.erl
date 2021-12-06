@@ -11,6 +11,7 @@
 
 roots() -> ["connectors"].
 
+fields(connectors) -> fields("connectors");
 fields("connectors") ->
     [ {mqtt,
        sc(hoconsc:map(name,

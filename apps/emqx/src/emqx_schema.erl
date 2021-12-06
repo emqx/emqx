@@ -22,6 +22,7 @@
 -dialyzer(no_unused).
 -dialyzer(no_fail_call).
 
+-include("emqx_authentication.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -type duration() :: integer().
@@ -105,11 +106,29 @@ and can not be deleted."""
 The configs here work as default values which can be overriden
 in <code>zone</code> configs"""
           })}
-    , {"authentication",
+    , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
        authentication(
-"""Default authentication configs for all MQTT listeners.<br>
+"""Default authentication configs for all MQTT listeners.
+<br>
 For per-listener overrides see <code>authentication</code>
-in listener configs""")}
+in listener configs
+<br>
+<br>
+EMQ X can be configured with:
+<br>
+<ul>
+<li><code>[]</code>: The default value, it allows *ALL* logins</li>
+<li>one: For example <code>{enable:true,backend:\"built-in-database\",mechanism=\"password-based\"}</code></li>
+<li>chain: An array of structs.</li>
+</ul>
+<br>
+When a chain is configured, the login credentials are checked against the backends
+per the configured order, until an 'allow' or 'deny' decision can be made.
+<br>
+If there is no decision after a full chain exhaustion, the login is rejected.
+""")}
+    %% NOTE: authorization schema here is only to keep emqx app prue
+    %% the full schema for EMQ X node is injected in emqx_conf_schema.
     , {"authorization",
        sc(ref("authorization"),
           #{})}
@@ -972,7 +991,7 @@ mqtt_listener() ->
        sc(duration(),
           #{})
       }
-    , {"authentication",
+    , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
        authentication("Per-listener authentication override")
       }
     ].
@@ -1231,16 +1250,18 @@ ciphers_schema(Default) ->
                            false -> fun validate_ciphers/1
                        end
         , desc =>
-"""TLS cipher suite names separated by comma, or as an array of strings
+"""This config holds TLS cipher suite names separated by comma,
+or as an array of strings. e.g.
 <code>\"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256\"</code> or
-<code>[\"TLS_AES_256_GCM_SHA384\",\"TLS_AES_128_GCM_SHA256\"]</code].
+<code>[\"TLS_AES_256_GCM_SHA384\",\"TLS_AES_128_GCM_SHA256\"]</code>.
 <br>
 Ciphers (and their ordering) define the way in which the
-client and server encrypts information over the wire.
+client and server encrypts information over the network connection.
 Selecting a good cipher suite is critical for the
 application's data security, confidentiality and performance.
-The names should be in OpenSSL sting format (not RFC format).
-Default values and examples proveded by EMQ X config
+
+The names should be in OpenSSL string format (not RFC format).
+All default values and examples proveded by EMQ X config
 documentation are all in OpenSSL format.<br>
 
 NOTE: Certain cipher suites are only compatible with
@@ -1436,12 +1457,23 @@ str(S) when is_list(S) ->
     S.
 
 authentication(Desc) ->
-    #{ type => hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())]))
-     , desc => iolist_to_binary([Desc, "<br>", """
+    %% authentication schemais lazy to make it more 'plugable'
+    %% the type checks are done in emqx_auth application when it boots.
+    %% and in emqx_authentication_config module for rutime changes.
+    Default = hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())])),
+    %% as the type is lazy, the runtime module injection from EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
+    %% is for now only affecting document generation.
+    %% maybe in the future, we can find a more straightforward way to support
+    %% * document generation (at compile time)
+    %% * type checks before boot (in bin/emqx config generation)
+    %% * type checks at runtime (when changing configs via management API)
+    #{ type => case persistent_term:get(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY, undefined) of
+                   undefined -> Default;
+                   Module -> hoconsc:lazy(Module:root_type())
+               end
+     , desc => iolist_to_binary([Desc, """
 Authentication can be one single authenticator instance or a chain of authenticators as an array.
 When authenticating a login (username, client ID, etc.) the authenticators are checked
 in the configured order.<br>
-EMQ X comes with a set of pre-built autenticators, for more details, see
-<a href=\"#root-authenticator_config\">autenticator_config<a>
 """])
      }.

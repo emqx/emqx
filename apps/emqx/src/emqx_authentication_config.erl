@@ -34,6 +34,7 @@
 -export_type([config/0]).
 
 -include("logger.hrl").
+-include("emqx_authentication.hrl").
 
 -type parsed_config() :: #{mechanism := atom(),
                            backend => atom(),
@@ -132,9 +133,9 @@ do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}
 
 check_configs(Configs) ->
     Providers = emqx_authentication:get_providers(),
-    lists:map(fun(C) -> do_check_conifg(C, Providers) end, Configs).
+    lists:map(fun(C) -> do_check_config(C, Providers) end, Configs).
 
-do_check_conifg(Config, Providers) ->
+do_check_config(Config, Providers) ->
     Type = authn_type(Config),
     case maps:get(Type, Providers, false) of
         false ->
@@ -143,19 +144,20 @@ do_check_conifg(Config, Providers) ->
                              providers => Providers}),
             throw({unknown_authn_type, Type});
         Module ->
-            do_check_conifg(Type, Config, Module)
+            do_check_config(Type, Config, Module)
     end.
 
-do_check_conifg(Type, Config, Module) ->
+do_check_config(Type, Config, Module) ->
     F = case erlang:function_exported(Module, check_config, 1) of
             true ->
                 fun Module:check_config/1;
             false ->
                 fun(C) ->
-                        #{config := R} =
-                            hocon_schema:check_plain(Module, #{<<"config">> => C},
+                        Key = list_to_binary(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME),
+                        AtomKey = list_to_atom(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME),
+                        R = hocon_schema:check_plain(Module, #{Key => C},
                                                      #{atom_key => true}),
-                        R
+                        maps:get(AtomKey, R)
                 end
         end,
     try
@@ -261,8 +263,8 @@ authn_type(#{mechanism := M}) -> atom(M);
 authn_type(#{<<"mechanism">> := M, <<"backend">> := B}) -> {atom(M), atom(B)};
 authn_type(#{<<"mechanism">> := M}) -> atom(M).
 
-atom(Bin) ->
-    binary_to_existing_atom(Bin, utf8).
+atom(A) when is_atom(A) -> A;
+atom(Bin) -> binary_to_existing_atom(Bin, utf8).
 
 %% The relative dir for ssl files.
 certs_dir(ChainName, ConfigOrID) ->

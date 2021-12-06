@@ -22,10 +22,12 @@
         , roots/0
         , fields/1
         , authenticator_type/0
+        , root_type/0
+        , mechanism/1
+        , backend/1
         ]).
 
-%% only for doc generation
-roots() -> [{authenticator_config, hoconsc:mk(authenticator_type())}].
+roots() -> [].
 
 fields(_) -> [].
 
@@ -35,6 +37,7 @@ common_fields() ->
 
 enable(type) -> boolean();
 enable(default) -> true;
+enable(desc) -> "Set to <code>false</code> to disable this auth provider";
 enable(_) -> undefined.
 
 authenticator_type() ->
@@ -42,3 +45,18 @@ authenticator_type() ->
 
 config_refs(Modules) ->
     lists:append([Module:refs() || Module <- Modules]).
+
+%% authn is a core functionality however implemented outside fo emqx app
+%% in emqx_schema, 'authentication' is a map() type which is to allow
+%% EMQ X more plugable.
+root_type() ->
+    T = authenticator_type(),
+    hoconsc:union([T, hoconsc:array(T)]).
+
+mechanism(Name) ->
+    hoconsc:mk(hoconsc:enum([Name]),
+               #{nullable => false}).
+
+backend(Name) ->
+    hoconsc:mk(hoconsc:enum([Name]),
+               #{nullable => false}).

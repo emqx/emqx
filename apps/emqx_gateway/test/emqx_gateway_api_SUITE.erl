@@ -28,6 +28,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+%% this parses to #{}, will not cause config cleanup
+%% so we will need call emqx_config:erase
 -define(CONF_DEFAULT, <<"
 gateway {}
 ">>).
@@ -39,6 +41,7 @@ gateway {}
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
+    emqx_config:erase(gateway),
     emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),
     Conf.

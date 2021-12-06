@@ -83,11 +83,11 @@ mnesia(boot) ->
 
 namespace() -> "authn-scram-builtin_db".
 
-roots() -> [config].
+roots() -> [?CONF_NS].
 
-fields(config) ->
-    [ {mechanism,       {enum, [scram]}}
-    , {backend,         {enum, ['built-in-database']}}
+fields(?CONF_NS) ->
+    [ {mechanism, emqx_authn_schema:mechanism('scram')}
+    , {backend, emqx_authn_schema:backend('built-in-database')}
     , {algorithm,       fun algorithm/1}
     , {iteration_count, fun iteration_count/1}
     ] ++ emqx_authn_schema:common_fields().
@@ -105,7 +105,7 @@ iteration_count(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-   [hoconsc:ref(?MODULE, config)].
+   [hoconsc:ref(?MODULE, ?CONF_NS)].
 
 create(AuthenticatorID,
        #{algorithm := Algorithm,

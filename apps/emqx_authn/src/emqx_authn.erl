@@ -22,6 +22,8 @@
         , check_configs/1
         ]).
 
+-include("emqx_authn.hrl").
+
 providers() ->
     [ {{'password-based', 'built-in-database'}, emqx_authn_mnesia}
     , {{'password-based', mysql}, emqx_authn_mysql}
@@ -44,8 +46,8 @@ check_config(Config) ->
 
 check_config(Config, Opts) ->
     case do_check_config(Config, Opts) of
-        #{config := Checked} -> Checked;
-        #{<<"config">> := WithDefaults} -> WithDefaults
+        #{?CONF_NS_ATOM := Checked} -> Checked;
+        #{?CONF_NS_BINARY := WithDefaults} -> WithDefaults
     end.
 
 do_check_config(#{<<"mechanism">> := Mec} = Config, Opts) ->
@@ -56,10 +58,15 @@ do_check_config(#{<<"mechanism">> := Mec} = Config, Opts) ->
     case lists:keyfind(Key, 1, providers()) of
         false ->
             throw({unknown_handler, Key});
-        {_, Provider} ->
-            hocon_schema:check_plain(Provider, #{<<"config">> => Config},
+        {_, ProviderModule} ->
+            hocon_schema:check_plain(ProviderModule, #{?CONF_NS_BINARY => Config},
                                      Opts#{atom_key => true})
     end.
 
 atom(Bin) ->
-    binary_to_existing_atom(Bin, utf8).
+    try
+        binary_to_existing_atom(Bin, utf8)
+    catch
+        _ : _ ->
+            throw({unknown_auth_provider, Bin})
+    end.

@@ -42,8 +42,8 @@
 namespace() -> "authn-redis".
 
 roots() ->
-    [ {config, hoconsc:mk(hoconsc:union(refs()),
-                          #{})}
+    [ {?CONF_NS, hoconsc:mk(hoconsc:union(refs()),
+                            #{})}
     ].
 
 fields(standalone) ->
@@ -56,11 +56,11 @@ fields(sentinel) ->
     common_fields() ++ emqx_connector_redis:fields(sentinel).
 
 common_fields() ->
-    [{mechanism,               {enum, ['password-based']}},
-     {backend,                 {enum, [redis]}},
-     {cmd,                     fun cmd/1},
-     {password_hash_algorithm, fun password_hash_algorithm/1},
-     {salt_position,           fun salt_position/1}
+    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
+    , {backend, emqx_authn_schema:backend(redis)}
+    , {cmd,                     fun cmd/1}
+    , {password_hash_algorithm, fun password_hash_algorithm/1}
+    , {salt_position,           fun salt_position/1}
     ] ++ emqx_authn_schema:common_fields().
 
 cmd(type) -> string();

@@ -108,7 +108,8 @@ connector_name() ->
            #{ nullable => false
             , desc =>"""
 The connector name to be used for this bridge.
-Connectors are configured by 'connectors.<type>.<name>
+Connectors are configured as 'connectors.type.name',
+for example 'connectors.http.mybridge'.
 """
             })}.
 

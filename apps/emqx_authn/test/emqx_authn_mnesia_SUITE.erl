@@ -49,6 +49,8 @@ end_per_testcase(_Case, Config) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
+-define(CONF(Conf), #{?CONF_NS_BINARY => Conf}).
+
 t_check_schema(_Config) ->
     ConfigOk = #{
         <<"mechanism">> => <<"password-based">>,
@@ -60,7 +62,7 @@ t_check_schema(_Config) ->
         }
     },
 
-    hocon_schema:check_plain(emqx_authn_mnesia, #{<<"config">> => ConfigOk}),
+    hocon_schema:check_plain(emqx_authn_mnesia, ?CONF(ConfigOk)),
 
     ConfigNotOk = #{
         <<"mechanism">> => <<"password-based">>,
@@ -74,7 +76,7 @@ t_check_schema(_Config) ->
     ?assertException(
         throw,
         {emqx_authn_mnesia, _},
-        hocon_schema:check_plain(emqx_authn_mnesia, #{<<"config">> => ConfigNotOk})).
+        hocon_schema:check_plain(emqx_authn_mnesia, ?CONF(ConfigNotOk))).
 
 t_create(_) ->
     Config0 = config(),
