@@ -23,7 +23,8 @@
 
 -define(NOW, erlang:system_time(millisecond)).
 -define(MINIMUM_INSERT_INTERVAL, 1000).
--define(MINIMUM_THRESHOLD, 500).
+-define(MINIMUM_THRESHOLD, 100).
+-define(DEFAULT_THRESHOLD, 500).
 -define(THRESHOLD_KEY, {?MODULE, threshold}).
 
 -opaque stats() :: #{ ema := emqx_moving_average:ema()
@@ -87,7 +88,7 @@ update_threshold(Threshold) ->
     Val.
 
 get_threshold() ->
-    persistent_term:get(?THRESHOLD_KEY, ?MINIMUM_THRESHOLD).
+    persistent_term:get(?THRESHOLD_KEY, ?DEFAULT_THRESHOLD).
 
 %%--------------------------------------------------------------------
 %%  Internal functions
@@ -98,7 +99,7 @@ call_hook(_, _, _, Latency, S)
     S;
 
 call_hook(ClientId, Now, Type, Latency, #{last_insert_value := LIV} = Stats) ->
-    case get_threshold() >= Latency of
+    case Latency =< get_threshold() of
         true ->
             Stats#{last_access_time := Now};
         _ ->
