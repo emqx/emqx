@@ -768,7 +768,7 @@ t_lost_messages_because_of_gc(Config) ->
 
 check_snabbkaffe_vanilla(Trace) ->
     ResumeTrace = [T || #{?snk_kind := K} = T <- Trace,
-                        re:run(atom_to_list(K), "^ps_") /= nomatch],
+                        re:run(to_list(K), "^ps_") /= nomatch],
     ?assertMatch([_|_], ResumeTrace),
     [_Sid] = lists:usort(?projection(sid, ResumeTrace)),
     %% Check internal flow of the emqx_cm resuming
@@ -810,6 +810,10 @@ check_snabbkaffe_vanilla(Trace) ->
 
     [Markers] = ?projection(markers, ?of_kind(ps_node_markers, Trace)),
     ?assertMatch([_], Markers).
+
+to_list(L) when is_list(L)   -> L;
+to_list(A) when is_atom(A)   -> atom_to_list(A);
+to_list(B) when is_binary(B) -> binary_to_list(B).
 
 %%--------------------------------------------------------------------
 %% Snabbkaffe tests
