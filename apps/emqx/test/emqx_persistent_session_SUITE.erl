@@ -245,7 +245,7 @@ receive_messages(Count, Msgs) ->
             receive_messages(Count-1, [Msg|Msgs]);
         _Other ->
             receive_messages(Count, Msgs)
-    after 1000 ->
+    after 5000 ->
         Msgs
     end.
 
@@ -576,7 +576,7 @@ t_publish_while_client_is_gone(Config) ->
                                      | Config]),
     {ok, _} = emqtt:ConnFun(Client2),
     Msgs = receive_messages(2),
-    ?assertEqual(length(Msgs), 2),
+    ?assertMatch([_, _], Msgs),
     [Msg2, Msg1] = Msgs,
     ?assertEqual({ok, iolist_to_binary(Payload1)}, maps:find(payload, Msg1)),
     ?assertEqual({ok, 2}, maps:find(qos, Msg1)),
