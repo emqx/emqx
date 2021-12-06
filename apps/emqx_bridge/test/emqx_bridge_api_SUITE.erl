@@ -21,7 +21,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -define(CONF_DEFAULT, <<"bridges: {}">>).
--define(TEST_ID, <<"http:test_bridge">>).
+-define(BRIDGE_TYPE, <<"http">>).
+-define(BRIDGE_NAME, <<"test_bridge">>).
+-define(BRIDGE_ID, <<"http:test_bridge">>).
 -define(URL(PORT, PATH), list_to_binary(
     io_lib:format("http://localhost:~s/~s",
                   [integer_to_list(PORT), PATH]))).
@@ -134,11 +136,15 @@ t_http_crud_apis(_) ->
     %% POST /bridges/ will create a bridge
     URL1 = ?URL(Port, "path1"),
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
-                                ?HTTP_BRIDGE(URL1)#{<<"id">> => ?TEST_ID}),
+        ?HTTP_BRIDGE(URL1)#{
+            <<"type">> => ?BRIDGE_TYPE,
+            <<"name">> => ?BRIDGE_NAME
+        }),
 
     %ct:pal("---bridge: ~p", [Bridge]),
-    ?assertMatch(#{ <<"id">> := ?TEST_ID
-                  , <<"bridge_type">> := <<"http">>
+    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
+                  , <<"type">> := ?BRIDGE_TYPE
+                  , <<"name">> := ?BRIDGE_NAME
                   , <<"status">> := _
                   , <<"node_status">> := [_|_]
                   , <<"metrics">> := _
@@ -148,7 +154,10 @@ t_http_crud_apis(_) ->
 
     %% create a again returns an error
     {ok, 400, RetMsg} = request(post, uri(["bridges"]),
-                                ?HTTP_BRIDGE(URL1)#{<<"id">> => ?TEST_ID}),
+        ?HTTP_BRIDGE(URL1)#{
+            <<"type">> => ?BRIDGE_TYPE,
+            <<"name">> => ?BRIDGE_NAME
+        }),
     ?assertMatch(
         #{ <<"code">> := _
          , <<"message">> := <<"bridge already exists">>
@@ -156,10 +165,11 @@ t_http_crud_apis(_) ->
 
     %% update the request-path of the bridge
     URL2 = ?URL(Port, "path2"),
-    {ok, 200, Bridge2} = request(put, uri(["bridges", ?TEST_ID]),
+    {ok, 200, Bridge2} = request(put, uri(["bridges", ?BRIDGE_ID]),
                                  ?HTTP_BRIDGE(URL2)),
-    ?assertMatch(#{ <<"id">> := ?TEST_ID
-                  , <<"bridge_type">> := <<"http">>
+    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
+                  , <<"type">> := ?BRIDGE_TYPE
+                  , <<"name">> := ?BRIDGE_NAME
                   , <<"status">> := _
                   , <<"node_status">> := [_|_]
                   , <<"metrics">> := _
@@ -169,8 +179,9 @@ t_http_crud_apis(_) ->
 
     %% list all bridges again, assert Bridge2 is in it
     {ok, 200, Bridge2Str} = request(get, uri(["bridges"]), []),
-    ?assertMatch([#{ <<"id">> := ?TEST_ID
-                   , <<"bridge_type">> := <<"http">>
+    ?assertMatch([#{ <<"id">> := ?BRIDGE_ID
+                   , <<"type">> := ?BRIDGE_TYPE
+                   , <<"name">> := ?BRIDGE_NAME
                    , <<"status">> := _
                    , <<"node_status">> := [_|_]
                    , <<"metrics">> := _
@@ -179,9 +190,10 @@ t_http_crud_apis(_) ->
                    }], jsx:decode(Bridge2Str)),
 
     %% get the bridge by id
-    {ok, 200, Bridge3Str} = request(get, uri(["bridges", ?TEST_ID]), []),
-    ?assertMatch(#{ <<"id">> := ?TEST_ID
-                  , <<"bridge_type">> := <<"http">>
+    {ok, 200, Bridge3Str} = request(get, uri(["bridges", ?BRIDGE_ID]), []),
+    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
+                  , <<"type">> := ?BRIDGE_TYPE
+                  , <<"name">> := ?BRIDGE_NAME
                   , <<"status">> := _
                   , <<"node_status">> := [_|_]
                   , <<"metrics">> := _
@@ -190,11 +202,11 @@ t_http_crud_apis(_) ->
                   }, jsx:decode(Bridge3Str)),
 
     %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", ?TEST_ID]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     %% update a deleted bridge returns an error
-    {ok, 404, ErrMsg2} = request(put, uri(["bridges", ?TEST_ID]),
+    {ok, 404, ErrMsg2} = request(put, uri(["bridges", ?BRIDGE_ID]),
                                  ?HTTP_BRIDGE(URL2)),
     ?assertMatch(
         #{ <<"code">> := _
@@ -206,11 +218,15 @@ t_start_stop_bridges(_) ->
     Port = start_http_server(fun handle_fun_200_ok/1),
     URL1 = ?URL(Port, "abc"),
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
-                                ?HTTP_BRIDGE(URL1)#{<<"id">> => ?TEST_ID}),
+        ?HTTP_BRIDGE(URL1)#{
+            <<"type">> => ?BRIDGE_TYPE,
+            <<"name">> => ?BRIDGE_NAME
+        }),
     %ct:pal("the bridge ==== ~p", [Bridge]),
     ?assertMatch(
-        #{ <<"id">> := ?TEST_ID
-         , <<"bridge_type">> := <<"http">>
+        #{ <<"id">> := ?BRIDGE_ID
+         , <<"type">> := ?BRIDGE_TYPE
+         , <<"name">> := ?BRIDGE_NAME
          , <<"status">> := _
          , <<"node_status">> := [_|_]
          , <<"metrics">> := _
@@ -219,42 +235,42 @@ t_start_stop_bridges(_) ->
          }, jsx:decode(Bridge)),
     %% stop it
     {ok, 200, <<>>} = request(post,
-        uri(["nodes", node(), "bridges", ?TEST_ID, "operation", "stop"]),
+        uri(["nodes", node(), "bridges", ?BRIDGE_ID, "operation", "stop"]),
         <<"">>),
-    {ok, 200, Bridge2} = request(get, uri(["bridges", ?TEST_ID]), []),
-    ?assertMatch(#{ <<"id">> := ?TEST_ID
+    {ok, 200, Bridge2} = request(get, uri(["bridges", ?BRIDGE_ID]), []),
+    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
                   , <<"status">> := <<"disconnected">>
                   }, jsx:decode(Bridge2)),
     %% start again
     {ok, 200, <<>>} = request(post,
-        uri(["nodes", node(), "bridges", ?TEST_ID, "operation", "start"]),
+        uri(["nodes", node(), "bridges", ?BRIDGE_ID, "operation", "start"]),
         <<"">>),
-    {ok, 200, Bridge3} = request(get, uri(["bridges", ?TEST_ID]), []),
-    ?assertMatch(#{ <<"id">> := ?TEST_ID
+    {ok, 200, Bridge3} = request(get, uri(["bridges", ?BRIDGE_ID]), []),
+    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
                   , <<"status">> := <<"connected">>
                   }, jsx:decode(Bridge3)),
     %% restart an already started bridge
     {ok, 200, <<>>} = request(post,
-        uri(["nodes", node(), "bridges", ?TEST_ID, "operation", "restart"]),
+        uri(["nodes", node(), "bridges", ?BRIDGE_ID, "operation", "restart"]),
         <<"">>),
-    {ok, 200, Bridge3} = request(get, uri(["bridges", ?TEST_ID]), []),
-    ?assertMatch(#{ <<"id">> := ?TEST_ID
+    {ok, 200, Bridge3} = request(get, uri(["bridges", ?BRIDGE_ID]), []),
+    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
                   , <<"status">> := <<"connected">>
                   }, jsx:decode(Bridge3)),
     %% stop it again
     {ok, 200, <<>>} = request(post,
-        uri(["nodes", node(), "bridges", ?TEST_ID, "operation", "stop"]),
+        uri(["nodes", node(), "bridges", ?BRIDGE_ID, "operation", "stop"]),
         <<"">>),
     %% restart a stopped bridge
     {ok, 200, <<>>} = request(post,
-        uri(["nodes", node(), "bridges", ?TEST_ID, "operation", "restart"]),
+        uri(["nodes", node(), "bridges", ?BRIDGE_ID, "operation", "restart"]),
         <<"">>),
-    {ok, 200, Bridge4} = request(get, uri(["bridges", ?TEST_ID]), []),
-    ?assertMatch(#{ <<"id">> := ?TEST_ID
+    {ok, 200, Bridge4} = request(get, uri(["bridges", ?BRIDGE_ID]), []),
+    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
                   , <<"status">> := <<"connected">>
                   }, jsx:decode(Bridge4)),
     %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", ?TEST_ID]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []).
 
 %%--------------------------------------------------------------------
