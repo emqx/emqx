@@ -88,7 +88,12 @@ on_message_publish(Msg = #message{flags   = #{retain := true},
                                   payload = <<>>},
                    Context) ->
     delete_message(Context, Topic),
-    {ok, Msg};
+    case get_stop_publish_clear_msg() of
+        true ->
+            {ok, emqx_message:set_header(allow_publish, false, Msg)};
+        _ ->
+            {ok, Msg}
+    end;
 
 on_message_publish(Msg = #message{flags = #{retain := true}}, Context) ->
     Msg1 = emqx_message:set_header(retained, true, Msg),
@@ -156,6 +161,9 @@ get_expiry_time(#message{timestamp = Ts}) ->
         0 -> 0;
         _ -> Ts + Interval
     end.
+
+get_stop_publish_clear_msg() ->
+    emqx_conf:get([?APP, stop_publish_clear_msg], false).
 
 -spec update_config(hocon:config()) -> ok.
 update_config(Conf) ->
