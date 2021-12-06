@@ -59,7 +59,7 @@ init_per_suite(Config) ->
     ok = meck:expect(emqx_alarm, deactivate, fun(_) -> ok end),
     ok = meck:expect(emqx_alarm, deactivate, fun(_, _) -> ok end),
 
-    emqx_channel_SUITE:set_test_listenser_confs(),
+    emqx_channel_SUITE:set_test_listener_confs(),
     Config.
 
 end_per_suite(_Config) ->

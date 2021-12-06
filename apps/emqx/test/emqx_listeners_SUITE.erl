@@ -42,6 +42,7 @@ init_per_testcase(Case, Config)
   when Case =:= t_max_conns_tcp; Case =:= t_current_conns_tcp ->
     {ok, _} = emqx_config_handler:start_link(),
     PrevListeners = emqx_config:get([listeners, tcp], #{}),
+    PrevRateLimit = emqx_config:get([rate_limit], #{}),
     emqx_config:put([listeners, tcp], #{ listener_test =>
                                              #{ bind => {"127.0.0.1", 9999}
                                               , max_connections => 4321
@@ -53,6 +54,7 @@ init_per_testcase(Case, Config)
     ok = emqx_listeners:start(),
     [ {listener_conf, ListenerConf}
     , {prev_listener_conf, PrevListeners}
+    , {prev_rate_limit_conf, PrevRateLimit}
     | Config];
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_config_handler:start_link(),
@@ -61,7 +63,9 @@ init_per_testcase(_, Config) ->
 end_per_testcase(Case, Config)
   when Case =:= t_max_conns_tcp; Case =:= t_current_conns_tcp ->
     PrevListener = ?config(prev_listener_conf, Config),
+    PrevRateLimit = ?config(prev_rate_limit_conf, Config),
     emqx_config:put([listeners, tcp], PrevListener),
+    emqx_config:put([rate_limit], PrevRateLimit),
     emqx_listeners:stop(),
     _ = emqx_config_handler:stop(),
     ok;

@@ -29,7 +29,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    emqx_channel_SUITE:set_test_listenser_confs(),
+    emqx_channel_SUITE:set_test_listener_confs(),
     ok = meck:new([emqx_hooks, emqx_metrics, emqx_broker],
                   [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
