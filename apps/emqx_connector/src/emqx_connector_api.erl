@@ -105,10 +105,10 @@ method_example(_Type, put) ->
 
 info_example_basic(mqtt) ->
     #{
+        mode => cluster_shareload,
         server => <<"127.0.0.1:1883">>,
         reconnect_interval => <<"30s">>,
         proto_ver => <<"v4">>,
-        bridge_mode => true,
         username => <<"foo">>,
         password => <<"bar">>,
         clientid => <<"foo">>,
