@@ -238,22 +238,22 @@ test_is_superuser({Value, ExpectedValue}) ->
 
 raw_mongo_auth_config() ->
     #{
-        mechanism => <<"password-based">>,
-        password_hash_algorithm => <<"plain">>,
-        salt_position => <<"suffix">>,
-        enable => <<"true">>,
+      mechanism => <<"password-based">>,
+      password_hash_algorithm => #{name => <<"plain">>,
+                                   salt_position => <<"suffix">>},
+      enable => <<"true">>,
 
-        backend => <<"mongodb">>,
-        mongo_type => <<"single">>,
-        database => <<"mqtt">>,
-        collection => <<"users">>,
-        server => mongo_server(),
+      backend => <<"mongodb">>,
+      mongo_type => <<"single">>,
+      database => <<"mqtt">>,
+      collection => <<"users">>,
+      server => mongo_server(),
 
-        selector => #{<<"username">> => <<"${username}">>},
-        password_hash_field => <<"password_hash">>,
-        salt_field => <<"salt">>,
-        is_superuser_field => <<"is_superuser">>
-    }.
+      selector => #{<<"username">> => <<"${username}">>},
+      password_hash_field => <<"password_hash">>,
+      salt_field => <<"salt">>,
+      is_superuser_field => <<"is_superuser">>
+     }.
 
 user_seeds() ->
     [#{data => #{
@@ -282,8 +282,8 @@ user_seeds() ->
                         password => <<"md5">>
                        },
        config_params => #{
-                          password_hash_algorithm => <<"md5">>,
-                          salt_position => <<"suffix">>
+                          password_hash_algorithm => #{name => <<"md5">>,
+                                                       salt_position => <<"suffix">> }
                          },
        result => {ok,#{is_superuser => false}}
       },
@@ -300,8 +300,8 @@ user_seeds() ->
                        },
        config_params => #{
               selector => #{<<"username">> => <<"${clientid}">>},
-              password_hash_algorithm => <<"sha256">>,
-              salt_position => <<"prefix">>
+              password_hash_algorithm => #{name => <<"sha256">>,
+                                           salt_position => <<"prefix">>}
              },
        result => {ok,#{is_superuser => true}}
       },
@@ -317,8 +317,7 @@ user_seeds() ->
                         password => <<"bcrypt">>
                        },
        config_params => #{
-              password_hash_algorithm => <<"bcrypt">>,
-              salt_position => <<"suffix">> % should be ignored
+              password_hash_algorithm => #{name => <<"bcrypt">>}
              },
        result => {ok,#{is_superuser => false}}
       },
@@ -336,8 +335,7 @@ user_seeds() ->
        config_params => #{
               % clientid variable & username credentials
               selector => #{<<"username">> => <<"${clientid}">>},
-              password_hash_algorithm => <<"bcrypt">>,
-              salt_position => <<"suffix">>
+              password_hash_algorithm => #{name => <<"bcrypt">>}
              },
        result => {error,not_authorized}
       },
@@ -354,8 +352,7 @@ user_seeds() ->
                        },
        config_params => #{
               selector => #{<<"userid">> => <<"${clientid}">>},
-              password_hash_algorithm => <<"bcrypt">>,
-              salt_position => <<"suffix">>
+              password_hash_algorithm => #{name => <<"bcrypt">>}
              },
        result => {error,not_authorized}
       },
@@ -372,8 +369,7 @@ user_seeds() ->
                         password => <<"wrongpass">>
                        },
        config_params => #{
-              password_hash_algorithm => <<"bcrypt">>,
-              salt_position => <<"suffix">>
+              password_hash_algorithm => #{name => <<"bcrypt">>}
              },
        result => {error,bad_username_or_password}
       }

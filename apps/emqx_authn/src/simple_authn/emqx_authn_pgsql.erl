@@ -52,20 +52,11 @@ roots() -> [?CONF_NS].
 fields(?CONF_NS) ->
     [ {mechanism, emqx_authn_schema:mechanism('password-based')}
     , {backend, emqx_authn_schema:backend(postgresql)}
-    , {password_hash_algorithm, fun password_hash_algorithm/1}
-    , {salt_position,           fun salt_position/1}
+    , {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     , {query,                   fun query/1}
     ] ++ emqx_authn_schema:common_fields()
     ++ emqx_connector_schema_lib:relational_db_fields()
     ++ emqx_connector_schema_lib:ssl_fields().
-
-password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};
-password_hash_algorithm(default) -> sha256;
-password_hash_algorithm(_) -> undefined.
-
-salt_position(type) -> {enum, [prefix, suffix]};
-salt_position(default) -> prefix;
-salt_position(_) -> undefined.
 
 query(type) -> string();
 query(_) -> undefined.
@@ -81,14 +72,13 @@ create(_AuthenticatorID, Config) ->
     create(Config).
 
 create(#{query := Query0,
-         password_hash_algorithm := Algorithm,
-         salt_position := SaltPosition} = Config) ->
+         password_hash_algorithm := Algorithm} = Config) ->
+    ok = emqx_authn_password_hashing:init(Algorithm),
     {Query, PlaceHolders} = parse_query(Query0),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     State = #{query => Query,
               placeholders => PlaceHolders,
               password_hash_algorithm => Algorithm,
-              salt_position => SaltPosition,
               resource_id => ResourceId},
     case emqx_resource:create_local(ResourceId, emqx_connector_pgsql, Config) of
         {ok, already_created} ->
@@ -113,14 +103,16 @@ authenticate(#{auth_method := _}, _) ->
 authenticate(#{password := Password} = Credential,
              #{query := Query,
                placeholders := PlaceHolders,
-               resource_id := ResourceId} = State) ->
+               resource_id := ResourceId,
+               password_hash_algorithm := Algorithm}) ->
     Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
     case emqx_resource:query(ResourceId, {sql, Query, Params}) of
         {ok, _Columns, []} -> ignore;
         {ok, Columns, [Row | _]} ->
             NColumns = [Name || #column{name = Name} <- Columns],
             Selected = maps:from_list(lists:zip(NColumns, erlang:tuple_to_list(Row))),
-            case emqx_authn_utils:check_password(Password, Selected, State) of
+            case emqx_authn_utils:check_password_from_selected_map(
+                  Algorithm, Selected, Password) of
                 ok ->
                     {ok, emqx_authn_utils:is_superuser(Selected)};
                 {error, Reason} ->

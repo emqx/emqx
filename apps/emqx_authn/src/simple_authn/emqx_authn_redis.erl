@@ -59,20 +59,11 @@ common_fields() ->
     [ {mechanism, emqx_authn_schema:mechanism('password-based')}
     , {backend, emqx_authn_schema:backend(redis)}
     , {cmd,                     fun cmd/1}
-    , {password_hash_algorithm, fun password_hash_algorithm/1}
-    , {salt_position,           fun salt_position/1}
+    , {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     ] ++ emqx_authn_schema:common_fields().
 
 cmd(type) -> string();
 cmd(_) -> undefined.
-
-password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};
-password_hash_algorithm(default) -> sha256;
-password_hash_algorithm(_) -> undefined.
-
-salt_position(type) -> {enum, [prefix, suffix]};
-salt_position(default) -> prefix;
-salt_position(_) -> undefined.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -89,6 +80,7 @@ create(_AuthenticatorID, Config) ->
 
 create(#{cmd := Cmd,
          password_hash_algorithm := Algorithm} = Config) ->
+    ok = emqx_authn_password_hashing:init(Algorithm),
     try
         NCmd = parse_cmd(Cmd),
         ok = emqx_authn_utils:ensure_apps_started(Algorithm),
@@ -129,13 +121,15 @@ authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(#{password := Password} = Credential,
              #{cmd := {Command, Key, Fields},
-               resource_id := ResourceId} = State) ->
+               resource_id := ResourceId,
+               password_hash_algorithm := Algorithm}) ->
     NKey = binary_to_list(iolist_to_binary(replace_placeholders(Key, Credential))),
     case emqx_resource:query(ResourceId, {cmd, [Command, NKey | Fields]}) of
         {ok, Values} ->
             case merge(Fields, Values) of
                 #{<<"password_hash">> := _} = Selected ->
-                    case emqx_authn_utils:check_password(Password, Selected, State) of
+                    case emqx_authn_utils:check_password_from_selected_map(
+                          Algorithm, Selected, Password) of
                         ok ->
                             {ok, emqx_authn_utils:is_superuser(Selected)};
                         {error, Reason} ->
