@@ -111,7 +111,7 @@ current_conns(ID, ListenOn) ->
     {Type, Name} = parse_listener_id(ID),
     current_conns(Type, Name, ListenOn).
 
-current_conns(Type, Name, ListenOn) when Type == tcl; Type == ssl ->
+current_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
     esockd:get_current_connections({listener_id(Type, Name), ListenOn});
 current_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     proplists:get_value(all_connections, ranch:info(listener_id(Type, Name)));
@@ -122,7 +122,7 @@ max_conns(ID, ListenOn) ->
     {Type, Name} = parse_listener_id(ID),
     max_conns(Type, Name, ListenOn).
 
-max_conns(Type, Name, ListenOn) when Type == tcl; Type == ssl ->
+max_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
     esockd:get_max_connections({listener_id(Type, Name), ListenOn});
 max_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     proplists:get_value(max_connections, ranch:info(listener_id(Type, Name)));
