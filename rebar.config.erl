@@ -281,6 +281,7 @@ relx_apps(ReleaseType, Edition) ->
     , {emqx_plugin_libs, load}
     , {esasl, load}
     , observer_cli
+    , system_monitor
     , emqx_http_lib
     , emqx_resource
     , emqx_connector
