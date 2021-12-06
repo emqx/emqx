@@ -40,6 +40,8 @@
 
 -behaviour(hocon_schema).
 
+-import(hoconsc, [mk/2]).
+
 -export([ roots/0
         , fields/1]).
 
@@ -49,7 +51,25 @@ roots() ->
     fields("config").
 
 fields("config") ->
-    emqx_connector_mqtt_schema:fields("config").
+    emqx_connector_mqtt_schema:fields("config");
+
+fields("get") ->
+    [{id, mk(binary(),
+        #{ desc => "The connector Id"
+         , example => <<"mqtt:my_mqtt_connector">>
+         })}]
+    ++ fields("post");
+
+fields("put") ->
+    emqx_connector_mqtt_schema:fields("connector");
+
+fields("post") ->
+    [ {type, mk(mqtt, #{desc => "The Connector Type"})}
+    , {name, mk(binary(),
+        #{ desc => "The Connector Name"
+         , example => <<"my_mqtt_connector">>
+         })}
+    ] ++ fields("put").
 
 %% ===================================================================
 %% supervisor APIs

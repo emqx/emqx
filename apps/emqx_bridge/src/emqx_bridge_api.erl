@@ -394,12 +394,14 @@ aggregate_metrics(AllMetrics) ->
         end, InitMetrics, AllMetrics).
 
 format_resp(#{id := Id, raw_config := RawConf,
-              resource_data := #{mod := Mod, status := Status, metrics := Metrics}}) ->
+              resource_data := #{status := Status, metrics := Metrics}}) ->
+    {Type, Name} = emqx_bridge:parse_bridge_id(Id),
     IsConnected = fun(started) -> connected; (_) -> disconnected end,
     RawConf#{
         id => Id,
+        type => Type,
+        name => Name,
         node => node(),
-        type => emqx_bridge:bridge_type(Mod),
         status => IsConnected(Status),
         metrics => Metrics
     }.
