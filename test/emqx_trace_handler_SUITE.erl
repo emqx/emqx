@@ -200,6 +200,7 @@ t_trace_ip_address(_Config) ->
 
 
 filesync(Name, Type) ->
+    ct:sleep(50),
     filesync(Name, Type, 3).
 
 %% sometime the handler process is not started yet.
