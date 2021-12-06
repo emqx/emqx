@@ -37,6 +37,8 @@
 
 -spec(load(list()) -> ok).
 load(Env) ->
+    Threshold = proplists:get_value(threshold, Env),
+    _ = emqx_message_latency_stats:update_threshold(Threshold),
     emqx_mod_sup:start_child(?LIB, worker, [Env]),
     ok.
 
