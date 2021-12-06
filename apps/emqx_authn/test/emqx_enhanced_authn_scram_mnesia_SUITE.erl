@@ -33,6 +33,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+     _ = application:load(emqx_conf),
     ok = emqx_common_test_helpers:start_apps([emqx_authn]),
     Config.
 
@@ -40,6 +41,7 @@ end_per_suite(_Config) ->
     ok = emqx_common_test_helpers:stop_apps([emqx_authn]).
 
 init_per_testcase(_Case, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     mria:clear_table(emqx_enhanced_authn_scram_mnesia),
     emqx_authn_test_lib:delete_authenticators(
       [authentication],

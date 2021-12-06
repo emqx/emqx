@@ -23,11 +23,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
-
 -define(REDIS_HOST, "redis").
 -define(REDIS_PORT, 6379).
 -define(REDIS_RESOURCE, <<"emqx_authn_redis_SUITE">>).
-
 
 -define(PATH, [authentication]).
 
@@ -38,6 +36,7 @@ groups() ->
     [{require_seeds, [], [t_authenticate, t_update, t_destroy]}].
 
 init_per_testcase(_, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authentication:initialize_authentication(?GLOBAL, []),
     emqx_authn_test_lib:delete_authenticators(
       [authentication],
@@ -53,6 +52,7 @@ end_per_group(require_seeds, Config) ->
     Config.
 
 init_per_suite(Config) ->
+   _ = application:load(emqx_conf),
     case emqx_authn_test_lib:is_tcp_server_available(?REDIS_HOST, ?REDIS_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
