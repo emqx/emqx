@@ -37,7 +37,7 @@
         , on_session_unsubscribed/3
         , on_session_resumed/2
         , on_session_discarded/2
-        , on_session_takeovered/2
+        , on_session_takenover/2
         , on_session_terminated/3
         ]).
 
@@ -170,9 +170,9 @@ on_session_discarded(ClientInfo, _SessInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo)},
     cast('session.discarded', Req).
 
-on_session_takeovered(ClientInfo, _SessInfo) ->
+on_session_takenover(ClientInfo, _SessInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo)},
-    cast('session.takeovered', Req).
+    cast('session.takenover', Req).
 
 on_session_terminated(ClientInfo, Reason, _SessInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo),

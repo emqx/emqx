@@ -64,7 +64,7 @@
                    | 'session.unsubscribed'
                    | 'session.resumed'
                    | 'session.discarded'
-                   | 'session.takeovered'
+                   | 'session.takenover'
                    | 'session.terminated'
                    | 'message.publish'
                    | 'message.delivered'
@@ -307,7 +307,7 @@ hk2func('session.subscribed') -> 'on_session_subscribed';
 hk2func('session.unsubscribed') -> 'on_session_unsubscribed';
 hk2func('session.resumed') -> 'on_session_resumed';
 hk2func('session.discarded') -> 'on_session_discarded';
-hk2func('session.takeovered') -> 'on_session_takeovered';
+hk2func('session.takenover') -> 'on_session_takenover';
 hk2func('session.terminated') -> 'on_session_terminated';
 hk2func('message.publish') -> 'on_message_publish';
 hk2func('message.delivered') ->'on_message_delivered';
@@ -325,5 +325,5 @@ available_hooks() ->
      'client.disconnected', 'client.authenticate', 'client.authorize',
      'client.subscribe', 'client.unsubscribe',
      'session.created', 'session.subscribed', 'session.unsubscribed',
-     'session.resumed', 'session.discarded', 'session.takeovered',
+     'session.resumed', 'session.discarded', 'session.takenover',
      'session.terminated' | message_hooks()].

@@ -41,7 +41,7 @@
         , on_session_unsubscribed/2
         , on_session_resumed/2
         , on_session_discarded/2
-        , on_session_takeovered/2
+        , on_session_takenover/2
         , on_session_terminated/2
         , on_message_publish/2
         , on_message_delivered/2
@@ -130,7 +130,7 @@ on_provider_loaded(Req, Md) ->
                      #{name => <<"session.unsubscribed">>},
                      #{name => <<"session.resumed">>},
                      #{name => <<"session.discarded">>},
-                     #{name => <<"session.takeovered">>},
+                     #{name => <<"session.takenover">>},
                      #{name => <<"session.terminated">>},
                      #{name => <<"message.publish">>},
                      #{name => <<"message.delivered">>},
@@ -274,10 +274,10 @@ on_session_discarded(Req, Md) ->
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
--spec on_session_takeovered(emqx_exhook_pb:session_takeovered_request(), grpc:metadata())
+-spec on_session_takenover(emqx_exhook_pb:session_takenover_request(), grpc:metadata())
     -> {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}
      | {error, grpc_cowboy_h:error_response()}.
-on_session_takeovered(Req, Md) ->
+on_session_takenover(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.

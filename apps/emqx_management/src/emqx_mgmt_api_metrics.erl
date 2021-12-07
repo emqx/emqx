@@ -126,7 +126,7 @@ properties() ->
         {'session.created',                 integer, <<"Number of sessions created">>},
         {'session.discarded',               integer, <<"Number of sessions dropped because Clean Session or Clean Start is true">>},
         {'session.resumed',                 integer, <<"Number of sessions resumed because Clean Session or Clean Start is false">>},
-        {'session.takeovered',              integer, <<"Number of sessions takeovered because Clean Session or Clean Start is false">>},
+        {'session.takenover',               integer, <<"Number of sessions takenover because Clean Session or Clean Start is false">>},
         {'session.terminated',              integer, <<"Number of terminated sessions">>}
     ].
 

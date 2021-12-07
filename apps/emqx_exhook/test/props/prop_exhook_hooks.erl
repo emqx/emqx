@@ -257,11 +257,11 @@ prop_session_discared() ->
             true
         end).
 
-prop_session_takeovered() ->
+prop_session_takenover() ->
     ?ALL({ClientInfo, SessInfo}, {clientinfo(), sessioninfo()},
         begin
-            ok = emqx_hooks:run('session.takeovered', [ClientInfo, SessInfo]),
-            {'on_session_takeovered', Resp} = emqx_exhook_demo_svr:take(),
+            ok = emqx_hooks:run('session.takenover', [ClientInfo, SessInfo]),
+            {'on_session_takenover', Resp} = emqx_exhook_demo_svr:take(),
             Expected =
                 #{clientinfo => from_clientinfo(ClientInfo)
                  },
