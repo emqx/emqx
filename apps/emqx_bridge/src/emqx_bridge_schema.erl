@@ -26,7 +26,7 @@ get_response() ->
 
 connector_name() ->
     {connector,
-        sc(binary(),
+        mk(binary(),
            #{ nullable => false
             , desc =>"""
 The connector name to be used for this bridge.
