@@ -261,11 +261,7 @@ schema("/connectors/:id") ->
 error_msg(Code, Msg) when is_binary(Msg) ->
     #{code => Code, message => Msg};
 error_msg(Code, Msg) ->
-    #{code => Code, message => list_to_binary(io_lib:format("~p", [Msg]))}.
+    #{code => Code, message => bin(io_lib:format("~p", [Msg]))}.
 
-bin(S) when is_atom(S) ->
-    atom_to_binary(S, utf8);
 bin(S) when is_list(S) ->
-    list_to_binary(S);
-bin(S) when is_binary(S) ->
-    S.
+    list_to_binary(S).
