@@ -124,6 +124,7 @@
 
 -define(APP, emqx_management).
 
+-elvis([{elvis_style, god_modules, disable}]).
 %%--------------------------------------------------------------------
 %% Node Info
 %%--------------------------------------------------------------------
@@ -143,7 +144,7 @@ node_info(Node) when Node =:= node() ->
     Info#{node              => node(),
           otp_release       => iolist_to_binary(otp_rel()),
           memory_total      => proplists:get_value(allocated, Memory),
-          memory_used       => proplists:get_value(total, Memory),
+          memory_used       => proplists:get_value(used, Memory),
           process_available => erlang:system_info(process_limit),
           process_used      => erlang:system_info(process_count),
           max_fds           => proplists:get_value(max_fds,
@@ -298,7 +299,7 @@ call_client(Node, ClientId, Req) when Node =:= node() ->
             Pid = lists:last(Pids),
             case emqx_cm:get_chan_info(ClientId, Pid) of
                 #{conninfo := #{conn_mod := ConnMod}} ->
-                    ConnMod:call(Pid, Req);
+                    erlang:apply(ConnMod, call, [Pid, Req]);
                 undefined -> {error, not_found}
             end
     end;
@@ -322,9 +323,10 @@ list_subscriptions_via_topic(Topic, FormatFun) ->
     lists:append([list_subscriptions_via_topic(Node, Topic, FormatFun)
         || Node <- ekka_mnesia:running_nodes()]).
 
+
 list_subscriptions_via_topic(Node, Topic, {M,F}) when Node =:= node() ->
     MatchSpec = [{{{'_', '$1'}, '_'}, [{'=:=','$1', Topic}], ['$_']}],
-    M:F(ets:select(emqx_suboption, MatchSpec));
+    erlang:apply(M, F, [ets:select(emqx_suboption, MatchSpec)]);
 
 list_subscriptions_via_topic(Node, Topic, FormatFun) ->
     rpc_call(Node, list_subscriptions_via_topic, [Node, Topic, FormatFun]).
