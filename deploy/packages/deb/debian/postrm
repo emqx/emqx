@@ -56,7 +56,7 @@ case "$1" in
                 rm -r /usr/lib/emqx
         fi
 
-        if pidof systemd; then
+        if systemctl status --no-pager; then
           systemctl disable emqx;
           rm -f /etc/systemd/emqx.service
         fi
