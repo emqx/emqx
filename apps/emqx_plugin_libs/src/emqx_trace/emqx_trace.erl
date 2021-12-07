@@ -398,15 +398,13 @@ fill_default(Trace = #?TRACE{end_at = undefined, start_at = StartAt}) ->
     fill_default(Trace#?TRACE{end_at = StartAt + 10 * 60});
 fill_default(Trace) -> Trace.
 
+-define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
+
 to_trace([], Rec) -> {ok, Rec};
 to_trace([{name, Name} | Trace], Rec) ->
-    case io_lib:printable_unicode_list(unicode:characters_to_list(Name, utf8)) of
-        true ->
-            case binary:match(Name, [<<"/">>], []) of
-                nomatch -> to_trace(Trace, Rec#?TRACE{name = Name});
-                _ -> {error, "name cannot contain /"}
-            end;
-        false -> {error, "name must printable unicode"}
+    case re:run(Name, ?NAME_RE) of
+        nomatch -> {error, "Name should be " ?NAME_RE};
+        _ -> to_trace(Trace, Rec#?TRACE{name = Name})
     end;
 to_trace([{type, Type} | Trace], Rec) ->
     case lists:member(Type, [<<"clientid">>, <<"topic">>, <<"ip_address">>]) of
@@ -453,7 +451,8 @@ validate_topic(TopicName) ->
 to_system_second(At) ->
     try
         Sec = calendar:rfc3339_to_system_time(binary_to_list(At), [{unit, second}]),
-        {ok, Sec}
+        Now = erlang:system_time(second),
+        {ok, erlang:max(Now, Sec)}
     catch error: {badmatch, _} ->
         {error, ["The rfc3339 specification not satisfied: ", At]}
     end.

@@ -135,7 +135,7 @@ stream_log_file(#{name := Name}, Params) ->
         {ok, Node} ->
             Position = binary_to_integer(Position0),
             Bytes = binary_to_integer(Bytes0),
-            case rpc:call(Node, ?MODULE, read_trace_file, [Name, Position, Bytes]) of
+            case rpc:call(Node, ?MODULE, read_trace_file, [Name, Position, Bytes])  of
                 {ok, Bin} ->
                     Meta = #{<<"position">> => Position + byte_size(Bin), <<"bytes">> => Bytes},
                     {ok, #{meta => Meta, items => Bin}};
@@ -143,7 +143,7 @@ stream_log_file(#{name := Name}, Params) ->
                     Meta = #{<<"position">> => Size, <<"bytes">> => Bytes},
                     {ok, #{meta => Meta, items => <<"">>}};
                 {error, Reason} ->
-                    logger:log(error, "read_file_failed by ~p", [{Name, Reason, Position, Bytes}]),
+                    logger:log(error, "read_file_failed by ~p", [{Node, Name, Reason, Position, Bytes}]),
                     {error, Reason};
                 {badrpc, nodedown} ->
                     {error, "BadRpc node down"}
@@ -165,15 +165,12 @@ get_trace_size() ->
 
 %% this is an rpc call for stream_log_file/2
 read_trace_file(Name, Position, Limit) ->
-    TraceDir = emqx_trace:trace_dir(),
-    {ok, AllFiles} = file:list_dir(TraceDir),
-    TracePrefix = "trace_" ++ binary_to_list(Name) ++ "_",
-    Filter = fun(FileName) -> nomatch =/= string:prefix(FileName, TracePrefix) end,
-    case lists:filter(Filter, AllFiles) of
-        [TraceFile] ->
+    case emqx_trace:get_trace_filename(Name) of
+        {error, _} = Error -> Error;
+        {ok, TraceFile} ->
+            TraceDir = emqx_trace:trace_dir(),
             TracePath = filename:join([TraceDir, TraceFile]),
-            read_file(TracePath, Position, Limit);
-        [] -> {error, not_found}
+            read_file(TracePath, Position, Limit)
     end.
 
 read_file(Path, Offset, Bytes) ->
@@ -206,8 +203,8 @@ collect_file_size(Nodes, FileName, AllFiles) ->
         Acc#{Node => Size}
                 end, #{}, Nodes).
 
-%% status(false, _Start, End, Now) when End > Now -> <<"stopped">>;
 status(false, _Start, _End, _Now) -> <<"stopped">>;
-status(true, Start, _End, Now) when Now < Start -> <<"waiting">>;
+%% asynchronously create trace, we should wait 1 seconds
+status(true, Start, _End, Now) when Now < Start + 2 -> <<"waiting">>;
 status(true, _Start, End, Now) when Now >= End -> <<"stopped">>;
 status(true, _Start, _End, _Now) -> <<"running">>.

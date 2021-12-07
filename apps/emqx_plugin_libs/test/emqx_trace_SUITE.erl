@@ -130,7 +130,7 @@ t_create_failed(_Config) ->
     InvalidPackets4 = [{<<"name">>, <<"/test">>}, {<<"clientid">>, <<"t">>},
         {<<"type">>, <<"clientid">>}],
     {error, Reason9} = emqx_trace:create(InvalidPackets4),
-    ?assertEqual(<<"name cannot contain /">>, iolist_to_binary(Reason9)),
+    ?assertEqual(<<"Name should be ^[A-Za-z]+[A-Za-z0-9-_]*$">>, iolist_to_binary(Reason9)),
 
     ?assertEqual({error, "type=[topic,clientid,ip_address] required"},
         emqx_trace:create([{<<"name">>, <<"test-name">>}, {<<"clientid">>, <<"good">>}])),
