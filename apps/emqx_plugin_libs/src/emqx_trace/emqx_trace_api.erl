@@ -135,7 +135,7 @@ stream_log_file(#{name := Name}, Params) ->
         {ok, Node} ->
             Position = binary_to_integer(Position0),
             Bytes = binary_to_integer(Bytes0),
-            case rpc:call(Node, ?MODULE, read_trace_file, [Name, Position, Bytes])  of
+            case rpc:call(Node, ?MODULE, read_trace_file, [Name, Position, Bytes]) of
                 {ok, Bin} ->
                     Meta = #{<<"position">> => Position + byte_size(Bin), <<"bytes">> => Bytes},
                     {ok, #{meta => Meta, items => Bin}};
@@ -143,7 +143,7 @@ stream_log_file(#{name := Name}, Params) ->
                     Meta = #{<<"position">> => Size, <<"bytes">> => Bytes},
                     {ok, #{meta => Meta, items => <<"">>}};
                 {error, Reason} ->
-                    logger:log(error, "read_file_failed by ~p", [{Node, Name, Reason, Position, Bytes}]),
+                    logger:log(error, "read_file_failed ~p", [{Node, Name, Reason, Position, Bytes}]),
                     {error, Reason};
                 {badrpc, nodedown} ->
                     {error, "BadRpc node down"}
@@ -174,21 +174,24 @@ read_trace_file(Name, Position, Limit) ->
     end.
 
 read_file(Path, Offset, Bytes) ->
-    {ok, IoDevice} = file:open(Path, [read, raw, binary]),
-    try
-        _ = case Offset of
-                0 -> ok;
-                _ -> file:position(IoDevice, {bof, Offset})
-            end,
-        case file:read(IoDevice, Bytes) of
-            {ok, Bin} -> {ok, Bin};
-            {error, Reason} -> {error, Reason};
-            eof ->
-                {ok, #file_info{size = Size}} = file:read_file_info(IoDevice),
-                {eof, Size}
-        end
-    after
-        file:close(IoDevice)
+    case file:open(Path, [read, raw, binary]) of
+        {ok, IoDevice} ->
+            try
+                _ = case Offset of
+                        0 -> ok;
+                        _ -> file:position(IoDevice, {bof, Offset})
+                    end,
+                case file:read(IoDevice, Bytes) of
+                    {ok, Bin} -> {ok, Bin};
+                    {error, Reason} -> {error, Reason};
+                    eof ->
+                        {ok, #file_info{size = Size}} = file:read_file_info(IoDevice),
+                        {eof, Size}
+                end
+            after
+                file:close(IoDevice)
+            end;
+        {error, Reason} -> {error, Reason}
     end.
 
 to_node(Node) ->
@@ -204,7 +207,6 @@ collect_file_size(Nodes, FileName, AllFiles) ->
                 end, #{}, Nodes).
 
 status(false, _Start, _End, _Now) -> <<"stopped">>;
-%% asynchronously create trace, we should wait 1 seconds
-status(true, Start, _End, Now) when Now < Start + 2 -> <<"waiting">>;
+status(true, Start, _End, Now) when Now < Start -> <<"waiting">>;
 status(true, _Start, End, Now) when Now >= End -> <<"stopped">>;
 status(true, _Start, _End, _Now) -> <<"running">>.
