@@ -135,23 +135,6 @@ running_test(){
     pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
     # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
     emqx stop || kill "$(ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}')"
-
-    if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] \
-    || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
-        service emqx start || ( tail /var/log/emqx/emqx.log.1 && exit 1 )
-        IDLE_TIME=0
-        while ! emqx_ctl status | grep -E 'Node\s.*@.*\sis\sstarted'
-        do
-            if [ $IDLE_TIME -gt 10 ]
-            then
-                echo "emqx service error"
-                exit 1
-            fi
-            sleep 10
-            IDLE_TIME=$((IDLE_TIME+1))
-        done
-        service emqx stop
-    fi
 }
 
 relup_test(){
