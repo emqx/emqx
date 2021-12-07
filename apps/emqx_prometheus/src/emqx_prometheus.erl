@@ -413,8 +413,8 @@ emqx_collect(emqx_session_created, Stats) ->
     counter_metric(?C('session.created', Stats));
 emqx_collect(emqx_session_resumed, Stats) ->
     counter_metric(?C('session.resumed', Stats));
-emqx_collect(emqx_session_takeovered, Stats) ->
-    counter_metric(?C('session.takeovered', Stats));
+emqx_collect(emqx_session_takenover, Stats) ->
+    counter_metric(?C('session.takenover', Stats));
 emqx_collect(emqx_session_discarded, Stats) ->
     counter_metric(?C('session.discarded', Stats));
 emqx_collect(emqx_session_terminated, Stats) ->
@@ -559,7 +559,7 @@ emqx_metrics_client() ->
 emqx_metrics_session() ->
     [ emqx_session_created
     , emqx_session_resumed
-    , emqx_session_takeovered
+    , emqx_session_takenover
     , emqx_session_discarded
     , emqx_session_terminated
     ].

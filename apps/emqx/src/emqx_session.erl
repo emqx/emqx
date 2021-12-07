@@ -678,8 +678,8 @@ replay(Session = #session{inflight = Inflight}) ->
 -spec(terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok).
 terminate(ClientInfo, discarded, Session) ->
     run_hook('session.discarded', [ClientInfo, info(Session)]);
-terminate(ClientInfo, takeovered, Session) ->
-    run_hook('session.takeovered', [ClientInfo, info(Session)]);
+terminate(ClientInfo, takenover, Session) ->
+    run_hook('session.takenover', [ClientInfo, info(Session)]);
 terminate(ClientInfo, Reason, Session) ->
     run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
 

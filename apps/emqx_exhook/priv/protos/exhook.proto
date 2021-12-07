@@ -56,7 +56,7 @@ service HookProvider {
 
   rpc OnSessionDiscarded(SessionDiscardedRequest) returns (EmptySuccess) {};
 
-  rpc OnSessionTakeovered(SessionTakeoveredRequest) returns (EmptySuccess) {};
+  rpc OnSessionTakenover(SessionTakenoverRequest) returns (EmptySuccess) {};
 
   rpc OnSessionTerminated(SessionTerminatedRequest) returns (EmptySuccess) {};
 
@@ -190,7 +190,7 @@ message SessionDiscardedRequest {
   ClientInfo clientinfo = 1;
 }
 
-message SessionTakeoveredRequest {
+message SessionTakenoverRequest {
 
   ClientInfo clientinfo = 1;
 }
@@ -284,7 +284,7 @@ message HookSpec {
   //
   //   "session.created",      "session.subscribed"
   //   "session.unsubscribed", "session.resumed"
-  //   "session.discarded",    "session.takeovered"
+  //   "session.discarded",    "session.takenover"
   //   "session.terminated"
   //
   //   "message.publish", "message.delivered"

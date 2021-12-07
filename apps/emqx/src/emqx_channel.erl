@@ -994,7 +994,7 @@ handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
     %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_misc:drain_deliver(),
     AllPendings = lists:append(Delivers, Pendings),
-    disconnect_and_shutdown(takeovered, AllPendings, Channel);
+    disconnect_and_shutdown(takenover, AllPendings, Channel);
 
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
@@ -1201,7 +1201,7 @@ terminate(normal, Channel) ->
 terminate({shutdown, kicked}, Channel) ->
     run_terminate_hook(kicked, Channel);
 terminate({shutdown, Reason}, Channel) when Reason =:= discarded;
-                                            Reason =:= takeovered ->
+                                            Reason =:= takenover ->
     run_terminate_hook(Reason, Channel);
 terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
     (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
@@ -1754,7 +1754,7 @@ publish_will_msg(Msg) ->
 disconnect_reason(?RC_SUCCESS) -> normal;
 disconnect_reason(ReasonCode)  -> emqx_reason_codes:name(ReasonCode).
 
-reason_code(takeovered) -> ?RC_SESSION_TAKEN_OVER;
+reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
 reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER;
 reason_code(_) -> ?RC_NORMAL_DISCONNECTION.
 

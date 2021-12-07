@@ -713,7 +713,7 @@ t_handle_call_takeover_begin(_) ->
 
 t_handle_call_takeover_end(_) ->
     ok = meck:expect(emqx_session, takeover, fun(_) -> ok end),
-    {shutdown, takeovered, [], _, _Chan} =
+    {shutdown, takenover, [], _, _Chan} =
         emqx_channel:handle_call({takeover, 'end'}, channel()).
 
 t_handle_call_quota(_) ->
