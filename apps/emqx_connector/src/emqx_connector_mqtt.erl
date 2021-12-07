@@ -40,6 +40,8 @@
 
 -behaviour(hocon_schema).
 
+-import(hoconsc, [mk/2]).
+
 -export([ roots/0
         , fields/1]).
 
@@ -49,7 +51,25 @@ roots() ->
     fields("config").
 
 fields("config") ->
-    emqx_connector_mqtt_schema:fields("config").
+    emqx_connector_mqtt_schema:fields("config");
+
+fields("get") ->
+    [{id, mk(binary(),
+        #{ desc => "The connector Id"
+         , example => <<"mqtt:my_mqtt_connector">>
+         })}]
+    ++ fields("post");
+
+fields("put") ->
+    emqx_connector_mqtt_schema:fields("connector");
+
+fields("post") ->
+    [ {type, mk(mqtt, #{desc => "The Connector Type"})}
+    , {name, mk(binary(),
+        #{ desc => "The Connector Name"
+         , example => <<"my_mqtt_connector">>
+         })}
+    ] ++ fields("put").
 
 %% ===================================================================
 %% supervisor APIs
@@ -100,7 +120,7 @@ on_start(InstId, Conf) ->
     BasicConf = basic_config(Conf),
     BridgeConf = BasicConf#{
         name => InstanceId,
-        clientid => clientid(InstanceId),
+        clientid => clientid(maps:get(clientid, Conf, InstId)),
         subscriptions => make_sub_confs(maps:get(ingress, Conf, undefined)),
         forwards => make_forward_confs(maps:get(egress, Conf, undefined))
     },
@@ -162,7 +182,6 @@ basic_config(#{
         server := Server,
         reconnect_interval := ReconnIntv,
         proto_ver := ProtoVer,
-        bridge_mode := BridgeMod,
         username := User,
         password := Password,
         clean_start := CleanStart,
@@ -177,7 +196,7 @@ basic_config(#{
         server => Server,
         reconnect_interval => ReconnIntv,
         proto_ver => ProtoVer,
-        bridge_mode => BridgeMod,
+        bridge_mode => true,
         username => User,
         password => Password,
         clean_start => CleanStart,
@@ -190,4 +209,4 @@ basic_config(#{
     }.
 
 clientid(Id) ->
-    list_to_binary(lists:concat([Id, ":", node()])).
+    iolist_to_binary([Id, ":", atom_to_list(node())]).

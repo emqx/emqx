@@ -36,34 +36,34 @@ t_crud_rule_api(_Config) ->
         <<"outputs">> => [#{<<"function">> => <<"console">>}],
         <<"sql">> => <<"SELECT * from \"t/1\"">>
     },
-    {201, Rule} = emqx_rule_engine_api:crud_rules(post, #{body => Params0}),
+    {201, Rule} = emqx_rule_engine_api:'/rules'(post, #{body => Params0}),
     %% if we post again with the same params, it return with 400 "rule id already exists"
     ?assertMatch({400, #{code := _, message := _Message}},
-        emqx_rule_engine_api:crud_rules(post, #{body => Params0})),
+        emqx_rule_engine_api:'/rules'(post, #{body => Params0})),
 
     ?assertEqual(RuleID, maps:get(id, Rule)),
-    {200, Rules} = emqx_rule_engine_api:crud_rules(get, #{}),
+    {200, Rules} = emqx_rule_engine_api:'/rules'(get, #{}),
     ct:pal("RList : ~p", [Rules]),
     ?assert(length(Rules) > 0),
 
-    {200, Rule1} = emqx_rule_engine_api:crud_rules_by_id(get, #{bindings => #{id => RuleID}}),
+    {200, Rule1} = emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleID}}),
     ct:pal("RShow : ~p", [Rule1]),
     ?assertEqual(Rule, Rule1),
 
-    {200, Rule2} = emqx_rule_engine_api:crud_rules_by_id(put, #{
+    {200, Rule2} = emqx_rule_engine_api:'/rules/:id'(put, #{
             bindings => #{id => RuleID},
             body => Params0#{<<"sql">> => <<"select * from \"t/b\"">>}
         }),
 
-    {200, Rule3} = emqx_rule_engine_api:crud_rules_by_id(get, #{bindings => #{id => RuleID}}),
+    {200, Rule3} = emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleID}}),
     %ct:pal("RShow : ~p", [Rule3]),
     ?assertEqual(Rule3, Rule2),
     ?assertEqual(<<"select * from \"t/b\"">>, maps:get(sql, Rule3)),
 
-    ?assertMatch({204}, emqx_rule_engine_api:crud_rules_by_id(delete,
+    ?assertMatch({204}, emqx_rule_engine_api:'/rules/:id'(delete,
         #{bindings => #{id => RuleID}})),
 
     %ct:pal("Show After Deleted: ~p", [NotFound]),
     ?assertMatch({404, #{code := _, message := _Message}},
-        emqx_rule_engine_api:crud_rules_by_id(get, #{bindings => #{id => RuleID}})),
+        emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleID}})),
     ok.

@@ -18,16 +18,17 @@
 
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("typerefl/include/types.hrl").
 
 -behaviour(minirest_api).
 
--export([api_spec/0]).
+-import(hoconsc, [mk/2, ref/2, array/1]).
 
--export([ crud_rules/2
-        , list_events/2
-        , crud_rules_by_id/2
-        , rule_test/2
-        ]).
+%% Swagger specs from hocon schema
+-export([api_spec/0, paths/0, schema/1, namespace/0]).
+
+%% API callbacks
+-export(['/rule_events'/2, '/rule_test'/2, '/rules'/2, '/rules/:id'/2]).
 
 -define(ERR_NO_RULE(ID), list_to_binary(io_lib:format("Rule ~ts Not Found", [(ID)]))).
 -define(ERR_BADARGS(REASON),
@@ -43,210 +44,130 @@
             {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(REASON)}}
     end).
 
+namespace() -> "rule".
+
 api_spec() ->
-    {
-        [ api_rules_list_create()
-        , api_rules_crud()
-        , api_rule_test()
-        , api_events_list()
-        ],
-        []
-    }.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
 
-api_rules_list_create() ->
-    Metadata = #{
+paths() -> ["/rule_events", "/rule_test", "/rules", "/rules/:id"].
+
+error_schema(Code, Message) ->
+    [ {code, mk(string(), #{example => Code})}
+    , {message, mk(string(), #{example => Message})}
+    ].
+
+rule_creation_schema() ->
+    ref(emqx_rule_api_schema, "rule_creation").
+
+rule_update_schema() ->
+    ref(emqx_rule_engine_schema, "rules").
+
+rule_test_schema() ->
+    ref(emqx_rule_api_schema, "rule_test").
+
+rule_info_schema() ->
+    ref(emqx_rule_api_schema, "rule_info").
+
+schema("/rules") ->
+    #{
+        operationId => '/rules',
         get => #{
+            tags => [<<"rules">>],
             description => <<"List all rules">>,
+            summary => <<"List Rules">>,
             responses => #{
-                <<"200">> =>
-                    emqx_mgmt_util:array_schema(resp_schema(), <<"List rules successfully">>)}},
+                200 => mk(array(rule_info_schema()), #{desc => "List of rules"})
+            }},
         post => #{
-            description => <<"Create a new rule using given Id to all nodes in the cluster">>,
-            'requestBody' => emqx_mgmt_util:schema(post_req_schema(), <<"Rule parameters">>),
+            tags => [<<"rules">>],
+            description => <<"Create a new rule using given Id">>,
+            summary => <<"Create a Rule">>,
+            requestBody => rule_creation_schema(),
             responses => #{
-                <<"400">> =>
-                    emqx_mgmt_util:error_schema(<<"Invalid Parameters">>, ['BAD_ARGS']),
-                <<"201">> =>
-                    emqx_mgmt_util:schema(resp_schema(), <<"Create rule successfully">>)}}
-    },
-    {"/rules", Metadata, crud_rules}.
+                400 => error_schema('BAD_ARGS', "Invalid Parameters"),
+                201 => rule_info_schema()
+            }}
+    };
 
-api_events_list() ->
-    Metadata = #{
+schema("/rule_events") ->
+    #{
+        operationId => '/rule_events',
         get => #{
+            tags => [<<"rules">>],
             description => <<"List all events can be used in rules">>,
+            summary => <<"List Events">>,
             responses => #{
-                <<"200">> =>
-                    emqx_mgmt_util:array_schema(resp_schema(), <<"List events successfully">>)}}
-    },
-    {"/rule_events", Metadata, list_events}.
+                200 => mk(ref(emqx_rule_api_schema, "rule_events"), #{})
+            }
+        }
+    };
 
-api_rules_crud() ->
-    Metadata = #{
+schema("/rules/:id") ->
+    #{
+        operationId => '/rules/:id',
         get => #{
+            tags => [<<"rules">>],
             description => <<"Get a rule by given Id">>,
-            parameters => [param_path_id()],
+            summary => <<"Get a Rule">>,
+            parameters => param_path_id(),
             responses => #{
-                <<"404">> =>
-                    emqx_mgmt_util:error_schema(<<"Rule not found">>, ['NOT_FOUND']),
-                <<"200">> =>
-                    emqx_mgmt_util:schema(resp_schema(), <<"Get rule successfully">>)}},
+                404 => error_schema('NOT_FOUND', "Rule not found"),
+                200 => rule_info_schema()
+            }
+        },
         put => #{
-            description => <<"Create or update a rule by given Id to all nodes in the cluster">>,
-            parameters => [param_path_id()],
-            'requestBody' => emqx_mgmt_util:schema(put_req_schema(), <<"Rule parameters">>),
+            tags => [<<"rules">>],
+            description => <<"Update a rule by given Id to all nodes in the cluster">>,
+            summary => <<"Update a Rule">>,
+            parameters => param_path_id(),
+            requestBody => rule_update_schema(),
             responses => #{
-                <<"400">> =>
-                    emqx_mgmt_util:error_schema(<<"Invalid Parameters">>, ['BAD_ARGS']),
-                <<"200">> =>
-                    emqx_mgmt_util:schema(resp_schema(),
-                                          <<"Create or update rule successfully">>)}},
+                400 => error_schema('BAD_ARGS', "Invalid Parameters"),
+                200 => rule_info_schema()
+            }
+        },
         delete => #{
+            tags => [<<"rules">>],
             description => <<"Delete a rule by given Id from all nodes in the cluster">>,
-            parameters => [param_path_id()],
+            summary => <<"Delete a Rule">>,
+            parameters => param_path_id(),
             responses => #{
-                <<"204">> =>
-                    emqx_mgmt_util:schema(<<"Delete rule successfully">>)}}
-    },
-    {"/rules/:id", Metadata, crud_rules_by_id}.
+                204 => <<"Delete rule successfully">>
+            }
+        }
+    };
 
-api_rule_test() ->
-    Metadata = #{
+schema("/rule_test") ->
+    #{
+        operationId => '/rule_test',
         post => #{
+            tags => [<<"rules">>],
             description => <<"Test a rule">>,
-            'requestBody' => emqx_mgmt_util:schema(rule_test_req_schema(), <<"Rule parameters">>),
+            summary => <<"Test a Rule">>,
+            requestBody => rule_test_schema(),
             responses => #{
-                <<"400">> =>
-                    emqx_mgmt_util:error_schema(<<"Invalid Parameters">>, ['BAD_ARGS']),
-                <<"412">> =>
-                    emqx_mgmt_util:error_schema(<<"SQL Not Match">>, ['NOT_MATCH']),
-                <<"200">> =>
-                    emqx_mgmt_util:schema(rule_test_resp_schema(), <<"Rule Test Pass">>)}}
-    },
-    {"/rule_test", Metadata, rule_test}.
-
-put_req_schema() ->
-    #{type => object,
-      properties => #{
-        sql => #{
-            description => <<"The SQL">>,
-            type => string,
-            example => <<"SELECT * from \"t/1\"">>
-        },
-        enable => #{
-            description => <<"Enable or disable the rule">>,
-            type => boolean,
-            example => true
-        },
-        outputs => #{
-            description => <<"The outputs of the rule">>,
-            type => array,
-            items => #{
-                'oneOf' => [
-                    #{
-                        type => string,
-                        example => <<"channel_id_of_my_bridge">>,
-                        description => <<"The channel id of an emqx bridge">>
-                    },
-                    #{
-                        type => object,
-                        properties => #{
-                            function => #{
-                                type => string,
-                                example => <<"console">>
-                            }
-                        }
-                    }
-                ]
+                400 => error_schema('BAD_ARGS', "Invalid Parameters"),
+                412 => error_schema('NOT_MATCH', "SQL Not Match"),
+                200 => <<"Rule Test Pass">>
             }
-        },
-        description => #{
-            description => <<"The description for the rule">>,
-            type => string,
-            example => <<"A simple rule that handles MQTT messages from topic \"t/1\"">>
         }
-      }
     }.
-
-post_req_schema() ->
-    Req = #{properties := Prop} = put_req_schema(),
-    Req#{properties => Prop#{
-        id => #{
-            description => <<"The Id for the rule">>,
-            example => <<"my_rule">>,
-            type => string
-        }
-    }}.
-
-resp_schema() ->
-    Req = #{properties := Prop} = put_req_schema(),
-    Req#{properties => Prop#{
-        id => #{
-            description => <<"The Id for the rule">>,
-            type => string
-        },
-        created_at => #{
-            description => <<"The time that this rule was created, in rfc3339 format">>,
-            type => string,
-            example => <<"2021-09-18T13:57:29+08:00">>
-        }
-    }}.
-
-rule_test_req_schema() ->
-    #{type => object, properties => #{
-        sql => #{
-            description => <<"The SQL">>,
-            type => string,
-            example => <<"SELECT * from \"t/1\"">>
-        },
-        context => #{
-            type => object,
-            properties => #{
-                event_type => #{
-                    description => <<"Event Type">>,
-                    type => string,
-                    enum => [<<"message_publish">>, <<"message_acked">>, <<"message_delivered">>,
-                        <<"message_dropped">>, <<"session_subscribed">>, <<"session_unsubscribed">>,
-                        <<"client_connected">>, <<"client_disconnected">>],
-                    example => <<"message_publish">>
-                },
-                clientid => #{
-                    description => <<"The Client ID">>,
-                    type => string,
-                    example => <<"\"c_emqx\"">>
-                },
-                topic => #{
-                    description => <<"The Topic">>,
-                    type => string,
-                    example => <<"t/1">>
-                }
-            }
-        }
-    }}.
-
-rule_test_resp_schema() ->
-    #{type => object}.
 
 param_path_id() ->
-    #{
-        name => id,
-        in => path,
-        schema => #{type => string},
-        required => true
-    }.
+    [{id, mk(binary(), #{in => path, example => <<"my_rule_id">>})}].
 
 %%------------------------------------------------------------------------------
 %% Rules API
 %%------------------------------------------------------------------------------
 
-list_events(#{}, _Params) ->
+'/rule_events'(get, _Params) ->
     {200, emqx_rule_events:event_info()}.
 
-crud_rules(get, _Params) ->
+'/rules'(get, _Params) ->
     Records = emqx_rule_engine:get_rules_ordered_by_ts(),
     {200, format_rule_resp(Records)};
 
-crud_rules(post, #{body := #{<<"id">> := Id} = Params}) ->
+'/rules'(post, #{body := #{<<"id">> := Id} = Params}) ->
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
     case emqx_rule_engine:get_rule(Id) of
         {ok, _Rule} ->
@@ -263,13 +184,13 @@ crud_rules(post, #{body := #{<<"id">> := Id} = Params}) ->
             end
     end.
 
-rule_test(post, #{body := Params}) ->
+'/rule_test'(post, #{body := Params}) ->
     ?CHECK_PARAMS(Params, rule_test, case emqx_rule_sqltester:test(CheckedParams) of
         {ok, Result} -> {200, Result};
         {error, nomatch} -> {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}}
     end).
 
-crud_rules_by_id(get, #{bindings := #{id := Id}}) ->
+'/rules/:id'(get, #{bindings := #{id := Id}}) ->
     case emqx_rule_engine:get_rule(Id) of
         {ok, Rule} ->
             {200, format_rule_resp(Rule)};
@@ -277,7 +198,7 @@ crud_rules_by_id(get, #{bindings := #{id := Id}}) ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end;
 
-crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params}) ->
+'/rules/:id'(put, #{bindings := #{id := Id}, body := Params}) ->
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
     case emqx:update_config(ConfPath, maps:remove(<<"id">>, Params), #{}) of
         {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
@@ -289,7 +210,7 @@ crud_rules_by_id(put, #{bindings := #{id := Id}, body := Params}) ->
             {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
     end;
 
-crud_rules_by_id(delete, #{bindings := #{id := Id}}) ->
+'/rules/:id'(delete, #{bindings := #{id := Id}}) ->
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
     case emqx:remove_config(ConfPath, #{}) of
         {ok, _} -> {204};
@@ -315,11 +236,13 @@ format_rule_resp(#{ id := Id, created_at := CreatedAt,
                     sql := SQL,
                     enabled := Enabled,
                     description := Descr}) ->
+    NodeMetrics = get_rule_metrics(Id),
     #{id => Id,
       from => Topics,
       outputs => format_output(Output),
       sql => SQL,
-      metrics => get_rule_metrics(Id),
+      metrics => aggregate_metrics(NodeMetrics),
+      node_metrics => NodeMetrics,
       enabled => Enabled,
       created_at => format_datetime(CreatedAt, millisecond),
       description => Descr
@@ -339,19 +262,28 @@ do_format_output(BridgeChannelId) when is_binary(BridgeChannelId) ->
 
 get_rule_metrics(Id) ->
     Format = fun (Node, #{matched := Matched,
-                          speed := Current,
-                          speed_max := Max,
-                          speed_last5m := Last5M
+                          rate := Current,
+                          rate_max := Max,
+                          rate_last5m := Last5M
                         }) ->
         #{ matched => Matched
-         , speed => Current
-         , speed_max => Max
-         , speed_last5m => Last5M
+         , rate => Current
+         , rate_max => Max
+         , rate_last5m => Last5M
          , node => Node
          }
     end,
     [Format(Node, rpc:call(Node, emqx_plugin_libs_metrics, get_metrics, [rule_metrics, Id]))
      || Node <- mria_mnesia:running_nodes()].
+
+aggregate_metrics(AllMetrics) ->
+    InitMetrics = #{matched => 0, rate => 0, rate_max => 0, rate_last5m => 0},
+    lists:foldl(fun
+        (#{matched := Match1, rate := Rate1, rate_max := RateMax1, rate_last5m := Rate5m1},
+         #{matched := Match0, rate := Rate0, rate_max := RateMax0, rate_last5m := Rate5m0}) ->
+            #{matched => Match1 + Match0, rate => Rate1 + Rate0,
+              rate_max => RateMax1 + RateMax0, rate_last5m => Rate5m1 + Rate5m0}
+        end, InitMetrics, AllMetrics).
 
 get_one_rule(AllRules, Id) ->
     [R || R = #{id := Id0} <- AllRules, Id0 == Id].

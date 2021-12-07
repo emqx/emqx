@@ -8,7 +8,7 @@
 %%     http://www.apache.org/licenses/LICENSE-2.0
 %%
 %% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
+%% cluster_shareload under the License is cluster_shareload on an "AS IS" BASIS,
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
@@ -38,7 +38,24 @@ fields("config") ->
     topic_mappings();
 
 fields("connector") ->
-    [ {server,
+    [ {mode,
+        sc(hoconsc:enum([cluster_singleton, cluster_shareload]),
+           #{ default => cluster_shareload
+            , desc => """
+The mode of the MQTT Bridge. Can be one of 'cluster_singleton' or 'cluster_shareload'<br>
+
+- cluster_singleton: create an unique MQTT connection within the emqx cluster.<br>
+In 'cluster_singleton' node, all messages toward the remote broker go through the same
+MQTT connection.<br>
+- cluster_shareload: create an MQTT connection on each node in the emqx cluster.<br>
+In 'cluster_shareload' mode, the incomming load from the remote broker is shared by
+using shared subscription.<br>
+Note that the 'clientid' is suffixed by the node name, this is to avoid
+clientid conflicts between different nodes. And we can only use shared subscription
+topic filters for 'from_remote_topic'.
+"""
+            })}
+    , {server,
         sc(emqx_schema:ip_port(),
            #{ default => "127.0.0.1:1883"
             , desc => "The host and port of the remote MQTT broker"
@@ -48,11 +65,6 @@ fields("connector") ->
         sc(hoconsc:enum([v3, v4, v5]),
            #{ default => v4
             , desc => "The MQTT protocol version"
-            })}
-    , {bridge_mode,
-        sc(boolean(),
-           #{ default => true
-            , desc => "The bridge mode of the MQTT protocol"
             })}
     , {username,
         sc(binary(),
@@ -66,8 +78,7 @@ fields("connector") ->
             })}
     , {clientid,
         sc(binary(),
-           #{ default => "emqx_${nodename}"
-            , desc => "The clientid of the MQTT protocol"
+           #{ desc => "The clientid of the MQTT protocol"
             })}
     , {clean_start,
         sc(boolean(),

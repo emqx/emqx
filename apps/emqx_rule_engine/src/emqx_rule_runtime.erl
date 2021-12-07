@@ -247,9 +247,9 @@ handle_output(OutId, Selected, Envs) ->
                           })
     end.
 
-do_handle_output(ChannelId, Selected, _Envs) when is_binary(ChannelId) ->
-    ?SLOG(debug, #{msg => "output to bridge", channel_id => ChannelId}),
-    emqx_bridge:send_message(ChannelId, Selected);
+do_handle_output(BridgeId, Selected, _Envs) when is_binary(BridgeId) ->
+    ?SLOG(debug, #{msg => "output to bridge", bridge_id => BridgeId}),
+    emqx_bridge:send_message(BridgeId, Selected);
 do_handle_output(#{mod := Mod, func := Func, args := Args}, Selected, Envs) ->
     Mod:Func(Selected, Envs, Args).
 

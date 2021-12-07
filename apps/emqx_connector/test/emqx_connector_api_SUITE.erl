@@ -24,7 +24,11 @@
 
 -define(CONF_DEFAULT, <<"connectors: {}">>).
 -define(BRIDGE_CONF_DEFAULT, <<"bridges: {}">>).
+-define(CONNECTR_TYPE, <<"mqtt">>).
+-define(CONNECTR_NAME, <<"test_connector">>).
 -define(CONNECTR_ID, <<"mqtt:test_connector">>).
+-define(BRIDGE_NAME_INGRESS, <<"ingress_test_bridge">>).
+-define(BRIDGE_NAME_EGRESS, <<"egress_test_bridge">>).
 -define(BRIDGE_ID_INGRESS, <<"mqtt:ingress_test_bridge">>).
 -define(BRIDGE_ID_EGRESS, <<"mqtt:egress_test_bridge">>).
 -define(MQTT_CONNECOTR(Username),
@@ -63,8 +67,8 @@
 
 -define(metrics(MATCH, SUCC, FAILED, SPEED, SPEED5M, SPEEDMAX),
     #{<<"matched">> := MATCH, <<"success">> := SUCC,
-      <<"failed">> := FAILED, <<"speed">> := SPEED,
-      <<"speed_last5m">> := SPEED5M, <<"speed_max">> := SPEEDMAX}).
+      <<"failed">> := FAILED, <<"rate">> := SPEED,
+      <<"rate_last5m">> := SPEED5M, <<"rate_max">> := SPEEDMAX}).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -115,7 +119,9 @@ t_mqtt_crud_apis(_) ->
     %% POST /connectors/ will create a connector
     User1 = <<"user1">>,
     {ok, 201, Connector} = request(post, uri(["connectors"]),
-                                ?MQTT_CONNECOTR(User1)#{<<"id">> => ?CONNECTR_ID}),
+        ?MQTT_CONNECOTR(User1)#{ <<"type">> => ?CONNECTR_TYPE
+                               , <<"name">> => ?CONNECTR_NAME
+                               }),
 
     %ct:pal("---connector: ~p", [Connector]),
     ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
@@ -128,7 +134,9 @@ t_mqtt_crud_apis(_) ->
 
     %% create a again returns an error
     {ok, 400, RetMsg} = request(post, uri(["connectors"]),
-                                ?MQTT_CONNECOTR(User1)#{<<"id">> => ?CONNECTR_ID}),
+        ?MQTT_CONNECOTR(User1)#{ <<"type">> => ?CONNECTR_TYPE
+                               , <<"name">> => ?CONNECTR_NAME
+                               }),
     ?assertMatch(
         #{ <<"code">> := _
          , <<"message">> := <<"connector already exists">>
@@ -187,7 +195,9 @@ t_mqtt_conn_bridge_ingress(_) ->
     %% then we add a mqtt connector, using POST
     User1 = <<"user1">>,
     {ok, 201, Connector} = request(post, uri(["connectors"]),
-                                ?MQTT_CONNECOTR(User1)#{<<"id">> => ?CONNECTR_ID}),
+        ?MQTT_CONNECOTR(User1)#{ <<"type">> => ?CONNECTR_TYPE
+                               , <<"name">> => ?CONNECTR_NAME
+                               }),
 
     %ct:pal("---connector: ~p", [Connector]),
     ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
@@ -201,11 +211,14 @@ t_mqtt_conn_bridge_ingress(_) ->
     %% ... and a MQTT bridge, using POST
     %% we bind this bridge to the connector created just now
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
-                                ?MQTT_BRIDGE_INGRESS(?CONNECTR_ID)#{<<"id">> => ?BRIDGE_ID_INGRESS}),
+        ?MQTT_BRIDGE_INGRESS(?CONNECTR_ID)#{
+            <<"type">> => ?CONNECTR_TYPE,
+            <<"name">> => ?BRIDGE_NAME_INGRESS
+        }),
 
     %ct:pal("---bridge: ~p", [Bridge]),
     ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_INGRESS
-                  , <<"bridge_type">> := <<"mqtt">>
+                  , <<"type">> := <<"mqtt">>
                   , <<"status">> := <<"connected">>
                   , <<"connector">> := ?CONNECTR_ID
                   }, jsx:decode(Bridge)),
@@ -250,7 +263,9 @@ t_mqtt_conn_bridge_egress(_) ->
     %% then we add a mqtt connector, using POST
     User1 = <<"user1">>,
     {ok, 201, Connector} = request(post, uri(["connectors"]),
-                                ?MQTT_CONNECOTR(User1)#{<<"id">> => ?CONNECTR_ID}),
+        ?MQTT_CONNECOTR(User1)#{ <<"type">> => ?CONNECTR_TYPE
+                               , <<"name">> => ?CONNECTR_NAME
+                               }),
 
     %ct:pal("---connector: ~p", [Connector]),
     ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
@@ -264,11 +279,15 @@ t_mqtt_conn_bridge_egress(_) ->
     %% ... and a MQTT bridge, using POST
     %% we bind this bridge to the connector created just now
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
-                                ?MQTT_BRIDGE_EGRESS(?CONNECTR_ID)#{<<"id">> => ?BRIDGE_ID_EGRESS}),
+        ?MQTT_BRIDGE_EGRESS(?CONNECTR_ID)#{
+            <<"type">> => ?CONNECTR_TYPE,
+            <<"name">> => ?BRIDGE_NAME_EGRESS
+        }),
 
     %ct:pal("---bridge: ~p", [Bridge]),
     ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_EGRESS
-                  , <<"bridge_type">> := <<"mqtt">>
+                  , <<"type">> := ?CONNECTR_TYPE
+                  , <<"name">> := ?BRIDGE_NAME_EGRESS
                   , <<"status">> := <<"connected">>
                   , <<"connector">> := ?CONNECTR_ID
                   }, jsx:decode(Bridge)),
@@ -322,7 +341,10 @@ t_mqtt_conn_update(_) ->
 
     %% then we add a mqtt connector, using POST
     {ok, 201, Connector} = request(post, uri(["connectors"]),
-                                ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)#{<<"id">> => ?CONNECTR_ID}),
+                            ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)
+                                #{ <<"type">> => ?CONNECTR_TYPE
+                                 , <<"name">> => ?CONNECTR_NAME
+                                 }),
 
     %ct:pal("---connector: ~p", [Connector]),
     ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
@@ -332,9 +354,13 @@ t_mqtt_conn_update(_) ->
     %% ... and a MQTT bridge, using POST
     %% we bind this bridge to the connector created just now
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
-                                ?MQTT_BRIDGE_EGRESS(?CONNECTR_ID)#{<<"id">> => ?BRIDGE_ID_EGRESS}),
+        ?MQTT_BRIDGE_EGRESS(?CONNECTR_ID)#{
+            <<"type">> => ?CONNECTR_TYPE,
+            <<"name">> => ?BRIDGE_NAME_EGRESS
+        }),
     ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_EGRESS
-                  , <<"bridge_type">> := <<"mqtt">>
+                  , <<"type">> := <<"mqtt">>
+                  , <<"name">> := ?BRIDGE_NAME_EGRESS
                   , <<"status">> := <<"connected">>
                   , <<"connector">> := ?CONNECTR_ID
                   }, jsx:decode(Bridge)),
@@ -358,9 +384,15 @@ t_mqtt_conn_testing(_) ->
     %% APIs for testing the connectivity
     %% then we add a mqtt connector, using POST
     {ok, 200, <<>>} = request(post, uri(["connectors_test"]),
-        ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)#{<<"bridge_type">> => <<"mqtt">>}),
+        ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)#{
+            <<"type">> => ?CONNECTR_TYPE,
+            <<"name">> => ?BRIDGE_NAME_EGRESS
+        }),
     {ok, 400, _} = request(post, uri(["connectors_test"]),
-        ?MQTT_CONNECOTR2(<<"127.0.0.1:2883">>)#{<<"bridge_type">> => <<"mqtt">>}).
+        ?MQTT_CONNECOTR2(<<"127.0.0.1:2883">>)#{
+            <<"type">> => ?CONNECTR_TYPE,
+            <<"name">> => ?BRIDGE_NAME_EGRESS
+        }).
 
 %%--------------------------------------------------------------------
 %% HTTP Request

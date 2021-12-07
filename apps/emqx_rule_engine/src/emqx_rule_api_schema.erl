@@ -32,12 +32,39 @@ check_params(Params, Tag) ->
 
 roots() ->
     [ {"rule_creation", sc(ref("rule_creation"), #{desc => "Schema for creating rules"})}
+    , {"rule_info", sc(ref("rule_info"), #{desc => "Schema for rule info"})}
+    , {"rule_events", sc(ref("rule_events"), #{desc => "Schema for rule events"})}
     , {"rule_test", sc(ref("rule_test"), #{desc => "Schema for testing rules"})}
     ].
 
 fields("rule_creation") ->
-    [ {"id", sc(binary(), #{desc => "The Id of the rule", nullable => false})}
+    [ {"id", sc(binary(),
+        #{ desc => "The Id of the rule", nullable => false
+         , example => "my_rule_id"
+         })}
     ] ++ emqx_rule_engine_schema:fields("rules");
+
+fields("rule_info") ->
+    [ {"metrics", sc(ref("metrics"), #{desc => "The metrics of the rule"})}
+    , {"node_metrics", sc(ref("node_metrics"), #{desc => "The metrics of the rule"})}
+    , {"from", sc(hoconsc:array(binary()),
+        #{desc => "The topics of the rule", example => "t/#"})}
+    , {"created_at", sc(binary(),
+        #{ desc => "The created time of the rule"
+         , example => "2021-12-01T15:00:43.153+08:00"
+         })}
+    ] ++ fields("rule_creation");
+
+%% TODO: we can delete this API if the Dashboard not denpends on it
+fields("rule_events") ->
+    ETopics = [emqx_rule_events:event_topic(E) || E <- emqx_rule_events:event_names()],
+    [ {"event", sc(hoconsc:enum(ETopics), #{desc => "The event topics", nullable => false})}
+    , {"title", sc(binary(), #{desc => "The title", example => "some title"})}
+    , {"description", sc(binary(), #{desc => "The description", example => "some desc"})}
+    , {"columns", sc(map(), #{desc => "The columns"})}
+    , {"test_columns", sc(map(), #{desc => "The test columns"})}
+    , {"sql_example", sc(binary(), #{desc => "The sql_example"})}
+    ];
 
 fields("rule_test") ->
     [ {"context", sc(hoconsc:union([ ref("ctx_pub")
@@ -52,6 +79,18 @@ fields("rule_test") ->
           default => #{}})}
     , {"sql", sc(binary(), #{desc => "The SQL of the rule for testing", nullable => false})}
     ];
+
+fields("metrics") ->
+    [ {"matched", sc(integer(), #{desc => "How much times this rule is matched"})}
+    , {"rate", sc(float(), #{desc => "The rate of matched, times/second"})}
+    , {"rate_max", sc(float(), #{desc => "The max rate of matched, times/second"})}
+    , {"rate_last5m", sc(float(),
+        #{desc => "The average rate of matched in last 5 mins, times/second"})}
+    ];
+
+fields("node_metrics") ->
+    [ {"node", sc(binary(), #{desc => "The node name", example => "emqx@127.0.0.1"})}
+    ] ++ fields("metrics");
 
 fields("ctx_pub") ->
     [ {"event_type", sc(message_publish, #{desc => "Event Type", nullable => false})}

@@ -24,7 +24,7 @@
 
 all() ->
     [ {group, metrics}
-    , {group, speed} ].
+    , {group, rate} ].
 
 suite() ->
     [{ct_hooks, [cth_surefire]}, {timetrap, {seconds, 30}}].
@@ -34,8 +34,8 @@ groups() ->
         [ t_rule
         , t_no_creation_1
         ]},
-    {speed, [sequence],
-        [ rule_speed
+    {rate, [sequence],
+        [ rule_rate
         ]}
     ].
 
@@ -74,7 +74,7 @@ t_rule(_) ->
     ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"rule1">>),
     ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"rule2">>).
 
-rule_speed(_) ->
+rule_rate(_) ->
     ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule1">>),
     ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule:2">>),
     ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule1">>, 'rules.matched'),
@@ -83,11 +83,11 @@ rule_speed(_) ->
     ?assertEqual(2, emqx_plugin_libs_metrics:get(?NAME, <<"rule1">>, 'rules.matched')),
     ct:sleep(1000),
     ?LET(#{max := Max, current := Current},
-         emqx_plugin_libs_metrics:get_speed(?NAME, <<"rule1">>),
+         emqx_plugin_libs_metrics:get_rate(?NAME, <<"rule1">>),
          {?assert(Max =< 2),
           ?assert(Current =< 2)}),
     ct:sleep(2100),
-    ?LET(#{max := Max, current := Current, last5m := Last5Min}, emqx_plugin_libs_metrics:get_speed(?NAME, <<"rule1">>),
+    ?LET(#{max := Max, current := Current, last5m := Last5Min}, emqx_plugin_libs_metrics:get_rate(?NAME, <<"rule1">>),
          {?assert(Max =< 2),
           ?assert(Current == 0),
           ?assert(Last5Min =< 0.67)}),
