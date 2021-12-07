@@ -782,6 +782,19 @@ maybe_update_expiry_interval(_Properties, Channel) -> Channel.
 
 -spec(handle_deliver(list(emqx_types:deliver()), channel())
       -> {ok, channel()} | {ok, replies(), channel()}).
+
+handle_deliver(Delivers, Channel = #channel{takeover = true,
+                                            pendings = Pendings,
+                                            session = Session,
+                                            clientinfo = #{clientid := ClientId}}) ->
+    %% NOTE: Order is important here. While the takeover is in
+    %% progress, the session cannot enqueue messages, since it already
+    %% passed on the queue to the new connection in the session state.
+    NPendings = lists:append(
+                  Pendings,
+                  emqx_session:ignore_local(maybe_nack(Delivers), ClientId, Session)),
+    {ok, Channel#channel{pendings = NPendings}};
+
 handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
                                             session    = Session,
                                             clientinfo = #{clientid := ClientId}}) ->
@@ -792,15 +805,6 @@ handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
     %% We consider queued/dropped messages as delivered since they are now in the session state.
     maybe_mark_as_delivered(Session, Delivers),
     {ok, NChannel};
-
-handle_deliver(Delivers, Channel = #channel{takeover = true,
-                                            pendings = Pendings,
-                                            session = Session,
-                                            clientinfo = #{clientid := ClientId}}) ->
-    NPendings = lists:append(
-                  Pendings,
-                  emqx_session:ignore_local(maybe_nack(Delivers), ClientId, Session)),
-    {ok, Channel#channel{pendings = NPendings}};
 
 handle_deliver(Delivers, Channel = #channel{session = Session,
                                             clientinfo = #{clientid := ClientId}
