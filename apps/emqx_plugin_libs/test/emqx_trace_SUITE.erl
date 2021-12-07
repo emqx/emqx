@@ -196,9 +196,9 @@ t_update_enable(_Config) ->
 
 t_load_state(_Config) ->
     Now = erlang:system_time(second),
-    Running = [{<<"name">>, <<"Running">>}, {<<"type">>, <<"topic">>},
-        {<<"topic">>, <<"/x/y/1">>}, {<<"start_at">>, to_rfc3339(Now - 1)},
-        {<<"end_at">>, to_rfc3339(Now + 2)}],
+    Running = #{name => <<"Running">>, type => <<"topic">>,
+        topic => <<"/x/y/1">>, start_at => to_rfc3339(Now - 1),
+        end_at => to_rfc3339(Now + 2)},
     Waiting = [{<<"name">>, <<"Waiting">>}, {<<"type">>, <<"topic">>},
         {<<"topic">>, <<"/x/y/2">>}, {<<"start_at">>, to_rfc3339(Now + 3)},
         {<<"end_at">>, to_rfc3339(Now + 8)}],
@@ -298,6 +298,30 @@ t_download_log(_Config) ->
     {ok, ZipFile} = emqx_trace_api:download_zip_log(#{name => Name}, []),
     ?assert(filelib:file_size(ZipFile) > 0),
     ok = emqtt:disconnect(Client),
+    ok.
+
+t_find_closed_time(_Config) ->
+    DefaultMs = 60 * 15000,
+    Now = erlang:system_time(second),
+    Traces2 = [],
+    ?assertEqual(DefaultMs, emqx_trace:find_closest_time(Traces2, Now)),
+    Traces3 = [#emqx_trace{name = <<"disable">>, start_at = Now + 1,
+        end_at = Now + 2, enable = false}],
+    ?assertEqual(DefaultMs, emqx_trace:find_closest_time(Traces3, Now)),
+    Traces4 = [#emqx_trace{name = <<"running">>, start_at = Now, end_at = Now + 10, enable = true}],
+    ?assertEqual(10000, emqx_trace:find_closest_time(Traces4, Now)),
+    Traces5 = [#emqx_trace{name = <<"waiting">>, start_at = Now + 2,
+        end_at = Now + 10, enable = true}],
+    ?assertEqual(2000, emqx_trace:find_closest_time(Traces5, Now)),
+    Traces = [
+        #emqx_trace{name = <<"waiting">>, start_at = Now + 1, end_at = Now + 2, enable = true},
+        #emqx_trace{name = <<"running0">>, start_at = Now, end_at = Now + 5, enable = true},
+        #emqx_trace{name = <<"running1">>, start_at = Now - 1, end_at = Now + 1, enable = true},
+        #emqx_trace{name = <<"finished">>, start_at = Now - 2, end_at = Now - 1, enable = true},
+        #emqx_trace{name = <<"waiting">>, start_at = Now + 1, end_at = Now + 1, enable = true},
+        #emqx_trace{name = <<"stopped">>, start_at = Now, end_at = Now + 10, enable = false}
+    ],
+    ?assertEqual(1000, emqx_trace:find_closest_time(Traces, Now)),
     ok.
 
 to_rfc3339(Second) ->

@@ -53,6 +53,7 @@
 -ifdef(TEST).
 -export([ log_file/2
         , create_table/0
+        , find_closest_time/2
         ]).
 -endif.
 
@@ -288,14 +289,14 @@ get_enable_trace() ->
 find_closest_time(Traces, Now) ->
     Sec =
         lists:foldl(
-            fun(#?TRACE{start_at = Start, end_at = End}, Closest)
-                when Start >= Now andalso Now < End -> %% running
-                min(End - Now, Closest);
-                (#?TRACE{start_at = Start}, Closest) when Start < Now -> %% waiting
-                    min(Now - Start, Closest);
-                (_, Closest) -> Closest %% finished
+            fun(#?TRACE{start_at = Start, end_at = End, enable = true}, Closest) ->
+                min(closest(End, Now, Closest), closest(Start, Now, Closest));
+                (_, Closest) -> Closest
             end, 60 * 15, Traces),
     timer:seconds(Sec).
+
+closest(Time, Now, Closest) when Now >= Time -> Closest;
+closest(Time, Now, Closest) -> min(Time - Now, Closest).
 
 disable_finished([]) -> ok;
 disable_finished(Traces) ->
