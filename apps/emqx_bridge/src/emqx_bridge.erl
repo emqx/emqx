@@ -37,6 +37,7 @@
         , lookup/2
         , lookup/3
         , list/0
+        , list_bridges_by_connector/1
         , create/3
         , recreate/2
         , recreate/3
@@ -159,6 +160,10 @@ list() ->
                     end
                 end, Bridges, maps:to_list(NameAndConf))
         end, [], maps:to_list(emqx:get_raw_config([bridges], #{}))).
+
+list_bridges_by_connector(ConnectorId) ->
+    [B || B = #{raw_config := #{<<"connector">> := Id}} <- list(),
+         ConnectorId =:= Id].
 
 lookup(Type, Name) ->
     RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),

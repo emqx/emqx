@@ -220,8 +220,8 @@ schema("/connectors/:id") ->
             case emqx_connector:update(ConnType, ConnName,
                     maps:without([<<"type">>, <<"name">>], Params)) of
                 {ok, #{raw_config := RawConf}} ->
-                    {201, RawConf#{<<"id">> =>
-                        emqx_connector:connector_id(ConnType, ConnName)}};
+                    Id = emqx_connector:connector_id(ConnType, ConnName),
+                    {201, format_resp(Id, RawConf)};
                 {error, Error} -> {400, error_msg('BAD_ARG', Error)}
             end
     end.
@@ -229,7 +229,7 @@ schema("/connectors/:id") ->
 '/connectors/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id,
         case emqx_connector:lookup(ConnType, ConnName) of
-            {ok, Conf} -> {200, Conf#{<<"id">> => Id}};
+            {ok, Conf} -> {200, format_resp(Id, Conf)};
             {error, not_found} ->
                 {404, error_msg('NOT_FOUND', <<"connector not found">>)}
         end);
@@ -239,7 +239,8 @@ schema("/connectors/:id") ->
         case emqx_connector:lookup(ConnType, ConnName) of
             {ok, _} ->
                 case emqx_connector:update(ConnType, ConnName, Params) of
-                    {ok, #{raw_config := RawConf}} -> {200, RawConf#{<<"id">> => Id}};
+                    {ok, #{raw_config := RawConf}} ->
+                        {200, format_resp(Id, RawConf)};
                     {error, Error} -> {400, error_msg('BAD_ARG', Error)}
                 end;
             {error, not_found} ->
@@ -262,6 +263,13 @@ error_msg(Code, Msg) when is_binary(Msg) ->
     #{code => Code, message => Msg};
 error_msg(Code, Msg) ->
     #{code => Code, message => bin(io_lib:format("~p", [Msg]))}.
+
+format_resp(ConnId, RawConf) ->
+    NumOfBridges = length(emqx_bridge:list_bridges_by_connector(ConnId)),
+    RawConf#{
+        <<"id">> => ConnId,
+        <<"num_of_bridges">> => NumOfBridges
+    }.
 
 bin(S) when is_list(S) ->
     list_to_binary(S).
