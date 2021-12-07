@@ -796,6 +796,7 @@ handle_deliver(Delivers, Channel = #channel{takeover = true,
     {ok, Channel#channel{pendings = NPendings}};
 
 handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
+                                            takeover   = false,
                                             session    = Session,
                                             clientinfo = #{clientid := ClientId}}) ->
     Delivers1 = maybe_nack(Delivers),
@@ -807,6 +808,7 @@ handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
     {ok, NChannel};
 
 handle_deliver(Delivers, Channel = #channel{session = Session,
+                                            takeover   = false,
                                             clientinfo = #{clientid := ClientId}
                                            }) ->
     case emqx_session:deliver(emqx_session:ignore_local(Delivers, ClientId, Session), Session) of
