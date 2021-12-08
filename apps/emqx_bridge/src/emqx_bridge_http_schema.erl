@@ -79,7 +79,13 @@ fields("get") ->
     ] ++ fields("post").
 
 basic_config() ->
-    proplists:delete(base_url, emqx_connector_http:fields(config)).
+    [ {enable,
+        mk(boolean(),
+           #{ desc =>"Enable or disable this bridge"
+            , default => true
+            })}
+    ]
+    ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
 
 %%======================================================================================
 id_field() ->

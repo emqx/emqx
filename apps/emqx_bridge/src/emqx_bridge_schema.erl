@@ -11,7 +11,8 @@
         , post_request/0
         ]).
 
--export([ connector_name/0
+-export([ common_bridge_fields/0
+        , direction_field/2
         ]).
 
 %%======================================================================================
@@ -23,17 +24,6 @@
 %% For HTTP APIs
 get_response() ->
     http_schema("get").
-
-connector_name() ->
-    {connector,
-        mk(binary(),
-           #{ nullable => false
-            , desc =>"""
-The connector name to be used for this bridge.
-Connectors are configured as 'connectors.{type}.{name}',
-for example 'connectors.http.mybridge'.
-"""
-            })}.
 
 put_request() ->
     http_schema("put").
@@ -48,6 +38,30 @@ http_schema(Method) ->
         end, ?CONN_TYPES),
     hoconsc:union([ref(emqx_bridge_http_schema, Method)
                    | Schemas]).
+
+common_bridge_fields() ->
+    [ {enable,
+        mk(boolean(),
+           #{ desc =>"Enable or disable this bridge"
+            , default => true
+            })}
+    , {connector,
+        mk(binary(),
+           #{ nullable => false
+            , desc =>"""
+The connector name to be used for this bridge.
+Connectors are configured as 'connectors.{type}.{name}',
+for example 'connectors.http.mybridge'.
+"""
+            })}
+    ].
+
+direction_field(Dir, Desc) ->
+    {direction, mk(Dir,
+        #{ nullable => false
+         , desc => "The direction of the bridge. Can be one of 'ingress' or 'egress'.<br>"
+            ++ Desc
+         })}.
 
 %%======================================================================================
 %% For config files

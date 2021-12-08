@@ -26,7 +26,7 @@
 
 %% API callbacks
 -export(['/bridges'/2, '/bridges/:id'/2,
-         '/nodes/:node/bridges/:id/operation/:operation'/2]).
+         '/bridges/:id/operation/:operation'/2]).
 
 -export([ list_local_bridges/1
         , lookup_from_local_node/2
@@ -38,11 +38,12 @@
 
 -define(TRY_PARSE_ID(ID, EXPR),
     try emqx_bridge:parse_bridge_id(Id) of
-        {BridgeType, BridgeName} -> EXPR
+        {BridgeType, BridgeName} ->
+            EXPR
     catch
         error:{invalid_bridge_id, Id0} ->
-            {400, #{code => 'INVALID_ID', message => <<"invalid_bridge_id: ", Id0/binary,
-                ". Bridge Ids must be of format {type}:{name}">>}}
+            {400, error_msg('INVALID_ID', <<"invalid_bridge_id: ", Id0/binary,
+                ". Bridge Ids must be of format {type}:{name}">>)}
     end).
 
 -define(METRICS(MATCH, SUCC, FAILED, RATE, RATE_5, RATE_MAX),
@@ -67,7 +68,7 @@ namespace() -> "bridge".
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
 
-paths() -> ["/bridges", "/bridges/:id", "/nodes/:node/bridges/:id/operation/:operation"].
+paths() -> ["/bridges", "/bridges/:id", "/bridges/:id/operation/:operation"].
 
 error_schema(Code, Message) ->
     [ {code, mk(string(), #{example => Code})}
@@ -77,9 +78,6 @@ error_schema(Code, Message) ->
 get_response_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(emqx_bridge_schema:get_response(),
         bridge_info_examples(get)).
-
-param_path_node() ->
-    path_param(node, binary(), atom_to_binary(node(), utf8)).
 
 param_path_operation() ->
     path_param(operation, enum([start, stop, restart]), <<"start">>).
@@ -129,7 +127,10 @@ info_example(Type, Direction, Method) ->
 method_example(Type, Direction, get) ->
     SType = atom_to_list(Type),
     SDir = atom_to_list(Direction),
-    SName = "my_" ++ SDir ++ "_" ++ SType ++ "_bridge",
+    SName = case Type of
+        http -> "my_" ++ SType ++ "_bridge";
+        _ -> "my_" ++ SDir ++ "_" ++ SType ++ "_bridge"
+    end,
     #{
         id => bin(SType ++ ":" ++ SName),
         type => bin(SType),
@@ -138,7 +139,10 @@ method_example(Type, Direction, get) ->
 method_example(Type, Direction, post) ->
     SType = atom_to_list(Type),
     SDir = atom_to_list(Direction),
-    SName = "my_" ++ SDir ++ "_" ++ SType ++ "_bridge",
+    SName = case Type of
+        http -> "my_" ++ SType ++ "_bridge";
+        _ -> "my_" ++ SDir ++ "_" ++ SType ++ "_bridge"
+    end,
     #{
         type => bin(SType),
         name => bin(SName)
@@ -247,15 +251,14 @@ schema("/bridges/:id") ->
         }
     };
 
-schema("/nodes/:node/bridges/:id/operation/:operation") ->
+schema("/bridges/:id/operation/:operation") ->
     #{
-        operationId => '/nodes/:node/bridges/:id/operation/:operation',
+        operationId => '/bridges/:id/operation/:operation',
         post => #{
             tags => [<<"bridges">>],
             summary => <<"Start/Stop/Restart Bridge">>,
             description => <<"Start/Stop/Restart bridges on a specific node">>,
             parameters => [
-                param_path_node(),
                 param_path_id(),
                 param_path_operation()
             ],
@@ -269,7 +272,8 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
 '/bridges'(post, #{body := #{<<"type">> := BridgeType} = Conf}) ->
     BridgeName = maps:get(<<"name">>, Conf, emqx_misc:gen_id()),
     case emqx_bridge:lookup(BridgeType, BridgeName) of
-        {ok, _} -> {400, #{code => 'ALREADY_EXISTS', message => <<"bridge already exists">>}};
+        {ok, _} ->
+            {400, error_msg('ALREADY_EXISTS', <<"bridge already exists">>)};
         {error, not_found} ->
             case ensure_bridge_created(BridgeType, BridgeName, Conf) of
                 ok -> lookup_from_all_nodes(BridgeType, BridgeName, 201);
@@ -296,7 +300,7 @@ list_local_bridges(Node) ->
                     {error, Error} -> {400, Error}
                 end;
             {error, not_found} ->
-                {404, #{code => 'NOT_FOUND', message => <<"bridge not found">>}}
+                {404, error_msg('NOT_FOUND',<<"bridge not found">>)}
         end);
 
 '/bridges/:id'(delete, #{bindings := #{id := Id}}) ->
@@ -305,7 +309,7 @@ list_local_bridges(Node) ->
                 #{override_to => cluster}) of
             {ok, _} -> {204};
             {error, Reason} ->
-                {500, #{code => 102, message => emqx_resource_api:stringify(Reason)}}
+                {500, error_msg('UNKNOWN_ERROR', Reason)}
         end).
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
@@ -324,20 +328,25 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         Error -> Error
     end.
 
-'/nodes/:node/bridges/:id/operation/:operation'(post, #{bindings :=
-        #{node := Node, id := Id, operation := Op}}) ->
-    OperFun =
-        fun (<<"start">>) -> start;
-            (<<"stop">>) -> stop;
-            (<<"restart">>) -> restart
-        end,
-    ?TRY_PARSE_ID(Id,
-        case rpc_call(binary_to_atom(Node, latin1), emqx_bridge, OperFun(Op),
-                [BridgeType, BridgeName]) of
-            ok -> {200};
-            {error, Reason} ->
-                {500, #{code => 102, message => emqx_resource_api:stringify(Reason)}}
-        end).
+'/bridges/:id/operation/:operation'(post, #{bindings :=
+        #{id := Id, operation := Op}}) ->
+    ?TRY_PARSE_ID(Id, case operation_to_conf_req(Op) of
+        invalid -> {404, error_msg('BAD_ARG', <<"invalid operation">>)};
+        UpReq ->
+            case emqx_conf:update(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
+                    UpReq, #{override_to => cluster}) of
+                {ok, _} -> {200};
+                {error, {pre_config_update, _, bridge_not_found}} ->
+                    {404, error_msg('NOT_FOUND', <<"bridge not found">>)};
+                {error, Reason} ->
+                    {500, error_msg('UNKNOWN_ERROR', Reason)}
+            end
+    end).
+
+operation_to_conf_req(<<"start">>) -> start;
+operation_to_conf_req(<<"stop">>) -> stop;
+operation_to_conf_req(<<"restart">>) -> restart;
+operation_to_conf_req(_) -> invalid.
 
 ensure_bridge_created(BridgeType, BridgeName, Conf) ->
     Conf1 = maps:without([<<"type">>, <<"name">>], Conf),
