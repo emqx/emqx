@@ -151,8 +151,8 @@ init_topk_tab() ->
 init([Conf]) ->
     notice_tick(Conf),
     expire_tick(Conf),
-    MaxSize = get_value(top_k_num, Conf),
-    load(MaxSize),
+    update_threshold(Conf),
+    load(Conf),
     {ok, #{config => Conf,
            last_tick_at => ?NOW,
            enable => true}}.
@@ -163,8 +163,8 @@ handle_call({enable, Enable}, _From,
                  IsEnable ->
                      State;
                  true ->
-                     MaxSize = get_value(max_topk_num, Cfg),
-                     load(MaxSize),
+                     update_threshold(Cfg),
+                     load(Cfg),
                      State#{enable := true};
                  _ ->
                      unload(),
@@ -274,7 +274,8 @@ publish(TickTime, Cfg, Notices) ->
     _ = emqx_broker:safe_publish(Msg),
     ok.
 
-load(MaxSize) ->
+load(Cfg) ->
+    MaxSize = get_value(top_k_num, Cfg),
     _ = emqx:hook('message.slow_subs_stats',
                   fun ?MODULE:on_stats_update/2,
                   [#{max_size => MaxSize}]),
@@ -319,3 +320,8 @@ try_insert_to_topk(MaxSize, Index, Latency, Type, Ts) ->
                     ets:delete(?TOPK_TAB, First)
             end
     end.
+
+update_threshold(Conf) ->
+    Threshold = proplists:get_value(threshold, Conf),
+    _ = emqx_message_latency_stats:update_threshold(Threshold),
+    ok.
