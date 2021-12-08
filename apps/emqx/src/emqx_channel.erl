@@ -1641,8 +1641,6 @@ ensure_connected(Channel = #channel{conninfo = ConnInfo,
                                     clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
-    ChanPid = self(),
-    emqx_cm:mark_channel_connected(ChanPid),
     Channel#channel{conninfo   = NConnInfo,
                     conn_state = connected
                    }.
