@@ -196,12 +196,12 @@ t_authn(_) ->
                  backend => <<"built-in-database">>,
                  user_id_type => <<"clientid">>
                 },
-    {204, _} = request(post, "/gateway/stomp/authentication", AuthConf),
+    {201, _} = request(post, "/gateway/stomp/authentication", AuthConf),
     {200, ConfResp} = request(get, "/gateway/stomp/authentication"),
     assert_confs(AuthConf, ConfResp),
 
     AuthConf2 = maps:merge(AuthConf, #{user_id_type => <<"username">>}),
-    {204, _} = request(put, "/gateway/stomp/authentication", AuthConf2),
+    {200, _} = request(put, "/gateway/stomp/authentication", AuthConf2),
 
     {200, ConfResp2} = request(get, "/gateway/stomp/authentication"),
     assert_confs(AuthConf2, ConfResp2),
@@ -219,7 +219,7 @@ t_authn_data_mgmt(_) ->
                  backend => <<"built-in-database">>,
                  user_id_type => <<"clientid">>
                 },
-    {204, _} = request(post, "/gateway/stomp/authentication", AuthConf),
+    {201, _} = request(post, "/gateway/stomp/authentication", AuthConf),
     {200, ConfResp} = request(get, "/gateway/stomp/authentication"),
     assert_confs(AuthConf, ConfResp),
 
@@ -262,14 +262,14 @@ t_listeners(_) ->
                 type => <<"tcp">>,
                 bind => <<"61613">>
                },
-    {204, _} = request(post, "/gateway/stomp/listeners", LisConf),
+    {201, _} = request(post, "/gateway/stomp/listeners", LisConf),
     {200, ConfResp} = request(get, "/gateway/stomp/listeners"),
     assert_confs([LisConf], ConfResp),
     {200, ConfResp1} = request(get, "/gateway/stomp/listeners/stomp:tcp:def"),
     assert_confs(LisConf, ConfResp1),
 
     LisConf2 = maps:merge(LisConf, #{bind => <<"61614">>}),
-    {204, _} = request(
+    {200, _} = request(
                  put,
                  "/gateway/stomp/listeners/stomp:tcp:def",
                  LisConf2
@@ -298,12 +298,12 @@ t_listeners_authn(_) ->
                  user_id_type => <<"clientid">>
                 },
     Path = "/gateway/stomp/listeners/stomp:tcp:def/authentication",
-    {204, _} = request(post, Path, AuthConf),
+    {201, _} = request(post, Path, AuthConf),
     {200, ConfResp2} = request(get, Path),
     assert_confs(AuthConf, ConfResp2),
 
     AuthConf2 = maps:merge(AuthConf, #{user_id_type => <<"username">>}),
-    {204, _} = request(put, Path, AuthConf2),
+    {200, _} = request(put, Path, AuthConf2),
 
     {200, ConfResp3} = request(get, Path),
     assert_confs(AuthConf2, ConfResp3),
@@ -325,7 +325,7 @@ t_listeners_authn_data_mgmt(_) ->
                  user_id_type => <<"clientid">>
                 },
     Path = "/gateway/stomp/listeners/stomp:tcp:def/authentication",
-    {204, _} = request(post, Path, AuthConf),
+    {201, _} = request(post, Path, AuthConf),
     {200, ConfResp2} = request(get, Path),
     assert_confs(AuthConf, ConfResp2),
 

@@ -143,9 +143,9 @@ The client just sends its PUBLISH messages to a GW"
        sc(hoconsc:array(ref(mqttsn_predefined)),
           #{ default => []
            , desc =>
-"The Pre-defined topic ids and topic names.<br>
+<<"The Pre-defined topic ids and topic names.<br>
 A 'pre-defined' topic id is a topic id whose mapping to a topic name
-is known in advance by both the client's application and the gateway"
+is known in advance by both the client’s application and the gateway">>
            })}
     , {listeners, sc(ref(udp_listeners))}
     ] ++ gateway_common_options();

@@ -146,14 +146,14 @@ get_listeners_status(GwName, Config) ->
 %% Mgmt APIs - listeners
 %%--------------------------------------------------------------------
 
--spec add_listener(atom() | binary(), map()) -> ok.
+-spec add_listener(atom() | binary(), map()) -> {ok, map()}.
 add_listener(ListenerId, NewConf0) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
     NewConf = maps:without([<<"id">>, <<"name">>,
                             <<"type">>, <<"running">>], NewConf0),
     confexp(emqx_gateway_conf:add_listener(GwName, {Type, Name}, NewConf)).
 
--spec update_listener(atom() | binary(), map()) -> ok.
+-spec update_listener(atom() | binary(), map()) -> {ok, map()}.
 update_listener(ListenerId, NewConf0) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
 
@@ -194,23 +194,23 @@ wrap_chain_name(ChainName, Conf) ->
             Conf
     end.
 
--spec add_authn(gateway_name(), map()) -> ok.
+-spec add_authn(gateway_name(), map()) -> {ok, map()}.
 add_authn(GwName, AuthConf) ->
     confexp(emqx_gateway_conf:add_authn(GwName, AuthConf)).
 
--spec add_authn(gateway_name(), binary(), map()) -> ok.
+-spec add_authn(gateway_name(), binary(), map()) -> {ok, map()}.
 add_authn(GwName, ListenerId, AuthConf) ->
-    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    confexp(emqx_gateway_conf:add_authn(GwName, {Type, Name}, AuthConf)).
+    {_, LType, LName} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:add_authn(GwName, {LType, LName}, AuthConf)).
 
--spec update_authn(gateway_name(), map()) -> ok.
+-spec update_authn(gateway_name(), map()) -> {ok, map()}.
 update_authn(GwName, AuthConf) ->
     confexp(emqx_gateway_conf:update_authn(GwName, AuthConf)).
 
--spec update_authn(gateway_name(), binary(), map()) -> ok.
+-spec update_authn(gateway_name(), binary(), map()) -> {ok, map()}.
 update_authn(GwName, ListenerId, AuthConf) ->
-    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    confexp(emqx_gateway_conf:update_authn(GwName, {Type, Name}, AuthConf)).
+    {_, LType, LName} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:update_authn(GwName, {LType, LName}, AuthConf)).
 
 -spec remove_authn(gateway_name()) -> ok.
 remove_authn(GwName) ->
@@ -218,10 +218,11 @@ remove_authn(GwName) ->
 
 -spec remove_authn(gateway_name(), binary()) -> ok.
 remove_authn(GwName, ListenerId) ->
-    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    confexp(emqx_gateway_conf:remove_authn(GwName, {Type, Name})).
+    {_, LType, LName} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:remove_authn(GwName, {LType, LName})).
 
 confexp(ok) -> ok;
+confexp({ok, Res}) -> {ok, Res};
 confexp({error, not_found}) ->
     error({update_conf_error, not_found});
 confexp({error, already_exist}) ->

@@ -268,12 +268,12 @@ t_load_remove_authn(_) ->
     ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
 
-    ok = emqx_gateway_conf:add_authn(<<"stomp">>, ?CONF_STOMP_AUTHN_1),
+    {ok, _} = emqx_gateway_conf:add_authn(<<"stomp">>, ?CONF_STOMP_AUTHN_1),
     assert_confs(
       maps:put(<<"authentication">>, ?CONF_STOMP_AUTHN_1, StompConf),
       emqx:get_raw_config([gateway, stomp])),
 
-    ok = emqx_gateway_conf:update_authn(<<"stomp">>, ?CONF_STOMP_AUTHN_2),
+    {ok, _} = emqx_gateway_conf:update_authn(<<"stomp">>, ?CONF_STOMP_AUTHN_2),
     assert_confs(
       maps:put(<<"authentication">>, ?CONF_STOMP_AUTHN_2, StompConf),
       emqx:get_raw_config([gateway, stomp])),
@@ -295,14 +295,16 @@ t_load_remove_listeners(_) ->
     ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
 
-    ok = emqx_gateway_conf:add_listener(
-           <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_LISTENER_1),
+    {ok, _} = emqx_gateway_conf:add_listener(
+                <<"stomp">>, {<<"tcp">>, <<"default">>},
+                ?CONF_STOMP_LISTENER_1),
     assert_confs(
       maps:merge(StompConf, listener(?CONF_STOMP_LISTENER_1)),
       emqx:get_raw_config([gateway, stomp])),
 
-    ok = emqx_gateway_conf:update_listener(
-           <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_LISTENER_2),
+    {ok, _} = emqx_gateway_conf:update_listener(
+                <<"stomp">>, {<<"tcp">>, <<"default">>},
+                ?CONF_STOMP_LISTENER_2),
     assert_confs(
       maps:merge(StompConf, listener(?CONF_STOMP_LISTENER_2)),
       emqx:get_raw_config([gateway, stomp])),
@@ -339,12 +341,12 @@ t_load_remove_listener_authn(_) ->
     ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
 
-    ok = emqx_gateway_conf:add_authn(
-           <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_AUTHN_1),
+    {ok, _} = emqx_gateway_conf:add_authn(
+                <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_AUTHN_1),
     assert_confs(StompConf1, emqx:get_raw_config([gateway, stomp])),
 
-    ok = emqx_gateway_conf:update_authn(
-           <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_AUTHN_2),
+    {ok, _} = emqx_gateway_conf:update_authn(
+                <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_AUTHN_2),
     assert_confs(StompConf2, emqx:get_raw_config([gateway, stomp])),
 
     ok = emqx_gateway_conf:remove_authn(
@@ -403,14 +405,16 @@ t_add_listener_with_certs_content(_) ->
     ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
 
-    ok = emqx_gateway_conf:add_listener(
-           <<"stomp">>, {<<"ssl">>, <<"default">>}, ?CONF_STOMP_LISTENER_SSL),
+    {ok, _} = emqx_gateway_conf:add_listener(
+                <<"stomp">>, {<<"ssl">>, <<"default">>},
+                ?CONF_STOMP_LISTENER_SSL),
     assert_confs(
       maps:merge(StompConf, ssl_listener(?CONF_STOMP_LISTENER_SSL)),
       emqx:get_raw_config([gateway, stomp])),
 
-    ok = emqx_gateway_conf:update_listener(
-           <<"stomp">>, {<<"ssl">>, <<"default">>}, ?CONF_STOMP_LISTENER_SSL_2),
+    {ok, _} = emqx_gateway_conf:update_listener(
+                <<"stomp">>, {<<"ssl">>, <<"default">>},
+                ?CONF_STOMP_LISTENER_SSL_2),
     assert_confs(
       maps:merge(StompConf, ssl_listener(?CONF_STOMP_LISTENER_SSL_2)),
       emqx:get_raw_config([gateway, stomp])),
