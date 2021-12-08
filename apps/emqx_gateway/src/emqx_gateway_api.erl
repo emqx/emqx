@@ -126,10 +126,12 @@ gateway_insta(get, #{bindings := #{name := Name0}}) ->
         error : badarg ->
             return_http_error(400, "Bad gateway name")
     end;
-gateway_insta(put, #{body := GwConf,
+gateway_insta(put, #{body := GwConf0,
                      bindings := #{name := Name0}
                     }) ->
     with_gateway(Name0, fun(GwName, _) ->
+        %% XXX: Clear the unused fields
+        GwConf = maps:without([<<"name">>], GwConf0),
         case emqx_gateway_conf:update_gateway(GwName, GwConf) of
             {ok, Gateway} ->
                 {200, Gateway};
