@@ -98,6 +98,10 @@ call_hook(_, _, _, Latency, S)
   when Latency =< ?MINIMUM_THRESHOLD ->
     S;
 
+call_hook(_, Now, _, _, #{last_access_time := LIT} = S)
+  when Now =< LIT + ?MINIMUM_INSERT_INTERVAL ->
+    S;
+
 call_hook(ClientId, Now, Type, Latency, #{last_insert_value := LIV} = Stats) ->
     case Latency =< get_threshold() of
         true ->
