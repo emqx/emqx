@@ -153,10 +153,14 @@ schema("/gateway") ->
          #{ description => <<"Get gateway list">>
           , parameters => params_gateway_status_in_qs()
           , responses =>
-              ?STANDARD_RESP(#{200 => ref(gateway_overview)})
+              ?STANDARD_RESP(
+                 #{200 => emqx_dashboard_swagger:schema_with_example(
+                            hoconsc:array(ref(gateway_overview)),
+                            examples_gateway_overview())})
           },
        post =>
          #{ description => <<"Load a gateway">>
+          %% TODO: distinguish create & response swagger schema
           , 'requestBody' => schema_gateways_conf()
           , responses =>
               ?STANDARD_RESP(#{201 => schema_gateways_conf()})
@@ -179,7 +183,7 @@ schema("/gateway/:name") ->
        put =>
          #{ description => <<"Update the gateway configurations/status">>
           , parameters => params_gateway_name_in_path()
-          , 'requestBody' => schema_gateways_conf()
+          , 'requestBody' => schema_update_gateways_conf()
           , responses =>
               ?STANDARD_RESP(#{200 => schema_gateways_conf()})
           }
@@ -210,6 +214,7 @@ params_gateway_name_in_path() ->
     ].
 
 params_gateway_status_in_qs() ->
+    %% FIXME: enum in swagger ??
     [{status,
       mk(binary(),
          #{ in => query
@@ -274,6 +279,14 @@ fields(Gw) when Gw == stomp; Gw == mqttsn;
     [{name,
       mk(hoconsc:union([Gw]), #{ desc => <<"Gateway Name">>})}
     ] ++ convert_listener_struct(emqx_gateway_schema:fields(Gw));
+
+fields(Gw) when Gw == update_stomp; Gw == update_mqttsn;
+                Gw == update_coap;  Gw == update_lwm2m;
+                Gw == update_exproto ->
+    "update_" ++ GwStr = atom_to_list(Gw),
+    Gw1 = list_to_existing_atom(GwStr),
+    remove_listener_and_authn(emqx_gateway_schema:fields(Gw1));
+
 fields(Listener) when Listener == tcp_listener;
                       Listener == ssl_listener;
                       Listener == udp_listener;
@@ -297,9 +310,17 @@ fields(Listener) when Listener == tcp_listener;
 fields(gateway_stats) ->
     [{key, mk(binary(), #{})}].
 
+schema_update_gateways_conf() ->
+    emqx_dashboard_swagger:schema_with_examples(
+      hoconsc:union([ref(?MODULE, update_stomp),
+                     ref(?MODULE, update_mqttsn),
+                     ref(?MODULE, update_coap),
+                     ref(?MODULE, update_lwm2m),
+                     ref(?MODULE, update_exproto)]),
+      examples_update_gateway_confs()
+     ).
+
 schema_gateways_conf() ->
-    %% XXX: We need convert the emqx_gateway_schema's listener map
-    %% structure to array
     emqx_dashboard_swagger:schema_with_examples(
       hoconsc:union([ref(?MODULE, stomp), ref(?MODULE, mqttsn),
                      ref(?MODULE, coap), ref(?MODULE, lwm2m),
@@ -316,6 +337,11 @@ convert_listener_struct(Schema) ->
                                  }),
     lists:keystore(listeners, 1, Schema1, {listeners, ListenerSchema}).
 
+remove_listener_and_authn(Schmea) ->
+    lists:keydelete(
+      authentication, 1,
+      lists:keydelete(listeners, 1, Schmea)).
+
 listeners_schema(?R_REF(_Mod, tcp_listeners)) ->
     hoconsc:array(hoconsc:union([ref(tcp_listener), ref(ssl_listener)]));
 listeners_schema(?R_REF(_Mod, udp_listeners)) ->
@@ -326,6 +352,57 @@ listeners_schema(?R_REF(_Mod, udp_tcp_listeners)) ->
 
 %%--------------------------------------------------------------------
 %% examples
+
+examples_gateway_overview() ->
+    [ #{ name => <<"coap">>
+       , status => <<"unloaded">>
+       }
+    , #{ name => <<"exproto">>
+       , status => <<"unloaded">>
+      }
+    , #{ name => <<"lwm2m">>
+       , status => <<"running">>
+       , current_connections => 0
+       , max_connections => 1024000
+       , listeners =>
+            [ #{ id => <<"lwm2m:udp:default">>
+               , type => <<"udp">>
+               , name => <<"default">>
+               , running => true
+               }
+            ]
+       , created_at => <<"2021-12-08T14:41:26.171+08:00">>
+       , started_at => <<"2021-12-08T14:41:26.202+08:00">>
+      }
+    , #{ name => <<"mqttsn">>
+       , status => <<"stopped">>
+       , current_connections => 0
+       , max_connections => 1024000
+       , listeners =>
+            [ #{ id => <<"mqttsn:udp:default">>
+               , name => <<"default">>
+               , running => false
+               , type => <<"udp">>
+               }
+            ]
+       , created_at => <<"2021-12-08T14:41:45.071+08:00">>
+       , stopped_at => <<"2021-12-08T14:56:35.576+08:00">>
+      }
+    , #{ name => <<"stomp">>
+       , status => <<"running">>
+       , current_connections => 0
+       , max_connections => 1024000
+       , listeners =>
+            [ #{ id => <<"stomp:tcp:default">>
+               , name => <<"default">>
+               , running => true
+               , type => <<"tcp">>
+               }
+            ]
+      , created_at => <<"2021-12-08T14:42:15.272+08:00">>
+      , started_at => <<"2021-12-08T14:42:15.274+08:00">>
+      }
+    ].
 
 examples_gateway_confs() ->
     #{ stomp_gateway =>
@@ -395,7 +472,7 @@ examples_gateway_confs() ->
              , publish_qos => <<"coap">>
              , listeners =>
                 [ #{ type => <<"udp">>
-                   , name => <<"coap">>
+                   , name => <<"default">>
                    , bind => <<"5683">>
                    , max_connections => 1024000
                    , max_conn_rate => 1000
@@ -426,7 +503,7 @@ examples_gateway_confs() ->
                  }
              , listeners =>
                 [ #{ type => <<"udp">>
-                   , name => <<"lwm2m">>
+                   , name => <<"default">>
                    , bind => <<"5783">>
                    , max_connections => 1024000
                    , max_conn_rate => 1000
@@ -456,6 +533,91 @@ examples_gateway_confs() ->
                    , max_conn_rate => 1000
                    }
                 ]
+             }
+         }
+     }.
+
+examples_update_gateway_confs() ->
+    #{ stomp_gateway =>
+        #{ summary => <<"A simple STOMP gateway configs">>
+         , value =>
+            #{ enable => true
+             , enable_stats => true
+             , idle_timeout => <<"30s">>
+             , mountpoint => <<"stomp2/">>
+             , frame =>
+                #{ max_headers => 100
+                 , max_headers_length => 10240
+                 , max_body_length => 655350
+                 }
+             }
+         }
+     , mqttsn_gateway =>
+        #{ summary => <<"A simple MQTT-SN gateway configs">>
+         , value =>
+            #{ enable => true
+             , enable_stats => true
+             , idle_timeout => <<"30s">>
+             , mountpoint => <<"mqttsn2/">>
+             , gateway_id => 1
+             , broadcast => true
+             , enable_qos3 => false
+             , predefined =>
+                [ #{ id => <<"1003">>
+                   , topic => <<"pred/1003">>
+                   }
+                ]
+             }
+         }
+     , coap_gateway =>
+        #{ summary => <<"A simple CoAP gateway configs">>
+         , value =>
+            #{ enable => true
+             , enable_stats => true
+             , idle_timeout => <<"30s">>
+             , mountpoint => <<"coap2/">>
+             , heartbeat => <<"30s">>
+             , connection_required => false
+             , notify_type => <<"qos">>
+             , subscribe_qos => <<"coap">>
+             , publish_qos => <<"coap">>
+             }
+         }
+     , lwm2m_gateway =>
+        #{ summary => <<"A simple LwM2M gateway configs">>
+         , value =>
+            #{ enable => true
+             , enable_stats => true
+             , idle_timeout => <<"30s">>
+             , mountpoint => <<"lwm2m2/">>
+             , xml_dir => <<"etc/lwm2m_xml">>
+             , lifetime_min => <<"1s">>
+             , lifetime_max => <<"86400s">>
+             , qmode_time_window => <<"22s">>
+             , auto_observe => false
+             , update_msg_publish_condition => <<"always">>
+             , translators =>
+                #{ command => #{topic => <<"/dn/#">>}
+                 , response => #{topic => <<"/up/resp">>}
+                 , notify => #{topic => <<"/up/notify">>}
+                 , register => #{topic => <<"/up/resp">>}
+                 , update => #{topic => <<"/up/resp">>}
+                 }
+             }
+         }
+     , exproto_gateway =>
+        #{ summary => <<"A simple ExProto gateway configs">>
+         , value =>
+            #{ enable => true
+             , enable_stats => true
+             , idle_timeout => <<"30s">>
+             , mountpoint => <<"exproto2/">>
+             , server =>
+                #{ bind => <<"9100">>
+                 }
+             , handler =>
+                #{ address => <<"http://127.0.0.1:9001">>
+                 }
              }
          }
      }.
