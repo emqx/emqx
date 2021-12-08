@@ -311,15 +311,12 @@ ensure_content_type_header(Headers, _Method) ->
 
 merge_path(CommonPath, <<>>) ->
     l2b(CommonPath);
-merge_path(CommonPath, Path0) ->
-    case emqx_http_lib:uri_parse(Path0) of
-        {ok, #{path := Path1, 'query' := Query0}} ->
-            Path2 = l2b(filename:join(CommonPath, Path1)),
-            Query = l2b(Query0),
-            <<Path2/binary, "?", Query/binary>>;
-        {ok, #{path := Path1}} ->
-            l2b(filename:join(CommonPath, Path1))
-    end.
+merge_path(CommonPath, Path) ->
+    Path1 = case Path of
+                <<"/", Path0/binary>> -> Path0;
+                _ -> Path
+            end,
+    l2b(filename:join(CommonPath, Path1)).
 
 method(GET) when GET == <<"GET">>; GET == <<"get">> -> get;
 method(POST) when POST == <<"POST">>; POST == <<"post">> -> post;
