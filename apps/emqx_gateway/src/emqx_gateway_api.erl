@@ -201,7 +201,7 @@ schema("/gateway/:name/stats") ->
 
 params_gateway_name_in_path() ->
     [{name,
-      mk(string(),
+      mk(binary(),
          #{ in => path
           , desc => <<"Gateway Name">>
           })}
@@ -209,7 +209,7 @@ params_gateway_name_in_path() ->
 
 params_gateway_status_in_qs() ->
     [{status,
-      mk(string(),
+      mk(binary(),
          #{ in => query
           , nullable => true
           , desc => <<"Gateway Status">>
@@ -226,20 +226,20 @@ roots() ->
 
 fields(gateway_overview) ->
     [ {name,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Gateway Name">>})}
     , {status,
        mk(hoconsc:enum([running, stopped, unloaded]),
           #{ desc => <<"The Gateway status">>})}
     , {created_at,
-       mk(string(),
+       mk(binary(),
           #{desc => <<"The Gateway created datetime">>})}
     , {started_at,
-       mk(string(),
+       mk(binary(),
           #{ nullable => true
            , desc => <<"The Gateway started datetime">>})}
     , {stopped_at,
-       mk(string(),
+       mk(binary(),
           #{ nullable => true
            , desc => <<"The Gateway stopped datetime">>})}
     , {max_connections,
@@ -256,7 +256,7 @@ fields(gateway_overview) ->
     ];
 fields(gateway_listener_overview) ->
     [ {id,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Listener ID">>})}
     , {running,
        mk(boolean(),
@@ -277,14 +277,14 @@ fields(Listener) when Listener == tcp_listener;
                       Listener == udp_listener;
                       Listener == dtls_listener ->
     [ {id,
-       mk(string(),
+       mk(binary(),
           #{ nullable => true
            , desc => <<"Listener ID">>})}
     , {type,
        mk(hoconsc:union([tcp, ssl, udp, dtls]),
           #{ desc => <<"Listener type">>})}
     , {name,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Listener Name">>})}
     , {running,
        mk(boolean(),
@@ -293,7 +293,7 @@ fields(Listener) when Listener == tcp_listener;
     ] ++ emqx_gateway_schema:fields(Listener);
 
 fields(gateway_stats) ->
-    [{key, mk(string(), #{})}].
+    [{key, mk(binary(), #{})}].
 
 schema_gateways_conf() ->
     %% XXX: We need convert the emqx_gateway_schema's listener map

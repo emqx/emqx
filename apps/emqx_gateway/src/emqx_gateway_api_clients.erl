@@ -593,7 +593,7 @@ roots() ->
     ].
 
 fields(test) ->
-    [{key, mk(string(), #{ desc => <<"Desc">>})}];
+    [{key, mk(binary(), #{ desc => <<"Desc">>})}];
 
 fields(stomp_client) ->
     common_client_props();
@@ -603,7 +603,7 @@ fields(coap_client) ->
     common_client_props();
 fields(lwm2m_client) ->
     [ {endpoint_name,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"The LwM2M client endpoint name">>})}
     , {lifetime,
        mk(integer(),
@@ -614,7 +614,7 @@ fields(exproto_client) ->
 
 fields(subscription) ->
     [ {topic,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Topic Fillter">>})}
     , {qos,
        mk(integer(),
@@ -634,30 +634,30 @@ fields(subscription) ->
     ];
 fields(extra_sub_props) ->
     [ {subid,
-       mk(string(),
+       mk(binary(),
          #{ desc => <<"Only stomp protocol, an uniquely identity for "
                       "the subscription. range: 1-65535.">>})}
     ].
 
 common_client_props() ->
     [ {node,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Name of the node to which the client is "
                        "connected">>})}
     , {clientid,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Client identifier">>})}
     , {username,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Username of client when connecting">>})}
     , {proto_name,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Client protocol name">>})}
     , {proto_ver,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Protocol version used by the client">>})}
     , {ip_address,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Client's IP address">>})}
     , {port,
        mk(integer(),
@@ -667,10 +667,10 @@ common_client_props() ->
           #{ desc => <<"Indicates whether the client is connected via "
                        "bridge">>})}
     , {connected_at,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Client connection time">>})}
     , {disconnected_at,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Client offline time, This field is only valid and "
                        "returned when connected is false">>})}
     , {connected,
@@ -681,10 +681,10 @@ common_client_props() ->
     %% want it
     %%
     %, {will_msg,
-    %   mk(string(),
+    %   mk(binary(),
     %      #{ desc => <<"Client will message">>})}
     %, {zone,
-    %   mk(string(),
+    %   mk(binary(),
     %      #{ desc => <<"Indicate the configuration group used by the "
     %                   "client">>})}
     , {keepalive,
@@ -699,7 +699,7 @@ common_client_props() ->
           #{ desc => <<"Session expiration interval, with the unit of "
                        "second">>})}
     , {created_at,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Session creation time">>})}
     , {subscriptions_cnt,
        mk(integer(),
