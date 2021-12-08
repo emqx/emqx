@@ -79,9 +79,9 @@ gateway(post, Request) ->
             undefined -> error(badarg);
             _ ->
                 GwConf = maps:without([<<"name">>], Body),
-                case emqx_gateway_conf:load_gateway(GwName,  GwConf) of
-                    ok ->
-                        {204};
+                case emqx_gateway_conf:load_gateway(GwName, GwConf) of
+                    {ok, NGwConf} ->
+                        {201, NGwConf};
                     {error, Reason} ->
                         return_http_error(500, Reason)
                 end
@@ -131,8 +131,8 @@ gateway_insta(put, #{body := GwConf,
                     }) ->
     with_gateway(Name0, fun(GwName, _) ->
         case emqx_gateway_conf:update_gateway(GwName, GwConf) of
-            ok ->
-                {204};
+            {ok, Gateway} ->
+                {200, Gateway};
             {error, Reason} ->
                 return_http_error(500, Reason)
         end
@@ -201,7 +201,7 @@ schema("/gateway/:name/stats") ->
 
 params_gateway_name_in_path() ->
     [{name,
-      mk(binary(),
+      mk(string(),
          #{ in => path
           , desc => <<"Gateway Name">>
           })}
@@ -209,7 +209,7 @@ params_gateway_name_in_path() ->
 
 params_gateway_status_in_qs() ->
     [{status,
-      mk(binary(),
+      mk(string(),
          #{ in => query
           , nullable => true
           , desc => <<"Gateway Status">>
@@ -270,7 +270,7 @@ fields(Gw) when Gw == stomp; Gw == mqttsn;
                 Gw == coap;  Gw == lwm2m;
                 Gw == exproto ->
     [{name,
-      mk(string(), #{ desc => <<"Gateway Name">>})}
+      mk(hoconsc:union([Gw]), #{ desc => <<"Gateway Name">>})}
     ] ++ convert_listener_struct(emqx_gateway_schema:fields(Gw));
 fields(Listener) when Listener == tcp_listener;
                       Listener == ssl_listener;
@@ -330,21 +330,130 @@ examples_gateway_confs() ->
         #{ summary => <<"A simple STOMP gateway configs">>
          , value =>
             #{ enable => true
+             , name => <<"stomp">>
              , enable_stats => true
              , idle_timeout => <<"30s">>
              , mountpoint => <<"stomp/">>
              , frame =>
-                #{ max_header => 10
-                 , make_header_length => 1024
+                #{ max_headers => 10
+                 , max_headers_length => 1024
                  , max_body_length => 65535
                  }
+             , listeners =>
+                [ #{ type => <<"tcp">>
+                   , name => <<"default">>
+                   , bind => <<"61613">>
+                   , max_connections => 1024000
+                   , max_conn_rate => 1000
+                   }
+                ]
              }
          }
      , mqttsn_gateway =>
         #{ summary => <<"A simple MQTT-SN gateway configs">>
          , value =>
             #{ enable => true
+             , name => <<"mqttsn">>
              , enable_stats => true
+             , idle_timeout => <<"30s">>
+             , mountpoint => <<"mqttsn/">>
+             , gateway_id => 1
+             , broadcast => true
+             , enable_qos3 => true
+             , predefined =>
+                [ #{ id => <<"1001">>
+                   , topic => <<"pred/1001">>
+                   }
+                , #{ id => <<"1002">>
+                   , topic => <<"pred/1002">>
+                   }
+                ]
+             , listeners =>
+                [ #{ type => <<"udp">>
+                   , name => <<"default">>
+                   , bind => <<"1884">>
+                   , max_connections => 1024000
+                   , max_conn_rate => 1000
+                   }
+                ]
+             }
+         }
+     , coap_gateway =>
+        #{ summary => <<"A simple CoAP gateway configs">>
+         , value =>
+            #{ enable => true
+             , name => <<"coap">>
+             , enable_stats => true
+             , idle_timeout => <<"30s">>
+             , mountpoint => <<"coap/">>
+             , heartbeat => <<"30s">>
+             , connection_required => false
+             , notify_type => <<"qos">>
+             , subscribe_qos => <<"coap">>
+             , publish_qos => <<"coap">>
+             , listeners =>
+                [ #{ type => <<"udp">>
+                   , name => <<"coap">>
+                   , bind => <<"5683">>
+                   , max_connections => 1024000
+                   , max_conn_rate => 1000
+                   }
+                ]
+             }
+         }
+     , lwm2m_gateway =>
+        #{ summary => <<"A simple LwM2M gateway configs">>
+         , value =>
+            #{ enable => true
+             , name => <<"lwm2m">>
+             , enable_stats => true
+             , idle_timeout => <<"30s">>
+             , mountpoint => <<"lwm2m/">>
+             , xml_dir => <<"etc/lwm2m_xml">>
+             , lifetime_min => <<"1s">>
+             , lifetime_max => <<"86400s">>
+             , qmode_time_window => <<"22s">>
+             , auto_observe => false
+             , update_msg_publish_condition => <<"always">>
+             , translators =>
+                #{ command => #{topic => <<"/dn/#">>}
+                 , response => #{topic => <<"/up/resp">>}
+                 , notify => #{topic => <<"/up/notify">>}
+                 , register => #{topic => <<"/up/resp">>}
+                 , update => #{topic => <<"/up/resp">>}
+                 }
+             , listeners =>
+                [ #{ type => <<"udp">>
+                   , name => <<"lwm2m">>
+                   , bind => <<"5783">>
+                   , max_connections => 1024000
+                   , max_conn_rate => 1000
+                   }
+                ]
+             }
+         }
+     , exproto_gateway =>
+        #{ summary => <<"A simple ExProto gateway configs">>
+         , value =>
+            #{ enable => true
+             , name => <<"exproto">>
+             , enable_stats => true
+             , idle_timeout => <<"30s">>
+             , mountpoint => <<"exproto/">>
+             , server =>
+                #{ bind => <<"9100">>
+                 }
+             , handler =>
+                #{ address => <<"http://127.0.0.1:9001">>
+                 }
+             , listeners =>
+                [ #{ type => <<"tcp">>
+                   , name => <<"default">>
+                   , bind => <<"7993">>
+                   , max_connections => 1024000
+                   , max_conn_rate => 1000
+                   }
+                ]
              }
          }
      }.

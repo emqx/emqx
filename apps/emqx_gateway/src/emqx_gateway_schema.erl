@@ -221,7 +221,7 @@ fields(lwm2m) ->
            })}
     , {lifetime_min,
        sc(duration(),
-          #{ default => "1s"
+          #{ default => "15s"
            , desc => "Minimum value of lifetime allowed to be set by the LwM2M client"
            })}
     , {lifetime_max,

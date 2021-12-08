@@ -59,7 +59,7 @@ t_gateway(_) ->
     lists:foreach(fun assert_gw_unloaded/1, Gateways),
     {400, BadReq} = request(get, "/gateway/uname_gateway"),
     assert_bad_request(BadReq),
-    {204, _} = request(post, "/gateway", #{name => <<"stomp">>}),
+    {201, _} = request(post, "/gateway", #{name => <<"stomp">>}),
     {200, StompGw1} = request(get, "/gateway/stomp"),
     assert_feilds_apperence([name, status, enable, created_at, started_at],
                             StompGw1),
@@ -81,12 +81,12 @@ t_gateway_stomp(_) ->
                   #{name => <<"def">>, type => <<"tcp">>, bind => <<"61613">>}
                 ]
               },
-    {204, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/stomp"),
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{frame => #{max_headers => 10}}),
-    {204, _} = request(put, "/gateway/stomp", maps:without([name], GwConf2)),
+    {200, _} = request(put, "/gateway/stomp", maps:without([name], GwConf2)),
     {200, ConfResp2} = request(get, "/gateway/stomp"),
     assert_confs(GwConf2, ConfResp2),
     {204, _} = request(delete, "/gateway/stomp").
@@ -104,12 +104,12 @@ t_gateway_mqttsn(_) ->
                   #{name => <<"def">>, type => <<"udp">>, bind => <<"1884">>}
                 ]
               },
-    {204, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/mqttsn"),
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{predefined => []}),
-    {204, _} = request(put, "/gateway/mqttsn", maps:without([name], GwConf2)),
+    {200, _} = request(put, "/gateway/mqttsn", maps:without([name], GwConf2)),
     {200, ConfResp2} = request(get, "/gateway/mqttsn"),
     assert_confs(GwConf2, ConfResp2),
     {204, _} = request(delete, "/gateway/mqttsn").
@@ -125,12 +125,12 @@ t_gateway_coap(_) ->
                   #{name => <<"def">>, type => <<"udp">>, bind => <<"5683">>}
                 ]
               },
-    {204, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/coap"),
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{heartbeat => <<"10s">>}),
-    {204, _} = request(put, "/gateway/coap", maps:without([name], GwConf2)),
+    {200, _} = request(put, "/gateway/coap", maps:without([name], GwConf2)),
     {200, ConfResp2} = request(get, "/gateway/coap"),
     assert_confs(GwConf2, ConfResp2),
     {204, _} = request(delete, "/gateway/coap").
@@ -156,12 +156,12 @@ t_gateway_lwm2m(_) ->
                   #{name => <<"def">>, type => <<"udp">>, bind => <<"5783">>}
                 ]
               },
-    {204, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/lwm2m"),
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{qmode_time_window => <<"10s">>}),
-    {204, _} = request(put, "/gateway/lwm2m", maps:without([name], GwConf2)),
+    {200, _} = request(put, "/gateway/lwm2m", maps:without([name], GwConf2)),
     {200, ConfResp2} = request(get, "/gateway/lwm2m"),
     assert_confs(GwConf2, ConfResp2),
     {204, _} = request(delete, "/gateway/lwm2m").
@@ -177,19 +177,19 @@ t_gateway_exproto(_) ->
                   #{name => <<"def">>, type => <<"tcp">>, bind => <<"7993">>}
                 ]
               },
-    {204, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/exproto"),
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{server => #{bind => <<"9200">>}}),
-    {204, _} = request(put, "/gateway/exproto", maps:without([name], GwConf2)),
+    {200, _} = request(put, "/gateway/exproto", maps:without([name], GwConf2)),
     {200, ConfResp2} = request(get, "/gateway/exproto"),
     assert_confs(GwConf2, ConfResp2),
     {204, _} = request(delete, "/gateway/exproto").
 
 t_authn(_) ->
     GwConf = #{name => <<"stomp">>},
-    {204, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateway", GwConf),
     {204, _} = request(get, "/gateway/stomp/authentication"),
 
     AuthConf = #{mechanism => <<"password-based">>,
@@ -212,7 +212,7 @@ t_authn(_) ->
 
 t_authn_data_mgmt(_) ->
     GwConf = #{name => <<"stomp">>},
-    {204, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateway", GwConf),
     {204, _} = request(get, "/gateway/stomp/authentication"),
 
     AuthConf = #{mechanism => <<"password-based">>,
@@ -256,7 +256,7 @@ t_authn_data_mgmt(_) ->
 
 t_listeners(_) ->
     GwConf = #{name => <<"stomp">>},
-    {204, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateway", GwConf),
     {404, _} = request(get, "/gateway/stomp/listeners"),
     LisConf = #{name => <<"def">>,
                 type => <<"tcp">>,
@@ -289,7 +289,7 @@ t_listeners_authn(_) ->
                    type => <<"tcp">>,
                    bind => <<"61613">>
                   }]},
-    {204, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/stomp"),
     assert_confs(GwConf, ConfResp),
 
@@ -316,7 +316,7 @@ t_listeners_authn_data_mgmt(_) ->
                    type => <<"tcp">>,
                    bind => <<"61613">>
                   }]},
-    {204, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/stomp"),
     assert_confs(GwConf, ConfResp),
 
