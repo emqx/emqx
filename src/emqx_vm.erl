@@ -58,11 +58,12 @@
                           sl_alloc,
                           ll_alloc,
                           fix_alloc,
+                          literal_alloc,
                           std_alloc
                          ]).
 
 -define(PROCESS_INFO_KEYS, [initial_call,
-                            current_function,
+                            current_stacktrace,
                             registered_name,
                             status,
                             message_queue_len,
@@ -317,7 +318,8 @@ get_process_gc_info(Pid) when is_pid(Pid) ->
     process_info(Pid, ?PROCESS_GC_KEYS).
 
 get_process_group_leader_info(LeaderPid) when is_pid(LeaderPid) ->
-    [{Key, Value}|| {Key, Value} <- process_info(LeaderPid), lists:member(Key, ?PROCESS_INFO_KEYS)].
+    [{Key, Value}
+     || {Key, Value} <- process_info(LeaderPid), lists:member(Key, ?PROCESS_INFO_KEYS)].
 
 get_process_limit() ->
     erlang:system_info(process_limit).
@@ -339,12 +341,12 @@ get_ets_info(Tab) ->
 mapping(Entries) ->
     mapping(Entries, []).
 mapping([], Acc) -> Acc;
-mapping([{owner, V}|Entries], Acc) when is_pid(V) ->
+mapping([{owner, V} | Entries], Acc) when is_pid(V) ->
     OwnerInfo = process_info(V),
     Owner = proplists:get_value(registered_name, OwnerInfo, undefined),
-    mapping(Entries, [{owner, Owner}|Acc]);
-mapping([{Key, Value}|Entries], Acc) ->
-    mapping(Entries, [{Key, Value}|Acc]).
+    mapping(Entries, [{owner, Owner} | Acc]);
+mapping([{Key, Value} | Entries], Acc) ->
+    mapping(Entries, [{Key, Value} | Acc]).
 
 avg1() ->
     compat_windows(fun cpu_sup:avg1/0).

@@ -44,31 +44,15 @@
         , code_change/3
         ]).
 
+-ifdef(TEST).
+-export([create_table/0]).
+-endif.
+
 -define(TAB, ?MODULE).
 
 -record(state, {max_predef_topic_id = 0}).
 
 -record(emqx_sn_registry, {key, value}).
-
-%% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
-
-
-%% @doc Create or replicate tables.
--spec(mnesia(boot | copy) -> ok).
-mnesia(boot) ->
-    %% Optimize storage
-    StoreProps = [{ets, [{read_concurrency, true}]}],
-    ok = ekka_mnesia:create_table(?MODULE, [
-            {attributes, record_info(fields, emqx_sn_registry)},
-            {ram_copies, [node()]},
-            {storage_properties, StoreProps}]);
-
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?MODULE, ram_copies).
 
 %%-----------------------------------------------------------------------------
 
@@ -123,6 +107,7 @@ unregister_topic(ClientId) ->
 %%-----------------------------------------------------------------------------
 
 init([PredefTopics]) ->
+    create_table(),
     %% {predef, TopicId}     -> TopicName
     %% {predef, TopicName}   -> TopicId
     %% {ClientId, TopicId}   -> TopicName
@@ -136,6 +121,15 @@ init([PredefTopics]) ->
                         if TopicId > AccId -> TopicId; true -> AccId end
                     end, 0, PredefTopics),
     {ok, #state{max_predef_topic_id = MaxPredefId}}.
+
+create_table() ->
+    %% Optimize storage
+    StoreProps = [{ets, [{read_concurrency, true}]}],
+    ok = ekka_mnesia:create_table(?MODULE, [
+        {attributes, record_info(fields, emqx_sn_registry)},
+        {ram_copies, [node()]},
+        {storage_properties, StoreProps}]),
+    ok = ekka_mnesia:copy_table(?MODULE, ram_copies).
 
 handle_call({register, ClientId, TopicName}, _From,
             State = #state{max_predef_topic_id = PredefId}) ->

@@ -42,7 +42,7 @@ end_per_suite(_Config) ->
 
 init_per_testcase(_TestCase, Config) ->
     ekka_mnesia:start(),
-    emqx_sn_registry:mnesia(boot),
+    emqx_sn_registry:create_table(),
     mnesia:clear_table(emqx_sn_registry),
     PredefTopics = application:get_env(emqx_sn, predefined, []),
     {ok, _Pid} = ?REGISTRY:start_link(PredefTopics),
@@ -118,4 +118,3 @@ register_a_lot(N, Max) when N < Max ->
     Topic = iolist_to_binary(["Topic", integer_to_list(N)]),
     ?assertEqual(N, ?REGISTRY:register_topic(<<"ClientId">>, Topic)),
     register_a_lot(N+1, Max).
-
