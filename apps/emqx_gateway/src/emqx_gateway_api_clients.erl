@@ -475,7 +475,7 @@ params_client_insta() ->
     ++ params_gateway_name_in_path().
 
 params_client_searching_in_qs() ->
-    M = #{in => query, nullable => true},
+    M = #{in => query, nullable => true, example => <<"">>},
     [ {node,
        mk(binary(),
           M#{desc => <<"Match the client's node name">>})}
@@ -526,12 +526,16 @@ params_paging() ->
        mk(integer(),
           #{ in => query
            , nullable => true
-           , desc => <<"Page Index">>})}
-      , {limit,
-         mk(integer(),
-            #{ in => query
-             , desc => <<"Page Limit">>
-             , nullable => true})}
+           , desc => <<"Page Index">>
+           , example => 1
+           })}
+     , {limit,
+        mk(integer(),
+           #{ in => query
+            , desc => <<"Page Limit">>
+            , nullable => true
+            , example => 100
+            })}
     ].
 
 params_gateway_name_in_path() ->

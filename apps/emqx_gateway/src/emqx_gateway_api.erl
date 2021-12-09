@@ -210,6 +210,7 @@ params_gateway_name_in_path() ->
       mk(binary(),
          #{ in => path
           , desc => <<"Gateway Name">>
+          , example => <<"">>
           })}
     ].
 
@@ -220,6 +221,7 @@ params_gateway_status_in_qs() ->
          #{ in => query
           , nullable => true
           , desc => <<"Gateway Status">>
+          , example => <<"">>
           })}
     ].
 
