@@ -233,6 +233,8 @@ schema("/gateway/:name/listeners") ->
        post =>
          #{ description => <<"Create the gateway listener">>
           , parameters => params_gateway_name_in_path()
+          %% XXX: How to distinguish the different listener supported by
+          %% different types of gateways?
           , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                              ref(listener),
                              examples_listener())
@@ -288,7 +290,7 @@ schema("/gateway/:name/listeners/:id/authentication") ->
           , responses =>
               ?STANDARD_RESP(
                  #{ 200 => schema_authn()
-                  , 204 => <<"Authentication does not initiated">>
+                  , 204 => <<"Authentication or listener does not existed">>
                   })
           },
        post =>
@@ -487,7 +489,6 @@ fields(ssl_listener_opts) ->
     , {keyfile, binary()}
     , {verify, binary()}
     , {fail_if_no_peer_cert, boolean()}
-    , {server_name_indication, boolean()}
     , {depth, integer()}
     , {password, binary()}
     , {handshake_timeout, binary()}
@@ -586,7 +587,9 @@ examples_listener() ->
     #{ tcp_listener=>
         #{ summary => <<"A simple tcp listener example">>
          , value =>
-            #{ bind => <<"61613">>
+            #{ name => <<"tcp-def">>
+             , type => <<"tcp">>
+             , bind => <<"22210">>
              , acceptors => 16
              , max_connections => 1024000
              , max_conn_rate => 1000
@@ -607,7 +610,9 @@ examples_listener() ->
      , ssl_listener =>
         #{ summary => <<"A simple ssl listener example">>
          , value =>
-            #{ bind => <<"61614">>
+            #{ name => <<"ssl-def">>
+             , type => <<"ssl">>
+             , bind => <<"22211">>
              , acceptors => 16
              , max_connections => 1024000
              , max_conn_rate => 1000
@@ -620,7 +625,6 @@ examples_listener() ->
                  , keyfile => <<"etc/certs/key.pem">>
                  , verify => <<"verify_none">>
                  , fail_if_no_peer_cert => false
-                 , server_name_indication => disable
                  }
              , tcp =>
                 #{ active_n => 100
@@ -631,7 +635,9 @@ examples_listener() ->
      , udp_listener =>
         #{ summary => <<"A simple udp listener example">>
          , value =>
-            #{ bind => <<"0.0.0.0:1884">>
+            #{ name => <<"udp-def">>
+             , type => udp
+             , bind => <<"22212">>
              , udp =>
                 #{ active_n => 100
                  , recbuf => <<"10KB">>
@@ -644,32 +650,67 @@ examples_listener() ->
      , dtls_listener =>
         #{ summary => <<"A simple dtls listener example">>
          , value =>
-            #{ bind => <<"5684">>
+            #{ name => <<"dtls-def">>
+             , type => <<"dtls">>
+             , bind => <<"22213">>
              , acceptors => 16
              , max_connections => 1024000
              , max_conn_rate => 1000
              , access_rules => [<<"allow all">>]
-             , ssl =>
+             , dtls =>
                 #{ versions => [<<"dtlsv1.2">>, <<"dtlsv1">>]
                  , cacertfile => <<"etc/certs/cacert.pem">>
                  , certfile => <<"etc/certs/cert.pem">>
                  , keyfile => <<"etc/certs/key.pem">>
                  , verify => <<"verify_none">>
                  , fail_if_no_peer_cert => false
-                 , server_name_indication => disable
                  }
-             , tcp =>
+             , udp =>
                 #{ active_n => 100
                  , backlog => 1024
                  }
              }
          }
      , dtls_listener_with_psk_ciphers =>
-        #{ summary => <<"todo">>
+        #{ summary => <<"A dtls listener with PSK example">>
          , value =>
-            #{}
+            #{ name => <<"dtls-psk">>
+             , type => <<"dtls">>
+             , bind => <<"22214">>
+             , acceptors => 16
+             , max_connections => 1024000
+             , max_conn_rate => 1000
+             , dtls =>
+                #{ versions => [<<"dtlsv1.2">>, <<"dtlsv1">>]
+                 , cacertfile => <<"etc/certs/cacert.pem">>
+                 , certfile => <<"etc/certs/cert.pem">>
+                 , keyfile => <<"etc/certs/key.pem">>
+                 , verify => <<"verify_none">>
+                 , user_lookup_fun => <<"emqx_tls_psk:lookup">>
+                 , ciphers =>
+<<"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,RSA-PSK-AES128-GCM-SHA256,"
+  "RSA-PSK-AES128-CBC-SHA256,RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA">>
+                 , fail_if_no_peer_cert => false
+                 }
+             }
          }
      , lisetner_with_authn =>
-        #{ summary => <<"todo">>
-         , value => #{}}
+        #{ summary => <<"A tcp listener with authentication example">>
+         , value =>
+            #{ name => <<"tcp-with-authn">>
+             , type => <<"tcp">>
+             , bind => <<"22215">>
+             , acceptors => 16
+             , max_connections => 1024000
+             , max_conn_rate => 1000
+             , authentication =>
+                #{ backend => <<"built-in-database">>
+                 , mechanism => <<"password-based">>
+                 , password_hash_algorithm =>
+                    #{ name => <<"sha256">>
+                     }
+                 , user_id_type => <<"username">>
+                 }
+             }
+         }
      }.
