@@ -22,13 +22,15 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 
 %% API
--export([ start_link/0, start_server/1, find_counter/1
-        , find_counter/3, insert_counter/4, insert_counter/6
+-export([ start_link/0, start_server/1, find_bucket/1
+        , find_bucket/3, insert_bucket/2, insert_bucket/4
         , make_path/3, restart_server/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3, format_status/2]).
+
+-export_type([path/0]).
 
 -type path() :: list(atom()).
 -type limiter_type() :: emqx_limiter_schema:limiter_type().
@@ -36,15 +38,11 @@
 -type bucket_name() :: emqx_limiter_schema:bucket_name().
 
 %% counter record in ets table
--record(element, {path :: path(),
-                  counter :: counters:counters_ref(),
-                  index :: index(),
-                  rate :: rate()
-                 }).
+-record(bucket, { path :: path()
+                , bucket :: bucket_ref()
+                }).
 
-
--type index() :: emqx_limiter_server:index().
--type rate() :: emqx_limiter_decimal:decimal().
+-type bucket_ref() :: emqx_limiter_bucket_ref:bucket_ref().
 
 -define(TAB, emqx_limiter_counters).
 
@@ -59,43 +57,32 @@ start_server(Type) ->
 restart_server(Type) ->
     emqx_limiter_server_sup:restart(Type).
 
--spec find_counter(limiter_type(), zone_name(), bucket_name()) ->
-          {ok, counters:counters_ref(), index(), rate()} | undefined.
-find_counter(Type, Zone, BucketId) ->
-    find_counter(make_path(Type, Zone, BucketId)).
+-spec find_bucket(limiter_type(), zone_name(), bucket_name()) ->
+          {ok, bucket_ref()} | undefined.
+find_bucket(Type, Zone, BucketId) ->
+    find_bucket(make_path(Type, Zone, BucketId)).
 
--spec find_counter(path()) ->
-          {ok, counters:counters_ref(), index(), rate()} | undefined.
-find_counter(Path) ->
+-spec find_bucket(path()) -> {ok, bucket_ref()} | undefined.
+find_bucket(Path) ->
     case ets:lookup(?TAB, Path) of
-        [#element{counter = Counter, index = Index, rate = Rate}] ->
-            {ok, Counter, Index, Rate};
+        [#bucket{bucket = Bucket}] ->
+            {ok, Bucket};
         _ ->
             undefined
     end.
 
--spec insert_counter(limiter_type(),
-                     zone_name(),
-                     bucket_name(),
-                     counters:counters_ref(),
-                     index(),
-                     rate()) -> boolean().
-insert_counter(Type, Zone, BucketId, Counter, Index, Rate) ->
-    insert_counter(make_path(Type, Zone, BucketId),
-                   Counter,
-                   Index,
-                   Rate).
+-spec insert_bucket(limiter_type(),
+                    zone_name(),
+                    bucket_name(),
+                    bucket_ref()) -> boolean().
+insert_bucket(Type, Zone, BucketId, Bucket) ->
+    inner_insert_bucket(make_path(Type, Zone, BucketId),
+                        Bucket).
 
--spec insert_counter(path(),
-                     counters:counters_ref(),
-                     index(),
-                     rate()) -> boolean().
-insert_counter(Path, Counter, Index, Rate) ->
-    ets:insert(?TAB,
-               #element{path = Path,
-                        counter = Counter,
-                        index = Index,
-                        rate = Rate}).
+
+-spec insert_bucket(path(), bucket_ref()) -> true.
+insert_bucket(Path, Bucket) ->
+    inner_insert_bucket(Path, Bucket).
 
 -spec make_path(limiter_type(), zone_name(), bucket_name()) -> path().
 make_path(Type, Name, BucketId) ->
@@ -129,7 +116,7 @@ start_link() ->
           {stop, Reason :: term()} |
           ignore.
 init([]) ->
-    _ = ets:new(?TAB, [ set, public, named_table, {keypos, #element.path}
+    _ = ets:new(?TAB, [ set, public, named_table, {keypos, #bucket.path}
                       , {write_concurrency, true}, {read_concurrency, true}
                       , {heir, erlang:whereis(emqx_limiter_sup), none}
                       ]),
@@ -227,3 +214,7 @@ format_status(_Opt, Status) ->
 %%--------------------------------------------------------------------
 %%  Internal functions
 %%--------------------------------------------------------------------
+-spec inner_insert_bucket(path(), bucket_ref()) -> true.
+inner_insert_bucket(Path, Bucket) ->
+    ets:insert(?TAB,
+               #bucket{path = Path, bucket = Bucket}).
