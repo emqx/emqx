@@ -8,7 +8,7 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 RELEASE_ASSET_FILE="emqx-dashboard.zip"
 VERSION="${EMQX_DASHBOARD_VERSION}"
 DASHBOARD_PATH='apps/emqx_dashboard/priv'
-DASHBOARD_REPO='emqx-dashboard-web'
+DASHBOARD_REPO='emqx-dashboard-web-new'
 DIRECT_DOWNLOAD_URL="https://github.com/emqx/${DASHBOARD_REPO}/releases/download/${VERSION}/${RELEASE_ASSET_FILE}"
 
 case $(uname) in
