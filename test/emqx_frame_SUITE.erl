@@ -43,7 +43,9 @@ groups() ->
     [{parse, [parallel],
       [t_parse_cont,
        t_parse_frame_too_large,
-       t_parse_frame_malformed_variable_byte_integer
+       t_parse_frame_malformed_variable_byte_integer,
+       t_parse_frame_variable_byte_integer,
+       t_parse_frame_proxy_protocol %% proxy_protocol_config_disabled packet.
       ]},
      {connect, [parallel],
       [t_serialize_parse_v3_connect,
@@ -141,6 +143,13 @@ t_parse_frame_variable_byte_integer(_) ->
     Bin = <<2#10010011, 2#10000000, 2#10001000, 2#10011001, 2#10101101, 2#00110010>>,
     ?catch_error(malformed_variable_byte_integer,
         emqx_frame:parse_variable_byte_integer(Bin)).
+
+t_parse_frame_proxy_protocol(_) ->
+    BinList = [ <<"PROXY TCP4 ">>, <<"PROXY TCP6 ">>, <<"PROXY UNKNOWN">>
+              , <<"\r\n\r\n\0\r\nQUIT\n">>],
+    [?assertError( proxy_protocol_config_disabled
+                 , emqx_frame:parse(Bin))
+     || Bin <- BinList].
 
 t_serialize_parse_v3_connect(_) ->
     Bin = <<16,37,0,6,77,81,73,115,100,112,3,2,0,60,0,23,109,111,115,
@@ -555,4 +564,3 @@ parse_to_packet(Bin, Opts) ->
     Packet.
 
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
-
