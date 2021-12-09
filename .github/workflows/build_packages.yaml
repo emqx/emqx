@@ -16,7 +16,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/4.4-4:23.3.4.9-3-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles }}

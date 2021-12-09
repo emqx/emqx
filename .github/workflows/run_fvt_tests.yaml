@@ -31,7 +31,7 @@ jobs:
             fi
         - name: make emqx image
           env:
-            OTP_VSN: 23.3.4.9-3
+            OTP_VSN: 24.1.5-3
           run: make ${PROFILE}-docker
         - name: run emqx
           timeout-minutes: 5
@@ -86,7 +86,7 @@ jobs:
             fi
         - name: make emqx image
           env:
-            OTP_VSN: 23.3.4.9-3
+            OTP_VSN: 24.1.5-3
           run: make ${PROFILE}-docker
         - name: install k3s
           env:
@@ -183,7 +183,7 @@ jobs:
 
     relup_test_plan:
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-4:23.3.4.9-3-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-ubuntu20.04
         outputs:
           profile: ${{ steps.profile-and-versions.outputs.profile }}
           vsn: ${{ steps.profile-and-versions.outputs.vsn }}
@@ -232,7 +232,7 @@ jobs:
     relup_test_build:
         needs: relup_test_plan
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-4:23.3.4.9-3-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-ubuntu20.04
         defaults:
           run:
             shell: bash
@@ -319,8 +319,8 @@ jobs:
             --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
             --var VSN="$VSN" \
             --var OLD_VSN="$OLD_VSN" \
-            --var FROM_OTP_VSN="23.3.4.9-3" \
-            --var TO_OTP_VSN="23.3.4.9-3" \
+            --var FROM_OTP_VSN="24.1.5-3" \
+            --var TO_OTP_VSN="24.1.5-3" \
             emqx_built/.ci/fvt_tests/relup.lux
         - uses: actions/upload-artifact@v2
           name: Save debug data
