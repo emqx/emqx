@@ -115,11 +115,11 @@ hash(Password) ->
 
 verify_hash(Origin, SaltHash) ->
     case SaltHash of
-    <<Salt:4/binary, Hash/binary>> ->
-        case Hash =:= sha256(Salt, Origin) of
-            true -> ok;
-            false -> error
-        end;
+        <<Salt:4/binary, Hash/binary>> ->
+            case Hash =:= sha256(Salt, Origin) of
+                true -> ok;
+                false -> error
+            end;
         _ -> error
     end.
 

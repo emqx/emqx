@@ -123,7 +123,8 @@ schema("/users/:username") ->
                 #{in => path, example => <<"admin">>})}],
             'requestBody' => [
                 { description
-                , mk(emqx_schema:unicode_binary(), #{desc => <<"User description">>, example => <<"administrator">>})}
+                , mk(emqx_schema:unicode_binary(),
+                    #{desc => <<"User description">>, example => <<"administrator">>})}
             ],
             responses => #{
                 200 => mk( ref(?MODULE, user)

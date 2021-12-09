@@ -95,7 +95,7 @@ fields(app) ->
             #{desc => "No longer valid datetime",
                 example => <<"2021-12-05T02:01:34.186Z">>,
                 nullable => true
-                })},
+            })},
         {created_at, hoconsc:mk(emqx_schema:rfc3339_system_time(),
             #{desc => "ApiKey create datetime",
                 example => <<"2021-12-01T00:00:00.000Z">>
@@ -105,20 +105,20 @@ fields(app) ->
         {enable, hoconsc:mk(boolean(), #{desc => "Enable/Disable", nullable => true})}
     ];
 fields(name) ->
-  [{name, hoconsc:mk(binary(),
-      #{
-          desc => <<"[a-zA-Z0-9-_]">>,
-          example => <<"EMQX-API-KEY-1">>,
-          in => path,
-          validator => fun ?MODULE:validate_name/1
-          })}
-  ].
+    [{name, hoconsc:mk(binary(),
+        #{
+            desc => <<"[a-zA-Z0-9-_]">>,
+            example => <<"EMQX-API-KEY-1">>,
+            in => path,
+            validator => fun ?MODULE:validate_name/1
+        })}
+    ].
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
 
 validate_name(Name) ->
     NameLen = byte_size(Name),
-    case  NameLen > 0 andalso NameLen =< 256 of
+    case NameLen > 0 andalso NameLen =< 256 of
         true ->
             case re:run(Name, ?NAME_RE) of
                 nomatch -> {error, "Name should be " ?NAME_RE};
@@ -131,7 +131,7 @@ delete(Keys, Fields) ->
     lists:foldl(fun(Key, Acc) -> lists:keydelete(Key, 1, Acc) end, Fields, Keys).
 
 api_key(get, _) ->
-    {200, [format(App) ||App <- emqx_mgmt_auth:list()]};
+    {200, [format(App) || App <- emqx_mgmt_auth:list()]};
 api_key(post, #{body := App}) ->
     #{
         <<"name">> := Name,

@@ -45,8 +45,8 @@ start_listeners() ->
         components => #{
             schemas => #{},
             'securitySchemes' => #{
-                basicAuth => #{type => http, scheme => basic},
-                bearerAuth => #{type => http, scheme => bearer}
+                'basicAuth' => #{type => http, scheme => basic},
+                'bearerAuth' => #{type => http, scheme => bearer}
             }}},
     Dispatch =
         case os:getenv("_EMQX_ENABLE_DASHBOARD") of
@@ -62,7 +62,7 @@ start_listeners() ->
         base_path => ?BASE_PATH,
         modules => minirest_api:find_api_modules(apps()),
         authorization => Authorization,
-        security => [#{basicAuth => []}, #{bearerAuth => []}],
+        security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
         swagger_global_spec => GlobalSpec,
         dispatch => Dispatch,
         middlewares => [cowboy_router, ?EMQX_MIDDLE, cowboy_handler]

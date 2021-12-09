@@ -126,7 +126,8 @@ EMQ X can be configured with:
 <br>
 <ul>
 <li><code>[]</code>: The default value, it allows *ALL* logins</li>
-<li>one: For example <code>{enable:true,backend:\"built-in-database\",mechanism=\"password-based\"}</code></li>
+<li>one: For example <code>{enable:true,backend:\"built-in-database\",mechanism=\"password-based\"}
+</code></li>
 <li>chain: An array of structs.</li>
 </ul>
 <br>
@@ -1479,7 +1480,8 @@ authentication(Desc) ->
     %% the type checks are done in emqx_auth application when it boots.
     %% and in emqx_authentication_config module for rutime changes.
     Default = hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())])),
-    %% as the type is lazy, the runtime module injection from EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
+    %% as the type is lazy, the runtime module injection
+    %% from EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
     %% is for now only affecting document generation.
     %% maybe in the future, we can find a more straightforward way to support
     %% * document generation (at compile time)
