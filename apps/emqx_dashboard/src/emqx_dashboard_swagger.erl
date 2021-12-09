@@ -19,7 +19,7 @@
 
 -define(METHODS, [get, post, put, head, delete, patch, options, trace]).
 
--define(DEFAULT_FIELDS, [example, allowReserved, style,
+-define(DEFAULT_FIELDS, [example, allowReserved, style, format,
     explode, maxLength, allowEmptyValue, deprecated, minimum, maximum]).
 
 -define(INIT_SCHEMA, #{fields => #{}, translations => #{},
@@ -65,7 +65,7 @@ spec(Module, Options) ->
         lists:foldl(fun(Path, {AllAcc, AllRefsAcc}) ->
             {OperationId, Specs, Refs} = parse_spec_ref(Module, Path),
             CheckSchema = support_check_schema(Options),
-            {[{Path, Specs, OperationId, CheckSchema} | AllAcc],
+            {[{filename:join("/", Path), Specs, OperationId, CheckSchema} | AllAcc],
                     Refs ++ AllRefsAcc}
                     end, {[], []}, Paths),
     {ApiSpec, components(lists:usort(AllRefs))}.
@@ -408,6 +408,9 @@ typename_to_spec("non_neg_integer()", _Mod) -> #{type => integer, minimum => 1, 
 typename_to_spec("number()", _Mod) -> #{type => number, example => 42};
 typename_to_spec("string()", _Mod) -> #{type => string, example => <<"string-example">>};
 typename_to_spec("atom()", _Mod) -> #{type => string, example => atom};
+typename_to_spec("rfc3339_system_time()", _Mod) -> #{type => string,
+    example => <<"2021-12-05T02:01:34.186Z">>, format =>  <<"date-time">>};
+typename_to_spec("unicode_binary()", _Mod) -> #{type => string, example => <<"unicode-binary">>};
 typename_to_spec("duration()", _Mod) -> #{type => string, example => <<"12m">>};
 typename_to_spec("duration_s()", _Mod) -> #{type => string, example => <<"1h">>};
 typename_to_spec("duration_ms()", _Mod) -> #{type => string, example => <<"32s">>};
