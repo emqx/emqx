@@ -5,9 +5,6 @@
 
 set -e
 
-# install startup script
-update-rc.d emqx defaults >/dev/null
-
 # create group
 if ! getent group emqx >/dev/null; then
         addgroup --system emqx
@@ -37,6 +34,12 @@ chmod -R 0755 /usr/lib/emqx/bin
 [ -f /usr/bin/emqx_ctl ] && rm /usr/bin/emqx_ctl
 ln -s /usr/lib/emqx/bin/emqx /usr/bin/emqx
 ln -s /usr/lib/emqx/bin/emqx_ctl /usr/bin/emqx_ctl
+
+if systemctl status --no-pager; then
+    systemctl enable emqx;
+else
+    echo "systemd is not in use, skip enable emqx"
+fi
 
 case "$1" in
     configure)
