@@ -86,7 +86,7 @@ t_gateway_stomp(_) ->
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{frame => #{max_headers => 10}}),
-    {200, _} = request(put, "/gateway/stomp", maps:without([name], GwConf2)),
+    {200, _} = request(put, "/gateway/stomp", maps:without([name, listeners], GwConf2)),
     {200, ConfResp2} = request(get, "/gateway/stomp"),
     assert_confs(GwConf2, ConfResp2),
     {204, _} = request(delete, "/gateway/stomp").
@@ -109,7 +109,7 @@ t_gateway_mqttsn(_) ->
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{predefined => []}),
-    {200, _} = request(put, "/gateway/mqttsn", maps:without([name], GwConf2)),
+    {200, _} = request(put, "/gateway/mqttsn", maps:without([name, listeners], GwConf2)),
     {200, ConfResp2} = request(get, "/gateway/mqttsn"),
     assert_confs(GwConf2, ConfResp2),
     {204, _} = request(delete, "/gateway/mqttsn").
@@ -130,7 +130,7 @@ t_gateway_coap(_) ->
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{heartbeat => <<"10s">>}),
-    {200, _} = request(put, "/gateway/coap", maps:without([name], GwConf2)),
+    {200, _} = request(put, "/gateway/coap", maps:without([name, listeners], GwConf2)),
     {200, ConfResp2} = request(get, "/gateway/coap"),
     assert_confs(GwConf2, ConfResp2),
     {204, _} = request(delete, "/gateway/coap").
@@ -161,7 +161,7 @@ t_gateway_lwm2m(_) ->
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{qmode_time_window => <<"10s">>}),
-    {200, _} = request(put, "/gateway/lwm2m", maps:without([name], GwConf2)),
+    {200, _} = request(put, "/gateway/lwm2m", maps:without([name, listeners], GwConf2)),
     {200, ConfResp2} = request(get, "/gateway/lwm2m"),
     assert_confs(GwConf2, ConfResp2),
     {204, _} = request(delete, "/gateway/lwm2m").
@@ -182,7 +182,7 @@ t_gateway_exproto(_) ->
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{server => #{bind => <<"9200">>}}),
-    {200, _} = request(put, "/gateway/exproto", maps:without([name], GwConf2)),
+    {200, _} = request(put, "/gateway/exproto", maps:without([name, listeners], GwConf2)),
     {200, ConfResp2} = request(get, "/gateway/exproto"),
     assert_confs(GwConf2, ConfResp2),
     {204, _} = request(delete, "/gateway/exproto").

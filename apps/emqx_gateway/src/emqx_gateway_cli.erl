@@ -69,7 +69,7 @@ gateway(["load", Name, Conf]) ->
            bin(Name),
            emqx_json:decode(Conf, [return_maps])
           ) of
-        ok ->
+        {ok, _} ->
             print("ok~n");
         {error, Reason} ->
             print("Error: ~p~n", [Reason])
@@ -88,7 +88,7 @@ gateway(["stop", Name]) ->
            bin(Name),
            #{<<"enable">> => <<"false">>}
           ) of
-        ok ->
+        {ok, _} ->
             print("ok~n");
         {error, Reason} ->
             print("Error: ~p~n", [Reason])
@@ -99,7 +99,7 @@ gateway(["start", Name]) ->
            bin(Name),
            #{<<"enable">> => <<"true">>}
           ) of
-        ok ->
+        {ok, _} ->
             print("ok~n");
         {error, Reason} ->
             print("Error: ~p~n", [Reason])
