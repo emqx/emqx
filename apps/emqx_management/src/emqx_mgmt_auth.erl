@@ -32,14 +32,14 @@
 -define(APP, emqx_app).
 
 -record(?APP, {
-    name = <<>> :: binary(),
-    api_key = <<>> :: binary(),
-    api_secret_hash = <<>> :: binary(),
-    enable = true :: boolean(),
-    desc = <<>> :: binary(),
-    expired_at = 0 :: integer(),
-    created_at = 0 :: integer()
-}).
+    name = <<>> :: binary() | '_',
+    api_key = <<>> :: binary() | '_',
+    api_secret_hash = <<>> :: binary() | '_',
+    enable = true :: boolean() | '_',
+    desc = <<>> :: binary() | '_',
+    expired_at = 0 :: integer() | '_',
+    created_at = 0 :: integer() | '_'
+              }).
 
 mnesia(boot) ->
     ok = mria:create_table(?APP, [

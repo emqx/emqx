@@ -36,9 +36,9 @@ schema("/api_key") ->
     #{
         'operationId' => api_key,
         get => #{
-            description => "Return api_keys list",
+            description => "Return api_key list",
             responses => #{
-                200 => hoconsc:ref(app)
+                200 => delete([api_secret], fields(app))
             }
         },
         post => #{
@@ -56,7 +56,7 @@ schema("/api_key/:name") ->
             description => "Return the specific api_key",
             parameters => [hoconsc:ref(name)],
             responses => #{
-                200 => hoconsc:ref(app)
+                200 => delete([api_secret], fields(app))
             }
         },
         put => #{
@@ -64,7 +64,7 @@ schema("/api_key/:name") ->
             parameters => [hoconsc:ref(name)],
             'requestBody' => delete([created_at, api_key, api_secret, name], fields(app)),
             responses => #{
-                200 => hoconsc:ref(app)
+                200 => delete([api_secret], fields(app))
             }
         },
         delete => #{
