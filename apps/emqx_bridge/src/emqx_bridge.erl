@@ -18,7 +18,8 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([post_config_update/5]).
+-export([ post_config_update/5
+        ]).
 
 -export([ load_hook/0
         , unload_hook/0
@@ -37,6 +38,7 @@
         , lookup/2
         , lookup/3
         , list/0
+        , list_bridges_by_connector/1
         , create/3
         , recreate/2
         , recreate/3
@@ -102,14 +104,13 @@ bridge_type(emqx_connector_http) -> http.
 post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated}
         = diff_confs(NewConf, OldConf),
-    Result = perform_bridge_changes([
+    _ = perform_bridge_changes([
         {fun remove/3, Removed},
         {fun create/3, Added},
         {fun update/3, Updated}
     ]),
     ok = unload_hook(),
-    ok = load_hook(NewConf),
-    Result.
+    ok = load_hook(NewConf).
 
 perform_bridge_changes(Tasks) ->
     perform_bridge_changes(Tasks, ok).
@@ -160,6 +161,10 @@ list() ->
                 end, Bridges, maps:to_list(NameAndConf))
         end, [], maps:to_list(emqx:get_raw_config([bridges], #{}))).
 
+list_bridges_by_connector(ConnectorId) ->
+    [B || B = #{raw_config := #{<<"connector">> := Id}} <- list(),
+         ConnectorId =:= Id].
+
 lookup(Type, Name) ->
     RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),
     lookup(Type, Name, RawConf).
@@ -182,15 +187,11 @@ restart(Type, Name) ->
 create(Type, Name, Conf) ->
     ?SLOG(info, #{msg => "create bridge", type => Type, name => Name,
         config => Conf}),
-    ResId = resource_id(Type, Name),
-    case emqx_resource:create_local(ResId,
-            emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf)) of
-        {ok, already_created} ->
-            emqx_resource:get_instance(ResId);
-        {ok, Data} ->
-            {ok, Data};
-        {error, Reason} ->
-            {error, Reason}
+    case emqx_resource:create_local(resource_id(Type, Name), emqx_bridge:resource_type(Type),
+            parse_confs(Type, Name, Conf)) of
+        {ok, already_created} -> maybe_disable_bridge(Type, Name, Conf);
+        {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
+        {error, Reason} -> {error, Reason}
     end.
 
 update(Type, Name, {_OldConf, Conf}) ->
@@ -204,7 +205,10 @@ update(Type, Name, {_OldConf, Conf}) ->
     %%
     ?SLOG(info, #{msg => "update bridge", type => Type, name => Name,
         config => Conf}),
-    recreate(Type, Name, Conf).
+    case recreate(Type, Name, Conf) of
+        {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
+        {error, _} = Err -> Err
+    end.
 
 recreate(Type, Name) ->
     recreate(Type, Name, emqx:get_raw_config([bridges, Type, Name])).
@@ -321,6 +325,11 @@ parse_url(Url) ->
             error({invalid_url, Url})
     end.
 
+maybe_disable_bridge(Type, Name, Conf) ->
+    case maps:get(enable, Conf, true) of
+        false -> stop(Type, Name);
+        true -> ok
+    end.
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);

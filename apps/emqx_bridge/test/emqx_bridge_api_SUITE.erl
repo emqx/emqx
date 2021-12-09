@@ -234,37 +234,27 @@ t_start_stop_bridges(_) ->
          , <<"url">> := URL1
          }, jsx:decode(Bridge)),
     %% stop it
-    {ok, 200, <<>>} = request(post,
-        uri(["nodes", node(), "bridges", ?BRIDGE_ID, "operation", "stop"]),
-        <<"">>),
+    {ok, 200, <<>>} = request(post, operation_path(stop), <<"">>),
     {ok, 200, Bridge2} = request(get, uri(["bridges", ?BRIDGE_ID]), []),
     ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
                   , <<"status">> := <<"disconnected">>
                   }, jsx:decode(Bridge2)),
     %% start again
-    {ok, 200, <<>>} = request(post,
-        uri(["nodes", node(), "bridges", ?BRIDGE_ID, "operation", "start"]),
-        <<"">>),
+    {ok, 200, <<>>} = request(post, operation_path(start), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", ?BRIDGE_ID]), []),
     ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
                   , <<"status">> := <<"connected">>
                   }, jsx:decode(Bridge3)),
     %% restart an already started bridge
-    {ok, 200, <<>>} = request(post,
-        uri(["nodes", node(), "bridges", ?BRIDGE_ID, "operation", "restart"]),
-        <<"">>),
+    {ok, 200, <<>>} = request(post, operation_path(restart), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", ?BRIDGE_ID]), []),
     ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
                   , <<"status">> := <<"connected">>
                   }, jsx:decode(Bridge3)),
     %% stop it again
-    {ok, 200, <<>>} = request(post,
-        uri(["nodes", node(), "bridges", ?BRIDGE_ID, "operation", "stop"]),
-        <<"">>),
+    {ok, 200, <<>>} = request(post, operation_path(stop), <<"">>),
     %% restart a stopped bridge
-    {ok, 200, <<>>} = request(post,
-        uri(["nodes", node(), "bridges", ?BRIDGE_ID, "operation", "restart"]),
-        <<"">>),
+    {ok, 200, <<>>} = request(post, operation_path(restart), <<"">>),
     {ok, 200, Bridge4} = request(get, uri(["bridges", ?BRIDGE_ID]), []),
     ?assertMatch(#{ <<"id">> := ?BRIDGE_ID
                   , <<"status">> := <<"connected">>
@@ -306,3 +296,5 @@ auth_header_() ->
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
+operation_path(Oper) ->
+    uri(["bridges", ?BRIDGE_ID, "operation", Oper]).

@@ -199,9 +199,9 @@ t_mqtt_conn_bridge_ingress(_) ->
                                , <<"name">> => ?CONNECTR_NAME
                                }),
 
-    %ct:pal("---connector: ~p", [Connector]),
     ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
                   , <<"server">> := <<"127.0.0.1:1883">>
+                  , <<"num_of_bridges">> := 0
                   , <<"username">> := User1
                   , <<"password">> := <<"">>
                   , <<"proto_ver">> := <<"v4">>
@@ -216,7 +216,6 @@ t_mqtt_conn_bridge_ingress(_) ->
             <<"name">> => ?BRIDGE_NAME_INGRESS
         }),
 
-    %ct:pal("---bridge: ~p", [Bridge]),
     ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_INGRESS
                   , <<"type">> := <<"mqtt">>
                   , <<"status">> := <<"connected">>
@@ -245,6 +244,12 @@ t_mqtt_conn_bridge_ingress(_) ->
         after 100 ->
             false
         end),
+
+    %% get the connector by id, verify the num_of_bridges now is 1
+    {ok, 200, Connector1Str} = request(get, uri(["connectors", ?CONNECTR_ID]), []),
+    ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
+                  , <<"num_of_bridges">> := 1
+                  }, jsx:decode(Connector1Str)),
 
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID_INGRESS]), []),

@@ -13,6 +13,7 @@
         , post_request/0
         ]).
 
+%% the config for http bridges do not need connectors
 -define(CONN_TYPES, [mqtt]).
 
 %%======================================================================================
