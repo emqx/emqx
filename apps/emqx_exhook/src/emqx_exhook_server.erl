@@ -75,6 +75,8 @@
 
 -dialyzer({nowarn_function, [inc_metrics/2]}).
 
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
+
 %%--------------------------------------------------------------------
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
@@ -108,9 +110,10 @@ load(Name, Opts0, ReqOpts) ->
 
 %% @private
 channel_opts(Opts = #{url := URL}) ->
+    ClientOpts = #{pool_size => emqx_exhook_mngr:get_pool_size()},
     case uri_string:parse(URL) of
         #{scheme := "http", host := Host, port := Port} ->
-            {format_http_uri("http", Host, Port), #{}};
+            {format_http_uri("http", Host, Port), ClientOpts};
         #{scheme := "https", host := Host, port := Port} ->
             SslOpts =
                 case maps:get(ssl, Opts, undefined) of
@@ -122,8 +125,12 @@ channel_opts(Opts = #{url := URL}) ->
                            {keyfile, maps:get(keyfile, MapOpts, undefined)}
                           ])
                 end,
-            {format_http_uri("https", Host, Port),
-             #{gun_opts => #{transport => ssl, transport_opts => SslOpts}}};
+            NClientOpts = ClientOpts#{
+                            gun_opts =>
+                              #{transport => ssl,
+                                transport_opts => SslOpts}
+                           },
+            {format_http_uri("https", Host, Port), NClientOpts};
         _ ->
             error(bad_server_url)
     end.
@@ -173,16 +180,19 @@ resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
         case maps:get(name, HookSpec, undefined) of
             undefined -> Acc;
             Name0 ->
-                Name = try binary_to_existing_atom(Name0, utf8) catch T:R:_ -> {T,R} end,
-                case lists:member(Name, AvailableHooks) of
-                    true ->
-                        case lists:member(Name, MessageHooks) of
-                            true ->
-                                Acc#{Name => #{topics => maps:get(topics, HookSpec, [])}};
-                            _ ->
-                                Acc#{Name => #{}}
-                        end;
-                    _ -> error({unknown_hookpoint, Name})
+                Name = try
+                           binary_to_existing_atom(Name0, utf8)
+                       catch T:R:_ -> {T,R}
+                       end,
+                case {lists:member(Name, AvailableHooks),
+                      lists:member(Name, MessageHooks)} of
+                    {false, _} ->
+                        error({unknown_hookpoint, Name});
+                    {true, false} ->
+                        Acc#{Name => #{}};
+                    {true, true} ->
+                        Acc#{Name => #{
+                              topics => maps:get(topics, HookSpec, [])}}
                 end
         end
     end, #{}, HookSpecs).
@@ -255,7 +265,7 @@ call(Hookpoint, Req, #server{name = ChannName, options = ReqOpts,
 %% @private
 inc_metrics(IncFun, Name) when is_function(IncFun) ->
     %% BACKW: e4.2.0-e4.2.2
-    {env, [Prefix|_]} = erlang:fun_info(IncFun, env),
+    {env, [Prefix | _]} = erlang:fun_info(IncFun, env),
     inc_metrics(Prefix, Name);
 inc_metrics(Prefix, Name) when is_list(Prefix) ->
     emqx_metrics:inc(list_to_atom(Prefix ++ atom_to_list(Name))).
