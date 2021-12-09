@@ -25,13 +25,39 @@
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
+-include_lib("emqx/include/emqx_placeholder.hrl").
+
 api_spec() ->
     {[auto_subscribe_api()], []}.
 
 schema() ->
-    emqx_mgmt_util:schema(
-        emqx_mgmt_api_configs:gen_schema(
-            emqx:get_raw_config([auto_subscribe, topics])), <<"">>).
+    case emqx_mgmt_api_configs:gen_schema(emqx:get_config([auto_subscribe, topics])) of
+        #{example := <<>>, type := string} ->
+            emqx_mgmt_util:schema(auto_subscribe_conf_example());
+        Example ->
+            emqx_mgmt_util:schema(Example)
+    end.
+
+auto_subscribe_conf_example() ->
+    #{
+        type => array,
+        items => #{
+            type => object,
+            properties =>#{
+                topic => #{
+                    type => string,
+                    example => <<
+                        "/clientid/", ?PH_S_CLIENTID,
+                        "/username/", ?PH_S_USERNAME,
+                        "/host/", ?PH_S_HOST,
+                        "/port/", ?PH_S_PORT>>},
+                qos => #{example => 0, type => number, enum => [0, 1, 2]},
+                rh =>  #{example => 0, type => number, enum => [0, 1, 2]},
+                nl =>  #{example => 0, type => number, enum => [0, 1]},
+                rap => #{example => 0, type => number, enum => [0, 1]}
+            }
+        }
+    }.
 
 auto_subscribe_api() ->
     Metadata = #{
