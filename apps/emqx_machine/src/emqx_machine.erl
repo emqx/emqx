@@ -32,6 +32,7 @@ start() ->
             os:set_signal(sigterm, handle) %% default is handle
     end,
     ok = set_backtrace_depth(),
+    start_sysmon(),
     ekka:start(),
     ok = print_otp_version_warning().
 
@@ -54,3 +55,15 @@ print_otp_version_warning() ->
     ?ULOG("WARNING: Running on Erlang/OTP version ~p. Recommended: 23~n",
           [?OTP_RELEASE]).
 -endif. % OTP_RELEASE > 22
+
+start_sysmon() ->
+    case application:get_env(system_monitor, db_hostname) of
+        undefined ->
+            %% If there is no sink for the events, there is no reason
+            %% to run system_monitor_top, ignore it:
+            ok;
+        _ ->
+            application:set_env(system_monitor, callback_mod, system_monitor_pg),
+            _ = application:ensure_all_started(system_monitor, temporary),
+            ok
+    end.
