@@ -454,7 +454,8 @@ columns_with_exam('message.publish') ->
     , {<<"topic">>, <<"t/a">>}
     , {<<"qos">>, 1}
     , {<<"flags">>, #{}}
-    , {<<"headers">>, undefined}
+    , {<<"headers">>, #{<<"properties">> => #{<<"User-Property">> =>
+                                                #{'prop_key' => <<"prop_val">>}}}}
     , {<<"publish_received_at">>, erlang:system_time(millisecond)}
     , {<<"timestamp">>, erlang:system_time(millisecond)}
     , {<<"node">>, node()}
