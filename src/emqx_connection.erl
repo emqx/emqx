@@ -629,10 +629,15 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [Packet|Packets], NState)
     catch
+        error:proxy_protocol_config_disabled:_Stk ->
+            ?LOG(error,
+                 "~nMalformed packet, "
+                 "please check proxy_protocol config for specific listeners and zones~n"),
+            {[{frame_error, proxy_protocol_config_disabled} | Packets], State};
         error:Reason:Stk ->
             ?LOG(error, "~nParse failed for ~0p~n~0p~nFrame data:~0p",
                  [Reason, Stk, Data]),
-            {[{frame_error, Reason}|Packets], State}
+            {[{frame_error, Reason} | Packets], State}
     end.
 
 -compile({inline, [next_incoming_msgs/1]}).

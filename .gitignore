@@ -47,3 +47,15 @@ dist.zip
 scripts/git-token
 etc/*.seg
 _upgrade_base/
+erlang_ls.config
+.els_cache/
+# VSCode files
+.vs/
+.vscode/
+# Emacs Backup files
+*~
+# Emacs temporary files
+.#*
+*#
+# For direnv
+.envrc
