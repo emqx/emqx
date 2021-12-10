@@ -24,6 +24,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(CERTS_PATH(CertName), filename:join(["../../lib/emqx/etc/certs/", CertName])).
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -43,19 +45,33 @@ init_per_testcase(Case, Config)
     {ok, _} = emqx_config_handler:start_link(),
     PrevListeners = emqx_config:get([listeners, tcp], #{}),
     PrevRateLimit = emqx_config:get([rate_limit], #{}),
-    emqx_config:put([listeners, tcp], #{ listener_test =>
-                                             #{ bind => {"127.0.0.1", 9999}
-                                              , max_connections => 4321
-                                              , limiter => #{}
-                                              }
-                                  }),
+    emqx_config:put(
+      [listeners, tcp],
+      #{listener_test => #{bind => {"127.0.0.1", 9999},
+                           max_connections => 4321,
+                           limiter => #{}
+                          }
+       }),
     emqx_config:put([rate_limit], #{max_conn_rate => 1000}),
-    ListenerConf = #{ bind => {"127.0.0.1", 9999}
-                    },
     ok = emqx_listeners:start(),
-    [ {listener_conf, ListenerConf}
-    , {prev_listener_conf, PrevListeners}
+    [ {prev_listener_conf, PrevListeners}
     , {prev_rate_limit_conf, PrevRateLimit}
+    | Config];
+init_per_testcase(t_wss_conn, Config) ->
+    {ok, _} = emqx_config_handler:start_link(),
+    PrevListeners = emqx_config:get([listeners, wss], #{}),
+    emqx_config:put(
+      [listeners, wss],
+      #{listener_test => #{bind => {{127,0,0,1}, 9998},
+                           limiter => #{},
+                           ssl => #{cacertfile => ?CERTS_PATH("cacert.pem"),
+                                    certfile => ?CERTS_PATH("cert.pem"),
+                                    keyfile => ?CERTS_PATH("key.pem")
+                                   }
+                          }
+       }),
+    ok = emqx_listeners:start(),
+    [ {prev_listener_conf, PrevListeners}
     | Config];
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_config_handler:start_link(),
@@ -67,6 +83,12 @@ end_per_testcase(Case, Config)
     PrevRateLimit = ?config(prev_rate_limit_conf, Config),
     emqx_config:put([listeners, tcp], PrevListener),
     emqx_config:put([rate_limit], PrevRateLimit),
+    emqx_listeners:stop(),
+    _ = emqx_config_handler:stop(),
+    ok;
+end_per_testcase(t_wss_conn, Config) ->
+    PrevListener = ?config(prev_listener_conf, Config),
+    emqx_config:put([listeners, wss], PrevListener),
     emqx_listeners:stop(),
     _ = emqx_config_handler:stop(),
     ok;
@@ -92,6 +114,10 @@ t_max_conns_tcp(_) ->
 
 t_current_conns_tcp(_) ->
     ?assertEqual(0, emqx_listeners:current_conns('tcp:listener_test', {{127,0,0,1}, 9999})).
+
+t_wss_conn(_) ->
+    {ok, Socket} = ssl:connect({127, 0, 0, 1}, 9998, [{verify, verify_none}], 1000),
+    ok = ssl:close(Socket).
 
 render_config_file() ->
     Path = local_path(["etc", "emqx.conf"]),
