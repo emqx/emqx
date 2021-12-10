@@ -79,15 +79,14 @@ unload() ->
 %%--------------------------------------------------------------------
 %% APIs
 
--spec load_gateway(atom_or_bin(), map()) -> ok_or_err().
+-spec load_gateway(atom_or_bin(), map()) -> map_or_err().
 load_gateway(GwName, Conf) ->
     NConf = case maps:take(<<"listeners">>, Conf) of
                 error -> Conf;
                 {Ls, Conf1} ->
                     Conf1#{<<"listeners">> => unconvert_listeners(Ls)}
             end,
-    %% TODO:
-    ret_ok_err(update({?FUNCTION_NAME, bin(GwName), NConf})).
+    ret_gw(GwName, update({?FUNCTION_NAME, bin(GwName), NConf})).
 
 %% @doc convert listener array to map
 unconvert_listeners(Ls) when is_list(Ls) ->
@@ -108,13 +107,12 @@ maps_key_take([K | Ks], M, Acc) ->
             maps_key_take(Ks, M1, [V | Acc])
     end.
 
--spec update_gateway(atom_or_bin(), map()) -> ok_or_err().
+-spec update_gateway(atom_or_bin(), map()) -> map_or_err().
 update_gateway(GwName, Conf0) ->
     Exclude0 = [listeners, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM],
     Exclude1 = [atom_to_binary(K, utf8) || K <- Exclude0],
     Conf = maps:without(Exclude0 ++ Exclude1, Conf0),
-
-    ret_ok_err(update({?FUNCTION_NAME, bin(GwName), Conf})).
+    ret_gw(GwName, update({?FUNCTION_NAME, bin(GwName), Conf})).
 
 %% FIXME: delete cert files ??
 
@@ -260,6 +258,22 @@ bin(B) when is_binary(B) ->
 
 ret_ok_err({ok, _}) -> ok;
 ret_ok_err(Err) -> Err.
+
+ret_gw(GwName, {ok, #{raw_config := GwConf}}) ->
+    GwConf1 = emqx_map_lib:deep_get([bin(GwName)], GwConf),
+    LsConf = emqx_map_lib:deep_get(
+               [bin(GwName), <<"listeners">>],
+               GwConf, #{}),
+    NLsConf =
+        lists:foldl(fun({LType, SubConf}, Acc) ->
+            NLConfs =
+                lists:map(fun({LName, LConf}) ->
+                    do_convert_listener2(GwName, LType, LName, LConf)
+                end, maps:to_list(SubConf)),
+            [NLConfs|Acc]
+        end, [], maps:to_list(LsConf)),
+    {ok, maps:merge(GwConf1, #{<<"listeners">> => NLsConf})};
+ret_gw(_GwName, Err) -> Err.
 
 ret_authn(GwName, {ok, #{raw_config := GwConf}}) ->
     Authn = emqx_map_lib:deep_get(

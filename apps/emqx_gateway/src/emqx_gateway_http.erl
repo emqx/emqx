@@ -223,6 +223,8 @@ remove_authn(GwName, ListenerId) ->
 
 confexp(ok) -> ok;
 confexp({ok, Res}) -> {ok, Res};
+confexp({error, badarg}) ->
+    error({update_conf_error, badarg});
 confexp({error, not_found}) ->
     error({update_conf_error, not_found});
 confexp({error, already_exist}) ->
@@ -372,6 +374,8 @@ with_gateway(GwName0, Fun) ->
                      lists:join(".", lists:map(fun to_list/1, Path0))),
             return_http_error(404, "Resource not found. path: " ++ Path);
         %% Exceptions from: confexp/1
+        error : {update_conf_error, badarg} ->
+            return_http_error(400, "Bad arguments");
         error : {update_conf_error, not_found} ->
             return_http_error(404, "Resource not found");
         error : {update_conf_error, already_exist} ->
