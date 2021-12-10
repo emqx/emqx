@@ -82,7 +82,7 @@
           %% Authentication Data Cache
           auth_cache :: maybe(map()),
           %% Quota checkers
-          quota :: maybe(emqx_limiter:limiter()),
+          quota :: maybe(emqx_limiter_container:limiter()),
           %% Timers
           timers :: #{atom() => disabled | maybe(reference())},
           %% Conn State
@@ -120,6 +120,7 @@
          }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
+-define(LIMITER_ROUTING, message_routing).
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
@@ -200,14 +201,13 @@ caps(#channel{clientinfo = #{zone := Zone}}) ->
 -spec(init(emqx_types:conninfo(), opts()) -> channel()).
 init(ConnInfo = #{peername := {PeerHost, _Port},
                   sockname := {_Host, SockPort}},
-     #{zone := Zone, listener := {Type, Listener}}) ->
+     #{zone := Zone, limiter := LimiterCfg, listener := {Type, Listener}}) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Protocol = maps:get(protocol, ConnInfo, mqtt),
     MountPoint = case emqx_config:get_listener_conf(Type, Listener, [mountpoint]) of
         <<>> -> undefined;
         MP -> MP
     end,
-    QuotaPolicy = emqx_config:get_zone_conf(Zone, [quota], #{}),
     ClientInfo = set_peercert_infos(
                    Peercert,
                    #{zone         => Zone,
@@ -228,18 +228,13 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                                outbound => #{}
                               },
              auth_cache = #{},
-             quota      = emqx_limiter:init(Zone, quota_policy(QuotaPolicy)),
+             quota      = emqx_limiter_container:get_limiter_by_names([?LIMITER_ROUTING], LimiterCfg),
              timers     = #{},
              conn_state = idle,
              takeover   = false,
              resuming   = false,
              pendings   = []
             }.
-
-quota_policy(RawPolicy) ->
-    [{Name, {list_to_integer(StrCount),
-             erlang:trunc(hocon_postprocess:duration(StrWind) / 1000)}}
-     || {Name, [StrCount, StrWind]} <- maps:to_list(RawPolicy)].
 
 set_peercert_infos(NoSSL, ClientInfo, _)
   when NoSSL =:= nossl;
@@ -653,10 +648,10 @@ ensure_quota(PubRes, Channel = #channel{quota = Limiter}) ->
                  ({_, _, {ok, I}}, N) -> N + I;
                  (_, N) -> N
               end, 1, PubRes),
-    case emqx_limiter:check(#{cnt => Cnt, oct => 0}, Limiter) of
+    case emqx_limiter_container:check(Cnt, ?LIMITER_ROUTING, Limiter) of
         {ok, NLimiter} ->
             Channel#channel{quota = NLimiter};
-        {pause, Intv, NLimiter} ->
+        {_, Intv, NLimiter} ->
             ensure_timer(quota_timer, Intv, Channel#channel{quota = NLimiter})
     end.
 
@@ -1005,10 +1000,9 @@ handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
 
-handle_call({quota, Policy}, Channel) ->
-    Zone = info(zone, Channel),
-    Quota = emqx_limiter:init(Zone, Policy),
-    reply(ok, Channel#channel{quota = Quota});
+handle_call({quota, Bucket}, #channel{quota = Quota} = Channel) ->
+    Quota2 = emqx_limiter_container:update_by_name(message_routing, Bucket, Quota),
+    reply(ok, Channel#channel{quota = Quota2});
 
 handle_call({keepalive, Interval}, Channel = #channel{keepalive = KeepAlive,
     conninfo = ConnInfo}) ->
@@ -1147,8 +1141,15 @@ handle_timeout(_TRef, will_message, Channel = #channel{will_msg = WillMsg}) ->
     (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
     {ok, clean_timer(will_timer, Channel#channel{will_msg = undefined})};
 
-handle_timeout(_TRef, expire_quota_limit, Channel) ->
-    {ok, clean_timer(quota_timer, Channel)};
+handle_timeout(_TRef, expire_quota_limit,
+               #channel{quota = Quota} = Channel) ->
+    case emqx_limiter_container:retry(?LIMITER_ROUTING, Quota) of
+        {_, Intv, Quota2} ->
+            Channel2 = ensure_timer(quota_timer, Intv, Channel#channel{quota = Quota2}),
+            {ok, Channel2};
+        {_, Quota2} ->
+            {ok, clean_timer(quota_timer, Channel#channel{quota = Quota2})}
+    end;
 
 handle_timeout(_TRef, Msg, Channel) ->
     ?SLOG(error, #{msg => "unexpected_timeout", timeout_msg => Msg}),

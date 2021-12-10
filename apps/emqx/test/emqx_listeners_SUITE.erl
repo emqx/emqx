@@ -46,6 +46,7 @@ init_per_testcase(Case, Config)
     emqx_config:put([listeners, tcp], #{ listener_test =>
                                              #{ bind => {"127.0.0.1", 9999}
                                               , max_connections => 4321
+                                              , limiter => #{}
                                               }
                                   }),
     emqx_config:put([rate_limit], #{max_conn_rate => 1000}),

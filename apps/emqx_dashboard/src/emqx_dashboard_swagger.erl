@@ -434,8 +434,15 @@ typename_to_spec("log_level()", _Mod) ->
     };
 typename_to_spec("rate()", _Mod) ->
     #{type => string, example => <<"10M/s">>};
-typename_to_spec("bucket_rate()", _Mod) ->
-    #{type => string, example => <<"10M/s, 100M">>};
+typename_to_spec("capacity()", _Mod) ->
+    #{type => string, example => <<"100M">>};
+typename_to_spec("burst_rate()", _Mod) ->
+    %% 0/0s = no burst
+    #{type => string, example => <<"10M/1s">>};
+typename_to_spec("failure_strategy()", _Mod) ->
+    #{type => string, example => <<"force">>};
+typename_to_spec("initial()", _Mod) ->
+    #{type => string, example => <<"0M">>};
 typename_to_spec(Name, Mod) ->
     Spec = range(Name),
     Spec1 = remote_module_type(Spec, Name, Mod),

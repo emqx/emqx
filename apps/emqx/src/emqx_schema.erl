@@ -1017,6 +1017,8 @@ base_listener() ->
        sc(atom(),
           #{ default => 'default'
            })}
+    , {"limiter",
+       sc(map("ratelimit bucket's name", atom()), #{default => #{}})}
     ].
 
 %% utils

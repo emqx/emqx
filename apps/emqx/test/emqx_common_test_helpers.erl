@@ -134,6 +134,7 @@ start_apps(Apps, Handler) when is_function(Handler) ->
     %% Because, minirest, ekka etc.. application will scan these modules
     lists:foreach(fun load/1, [emqx | Apps]),
     ekka:start(),
+    ok = emqx_ratelimiter_SUITE:base_conf(),
     lists:foreach(fun(App) -> start_app(App, Handler) end, [emqx | Apps]).
 
 load(App) ->
