@@ -16,7 +16,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/4.4-2:23.3.4.9-3-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles }}
@@ -141,7 +141,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
-          - 23.3.4.9-3
+          - 24.1.5-3
         macos:
           - macos-11
           - macos-10.15
@@ -224,8 +224,12 @@ jobs:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        package:
+          - zip
+          - pkg
         otp:
           - 23.3.4.9-3
+          - 24.1.5-3
         arch:
           - amd64
           - arm64
@@ -242,6 +246,8 @@ jobs:
           - raspbian10
           # - raspbian9
         exclude:
+        - package: pkg
+          otp: 23.3.4.9-3
         - os: centos6
           arch: arm64
         - os: raspbian9
@@ -274,6 +280,7 @@ jobs:
     - name: unzip source code
       run: unzip -q source.zip
     - name: downloads old emqx zip packages
+      if: matrix.package == 'zip'
       env:
         OTP_VSN: ${{ matrix.otp }}
         PROFILE: ${{ matrix.profile }}
@@ -306,6 +313,7 @@ jobs:
       env:
         OTP: ${{ matrix.otp }}
         PROFILE: ${{ matrix.profile }}
+        PACKAGE: ${{ matrix.package}}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
       working-directory: source
@@ -314,9 +322,8 @@ jobs:
         -v $(pwd):/emqx \
         --workdir /emqx \
         --platform linux/$ARCH \
-        ghcr.io/emqx/emqx-builder/4.4-2:$OTP-$SYSTEM \
-        bash -euc "make $PROFILE-zip || cat rebar3.crashdump; \
-                   make $PROFILE-pkg || cat rebar3.crashdump; \
+        ghcr.io/emqx/emqx-builder/4.4-4:$OTP-$SYSTEM \
+        bash -euc "make ${PROFILE}-${PACKAGE} || cat rebar3.crashdump; \
                    EMQX_NAME=$PROFILE && .ci/build_packages/tests.sh"
     - name: create sha256
       working-directory: source
@@ -345,7 +352,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
-          - 23.3.4.9-3
+          - 24.1.5-3
 
     steps:
     - uses: actions/download-artifact@v2
@@ -386,7 +393,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-2:${{ matrix.otp }}-alpine3.14
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-4:${{ matrix.otp }}-alpine3.14
           RUN_FROM=alpine:3.14
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
@@ -425,7 +432,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
-          - 23.3.4.9-3
+          - 24.1.5-3
 
     steps:
     - uses: actions/checkout@v2
