@@ -33,7 +33,8 @@ init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
-    meck:expect(emqx_resource, remove, fun(_) -> ok end ),
+    meck:expect(emqx_resource, remove, fun(_) -> ok end),
+    meck:expect(emqx_resource, create_dry_run, fun(_, _) -> ok end),
 
     ok = emqx_common_test_helpers:start_apps(
            [emqx_connector, emqx_conf, emqx_authz],
@@ -136,6 +137,13 @@ t_update_source(_) ->
                  , #{type := redis, enable := true}
                  , #{type := file,  enable := true}
                  ], emqx_conf:get([authorization, sources], [])),
+
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, http},  ?SOURCE1#{<<"enable">> := true}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, mongodb}, ?SOURCE2#{<<"enable">> := true}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, mysql}, ?SOURCE3#{<<"enable">> := true}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, postgresql}, ?SOURCE4#{<<"enable">> := true}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, redis}, ?SOURCE5#{<<"enable">> := true}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, file},  ?SOURCE6#{<<"enable">> := true}),
 
     {ok, _} = emqx_authz:update({?CMD_REPLACE, http},  ?SOURCE1#{<<"enable">> := false}),
     {ok, _} = emqx_authz:update({?CMD_REPLACE, mongodb}, ?SOURCE2#{<<"enable">> := false}),

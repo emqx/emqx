@@ -21,9 +21,13 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
+-behaviour(emqx_authz).
+
 %% AuthZ Callbacks
 -export([ description/0
-        , parse_query/1
+        , init/1
+        , destroy/1
+        , dry_run/1
         , authorize/4
         ]).
 
@@ -33,7 +37,21 @@
 -endif.
 
 description() ->
-    "AuthZ with postgresql".
+    "AuthZ with Postgresql".
+
+init(#{query := SQL} = Source) ->
+    case emqx_authz_utils:create_resource(emqx_connector_pgsql, Source) of
+        {error, Reason} -> error({load_config_error, Reason});
+        {ok, Id} -> Source#{annotations =>
+                            #{id => Id,
+                              query => parse_query(SQL)}}
+    end.
+
+destroy(#{annotations := #{id := Id}}) ->
+    ok = emqx_resource:remove(Id).
+
+dry_run(Source) ->
+    emqx_resource:create_dry_run(emqx_connector_pgsql, Source).
 
 parse_query(undefined) ->
     undefined;

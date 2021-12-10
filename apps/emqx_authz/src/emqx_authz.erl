@@ -27,6 +27,7 @@
 
 -export([ register_metrics/0
         , init/0
+        , deinit/0
         , lookup/0
         , lookup/1
         , move/2
@@ -42,6 +43,31 @@
 
 -export([ph_to_re/1]).
 
+-type(source() :: map()).
+
+-type(match_result() :: {matched, allow} | {matched, deny} | nomatch).
+
+-type(default_result() :: allow | deny).
+
+-type(authz_result() :: {stop, allow} | {ok, deny}).
+
+-type(sources() :: [source()]).
+
+
+-callback(init(source()) -> source()).
+
+-callback(description() -> string()).
+
+-callback(destroy(source()) -> ok).
+
+-callback(dry_run(source()) -> ok | {error, term()}).
+
+-callback(authorize(
+            emqx_types:clientinfo(),
+            emqx_types:pubsub(),
+            emqx_types:topic(),
+            source()) -> match_result()).
+
 -spec(register_metrics() -> ok).
 register_metrics() ->
     lists:foreach(fun emqx_metrics:ensure/1, ?AUTHZ_METRICS).
@@ -53,6 +79,11 @@ init() ->
     ok = check_dup_types(Sources),
     NSources = init_sources(Sources),
     ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NSources]}, -1).
+
+deinit() ->
+    ok = emqx_hooks:del('client.authorize', {?MODULE, authorize}),
+    emqx_conf:remove_handler(?CONF_KEY_PATH),
+    emqx_authz_utils:cleanup_resources().
 
 lookup() ->
     {_M, _F, [A]}= find_action_in_hooks(),
@@ -115,7 +146,7 @@ do_update({{?CMD_REPLACE, Type}, #{<<"enable">> := true} = Source}, Conf) when i
             NConf = Front ++ [Source | Rear],
             ok = check_dup_types(NConf),
             NConf;
-        Error -> Error
+        {error, _} = Error -> Error
     end;
 do_update({{?CMD_REPLACE, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
     {_Old, Front, Rear} = take(Type, Conf),
@@ -178,9 +209,9 @@ do_post_update(_, NewSources) ->
     ok = emqx_authz_cache:drain_cache().
 
 ensure_resource_deleted(#{enable := false}) -> ok;
-ensure_resource_deleted(#{type := file}) -> ok;
-ensure_resource_deleted(#{type := 'built-in-database'}) -> ok;
-ensure_resource_deleted(#{annotations := #{id := Id}}) -> ok = emqx_resource:remove(Id).
+ensure_resource_deleted(#{type := Type} = Source) ->
+    Module = authz_module(Type),
+    Module:destroy(Source).
 
 check_dup_types(Sources) ->
     check_dup_types(Sources, []).
@@ -204,26 +235,10 @@ check_dup_types([Source | Sources], Checked) ->
             check_dup_types(Sources, [Type | Checked])
     end.
 
-create_dry_run(T, Source) ->
-    case is_connector_source(T) of
-        true ->
-            [CheckedSource] = check_sources([Source]),
-            case T of
-                http ->
-                    URIMap = maps:get(url, CheckedSource),
-                    NSource = maps:put(base_url, maps:remove(query, URIMap), CheckedSource)
-            end,
-            emqx_resource:create_dry_run(connector_module(T), NSource);
-        false ->
-            ok
-end.
-
-is_connector_source(http) -> true;
-is_connector_source(mongodb) -> true;
-is_connector_source(mysql) -> true;
-is_connector_source(postgresql) -> true;
-is_connector_source(redis) -> true;
-is_connector_source(_) -> false.
+create_dry_run(Type, Source) ->
+    [CheckedSource] = check_sources([Source]),
+    Module = authz_module(Type),
+    Module:dry_run(CheckedSource).
 
 init_sources(Sources) ->
     {_Enabled, Disabled} = lists:partition(fun(#{enable := Enable}) -> Enable end, Sources),
@@ -234,54 +249,9 @@ init_sources(Sources) ->
     lists:map(fun init_source/1, Sources).
 
 init_source(#{enable := false} = Source) -> Source;
-init_source(#{type := file,
-              path := Path
-             } = Source) ->
-    Rules = case file:consult(Path) of
-                {ok, Terms} ->
-                    [emqx_authz_rule:compile(Term) || Term <- Terms];
-                {error, eacces} ->
-                    ?SLOG(alert, #{msg => "insufficient_permissions_to_read_file", path => Path}),
-                    error(eaccess);
-                {error, enoent} ->
-                    ?SLOG(alert, #{msg => "file_does_not_exist", path => Path}),
-                    error(enoent);
-                {error, Reason} ->
-                    ?SLOG(alert, #{msg => "failed_to_read_file", path => Path, reason => Reason}),
-                    error(Reason)
-            end,
-    Source#{annotations => #{rules => Rules}};
-init_source(#{type := http,
-              url := Url
-             } = Source) ->
-    NSource= maps:put(base_url, maps:remove(query, Url), Source),
-    case create_resource(NSource) of
-        {error, Reason} -> error({load_config_error, Reason});
-        Id -> Source#{annotations => #{id => Id}}
-    end;
-init_source(#{type := 'built-in-database'
-             } = Source) ->
-    Source;
-init_source(#{type := DB
-             } = Source) when DB =:= redis;
-                              DB =:= mongodb ->
-    case create_resource(Source) of
-        {error, Reason} -> error({load_config_error, Reason});
-        Id -> Source#{annotations => #{id => Id}}
-    end;
-init_source(#{type := DB,
-              query := SQL
-             } = Source) when DB =:= mysql;
-                              DB =:= postgresql ->
-    Mod = authz_module(DB),
-    case create_resource(Source) of
-        {error, Reason} -> error({load_config_error, Reason});
-        Id -> Source#{annotations =>
-                      #{id => Id,
-                        query => erlang:apply(Mod, parse_query, [SQL])
-                       }
-                   }
-    end.
+init_source(#{type := Type} = Source) ->
+    Module = authz_module(Type),
+    Module:init(Source).
 
 %%--------------------------------------------------------------------
 %% AuthZ callbacks
@@ -289,11 +259,11 @@ init_source(#{type := DB,
 
 %% @doc Check AuthZ
 -spec(authorize( emqx_types:clientinfo()
-               , emqx_types:all()
+               , emqx_types:pubsub()
                , emqx_types:topic()
-               , allow | deny
+               , default_result()
                , sources())
-      -> {stop, allow} | {ok, deny}).
+      -> authz_result()).
 authorize(#{username := Username,
             peerhost := IpAddress
            } = Client, PubSub, Topic, DefaultResult, Sources) ->
@@ -325,16 +295,10 @@ do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
 do_authorize(Client, PubSub, Topic, [#{enable := false} | Rest]) ->
     do_authorize(Client, PubSub, Topic, Rest);
-do_authorize(Client, PubSub, Topic, [#{type := file} = F | Tail]) ->
-    #{annotations := #{rules := Rules}} = F,
-    case emqx_authz_rule:matches(Client, PubSub, Topic, Rules) of
-        nomatch -> do_authorize(Client, PubSub, Topic, Tail);
-        Matched -> Matched
-    end;
 do_authorize(Client, PubSub, Topic,
                [Connector = #{type := Type} | Tail] ) ->
-    Mod = authz_module(Type),
-    case erlang:apply(Mod, authorize, [Client, PubSub, Topic, Connector]) of
+    Module = authz_module(Type),
+    case Module:authorize(Client, PubSub, Topic, Connector) of
         nomatch -> do_authorize(Client, PubSub, Topic, Tail);
         Matched -> Matched
     end.
@@ -367,28 +331,10 @@ find_action_in_hooks() ->
     [Action] = [Action || {callback,{?MODULE, authorize, _} = Action, _, _} <- Callbacks ],
     Action.
 
-gen_id(Type) ->
-    iolist_to_binary([io_lib:format("~ts_~ts",[?APP, Type])]).
-
-create_resource(#{type := DB} = Source) ->
-    ResourceID = gen_id(DB),
-    case emqx_resource:create(ResourceID, connector_module(DB), Source) of
-        {ok, already_created} -> ResourceID;
-        {ok, _} -> ResourceID;
-        {error, Reason} -> {error, Reason}
-    end.
-
 authz_module('built-in-database') ->
     emqx_authz_mnesia;
 authz_module(Type) ->
     list_to_existing_atom("emqx_authz_" ++ atom_to_list(Type)).
-
-connector_module(mongodb) ->
-    emqx_connector_mongo;
-connector_module(postgresql) ->
-    emqx_connector_pgsql;
-connector_module(Type) ->
-    list_to_existing_atom("emqx_connector_" ++ atom_to_list(Type)).
 
 type(#{type := Type}) -> type(Type);
 type(#{<<"type">> := Type}) -> type(Type);
