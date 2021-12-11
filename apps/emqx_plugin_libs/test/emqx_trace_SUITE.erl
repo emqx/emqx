@@ -106,26 +106,29 @@ t_create_size_max(_Config) ->
     ok.
 
 t_create_failed(_Config) ->
-    UnknownField = [{<<"unknown">>, 12}],
+    Name = {<<"name">>, <<"test">>},
+    UnknownField = [Name, {<<"unknown">>, 12}],
     {error, Reason1} = emqx_trace:create(UnknownField),
-    ?assertEqual(<<"unknown field: {unknown,12}">>, iolist_to_binary(Reason1)),
+    ?assertEqual(<<"type=[topic,clientid,ip_address] required">>, iolist_to_binary(Reason1)),
 
-    InvalidTopic = [{<<"topic">>, "#/#//"}],
+    InvalidTopic = [Name, {<<"topic">>, "#/#//"}, {<<"type">>, <<"topic">>}],
     {error, Reason2} = emqx_trace:create(InvalidTopic),
     ?assertEqual(<<"topic: #/#// invalid by function_clause">>, iolist_to_binary(Reason2)),
 
-    InvalidStart = [{<<"start_at">>, <<"2021-12-3:12">>}],
+    InvalidStart = [Name, {<<"type">>, <<"topic">>}, {<<"topic">>, <<"/sys/">>},
+        {<<"start_at">>, <<"2021-12-3:12">>}],
     {error, Reason3} = emqx_trace:create(InvalidStart),
     ?assertEqual(<<"The rfc3339 specification not satisfied: 2021-12-3:12">>,
         iolist_to_binary(Reason3)),
 
-    InvalidEnd = [{<<"end_at">>, <<"2021-12-3:12">>}],
+    InvalidEnd = [Name, {<<"type">>, <<"topic">>}, {<<"topic">>, <<"/sys/">>},
+        {<<"end_at">>, <<"2021-12-3:12">>}],
     {error, Reason4} = emqx_trace:create(InvalidEnd),
     ?assertEqual(<<"The rfc3339 specification not satisfied: 2021-12-3:12">>,
         iolist_to_binary(Reason4)),
 
-    {error, Reason7} = emqx_trace:create([{<<"name">>, <<"test">>}, {<<"type">>, <<"clientid">>}]),
-    ?assertEqual(<<"topic/clientid/ip_address filter required">>, iolist_to_binary(Reason7)),
+    {error, Reason7} = emqx_trace:create([Name, {<<"type">>, <<"clientid">>}]),
+    ?assertEqual(<<"required clientid field">>, iolist_to_binary(Reason7)),
 
     InvalidPackets4 = [{<<"name">>, <<"/test">>}, {<<"clientid">>, <<"t">>},
         {<<"type">>, <<"clientid">>}],
@@ -135,12 +138,9 @@ t_create_failed(_Config) ->
     ?assertEqual({error, "type=[topic,clientid,ip_address] required"},
         emqx_trace:create([{<<"name">>, <<"test-name">>}, {<<"clientid">>, <<"good">>}])),
 
-    ?assertEqual({error, "incorrect type: only support clientid/topic/ip_address"},
-        emqx_trace:create([{<<"name">>, <<"test-name">>},
-            {<<"clientid">>, <<"good">>}, {<<"type">>, <<"typeerror">> }])),
-
     ?assertEqual({error, "ip address: einval"},
-        emqx_trace:create([{<<"ip_address">>, <<"test-name">>}])),
+        emqx_trace:create([Name, {<<"type">>, <<"ip_address">>},
+            {<<"ip_address">>, <<"test-name">>}])),
     ok.
 
 t_create_default(_Config) ->
@@ -171,6 +171,20 @@ t_create_default(_Config) ->
     [#emqx_trace{start_at = Start, end_at = End}] = emqx_trace:list(),
     ?assertEqual(10 * 60, End - Start),
     ?assertEqual(true, Start - erlang:system_time(second) < 5),
+    ok.
+
+t_create_with_extra_fields(_Config) ->
+    ok = emqx_trace:clear(),
+    Trace = [
+        {<<"name">>, <<"test-name">>},
+        {<<"type">>, <<"topic">>},
+        {<<"topic">>, <<"/x/y/z">>},
+        {<<"clientid">>, <<"dev001">>},
+        {<<"ip_address">>, <<"127.0.0.1">>}
+    ],
+    ok = emqx_trace:create(Trace),
+    ?assertMatch([#emqx_trace{name = <<"test-name">>, filter = <<"/x/y/z">>, type = topic}],
+        emqx_trace:list()),
     ok.
 
 t_update_enable(_Config) ->
