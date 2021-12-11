@@ -16,9 +16,8 @@
 
 -module(emqx_plugins).
 
--include("emqx.hrl").
--include("logger.hrl").
-
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([ load/0
         , load/1
@@ -41,7 +40,7 @@
 %% @doc Load all plugins when the broker started.
 -spec(load() -> ok | ignore | {error, term()}).
 load() ->
-    ok = load_ext_plugins(emqx:get_config([plugins, expand_plugins_dir], undefined)).
+    ok = load_ext_plugins(emqx:get_config([plugins, install_dir], undefined)).
 
 %% @doc Load a Plugin
 -spec(load(atom()) -> ok | {error, term()}).

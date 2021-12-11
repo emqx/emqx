@@ -50,6 +50,7 @@
         , emqx_authz_schema
         , emqx_auto_subscribe_schema
         , emqx_modules_schema
+        , emqx_plugins_schema
         , emqx_dashboard_schema
         , emqx_gateway_schema
         , emqx_prometheus_schema
