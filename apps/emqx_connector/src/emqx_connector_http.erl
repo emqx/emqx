@@ -36,7 +36,9 @@
 
 -export([ roots/0
         , fields/1
-        , validations/0]).
+        , validations/0
+        , namespace/0
+        ]).
 
 -export([ check_ssl_opts/2
         ]).
@@ -50,6 +52,9 @@
 
 %%=====================================================================
 %% Hocon schema
+
+namespace() -> "connector-http".
+
 roots() ->
     fields(config).
 
