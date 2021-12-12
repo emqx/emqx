@@ -132,8 +132,7 @@ render_config_file() ->
 mustache_vars() ->
     [{platform_data_dir, local_path(["data"])},
      {platform_etc_dir,  local_path(["etc"])},
-     {platform_log_dir,  local_path(["log"])},
-     {platform_plugins_dir,  local_path(["plugins"])}
+     {platform_log_dir,  local_path(["log"])}
     ].
 
 generate_config() ->
@@ -144,10 +143,6 @@ generate_config() ->
 set_app_env({App, Lists}) ->
     lists:foreach(fun({authz_file, _Var}) ->
                       application:set_env(App, authz_file, local_path(["etc", "authz.conf"]));
-                     ({plugins_loaded_file, _Var}) ->
-                      application:set_env(App,
-                                          plugins_loaded_file,
-                                          local_path(["test", "emqx_SUITE_data","loaded_plugins"]));
                      ({Par, Var}) ->
                       application:set_env(App, Par, Var)
                   end, Lists).

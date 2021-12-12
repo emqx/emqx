@@ -55,6 +55,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_retainer]).
+
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------

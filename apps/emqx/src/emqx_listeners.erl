@@ -175,9 +175,10 @@ restart_listener(Type, ListenerName, Conf) ->
     restart_listener(Type, ListenerName, Conf, Conf).
 
 restart_listener(Type, ListenerName, OldConf, NewConf) ->
-    case stop_listener(Type, ListenerName, OldConf) of
+    case do_stop_listener(Type, ListenerName, OldConf) of
         ok -> start_listener(Type, ListenerName, NewConf);
-        Error -> Error
+        {error, not_found} -> start_listener(Type, ListenerName, NewConf);
+        {error, Reason} -> {error, Reason}
     end.
 
 %% @doc Stop all listeners.

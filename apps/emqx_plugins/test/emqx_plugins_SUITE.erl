@@ -47,7 +47,9 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([]).
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:stop_apps([]),
+    emqx_config:erase(plugins).
 
 t_load(_) ->
     ?assertEqual(ok, emqx_plugins:load()),
@@ -57,7 +59,7 @@ t_load(_) ->
     ?assertEqual({error, not_started}, emqx_plugins:unload(emqx_mini_plugin)),
     ?assertEqual({error, not_started}, emqx_plugins:unload(emqx_hocon_plugin)),
 
-    emqx_config:put([plugins, install_dir], undefined).
+    emqx_config:erase(plugins).
 
 t_load_ext_plugin(_) ->
     ?assertError({plugin_app_file_not_found, _},
