@@ -32,7 +32,9 @@ fields("plugins") ->
 Manage EMQ X plugins.
 <br>
 Plugins can be pre-built as a part of EMQ X package,
-or installed as a standalone package to the specific directory.
+or installed as a standalone package in a location specified by
+<code>install_dir</code> config key
+<br>
 The standalone-installed plugins are referred to as 'external' plugins.
 """
      }.
@@ -82,6 +84,9 @@ install_dir(desc) -> """
 In which directory are the external plugins installed.
 The plugin beam files and configuration files should reside in
 the sub-directory named as <code>emqx_foo_bar-0.1.0</code>.
+<br>
+NOTE: For security reasons, this directory should **NOT** be writable
+by anyone expect for <code>emqx</code> (or any user which runs EMQ X)
 """.
 
 %% TODO: when we have some prebuilt plugins, change this function to:
