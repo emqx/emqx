@@ -71,7 +71,18 @@
 
 -define(MULTIPLIER_MAX, 16#200000).
 
+%% proxy_protocol v1 header human readable
+-define(PPV1_PROXY, "PROXY ").
+-define(PPV1_PROXY_UNKNOWN, "PROXY UNKNOWN").
+%% proxy_protocol v2 header signature:
+%% 16#0D,16#0A, 16#0D,16#0A,16#00,16#0D,16#0A,16#51,16#55,16#49,16#54,16#0A
+-define(PPV2_HEADER_SIG, "\r\n\r\n\0\r\nQUIT\n").
+
 -dialyzer({no_match, [serialize_utf8_string/2]}).
+
+-ifdef(TEST).
+-export([parse_variable_byte_integer/1]).
+-endif.
 
 %%--------------------------------------------------------------------
 %% Init Parse State
@@ -100,6 +111,13 @@ parse(Bin) ->
 -spec(parse(binary(), parse_state()) -> parse_result()).
 parse(<<>>, {none, Options}) ->
     {more, {none, Options}};
+parse(<<?PPV1_PROXY, IPVer:5/binary, _Rest/binary>>, {none, _Options})
+  when IPVer =:= <<"TCP4 ">> orelse IPVer =:= <<"TCP6 ">> ->
+    error(proxy_protocol_config_disabled);
+parse(<<?PPV1_PROXY_UNKNOWN, _Rest/binary>>, {none, _Options}) ->
+    error(proxy_protocol_config_disabled);
+parse(<<?PPV2_HEADER_SIG, _Rest/binary>>, {none, _Options}) ->
+    error(proxy_protocol_config_disabled);
 parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>,
       {none, Options = #{strict_mode := StrictMode}}) ->
     %% Validate header if strict mode.
