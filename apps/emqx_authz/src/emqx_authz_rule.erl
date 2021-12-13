@@ -43,9 +43,14 @@
                {'or',  [ipaddress() | username() | clientid()]} |
                all).
 
+-type(action() :: subscribe | publish | all).
+-type(permission() :: allow | deny).
+
 -type(rule() :: {permission(), who(), action(), list(emqx_types:topic())}).
 
--export_type([rule/0]).
+-export_type([ action/0
+             , permission/0
+             ]).
 
 compile({Permission, all})
   when ?ALLOW_DENY(Permission) -> {Permission, all, all, [compile_topic(<<"#">>)]};

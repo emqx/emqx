@@ -53,15 +53,32 @@
 
 -type(sources() :: [source()]).
 
+-define(METRIC_ALLOW, 'client.authorize.allow').
+-define(METRIC_DENY, 'client.authorize.deny').
+-define(METRIC_NOMATCH, 'client.authorize.nomatch').
 
+-define(METRICS, [?METRIC_ALLOW, ?METRIC_DENY, ?METRIC_NOMATCH]).
+
+%% Initialize authz backend.
+%% Populate the passed configuration map with necessary data,
+%% like `ResourceID`s
 -callback(init(source()) -> source()).
 
+%% Get authz text description.
 -callback(description() -> string()).
 
+%% Destroy authz backend.
+%% Make cleanup of all allocated data.
+%% An authz backend will not be used after `destroy`.
 -callback(destroy(source()) -> ok).
 
+%% Check if a configuration map is valid for further
+%% authz backend initialization.
+%% The callback must deallocate all resources allocated
+%% during verification.
 -callback(dry_run(source()) -> ok | {error, term()}).
 
+%% Authorize client action.
 -callback(authorize(
             emqx_types:clientinfo(),
             emqx_types:pubsub(),
@@ -70,7 +87,7 @@
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1, ?AUTHZ_METRICS).
+    lists:foreach(fun emqx_metrics:ensure/1, ?METRICS).
 
 init() ->
     ok = register_metrics(),
@@ -273,14 +290,14 @@ authorize(#{username := Username,
                           username => Username,
                           ipaddr => IpAddress,
                           topic => Topic}),
-            emqx_metrics:inc(?AUTHZ_METRICS(allow)),
+            emqx_metrics:inc(?METRIC_ALLOW),
             {stop, allow};
         {matched, deny} ->
             ?SLOG(info, #{msg => "authorization_permission_denied",
                           username => Username,
                           ipaddr => IpAddress,
                           topic => Topic}),
-            emqx_metrics:inc(?AUTHZ_METRICS(deny)),
+            emqx_metrics:inc(?METRIC_DENY),
             {stop, deny};
         nomatch ->
             ?SLOG(info, #{msg => "authorization_failed_nomatch",
@@ -288,6 +305,7 @@ authorize(#{username := Username,
                           ipaddr => IpAddress,
                           topic => Topic,
                           reason => "no-match rule"}),
+            emqx_metrics:inc(?METRIC_NOMATCH),
             {stop, DefaultResult}
     end.
 

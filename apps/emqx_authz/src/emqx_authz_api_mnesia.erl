@@ -20,7 +20,6 @@
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -define(FORMAT_USERNAME_FUN, {?MODULE, format_by_username}).
@@ -269,39 +268,27 @@ fields(meta) ->
 %%--------------------------------------------------------------------
 
 users(get, #{query_string := PageParams}) ->
-    MatchSpec = ets:fun2ms(
-                  fun({?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}, Rules}) ->
-                          [{username, Username}, {rules, Rules}]
-                  end),
-    {200, emqx_mgmt_api:paginate(?ACL_TABLE, MatchSpec, PageParams, ?FORMAT_USERNAME_FUN)};
+    {Table, MatchSpec} = emqx_authz_mnesia:list_username_rules(),
+    {200, emqx_mgmt_api:paginate(Table, MatchSpec, PageParams, ?FORMAT_USERNAME_FUN)};
 users(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
-                      mria:dirty_write(#emqx_acl{
-                                          who = {?ACL_TABLE_USERNAME, Username},
-                                          rules = format_rules(Rules)
-                                         })
+                          emqx_authz_mnesia:store_rules({username, Username}, format_rules(Rules))
                   end, Body),
     {204}.
 
 clients(get, #{query_string := PageParams}) ->
-    MatchSpec = ets:fun2ms(
-                  fun({?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}, Rules}) ->
-                          [{clientid, Clientid}, {rules, Rules}]
-                  end),
-    {200, emqx_mgmt_api:paginate(?ACL_TABLE, MatchSpec, PageParams, ?FORMAT_CLIENTID_FUN)};
+    {Table, MatchSpec} = emqx_authz_mnesia:list_clientid_rules(),
+    {200, emqx_mgmt_api:paginate(Table, MatchSpec, PageParams, ?FORMAT_CLIENTID_FUN)};
 clients(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"clientid">> := Clientid, <<"rules">> := Rules}) ->
-                      mria:dirty_write(#emqx_acl{
-                                          who = {?ACL_TABLE_CLIENTID, Clientid},
-                                          rules = format_rules(Rules)
-                                         })
+                          emqx_authz_mnesia:store_rules({clientid, Clientid}, format_rules(Rules))
                   end, Body),
     {204}.
 
 user(get, #{bindings := #{username := Username}}) ->
-    case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}) of
-        [] -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
-        [#emqx_acl{who = {?ACL_TABLE_USERNAME, Username}, rules = Rules}] ->
+    case emqx_authz_mnesia:get_rules({username, Username}) of
+        not_found -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
+        {ok, Rules} ->
             {200, #{username => Username,
                     rules => [ #{topic => Topic,
                                  action => Action,
@@ -311,19 +298,16 @@ user(get, #{bindings := #{username := Username}}) ->
     end;
 user(put, #{bindings := #{username := Username},
               body := #{<<"username">> := Username, <<"rules">> := Rules}}) ->
-    mria:dirty_write(#emqx_acl{
-                        who = {?ACL_TABLE_USERNAME, Username},
-                        rules = format_rules(Rules)
-                       }),
+    emqx_authz_mnesia:store_rules({username, Username}, format_rules(Rules)),
     {204};
 user(delete, #{bindings := #{username := Username}}) ->
-    mria:dirty_delete({?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}}),
+    emqx_authz_mnesia:delete_rules({username, Username}),
     {204}.
 
 client(get, #{bindings := #{clientid := Clientid}}) ->
-    case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}) of
-        [] -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
-        [#emqx_acl{who = {?ACL_TABLE_CLIENTID, Clientid}, rules = Rules}] ->
+    case emqx_authz_mnesia:get_rules({clientid, Clientid}) of
+        not_found -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
+        {ok, Rules} ->
             {200, #{clientid => Clientid,
                     rules => [ #{topic => Topic,
                                  action => Action,
@@ -333,20 +317,17 @@ client(get, #{bindings := #{clientid := Clientid}}) ->
     end;
 client(put, #{bindings := #{clientid := Clientid},
               body := #{<<"clientid">> := Clientid, <<"rules">> := Rules}}) ->
-    mria:dirty_write(#emqx_acl{
-                        who = {?ACL_TABLE_CLIENTID, Clientid},
-                        rules = format_rules(Rules)
-                       }),
+    emqx_authz_mnesia:store_rules({clientid, Clientid}, format_rules(Rules)),
     {204};
 client(delete, #{bindings := #{clientid := Clientid}}) ->
-    mria:dirty_delete({?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}}),
+    emqx_authz_mnesia:delete_rules({clientid, Clientid}),
     {204}.
 
 all(get, _) ->
-    case mnesia:dirty_read(?ACL_TABLE, ?ACL_TABLE_ALL) of
-        [] ->
+    case emqx_authz_mnesia:get_rules(all) of
+        not_found ->
             {200, #{rules => []}};
-        [#emqx_acl{who = ?ACL_TABLE_ALL, rules = Rules}] ->
+        {ok, Rules} ->
             {200, #{rules => [ #{topic => Topic,
                                  action => Action,
                                  permission => Permission
@@ -354,18 +335,13 @@ all(get, _) ->
             }
     end;
 all(put, #{body := #{<<"rules">> := Rules}}) ->
-    mria:dirty_write(#emqx_acl{
-                        who = ?ACL_TABLE_ALL,
-                        rules = format_rules(Rules)
-                       }),
+    emqx_authz_mnesia:store_rules(all, format_rules(Rules)),
     {204}.
 
 purge(delete, _) ->
     case emqx_authz_api_sources:get_raw_source(<<"built-in-database">>) of
         [#{<<"enable">> := false}] ->
-            ok = lists:foreach(fun(Key) ->
-                                   ok = mria:dirty_delete(?ACL_TABLE, Key)
-                               end, mnesia:dirty_all_keys(?ACL_TABLE)),
+            ok = emqx_authz_mnesia:purge_rules(),
             {204};
         [#{<<"enable">> := true}] ->
             {400, #{code => <<"BAD_REQUEST">>,
