@@ -14,26 +14,15 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_zone_schema).
+-define(TOPK_TAB, emqx_slow_subs_topk).
 
--export([namespace/0, roots/0, fields/1]).
+-define(INDEX(Latency, ClientId), {Latency, ClientId}).
 
-namespace() -> zone.
+-record(top_k, { index :: index()
+               , type :: emqx_message_latency_stats:latency_type()
+               , last_update_time :: pos_integer()
+               , extra = []
+               }).
 
-%% this shcema module is not used at root level.
-%% roots are added only for document generation.
-roots() -> ["mqtt", "stats", "flapping_detect", "force_shutdown",
-            "conn_congestion", "rate_limit", "quota", "force_gc",
-            "overload_protection", "latency_stats"
-           ].
-
-%% zone schemas are clones from the same name from root level
-%% only not allowed to have default values.
-fields(Name) ->
-    [{N, no_default(Sc)} || {N, Sc} <- emqx_schema:fields(Name)].
-
-%% no default values for zone settings
-no_default(Sc) ->
-    fun(default) -> undefined;
-       (Other) -> hocon_schema:field_schema(Sc, Other)
-    end.
+-type top_k() :: #top_k{}.
+-type index() :: ?INDEX(non_neg_integer(), emqx_types:clientid()).
