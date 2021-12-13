@@ -297,7 +297,7 @@ parse_packet(#mqtt_packet_header{type = ?SUBSCRIBE}, <<PacketId:16/big, Rest/bin
              #{strict_mode := StrictMode, version := Ver}) ->
     StrictMode andalso validate_packet_id(PacketId),
     {Properties, Rest1} = parse_properties(Rest, Ver),
-    TopicFilters = parse_topic_filters(subscribe, Rest1),
+    TopicFilters = parse_topic_filters(subscribe, Rest1, Ver),
     ok = validate_subqos([QoS || {_, #{qos := QoS}} <- TopicFilters]),
     #mqtt_packet_subscribe{packet_id     = PacketId,
                            properties    = Properties,
@@ -318,7 +318,7 @@ parse_packet(#mqtt_packet_header{type = ?UNSUBSCRIBE}, <<PacketId:16/big, Rest/b
              #{strict_mode := StrictMode, version := Ver}) ->
     StrictMode andalso validate_packet_id(PacketId),
     {Properties, Rest1} = parse_properties(Rest, Ver),
-    TopicFilters = parse_topic_filters(unsubscribe, Rest1),
+    TopicFilters = parse_topic_filters(unsubscribe, Rest1, Ver),
     #mqtt_packet_unsubscribe{packet_id     = PacketId,
                              properties    = Properties,
                              topic_filters = TopicFilters
@@ -460,11 +460,16 @@ parse_variable_byte_integer(<<1:1, Len:7, Rest/binary>>, Multiplier, Value) ->
 parse_variable_byte_integer(<<0:1, Len:7, Rest/binary>>, Multiplier, Value) ->
     {Value + Len * Multiplier, Rest}.
 
-parse_topic_filters(subscribe, Bin) ->
+parse_topic_filters(subscribe, Bin, ?MQTT_PROTO_V5) ->
     [{Topic, #{rh => Rh, rap => Rap, nl => Nl, qos => QoS}}
      || <<Len:16/big, Topic:Len/binary, _:2, Rh:2, Rap:1, Nl:1, QoS:2>> <= Bin];
 
-parse_topic_filters(unsubscribe, Bin) ->
+parse_topic_filters(subscribe, Bin, Ver) when Ver == ?MQTT_PROTO_V3;
+                                              Ver == ?MQTT_PROTO_V4 ->
+    [{Topic, #{qos => QoS}}
+     || <<Len:16/big, Topic:Len/binary, _:2, _Rh:2, _Rap:1, _Nl:1, QoS:2>> <= Bin];
+
+parse_topic_filters(unsubscribe, Bin, _) ->
     [Topic || <<Len:16/big, Topic:Len/binary>> <= Bin].
 
 parse_reason_codes(Bin) ->

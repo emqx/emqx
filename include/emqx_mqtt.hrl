@@ -190,7 +190,7 @@
 %% MQTT Packets
 %%--------------------------------------------------------------------
 
--define(DEFAULT_SUBOPTS, #{rh  => 0, %% Retain Handling
+-define(DEFAULT_SUBOPTS, #{rh  => 1, %% Retain Handling
                            rap => 0, %% Retain as Publish
                            nl  => 0, %% No Local
                            qos => 0  %% QoS

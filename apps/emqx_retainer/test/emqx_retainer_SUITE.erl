@@ -97,6 +97,33 @@ t_retain_handling(_) ->
     emqtt:publish(C1, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
     ok = emqtt:disconnect(C1).
 
+t_retain_handling_v4(_) ->
+    ClientOpts = [{clientid, <<"testv4">>},
+                  {clean_start, false},
+                  {proto_ver, v4}],
+    {ok, C1} = emqtt:start_link(ClientOpts),
+    {ok, _} = emqtt:connect(C1),
+
+    emqtt:publish(C1, <<"retained">>, <<"this is a retained message">>, [{qos, 0}, {retain, true}]),
+
+    {ok, _, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}]),
+    ?assertEqual(1, length(receive_messages(1))),
+    {ok, _, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}]),
+    ?assertEqual(0, length(receive_messages(1))),
+
+    ok = emqtt:disconnect(C1),
+    _ = timer:sleep(300),
+
+    {ok, C2} = emqtt:start_link(ClientOpts),
+    {ok, _} = emqtt:connect(C2),
+
+    {ok, _, [0]} = emqtt:subscribe(C2, <<"retained">>, [{qos, 0}]),
+    ?assertEqual(0, length(receive_messages(1))),
+
+    {ok, _, _} = emqtt:unsubscribe(C2, <<"retained">>),
+    emqtt:publish(C2, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
+    ok = emqtt:disconnect(C2).
+
 t_wildcard_subscription(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
