@@ -16,10 +16,8 @@ up:
 		REDIS_TAG=6 \
 		MONGO_TAG=5 \
 		PGSQL_TAG=13 \
-		LDAP_TAG=2.4.50 \
 	docker-compose \
 		-f .ci/docker-compose-file/docker-compose.yaml \
-		-f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
@@ -29,7 +27,6 @@ up:
 down:
 	docker-compose \
 		-f .ci/docker-compose-file/docker-compose.yaml \
-		-f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
