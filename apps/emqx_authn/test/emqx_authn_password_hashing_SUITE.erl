@@ -116,9 +116,8 @@ hash_examples() ->
                                     salt_position => prefix}
       },
      #{
-       password_hash => iolist_to_binary(
-                          [<<"a1509ab67bfacbad020927b5ac9d91e9100a82e33a0ebb01459367ce921c0aa8">>,
-                           <<"157aa5652f94bc84fa3babc08283e44887d61c48bcf8ad7bcb3259ee7d0eafcd">>]),
+       password_hash => <<"a1509ab67bfacbad020927b5ac9d91e9100a82e33a0ebb01459367ce921c0aa8"
+                          "157aa5652f94bc84fa3babc08283e44887d61c48bcf8ad7bcb3259ee7d0eafcd">>,
        salt => <<"salt">>,
        password => <<"sha512">>,
        password_hash_algorithm => #{name => sha512,
@@ -131,5 +130,26 @@ hash_examples() ->
 
        password_hash_algorithm => #{name => bcrypt,
                                     salt_rounds => 10}
+      },
+
+     #{
+       password_hash => <<"01dbee7f4a9e243e988b62c73cda935d"
+                          "a05378b93244ec8f48a99e61ad799d86">>,
+       salt => <<"ATHENA.MIT.EDUraeburn">>,
+       password => <<"password">>,
+
+       password_hash_algorithm => #{name => pbkdf2,
+                                    iterations => 2,
+                                    dk_length => 32,
+                                    mac_fun => sha}
+      },
+     #{
+       password_hash => <<"01dbee7f4a9e243e988b62c73cda935da05378b9">>,
+       salt => <<"ATHENA.MIT.EDUraeburn">>,
+       password => <<"password">>,
+
+       password_hash_algorithm => #{name => pbkdf2,
+                                    iterations => 2,
+                                    mac_fun => sha}
       }
     ].

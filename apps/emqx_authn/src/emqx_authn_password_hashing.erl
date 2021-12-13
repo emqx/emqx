@@ -27,8 +27,12 @@
 -type(bcrypt_algorithm() :: #{name := bcrypt}).
 -type(bcrypt_algorithm_rw() :: #{name := bcrypt, salt_rounds := integer()}).
 
--type(algorithm() :: simple_algorithm() | bcrypt_algorithm()).
--type(algorithm_rw() :: simple_algorithm() | bcrypt_algorithm_rw()).
+-type(pbkdf2_algorithm() :: #{name := pbkdf2,
+                              mac_fun := emqx_passwd:pbkdf2_mac_fun(),
+                              iterations := pos_integer()}).
+
+-type(algorithm() :: simple_algorithm() | pbkdf2_algorithm() | bcrypt_algorithm()).
+-type(algorithm_rw() :: simple_algorithm() | pbkdf2_algorithm() | bcrypt_algorithm_rw()).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -47,7 +51,7 @@
          hash/2,
          check_password/4]).
 
-roots() -> [bcrypt, bcrypt_rw, other_algorithms].
+roots() -> [pbkdf2, bcrypt, bcrypt_rw, other_algorithms].
 
 fields(bcrypt_rw) ->
     fields(bcrypt) ++
@@ -55,6 +59,12 @@ fields(bcrypt_rw) ->
 
 fields(bcrypt) ->
     [{name, {enum, [bcrypt]}}];
+
+fields(pbkdf2) ->
+    [{name, {enum, [pbkdf2]}},
+     {mac_fun, {enum, [md4, md5, ripemd160, sha, sha224, sha256, sha384, sha512]}},
+     {iterations, integer()},
+     {dk_length, fun dk_length/1}];
 
 fields(other_algorithms) ->
     [{name, {enum, [plain, md5, sha, sha256, sha512]}},
@@ -67,6 +77,11 @@ salt_position(_) -> undefined.
 salt_rounds(type) -> integer();
 salt_rounds(default) -> 10;
 salt_rounds(_) -> undefined.
+
+dk_length(type) -> integer();
+dk_length(nullable) -> true;
+dk_length(default) -> undefined;
+dk_length(_) -> undefined.
 
 type_rw(type) ->
     hoconsc:union(rw_refs());
@@ -108,7 +123,13 @@ hash(#{name := bcrypt, salt_rounds := _} = Algorithm, Password) ->
     Hash = emqx_passwd:hash({bcrypt, Salt0}, Password),
     Salt = Hash,
     {Hash, Salt};
-
+hash(#{name := pbkdf2,
+       mac_fun := MacFun,
+       iterations := Iterations} = Algorithm, Password) ->
+    Salt = gen_salt(Algorithm),
+    DKLength = maps:get(dk_length, Algorithm, undefined),
+    Hash = emqx_passwd:hash({pbkdf2, MacFun, Salt, Iterations, DKLength}, Password),
+    {Hash, Salt};
 hash(#{name := Other, salt_position := SaltPosition} = Algorithm, Password) ->
     Salt = gen_salt(Algorithm),
     Hash = emqx_passwd:hash({Other, Salt, SaltPosition}, Password),
@@ -122,7 +143,12 @@ hash(#{name := Other, salt_position := SaltPosition} = Algorithm, Password) ->
         emqx_passwd:password()) -> boolean()).
 check_password(#{name := bcrypt}, _Salt, PasswordHash, Password) ->
     emqx_passwd:check_pass({bcrypt, PasswordHash}, PasswordHash, Password);
-
+check_password(#{name := pbkdf2,
+                 mac_fun := MacFun,
+                 iterations := Iterations} = Algorithm,
+               Salt, PasswordHash, Password) ->
+    DKLength = maps:get(dk_length, Algorithm, undefined),
+    emqx_passwd:check_pass({pbkdf2, MacFun, Salt, Iterations, DKLength}, PasswordHash, Password);
 check_password(#{name := Other, salt_position := SaltPosition}, Salt, PasswordHash, Password) ->
     emqx_passwd:check_pass({Other, Salt, SaltPosition}, PasswordHash, Password).
 
@@ -132,8 +158,10 @@ check_password(#{name := Other, salt_position := SaltPosition}, Salt, PasswordHa
 
 rw_refs() ->
     [hoconsc:ref(?MODULE, bcrypt_rw),
+     hoconsc:ref(?MODULE, pbkdf2),
      hoconsc:ref(?MODULE, other_algorithms)].
 
 ro_refs() ->
     [hoconsc:ref(?MODULE, bcrypt),
+     hoconsc:ref(?MODULE, pbkdf2),
      hoconsc:ref(?MODULE, other_algorithms)].

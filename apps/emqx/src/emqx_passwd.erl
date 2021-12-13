@@ -34,18 +34,34 @@
 -type(password_hash() :: binary()).
 
 -type(hash_type_simple() :: plain | md5 | sha | sha256 | sha512).
--type(hash_type() :: hash_type_simple() | bcrypt).
+-type(hash_type() :: hash_type_simple() | bcrypt | pbkdf2).
 
 -type(salt_position() :: prefix | suffix).
 -type(salt() :: binary()).
 
--type(hash_params() :: {bcrypt, salt()} | {hash_type_simple(), salt(), salt_position()}).
+-type(pbkdf2_mac_fun() :: md4 | md5 | ripemd160 | sha | sha224 | sha256 | sha384 | sha512).
+-type(pbkdf2_iterations() :: pos_integer()).
+-type(pbkdf2_dk_length() :: pos_integer() | undefined).
+
+-type(hash_params() ::
+      {bcrypt, salt()} |
+      {pbkdf2, pbkdf2_mac_fun(), salt(), pbkdf2_iterations(), pbkdf2_dk_length()} |
+      {hash_type_simple(), salt(), salt_position()}).
+
+-export_type([pbkdf2_mac_fun/0]).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
 -spec(check_pass(hash_params(), password_hash(), password()) -> boolean()).
+check_pass({pbkdf2, MacFun, Salt, Iterations, DKLength}, PasswordHash, Password) ->
+    case pbkdf2(MacFun, Password, Salt, Iterations, DKLength) of
+        {ok, HashPasswd} ->
+            compare_secure(hex(HashPasswd), PasswordHash);
+        {error, _Reason}->
+            false
+    end;
 check_pass({bcrypt, Salt}, PasswordHash, Password) ->
     case bcrypt:hashpw(Password, Salt) of
         {ok, HashPasswd} ->
@@ -58,6 +74,13 @@ check_pass({_SimpleHash, _Salt, _SaltPosition} = HashParams, PasswordHash, Passw
     compare_secure(Hash, PasswordHash).
 
 -spec(hash(hash_params(), password()) -> password_hash()).
+hash({pbkdf2, MacFun, Salt, Iterations, DKLength}, Password) ->
+    case pbkdf2(MacFun, Password, Salt, Iterations, DKLength) of
+        {ok, HashPasswd} ->
+            hex(HashPasswd);
+        {error, Reason}->
+            error(Reason)
+    end;
 hash({bcrypt, Salt}, Password) ->
     case bcrypt:hashpw(Password, Salt) of
         {ok, HashPasswd} ->
@@ -75,13 +98,13 @@ hash({SimpleHash, Salt, suffix}, Password) when is_binary(Password), is_binary(S
 hash_data(plain, Data) when is_binary(Data) ->
     Data;
 hash_data(md5, Data) when is_binary(Data) ->
-    hexstring(crypto:hash(md5, Data));
+    hex(crypto:hash(md5, Data));
 hash_data(sha, Data) when is_binary(Data) ->
-    hexstring(crypto:hash(sha, Data));
+    hex(crypto:hash(sha, Data));
 hash_data(sha256, Data) when is_binary(Data) ->
-    hexstring(crypto:hash(sha256, Data));
+    hex(crypto:hash(sha256, Data));
 hash_data(sha512, Data) when is_binary(Data) ->
-    hexstring(crypto:hash(sha512, Data)).
+    hex(crypto:hash(sha512, Data)).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -103,11 +126,11 @@ compare_secure([], [], Result) ->
 	Result == 0.
 
 
-hexstring(<<X:128/big-unsigned-integer>>) ->
-    iolist_to_binary(io_lib:format("~32.16.0b", [X]));
-hexstring(<<X:160/big-unsigned-integer>>) ->
-    iolist_to_binary(io_lib:format("~40.16.0b", [X]));
-hexstring(<<X:256/big-unsigned-integer>>) ->
-    iolist_to_binary(io_lib:format("~64.16.0b", [X]));
-hexstring(<<X:512/big-unsigned-integer>>) ->
-    iolist_to_binary(io_lib:format("~128.16.0b", [X])).
+pbkdf2(MacFun, Password, Salt, Iterations, undefined) ->
+    pbkdf2:pbkdf2(MacFun, Password, Salt, Iterations);
+pbkdf2(MacFun, Password, Salt, Iterations, DKLength) ->
+    pbkdf2:pbkdf2(MacFun, Password, Salt, Iterations, DKLength).
+
+
+hex(X) when is_binary(X) ->
+    pbkdf2:to_hex(X).
