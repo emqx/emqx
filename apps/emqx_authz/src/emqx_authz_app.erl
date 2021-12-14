@@ -23,12 +23,10 @@
 
 -behaviour(application).
 
--include("emqx_authz.hrl").
-
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    ok = mria_rlog:wait_for_shards([?ACL_SHARDED], infinity),
+    ok = emqx_authz_mnesia:init_tables(),
     {ok, Sup} = emqx_authz_sup:start_link(),
     ok = emqx_authz:init(),
     {ok, Sup}.
@@ -36,5 +34,3 @@ start(_StartType, _StartArgs) ->
 stop(_State) ->
     ok = emqx_authz:deinit(),
     ok.
-
-%% internal functions

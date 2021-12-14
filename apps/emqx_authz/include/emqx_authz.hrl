@@ -8,29 +8,6 @@
                     (A =:= all)       orelse (A =:= <<"all">>)
                    )).
 
--define(ACL_SHARDED, emqx_acl_sharded).
-
--define(ACL_TABLE, emqx_acl).
-
-%% To save some space, use an integer for label, 0 for 'all', {1, Username} and {2, ClientId}.
--define(ACL_TABLE_ALL, 0).
--define(ACL_TABLE_USERNAME, 1).
--define(ACL_TABLE_CLIENTID, 2).
-
--type(action() :: subscribe | publish | all).
--type(permission() :: allow | deny).
-
--record(emqx_acl, {
-          who :: ?ACL_TABLE_ALL| {?ACL_TABLE_USERNAME, binary()} | {?ACL_TABLE_CLIENTID, binary()},
-          rules :: [ {permission(), action(), emqx_topic:topic()} ]
-         }).
-
--record(authz_metrics, {
-        allow = 'client.authorize.allow',
-        deny = 'client.authorize.deny',
-        ignore = 'client.authorize.ignore'
-    }).
-
 -define(CMD_REPLACE, replace).
 -define(CMD_DELETE, delete).
 -define(CMD_PREPEND, prepend).
@@ -41,12 +18,6 @@
 -define(CMD_MOVE_BOTTOM, <<"bottom">>).
 -define(CMD_MOVE_BEFORE(Before), {<<"before">>, Before}).
 -define(CMD_MOVE_AFTER(After), {<<"after">>, After}).
-
--define(METRICS(Type), tl(tuple_to_list(#Type{}))).
--define(METRICS(Type, K), #Type{}#Type.K).
-
--define(AUTHZ_METRICS, ?METRICS(authz_metrics)).
--define(AUTHZ_METRICS(K), ?METRICS(authz_metrics, K)).
 
 -define(CONF_KEY_PATH, [authorization, sources]).
 

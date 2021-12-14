@@ -41,7 +41,7 @@ description() ->
     "AuthZ with http".
 
 init(#{url := Url} = Source) ->
-    NSource= maps:put(base_url, maps:remove(query, Url), Source),
+    NSource = maps:put(base_url, maps:remove(query, Url), Source),
     case emqx_authz_utils:create_resource(emqx_connector_http, NSource) of
         {error, Reason} -> error({load_config_error, Reason});
         {ok, Id} -> Source#{annotations => #{id => Id}}
