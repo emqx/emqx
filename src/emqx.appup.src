@@ -128,6 +128,9 @@
      {load_module, emqx_connection, brutal_purge, soft_purge, []},
      {load_module, emqx_cm, brutal_purge, soft_purge, []}
    ]},
+   {<<"4.2.9">>, [
+     {load_module, emqx_zone, brutal_purge, soft_purge, []},
+   ]},	
    {<<".*">>, []}
  ],
  [
@@ -257,6 +260,9 @@
      {load_module, emqx_connection, brutal_purge, soft_purge, []},
      {load_module, emqx_cm, brutal_purge, soft_purge, []}
    ]},
+   {<<"4.2.9">>, [
+     {load_module, emqx_zone, brutal_purge, soft_purge, []},
+   ]},	
    {<<".*">>, []}
  ]
 }.
