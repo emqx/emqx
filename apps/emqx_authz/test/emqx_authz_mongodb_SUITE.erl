@@ -23,112 +23,238 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
+-define(MONGO_HOST, "mongo").
+-define(MONGO_PORT, 27017).
+-define(MONGO_CLIENT, 'emqx_authz_mongo_SUITE_client').
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 groups() ->
     [].
 
-init_per_suite(Config) ->
-    meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
-    meck:expect(emqx_resource, remove, fun(_) -> ok end ),
-
-    ok = emqx_common_test_helpers:start_apps(
-           [emqx_conf, emqx_authz],
-           fun set_special_configs/1
-          ),
-
-    Rules = [#{<<"type">> => <<"mongodb">>,
-               <<"mongo_type">> => <<"single">>,
-               <<"server">> => <<"127.0.0.1:27017">>,
-               <<"pool_size">> => 1,
-               <<"database">> => <<"mqtt">>,
-               <<"ssl">> => #{<<"enable">> => false},
-               <<"collection">> => <<"fake">>,
-               <<"selector">> => #{<<"a">> => <<"b">>}
-              }],
-    {ok, _} = emqx_authz:update(replace, Rules),
+init_per_testcase(_TestCase, Config) ->
+    {ok, _} = mc_worker_api:connect(mongo_config()),
     Config.
 
+end_per_testcase(_TestCase, _Config) ->
+    ok = reset_samples(),
+    ok = mc_worker_api:disconnect(?MONGO_CLIENT).
+
+init_per_suite(Config) ->
+    case emqx_authz_test_lib:is_tcp_server_available(?MONGO_HOST, ?MONGO_PORT) of
+        true ->
+            ok = emqx_common_test_helpers:start_apps(
+                   [emqx_conf, emqx_authz],
+                   fun set_special_configs/1
+                  ),
+            ok = start_apps([emqx_resource, emqx_connector]),
+            Config;
+        false ->
+            {skip, no_mongo}
+    end.
+
 end_per_suite(_Config) ->
-    {ok, _} = emqx:update_config(
-                [authorization],
-                #{<<"no_match">> => <<"allow">>,
-                  <<"cache">> => #{<<"enable">> => <<"true">>},
-                  <<"sources">> => []}),
-    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_conf]),
-    meck:unload(emqx_resource),
-    ok.
+    ok = emqx_authz_test_lib:reset_authorizers(),
+    ok = stop_apps([emqx_resource, emqx_connector]),
+    ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
 
 set_special_configs(emqx_authz) ->
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-    {ok, _} = emqx:update_config([authorization, sources], []),
-    ok;
-set_special_configs(_App) ->
-    ok.
+    ok = emqx_authz_test_lib:reset_authorizers();
 
--define(SOURCE1,[#{<<"topics">> => [<<"#">>],
-                 <<"permission">> => <<"deny">>,
-                 <<"action">> => <<"all">>}]).
--define(SOURCE2,[#{<<"topics">> => [<<"eq #">>],
-                 <<"permission">> => <<"allow">>,
-                 <<"action">> => <<"all">>}]).
--define(SOURCE3,[#{<<"topics">> => [<<"test/", ?PH_CLIENTID/binary>>],
-                 <<"permission">> => <<"allow">>,
-                 <<"action">> => <<"subscribe">>}]).
--define(SOURCE4,[#{<<"topics">> => [<<"test/", ?PH_USERNAME/binary>>],
-                 <<"permission">> => <<"allow">>,
-                 <<"action">> => <<"publish">>}]).
+set_special_configs(_) ->
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_authz(_) ->
-    ClientInfo1 = #{clientid => <<"test">>,
-                    username => <<"test">>,
-                    peerhost => {127,0,0,1},
-                    zone => default,
-                    listener => {tcp, default}
-                   },
-    ClientInfo2 = #{clientid => <<"test_clientid">>,
-                    username => <<"test_username">>,
-                    peerhost => {192,168,0,10},
-                    zone => default,
-                    listener => {tcp, default}
-                   },
-    ClientInfo3 = #{clientid => <<"test_clientid">>,
-                    username => <<"fake_username">>,
-                    peerhost => {127,0,0,1},
-                    zone => default,
-                    listener => {tcp, default}
-                   },
 
-    meck:expect(emqx_resource, query, fun(_, _) -> [] end),
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)), % nomatch
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"#">>)), % nomatch
+t_topic_rules(_Config) ->
+    ClientInfo = #{clientid => <<"clientid">>,
+                   username => <<"username">>,
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => {tcp, default}
+                  },
 
-    meck:expect(emqx_resource, query, fun(_, _) -> ?SOURCE1 ++ ?SOURCE2 end),
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"+">>)),
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, publish, <<"+">>)),
+    %% No rules
 
-    meck:expect(emqx_resource, query, fun(_, _) -> ?SOURCE2 ++ ?SOURCE1 end),
-    ?assertEqual(allow, emqx_access_control:authorize(ClientInfo1, subscribe, <<"#">>)),
-    ?assertEqual(deny, emqx_access_control:authorize(ClientInfo1, subscribe, <<"+">>)),
+    ok = setup_samples([]),
+    ok = setup_config(#{}),
 
-    meck:expect(emqx_resource, query, fun(_, _) -> ?SOURCE3 ++ ?SOURCE4 end),
-    ?assertEqual(allow, emqx_access_control:authorize(
-                          ClientInfo2, subscribe, <<"test/test_clientid">>)),
-    ?assertEqual(deny,  emqx_access_control:authorize(
-                          ClientInfo2, publish,   <<"test/test_clientid">>)),
-    ?assertEqual(deny,  emqx_access_control:authorize(
-                          ClientInfo2, subscribe, <<"test/test_username">>)),
-    ?assertEqual(allow, emqx_access_control:authorize(
-                          ClientInfo2, publish,   <<"test/test_username">>)),
-    ?assertEqual(deny,  emqx_access_control:authorize(
-                          ClientInfo3, subscribe, <<"test">>)), % nomatch
-    ?assertEqual(deny,  emqx_access_control:authorize(
-                          ClientInfo3, publish,   <<"test">>)), % nomatch
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{deny, subscribe, <<"#">>},
+            {deny, subscribe, <<"subs">>},
+            {deny, publish, <<"pub">>}]),
+
+    %% Publish rules
+
+    Samples0 = populate_records(
+                 [#{<<"topics">> => [<<"eq testpub1/${username}">>]},
+                  #{<<"topics">> => [<<"testpub2/${clientid}">>, <<"testpub3/#">>]}],
+                 #{<<"permission">> => <<"allow">>,
+                   <<"action">> => <<"publish">>,
+                   <<"username">> => <<"username">>}),
+
+    ok = setup_samples(Samples0),
+    ok = setup_config(#{}),
+
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{deny, publish, <<"testpub1/username">>},
+            {allow, publish, <<"testpub1/${username}">>},
+            {allow, publish, <<"testpub2/clientid">>},
+            {allow, publish, <<"testpub3/foobar">>},
+
+            {deny, publish, <<"testpub2/username">>},
+            {deny, publish, <<"testpub1/clientid">>},
+
+
+            {deny, subscribe, <<"testpub1/username">>},
+            {deny, subscribe, <<"testpub2/clientid">>},
+            {deny, subscribe, <<"testpub3/foobar">>}]),
+
+    %% Subscribe rules
+
+    Samples1 = populate_records(
+                 [#{<<"topics">> => [<<"eq testsub1/${username}">>]},
+                  #{<<"topics">> => [<<"testsub2/${clientid}">>, <<"testsub3/#">>]}],
+                 #{<<"permission">> => <<"allow">>,
+                   <<"action">> => <<"subscribe">>,
+                   <<"username">> => <<"username">>}),
+
+    ok = setup_samples(Samples1),
+    ok = setup_config(#{}),
+
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{deny, subscribe, <<"testsub1/username">>},
+            {allow, subscribe, <<"testsub1/${username}">>},
+            {allow, subscribe, <<"testsub2/clientid">>},
+            {allow, subscribe, <<"testsub3/foobar">>},
+            {allow, subscribe, <<"testsub3/+/foobar">>},
+            {allow, subscribe, <<"testsub3/#">>},
+
+            {deny, subscribe, <<"testsub2/username">>},
+            {deny, subscribe, <<"testsub1/clientid">>},
+            {deny, subscribe, <<"testsub4/foobar">>},
+            {deny, publish, <<"testsub1/username">>},
+            {deny, publish, <<"testsub2/clientid">>},
+            {deny, publish, <<"testsub3/foobar">>}]),
+
+    %% All rules
+
+    Samples2 = populate_records(
+                 [#{<<"topics">> => [<<"eq testall1/${username}">>]},
+                  #{<<"topics">> => [<<"testall2/${clientid}">>, <<"testall3/#">>]}],
+                 #{<<"permission">> => <<"allow">>,
+                   <<"action">> => <<"all">>,
+                   <<"username">> => <<"username">>}),
+
+    ok = setup_samples(Samples2),
+    ok = setup_config(#{}),
+
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{deny, subscribe, <<"testall1/username">>},
+            {allow, subscribe, <<"testall1/${username}">>},
+            {allow, subscribe, <<"testall2/clientid">>},
+            {allow, subscribe, <<"testall3/foobar">>},
+            {allow, subscribe, <<"testall3/+/foobar">>},
+            {allow, subscribe, <<"testall3/#">>},
+            {deny, publish, <<"testall1/username">>},
+            {allow, publish, <<"testall1/${username}">>},
+            {allow, publish, <<"testall2/clientid">>},
+            {allow, publish, <<"testall3/foobar">>},
+
+            {deny, subscribe, <<"testall2/username">>},
+            {deny, subscribe, <<"testall1/clientid">>},
+            {deny, subscribe, <<"testall4/foobar">>},
+            {deny, publish, <<"testall2/username">>},
+            {deny, publish, <<"testall1/clientid">>},
+            {deny, publish, <<"testall4/foobar">>}]).
+
+
+t_complex_selector(_) ->
+    ClientInfo = #{clientid => clientid,
+                   username => "username",
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => {tcp, default}
+                  },
+
+    Samples = [#{<<"x">> => #{<<"u">> => <<"username">>,
+                              <<"c">> => [#{<<"c">> => <<"clientid">>}],
+                              <<"y">> => 1},
+                 <<"permission">> => <<"allow">>,
+                 <<"action">> => <<"publish">>,
+                 <<"topics">> => [<<"t">>]
+                }],
+
+    ok = setup_samples(Samples),
+    ok = setup_config(
+           #{<<"selector">> => #{<<"x">> => #{<<"u">> => <<"${username}">>,
+                                              <<"c">> => [#{<<"c">> => <<"${clientid}">>}],
+                                              <<"y">> => 1}
+                                }
+            }),
+
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{allow, publish, <<"t">>}]).
+
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
+
+populate_records(AclRecords, AdditionalData) ->
+    [maps:merge(Record, AdditionalData) || Record <- AclRecords].
+
+setup_samples(AclRecords) ->
+    ok = reset_samples(),
+    {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"acl">>, AclRecords),
     ok.
+
+reset_samples() ->
+    {true, _} = mc_worker_api:delete(?MONGO_CLIENT, <<"acl">>, #{}),
+    ok.
+
+setup_config(SpecialParams) ->
+    emqx_authz_test_lib:setup_config(
+      raw_mongo_authz_config(),
+      SpecialParams).
+
+raw_mongo_authz_config() ->
+    #{
+        <<"type">> => <<"mongodb">>,
+        <<"enable">> => <<"true">>,
+
+        <<"mongo_type">> => <<"single">>,
+        <<"database">> => <<"mqtt">>,
+        <<"collection">> => <<"acl">>,
+        <<"server">> => mongo_server(),
+
+        <<"selector">> => #{<<"username">> => <<"${username}">>}
+    }.
+
+mongo_server() ->
+    iolist_to_binary(
+      io_lib:format(
+        "~s:~b",
+        [?MONGO_HOST, ?MONGO_PORT])).
+
+mongo_config() ->
+    [
+     {database, <<"mqtt">>},
+     {host, ?MONGO_HOST},
+     {port, ?MONGO_PORT},
+     {register, ?MONGO_CLIENT}
+    ].
+
+start_apps(Apps) ->
+    lists:foreach(fun application:ensure_all_started/1, Apps).
+
+stop_apps(Apps) ->
+    lists:foreach(fun application:stop/1, Apps).

@@ -81,7 +81,7 @@ t_topic_rules(_Config) ->
     ok = setup_sample(#{}),
     ok = setup_config(#{}),
 
-    ok = test_samples(
+    ok = emqx_authz_test_lib:test_samples(
            ClientInfo,
            [{deny, subscribe, <<"#">>},
             {deny, subscribe, <<"subs">>},
@@ -98,7 +98,7 @@ t_topic_rules(_Config) ->
     ok = setup_sample(Sample0),
     ok = setup_config(#{}),
 
-    ok = test_samples(
+    ok = emqx_authz_test_lib:test_samples(
            ClientInfo,
            [{allow, publish, <<"testpub1/username">>},
             {allow, publish, <<"testpub2/clientid">>},
@@ -123,7 +123,7 @@ t_topic_rules(_Config) ->
     ok = setup_sample(Sample1),
     ok = setup_config(#{}),
 
-    ok = test_samples(
+    ok = emqx_authz_test_lib:test_samples(
            ClientInfo,
            [{allow, subscribe, <<"testsub1/username">>},
             {allow, subscribe, <<"testsub2/clientid">>},
@@ -149,7 +149,7 @@ t_topic_rules(_Config) ->
     ok = setup_sample(Sample2),
     ok = setup_config(#{}),
 
-    ok = test_samples(
+    ok = emqx_authz_test_lib:test_samples(
            ClientInfo,
            [{allow, subscribe, <<"testall1/username">>},
             {allow, subscribe, <<"testall2/clientid">>},
@@ -183,7 +183,7 @@ t_lookups(_Config) ->
     ok = setup_sample(ByClientid),
     ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${clientid}">>}),
 
-    ok = test_samples(
+    ok = emqx_authz_test_lib:test_samples(
            ClientInfo,
            [{allow, subscribe, <<"a">>},
             {deny, subscribe, <<"b">>}]),
@@ -194,7 +194,7 @@ t_lookups(_Config) ->
     ok = setup_sample(ByPeerhost),
     ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${peerhost}">>}),
 
-    ok = test_samples(
+    ok = emqx_authz_test_lib:test_samples(
            ClientInfo,
            [{allow, subscribe, <<"a">>},
             {deny, subscribe, <<"b">>}]),
@@ -205,7 +205,7 @@ t_lookups(_Config) ->
     ok = setup_sample(ByCN),
     ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${cert_common_name}">>}),
 
-    ok = test_samples(
+    ok = emqx_authz_test_lib:test_samples(
            ClientInfo,
            [{allow, subscribe, <<"a">>},
             {deny, subscribe, <<"b">>}]),
@@ -217,7 +217,7 @@ t_lookups(_Config) ->
     ok = setup_sample(ByDN),
     ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${cert_subject}">>}),
 
-    ok = test_samples(
+    ok = emqx_authz_test_lib:test_samples(
            ClientInfo,
            [{allow, subscribe, <<"a">>},
             {deny, subscribe, <<"b">>}]).
@@ -254,22 +254,6 @@ t_redis_error(_Config) ->
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
-
-test_samples(ClientInfo, Samples) ->
-    lists:foreach(
-      fun({Expected, Action, Topic}) ->
-              ct:pal(
-                "client_info: ~p, action: ~p, topic: ~p, expected: ~p",
-                [ClientInfo, Action, Topic, Expected]),
-              ?assertEqual(
-                 Expected,
-                 emqx_access_control:authorize(
-                   ClientInfo,
-                   Action,
-                   Topic))
-      end,
-      Samples).
-
 
 setup_sample(AuthzData) ->
     {ok, _} = q(["FLUSHDB"]),

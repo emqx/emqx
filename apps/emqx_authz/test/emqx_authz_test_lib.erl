@@ -17,6 +17,7 @@
 -module(emqx_authz_test_lib).
 
 -include("emqx_authz.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -33,6 +34,27 @@ reset_authorizers(Nomatch, ChacheEnabled) ->
                   <<"cache">> => #{<<"enable">> => atom_to_binary(ChacheEnabled)},
                   <<"sources">> => []}),
     ok.
+
+setup_config(BaseConfig, SpecialParams) ->
+    ok = reset_authorizers(deny, false),
+    Config = maps:merge(BaseConfig, SpecialParams),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [Config]),
+    ok.
+
+test_samples(ClientInfo, Samples) ->
+    lists:foreach(
+      fun({Expected, Action, Topic}) ->
+              ct:pal(
+                "client_info: ~p, action: ~p, topic: ~p, expected: ~p",
+                [ClientInfo, Action, Topic, Expected]),
+              ?assertEqual(
+                 Expected,
+                 emqx_access_control:authorize(
+                   ClientInfo,
+                   Action,
+                   Topic))
+      end,
+      Samples).
 
 is_tcp_server_available(Host, Port) ->
     case gen_tcp:connect(Host, Port, [], ?DEFAULT_CHECK_AVAIL_TIMEOUT) of
