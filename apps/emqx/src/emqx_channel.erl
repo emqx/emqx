@@ -250,7 +250,7 @@ set_peercert_infos(Peercert, ClientInfo, Zone) ->
          dn  -> DN;
          crt -> Peercert;
          pem when is_binary(Peercert) -> base64:encode(Peercert);
-         md5 when is_binary(Peercert) -> emqx_passwd:hash(md5, Peercert);
+         md5 when is_binary(Peercert) -> emqx_passwd:hash_data(md5, Peercert);
          _   -> undefined
         end
     end,
