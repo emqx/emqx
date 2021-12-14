@@ -3,6 +3,7 @@
 -export([do/2]).
 
 do(Dir, CONFIG) ->
+
     case iolist_to_binary(Dir) of
         <<".">> ->
             {HasElixir, C1} = deps(CONFIG),
