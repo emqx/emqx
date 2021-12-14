@@ -76,7 +76,7 @@ t_suboption(_) ->
     [ Sub2 | _ ] =  ets:lookup(emqx_subscription,CPid2),
     [ Suboption2 | _ ] = ets:lookup(emqx_suboption,Sub2),
     ok = emqtt:disconnect(C2),
-    ?assertMatch({Sub2, #{qos := 2, nl := 0, rap := 0, rh := 0, subid := _}}, Suboption2),
+    ?assertMatch({Sub2, #{qos := 2, nl := 0, rap := 0, rh := 1, subid := _}}, Suboption2),
 
     ?assertEqual(ok, emqx_mod_subscription:unload([{<<"connected/undefined">>, Suboption}])).
 

@@ -71,17 +71,17 @@ t_subopts(Config) when is_list(Config) ->
     ?assertEqual(undefined, emqx_broker:get_subopts(<<"clientid">>, <<"topic">>)),
     emqx_broker:subscribe(<<"topic">>, <<"clientid">>, #{qos => 1}),
     timer:sleep(200),
-    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
+    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 1, subid => <<"clientid">>},
                  emqx_broker:get_subopts(self(), <<"topic">>)),
-    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
+    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 1, subid => <<"clientid">>},
                  emqx_broker:get_subopts(<<"clientid">>,<<"topic">>)),
 
     emqx_broker:subscribe(<<"topic">>, <<"clientid">>, #{qos => 2}),
-    ?assertEqual(#{nl => 0, qos => 2, rap => 0, rh => 0, subid => <<"clientid">>},
+    ?assertEqual(#{nl => 0, qos => 2, rap => 0, rh => 1, subid => <<"clientid">>},
                  emqx_broker:get_subopts(self(), <<"topic">>)),
 
     ?assertEqual(true, emqx_broker:set_subopts(<<"topic">>, #{qos => 0})),
-    ?assertEqual(#{nl => 0, qos => 0, rap => 0, rh => 0, subid => <<"clientid">>},
+    ?assertEqual(#{nl => 0, qos => 0, rap => 0, rh => 1, subid => <<"clientid">>},
                  emqx_broker:get_subopts(self(), <<"topic">>));
 t_subopts({'end', _Config}) ->
     emqx_broker:unsubscribe(<<"topic">>).
@@ -118,9 +118,9 @@ t_subscriptions({init, Config}) ->
     Config;
 t_subscriptions(Config) when is_list(Config) ->
     ct:sleep(100),
-    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
+    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 1, subid => <<"clientid">>},
                  proplists:get_value(<<"topic">>, emqx_broker:subscriptions(self()))),
-    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
+    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 1, subid => <<"clientid">>},
                  proplists:get_value(<<"topic">>, emqx_broker:subscriptions(<<"clientid">>)));
 t_subscriptions({'end', _Config}) ->
     emqx_broker:unsubscribe(<<"topic">>).

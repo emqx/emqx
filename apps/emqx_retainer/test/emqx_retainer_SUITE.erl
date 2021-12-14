@@ -127,9 +127,26 @@ t_retain_handling_v4(_) ->
 t_wildcard_subscription(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
-    emqtt:publish(C1, <<"retained/0">>, <<"this is a retained message 0">>, [{qos, 0}, {retain, true}]),
-    emqtt:publish(C1, <<"retained/1">>, <<"this is a retained message 1">>, [{qos, 0}, {retain, true}]),
-    emqtt:publish(C1, <<"retained/a/b/c">>, <<"this is a retained message 2">>, [{qos, 0}, {retain, true}]),
+    emqtt:publish(
+      C1,
+      <<"retained/0">>,
+      <<"this is a retained message 0">>,
+      [{qos, 0}, {retain, true}]
+     ),
+
+    emqtt:publish(
+      C1,
+      <<"retained/1">>,
+      <<"this is a retained message 1">>,
+      [{qos, 0}, {retain, true}]
+     ),
+
+    emqtt:publish(
+      C1,
+      <<"retained/a/b/c">>,
+      <<"this is a retained message 2">>,
+      [{qos, 0}, {retain, true}]
+     ),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1,  <<"retained/+">>, 0),
     {ok, #{}, [0]} = emqtt:subscribe(C1,  <<"retained/+/b/#">>, 0),
@@ -144,11 +161,43 @@ t_message_expiry(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
 
-    emqtt:publish(C1, <<"retained/0">>, #{'Message-Expiry-Interval' => 0}, <<"don't expire">>, [{qos, 0}, {retain, true}]),
-    emqtt:publish(C1, <<"retained/1">>, #{'Message-Expiry-Interval' => 2}, <<"expire">>, [{qos, 0}, {retain, true}]),
-    emqtt:publish(C1, <<"retained/2">>, #{'Message-Expiry-Interval' => 5}, <<"don't expire">>, [{qos, 0}, {retain, true}]),
-    emqtt:publish(C1, <<"retained/3">>, <<"don't expire">>, [{qos, 0}, {retain, true}]),
-    emqtt:publish(C1, <<"$SYS/retained/4">>, <<"don't expire">>, [{qos, 0}, {retain, true}]),
+    emqtt:publish(
+      C1,
+      <<"retained/0">>,
+      #{'Message-Expiry-Interval' => 0},
+      <<"don't expire">>,
+      [{qos, 0}, {retain, true}]
+     ),
+
+    emqtt:publish(
+      C1,
+      <<"retained/1">>,
+      #{'Message-Expiry-Interval' => 2},
+      <<"expire">>,
+      [{qos, 0}, {retain, true}]
+     ),
+
+    emqtt:publish(
+      C1,
+      <<"retained/2">>,
+      #{'Message-Expiry-Interval' => 5},
+      <<"don't expire">>,
+      [{qos, 0}, {retain, true}]
+     ),
+
+    emqtt:publish(
+      C1,
+      <<"retained/3">>,
+      <<"don't expire">>,
+      [{qos, 0}, {retain, true}]
+     ),
+
+    emqtt:publish(
+      C1,
+      <<"$SYS/retained/4">>,
+      <<"don't expire">>,
+      [{qos, 0}, {retain, true}]
+     ),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/+">>, 0),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"$SYS/retained/+">>, 0),
@@ -188,9 +237,26 @@ t_message_expiry_2(_) ->
 t_clean(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
-    emqtt:publish(C1, <<"retained/0">>, <<"this is a retained message 0">>, [{qos, 0}, {retain, true}]),
-    emqtt:publish(C1, <<"retained/1">>, <<"this is a retained message 1">>, [{qos, 0}, {retain, true}]),
-    emqtt:publish(C1, <<"retained/test/0">>, <<"this is a retained message 2">>, [{qos, 0}, {retain, true}]),
+    emqtt:publish(
+      C1,
+      <<"retained/0">>,
+      <<"this is a retained message 0">>,
+      [{qos, 0}, {retain, true}]
+     ),
+
+    emqtt:publish(
+      C1,
+      <<"retained/1">>,
+      <<"this is a retained message 1">>,
+      [{qos, 0}, {retain, true}]
+     ),
+
+    emqtt:publish(
+      C1,
+      <<"retained/test/0">>,
+      <<"this is a retained message 2">>,
+      [{qos, 0}, {retain, true}]
+     ),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(3, length(receive_messages(3))),
@@ -205,7 +271,12 @@ t_clean(_) ->
 t_stop_publish_clear_msg(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
-    emqtt:publish(C1, <<"retained/0">>, <<"this is a retained message 0">>, [{qos, 0}, {retain, true}]),
+    emqtt:publish(
+      C1,
+      <<"retained/0">>,
+      <<"this is a retained message 0">>,
+      [{qos, 0}, {retain, true}]
+     ),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(1, length(receive_messages(1))),

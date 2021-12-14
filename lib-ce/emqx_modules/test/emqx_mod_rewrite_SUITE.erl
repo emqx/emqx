@@ -48,7 +48,7 @@ t_mod_rewrite(_Config) ->
     SubOrigTopics = [<<"y/a/z/b">>, <<"y/def">>],
     SubDestTopics = [<<"y/z/b">>, <<"y/def">>],
     %% Sub Rules
-    {ok, _Props, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- SubOrigTopics]),
+    {ok, _, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- SubOrigTopics]),
     timer:sleep(100),
     Subscriptions = emqx_broker:subscriptions(<<"rewrite_client">>),
     ?assertEqual(SubDestTopics, [Topic || {Topic, _SubOpts} <- Subscriptions]),
@@ -62,7 +62,7 @@ t_mod_rewrite(_Config) ->
     timer:sleep(100),
     ?assertEqual([], emqx_broker:subscriptions(<<"rewrite_client">>)),
     %% Pub Rules
-    {ok, _Props, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- PubDestTopics]),
+    {ok, _, _} = emqtt:subscribe(C, [{Topic, ?QOS_1} || Topic <- PubDestTopics]),
     RecvTopics2 = [begin
                       ok = emqtt:publish(C, Topic, <<"payload">>),
                       {ok, #{topic := RecvTopic}} = receive_publish(100),

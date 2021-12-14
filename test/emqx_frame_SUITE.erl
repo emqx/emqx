@@ -438,7 +438,7 @@ t_serialize_parse_pubcomp_v5(_) ->
 t_serialize_parse_subscribe(_) ->
     %% SUBSCRIBE(Q1, R0, D0, PacketId=2, TopicTable=[{<<"TopicA">>,2}])
     Bin = <<?SUBSCRIBE:4,2:4,11,0,2,0,6,84,111,112,105,99,65,2>>,
-    TopicOpts = #{nl => 0 , rap => 0, rh => 0, qos => 2},
+    TopicOpts = #{qos => 2},
     TopicFilters = [{<<"TopicA">>, TopicOpts}],
     Packet = ?SUBSCRIBE_PACKET(2, TopicFilters),
     ?assertEqual(Bin, serialize_to_binary(Packet)),
