@@ -40,7 +40,7 @@
              , serialize_opts/0
              ]).
 
--define(Q(BYTES, Q), {BYTES, Q}).
+-define(QUEUE(BYTES, Q), {BYTES, Q}).
 
 -type(options() :: #{strict_mode => boolean(),
                      max_size => 1..?MAX_PACKET_SIZE,
@@ -56,12 +56,12 @@
       {Stage :: len | body,
        State ::  #{hdr := #mqtt_packet_header{},
                    len := {pos_integer(), non_neg_integer()} | non_neg_integer(),
-                   rest => binary() | ?Q(non_neg_integer(), queue:queue(binary()))
+                   rest => binary() | ?QUEUE(non_neg_integer(), queue:queue(binary()))
                   }}).
 
 -type(serialize_opts() :: options()).
 
--define(none(Options), {none, Options}).
+-define(NONE(Options), {none, Options}).
 
 -define(DEFAULT_OPTIONS,
         #{strict_mode => false,
@@ -79,6 +79,7 @@
 -define(PPV2_HEADER_SIG, "\r\n\r\n\0\r\nQUIT\n").
 
 -dialyzer({no_match, [serialize_utf8_string/2]}).
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
 -ifdef(TEST).
 -export([parse_variable_byte_integer/1]).
@@ -94,7 +95,7 @@ initial_parse_state() ->
 
 -spec(initial_parse_state(options()) -> {none, options()}).
 initial_parse_state(Options) when is_map(Options) ->
-    ?none(merge_opts(Options)).
+    ?NONE(merge_opts(Options)).
 
 %% @pivate
 merge_opts(Options) ->
@@ -158,7 +159,7 @@ parse_remaining_len(<<>>, Header, Multiplier, Length, Options) ->
 parse_remaining_len(<<0:8, Rest/binary>>,
                     Header = #mqtt_packet_header{type = ?DISCONNECT}, 1, 0, Options) ->
     Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
-    {ok, Packet, Rest, ?none(Options)};
+    {ok, Packet, Rest, ?NONE(Options)};
 %% Match PINGREQ.
 parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
     parse_frame(Rest, Header, 0, Options);
@@ -179,32 +180,32 @@ parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header, Multiplier, Value,
     end.
 
 body_bytes(B) when is_binary(B) -> size(B);
-body_bytes(?Q(Bytes, _)) -> Bytes.
+body_bytes(?QUEUE(Bytes, _)) -> Bytes.
 
 append_body(H, T) when is_binary(H) andalso size(H) < 1024 ->
     <<H/binary, T/binary>>;
 append_body(H, T) when is_binary(H) ->
     Bytes = size(H) + size(T),
-    ?Q(Bytes, queue:from_list([H, T]));
-append_body(?Q(Bytes, Q), T) ->
-    ?Q(Bytes + iolist_size(T), queue:in(T, Q)).
+    ?QUEUE(Bytes, queue:from_list([H, T]));
+append_body(?QUEUE(Bytes, Q), T) ->
+    ?QUEUE(Bytes + iolist_size(T), queue:in(T, Q)).
 
 flatten_body(Body) when is_binary(Body) -> Body;
-flatten_body(?Q(_, Q)) -> iolist_to_binary(queue:to_list(Q)).
+flatten_body(?QUEUE(_, Q)) -> iolist_to_binary(queue:to_list(Q)).
 
 parse_frame(Body, Header, 0, Options) ->
-    {ok, packet(Header), flatten_body(Body), ?none(Options)};
+    {ok, packet(Header), flatten_body(Body), ?NONE(Options)};
 parse_frame(Body, Header, Length, Options) ->
     case body_bytes(Body) >= Length of
         true ->
             <<FrameBin:Length/binary, Rest/binary>> = flatten_body(Body),
             case parse_packet(Header, FrameBin, Options) of
                 {Variable, Payload} ->
-                    {ok, packet(Header, Variable, Payload), Rest, ?none(Options)};
+                    {ok, packet(Header, Variable, Payload), Rest, ?NONE(Options)};
                 Variable = #mqtt_packet_connect{proto_ver = Ver} ->
-                    {ok, packet(Header, Variable), Rest, ?none(Options#{version := Ver})};
+                    {ok, packet(Header, Variable), Rest, ?NONE(Options#{version := Ver})};
                 Variable ->
-                    {ok, packet(Header, Variable), Rest, ?none(Options)}
+                    {ok, packet(Header, Variable), Rest, ?NONE(Options)}
             end;
         false ->
             {more, {{body, #{hdr => Header,
@@ -591,9 +592,9 @@ serialize_variable(#mqtt_packet_publish{topic_name = TopicName,
                                         packet_id  = PacketId,
                                         properties = Properties}, Ver) ->
     [serialize_utf8_string(TopicName),
-     if
-         PacketId =:= undefined -> <<>>;
-         true -> <<PacketId:16/big-unsigned-integer>>
+     case PacketId =:= undefined of
+         true -> <<>>;
+         _ -> <<PacketId:16/big-unsigned-integer>>
      end,
      serialize_properties(Properties, Ver)];
 
@@ -809,8 +810,8 @@ validate_header(_Type, _Dup, _QoS, _Rt) -> error(bad_frame_header).
 validate_packet_id(0) -> error(bad_packet_id);
 validate_packet_id(_) -> ok.
 
-validate_subqos([3|_]) -> error(bad_subqos);
-validate_subqos([_|T]) -> validate_subqos(T);
+validate_subqos([3 | _]) -> error(bad_subqos);
+validate_subqos([_ | T]) -> validate_subqos(T);
 validate_subqos([])    -> ok.
 
 bool(0) -> false;

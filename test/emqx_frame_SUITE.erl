@@ -234,20 +234,22 @@ t_serialize_parse_connect_with_will(_) ->
             117,98,47,49,48,52,53,50,45,105,77,97,99,46,108,111,99,97,0,5,47,119,
             105,108,108,0,7,119,105,108,108,109,115,103,0,4,116,101,115,116,0,6,
             112,117,98,108,105,99>>,
-    Packet = #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNECT},
-                          variable = #mqtt_packet_connect{proto_ver    = ?MQTT_PROTO_V3,
-                                                          proto_name   = <<"MQIsdp">>,
-                                                          clientid     = <<"mosqpub/10452-iMac.loca">>,
-                                                          clean_start  = true,
-                                                          keepalive    = 60,
-                                                          will_retain  = false,
-                                                          will_qos     = ?QOS_1,
-                                                          will_flag    = true,
-                                                          will_topic   = <<"/will">>,
-                                                          will_payload = <<"willmsg">>,
-                                                          username     = <<"test">>,
-                                                          password     = <<"public">>
-                                                         }},
+    Packet = #mqtt_packet{
+                header   = #mqtt_packet_header{type = ?CONNECT},
+                variable = #mqtt_packet_connect{
+                              proto_ver    = ?MQTT_PROTO_V3,
+                              proto_name   = <<"MQIsdp">>,
+                              clientid     = <<"mosqpub/10452-iMac.loca">>,
+                              clean_start  = true,
+                              keepalive    = 60,
+                              will_retain  = false,
+                              will_qos     = ?QOS_1,
+                              will_flag    = true,
+                              will_topic   = <<"/will">>,
+                              will_payload = <<"willmsg">>,
+                              username     = <<"test">>,
+                              password     = <<"public">>
+                             }},
     ?assertEqual(Bin, serialize_to_binary(Packet)),
     ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
 

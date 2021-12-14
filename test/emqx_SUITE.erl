@@ -80,7 +80,8 @@ t_emqx_pubsub_api(_) ->
 
     ?assertEqual([{Topic,  #{nl => 0, qos => 0, rap => 0, rh => 1, subid => ClientId}},
                   {Topic1, #{nl => 0, qos => 1, rap => 0, rh => 1, subid => ClientId}},
-                  {Topic2, #{nl => 0, qos => 2, rap => 0, rh => 1, subid => ClientId}}], emqx:subscriptions(self())),
+                  {Topic2, #{nl => 0, qos => 2, rap => 0, rh => 1, subid => ClientId}}
+                 ], emqx:subscriptions(self())),
     ?assertEqual(true, emqx:subscribed(self(), Topic)),
     ?assertEqual(true, emqx:subscribed(ClientId, Topic)),
     ?assertEqual(true, emqx:subscribed(self(), Topic1)),
@@ -155,8 +156,10 @@ t_run_hook(_) ->
     ?assertEqual(ok, emqx:run_hook(foreach_filter1_hook, [arg])), %% filter passed
     ?assertEqual(ok, emqx:run_hook(foreach_filter1_hook, [arg1])), %% filter failed
 
-    ok = emqx:hook(foldl_filter2_hook, {?MODULE, hook_fun2, []}, {?MODULE, hook_filter2, [init_arg]}),
-    ok = emqx:hook(foldl_filter2_hook, {?MODULE, hook_fun2_1, []}, {?MODULE, hook_filter2_1, [init_arg]}),
+    ok = emqx:hook(foldl_filter2_hook,
+                   {?MODULE, hook_fun2, []}, {?MODULE, hook_filter2, [init_arg]}),
+    ok = emqx:hook(foldl_filter2_hook,
+                   {?MODULE, hook_fun2_1, []}, {?MODULE, hook_filter2_1, [init_arg]}),
     ?assertEqual(3, emqx:run_fold_hook(foldl_filter2_hook, [arg], 1)),
     ?assertEqual(2, emqx:run_fold_hook(foldl_filter2_hook, [arg1], 1)).
 
