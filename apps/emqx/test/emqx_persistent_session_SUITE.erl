@@ -160,9 +160,6 @@ init_per_group(gc_tests, Config) ->
 init_per_suite(Config) ->
     Config.
 
-set_special_confs(emqx) ->
-    Path = emqx_common_test_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins"),
-    application:set_env(emqx, plugins_loaded_file, Path);
 set_special_confs(_) ->
     ok.
 

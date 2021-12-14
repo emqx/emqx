@@ -257,7 +257,7 @@ overlay_vars_pkg(pkg) ->
     , {platform_etc_dir, "/etc/emqx"}
     , {platform_lib_dir, ""}
     , {platform_log_dir, "/var/log/emqx"}
-    , {platform_plugins_dir, "/var/lib/enqx/plugins"}
+    , {platform_plugins_dir, "/var/lib/emqx/plugins"}
     , {runner_root_dir, "/usr/lib/emqx"}
     , {runner_bin_dir, "/usr/bin"}
     , {runner_etc_dir, "/etc/emqx"}
@@ -306,6 +306,7 @@ relx_apps(ReleaseType, Edition) ->
     , emqx_prometheus
     , emqx_psk
     , emqx_slow_subs
+    , emqx_plugins
     ]
     ++ [quicer || is_quicer_supported()]
     %++ [emqx_license || is_enterprise(Edition)]

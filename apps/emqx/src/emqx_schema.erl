@@ -157,9 +157,6 @@ roots(low) ->
    , {"quota",
        sc(ref("quota"),
           #{})}
-   , {"plugins", %% TODO: move to emqx_conf_schema
-       sc(ref("plugins"),
-          #{})}
    , {"stats",
        sc(ref("stats"),
           #{})}
@@ -797,13 +794,6 @@ fields("deflate_opts") ->
        sc(range(8, 15),
           #{ default => 15
            })
-      }
-    ];
-
-fields("plugins") ->
-    [ {"expand_plugins_dir",
-       sc(string(),
-          #{})
       }
     ];
 
