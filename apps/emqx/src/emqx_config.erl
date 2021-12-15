@@ -248,7 +248,7 @@ init_load(SchemaMod) ->
     init_load(SchemaMod, ConfFiles).
 
 %% @doc Initial load of the given config files.
-%% NOTE: The order of the files is significant, configs from files orderd
+%% NOTE: The order of the files is significant, configs from files ordered
 %% in the rear of the list overrides prior values.
 -spec init_load(module(), [string()] | binary() | hocon:config()) -> ok.
 init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
