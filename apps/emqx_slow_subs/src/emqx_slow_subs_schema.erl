@@ -33,7 +33,7 @@ fields("emqx_slow_subs") ->
           "QoS of notification message in notice topic")}
     , {notice_batch_size,
        sc(integer(),
-          0,
+          100,
           "Maximum information number in one notification")}
     ].
 
