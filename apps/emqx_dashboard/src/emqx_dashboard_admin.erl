@@ -224,14 +224,6 @@ destroy_token_by_username(Username, Token) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-
-hash(Password) ->
-    SaltBin = emqx_dashboard_token:salt(),
-    <<SaltBin/binary, (sha256(SaltBin, Password))/binary>>.
-
-sha256(SaltBin, Password) ->
-    crypto:hash('sha256', <<SaltBin/binary, Password/binary>>).
-
 -spec(add_default_user() -> {ok, map() | empty | default_user_exists } | {error, any()}).
 add_default_user() ->
     add_default_user(binenv(default_username), binenv(default_password)).
