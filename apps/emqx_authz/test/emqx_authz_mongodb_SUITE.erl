@@ -69,7 +69,6 @@ set_special_configs(_) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-
 t_topic_rules(_Config) ->
     ClientInfo = #{clientid => <<"clientid">>,
                    username => <<"username">>,
@@ -78,106 +77,14 @@ t_topic_rules(_Config) ->
                    listener => {tcp, default}
                   },
 
-    %% No rules
+    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, fun setup_client_samples/2),
 
-    ok = setup_samples([]),
-    ok = setup_config(#{}),
+    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, fun setup_client_samples/2),
 
-    ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{deny, subscribe, <<"#">>},
-            {deny, subscribe, <<"subs">>},
-            {deny, publish, <<"pub">>}]),
-
-    %% Publish rules
-
-    Samples0 = populate_records(
-                 [#{<<"topics">> => [<<"eq testpub1/${username}">>]},
-                  #{<<"topics">> => [<<"testpub2/${clientid}">>, <<"testpub3/#">>]}],
-                 #{<<"permission">> => <<"allow">>,
-                   <<"action">> => <<"publish">>,
-                   <<"username">> => <<"username">>}),
-
-    ok = setup_samples(Samples0),
-    ok = setup_config(#{}),
-
-    ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{deny, publish, <<"testpub1/username">>},
-            {allow, publish, <<"testpub1/${username}">>},
-            {allow, publish, <<"testpub2/clientid">>},
-            {allow, publish, <<"testpub3/foobar">>},
-
-            {deny, publish, <<"testpub2/username">>},
-            {deny, publish, <<"testpub1/clientid">>},
-
-
-            {deny, subscribe, <<"testpub1/username">>},
-            {deny, subscribe, <<"testpub2/clientid">>},
-            {deny, subscribe, <<"testpub3/foobar">>}]),
-
-    %% Subscribe rules
-
-    Samples1 = populate_records(
-                 [#{<<"topics">> => [<<"eq testsub1/${username}">>]},
-                  #{<<"topics">> => [<<"testsub2/${clientid}">>, <<"testsub3/#">>]}],
-                 #{<<"permission">> => <<"allow">>,
-                   <<"action">> => <<"subscribe">>,
-                   <<"username">> => <<"username">>}),
-
-    ok = setup_samples(Samples1),
-    ok = setup_config(#{}),
-
-    ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{deny, subscribe, <<"testsub1/username">>},
-            {allow, subscribe, <<"testsub1/${username}">>},
-            {allow, subscribe, <<"testsub2/clientid">>},
-            {allow, subscribe, <<"testsub3/foobar">>},
-            {allow, subscribe, <<"testsub3/+/foobar">>},
-            {allow, subscribe, <<"testsub3/#">>},
-
-            {deny, subscribe, <<"testsub2/username">>},
-            {deny, subscribe, <<"testsub1/clientid">>},
-            {deny, subscribe, <<"testsub4/foobar">>},
-            {deny, publish, <<"testsub1/username">>},
-            {deny, publish, <<"testsub2/clientid">>},
-            {deny, publish, <<"testsub3/foobar">>}]),
-
-    %% All rules
-
-    Samples2 = populate_records(
-                 [#{<<"topics">> => [<<"eq testall1/${username}">>]},
-                  #{<<"topics">> => [<<"testall2/${clientid}">>, <<"testall3/#">>]}],
-                 #{<<"permission">> => <<"allow">>,
-                   <<"action">> => <<"all">>,
-                   <<"username">> => <<"username">>}),
-
-    ok = setup_samples(Samples2),
-    ok = setup_config(#{}),
-
-    ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{deny, subscribe, <<"testall1/username">>},
-            {allow, subscribe, <<"testall1/${username}">>},
-            {allow, subscribe, <<"testall2/clientid">>},
-            {allow, subscribe, <<"testall3/foobar">>},
-            {allow, subscribe, <<"testall3/+/foobar">>},
-            {allow, subscribe, <<"testall3/#">>},
-            {deny, publish, <<"testall1/username">>},
-            {allow, publish, <<"testall1/${username}">>},
-            {allow, publish, <<"testall2/clientid">>},
-            {allow, publish, <<"testall3/foobar">>},
-
-            {deny, subscribe, <<"testall2/username">>},
-            {deny, subscribe, <<"testall1/clientid">>},
-            {deny, subscribe, <<"testall4/foobar">>},
-            {deny, publish, <<"testall2/username">>},
-            {deny, publish, <<"testall1/clientid">>},
-            {deny, publish, <<"testall4/foobar">>}]).
-
+    ok = emqx_authz_test_lib:test_deny_topic_rules(ClientInfo, fun setup_client_samples/2).
 
 t_complex_selector(_) ->
+    %% atom and string values also supported
     ClientInfo = #{clientid => clientid,
                    username => "username",
                    peerhost => {127,0,0,1},
@@ -205,6 +112,60 @@ t_complex_selector(_) ->
            ClientInfo,
            [{allow, publish, <<"t">>}]).
 
+t_mongo_error(_Config) ->
+    ClientInfo = #{clientid => <<"clientid">>,
+                   username => <<"username">>,
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => {tcp, default}
+                  },
+
+    ok = setup_samples([]),
+    ok = setup_config(
+           #{<<"selector">> => #{<<"$badoperator">> => <<"$badoperator">>}}),
+
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{deny, publish, <<"t">>}]).
+
+t_lookups(_Config) ->
+    ClientInfo = #{clientid => <<"clientid">>,
+                   cn => <<"cn">>,
+                   dn => <<"dn">>,
+                   username => <<"username">>,
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => {tcp, default}
+                  },
+
+    ByClientid = #{<<"clientid">> => <<"clientid">>,
+                   <<"topics">> => [<<"a">>],
+                   <<"action">> => <<"all">>,
+                   <<"permission">> => <<"allow">>},
+
+    ok = setup_samples([ByClientid]),
+    ok = setup_config(
+           #{<<"selector">> => #{<<"clientid">> => <<"${clientid}">>}}),
+
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}]),
+
+    ByPeerhost = #{<<"peerhost">> => <<"127.0.0.1">>,
+                   <<"topics">> => [<<"a">>],
+                   <<"action">> => <<"all">>,
+                   <<"permission">> => <<"allow">>},
+
+    ok = setup_samples([ByPeerhost]),
+    ok = setup_config(
+           #{<<"selector">> => #{<<"peerhost">> => <<"${peerhost}">>}}),
+
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}]).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -216,6 +177,23 @@ setup_samples(AclRecords) ->
     ok = reset_samples(),
     {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"acl">>, AclRecords),
     ok.
+
+setup_client_samples(ClientInfo, Samples) ->
+    #{username := Username} = ClientInfo,
+    Records = lists:map(
+                fun(Sample) ->
+                        #{topics := Topics,
+                          permission := Permission,
+                          action := Action} = Sample,
+
+                        #{<<"topics">> => Topics,
+                          <<"permission">> => Permission,
+                          <<"action">> => Action,
+                          <<"username">> => Username}
+                end,
+                Samples),
+    setup_samples(Records),
+    setup_config(#{<<"selector">> => #{<<"username">> => <<"${username}">>}}).
 
 reset_samples() ->
     {true, _} = mc_worker_api:delete(?MONGO_CLIENT, <<"acl">>, #{}),

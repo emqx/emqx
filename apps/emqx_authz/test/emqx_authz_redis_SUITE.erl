@@ -76,96 +76,10 @@ t_topic_rules(_Config) ->
                    listener => {tcp, default}
                   },
 
-    %% No rules
+    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, fun setup_client_samples/2),
 
-    ok = setup_sample(#{}),
-    ok = setup_config(#{}),
+    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, fun setup_client_samples/2).
 
-    ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{deny, subscribe, <<"#">>},
-            {deny, subscribe, <<"subs">>},
-            {deny, publish, <<"pub">>}]),
-
-    %% Publish rules
-
-    Sample0 = #{<<"mqtt_user:username">> =>
-                   #{<<"testpub1/${username}">> => <<"publish">>,
-                     <<"testpub2/${clientid}">> => <<"publish">>,
-                     <<"testpub3/#">> => <<"publish">>
-                    }
-              },
-    ok = setup_sample(Sample0),
-    ok = setup_config(#{}),
-
-    ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{allow, publish, <<"testpub1/username">>},
-            {allow, publish, <<"testpub2/clientid">>},
-            {allow, publish, <<"testpub3/foobar">>},
-
-            {deny, publish, <<"testpub2/username">>},
-            {deny, publish, <<"testpub1/clientid">>},
-
-
-            {deny, subscribe, <<"testpub1/username">>},
-            {deny, subscribe, <<"testpub2/clientid">>},
-            {deny, subscribe, <<"testpub3/foobar">>}]),
-
-    %% Subscribe rules
-
-    Sample1 = #{<<"mqtt_user:username">> =>
-                   #{<<"testsub1/${username}">> => <<"subscribe">>,
-                     <<"testsub2/${clientid}">> => <<"subscribe">>,
-                     <<"testsub3/#">> => <<"subscribe">>
-                    }
-              },
-    ok = setup_sample(Sample1),
-    ok = setup_config(#{}),
-
-    ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{allow, subscribe, <<"testsub1/username">>},
-            {allow, subscribe, <<"testsub2/clientid">>},
-            {allow, subscribe, <<"testsub3/foobar">>},
-            {allow, subscribe, <<"testsub3/+/foobar">>},
-            {allow, subscribe, <<"testsub3/#">>},
-
-            {deny, subscribe, <<"testsub2/username">>},
-            {deny, subscribe, <<"testsub1/clientid">>},
-            {deny, subscribe, <<"testsub4/foobar">>},
-            {deny, publish, <<"testsub1/username">>},
-            {deny, publish, <<"testsub2/clientid">>},
-            {deny, publish, <<"testsub3/foobar">>}]),
-
-    %% All rules
-
-    Sample2 = #{<<"mqtt_user:username">> =>
-                   #{<<"testall1/${username}">> => <<"all">>,
-                     <<"testall2/${clientid}">> => <<"all">>,
-                     <<"testall3/#">> => <<"all">>
-                    }
-              },
-    ok = setup_sample(Sample2),
-    ok = setup_config(#{}),
-
-    ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{allow, subscribe, <<"testall1/username">>},
-            {allow, subscribe, <<"testall2/clientid">>},
-            {allow, subscribe, <<"testall3/foobar">>},
-            {allow, subscribe, <<"testall3/+/foobar">>},
-            {allow, subscribe, <<"testall3/#">>},
-            {allow, publish, <<"testall1/username">>},
-            {allow, publish, <<"testall2/clientid">>},
-            {allow, publish, <<"testall3/foobar">>},
-
-            {deny, subscribe, <<"testall2/username">>},
-            {deny, subscribe, <<"testall1/clientid">>},
-            {deny, subscribe, <<"testall4/foobar">>},
-            {deny, publish, <<"testall2/username">>},
-            {deny, publish, <<"testall1/clientid">>},
-            {deny, publish, <<"testall4/foobar">>}]).
 
 t_lookups(_Config) ->
     ClientInfo = #{clientid => <<"clientid">>,
@@ -266,6 +180,23 @@ setup_sample(AuthzData) ->
                      maps:to_list(Values))
            end,
            maps:to_list(AuthzData)).
+
+setup_client_samples(ClientInfo, Samples) ->
+    #{username := Username} = ClientInfo,
+    Key = <<"mqtt_user:", Username/binary>>,
+    lists:foreach(
+      fun(Sample) ->
+              #{topics := Topics,
+                permission := <<"allow">>,
+                action := Action} = Sample,
+              lists:foreach(
+                fun(Topic) ->
+                        q(["HSET", Key, Topic, Action])
+                end,
+                Topics)
+      end,
+      Samples),
+    setup_config(#{}).
 
 setup_config(SpecialParams) ->
     ok = emqx_authz_test_lib:reset_authorizers(deny, false),

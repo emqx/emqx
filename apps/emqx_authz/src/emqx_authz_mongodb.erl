@@ -97,7 +97,7 @@ replvar(Selector, #{clientid := Clientid,
                                  , bin(Clientid), [global, {return, binary}]),
                   V2 = re:replace( V1, emqx_authz:ph_to_re(?PH_S_USERNAME)
                                  , bin(Username), [global, {return, binary}]),
-                  V3 = re:replace( V2, emqx_authz:ph_to_re(?PH_S_HOST)
+                  V3 = re:replace( V2, emqx_authz:ph_to_re(?PH_S_PEERHOST)
                                  , inet_parse:ntoa(IpAddress), [global, {return, binary}]),
                   maps:put(K, V3, AccIn);
               InFun(K, V, AccIn) -> maps:put(K, V, AccIn)
