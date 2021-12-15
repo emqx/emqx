@@ -61,10 +61,18 @@ do_paginate(Qh, Count, Params, {Module, FormatFun}) ->
 
 query_handle(Table) when is_atom(Table) ->
     qlc:q([R || R <- ets:table(Table)]);
+
+query_handle({Table, Opts}) when is_atom(Table) ->
+    qlc:q([R || R <- ets:table(Table, Opts)]);
+
 query_handle([Table]) when is_atom(Table) ->
     qlc:q([R || R <- ets:table(Table)]);
+
+query_handle([{Table, Opts}]) when is_atom(Table) ->
+    qlc:q([R || R <- ets:table(Table, Opts)]);
+
 query_handle(Tables) ->
-    qlc:append([qlc:q([E || E <- ets:table(T)]) || T <- Tables]).
+    qlc:append([query_handle(T) || T <- Tables]). %
 
 query_handle(Table, MatchSpec) when is_atom(Table) ->
     Options = {traverse, {select, MatchSpec}},
@@ -78,8 +86,16 @@ query_handle(Tables, MatchSpec) ->
 
 count(Table) when is_atom(Table) ->
     ets:info(Table, size);
+
+count({Table, _}) when is_atom(Table) ->
+    ets:info(Table, size);
+
 count([Table]) when is_atom(Table) ->
     ets:info(Table, size);
+
+count([{Table, _}]) when is_atom(Table) ->
+    ets:info(Table, size);
+
 count(Tables) ->
     lists:sum([count(T) || T <- Tables]).
 

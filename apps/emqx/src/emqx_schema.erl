@@ -166,9 +166,6 @@ roots(low) ->
    , {"quota",
        sc(ref("quota"),
           #{})}
-   , {"plugins", %% TODO: move to emqx_conf_schema
-       sc(ref("plugins"),
-          #{})}
    , {"stats",
        sc(ref("stats"),
           #{})}
@@ -183,6 +180,9 @@ roots(low) ->
           #{})}
    , {"persistent_session_store",
        sc(ref("persistent_session_store"),
+          #{})}
+    , {"latency_stats",
+       sc(ref("latency_stats"),
           #{})}
     ].
 
@@ -806,13 +806,6 @@ fields("deflate_opts") ->
       }
     ];
 
-fields("plugins") ->
-    [ {"expand_plugins_dir",
-       sc(string(),
-          #{})
-      }
-    ];
-
 fields("broker") ->
     [ {"sys_msg_interval",
        sc(hoconsc:union([disabled, duration()]),
@@ -983,6 +976,11 @@ when deactivated, but after the retention time.
 """
            })
       }
+    ];
+
+fields("latency_stats") ->
+    [ {"samples", sc(integer(), #{default => 10,
+                                  desc => "the number of smaples for calculate the average latency of delivery"})}
     ].
 
 mqtt_listener() ->
@@ -1026,6 +1024,8 @@ base_listener() ->
        sc(atom(),
           #{ default => 'default'
            })}
+    , {"limiter",
+       sc(map("ratelimit bucket's name", atom()), #{default => #{}})}
     ].
 
 %% utils

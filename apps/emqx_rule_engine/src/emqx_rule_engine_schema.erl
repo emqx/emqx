@@ -118,7 +118,8 @@ fields("user_provided_function") ->
     [ {function, sc(binary(),
         #{ desc => """
 The user provided function. Should be in the format: '{module}:{function}'.<br>
-Where the <module> is the erlang callback module and the {function} is the erlang function.<br>
+Where {module} is the Erlang callback module and {function} is the Erlang function.
+<br>
 To write your own function, checkout the function <code>console</code> and
 <code>republish</code> in the source file:
 <code>apps/emqx_rule_engine/src/emqx_rule_outputs.erl</code> as an example.

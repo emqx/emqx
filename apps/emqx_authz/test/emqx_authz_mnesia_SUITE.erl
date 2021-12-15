@@ -55,24 +55,25 @@ set_special_configs(_App) ->
     ok.
 
 init_per_testcase(t_authz, Config) ->
-    mria:dirty_write(#emqx_acl{who = {?ACL_TABLE_USERNAME, <<"test_username">>},
-                               rules = [{allow, publish, <<"test/", ?PH_S_USERNAME>>},
-                                        {allow, subscribe, <<"eq #">>}
-                                       ]
-                              }),
-    mria:dirty_write(#emqx_acl{who = {?ACL_TABLE_CLIENTID, <<"test_clientid">>},
-                               rules = [{allow, publish, <<"test/", ?PH_S_CLIENTID>>},
-                                        {deny, subscribe, <<"eq #">>}
-                                       ]
-                              }),
-    mria:dirty_write(#emqx_acl{who = ?ACL_TABLE_ALL,
-                               rules = [{deny, all, <<"#">>}]
-                              }),
+     emqx_authz_mnesia:store_rules(
+       {username, <<"test_username">>},
+       [{allow, publish, <<"test/", ?PH_S_USERNAME>>},
+        {allow, subscribe, <<"eq #">>}]),
+
+     emqx_authz_mnesia:store_rules(
+       {clientid, <<"test_clientid">>},
+       [{allow, publish, <<"test/", ?PH_S_CLIENTID>>},
+        {deny, subscribe, <<"eq #">>}]),
+
+     emqx_authz_mnesia:store_rules(
+       all,
+       [{deny, all, <<"#">>}]),
+
     Config;
 init_per_testcase(_, Config) -> Config.
 
 end_per_testcase(t_authz, Config) ->
-    [ mria:dirty_delete(?ACL_TABLE, K) || K <- mnesia:dirty_all_keys(?ACL_TABLE)],
+    ok = emqx_authz_mnesia:purge_rules(),
     Config;
 end_per_testcase(_, Config) -> Config.
 

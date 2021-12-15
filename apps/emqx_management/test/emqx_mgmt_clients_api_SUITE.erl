@@ -177,6 +177,6 @@ t_keepalive(_Config) ->
     [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
     State = sys:get_state(Pid),
     ct:pal("~p~n", [State]),
-    ?assertEqual(11000, element(2, element(5, element(11, State)))),
+    ?assertEqual(11000, element(2, element(5, element(9, State)))),
     emqtt:disconnect(C1),
     ok.

@@ -55,6 +55,8 @@
         , hexstr2bin/1
         ]).
 
+-export([clamp/3]).
+
 -define(SHORT, 8).
 
 %% @doc Parse v4 or v6 string format address to tuple.
@@ -304,6 +306,13 @@ gen_id(Len) ->
     BitLen = Len * 4,
     <<R:BitLen>> = crypto:strong_rand_bytes(Len div 2),
     int_to_hex(R, Len).
+
+-spec clamp(number(), number(), number()) -> number().
+clamp(Val, Min, Max) ->
+    if Val < Min -> Min;
+       Val > Max -> Max;
+       true -> Val
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal Functions

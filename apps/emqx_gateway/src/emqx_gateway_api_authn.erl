@@ -272,6 +272,7 @@ params_gateway_name_in_path() ->
       mk(binary(),
          #{ in => path
           , desc => <<"Gateway Name">>
+          , example => <<"">>
           })}
     ].
 
@@ -279,6 +280,7 @@ params_userid_in_path() ->
     [{uid, mk(binary(),
               #{ in => path
                , desc => <<"User ID">>
+               , example => <<"">>
                })}
     ].
 
@@ -287,11 +289,13 @@ params_paging_in_qs() ->
                #{ in => query
                 , nullable => true
                 , desc => <<"Page Index">>
+                , example => 1
                 })},
      {limit, mk(integer(),
                 #{ in => query
                  , nullable => true
                  , desc => <<"Page Limit">>
+                 , example => 100
                  })}
     ].
 

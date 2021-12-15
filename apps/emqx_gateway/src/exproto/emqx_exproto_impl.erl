@@ -61,7 +61,7 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
               end,
     case grpc:start_server(GwName, ListenOn, Services, SvrOptions) of
         {ok, _SvrPid} ->
-            console_print("Start ~ts gRPC server on ~p successfully.",
+            console_print("Start ~ts gRPC server on ~p successfully.~n",
                           [GwName, ListenOn]);
         {error, Reason} ->
             ?ELOG("Falied to start ~ts gRPC server on ~p, reason: ~p",

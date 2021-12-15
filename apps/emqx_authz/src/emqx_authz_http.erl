@@ -21,9 +21,14 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
+-behaviour(emqx_authz).
+
 %% AuthZ Callbacks
--export([ authorize/4
-        , description/0
+-export([ description/0
+        , init/1
+        , destroy/1
+        , dry_run/1
+        , authorize/4
         , parse_url/1
         ]).
 
@@ -34,6 +39,21 @@
 
 description() ->
     "AuthZ with http".
+
+init(#{url := Url} = Source) ->
+    NSource = maps:put(base_url, maps:remove(query, Url), Source),
+    case emqx_authz_utils:create_resource(emqx_connector_http, NSource) of
+        {error, Reason} -> error({load_config_error, Reason});
+        {ok, Id} -> Source#{annotations => #{id => Id}}
+    end.
+
+destroy(#{annotations := #{id := Id}}) ->
+    ok = emqx_resource:remove(Id).
+
+dry_run(Source) ->
+    URIMap = maps:get(url, Source),
+    NSource = maps:put(base_url, maps:remove(query, URIMap), Source),
+    emqx_resource:create_dry_run(emqx_connector_http, NSource).
 
 authorize(Client, PubSub, Topic,
             #{type := http,

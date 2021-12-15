@@ -105,6 +105,15 @@ end_per_testcase(_, Config) ->
     emqx_common_test_helpers:stop_apps([]),
     Config.
 
+init_per_suite(Config) ->
+    emqx_channel_SUITE:set_test_listener_confs(),
+    emqx_common_test_helpers:start_apps([]),
+    Config.
+
+end_per_suite(_) ->
+    emqx_common_test_helpers:stop_apps([]),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
@@ -131,7 +140,9 @@ t_header(_) ->
            (<<"x-forwarded-port">>, _, _) -> <<"1000">> end),
     set_ws_opts(proxy_address_header, <<"x-forwarded-for">>),
     set_ws_opts(proxy_port_header, <<"x-forwarded-port">>),
-    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default, listener => {ws, default}}]),
+    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default,
+                                                  limiter => limiter_cfg(),
+                                                  listener => {ws, default}}]),
     WsPid = spawn(fun() ->
         receive {call, From, info} ->
             gen_server:reply(From, ?ws_conn:info(St))
@@ -143,8 +154,9 @@ t_header(_) ->
     } = SockInfo.
 
 t_info_limiter(_) ->
-    St = st(#{limiter => emqx_limiter:init(external, [])}),
-    ?assertEqual(undefined, ?ws_conn:info(limiter, St)).
+    Limiter = init_limiter(),
+    St = st(#{limiter => Limiter}),
+    ?assertEqual(Limiter, ?ws_conn:info(limiter, St)).
 
 t_info_channel(_) ->
     #{conn_state := connected} = ?ws_conn:info(channel, st()).
@@ -249,7 +261,7 @@ t_ws_non_check_origin(_) ->
                           headers => [{<<"origin">>, <<"http://localhost:18080">>}]})).
 
 t_init(_) ->
-    Opts = #{listener => {ws, default}, zone => default},
+    Opts = #{listener => {ws, default}, zone => default, limiter => limiter_cfg()},
     ok = meck:expect(cowboy_req, parse_header, fun(_, req) -> undefined end),
     ok = meck:expect(cowboy_req, reply, fun(_, Req) -> Req end),
     {ok, req, _} = ?ws_conn:init(req, Opts),
@@ -329,8 +341,11 @@ t_websocket_info_deliver(_) ->
 
 t_websocket_info_timeout_limiter(_) ->
     Ref = make_ref(),
+    LimiterT = init_limiter(),
+    Next = fun emqx_ws_connection:when_msg_in/3,
+    Limiter = emqx_limiter_container:set_retry_context({retry, [], [], Next}, LimiterT),
     Event = {timeout, Ref, limit_timeout},
-    {[{active, true}], St} = websocket_info(Event, st(#{limit_timer => Ref})),
+    {ok, St} = websocket_info(Event, st(#{limiter => Limiter})),
     ?assertEqual([], ?ws_conn:info(postponed, St)).
 
 t_websocket_info_timeout_keepalive(_) ->
@@ -389,23 +404,27 @@ t_handle_timeout_emit_stats(_) ->
     ?assertEqual(undefined, ?ws_conn:info(stats_timer, St)).
 
 t_ensure_rate_limit(_) ->
-    Limiter = emqx_limiter:init(external, {1, 10}, {100, 1000}, []),
+    Limiter = init_limiter(),
     St = st(#{limiter => Limiter}),
-    St1 = ?ws_conn:ensure_rate_limit(#{cnt => 0, oct => 0}, St),
-    St2 = ?ws_conn:ensure_rate_limit(#{cnt => 11, oct => 1200}, St1),
-    ?assertEqual(blocked, ?ws_conn:info(sockstate, St2)),
-    ?assertEqual([{active, false}], ?ws_conn:info(postponed, St2)).
+    {ok, Need} = emqx_limiter_schema:to_capacity("1GB"), %% must bigger than value in emqx_ratelimit_SUITE
+    St1 = ?ws_conn:check_limiter([{Need, bytes_in}],
+                                 [],
+                                 fun(_, _, S) -> S end,
+                                 [],
+                                 St),
+    ?assertEqual(blocked, ?ws_conn:info(sockstate, St1)),
+    ?assertEqual([{active, false}], ?ws_conn:info(postponed, St1)).
 
 t_parse_incoming(_) ->
-    St = ?ws_conn:parse_incoming(<<48,3>>, st()),
-    St1 = ?ws_conn:parse_incoming(<<0,1,116>>, St),
+    {Packets, St} = ?ws_conn:parse_incoming(<<48,3>>, [], st()),
+    {Packets1, _} = ?ws_conn:parse_incoming(<<0,1,116>>, Packets, St),
     Packet = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<>>),
-    ?assertMatch([{incoming, Packet}], ?ws_conn:info(postponed, St1)).
+    ?assertMatch([{incoming, Packet}], Packets1).
 
 t_parse_incoming_frame_error(_) ->
-    St = ?ws_conn:parse_incoming(<<3,2,1,0>>, st()),
+    {Packets, _St} = ?ws_conn:parse_incoming(<<3,2,1,0>>, [], st()),
     FrameError = {frame_error, function_clause},
-    [{incoming, FrameError}] = ?ws_conn:info(postponed, St).
+    [{incoming, FrameError}] = Packets.
 
 t_handle_incomming_frame_error(_) ->
     FrameError = {frame_error, bad_qos},
@@ -440,7 +459,9 @@ t_shutdown(_) ->
 
 st() -> st(#{}).
 st(InitFields) when is_map(InitFields) ->
-    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default, listener => {ws, default}}]),
+    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default,
+                                                  listener => {ws, default},
+                                                  limiter => limiter_cfg()}]),
     maps:fold(fun(N, V, S) -> ?ws_conn:set_field(N, V, S) end,
               ?ws_conn:set_field(channel, channel(), St),
               InitFields
@@ -474,7 +495,9 @@ channel(InitFields) ->
     maps:fold(fun(Field, Value, Channel) ->
                       emqx_channel:set_field(Field, Value, Channel)
               end,
-              emqx_channel:init(ConnInfo, #{zone => default, listener => {ws, default}}),
+              emqx_channel:init(ConnInfo, #{zone => default,
+                                            listener => {ws, default},
+                                            limiter => limiter_cfg()}),
               maps:merge(#{clientinfo => ClientInfo,
                            session    => Session,
                            conn_state => connected
@@ -533,3 +556,8 @@ ws_client(State) ->
     after 1000 ->
         ct:fail(ws_timeout)
     end.
+
+limiter_cfg() -> #{}.
+
+init_limiter() ->
+    emqx_limiter_container:get_limiter_by_names([bytes_in, message_in], limiter_cfg()).

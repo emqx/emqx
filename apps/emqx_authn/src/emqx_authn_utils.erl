@@ -18,12 +18,10 @@
 
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--export([ replace_placeholders/2
+-export([ check_password_from_selected_map/3
+        , replace_placeholders/2
         , replace_placeholder/2
-        , check_password/3
         , is_superuser/1
-        , hash/4
-        , gen_salt/0
         , bin/1
         , ensure_apps_started/1
         , cleanup_resources/0
@@ -35,6 +33,17 @@
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+check_password_from_selected_map(_Algorithm, _Selected, undefined) ->
+    {error, bad_username_or_password};
+check_password_from_selected_map(
+  Algorithm, #{<<"password_hash">> := Hash} = Selected, Password) ->
+    Salt = maps:get(<<"salt">>, Selected, <<>>),
+    case emqx_authn_password_hashing:check_password(Algorithm, Salt, Hash, Password) of
+        true -> ok;
+        false ->
+            {error, bad_username_or_password}
+    end.
 
 replace_placeholders(PlaceHolders, Data) ->
     replace_placeholders(PlaceHolders, Data, []).
@@ -64,27 +73,6 @@ replace_placeholder(?PH_CERT_CN_NAME, Credential) ->
 replace_placeholder(Constant, _) ->
     Constant.
 
-check_password(undefined, _Selected, _State) ->
-    {error, bad_username_or_password};
-check_password(Password,
-               #{<<"password_hash">> := Hash},
-               #{password_hash_algorithm := bcrypt}) ->
-    case emqx_passwd:hash(bcrypt, {Hash, Password}) of
-        Hash -> ok;
-        _ ->
-            {error, bad_username_or_password}
-    end;
-check_password(Password,
-               #{<<"password_hash">> := Hash} = Selected,
-               #{password_hash_algorithm := Algorithm,
-                 salt_position := SaltPosition}) ->
-    Salt = maps:get(<<"salt">>, Selected, <<>>),
-    case hash(Algorithm, Password, Salt, SaltPosition) of
-        Hash -> ok;
-        _ ->
-            {error, bad_username_or_password}
-    end.
-
 is_superuser(#{<<"is_superuser">> := <<"">>}) ->
     #{is_superuser => false};
 is_superuser(#{<<"is_superuser">> := <<"0">>}) ->
@@ -107,15 +95,6 @@ ensure_apps_started(bcrypt) ->
     ok;
 ensure_apps_started(_) ->
     ok.
-
-hash(Algorithm, Password, Salt, prefix) ->
-    emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>);
-hash(Algorithm, Password, Salt, suffix) ->
-    emqx_passwd:hash(Algorithm, <<Password/binary, Salt/binary>>).
-
-gen_salt() ->
-    <<X:128/big-unsigned-integer>> = crypto:strong_rand_bytes(16),
-    iolist_to_binary(io_lib:format("~32.16.0b", [X])).
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> list_to_binary(L);

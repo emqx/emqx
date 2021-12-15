@@ -291,8 +291,9 @@ create_session(ClientInfo, ConnInfo) ->
     ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
     Session.
 
-get_session_confs(#{zone := Zone}, #{receive_maximum := MaxInflight, expiry_interval := EI}) ->
-    #{max_subscriptions => get_mqtt_conf(Zone, max_subscriptions),
+get_session_confs(#{zone := Zone, clientid := ClientId}, #{receive_maximum := MaxInflight, expiry_interval := EI}) ->
+    #{clientid => ClientId,
+      max_subscriptions => get_mqtt_conf(Zone, max_subscriptions),
       upgrade_qos => get_mqtt_conf(Zone, upgrade_qos),
       max_inflight => MaxInflight,
       retry_interval => get_mqtt_conf(Zone, retry_interval),
@@ -301,7 +302,8 @@ get_session_confs(#{zone := Zone}, #{receive_maximum := MaxInflight, expiry_inte
       %% TODO: Add conf for allowing/disallowing persistent sessions.
       %% Note that the connection info is already enriched to have
       %% default config values for session expiry.
-      is_persistent => EI > 0
+      is_persistent => EI > 0,
+      latency_stats => emqx_config:get_zone_conf(Zone, [latency_stats])
      }.
 
 mqueue_confs(Zone) ->

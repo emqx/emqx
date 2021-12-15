@@ -67,8 +67,7 @@
 -export([set_field/3]).
 
 -import(emqx_misc,
-        [ maybe_apply/2
-        , start_timer/2
+        [ start_timer/2
         ]).
 
 -record(state, {
@@ -82,11 +81,6 @@
           sockname :: emqx_types:peername(),
           %% Sock State
           sockstate :: emqx_types:sockstate(),
-          %% Limiter
-          limiter :: maybe(emqx_limiter:limiter()),
-          %% Limit Timer
-          limit_timer :: maybe(reference()),
-          %% Parse State
           parse_state :: emqx_frame:parse_state(),
           %% Serialize options
           serialize :: emqx_frame:serialize_opts(),
@@ -103,10 +97,30 @@
           %% Zone name
           zone :: atom(),
           %% Listener Type and Name
-          listener :: {Type::atom(), Name::atom()}
-        }).
+          listener :: {Type::atom(), Name::atom()},
+
+          %% Limiter
+          limiter :: maybe(limiter()),
+
+          %% cache operation when overload
+          limiter_cache :: queue:queue(cache()),
+
+           %% limiter timers
+          limiter_timer :: undefined | reference()
+	 }).
+
+-record(retry, { types :: list(limiter_type())
+               , data :: any()
+               , next :: check_succ_handler()
+               }).
+
+-record(cache, { need :: list({pos_integer(), limiter_type()})
+               , data :: any()
+               , next :: check_succ_handler()
+               }).
 
 -type(state() :: #state{}).
+-type cache() :: #cache{}.
 
 -define(ACTIVE_N, 100).
 -define(INFO_KEYS, [socktype, peername, sockname, sockstate]).
@@ -126,6 +140,11 @@
 ]).
 -define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
 -define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
+
+%% use macro to do compile time limiter's type check
+-define(LIMITER_BYTES_IN, bytes_in).
+-define(LIMITER_MESSAGE_IN, message_in).
+-define(EMPTY_QUEUE, {[], []}).
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer({nowarn_function, [ init/4
@@ -170,10 +189,10 @@ info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
     StatsTimer;
-info(limit_timer, #state{limit_timer = LimitTimer}) ->
-    LimitTimer;
 info(limiter, #state{limiter = Limiter}) ->
-    maybe_apply(fun emqx_limiter:info/1, Limiter).
+    Limiter;
+info(limiter_timer, #state{limiter_timer = Timer}) ->
+    Timer.
 
 %% @doc Get stats of the connection/channel.
 -spec(stats(pid() | state()) -> emqx_types:stats()).
@@ -244,7 +263,8 @@ init(Parent, Transport, RawSocket, Options) ->
             exit_on_sock_error(Reason)
     end.
 
-init_state(Transport, Socket, #{zone := Zone, listener := Listener} = Opts) ->
+init_state(Transport, Socket,
+           #{zone := Zone, limiter := LimiterCfg, listener := Listener} = Opts) ->
     {ok, Peername} = Transport:ensure_ok_or_exit(peername, [Socket]),
     {ok, Sockname} = Transport:ensure_ok_or_exit(sockname, [Socket]),
     Peercert = Transport:ensure_ok_or_exit(peercert, [Socket]),
@@ -254,7 +274,10 @@ init_state(Transport, Socket, #{zone := Zone, listener := Listener} = Opts) ->
                  peercert => Peercert,
                  conn_mod => ?MODULE
                 },
-    Limiter = emqx_limiter:init(Zone, undefined, undefined, []),
+
+    LimiterTypes = [?LIMITER_BYTES_IN, ?LIMITER_MESSAGE_IN],
+    Limiter = emqx_limiter_container:get_limiter_by_names(LimiterTypes, LimiterCfg),
+
     FrameOpts = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
@@ -286,7 +309,9 @@ init_state(Transport, Socket, #{zone := Zone, listener := Listener} = Opts) ->
            idle_timeout = IdleTimeout,
            idle_timer   = IdleTimer,
            zone         = Zone,
-           listener     = Listener
+           listener     = Listener,
+           limiter_cache = queue:new(),
+           limiter_timer = undefined
           }.
 
 run_loop(Parent, State = #state{transport = Transport,
@@ -428,14 +453,23 @@ handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
-    parse_incoming(Data, State);
+    when_bytes_in(Oct, Data, State);
 
 handle_msg({quic, Data, _Sock, _, _, _}, State) ->
     ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => quic}),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
-    parse_incoming(Data, State);
+    when_bytes_in(Oct, Data, State);
+
+handle_msg(check_cache, #state{limiter_cache = Cache} = State) ->
+    case queue:peek(Cache) of
+        empty ->
+            activate_socket(State);
+        {value, #cache{need = Needs, data = Data, next = Next}} ->
+            State2 = State#state{limiter_cache = queue:drop(Cache)},
+            check_limiter(Needs, Data, Next, [check_cache], State2)
+    end;
 
 handle_msg({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
            State = #state{idle_timer = IdleTimer}) ->
@@ -466,14 +500,12 @@ handle_msg({Passive, _Sock}, State)
     Pubs = emqx_pd:reset_counter(incoming_pubs),
     Bytes = emqx_pd:reset_counter(incoming_bytes),
     InStats = #{cnt => Pubs, oct => Bytes},
-    %% Ensure Rate Limit
-    NState = ensure_rate_limit(InStats, State),
     %% Run GC and Check OOM
-    NState1 = check_oom(run_gc(InStats, NState)),
+    NState1 = check_oom(run_gc(InStats, State)),
     handle_info(activate_socket, NState1);
 
-handle_msg(Deliver = {deliver, _Topic, _Msg}, #state{
-        listener = {Type, Listener}} = State) ->
+handle_msg(Deliver = {deliver, _Topic, _Msg},
+           #state{listener = {Type, Listener}} = State) ->
     ActiveN = get_active_n(Type, Listener),
     Delivers = [Deliver | emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
@@ -579,10 +611,12 @@ handle_call(_From, info, State) ->
 handle_call(_From, stats, State) ->
     {reply, stats(State), State};
 
-handle_call(_From, {ratelimit, Policy}, State = #state{channel = Channel}) ->
-    Zone = emqx_channel:info(zone, Channel),
-    Limiter = emqx_limiter:init(Zone, Policy),
-    {reply, ok, State#state{limiter = Limiter}};
+handle_call(_From, {ratelimit, Changes}, State = #state{limiter = Limiter}) ->
+    Fun = fun({Type, Bucket}, Acc) ->
+                  emqx_limiter_container:update_by_name(Type, Bucket, Acc)
+          end,
+    Limiter2 = lists:foldl(Fun, Limiter, Changes),
+    {reply, ok, State#state{limiter = Limiter2}};
 
 handle_call(_From, Req, State = #state{channel = Channel}) ->
     case emqx_channel:handle_call(Req, Channel) of
@@ -603,10 +637,7 @@ handle_timeout(_TRef, idle_timeout, State) ->
     shutdown(idle_timeout, State);
 
 handle_timeout(_TRef, limit_timeout, State) ->
-    NState = State#state{sockstate   = idle,
-                         limit_timer = undefined
-                        },
-    handle_info(activate_socket, NState);
+    retry_limiter(State);
 
 handle_timeout(_TRef, emit_stats, State = #state{channel = Channel, transport = Transport,
         socket = Socket}) ->
@@ -634,11 +665,23 @@ handle_timeout(TRef, Msg, State) ->
 
 %%--------------------------------------------------------------------
 %% Parse incoming data
-
--compile({inline, [parse_incoming/2]}).
-parse_incoming(Data, State) ->
+-compile({inline, [when_bytes_in/3]}).
+when_bytes_in(Oct, Data, State) ->
     {Packets, NState} = parse_incoming(Data, [], State),
-    {ok, next_incoming_msgs(Packets), NState}.
+    Len = erlang:length(Packets),
+    check_limiter([{Oct, ?LIMITER_BYTES_IN}, {Len, ?LIMITER_MESSAGE_IN}],
+                  Packets,
+                  fun next_incoming_msgs/3,
+                  [],
+                  NState).
+
+-compile({inline, [next_incoming_msgs/3]}).
+next_incoming_msgs([Packet], Msgs, State) ->
+    {ok, [{incoming, Packet} | Msgs], State};
+next_incoming_msgs(Packets, Msgs, State) ->
+    Fun = fun(Packet, Acc) -> [{incoming, Packet} | Acc] end,
+    Msgs2 = lists:foldl(Fun, Msgs, Packets),
+    {ok, Msgs2, State}.
 
 parse_incoming(<<>>, Packets, State) ->
     {Packets, State};
@@ -667,12 +710,6 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
                           }),
             {[{frame_error, Reason} | Packets], State}
     end.
-
--compile({inline, [next_incoming_msgs/1]}).
-next_incoming_msgs([Packet]) ->
-    {incoming, Packet};
-next_incoming_msgs(Packets) ->
-    [{incoming, Packet} || Packet <- lists:reverse(Packets)].
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
@@ -810,20 +847,82 @@ handle_cast(Req, State) ->
     State.
 
 %%--------------------------------------------------------------------
-%% Ensure rate limit
+%% rate limit
 
-ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
-    case ?ENABLED(Limiter) andalso emqx_limiter:check(Stats, Limiter) of
-        false -> State;
-        {ok, Limiter1} ->
-            State#state{limiter = Limiter1};
-        {pause, Time, Limiter1} ->
-            ?SLOG(warning, #{msg => "pause_time_due_to_rate_limit", time_in_ms => Time}),
-            TRef = start_timer(Time, limit_timeout),
-            State#state{sockstate   = blocked,
-                        limiter     = Limiter1,
-                        limit_timer = TRef
-                       }
+-type limiter_type() :: emqx_limiter_container:limiter_type().
+-type limiter() :: emqx_limiter_container:limiter().
+-type check_succ_handler() ::
+        fun((any(), list(any()), state()) -> _).
+
+%% check limiters, if successed call WhenOk with Data and Msgs
+%% Data is the data to be processed
+%% Msgs include the next msg which after Data processed
+-spec check_limiter(list({pos_integer(), limiter_type()}),
+                    any(),
+                    check_succ_handler(),
+                    list(any()),
+                    state()) -> _.
+check_limiter(Needs,
+              Data,
+              WhenOk,
+              Msgs,
+              #state{limiter = Limiter,
+                     limiter_timer = LimiterTimer,
+                     limiter_cache = Cache} = State) when Limiter =/= undefined ->
+    case LimiterTimer of
+        undefined ->
+            case emqx_limiter_container:check_list(Needs, Limiter) of
+                {ok, Limiter2} ->
+                    WhenOk(Data, Msgs, State#state{limiter = Limiter2});
+                {pause, Time, Limiter2} ->
+                    ?SLOG(warning, #{msg => "pause time dueto rate limit",
+                                     needs => Needs,
+                                     time_in_ms => Time}),
+
+                    Retry = #retry{types = [Type || {_, Type} <- Needs],
+                                   data = Data,
+                                   next = WhenOk},
+
+                    Limiter3 = emqx_limiter_container:set_retry_context(Retry, Limiter2),
+
+                    TRef = start_timer(Time, limit_timeout),
+
+                    {ok, State#state{limiter = Limiter3,
+                                     limiter_timer = TRef}};
+                {drop, Limiter2} ->
+                    {ok, State#state{limiter = Limiter2}}
+            end;
+        _ ->
+            %% if there has a retry timer, cache the operation and execute it after the retry is over
+            %% TODO: maybe we need to set socket to passive if size of queue is very large
+            %% because we queue up lots of ops that checks with the limiters.
+            New = #cache{need = Needs, data = Data, next = WhenOk},
+            {ok, State#state{limiter_cache = queue:in(New, Cache)}}
+    end;
+
+check_limiter(_, Data, WhenOk, Msgs, State) ->
+    WhenOk(Data, Msgs, State).
+
+%% try to perform a retry
+-spec retry_limiter(state()) -> _.
+retry_limiter(#state{limiter = Limiter} = State) ->
+    #retry{types = Types, data = Data, next = Next} = emqx_limiter_container:get_retry_context(Limiter),
+    case emqx_limiter_container:retry_list(Types, Limiter) of
+            {ok, Limiter2} ->
+                Next(Data,
+                     [check_cache],
+                     State#state{ limiter = Limiter2
+                                , limiter_timer = undefined
+                                });
+            {pause, Time, Limiter2} ->
+                ?SLOG(warning, #{msg => "pause time dueto rate limit",
+                                 types => Types,
+                                 time_in_ms => Time}),
+
+                TRef = start_timer(Time, limit_timeout),
+
+                {ok, State#state{limiter = Limiter2,
+                                 limiter_timer = TRef}}
     end.
 
 %%--------------------------------------------------------------------
@@ -852,19 +951,25 @@ check_oom(State = #state{channel = Channel}) ->
 
 %%--------------------------------------------------------------------
 %% Activate Socket
-
+%% TODO: maybe we could keep socket passive for receiving socket closed event.
 -compile({inline, [activate_socket/1]}).
-activate_socket(State = #state{sockstate = closed}) ->
-    {ok, State};
-activate_socket(State = #state{sockstate = blocked}) ->
-    {ok, State};
-activate_socket(State = #state{transport = Transport, socket = Socket,
-        listener = {Type, Listener}}) ->
+activate_socket(#state{limiter_timer = Timer} = State)
+  when Timer =/= undefined ->
+    {ok, State#state{sockstate = blocked}};
+
+activate_socket(#state{transport = Transport,
+                       sockstate = SockState,
+                       socket = Socket,
+                       listener = {Type, Listener}} = State)
+  when SockState =/= closed ->
     ActiveN = get_active_n(Type, Listener),
     case Transport:setopts(Socket, [{active, ActiveN}]) of
         ok -> {ok, State#state{sockstate = running}};
         Error -> Error
-    end.
+    end;
+
+activate_socket(State) ->
+    {ok, State}.
 
 %%--------------------------------------------------------------------
 %% Close Socket
@@ -943,6 +1048,6 @@ get_state(Pid) ->
     maps:from_list(lists:zip(record_info(fields, state),
                              tl(tuple_to_list(State)))).
 
-get_active_n(quic, _Listener) -> 100;
+get_active_n(quic, _Listener) -> ?ACTIVE_N;
 get_active_n(Type, Listener) ->
     emqx_config:get_listener_conf(Type, Listener, [tcp, active_n]).

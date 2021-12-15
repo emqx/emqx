@@ -50,8 +50,7 @@ config_refs(Modules) ->
 %% in emqx_schema, 'authentication' is a map() type which is to allow
 %% EMQ X more plugable.
 root_type() ->
-    T = authenticator_type(),
-    hoconsc:union([T, hoconsc:array(T)]).
+    hoconsc:array(authenticator_type()).
 
 mechanism(Name) ->
     hoconsc:mk(hoconsc:enum([Name]),

@@ -412,10 +412,7 @@ schema("/gateway/:name/clients") ->
         #{ description => <<"Get the gateway client list">>
          , parameters => params_client_query()
          , responses =>
-            ?STANDARD_RESP(
-               #{ 200 => emqx_dashboard_swagger:schema_with_examples(
-                           hoconsc:array(ref(client)),
-                           examples_client_list())})
+            ?STANDARD_RESP(#{200 => schema_client_list()})
          }
      };
 schema("/gateway/:name/clients/:clientid") ->
@@ -424,10 +421,7 @@ schema("/gateway/:name/clients/:clientid") ->
         #{ description => <<"Get the gateway client infomation">>
          , parameters => params_client_insta()
          , responses =>
-            ?STANDARD_RESP(
-               #{ 200 => emqx_dashboard_swagger:schema_with_examples(
-                           ref(client),
-                           examples_client())})
+            ?STANDARD_RESP(#{200 => schema_client()})
          }
      , delete =>
         #{ description => <<"Kick out the gateway client">>
@@ -443,9 +437,9 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
          , parameters => params_client_insta()
          , responses =>
             ?STANDARD_RESP(
-               #{ 200 => emqx_dashboard_swagger:schema_with_examples(
-                           hoconsc:array(ref(subscription)),
-                           examples_subsctiption_list())})
+               #{200 => emqx_dashboard_swagger:schema_with_examples(
+                          hoconsc:array(ref(subscription)),
+                          examples_subsctiption_list())})
          }
      , post =>
         #{ description => <<"Create a subscription membership">>
@@ -481,7 +475,7 @@ params_client_insta() ->
     ++ params_gateway_name_in_path().
 
 params_client_searching_in_qs() ->
-    M = #{in => query, nullable => true},
+    M = #{in => query, nullable => true, example => <<"">>},
     [ {node,
        mk(binary(),
           M#{desc => <<"Match the client's node name">>})}
@@ -532,12 +526,16 @@ params_paging() ->
        mk(integer(),
           #{ in => query
            , nullable => true
-           , desc => <<"Page Index">>})}
-      , {limit,
-         mk(integer(),
-            #{ in => query
-             , desc => <<"Page Limit">>
-             , nullable => true})}
+           , desc => <<"Page Index">>
+           , example => 1
+           })}
+     , {limit,
+        mk(integer(),
+           #{ in => query
+            , desc => <<"Page Limit">>
+            , nullable => true
+            , example => 100
+            })}
     ].
 
 params_gateway_name_in_path() ->
@@ -567,31 +565,103 @@ params_topic_name_in_path() ->
 %%--------------------------------------------------------------------
 %% schemas
 
+schema_client_list() ->
+    emqx_dashboard_swagger:schema_with_examples(
+      hoconsc:union([hoconsc:array(ref(?MODULE, stomp_client)),
+                     hoconsc:array(ref(?MODULE, mqttsn_client)),
+                     hoconsc:array(ref(?MODULE, coap_client)),
+                     hoconsc:array(ref(?MODULE, lwm2m_client)),
+                     hoconsc:array(ref(?MODULE, exproto_client))
+                    ]),
+      examples_client_list()
+     ).
+
+schema_client() ->
+    emqx_dashboard_swagger:schema_with_examples(
+      hoconsc:union([ref(?MODULE, stomp_client),
+                     ref(?MODULE, mqttsn_client),
+                     ref(?MODULE, coap_client),
+                     ref(?MODULE, lwm2m_client),
+                     ref(?MODULE, exproto_client)
+                    ]),
+      examples_client()
+     ).
+
 roots() ->
-    [ client
+    [ stomp_client
+    , mqttsn_client
+    , coap_client
+    , lwm2m_client
+    , exproto_client
     , subscription
     ].
 
-fields(client) ->
-    %% XXX: enum for every protocol's client
+fields(test) ->
+    [{key, mk(binary(), #{ desc => <<"Desc">>})}];
+
+fields(stomp_client) ->
+    common_client_props();
+fields(mqttsn_client) ->
+    common_client_props();
+fields(coap_client) ->
+    common_client_props();
+fields(lwm2m_client) ->
+    [ {endpoint_name,
+       mk(binary(),
+          #{ desc => <<"The LwM2M client endpoint name">>})}
+    , {lifetime,
+       mk(integer(),
+          #{ desc => <<"Life time">>})}
+    ] ++ common_client_props();
+fields(exproto_client) ->
+    common_client_props();
+
+fields(subscription) ->
+    [ {topic,
+       mk(binary(),
+          #{ desc => <<"Topic Fillter">>})}
+    , {qos,
+       mk(integer(),
+          #{ desc => <<"QoS level, enum: 0, 1, 2">>})}
+    , {nl,
+       mk(integer(),     %% FIXME: why not boolean?
+          #{ desc => <<"No Local option, enum: 0, 1">>})}
+    , {rap,
+       mk(integer(),
+          #{ desc => <<"Retain as Published option, enum: 0, 1">>})}
+    , {rh,
+       mk(integer(),
+          #{ desc => <<"Retain Handling option, enum: 0, 1, 2">>})}
+    , {sub_props,
+       mk(ref(extra_sub_props),
+         #{desc => <<"Subscription properties">>})}
+    ];
+fields(extra_sub_props) ->
+    [ {subid,
+       mk(binary(),
+         #{ desc => <<"Only stomp protocol, an uniquely identity for "
+                      "the subscription. range: 1-65535.">>})}
+    ].
+
+common_client_props() ->
     [ {node,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Name of the node to which the client is "
                        "connected">>})}
     , {clientid,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Client identifier">>})}
     , {username,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Username of client when connecting">>})}
     , {proto_name,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Client protocol name">>})}
     , {proto_ver,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Protocol version used by the client">>})}
     , {ip_address,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Client's IP address">>})}
     , {port,
        mk(integer(),
@@ -601,10 +671,10 @@ fields(client) ->
           #{ desc => <<"Indicates whether the client is connected via "
                        "bridge">>})}
     , {connected_at,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Client connection time">>})}
     , {disconnected_at,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Client offline time, This field is only valid and "
                        "returned when connected is false">>})}
     , {connected,
@@ -615,10 +685,10 @@ fields(client) ->
     %% want it
     %%
     %, {will_msg,
-    %   mk(string(),
+    %   mk(binary(),
     %      #{ desc => <<"Client will message">>})}
     %, {zone,
-    %   mk(string(),
+    %   mk(binary(),
     %      #{ desc => <<"Indicate the configuration group used by the "
     %                   "client">>})}
     , {keepalive,
@@ -633,7 +703,7 @@ fields(client) ->
           #{ desc => <<"Session expiration interval, with the unit of "
                        "second">>})}
     , {created_at,
-       mk(string(),
+       mk(binary(),
           #{ desc => <<"Session creation time">>})}
     , {subscriptions_cnt,
        mk(integer(),
@@ -699,45 +769,114 @@ fields(client) ->
     , {reductions,
        mk(integer(),
           #{ desc => <<"Erlang reduction">>})}
-    ];
-fields(subscription) ->
-    [ {topic,
-       mk(string(),
-          #{ desc => <<"Topic Fillter">>})}
-    , {qos,
-       mk(integer(),
-          #{ desc => <<"QoS level, enum: 0, 1, 2">>})}
-    , {nl,
-       mk(integer(),     %% FIXME: why not boolean?
-          #{ desc => <<"No Local option, enum: 0, 1">>})}
-    , {rap,
-       mk(integer(),
-          #{ desc => <<"Retain as Published option, enum: 0, 1">>})}
-    , {rh,
-       mk(integer(),
-          #{ desc => <<"Retain Handling option, enum: 0, 1, 2">>})}
-    , {sub_props,
-       mk(ref(extra_sub_props),
-         #{desc => <<"Subscription properties">>})}
-    ];
-fields(extra_sub_props) ->
-    [ {subid,
-       mk(string(),
-         #{ desc => <<"Only stomp protocol, an uniquely identity for "
-                      "the subscription. range: 1-65535.">>})}
     ].
 
 %%--------------------------------------------------------------------
 %% examples
 
 examples_client_list() ->
-    #{}.
+    #{ general_client_list =>
+        #{ summary => <<"General Client List">>
+         , value => [example_general_client()]
+         }
+     , lwm2m_client_list =>
+        #{ summary => <<"LwM2M Client List">>
+         , value => [example_lwm2m_client()]
+         }
+     }.
 
 examples_client() ->
-    #{}.
+    #{ general_client =>
+        #{ summary => <<"General Client Info">>
+         , value => example_general_client()
+         }
+     , lwm2m_client =>
+        #{ summary => <<"LwM2M Client Info">>
+         , value => example_lwm2m_client()
+         }
+     }.
 
 examples_subsctiption_list() ->
-    #{}.
+    #{ general_subscription_list =>
+        #{ summary => <<"A General Subscription List">>
+         , value => [example_general_subscription()]
+         }
+     , stomp_subscription_list =>
+        #{ summary => <<"The Stomp Subscription List">>
+         , value => [example_stomp_subscription]
+         }
+     }.
 
 examples_subsctiption() ->
-    #{}.
+    #{ general_subscription =>
+        #{ summary => <<"A General Subscription">>
+         , value => example_general_subscription()
+         }
+     , stomp_subscription =>
+        #{ summary => <<"A Stomp Subscription">>
+         , value => example_stomp_subscription()
+         }
+    }.
+
+example_lwm2m_client() ->
+    maps:merge(
+      example_general_client(),
+      #{ proto_name => <<"LwM2M">>
+       , proto_ver => <<"1.0">>
+       , endpoint_name => <<"urn:imei:154928475237123">>
+       , lifetime => 86400
+       }).
+
+example_general_client() ->
+    #{ clientid => <<"MzAyMzEzNTUwNzk1NDA1MzYyMzIwNzUxNjQwMTY1NzQ0NjE">>
+     , username => <<"guest">>
+     , node => <<"emqx@127.0.0.1">>
+     , proto_name => "STOMP"
+     , proto_ver => <<"1.0">>
+     , ip_address => <<"127.0.0.1">>
+     , port => 50675
+     , clean_start => true
+     , connected => true
+     , is_bridge => false
+     , keepalive => 0
+     , expiry_interval => 0
+     , subscriptions_cnt => 0
+     , subscriptions_max => <<"infinity">>
+     , awaiting_rel_cnt => 0
+     , awaiting_rel_max => <<"infinity">>
+     , mqueue_len => 0
+     , mqueue_max => <<"infinity">>
+     , mqueue_dropped => 0
+     , inflight_cnt => 0
+     , inflight_max => <<"infinity">>
+     , heap_size => 4185
+     , recv_oct => 56
+     , recv_cnt => 1
+     , recv_pkt => 1
+     , recv_msg => 0
+     , send_oct => 61
+     , send_cnt => 1
+     , send_pkt => 1
+     , send_msg => 0
+     , reductions => 72022
+     , mailbox_len => 0
+     , created_at => <<"2021-12-07T10:44:02.721+08:00">>
+     , connected_at => <<"2021-12-07T10:44:02.721+08:00">>
+     , disconnected_at => null
+     }.
+
+example_stomp_subscription() ->
+    maps:merge(
+      example_general_subscription(),
+      #{ topic => <<"stomp/topic">>
+       , sub_props => #{subid => <<"10">>}
+       }).
+
+example_general_subscription() ->
+    #{ topic => <<"test/topic">>
+     , qos => 1
+     , nl => 0
+     , rap => 0
+     , rh => 0
+     , sub_props => #{}
+     }.

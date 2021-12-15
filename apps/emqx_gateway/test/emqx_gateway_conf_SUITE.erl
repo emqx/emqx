@@ -244,12 +244,12 @@ t_load_unload_gateway(_) ->
     StompConf2 = compose(?CONF_STOMP_BAISC_2,
                          ?CONF_STOMP_AUTHN_1,
                          ?CONF_STOMP_LISTENER_1),
-    ok = emqx_gateway_conf:load_gateway(stomp, StompConf1),
+    {ok, _} = emqx_gateway_conf:load_gateway(stomp, StompConf1),
     {error, already_exist} =
         emqx_gateway_conf:load_gateway(stomp, StompConf1),
     assert_confs(StompConf1, emqx:get_raw_config([gateway, stomp])),
 
-    ok = emqx_gateway_conf:update_gateway(stomp, StompConf2),
+    {ok, _} = emqx_gateway_conf:update_gateway(stomp, StompConf2),
     assert_confs(StompConf2, emqx:get_raw_config([gateway, stomp])),
 
     ok = emqx_gateway_conf:unload_gateway(stomp),
@@ -265,7 +265,7 @@ t_load_unload_gateway(_) ->
 t_load_remove_authn(_) ->
     StompConf = compose_listener(?CONF_STOMP_BAISC_1, ?CONF_STOMP_LISTENER_1),
 
-    ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
+    {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
 
     {ok, _} = emqx_gateway_conf:add_authn(<<"stomp">>, ?CONF_STOMP_AUTHN_1),
@@ -292,7 +292,7 @@ t_load_remove_authn(_) ->
 t_load_remove_listeners(_) ->
     StompConf = compose_authn(?CONF_STOMP_BAISC_1, ?CONF_STOMP_AUTHN_1),
 
-    ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
+    {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
 
     {ok, _} = emqx_gateway_conf:add_listener(
@@ -338,7 +338,7 @@ t_load_remove_listener_authn(_) ->
                    ?CONF_STOMP_AUTHN_2
                  ),
 
-    ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
+    {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
 
     {ok, _} = emqx_gateway_conf:add_authn(
@@ -368,7 +368,7 @@ t_load_gateway_with_certs_content(_) ->
                   ?CONF_STOMP_BAISC_1,
                   ?CONF_STOMP_LISTENER_SSL
                  ),
-    ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
+    {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
     SslConf = emqx_map_lib:deep_get(
                 [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl">>],
@@ -388,7 +388,7 @@ t_load_gateway_with_certs_content(_) ->
 %                  ?CONF_STOMP_BAISC_1,
 %                  ?CONF_STOMP_LISTENER_SSL_PATH
 %                 ),
-%    ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
+%    {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
 %    assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
 %    SslConf = emqx_map_lib:deep_get(
 %                [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl">>],
@@ -402,7 +402,7 @@ t_load_gateway_with_certs_content(_) ->
 
 t_add_listener_with_certs_content(_) ->
     StompConf = ?CONF_STOMP_BAISC_1,
-    ok = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
+    {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
 
     {ok, _} = emqx_gateway_conf:add_listener(
