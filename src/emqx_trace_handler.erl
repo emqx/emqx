@@ -59,6 +59,22 @@
     }}
 ).
 
+-define(CLIENT_FORMAT,
+    {logger_formatter, #{
+        template => [
+            time, " [", level, "] ",
+            {clientid,
+                [{peername, [clientid, "@", peername, " "], [clientid, " "]}],
+                [{peername, [peername, " "], []}]
+            },
+            msg, "\n"
+        ],
+        single_line => false,
+        max_size => unlimited,
+        depth => unlimited
+    }}
+).
+
 -define(CONFIG(_LogFile_), #{
     type => halt,
     file => _LogFile_,
@@ -160,7 +176,7 @@ filter_ip_address(_Log, _ExpectId) -> ignore.
 install_handler(Who = #{name := Name, type := Type}, Level, LogFile) ->
     HandlerId = handler_id(Name, Type),
     Config = #{ level => Level,
-                formatter => ?FORMAT,
+                formatter => formatter(Who),
                 filter_default => stop,
                 filters => filters(Who),
                 config => ?CONFIG(LogFile)
@@ -175,6 +191,31 @@ filters(#{type := topic, filter := Filter, name := Name}) ->
     [{topic, {fun ?MODULE:filter_topic/2, {ensure_bin(Filter), Name}}}];
 filters(#{type := ip_address, filter := Filter, name := Name}) ->
     [{ip_address, {fun ?MODULE:filter_ip_address/2, {ensure_list(Filter), Name}}}].
+
+formatter(#{type := Type}) ->
+    {logger_formatter,
+        #{
+            template => template(Type),
+            single_line => false,
+            max_size => unlimited,
+            depth => unlimited
+        }
+    }.
+
+%% Don't log clientid since clientid only supports exact match, all client ids are the same.
+%% if clientid is not latin characters. the logger_formatter restricts the output must be `~tp`
+%% (actually should use `~ts`), the utf8 characters clientid will become very difficult to read.
+template(clientid) ->
+    [time, " [", level, "] ", {peername, [peername, " "], []}, msg, "\n"];
+%% TODO better format when clientid is utf8.
+template(_) ->
+    [ time, " [", level, "] ",
+        {clientid,
+            [{peername, [clientid, "@", peername, " "], [clientid, " "]}],
+            [{peername, [peername, " "], []}]
+        },
+        msg, "\n"
+    ].
 
 filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) ->
     Init = #{id => Id, level => Level, dst => Dst},
@@ -209,7 +250,7 @@ do_handler_id(Name, Type) ->
 ensure_bin(List) when is_list(List) -> iolist_to_binary(List);
 ensure_bin(Bin) when is_binary(Bin) -> Bin.
 
-ensure_list(Bin) when is_binary(Bin) -> binary_to_list(Bin);
+ensure_list(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin, utf8);
 ensure_list(List) when is_list(List) -> List.
 
 show_prompts(ok, Who, Msg) ->
