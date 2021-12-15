@@ -23,7 +23,7 @@
         , stop_listeners/0]).
 
 %% Authorization
--export([authorize_appid/1]).
+-export([authorize/1]).
 
 -include_lib("emqx/include/logger.hrl").
 
@@ -37,7 +37,7 @@
 
 start_listeners() ->
     {ok, _} = application:ensure_all_started(minirest),
-    Authorization = {?MODULE, authorize_appid},
+    Authorization = {?MODULE, authorize},
     GlobalSpec = #{
         openapi => "3.0.0",
         info => #{title => "EMQ X API", version => "5.0.0"},
@@ -45,10 +45,9 @@ start_listeners() ->
         components => #{
             schemas => #{},
             'securitySchemes' => #{
-                application => #{
-                    type => 'apiKey',
-                    name => "authorization",
-                    in => header}}}},
+                'basicAuth' => #{type => http, scheme => basic},
+                'bearerAuth' => #{type => http, scheme => bearer}
+            }}},
     Dispatch =
         case os:getenv("_EMQX_ENABLE_DASHBOARD") of
             V when V =:= "true" orelse V =:= "1" ->
@@ -63,7 +62,7 @@ start_listeners() ->
         base_path => ?BASE_PATH,
         modules => minirest_api:find_api_modules(apps()),
         authorization => Authorization,
-        security => [#{application => []}],
+        security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
         swagger_global_spec => GlobalSpec,
         dispatch => Dispatch,
         middlewares => [cowboy_router, ?EMQX_MIDDLE, cowboy_handler]
@@ -130,36 +129,45 @@ listener_name(Protocol, Port) ->
     Name = "dashboard:" ++ atom_to_list(Protocol) ++ ":" ++ integer_to_list(Port),
     list_to_atom(Name).
 
-authorize_appid(Req) ->
+authorize(Req) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {basic, Username, Password} ->
             case emqx_dashboard_admin:check(Username, Password) of
                 ok ->
                     ok;
+                {error, <<"username_not_found">>} ->
+                    Path = cowboy_req:path(Req),
+                    case emqx_mgmt_auth:authorize(Path, Username, Password) of
+                        ok ->
+                            ok;
+                        {error, <<"not_allowed">>} ->
+                            return_unauthorized(
+                                <<"WORNG_USERNAME_OR_PWD">>,
+                                <<"Check username/password">>);
+                        {error, _} ->
+                            return_unauthorized(
+                                <<"WORNG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET">>,
+                                <<"Check username/password or api_key/api_secret">>)
+                    end;
                 {error, _} ->
-                    {401, #{<<"WWW-Authenticate">> =>
-                                <<"Basic Realm=\"minirest-server\"">>},
-                          #{code => <<"ERROR_USERNAME_OR_PWD">>,
-                            message => <<"Check your username and password">>}}
+                    return_unauthorized(<<"WORNG_USERNAME_OR_PWD">>, <<"Check username/password">>)
             end;
         {bearer, Token} ->
             case emqx_dashboard_admin:verify_token(Token) of
                 ok ->
                     ok;
                 {error, token_timeout} ->
-                    {401, #{<<"WWW-Authenticate">> =>
-                            <<"Bearer Realm=\"minirest-server\"">>},
-                        #{code => <<"TOKEN_TIME_OUT">>,
-                          message => <<"POST '/login', get your new token">>}};
+                    return_unauthorized(<<"TOKEN_TIME_OUT">>, <<"POST '/login', get new token">>);
                 {error, not_found} ->
-                    {401, #{<<"WWW-Authenticate">> =>
-                        <<"Bearer Realm=\"minirest-server\"">>},
-                        #{code => <<"BAD_TOKEN">>,
-                          message => <<"POST '/login'">>}}
+                    return_unauthorized(<<"BAD_TOKEN">>, <<"POST '/login'">>)
             end;
         _ ->
-            {401, #{<<"WWW-Authenticate">> =>
-                        <<"Basic Realm=\"minirest-server\"">>},
-                  #{code => <<"ERROR_USERNAME_OR_PWD">>,
-                    message => <<"Check your username and password">>}}
+            return_unauthorized(<<"AUTHORIZATION_HEADER_ERROR">>,
+                <<"Support authorization: basic/bearer ">>)
     end.
+
+return_unauthorized(Code, Message) ->
+    {401, #{<<"WWW-Authenticate">> =>
+    <<"Basic Realm=\"minirest-server\"">>},
+        #{code => Code, message => Message}
+    }.

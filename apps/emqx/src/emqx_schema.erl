@@ -37,6 +37,8 @@
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple().
 -type cipher() :: map().
+-type rfc3339_system_time() :: integer().
+-type unicode_binary() :: binary().
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
@@ -49,6 +51,8 @@
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
 -typerefl_from_string({cipher/0, emqx_schema, to_erl_cipher_suite}).
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
+-typerefl_from_string({rfc3339_system_time/0, emqx_schema, rfc3339_to_system_time}).
+-typerefl_from_string({unicode_binary/0, emqx_schema, to_unicode_binary}).
 
 -export([ validate_heap_size/1
         , parse_user_lookup_fun/1
@@ -61,7 +65,9 @@
          to_percent/1, to_comma_separated_list/1,
          to_bar_separated_list/1, to_ip_port/1,
          to_erl_cipher_suite/1,
-         to_comma_separated_atoms/1]).
+         to_comma_separated_atoms/1,
+         rfc3339_to_system_time/1,
+         to_unicode_binary/1]).
 
 -behaviour(hocon_schema).
 
@@ -69,7 +75,9 @@
                 bytesize/0, wordsize/0, percent/0, file/0,
                 comma_separated_list/0, bar_separated_list/0, ip_port/0,
                 cipher/0,
-                comma_separated_atoms/0]).
+                comma_separated_atoms/0,
+                rfc3339_system_time/0,
+                unicode_binary/0]).
 
 -export([namespace/0, roots/0, roots/1, fields/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
@@ -118,7 +126,8 @@ EMQ X can be configured with:
 <br>
 <ul>
 <li><code>[]</code>: The default value, it allows *ALL* logins</li>
-<li>one: For example <code>{enable:true,backend:\"built-in-database\",mechanism=\"password-based\"}</code></li>
+<li>one: For example <code>{enable:true,backend:\"built-in-database\",mechanism=\"password-based\"}
+</code></li>
 <li>chain: An array of structs.</li>
 </ul>
 <br>
@@ -1374,6 +1383,16 @@ to_comma_separated_list(Str) ->
 to_comma_separated_atoms(Str) ->
     {ok, lists:map(fun to_atom/1, string:tokens(Str, ", "))}.
 
+rfc3339_to_system_time(DateTime) ->
+    try
+        {ok, calendar:rfc3339_to_system_time(DateTime, [{unit, second}])}
+    catch error: _ ->
+        {error, bad_rfc3339_timestamp}
+    end.
+
+to_unicode_binary(Str) ->
+    {ok, unicode:characters_to_binary(Str)}.
+
 to_bar_separated_list(Str) ->
     {ok, string:tokens(Str, "| ")}.
 
@@ -1461,7 +1480,8 @@ authentication(Desc) ->
     %% the type checks are done in emqx_auth application when it boots.
     %% and in emqx_authentication_config module for rutime changes.
     Default = hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())])),
-    %% as the type is lazy, the runtime module injection from EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
+    %% as the type is lazy, the runtime module injection
+    %% from EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
     %% is for now only affecting document generation.
     %% maybe in the future, we can find a more straightforward way to support
     %% * document generation (at compile time)
