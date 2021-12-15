@@ -466,7 +466,7 @@ parse_topic_filters(subscribe, Bin, ?MQTT_PROTO_V5) ->
 
 parse_topic_filters(subscribe, Bin, Ver) when Ver == ?MQTT_PROTO_V3;
                                               Ver == ?MQTT_PROTO_V4 ->
-    [{Topic, #{qos => QoS}}
+    [{Topic, ?DEFAULT_SUBOPTS#{qos => QoS}}
      || <<Len:16/big, Topic:Len/binary, _:2, _Rh:2, _Rap:1, _Nl:1, QoS:2>> <= Bin];
 
 parse_topic_filters(unsubscribe, Bin, _) ->

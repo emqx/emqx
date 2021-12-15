@@ -242,7 +242,7 @@ stats(Session) -> info(?STATS_KEYS, Session).
       -> {ok, session()} | {error, emqx_types:reason_code()}).
 subscribe(ClientInfo = #{clientid := ClientId}, TopicFilter, SubOpts,
           Session = #session{subscriptions = Subs}) ->
-    IsNew = not maps:is_key(TopicFilter, Subs),
+    IsNew = is_new_subscription(TopicFilter, SubOpts, Subs),
     case IsNew andalso is_subscriptions_full(Session) of
         false ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts),
@@ -250,6 +250,14 @@ subscribe(ClientInfo = #{clientid := ClientId}, TopicFilter, SubOpts,
                                 [ClientInfo, TopicFilter, SubOpts#{is_new => IsNew}]),
             {ok, Session#session{subscriptions = maps:put(TopicFilter, SubOpts, Subs)}};
         true -> {error, ?RC_QUOTA_EXCEEDED}
+    end.
+
+-compile({inline, [is_new_subscription/3]}).
+is_new_subscription(TopicFilter, SubOpts, Subs) ->
+    case maps:get(TopicFilter, Subs, undefined) of
+        SubOpts ->
+            false;
+        _ -> true
     end.
 
 -compile({inline, [is_subscriptions_full/1]}).
