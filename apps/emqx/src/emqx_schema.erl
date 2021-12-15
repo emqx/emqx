@@ -1386,8 +1386,8 @@ to_comma_separated_atoms(Str) ->
 rfc3339_to_system_time(DateTime) ->
     try
         {ok, calendar:rfc3339_to_system_time(DateTime, [{unit, second}])}
-    catch error: {badmatch, _} ->
-        {error, ["The rfc3339 specification not satisfied"]}
+    catch error: _ ->
+        {error, bad_rfc3339_timestamp}
     end.
 
 to_unicode_binary(Str) ->
