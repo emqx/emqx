@@ -28,7 +28,7 @@
                  {password, <<"pass">>}
                 ]).
 
-all() -> [t_trace_clientid, t_trace_topic, t_trace_ip_address].
+all() -> [t_trace_clientid, t_trace_topic, t_trace_ip_address, t_trace_clientid_utf8].
 
 init_per_suite(Config) ->
     emqx_ct_helpers:boot_modules(all),
@@ -104,6 +104,22 @@ t_trace_clientid(_Config) ->
 
     emqtt:disconnect(T),
     ?assertEqual([], emqx_trace_handler:running()).
+
+t_trace_clientid_utf8(_) ->
+    emqx_logger:set_log_level(debug),
+
+    Utf8Id = <<"client 漢字編碼"/utf8>>,
+    ok = emqx_trace_handler:install(clientid, Utf8Id, debug, "tmp/client-utf8.log"),
+    {ok, T} = emqtt:start_link([{clientid, Utf8Id}]),
+    emqtt:connect(T),
+    [begin emqtt:publish(T, <<"a/b/c">>, <<"hi">>) end|| _ <- lists:seq(1, 10)],
+    emqtt:ping(T),
+
+    ok = filesync(Utf8Id, clientid),
+    ok = emqx_trace_handler:uninstall(clientid, Utf8Id),
+    emqtt:disconnect(T),
+    ?assertEqual([], emqx_trace_handler:running()),
+    ok.
 
 t_trace_topic(_Config) ->
     {ok, T} = emqtt:start_link(?CLIENT),
