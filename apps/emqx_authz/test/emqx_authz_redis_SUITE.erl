@@ -52,10 +52,14 @@ init_per_suite(Config) ->
     end.
 
 end_per_suite(_Config) ->
-    ok = emqx_authz_test_lib:reset_authorizers(),
+    ok = emqx_authz_test_lib:restore_authorizers(),
     ok = emqx_resource:remove_local(?REDIS_RESOURCE),
     ok = stop_apps([emqx_resource, emqx_connector]),
     ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
+
+init_per_testcase(Config) ->
+    ok = emqx_authz_test_lib:reset_authorizers(),
+    Config.
 
 set_special_configs(emqx_authz) ->
     ok = emqx_authz_test_lib:reset_authorizers();
@@ -199,7 +203,6 @@ setup_client_samples(ClientInfo, Samples) ->
     setup_config(#{}).
 
 setup_config(SpecialParams) ->
-    ok = emqx_authz_test_lib:reset_authorizers(deny, false),
     Config = maps:merge(raw_redis_authz_config(), SpecialParams),
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [Config]),
     ok.

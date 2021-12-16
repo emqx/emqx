@@ -33,14 +33,6 @@ all() ->
 groups() ->
     [].
 
-init_per_testcase(_TestCase, Config) ->
-    {ok, _} = mc_worker_api:connect(mongo_config()),
-    Config.
-
-end_per_testcase(_TestCase, _Config) ->
-    ok = reset_samples(),
-    ok = mc_worker_api:disconnect(?MONGO_CLIENT).
-
 init_per_suite(Config) ->
     case emqx_authz_test_lib:is_tcp_server_available(?MONGO_HOST, ?MONGO_PORT) of
         true ->
@@ -55,7 +47,7 @@ init_per_suite(Config) ->
     end.
 
 end_per_suite(_Config) ->
-    ok = emqx_authz_test_lib:reset_authorizers(),
+    ok = emqx_authz_test_lib:restore_authorizers(),
     ok = stop_apps([emqx_resource, emqx_connector]),
     ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
 
@@ -64,6 +56,15 @@ set_special_configs(emqx_authz) ->
 
 set_special_configs(_) ->
     ok.
+
+init_per_testcase(_TestCase, Config) ->
+    {ok, _} = mc_worker_api:connect(mongo_config()),
+    ok = emqx_authz_test_lib:reset_authorizers(),
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    ok = reset_samples(),
+    ok = mc_worker_api:disconnect(?MONGO_CLIENT).
 
 %%------------------------------------------------------------------------------
 %% Testcases

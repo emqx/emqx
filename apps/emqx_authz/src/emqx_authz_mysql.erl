@@ -53,17 +53,6 @@ dry_run(Source) ->
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove(Id).
 
-parse_query(undefined) ->
-    undefined;
-parse_query(Sql) ->
-    case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
-        {match, Variables} ->
-            Params = [Var || [Var] <- Variables],
-            {re:replace(Sql, ?RE_PLACEHOLDER, "?", [global, {return, list}]), Params};
-        nomatch ->
-            {Sql, []}
-    end.
-
 authorize(Client, PubSub, Topic,
             #{annotations := #{id := ResourceID,
                                query := {Query, Params}
@@ -78,6 +67,15 @@ authorize(Client, PubSub, Topic,
                           , reason => Reason
                           , resource_id => ResourceID}),
             nomatch
+    end.
+
+parse_query(Sql) ->
+    case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
+        {match, Variables} ->
+            Params = [Var || [Var] <- Variables],
+            {re:replace(Sql, ?RE_PLACEHOLDER, "?", [global, {return, list}]), Params};
+        nomatch ->
+            {Sql, []}
     end.
 
 do_authorize(_Client, _PubSub, _Topic, _Columns, []) ->

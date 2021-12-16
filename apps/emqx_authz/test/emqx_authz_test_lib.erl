@@ -25,6 +25,9 @@
 -define(DEFAULT_CHECK_AVAIL_TIMEOUT, 1000).
 
 reset_authorizers() ->
+    reset_authorizers(deny, false).
+
+restore_authorizers() ->
     reset_authorizers(allow, true).
 
 reset_authorizers(Nomatch, ChacheEnabled) ->
@@ -36,7 +39,6 @@ reset_authorizers(Nomatch, ChacheEnabled) ->
     ok.
 
 setup_config(BaseConfig, SpecialParams) ->
-    ok = reset_authorizers(deny, false),
     Config = maps:merge(BaseConfig, SpecialParams),
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [Config]),
     ok.
@@ -101,6 +103,7 @@ test_allow_topic_rules(ClientInfo, SetupSamples) ->
                 }
               ],
 
+    ok = reset_authorizers(deny, false),
     ok = SetupSamples(ClientInfo, Samples),
 
     ok = test_samples(
@@ -162,11 +165,6 @@ test_allow_topic_rules(ClientInfo, SetupSamples) ->
 test_deny_topic_rules(ClientInfo, SetupSamples) ->
     Samples = [
                #{
-                 topics => [<<"#">>],
-                 permission => <<"allow">>,
-                 action => <<"all">>
-                },
-               #{
                  topics => [<<"eq testpub1/${username}">>,
                             <<"testpub2/${clientid}">>,
                             <<"testpub3/#">>],
@@ -190,6 +188,7 @@ test_deny_topic_rules(ClientInfo, SetupSamples) ->
                 }
               ],
 
+    ok = reset_authorizers(allow, false),
     ok = SetupSamples(ClientInfo, Samples),
 
     ok = test_samples(
