@@ -149,7 +149,7 @@ t_start_restart_and_stop(Config) ->
     assert_app_running(emqx_plugin_template, true),
 
     %% fake enable bar-2
-    ok = emqx_plugins:ensure_state(Bar2, reat, true),
+    ok = emqx_plugins:ensure_state(Bar2, rear, true),
     %% should cause an error
     ?assertError(#{function := _, errors := [_ | _]},
                  emqx_plugins:ensure_started()),

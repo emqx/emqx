@@ -139,7 +139,7 @@ ensure_state(NameVsn, Position, State) ->
             Item = #{ name_vsn => NameVsn
                     , enable => State
                     },
-            ensure_configured(Item, Position);
+            tryit("ensure_state", fun() -> ensure_configured(Item, Position) end);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -150,13 +150,18 @@ ensure_configured(#{name_vsn := NameVsn} = Item, Position) ->
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
     NewConfigured =
         case Rear of
-            [_ | More] -> Front ++ [Item | More];
-            [] -> add_new_configured(Configured, Position, Item)
+            [_ | More] when Position =:= no_move ->
+                Front ++ [Item | More];
+            [_ | More] ->
+                add_new_configured(Front ++ More, Position, Item);
+            [] ->
+                add_new_configured(Configured, Position, Item)
         end,
     ok = put_configured(NewConfigured).
 
 add_new_configured(Configured, no_move, Item) ->
-    Configured ++ [Item];
+    %% default to rear
+    add_new_configured(Configured, rear, Item);
 add_new_configured(Configured, front, Item) ->
     [Item | Configured];
 add_new_configured(Configured, rear, Item) ->
@@ -164,6 +169,11 @@ add_new_configured(Configured, rear, Item) ->
 add_new_configured(Configured, {before, NameVsn}, Item) ->
     SplitFun = fun(#{name_vsn := Nv}) -> bin(Nv) =/= bin(NameVsn) end,
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
+    Rear =:= [] andalso
+        throw(#{error => "position_anchor_plugin_not_configured",
+                hint => "maybe_install_and_configure",
+                name_vsn => NameVsn
+               }),
     Front ++ [Item | Rear].
 
 %% @doc Delete the package file.

@@ -31,7 +31,9 @@ test_ensure_configured() ->
     emqx_plugins:ensure_configured(P1, front),
     emqx_plugins:ensure_configured(P2, {before, <<"p-1">>}),
     emqx_plugins:ensure_configured(P3, {before, <<"p-1">>}),
-    ?assertEqual([P2, P3, P1], emqx_plugins:configured()).
+    ?assertEqual([P2, P3, P1], emqx_plugins:configured()),
+    ?assertThrow(#{error := "position_anchor_plugin_not_configured"},
+                 emqx_plugins:ensure_configured(P3, {before, <<"unknown-x">>})).
 
 read_plugin_test() ->
     with_rand_install_dir(
