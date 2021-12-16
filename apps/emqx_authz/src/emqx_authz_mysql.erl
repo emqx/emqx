@@ -108,8 +108,8 @@ replvar([], _ClientInfo, Acc) ->
 
 replvar([?PH_S_USERNAME | Params], ClientInfo, Acc) ->
     replvar(Params, ClientInfo, [safe_get(username, ClientInfo) | Acc]);
-replvar([?PH_S_CLIENTID | Params], ClientInfo = #{clientid := ClientId}, Acc) ->
-    replvar(Params, ClientInfo, [ClientId | Acc]);
+replvar([?PH_S_CLIENTID | Params], ClientInfo = #{clientid := _ClientId}, Acc) ->
+    replvar(Params, ClientInfo, [safe_get(clientid, ClientInfo) | Acc]);
 replvar([?PH_S_PEERHOST | Params], ClientInfo = #{peerhost := IpAddr}, Acc) ->
     replvar(Params, ClientInfo, [inet_parse:ntoa(IpAddr) | Acc]);
 replvar([?PH_S_CERT_CN_NAME | Params], ClientInfo, Acc) ->
