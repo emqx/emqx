@@ -24,6 +24,7 @@
         , ensure_enabled/1
         , ensure_enabled/2
         , ensure_disabled/1
+        , delete_package/1
         ]).
 
 -export([ ensure_started/0
@@ -32,7 +33,7 @@
         , ensure_stopped/1
         , restart/1
         , list/0
-        , delete_package/1
+        , describe/1
         ]).
 
 -export([ get_config/2
@@ -54,10 +55,15 @@
 
 -type name_vsn() :: binary() | string(). %% "my_plugin-0.1.0"
 -type plugin() :: map(). %% the parse result of the JSON info file
+-type position() :: no_move | front | rear | {before, name_vsn()}.
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
+
+%% @doc Describe a plugin.
+-spec describe(name_vsn()) -> {ok, plugin()} | {error, any()}.
+describe(NameVsn) -> read_plugin(NameVsn).
 
 %% @doc Install a .tar.gz package placed in install_dir.
 -spec ensure_installed(name_vsn()) -> ok | {error, any()}.
@@ -98,7 +104,7 @@ do_ensure_installed(NameVsn) ->
 -spec ensure_uninstalled(name_vsn()) -> ok | {error, any()}.
 ensure_uninstalled(NameVsn) ->
     case read_plugin(NameVsn) of
-        {ok, #{running_status := RunningSt}} when RunningSt =/= not_loaded ->
+        {ok, #{running_status := RunningSt}} when RunningSt =/= stopped ->
             {error, #{reason => "bad_plugin_running_status",
                       hint => "stop_the_plugin_first"
                      }};
@@ -113,15 +119,17 @@ ensure_uninstalled(NameVsn) ->
 %% @doc Ensure a plugin is enabled to the end of the plugins list.
 -spec ensure_enabled(name_vsn()) -> ok | {error, any()}.
 ensure_enabled(NameVsn) ->
-    ensure_enabled(NameVsn, rear).
+    ensure_enabled(NameVsn, no_move).
 
+%% @doc Ensure a plugin is enabled at the given position of the plugin list.
+-spec ensure_enabled(name_vsn(), position()) -> ok | {error, any()}.
 ensure_enabled(NameVsn, Position) ->
     ensure_state(NameVsn, Position, true).
 
 %% @doc Ensure a plugin is disabled.
 -spec ensure_disabled(name_vsn()) -> ok | {error, any()}.
 ensure_disabled(NameVsn) ->
-    ensure_state(NameVsn, rear, false).
+    ensure_state(NameVsn, no_move, false).
 
 ensure_state(NameVsn, Position, State) when is_binary(NameVsn) ->
     ensure_state(binary_to_list(NameVsn), Position, State);
@@ -147,6 +155,8 @@ ensure_configured(#{name_vsn := NameVsn} = Item, Position) ->
         end,
     ok = put_configured(NewConfigured).
 
+add_new_configured(Configured, no_move, Item) ->
+    Configured ++ [Item];
 add_new_configured(Configured, front, Item) ->
     [Item | Configured];
 add_new_configured(Configured, rear, Item) ->
@@ -232,16 +242,33 @@ restart(NameVsn) ->
 -spec list() -> [plugin()].
 list() ->
     Pattern = filename:join([install_dir(), "*", "release.json"]),
-    lists:filtermap(
-      fun(JsonFile) ->
-              case read_plugin({file, JsonFile}) of
-                  {ok, Info} ->
-                      {true, Info};
-                  {error, Reason} ->
-                      ?SLOG(warning, Reason),
-                      false
-              end
-      end, filelib:wildcard(Pattern)).
+    All = lists:filtermap(
+            fun(JsonFile) ->
+                    case read_plugin({file, JsonFile}) of
+                        {ok, Info} ->
+                            {true, Info};
+                        {error, Reason} ->
+                            ?SLOG(warning, Reason),
+                            false
+                    end
+            end, filelib:wildcard(Pattern)),
+    list(configured(), All).
+
+%% Make sure configured ones are ordered in front.
+list([], All) -> All;
+list([#{name_vsn := NameVsn} | Rest], All) ->
+    SplitF = fun(#{<<"name">> := Name, <<"rel_vsn">> := Vsn}) ->
+                     bin([Name, "-", Vsn]) =/= bin(NameVsn)
+             end,
+    case lists:splitwith(SplitF, All) of
+        {_, []} ->
+            ?SLOG(warning, #{msg => "configured_plugin_not_installed",
+                             name_vsn => NameVsn
+                            }),
+            list(Rest, All);
+        {Front, [I | Rear]} ->
+            [I | list(Rest, Front ++ Rear)]
+    end.
 
 do_ensure_started(NameVsn) ->
     tryit("start_plugins",
@@ -295,7 +322,7 @@ plugin_status(NameVsn) ->
                     _ -> loaded
                 end;
             undefined ->
-                not_loaded
+                stopped
         end,
     Configured = lists:filtermap(
         fun(#{name_vsn := Nv, enable := St}) ->
