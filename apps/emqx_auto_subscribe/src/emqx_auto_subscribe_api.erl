@@ -16,14 +16,13 @@
 
 -module(emqx_auto_subscribe_api).
 
+-include_lib("emqx/include/emqx_api_code.hrl").
+
 -behaviour(minirest_api).
 
 -export([api_spec/0]).
 
 -export([auto_subscribe/2]).
-
--define(EXCEED_LIMIT, 'EXCEED_LIMIT').
--define(BAD_REQUEST, 'BAD_REQUEST').
 
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
@@ -71,9 +70,9 @@ auto_subscribe_api() ->
             responses => #{
                 <<"200">> => schema(),
                 <<"400">> => emqx_mgmt_util:error_schema(
-                                <<"Request body required">>, [?BAD_REQUEST]),
+                                <<"Request body required">>, [?API_CODE_BAD_REQUEST]),
                 <<"409">> => emqx_mgmt_util:error_schema(
-                                <<"Auto Subscribe topics max limit">>, [?EXCEED_LIMIT])}}
+                                <<"Auto Subscribe topics max limit">>, [?API_CODE_EXCEED_LIMIT])}}
     },
     {"/mqtt/auto_subscribe", Metadata, auto_subscribe}.
 
@@ -83,13 +82,13 @@ auto_subscribe(get, _) ->
     {200, emqx_auto_subscribe:list()};
 
 auto_subscribe(put, #{body := #{}}) ->
-    {400, #{code => ?BAD_REQUEST, message => <<"Request body required">>}};
+    {400, ?API_CODE_BAD_REQUEST, <<"Request body required">>};
 auto_subscribe(put, #{body := Params}) ->
     case emqx_auto_subscribe:update(Params) of
         {error, quota_exceeded} ->
             Message = list_to_binary(io_lib:format("Max auto subscribe topic count is  ~p",
                                         [emqx_auto_subscribe:max_limit()])),
-            {409, #{code => ?EXCEED_LIMIT, message => Message}};
+            {409, ?API_CODE_EXCEED_LIMIT, Message};
         ok ->
             {200, emqx_auto_subscribe:list()}
     end.
