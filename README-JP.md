@@ -114,7 +114,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 
 ### 自作プラグイン
 
-プラグインを自作することができます。[lib-extra/README.md](./lib-extra/README.md)をご確認ください。
+プラグインを自作することができます。[PLUGIN.md](./PLUGIN.md) をご確認ください。
 
 
 ## MQTTの仕様について

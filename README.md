@@ -123,8 +123,7 @@ For more organised improvement proposals, you can send pull requests to [EIP](ht
 
 ### Plugin development
 
-To develop your own plugins, see [lib-extra/README.md](./lib-extra/README.md)
-
+See [PLUGIN.md](./PLUGIN.md)
 
 ## MQTT Specifications
 
