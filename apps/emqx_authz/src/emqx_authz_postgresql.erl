@@ -57,13 +57,15 @@ parse_query(undefined) ->
     undefined;
 parse_query(Sql) ->
     case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
-        {match, Variables} ->
-            Params = [Var || [Var] <- Variables],
-            Vars = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(Params))],
-            NSql = lists:foldl(fun({Param, Var}, S) ->
-                       re:replace(S, Param, Var, [{return, list}])
-                   end, Sql, lists:zip(Params, Vars)),
-            {NSql, Params};
+        {match, Capured} ->
+            PlaceHolders = [PlaceHolder || [PlaceHolder] <- Capured],
+            Replacements = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(PlaceHolders))],
+            NSql = lists:foldl(
+                     fun({PlaceHolder, Replacement}, S) ->
+                             re:replace(
+                               S, emqx_authz:ph_to_re(PlaceHolder), Replacement, [{return, list}])
+                     end, Sql, lists:zip(PlaceHolders, Replacements)),
+            {NSql, PlaceHolders};
         nomatch ->
             {Sql, []}
     end.
