@@ -19,6 +19,8 @@
 
 -include_lib("typerefl/include/types.hrl").
 
+-include_lib("emqx/include/emqx_api_code.hrl").
+
 -import(hoconsc, [mk/2, array/1, enum/1]).
 
 %% Swagger specs from hocon schema
@@ -209,7 +211,7 @@ schema("/bridges") ->
                             bridge_info_examples(post)),
             responses => #{
                 201 => get_response_body_schema(),
-                400 => error_schema('BAD_ARG', "Create bridge failed")
+                400 => error_schema(?API_CODE_BAD_REQUEST, "Create bridge failed")
             }
         }
     };
@@ -224,7 +226,7 @@ schema("/bridges/:id") ->
             parameters => [param_path_id()],
             responses => #{
                 200 => get_response_body_schema(),
-                404 => error_schema('NOT_FOUND', "Bridge not found")
+                404 => error_schema(?API_CODE_BRIDGE_NOT_FOUND, "Bridge not found")
             }
         },
         put => #{
@@ -237,7 +239,7 @@ schema("/bridges/:id") ->
                             bridge_info_examples(put)),
             responses => #{
                 200 => get_response_body_schema(),
-                400 => error_schema('BAD_ARG', "Update bridge failed")
+                400 => error_schema(?API_CODE_BAD_REQUEST, "Update bridge failed")
             }
         },
         delete => #{
@@ -263,7 +265,6 @@ schema("/bridges/:id/operation/:operation") ->
                 param_path_operation()
             ],
             responses => #{
-                500 => error_schema('INTERNAL_ERROR', "Operation Failed"),
                 200 => <<"Operation success">>
             }
         }
@@ -300,7 +301,7 @@ list_local_bridges(Node) ->
                     {error, Error} -> {400, Error}
                 end;
             {error, not_found} ->
-                {404, error_msg('NOT_FOUND',<<"bridge not found">>)}
+                {404, error_msg(?API_CODE_BRIDGE_NOT_FOUND, <<"bridge not found">>)}
         end);
 
 '/bridges/:id'(delete, #{bindings := #{id := Id}}) ->
@@ -309,7 +310,7 @@ list_local_bridges(Node) ->
                 #{override_to => cluster}) of
             {ok, _} -> {204};
             {error, Reason} ->
-                {500, error_msg('UNKNOWN_ERROR', Reason)}
+                {500, error_msg(?API_CODE_INTERNAL_ERROR, Reason)}
         end).
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
@@ -317,9 +318,9 @@ lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
         {ok, [{ok, _} | _] = Results} ->
             {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
         {ok, [{error, not_found} | _]} ->
-            {404, error_msg('NOT_FOUND', <<"not_found">>)};
+            {404, error_msg(?API_CODE_BRIDGE_NOT_FOUND, <<"not_found">>)};
         {error, ErrL} ->
-            {500, error_msg('UNKNOWN_ERROR', ErrL)}
+            {500, error_msg(?API_CODE_INTERNAL_ERROR, ErrL)}
     end.
 
 lookup_from_local_node(BridgeType, BridgeName) ->
@@ -337,9 +338,9 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                     UpReq, #{override_to => cluster}) of
                 {ok, _} -> {200};
                 {error, {pre_config_update, _, bridge_not_found}} ->
-                    {404, error_msg('NOT_FOUND', <<"bridge not found">>)};
+                    {404, error_msg(?API_CODE_BRIDGE_NOT_FOUND, <<"bridge not found">>)};
                 {error, Reason} ->
-                    {500, error_msg('UNKNOWN_ERROR', Reason)}
+                    {500, error_msg(?API_CODE_INTERNAL_ERROR, Reason)}
             end
     end).
 
@@ -354,7 +355,7 @@ ensure_bridge_created(BridgeType, BridgeName, Conf) ->
             Conf1, #{override_to => cluster}) of
         {ok, _} -> ok;
         {error, Reason} ->
-            {error, error_msg('BAD_ARG', Reason)}
+            {error, error_msg(?API_CODE_BAD_REQUEST, Reason)}
     end.
 
 zip_bridges([BridgesFirstNode | _] = BridgesAllNodes) ->
