@@ -63,7 +63,7 @@
 
 -type event_result(State) ::
         #{next => State,
-          outgoing => emqx_coap_message(),
+          outgoing => coap_message(),
           timeouts => list(ttimeout()),
           has_sub  => undefined | sub_register(),
           transport => emqx_coap_transport:transprot()}.
@@ -75,12 +75,13 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+
+-spec new() -> manager().
 new() ->
     #{ seq_id => 1
      , next_msg_id => rand:uniform(?MAX_MESSAGE_ID)
      }.
 
-%% client request
 handle_request(#coap_message{id = MsgId} = Msg, TM) ->
     Id = {in, MsgId},
     case find_machine(Id, TM) of
@@ -296,7 +297,7 @@ new_in_machine(MachineId, #{seq_id := SeqId} = Manager) ->
                        SeqId => Machine,
                        MachineId => SeqId}}.
 
--spec new_out_machine(state_machine_key(), any(), emqx_coap_message(), manager()) ->
+-spec new_out_machine(state_machine_key(), any(), coap_message(), manager()) ->
           {state_machine(), manager()}.
 new_out_machine(MachineId,
                 Ctx,

@@ -42,7 +42,7 @@
 -type request_context() :: map().
 
 -type timestamp() :: non_neg_integer().
--type queued_request() :: {timestamp(), request_context(), emqx_coap_message()}.
+-type queued_request() :: {timestamp(), request_context(), coap_message()}.
 
 -type cmd_path() :: binary().
 -type cmd_type() :: binary().
@@ -120,7 +120,7 @@ new() ->
             , cmd_record = #{queue => queue:new()}
             , lifetime = emqx:get_config([gateway, lwm2m, lifetime_max])}.
 
--spec init(emqx_coap_message(), binary(), function(), session()) -> map().
+-spec init(coap_message(), binary(), function(), session()) -> map().
 init(#coap_message{options = Opts,
                    payload = Payload} = Msg, MountPoint, WithContext, Session) ->
     Query = maps:get(uri_query, Opts),
@@ -347,7 +347,7 @@ get_lifetime(#{<<"lt">> := _} = NewRegInfo, _) ->
 get_lifetime(_, OldRegInfo) ->
     get_lifetime(OldRegInfo).
 
--spec update(emqx_coap_message(), function(), binary(), session()) -> map().
+-spec update(coap_message(), function(), binary(), session()) -> map().
 update(#coap_message{options = Opts, payload = Payload} = Msg,
        WithContext,
        CmdType,

@@ -274,15 +274,18 @@ kickout_client(Node, GwName, ClientId) ->
     -> {error, any()}
      | {ok, list()}.
 list_client_subscriptions(GwName, ClientId) ->
-    %% Get the subscriptions from session-info
     with_channel(GwName, ClientId,
         fun(Pid) ->
-            Subs = emqx_gateway_conn:call(
-                     Pid,
-                     subscriptions, ?DEFAULT_CALL_TIMEOUT),
-            {ok, lists:map(fun({Topic, SubOpts}) ->
-                     SubOpts#{topic => Topic}
-                 end, Subs)}
+            case emqx_gateway_conn:call(
+                   Pid,
+                   subscriptions, ?DEFAULT_CALL_TIMEOUT) of
+                {ok, Subs} ->
+                    {ok, lists:map(fun({Topic, SubOpts}) ->
+                        SubOpts#{topic => Topic}
+                    end, Subs)};
+                {error, Reason} ->
+                    {error, Reason}
+            end
         end).
 
 -spec client_subscribe(gateway_name(), emqx_type:clientid(),
@@ -330,7 +333,9 @@ return_http_error(Code, Msg) ->
 codestr(400) -> 'BAD_REQUEST';
 codestr(401) -> 'NOT_SUPPORTED_NOW';
 codestr(404) -> 'RESOURCE_NOT_FOUND';
-codestr(500) -> 'UNKNOW_ERROR'.
+codestr(405) -> 'METHOD_NOT_ALLOWED';
+codestr(500) -> 'UNKNOW_ERROR';
+codestr(501) -> 'NOT_IMPLEMENTED'.
 
 -spec with_authn(binary(), function()) -> any().
 with_authn(GwName0, Fun) ->

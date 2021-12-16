@@ -148,6 +148,10 @@ subscriptions(get, #{ bindings := #{name := Name0,
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
     with_gateway(Name0, fun(GwName, _) ->
         case emqx_gateway_http:list_client_subscriptions(GwName, ClientId) of
+            {error, nosupport} ->
+                return_http_error(405, <<"Not support to list subscriptions">>);
+            {error, noimpl} ->
+                return_http_error(501, <<"Not implemented now">>);
             {error, Reason} ->
                 return_http_error(500, Reason);
             {ok, Subs} ->
@@ -168,6 +172,14 @@ subscriptions(post, #{ bindings := #{name := Name0,
             {Topic, QoS} ->
                 case emqx_gateway_http:client_subscribe(
                        GwName, ClientId, Topic, QoS) of
+                    {error, nosupport} ->
+                        return_http_error(
+                          405,
+                          <<"Not support to add a subscription">>);
+                    {error, noimpl} ->
+                        return_http_error(
+                          501,
+                          <<"Not implemented now">>);
                     {error, Reason} ->
                         return_http_error(404, Reason);
                     ok ->

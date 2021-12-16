@@ -11,7 +11,7 @@
 
 -type request_context() :: any().
 
--record(transport, { cache :: undefined | emqx_coap_message()
+-record(transport, { cache :: undefined | coap_message()
                    , req_context :: request_context()
                    , retry_interval :: non_neg_integer()
                    , retry_count :: non_neg_integer()
@@ -26,7 +26,6 @@
 
 -export_type([transport/0]).
 
--import(emqx_coap_message, [reset/1]).
 -import(emqx_coap_medium, [ empty/0, reset/2, proto_out/2
                           , out/1, out/2, proto_out/1
                           , reply/2]).
@@ -166,7 +165,7 @@ observe(in,
         {error, _} ->
             #{next => stop};
         _ ->
-            reset(Message)
+            emqx_coap_message:reset(Message)
     end.
 
 until_stop(_, _, _) ->
@@ -187,5 +186,5 @@ on_response(#coap_message{type = Type} = Message,
                       out(Ack, #{next => NextState,
                                  transport => Transport#transport{cache = Ack}}));
        true ->
-            reset(Message)
+            emqx_coap_message:reset(Message)
     end.

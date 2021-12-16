@@ -174,6 +174,7 @@ handle_timeout(_, _, Channel) ->
 %%--------------------------------------------------------------------
 %% Handle call
 %%--------------------------------------------------------------------
+
 handle_call({lookup_cmd, Path, Type}, _From, #channel{session = Session} = Channel) ->
     Result = emqx_lwm2m_session:find_cmd_record(Path, Type, Session),
     {reply, {ok, Result}, Channel};
@@ -181,6 +182,21 @@ handle_call({lookup_cmd, Path, Type}, _From, #channel{session = Session} = Chann
 handle_call({send_cmd, Cmd}, _From, Channel) ->
     {ok, Outs, Channel2} = call_session(send_cmd, Cmd, Channel),
     {reply, ok, Outs, Channel2};
+
+handle_call({subscribe, _Topic, _SubOpts}, _From, Channel) ->
+    {reply, {error, noimpl}, Channel};
+
+handle_call({unsubscribe, _Topic}, _From, Channel) ->
+    {reply, {error, noimpl}, Channel};
+
+handle_call(subscriptions, _From, Channel) ->
+    {reply, {error, noimpl}, Channel};
+
+handle_call(kick, _From, Channel) ->
+    {reply, {error, noimpl}, Channel};
+
+handle_call(discard, _From, Channel) ->
+    {reply, {error, noimpl}, Channel};
 
 handle_call(Req, _From, Channel) ->
     ?SLOG(error, #{ msg => "unexpected_call"

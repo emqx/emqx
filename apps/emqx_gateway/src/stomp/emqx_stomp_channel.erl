@@ -73,16 +73,16 @@
           transaction :: #{binary() => list()}
          }).
 
--type(channel() :: #channel{}).
+-type channel() :: #channel{}.
 
--type(conn_state() :: idle | connecting | connected | disconnected).
+-type conn_state() :: idle | connecting | connected | disconnected.
 
--type(reply() :: {outgoing, stomp_frame()}
+-type reply() :: {outgoing, stomp_frame()}
                | {outgoing, [stomp_frame()]}
                | {event, conn_state()|updated}
-               | {close, Reason :: atom()}).
+               | {close, Reason :: atom()}.
 
--type(replies() :: reply() | [reply()]).
+-type replies() :: reply() | [reply()].
 
 -define(TIMER_TABLE, #{
           incoming_timer => keepalive,
@@ -155,7 +155,7 @@ setting_peercert_infos(Peercert, ClientInfo) ->
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
 
--spec(info(list(atom())|atom(), channel()) -> term()).
+-spec info(list(atom())|atom(), channel()) -> term().
 info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 
@@ -174,7 +174,7 @@ info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
 info(ctx, #channel{ctx = Ctx}) ->
     Ctx.
 
--spec(stats(channel()) -> emqx_types:stats()).
+-spec stats(channel()) -> emqx_types:stats().
 stats(#channel{subscriptions = Subs}) ->
     [{subscriptions_cnt, length(Subs)}].
 

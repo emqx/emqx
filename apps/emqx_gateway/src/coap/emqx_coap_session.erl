@@ -22,7 +22,8 @@
 
 %% API
 -export([ new/0
-        , process_subscribe/4]).
+        , process_subscribe/4
+        ]).
 
 -export([ info/1
         , info/2

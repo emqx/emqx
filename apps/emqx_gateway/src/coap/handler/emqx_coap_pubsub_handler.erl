@@ -28,7 +28,7 @@
 
 -define(UNSUB(Topic, Msg), #{subscribe => {Topic, Msg}}).
 -define(SUB(Topic, Token, Msg), #{subscribe => {{Topic, Token}, Msg}}).
--define(SUBOPTS, #{qos => 0, rh => 0, rap => 0, nl => 0, is_new => false}).
+-define(SUBOPTS, #{qos => 0, rh => 1, rap => 0, nl => 0, is_new => false}).
 
 %% TODO maybe can merge this code into emqx_coap_session, simplify the call chain
 
