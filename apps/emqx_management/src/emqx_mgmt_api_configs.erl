@@ -16,6 +16,8 @@
 
 -module(emqx_mgmt_api_configs).
 
+-include_lib("emqx/include/emqx_api_code.hrl").
+
 -include_lib("hocon/include/hoconsc.hrl").
 -behaviour(minirest_api).
 
@@ -76,7 +78,8 @@ schema("/configs_reset/:rootname") ->
                         desc => <<"The config path separated by '.' character">>})}],
             responses => #{
                 200 => <<"Rest config successfully">>,
-                400 => emqx_dashboard_swagger:error_codes(['NO_DEFAULT_VALUE', 'REST_FAILED'])
+                400 => emqx_dashboard_swagger:error_codes(
+                           [?API_CODE_NO_DEFAULT_VALUE, ?API_CODE_REST_FAILED])
             }
         }
     };
@@ -91,7 +94,7 @@ schema(Path) ->
                                             , <<"*">>]),
             responses => #{
                 200 => Schema,
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
+                404 => emqx_dashboard_swagger:error_codes([?API_CODE_NOT_FOUND], <<"config not found">>)
             }
         },
         put => #{
@@ -102,7 +105,7 @@ schema(Path) ->
             'requestBody' => Schema,
             responses => #{
                 200 => Schema,
-                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
+                400 => emqx_dashboard_swagger:error_codes([?API_CODE_UPDATE_FAILED])
             }
         }
     }.
@@ -130,7 +133,7 @@ config(get, _Params, Req) ->
         {ok, Conf} ->
             {200, Conf};
         {not_found, _, _} ->
-            {404, #{code => 'NOT_FOUND', message => <<"Config cannot found">>}}
+            {404, ?API_CODE_NOT_FOUND, <<"Config cannot found">>}
     end;
 
 config(put, #{body := Body}, Req) ->
@@ -139,7 +142,7 @@ config(put, #{body := Body}, Req) ->
         {ok, #{raw_config := RawConf}} ->
             {200, emqx_map_lib:jsonable_map(RawConf)};
         {error, Reason} ->
-            {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
+            {400, ?API_CODE_UPDATE_FAILED, ?ERR_MSG(Reason)}
     end.
 
 config_reset(post, _Params, Req) ->
@@ -148,9 +151,9 @@ config_reset(post, _Params, Req) ->
     case emqx:reset_config(Path, #{}) of
         {ok, _} -> {200};
         {error, no_default_value} ->
-            {400, #{code => 'NO_DEFAULT_VALUE', message => <<"No Default Value.">>}};
+            {400, ?API_CODE_NO_DEFAULT_VALUE, <<"No Default Value.">>};
         {error, Reason} ->
-            {400, #{code => 'REST_FAILED', message => ?ERR_MSG(Reason)}}
+            {400, ?API_CODE_REST_FAILED, ?ERR_MSG(Reason)}
     end.
 
 configs(get, Params, _Req) ->
@@ -162,10 +165,10 @@ configs(get, Params, _Req) ->
     of
         false ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
-            {500, #{code => 'BAD_NODE', message => Message}};
+            {500, ?API_CODE_BAD_NODE_NAME, Message};
         {error, {badrpc, R}} ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason ~p", [Node, R])),
-            {500, #{code => 'BAD_NODE', message => Message}};
+            {500, ?API_CODE_BAD_NODE_NAME, Message};
         Res ->
             {200, Res}
     end.

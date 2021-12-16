@@ -16,6 +16,8 @@
 
 -module(emqx_mgmt_api_listeners).
 
+-include_lib("emqx/include/emqx_api_code.hrl").
+
 -behaviour(minirest_api).
 
 -export([api_spec/0]).
@@ -89,7 +91,7 @@ api_list_update_listeners_by_id() ->
             parameters => [param_path_id()],
             responses => #{
                 <<"404">> =>
-                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
+                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, [?API_CODE_BAD_LISTENER_ID]),
                 <<"200">> =>
                     emqx_mgmt_util:array_schema(resp_schema(), <<"List listeners successfully">>)}},
         put => #{
@@ -99,12 +101,13 @@ api_list_update_listeners_by_id() ->
             'requestBody' => emqx_mgmt_util:schema(req_schema(), <<"Listener Config">>),
             responses => #{
                 <<"400">> =>
-                    emqx_mgmt_util:error_schema(?UPDATE_CONFIG_FAILED,
-                                                ['BAD_LISTENER_ID', 'BAD_CONFIG_SCHEMA']),
+                    emqx_mgmt_util:error_schema(
+                        ?UPDATE_CONFIG_FAILED,
+                        [?API_CODE_BAD_LISTENER_ID, ?API_CODE_BAD_CONFIG_SCHEMA]),
                 <<"404">> =>
-                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
+                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, [?API_CODE_BAD_LISTENER_ID]),
                 <<"500">> =>
-                    emqx_mgmt_util:error_schema(?OPERATION_FAILED, ['INTERNAL_ERROR']),
+                    emqx_mgmt_util:error_schema(?OPERATION_FAILED, [?API_CODE_INTERNAL_ERROR]),
                 <<"200">> =>
                     emqx_mgmt_util:array_schema(resp_schema(),
                                                 <<"Create or update listener successfully">>)}},
@@ -113,7 +116,7 @@ api_list_update_listeners_by_id() ->
             parameters => [param_path_id()],
             responses => #{
                 <<"404">> =>
-                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
+                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, [?API_CODE_BAD_LISTENER_ID]),
                 <<"204">> =>
                     emqx_mgmt_util:schema(<<"Delete listener successfully">>)}}
     },
@@ -125,10 +128,10 @@ api_list_listeners_on_node() ->
             description => <<"List listeners in one node">>,
             parameters => [param_path_node()],
             responses => #{
-                <<"404">> =>
-                    emqx_mgmt_util:error_schema(?NODE_NOT_FOUND_OR_DOWN, ['RESOURCE_NOT_FOUND']),
+                <<"400">> =>
+                    emqx_mgmt_util:error_schema(?NODE_NOT_FOUND_OR_DOWN, [?API_CODE_BAD_NODE_NAME]),
                 <<"500">> =>
-                    emqx_mgmt_util:error_schema(?OPERATION_FAILED, ['INTERNAL_ERROR']),
+                    emqx_mgmt_util:error_schema(?OPERATION_FAILED, [?API_CODE_INTERNAL_ERROR]),
                 <<"200">> =>
                     emqx_mgmt_util:schema(resp_schema(), <<"List listeners successfully">>)}}},
     {"/nodes/:node/listeners", Metadata, list_listeners_on_node}.
@@ -141,7 +144,7 @@ api_get_update_listener_by_id_on_node() ->
             responses => #{
                 <<"404">> =>
                     emqx_mgmt_util:error_schema(?NODE_LISTENER_NOT_FOUND,
-                        ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),
+                        ['BAD_NODE_NAME', ?API_CODE_BAD_LISTENER_ID]),
                 <<"200">> =>
                     emqx_mgmt_util:schema(resp_schema(), <<"Get listener successfully">>)}},
         put => #{
@@ -150,13 +153,14 @@ api_get_update_listener_by_id_on_node() ->
             'requestBody' => emqx_mgmt_util:schema(req_schema(), <<"Listener Config">>),
             responses => #{
                 <<"400">> =>
-                    emqx_mgmt_util:error_schema(?UPDATE_CONFIG_FAILED,
-                                                ['BAD_LISTENER_ID', 'BAD_CONFIG_SCHEMA']),
+                    emqx_mgmt_util:error_schema(
+                        ?UPDATE_CONFIG_FAILED,
+                        [?API_CODE_BAD_LISTENER_ID, ?API_CODE_BAD_CONFIG_SCHEMA]),
                 <<"404">> =>
                     emqx_mgmt_util:error_schema(?NODE_LISTENER_NOT_FOUND,
-                        ['BAD_NODE_NAME', 'BAD_LISTENER_ID']),
+                        [?API_CODE_BAD_NODE_NAME, ?API_CODE_BAD_LISTENER_ID]),
                 <<"500">> =>
-                    emqx_mgmt_util:error_schema(?OPERATION_FAILED, ['INTERNAL_ERROR']),
+                    emqx_mgmt_util:error_schema(?OPERATION_FAILED, [?API_CODE_INTERNAL_ERROR]),
                 <<"200">> =>
                     emqx_mgmt_util:schema(resp_schema(), <<"Get listener successfully">>)}},
         delete => #{
@@ -164,7 +168,7 @@ api_get_update_listener_by_id_on_node() ->
             parameters => [param_path_node(), param_path_id()],
             responses => #{
                 <<"404">> =>
-                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, ['BAD_LISTENER_ID']),
+                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, [?API_CODE_BAD_LISTENER_ID]),
                 <<"204">> =>
                     emqx_mgmt_util:schema(<<"Delete listener successfully">>)}}
     },
@@ -178,8 +182,12 @@ api_manage_listeners() ->
                 param_path_id(),
                 param_path_operation()],
             responses => #{
-                <<"500">> => emqx_mgmt_util:error_schema(?OPERATION_FAILED, ['INTERNAL_ERROR']),
-                <<"200">> => emqx_mgmt_util:schema(<<"Operation success">>)}}},
+                <<"500">> => emqx_mgmt_util:error_schema(
+                    ?OPERATION_FAILED,
+                    [?API_CODE_INTERNAL_ERROR]),
+                <<"404">> =>
+                    emqx_mgmt_util:error_schema(?LISTENER_NOT_FOUND, [?API_CODE_BAD_LISTENER_ID]),
+                <<"204">> => emqx_mgmt_util:schema(<<"Operation success">>)}}},
     {"/listeners/:id/operation/:operation", Metadata, manage_listeners}.
 
 api_manage_listeners_on_node() ->
@@ -191,8 +199,10 @@ api_manage_listeners_on_node() ->
                 param_path_id(),
                 param_path_operation()],
             responses => #{
-                <<"500">> => emqx_mgmt_util:error_schema(?OPERATION_FAILED, ['INTERNAL_ERROR']),
-                <<"200">> => emqx_mgmt_util:schema(<<"Operation success">>)}}},
+                <<"500">> => emqx_mgmt_util:error_schema(
+                    ?OPERATION_FAILED,
+                    [?API_CODE_INTERNAL_ERROR]),
+                <<"204">> => emqx_mgmt_util:schema(<<"Operation success">>)}}},
     {"/nodes/:node/listeners/:id/operation/:operation", Metadata, manage_listeners}.
 
 %%%==============================================================================================
@@ -234,7 +244,7 @@ crud_listeners_by_id(get, #{bindings := #{id := Id}}) ->
     case [L || L = #{id := Id0} <- emqx_mgmt:list_listeners(),
             atom_to_binary(Id0, latin1) =:= Id] of
         [] ->
-            {400, #{code => 'RESOURCE_NOT_FOUND', message => ?LISTENER_NOT_FOUND}};
+            {404, ?API_CODE_BAD_LISTENER_ID, ?LISTENER_NOT_FOUND};
         Listeners ->
             {200, format(Listeners)}
     end;
@@ -242,13 +252,13 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Conf}) ->
     Results = format(emqx_mgmt:update_listener(Id, Conf)),
     case lists:filter(fun filter_errors/1, Results) of
         [{error, {invalid_listener_id, Id}} | _] ->
-            {400, #{code => 'BAD_REQUEST', message => ?INVALID_LISTENER_PROTOCOL}};
+            {400, ?API_CODE_BAD_REQUEST, ?INVALID_LISTENER_PROTOCOL};
         [{error, {emqx_conf_schema, _}} | _] ->
-            {400, #{code => 'BAD_REQUEST', message => ?CONFIG_SCHEMA_ERROR}};
+            {400, ?API_CODE_BAD_REQUEST, ?CONFIG_SCHEMA_ERROR};
         [{error, {eaddrinuse, _}} | _] ->
-            {400, #{code => 'BAD_REQUEST', message => ?ADDR_PORT_INUSE}};
+            {400, ?API_CODE_BAD_REQUEST, ?ADDR_PORT_INUSE};
         [{error, Reason} | _] ->
-            {500, #{code => 'UNKNOWN_ERROR', message => err_msg(Reason)}};
+            {500, ?API_CODE_INTERNAL_ERROR, err_msg(Reason)};
         [] ->
             {200, Results}
     end;
@@ -256,16 +266,16 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Conf}) ->
 crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
     Results = emqx_mgmt:remove_listener(Id),
     case lists:filter(fun filter_errors/1, Results) of
-        [] -> {204};
-        Errors -> {500, #{code => 'UNKNOW_ERROR', message => err_msg(Errors)}}
+        [] -> 204;
+        Errors -> {500, ?API_CODE_INTERNAL_ERROR, err_msg(Errors)}
     end.
 
 list_listeners_on_node(get, #{bindings := #{node := Node}}) ->
     case emqx_mgmt:list_listeners(atom(Node)) of
         {error, nodedown} ->
-            {404, #{code => 'RESOURCE_NOT_FOUND', message => ?NODE_NOT_FOUND_OR_DOWN}};
+            {400, ?API_CODE_BAD_NODE_NAME, ?NODE_NOT_FOUND_OR_DOWN};
         {error, Reason} ->
-            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}};
+            {500, ?API_CODE_INTERNAL_ERROR, err_msg(Reason)};
         Listener ->
             {200, format(Listener)}
     end.
@@ -273,31 +283,32 @@ list_listeners_on_node(get, #{bindings := #{node := Node}}) ->
 crud_listener_by_id_on_node(get, #{bindings := #{id := Id, node := Node}}) ->
     case emqx_mgmt:get_listener(atom(Node), atom(Id)) of
         {error, not_found} ->
-            {404, #{code => 'RESOURCE_NOT_FOUND', message => ?NODE_LISTENER_NOT_FOUND}};
+            {404, ?API_CODE_BAD_LISTENER_ID, ?NODE_LISTENER_NOT_FOUND};
         {error, Reason} ->
-            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}};
+            {500, ?API_CODE_INTERNAL_ERROR, err_msg(Reason)};
         Listener ->
             {200, format(Listener)}
     end;
 crud_listener_by_id_on_node(put, #{bindings := #{id := Id, node := Node}, body := Conf}) ->
     case emqx_mgmt:update_listener(atom(Node), Id, Conf) of
         {error, nodedown} ->
-            {404, #{code => 'RESOURCE_NOT_FOUND', message => ?NODE_NOT_FOUND_OR_DOWN}};
+            {400, ?API_CODE_BAD_NODE_NAME, ?NODE_NOT_FOUND_OR_DOWN};
         {error, {invalid_listener_id, _}} ->
-            {400, #{code => 'BAD_REQUEST', message => ?INVALID_LISTENER_PROTOCOL}};
+            {400, ?API_CODE_BAD_REQUEST, ?INVALID_LISTENER_PROTOCOL};
         {error, {emqx_conf_schema, _}} ->
-            {400, #{code => 'BAD_REQUEST', message => ?CONFIG_SCHEMA_ERROR}};
+            {400, ?API_CODE_BAD_REQUEST, ?CONFIG_SCHEMA_ERROR};
         {error, {eaddrinuse, _}} ->
-            {400, #{code => 'BAD_REQUEST', message => ?ADDR_PORT_INUSE}};
+            {400, ?API_CODE_BAD_REQUEST, ?ADDR_PORT_INUSE};
         {error, Reason} ->
-            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}};
+            {500, ?API_CODE_INTERNAL_ERROR, err_msg(Reason)};
         Listener ->
             {200, format(Listener)}
     end;
 crud_listener_by_id_on_node(delete, #{bindings := #{id := Id, node := Node}}) ->
     case emqx_mgmt:remove_listener(atom(Node), Id) of
         ok -> {204};
-        {error, Reason} -> {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}}
+        {error, Reason} ->
+            {500, ?API_CODE_INTERNAL_ERROR, err_msg(Reason)}
     end.
 
 manage_listeners(_, #{bindings := #{id := Id, operation := Oper, node := Node}}) ->
@@ -307,8 +318,8 @@ manage_listeners(_, #{bindings := #{id := Id, operation := Oper, node := Node}})
 manage_listeners(_, #{bindings := #{id := Id, operation := Oper}}) ->
     Results = [do_manage_listeners(Node, Id, Oper) || Node <- mria_mnesia:running_nodes()],
     case lists:filter(fun({_, {200}}) -> false; (_) -> true end, Results) of
-        [] -> {200};
-        Errors -> {500, #{code => 'UNKNOW_ERROR', message => manage_listeners_err(Errors)}}
+        [] -> 204;
+        Errors -> {500, ?API_CODE_INTERNAL_ERROR, manage_listeners_err(Errors)}
     end.
 
 %%%==============================================================================================
@@ -320,24 +331,25 @@ do_manage_listeners(Node, Id, Oper) ->
 
 do_manage_listeners2(<<"start">>, Param) ->
     case emqx_mgmt:manage_listener(start_listener, Param) of
-        ok -> {200};
-        {error, {already_started, _}} -> {200};
+        ok -> 204;
+        {error, {already_started, _}} -> 204;
         {error, Reason} ->
-            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}}
+            {500, ?API_CODE_INTERNAL_ERROR, err_msg(Reason)}
     end;
 do_manage_listeners2(<<"stop">>, Param) ->
     case emqx_mgmt:manage_listener(stop_listener, Param) of
-        ok -> {200};
-        {error, not_found} -> {200};
+        ok -> 204;
+        {error, not_found} ->
+            {404, ?API_CODE_BAD_LISTENER_ID, ?NODE_LISTENER_NOT_FOUND};
         {error, Reason} ->
-            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}}
+            {500, ?API_CODE_INTERNAL_ERROR,  err_msg(Reason)}
     end;
 do_manage_listeners2(<<"restart">>, Param) ->
     case emqx_mgmt:manage_listener(restart_listener, Param) of
-        ok -> {200};
+        ok -> 204;
         {error, not_found} -> do_manage_listeners2(<<"start">>, Param);
         {error, Reason} ->
-            {500, #{code => 'UNKNOW_ERROR', message => err_msg(Reason)}}
+            {500, ?API_CODE_INTERNAL_ERROR, err_msg(Reason)}
     end.
 
 manage_listeners_err(Errors) ->

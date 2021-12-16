@@ -19,6 +19,7 @@
 -behaviour(minirest_api).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_api_code.hrl").
 
 -import(emqx_mgmt_util, [ page_schema/1
                         , error_schema/2
@@ -55,7 +56,7 @@ subscriptions_api() ->
             parameters => parameters(),
             responses => #{
                 <<"200">> => page_schema(subscription),
-                <<"400">> => error_schema(<<"Invalid parameters">>, ['INVALID_PARAMETER'])
+                <<"400">> => error_schema(<<"Invalid parameters">>, [?API_CODE_INVALID_PARAMETER])
             }
         }
     },

@@ -17,6 +17,7 @@
 -module(emqx_mgmt_api_routes).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_api_code.hrl").
 
 %% API
 -behaviour(minirest_api).
@@ -27,8 +28,6 @@
         , route/2]).
 
 -export([query/4]).
-
--define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
 -define(ROUTES_QS_SCHEMA, [{<<"topic">>, binary}, {<<"node">>, atom}]).
 
@@ -56,7 +55,7 @@ routes_api() ->
             parameters => [topic_param(query) , node_param()] ++ page_params(),
             responses => #{
                 <<"200">> => object_array_schema(properties(), <<"List route info">>),
-                <<"400">> => error_schema(<<"Invalid parameters">>, ['INVALID_PARAMETER'])
+                <<"400">> => error_schema(<<"Invalid parameters">>, [?API_CODE_INVALID_PARAMETER])
             }
         }
     },
@@ -71,7 +70,7 @@ route_api() ->
                 <<"200">> =>
                     object_schema(properties(), <<"Route info">>),
                 <<"404">> =>
-                    error_schema(<<"Topic not found">>, [?TOPIC_NOT_FOUND])
+                    error_schema(<<"Topic not found">>, [?API_CODE_TOPIC_NOT_FOUND])
             }
         }
     },
@@ -88,13 +87,15 @@ route(get, #{bindings := Bindings}) ->
 %%%==============================================================================================
 %% api apply
 list(Params) ->
-    Response = emqx_mgmt_api:node_query(node(), Params, emqx_route, ?ROUTES_QS_SCHEMA, {?MODULE, query}),
+    Response =
+        emqx_mgmt_api:node_query(node(), Params, emqx_route, ?ROUTES_QS_SCHEMA, {?MODULE, query}),
     generate_response(Response).
 
 lookup(#{topic := Topic}) ->
     case emqx_mgmt:lookup_routes(Topic) of
         [] ->
-            {404, #{code => ?TOPIC_NOT_FOUND, message => <<"Topic not found">>}};
+            Message = list_to_binary(io_lib:format("Topic [~p] not found", [Topic])),
+            {404, ?API_CODE_TOPIC_NOT_FOUND, Message};
         [Route] ->
             {200, format(Route)}
     end.

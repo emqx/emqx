@@ -17,6 +17,7 @@
 -module(emqx_mgmt_api_banned).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_api_code.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -include("emqx_mgmt.hrl").
@@ -67,7 +68,7 @@ schema("/banned") ->
             'requestBody' => hoconsc:mk(hoconsc:ref(ban)),
             responses => #{
                 200 => [{data, hoconsc:mk(hoconsc:array(hoconsc:ref(ban)), #{})}],
-                400 => emqx_dashboard_swagger:error_codes(['ALREADY_EXISTED'],
+                400 => emqx_dashboard_swagger:error_codes([?API_CODE_ALREADY_EXISTED],
                                                           <<"Banned already existed">>)
             }
         }
@@ -89,7 +90,7 @@ schema("/banned/:as/:who") ->
                 ],
             responses => #{
                 204 => <<"Delete banned success">>,
-                404 => emqx_dashboard_swagger:error_codes(['RESOURCE_NOT_FOUND'],
+                404 => emqx_dashboard_swagger:error_codes([?API_CODE_RESOURCE_NOT_FOUND],
                                                           <<"Banned not found">>)
             }
         }
@@ -145,7 +146,7 @@ banned(post, #{body := Body}) ->
         {ok, Banned} ->
             {200, format(Banned)};
         {error, {already_exist, Old}} ->
-            {400, #{code => 'ALREADY_EXISTED', message => format(Old)}}
+            {400, ?API_CODE_ALREADY_EXISTED, format(Old)}
     end.
 
 delete_banned(delete, #{bindings := Params}) ->
@@ -153,7 +154,7 @@ delete_banned(delete, #{bindings := Params}) ->
         [] ->
             #{as := As0, who := Who0} = Params,
             Message = list_to_binary(io_lib:format("~p: ~s not found", [As0, Who0])),
-            {404, #{code => 'RESOURCE_NOT_FOUND', message => Message}};
+            {404, ?API_CODE_RESOURCE_NOT_FOUND, Message};
         _ ->
             ok = emqx_banned:delete(Params),
             {204}

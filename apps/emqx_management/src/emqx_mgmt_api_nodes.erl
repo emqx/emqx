@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_nodes).
 
+-include_lib("emqx/include/emqx_api_code.hrl").
+
 -behaviour(minirest_api).
 
 -import(emqx_mgmt_util, [ schema/2
@@ -89,7 +91,7 @@ node_api() ->
             description => <<"Get node info">>,
             parameters => parameters(),
             responses => #{
-                <<"400">> => error_schema(<<"Node error">>, ['SOURCE_ERROR']),
+                <<"400">> => error_schema(<<"Node error">>, [?API_CODE_BAD_NODE_NAME]),
                 <<"200">> => object_schema(properties(), <<"Get EMQ X Nodes info by name">>)}}},
     {"/nodes/:node_name", Metadata, node}.
 
@@ -99,7 +101,7 @@ node_metrics_api() ->
             description => <<"Get node metrics">>,
             parameters => parameters(),
             responses => #{
-                <<"400">> => error_schema(<<"Node error">>, ['SOURCE_ERROR']),
+                <<"400">> => error_schema(<<"Node error">>, [?API_CODE_BAD_NODE_NAME]),
                 <<"200">> => schema(metrics, <<"Get EMQ X Node Metrics">>)}}},
     {"/nodes/:node_name/metrics", Metadata, node_metrics}.
 
@@ -109,7 +111,7 @@ node_stats_api() ->
             description => <<"Get node stats">>,
             parameters => parameters(),
             responses => #{
-                <<"400">> => error_schema(<<"Node error">>, ['SOURCE_ERROR']),
+                <<"400">> => error_schema(<<"Node error">>, [?API_CODE_BAD_NODE_NAME]),
                 <<"200">> => schema(stat, <<"Get EMQ X Node Stats">>)}}},
     {"/nodes/:node_name/stats", Metadata, node_stats}.
 
@@ -135,30 +137,43 @@ list(#{}) ->
 
 get_node(Node) ->
     case emqx_mgmt:lookup_node(Node) of
-        {error, _} ->
-            {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
+        {error, nodedown} ->
+            error_node_response(Node);
+        {error, R} ->
+            internal_error_node_response(Node, R);
         NodeInfo ->
             {200, format(Node, NodeInfo)}
     end.
 
 get_metrics(Node) ->
     case emqx_mgmt:get_metrics(Node) of
-        {error, _} ->
-            {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
+        {error, nodedown} ->
+            error_node_response(Node);
+        {error, R} ->
+            internal_error_node_response(Node, R);
         Metrics ->
             {200, Metrics}
     end.
 
 get_stats(Node) ->
     case emqx_mgmt:get_stats(Node) of
-        {error, _} ->
-            {400, #{code => 'SOURCE_ERROR', message => <<"rpc_failed">>}};
+        {error, nodedown} ->
+            error_node_response(Node);
+        {error, R} ->
+            internal_error_node_response(Node, R);
         Stats ->
             {200, Stats}
     end.
 
 %%============================================================================================================
 %% internal function
+error_node_response(Node) ->
+    Message = io_lib:format("Node ~p not found, rpc failed", [Node]),
+    {400, ?API_CODE_BAD_NODE_NAME, Message}.
+
+internal_error_node_response(Node, Message) ->
+    Message = io_lib:format("Node ~p, ~p", [Node, Message]),
+    {500, ?API_CODE_INTERNAL_ERROR, Message}.
 
 format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
     {ok, SysPathBinary} = file:get_cwd(),

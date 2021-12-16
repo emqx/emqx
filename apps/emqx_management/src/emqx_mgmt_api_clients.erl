@@ -20,6 +20,8 @@
 
 -include_lib("emqx/include/emqx.hrl").
 
+-include_lib("emqx/include/emqx_api_code.hrl").
+
 -include_lib("emqx/include/logger.hrl").
 
 -include("emqx_mgmt.hrl").
@@ -319,7 +321,7 @@ clients_api() ->
             responses => #{
                 <<"200">> => emqx_mgmt_util:array_schema(client, <<"List clients 200 OK">>),
                 <<"400">> => emqx_mgmt_util:error_schema( <<"Invalid parameters">>
-                                                        , ['INVALID_PARAMETER'])}}},
+                                                        , [?API_CODE_INVALID_PARAMETER])}}},
     {"/clients", Metadata, clients}.
 
 client_api() ->
@@ -457,6 +459,8 @@ keepalive_api() ->
                 ],
             responses => #{
                 <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
+                <<"400">> => emqx_mgmt_util:error_schema(
+                                  <<"Bad Request. Interval Not Found">>, [?API_CODE_BAD_REQUEST]),
                 <<"200">> => emqx_mgmt_util:schema(<<"ok">>)}}},
     {"/clients/:clientid/keepalive", Metadata, set_keepalive}.
 %%%==============================================================================================
@@ -504,12 +508,14 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
 
 set_keepalive(put, #{bindings := #{clientid := ClientID}, query_string := Query}) ->
     case maps:find(<<"interval">>, Query) of
-        error -> {404, "Interval Not Found"};
+        error -> {400, ?API_CODE_BAD_REQUEST, <<"Interval Not Found">>};
         {ok, Interval0} ->
             Interval = binary_to_integer(Interval0),
             case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientID), Interval) of
-                ok -> {200};
-                {error, not_found} ->{404, ?CLIENT_ID_NOT_FOUND}
+                ok ->
+                    lookup(#{clientid => ClientID});
+                {error, not_found} ->
+                    clientid_not_found_response(ClientID)
             end
     end.
 
@@ -534,7 +540,7 @@ list(Params) ->
 lookup(#{clientid := ClientID}) ->
     case emqx_mgmt:lookup_client({clientid, ClientID}, ?FORMAT_FUN) of
         [] ->
-            {404, ?CLIENT_ID_NOT_FOUND};
+            clientid_not_found_response(ClientID);
         ClientInfo ->
             {200, hd(ClientInfo)}
     end.
@@ -542,7 +548,7 @@ lookup(#{clientid := ClientID}) ->
 kickout(#{clientid := ClientID}) ->
     case emqx_mgmt:kickout_client({ClientID, ?FORMAT_FUN}) of
         {error, not_found} ->
-            {404, ?CLIENT_ID_NOT_FOUND};
+            clientid_not_found_response(ClientID);
         _ ->
             {204}
     end.
@@ -550,10 +556,10 @@ kickout(#{clientid := ClientID}) ->
 get_authz_cache(#{clientid := ClientID})->
     case emqx_mgmt:list_authz_cache(ClientID) of
         {error, not_found} ->
-            {404, ?CLIENT_ID_NOT_FOUND};
+            clientid_not_found_response(ClientID);
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
-            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
+            {500, ?API_CODE_INTERNAL_ERROR, Message};
         Caches ->
             Response = [format_authz_cache(Cache) || Cache <- Caches],
             {200, Response}
@@ -564,19 +570,19 @@ clean_authz_cache(#{clientid := ClientID}) ->
         ok ->
             {200};
         {error, not_found} ->
-            {404, ?CLIENT_ID_NOT_FOUND};
+            clientid_not_found_response(ClientID);
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
-            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}}
+            {500, ?API_CODE_INTERNAL_ERROR, Message}
     end.
 
 subscribe(#{clientid := ClientID, topic := Topic, qos := Qos}) ->
     case do_subscribe(ClientID, Topic, Qos) of
         {error, channel_not_found} ->
-            {404, ?CLIENT_ID_NOT_FOUND};
+            clientid_not_found_response(ClientID);
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
-            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
+            {500, ?API_CODE_INTERNAL_ERROR, Message};
         ok ->
             {200}
     end.
@@ -584,10 +590,10 @@ subscribe(#{clientid := ClientID, topic := Topic, qos := Qos}) ->
 unsubscribe(#{clientid := ClientID, topic := Topic}) ->
     case do_unsubscribe(ClientID, Topic) of
         {error, channel_not_found} ->
-            {404, ?CLIENT_ID_NOT_FOUND};
+            clientid_not_found_response(ClientID);
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
-            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
+            {500, ?API_CODE_INTERNAL_ERROR, Message};
         {unsubscribe, [{Topic, #{}}]} ->
             {200}
     end.
@@ -598,6 +604,10 @@ subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
 
 %%--------------------------------------------------------------------
 %% internal function
+
+clientid_not_found_response(ClientID) ->
+    Message = list_to_binary(io_lib:format("Client ~p not found", [ClientID])),
+    {404, ?API_CODE_CLIENT_NOT_FOUND, Message}.
 
 do_subscribe(ClientID, Topic0, Qos) ->
     {Topic, Opts} = emqx_topic:parse(Topic0),

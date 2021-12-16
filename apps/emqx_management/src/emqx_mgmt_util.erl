@@ -16,6 +16,8 @@
 
 -module(emqx_mgmt_util).
 
+-include_lib("emqx/include/emqx_api_code.hrl").
+
 -export([ strftime/1
         , datetime/1
         , kmg/1
@@ -153,7 +155,7 @@ page_object_schema(Properties) when is_map(Properties) ->
     page_schema(#{type => object, properties => Properties}).
 
 error_schema(Description) ->
-    error_schema(Description, ['RESOURCE_NOT_FOUND']).
+    error_schema(Description, [?API_CODE_NOT_FOUND]).
 
 error_schema(Description, Enum) ->
     Schema = #{
@@ -269,10 +271,10 @@ bad_request(Desc) ->
 generate_response(QueryResult) ->
     case QueryResult of
         {error, page_limit_invalid} ->
-            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+            {400, ?API_CODE_INVALID_PARAMETER, <<"page_limit_invalid">>};
         {error, Node, {badrpc, R}} ->
             Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, R])),
-            {500, #{code => <<"NODE_DOWN">>, message => Message}};
+            {500, ?API_CODE_BAD_NODE_NAME, Message};
         Response ->
             {200, Response}
     end.
