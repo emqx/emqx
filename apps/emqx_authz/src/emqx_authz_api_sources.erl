@@ -20,6 +20,7 @@
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_code.hrl").
 
 -define(EXAMPLE_REDIS,
         #{type=> redis,
@@ -110,7 +111,8 @@ sources_api() ->
             },
             responses => #{
                 <<"204">> => #{description => <<"Created">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
+                <<"400">> => emqx_mgmt_util:error_schema(
+                                 <<"Resource config error">>, [?API_CODE_BAD_REQUEST])
             }
         },
         put => #{
@@ -137,7 +139,8 @@ sources_api() ->
             },
             responses => #{
                 <<"204">> => #{description => <<"Created">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
+                <<"400">> => emqx_mgmt_util:error_schema(
+                                 <<"Resource config error">>, [?API_CODE_BAD_REQUEST])
             }
         }
     },
@@ -184,7 +187,8 @@ source_api() ->
                          }
                     }
                 },
-                <<"404">> => emqx_mgmt_util:bad_request(<<"Not Found">>)
+                <<"404">> => emqx_mgmt_util:error_schema(
+                    <<"Resource not existed">>, [?API_CODE_NOT_FOUND])
             }
         },
         put => #{
@@ -226,8 +230,10 @@ source_api() ->
             },
             responses => #{
                 <<"204">> => #{description => <<"No Content">>},
-                <<"404">> => emqx_mgmt_util:bad_request(<<"Not Found">>),
-                <<"400">> => emqx_mgmt_util:bad_request()
+                <<"404">> => emqx_mgmt_util:error_schema(
+                                 <<"Resource not existed">>, [?API_CODE_NOT_FOUND]),
+                <<"400">> => emqx_mgmt_util:error_schema(
+                                 <<"Resource config error">>, [?API_CODE_BAD_REQUEST])
             }
         },
         delete => #{
@@ -252,7 +258,8 @@ source_api() ->
             ],
             responses => #{
                 <<"204">> => #{description => <<"Deleted">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
+                <<"404">> => emqx_mgmt_util:error_schema(
+                                 <<"Resource not existed">>, [?API_CODE_NOT_FOUND])
             }
         }
     },
@@ -319,8 +326,10 @@ move_source_api() ->
                 <<"204">> => #{
                     description => <<"No Content">>
                 },
-                <<"404">> => emqx_mgmt_util:bad_request(<<"Not Found">>),
-                <<"400">> => emqx_mgmt_util:bad_request()
+                <<"404">> => emqx_mgmt_util:error_schema(
+                                 <<"Resource not exist">>, [?API_CODE_NOT_FOUND]),
+                <<"400">> => emqx_mgmt_util:error_schema(
+                                 <<"Resource config error">>, [?API_CODE_BAD_REQUEST])
             }
         }
     },
@@ -364,7 +373,8 @@ sources(put, #{body := Body}) when is_list(Body) ->
 
 source(get, #{bindings := #{type := Type}}) ->
     case get_raw_source(Type) of
-        [] -> {404, #{message => <<"Not found ", Type/binary>>}};
+        [] ->
+            {404, ?API_CODE_NOT_FOUND, <<"Not found ", Type/binary>>};
         [#{<<"type">> := <<"file">>, <<"enable">> := Enable, <<"path">> := Path}] ->
             case file:read_file(Path) of
                 {ok, Rules} ->
@@ -374,8 +384,7 @@ source(get, #{bindings := #{type := Type}}) ->
                            }
                     };
                 {error, Reason} ->
-                    {400, #{code => <<"BAD_REQUEST">>,
-                            message => bin(Reason)}}
+                    {400, ?API_CODE_BAD_REQUEST, bin(Reason)}
             end;
         [Source] ->
             {200, read_certs(Source)}
@@ -383,29 +392,42 @@ source(get, #{bindings := #{type := Type}}) ->
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>,
                                                            <<"rules">> := Rules,
                                                            <<"enable">> := Enable}}) ->
-    {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
-    case emqx_authz:update({?CMD_REPLACE, <<"file">>}, #{<<"type">> => <<"file">>,
-                                                         <<"enable">> => Enable,
-                                                         <<"path">> => Filename}) of
-        {ok, _} -> {204};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}}
+    case get_raw_source(<<"file">>) of
+        [] ->
+            {404, ?API_CODE_NOT_FOUND, <<"Not found file">>};
+        _ ->
+            {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
+            case emqx_authz:update({?CMD_REPLACE, <<"file">>}, #{<<"type">> => <<"file">>,
+                                                                 <<"enable">> => Enable,
+                                                                 <<"path">> => Filename}) of
+                {ok, _} -> {204};
+                {error, Reason} ->
+                    {400, ?API_CODE_BAD_REQUEST, bin(Reason)}
+            end
     end;
+
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
-    update_config({?CMD_REPLACE, Type}, maybe_write_certs(Body#{<<"type">> => Type}));
+    case get_raw_source(Type) of
+        [] ->
+            {404, ?API_CODE_NOT_FOUND, <<"Not found ", Type/binary>>};
+        _ ->
+            update_config({?CMD_REPLACE, Type}, maybe_write_certs(Body#{<<"type">> => Type}))
+    end;
 source(delete, #{bindings := #{type := Type}}) ->
-    update_config({?CMD_DELETE, Type}, #{}).
+    case get_raw_source(Type) of
+        [] ->
+            {404, ?API_CODE_NOT_FOUND, <<"Not found ", Type/binary>>};
+        _ ->
+            update_config({?CMD_DELETE, Type}, #{})
+    end.
 
 move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Position}}) ->
     case emqx_authz:move(Type, Position) of
         {ok, _} -> {204};
         {error, not_found_source} ->
-            {404, #{code => <<"NOT_FOUND">>,
-                    message => <<"source ", Type/binary, " not found">>}};
+            {404, ?API_CODE_NOT_FOUND, <<"source ", Type/binary, " not found">>};
         {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}}
+            {400, ?API_CODE_BAD_REQUEST, bin(Reason)}
     end.
 
 get_raw_sources() ->
@@ -425,14 +447,11 @@ update_config(Cmd, Sources) ->
     case emqx_authz:update(Cmd, Sources) of
         {ok, _} -> {204};
         {error, {pre_config_update, emqx_authz, Reason}} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}};
+            {400, ?API_CODE_BAD_REQUEST, bin(Reason)};
         {error, {post_config_update, emqx_authz, Reason}} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}};
+            {400, ?API_CODE_BAD_REQUEST, bin(Reason)};
         {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}}
+            {500, ?API_CODE_INTERNAL_ERROR, bin(Reason)}
     end.
 
 read_certs(#{<<"ssl">> := SSL} = Source) ->

@@ -20,6 +20,8 @@
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_code.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -define(FORMAT_USERNAME_FUN, {?MODULE, format_by_username}).
@@ -42,9 +44,6 @@
 
 -export([ format_by_username/1
         , format_by_clientid/1]).
-
--define(BAD_REQUEST, 'BAD_REQUEST').
--define(NOT_FOUND, 'NOT_FOUND').
 
 -define(TYPE_REF, ref).
 -define(TYPE_ARRAY, array).
@@ -87,7 +86,7 @@ schema("/authorization/sources/built-in-database/username") ->
                                                  , {username, ?POST_ARRAY_EXAMPLE}),
             responses => #{
                 204 => <<"Created">>,
-                400 => emqx_dashboard_swagger:error_codes( [?BAD_REQUEST]
+                400 => emqx_dashboard_swagger:error_codes( [?API_CODE_BAD_REQUEST]
                                                          , <<"Bad username or bad rule schema">>)
             }
         }
@@ -112,7 +111,7 @@ schema("/authorization/sources/built-in-database/clientid") ->
                                                  , {clientid, ?POST_ARRAY_EXAMPLE}),
             responses => #{
                 204 => <<"Created">>,
-                400 => emqx_dashboard_swagger:error_codes( [?BAD_REQUEST]
+                400 => emqx_dashboard_swagger:error_codes( [?API_CODE_BAD_REQUEST]
                                                          , <<"Bad clientid or bad rule schema">>)
             }
         }
@@ -127,7 +126,7 @@ schema("/authorization/sources/built-in-database/username/:username") ->
             responses => #{
                 200 => swagger_with_example( {rules_for_username, ?TYPE_REF}
                                            , {username, ?PUT_MAP_EXAMPLE}),
-                404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => emqx_dashboard_swagger:error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         },
         put => #{
@@ -138,7 +137,7 @@ schema("/authorization/sources/built-in-database/username/:username") ->
                                                  , {username, ?PUT_MAP_EXAMPLE}),
             responses => #{
                 204 => <<"Updated">>,
-                400 => emqx_dashboard_swagger:error_codes( [?BAD_REQUEST]
+                400 => emqx_dashboard_swagger:error_codes( [?API_CODE_BAD_REQUEST]
                                                          , <<"Bad username or bad rule schema">>)
             }
         },
@@ -148,7 +147,7 @@ schema("/authorization/sources/built-in-database/username/:username") ->
             parameters => [hoconsc:ref(username)],
             responses => #{
                 204 => <<"Deleted">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad username">>)
+                400 => emqx_dashboard_swagger:error_codes([?API_CODE_BAD_REQUEST], <<"Bad username">>)
             }
         }
     };
@@ -162,7 +161,7 @@ schema("/authorization/sources/built-in-database/clientid/:clientid") ->
             responses => #{
                 200 => swagger_with_example( {rules_for_clientid, ?TYPE_REF}
                                            , {clientid, ?PUT_MAP_EXAMPLE}),
-                404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => emqx_dashboard_swagger:error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         },
         put => #{
@@ -174,7 +173,7 @@ schema("/authorization/sources/built-in-database/clientid/:clientid") ->
             responses => #{
                 204 => <<"Updated">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                         [?BAD_REQUEST], <<"Bad clientid or bad rule schema">>)
+                         [?API_CODE_BAD_REQUEST], <<"Bad clientid or bad rule schema">>)
             }
         },
         delete => #{
@@ -183,7 +182,7 @@ schema("/authorization/sources/built-in-database/clientid/:clientid") ->
             parameters => [hoconsc:ref(clientid)],
             responses => #{
                 204 => <<"Deleted">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad clientid">>)
+                400 => emqx_dashboard_swagger:error_codes([?API_CODE_BAD_REQUEST], <<"Bad clientid">>)
             }
         }
     };
@@ -204,7 +203,7 @@ schema("/authorization/sources/built-in-database/all") ->
                 swagger_with_example({rules_for_all, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE}),
             responses => #{
                 204 => <<"Created">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad rule schema">>)
+                400 => emqx_dashboard_swagger:error_codes([?API_CODE_BAD_REQUEST], <<"Bad rule schema">>)
             }
         }
     };
@@ -216,7 +215,7 @@ schema("/authorization/sources/built-in-database/purge-all") ->
             description => <<"Purge all records">>,
             responses => #{
                 204 => <<"Deleted">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                400 => emqx_dashboard_swagger:error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>)
             }
         }
     }.
@@ -287,7 +286,8 @@ clients(post, #{body := Body}) when is_list(Body) ->
 
 user(get, #{bindings := #{username := Username}}) ->
     case emqx_authz_mnesia:get_rules({username, Username}) of
-        not_found -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
+        not_found ->
+            {404, ?API_CODE_NOT_FOUND, <<"Not Found">>};
         {ok, Rules} ->
             {200, #{username => Username,
                     rules => [ #{topic => Topic,
@@ -344,13 +344,11 @@ purge(delete, _) ->
             ok = emqx_authz_mnesia:purge_rules(),
             {204};
         [#{<<"enable">> := true}] ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message =>
-                        <<"'built-in-database' type source must be disabled before purge.">>}};
+            {400, ?API_CODE_BAD_REQUEST,
+                   <<"'built-in-database' type source must be disabled before purge.">>};
         [] ->
-            {404, #{code => <<"BAD_REQUEST">>,
-                    message => <<"'built-in-database' type source is not found.">>
-                   }}
+            {404, ?API_CODE_NOT_FOUND,
+                    <<"'built-in-database' type source is not found.">>}
     end.
 
 format_rules(Rules) when is_list(Rules) ->

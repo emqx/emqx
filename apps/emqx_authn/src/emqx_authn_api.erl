@@ -23,13 +23,10 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_authentication.hrl").
+-include_lib("emqx/include/emqx_api_code.hrl").
 
 -import(hoconsc, [mk/2, ref/1]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
-
--define(BAD_REQUEST, 'BAD_REQUEST').
--define(NOT_FOUND, 'NOT_FOUND').
--define(CONFLICT, 'CONFLICT').
 
 % Swagger
 
@@ -163,8 +160,8 @@ schema("/authentication") ->
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     emqx_authn_schema:authenticator_type(),
                     authenticator_examples()),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                409 => error_codes([?CONFLICT], <<"Conflict">>)
+                400 => error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>),
+                409 => error_codes([?API_CODE_CONFLICT], <<"Conflict">>)
             }
         }
     };
@@ -180,7 +177,7 @@ schema("/authentication/:id") ->
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     emqx_authn_schema:authenticator_type(),
                     authenticator_examples()),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         },
         put => #{
@@ -195,9 +192,9 @@ schema("/authentication/:id") ->
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     emqx_authn_schema:authenticator_type(),
                     authenticator_examples()),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>),
-                409 => error_codes([?CONFLICT], <<"Conflict">>)
+                400 => error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>),
+                409 => error_codes([?API_CODE_CONFLICT], <<"Conflict">>)
             }
         },
         delete => #{
@@ -206,7 +203,7 @@ schema("/authentication/:id") ->
             parameters => [param_auth_id()],
             responses => #{
                 204 => <<"Authenticator deleted">>,
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         }
     };
@@ -236,8 +233,8 @@ schema("/listeners/:listener_id/authentication") ->
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     emqx_authn_schema:authenticator_type(),
                     authenticator_examples()),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                409 => error_codes([?CONFLICT], <<"Conflict">>)
+                400 => error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>),
+                409 => error_codes([?API_CODE_CONFLICT], <<"Conflict">>)
             }
         }
     };
@@ -253,7 +250,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     emqx_authn_schema:authenticator_type(),
                     authenticator_examples()),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         },
         put => #{
@@ -267,9 +264,9 @@ schema("/listeners/:listener_id/authentication/:id") ->
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     emqx_authn_schema:authenticator_type(),
                     authenticator_examples()),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>),
-                409 => error_codes([?CONFLICT], <<"Conflict">>)
+                400 => error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>),
+                409 => error_codes([?API_CODE_CONFLICT], <<"Conflict">>)
             }
         },
         delete => #{
@@ -278,7 +275,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
                 204 => <<"Authenticator deleted">>,
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         }
     };
@@ -296,8 +293,8 @@ schema("/authentication/:id/move") ->
                 request_move_examples()),
             responses => #{
                 204 => <<"Authenticator moved">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         }
     };
@@ -314,8 +311,8 @@ schema("/listeners/:listener_id/authentication/:id/move") ->
                 request_move_examples()),
             responses => #{
                 204 => <<"Authenticator moved">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         }
     };
@@ -332,8 +329,8 @@ schema("/authentication/:id/import_users") ->
                 request_import_users_examples()),
             responses => #{
                 204 => <<"Users imported">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         }
     };
@@ -350,8 +347,8 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
                 request_import_users_examples()),
             responses => #{
                 204 => <<"Users imported">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         }
     };
@@ -370,8 +367,8 @@ schema("/authentication/:id/users") ->
                 201 => emqx_dashboard_swagger:schema_with_examples(
                     ref(response_user),
                     response_user_examples()),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         },
         get => #{
@@ -386,7 +383,7 @@ schema("/authentication/:id/users") ->
                 200 => emqx_dashboard_swagger:schema_with_example(
                     ref(response_users),
                     response_users_example()),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
 
         }
@@ -406,8 +403,8 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
                 201 => emqx_dashboard_swagger:schema_with_examples(
                     ref(response_user),
                     response_user_examples()),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         },
         get => #{
@@ -422,7 +419,7 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
                 200 => emqx_dashboard_swagger:schema_with_example(
                     ref(response_users),
                     response_users_example()),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
 
         }
@@ -439,7 +436,7 @@ schema("/authentication/:id/users/:user_id") ->
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     ref(response_user),
                     response_user_examples()),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         },
         put => #{
@@ -453,8 +450,8 @@ schema("/authentication/:id/users/:user_id") ->
                 200 => emqx_dashboard_swagger:schema_with_example(
                     ref(response_user),
                     response_user_examples()),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         },
         delete => #{
@@ -463,7 +460,7 @@ schema("/authentication/:id/users/:user_id") ->
             parameters => [param_auth_id(), param_user_id()],
             responses => #{
                 204 => <<"User deleted">>,
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         }
     };
@@ -479,7 +476,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
                 200 => emqx_dashboard_swagger:schema_with_example(
                     ref(response_user),
                     response_user_examples()),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         },
         put => #{
@@ -493,8 +490,8 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
                 200 => emqx_dashboard_swagger:schema_with_example(
                     ref(response_user),
                     response_user_examples()),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?API_CODE_BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
 
         },
@@ -504,7 +501,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
             parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             responses => #{
                 204 => <<"User deleted">>,
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?API_CODE_NOT_FOUND], <<"Not Found">>)
             }
         }
     }.
@@ -886,56 +883,39 @@ convert_certs(Config) ->
     Config.
 
 serialize_error({user_error, not_found}) ->
-    {404, #{code => <<"NOT_FOUND">>,
-            message => binfmt("User not found", [])}};
+    {404, ?API_CODE_NOT_FOUND, binfmt("User not found", [])};
 serialize_error({user_error, already_exist}) ->
-    {409, #{code => <<"BAD_REQUEST">>,
-            message => binfmt("User already exists", [])}};
+    {409, ?API_CODE_BAD_REQUEST, binfmt("User already exists", [])};
 serialize_error({user_error, Reason}) ->
-    {400, #{code => <<"BAD_REQUEST">>,
-            message => binfmt("User error: ~p", [Reason])}};
+    {400, ?API_CODE_BAD_REQUEST, binfmt("User error: ~p", [Reason])};
 serialize_error({not_found, {authenticator, ID}}) ->
-    {404, #{code => <<"NOT_FOUND">>,
-            message => binfmt("Authenticator '~ts' does not exist", [ID]) }};
+    {404, ?API_CODE_NOT_FOUND, binfmt("Authenticator '~ts' does not exist", [ID])};
 serialize_error({not_found, {listener, ID}}) ->
-    {404, #{code => <<"NOT_FOUND">>,
-            message => binfmt("Listener '~ts' does not exist", [ID])}};
+    {404, ?API_CODE_NOT_FOUND, binfmt("Listener '~ts' does not exist", [ID])};
 serialize_error({not_found, {chain, ?GLOBAL}}) ->
-    {404, #{code => <<"NOT_FOUND">>,
-            message => <<"Authenticator not found in the 'global' scope">>}};
+    {404, ?API_CODE_NOT_FOUND, <<"Authenticator not found in the 'global' scope">>};
 serialize_error({not_found, {chain, Name}}) ->
-    {400, #{code => <<"BAD_REQUEST">>,
-            message => binfmt("No authentication has been created for listener ~p", [Name])}};
+    {400, ?API_CODE_BAD_REQUEST, binfmt("No authentication has been created for listener ~p", [Name])};
 serialize_error({already_exists, {authenticator, ID}}) ->
-    {409, #{code => <<"ALREADY_EXISTS">>,
-            message => binfmt("Authenticator '~ts' already exist", [ID])}};
+    {409, ?API_CODE_ALREADY_EXISTED, binfmt("Authenticator '~ts' already exist", [ID])};
 serialize_error(no_available_provider) ->
-    {400, #{code => <<"BAD_REQUEST">>,
-            message => <<"Unsupported authentication type">>}};
+    {400, ?API_CODE_BAD_REQUEST, <<"Unsupported authentication type">>};
 serialize_error(change_of_authentication_type_is_not_allowed) ->
-    {400, #{code => <<"BAD_REQUEST">>,
-            message => <<"Change of authentication type is not allowed">>}};
+    {400, ?API_CODE_BAD_REQUEST, <<"Change of authentication type is not allowed">>};
 serialize_error(unsupported_operation) ->
-    {400, #{code => <<"BAD_REQUEST">>,
-            message => <<"Operation not supported in this authentication type">>}};
+    {400, ?API_CODE_BAD_REQUEST, <<"Operation not supported in this authentication type">>};
 serialize_error({bad_ssl_config, Details}) ->
-    {400, #{code => <<"BAD_REQUEST">>,
-            message => binfmt("bad_ssl_config ~p", [Details])}};
+    {400, ?API_CODE_BAD_REQUEST, binfmt("bad_ssl_config ~p", [Details])};
 serialize_error({missing_parameter, Detail}) ->
-    {400, #{code => <<"MISSING_PARAMETER">>,
-            message => binfmt("Missing required parameter: ~p", [Detail])}};
+    {400, <<"MISSING_PARAMETER">>, binfmt("Missing required parameter: ~p", [Detail])};
 serialize_error({invalid_parameter, Name}) ->
-    {400, #{code => <<"INVALID_PARAMETER">>,
-            message => binfmt("Invalid value for '~p'", [Name])}};
+    {400, <<"INVALID_PARAMETER">>, binfmt("Invalid value for '~p'", [Name])};
 serialize_error({unknown_authn_type, Type}) ->
-    {400, #{code => <<"BAD_REQUEST">>,
-            message => binfmt("Unknown type '~ts'", [Type])}};
+    {400, ?API_CODE_BAD_REQUEST, binfmt("Unknown type '~ts'", [Type])};
 serialize_error({bad_authenticator_config, Reason}) ->
-    {400, #{code => <<"BAD_REQUEST">>,
-            message => binfmt("Bad authenticator config ~p", [Reason])}};
+    {400, ?API_CODE_BAD_REQUEST, binfmt("Bad authenticator config ~p", [Reason])};
 serialize_error(Reason) ->
-    {400, #{code => <<"BAD_REQUEST">>,
-            message => binfmt("~p", [Reason])}}.
+    {400, ?API_CODE_BAD_REQUEST, binfmt("~p", [Reason])}.
 
 parse_position(<<"top">>) ->
     {ok, top};

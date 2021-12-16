@@ -41,8 +41,7 @@ settings_api() ->
             description => "Update authorization settings",
             requestBody => emqx_mgmt_util:schema(conf_schema()),
             responses => #{
-                <<"200">> => emqx_mgmt_util:schema(conf_schema()),
-                <<"400">> => emqx_mgmt_util:bad_request()
+                <<"200">> => emqx_mgmt_util:schema(conf_schema())
             }
         }
     },
