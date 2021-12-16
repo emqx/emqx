@@ -20,6 +20,8 @@
 
 -include("emqx_connector.hrl").
 
+-include_lib("emqx/include/emqx_api_code.hrl").
+
 -include_lib("typerefl/include/types.hrl").
 
 -import(hoconsc, [mk/2, ref/2, array/1, enum/1]).
@@ -39,8 +41,8 @@
             EXPR
     catch
         error:{invalid_bridge_id, Id0} ->
-            {400, #{code => 'INVALID_ID', message => <<"invalid_bridge_id: ", Id0/binary,
-                ". Bridge Ids must be of format {type}:{name}">>}}
+            {400, ?API_CODE_BAD_CONNECTOR_ID, <<"invalid_bridge_id: ", Id0/binary,
+                ". Bridge Ids must be of format {type}:{name}">>}
     end).
 
 namespace() -> "connector".
@@ -50,10 +52,12 @@ api_spec() ->
 
 paths() -> ["/connectors_test", "/connectors", "/connectors/:id"].
 
-error_schema(Code, Message) ->
-    [ {code, mk(string(), #{example => Code})}
+error_schema(Codes, Message) when is_list(Codes) ->
+    [ {code, mk(string(), #{enum => Codes})}
     , {message, mk(string(), #{example => Message})}
-    ].
+    ];
+error_schema(Code, Message) ->
+    error_schema([Code], Message).
 
 put_request_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
@@ -135,7 +139,7 @@ schema("/connectors_test") ->
             requestBody => post_request_body_schema(),
             responses => #{
                 200 => <<"Test connector OK">>,
-                400 => error_schema('TEST_FAILED', "connector test failed")
+                400 => error_schema(?API_CODE_TEST_CONNECTOR_FAILED, "connector test failed")
             }
         }
     };
@@ -161,7 +165,8 @@ schema("/connectors") ->
             requestBody => post_request_body_schema(),
             responses => #{
                 201 => get_response_body_schema(),
-                400 => error_schema('ALREADY_EXISTS', "connector already exists")
+                400 => error_schema([?API_CODE_ALREADY_EXISTED, ?API_CODE_BAD_REQUEST],
+                       "connector already exists")
             }
         }
     };
@@ -176,7 +181,7 @@ schema("/connectors/:id") ->
             parameters => param_path_id(),
             responses => #{
                 200 => get_response_body_schema(),
-                404 => error_schema('NOT_FOUND', "Connector not found")
+                404 => error_schema(?API_CODE_NOT_FOUND, "Connector not found")
             }
         },
         put => #{
@@ -187,8 +192,8 @@ schema("/connectors/:id") ->
             requestBody => put_request_body_schema(),
             responses => #{
                 200 => get_response_body_schema(),
-                400 => error_schema('UPDATE_FAIL', "Update failed"),
-                404 => error_schema('NOT_FOUND', "Connector not found")
+                400 => error_schema(?API_CODE_UPDATE_FAILED, "Update failed"),
+                404 => error_schema(?API_CODE_NOT_FOUND, "Connector not found")
             }},
         delete => #{
             tags => [<<"connectors">>],
@@ -197,7 +202,7 @@ schema("/connectors/:id") ->
             parameters => param_path_id(),
             responses => #{
                 204 => <<"Delete connector successfully">>,
-                400 => error_schema('DELETE_FAIL', "Delete failed")
+                400 => error_schema(?API_CODE_BAD_REQUEST, "Delete failed")
             }}
     }.
 
@@ -205,7 +210,7 @@ schema("/connectors/:id") ->
     case emqx_connector:create_dry_run(ConnType, maps:remove(<<"type">>, Params)) of
         ok -> {200};
         {error, Error} ->
-            {400, error_msg('BAD_ARG', Error)}
+            {400, ?API_CODE_BAD_REQUEST, error_msg(Error)}
     end.
 
 '/connectors'(get, _Request) ->
@@ -215,14 +220,14 @@ schema("/connectors/:id") ->
     ConnName = maps:get(<<"name">>, Params, emqx_misc:gen_id()),
     case emqx_connector:lookup(ConnType, ConnName) of
         {ok, _} ->
-            {400, error_msg('ALREADY_EXISTS', <<"connector already exists">>)};
+            {400, ?API_CODE_ALREADY_EXISTED, <<"connector already exists">>};
         {error, not_found} ->
             case emqx_connector:update(ConnType, ConnName,
                     maps:without([<<"type">>, <<"name">>], Params)) of
                 {ok, #{raw_config := RawConf}} ->
                     Id = emqx_connector:connector_id(ConnType, ConnName),
                     {201, format_resp(Id, RawConf)};
-                {error, Error} -> {400, error_msg('BAD_ARG', Error)}
+                {error, Error} -> {400, ?API_CODE_BAD_REQUEST, error_msg(Error)}
             end
     end.
 
@@ -231,7 +236,7 @@ schema("/connectors/:id") ->
         case emqx_connector:lookup(ConnType, ConnName) of
             {ok, Conf} -> {200, format_resp(Id, Conf)};
             {error, not_found} ->
-                {404, error_msg('NOT_FOUND', <<"connector not found">>)}
+                {404, ?API_CODE_NOT_FOUND, <<"connector not found">>}
         end);
 
 '/connectors/:id'(put, #{bindings := #{id := Id}, body := Params}) ->
@@ -241,10 +246,11 @@ schema("/connectors/:id") ->
                 case emqx_connector:update(ConnType, ConnName, Params) of
                     {ok, #{raw_config := RawConf}} ->
                         {200, format_resp(Id, RawConf)};
-                    {error, Error} -> {400, error_msg('BAD_ARG', Error)}
+                    {error, Error} ->
+                        {400, ?API_CODE_BAD_REQUEST, error_msg(Error)}
                 end;
             {error, not_found} ->
-                {404, error_msg('NOT_FOUND', <<"connector not found">>)}
+                {404, ?API_CODE_NOT_FOUND, error_msg(<<"connector not found">>)}
         end);
 
 '/connectors/:id'(delete, #{bindings := #{id := Id}}) ->
@@ -253,16 +259,14 @@ schema("/connectors/:id") ->
             {ok, _} ->
                 case emqx_connector:delete(ConnType, ConnName) of
                     {ok, _} -> {204};
-                    {error, Error} -> {400, error_msg('BAD_ARG', Error)}
+                    {error, Error} -> {400, ?API_CODE_BAD_REQUEST, error_msg(Error)}
                 end;
             {error, not_found} ->
-                {404, error_msg('NOT_FOUND', <<"connector not found">>)}
+                {404, ?API_CODE_NOT_FOUND, <<"connector not found">>}
         end).
 
-error_msg(Code, Msg) when is_binary(Msg) ->
-    #{code => Code, message => Msg};
-error_msg(Code, Msg) ->
-    #{code => Code, message => bin(io_lib:format("~p", [Msg]))}.
+error_msg(Msg) when is_binary(Msg) -> Msg;
+error_msg( Msg) -> bin(io_lib:format("~p", [Msg])).
 
 format_resp(ConnId, RawConf) ->
     NumOfBridges = length(emqx_bridge:list_bridges_by_connector(ConnId)),

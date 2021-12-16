@@ -26,6 +26,12 @@
 -define(API_CODE_BAD_NODE_NAME,              'BAD_NODE_NAME').
 -define(API_CODE_BAD_LISTENER_ID,            'BAD_LISTENER_ID').
 
+
+%% -------------------------------------------------------------------------------------------------
+%% connector error
+-define(API_CODE_BAD_CONNECTOR_ID,           'BAD_CONNECTOR_ID').
+-define(API_CODE_TEST_CONNECTOR_FAILED,      'TEST_CONNECTOR_FAILED').
+
 %% -------------------------------------------------------------------------------------------------
 %% client error
 -define(API_CODE_CLIENT_NOT_RESPONSE,        'CLIENT_NOT_RESPONSE').
