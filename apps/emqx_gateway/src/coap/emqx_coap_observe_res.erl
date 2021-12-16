@@ -23,7 +23,6 @@
 
 -define(MAX_SEQ_ID, 16777215).
 
--type topic() :: binary().
 -type token() :: binary().
 -type seq_id() :: 0 .. ?MAX_SEQ_ID.
 
@@ -31,7 +30,7 @@
                 , seq_id := seq_id()
                 }.
 
--type manager() :: #{topic => res()}.
+-type manager() :: #{emqx_types:topic() => res()}.
 
 %%--------------------------------------------------------------------
 %% API
@@ -40,7 +39,7 @@
 new_manager() ->
     #{}.
 
--spec insert(topic(), token(), manager()) -> {seq_id(), manager()}.
+-spec insert(emqx_types:topic(), token(), manager()) -> {seq_id(), manager()}.
 insert(Topic, Token, Manager) ->
     Res = case maps:get(Topic, Manager, undefined) of
               undefined ->
@@ -50,11 +49,11 @@ insert(Topic, Token, Manager) ->
           end,
     {maps:get(seq_id, Res), Manager#{Topic => Res}}.
 
--spec remove(topic(), manager()) -> manager().
+-spec remove(emqx_types:topic(), manager()) -> manager().
 remove(Topic, Manager) ->
     maps:remove(Topic, Manager).
 
--spec res_changed(topic(), manager()) -> undefined | {token(), seq_id(), manager()}.
+-spec res_changed(emqx_types:topic(), manager()) -> undefined | {token(), seq_id(), manager()}.
 res_changed(Topic, Manager) ->
     case maps:get(Topic, Manager, undefined) of
         undefined ->
@@ -73,6 +72,7 @@ foreach(F, Manager) ->
               Manager),
     ok.
 
+-spec subscriptions(manager()) -> [emqx_types:topic()].
 subscriptions(Manager) ->
     maps:keys(Manager).
 

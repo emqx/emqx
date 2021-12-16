@@ -1214,7 +1214,7 @@ handle_call({unsubscribe, Topic}, _From, Channel) ->
     reply(ok, NChannel);
 
 handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
-    reply(maps:to_list(emqx_session:info(subscriptions, Session)), Channel);
+    reply({ok, maps:to_list(emqx_session:info(subscriptions, Session))}, Channel);
 
 handle_call(kick, _From, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),

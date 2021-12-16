@@ -91,7 +91,8 @@ info(Session) ->
 info(Keys, Session) when is_list(Keys) ->
     [{Key, info(Key, Session)} || Key <- Keys];
 info(subscriptions, #session{observe_manager = OM}) ->
-    emqx_coap_observe_res:subscriptions(OM);
+    Topics = emqx_coap_observe_res:subscriptions(OM),
+    lists:foldl(fun(T, Acc) -> Acc#{T => ?DEFAULT_SUBOPTS} end, #{}, Topics);
 info(subscriptions_cnt, #session{observe_manager = OM}) ->
     erlang:length(emqx_coap_observe_res:subscriptions(OM));
 info(subscriptions_max, _) ->

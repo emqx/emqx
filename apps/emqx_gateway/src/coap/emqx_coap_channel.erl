@@ -232,8 +232,9 @@ handle_call({subscribe, _Topic, _SubOpts}, _From, Channel) ->
 handle_call({unsubscribe, _Topic}, _From, Channel) ->
     {reply, {error, noimpl}, Channel};
 
-handle_call(subscriptions, _From, Channel) ->
-    {reply, {error, noimpl}, Channel};
+handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
+    Subs = emqx_coap_session:info(subscriptions, Session),
+    {reply, {ok, maps:to_list(Subs)}, Channel};
 
 handle_call(kick, _From, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),

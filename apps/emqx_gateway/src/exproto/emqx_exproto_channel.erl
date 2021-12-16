@@ -351,6 +351,9 @@ handle_call({unsubscribe, Topic}, _From, Channel) ->
     {ok, NChannel} = do_unsubscribe([Topic], Channel),
     {reply, ok, NChannel};
 
+handle_call(subscriptions, _From, Channel = #channel{subscriptions = Subs}) ->
+    {reply, {ok, maps:to_list(Subs)}, Channel};
+
 handle_call({publish, Topic, Qos, Payload}, _From,
             Channel = #channel{
                          ctx = Ctx,
@@ -369,7 +372,10 @@ handle_call({publish, Topic, Qos, Payload}, _From,
     end;
 
 handle_call(kick, _From, Channel) ->
-    {shutdown, kicked, ok, Channel};
+    {shutdown, kicked, ok, ensure_disconnected(kicked, Channel)};
+
+handle_call(discard, _From, Channel) ->
+    {shutdown, discarded, ok, Channel};
 
 handle_call(Req, _From, Channel) ->
     ?SLOG(warning, #{ msg => "unexpected_call"

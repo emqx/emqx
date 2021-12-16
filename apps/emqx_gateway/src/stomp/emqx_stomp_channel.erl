@@ -688,11 +688,11 @@ handle_call({unsubscribe, Topic}, _From,
 
 %% Reply :: [{emqx_types:topic(), emqx_types:subopts()}]
 handle_call(subscriptions, _From, Channel = #channel{subscriptions = Subs}) ->
-    Reply = lists:map(
+    NSubs = lists:map(
               fun({_SubId, Topic, _Ack, SubOpts}) ->
                 {Topic, SubOpts}
               end, Subs),
-    reply(Reply, Channel);
+    reply({ok, NSubs}, Channel);
 
 handle_call(kick, _From, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),
