@@ -194,6 +194,11 @@ delete_package(NameVsn) ->
     end.
 
 %% @doc Delete extracted dir
+%% In case one lib is shared by multiple plugins.
+%% it might be the case that purging one plugin's install dir
+%% will cause deletion of loaded beams.
+%% It should not be a problem, because shared lib should
+%% reside in all the plugin install dirs.
 -spec purge(name_vsn()) -> ok.
 purge(NameVsn) ->
     Dir = dir(NameVsn),
