@@ -21,7 +21,6 @@
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
 
 
 -define(MYSQL_HOST, "mysql").
@@ -183,6 +182,29 @@ t_create_invalid(_Config) ->
     {error, _} = emqx_authz:update(?CMD_REPLACE, [BadConfig]),
 
     [] = emqx_authz:lookup().
+
+t_nonbinary_values(_Config) ->
+    ClientInfo = #{clientid => clientid,
+                   username => "username",
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => {tcp, default}
+                  },
+
+
+    ok = init_table(),
+    ok = q(<<"INSERT INTO acl(clientid, username, topic, permission, action)"
+             "VALUES(?, ?, ?, ?, ?)">>,
+           [<<"clientid">>, <<"username">>, <<"a">>, <<"allow">>, <<"subscribe">>]),
+
+    ok = setup_config(
+      #{<<"query">> => <<"SELECT permission, action, topic "
+                         "FROM acl WHERE clientid = ${clientid} AND username = ${username}">>}),
+
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}]).
 
 %%------------------------------------------------------------------------------
 %% Helpers

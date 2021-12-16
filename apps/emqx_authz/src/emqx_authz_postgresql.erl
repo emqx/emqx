@@ -53,8 +53,6 @@ destroy(#{annotations := #{id := Id}}) ->
 dry_run(Source) ->
     emqx_resource:create_dry_run(emqx_connector_pgsql, Source).
 
-parse_query(undefined) ->
-    undefined;
 parse_query(Sql) ->
     case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
         {match, Capured} ->
