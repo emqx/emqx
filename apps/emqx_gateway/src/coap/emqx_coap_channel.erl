@@ -64,7 +64,7 @@
           %% Connection mode
           connection_required :: boolean(),
           %% Connection State
-          conn_state :: idle | connected | disconnected,
+          conn_state :: conn_state(),
           %% Session token to identity this connection
           token :: binary() | undefined
          }).
@@ -103,8 +103,8 @@ info(Keys, Channel) when is_list(Keys) ->
 
 info(conninfo, #channel{conninfo = ConnInfo}) ->
     ConnInfo;
-info(conn_state, #channel{conn_state = CState}) ->
-    CState;
+info(conn_state, #channel{conn_state = ConnState}) ->
+    ConnState;
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
@@ -236,7 +236,11 @@ handle_call(subscriptions, _From, Channel) ->
     {reply, {error, noimpl}, Channel};
 
 handle_call(kick, _From, Channel) ->
-    {reply, {error, noimpl}, Channel};
+    NChannel = ensure_disconnected(kicked, Channel),
+    shutdown_and_reply(kicked, ok, NChannel);
+
+handle_call(discard, _From, Channel) ->
+    shutdown_and_reply(discarded, ok, Channel);
 
 handle_call(Req, _From, Channel) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -398,15 +402,6 @@ fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
     Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
     {ok, ClientInfo#{mountpoint := Mountpoint1}}.
 
-ensure_connected(Channel = #channel{ctx = Ctx,
-                                    conninfo = ConnInfo,
-                                    clientinfo = ClientInfo}) ->
-    NConnInfo = ConnInfo#{ connected_at => erlang:system_time(millisecond)
-                         },
-    ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
-    _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, []]),
-    Channel#channel{conninfo = NConnInfo}.
-
 process_connect(#channel{ctx = Ctx,
                          session = Session,
                          conninfo = ConnInfo,
@@ -447,6 +442,21 @@ run_hooks(Ctx, Name, Args, Acc) ->
 metrics_inc(Name, Ctx) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
+%%--------------------------------------------------------------------
+%% Ensure connected
+
+ensure_connected(Channel = #channel{ctx = Ctx,
+                                    conninfo = ConnInfo,
+                                    clientinfo = ClientInfo}) ->
+    NConnInfo = ConnInfo#{ connected_at => erlang:system_time(millisecond)
+                         },
+    _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, []]),
+    ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
+    Channel#channel{conninfo = NConnInfo, conn_state = connected}.
+
+%%--------------------------------------------------------------------
+%% Ensure disconnected
+
 ensure_disconnected(Reason, Channel = #channel{
                                          ctx = Ctx,
                                          conninfo = ConnInfo,
@@ -454,6 +464,12 @@ ensure_disconnected(Reason, Channel = #channel{
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
     ok = run_hooks(Ctx, 'client.disconnected', [ClientInfo, Reason, NConnInfo]),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
+
+shutdown_and_reply(Reason, Reply, Channel) ->
+    {shutdown, Reason, Reply, Channel}.
+
+%shutdown_and_reply(Reason, Reply, OutPkt, Channel) ->
+%    {shutdown, Reason, Reply, OutPkt, Channel}.
 
 %%--------------------------------------------------------------------
 %% Call Chain

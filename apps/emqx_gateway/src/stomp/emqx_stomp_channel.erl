@@ -61,7 +61,7 @@
           session       :: undefined | map(),
           %% ClientInfo override specs
           clientinfo_override :: map(),
-          %% Connection Channel
+          %% Channel State
           conn_state    :: conn_state(),
           %% Heartbeat
           heartbeat     :: emqx_stomp_heartbeat:heartbeat(),
@@ -294,9 +294,9 @@ ensure_connected(Channel = #channel{
                               clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
-    Channel#channel{conninfo = NConnInfo,
-                 conn_state = connected
-                }.
+    Channel#channel{
+      conninfo = NConnInfo,
+      conn_state = connected}.
 
 process_connect(Channel = #channel{
                            ctx = Ctx,

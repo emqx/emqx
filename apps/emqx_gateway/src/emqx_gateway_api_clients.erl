@@ -87,8 +87,7 @@ paths() ->
     , {<<"lte_lifetime">>, timestamp}
     ]).
 
--define(query_fun, {?MODULE, query}).
--define(format_fun, {?MODULE, format_channel_info}).
+-define(QUERY_FUN, {?MODULE, query}).
 
 clients(get, #{ bindings := #{name := Name0}
               , query_string := Params
@@ -99,14 +98,14 @@ clients(get, #{ bindings := #{name := Name0}
             undefined ->
                 Response = emqx_mgmt_api:cluster_query(
                              Params, TabName,
-                             ?CLIENT_QS_SCHEMA, ?query_fun),
+                             ?CLIENT_QS_SCHEMA, ?QUERY_FUN),
                 emqx_mgmt_util:generate_response(Response);
             Node1 ->
                 Node = binary_to_atom(Node1, utf8),
                 ParamsWithoutNode = maps:without([<<"node">>], Params),
                 Response = emqx_mgmt_api:node_query(
                              Node, ParamsWithoutNode,
-                             TabName, ?CLIENT_QS_SCHEMA, ?query_fun),
+                             TabName, ?CLIENT_QS_SCHEMA, ?QUERY_FUN),
                 emqx_mgmt_util:generate_response(Response)
         end
     end).
@@ -456,8 +455,7 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
      , post =>
         #{ description => <<"Create a subscription membership">>
          , parameters => params_client_insta()
-         %% FIXME:
-         , requestBody => emqx_dashboard_swagger:schema_with_examples(
+         , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                             ref(subscription),
                             examples_subsctiption())
          , responses =>
