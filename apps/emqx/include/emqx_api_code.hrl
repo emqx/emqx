@@ -10,6 +10,12 @@
 %% ${ResponseCode} all uppercase, separated by underscores.
 
 %% -------------------------------------------------------------------------------------------------
+%% api auth
+-define(API_CODE_ERROR_USERNAME_OR_PWD,      'ERROR_USERNAME_OR_PWD').
+-define(API_CODE_BAD_TOKEN,                  'BAD_TOKEN').
+-define(API_CODE_CANNOT_DELETE_ADMIN,        'CANNOT_DELETE_ADMIN').
+
+%% -------------------------------------------------------------------------------------------------
 %% resource not found & bad resource id
 -define(API_CODE_NOT_FOUND,                  'NOT_FOUND').
 

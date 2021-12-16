@@ -18,6 +18,7 @@
 
 -behaviour(minirest_api).
 
+-include_lib("emqx/include/emqx_api_code.hrl").
 -include("emqx_dashboard.hrl").
 -include_lib("typerefl/include/types.hrl").
 -import(hoconsc, [mk/2, ref/2, array/1, enum/1]).
@@ -26,10 +27,6 @@
 -export([login/2, logout/2, users/2, user/2, change_pwd/2]).
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
--define(ERROR_USERNAME_OR_PWD, 'ERROR_USERNAME_OR_PWD').
--define(USER_NOT_FOUND_BODY, #{ code => <<"USER_NOT_FOUND">>
-                              , message => <<"User not found">>}).
-
 
 namespace() -> "dashboard".
 
@@ -65,10 +62,8 @@ schema("/login") ->
                             example => "community"})}]},
                     {version, mk(string(), #{desc => <<"version">>, example => <<"5.0.0">>})}
                 ],
-                401 => [
-                    {code, mk(string(), #{example => 'ERROR_USERNAME_OR_PWD'})},
-                    {message, mk(string(), #{example => "Unauthorized"})}
-                ]
+                401 => emqx_dashboard_swagger:error_codes(
+                        [?API_CODE_ERROR_USERNAME_OR_PWD], <<"Unauthorized">>)
             },
             security => []
         }};
@@ -106,9 +101,8 @@ schema("/users") ->
             responses => #{
                 200 => mk( ref(?MODULE, user)
                          , #{desc => <<"Create User successfully">>}),
-                400 => [{code, mk(string(), #{example => 'CREATE_FAIL'})},
-                    {message, mk(string(), #{example => "Create user failed"})}
-                ]
+                400 => emqx_dashboard_swagger:error_codes(
+                        [?API_CODE_BAD_REQUEST], <<"Create user failed">>)
             }
         }
     };
@@ -129,11 +123,8 @@ schema("/users/:username") ->
             responses => #{
                 200 => mk( ref(?MODULE, user)
                          , #{desc => <<"Update User successfully">>}),
-                400 => [
-                    {code, mk(string(), #{example => 'UPDATE_FAIL'})},
-                    {message, mk(string(), #{example => "Update Failed unknown"})}
-                ],
-                404 => emqx_dashboard_swagger:error_codes(['USER_NOT_FOUND'], <<"User Not Found">>)
+                404 => emqx_dashboard_swagger:error_codes([
+                        ?API_CODE_NOT_FOUND], <<"User Not Found">>)
             }
         },
         delete => #{
@@ -143,11 +134,9 @@ schema("/users/:username") ->
                 #{in => path, example => <<"admin">>})}],
             responses => #{
                 204 => <<"Delete User successfully">>,
-                400 => [
-                    {code, mk(string(), #{example => 'CANNOT_DELETE_ADMIN'})},
-                    {message, mk(string(), #{example => "CANNOT DELETE ADMIN"})}
-                ],
-                404 => emqx_dashboard_swagger:error_codes(['USER_NOT_FOUND'], <<"User Not Found">>)
+                404 =>
+                    emqx_dashboard_swagger:error_codes(
+                        [?API_CODE_NOT_FOUND], <<"User Not Found">>)
             }
         }
     };
@@ -165,10 +154,8 @@ schema("/users/:username/change_pwd") ->
             ],
             responses => #{
                 204 => <<"Update user password successfully">>,
-                400 => [
-                    {code, mk(string(), #{example => 'UPDATE_FAIL'})},
-                    {message, mk(string(), #{example => "Failed Reason"})}
-                ]
+                400 => emqx_dashboard_swagger:error_codes([
+                        ?API_CODE_NOT_FOUND], <<"Update Failed unknown">>)
             }
         }
     }.
@@ -196,7 +183,7 @@ login(post, #{body := Params}) ->
                     license => #{edition => emqx_release:edition()}
                    }};
         {error, _} ->
-            {401, #{code => ?ERROR_USERNAME_OR_PWD, message => <<"Auth filed">>}}
+            {401, ?API_CODE_ERROR_USERNAME_OR_PWD, <<"Auth filed">>}
     end.
 
 logout(_, #{body := #{<<"username">> := Username},
@@ -205,7 +192,7 @@ logout(_, #{body := #{<<"username">> := Username},
         ok ->
             204;
         _R ->
-            {401, 'BAD_TOKEN_OR_USERNAME', <<"Ensure your token & username">>}
+            {401, ?API_CODE_BAD_TOKEN, <<"Ensure your token & username">>}
     end.
 
 users(get, _Request) ->
@@ -217,14 +204,14 @@ users(post, #{body := Params}) ->
     Password = maps:get(<<"password">>, Params),
     case ?EMPTY(Username) orelse ?EMPTY(Password) of
         true ->
-            {400, #{code => <<"CREATE_USER_FAIL">>,
-                message => <<"Username or password undefined">>}};
+            {400, ?API_CODE_BAD_REQUEST, <<"Username or password undefined">>};
         false ->
             case emqx_dashboard_admin:add_user(Username, Password, Desc) of
                 {ok, Result} ->
                     {200, Result};
                 {error, Reason} ->
-                    {400, #{code => <<"CREATE_USER_FAIL">>, message => Reason}}
+                    Message = list_to_binary(io_lib:format("~p", [Reason])),
+                    {500, ?API_CODE_INTERNAL_ERROR, Message}
             end
     end.
 
@@ -234,7 +221,7 @@ user(put, #{bindings := #{username := Username}, body := Params}) ->
         {ok, Result} ->
             {200, Result};
         {error, _Reason} ->
-            {404, ?USER_NOT_FOUND_BODY}
+            {404, ?API_CODE_NOT_FOUND, <<"Username not found">>}
     end;
 
 user(delete, #{bindings := #{username := Username}}) ->
@@ -245,7 +232,7 @@ user(delete, #{bindings := #{username := Username}}) ->
         false ->
             case emqx_dashboard_admin:remove_user(Username) of
                 {error, _Reason} ->
-                    {404, ?USER_NOT_FOUND_BODY};
+                    {404, ?API_CODE_NOT_FOUND, <<"Username not found">>};
                 {ok, _} ->
                     {204}
             end
@@ -258,5 +245,6 @@ change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->
         {ok, _} ->
             {204};
         {error, Reason} ->
-            {400, #{code => <<"CHANGE_PWD_FAIL">>, message => Reason}}
+            Message = list_to_binary(io_lib:format("~p", [Reason])),
+            {500, ?API_CODE_INTERNAL_ERROR, Message}
     end.
