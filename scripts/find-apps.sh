@@ -12,8 +12,3 @@ find_app() {
 
 find_app 'apps'
 find_app 'lib-ee'
-
-## find directories in lib-extra
-find_app 'lib-extra'
-## find symlinks in lib-extra
-find 'lib-extra' -mindepth 1 -maxdepth 1 -type l -exec test -e {} \; -print

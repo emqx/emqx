@@ -121,8 +121,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 
 ### 插件开发
 
-如果想集成或开发你自己的插件，参考 [lib-extra/README.md](./lib-extra/README.md)
-
+如果想集成或开发你自己的插件，参考 [PLUGIN.md](./PLUGIN.md)
 
 ### 联系我们
 

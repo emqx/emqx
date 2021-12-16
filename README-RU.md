@@ -124,8 +124,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 
 ### Разработка плагинов
 
-Инструкция по разработке собственных плагинов доступна по ссылке: [lib-extra/README.md](./lib-extra/README.md)
-
+Инструкция по разработке собственных плагинов доступна по ссылке: [PLUGIN.md](./PLUGIN.md)
 
 ## Спецификации стандарта MQTT
 
