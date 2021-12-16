@@ -19,6 +19,7 @@
 -behaviour(minirest_api).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_api_code.hrl").
 
 -export([api_spec/0]).
 
@@ -68,7 +69,7 @@ lookup_retained_api() ->
                 <<"200">> => object_array_schema(
                     maps:without([payload], message_props()),
                     <<"List retained messages">>),
-                <<"405">> => schema(<<"NotAllowed">>)
+                <<"403">> => schema(<<"NotAllowed">>)
             }
         }
     },
@@ -81,7 +82,7 @@ with_topic_api() ->
             parameters => parameters() ++ page_params(),
             responses => #{
                 <<"200">> => object_array_schema(message_props(), <<"List retained messages">>),
-                <<"405">> => schema(<<"NotAllowed">>)
+                <<"403">> => schema(<<"NotAllowed">>)
             }
         },
         delete => #{
@@ -89,7 +90,7 @@ with_topic_api() ->
             parameters => parameters(),
             responses => #{
                 <<"204">> => schema(<<"Successed">>),
-                <<"405">> => schema(<<"NotAllowed">>)
+                <<"403">> => schema(<<"NotAllowed">>)
             }
         }
     },
@@ -101,7 +102,7 @@ config_api() ->
             description => <<"get retainer config">>,
             responses => #{
                 <<"200">> => schema(conf_schema(), <<"Get configs successfully">>),
-                <<"404">> => error_schema(<<"Config not found">>, ['NOT_FOUND'])
+                <<"404">> => error_schema(<<"Config not found">>, [?API_CODE_NOT_FOUND])
             }
         },
         put => #{
@@ -109,7 +110,7 @@ config_api() ->
             'requestBody' => schema(conf_schema()),
             responses => #{
                 <<"200">> => schema(conf_schema(), <<"Update configs successfully">>),
-                <<"400">> => error_schema(<<"Update configs failed">>, ['UPDATE_FAILED'])
+                <<"400">> => error_schema(<<"Update configs failed">>, [?API_CODE_UPDATE_FAILED])
             }
         }
     },
@@ -129,9 +130,7 @@ config(put, #{body := Body}) ->
         ok = emqx_retainer:update_config(Body),
         {200,  emqx:get_raw_config([emqx_retainer])}
     catch _:Reason:_ ->
-            {400,
-             #{code => 'UPDATE_FAILED',
-               message => iolist_to_binary(io_lib:format("~p~n", [Reason]))}}
+            {400, ?API_CODE_UPDATE_FAILED, iolist_to_binary(io_lib:format("~p~n", [Reason]))}
     end.
 
 %%------------------------------------------------------------------------------
@@ -191,7 +190,7 @@ check_backend(Type, Params, Cont) ->
         built_in_database ->
             Cont(Type, Params);
         _ ->
-            {405,
+            {403,
              #{<<"content-type">> => <<"text/plain">>},
              <<"This API only for built in database">>}
     end.
