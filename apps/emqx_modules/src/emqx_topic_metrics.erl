@@ -261,7 +261,7 @@ handle_call({get_rates, Topic, Metric}, _From, State = #state{speeds = Speeds}) 
     end.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info(ticking, State = #state{speeds = Speeds}) ->
@@ -276,7 +276,7 @@ handle_info(ticking, State = #state{speeds = Speeds}) ->
     {noreply, State#state{speeds = NSpeeds}};
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

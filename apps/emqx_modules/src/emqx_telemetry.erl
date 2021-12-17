@@ -173,15 +173,15 @@ handle_call(get_telemetry, _From, State) ->
     {reply, {ok, get_telemetry(State)}, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected msg: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_continue(Continue, State) ->
-    ?LOG(error, "Unexpected continue: ~p", [Continue]),
+    ?SLOG(error, #{msg => "unexpected_continue", continue => Continue}),
     {noreply, State}.
 
 handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer = TRef}) ->
@@ -192,7 +192,7 @@ handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer
     {noreply, ensure_report_timer(State)};
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

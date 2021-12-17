@@ -98,7 +98,7 @@ connect(Type, BucketName) when is_atom(BucketName) ->
     Path = [emqx_limiter, Type, bucket, BucketName],
     case emqx:get_config(Path, undefined) of
         undefined ->
-            ?LOG(error, "can't find the config of this bucket: ~p~n", [Path]),
+            ?SLOG(error, #{msg => "bucket_config_not_found", path => Path}),
             throw("bucket's config not found");
         #{zone := Zone,
           aggregated := #{rate := AggrRate, capacity := AggrSize},
@@ -113,7 +113,7 @@ connect(Type, BucketName) when is_atom(BucketName) ->
                             emqx_htb_limiter:make_ref_limiter(Cfg, Bucket)
                     end;
                 undefined ->
-                    ?LOG(error, "can't find the bucket:~p~n", [Path]),
+                    ?SLOG(error, #{msg => "bucket_not_found", path => Path}),
                     throw("invalid bucket")
             end
     end;
@@ -182,7 +182,7 @@ init([Type]) ->
           {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
           {stop, Reason :: term(), NewState :: term()}.
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 %%--------------------------------------------------------------------
@@ -197,7 +197,7 @@ handle_call(Req, _From, State) ->
           {noreply, NewState :: term(), hibernate} |
           {stop, Reason :: term(), NewState :: term()}.
 handle_cast(Req, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -215,7 +215,7 @@ handle_info(oscillate, State) ->
     {noreply, oscillation(State)};
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 %%--------------------------------------------------------------------

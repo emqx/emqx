@@ -97,7 +97,7 @@ on_message_publish(Msg = #message{
     case store(#delayed_message{key = {PubAt, Id}, delayed = Delayed, msg = PubMsg}) of
         ok -> ok;
         {error, Error} ->
-            ?LOG(error, "Store delayed message fail: ~p", [Error])
+            ?SLOG(error, #{msg => "store_delayed_message_fail", error => Error})
     end,
     {stop, PubMsg#message{headers = Headers#{allow_publish => false}}};
 
@@ -230,11 +230,11 @@ handle_call(disable, _From, State) ->
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 %% Do Publish...
@@ -248,7 +248,7 @@ handle_info(stats, State = #{stats_fun := StatsFun}) ->
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{timer := TRef}) ->
