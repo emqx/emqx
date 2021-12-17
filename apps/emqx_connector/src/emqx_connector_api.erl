@@ -209,7 +209,7 @@ schema("/connectors/:id") ->
     end.
 
 '/connectors'(get, _Request) ->
-    {200, emqx_connector:list()};
+    {200, [format_resp(Conn) || Conn <- emqx_connector:list()]};
 
 '/connectors'(post, #{body := #{<<"type">> := ConnType} = Params}) ->
     ConnName = maps:get(<<"name">>, Params, emqx_misc:gen_id()),
@@ -264,10 +264,16 @@ error_msg(Code, Msg) when is_binary(Msg) ->
 error_msg(Code, Msg) ->
     #{code => Code, message => bin(io_lib:format("~p", [Msg]))}.
 
+format_resp(#{<<"id">> := Id} = RawConf) ->
+    format_resp(Id, RawConf).
+
 format_resp(ConnId, RawConf) ->
     NumOfBridges = length(emqx_bridge:list_bridges_by_connector(ConnId)),
+    {Type, Name} = emqx_connector:parse_connector_id(ConnId),
     RawConf#{
         <<"id">> => ConnId,
+        <<"type">> => Type,
+        <<"name">> => Name,
         <<"num_of_bridges">> => NumOfBridges
     }.
 
