@@ -368,7 +368,12 @@ update_appups(Changes) ->
 do_update_appup(App, Upgrade, Downgrade, OldUpgrade, OldDowngrade) ->
     case locate(src, App, ".appup.src") of
         {ok, AppupFile} ->
-            render_appfile(AppupFile, Upgrade, Downgrade);
+            case contains_contents(AppupFile, Upgrade, Downgrade) of
+                true ->
+                    ok;
+                false ->
+                    render_appfile(AppupFile, Upgrade, Downgrade)
+            end;
         undefined ->
             case create_stub(App) of
                 {ok, AppupFile} ->
@@ -405,6 +410,17 @@ create_stub(App) ->
             render_appfile(AppupFileFullpath, [Default], [Default]),
             {ok, AppupFileFullpath};
         undefined ->
+            false
+    end.
+
+%% we check whether the destination file already has the contents we
+%% want to write to avoid writing and losing indentation and comments.
+contains_contents(File, Upgrade, Downgrade) ->
+    %% the file may contain the VSN variable, so it's a script
+    case file:script(File, [{'VSN', 'VSN'}]) of
+        {ok, {_, Upgrade, Downgrade}} ->
+            true;
+        _ ->
             false
     end.
 
