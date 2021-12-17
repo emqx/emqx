@@ -40,9 +40,8 @@
 description() ->
     "AuthZ with http".
 
-init(#{url := Url} = Source) ->
-    NSource = maps:put(base_url, maps:remove(query, Url), Source),
-    case emqx_authz_utils:create_resource(emqx_connector_http, NSource) of
+init(Source) ->
+    case emqx_authz_utils:create_resource(emqx_connector_http, Source) of
         {error, Reason} -> error({load_config_error, Reason});
         {ok, Id} -> Source#{annotations => #{id => Id}}
     end.
@@ -51,39 +50,60 @@ destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove(Id).
 
 dry_run(Source) ->
-    URIMap = maps:get(url, Source),
-    NSource = maps:put(base_url, maps:remove(query, URIMap), Source),
-    emqx_resource:create_dry_run(emqx_connector_http, NSource).
+    emqx_resource:create_dry_run(emqx_connector_http, Source).
 
 authorize(Client, PubSub, Topic,
             #{type := http,
-              url := #{path := Path} = URL,
+              query := Query,
+              path := Path,
               headers := Headers,
               method := Method,
               request_timeout := RequestTimeout,
               annotations := #{id := ResourceID}
              } = Source) ->
     Request = case Method of
-                  get  ->
-                      Query = maps:get(query, URL, ""),
-                      Path1 = replvar(Path ++ "?" ++ Query, PubSub, Topic, Client),
+                  get ->
+                      Path1 = replvar(
+                                Path ++ "?" ++ Query,
+                                PubSub,
+                                Topic,
+                                maps:to_list(Client),
+                                fun var_uri_encode/1),
+
                       {Path1, maps:to_list(Headers)};
+
                   _ ->
-                      Body0 = serialize_body(
-                                maps:get('Accept', Headers, <<"application/json">>),
-                                maps:get(body, Source, #{})
-                              ),
-                      Body1 = replvar(Body0, PubSub, Topic, Client),
-                      Path1 = replvar(Path, PubSub, Topic, Client),
-                      {Path1, maps:to_list(Headers), Body1}
+                      Body0 = maps:get(body, Source, #{}),
+                      Body1 = replvar_deep(
+                                Body0,
+                                PubSub,
+                                Topic,
+                                maps:to_list(Client),
+                                fun var_bin_encode/1),
+
+                      Body2 = serialize_body(
+                                maps:get(<<"content-type">>, Headers, <<"application/json">>),
+                                Body1),
+
+                      Path1 = replvar(
+                                Path,
+                                PubSub,
+                                Topic,
+                                maps:to_list(Client),
+                                fun var_uri_encode/1),
+
+                      {Path1, maps:to_list(Headers), Body2}
               end,
-    case emqx_resource:query(ResourceID, {Method, Request, RequestTimeout}) of
+    HttpResult = emqx_resource:query(ResourceID, {Method, Request, RequestTimeout}),
+    case HttpResult of
         {ok, 200, _Headers} ->
             {matched, allow};
         {ok, 204, _Headers} ->
             {matched, allow};
         {ok, 200, _Headers, _Body} ->
             {matched, allow};
+        {ok, _Status, _Headers} ->
+            nomatch;
         {ok, _Status, _Headers, _Body} ->
             nomatch;
         {error, Reason} ->
@@ -121,30 +141,65 @@ serialize_body(<<"application/json">>, Body) ->
 serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
     query_string(Body).
 
-replvar(Str0, PubSub, Topic,
-        #{username := Username,
-          clientid := Clientid,
-          peerhost := IpAddress,
-          protocol := Protocol,
-          mountpoint := Mountpoint
-         }) when is_list(Str0);
-                 is_binary(Str0) ->
+
+replvar_deep(Map, PubSub, Topic, Vars, VarEncode) when is_map(Map) ->
+    maps:map(
+      fun(_Key, Value) ->
+              replvar(Value, PubSub, Topic, Vars, VarEncode)
+      end,
+      Map);
+replvar_deep(List, PubSub, Topic, Vars, VarEncode) when is_list(List) ->
+    lists:map(
+      fun(Value) ->
+              replvar(Value, PubSub, Topic, Vars, VarEncode)
+      end,
+      List);
+replvar_deep(Number, _PubSub, _Topic, _Vars, _VarEncode) when is_number(Number) ->
+    Number;
+replvar_deep(Binary, PubSub, Topic, Vars, VarEncode) when is_binary(Binary) ->
+    replvar(Binary, PubSub, Topic, Vars, VarEncode).
+
+replvar(Str0, PubSub, Topic, [], VarEncode) ->
     NTopic = emqx_http_lib:uri_encode(Topic),
-    Str1 = re:replace( Str0, emqx_authz:ph_to_re(?PH_S_CLIENTID)
-                     , bin(Clientid), [global, {return, binary}]),
-    Str2 = re:replace( Str1, emqx_authz:ph_to_re(?PH_S_USERNAME)
-                     , bin(Username), [global, {return, binary}]),
-    Str3 = re:replace( Str2, emqx_authz:ph_to_re(?PH_S_HOST)
-                     , inet_parse:ntoa(IpAddress), [global, {return, binary}]),
-    Str4 = re:replace( Str3, emqx_authz:ph_to_re(?PH_S_PROTONAME)
-                     , bin(Protocol), [global, {return, binary}]),
-    Str5 = re:replace( Str4, emqx_authz:ph_to_re(?PH_S_MOUNTPOINT)
-                     , bin(Mountpoint), [global, {return, binary}]),
-    Str6 = re:replace( Str5, emqx_authz:ph_to_re(?PH_S_TOPIC)
-                     , bin(NTopic), [global, {return, binary}]),
-    Str7 = re:replace( Str6, emqx_authz:ph_to_re(?PH_S_ACTION)
-                     , bin(PubSub), [global, {return, binary}]),
-    Str7.
+    Str1 = re:replace(Str0, emqx_authz:ph_to_re(?PH_S_TOPIC),
+                      VarEncode(NTopic), [global, {return, binary}]),
+    re:replace(Str1, emqx_authz:ph_to_re(?PH_S_ACTION),
+               VarEncode(PubSub), [global, {return, binary}]);
+
+
+replvar(Str, PubSub, Topic, [{username, Username} | Rest], VarEncode) ->
+    Str1 = re:replace(Str, emqx_authz:ph_to_re(?PH_S_USERNAME),
+                      VarEncode(Username), [global, {return, binary}]),
+    replvar(Str1, PubSub, Topic, Rest, VarEncode);
+
+replvar(Str, PubSub, Topic, [{clientid, Clientid} | Rest], VarEncode) ->
+    Str1 = re:replace(Str, emqx_authz:ph_to_re(?PH_S_CLIENTID),
+                      VarEncode(Clientid), [global, {return, binary}]),
+    replvar(Str1, PubSub, Topic, Rest, VarEncode);
+
+replvar(Str, PubSub, Topic, [{peerhost, IpAddress}  | Rest], VarEncode) ->
+    Str1 = re:replace(Str, emqx_authz:ph_to_re(?PH_S_PEERHOST),
+                      VarEncode(inet_parse:ntoa(IpAddress)), [global, {return, binary}]),
+    replvar(Str1, PubSub, Topic, Rest, VarEncode);
+
+replvar(Str, PubSub, Topic, [{protocol, Protocol} | Rest], VarEncode) ->
+    Str1 = re:replace(Str, emqx_authz:ph_to_re(?PH_S_PROTONAME),
+                      VarEncode(Protocol), [global, {return, binary}]),
+    replvar(Str1, PubSub, Topic, Rest, VarEncode);
+
+replvar(Str, PubSub, Topic, [{mountpoint, Mountpoint} | Rest], VarEncode) ->
+    Str1 = re:replace(Str, emqx_authz:ph_to_re(?PH_S_MOUNTPOINT),
+                      VarEncode(Mountpoint), [global, {return, binary}]),
+    replvar(Str1, PubSub, Topic, Rest, VarEncode);
+
+replvar(Str, PubSub, Topic, [_Unknown | Rest], VarEncode) ->
+    replvar(Str, PubSub, Topic, Rest, VarEncode).
+
+var_uri_encode(S) ->
+    emqx_http_lib:uri_encode(bin(S)).
+
+var_bin_encode(S) ->
+    bin(S).
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B;

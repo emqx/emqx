@@ -59,6 +59,8 @@
 
 -define(METRICS, [?METRIC_ALLOW, ?METRIC_DENY, ?METRIC_NOMATCH]).
 
+-define(IS_BOOL(Enable), ((Enable =:= true) or (Enable =:= <<"true">>))).
+
 %% Initialize authz backend.
 %% Populate the passed configuration map with necessary data,
 %% like `ResourceID`s
@@ -155,8 +157,8 @@ do_update({?CMD_APPEND, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
     NConf = Conf ++ Sources,
     ok = check_dup_types(NConf),
     NConf;
-do_update({{?CMD_REPLACE, Type}, #{<<"enable">> := true} = Source}, Conf) when is_map(Source),
-                                                                               is_list(Conf) ->
+do_update({{?CMD_REPLACE, Type}, #{<<"enable">> := Enable} = Source}, Conf)
+  when is_map(Source), is_list(Conf), ?IS_BOOL(Enable) ->
     case create_dry_run(Type, Source)  of
         ok ->
             {_Old, Front, Rear} = take(Type, Conf),

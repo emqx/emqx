@@ -4,7 +4,8 @@
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
 %% You may obtain a copy of the License at
-%% http://www.apache.org/licenses/LICENSE-2.0
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
 %%
 %% Unless required by applicable law or agreed to in writing, software
 %% distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,75 +23,350 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(HTTP_PORT, 33333).
+-define(HTTP_PATH, "/authz/[...]").
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-groups() ->
-    [].
-
 init_per_suite(Config) ->
-    meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
-    meck:expect(emqx_resource, remove, fun(_) -> ok end ),
-
     ok = emqx_common_test_helpers:start_apps(
            [emqx_conf, emqx_authz],
-           fun set_special_configs/1),
-
-    Rules = [#{<<"type">> => <<"http">>,
-               <<"url">> => <<"https://fake.com:443/">>,
-               <<"headers">> => #{},
-               <<"method">> => <<"get">>,
-               <<"request_timeout">> => 5000
-              }
-            ],
-    {ok, _} = emqx_authz:update(replace, Rules),
+           fun set_special_configs/1
+          ),
+    ok = start_apps([emqx_resource, emqx_connector, cowboy]),
     Config.
 
 end_per_suite(_Config) ->
-    {ok, _} = emqx:update_config(
-                [authorization],
-                #{<<"no_match">> => <<"allow">>,
-                  <<"cache">> => #{<<"enable">> => <<"true">>},
-                  <<"sources">> => []}),
-    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_conf]),
-    meck:unload(emqx_resource),
-    ok.
+    ok = emqx_authz_test_lib:restore_authorizers(),
+    ok = stop_apps([emqx_resource, emqx_connector, cowboy]),
+    ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
 
 set_special_configs(emqx_authz) ->
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-    {ok, _} = emqx:update_config([authorization, sources], []),
-    ok;
-set_special_configs(_App) ->
+    ok = emqx_authz_test_lib:reset_authorizers();
+
+set_special_configs(_) ->
     ok.
 
+init_per_testcase(_Case, Config) ->
+    ok = emqx_authz_test_lib:reset_authorizers(),
+    ok = emqx_authz_http_test_server:start(?HTTP_PORT, ?HTTP_PATH),
+    Config.
+
+end_per_testcase(_Case, _Config) ->
+    ok = emqx_authz_http_test_server:stop().
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Tests
 %%------------------------------------------------------------------------------
 
-t_authz(_) ->
-    ClientInfo = #{clientid => <<"my-clientid">>,
-                   username => <<"my-username">>,
+t_response_handling(_Config) ->
+    ClientInfo = #{clientid => <<"clientid">>,
+                   username => <<"username">>,
                    peerhost => {127,0,0,1},
-                   protocol => mqtt,
-                   mountpoint => <<"fake">>,
                    zone => default,
                    listener => {tcp, default}
-                   },
+                  },
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, 204, fake_headers} end),
-    ?assertEqual(allow,
-                 emqx_access_control:authorize(ClientInfo, subscribe, <<"#">>)),
+    %% OK, get, no body
+    ok = setup_handler_and_config(
+           fun(Req0, State) ->
+                   Req = cowboy_req:reply(200, Req0),
+                   {ok, Req, State}
+           end,
+           #{}),
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, 200, fake_headers, fake_body} end),
-    ?assertEqual(allow,
-                 emqx_access_control:authorize(ClientInfo, publish, <<"#">>)),
+    allow = emqx_access_control:authorize(ClientInfo, publish, <<"t">>),
+
+    %% OK, get, body & headers
+    ok = setup_handler_and_config(
+           fun(Req0, State) ->
+                   Req = cowboy_req:reply(
+                           200,
+                           #{<<"content-type">> => <<"text/plain">>},
+                           "Response body",
+                           Req0),
+                   {ok, Req, State}
+           end,
+           #{}),
+
+    allow = emqx_access_control:authorize(ClientInfo, publish, <<"t">>),
+
+    %% OK, get, 204
+    ok = setup_handler_and_config(
+           fun(Req0, State) ->
+                   Req = cowboy_req:reply(204, Req0),
+                   {ok, Req, State}
+           end,
+           #{}),
+
+    allow = emqx_access_control:authorize(ClientInfo, publish, <<"t">>),
+
+    %% Not OK, get, 400
+    ok = setup_handler_and_config(
+           fun(Req0, State) ->
+                   Req = cowboy_req:reply(400, Req0),
+                   {ok, Req, State}
+           end,
+           #{}),
+
+    deny = emqx_access_control:authorize(ClientInfo, publish, <<"t">>),
+
+    %% Not OK, get, 400 + body & headers
+    ok = setup_handler_and_config(
+           fun(Req0, State) ->
+                   Req = cowboy_req:reply(
+                           400,
+                           #{<<"content-type">> => <<"text/plain">>},
+                           "Response body",
+                           Req0),
+                   {ok, Req, State}
+           end,
+           #{}),
+
+    deny = emqx_access_control:authorize(ClientInfo, publish, <<"t">>).
+
+t_query_params(_Config) ->
+    ok = setup_handler_and_config(
+           fun(Req0, State) ->
+                  #{username := <<"user name">>,
+                    clientid := <<"client id">>,
+                    peerhost := <<"127.0.0.1">>,
+                    proto_name := <<"MQTT">>,
+                    mountpoint := <<"MOUNTPOINT">>,
+                    topic := <<"t">>,
+                    action := <<"publish">>
+                   } = cowboy_req:match_qs(
+                         [username,
+                          clientid,
+                          peerhost,
+                          proto_name,
+                          mountpoint,
+                          topic,
+                          action],
+                         Req0),
+                   Req = cowboy_req:reply(200, Req0),
+                   {ok, Req, State}
+           end,
+           #{<<"query">> => <<"username=${username}&"
+                             "clientid=${clientid}&"
+                             "peerhost=${peerhost}&"
+                             "proto_name=${proto_name}&"
+                             "mountpoint=${mountpoint}&"
+                             "topic=${topic}&"
+                             "action=${action}">>
+            }),
+
+    ClientInfo = #{clientid => <<"client id">>,
+                   username => <<"user name">>,
+                   peerhost => {127,0,0,1},
+                   protocol => <<"MQTT">>,
+                   mountpoint => <<"MOUNTPOINT">>,
+                   zone => default,
+                   listener => {tcp, default}
+                  },
+
+    allow = emqx_access_control:authorize(ClientInfo, publish, <<"t">>).
+
+t_path_params(_Config) ->
+    ok = setup_handler_and_config(
+           fun(Req0, State) ->
+                   <<"/authz/"
+                     "username/user%20name/"
+                     "clientid/client%20id/"
+                     "peerhost/127.0.0.1/"
+                     "proto_name/MQTT/"
+                     "mountpoint/MOUNTPOINT/"
+                     "topic/t/"
+                     "action/publish">> = cowboy_req:path(Req0),
+                   Req = cowboy_req:reply(200, Req0),
+                   {ok, Req, State}
+           end,
+           #{<<"path">> => <<"username/${username}/"
+                             "clientid/${clientid}/"
+                             "peerhost/${peerhost}/"
+                             "proto_name/${proto_name}/"
+                             "mountpoint/${mountpoint}/"
+                             "topic/${topic}/"
+                             "action/${action}">>
+            }),
+
+    ClientInfo = #{clientid => <<"client id">>,
+                   username => <<"user name">>,
+                   peerhost => {127,0,0,1},
+                   protocol => <<"MQTT">>,
+                   mountpoint => <<"MOUNTPOINT">>,
+                   zone => default,
+                   listener => {tcp, default}
+                  },
+
+    allow = emqx_access_control:authorize(ClientInfo, publish, <<"t">>).
+
+t_json_body(_Config) ->
+    ok = setup_handler_and_config(
+           fun(Req0, State) ->
+                   <<"/authz/"
+                     "username/user%20name/"
+                     "clientid/client%20id/"
+                     "peerhost/127.0.0.1/"
+                     "proto_name/MQTT/"
+                     "mountpoint/MOUNTPOINT/"
+                     "topic/t/"
+                     "action/publish">> = cowboy_req:path(Req0),
+                   {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
+
+                   #{<<"username">> := <<"user name">>,
+                     <<"clientid">> := <<"client id">>,
+                     <<"peerhost">> := <<"127.0.0.1">>,
+                     <<"proto_name">> := <<"MQTT">>,
+                     <<"mountpoint">> := <<"MOUNTPOINT">>,
+                     <<"topic">> := <<"t">>,
+                     <<"action">> := <<"publish">>} = jiffy:decode(RawBody, [return_maps]),
+                   Req = cowboy_req:reply(200, Req1),
+                   {ok, Req, State}
+           end,
+           #{<<"method">> => <<"post">>,
+             <<"path">> => <<"username/${username}/"
+                             "clientid/${clientid}/"
+                             "peerhost/${peerhost}/"
+                             "proto_name/${proto_name}/"
+                             "mountpoint/${mountpoint}/"
+                             "topic/${topic}/"
+                             "action/${action}">>,
+             <<"body">> => #{<<"username">> => <<"${username}">>,
+                             <<"clientid">> => <<"${clientid}">>,
+                             <<"peerhost">> => <<"${peerhost}">>,
+                             <<"proto_name">> => <<"${proto_name}">>,
+                             <<"mountpoint">> => <<"${mountpoint}">>,
+                             <<"topic">> => <<"${topic}">>,
+                             <<"action">> => <<"${action}">>}
+            }),
+
+    ClientInfo = #{clientid => <<"client id">>,
+                   username => <<"user name">>,
+                   peerhost => {127,0,0,1},
+                   protocol => <<"MQTT">>,
+                   mountpoint => <<"MOUNTPOINT">>,
+                   zone => default,
+                   listener => {tcp, default}
+                  },
+
+    allow = emqx_access_control:authorize(ClientInfo, publish, <<"t">>).
 
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {error, other} end),
-    ?assertEqual(deny,
-        emqx_access_control:authorize(ClientInfo, subscribe, <<"+">>)),
-    ?assertEqual(deny,
-        emqx_access_control:authorize(ClientInfo, publish, <<"+">>)),
-    ok.
+t_form_body(_Config) ->
+    ok = setup_handler_and_config(
+           fun(Req0, State) ->
+                   <<"/authz/"
+                     "username/user%20name/"
+                     "clientid/client%20id/"
+                     "peerhost/127.0.0.1/"
+                     "proto_name/MQTT/"
+                     "mountpoint/MOUNTPOINT/"
+                     "topic/t/"
+                     "action/publish">> = cowboy_req:path(Req0),
+                    {ok, PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
+
+                   #{<<"username">> := <<"user name">>,
+                     <<"clientid">> := <<"client id">>,
+                     <<"peerhost">> := <<"127.0.0.1">>,
+                     <<"proto_name">> := <<"MQTT">>,
+                     <<"mountpoint">> := <<"MOUNTPOINT">>,
+                     <<"topic">> := <<"t">>,
+                     <<"action">> := <<"publish">>} = maps:from_list(PostVars),
+                   Req = cowboy_req:reply(200, Req1),
+                   {ok, Req, State}
+           end,
+           #{<<"method">> => <<"post">>,
+             <<"path">> => <<"username/${username}/"
+                             "clientid/${clientid}/"
+                             "peerhost/${peerhost}/"
+                             "proto_name/${proto_name}/"
+                             "mountpoint/${mountpoint}/"
+                             "topic/${topic}/"
+                             "action/${action}">>,
+             <<"body">> => #{<<"username">> => <<"${username}">>,
+                             <<"clientid">> => <<"${clientid}">>,
+                             <<"peerhost">> => <<"${peerhost}">>,
+                             <<"proto_name">> => <<"${proto_name}">>,
+                             <<"mountpoint">> => <<"${mountpoint}">>,
+                             <<"topic">> => <<"${topic}">>,
+                             <<"action">> => <<"${action}">>},
+             <<"headers">> => #{<<"content-type">> => <<"application/x-www-form-urlencoded">>}
+            }),
+
+    ClientInfo = #{clientid => <<"client id">>,
+                   username => <<"user name">>,
+                   peerhost => {127,0,0,1},
+                   protocol => <<"MQTT">>,
+                   mountpoint => <<"MOUNTPOINT">>,
+                   zone => default,
+                   listener => {tcp, default}
+                  },
+
+    allow = emqx_access_control:authorize(ClientInfo, publish, <<"t">>).
+
+
+t_create_replace(_Config) ->
+    ClientInfo = #{clientid => <<"clientid">>,
+                   username => <<"username">>,
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => {tcp, default}
+                  },
+
+    %% Bad URL
+    ok = setup_handler_and_config(
+           fun(Req0, State) ->
+                   Req = cowboy_req:reply(200, Req0),
+                   {ok, Req, State}
+           end,
+           #{<<"base_url">> => <<"http://127.0.0.1:33331/authz">>}),
+
+
+    deny = emqx_access_control:authorize(ClientInfo, publish, <<"t">>),
+
+    %% Changing to other bad config does not work
+    BadConfig = maps:merge(
+                  raw_http_authz_config(),
+                  #{<<"base_url">> => <<"http://127.0.0.1:33332/authz">>}),
+    {error, _} = emqx_authz:update({?CMD_REPLACE, http}, BadConfig),
+
+    deny = emqx_access_control:authorize(ClientInfo, publish, <<"t">>),
+
+    %% Changing to valid config
+    OkConfig = maps:merge(
+                  raw_http_authz_config(),
+                  #{<<"base_url">> => <<"http://127.0.0.1:33333/authz">>}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, http}, OkConfig),
+
+    allow = emqx_access_control:authorize(ClientInfo, publish, <<"t">>).
+
+
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
+
+raw_http_authz_config() ->
+    #{
+        <<"enable">> => <<"true">>,
+
+        <<"type">> => <<"http">>,
+        <<"method">> => <<"get">>,
+        <<"base_url">> => <<"http://127.0.0.1:33333/authz">>,
+        <<"path">> => <<"users/${username}/">>,
+        <<"query">> => <<"topic=${topic}&action=${action}">>,
+        <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
+    }.
+
+setup_handler_and_config(Handler, Config) ->
+    ok = emqx_authz_http_test_server:set_handler(Handler),
+    ok = emqx_authz_test_lib:setup_config(
+           raw_http_authz_config(),
+           Config).
+
+start_apps(Apps) ->
+    lists:foreach(fun application:ensure_all_started/1, Apps).
+
+stop_apps(Apps) ->
+    lists:foreach(fun application:stop/1, Apps).
