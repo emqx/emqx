@@ -146,7 +146,7 @@ subscribe(#coap_message{token = Token} = Msg, Topic, Ctx, CInfo) ->
             SubOpts = get_sub_opts(Msg),
             MountTopic = mount(CInfo, Topic),
             emqx_broker:subscribe(MountTopic, ClientId, SubOpts),
-            run_hooks(Ctx, 'session.subscribed', [CInfo, Topic, SubOpts]),
+            run_hooks(Ctx, 'session.subscribed', [CInfo, MountTopic, SubOpts]),
             ?SUB(MountTopic, Token, Msg);
         _ ->
             reply({error, unauthorized}, Msg)

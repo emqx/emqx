@@ -226,11 +226,50 @@ handle_call({send_request, Msg}, From, Channel) ->
     Result = call_session(handle_out, {{send_request, From}, Msg}, Channel),
     erlang:setelement(1, Result, noreply);
 
-handle_call({subscribe, _Topic, _SubOpts}, _From, Channel) ->
-    {reply, {error, nosupport}, Channel};
+handle_call({subscribe, Topic, SubOpts}, _From,
+            Channel = #channel{
+                         ctx = Ctx,
+                         clientinfo = ClientInfo
+                                    = #{clientid := ClientId,
+                                        mountpoint := Mountpoint},
+                         session = Session}) ->
+    Token = maps:get(token,
+                     maps:get(sub_props, SubOpts, #{}),
+                     undefined),
+    NSubOpts = maps:merge(
+                 emqx_gateway_utils:default_subopts(),
+                 SubOpts),
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
+    _ = emqx_broker:subscribe(MountedTopic, ClientId, NSubOpts),
 
-handle_call({unsubscribe, _Topic}, _From, Channel) ->
-    {reply, {error, noimpl}, Channel};
+    _ = run_hooks(Ctx, 'session.subscribed',
+                  [ClientInfo, MountedTopic, NSubOpts]),
+    %% modifty session state
+    SubReq = {Topic, Token},
+    TempMsg = #coap_message{},
+    Result  = emqx_coap_session:process_subscribe(
+                SubReq, TempMsg, #{}, Session),
+    NSession = maps:get(session, Result),
+    {reply, ok, Channel#channel{session = NSession}};
+
+handle_call({unsubscribe, Topic}, _From,
+            Channel = #channel{
+                         ctx = Ctx,
+                         clientinfo = ClientInfo
+                                    = #{mountpoint := Mountpoint},
+                         session = Session}) ->
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
+    ok = emqx_broker:unsubscribe(MountedTopic),
+    _ = run_hooks(Ctx, 'session.unsubscribe',
+                  [ClientInfo, MountedTopic, #{}]),
+
+    %% modifty session state
+    UnSubReq = Topic,
+    TempMsg = #coap_message{},
+    Result  = emqx_coap_session:process_subscribe(
+                UnSubReq, TempMsg, #{}, Session),
+    NSession = maps:get(session, Result),
+    {reply, ok, Channel#channel{session = NSession}};
 
 handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
     Subs = emqx_coap_session:info(subscriptions, Session),

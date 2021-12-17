@@ -17,6 +17,8 @@
 %% @doc The gateway configuration management module
 -module(emqx_gateway_conf).
 
+-behaviour(emqx_config_handler).
+
 %% Load/Unload
 -export([ load/0
         , unload/0

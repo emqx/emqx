@@ -16,8 +16,6 @@
 
 -module(emqx_gateway).
 
--behaviour(emqx_config_handler).
-
 -include("include/emqx_gateway.hrl").
 
 %% Gateway APIs
