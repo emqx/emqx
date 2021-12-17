@@ -219,7 +219,7 @@ handle_call({subscribe, Topic, SubOpts}, _From,
     Subs = emqx_lwm2m_session:info(subscriptions, Session),
     NSubs = maps:put(MountedTopic, NSubOpts, Subs),
     NSession = emqx_lwm2m_session:set_subscriptions(NSubs, Session),
-    {reply, ok, Channel#channel{session = NSession}};
+    {reply, {ok, {MountedTopic, NSubOpts}}, Channel#channel{session = NSession}};
 
 handle_call({unsubscribe, Topic}, _From,
             Channel = #channel{

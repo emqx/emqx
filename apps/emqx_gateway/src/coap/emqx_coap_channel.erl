@@ -250,7 +250,7 @@ handle_call({subscribe, Topic, SubOpts}, _From,
     Result  = emqx_coap_session:process_subscribe(
                 SubReq, TempMsg, #{}, Session),
     NSession = maps:get(session, Result),
-    {reply, ok, Channel#channel{session = NSession}};
+    {reply, {ok, {MountedTopic, NSubOpts}}, Channel#channel{session = NSession}};
 
 handle_call({unsubscribe, Topic}, _From,
             Channel = #channel{

@@ -395,7 +395,7 @@ t_rest_clienit_info(_) ->
         ?assertEqual(1, length(Subs)),
         assert_feilds_apperence([topic, qos], lists:nth(1, Subs)),
 
-        {204, _} = request(post, ClientPath ++ "/subscriptions",
+        {201, _} = request(post, ClientPath ++ "/subscriptions",
                            #{topic => <<"t/a">>, qos => 1,
                              sub_props => #{subid => <<"1001">>}}),
 

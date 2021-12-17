@@ -660,7 +660,7 @@ handle_call({subscribe, Topic, SubOpts}, _From,
                                                   ),
                     NSubs = [{SubId, MountedTopic, <<"auto">>, NSubOpts}|Subs],
                     NChannel1 = NChannel#channel{subscriptions = NSubs},
-                    reply(ok, NChannel1);
+                    reply({ok, {MountedTopic, NSubOpts}}, NChannel1);
                 {error, ErrMsg, NChannel} ->
                     ?SLOG(error, #{ msg => "failed_to_subscribe_topic"
                                   , topic => Topic

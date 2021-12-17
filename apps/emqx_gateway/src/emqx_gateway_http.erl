@@ -235,7 +235,7 @@ confexp({error, already_exist}) ->
 %%--------------------------------------------------------------------
 
 -spec lookup_client(gateway_name(),
-                    emqx_type:clientid(), {atom(), atom()}) -> list().
+                    emqx_types:clientid(), {atom(), atom()}) -> list().
 lookup_client(GwName, ClientId, FormatFun) ->
     lists:append([lookup_client(Node, GwName, {clientid, ClientId}, FormatFun)
                   || Node <- mria_mnesia:running_nodes()]).
@@ -253,7 +253,7 @@ lookup_client(Node, GwName, {clientid, ClientId}, FormatFun) ->
     rpc_call(Node, lookup_client,
              [Node, GwName, {clientid, ClientId}, FormatFun]).
 
--spec kickout_client(gateway_name(), emqx_type:clientid())
+-spec kickout_client(gateway_name(), emqx_types:clientid())
     -> {error, any()}
      | ok.
 kickout_client(GwName, ClientId) ->
@@ -270,7 +270,7 @@ kickout_client(Node, GwName, ClientId) when Node =:= node() ->
 kickout_client(Node, GwName, ClientId) ->
     rpc_call(Node, kickout_client, [Node, GwName, ClientId]).
 
--spec list_client_subscriptions(gateway_name(), emqx_type:clientid())
+-spec list_client_subscriptions(gateway_name(), emqx_types:clientid())
     -> {error, any()}
      | {ok, list()}.
 list_client_subscriptions(GwName, ClientId) ->
@@ -288,10 +288,10 @@ list_client_subscriptions(GwName, ClientId) ->
             end
         end).
 
--spec client_subscribe(gateway_name(), emqx_type:clientid(),
-                       emqx_type:topic(), emqx_type:subopts())
+-spec client_subscribe(gateway_name(), emqx_types:clientid(),
+                       emqx_types:topic(), emqx_types:subopts())
     -> {error, any()}
-     | ok.
+     | {ok, {emqx_types:topic(), emqx_types:subopts()}}.
 client_subscribe(GwName, ClientId, Topic, SubOpts) ->
     with_channel(GwName, ClientId,
         fun(Pid) ->
@@ -302,7 +302,7 @@ client_subscribe(GwName, ClientId, Topic, SubOpts) ->
         end).
 
 -spec client_unsubscribe(gateway_name(),
-                         emqx_type:clientid(), emqx_type:topic())
+                         emqx_types:clientid(), emqx_types:topic())
     -> {error, any()}
      | ok.
 client_unsubscribe(GwName, ClientId, Topic) ->

@@ -1194,8 +1194,8 @@ handle_call({subscribe, Topic, SubOpts}, _From, Channel) ->
                 2 ->
                     case do_subscribe({?SN_INVALID_TOPIC_ID,
                                        Topic, SubOpts}, Channel) of
-                        {ok, _, NChannel} ->
-                            reply(ok, NChannel);
+                        {ok, {_, NTopicName, NSubOpts}, NChannel} ->
+                            reply({ok, {NTopicName, NSubOpts}}, NChannel);
                         {error, ?SN_EXCEED_LIMITATION} ->
                             reply({error, exceed_limitation}, Channel)
                     end;

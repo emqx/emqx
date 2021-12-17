@@ -168,9 +168,9 @@ subscriptions(post, #{ bindings := #{name := Name0,
         case {maps:get(<<"topic">>, Body, undefined), subopts(Body)} of
             {undefined, _} ->
                 return_http_error(400, "Miss topic property");
-            {Topic, QoS} ->
+            {Topic, SubOpts} ->
                 case emqx_gateway_http:client_subscribe(
-                       GwName, ClientId, Topic, QoS) of
+                       GwName, ClientId, Topic, SubOpts) of
                     {error, nosupport} ->
                         return_http_error(
                           405,
@@ -181,8 +181,8 @@ subscriptions(post, #{ bindings := #{name := Name0,
                           <<"Not implemented now">>);
                     {error, Reason} ->
                         return_http_error(404, Reason);
-                    ok ->
-                        {204}
+                    {ok, {NTopic, NSubOpts}}->
+                        {201, maps:merge(NSubOpts, #{topic => NTopic})}
                 end
         end
     end);
@@ -204,12 +204,16 @@ subscriptions(delete, #{ bindings := #{name := Name0,
 %% Utils
 
 subopts(Req) ->
-    #{ qos => maps:get(<<"qos">>, Req, 0)
-     , rap => maps:get(<<"rap">>, Req, 0)
-     , nl => maps:get(<<"nl">>, Req, 0)
-     , rh => maps:get(<<"rh">>, Req, 0)
-     , sub_props => extra_sub_props(maps:get(<<"sub_props">>, Req, #{}))
-     }.
+    SubOpts = #{ qos => maps:get(<<"qos">>, Req, 0)
+               , rap => maps:get(<<"rap">>, Req, 0)
+               , nl => maps:get(<<"nl">>, Req, 0)
+               , rh => maps:get(<<"rh">>, Req, 1)
+               },
+    SubProps = extra_sub_props(maps:get(<<"sub_props">>, Req, #{})),
+    case maps:size(SubProps) of
+        0 -> SubOpts;
+        _ -> maps:put(sub_props, SubProps, SubOpts)
+    end.
 
 extra_sub_props(Props) ->
     maps:filter(
@@ -888,5 +892,4 @@ example_general_subscription() ->
      , nl => 0
      , rap => 0
      , rh => 0
-     , sub_props => #{}
      }.
