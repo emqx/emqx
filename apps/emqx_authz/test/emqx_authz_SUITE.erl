@@ -65,7 +65,9 @@ set_special_configs(_App) ->
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
                    <<"enable">> => true,
-                   <<"url">> => <<"https://fake.com:443/">>,
+                   <<"base_url">> => <<"https://example.com:443/">>,
+                   <<"path">> => <<"a/b">>,
+                   <<"query">> => <<"c=d">>,
                    <<"headers">> => #{},
                    <<"method">> => <<"get">>,
                    <<"request_timeout">> => 5000
@@ -77,7 +79,7 @@ set_special_configs(_App) ->
                    <<"pool_size">> => 1,
                    <<"database">> => <<"mqtt">>,
                    <<"ssl">> => #{<<"enable">> => false},
-                   <<"collection">> => <<"fake">>,
+                   <<"collection">> => <<"authz">>,
                    <<"selector">> => #{<<"a">> => <<"b">>}
                   }).
 -define(SOURCE3, #{<<"type">> => <<"mysql">>,
