@@ -172,8 +172,8 @@ info_example_basic(mqtt, ingress) ->
         remote_topic => <<"aws/#">>,
         remote_qos => 1,
         local_topic => <<"from_aws/${topic}">>,
+        local_qos => <<"${qos}">>,
         payload => <<"${payload}">>,
-        qos => <<"${qos}">>,
         retain => <<"${retain}">>
     };
 info_example_basic(mqtt, egress) ->
@@ -182,8 +182,8 @@ info_example_basic(mqtt, egress) ->
         direction => egress,
         local_topic => <<"emqx/#">>,
         remote_topic => <<"from_emqx/${topic}">>,
+        remote_qos => <<"${qos}">>,
         payload => <<"${payload}">>,
-        qos => 1,
         retain => false
     }.
 
