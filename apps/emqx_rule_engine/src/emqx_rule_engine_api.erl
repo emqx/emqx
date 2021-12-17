@@ -59,9 +59,6 @@ error_schema(Code, Message) ->
 rule_creation_schema() ->
     ref(emqx_rule_api_schema, "rule_creation").
 
-rule_update_schema() ->
-    ref(emqx_rule_engine_schema, "rules").
-
 rule_test_schema() ->
     ref(emqx_rule_api_schema, "rule_test").
 
@@ -120,7 +117,7 @@ schema("/rules/:id") ->
             description => <<"Update a rule by given Id to all nodes in the cluster">>,
             summary => <<"Update a Rule">>,
             parameters => param_path_id(),
-            requestBody => rule_update_schema(),
+            requestBody => rule_creation_schema(),
             responses => #{
                 400 => error_schema('BAD_ARGS', "Invalid Parameters"),
                 200 => rule_info_schema()
@@ -167,7 +164,8 @@ param_path_id() ->
     Records = emqx_rule_engine:get_rules_ordered_by_ts(),
     {200, format_rule_resp(Records)};
 
-'/rules'(post, #{body := #{<<"id">> := Id} = Params}) ->
+'/rules'(post, #{body := Params}) ->
+    Id = maps:get(<<"id">>, Params, list_to_binary(emqx_misc:gen_id(8))),
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
     case emqx_rule_engine:get_rule(Id) of
         {ok, _Rule} ->
@@ -230,7 +228,8 @@ err_msg(Msg) ->
 format_rule_resp(Rules) when is_list(Rules) ->
     [format_rule_resp(R) || R <- Rules];
 
-format_rule_resp(#{ id := Id, created_at := CreatedAt,
+format_rule_resp(#{ id := Id, name := Name,
+                    created_at := CreatedAt,
                     from := Topics,
                     outputs := Output,
                     sql := SQL,
@@ -238,6 +237,7 @@ format_rule_resp(#{ id := Id, created_at := CreatedAt,
                     description := Descr}) ->
     NodeMetrics = get_rule_metrics(Id),
     #{id => Id,
+      name => Name,
       from => Topics,
       outputs => format_output(Output),
       sql => SQL,
