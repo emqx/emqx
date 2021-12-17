@@ -15,6 +15,17 @@ jobs:
       imgname: ${{ steps.build_docker.outputs.imgname}}
       version: ${{ steps.build_docker.outputs.version}}
     steps:
+    - name: download jmeter
+      id: dload_jmeter
+      timeout-minutes: 1
+      env:
+        JMETER_VERSION: 5.3
+      run: |
+        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
+    - uses: actions/upload-artifact@v2
+      with:
+        name: apache-jmeter.tgz
+        path: /tmp/apache-jmeter.tgz
     - uses: actions/checkout@v2
     - name: build docker
       id: build_docker
@@ -103,12 +114,15 @@ jobs:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
+    - uses: actions/download-artifact@v2
+      with:
+        name: apache-jmeter.tgz
+        path: /tmp
     - name: install jmeter
       timeout-minutes: 10
       env:
           JMETER_VERSION: 5.3
       run: |
-        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
         echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
@@ -196,12 +210,15 @@ jobs:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
+    - uses: actions/download-artifact@v2
+      with:
+        name: apache-jmeter.tgz
+        path: /tmp
     - name: install jmeter
       timeout-minutes: 10
       env:
           JMETER_VERSION: 5.3
       run: |
-        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
         echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
@@ -300,12 +317,15 @@ jobs:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
+    - uses: actions/download-artifact@v2
+      with:
+        name: apache-jmeter.tgz
+        path: /tmp
     - name: install jmeter
       timeout-minutes: 10
       env:
           JMETER_VERSION: 5.3
       run: |
-        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
         echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
@@ -398,12 +418,15 @@ jobs:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
+    - uses: actions/download-artifact@v2
+      with:
+        name: apache-jmeter.tgz
+        path: /tmp
     - name: install jmeter
       timeout-minutes: 10
       env:
           JMETER_VERSION: 5.3
       run: |
-        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
         echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
