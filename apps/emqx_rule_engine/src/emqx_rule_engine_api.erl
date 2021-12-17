@@ -18,6 +18,7 @@
 
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_code.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(minirest_api).
@@ -41,7 +42,7 @@
         {ok, CheckedParams} ->
             EXPR;
         {error, REASON} ->
-            {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(REASON)}}
+            {400, ?API_CODE_BAD_REQUEST, ?ERR_BADARGS(REASON)}
     end).
 
 namespace() -> "rule".
@@ -84,7 +85,7 @@ schema("/rules") ->
             summary => <<"Create a Rule">>,
             requestBody => rule_creation_schema(),
             responses => #{
-                400 => error_schema('BAD_ARGS', "Invalid Parameters"),
+                400 => error_schema(?API_CODE_BAD_REQUEST, "Invalid Parameters"),
                 201 => rule_info_schema()
             }}
     };
@@ -111,7 +112,7 @@ schema("/rules/:id") ->
             summary => <<"Get a Rule">>,
             parameters => param_path_id(),
             responses => #{
-                404 => error_schema('NOT_FOUND', "Rule not found"),
+                404 => error_schema(?API_CODE_NOT_FOUND , "Rule not found"),
                 200 => rule_info_schema()
             }
         },
@@ -122,7 +123,7 @@ schema("/rules/:id") ->
             parameters => param_path_id(),
             requestBody => rule_update_schema(),
             responses => #{
-                400 => error_schema('BAD_ARGS', "Invalid Parameters"),
+                400 => error_schema(?API_CODE_BAD_REQUEST, "Invalid Parameters"),
                 200 => rule_info_schema()
             }
         },
@@ -146,8 +147,8 @@ schema("/rule_test") ->
             summary => <<"Test a Rule">>,
             requestBody => rule_test_schema(),
             responses => #{
-                400 => error_schema('BAD_ARGS', "Invalid Parameters"),
-                412 => error_schema('NOT_MATCH', "SQL Not Match"),
+                400 => error_schema(?API_CODE_BAD_REQUEST, "Invalid Parameters"),
+                412 => error_schema(?API_CODE_SQL_ERROR, "SQL Not Match"),
                 200 => <<"Rule Test Pass">>
             }
         }
@@ -171,7 +172,7 @@ param_path_id() ->
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
     case emqx_rule_engine:get_rule(Id) of
         {ok, _Rule} ->
-            {400, #{code => 'BAD_ARGS', message => <<"rule id already exists">>}};
+            {400, ?API_CODE_BAD_REQUEST, <<"rule id already exists">>};
         not_found ->
             case emqx:update_config(ConfPath, maps:remove(<<"id">>, Params), #{}) of
                 {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
@@ -180,14 +181,14 @@ param_path_id() ->
                 {error, Reason} ->
                     ?SLOG(error, #{msg => "create_rule_failed",
                                    id => Id, reason => Reason}),
-                    {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
+                    {400, ?API_CODE_BAD_REQUEST, ?ERR_BADARGS(Reason)}
             end
     end.
 
 '/rule_test'(post, #{body := Params}) ->
     ?CHECK_PARAMS(Params, rule_test, case emqx_rule_sqltester:test(CheckedParams) of
         {ok, Result} -> {200, Result};
-        {error, nomatch} -> {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}}
+        {error, nomatch} -> {412, ?API_CODE_SQL_ERROR, <<"SQL Not Match">>}
     end).
 
 '/rules/:id'(get, #{bindings := #{id := Id}}) ->
@@ -195,7 +196,7 @@ param_path_id() ->
         {ok, Rule} ->
             {200, format_rule_resp(Rule)};
         not_found ->
-            {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
+            {404, ?API_CODE_NOT_FOUND, <<"Rule Id Not Found">>}
     end;
 
 '/rules/:id'(put, #{bindings := #{id := Id}, body := Params}) ->
@@ -207,7 +208,7 @@ param_path_id() ->
         {error, Reason} ->
             ?SLOG(error, #{msg => "update_rule_failed",
                            id => Id, reason => Reason}),
-            {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
+            {400, ?API_CODE_BAD_REQUEST, ?ERR_BADARGS(Reason)}
     end;
 
 '/rules/:id'(delete, #{bindings := #{id := Id}}) ->
@@ -217,7 +218,7 @@ param_path_id() ->
         {error, Reason} ->
             ?SLOG(error, #{msg => "delete_rule_failed",
                            id => Id, reason => Reason}),
-            {500, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
+            {500, ?API_CODE_INTERNAL_ERROR, ?ERR_BADARGS(Reason)}
     end.
 
 %%------------------------------------------------------------------------------
