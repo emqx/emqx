@@ -15,6 +15,17 @@ jobs:
       imgname: ${{ steps.build_docker.outputs.imgname}}
       version: ${{ steps.build_docker.outputs.version}}
     steps:
+    - name: download jmeter
+      id: dload_jmeter
+      timeout-minutes: 1
+      env:
+        JMETER_VERSION: 5.3
+      run: |
+        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
+    - uses: actions/upload-artifact@v2
+      with:
+        name: apache-jmeter.tgz
+        path: /tmp/apache-jmeter.tgz
     - uses: actions/checkout@v2
     - name: build docker
       id: build_docker
@@ -96,19 +107,22 @@ jobs:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-fvt
-        ref: v1.4.0
+        ref: v1.6.0
         path: scripts
     - uses: actions/setup-java@v1
       with:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
+    - uses: actions/download-artifact@v2
+      with:
+        name: apache-jmeter.tgz
+        path: /tmp
     - name: install jmeter
       timeout-minutes: 10
       env:
           JMETER_VERSION: 5.3
       run: |
-        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
         echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
@@ -118,7 +132,7 @@ jobs:
       run: |
         /opt/jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
-          -t scripts/.ci/automate-test-suite/${{ matrix.webhook_type }}.jmx \
+          -t scripts/automate-test-suite/${{ matrix.webhook_type }}.jmx \
           -Demqx_ip=$HAPROXY_IP \
           -Dweb_ip=$WEB_IP \
           -l jmeter_logs/webhook_${{ matrix.webhook_type }}.jtl \
@@ -189,19 +203,22 @@ jobs:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-fvt
-        ref: v1.4.0
+        ref: v1.6.0
         path: scripts
     - uses: actions/setup-java@v1
       with:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
+    - uses: actions/download-artifact@v2
+      with:
+        name: apache-jmeter.tgz
+        path: /tmp
     - name: install jmeter
       timeout-minutes: 10
       env:
           JMETER_VERSION: 5.3
       run: |
-        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
         echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
@@ -214,7 +231,7 @@ jobs:
       run: |
         /opt/jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
-          -t scripts/.ci/automate-test-suite/${{ matrix.mysql_type }}.jmx \
+          -t scripts/automate-test-suite/${{ matrix.mysql_type }}.jmx \
           -Droute="apps/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data" \
           -Dmysql_ip=$MYSQL_IP \
           -Demqx_ip=$HAPROXY_IP \
@@ -293,19 +310,22 @@ jobs:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-fvt
-        ref: v1.4.0
+        ref: v1.6.0
         path: scripts
     - uses: actions/setup-java@v1
       with:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
+    - uses: actions/download-artifact@v2
+      with:
+        name: apache-jmeter.tgz
+        path: /tmp
     - name: install jmeter
       timeout-minutes: 10
       env:
           JMETER_VERSION: 5.3
       run: |
-        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
         echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
@@ -318,7 +338,7 @@ jobs:
       run: |
         sudo /opt/jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
-          -t scripts/.ci/automate-test-suite/${{ matrix.pgsql_type }}.jmx \
+          -t scripts/automate-test-suite/${{ matrix.pgsql_type }}.jmx \
           -Droute="apps/emqx_auth_pgsql/test/emqx_auth_pgsql_SUITE_data" \
           -Dca_name="ca.pem" \
           -Dkey_name="client-key.pem" \
@@ -391,19 +411,22 @@ jobs:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-fvt
-        ref: v1.4.0
+        ref: v1.6.0
         path: scripts
     - uses: actions/setup-java@v1
       with:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
+    - uses: actions/download-artifact@v2
+      with:
+        name: apache-jmeter.tgz
+        path: /tmp
     - name: install jmeter
       timeout-minutes: 10
       env:
           JMETER_VERSION: 5.3
       run: |
-        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
         echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
@@ -416,7 +439,7 @@ jobs:
       run: |
         sudo /opt/jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
-          -t scripts/.ci/automate-test-suite/http_auth_acl.jmx \
+          -t scripts/automate-test-suite/http_auth_acl.jmx \
           -Dmysql_ip=$MYSQL_IP \
           -Demqx_ip=$HAPROXY_IP \
           -Dweb_server_ip=$HTTP_IP \
