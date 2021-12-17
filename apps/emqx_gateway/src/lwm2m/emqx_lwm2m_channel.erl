@@ -144,11 +144,6 @@ init(ConnInfoT = #{peername := {PeerHost, _},
             , with_context = with_context(Ctx, ClientInfo)
             }.
 
-with_context(Ctx, ClientInfo) ->
-    fun(Type, Topic) ->
-            with_context(Type, Topic, Ctx, ClientInfo)
-    end.
-
 lookup_cmd(Channel, Path, Action) ->
     gen_server:call(Channel, {?FUNCTION_NAME, Path, Action}).
 
@@ -196,7 +191,8 @@ handle_timeout(_, _, Channel) ->
 %% Handle call
 %%--------------------------------------------------------------------
 
-handle_call({lookup_cmd, Path, Type}, _From, #channel{session = Session} = Channel) ->
+handle_call({lookup_cmd, Path, Type}, _From,
+            Channel = #channel{session = Session}) ->
     Result = emqx_lwm2m_session:find_cmd_record(Path, Type, Session),
     {reply, {ok, Result}, Channel};
 
@@ -204,14 +200,46 @@ handle_call({send_cmd, Cmd}, _From, Channel) ->
     {ok, Outs, Channel2} = call_session(send_cmd, Cmd, Channel),
     {reply, ok, Outs, Channel2};
 
-handle_call({subscribe, _Topic, _SubOpts}, _From, Channel) ->
-    {reply, {error, noimpl}, Channel};
+handle_call({subscribe, Topic, SubOpts}, _From,
+            Channel = #channel{
+                         ctx = Ctx,
+                         clientinfo = ClientInfo
+                                    = #{clientid := ClientId,
+                                        mountpoint := Mountpoint},
+                         session = Session}) ->
+    NSubOpts = maps:merge(
+                 emqx_gateway_utils:default_subopts(),
+                 SubOpts),
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
+    _ = emqx_broker:subscribe(MountedTopic, ClientId, NSubOpts),
 
-handle_call({unsubscribe, _Topic}, _From, Channel) ->
-    {reply, {error, noimpl}, Channel};
+    _ = run_hooks(Ctx, 'session.subscribed',
+                  [ClientInfo, MountedTopic, NSubOpts]),
+    %% modifty session state
+    Subs = emqx_lwm2m_session:info(subscriptions, Session),
+    NSubs = maps:put(MountedTopic, NSubOpts, Subs),
+    NSession = emqx_lwm2m_session:set_subscriptions(NSubs, Session),
+    {reply, ok, Channel#channel{session = NSession}};
 
-handle_call(subscriptions, _From, Channel) ->
-    {reply, {error, noimpl}, Channel};
+handle_call({unsubscribe, Topic}, _From,
+            Channel = #channel{
+                         ctx = Ctx,
+                         clientinfo = ClientInfo
+                                    = #{mountpoint := Mountpoint},
+                         session = Session}) ->
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
+    ok = emqx_broker:unsubscribe(MountedTopic),
+    _ = run_hooks(Ctx, 'session.unsubscribe',
+                  [ClientInfo, MountedTopic, #{}]),
+    %% modifty session state
+    Subs = emqx_lwm2m_session:info(subscriptions, Session),
+    NSubs = maps:remove(MountedTopic, Subs),
+    NSession = emqx_lwm2m_session:set_subscriptions(NSubs, Session),
+    {reply, ok, Channel#channel{session = NSession}};
+
+handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
+    Subs = maps:to_list(emqx_lwm2m_session:info(subscriptions, Session)),
+    {reply, {ok, Subs}, Channel};
 
 handle_call(kick, _From, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),
@@ -497,29 +525,44 @@ gets([H | T], Map) ->
 gets([], Val) ->
     Val.
 
+%%--------------------------------------------------------------------
+%% With Context
+
+with_context(Ctx, ClientInfo) ->
+    fun(Type, Topic) ->
+        with_context(Type, Topic, Ctx, ClientInfo)
+    end.
+
 with_context(publish, [Topic, Msg], Ctx, ClientInfo) ->
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
         allow ->
-            emqx:publish(Msg);
+            _ = emqx_broker:publish(Msg),
+            ok;
         _ ->
             ?SLOG(error, #{ msg => "publish_denied"
                           , topic => Topic
-                          })
+                          }),
+            {error, deny}
     end;
 
-with_context(subscribe, [Topic, Opts], Ctx, #{username := Username} = ClientInfo) ->
+with_context(subscribe, [Topic, Opts], Ctx, ClientInfo) ->
+    #{clientid := ClientId,
+      endpoint_name := EndpointName} = ClientInfo,
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, Topic) of
         allow ->
             run_hooks(Ctx, 'session.subscribed', [ClientInfo, Topic, Opts]),
             ?SLOG(debug, #{ msg => "subscribe_topic_succeed"
                           , topic => Topic
-                          , endpoint_name => Username
+                          , clientid => ClientId
+                          , endpoint_name => EndpointName
                           }),
-            emqx:subscribe(Topic, Username, Opts);
+            emqx_broker:subscribe(Topic, ClientId, Opts),
+            ok;
         _ ->
             ?SLOG(error, #{ msg => "subscribe_denied"
                           , topic => Topic
-                          })
+                          }),
+            {error, deny}
     end;
 
 with_context(metrics, Name, Ctx, _ClientInfo) ->
