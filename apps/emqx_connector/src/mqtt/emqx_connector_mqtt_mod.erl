@@ -65,7 +65,7 @@ start(Config) ->
             case emqtt:connect(Pid) of
                 {ok, _} ->
                     try
-                        ok = from_remote_topics(Pid, Subscriptions),
+                        ok = sub_remote_topics(Pid, Subscriptions),
                         {ok, #{client_pid => Pid, subscriptions => Subscriptions}}
                     catch
                         throw : Reason ->
@@ -171,7 +171,7 @@ handle_publish(Msg, Vars) ->
             _ = erlang:apply(Mod, Func, [Msg | Args]);
         _ -> ok
     end,
-    case maps:get(to_local_topic, Vars, undefined) of
+    case maps:get(local_topic, Vars, undefined) of
         undefined -> ok;
         _Topic ->
             emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars))
@@ -186,8 +186,8 @@ make_hdlr(Parent, Vars) ->
       disconnected => {fun ?MODULE:handle_disconnected/2, [Parent]}
      }.
 
-from_remote_topics(_ClientPid, undefined) -> ok;
-from_remote_topics(ClientPid, #{from_remote_topic := FromTopic, subscribe_qos := QoS}) ->
+sub_remote_topics(_ClientPid, undefined) -> ok;
+sub_remote_topics(ClientPid, #{remote_topic := FromTopic, remote_qos := QoS}) ->
     case emqtt:subscribe(ClientPid, FromTopic, QoS) of
         {ok, _, _} -> ok;
         Error -> throw(Error)

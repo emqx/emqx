@@ -226,16 +226,22 @@ open_replayq(Name, QCfg) ->
                               marshaller => fun ?MODULE:msg_marshaller/1}).
 
 pre_process_opts(#{subscriptions := InConf, forwards := OutConf} = ConnectOpts) ->
-    ConnectOpts#{subscriptions => pre_process_in_out(InConf),
-                 forwards => pre_process_in_out(OutConf)}.
+    ConnectOpts#{subscriptions => pre_process_in_out(in, InConf),
+                 forwards => pre_process_in_out(out, OutConf)}.
 
-pre_process_in_out(undefined) -> undefined;
-pre_process_in_out(Conf) when is_map(Conf) ->
-    Conf1 = pre_process_conf(to_local_topic, Conf),
-    Conf2 = pre_process_conf(to_remote_topic, Conf1),
-    Conf3 = pre_process_conf(payload, Conf2),
-    Conf4 = pre_process_conf(qos, Conf3),
-    pre_process_conf(retain, Conf4).
+pre_process_in_out(_, undefined) -> undefined;
+pre_process_in_out(in, Conf) when is_map(Conf) ->
+    Conf1 = pre_process_conf(local_topic, Conf),
+    Conf2 = pre_process_conf(local_qos, Conf1),
+    pre_process_in_out_common(Conf2);
+pre_process_in_out(out, Conf) when is_map(Conf) ->
+    Conf1 = pre_process_conf(remote_topic, Conf),
+    Conf2 = pre_process_conf(remote_qos, Conf1),
+    pre_process_in_out_common(Conf2).
+
+pre_process_in_out_common(Conf) ->
+    Conf1 = pre_process_conf(payload, Conf),
+    pre_process_conf(retain, Conf1).
 
 pre_process_conf(Key, Conf) ->
     case maps:find(Key, Conf) of

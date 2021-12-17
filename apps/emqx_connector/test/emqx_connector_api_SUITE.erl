@@ -46,11 +46,11 @@
 #{
     <<"connector">> => ID,
     <<"direction">> => <<"ingress">>,
-    <<"from_remote_topic">> => <<"remote_topic/#">>,
-    <<"to_local_topic">> => <<"local_topic/${topic}">>,
-    <<"subscribe_qos">> => 1,
+    <<"remote_topic">> => <<"remote_topic/#">>,
+    <<"remote_qos">> => 2,
+    <<"local_topic">> => <<"local_topic/${topic}">>,
+    <<"local_qos">> => <<"${qos}">>,
     <<"payload">> => <<"${payload}">>,
-    <<"qos">> => <<"${qos}">>,
     <<"retain">> => <<"${retain}">>
 }).
 
@@ -58,10 +58,10 @@
 #{
     <<"connector">> => ID,
     <<"direction">> => <<"egress">>,
-    <<"from_local_topic">> => <<"local_topic/#">>,
-    <<"to_remote_topic">> => <<"remote_topic/${topic}">>,
+    <<"local_topic">> => <<"local_topic/#">>,
+    <<"remote_topic">> => <<"remote_topic/${topic}">>,
     <<"payload">> => <<"${payload}">>,
-    <<"qos">> => <<"${qos}">>,
+    <<"remote_qos">> => <<"${qos}">>,
     <<"retain">> => <<"${retain}">>
 }).
 
@@ -125,6 +125,8 @@ t_mqtt_crud_apis(_) ->
 
     %ct:pal("---connector: ~p", [Connector]),
     ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
+                  , <<"type">> := ?CONNECTR_TYPE
+                  , <<"name">> := ?CONNECTR_NAME
                   , <<"server">> := <<"127.0.0.1:1883">>
                   , <<"username">> := User1
                   , <<"password">> := <<"">>
@@ -157,6 +159,8 @@ t_mqtt_crud_apis(_) ->
     %% list all connectors again, assert Connector2 is in it
     {ok, 200, Connector2Str} = request(get, uri(["connectors"]), []),
     ?assertMatch([#{ <<"id">> := ?CONNECTR_ID
+                   , <<"type">> := ?CONNECTR_TYPE
+                   , <<"name">> := ?CONNECTR_NAME
                    , <<"server">> := <<"127.0.0.1:1883">>
                    , <<"username">> := User2
                    , <<"password">> := <<"">>
@@ -167,6 +171,8 @@ t_mqtt_crud_apis(_) ->
     %% get the connector by id
     {ok, 200, Connector3Str} = request(get, uri(["connectors", ?CONNECTR_ID]), []),
     ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
+                  , <<"type">> := ?CONNECTR_TYPE
+                  , <<"name">> := ?CONNECTR_NAME
                   , <<"server">> := <<"127.0.0.1:1883">>
                   , <<"username">> := User2
                   , <<"password">> := <<"">>

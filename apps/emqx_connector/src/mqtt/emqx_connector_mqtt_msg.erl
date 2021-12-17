@@ -24,6 +24,10 @@
         , estimate_size/1
         ]).
 
+-export([ replace_vars_in_str/2
+        , replace_simple_var/2
+        ]).
+
 -export_type([msg/0]).
 
 -include_lib("emqx/include/emqx.hrl").
@@ -36,7 +40,7 @@
 
 -type variables() :: #{
     mountpoint := undefined | binary(),
-    to_remote_topic := binary(),
+    remote_topic := binary(),
     qos := original | integer(),
     retain := original | boolean(),
     payload := binary()
@@ -59,8 +63,8 @@ to_remote_msg(#message{flags = Flags0} = Msg, Vars) ->
     Retain0 = maps:get(retain, Flags0, false),
     MapMsg = maps:put(retain, Retain0, emqx_message:to_map(Msg)),
     to_remote_msg(MapMsg, Vars);
-to_remote_msg(MapMsg, #{to_remote_topic := TopicToken, payload := PayloadToken,
-        qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) when is_map(MapMsg) ->
+to_remote_msg(MapMsg, #{remote_topic := TopicToken, payload := PayloadToken,
+        remote_qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) when is_map(MapMsg) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = replace_vars_in_str(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
@@ -75,8 +79,8 @@ to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
 
 %% published from remote node over a MQTT connection
 to_broker_msg(#{dup := Dup, properties := Props} = MapMsg,
-            #{to_local_topic := TopicToken, payload := PayloadToken,
-              qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) ->
+            #{local_topic := TopicToken, payload := PayloadToken,
+              local_qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = replace_vars_in_str(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),

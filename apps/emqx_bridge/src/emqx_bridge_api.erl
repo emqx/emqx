@@ -161,7 +161,7 @@ info_example_basic(http, _) ->
         pool_size => 4,
         enable_pipelining => true,
         ssl => #{enable => false},
-        from_local_topic => <<"emqx_http/#">>,
+        local_topic => <<"emqx_http/#">>,
         method => post,
         body => <<"${payload}">>
     };
@@ -169,9 +169,9 @@ info_example_basic(mqtt, ingress) ->
     #{
         connector => <<"mqtt:my_mqtt_connector">>,
         direction => ingress,
-        from_remote_topic => <<"aws/#">>,
-        subscribe_qos => 1,
-        to_local_topic => <<"from_aws/${topic}">>,
+        remote_topic => <<"aws/#">>,
+        remote_qos => 1,
+        local_topic => <<"from_aws/${topic}">>,
         payload => <<"${payload}">>,
         qos => <<"${qos}">>,
         retain => <<"${retain}">>
@@ -180,8 +180,8 @@ info_example_basic(mqtt, egress) ->
     #{
         connector => <<"mqtt:my_mqtt_connector">>,
         direction => egress,
-        from_local_topic => <<"emqx/#">>,
-        to_remote_topic => <<"from_emqx/${topic}">>,
+        local_topic => <<"emqx/#">>,
+        remote_topic => <<"from_emqx/${topic}">>,
         payload => <<"${payload}">>,
         qos => 1,
         retain => false
