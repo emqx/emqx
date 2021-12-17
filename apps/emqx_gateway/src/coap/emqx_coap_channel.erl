@@ -246,7 +246,7 @@ handle_call({subscribe, Topic, SubOpts}, _From,
                   [ClientInfo, MountedTopic, NSubOpts]),
     %% modifty session state
     SubReq = {Topic, Token},
-    TempMsg = #coap_message{},
+    TempMsg = #coap_message{type = non},
     Result  = emqx_coap_session:process_subscribe(
                 SubReq, TempMsg, #{}, Session),
     NSession = maps:get(session, Result),
@@ -265,7 +265,7 @@ handle_call({unsubscribe, Topic}, _From,
 
     %% modifty session state
     UnSubReq = Topic,
-    TempMsg = #coap_message{},
+    TempMsg = #coap_message{type = non},
     Result  = emqx_coap_session:process_subscribe(
                 UnSubReq, TempMsg, #{}, Session),
     NSession = maps:get(session, Result),

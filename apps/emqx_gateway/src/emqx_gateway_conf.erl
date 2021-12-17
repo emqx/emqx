@@ -272,7 +272,7 @@ ret_gw(GwName, {ok, #{raw_config := GwConf}}) ->
                 lists:map(fun({LName, LConf}) ->
                     do_convert_listener2(GwName, LType, LName, LConf)
                 end, maps:to_list(SubConf)),
-            [NLConfs|Acc]
+            [NLConfs | Acc]
         end, [], maps:to_list(LsConf)),
     {ok, maps:merge(GwConf1, #{<<"listeners">> => NLsConf})};
 ret_gw(_GwName, Err) -> Err.
