@@ -4,7 +4,8 @@
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
 %% You may obtain a copy of the License at
-%% http://www.apache.org/licenses/LICENSE-2.0
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
 %%
 %% Unless required by applicable law or agreed to in writing, software
 %% distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,8 +22,11 @@
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
--define(CONF_DEFAULT, <<"authorization: {sources: []}">>).
+
+
+-define(REDIS_HOST, "redis").
+-define(REDIS_PORT, 6379).
+-define(REDIS_RESOURCE, <<"emqx_authz_redis_SUITE">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -31,86 +35,212 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end ),
-    meck:expect(emqx_resource, remove, fun(_) -> ok end ),
-
-    ok = emqx_common_test_helpers:start_apps(
-           [emqx_conf, emqx_authz],
-           fun set_special_configs/1),
-
-    Rules = [#{<<"type">> => <<"redis">>,
-               <<"server">> => <<"127.0.0.1:27017">>,
-               <<"pool_size">> => 1,
-               <<"database">> => 0,
-               <<"password">> => <<"ee">>,
-               <<"auto_reconnect">> => true,
-               <<"ssl">> => #{<<"enable">> => false},
-               <<"cmd">> => <<"HGETALL mqtt_authz:", ?PH_USERNAME/binary>>
-              }],
-    {ok, _} = emqx_authz:update(replace, Rules),
-    Config.
+    case emqx_authn_test_lib:is_tcp_server_available(?REDIS_HOST, ?REDIS_PORT) of
+        true ->
+            ok = emqx_common_test_helpers:start_apps(
+                   [emqx_conf, emqx_authz],
+                   fun set_special_configs/1
+                  ),
+            ok = start_apps([emqx_resource, emqx_connector]),
+            {ok, _} = emqx_resource:create_local(
+              ?REDIS_RESOURCE,
+              emqx_connector_redis,
+              redis_config()),
+            Config;
+        false ->
+            {skip, no_redis}
+    end.
 
 end_per_suite(_Config) ->
-    {ok, _} = emqx:update_config(
-                [authorization],
-                #{<<"no_match">> => <<"allow">>,
-                  <<"cache">> => #{<<"enable">> => <<"true">>},
-                  <<"sources">> => []}),
-    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_resource]),
-    meck:unload(emqx_resource),
-    ok.
+    ok = emqx_authz_test_lib:restore_authorizers(),
+    ok = emqx_resource:remove_local(?REDIS_RESOURCE),
+    ok = stop_apps([emqx_resource, emqx_connector]),
+    ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
+
+init_per_testcase(Config) ->
+    ok = emqx_authz_test_lib:reset_authorizers(),
+    Config.
 
 set_special_configs(emqx_authz) ->
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-    {ok, _} = emqx:update_config([authorization, sources], []),
-    ok;
-set_special_configs(_App) ->
+    ok = emqx_authz_test_lib:reset_authorizers();
+
+set_special_configs(_) ->
     ok.
 
--define(SOURCE1, [<<"test/", ?PH_USERNAME/binary>>, <<"publish">>]).
--define(SOURCE2, [<<"test/", ?PH_CLIENTID/binary>>, <<"publish">>]).
--define(SOURCE3, [<<"#">>, <<"subscribe">>]).
 
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Tests
 %%------------------------------------------------------------------------------
 
-t_authz(_) ->
+t_topic_rules(_Config) ->
     ClientInfo = #{clientid => <<"clientid">>,
                    username => <<"username">>,
                    peerhost => {127,0,0,1},
                    zone => default,
                    listener => {tcp, default}
-                   },
+                  },
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, []} end),
-    % nomatch
-    ?assertEqual(deny,
-                 emqx_access_control:authorize(ClientInfo, subscribe, <<"#">>)),
-    ?assertEqual(deny,
-                 emqx_access_control:authorize(ClientInfo, publish, <<"#">>)),
+    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, fun setup_client_samples/2),
+
+    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, fun setup_client_samples/2).
 
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?SOURCE1 ++ ?SOURCE2} end),
-    % nomatch
-    ?assertEqual(deny,
-        emqx_access_control:authorize(ClientInfo, subscribe, <<"+">>)),
-    % nomatch
-    ?assertEqual(deny,
-        emqx_access_control:authorize(ClientInfo, subscribe, <<"test/username">>)),
+t_lookups(_Config) ->
+    ClientInfo = #{clientid => <<"clientid">>,
+                   cn => <<"cn">>,
+                   dn => <<"dn">>,
+                   username => <<"username">>,
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => {tcp, default}
+                  },
 
-    ?assertEqual(allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"test/clientid">>)),
-    ?assertEqual(allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"test/clientid">>)),
+    ByClientid = #{<<"mqtt_user:clientid">> =>
+                   #{<<"a">> => <<"all">>}},
 
-    meck:expect(emqx_resource, query, fun(_, _) -> {ok, ?SOURCE3} end),
+    ok = setup_sample(ByClientid),
+    ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${clientid}">>}),
 
-    ?assertEqual(allow,
-        emqx_access_control:authorize(ClientInfo, subscribe, <<"#">>)),
-    % nomatch
-    ?assertEqual(deny,
-        emqx_access_control:authorize(ClientInfo, publish, <<"#">>)),
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}]),
+
+    ByPeerhost = #{<<"mqtt_user:127.0.0.1">> =>
+                   #{<<"a">> => <<"all">>}},
+
+    ok = setup_sample(ByPeerhost),
+    ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${peerhost}">>}),
+
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}]),
+
+    ByCN = #{<<"mqtt_user:cn">> =>
+             #{<<"a">> => <<"all">>}},
+
+    ok = setup_sample(ByCN),
+    ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${cert_common_name}">>}),
+
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}]),
+
+
+    ByDN = #{<<"mqtt_user:dn">> =>
+             #{<<"a">> => <<"all">>}},
+
+    ok = setup_sample(ByDN),
+    ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${cert_subject}">>}),
+
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}]).
+
+t_create_invalid(_Config) ->
+    AuthzConfig = raw_redis_authz_config(),
+
+    InvalidConfigs =
+        [maps:without([<<"server">>], AuthzConfig),
+         AuthzConfig#{<<"server">> => <<"unknownhost:3333">>},
+         AuthzConfig#{<<"password">> => <<"wrongpass">>},
+         AuthzConfig#{<<"database">> => <<"5678">>}],
+
+    lists:foreach(
+      fun(Config) ->
+            {error, _} = emqx_authz:update(?CMD_REPLACE, [Config]),
+            [] = emqx_authz:lookup()
+
+      end,
+      InvalidConfigs).
+
+t_redis_error(_Config) ->
+    ok = setup_config(#{<<"cmd">> => <<"INVALID COMMAND">>}),
+
+    ClientInfo = #{clientid => <<"clientid">>,
+                   username => <<"username">>,
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => {tcp, default}
+                  },
+
+    deny = emqx_access_control:authorize(ClientInfo, subscribe, <<"a">>).
+
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
+
+setup_sample(AuthzData) ->
+    {ok, _} = q(["FLUSHDB"]),
+    ok = lists:foreach(
+           fun({Key, Values}) ->
+                   lists:foreach(
+                     fun({TopicFilter, Action}) ->
+                             q(["HSET", Key, TopicFilter, Action])
+                     end,
+                     maps:to_list(Values))
+           end,
+           maps:to_list(AuthzData)).
+
+setup_client_samples(ClientInfo, Samples) ->
+    #{username := Username} = ClientInfo,
+    Key = <<"mqtt_user:", Username/binary>>,
+    lists:foreach(
+      fun(Sample) ->
+              #{topics := Topics,
+                permission := <<"allow">>,
+                action := Action} = Sample,
+              lists:foreach(
+                fun(Topic) ->
+                        q(["HSET", Key, Topic, Action])
+                end,
+                Topics)
+      end,
+      Samples),
+    setup_config(#{}).
+
+setup_config(SpecialParams) ->
+    Config = maps:merge(raw_redis_authz_config(), SpecialParams),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [Config]),
     ok.
+
+raw_redis_authz_config() ->
+    #{
+        <<"enable">> => <<"true">>,
+
+        <<"type">> => <<"redis">>,
+        <<"cmd">> => <<"HGETALL mqtt_user:${username}">>,
+        <<"database">> => <<"1">>,
+        <<"password">> => <<"public">>,
+        <<"server">> => redis_server()
+    }.
+
+redis_server() ->
+    iolist_to_binary(
+      io_lib:format(
+        "~s:~b",
+        [?REDIS_HOST, ?REDIS_PORT])).
+
+q(Command) ->
+    emqx_resource:query(
+      ?REDIS_RESOURCE,
+      {cmd, Command}).
+
+redis_config() ->
+    #{auto_reconnect => true,
+      database => 1,
+      pool_size => 8,
+      redis_type => single,
+      password => "public",
+      server => {?REDIS_HOST, ?REDIS_PORT},
+      ssl => #{enable => false}
+     }.
+
+start_apps(Apps) ->
+    lists:foreach(fun application:ensure_all_started/1, Apps).
+
+stop_apps(Apps) ->
+    lists:foreach(fun application:stop/1, Apps).

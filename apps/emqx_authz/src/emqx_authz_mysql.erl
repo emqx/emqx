@@ -53,17 +53,6 @@ dry_run(Source) ->
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove(Id).
 
-parse_query(undefined) ->
-    undefined;
-parse_query(Sql) ->
-    case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
-        {match, Variables} ->
-            Params = [Var || [Var] <- Variables],
-            {re:replace(Sql, ?RE_PLACEHOLDER, "?", [global, {return, list}]), Params};
-        nomatch ->
-            {Sql, []}
-    end.
-
 authorize(Client, PubSub, Topic,
             #{annotations := #{id := ResourceID,
                                query := {Query, Params}
@@ -78,6 +67,15 @@ authorize(Client, PubSub, Topic,
                           , reason => Reason
                           , resource_id => ResourceID}),
             nomatch
+    end.
+
+parse_query(Sql) ->
+    case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
+        {match, Variables} ->
+            Params = [Var || [Var] <- Variables],
+            {re:replace(Sql, ?RE_PLACEHOLDER, "?", [global, {return, list}]), Params};
+        nomatch ->
+            {Sql, []}
     end.
 
 do_authorize(_Client, _PubSub, _Topic, _Columns, []) ->
@@ -110,8 +108,8 @@ replvar([], _ClientInfo, Acc) ->
 
 replvar([?PH_S_USERNAME | Params], ClientInfo, Acc) ->
     replvar(Params, ClientInfo, [safe_get(username, ClientInfo) | Acc]);
-replvar([?PH_S_CLIENTID | Params], ClientInfo = #{clientid := ClientId}, Acc) ->
-    replvar(Params, ClientInfo, [ClientId | Acc]);
+replvar([?PH_S_CLIENTID | Params], ClientInfo = #{clientid := _ClientId}, Acc) ->
+    replvar(Params, ClientInfo, [safe_get(clientid, ClientInfo) | Acc]);
 replvar([?PH_S_PEERHOST | Params], ClientInfo = #{peerhost := IpAddr}, Acc) ->
     replvar(Params, ClientInfo, [inet_parse:ntoa(IpAddr) | Acc]);
 replvar([?PH_S_CERT_CN_NAME | Params], ClientInfo, Acc) ->

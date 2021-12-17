@@ -217,10 +217,10 @@ do_post_update({{?CMD_DELETE, Type}, _Source}, _NewSources) ->
     ok = ensure_resource_deleted(OldSource),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Front ++ Rear]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update(_, NewSources) ->
+do_post_update({?CMD_REPLACE, Sources}, _NewSources) ->
     %% overwrite the entire config!
     OldInitedSources = lookup(),
-    InitedSources = init_sources(NewSources),
+    InitedSources = init_sources(check_sources(Sources)),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [InitedSources]}, -1),
     lists:foreach(fun ensure_resource_deleted/1, OldInitedSources),
     ok = emqx_authz_cache:drain_cache().
