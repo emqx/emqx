@@ -242,7 +242,7 @@ ensure_stopped(NameVsn) ->
     tryit("stop_plugin",
           fun() ->
                   Plugin = do_read_plugin(NameVsn),
-                  ok = ensure_apps_stopped(Plugin)
+                  ensure_apps_stopped(Plugin)
           end).
 
 %% @doc Stop and then start the plugin.
@@ -294,16 +294,22 @@ do_ensure_started(NameVsn) ->
 
 %% try the function, catch 'throw' exceptions as normal 'error' return
 %% other exceptions with stacktrace returned.
-tryit(What, F) ->
+tryit(WhichOp, F) ->
     try
         F()
     catch
         throw : Reason ->
+            %% thrown exceptions are known errors
+            %% translate to a return value without stacktrace
             {error, Reason};
         error : Reason : Stacktrace ->
-            Error = "failed_to_" ++ What,
-            ?SLOG(error, #{msg => Error, exception => Reason, stacktrace => Stacktrace}),
-            {error, Error}
+            %% unexpected errors, log stacktrace
+            ?SLOG(warning, #{ msg => "plugin_op_failed"
+                            , which_op => WhichOp
+                            , exception => Reason
+                            , stacktrace => Stacktrace
+                            }),
+            {error, {failed, WhichOp}}
     end.
 
 %% read plugin info from the JSON file
@@ -473,7 +479,7 @@ ensure_apps_stopped(#{<<"rel_apps">> := Apps}) ->
                           {AppName, _AppVsn} = parse_name_vsn(NameVsn),
                           AppName
                   end, Apps),
-    case stop_apps(AppsToStop) of
+    case tryit("stop_apps", fun() -> stop_apps(AppsToStop) end) of
         {ok, []} ->
             %% all apps stopped
             ok;
