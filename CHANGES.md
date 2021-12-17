@@ -33,9 +33,12 @@ Important notes:
   This is to take advantage of systemd's supervision functionality to ensure
   EMQ X service is restarted after crashes.
 
-* Clustering malfunction fixes [#6221, #6225, #6381]
-
 ### Minor changes
+
+* Clustering malfunction fixes [#6221, #6381]
+  Mostly changes made in [ekka](https://github.com/emqx/ekka/pull/134)<br>
+  From 0.8.1.4 to 0.8.1.6, fixes included intra-cluster RPC call timeouts,<br>
+  also fixed `ekka_locker` process crashe after killing a hanged lock owner.
 
 * Improved log message when TCP proxy is in use but proxy_protocol configuration is not turned on [#6416]<br>
   "please check proxy_protocol config for specific listeners and zones" to hint a misconfiguration
