@@ -205,14 +205,14 @@ init([]) ->
     {ok, #{timer => TRef, monitors => #{}, primary_log_level => OriginLogLevel}}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{unexpected_call => Req}),
     {reply, ok, State}.
 
 handle_cast({delete_tag, Pid, Files}, State = #{monitors := Monitors}) ->
     erlang:monitor(process, Pid),
     {noreply, State#{monitors => Monitors#{Pid => Files}}};
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{unexpected_cast => Msg}),
     {noreply, State}.
 
 handle_info({'DOWN', _Ref, process, Pid, _Reason}, State = #{monitors := Monitors}) ->
@@ -234,7 +234,7 @@ handle_info({mnesia_table_event, _Events}, State = #{timer := TRef}) ->
     handle_info({timeout, TRef, update_trace}, State);
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{unexpected_info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{timer := TRef, primary_log_level := OriginLogLevel}) ->

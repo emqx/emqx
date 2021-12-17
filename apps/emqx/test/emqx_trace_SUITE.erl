@@ -40,12 +40,12 @@ end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
 init_per_testcase(_, Config) ->
-    load(),
     ok = emqx_trace:clear(),
+    reload(),
+    ct:pal("load:~p~n", [erlang:whereis(emqx_trace)]),
     Config.
 
 end_per_testcase(_) ->
-    unload(),
     ok.
 
 t_base_create_delete(_Config) ->
@@ -299,12 +299,13 @@ t_trace_file(_Config) ->
     ok.
 
 t_download_log(_Config) ->
-    ClientId = <<"client-test">>,
+    ClientId = <<"client-test-download">>,
     Now = erlang:system_time(second),
     Start = to_rfc3339(Now),
     Name = <<"test_client_id">>,
     ok = emqx_trace:create([{<<"name">>, Name},
         {<<"type">>, clientid}, {<<"clientid">>, ClientId}, {<<"start_at">>, Start}]),
+    ct:sleep(50),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     [begin _ = emqtt:ping(Client) end ||_ <- lists:seq(1, 5)],
@@ -341,8 +342,6 @@ t_find_closed_time(_Config) ->
 to_rfc3339(Second) ->
     list_to_binary(calendar:system_time_to_rfc3339(Second)).
 
-load() ->
-    emqx_trace:start_link().
-
-unload() ->
-    gen_server:stop(emqx_trace).
+reload() ->
+    catch ok = gen_server:stop(emqx_trace),
+    {ok, _Pid} = emqx_trace:start_link().
