@@ -41,7 +41,7 @@
 -type variables() :: #{
     mountpoint := undefined | binary(),
     remote_topic := binary(),
-    qos := original | integer(),
+    remote_qos := original | integer(),
     retain := original | boolean(),
     payload := binary()
 }.
