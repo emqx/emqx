@@ -298,8 +298,11 @@ do_merge_update_actions(App, Vsn, {New0, Changed0, Deleted0}, OldActions) ->
     Reloads = [{load_module, M, brutal_purge, soft_purge, []}
                || not contains_restart_application(App, OldActions),
                   M <- Changed ++ New],
-    Reloads ++
-        OldActions ++
+    {OldActionsWithStop, OldActionsAfterStop} =
+        find_application_stop_instruction(App, OldActions),
+    OldActionsWithStop ++
+        Reloads ++
+        OldActionsAfterStop ++
         [{delete_module, M} || M <- Deleted] ++
         AppSpecific.
 
@@ -307,6 +310,23 @@ do_merge_update_actions(App, Vsn, {New0, Changed0, Deleted0}, OldActions) ->
 %% `load_module' instructions.
 contains_restart_application(Application, Actions) ->
     lists:member({restart_application, Application}, Actions).
+
+%% If there is an `application:stop(Application)' call in the
+%% instructions, we insert `load_module' instructions after it.
+find_application_stop_instruction(Application, Actions) ->
+    {Before, After0} =
+        lists:splitwith(
+          fun({apply, {application, stop, [Application]}}) ->
+                  false;
+             (_) ->
+                  true
+          end, Actions),
+    case After0 of
+        [StopInst | After] ->
+            {Before ++ [StopInst], After};
+        [] ->
+            {[], Before}
+    end.
 
 %% @doc Process the existing actions to exclude modules that are
 %% already handled
