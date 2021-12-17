@@ -38,26 +38,10 @@
 -export([handler_id/2]).
 
 -type tracer() :: #{
-                    name := binary(),
-                    type := clientid | topic | ip_address,
-                    filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address()
-                   }.
-
--define(FORMAT,
-    {logger_formatter, #{
-        template => [
-            time, " [", level, "] ",
-            {clientid,
-                [{peername, [clientid, "@", peername, " "], [clientid, " "]}],
-                [{peername, [peername, " "], []}]
-            },
-            msg, "\n"
-        ],
-        single_line => false,
-        max_size => unlimited,
-        depth => unlimited
-    }}
-).
+         name := binary(),
+         type := clientid | topic | ip_address,
+         filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address()
+         }.
 
 -define(CONFIG(_LogFile_), #{
     type => halt,
@@ -68,25 +52,25 @@
     overload_kill_qlen => 20000,
     %% disable restart
     overload_kill_restart_after => infinity
-    }).
+}).
 
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
 
 -spec install(Name :: binary() | list(),
-              Type :: clientid | topic | ip_address,
-              Filter ::emqx_types:clientid() | emqx_types:topic() | string(),
-              Level :: logger:level() | all,
-              LogFilePath :: string()) -> ok | {error, term()}.
+    Type :: clientid | topic | ip_address,
+    Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
+    Level :: logger:level() | all,
+    LogFilePath :: string()) -> ok | {error, term()}.
 install(Name, Type, Filter, Level, LogFile) ->
     Who = #{type => Type, filter => ensure_bin(Filter), name => ensure_bin(Name)},
     install(Who, Level, LogFile).
 
 -spec install(Type :: clientid | topic | ip_address,
-              Filter ::emqx_types:clientid() | emqx_types:topic() | string(),
-              Level :: logger:level() | all,
-              LogFilePath :: string()) -> ok | {error, term()}.
+    Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
+    Level :: logger:level() | all,
+    LogFilePath :: string()) -> ok | {error, term()}.
 install(Type, Filter, Level, LogFile) ->
     install(Filter, Type, Filter, Level, LogFile).
 
@@ -111,7 +95,7 @@ install(Who, Level, LogFile) ->
     end.
 
 -spec uninstall(Type :: clientid | topic | ip_address,
-                Name :: binary() | list()) -> ok | {error, term()}.
+    Name :: binary() | list()) -> ok | {error, term()}.
 uninstall(Type, Name) ->
     HandlerId = handler_id(ensure_bin(Name), Type),
     uninstall(HandlerId).
@@ -126,12 +110,12 @@ uninstall(HandlerId) ->
 -spec running() ->
     [
         #{
-            name => binary(),
-            type => topic | clientid | ip_address,
-            id => atom(),
-            filter => emqx_types:topic() | emqx_types:clienetid() | emqx_trace:ip_address(),
-            level => logger:level(),
-            dst => file:filename() | console | unknown
+        name => binary(),
+        type => topic | clientid | ip_address,
+        id => atom(),
+        filter => emqx_types:topic() | emqx_types:clienetid() | emqx_trace:ip_address(),
+        level => logger:level(),
+        dst => file:filename() | console | unknown
         }
     ].
 running() ->
@@ -159,12 +143,13 @@ filter_ip_address(_Log, _ExpectId) -> ignore.
 
 install_handler(Who = #{name := Name, type := Type}, Level, LogFile) ->
     HandlerId = handler_id(Name, Type),
-    Config = #{ level => Level,
-                formatter => ?FORMAT,
-                filter_default => stop,
-                filters => filters(Who),
-                config => ?CONFIG(LogFile)
-                },
+    Config = #{
+        level => Level,
+        formatter => formatter(Who),
+        filter_default => stop,
+        filters => filters(Who),
+        config => ?CONFIG(LogFile)
+    },
     Res = logger:add_handler(HandlerId, logger_disk_log_h, Config),
     show_prompts(Res, Who, "Start trace"),
     Res.
@@ -176,11 +161,36 @@ filters(#{type := topic, filter := Filter, name := Name}) ->
 filters(#{type := ip_address, filter := Filter, name := Name}) ->
     [{ip_address, {fun ?MODULE:filter_ip_address/2, {ensure_list(Filter), Name}}}].
 
+formatter(#{type := Type}) ->
+    {logger_formatter,
+        #{
+            template => template(Type),
+            single_line => false,
+            max_size => unlimited,
+            depth => unlimited
+        }
+    }.
+
+%% Don't log clientid since clientid only supports exact match, all client ids are the same.
+%% if clientid is not latin characters. the logger_formatter restricts the output must be `~tp`
+%% (actually should use `~ts`), the utf8 characters clientid will become very difficult to read.
+template(clientid) ->
+    [time, " [", level, "] ", {peername, [peername, " "], []}, msg, "\n"];
+%% TODO better format when clientid is utf8.
+template(_) ->
+    [time, " [", level, "] ",
+        {clientid,
+            [{peername, [clientid, "@", peername, " "], [clientid, " "]}],
+            [{peername, [peername, " "], []}]
+        },
+        msg, "\n"
+    ].
+
 filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) ->
     Init = #{id => Id, level => Level, dst => Dst},
     case Filters of
         [{Type, {_FilterFun, {Filter, Name}}}] when
-                Type =:= topic orelse
+            Type =:= topic orelse
                 Type =:= clientid orelse
                 Type =:= ip_address ->
             [Init#{type => Type, filter => Filter, name => Name} | Acc];
@@ -201,7 +211,7 @@ handler_id(Name, Type) ->
 do_handler_id(Name, Type) ->
     TypeStr = atom_to_list(Type),
     NameStr = unicode:characters_to_list(Name, utf8),
-    FullNameStr = "trace_" ++ TypeStr ++ "_" ++  NameStr,
+    FullNameStr = "trace_" ++ TypeStr ++ "_" ++ NameStr,
     true = io_lib:printable_unicode_list(FullNameStr),
     FullNameBin = unicode:characters_to_binary(FullNameStr, utf8),
     binary_to_atom(FullNameBin, utf8).
@@ -209,7 +219,7 @@ do_handler_id(Name, Type) ->
 ensure_bin(List) when is_list(List) -> iolist_to_binary(List);
 ensure_bin(Bin) when is_binary(Bin) -> Bin.
 
-ensure_list(Bin) when is_binary(Bin) -> binary_to_list(Bin);
+ensure_list(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin, utf8);
 ensure_list(List) when is_list(List) -> List.
 
 show_prompts(ok, Who, Msg) ->

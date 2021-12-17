@@ -107,10 +107,23 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
         case Res of
             {ok, Node, Bin} ->
                 ZipName = ZipDir ++ Node ++ "-" ++ TraceLog,
-                ok = file:write_file(ZipName, Bin),
-                [Node ++ "-" ++ TraceLog | Acc];
+                case file:write_file(ZipName, Bin) of
+                ok -> [Node ++ "-" ++ TraceLog | Acc];
+                Error ->
+                    ?SLOG(error, #{
+                        msg => "write_file_failed",
+                        error => Error,
+                        zip_name => ZipName,
+                        byte_size => byte_size(Bin)}),
+                    Acc
+                end;
             {error, Node, Reason} ->
-                ?LOG(error, "download trace log error:~p", [{Node, TraceLog, Reason}]),
+                ?SLOG(error, #{
+                    msg => "download_trace_log_failed",
+                    node => Node,
+                    trace_log => TraceLog,
+                    reason => Reason
+                }),
                 Acc
         end
                 end, [], TraceFiles).
@@ -121,7 +134,12 @@ collect_trace_file(TraceLog) ->
 cluster_call(Mod, Fun, Args, Timeout) ->
     Nodes = mria_mnesia:running_nodes(),
     {GoodRes, BadNodes} = rpc:multicall(Nodes, Mod, Fun, Args, Timeout),
-    BadNodes =/= [] andalso ?LOG(error, "rpc call failed on ~p ~p", [BadNodes, {Mod, Fun, Args}]),
+    BadNodes =/= [] andalso
+        ?SLOG(error, #{
+            msg => "rpc_call_failed",
+            bad_nodes => BadNodes,
+            mfa => {Mod, Fun, Args }
+        }),
     GoodRes.
 
 stream_log_file(#{name := Name}, Params) ->
