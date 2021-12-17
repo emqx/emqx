@@ -189,8 +189,11 @@ find_appup_actions(CurrApps, PrevApps) ->
     maps:fold(
       fun(App, CurrAppIdx, Acc) ->
               case PrevApps of
-                  #{App := PrevAppIdx} -> find_appup_actions(App, CurrAppIdx, PrevAppIdx) ++ Acc;
-                  _                    -> Acc %% New app, nothing to upgrade here.
+                  #{App := PrevAppIdx} ->
+                      find_appup_actions(App, CurrAppIdx, PrevAppIdx) ++ Acc;
+                  _ ->
+                      %% New app, nothing to upgrade here.
+                      Acc
               end
       end,
       [],
@@ -214,10 +217,10 @@ find_appup_actions(App, CurrAppIdx, PrevAppIdx = #app{version = PrevVersion}) ->
 %% in their current appup.
 diff_appup_instructions(ComputedChanges, PresentChanges) ->
     lists:foldr(
-      fun({Vsn, ComputedActions}, Acc) ->
-              case find_matching_version(Vsn, PresentChanges) of
+      fun({VsnOrRegex, ComputedActions}, Acc) ->
+              case find_matching_version(VsnOrRegex, PresentChanges) of
                   undefined ->
-                      [{Vsn, ComputedActions} | Acc];
+                      [{VsnOrRegex, ComputedActions} | Acc];
                   PresentActions ->
                       DiffActions = ComputedActions -- PresentActions,
                       case DiffActions of
@@ -225,7 +228,7 @@ diff_appup_instructions(ComputedChanges, PresentChanges) ->
                               %% no diff
                               Acc;
                           _ ->
-                              [{Vsn, DiffActions} | Acc]
+                              [{VsnOrRegex, DiffActions} | Acc]
                       end
               end
       end,
@@ -250,8 +253,11 @@ parse_appup_diffs(Upgrade, OldUpgrade, Downgrade, OldDowngrade) ->
     end.
 
 %% TODO: handle regexes
-find_matching_version(Vsn, PresentChanges) ->
-    proplists:get_value(Vsn, PresentChanges).
+%% Since the first argument may be a regex itself, we would need to
+%% check if it is "contained" within other regexes inside list of
+%% versions in the second argument.
+find_matching_version(VsnOrRegex, PresentChanges) ->
+    proplists:get_value(VsnOrRegex, PresentChanges).
 
 find_old_appup_actions(App, PrevVersion) ->
     {Upgrade0, Downgrade0} =
@@ -279,11 +285,11 @@ merge_update_actions(App, Changes, Vsns) ->
     lists:map(fun(Ret = {<<".*">>, _}) ->
                       Ret;
                  ({Vsn, Actions}) ->
-                      {Vsn, do_merge_update_actions(App, Changes, Actions)}
+                      {Vsn, do_merge_update_actions(App, Vsn, Changes, Actions)}
               end,
               Vsns).
 
-do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
+do_merge_update_actions(App, Vsn, {New0, Changed0, Deleted0}, OldActions) ->
     AppSpecific = app_specific_actions(App) -- OldActions,
     AlreadyHandled = lists:flatten(lists:map(fun process_old_action/1, OldActions)),
     New = New0 -- AlreadyHandled,
@@ -308,13 +314,29 @@ process_old_action(_) ->
     [].
 
 ensure_version(Version, OldInstructions) ->
-    OldVersions = [ensure_string(element(1, I)) || I <- OldInstructions],
-    case lists:member(Version, OldVersions) of
+    OldVersions = [element(1, I) || I <- OldInstructions],
+    case contains_version(Version, OldVersions) of
         false ->
-            [{Version, []}|OldInstructions];
+            [{Version, []} | OldInstructions];
         _ ->
             OldInstructions
     end.
+
+contains_version(Needle, Haystack) when is_list(Needle) ->
+    lists:any(
+      fun(Regex) when is_binary(Regex) ->
+              case re:run(Needle, Regex) of
+                  {match, _} ->
+                      true;
+                  nomatch ->
+                      false
+              end;
+         (Needle) ->
+              true;
+         (_) ->
+              false
+      end,
+      Haystack).
 
 read_appup(File) ->
     %% NOTE: appup file is a script, it may contain variables or functions.
@@ -398,16 +420,18 @@ index_app(AppFile) ->
               , modules       = Modules
               }}.
 
-diff_app(App, #app{version = NewVersion, modules = NewModules}, #app{version = OldVersion, modules = OldModules}) ->
+diff_app(App,
+         #app{version = NewVersion, modules = NewModules},
+         #app{version = OldVersion, modules = OldModules}) ->
     {New, Changed} =
         maps:fold( fun(Mod, MD5, {New, Changed}) ->
                            case OldModules of
                                #{Mod := OldMD5} when MD5 =:= OldMD5 ->
                                    {New, Changed};
                                #{Mod := _} ->
-                                   {New, [Mod|Changed]};
+                                   {New, [Mod | Changed]};
                                _ ->
-                                   {[Mod|New], Changed}
+                                   {[Mod | New], Changed}
                            end
                    end
                  , {[], []}
