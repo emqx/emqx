@@ -295,11 +295,18 @@ do_merge_update_actions(App, Vsn, {New0, Changed0, Deleted0}, OldActions) ->
     New = New0 -- AlreadyHandled,
     Changed = Changed0 -- AlreadyHandled,
     Deleted = Deleted0 -- AlreadyHandled,
-    [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed ++ New] ++
+    Reloads = [{load_module, M, brutal_purge, soft_purge, []}
+               || not contains_restart_application(App, OldActions),
+                  M <- Changed ++ New],
+    Reloads ++
         OldActions ++
         [{delete_module, M} || M <- Deleted] ++
         AppSpecific.
 
+%% If an entry restarts an application, there's no need to use
+%% `load_module' instructions.
+contains_restart_application(Application, Actions) ->
+    lists:member({restart_application, Application}, Actions).
 
 %% @doc Process the existing actions to exclude modules that are
 %% already handled
