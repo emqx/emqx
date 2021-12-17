@@ -2,7 +2,7 @@
 
 Started tracking changes in CHANGE.md since EMQ X v4.3.11
 
-NOTE: Keep pre-pedning to the head of the file instead of the tail
+NOTE: Keep prepending to the head of the file instead of the tail
 
 File format:
 
@@ -16,7 +16,7 @@ Important notes:
 
 - For Debian/Ubuntu users
 
-  We changed package installed service from init.d to systemd.
+  We changed the package installed service from init.d to systemd.
   The upgrade from init.d to systemd is verified, however it is
   recommended to verify it before rolling out to production.
   At least to ensure systemd is available in your system.
@@ -31,7 +31,7 @@ Important notes:
 
 * Debian/Ubuntu package (deb) installed EMQ X now runs on systemd [#6389]<br>
   This is to take advantage of systemd's supervision functionality to ensure
-  EMQ X service is restarted after crash.
+  EMQ X service is restarted after crashes.
 
 * Clustering malfunction fixes [#6221, #6225, #6381]
 
@@ -52,7 +52,7 @@ Important notes:
 * Corrected RAM usage display [#6379]
 
 * Changed emqx_sn_registry table creation to runtime [#6357]<br>
-  This was a bug introduced in 4.3.3, in whihch the table is changed from ets to mnesia<br>
+  This was a bug introduced in 4.3.3, in which the table is changed from ets to mnesia<br>
   this will cause upgrade to fail when a later version node joins a 4.3.0-2 cluster<br>
 
 * Log level for normal termination changed from info to debug [#6358]
@@ -63,7 +63,7 @@ Important notes:
 
 * Fix mqtt bridge malfunction when remote host is unreachable (hangs the connection) [#6286, #6323]
 
-* System monotor now inspects `current_stacktrace` of suspicious process [#6290]<br>
+* System monitor now inspects `current_stacktrace` of suspicious process [#6290]<br>
   `current_function` was not quite helpful
 
 * Changed default `max_topc_levels` config value to 128 [#6294, #6420]<br>
