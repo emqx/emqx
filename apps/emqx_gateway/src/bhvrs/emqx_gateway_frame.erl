@@ -32,6 +32,12 @@
 
 -type serialize_options() :: map().
 
+-export_type([ parse_state/0
+             , parse_result/0
+             , serialize_options/0
+             , frame/0
+             ]).
+
 %% Callbacks
 
 %% @doc Initial the frame parser states

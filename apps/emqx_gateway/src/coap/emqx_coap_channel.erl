@@ -235,7 +235,7 @@ handle_call({subscribe, Topic, SubOpts}, _From,
                          session = Session}) ->
     Token = maps:get(token,
                      maps:get(sub_props, SubOpts, #{}),
-                     undefined),
+                     <<>>),
     NSubOpts = maps:merge(
                  emqx_gateway_utils:default_subopts(),
                  SubOpts),
