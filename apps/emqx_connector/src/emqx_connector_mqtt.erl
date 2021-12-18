@@ -129,12 +129,11 @@ on_start(InstId, Conf) ->
     },
     case ?MODULE:create_bridge(BridgeConf) of
         {ok, _Pid} ->
-            case emqx_connector_mqtt_worker:ensure_started(InstanceId) of
-                ok -> {ok, #{name => InstanceId}};
-                {error, Reason} -> {error, Reason}
-            end;
+            ensure_mqtt_worker_started(InstanceId);
         {error, {already_started, _Pid}} ->
-            {ok, #{name => InstanceId}};
+            ok = ?MODULE:drop_bridge(InstanceId),
+            {ok, _} = ?MODULE:create_bridge(BridgeConf),
+            ensure_mqtt_worker_started(InstanceId);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -160,6 +159,12 @@ on_health_check(_InstId, #{name := InstanceId} = State) ->
     case emqx_connector_mqtt_worker:ping(InstanceId) of
         pong -> {ok, State};
         _ -> {error, {connector_down, InstanceId}, State}
+    end.
+
+ensure_mqtt_worker_started(InstanceId) ->
+    case emqx_connector_mqtt_worker:ensure_started(InstanceId) of
+        ok -> {ok, #{name => InstanceId}};
+        {error, Reason} -> {error, Reason}
     end.
 
 make_sub_confs(EmptyMap) when map_size(EmptyMap) == 0 ->

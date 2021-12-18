@@ -422,9 +422,12 @@ t_mqtt_conn_update2(_) ->
                   , <<"connector">> := ?CONNECTR_ID
                   }, jsx:decode(Bridge)),
     %% we fix the 'server' parameter to a normal one, it should work
-    {ok, 200, Bridge2} = request(put, uri(["connectors", ?CONNECTR_ID]),
+    {ok, 200, _} = request(put, uri(["connectors", ?CONNECTR_ID]),
                                  ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)),
-    ?assertMatch(#{<<"status">> := <<"connected">>}, jsx:decode(Bridge2)),
+    {ok, 200, BridgeStr} = request(get, uri(["bridges", ?BRIDGE_ID_EGRESS]), []),
+    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_EGRESS
+                  , <<"status">> := <<"connected">>
+                  }, jsx:decode(BridgeStr)),
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID_EGRESS]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
