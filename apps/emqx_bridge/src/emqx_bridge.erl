@@ -111,13 +111,15 @@ bridge_type(emqx_connector_http) -> http.
 post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated}
         = diff_confs(NewConf, OldConf),
-    _ = perform_bridge_changes([
+    %% The config update will be failed if any task in `perform_bridge_changes` failed.
+    Result = perform_bridge_changes([
         {fun remove/3, Removed},
         {fun create/3, Added},
         {fun update/3, Updated}
     ]),
     ok = unload_hook(),
-    ok = load_hook(NewConf).
+    ok = load_hook(NewConf),
+    Result.
 
 perform_bridge_changes(Tasks) ->
     perform_bridge_changes(Tasks, ok).
@@ -214,6 +216,10 @@ update(Type, Name, {_OldConf, Conf}) ->
         config => Conf}),
     case recreate(Type, Name, Conf) of
         {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
+        {error, not_found} ->
+            ?SLOG(warning, #{ msg => "updating a non-exist bridge, create a new one"
+                            , type => Type, name => Name, config => Conf}),
+            create(Type, Name, Conf);
         {error, _} = Err -> Err
     end.
 
