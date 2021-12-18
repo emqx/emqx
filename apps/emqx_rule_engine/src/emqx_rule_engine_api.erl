@@ -197,8 +197,8 @@ param_path_id() ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end;
 
-'/rules/:id'(put, #{bindings := #{id := Id}, body := Params}) ->
-    Params = filter_out_request_body(Params),
+'/rules/:id'(put, #{bindings := #{id := Id}, body := Params0}) ->
+    Params = filter_out_request_body(Params0),
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
     case emqx:update_config(ConfPath, Params, #{}) of
         {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
@@ -235,7 +235,7 @@ format_rule_resp(#{ id := Id, name := Name,
                     from := Topics,
                     outputs := Output,
                     sql := SQL,
-                    enabled := Enabled,
+                    enable := Enable,
                     description := Descr}) ->
     NodeMetrics = get_rule_metrics(Id),
     #{id => Id,
@@ -245,7 +245,7 @@ format_rule_resp(#{ id := Id, name := Name,
       sql => SQL,
       metrics => aggregate_metrics(NodeMetrics),
       node_metrics => NodeMetrics,
-      enabled => Enabled,
+      enable => Enable,
       created_at => format_datetime(CreatedAt, millisecond),
       description => Descr
      }.
