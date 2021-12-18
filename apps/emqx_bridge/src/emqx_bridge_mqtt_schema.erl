@@ -38,10 +38,10 @@ fields("put_egress") ->
 
 fields("get_ingress") ->
     [ id_field()
-    ] ++ fields("post_ingress");
+    ] ++ emqx_bridge_schema:metrics_status_fields() ++ fields("post_ingress");
 fields("get_egress") ->
     [ id_field()
-    ] ++ fields("post_egress").
+    ] ++ emqx_bridge_schema:metrics_status_fields() ++ fields("post_egress").
 
 %%======================================================================================
 id_field() ->

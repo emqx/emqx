@@ -76,7 +76,7 @@ fields("put") ->
 
 fields("get") ->
     [ id_field()
-    ] ++ fields("post").
+    ] ++ emqx_bridge_schema:metrics_status_fields() ++ fields("post").
 
 basic_config() ->
     [ {enable,

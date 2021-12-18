@@ -156,7 +156,8 @@ do_recreate(InstId, ResourceType, NewConfig, Params) ->
         {ok, #{mod := ResourceType, state := ResourceState, config := OldConfig}} ->
             Config = emqx_resource:call_config_merge(ResourceType, OldConfig,
                         NewConfig, Params),
-            case do_create_dry_run(InstId, ResourceType, Config) of
+            TestInstId = iolist_to_binary(emqx_misc:gen_id(16)),
+            case do_create_dry_run(TestInstId, ResourceType, Config) of
                 ok ->
                     do_remove(ResourceType, InstId, ResourceState),
                     do_create(InstId, ResourceType, Config);
@@ -185,6 +186,7 @@ do_create(InstId, ResourceType, Config) ->
                 {error, Reason} ->
                     logger:error("start ~ts resource ~ts failed: ~p",
                                  [ResourceType, InstId, Reason]),
+                    ets:insert(emqx_resource_instance, {InstId, Res0}),
                     {ok, Res0}
             end
     end.
