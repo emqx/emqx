@@ -23,12 +23,12 @@ For example, <code> http://localhost:9901/${topic} </code> is allowed, but
 is not allowed.
 """
            })}
-    , {from_local_topic, mk(binary(),
+    , {local_topic, mk(binary(),
           #{ desc =>"""
 The MQTT topic filter to be forwarded to the HTTP server. All MQTT PUBLISH messages which topic
-match the from_local_topic will be forwarded.<br>
-NOTE: if this bridge is used as the output of a rule (emqx rule engine), and also from_local_topic is configured, then both the data got from the rule and the MQTT messages that matches
-from_local_topic will be forwarded.
+match the local_topic will be forwarded.<br>
+NOTE: if this bridge is used as the output of a rule (emqx rule engine), and also local_topic is configured, then both the data got from the rule and the MQTT messages that matches
+local_topic will be forwarded.
 """
            })}
     , {method, mk(method(),

@@ -30,7 +30,7 @@
 -define(HTTP_BRIDGE(URL),
 #{
     <<"url">> => URL,
-    <<"from_local_topic">> => <<"emqx_http/#">>,
+    <<"local_topic">> => <<"emqx_http/#">>,
     <<"method">> => <<"post">>,
     <<"ssl">> => #{<<"enable">> => false},
     <<"body">> => <<"${payload}">>,

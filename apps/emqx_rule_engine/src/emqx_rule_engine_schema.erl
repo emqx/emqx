@@ -39,7 +39,8 @@ fields("rule_engine") ->
     ];
 
 fields("rules") ->
-    [ {"sql", sc(binary(),
+    [ rule_name()
+    , {"sql", sc(binary(),
         #{ desc => """
 SQL query to transform the messages.<br>
 Example: <code>SELECT * FROM \"test/topic\" WHERE payload.x = 1</code><br>
@@ -176,6 +177,13 @@ of the rule, then the string \"undefined\" is used.
          , example => <<"${payload}">>
          })}
     ].
+
+rule_name() ->
+    {"name", sc(binary(),
+        #{ desc => "The name of the rule"
+         , default => ""
+         , example => "foo"
+         })}.
 
 outputs() ->
     [ binary()

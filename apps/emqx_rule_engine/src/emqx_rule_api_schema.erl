@@ -38,14 +38,11 @@ roots() ->
     ].
 
 fields("rule_creation") ->
-    [ {"id", sc(binary(),
-        #{ desc => "The Id of the rule", nullable => false
-         , example => "my_rule_id"
-         })}
-    ] ++ emqx_rule_engine_schema:fields("rules");
+    emqx_rule_engine_schema:fields("rules");
 
 fields("rule_info") ->
-    [ {"metrics", sc(ref("metrics"), #{desc => "The metrics of the rule"})}
+    [ rule_id()
+    , {"metrics", sc(ref("metrics"), #{desc => "The metrics of the rule"})}
     , {"node_metrics", sc(ref("node_metrics"), #{desc => "The metrics of the rule"})}
     , {"from", sc(hoconsc:array(binary()),
         #{desc => "The topics of the rule", example => "t/#"})}
@@ -181,6 +178,12 @@ fields("ctx_disconnected") ->
 qos() ->
     {"qos", sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2)]),
         #{desc => "The Message QoS"})}.
+
+rule_id() ->
+    {"id", sc(binary(),
+        #{ desc => "The Id of the rule", nullable => false
+         , example => "293fb66f"
+         })}.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Field) -> hoconsc:ref(?MODULE, Field).

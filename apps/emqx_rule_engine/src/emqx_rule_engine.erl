@@ -221,6 +221,7 @@ do_create_rule(Params = #{id := RuleId, sql := Sql, outputs := Outputs}) ->
         {ok, Select} ->
             Rule = #{
                 id => RuleId,
+                name => maps:get(name, Params, <<"">>),
                 created_at => erlang:system_time(millisecond),
                 enabled => maps:get(enabled, Params, true),
                 sql => Sql,

@@ -67,9 +67,16 @@ load_hook(Bridges) ->
                 end, maps:to_list(Bridge))
         end, maps:to_list(Bridges)).
 
-do_load_hook(#{from_local_topic := _}) ->
-    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}),
-    ok;
+do_load_hook(#{local_topic := _} = Conf) ->
+    case maps:find(direction, Conf) of
+        error ->
+            %% this bridge has no direction field, it means that it has only egress bridges
+            emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []});
+        {ok, egress} ->
+            emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []});
+        {ok, ingress} ->
+            ok
+    end;
 do_load_hook(_Conf) -> ok.
 
 unload_hook() ->
@@ -218,7 +225,7 @@ recreate(Type, Name, Conf) ->
         emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf), []).
 
 create_dry_run(Type, Conf) ->
-    Conf0 = Conf#{<<"ingress">> => #{<<"from_remote_topic">> => <<"t">>}},
+    Conf0 = Conf#{<<"ingress">> => #{<<"remote_topic">> => <<"t">>}},
     case emqx_resource:check_config(emqx_bridge:resource_type(Type), Conf0) of
         {ok, Conf1} ->
             emqx_resource:create_dry_run_local(emqx_bridge:resource_type(Type), Conf1);
@@ -263,7 +270,7 @@ get_matched_bridges(Topic) ->
         end, Acc0, Conf)
     end, [], Bridges).
 
-get_matched_bridge_id(#{from_local_topic := Filter}, Topic, BType, BName, Acc) ->
+get_matched_bridge_id(#{local_topic := Filter}, Topic, BType, BName, Acc) ->
     case emqx_topic:match(Topic, Filter) of
         true -> [bridge_id(BType, BName) | Acc];
         false -> Acc
