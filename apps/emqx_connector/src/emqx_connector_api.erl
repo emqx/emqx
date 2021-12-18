@@ -38,9 +38,9 @@
             _ = ConnName,
             EXPR
     catch
-        error:{invalid_bridge_id, Id0} ->
-            {400, #{code => 'INVALID_ID', message => <<"invalid_bridge_id: ", Id0/binary,
-                ". Bridge Ids must be of format {type}:{name}">>}}
+        error:{invalid_connector_id, Id0} ->
+            {400, #{code => 'INVALID_ID', message => <<"invalid_connector_id: ", Id0/binary,
+                ". Connector Ids must be of format {type}:{name}">>}}
     end).
 
 namespace() -> "connector".
