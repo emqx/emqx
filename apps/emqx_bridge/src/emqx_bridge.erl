@@ -203,7 +203,7 @@ create(Type, Name, Conf) ->
         {error, Reason} -> {error, Reason}
     end.
 
-update(Type, Name, {_OldConf, Conf}) ->
+update(Type, Name, {OldConf, Conf}) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
     %%
     %% - if the connection related configs like `servers` is updated, we should restart/start
@@ -212,15 +212,22 @@ update(Type, Name, {_OldConf, Conf}) ->
     %% the `method` or `headers` of a HTTP bridge is changed, then the bridge can be updated
     %% without restarting the bridge.
     %%
-    ?SLOG(info, #{msg => "update bridge", type => Type, name => Name,
-        config => Conf}),
-    case recreate(Type, Name, Conf) of
-        {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
-        {error, not_found} ->
-            ?SLOG(warning, #{ msg => "updating a non-exist bridge, create a new one"
-                            , type => Type, name => Name, config => Conf}),
-            create(Type, Name, Conf);
-        {error, _} = Err -> Err
+    case if_only_to_toggole_enable(OldConf, Conf) of
+        false ->
+            ?SLOG(info, #{msg => "update bridge", type => Type, name => Name,
+                config => Conf}),
+            case recreate(Type, Name, Conf) of
+                {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
+                {error, not_found} ->
+                    ?SLOG(warning, #{ msg => "updating a non-exist bridge, create a new one"
+                                    , type => Type, name => Name, config => Conf}),
+                    create(Type, Name, Conf);
+                {error, Reason} -> {update_bridge_failed, Reason}
+            end;
+        true ->
+            %% we don't need to recreate the bridge if this config change is only to
+            %% toggole the config 'bridge.{type}.{name}.enable'
+            ok
     end.
 
 recreate(Type, Name) ->
@@ -342,6 +349,17 @@ maybe_disable_bridge(Type, Name, Conf) ->
     case maps:get(enable, Conf, true) of
         false -> stop(Type, Name);
         true -> ok
+    end.
+
+if_only_to_toggole_enable(OldConf, Conf) ->
+    #{added := Added, removed := Removed, changed := Updated} =
+        emqx_map_lib:diff_maps(OldConf, Conf),
+    case {Added, Removed, Updated} of
+        {Added, Removed, #{enable := _}= Updated}
+            when map_size(Added) =:= 0,
+                 map_size(Removed) =:= 0,
+                 map_size(Updated) =:= 1 -> true;
+        {_, _, _} -> false
     end.
 
 bin(Bin) when is_binary(Bin) -> Bin;

@@ -173,18 +173,19 @@ do_create(InstId, ResourceType, Config) ->
     case lookup(InstId) of
         {ok, _} -> {ok, already_created};
         _ ->
+            Res0 = #{id => InstId, mod => ResourceType, config => Config,
+                     status => stopped, state => undefined},
             case emqx_resource:call_start(InstId, ResourceType, Config) of
                 {ok, ResourceState} ->
-                    ets:insert(emqx_resource_instance, {InstId,
-                        #{mod => ResourceType, config => Config,
-                          state => ResourceState, status => stopped}}),
-                    _ = do_health_check(InstId),
                     ok = emqx_plugin_libs_metrics:create_metrics(resource_metrics, InstId),
+                    %% this is the first time we do health check, this will update the
+                    %% status and then do ets:insert/2
+                    _ = do_health_check(Res0#{state => ResourceState}),
                     {ok, force_lookup(InstId)};
                 {error, Reason} ->
                     logger:error("start ~ts resource ~ts failed: ~p",
                                  [ResourceType, InstId, Reason]),
-                    {error, Reason}
+                    {ok, Res0}
             end
     end.
 
@@ -243,22 +244,24 @@ do_stop(InstId) ->
             Error
     end.
 
-do_health_check(InstId) ->
+do_health_check(InstId) when is_binary(InstId) ->
     case lookup(InstId) of
-        {ok, #{mod := Mod, state := ResourceState0} = Data} ->
-            case emqx_resource:call_health_check(InstId, Mod, ResourceState0) of
-                {ok, ResourceState1} ->
-                    ets:insert(emqx_resource_instance,
-                        {InstId, Data#{status => started, state => ResourceState1}}),
-                    ok;
-                {error, Reason, ResourceState1} ->
-                    logger:error("health check for ~p failed: ~p", [InstId, Reason]),
-                    ets:insert(emqx_resource_instance,
-                        {InstId, Data#{status => stopped, state => ResourceState1}}),
-                    {error, Reason}
-            end;
-        Error ->
-            Error
+        {ok, Data} -> do_health_check(Data);
+        Error -> Error
+    end;
+do_health_check(#{state := undefined}) ->
+    {error, resource_not_initialized};
+do_health_check(#{id := InstId, mod := Mod, state := ResourceState0} = Data) ->
+    case emqx_resource:call_health_check(InstId, Mod, ResourceState0) of
+        {ok, ResourceState1} ->
+            ets:insert(emqx_resource_instance,
+                {InstId, Data#{status => started, state => ResourceState1}}),
+            ok;
+        {error, Reason, ResourceState1} ->
+            logger:error("health check for ~p failed: ~p", [InstId, Reason]),
+            ets:insert(emqx_resource_instance,
+                {InstId, Data#{status => stopped, state => ResourceState1}}),
+            {error, Reason}
     end.
 
 %%------------------------------------------------------------------------------

@@ -334,7 +334,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         invalid -> {404, error_msg('BAD_ARG', <<"invalid operation">>)};
         UpReq ->
             case emqx_conf:update(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
-                    UpReq, #{override_to => cluster}) of
+                    {UpReq, BridgeType, BridgeName}, #{override_to => cluster}) of
                 {ok, _} -> {200};
                 {error, {pre_config_update, _, bridge_not_found}} ->
                     {404, error_msg('NOT_FOUND', <<"bridge not found">>)};

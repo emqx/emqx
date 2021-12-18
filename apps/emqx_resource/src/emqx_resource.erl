@@ -188,7 +188,7 @@ query(InstId, Request) ->
 query(InstId, Request, AfterQuery) ->
     case get_instance(InstId) of
         {ok, #{status := stopped}} ->
-            error({InstId, stopped});
+            error({resource_stopped, InstId});
         {ok, #{mod := Mod, state := ResourceState, status := started}} ->
             %% the resource state is readonly to Module:on_query/4
             %% and the `after_query()` functions should be thread safe
