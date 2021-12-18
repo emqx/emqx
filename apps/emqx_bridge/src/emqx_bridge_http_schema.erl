@@ -81,8 +81,12 @@ fields("get") ->
 basic_config() ->
     [ {enable,
         mk(boolean(),
-           #{ desc =>"Enable or disable this bridge"
+           #{ desc => "Enable or disable this bridge"
             , default => true
+            })}
+    , {direction,
+        mk(egress,
+           #{ desc => "The direction of this bridge, MUST be egress"
             })}
     ]
     ++ proplists:delete(base_url, emqx_connector_http:fields(config)).

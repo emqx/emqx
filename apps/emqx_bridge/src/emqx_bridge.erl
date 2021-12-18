@@ -68,14 +68,9 @@ load_hook(Bridges) ->
         end, maps:to_list(Bridges)).
 
 do_load_hook(#{local_topic := _} = Conf) ->
-    case maps:find(direction, Conf) of
-        error ->
-            %% this bridge has no direction field, it means that it has only egress bridges
-            emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []});
-        {ok, egress} ->
-            emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []});
-        {ok, ingress} ->
-            ok
+    case maps:get(direction, Conf, egress) of
+        egress -> emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []});
+        ingress -> ok
     end;
 do_load_hook(_Conf) -> ok.
 
@@ -276,10 +271,8 @@ get_matched_bridges(Topic) ->
             (_BName, #{direction := ingress}, Acc1) ->
                 Acc1;
             (BName, #{direction := egress} = Egress, Acc1) ->
-                get_matched_bridge_id(Egress, Topic, BType, BName, Acc1);
-            %% HTTP, MySQL bridges only have egress direction
-            (BName, BridgeConf, Acc1) ->
-                get_matched_bridge_id(BridgeConf, Topic, BType, BName, Acc1)
+                %% HTTP, MySQL bridges only have egress direction
+                get_matched_bridge_id(Egress, Topic, BType, BName, Acc1)
         end, Acc0, Conf)
     end, [], Bridges).
 
