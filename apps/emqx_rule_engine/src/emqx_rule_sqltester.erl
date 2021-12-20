@@ -77,7 +77,7 @@ flatten([D1 | L]) when is_list(D1) ->
     D1 ++ flatten(L).
 
 echo_action(Data, Envs) ->
-    ?SLOG(debug, #{msg => "testing_rule_sql_ok", data => Data, envs => Envs}),
+    ?TRACE("TEST", #{data => Data, envs => Envs}, "testing_rule_sql_ok"),
     Data.
 
 fill_default_values(Event, Context) ->

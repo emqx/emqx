@@ -26,6 +26,7 @@
 -export([ publish/1
         , subscribe/3
         , unsubscribe/2
+        , log/3
         ]).
 
 -export([ start_link/0
@@ -36,6 +37,7 @@
         , delete/1
         , clear/0
         , update/2
+        , check/0
         ]).
 
 -export([ format/1
@@ -50,6 +52,8 @@
 
 -define(TRACE, ?MODULE).
 -define(MAX_SIZE, 30).
+-define(TRACE_FILTER, emqx_trace_filter).
+-define(OWN_KEYS,[level,filters,filter_default,handlers]).
 
 -ifdef(TEST).
 -export([ log_file/2
@@ -80,27 +84,53 @@ mnesia(boot) ->
 publish(#message{topic = <<"$SYS/", _/binary>>}) -> ignore;
 publish(#message{from = From, topic = Topic, payload = Payload}) when
     is_binary(From); is_atom(From) ->
-    emqx_logger:info(
-        #{topic => Topic, mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}},
-        "PUBLISH to ~s: ~0p",
-        [Topic, Payload]
-    ).
+    ?TRACE("PUBLISH", #{topic => Topic}, {publish, Payload}).
 
 subscribe(<<"$SYS/", _/binary>>, _SubId, _SubOpts) -> ignore;
 subscribe(Topic, SubId, SubOpts) ->
-    emqx_logger:info(
-        #{topic => Topic, mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}},
-        "~ts SUBSCRIBE ~ts: Options: ~0p",
-        [SubId, Topic, SubOpts]
-    ).
+    ?TRACE("SUBSCRIBE", #{topic => Topic}, {subscribe, SubId, SubOpts}).
 
 unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) -> ignore;
 unsubscribe(Topic, SubOpts) ->
-    emqx_logger:info(
-        #{topic => Topic, mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}},
-        "~ts UNSUBSCRIBE ~ts: Options: ~0p",
-        [maps:get(subid, SubOpts, ""), Topic, SubOpts]
-    ).
+    ?TRACE("UNSUBSCRIBE", #{topic => Topic}, {unsubscribe, SubOpts}).
+
+log(Action, Meta0, Msg) ->
+    case persistent_term:get(?TRACE_FILTER, undefined) of
+        undefined -> ok;
+        List ->
+            Meta = maps:merge(logger:get_process_metadata(), Meta0),
+            Log = #{level => trace, action => Action, meta => Meta, msg => Msg},
+            log_filter(List, Log)
+    end.
+
+log_filter([], _Log) -> ok;
+log_filter([{Id, FilterFun, Filter, Name} | Rest], Log0) ->
+    case FilterFun(Log0, {Filter, Name}) of
+        stop -> stop;
+        ignore -> ignore;
+        Log ->
+            case logger_config:get(ets:whereis(logger), Id) of
+                {ok, #{module := Module} = HandlerConfig0} ->
+                    HandlerConfig = maps:without(?OWN_KEYS, HandlerConfig0),
+                    try Module:log(Log, HandlerConfig)
+                    catch C:R:S ->
+                        case logger:remove_handler(Id) of
+                            ok ->
+                                logger:internal_log(error, {removed_failing_handler, Id});
+                            {error,{not_found,_}} ->
+                                %% Probably already removed by other client
+                                %% Don't report again
+                                ok;
+                            {error,Reason} ->
+                                logger:internal_log(error,
+                                    {removed_handler_failed, Id, Reason, C, R, S})
+                        end
+                    end;
+                {error, {not_found, Id}} -> ok;
+                {error, Reason} -> logger:internal_log(error, {find_handle_id_failed, Id, Reason})
+            end
+    end,
+    log_filter(Rest, Log0).
 
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
@@ -161,6 +191,9 @@ update(Name, Enable) ->
            end,
     transaction(Tran).
 
+check() ->
+    erlang:send(?MODULE, {mnesia_table_event, check}).
+
 -spec get_trace_filename(Name :: binary()) ->
     {ok, FileName :: string()} | {error, not_found}.
 get_trace_filename(Name) ->
@@ -196,14 +229,13 @@ format(Traces) ->
 init([]) ->
     ok = mria:wait_for_tables([?TRACE]),
     erlang:process_flag(trap_exit, true),
-    OriginLogLevel = emqx_logger:get_primary_log_level(),
     ok = filelib:ensure_dir(trace_dir()),
     ok = filelib:ensure_dir(zip_dir()),
     {ok, _} = mnesia:subscribe({table, ?TRACE, simple}),
     Traces = get_enable_trace(),
-    ok = update_log_primary_level(Traces, OriginLogLevel),
     TRef = update_trace(Traces),
-    {ok, #{timer => TRef, monitors => #{}, primary_log_level => OriginLogLevel}}.
+    update_trace_handler(),
+    {ok, #{timer => TRef, monitors => #{}}}.
 
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{unexpected_call => Req}),
@@ -224,10 +256,10 @@ handle_info({'DOWN', _Ref, process, Pid, _Reason}, State = #{monitors := Monitor
             {noreply, State#{monitors => NewMonitors}}
     end;
 handle_info({timeout, TRef, update_trace},
-    #{timer := TRef, primary_log_level := OriginLogLevel} = State) ->
+    #{timer := TRef} = State) ->
     Traces = get_enable_trace(),
-    ok = update_log_primary_level(Traces, OriginLogLevel),
     NextTRef = update_trace(Traces),
+    update_trace_handler(),
     {noreply, State#{timer => NextTRef}};
 
 handle_info({mnesia_table_event, _Events}, State = #{timer := TRef}) ->
@@ -238,11 +270,11 @@ handle_info(Info, State) ->
     ?SLOG(error, #{unexpected_info => Info}),
     {noreply, State}.
 
-terminate(_Reason, #{timer := TRef, primary_log_level := OriginLogLevel}) ->
-    ok = set_log_primary_level(OriginLogLevel),
+terminate(_Reason, #{timer := TRef}) ->
     _ = mnesia:unsubscribe({table, ?TRACE, simple}),
     emqx_misc:cancel_timer(TRef),
     stop_all_trace_handler(),
+    update_trace_handler(),
     _ = file:del_dir_r(zip_dir()),
     ok.
 
@@ -270,7 +302,7 @@ update_trace(Traces) ->
     disable_finished(Finished),
     Started = emqx_trace_handler:running(),
     {NeedRunning, AllStarted} = start_trace(Running, Started),
-    NeedStop = AllStarted -- NeedRunning,
+    NeedStop = filter_cli_handler(AllStarted) -- NeedRunning,
     ok = stop_trace(NeedStop, Started),
     clean_stale_trace_files(),
     NextTime = find_closest_time(Traces, Now),
@@ -481,11 +513,20 @@ transaction(Tran) ->
         {aborted, Reason} -> {error, Reason}
     end.
 
-update_log_primary_level([], OriginLevel) -> set_log_primary_level(OriginLevel);
-update_log_primary_level(_, _) -> set_log_primary_level(debug).
-
-set_log_primary_level(NewLevel) ->
-    case NewLevel =/= emqx_logger:get_primary_log_level() of
-        true -> emqx_logger:set_primary_log_level(NewLevel);
-        false -> ok
+update_trace_handler() ->
+    case emqx_trace_handler:running() of
+        [] -> persistent_term:erase(?TRACE_FILTER);
+        Running ->
+            List = lists:map(fun(#{id := Id, filter_fun := FilterFun,
+                filter := Filter, name := Name}) ->
+                {Id, FilterFun, Filter, Name} end, Running),
+            case List =/= persistent_term:get(?TRACE_FILTER, undefined) of
+                true -> persistent_term:put(?TRACE_FILTER, List);
+                false -> ok
+            end
     end.
+
+filter_cli_handler(Names) ->
+    lists:filter(fun(Name) ->
+        notmatch =:= re:run(Name, "^CLI-+.", [])
+                 end, Names).

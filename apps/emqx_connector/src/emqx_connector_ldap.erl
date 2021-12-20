@@ -87,9 +87,8 @@ on_stop(InstId, #{poolname := PoolName}) ->
 
 on_query(InstId, {search, Base, Filter, Attributes}, AfterQuery, #{poolname := PoolName} = State) ->
     Request = {Base, Filter, Attributes},
-    ?SLOG(debug, #{msg => "ldap connector received request",
-                   request => Request, connector => InstId,
-                   state => State}),
+    ?TRACE("QUERY", #{request => Request, connector => InstId, state => State},
+        "ldap connector received request"),
     case Result = ecpool:pick_and_do(
                     PoolName,
                     {?MODULE, search, [Base, Filter, Attributes]},

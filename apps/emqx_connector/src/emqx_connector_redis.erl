@@ -125,8 +125,8 @@ on_stop(InstId, #{poolname := PoolName}) ->
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId, {cmd, Command}, AfterCommand, #{poolname := PoolName, type := Type} = State) ->
-    ?SLOG(debug, #{msg => "redis connector received cmd query",
-        connector => InstId, sql => Command, state => State}),
+    ?TRACE("QUERY", #{connector => InstId, sql => Command, state => State},
+        "redis connector received cmd query"),
     Result = case Type of
                  cluster -> eredis_cluster:q(PoolName, Command);
                  _ -> ecpool:pick_and_do(PoolName, {?MODULE, cmd, [Type, Command]}, no_handover)

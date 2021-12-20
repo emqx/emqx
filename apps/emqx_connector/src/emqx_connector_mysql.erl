@@ -85,8 +85,8 @@ on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
 on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := _PoolName} = State) ->
     on_query(InstId, {sql, SQL, Params, default_timeout}, AfterQuery, State);
 on_query(InstId, {sql, SQL, Params, Timeout}, AfterQuery, #{poolname := PoolName} = State) ->
-    ?SLOG(debug, #{msg => "mysql connector received sql query",
-        connector => InstId, sql => SQL, state => State}),
+    ?TRACE("QUERY", #{connector => InstId, sql => SQL, state => State},
+        "mysql connector received sql query"),
     case Result = ecpool:pick_and_do(
                     PoolName,
                     {mysql, query, [SQL, Params, Timeout]},

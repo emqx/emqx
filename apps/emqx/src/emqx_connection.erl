@@ -449,14 +449,12 @@ handle_msg({'$gen_cast', Req}, State) ->
     {ok, NewState};
 
 handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
-    ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => Inet}),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
     when_bytes_in(Oct, Data, State);
 
 handle_msg({quic, Data, _Sock, _, _, _}, State) ->
-    ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => quic}),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
@@ -528,7 +526,7 @@ handle_msg({connack, ConnAck}, State) ->
     handle_outgoing(ConnAck, State);
 
 handle_msg({close, Reason}, State) ->
-    ?SLOG(debug, #{msg => "force_socket_close", reason => Reason}),
+    ?TRACE("CLOSE", #{reason => Reason}, "force_socket_close"),
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_msg({event, connected}, State = #state{channel = Channel}) ->
@@ -566,7 +564,8 @@ terminate(Reason, State = #state{channel = Channel, transport = Transport,
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
         emqx_congestion:cancel_alarms(Socket, Transport, Channel1),
         emqx_channel:terminate(Reason, Channel1),
-        close_socket_ok(State)
+        close_socket_ok(State),
+        ?TRACE("TERMINATE", #{reason => Reason}, "terminated")
     catch
         E : C : S ->
             ?tp(warning, unclean_terminate, #{exception => E, context => C, stacktrace => S})
@@ -716,7 +715,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
 
 handle_incoming(Packet, State) when is_record(Packet, mqtt_packet) ->
     ok = inc_incoming_stats(Packet),
-    ?SLOG(debug, #{msg => "RECV_packet", packet => emqx_packet:format(Packet)}),
+    ?TRACE("RECV", #{}, Packet),
     with_channel(handle_in, [Packet], State);
 
 handle_incoming(FrameError, State) ->
@@ -760,10 +759,8 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
                     ok = emqx_metrics:inc('delivery.dropped'),
                     <<>>;
-            Data -> ?SLOG(debug, #{
-                        msg => "SEND_packet",
-                        packet => emqx_packet:format(Packet)
-                    }),
+            Data ->
+                    ?TRACE("SEND", #{}, Packet),
                     ok = inc_outgoing_stats(Packet),
                     Data
         catch

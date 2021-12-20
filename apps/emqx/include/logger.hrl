@@ -69,6 +69,8 @@
                 ok
         end).
 
+-define(TRACE(Action, Meta, Msg), emqx_trace:log(Action, Meta, Msg)).
+
 %% print to 'user' group leader
 -define(ULOG(Fmt, Args), io:format(user, Fmt, Args)).
 -define(ELOG(Fmt, Args), io:format(standard_error, Fmt, Args)).

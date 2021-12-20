@@ -395,9 +395,11 @@ trace(["stop", Operation, ClientId]) ->
 trace(["start", Operation, ClientId, LogFile]) ->
     trace(["start", Operation, ClientId, LogFile, "all"]);
 
-trace(["start", Operation, ClientId, LogFile, Level]) ->
+trace(["start", Operation, Filter, LogFile, Level]) ->
     case trace_type(Operation) of
-        {ok, Type} -> trace_on(Type, ClientId, list_to_existing_atom(Level), LogFile);
+        {ok, Type} ->
+            trace_on(name(Filter), Type, Filter,
+                list_to_existing_atom(Level), LogFile);
         error -> trace([])
     end;
 
@@ -417,20 +419,22 @@ trace(_) ->
             "Stop tracing for a client ip on local node"}
     ]).
 
-trace_on(Who, Name, Level, LogFile) ->
-    case emqx_trace_handler:install(Who, Name, Level, LogFile) of
+trace_on(Name, Type, Filter, Level, LogFile) ->
+    case emqx_trace_handler:install(Name, Type, Filter, Level, LogFile) of
         ok ->
-            emqx_ctl:print("trace ~s ~s successfully~n", [Who, Name]);
+            emqx_trace:check(),
+            emqx_ctl:print("trace ~s ~s successfully~n", [Filter, Name]);
         {error, Error} ->
-            emqx_ctl:print("[error] trace ~s ~s: ~p~n", [Who, Name, Error])
+            emqx_ctl:print("[error] trace ~s ~s: ~p~n", [Filter, Name, Error])
     end.
 
-trace_off(Who, Name) ->
-    case emqx_trace_handler:uninstall(Who, Name) of
+trace_off(Who, Filter) ->
+    case emqx_trace_handler:uninstall(Who, name(Filter)) of
         ok ->
-            emqx_ctl:print("stop tracing ~s ~s successfully~n", [Who, Name]);
+            emqx_trace:check(),
+            emqx_ctl:print("stop tracing ~s ~s successfully~n", [Who, Filter]);
         {error, Error} ->
-            emqx_ctl:print("[error] stop tracing ~s ~s: ~p~n", [Who, Name, Error])
+            emqx_ctl:print("[error] stop tracing ~s ~s: ~p~n", [Who, Filter, Error])
     end.
 
 %%--------------------------------------------------------------------
@@ -716,3 +720,6 @@ format_listen_on({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~ts:~w", [Addr, Port]);
 format_listen_on({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]).
+
+name(Filter) ->
+    iolist_to_binary(["CLI-", Filter]).

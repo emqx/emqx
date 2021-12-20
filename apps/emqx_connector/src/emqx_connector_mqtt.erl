@@ -150,8 +150,8 @@ on_stop(_InstId, #{name := InstanceId}) ->
     end.
 
 on_query(_InstId, {send_message, Msg}, AfterQuery, #{name := InstanceId}) ->
-    ?SLOG(debug, #{msg => "send msg to remote node", message => Msg,
-        connector => InstanceId}),
+    ?TRACE("QUERY", #{message => Msg, connector => InstanceId},
+        "send msg to remote node"),
     emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg),
     emqx_resource:query_success(AfterQuery).
 

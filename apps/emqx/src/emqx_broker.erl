@@ -205,8 +205,7 @@ publish(Msg) when is_record(Msg, message) ->
     emqx_message:is_sys(Msg) orelse emqx_metrics:inc('messages.publish'),
     case emqx_hooks:run_fold('message.publish', [], emqx_message:clean_dup(Msg)) of
         #message{headers = #{allow_publish := false}} ->
-            ?SLOG(debug, #{msg => "message_not_published",
-                           payload => emqx_message:to_log_map(Msg)}),
+            ?TRACE("NotAllow", #{payload => emqx_message:to_log_map(Msg)}, "message_not_published"),
             [];
         Msg1 = #message{topic = Topic} ->
             emqx_persistent_session:persist_message(Msg1),

@@ -25,6 +25,7 @@
 -export([ running/0
         , install/3
         , install/4
+        , install/5
         , uninstall/1
         , uninstall/2
         ]).
@@ -77,22 +78,18 @@ install(Type, Filter, Level, LogFile) ->
 -spec install(tracer(), logger:level() | all, string()) -> ok | {error, term()}.
 install(Who, all, LogFile) ->
     install(Who, debug, LogFile);
-install(Who, Level, LogFile) ->
-    PrimaryLevel = emqx_logger:get_primary_log_level(),
-    try logger:compare_levels(Level, PrimaryLevel) of
-        lt ->
-            {error,
-                io_lib:format(
-                    "Cannot trace at a log level (~s) "
-                    "lower than the primary log level (~s)",
-                    [Level, PrimaryLevel]
-                )};
-        _GtOrEq ->
-            install_handler(Who, Level, LogFile)
-    catch
-        error:badarg ->
-            {error, {invalid_log_level, Level}}
-    end.
+install(Who = #{name := Name, type := Type}, Level, LogFile) ->
+    HandlerId = handler_id(Name, Type),
+    Config = #{
+        level => Level,
+        formatter => formatter(Who),
+        filter_default => stop,
+        filters => filters(Who),
+        config => ?CONFIG(LogFile)
+    },
+    Res = logger:add_handler(HandlerId, logger_disk_log_h, Config),
+    show_prompts(Res, Who, "start_trace"),
+    Res.
 
 -spec uninstall(Type :: clientid | topic | ip_address,
     Name :: binary() | list()) -> ok | {error, term()}.
@@ -121,38 +118,25 @@ uninstall(HandlerId) ->
 running() ->
     lists:foldl(fun filter_traces/2, [], emqx_logger:get_log_handlers(started)).
 
--spec filter_clientid(logger:log_event(), {string(), atom()}) -> logger:log_event() | ignore.
+-spec filter_clientid(logger:log_event(), {string(), atom()}) -> logger:log_event() | stop.
 filter_clientid(#{meta := #{clientid := ClientId}} = Log, {ClientId, _Name}) -> Log;
-filter_clientid(_Log, _ExpectId) -> ignore.
+filter_clientid(_Log, _ExpectId) -> stop.
 
--spec filter_topic(logger:log_event(), {string(), atom()}) -> logger:log_event() | ignore.
+-spec filter_topic(logger:log_event(), {string(), atom()}) -> logger:log_event() | stop.
 filter_topic(#{meta := #{topic := Topic}} = Log, {TopicFilter, _Name}) ->
     case emqx_topic:match(Topic, TopicFilter) of
         true -> Log;
-        false -> ignore
+        false -> stop
     end;
-filter_topic(_Log, _ExpectId) -> ignore.
+filter_topic(_Log, _ExpectId) -> stop.
 
--spec filter_ip_address(logger:log_event(), {string(), atom()}) -> logger:log_event() | ignore.
+-spec filter_ip_address(logger:log_event(), {string(), atom()}) -> logger:log_event() | stop.
 filter_ip_address(#{meta := #{peername := Peername}} = Log, {IP, _Name}) ->
     case lists:prefix(IP, Peername) of
         true -> Log;
-        false -> ignore
+        false -> stop
     end;
-filter_ip_address(_Log, _ExpectId) -> ignore.
-
-install_handler(Who = #{name := Name, type := Type}, Level, LogFile) ->
-    HandlerId = handler_id(Name, Type),
-    Config = #{
-        level => Level,
-        formatter => formatter(Who),
-        filter_default => stop,
-        filters => filters(Who),
-        config => ?CONFIG(LogFile)
-    },
-    Res = logger:add_handler(HandlerId, logger_disk_log_h, Config),
-    show_prompts(Res, Who, "Start trace"),
-    Res.
+filter_ip_address(_Log, _ExpectId) -> stop.
 
 filters(#{type := clientid, filter := Filter, name := Name}) ->
     [{clientid, {fun ?MODULE:filter_clientid/2, {ensure_list(Filter), Name}}}];
@@ -162,7 +146,7 @@ filters(#{type := ip_address, filter := Filter, name := Name}) ->
     [{ip_address, {fun ?MODULE:filter_ip_address/2, {ensure_list(Filter), Name}}}].
 
 formatter(#{type := Type}) ->
-    {logger_formatter,
+    {emqx_trace_formatter,
         #{
             template => template(Type),
             single_line => false,
@@ -176,7 +160,6 @@ formatter(#{type := Type}) ->
 %% (actually should use `~ts`), the utf8 characters clientid will become very difficult to read.
 template(clientid) ->
     [time, " [", level, "] ", {peername, [peername, " "], []}, msg, "\n"];
-%% TODO better format when clientid is utf8.
 template(_) ->
     [time, " [", level, "] ",
         {clientid,
@@ -189,11 +172,11 @@ template(_) ->
 filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) ->
     Init = #{id => Id, level => Level, dst => Dst},
     case Filters of
-        [{Type, {_FilterFun, {Filter, Name}}}] when
+        [{Type, {FilterFun, {Filter, Name}}}] when
             Type =:= topic orelse
                 Type =:= clientid orelse
                 Type =:= ip_address ->
-            [Init#{type => Type, filter => Filter, name => Name} | Acc];
+            [Init#{type => Type, filter => Filter, name => Name, filter_fun => FilterFun} | Acc];
         _ ->
             Acc
     end.

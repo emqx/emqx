@@ -347,7 +347,6 @@ websocket_handle({binary, Data}, State) when is_list(Data) ->
     websocket_handle({binary, iolist_to_binary(Data)}, State);
 
 websocket_handle({binary, Data}, State) ->
-    ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => websocket}),
     State2 = ensure_stats_timer(State),
     {Packets, State3} = parse_incoming(Data, [], State2),
     LenMsg = erlang:length(Packets),
@@ -432,11 +431,11 @@ websocket_info(Info, State) ->
 websocket_close({_, ReasonCode, _Payload}, State) when is_integer(ReasonCode) ->
     websocket_close(ReasonCode, State);
 websocket_close(Reason, State) ->
-    ?SLOG(debug, #{msg => "websocket_closed", reason => Reason}),
+    ?TRACE("CLOSED", #{transport => websocket, reason => Reason}, "websocket_closed"),
     handle_info({sock_closed, Reason}, State).
 
 terminate(Reason, _Req, #state{channel = Channel}) ->
-    ?SLOG(debug, #{msg => "terminated", reason => Reason}),
+    ?TRACE("TERMINATE", #{transport => websocket, reason => Reason}, "webscoket_terminated"),
     emqx_channel:terminate(Reason, Channel);
 
 terminate(_Reason, _Req, _UnExpectedState) ->
@@ -480,7 +479,7 @@ handle_info({connack, ConnAck}, State) ->
     return(enqueue(ConnAck, State));
 
 handle_info({close, Reason}, State) ->
-    ?SLOG(debug, #{msg => "force_socket_close", reason => Reason}),
+    ?TRACE("CLOSE", #{reason => Reason}, "force_socket_close"),
     return(enqueue({close, Reason}, State));
 
 handle_info({event, connected}, State = #state{channel = Channel}) ->
@@ -663,7 +662,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
 
 handle_incoming(Packet, State = #state{listener = {Type, Listener}})
   when is_record(Packet, mqtt_packet) ->
-    ?SLOG(debug, #{msg => "RECV", packet => emqx_packet:format(Packet)}),
+    ?TRACE("RECV", #{transport => websocket}, Packet),
     ok = inc_incoming_stats(Packet),
     NState = case emqx_pd:get_counter(incoming_pubs) >
                   get_active_n(Type, Listener) of
@@ -727,7 +726,7 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
                     ok = emqx_metrics:inc('delivery.dropped'),
                     <<>>;
-            Data -> ?SLOG(debug, #{msg => "SEND", packet => Packet}),
+            Data -> ?TRACE("SEND", #{transport => websocket}, Packet),
                     ok = inc_outgoing_stats(Packet),
                     Data
         catch

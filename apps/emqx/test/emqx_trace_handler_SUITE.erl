@@ -32,36 +32,30 @@ all() -> [t_trace_clientid, t_trace_topic, t_trace_ip_address, t_trace_clientid_
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
+    emqx_common_test_helpers:start_apps([emqx_modules]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([emqx_modules]).
 
 init_per_testcase(t_trace_clientid, Config) ->
     Config;
 init_per_testcase(_Case, Config) ->
-    ok = emqx_logger:set_log_level(debug),
     _ = [logger:remove_handler(Id) ||#{id := Id} <- emqx_trace_handler:running()],
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    ok = emqx_logger:set_log_level(warning),
     ok.
 
 t_trace_clientid(_Config) ->
     %% Start tracing
-    emqx_logger:set_log_level(error),
-    {error, _} = emqx_trace_handler:install(clientid, <<"client">>, debug, "tmp/client.log"),
-    emqx_logger:set_log_level(debug),
     %% add list clientid
     ok = emqx_trace_handler:install(clientid, "client", debug, "tmp/client.log"),
     ok = emqx_trace_handler:install(clientid, <<"client2">>, all, "tmp/client2.log"),
     ok = emqx_trace_handler:install(clientid, <<"client3">>, all, "tmp/client3.log"),
-    {error, {invalid_log_level, bad_level}} =
-        emqx_trace_handler:install(clientid, <<"client4">>, bad_level, "tmp/client4.log"),
     {error, {handler_not_added, {file_error, ".", eisdir}}} =
         emqx_trace_handler:install(clientid, <<"client5">>, debug, "."),
+    emqx_trace:check(),
     ok = filesync(<<"client">>, clientid),
     ok = filesync(<<"client2">>, clientid),
     ok = filesync(<<"client3">>, clientid),
@@ -106,10 +100,9 @@ t_trace_clientid(_Config) ->
     ?assertEqual([], emqx_trace_handler:running()).
 
 t_trace_clientid_utf8(_) ->
-    emqx_logger:set_log_level(debug),
-
     Utf8Id = <<"client 漢字編碼"/utf8>>,
     ok = emqx_trace_handler:install(clientid, Utf8Id, debug, "tmp/client-utf8.log"),
+    emqx_trace:check(),
     {ok, T} = emqtt:start_link([{clientid, Utf8Id}]),
     emqtt:connect(T),
     [begin emqtt:publish(T, <<"a/b/c">>, <<"hi">>) end|| _ <- lists:seq(1, 10)],
@@ -126,9 +119,9 @@ t_trace_topic(_Config) ->
     emqtt:connect(T),
 
     %% Start tracing
-    emqx_logger:set_log_level(debug),
     ok = emqx_trace_handler:install(topic, <<"x/#">>, all, "tmp/topic_trace_x.log"),
     ok = emqx_trace_handler:install(topic, <<"y/#">>, all, "tmp/topic_trace_y.log"),
+    emqx_trace:check(),
     ok = filesync(<<"x/#">>, topic),
     ok = filesync(<<"y/#">>, topic),
 
@@ -174,6 +167,7 @@ t_trace_ip_address(_Config) ->
     %% Start tracing
     ok = emqx_trace_handler:install(ip_address, "127.0.0.1", all, "tmp/ip_trace_x.log"),
     ok = emqx_trace_handler:install(ip_address, "192.168.1.1", all, "tmp/ip_trace_y.log"),
+    emqx_trace:check(),
     ok = filesync(<<"127.0.0.1">>, ip_address),
     ok = filesync(<<"192.168.1.1">>, ip_address),
 

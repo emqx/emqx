@@ -137,9 +137,8 @@ on_query(InstId,
          AfterQuery,
          #{poolname := PoolName} = State) ->
     Request = {Action, Collection, Selector, Docs},
-    ?SLOG(debug, #{msg => "mongodb connector received request",
-        request => Request, connector => InstId,
-        state => State}),
+    ?TRACE("QUERY", #{request => Request, connector => InstId, state => State},
+        "mongodb connector received request"),
     case ecpool:pick_and_do(PoolName,
                             {?MODULE, mongo_query, [Action, Collection, Selector, Docs]},
                             no_handover) of

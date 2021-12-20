@@ -453,7 +453,7 @@ format_variable(undefined, _) ->
 format_variable(Variable, undefined) ->
     format_variable(Variable);
 format_variable(Variable, Payload) ->
-    io_lib:format("~ts, Payload=~0p", [format_variable(Variable), Payload]).
+    io_lib:format("~ts, Payload=~ts", [format_variable(Variable), Payload]).
 
 format_variable(#mqtt_packet_connect{
                  proto_ver    = ProtoVer,
@@ -520,4 +520,3 @@ format_password(_Password) -> '******'.
 i(true)  -> 1;
 i(false) -> 0;
 i(I) when is_integer(I) -> I.
-
