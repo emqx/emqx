@@ -202,8 +202,12 @@ find_appup_actions(CurrApps, PrevApps) ->
 find_appup_actions(_App, AppIdx, AppIdx) ->
     %% No changes to the app, ignore:
     [];
-find_appup_actions(App, CurrAppIdx, PrevAppIdx = #app{version = PrevVersion}) ->
-    {OldUpgrade, OldDowngrade} = find_old_appup_actions(App, PrevVersion),
+find_appup_actions(App,
+                   CurrAppIdx = #app{version = CurrVersion},
+                   PrevAppIdx = #app{version = PrevVersion}) ->
+    {OldUpgrade0, OldDowngrade0} = find_old_appup_actions(App, PrevVersion),
+    OldUpgrade = ensure_all_patch_versions(App, CurrVersion, OldUpgrade0),
+    OldDowngrade = ensure_all_patch_versions(App, CurrVersion, OldDowngrade0),
     Upgrade = merge_update_actions(App, diff_app(App, CurrAppIdx, PrevAppIdx), OldUpgrade),
     Downgrade = merge_update_actions(App, diff_app(App, PrevAppIdx, CurrAppIdx), OldDowngrade),
     if OldUpgrade =:= Upgrade andalso OldDowngrade =:= Downgrade ->
@@ -211,6 +215,32 @@ find_appup_actions(App, CurrAppIdx, PrevAppIdx = #app{version = PrevVersion}) ->
             [];
        true ->
             [{App, {Upgrade, Downgrade, OldUpgrade, OldDowngrade}}]
+    end.
+
+%% To avoid missing one patch version when upgrading, we try to
+%% optimistically generate the list of expected versions that should
+%% be covered by the upgrade.
+ensure_all_patch_versions(App, CurrVsn, OldActions) ->
+    case is_app_external(App) of
+        true ->
+            %% we do not attempt to predict the version list for
+            %% external dependencies, as those may not follow our
+            %% conventions.
+            OldActions;
+        false ->
+            do_ensure_all_patch_versions(App, CurrVsn, OldActions)
+    end.
+
+do_ensure_all_patch_versions(App, CurrVsn, OldActions) ->
+    case enumerate_past_versions(CurrVsn) of
+        {ok, ExpectedVsns} ->
+            CoveredVsns = [V || {V, _} <- OldActions, V =/= <<".*">>],
+            ExpectedVsnStrs = [vsn_number_to_string(V) || V <- ExpectedVsns],
+            MissingActions = [{V, []} || V <- ExpectedVsnStrs, not contains_version(V, CoveredVsns)],
+            MissingActions ++ OldActions;
+        {error, bad_version} ->
+            log("WARN: Could not infer expected versions to upgrade from for ~p~n", [App]),
+            OldActions
     end.
 
 %% For external dependencies, show only the changes that are missing
@@ -363,6 +393,35 @@ contains_version(Needle, Haystack) when is_list(Needle) ->
       end,
       Haystack).
 
+%% As a best effort approach, we assume that we only bump patch
+%% version numbers between release upgrades for our dependencies and
+%% that we deal only with 3-part version schemas
+%% (`Major.Minor.Patch').  Using those assumptions, we enumerate the
+%% past versions that should be covered by regexes in .appup file
+%% instructions.
+enumerate_past_versions(Vsn) when is_list(Vsn) ->
+    case parse_version_number(Vsn) of
+        {ok, ParsedVsn} ->
+            {ok, enumerate_past_versions(ParsedVsn)};
+        Error ->
+            Error
+    end;
+enumerate_past_versions({Major, Minor, Patch}) ->
+    [{Major, Minor, P} || P <- lists:seq(Patch - 1, 0, -1)].
+
+parse_version_number(Vsn) when is_list(Vsn) ->
+    Nums = string:split(Vsn, ".", all),
+    Results = lists:map(fun string:to_integer/1, Nums),
+    case Results of
+        [{Major, []}, {Minor, []}, {Patch, []}] ->
+            {ok, {Major, Minor, Patch}};
+        _ ->
+            {error, bad_version}
+    end.
+
+vsn_number_to_string({Major, Minor, Patch}) ->
+    io_lib:format("~b.~b.~b", [Major, Minor, Patch]).
+
 read_appup(File) ->
     %% NOTE: appup file is a script, it may contain variables or functions.
     case file:script(File, [{'VSN', "VSN"}]) of
@@ -419,7 +478,8 @@ render_appfile(File, Upgrade, Downgrade) ->
     ok = file:write_file(File, IOList).
 
 create_stub(App) ->
-    case locate(src, App, Ext = ".app.src") of
+    Ext = ".app.src",
+    case locate(src, App, Ext) of
         {ok, AppSrc} ->
             DirName = filename:dirname(AppSrc),
             AppupFile = filename:basename(AppSrc, Ext) ++ ".appup.src",
@@ -501,6 +561,15 @@ hashsums(EbinDir) ->
                      end,
                      filelib:wildcard("*.beam", EbinDir)
                     )).
+
+is_app_external(App) ->
+    Ext = ".app.src",
+    case locate(src, App, Ext) of
+        {ok, _} ->
+            false;
+        undefined ->
+            true
+    end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Global state
