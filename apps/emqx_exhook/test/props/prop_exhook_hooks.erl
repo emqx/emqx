@@ -257,11 +257,11 @@ prop_session_discared() ->
             true
         end).
 
-prop_session_takeovered() ->
+prop_session_takenover() ->
     ?ALL({ClientInfo, SessInfo}, {clientinfo(), sessioninfo()},
         begin
-            ok = emqx_hooks:run('session.takeovered', [ClientInfo, SessInfo]),
-            {'on_session_takeovered', Resp} = emqx_exhook_demo_svr:take(),
+            ok = emqx_hooks:run('session.takenover', [ClientInfo, SessInfo]),
+            {'on_session_takenover', Resp} = emqx_exhook_demo_svr:take(),
             Expected =
                 #{clientinfo => from_clientinfo(ClientInfo)
                  },
@@ -296,19 +296,24 @@ prop_message_publish() ->
                 _ ->
                     ExpectedOutMsg = case emqx_message:from(Msg) of
                                          <<"baduser">> ->
-                                             MsgMap = emqx_message:to_map(Msg),
+                                             MsgMap = #{headers := Headers}
+                                                    = emqx_message:to_map(Msg),
                                              emqx_message:from_map(
                                                MsgMap#{qos => 0,
                                                        topic => <<"">>,
-                                                       payload => <<"">>
+                                                       payload => <<"">>,
+                                                       headers => maps:put(allow_publish, false, Headers)
                                                       });
                                          <<"gooduser">> = From ->
-                                             MsgMap = emqx_message:to_map(Msg),
+                                             MsgMap = #{headers := Headers}
+                                                    = emqx_message:to_map(Msg),
                                              emqx_message:from_map(
                                                MsgMap#{topic => From,
-                                                       payload => From
+                                                       payload => From,
+                                                       headers => maps:put(allow_publish, true, Headers)
                                                       });
-                                         _ -> Msg
+                                         _ ->
+                                             Msg
                                      end,
                     ?assertEqual(ExpectedOutMsg, OutMsg),
 
@@ -461,7 +466,9 @@ from_message(Msg) ->
       from => stringfy(emqx_message:from(Msg)),
       topic => emqx_message:topic(Msg),
       payload => emqx_message:payload(Msg),
-      timestamp => emqx_message:timestamp(Msg)
+      timestamp => emqx_message:timestamp(Msg),
+      headers => emqx_exhook_handler:headers(
+                  emqx_message:get_headers(Msg))
      }.
 
 %%--------------------------------------------------------------------

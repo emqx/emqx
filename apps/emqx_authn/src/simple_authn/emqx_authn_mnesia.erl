@@ -85,62 +85,33 @@ mnesia(boot) ->
 
 namespace() -> "authn-builtin_db".
 
-roots() -> [config].
+roots() -> [?CONF_NS].
 
-fields(config) ->
-    [ {mechanism,               {enum, ['password-based']}}
-    , {backend,                 {enum, ['built-in-database']}}
+fields(?CONF_NS) ->
+    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
+    , {backend, emqx_authn_schema:backend('built-in-database')}
     , {user_id_type,            fun user_id_type/1}
-    , {password_hash_algorithm, fun password_hash_algorithm/1}
-    ] ++ emqx_authn_schema:common_fields();
-
-fields(bcrypt) ->
-    [ {name, {enum, [bcrypt]}}
-    , {salt_rounds, fun salt_rounds/1}
-    ];
-
-fields(other_algorithms) ->
-    [ {name, {enum, [plain, md5, sha, sha256, sha512]}}
-    ].
+    , {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw/1}
+    ] ++ emqx_authn_schema:common_fields().
 
 user_id_type(type) -> user_id_type();
-user_id_type(default) -> username;
+user_id_type(default) -> <<"username">>;
 user_id_type(_) -> undefined.
-
-password_hash_algorithm(type) -> hoconsc:union([hoconsc:ref(?MODULE, bcrypt),
-                                                hoconsc:ref(?MODULE, other_algorithms)]);
-password_hash_algorithm(default) -> #{<<"name">> => sha256};
-password_hash_algorithm(_) -> undefined.
-
-salt_rounds(type) -> integer();
-salt_rounds(default) -> 10;
-salt_rounds(_) -> undefined.
 
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
 
 refs() ->
-   [hoconsc:ref(?MODULE, config)].
+   [hoconsc:ref(?MODULE, ?CONF_NS)].
 
 create(AuthenticatorID,
        #{user_id_type := Type,
-         password_hash_algorithm := #{name := bcrypt,
-                                      salt_rounds := SaltRounds}}) ->
-    ok = emqx_authn_utils:ensure_apps_started(bcrypt),
+         password_hash_algorithm := Algorithm}) ->
+    ok = emqx_authn_password_hashing:init(Algorithm),
     State = #{user_group => AuthenticatorID,
               user_id_type => Type,
-              password_hash_algorithm => bcrypt,
-              salt_rounds => SaltRounds},
-    {ok, State};
-
-create(AuthenticatorID,
-       #{user_id_type := Type,
-         password_hash_algorithm := #{name := Name}}) ->
-    ok = emqx_authn_utils:ensure_apps_started(Name),
-    State = #{user_group => AuthenticatorID,
-              user_id_type => Type,
-              password_hash_algorithm => Name},
+              password_hash_algorithm => Algorithm},
     {ok, State}.
 
 update(Config, #{user_group := ID}) ->
@@ -156,12 +127,9 @@ authenticate(#{password := Password} = Credential,
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [] ->
             ignore;
-        [#user_info{password_hash = PasswordHash, salt = Salt0, is_superuser = IsSuperuser}] ->
-            Salt = case Algorithm of
-                       bcrypt -> PasswordHash;
-                       _ -> Salt0
-                   end,
-            case PasswordHash =:= hash(Algorithm, Password, Salt) of
+        [#user_info{password_hash = PasswordHash, salt = Salt, is_superuser = IsSuperuser}] ->
+            case emqx_authn_password_hashing:check_password(
+                   Algorithm, Salt, PasswordHash, Password) of
                 true -> {ok, #{is_superuser => IsSuperuser}};
                 false -> {error, bad_username_or_password}
             end
@@ -193,12 +161,13 @@ import_users(Filename0, State) ->
 
 add_user(#{user_id := UserID,
            password := Password} = UserInfo,
-         #{user_group := UserGroup} = State) ->
+         #{user_group := UserGroup,
+           password_hash_algorithm := Algorithm}) ->
     trans(
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
-                    {PasswordHash, Salt} = hash(Password, State),
+                    {PasswordHash, Salt} = emqx_authn_password_hashing:hash(Algorithm, Password),
                     IsSuperuser = maps:get(is_superuser, UserInfo, false),
                     insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
                     {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
@@ -219,7 +188,8 @@ delete_user(UserID, #{user_group := UserGroup}) ->
         end).
 
 update_user(UserID, UserInfo,
-            #{user_group := UserGroup} = State) ->
+            #{user_group := UserGroup,
+              password_hash_algorithm := Algorithm}) ->
     trans(
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
@@ -229,11 +199,12 @@ update_user(UserID, UserInfo,
                            , salt = Salt
                            , is_superuser = IsSuperuser}] ->
                     NSuperuser = maps:get(is_superuser, UserInfo, IsSuperuser),
-                    {NPasswordHash, NSalt} = case maps:get(password, UserInfo, undefined) of
-                                                 undefined ->
-                                                     {PasswordHash, Salt};
-                                                 Password ->
-                                                     hash(Password, State)
+                    {NPasswordHash, NSalt} = case UserInfo of
+                                                 #{password := Password} ->
+                                                     emqx_authn_password_hashing:hash(
+                                                       Algorithm, Password);
+                                                 #{} ->
+                                                     {PasswordHash, Salt}
                                              end,
                     insert_user(UserGroup, UserID, NPasswordHash, NSalt, NSuperuser),
                     {ok, #{user_id => UserID, is_superuser => NSuperuser}}
@@ -348,26 +319,6 @@ get_user_info_by_seq([<<"false">> | More1], [<<"is_superuser">> | More2], Acc) -
     get_user_info_by_seq(More1, More2, Acc#{is_superuser => false});
 get_user_info_by_seq(_, _, _) ->
     {error, bad_format}.
-
-gen_salt(#{password_hash_algorithm := plain}) ->
-    <<>>;
-gen_salt(#{password_hash_algorithm := bcrypt,
-           salt_rounds := Rounds}) ->
-    {ok, Salt} = bcrypt:gen_salt(Rounds),
-    Salt;
-gen_salt(_) ->
-    emqx_authn_utils:gen_salt().
-
-hash(bcrypt, Password, Salt) ->
-    {ok, Hash} = bcrypt:hashpw(Password, Salt),
-    list_to_binary(Hash);
-hash(Algorithm, Password, Salt) ->
-    emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>).
-
-hash(Password, #{password_hash_algorithm := Algorithm} = State) ->
-    Salt = gen_salt(State),
-    PasswordHash = hash(Algorithm, Password, Salt),
-    {PasswordHash, Salt}.
 
 insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
      UserInfo = #user_info{user_id = {UserGroup, UserID},

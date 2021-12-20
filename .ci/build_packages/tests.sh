@@ -175,26 +175,6 @@ EOF
         cat /var/log/emqx/emqx.log.1 || true
         exit 1
     fi
-
-    if [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = ubuntu ] \
-    || [ "$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')" = debian ] ;then
-        if ! service emqx start; then
-            cat /var/log/emqx/erlang.log.1 || true
-            cat /var/log/emqx/emqx.log.1 || true
-            exit 1
-        fi
-        IDLE_TIME=0
-        while ! curl http://127.0.0.1:18083/api/v5/status >/dev/null 2>&1; do
-            if [ $IDLE_TIME -gt 10 ]
-            then
-                echo "emqx service error"
-                exit 1
-            fi
-            sleep 10
-            IDLE_TIME=$((IDLE_TIME+1))
-        done
-        service emqx stop
-    fi
 }
 
 relup_test(){

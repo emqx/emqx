@@ -24,7 +24,7 @@ namespace() -> zone.
 %% roots are added only for document generation.
 roots() -> ["mqtt", "stats", "flapping_detect", "force_shutdown",
             "conn_congestion", "rate_limit", "quota", "force_gc",
-            "overload_protection"
+            "overload_protection", "latency_stats"
            ].
 
 %% zone schemas are clones from the same name from root level

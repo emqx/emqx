@@ -18,9 +18,6 @@
 
 -behaviour(emqx_gateway_channel).
 
--include_lib("emqx/include/logger.hrl").
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
-
 %% API
 -export([ info/1
         , info/2
@@ -43,6 +40,12 @@
         ]).
 
 -export_type([channel/0]).
+
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include_lib("emqx/include/emqx_authentication.hrl").
+
+-define(AUTHN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 
 -record(channel, {
                   %% Context
@@ -98,10 +101,10 @@ info(ctx, #channel{ctx = Ctx}) ->
 stats(_) ->
     [].
 
-init(ConnInfo = #{peername := {PeerHost, _},
-                  sockname := {_, SockPort}},
+init(ConnInfoT = #{peername := {PeerHost, _},
+                   sockname := {_, SockPort}},
      #{ctx := Ctx} = Config) ->
-    Peercert = maps:get(peercert, ConnInfo, undefined),
+    Peercert = maps:get(peercert, ConnInfoT, undefined),
     Mountpoint = maps:get(mountpoint, Config, <<>>),
     ListenerId = case maps:get(listener, Config, undefined) of
                      undefined -> undefined;
@@ -122,6 +125,10 @@ init(ConnInfo = #{peername := {PeerHost, _},
                     , mountpoint => Mountpoint
                     }
                   ),
+
+    %% because it is possible to disconnect after init, and then trigger the $event.disconnected hook
+    %% and these two fields are required in the hook
+    ConnInfo = ConnInfoT#{proto_name => <<"CoAP">>, proto_ver => <<"1">>},
 
     Heartbeat = ?GET_IDLE_TIME(Config),
     #channel{ ctx = Ctx
@@ -279,7 +286,7 @@ try_takeover(idle, DesireId, Msg, Channel) ->
             %% udp connection baseon the clientid
             call_session(handle_request, Msg, Channel);
         _ ->
-            case emqx_conf:get([gateway, coap, authentication], undefined) of
+            case emqx_conf:get([gateway, coap, ?AUTHN], undefined) of
                 undefined ->
                     call_session(handle_request, Msg, Channel);
                 _ ->
@@ -349,8 +356,6 @@ ensure_connected(Channel = #channel{ctx = Ctx,
                                     conninfo = ConnInfo,
                                     clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{ connected_at => erlang:system_time(millisecond)
-                         , proto_name => <<"COAP">>
-                         , proto_ver => <<"1">>
                          },
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
     _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, []]),

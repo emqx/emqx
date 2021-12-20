@@ -32,9 +32,14 @@
 -export([ namespace/0
         , roots/0
         , fields/1
+        , validations/0
         ]).
 
 -import(emqx_schema, [mk_duration/2]).
+
+%%--------------------------------------------------------------------
+%% Hocon Schema
+%%--------------------------------------------------------------------
 
 namespace() -> authz.
 
@@ -98,92 +103,24 @@ and the new rules will override all rules from the old config file.
               }}
     ];
 fields(http_get) ->
-    [ {type, #{type => http}}
-    , {enable, #{type => boolean(),
-                 default => true}}
-    , {url, #{type => url()}}
-    , {method,  #{type => get, default => get }}
-    , {headers, #{type => map(),
-                  default => #{ <<"accept">> => <<"application/json">>
-                              , <<"cache-control">> => <<"no-cache">>
-                              , <<"connection">> => <<"keep-alive">>
-                              , <<"keep-alive">> => <<"timeout=5">>
-                              },
-                  converter => fun (Headers0) ->
-                                    Headers1 = maps:fold(fun(K0, V, AccIn) ->
-                                                           K1 = iolist_to_binary(string:to_lower(to_list(K0))),
-                                                           maps:put(K1, V, AccIn)
-                                                        end, #{}, Headers0),
-                                    maps:merge(#{ <<"accept">> => <<"application/json">>
-                                                , <<"cache-control">> => <<"no-cache">>
-                                                , <<"connection">> => <<"keep-alive">>
-                                                , <<"keep-alive">> => <<"timeout=5">>
-                                                }, Headers1)
-                               end
-                 }
-      }
-    , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
-    ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
+    [ {method,  #{type => get, default => post}}
+    , {headers, fun headers_no_content_type/1}
+    ] ++ http_common_fields();
 fields(http_post) ->
-    [ {type, #{type => http}}
-    , {enable, #{type => boolean(),
-                 default => true}}
-    , {url, #{type => url()}}
-    , {method,  #{type => post,
-                  default => get}}
-    , {headers, #{type => map(),
-                  default => #{ <<"accept">> => <<"application/json">>
-                              , <<"cache-control">> => <<"no-cache">>
-                              , <<"connection">> => <<"keep-alive">>
-                              , <<"content-type">> => <<"application/json">>
-                              , <<"keep-alive">> => <<"timeout=5">>
-                              },
-                  converter => fun (Headers0) ->
-                                    Headers1 = maps:fold(fun(K0, V, AccIn) ->
-                                                           K1 = iolist_to_binary(string:to_lower(binary_to_list(K0))),
-                                                           maps:put(K1, V, AccIn)
-                                                        end, #{}, Headers0),
-                                    maps:merge(#{ <<"accept">> => <<"application/json">>
-                                                , <<"cache-control">> => <<"no-cache">>
-                                                , <<"connection">> => <<"keep-alive">>
-                                                , <<"content-type">> => <<"application/json">>
-                                                , <<"keep-alive">> => <<"timeout=5">>
-                                                }, Headers1)
-                               end
-                 }
-      }
-    , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
-    , {body, #{type => map(),
-               nullable => true
-              }
-      }
-    ]  ++ proplists:delete(base_url, emqx_connector_http:fields(config));
+    [ {method,  #{type => post, default => post}}
+    , {headers, fun headers/1}
+    ] ++ http_common_fields();
 fields(mnesia) ->
     [ {type,   #{type => 'built-in-database'}}
     , {enable, #{type => boolean(),
                  default => true}}
     ];
 fields(mongo_single) ->
-    [ {collection, #{type => atom()}}
-    , {selector, #{type => map()}}
-    , {type, #{type => mongodb}}
-    , {enable, #{type => boolean(),
-                 default => true}}
-    ] ++ emqx_connector_mongo:fields(single);
+    mongo_common_fields() ++ emqx_connector_mongo:fields(single);
 fields(mongo_rs) ->
-    [ {collection, #{type => atom()}}
-    , {selector, #{type => map()}}
-    , {type, #{type => mongodb}}
-    , {enable, #{type => boolean(),
-                 default => true}}
-    ] ++ emqx_connector_mongo:fields(rs);
+    mongo_common_fields() ++ emqx_connector_mongo:fields(rs);
 fields(mongo_sharded) ->
-    [ {collection, #{type => atom()}}
-    , {selector, #{type => map()}}
-    , {type, #{type => mongodb}}
-    , {enable, #{type => boolean(),
-                 default => true}}
-    ] ++ emqx_connector_mongo:fields(sharded);
+    mongo_common_fields() ++ emqx_connector_mongo:fields(sharded);
 fields(mysql) ->
     connector_fields(mysql) ++
     [ {query, query()} ];
@@ -203,9 +140,86 @@ fields(redis_cluster) ->
     connector_fields(redis, cluster) ++
     [ {cmd, query()} ].
 
+http_common_fields() ->
+    [ {type,            #{type => http}}
+    , {enable,          #{type => boolean(), default => true}}
+    , {url,             #{type => url()}}
+    , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
+    , {body,            #{type => map(), nullable => true}}
+    ] ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
+
+mongo_common_fields() ->
+    [ {collection, #{type => atom()}}
+    , {selector, #{type => map()}}
+    , {type, #{type => mongodb}}
+    , {enable, #{type => boolean(),
+                 default => true}}
+    ].
+
+validations() ->
+    [ {check_ssl_opts, fun check_ssl_opts/1}
+    , {check_headers, fun check_headers/1}
+    ].
+
+headers(type) -> map();
+headers(converter) ->
+    fun(Headers) ->
+       maps:merge(default_headers(), transform_header_name(Headers))
+    end;
+headers(default) -> default_headers();
+headers(_) -> undefined.
+
+headers_no_content_type(type) -> map();
+headers_no_content_type(converter) ->
+    fun(Headers) ->
+       maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+    end;
+headers_no_content_type(default) -> default_headers_no_content_type();
+headers_no_content_type(_) -> undefined.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+default_headers() ->
+    maps:put(<<"content-type">>,
+             <<"application/json">>,
+             default_headers_no_content_type()).
+
+default_headers_no_content_type() ->
+    #{ <<"accept">> => <<"application/json">>
+     , <<"cache-control">> => <<"no-cache">>
+     , <<"connection">> => <<"keep-alive">>
+     , <<"keep-alive">> => <<"timeout=5">>
+     }.
+
+transform_header_name(Headers) ->
+    maps:fold(fun(K0, V, Acc) ->
+                      K = list_to_binary(string:to_lower(to_list(K0))),
+                      maps:put(K, V, Acc)
+              end, #{}, Headers).
+
+check_ssl_opts(Conf)
+  when Conf =:= #{} ->
+    true;
+check_ssl_opts(Conf) ->
+    case emqx_authz_http:parse_url(hocon_schema:get_value("config.url", Conf)) of
+        #{scheme := https} ->
+            case hocon_schema:get_value("config.ssl.enable", Conf) of
+                true -> ok;
+                false -> false
+            end;
+        #{scheme := http} ->
+            ok
+    end.
+
+check_headers(Conf)
+    when Conf =:= #{} ->
+    true;
+check_headers(Conf) ->
+    Method = to_bin(hocon_schema:get_value("config.method", Conf)),
+    Headers = hocon_schema:get_value("config.headers", Conf),
+    Method =:= <<"post">> orelse (not maps:is_key(<<"content-type">>, Headers)).
 
 union_array(Item) when is_list(Item) ->
     hoconsc:array(hoconsc:union(Item)).
@@ -229,15 +243,22 @@ connector_fields(DB, Fields) ->
           catch
               error:badarg ->
                   list_to_atom(Mod0);
-              Error ->
-                  erlang:error(Error)
+              error:Reason ->
+                  erlang:error(Reason)
           end,
     [ {type, #{type => DB}}
     , {enable, #{type => boolean(),
                  default => true}}
-    ] ++ Mod:fields(Fields).
+    ] ++ erlang:apply(Mod, fields, [Fields]).
 
 to_list(A) when is_atom(A) ->
     atom_to_list(A);
 to_list(B) when is_binary(B) ->
     binary_to_list(B).
+
+to_bin(A) when is_atom(A) ->
+    atom_to_binary(A);
+to_bin(B) when is_binary(B) ->
+    B;
+to_bin(L) when is_list(L) ->
+    list_to_binary(L).

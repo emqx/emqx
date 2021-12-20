@@ -14,6 +14,7 @@ fields("emqx_retainer") ->
     , {msg_clear_interval, sc(emqx_schema:duration_ms(), "0s")}
     , {flow_control, ?TYPE(hoconsc:ref(?MODULE, flow_control))}
     , {max_payload_size, sc(emqx_schema:bytesize(), "1MB")}
+    , {stop_publish_clear_msg, sc(boolean(), false)}
     , {config, config()}
     ];
 

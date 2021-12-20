@@ -83,11 +83,11 @@ mnesia(boot) ->
 
 namespace() -> "authn-scram-builtin_db".
 
-roots() -> [config].
+roots() -> [?CONF_NS].
 
-fields(config) ->
-    [ {mechanism,       {enum, [scram]}}
-    , {backend,         {enum, ['built-in-database']}}
+fields(?CONF_NS) ->
+    [ {mechanism, emqx_authn_schema:mechanism('scram')}
+    , {backend, emqx_authn_schema:backend('built-in-database')}
     , {algorithm,       fun algorithm/1}
     , {iteration_count, fun iteration_count/1}
     ] ++ emqx_authn_schema:common_fields().
@@ -105,7 +105,7 @@ iteration_count(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-   [hoconsc:ref(?MODULE, config)].
+   [hoconsc:ref(?MODULE, ?CONF_NS)].
 
 create(AuthenticatorID,
        #{algorithm := Algorithm,
@@ -137,10 +137,7 @@ authenticate(_Credential, _State) ->
     ignore.
 
 destroy(#{user_group := UserGroup}) ->
-    MatchSpec = ets:fun2ms(
-                  fun(#user_info{user_id = {Group, _}} = User) when Group =:= UserGroup ->
-                          User
-                  end),
+    MatchSpec = group_match_spec(UserGroup),
     trans(
         fun() ->
             ok = lists:foreach(fun(UserInfo) ->
@@ -205,16 +202,16 @@ lookup_user(UserID, #{user_group := UserGroup}) ->
     end.
 
 list_users(PageParams, #{user_group := UserGroup}) ->
-    MatchSpec = [{{user_info, {UserGroup, '_'}, '_', '_', '_', '_'}, [], ['$_']}],
+    MatchSpec = group_match_spec(UserGroup),
     {ok, emqx_mgmt_api:paginate(?TAB, MatchSpec, PageParams, ?FORMAT_FUN)}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-ensure_auth_method('SCRAM-SHA-256', #{algorithm := sha256}) ->
+ensure_auth_method(<<"SCRAM-SHA-256">>, #{algorithm := sha256}) ->
     true;
-ensure_auth_method('SCRAM-SHA-512', #{algorithm := sha512}) ->
+ensure_auth_method(<<"SCRAM-SHA-512">>, #{algorithm := sha512}) ->
     true;
 ensure_auth_method(_, _) ->
     false.
@@ -228,8 +225,10 @@ check_client_first_message(Bin, _Cache, #{iteration_count := IterationCount} = S
              #{iteration_count => IterationCount,
                retrieve => RetrieveFun}
          ) of
-        {cotinue, ServerFirstMessage, Cache} ->
-            {cotinue, ServerFirstMessage, Cache};
+        {continue, ServerFirstMessage, Cache} ->
+            {continue, ServerFirstMessage, Cache};
+        ignore ->
+            ignore;
         {error, _Reason} ->
             {error, not_authorized}
     end.
@@ -280,3 +279,9 @@ trans(Fun, Args) ->
 
 format_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) ->
     #{user_id => UserID, is_superuser => IsSuperuser}.
+
+group_match_spec(UserGroup) ->
+    ets:fun2ms(
+      fun(#user_info{user_id = {Group, _}} = User) when Group =:= UserGroup ->
+              User
+      end).

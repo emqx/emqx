@@ -217,7 +217,7 @@ t_api(_) ->
         request( delete
                , uri(["authorization", "sources", "built-in-database", "purge-all"])
                , []),
-    ?assertEqual([], mnesia:dirty_all_keys(?ACL_TABLE)),
+    ?assertEqual(0, emqx_authz_mnesia:record_count()),
     ok.
 
 %%--------------------------------------------------------------------

@@ -46,8 +46,10 @@ install: build
 	cp -R releases debian/emqx/usr/lib/emqx
 	cp -R etc/* debian/emqx/etc/emqx
 	cp -R data/*  debian/emqx/var/lib/emqx
-	install -m755 debian/init.script debian/emqx/etc/init.d/emqx
-	
+
+	install -d debian/emqx/lib/systemd/system
+	install -p -m0644 debian/emqx.service debian/emqx/lib/systemd/system/emqx.service
+
 	dh_shlibdeps
 
 # We have nothing to do by default.

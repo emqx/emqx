@@ -26,7 +26,7 @@
 架构如下：
 
 ```
-  EMQ X                                    
+  EMQ X
 +========================+                 +========+==========+
 |    ExHook              |                 |        |          |
 |   +----------------+   |      gRPC       | gRPC   |  User's  |
@@ -84,7 +84,7 @@ service HookProvider {
 
   rpc OnSessionDiscarded(SessionDiscardedRequest) returns (EmptySuccess) {};
 
-  rpc OnSessionTakeovered(SessionTakeoveredRequest) returns (EmptySuccess) {};
+  rpc OnSessionTakenover(SessionTakenoverRequest) returns (EmptySuccess) {};
 
   rpc OnSessionTerminated(SessionTerminatedRequest) returns (EmptySuccess) {};
 

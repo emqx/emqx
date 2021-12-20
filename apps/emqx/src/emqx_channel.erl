@@ -82,7 +82,7 @@
           %% Authentication Data Cache
           auth_cache :: maybe(map()),
           %% Quota checkers
-          quota :: maybe(emqx_limiter:limiter()),
+          quota :: maybe(emqx_limiter_container:limiter()),
           %% Timers
           timers :: #{atom() => disabled | maybe(reference())},
           %% Conn State
@@ -120,6 +120,7 @@
          }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
+-define(LIMITER_ROUTING, message_routing).
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
@@ -200,14 +201,13 @@ caps(#channel{clientinfo = #{zone := Zone}}) ->
 -spec(init(emqx_types:conninfo(), opts()) -> channel()).
 init(ConnInfo = #{peername := {PeerHost, _Port},
                   sockname := {_Host, SockPort}},
-     #{zone := Zone, listener := {Type, Listener}}) ->
+     #{zone := Zone, limiter := LimiterCfg, listener := {Type, Listener}}) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Protocol = maps:get(protocol, ConnInfo, mqtt),
     MountPoint = case emqx_config:get_listener_conf(Type, Listener, [mountpoint]) of
         <<>> -> undefined;
         MP -> MP
     end,
-    QuotaPolicy = emqx_config:get_zone_conf(Zone, [quota], #{}),
     ClientInfo = set_peercert_infos(
                    Peercert,
                    #{zone         => Zone,
@@ -228,18 +228,13 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                                outbound => #{}
                               },
              auth_cache = #{},
-             quota      = emqx_limiter:init(Zone, quota_policy(QuotaPolicy)),
+             quota      = emqx_limiter_container:get_limiter_by_names([?LIMITER_ROUTING], LimiterCfg),
              timers     = #{},
              conn_state = idle,
              takeover   = false,
              resuming   = false,
              pendings   = []
             }.
-
-quota_policy(RawPolicy) ->
-    [{Name, {list_to_integer(StrCount),
-             erlang:trunc(hocon_postprocess:duration(StrWind) / 1000)}}
-     || {Name, [StrCount, StrWind]} <- maps:to_list(RawPolicy)].
 
 set_peercert_infos(NoSSL, ClientInfo, _)
   when NoSSL =:= nossl;
@@ -255,7 +250,7 @@ set_peercert_infos(Peercert, ClientInfo, Zone) ->
          dn  -> DN;
          crt -> Peercert;
          pem when is_binary(Peercert) -> base64:encode(Peercert);
-         md5 when is_binary(Peercert) -> emqx_passwd:hash(md5, Peercert);
+         md5 when is_binary(Peercert) -> emqx_passwd:hash_data(md5, Peercert);
          _   -> undefined
         end
     end,
@@ -653,10 +648,10 @@ ensure_quota(PubRes, Channel = #channel{quota = Limiter}) ->
                  ({_, _, {ok, I}}, N) -> N + I;
                  (_, N) -> N
               end, 1, PubRes),
-    case emqx_limiter:check(#{cnt => Cnt, oct => 0}, Limiter) of
+    case emqx_limiter_container:check(Cnt, ?LIMITER_ROUTING, Limiter) of
         {ok, NLimiter} ->
             Channel#channel{quota = NLimiter};
-        {pause, Intv, NLimiter} ->
+        {_, Intv, NLimiter} ->
             ensure_timer(quota_timer, Intv, Channel#channel{quota = NLimiter})
     end.
 
@@ -782,7 +777,21 @@ maybe_update_expiry_interval(_Properties, Channel) -> Channel.
 
 -spec(handle_deliver(list(emqx_types:deliver()), channel())
       -> {ok, channel()} | {ok, replies(), channel()}).
+
+handle_deliver(Delivers, Channel = #channel{takeover = true,
+                                            pendings = Pendings,
+                                            session = Session,
+                                            clientinfo = #{clientid := ClientId}}) ->
+    %% NOTE: Order is important here. While the takeover is in
+    %% progress, the session cannot enqueue messages, since it already
+    %% passed on the queue to the new connection in the session state.
+    NPendings = lists:append(
+                  Pendings,
+                  emqx_session:ignore_local(maybe_nack(Delivers), ClientId, Session)),
+    {ok, Channel#channel{pendings = NPendings}};
+
 handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
+                                            takeover   = false,
                                             session    = Session,
                                             clientinfo = #{clientid := ClientId}}) ->
     Delivers1 = maybe_nack(Delivers),
@@ -793,16 +802,8 @@ handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
     maybe_mark_as_delivered(Session, Delivers),
     {ok, NChannel};
 
-handle_deliver(Delivers, Channel = #channel{takeover = true,
-                                            pendings = Pendings,
-                                            session = Session,
-                                            clientinfo = #{clientid := ClientId}}) ->
-    NPendings = lists:append(
-                  Pendings,
-                  emqx_session:ignore_local(maybe_nack(Delivers), ClientId, Session)),
-    {ok, Channel#channel{pendings = NPendings}};
-
 handle_deliver(Delivers, Channel = #channel{session = Session,
+                                            takeover   = false,
                                             clientinfo = #{clientid := ClientId}
                                            }) ->
     case emqx_session:deliver(emqx_session:ignore_local(Delivers, ClientId, Session), Session) of
@@ -994,15 +995,14 @@ handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
     %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_misc:drain_deliver(),
     AllPendings = lists:append(Delivers, Pendings),
-    disconnect_and_shutdown(takeovered, AllPendings, Channel);
+    disconnect_and_shutdown(takenover, AllPendings, Channel);
 
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
 
-handle_call({quota, Policy}, Channel) ->
-    Zone = info(zone, Channel),
-    Quota = emqx_limiter:init(Zone, Policy),
-    reply(ok, Channel#channel{quota = Quota});
+handle_call({quota, Bucket}, #channel{quota = Quota} = Channel) ->
+    Quota2 = emqx_limiter_container:update_by_name(message_routing, Bucket, Quota),
+    reply(ok, Channel#channel{quota = Quota2});
 
 handle_call({keepalive, Interval}, Channel = #channel{keepalive = KeepAlive,
     conninfo = ConnInfo}) ->
@@ -1141,8 +1141,15 @@ handle_timeout(_TRef, will_message, Channel = #channel{will_msg = WillMsg}) ->
     (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
     {ok, clean_timer(will_timer, Channel#channel{will_msg = undefined})};
 
-handle_timeout(_TRef, expire_quota_limit, Channel) ->
-    {ok, clean_timer(quota_timer, Channel)};
+handle_timeout(_TRef, expire_quota_limit,
+               #channel{quota = Quota} = Channel) ->
+    case emqx_limiter_container:retry(?LIMITER_ROUTING, Quota) of
+        {_, Intv, Quota2} ->
+            Channel2 = ensure_timer(quota_timer, Intv, Channel#channel{quota = Quota2}),
+            {ok, Channel2};
+        {_, Quota2} ->
+            {ok, clean_timer(quota_timer, Channel#channel{quota = Quota2})}
+    end;
 
 handle_timeout(_TRef, Msg, Channel) ->
     ?SLOG(error, #{msg => "unexpected_timeout", timeout_msg => Msg}),
@@ -1201,7 +1208,7 @@ terminate(normal, Channel) ->
 terminate({shutdown, kicked}, Channel) ->
     run_terminate_hook(kicked, Channel);
 terminate({shutdown, Reason}, Channel) when Reason =:= discarded;
-                                            Reason =:= takeovered ->
+                                            Reason =:= takenover ->
     run_terminate_hook(Reason, Channel);
 terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
     (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
@@ -1635,8 +1642,6 @@ ensure_connected(Channel = #channel{conninfo = ConnInfo,
                                     clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
-    ChanPid = self(),
-    emqx_cm:mark_channel_connected(ChanPid),
     Channel#channel{conninfo   = NConnInfo,
                     conn_state = connected
                    }.
@@ -1754,7 +1759,7 @@ publish_will_msg(Msg) ->
 disconnect_reason(?RC_SUCCESS) -> normal;
 disconnect_reason(ReasonCode)  -> emqx_reason_codes:name(ReasonCode).
 
-reason_code(takeovered) -> ?RC_SESSION_TAKEN_OVER;
+reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
 reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER;
 reason_code(_) -> ?RC_NORMAL_DISCONNECTION.
 

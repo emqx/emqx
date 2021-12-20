@@ -179,7 +179,7 @@
 -define(SESSION_METRICS,
         [{counter, 'session.created'},
          {counter, 'session.resumed'},
-         {counter, 'session.takeovered'},
+         {counter, 'session.takenover'},
          {counter, 'session.discarded'},
          {counter, 'session.terminated'}
         ]).
@@ -581,7 +581,7 @@ reserved_idx('client.disconnected')          -> 209;
 
 reserved_idx('session.created')              -> 220;
 reserved_idx('session.resumed')              -> 221;
-reserved_idx('session.takeovered')           -> 222;
+reserved_idx('session.takenover')            -> 222;
 reserved_idx('session.discarded')            -> 223;
 reserved_idx('session.terminated')           -> 224;
 

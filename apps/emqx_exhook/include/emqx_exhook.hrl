@@ -33,7 +33,7 @@
       , {'session.unsubscribed',{emqx_exhook_handler, on_session_unsubscribed, []}}
       , {'session.resumed',     {emqx_exhook_handler, on_session_resumed,      []}}
       , {'session.discarded',   {emqx_exhook_handler, on_session_discarded,    []}}
-      , {'session.takeovered',  {emqx_exhook_handler, on_session_takeovered,   []}}
+      , {'session.takenover',   {emqx_exhook_handler, on_session_takenover,    []}}
       , {'session.terminated',  {emqx_exhook_handler, on_session_terminated,   []}}
       , {'message.publish',     {emqx_exhook_handler, on_message_publish,      []}}
       , {'message.delivered',   {emqx_exhook_handler, on_message_delivered,    []}}

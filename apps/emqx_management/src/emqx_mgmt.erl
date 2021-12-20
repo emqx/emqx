@@ -79,14 +79,6 @@
         , do_unsubscribe/2
         ]).
 
-%% Plugins
--export([ list_plugins/0
-        , list_plugins/1
-        , load_plugin/2
-        , unload_plugin/2
-        , reload_plugin/2
-        ]).
-
 %% Listeners
 -export([ list_listeners/0
         , list_listeners/1
@@ -149,7 +141,7 @@ node_info(Node) when Node =:= node() ->
     Info#{node              => node(),
           otp_release       => iolist_to_binary(otp_rel()),
           memory_total      => proplists:get_value(allocated, Memory),
-          memory_used       => proplists:get_value(total, Memory),
+          memory_used       => proplists:get_value(used, Memory),
           process_available => erlang:system_info(process_limit),
           process_used      => erlang:system_info(process_count),
 
@@ -458,33 +450,6 @@ do_unsubscribe(ClientId, Topic) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Plugins
-%%--------------------------------------------------------------------
-
-list_plugins() ->
-    [{Node, list_plugins(Node)} || Node <- mria_mnesia:running_nodes()].
-
-list_plugins(Node) when Node =:= node() ->
-    emqx_plugins:list();
-list_plugins(Node) ->
-    rpc_call(Node, list_plugins, [Node]).
-
-load_plugin(Node, Plugin) when Node =:= node() ->
-    emqx_plugins:load(Plugin);
-load_plugin(Node, Plugin) ->
-    rpc_call(Node, load_plugin, [Node, Plugin]).
-
-unload_plugin(Node, Plugin) when Node =:= node() ->
-    emqx_plugins:unload(Plugin);
-unload_plugin(Node, Plugin) ->
-    rpc_call(Node, unload_plugin, [Node, Plugin]).
-
-reload_plugin(Node, Plugin) when Node =:= node() ->
-    emqx_plugins:reload(Plugin);
-reload_plugin(Node, Plugin) ->
-    rpc_call(Node, reload_plugin, [Node, Plugin]).
-
-%%--------------------------------------------------------------------
 %% Listeners
 %%--------------------------------------------------------------------
 
@@ -650,4 +615,3 @@ max_row_limit() ->
     ?MAX_ROW_LIMIT.
 
 table_size(Tab) -> ets:info(Tab, size).
-

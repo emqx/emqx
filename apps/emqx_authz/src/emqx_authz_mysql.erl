@@ -21,9 +21,13 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
+-behaviour(emqx_authz).
+
 %% AuthZ Callbacks
 -export([ description/0
-        , parse_query/1
+        , init/1
+        , destroy/1
+        , dry_run/1
         , authorize/4
         ]).
 
@@ -35,16 +39,19 @@
 description() ->
     "AuthZ with Mysql".
 
-parse_query(undefined) ->
-    undefined;
-parse_query(Sql) ->
-    case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
-        {match, Variables} ->
-            Params = [Var || [Var] <- Variables],
-            {re:replace(Sql, ?RE_PLACEHOLDER, "?", [global, {return, list}]), Params};
-        nomatch ->
-            {Sql, []}
+init(#{query := SQL} = Source) ->
+    case emqx_authz_utils:create_resource(emqx_connector_mysql, Source) of
+        {error, Reason} -> error({load_config_error, Reason});
+        {ok, Id} -> Source#{annotations =>
+                            #{id => Id,
+                              query => parse_query(SQL)}}
     end.
+
+dry_run(Source) ->
+    emqx_resource:create_dry_run(emqx_connector_mysql, Source).
+
+destroy(#{annotations := #{id := Id}}) ->
+    ok = emqx_resource:remove(Id).
 
 authorize(Client, PubSub, Topic,
             #{annotations := #{id := ResourceID,
@@ -60,6 +67,15 @@ authorize(Client, PubSub, Topic,
                           , reason => Reason
                           , resource_id => ResourceID}),
             nomatch
+    end.
+
+parse_query(Sql) ->
+    case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
+        {match, Variables} ->
+            Params = [Var || [Var] <- Variables],
+            {re:replace(Sql, ?RE_PLACEHOLDER, "?", [global, {return, list}]), Params};
+        nomatch ->
+            {Sql, []}
     end.
 
 do_authorize(_Client, _PubSub, _Topic, _Columns, []) ->
@@ -92,8 +108,8 @@ replvar([], _ClientInfo, Acc) ->
 
 replvar([?PH_S_USERNAME | Params], ClientInfo, Acc) ->
     replvar(Params, ClientInfo, [safe_get(username, ClientInfo) | Acc]);
-replvar([?PH_S_CLIENTID | Params], ClientInfo = #{clientid := ClientId}, Acc) ->
-    replvar(Params, ClientInfo, [ClientId | Acc]);
+replvar([?PH_S_CLIENTID | Params], ClientInfo = #{clientid := _ClientId}, Acc) ->
+    replvar(Params, ClientInfo, [safe_get(clientid, ClientInfo) | Acc]);
 replvar([?PH_S_PEERHOST | Params], ClientInfo = #{peerhost := IpAddr}, Acc) ->
     replvar(Params, ClientInfo, [inet_parse:ntoa(IpAddr) | Acc]);
 replvar([?PH_S_CERT_CN_NAME | Params], ClientInfo, Acc) ->

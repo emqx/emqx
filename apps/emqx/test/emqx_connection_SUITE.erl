@@ -39,7 +39,7 @@ init_per_suite(Config) ->
     ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
     ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
     %% Meck Limiter
-    ok = meck:new(emqx_limiter, [passthrough, no_history, no_link]),
+    ok = meck:new(emqx_htb_limiter, [passthrough, no_history, no_link]),
     %% Meck Pd
     ok = meck:new(emqx_pd, [passthrough, no_history, no_link]),
     %% Meck Metrics
@@ -59,18 +59,20 @@ init_per_suite(Config) ->
     ok = meck:expect(emqx_alarm, deactivate, fun(_) -> ok end),
     ok = meck:expect(emqx_alarm, deactivate, fun(_, _) -> ok end),
 
-    emqx_channel_SUITE:set_test_listenser_confs(),
+    emqx_channel_SUITE:set_test_listener_confs(),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
     ok = meck:unload(emqx_transport),
     catch meck:unload(emqx_channel),
     ok = meck:unload(emqx_cm),
-    ok = meck:unload(emqx_limiter),
+    ok = meck:unload(emqx_htb_limiter),
     ok = meck:unload(emqx_pd),
     ok = meck:unload(emqx_metrics),
     ok = meck:unload(emqx_hooks),
     ok = meck:unload(emqx_alarm),
+    emqx_common_test_helpers:stop_apps([]),
     ok.
 
 init_per_testcase(TestCase, Config) when
@@ -129,8 +131,9 @@ t_info(_) ->
                     socktype := tcp}, SockInfo).
 
 t_info_limiter(_) ->
-    St = st(#{limiter => emqx_limiter:init(default, [])}),
-    ?assertEqual(undefined, emqx_connection:info(limiter, St)).
+    Limiter = init_limiter(),
+    St = st(#{limiter => Limiter}),
+    ?assertEqual(Limiter, emqx_connection:info(limiter, St)).
 
 t_stats(_) ->
     CPid = spawn(fun() ->
@@ -250,24 +253,22 @@ t_handle_msg_shutdown(_) ->
     ?assertMatch({stop, {shutdown, for_testing}, _St}, handle_msg({shutdown, for_testing}, st())).
 
 t_handle_call(_) ->
-    St = st(),
+    St = st(#{limiter => init_limiter()}),
     ?assertMatch({ok, _St}, handle_msg({event, undefined}, St)),
     ?assertMatch({reply, _Info, _NSt}, handle_call(self(), info, St)),
     ?assertMatch({reply, _Stats, _NSt}, handle_call(self(), stats, St)),
     ?assertMatch({reply, ok, _NSt}, handle_call(self(), {ratelimit, []}, St)),
     ?assertMatch({reply, ok, _NSt},
-                 handle_call(self(), {ratelimit, [{conn_messages_in, {100, 1}}]}, St)),
+                 handle_call(self(), {ratelimit, [{bytes_in, default}]}, St)),
     ?assertEqual({reply, ignored, St}, handle_call(self(), for_testing, St)),
     ?assertMatch({stop, {shutdown,kicked}, ok, _NSt},
                  handle_call(self(), kick, St)).
 
 t_handle_timeout(_) ->
     TRef = make_ref(),
-    State = st(#{idle_timer => TRef, limit_timer => TRef, stats_timer => TRef}),
+    State = st(#{idle_timer => TRef, stats_timer => TRef, limiter => init_limiter()}),
     ?assertMatch({stop, {shutdown,idle_timeout}, _NState},
                  emqx_connection:handle_timeout(TRef, idle_timeout, State)),
-    ?assertMatch({ok, {event,running}, _NState},
-                 emqx_connection:handle_timeout(TRef, limit_timeout, State)),
     ?assertMatch({ok, _NState},
                  emqx_connection:handle_timeout(TRef, emit_stats, State)),
     ?assertMatch({ok, _NState},
@@ -279,13 +280,15 @@ t_handle_timeout(_) ->
     ?assertMatch({ok, _NState}, emqx_connection:handle_timeout(TRef, undefined, State)).
 
 t_parse_incoming(_) ->
-    ?assertMatch({ok, [], _NState}, emqx_connection:parse_incoming(<<>>, st())),
+    ?assertMatch({[], _NState}, emqx_connection:parse_incoming(<<>>, [], st())),
     ?assertMatch({[], _NState}, emqx_connection:parse_incoming(<<"for_testing">>, [], st())).
 
 t_next_incoming_msgs(_) ->
-    ?assertEqual({incoming, packet}, emqx_connection:next_incoming_msgs([packet])),
-    ?assertEqual([{incoming, packet2}, {incoming, packet1}],
-                 emqx_connection:next_incoming_msgs([packet1, packet2])).
+    State = st(#{}),
+    ?assertEqual({ok, [{incoming, packet}], State},
+                 emqx_connection:next_incoming_msgs([packet], [], State)),
+    ?assertEqual({ok, [{incoming, packet2}, {incoming, packet1}], State},
+                 emqx_connection:next_incoming_msgs([packet1, packet2], [], State)).
 
 t_handle_incoming(_) ->
     ?assertMatch({ok, _Out, _NState},
@@ -331,26 +334,28 @@ t_handle_info(_) ->
     ?assertMatch({ok, _NState}, emqx_connection:handle_info(for_testing, st())).
 
 t_ensure_rate_limit(_) ->
-    State = emqx_connection:ensure_rate_limit(#{}, st(#{limiter => undefined})),
+    WhenOk = fun emqx_connection:next_incoming_msgs/3,
+    {ok, [], State} = emqx_connection:check_limiter([], [], WhenOk, [], st(#{limiter => undefined})),
     ?assertEqual(undefined, emqx_connection:info(limiter, State)),
 
-    ok = meck:expect(emqx_limiter, check,
-                     fun(_, _) -> {ok, emqx_limiter:init(default, [])} end),
-    State1 = emqx_connection:ensure_rate_limit(#{}, st(#{limiter => #{}})),
-    ?assertEqual(undefined, emqx_connection:info(limiter, State1)),
+    Limiter = init_limiter(),
+    {ok, [], State1} = emqx_connection:check_limiter([], [], WhenOk, [], st(#{limiter => Limiter})),
+    ?assertEqual(Limiter, emqx_connection:info(limiter, State1)),
 
-    ok = meck:expect(emqx_limiter, check,
-                     fun(_, _) -> {pause, 3000, emqx_limiter:init(default, [])} end),
-    State2 = emqx_connection:ensure_rate_limit(#{}, st(#{limiter => #{}})),
-    ?assertEqual(undefined, emqx_connection:info(limiter, State2)),
-    ?assertEqual(blocked, emqx_connection:info(sockstate, State2)).
+    ok = meck:expect(emqx_htb_limiter, check,
+                     fun(_, Client) -> {pause, 3000, undefined, Client} end),
+    {ok, State2} = emqx_connection:check_limiter([{1000, bytes_in}], [], WhenOk, [], st(#{limiter => Limiter})),
+    meck:unload(emqx_htb_limiter),
+    ok = meck:new(emqx_htb_limiter, [passthrough, no_history, no_link]),
+    ?assertNotEqual(undefined, emqx_connection:info(limiter_timer, State2)).
 
 t_activate_socket(_) ->
-    State = st(),
+    Limiter = init_limiter(),
+    State = st(#{limiter => Limiter}),
     {ok, NStats} = emqx_connection:activate_socket(State),
     ?assertEqual(running, emqx_connection:info(sockstate, NStats)),
 
-    State1 = st(#{sockstate => blocked}),
+    State1 = st(#{sockstate => blocked, limiter_timer => any_timer}),
     ?assertEqual({ok, State1}, emqx_connection:activate_socket(State1)),
 
     State2 = st(#{sockstate => closed}),
@@ -458,7 +463,10 @@ with_conn(TestFun, Opts) when is_map(Opts) ->
     TrapExit = maps:get(trap_exit, Opts, false),
     process_flag(trap_exit, TrapExit),
     {ok, CPid} = emqx_connection:start_link(emqx_transport, sock,
-        maps:merge(Opts, #{zone => default, listener => {tcp, default}})),
+                                            maps:merge(Opts,
+                                                       #{zone => default,
+                                                         limiter => limiter_cfg(),
+                                                         listener => {tcp, default}})),
     TestFun(CPid),
     TrapExit orelse emqx_connection:stop(CPid),
     ok.
@@ -481,7 +489,8 @@ st(InitFields) when is_map(InitFields) ->
     st(InitFields, #{}).
 st(InitFields, ChannelFields) when is_map(InitFields) ->
     St = emqx_connection:init_state(emqx_transport, sock, #{zone => default,
-        listener => {tcp, default}}),
+                                                            limiter => limiter_cfg(),
+                                                            listener => {tcp, default}}),
     maps:fold(fun(N, V, S) -> emqx_connection:set_field(N, V, S) end,
               emqx_connection:set_field(channel, channel(ChannelFields), St),
               InitFields
@@ -515,7 +524,7 @@ channel(InitFields) ->
     maps:fold(fun(Field, Value, Channel) ->
                 emqx_channel:set_field(Field, Value, Channel)
               end,
-              emqx_channel:init(ConnInfo, #{zone => default, listener => {tcp, default}}),
+              emqx_channel:init(ConnInfo, #{zone => default, limiter => limiter_cfg(), listener => {tcp, default}}),
               maps:merge(#{clientinfo => ClientInfo,
                            session    => Session,
                            conn_state => connected
@@ -524,3 +533,8 @@ channel(InitFields) ->
 handle_msg(Msg, St) -> emqx_connection:handle_msg(Msg, St).
 
 handle_call(Pid, Call, St) -> emqx_connection:handle_call(Pid, Call, St).
+
+limiter_cfg() -> #{}.
+
+init_limiter() ->
+    emqx_limiter_container:get_limiter_by_names([bytes_in, message_in], limiter_cfg()).

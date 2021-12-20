@@ -63,10 +63,6 @@
           sockstate :: emqx_types:sockstate(),
           %% MQTT Piggyback
           mqtt_piggyback :: single | multiple,
-          %% Limiter
-          limiter :: maybe(emqx_limiter:limiter()),
-          %% Limit Timer
-          limit_timer :: maybe(reference()),
           %% Parse State
           parse_state :: emqx_frame:parse_state(),
           %% Serialize options
@@ -86,10 +82,30 @@
           %% Zone name
           zone :: atom(),
           %% Listener Type and Name
-          listener :: {Type::atom(), Name::atom()}
-        }).
+          listener :: {Type::atom(), Name::atom()},
+
+          %% Limiter
+          limiter :: maybe(container()),
+
+          %% cache operation when overload
+          limiter_cache :: queue:queue(cache()),
+
+           %% limiter timers
+          limiter_timer :: undefined | reference()
+          }).
+
+-record(retry, { types :: list(limiter_type())
+               , data :: any()
+               , next :: check_succ_handler()
+               }).
+
+-record(cache, { need :: list({pos_integer(), limiter_type()})
+               , data :: any()
+               , next :: check_succ_handler()
+               }).
 
 -type(state() :: #state{}).
+-type cache() :: #cache{}.
 
 -type(ws_cmd() :: {active, boolean()}|close).
 
@@ -99,6 +115,8 @@
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
 -define(ENABLED(X), (X =/= undefined)).
+-define(LIMITER_BYTES_IN, bytes_in).
+-define(LIMITER_MESSAGE_IN, message_in).
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer({nowarn_function, [websocket_init/1]}).
@@ -126,7 +144,7 @@ info(sockname, #state{sockname = Sockname}) ->
 info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
 info(limiter, #state{limiter = Limiter}) ->
-    maybe_apply(fun emqx_limiter:info/1, Limiter);
+    Limiter;
 info(channel, #state{channel = Channel}) ->
     emqx_channel:info(Channel);
 info(gc_state, #state{gc_state = GcSt}) ->
@@ -242,7 +260,8 @@ check_origin_header(Req, #{listener := {Type, Listener}} = Opts) ->
         false -> ok
     end.
 
-websocket_init([Req, #{zone := Zone, listener := {Type, Listener}} = Opts]) ->
+websocket_init([Req,
+                #{zone := Zone, limiter := LimiterCfg, listener := {Type, Listener}} = Opts]) ->
     {Peername, Peercert} =
         case emqx_config:get_listener_conf(Type, Listener, [proxy_protocol]) andalso
              maps:get(proxy_header, Req) of
@@ -279,7 +298,7 @@ websocket_init([Req, #{zone := Zone, listener := {Type, Listener}} = Opts]) ->
                  ws_cookie => WsCookie,
                  conn_mod  => ?MODULE
                 },
-    Limiter = emqx_limiter:init(Zone, undefined, undefined, []),
+    Limiter = emqx_limiter_container:get_limiter_by_names([?LIMITER_BYTES_IN, ?LIMITER_MESSAGE_IN], LimiterCfg),
     MQTTPiggyback = get_ws_opts(Type, Listener, mqtt_piggyback),
     FrameOpts = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
@@ -319,7 +338,9 @@ websocket_init([Req, #{zone := Zone, listener := {Type, Listener}} = Opts]) ->
                 idle_timeout   = IdleTimeout,
                 idle_timer     = IdleTimer,
                 zone           = Zone,
-                listener       = {Type, Listener}
+                listener       = {Type, Listener},
+                limiter_timer  = undefined,
+                limiter_cache  = queue:new()
                }, hibernate}.
 
 websocket_handle({binary, Data}, State) when is_list(Data) ->
@@ -327,9 +348,17 @@ websocket_handle({binary, Data}, State) when is_list(Data) ->
 
 websocket_handle({binary, Data}, State) ->
     ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => websocket}),
-    ok = inc_recv_stats(1, iolist_size(Data)),
-    NState = ensure_stats_timer(State),
-    return(parse_incoming(Data, NState));
+    State2 = ensure_stats_timer(State),
+    {Packets, State3} = parse_incoming(Data, [], State2),
+    LenMsg = erlang:length(Packets),
+    ByteSize = erlang:iolist_size(Data),
+    inc_recv_stats(LenMsg, ByteSize),
+    State4 = check_limiter([{ByteSize, ?LIMITER_BYTES_IN}, {LenMsg, ?LIMITER_MESSAGE_IN}],
+                           Packets,
+                           fun when_msg_in/3,
+                           [],
+                           State3),
+    return(State4);
 
 %% Pings should be replied with pongs, cowboy does it automatically
 %% Pongs can be safely ignored. Clause here simply prevents crash.
@@ -343,7 +372,6 @@ websocket_handle({Frame, _}, State) ->
     %% TODO: should not close the ws connection
     ?SLOG(error, #{msg => "unexpected_frame", frame => Frame}),
     shutdown(unexpected_ws_frame, State).
-
 websocket_info({call, From, Req}, State) ->
     handle_call(From, Req, State);
 
@@ -351,8 +379,7 @@ websocket_info({cast, rate_limit}, State) ->
     Stats = #{cnt => emqx_pd:reset_counter(incoming_pubs),
               oct => emqx_pd:reset_counter(incoming_bytes)
              },
-    NState = postpone({check_gc, Stats}, State),
-    return(ensure_rate_limit(Stats, NState));
+    return(postpone({check_gc, Stats}, State));
 
 websocket_info({cast, Msg}, State) ->
     handle_info(Msg, State);
@@ -377,12 +404,18 @@ websocket_info(Deliver = {deliver, _Topic, _Msg},
     Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 
-websocket_info({timeout, TRef, limit_timeout},
-               State = #state{limit_timer = TRef}) ->
-    NState = State#state{sockstate   = running,
-                         limit_timer = undefined
-                        },
-    return(enqueue({active, true}, NState));
+websocket_info({timeout, _, limit_timeout},
+               State) ->
+    return(retry_limiter(State));
+
+websocket_info(check_cache, #state{limiter_cache = Cache} = State) ->
+    case queue:peek(Cache) of
+        empty ->
+            return(enqueue({active, true}, State#state{sockstate = running}));
+        {value, #cache{need = Needs, data = Data, next = Next}} ->
+            State2 = State#state{limiter_cache = queue:drop(Cache)},
+            return(check_limiter(Needs, Data, Next, [check_cache], State2))
+    end;
 
 websocket_info({timeout, TRef, Msg}, State) when is_reference(TRef) ->
     handle_timeout(TRef, Msg, State);
@@ -421,10 +454,9 @@ handle_call(From, stats, State) ->
     gen_server:reply(From, stats(State)),
     return(State);
 
-handle_call(_From, {ratelimit, Policy}, State = #state{channel = Channel}) ->
-    Zone = emqx_channel:info(zone, Channel),
-    Limiter = emqx_limiter:init(Zone, Policy),
-    {reply, ok, State#state{limiter = Limiter}};
+handle_call(_From, {ratelimit, Type, Bucket}, State = #state{limiter = Limiter}) ->
+    Limiter2 = emqx_limiter_container:update_by_name(Type, Bucket, Limiter),
+    {reply, ok, State#state{limiter = Limiter2}};
 
 handle_call(From, Req, State = #state{channel = Channel}) ->
     case emqx_channel:handle_call(Req, Channel) of
@@ -495,20 +527,79 @@ handle_timeout(TRef, TMsg, State) ->
 %% Ensure rate limit
 %%--------------------------------------------------------------------
 
-ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
-    case ?ENABLED(Limiter) andalso emqx_limiter:check(Stats, Limiter) of
-        false -> State;
-        {ok, Limiter1} ->
-            State#state{limiter = Limiter1};
-        {pause, Time, Limiter1} ->
-            ?SLOG(warning, #{msg => "pause_due_to_rate_limit", time => Time}),
-            TRef = start_timer(Time, limit_timeout),
-            NState = State#state{sockstate   = blocked,
-                                 limiter     = Limiter1,
-                                 limit_timer = TRef
-                                },
-            enqueue({active, false}, NState)
+-type limiter_type() :: emqx_limiter_container:limiter_type().
+-type container() :: emqx_limiter_container:container().
+-type check_succ_handler() ::
+        fun((any(), list(any()), state()) -> state()).
+
+-spec check_limiter(list({pos_integer(), limiter_type()}),
+                    any(),
+                    check_succ_handler(),
+                    list(any()),
+                    state()) -> state().
+check_limiter(Needs,
+              Data,
+              WhenOk,
+              Msgs,
+              #state{limiter = Limiter,
+                     limiter_timer = LimiterTimer,
+                     limiter_cache = Cache} = State) ->
+    case LimiterTimer of
+        undefined ->
+            case emqx_limiter_container:check_list(Needs, Limiter) of
+                {ok, Limiter2} ->
+                    WhenOk(Data, Msgs, State#state{limiter = Limiter2});
+                {pause, Time, Limiter2} ->
+                    ?SLOG(warning, #{msg => "pause time dueto rate limit",
+                                     needs => Needs,
+                                     time_in_ms => Time}),
+
+                    Retry = #retry{types = [Type || {_, Type} <- Needs],
+                                   data = Data,
+                                   next = WhenOk},
+
+                    Limiter3 = emqx_limiter_container:set_retry_context(Retry, Limiter2),
+
+                    TRef = start_timer(Time, limit_timeout),
+
+                    enqueue({active, false},
+                            State#state{sockstate = blocked,
+                                        limiter = Limiter3,
+                                        limiter_timer = TRef});
+                {drop, Limiter2} ->
+                    {ok, State#state{limiter = Limiter2}}
+            end;
+        _ ->
+            New = #cache{need = Needs, data = Data, next = WhenOk},
+            State#state{limiter_cache = queue:in(New, Cache)}
     end.
+
+
+-spec retry_limiter(state()) -> state().
+retry_limiter(#state{limiter = Limiter} = State) ->
+    #retry{types = Types, data = Data, next = Next} = emqx_limiter_container:get_retry_context(Limiter),
+    case emqx_limiter_container:retry_list(Types, Limiter) of
+        {ok, Limiter2} ->
+            Next(Data,
+                 [check_cache],
+                 State#state{ limiter = Limiter2
+                            , limiter_timer = undefined
+                            });
+        {pause, Time, Limiter2} ->
+            ?SLOG(warning, #{msg => "pause time dueto rate limit",
+                             types => Types,
+                             time_in_ms => Time}),
+
+            TRef = start_timer(Time, limit_timeout),
+
+            State#state{limiter = Limiter2, limiter_timer = TRef}
+    end.
+
+when_msg_in(Packets, [], State) ->
+    postpone(Packets, State);
+
+when_msg_in(Packets, Msgs, State) ->
+    postpone(Packets, enqueue(Msgs, State)).
 
 %%--------------------------------------------------------------------
 %% Run GC, Check OOM
@@ -538,16 +629,16 @@ check_oom(State = #state{channel = Channel}) ->
 %% Parse incoming data
 %%--------------------------------------------------------------------
 
-parse_incoming(<<>>, State) ->
-    State;
+parse_incoming(<<>>, Packets, State) ->
+    {Packets, State};
 
-parse_incoming(Data, State = #state{parse_state = ParseState}) ->
+parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {more, NParseState} ->
-            State#state{parse_state = NParseState};
+            {Packets, State#state{parse_state = NParseState}};
         {ok, Packet, Rest, NParseState} ->
             NState = State#state{parse_state = NParseState},
-            parse_incoming(Rest, postpone({incoming, Packet}, NState))
+            parse_incoming(Rest, [{incoming, Packet} | Packets], NState)
     catch
         throw : ?FRAME_PARSE_ERROR(Reason) ->
             ?SLOG(info, #{ reason => Reason
@@ -555,7 +646,7 @@ parse_incoming(Data, State = #state{parse_state = ParseState}) ->
                          , input_bytes => Data
                          }),
             FrameError = {frame_error, Reason},
-            postpone({incoming, FrameError}, State);
+            {[{incoming, FrameError} | Packets], State};
         error : Reason : Stacktrace ->
             ?SLOG(error, #{ at_state => emqx_frame:describe_state(ParseState)
                           , input_bytes => Data
@@ -563,7 +654,7 @@ parse_incoming(Data, State = #state{parse_state = ParseState}) ->
                           , stacktrace => Stacktrace
                           }),
             FrameError = {frame_error, Reason},
-            postpone({incoming, FrameError}, State)
+            {[{incoming, FrameError} | Packets], State}
     end.
 
 %%--------------------------------------------------------------------

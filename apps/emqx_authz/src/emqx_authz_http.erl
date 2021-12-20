@@ -21,9 +21,15 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
+-behaviour(emqx_authz).
+
 %% AuthZ Callbacks
--export([ authorize/4
-        , description/0
+-export([ description/0
+        , init/1
+        , destroy/1
+        , dry_run/1
+        , authorize/4
+        , parse_url/1
         ]).
 
 -ifdef(TEST).
@@ -34,9 +40,24 @@
 description() ->
     "AuthZ with http".
 
+init(#{url := Url} = Source) ->
+    NSource = maps:put(base_url, maps:remove(query, Url), Source),
+    case emqx_authz_utils:create_resource(emqx_connector_http, NSource) of
+        {error, Reason} -> error({load_config_error, Reason});
+        {ok, Id} -> Source#{annotations => #{id => Id}}
+    end.
+
+destroy(#{annotations := #{id := Id}}) ->
+    ok = emqx_resource:remove(Id).
+
+dry_run(Source) ->
+    URIMap = maps:get(url, Source),
+    NSource = maps:put(base_url, maps:remove(query, URIMap), Source),
+    emqx_resource:create_dry_run(emqx_connector_http, NSource).
+
 authorize(Client, PubSub, Topic,
             #{type := http,
-              url := #{path := Path} = Url,
+              url := #{path := Path} = URL,
               headers := Headers,
               method := Method,
               request_timeout := RequestTimeout,
@@ -44,7 +65,7 @@ authorize(Client, PubSub, Topic,
              } = Source) ->
     Request = case Method of
                   get  ->
-                      Query = maps:get(query, Url, ""),
+                      Query = maps:get(query, URL, ""),
                       Path1 = replvar(Path ++ "?" ++ Query, PubSub, Topic, Client),
                       {Path1, maps:to_list(Headers)};
                   _ ->
@@ -56,10 +77,32 @@ authorize(Client, PubSub, Topic,
                       Path1 = replvar(Path, PubSub, Topic, Client),
                       {Path1, maps:to_list(Headers), Body1}
               end,
-    case emqx_resource:query(ResourceID,  {Method, Request, RequestTimeout}) of
-        {ok, 204, _Headers} -> {matched, allow};
-        {ok, 200, _Headers, _Body} -> {matched, allow};
-        _ -> nomatch
+    case emqx_resource:query(ResourceID, {Method, Request, RequestTimeout}) of
+        {ok, 200, _Headers} ->
+            {matched, allow};
+        {ok, 204, _Headers} ->
+            {matched, allow};
+        {ok, 200, _Headers, _Body} ->
+            {matched, allow};
+        {ok, _Status, _Headers, _Body} ->
+            nomatch;
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "http_server_query_failed",
+                           resource => ResourceID,
+                           reason => Reason}),
+            ignore
+    end.
+
+parse_url(URL)
+  when URL =:= undefined ->
+    #{};
+parse_url(URL) ->
+    {ok, URIMap} = emqx_http_lib:uri_parse(URL),
+    case maps:get(query, URIMap, undefined) of
+        undefined ->
+            URIMap#{query => ""};
+        _ ->
+            URIMap
     end.
 
 query_string(Body) ->
@@ -88,7 +131,7 @@ replvar(Str0, PubSub, Topic,
                  is_binary(Str0) ->
     NTopic = emqx_http_lib:uri_encode(Topic),
     Str1 = re:replace( Str0, emqx_authz:ph_to_re(?PH_S_CLIENTID)
-                     , Clientid, [global, {return, binary}]),
+                     , bin(Clientid), [global, {return, binary}]),
     Str2 = re:replace( Str1, emqx_authz:ph_to_re(?PH_S_USERNAME)
                      , bin(Username), [global, {return, binary}]),
     Str3 = re:replace( Str2, emqx_authz:ph_to_re(?PH_S_HOST)
@@ -96,9 +139,9 @@ replvar(Str0, PubSub, Topic,
     Str4 = re:replace( Str3, emqx_authz:ph_to_re(?PH_S_PROTONAME)
                      , bin(Protocol), [global, {return, binary}]),
     Str5 = re:replace( Str4, emqx_authz:ph_to_re(?PH_S_MOUNTPOINT)
-                     , Mountpoint, [global, {return, binary}]),
+                     , bin(Mountpoint), [global, {return, binary}]),
     Str6 = re:replace( Str5, emqx_authz:ph_to_re(?PH_S_TOPIC)
-                     , NTopic, [global, {return, binary}]),
+                     , bin(NTopic), [global, {return, binary}]),
     Str7 = re:replace( Str6, emqx_authz:ph_to_re(?PH_S_ACTION)
                      , bin(PubSub), [global, {return, binary}]),
     Str7.

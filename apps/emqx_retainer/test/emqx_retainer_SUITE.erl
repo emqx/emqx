@@ -55,6 +55,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_retainer]).
+
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
@@ -193,6 +194,21 @@ t_clean(_) ->
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(0, length(receive_messages(3))),
 
+    ok = emqtt:disconnect(C1).
+
+t_stop_publish_clear_msg(_) ->
+    emqx_retainer:update_config(#{<<"stop_publish_clear_msg">> => true}),
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+    emqtt:publish(C1, <<"retained/0">>, <<"this is a retained message 0">>, [{qos, 0}, {retain, true}]),
+
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
+    ?assertEqual(1, length(receive_messages(1))),
+
+    emqtt:publish(C1, <<"retained/0">>, <<"">>, [{qos, 0}, {retain, true}]),
+    ?assertEqual(0, length(receive_messages(1))),
+
+    emqx_retainer:update_config(#{<<"stop_publish_clear_msg">> => false}),
     ok = emqtt:disconnect(C1).
 
 t_flow_control(_) ->

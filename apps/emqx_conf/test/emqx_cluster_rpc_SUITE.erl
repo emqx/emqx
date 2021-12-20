@@ -33,7 +33,8 @@ all() -> [
     t_commit_ok_but_apply_fail_on_other_node,
     t_commit_ok_apply_fail_on_other_node_then_recover,
     t_del_stale_mfa,
-    t_skip_failed_commit
+    t_skip_failed_commit,
+    t_fast_forward_commit
 ].
 suite() -> [{timetrap, {minutes, 3}}].
 groups() -> [].
@@ -183,10 +184,34 @@ t_skip_failed_commit(_Config) ->
     ?assertEqual([{Node, 1}, {{Node, ?NODE2}, 1}, {{Node, ?NODE3}, 1}],
         tnx_ids(List1)),
     {M, F, A} = {?MODULE, failed_on_node, [erlang:whereis(?NODE1)]},
-    {ok, _, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
-    ok = gen_server:call(?NODE2, skip_failed_commit, 5000),
+    {ok, 2, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
+    2 = gen_server:call(?NODE2, skip_failed_commit, 5000),
     {atomic, List2} = emqx_cluster_rpc:status(),
     ?assertEqual([{Node, 2}, {{Node, ?NODE2}, 2}, {{Node, ?NODE3}, 1}],
+        tnx_ids(List2)),
+    ok.
+
+t_fast_forward_commit(_Config) ->
+    emqx_cluster_rpc:reset(),
+    {atomic, []} = emqx_cluster_rpc:status(),
+    {ok, 1, ok} = emqx_cluster_rpc:multicall(io, format, ["test~n"], all, 1000),
+    ct:sleep(180),
+    {atomic, List1} = emqx_cluster_rpc:status(),
+    Node = node(),
+    ?assertEqual([{Node, 1}, {{Node, ?NODE2}, 1}, {{Node, ?NODE3}, 1}],
+        tnx_ids(List1)),
+    {M, F, A} = {?MODULE, failed_on_node, [erlang:whereis(?NODE1)]},
+    {ok, 2, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
+    {ok, 3, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
+    {ok, 4, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
+    {ok, 5, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
+    {retry, 6, ok, _} = emqx_cluster_rpc:multicall(M, F, A, 2, 1000),
+    3 = gen_server:call(?NODE2, {fast_forward_to_commit, 3}, 5000),
+    4 = gen_server:call(?NODE2, {fast_forward_to_commit, 4}, 5000),
+    6 = gen_server:call(?NODE2, {fast_forward_to_commit, 7}, 5000),
+    2 = gen_server:call(?NODE3, {fast_forward_to_commit, 2}, 5000),
+    {atomic, List2} = emqx_cluster_rpc:status(),
+    ?assertEqual([{Node, 6}, {{Node, ?NODE2}, 6}, {{Node, ?NODE3}, 2}],
         tnx_ids(List2)),
     ok.
 

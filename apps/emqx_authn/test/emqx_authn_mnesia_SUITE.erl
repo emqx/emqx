@@ -29,6 +29,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    _ = application:load(emqx_conf),
     emqx_common_test_helpers:start_apps([emqx_authn]),
     Config.
 
@@ -37,7 +38,8 @@ end_per_suite(_) ->
     ok.
 
 init_per_testcase(_Case, Config) ->
-    mnesia:clear_table(emqx_authn_mnesia),
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    mria:clear_table(emqx_authn_mnesia),
     Config.
 
 end_per_testcase(_Case, Config) ->
@@ -46,6 +48,8 @@ end_per_testcase(_Case, Config) ->
 %%------------------------------------------------------------------------------
 %% Tests
 %%------------------------------------------------------------------------------
+
+-define(CONF(Conf), #{?CONF_NS_BINARY => Conf}).
 
 t_check_schema(_Config) ->
     ConfigOk = #{
@@ -58,7 +62,7 @@ t_check_schema(_Config) ->
         }
     },
 
-    hocon_schema:check_plain(emqx_authn_mnesia, #{<<"config">> => ConfigOk}),
+    hocon_schema:check_plain(emqx_authn_mnesia, ?CONF(ConfigOk)),
 
     ConfigNotOk = #{
         <<"mechanism">> => <<"password-based">>,
@@ -72,7 +76,7 @@ t_check_schema(_Config) ->
     ?assertException(
         throw,
         {emqx_authn_mnesia, _},
-        hocon_schema:check_plain(emqx_authn_mnesia, #{<<"config">> => ConfigNotOk})).
+        hocon_schema:check_plain(emqx_authn_mnesia, ?CONF(ConfigNotOk))).
 
 t_create(_) ->
     Config0 = config(),

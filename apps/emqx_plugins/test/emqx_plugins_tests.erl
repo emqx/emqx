@@ -1,0 +1,103 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+-module(emqx_plugins_tests).
+
+-include_lib("eunit/include/eunit.hrl").
+
+ensure_configured_test() ->
+    try test_ensure_configured()
+    after emqx_plugins:put_configured([])
+    end.
+
+test_ensure_configured() ->
+    ok = emqx_plugins:put_configured([]),
+    P1 =#{name_vsn => "p-1", enable => true},
+    P2 =#{name_vsn => "p-2", enable => true},
+    P3 =#{name_vsn => "p-3", enable => false},
+    emqx_plugins:ensure_configured(P1, front),
+    emqx_plugins:ensure_configured(P2, {before, <<"p-1">>}),
+    emqx_plugins:ensure_configured(P3, {before, <<"p-1">>}),
+    ?assertEqual([P2, P3, P1], emqx_plugins:configured()),
+    ?assertThrow(#{error := "position_anchor_plugin_not_configured"},
+                 emqx_plugins:ensure_configured(P3, {before, <<"unknown-x">>})).
+
+read_plugin_test() ->
+    with_rand_install_dir(
+        fun(_Dir) ->
+            NameVsn = "bar-5",
+            InfoFile = emqx_plugins:info_file(NameVsn),
+            FakeInfo = "name=bar, rel_vsn=\"5\", rel_apps=[justname_no_vsn],"
+                       "description=\"desc bar\"",
+            try
+                ok = write_file(InfoFile, FakeInfo),
+                ?assertMatch({error, #{error := "bad_rel_apps"}},
+                             emqx_plugins:read_plugin(NameVsn))
+            after
+                emqx_plugins:purge(NameVsn)
+            end
+        end).
+
+with_rand_install_dir(F) ->
+    N = rand:uniform(10000000),
+    TmpDir = integer_to_list(N),
+    OriginalInstallDir = emqx_plugins:install_dir(),
+    ok = filelib:ensure_dir(filename:join([TmpDir, "foo"])),
+    ok = emqx_plugins:put_config(install_dir, TmpDir),
+    try
+        F(TmpDir)
+    after
+        file:del_dir_r(TmpDir),
+        ok = emqx_plugins:put_config(install_dir, OriginalInstallDir)
+    end.
+
+write_file(Path, Content) ->
+    ok = filelib:ensure_dir(Path),
+    file:write_file(Path, Content).
+
+%% delete package should mostly work and return ok
+%% but it may fail in case the path is a directory
+%% or if the file is read-only
+delete_package_test() ->
+    with_rand_install_dir(
+        fun(_Dir) ->
+            File = emqx_plugins:pkg_file("a-1"),
+            ok = write_file(File, "a"),
+            ok = emqx_plugins:delete_package("a-1"),
+            %% delete again should be ok
+            ok = emqx_plugins:delete_package("a-1"),
+            Dir = File,
+            ok = filelib:ensure_dir(filename:join([Dir, "foo"])),
+            ?assertMatch({error, _}, emqx_plugins:delete_package("a-1"))
+        end).
+
+%% purge plugin's install dir should mostly work and return ok
+%% but it may fail in case the dir is read-only
+purge_test() ->
+    with_rand_install_dir(
+        fun(_Dir) ->
+            File = emqx_plugins:info_file("a-1"),
+            Dir = emqx_plugins:dir("a-1"),
+            ok = filelib:ensure_dir(File),
+            ?assertMatch({ok, _}, file:read_file_info(Dir)),
+            ?assertEqual(ok, emqx_plugins:purge("a-1")),
+            %% assert the dir is gone
+            ?assertMatch({error, enoent}, file:read_file_info(Dir)),
+            %% wite a file for the dir path
+            ok = file:write_file(Dir, "a"),
+            ?assertEqual(ok, emqx_plugins:purge("a-1"))
+        end).
+

@@ -19,6 +19,9 @@
 
 -include("include/emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_authentication.hrl").
+
+-define(AUTHN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 
 %% Mgmt APIs - gateway
 -export([ gateways/1
@@ -143,14 +146,14 @@ get_listeners_status(GwName, Config) ->
 %% Mgmt APIs - listeners
 %%--------------------------------------------------------------------
 
--spec add_listener(atom() | binary(), map()) -> ok.
+-spec add_listener(atom() | binary(), map()) -> {ok, map()}.
 add_listener(ListenerId, NewConf0) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
     NewConf = maps:without([<<"id">>, <<"name">>,
                             <<"type">>, <<"running">>], NewConf0),
     confexp(emqx_gateway_conf:add_listener(GwName, {Type, Name}, NewConf)).
 
--spec update_listener(atom() | binary(), map()) -> ok.
+-spec update_listener(atom() | binary(), map()) -> {ok, map()}.
 update_listener(ListenerId, NewConf0) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
 
@@ -166,7 +169,7 @@ remove_listener(ListenerId) ->
 -spec authn(gateway_name()) -> map().
 authn(GwName) ->
     %% XXX: Need append chain-nanme, authenticator-id?
-    Path = [gateway, GwName, authentication],
+    Path = [gateway, GwName, ?AUTHN],
     ChainName = emqx_gateway_utils:global_chain(GwName),
     wrap_chain_name(
       ChainName,
@@ -176,7 +179,7 @@ authn(GwName) ->
 -spec authn(gateway_name(), binary()) -> map().
 authn(GwName, ListenerId) ->
     {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    Path = [gateway, GwName, listeners, Type, Name, authentication],
+    Path = [gateway, GwName, listeners, Type, Name, ?AUTHN],
     ChainName = emqx_gateway_utils:listener_chain(GwName, Type, Name),
     wrap_chain_name(
       ChainName,
@@ -191,23 +194,23 @@ wrap_chain_name(ChainName, Conf) ->
             Conf
     end.
 
--spec add_authn(gateway_name(), map()) -> ok.
+-spec add_authn(gateway_name(), map()) -> {ok, map()}.
 add_authn(GwName, AuthConf) ->
     confexp(emqx_gateway_conf:add_authn(GwName, AuthConf)).
 
--spec add_authn(gateway_name(), binary(), map()) -> ok.
+-spec add_authn(gateway_name(), binary(), map()) -> {ok, map()}.
 add_authn(GwName, ListenerId, AuthConf) ->
-    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    confexp(emqx_gateway_conf:add_authn(GwName, {Type, Name}, AuthConf)).
+    {_, LType, LName} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:add_authn(GwName, {LType, LName}, AuthConf)).
 
--spec update_authn(gateway_name(), map()) -> ok.
+-spec update_authn(gateway_name(), map()) -> {ok, map()}.
 update_authn(GwName, AuthConf) ->
     confexp(emqx_gateway_conf:update_authn(GwName, AuthConf)).
 
--spec update_authn(gateway_name(), binary(), map()) -> ok.
+-spec update_authn(gateway_name(), binary(), map()) -> {ok, map()}.
 update_authn(GwName, ListenerId, AuthConf) ->
-    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    confexp(emqx_gateway_conf:update_authn(GwName, {Type, Name}, AuthConf)).
+    {_, LType, LName} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:update_authn(GwName, {LType, LName}, AuthConf)).
 
 -spec remove_authn(gateway_name()) -> ok.
 remove_authn(GwName) ->
@@ -215,10 +218,13 @@ remove_authn(GwName) ->
 
 -spec remove_authn(gateway_name(), binary()) -> ok.
 remove_authn(GwName, ListenerId) ->
-    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    confexp(emqx_gateway_conf:remove_authn(GwName, {Type, Name})).
+    {_, LType, LName} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    confexp(emqx_gateway_conf:remove_authn(GwName, {LType, LName})).
 
 confexp(ok) -> ok;
+confexp({ok, Res}) -> {ok, Res};
+confexp({error, badarg}) ->
+    error({update_conf_error, badarg});
 confexp({error, not_found}) ->
     error({update_conf_error, not_found});
 confexp({error, already_exist}) ->
@@ -368,6 +374,8 @@ with_gateway(GwName0, Fun) ->
                      lists:join(".", lists:map(fun to_list/1, Path0))),
             return_http_error(404, "Resource not found. path: " ++ Path);
         %% Exceptions from: confexp/1
+        error : {update_conf_error, badarg} ->
+            return_http_error(400, "Bad arguments");
         error : {update_conf_error, not_found} ->
             return_http_error(404, "Resource not found");
         error : {update_conf_error, already_exist} ->

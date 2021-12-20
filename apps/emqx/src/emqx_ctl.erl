@@ -160,18 +160,28 @@ format(Format, Args) ->
 
 -spec(format_usage([cmd_usage()]) -> [string()]).
 format_usage(UsageList) ->
+    Width = lists:foldl(fun({CmdStr, _}, W) ->
+                                max(iolist_size(CmdStr), W)
+                        end, 0, UsageList),
     lists:map(
         fun({CmdParams, Desc}) ->
-            format_usage(CmdParams, Desc)
+            format_usage(CmdParams, Desc, Width)
         end, UsageList).
 
 -spec(format_usage(cmd_params(), cmd_descr()) -> string()).
 format_usage(CmdParams, Desc) ->
+    format_usage(CmdParams, Desc, 0).
+
+format_usage(CmdParams, Desc, 0) ->
+    format_usage(CmdParams, Desc, iolist_size(CmdParams));
+format_usage(CmdParams, Desc, Width) ->
     CmdLines = split_cmd(CmdParams),
     DescLines = split_cmd(Desc),
+    Zipped = zip_cmd(CmdLines, DescLines),
+    Fmt = "~-" ++ integer_to_list(Width + 1) ++ "s# ~ts~n",
     lists:foldl(fun({CmdStr, DescStr}, Usage) ->
-                        Usage ++ format("~-70s# ~ts~n", [CmdStr, DescStr])
-                end, "", zip_cmd(CmdLines, DescLines)).
+                        Usage ++ format(Fmt, [CmdStr, DescStr])
+                end, "", Zipped).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

@@ -5,9 +5,9 @@
 do(Dir, CONFIG) ->
     case iolist_to_binary(Dir) of
         <<".">> ->
-            {HasElixir, C1} = deps(CONFIG),
+            C1 = deps(CONFIG),
             Config = dialyzer(C1),
-            maybe_dump(Config ++ [{overrides, overrides()}] ++ coveralls() ++ config(HasElixir));
+            maybe_dump(Config ++ [{overrides, overrides()}] ++ coveralls() ++ config());
         _ ->
             CONFIG
     end.
@@ -22,40 +22,13 @@ deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
     MoreDeps = [bcrypt() || provide_bcrypt_dep()] ++
         [quicer() || is_quicer_supported()],
-    {HasElixir, ExtraDeps} = extra_deps(),
-    {HasElixir, lists:keystore(deps, 1, Config, {deps, OldDeps ++ MoreDeps ++ ExtraDeps})}.
-
-extra_deps() ->
-    {ok, Proplist} = file:consult("lib-extra/plugins"),
-    ErlPlugins0 = proplists:get_value(erlang_plugins, Proplist),
-    ExPlugins0 = proplists:get_value(elixir_plugins, Proplist),
-    Filter = string:split(os:getenv("EMQX_EXTRA_PLUGINS", ""), ",", all),
-    ErlPlugins = filter_extra_deps(ErlPlugins0, Filter),
-    ExPlugins = filter_extra_deps(ExPlugins0, Filter),
-    {ExPlugins =/= [], ErlPlugins ++ ExPlugins}.
-
-filter_extra_deps(AllPlugins, ["all"]) ->
-    AllPlugins;
-filter_extra_deps(AllPlugins, Filter) ->
-    filter_extra_deps(AllPlugins, Filter, []).
-filter_extra_deps([], _, Acc) ->
-    lists:reverse(Acc);
-filter_extra_deps([{Plugin, _} = P | More], Filter, Acc) ->
-    case lists:member(atom_to_list(Plugin), Filter) of
-        true ->
-            filter_extra_deps(More, Filter, [P | Acc]);
-        false ->
-            filter_extra_deps(More, Filter, Acc)
-    end.
+    lists:keystore(deps, 1, Config, {deps, OldDeps ++ MoreDeps}).
 
 overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
             , {erl_opts, [{compile_info, [{emqx_vsn, get_vsn()}]}]}
             ]}
-    ] ++ snabbkaffe_overrides() ++ community_plugin_overrides().
-
-community_plugin_overrides() ->
-    [{add, App, [ {erl_opts, [{i, "include"}]}]} || App <- relx_plugin_apps_extra()].
+    ] ++ snabbkaffe_overrides().
 
 %% Temporary workaround for a rebar3 erl_opts duplication
 %% bug. Ideally, we want to set this define globally
@@ -63,13 +36,10 @@ snabbkaffe_overrides() ->
     Apps = [snabbkaffe, ekka, mria],
     [{add, App, [{erl_opts, [{d, snk_kind, msg}]}]} || App <- Apps].
 
-config(HasElixir) ->
+config() ->
     [ {cover_enabled, is_cover_enabled()}
     , {profiles, profiles()}
-    , {plugins, plugins(HasElixir)}
-    | [ {provider_hooks, [ {pre,  [{compile, {mix, find_elixir_libs}}]}
-                         , {post, [{compile, {mix, consolidate_protocols}}]}
-                         ]} || HasElixir ]
+    , {plugins, plugins()}
     ].
 
 is_cover_enabled() ->
@@ -107,13 +77,12 @@ project_app_dirs(Edition) ->
         false -> []
     end.
 
-plugins(HasElixir) ->
+plugins() ->
     [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {tag, "2.0.0"}}}
     , {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.4"}}}
       %% emqx main project does not require port-compiler
       %% pin at root level for deterministic
     , {pc, {git, "https://github.com/emqx/port_compiler.git", {tag, "v1.11.1"}}}
-    | [ {rebar_mix, "0.5.1"} || HasElixir ]
     ]
     %% test plugins are concatenated to default profile plugins
     %% otherwise rebar3 test profile runs are super slow
@@ -153,36 +122,42 @@ profiles() ->
        , {relx, relx(Vsn, cloud, bin, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
+       , {post_hooks, [{compile, "./build emqx doc"}]}
        ]}
     , {'emqx-pkg',
        [ {erl_opts, prod_compile_opts()}
        , {relx, relx(Vsn, cloud, pkg, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
+       , {post_hooks, [{compile, "./build emqx-pkg doc"}]}
        ]}
     , {'emqx-enterprise',
        [ {erl_opts, prod_compile_opts()}
        , {relx, relx(Vsn, cloud, bin, ee)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ee)}
+       , {post_hooks, [{compile, "./build emqx-enterprise doc"}]}
        ]}
     , {'emqx-enterprise-pkg',
        [ {erl_opts, prod_compile_opts()}
        , {relx, relx(Vsn, cloud, pkg, ee)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ee)}
+       , {post_hooks, [{compile, "./build emqx-enterprise-pkg doc"}]}
        ]}
     , {'emqx-edge',
        [ {erl_opts, prod_compile_opts()}
        , {relx, relx(Vsn, edge, bin, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
+       , {post_hooks, [{compile, "./build emqx-edge doc"}]}
        ]}
     , {'emqx-edge-pkg',
        [ {erl_opts, prod_compile_opts()}
        , {relx, relx(Vsn, edge, pkg, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
+       , {post_hooks, [{compile, "./build emqx-edge-pkg doc"}]}
        ]}
     , {check,
        [ {erl_opts, common_compile_opts()}
@@ -251,7 +226,7 @@ overlay_vars_pkg(pkg) ->
     , {platform_etc_dir, "/etc/emqx"}
     , {platform_lib_dir, ""}
     , {platform_log_dir, "/var/log/emqx"}
-    , {platform_plugins_dir, "/var/lib/enqx/plugins"}
+    , {platform_plugins_dir, "/var/lib/emqx/plugins"}
     , {runner_root_dir, "/usr/lib/emqx"}
     , {runner_bin_dir, "/usr/bin"}
     , {runner_etc_dir, "/etc/emqx"}
@@ -281,6 +256,7 @@ relx_apps(ReleaseType, Edition) ->
     , {emqx_plugin_libs, load}
     , {esasl, load}
     , observer_cli
+    , system_monitor
     , emqx_http_lib
     , emqx_resource
     , emqx_connector
@@ -298,7 +274,8 @@ relx_apps(ReleaseType, Edition) ->
     , emqx_statsd
     , emqx_prometheus
     , emqx_psk
-    , emqx_limiter
+    , emqx_slow_subs
+    , emqx_plugins
     ]
     ++ [quicer || is_quicer_supported()]
     %++ [emqx_license || is_enterprise(Edition)]
@@ -325,8 +302,7 @@ is_app(Name) ->
 
 relx_plugin_apps(ReleaseType, Edition) ->
     relx_plugin_apps_per_rel(ReleaseType)
-    ++ relx_plugin_apps_enterprise(Edition)
-    ++ relx_plugin_apps_extra().
+    ++ relx_plugin_apps_enterprise(Edition).
 
 relx_plugin_apps_per_rel(cloud) ->
     [];
@@ -337,10 +313,6 @@ relx_plugin_apps_enterprise(ee) ->
     [list_to_atom(A) || A <- filelib:wildcard("*", "lib-ee"),
                         filelib:is_dir(filename:join(["lib-ee", A]))];
 relx_plugin_apps_enterprise(ce) -> [].
-
-relx_plugin_apps_extra() ->
-    {_HasElixir, ExtraDeps} = extra_deps(),
-    [Plugin || {Plugin, _} <- ExtraDeps].
 
 relx_overlay(ReleaseType, Edition) ->
     [ {mkdir, "log/"}

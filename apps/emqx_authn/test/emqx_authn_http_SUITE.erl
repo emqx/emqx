@@ -24,7 +24,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--define(PATH, [authentication]).
+-define(PATH, [?CONF_NS_ATOM]).
 
 -define(HTTP_PORT, 33333).
 -define(HTTP_PATH, "/auth").
@@ -39,6 +39,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    _ = application:load(emqx_conf),
     emqx_common_test_helpers:start_apps([emqx_authn]),
     application:ensure_all_started(cowboy),
     Config.
@@ -52,6 +53,7 @@ end_per_suite(_) ->
     ok.
 
 init_per_testcase(_Case, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
       [authentication],
       ?GLOBAL),

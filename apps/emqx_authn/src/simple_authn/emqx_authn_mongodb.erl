@@ -42,8 +42,8 @@
 namespace() -> "authn-mongodb".
 
 roots() ->
-    [ {config, hoconsc:mk(hoconsc:union(refs()),
-                          #{})}
+    [ {?CONF_NS, hoconsc:mk(hoconsc:union(refs()),
+                            #{})}
     ].
 
 fields(standalone) ->
@@ -56,15 +56,14 @@ fields('sharded-cluster') ->
     common_fields() ++ emqx_connector_mongo:fields(sharded).
 
 common_fields() ->
-    [ {mechanism,               {enum, ['password-based']}}
-    , {backend,                 {enum, [mongodb]}}
+    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
+    , {backend, emqx_authn_schema:backend(mongodb)}
     , {collection,              fun collection/1}
     , {selector,                fun selector/1}
     , {password_hash_field,     fun password_hash_field/1}
     , {salt_field,              fun salt_field/1}
     , {is_superuser_field,      fun is_superuser_field/1}
-    , {password_hash_algorithm, fun password_hash_algorithm/1}
-    , {salt_position,           fun salt_position/1}
+    , {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     ] ++ emqx_authn_schema:common_fields().
 
 collection(type) -> binary();
@@ -83,14 +82,6 @@ salt_field(_) -> undefined.
 is_superuser_field(type) -> binary();
 is_superuser_field(nullable) -> true;
 is_superuser_field(_) -> undefined.
-
-password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};
-password_hash_algorithm(default) -> sha256;
-password_hash_algorithm(_) -> undefined.
-
-salt_position(type) -> {enum, [prefix, suffix]};
-salt_position(default) -> prefix;
-salt_position(_) -> undefined.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -116,7 +107,7 @@ create(#{selector := Selector} = Config) ->
                salt_position],
               Config),
     #{password_hash_algorithm := Algorithm} = State,
-    ok = emqx_authn_utils:ensure_apps_started(Algorithm),
+    ok = emqx_authn_password_hashing:init(Algorithm),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     NState = State#{
                selector => NSelector,
@@ -205,22 +196,8 @@ check_password(undefined, _Selected, _State) ->
     {error, bad_username_or_password};
 check_password(Password,
                Doc,
-               #{password_hash_algorithm := bcrypt,
-                 password_hash_field := PasswordHashField}) ->
-    case maps:get(PasswordHashField, Doc, undefined) of
-        undefined ->
-            {error, {cannot_find_password_hash_field, PasswordHashField}};
-        Hash ->
-            case {ok, to_list(Hash)} =:= bcrypt:hashpw(Password, Hash) of
-                true -> ok;
-                false -> {error, bad_username_or_password}
-            end
-    end;
-check_password(Password,
-               Doc,
                #{password_hash_algorithm := Algorithm,
-                 password_hash_field := PasswordHashField,
-                 salt_position := SaltPosition} = State) ->
+                 password_hash_field := PasswordHashField} = State) ->
     case maps:get(PasswordHashField, Doc, undefined) of
         undefined ->
             {error, {cannot_find_password_hash_field, PasswordHashField}};
@@ -229,7 +206,7 @@ check_password(Password,
                        undefined -> <<>>;
                        SaltField -> maps:get(SaltField, Doc, <<>>)
                    end,
-            case Hash =:= hash(Algorithm, Password, Salt, SaltPosition) of
+            case emqx_authn_password_hashing:check_password(Algorithm, Salt, Hash, Password) of
                 true -> ok;
                 false -> {error, bad_username_or_password}
             end
@@ -237,13 +214,6 @@ check_password(Password,
 
 is_superuser(Doc, #{is_superuser_field := IsSuperuserField}) ->
     IsSuperuser = maps:get(IsSuperuserField, Doc, false),
-    emqx_authn_utils:is_superuser(#{<<"is_superuser">> => IsSuperuser}).
-
-hash(Algorithm, Password, Salt, prefix) ->
-    emqx_passwd:hash(Algorithm, <<Salt/binary, Password/binary>>);
-hash(Algorithm, Password, Salt, suffix) ->
-    emqx_passwd:hash(Algorithm, <<Password/binary, Salt/binary>>).
-
-to_list(L) when is_list(L) -> L;
-to_list(L) when is_binary(L) -> binary_to_list(L);
-to_list(X) -> X.
+    emqx_authn_utils:is_superuser(#{<<"is_superuser">> => IsSuperuser});
+is_superuser(_, _) ->
+    emqx_authn_utils:is_superuser(#{<<"is_superuser">> => false}).

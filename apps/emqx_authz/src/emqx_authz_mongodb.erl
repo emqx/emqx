@@ -21,9 +21,14 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
+-behaviour(emqx_authz).
+
 %% AuthZ Callbacks
--export([ authorize/4
-        , description/0
+-export([ description/0
+        , init/1
+        , destroy/1
+        , dry_run/1
+        , authorize/4
         ]).
 
 -ifdef(TEST).
@@ -33,6 +38,18 @@
 
 description() ->
     "AuthZ with MongoDB".
+
+init(Source) ->
+    case emqx_authz_utils:create_resource(emqx_connector_mongo, Source) of
+        {error, Reason} -> error({load_config_error, Reason});
+        {ok, Id} -> Source#{annotations => #{id => Id}}
+    end.
+
+dry_run(Source) ->
+    emqx_resource:create_dry_run(emqx_connector_mongo, Source).
+
+destroy(#{annotations := #{id := Id}}) ->
+    ok = emqx_resource:remove(Id).
 
 authorize(Client, PubSub, Topic,
             #{collection := Collection,
@@ -80,7 +97,7 @@ replvar(Selector, #{clientid := Clientid,
                                  , bin(Clientid), [global, {return, binary}]),
                   V2 = re:replace( V1, emqx_authz:ph_to_re(?PH_S_USERNAME)
                                  , bin(Username), [global, {return, binary}]),
-                  V3 = re:replace( V2, emqx_authz:ph_to_re(?PH_S_HOST)
+                  V3 = re:replace( V2, emqx_authz:ph_to_re(?PH_S_PEERHOST)
                                  , inet_parse:ntoa(IpAddress), [global, {return, binary}]),
                   maps:put(K, V3, AccIn);
               InFun(K, V, AccIn) -> maps:put(K, V, AccIn)

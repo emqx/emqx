@@ -37,7 +37,7 @@
         , on_session_unsubscribed/3
         , on_session_resumed/2
         , on_session_discarded/2
-        , on_session_takeovered/2
+        , on_session_takenover/2
         , on_session_terminated/3
         ]).
 
@@ -49,6 +49,7 @@
 
 %% Utils
 -export([ message/1
+        , headers/1
         , stringfy/1
         , merge_responsed_bool/2
         , merge_responsed_message/2
@@ -60,6 +61,8 @@
         [ cast/2
         , call_fold/3
         ]).
+
+-elvis([{elvis_style, god_modules, disable}]).
 
 %%--------------------------------------------------------------------
 %% Clients
@@ -170,9 +173,9 @@ on_session_discarded(ClientInfo, _SessInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo)},
     cast('session.discarded', Req).
 
-on_session_takeovered(ClientInfo, _SessInfo) ->
+on_session_takenover(ClientInfo, _SessInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo)},
-    cast('session.takeovered', Req).
+    cast('session.takenover', Req).
 
 on_session_terminated(ClientInfo, Reason, _SessInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo),
@@ -257,17 +260,58 @@ clientinfo(ClientInfo =
       cn => maybe(maps:get(cn, ClientInfo, undefined)),
       dn => maybe(maps:get(dn, ClientInfo, undefined))}.
 
-message(#message{id = Id, qos = Qos, from = From, topic = Topic, payload = Payload, timestamp = Ts}) ->
+message(#message{id = Id, qos = Qos, from = From, topic = Topic,
+                 payload = Payload, timestamp = Ts, headers = Headers}) ->
     #{node => stringfy(node()),
       id => emqx_guid:to_hexstr(Id),
       qos => Qos,
       from => stringfy(From),
       topic => Topic,
       payload => Payload,
-      timestamp => Ts}.
+      timestamp => Ts,
+      headers => headers(Headers)
+     }.
 
-assign_to_message(#{qos := Qos, topic := Topic, payload := Payload}, Message) ->
-    Message#message{qos = Qos, topic = Topic, payload = Payload}.
+headers(Headers) ->
+    Ls = [username, protocol, peerhost, allow_publish],
+    maps:fold(
+      fun
+          (_, undefined, Acc) ->
+              Acc; %% Ignore undefined value
+          (K, V, Acc) ->
+              case lists:member(K, Ls) of
+                  true ->
+                      Acc#{atom_to_binary(K) => bin(K, V)};
+                  _ ->
+                      Acc
+              end
+    end, #{}, Headers).
+
+bin(K, V) when K == username;
+               K == protocol;
+               K == allow_publish ->
+    bin(V);
+bin(peerhost, V) ->
+    bin(inet:ntoa(V)).
+
+bin(V) when is_binary(V) -> V;
+bin(V) when is_atom(V) -> atom_to_binary(V);
+bin(V) when is_list(V) -> iolist_to_binary(V).
+
+assign_to_message(InMessage = #{qos := Qos, topic := Topic,
+                                payload := Payload}, Message) ->
+    NMsg = Message#message{qos = Qos, topic = Topic, payload = Payload},
+    enrich_header(maps:get(headers, InMessage, #{}), NMsg).
+
+enrich_header(Headers, Message) ->
+    case maps:get(<<"allow_publish">>, Headers, undefined) of
+        <<"false">> ->
+            emqx_message:set_header(allow_publish, false, Message);
+        <<"true">> ->
+            emqx_message:set_header(allow_publish, true, Message);
+        _ ->
+            Message
+    end.
 
 topicfilters(Tfs) when is_list(Tfs) ->
     [#{name => Topic, qos => Qos} || {Topic, #{qos := Qos}} <- Tfs].
@@ -298,11 +342,7 @@ merge_responsed_bool(_Req, #{type := 'IGNORE'}) ->
     ignore;
 merge_responsed_bool(Req, #{type := Type, value := {bool_result, NewBool}})
   when is_boolean(NewBool) ->
-    NReq = Req#{result => NewBool},
-    case Type of
-        'CONTINUE' -> {ok, NReq};
-        'STOP_AND_RETURN' -> {stop, NReq}
-    end;
+    {ret(Type), Req#{result => NewBool}};
 merge_responsed_bool(_Req, Resp) ->
     ?SLOG(warning, #{msg => "unknown_responsed_value", resp => Resp}),
     ignore.
@@ -310,11 +350,10 @@ merge_responsed_bool(_Req, Resp) ->
 merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
     ignore;
 merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
-    NReq = Req#{message => NMessage},
-    case Type of
-        'CONTINUE' -> {ok, NReq};
-        'STOP_AND_RETURN' -> {stop, NReq}
-    end;
+    {ret(Type), Req#{message => NMessage}};
 merge_responsed_message(_Req, Resp) ->
     ?SLOG(warning, #{msg => "unknown_responsed_value", resp => Resp}),
     ignore.
+
+ret('CONTINUE') -> ok;
+ret('STOP_AND_RETURN') -> stop.

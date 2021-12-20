@@ -63,4 +63,5 @@ do_authorize(ClientInfo, PubSub, Topic) ->
 
 -compile({inline, [run_hooks/3]}).
 run_hooks(Name, Args, Acc) ->
-    ok = emqx_metrics:inc(Name), emqx_hooks:run_fold(Name, Args, Acc).
+    ok = emqx_metrics:inc(Name),
+    emqx_hooks:run_fold(Name, Args, Acc).

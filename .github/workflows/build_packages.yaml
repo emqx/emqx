@@ -19,7 +19,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.0-2:24.1.5-2-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-3:24.1.5-3-ubuntu20.04"
 
     outputs:
       old_vsns: ${{ steps.find_old_versons.outputs.old_vsns }}
@@ -129,7 +129,7 @@ jobs:
           - emqx
           - emqx-enterprise
         otp:
-          - 24.1.5-2
+          - 24.1.5-3
         macos:
           - macos-11
           - macos-10.15
@@ -215,7 +215,7 @@ jobs:
           - emqx
           - emqx-enterprise
         otp:
-          - 24.1.5-2 # we test with OTP 23, but only build package on OTP 24 versions
+          - 24.1.5-3 # we test with OTP 23, but only build package on OTP 24 versions
         arch:
           - amd64
           - arm64
@@ -301,7 +301,7 @@ jobs:
         -v $(pwd):/emqx \
         --workdir /emqx \
         --platform linux/$ARCH \
-        ghcr.io/emqx/emqx-builder/5.0-2:$OTP-$SYSTEM \
+        ghcr.io/emqx/emqx-builder/5.0-3:$OTP-$SYSTEM \
         bash -euc "make $PROFILE-zip || cat rebar3.crashdump; \
                    make $PROFILE-pkg || cat rebar3.crashdump; \
                    EMQX_NAME=$PROFILE && .ci/build_packages/tests.sh"
@@ -336,7 +336,7 @@ jobs:
           - emqx-enterprise
         # NOTE: for docker, only support latest otp version, not a matrix
         otp:
-          - 24.1.5-2 # update to latest
+          - 24.1.5-3 # update to latest
 
     steps:
     - uses: actions/download-artifact@v2
@@ -377,11 +377,25 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-2:${{ matrix.otp }}-alpine3.14
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-alpine3.14
           RUN_FROM=alpine:3.14
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
         context: source
+    - uses: aws-actions/configure-aws-credentials@v1
+      if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx'
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+    - name: Push image to aws ecr
+      if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx'
+      run: |
+        version=${GITHUB_REF##*/}
+        docker pull emqx/emqx:${version#v}
+        docker tag emqx/emqx:${version#v} public.ecr.aws/emqx/emqx:${version#v}
+        aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+        docker push public.ecr.aws/emqx/emqx:${version#v}
 
   delete-artifact:
     runs-on: ubuntu-20.04
@@ -405,7 +419,7 @@ jobs:
           - emqx
           - emqx-enterprise
         otp:
-          - 24.1.5-2
+          - 24.1.5-3
 
     steps:
     - uses: actions/checkout@v2

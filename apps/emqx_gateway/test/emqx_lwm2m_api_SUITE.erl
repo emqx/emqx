@@ -70,13 +70,14 @@ all() ->
 
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_gateway]),
+    application:load(emqx_gateway),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
 
 end_per_suite(Config) ->
     timer:sleep(300),
     {ok, _} = emqx_conf:remove([<<"gateway">>,<<"lwm2m">>], #{}),
-    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_conf]),
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]),
     Config.
 
 init_per_testcase(_AllTestCase, Config) ->
@@ -301,7 +302,7 @@ t_observe(Config) ->
 %%% Internal Functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 call_lookup_api(ClientId, Path, Action) ->
-    ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m", ClientId, "lookup_cmd"]),
+    ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m/clients", ClientId, "lookup_cmd"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Query = io_lib:format("path=~ts&action=~ts", [Path, Action]),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, ApiPath, Query, Auth),
@@ -309,7 +310,7 @@ call_lookup_api(ClientId, Path, Action) ->
     Response.
 
 call_send_api(ClientId, Cmd, Query) ->
-    ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m", ClientId, Cmd]),
+    ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m/clients", ClientId, Cmd]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(post, ApiPath, Query, Auth),
     ?LOGT("rest api response:~ts~n", [Response]),

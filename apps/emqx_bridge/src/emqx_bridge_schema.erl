@@ -2,122 +2,77 @@
 
 -include_lib("typerefl/include/types.hrl").
 
+-import(hoconsc, [mk/2, ref/2]).
+
 -export([roots/0, fields/1]).
+
+-export([ get_response/0
+        , put_request/0
+        , post_request/0
+        ]).
+
+-export([ common_bridge_fields/0
+        , direction_field/2
+        ]).
 
 %%======================================================================================
 %% Hocon Schema Definitions
 
-roots() -> [bridges].
+-define(CONN_TYPES, [mqtt]).
 
-fields(bridges) ->
-    [ {mqtt,
-       sc(hoconsc:map(name, hoconsc:union([ ref("ingress_mqtt_bridge")
-                                          , ref("egress_mqtt_bridge")
-                                          ])),
-          #{ desc => "MQTT bridges"
-          })}
-    , {http,
-       sc(hoconsc:map(name, ref("http_bridge")),
-          #{ desc => "HTTP bridges"
-          })}
-    ];
+%%======================================================================================
+%% For HTTP APIs
+get_response() ->
+    http_schema("get").
 
-fields("ingress_mqtt_bridge") ->
-    [ direction(ingress, emqx_connector_mqtt_schema:ingress_desc())
-    , connector_name()
-    ] ++ proplists:delete(hookpoint, emqx_connector_mqtt_schema:fields("ingress"));
+put_request() ->
+    http_schema("put").
 
-fields("egress_mqtt_bridge") ->
-    [ direction(egress, emqx_connector_mqtt_schema:egress_desc())
-    , connector_name()
-    ] ++ emqx_connector_mqtt_schema:fields("egress");
+post_request() ->
+    http_schema("post").
 
-fields("http_bridge") ->
-    basic_config_http() ++
-    [ {url,
-       sc(binary(),
-          #{ nullable => false
-           , desc =>"""
-The URL of the HTTP Bridge.<br>
-Template with variables is allowed in the path, but variables cannot be used in the scheme, host,
-or port part.<br>
-For example, <code> http://localhost:9901/${topic} </code> is allowed, but
-<code> http://${host}:9901/message </code> or <code> http://localhost:${port}/message </code>
-is not allowed.
-"""
-           })}
-    , {from_local_topic,
-       sc(binary(),
-          #{ desc =>"""
-The MQTT topic filter to be forwarded to the HTTP server. All MQTT PUBLISH messages which topic
-match the from_local_topic will be forwarded.<br>
-NOTE: if this bridge is used as the output of a rule (emqx rule engine), and also from_local_topic is configured, then both the data got from the rule and the MQTT messages that matches
-from_local_topic will be forwarded.
-"""
-           })}
-    , {method,
-       sc(method(),
-          #{ default => post
-           , desc =>"""
-The method of the HTTP request. All the available methods are: post, put, get, delete.<br>
-Template with variables is allowed.<br>
-"""
-           })}
-    , {headers,
-       sc(map(),
-          #{ default => #{
-                <<"accept">> => <<"application/json">>,
-                <<"cache-control">> => <<"no-cache">>,
-                <<"connection">> => <<"keep-alive">>,
-                <<"content-type">> => <<"application/json">>,
-                <<"keep-alive">> => <<"timeout=5">>}
-           , desc =>"""
-The headers of the HTTP request.<br>
-Template with variables is allowed.
-"""
-           })
-      }
-    , {body,
-       sc(binary(),
-          #{ default => <<"${payload}">>
-           , desc =>"""
-The body of the HTTP request.<br>
-Template with variables is allowed.
-"""
-           })}
-    , {request_timeout,
-       sc(emqx_schema:duration_ms(),
-          #{ default => <<"30s">>
-           , desc =>"""
-How long will the HTTP request timeout.
-"""
-           })}
-    ].
+http_schema(Method) ->
+    Schemas = lists:flatmap(fun(Type) ->
+            [ref(schema_mod(Type), Method ++ "_ingress"),
+             ref(schema_mod(Type), Method ++ "_egress")]
+        end, ?CONN_TYPES),
+    hoconsc:union([ref(emqx_bridge_http_schema, Method)
+                   | Schemas]).
 
-direction(Dir, Desc) ->
-    {direction,
-        sc(Dir,
-           #{ nullable => false
-            , desc => "The direction of the bridge. Can be one of 'ingress' or 'egress'.<br>" ++
-                      Desc
-            })}.
-
-connector_name() ->
-    {connector,
-        sc(binary(),
+common_bridge_fields() ->
+    [ {enable,
+        mk(boolean(),
+           #{ desc =>"Enable or disable this bridge"
+            , default => true
+            })}
+    , {connector,
+        mk(binary(),
            #{ nullable => false
             , desc =>"""
 The connector name to be used for this bridge.
-Connectors are configured by 'connectors.<type>.<name>
+Connectors are configured as 'connectors.{type}.{name}',
+for example 'connectors.http.mybridge'.
 """
-            })}.
+            })}
+    ].
 
-basic_config_http() ->
-    proplists:delete(base_url, emqx_connector_http:fields(config)).
+direction_field(Dir, Desc) ->
+    {direction, mk(Dir,
+        #{ nullable => false
+         , desc => "The direction of the bridge. Can be one of 'ingress' or 'egress'.<br>"
+            ++ Desc
+         })}.
 
-method() ->
-    hoconsc:enum([post, put, get, delete]).
+%%======================================================================================
+%% For config files
+roots() -> [bridges].
 
-sc(Type, Meta) -> hoconsc:mk(Type, Meta).
+fields(bridges) ->
+    [{http, mk(hoconsc:map(name, ref(emqx_bridge_http_schema, "bridge")), #{})}]
+    ++ [{T, mk(hoconsc:map(name, hoconsc:union([
+            ref(schema_mod(T), "ingress"),
+            ref(schema_mod(T), "egress")
+        ])), #{})} || T <- ?CONN_TYPES].
 
-ref(Field) -> hoconsc:ref(?MODULE, Field).
+schema_mod(Type) ->
+    list_to_atom(lists:concat(["emqx_bridge_", Type, "_schema"])).

@@ -43,18 +43,20 @@ groups() ->
     [].
 
 init_per_testcase(_, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
-      [authentication],
+      [?CONF_NS_ATOM],
       ?GLOBAL),
 
     emqx_authn_test_lib:delete_authenticators(
-      [listeners, tcp, default, authentication],
+      [listeners, tcp, default, ?CONF_NS_ATOM],
       ?TCP_DEFAULT),
 
     {atomic, ok} = mria:clear_table(emqx_authn_mnesia),
     Config.
 
 init_per_suite(Config) ->
+    _ = application:load(emqx_conf),
     ok = emqx_common_test_helpers:start_apps(
            [emqx_authn, emqx_dashboard],
            fun set_special_configs/1),
@@ -87,8 +89,8 @@ set_special_configs(_App) ->
 %%------------------------------------------------------------------------------
 
 t_invalid_listener(_) ->
-    {ok, 404, _} = request(get, uri(["listeners", "invalid", "authentication"])),
-    {ok, 404, _} = request(get, uri(["listeners", "in:valid", "authentication"])).
+    {ok, 404, _} = request(get, uri(["listeners", "invalid", ?CONF_NS])),
+    {ok, 404, _} = request(get, uri(["listeners", "in:valid", ?CONF_NS])).
 
 t_authenticators(_) ->
     test_authenticators([]).
@@ -131,86 +133,86 @@ test_authenticators(PathPrefix) ->
     ValidConfig = emqx_authn_test_lib:http_example(),
     {ok, 200, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication"]),
+                     uri(PathPrefix ++ [?CONF_NS]),
                      ValidConfig),
 
     {ok, 409, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication"]),
+                     uri(PathPrefix ++ [?CONF_NS]),
                      ValidConfig),
 
     InvalidConfig0 = ValidConfig#{method => <<"delete">>},
     {ok, 400, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication"]),
+                     uri(PathPrefix ++ [?CONF_NS]),
                      InvalidConfig0),
 
     InvalidConfig1 = ValidConfig#{method => <<"get">>,
                                   headers => #{<<"content-type">> => <<"application/json">>}},
     {ok, 400, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication"]),
+                     uri(PathPrefix ++ [?CONF_NS]),
                      InvalidConfig1),
 
     ?assertAuthenticatorsMatch(
        [#{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>}],
-       PathPrefix ++ ["authentication"]).
+       PathPrefix ++ [?CONF_NS]).
 
 test_authenticator(PathPrefix) ->
     ValidConfig0 = emqx_authn_test_lib:http_example(),
     {ok, 200, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication"]),
+                     uri(PathPrefix ++ [?CONF_NS]),
                      ValidConfig0),
     {ok, 200, _} = request(
                      get,
-                     uri(PathPrefix ++ ["authentication", "password-based:http"])),
+                     uri(PathPrefix ++ [?CONF_NS, "password-based:http"])),
 
     {ok, 404, _} = request(
                      get,
-                     uri(PathPrefix ++ ["authentication", "password-based:redis"])),
+                     uri(PathPrefix ++ [?CONF_NS, "password-based:redis"])),
 
 
     {ok, 404, _} = request(
                      put,
-                     uri(PathPrefix ++ ["authentication", "password-based:built-in-database"]),
+                     uri(PathPrefix ++ [?CONF_NS, "password-based:built-in-database"]),
                      emqx_authn_test_lib:built_in_database_example()),
 
     InvalidConfig0 = ValidConfig0#{method => <<"delete">>},
     {ok, 400, _} = request(
                      put,
-                     uri(PathPrefix ++ ["authentication", "password-based:http"]),
+                     uri(PathPrefix ++ [?CONF_NS, "password-based:http"]),
                      InvalidConfig0),
 
     InvalidConfig1 = ValidConfig0#{method => <<"get">>,
                                   headers => #{<<"content-type">> => <<"application/json">>}},
     {ok, 400, _} = request(
                      put,
-                     uri(PathPrefix ++ ["authentication", "password-based:http"]),
+                     uri(PathPrefix ++ [?CONF_NS, "password-based:http"]),
                      InvalidConfig1),
 
     ValidConfig1 = ValidConfig0#{pool_size => 9},
     {ok, 200, _} = request(
                      put,
-                     uri(PathPrefix ++ ["authentication", "password-based:http"]),
+                     uri(PathPrefix ++ [?CONF_NS, "password-based:http"]),
                      ValidConfig1),
 
     {ok, 404, _} = request(
                      delete,
-                     uri(PathPrefix ++ ["authentication", "password-based:redis"])),
+                     uri(PathPrefix ++ [?CONF_NS, "password-based:redis"])),
 
     {ok, 204, _} = request(
                      delete,
-                     uri(PathPrefix ++ ["authentication", "password-based:http"])),
+                     uri(PathPrefix ++ [?CONF_NS, "password-based:http"])),
 
-    ?assertAuthenticatorsMatch([], PathPrefix ++ ["authentication"]).
+    ?assertAuthenticatorsMatch([], PathPrefix ++ [?CONF_NS]).
 
 test_authenticator_users(PathPrefix) ->
-    UsersUri = uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]),
+    UsersUri = uri(PathPrefix ++ [?CONF_NS, "password-based:built-in-database", "users"]),
 
     {ok, 200, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication"]),
+                     uri(PathPrefix ++ [?CONF_NS]),
                      emqx_authn_test_lib:built_in_database_example()),
 
     InvalidUsers = [
@@ -261,11 +263,11 @@ test_authenticator_users(PathPrefix) ->
        lists:usort([ UserId || #{<<"user_id">> := UserId} <- Page1Users ++ Page2Users])).
 
 test_authenticator_user(PathPrefix) ->
-    UsersUri = uri(PathPrefix ++ ["authentication", "password-based:built-in-database", "users"]),
+    UsersUri = uri(PathPrefix ++ [?CONF_NS, "password-based:built-in-database", "users"]),
 
     {ok, 200, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication"]),
+                     uri(PathPrefix ++ [?CONF_NS]),
                      emqx_authn_test_lib:built_in_database_example()),
 
     User = #{user_id => <<"u1">>, password => <<"p1">>},
@@ -309,7 +311,7 @@ test_authenticator_move(PathPrefix) ->
       fun(Conf) ->
               {ok, 200, _} = request(
                                post,
-                               uri(PathPrefix ++ ["authentication"]),
+                               uri(PathPrefix ++ [?CONF_NS]),
                                Conf)
       end,
       AuthenticatorConfs),
@@ -320,40 +322,40 @@ test_authenticator_move(PathPrefix) ->
         #{<<"mechanism">> := <<"jwt">>},
         #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>}
        ],
-       PathPrefix ++ ["authentication"]),
+       PathPrefix ++ [?CONF_NS]),
 
     % Invalid moves
 
     {ok, 400, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
                      #{position => <<"up">>}),
 
     {ok, 400, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
                      #{}),
 
     {ok, 404, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
                      #{position => <<"before:invalid">>}),
 
     {ok, 404, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
                      #{position => <<"before:password-based:redis">>}),
 
     {ok, 404, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
                      #{position => <<"before:password-based:redis">>}),
 
     % Valid moves
 
     {ok, 204, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
                      #{position => <<"top">>}),
 
     ?assertAuthenticatorsMatch(
@@ -362,11 +364,11 @@ test_authenticator_move(PathPrefix) ->
         #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
         #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>}
        ],
-       PathPrefix ++ ["authentication"]),
+       PathPrefix ++ [?CONF_NS]),
 
     {ok, 204, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
                      #{position => <<"bottom">>}),
 
     ?assertAuthenticatorsMatch(
@@ -375,11 +377,11 @@ test_authenticator_move(PathPrefix) ->
         #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>},
         #{<<"mechanism">> := <<"jwt">>}
        ],
-       PathPrefix ++ ["authentication"]),
+       PathPrefix ++ [?CONF_NS]),
 
     {ok, 204, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication", "jwt", "move"]),
+                     uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
                      #{position => <<"before:password-based:built-in-database">>}),
 
     ?assertAuthenticatorsMatch(
@@ -388,17 +390,17 @@ test_authenticator_move(PathPrefix) ->
         #{<<"mechanism">> := <<"jwt">>},
         #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>}
        ],
-       PathPrefix ++ ["authentication"]).
+       PathPrefix ++ [?CONF_NS]).
 
 test_authenticator_import_users(PathPrefix) ->
     ImportUri = uri(
                   PathPrefix ++
-                  ["authentication", "password-based:built-in-database", "import_users"]),
+                  [?CONF_NS, "password-based:built-in-database", "import_users"]),
 
 
     {ok, 200, _} = request(
                      post,
-                     uri(PathPrefix ++ ["authentication"]),
+                     uri(PathPrefix ++ [?CONF_NS]),
                      emqx_authn_test_lib:built_in_database_example()),
 
     {ok, 400, _} = request(post, ImportUri, #{}),

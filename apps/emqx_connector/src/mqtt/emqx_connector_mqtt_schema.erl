@@ -38,7 +38,24 @@ fields("config") ->
     topic_mappings();
 
 fields("connector") ->
-    [ {server,
+    [ {mode,
+        sc(hoconsc:enum([cluster_singleton, cluster_shareload]),
+           #{ default => cluster_shareload
+            , desc => """
+The mode of the MQTT Bridge. Can be one of 'cluster_singleton' or 'cluster_shareload'<br>
+
+- cluster_singleton: create an unique MQTT connection within the emqx cluster.<br>
+In 'cluster_singleton' node, all messages toward the remote broker go through the same
+MQTT connection.<br>
+- cluster_shareload: create an MQTT connection on each node in the emqx cluster.<br>
+In 'cluster_shareload' mode, the incomming load from the remote broker is shared by
+using shared subscription.<br>
+Note that the 'clientid' is suffixed by the node name, this is to avoid
+clientid conflicts between different nodes. And we can only use shared subscription
+topic filters for 'remote_topic' of ingress connections.
+"""
+            })}
+    , {server,
         sc(emqx_schema:ip_port(),
            #{ default => "127.0.0.1:1883"
             , desc => "The host and port of the remote MQTT broker"
@@ -48,11 +65,6 @@ fields("connector") ->
         sc(hoconsc:enum([v3, v4, v5]),
            #{ default => v4
             , desc => "The MQTT protocol version"
-            })}
-    , {bridge_mode,
-        sc(boolean(),
-           #{ default => true
-            , desc => "The bridge mode of the MQTT protocol"
             })}
     , {username,
         sc(binary(),
@@ -66,8 +78,7 @@ fields("connector") ->
             })}
     , {clientid,
         sc(binary(),
-           #{ default => "emqx_${nodename}"
-            , desc => "The clientid of the MQTT protocol"
+           #{ desc => "The clientid of the MQTT protocol"
             })}
     , {clean_start,
         sc(boolean(),
@@ -90,23 +101,30 @@ Queue messages in disk files.
     ] ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("ingress") ->
-    %% the message maybe subscribed by rules, in this case 'to_local_topic' is not necessary
-    [ {from_remote_topic,
+    %% the message maybe subscribed by rules, in this case 'local_topic' is not necessary
+    [ {remote_topic,
         sc(binary(),
            #{ nullable => false
             , desc => "Receive messages from which topic of the remote broker"
             })}
-    , {subscribe_qos,
+    , {remote_qos,
         sc(qos(),
            #{ default => 1
             , desc => "The QoS level to be used when subscribing to the remote broker"
             })}
-    , {to_local_topic,
+    , {local_topic,
         sc(binary(),
            #{ desc => """
 Send messages to which topic of the local broker.<br>
 Template with variables is allowed.
 """
+            })}
+    , {local_qos,
+        sc(qos(),
+           #{ default => <<"${qos}">>
+            , desc => """
+The QoS of the MQTT message to be sent.<br>
+Template with variables is allowed."""
             })}
     , {hookpoint,
         sc(binary(),
@@ -117,18 +135,25 @@ The hookpoint will be triggered when there's any message received from the remot
     ] ++ common_inout_confs();
 
 fields("egress") ->
-    %% the message maybe sent from rules, in this case 'from_local_topic' is not necessary
-    [ {from_local_topic,
+    %% the message maybe sent from rules, in this case 'local_topic' is not necessary
+    [ {local_topic,
         sc(binary(),
            #{ desc => "The local topic to be forwarded to the remote broker"
             })}
-    , {to_remote_topic,
+    , {remote_topic,
         sc(binary(),
            #{ default => <<"${topic}">>
             , desc => """
 Forward to which topic of the remote broker.<br>
 Template with variables is allowed.
 """
+            })}
+    , {remote_qos,
+        sc(qos(),
+           #{ default => <<"${qos}">>
+            , desc => """
+The QoS of the MQTT message to be sent.<br>
+Template with variables is allowed."""
             })}
     ] ++ common_inout_confs();
 
@@ -176,31 +201,24 @@ topic_mappings() ->
 ingress_desc() -> """
 The ingress config defines how this bridge receive messages from the remote MQTT broker, and then
 send them to the local broker.<br>
-Template with variables is allowed in 'to_local_topic', 'subscribe_qos', 'qos', 'retain',
+Template with variables is allowed in 'local_topic', 'remote_qos', 'qos', 'retain',
 'payload'.<br>
-NOTE: if this bridge is used as the input of a rule (emqx rule engine), and also to_local_topic is
-configured, then messages got from the remote broker will be sent to both the 'to_local_topic' and
+NOTE: if this bridge is used as the input of a rule (emqx rule engine), and also local_topic is
+configured, then messages got from the remote broker will be sent to both the 'local_topic' and
 the rule.
 """.
 
 egress_desc() -> """
 The egress config defines how this bridge forwards messages from the local broker to the remote
 broker.<br>
-Template with variables is allowed in 'to_remote_topic', 'qos', 'retain', 'payload'.<br>
-NOTE: if this bridge is used as the output of a rule (emqx rule engine), and also from_local_topic
+Template with variables is allowed in 'remote_topic', 'qos', 'retain', 'payload'.<br>
+NOTE: if this bridge is used as the output of a rule (emqx rule engine), and also local_topic
 is configured, then both the data got from the rule and the MQTT messages that matches
-from_local_topic will be forwarded.
+local_topic will be forwarded.
 """.
 
 common_inout_confs() ->
-    [ {qos,
-        sc(qos(),
-           #{ default => <<"${qos}">>
-            , desc => """
-The QoS of the MQTT message to be sent.<br>
-Template with variables is allowed."""
-            })}
-    , {retain,
+    [ {retain,
         sc(hoconsc:union([boolean(), binary()]),
            #{ default => <<"${retain}">>
             , desc => """

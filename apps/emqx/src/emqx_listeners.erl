@@ -111,7 +111,7 @@ current_conns(ID, ListenOn) ->
     {Type, Name} = parse_listener_id(ID),
     current_conns(Type, Name, ListenOn).
 
-current_conns(Type, Name, ListenOn) when Type == tcl; Type == ssl ->
+current_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
     esockd:get_current_connections({listener_id(Type, Name), ListenOn});
 current_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     proplists:get_value(all_connections, ranch:info(listener_id(Type, Name)));
@@ -122,7 +122,7 @@ max_conns(ID, ListenOn) ->
     {Type, Name} = parse_listener_id(ID),
     max_conns(Type, Name, ListenOn).
 
-max_conns(Type, Name, ListenOn) when Type == tcl; Type == ssl ->
+max_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
     esockd:get_max_connections({listener_id(Type, Name), ListenOn});
 max_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     proplists:get_value(max_connections, ranch:info(listener_id(Type, Name)));
@@ -175,9 +175,10 @@ restart_listener(Type, ListenerName, Conf) ->
     restart_listener(Type, ListenerName, Conf, Conf).
 
 restart_listener(Type, ListenerName, OldConf, NewConf) ->
-    case stop_listener(Type, ListenerName, OldConf) of
+    case do_stop_listener(Type, ListenerName, OldConf) of
         ok -> start_listener(Type, ListenerName, NewConf);
-        Error -> Error
+        {error, not_found} -> start_listener(Type, ListenerName, NewConf);
+        {error, Reason} -> {error, Reason}
     end.
 
 %% @doc Stop all listeners.
@@ -228,7 +229,8 @@ do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts)
     esockd:open(listener_id(Type, ListenerName), ListenOn, merge_default(esockd_opts(Type, Opts)),
                 {emqx_connection, start_link,
                     [#{listener => {Type, ListenerName},
-                       zone => zone(Opts)}]});
+                       zone => zone(Opts),
+                       limiter => limiter(Opts)}]});
 
 %% Start MQTT/WS listener
 do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts)
@@ -260,6 +262,7 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
                               , peer_bidi_stream_count => 10
                               , zone => zone(Opts)
                               , listener => {quic, ListenerName}
+                              , limiter => limiter(Opts)
                               },
             StreamOpts = [{stream_callback, emqx_quic_stream}],
             quicer:start_listener(listener_id(quic, ListenerName),
@@ -315,7 +318,9 @@ esockd_opts(Type, Opts0) ->
 
 ws_opts(Type, ListenerName, Opts) ->
     WsPaths = [{maps:get(mqtt_path, Opts, "/mqtt"), emqx_ws_connection,
-        #{zone => zone(Opts), listener => {Type, ListenerName}}}],
+        #{zone => zone(Opts),
+          listener => {Type, ListenerName},
+          limiter => limiter(Opts)}}],
     Dispatch = cowboy_router:compile([{'_', WsPaths}]),
     ProxyProto = maps:get(proxy_protocol, Opts, false),
     #{env => #{dispatch => Dispatch}, proxy_header => ProxyProto}.
@@ -379,6 +384,9 @@ parse_listener_id(Id) ->
 
 zone(Opts) ->
     maps:get(zone, Opts, undefined).
+
+limiter(Opts) ->
+    maps:get(limiter, Opts).
 
 ssl_opts(Opts) ->
     maps:to_list(

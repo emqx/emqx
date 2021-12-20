@@ -129,10 +129,11 @@ basic_conf() ->
       rpc => rpc_conf(),
       stats => stats_conf(),
       listeners => listeners_conf(),
-      zones => zone_conf()
+      zones => zone_conf(),
+      emqx_limiter => emqx:get_config([emqx_limiter])
     }.
 
-set_test_listenser_confs() ->
+set_test_listener_confs() ->
     Conf = emqx_config:get([]),
     emqx_config:put(basic_conf()),
     Conf.
@@ -178,13 +179,47 @@ end_per_suite(_Config) ->
                  emqx_banned
                 ]).
 
-init_per_testcase(_TestCase, Config) ->
-    NewConf = set_test_listenser_confs(),
+init_per_testcase(TestCase, Config) ->
+    NewConf = set_test_listener_confs(),
+    emqx_common_test_helpers:start_apps([]),
+    modify_limiter(TestCase, NewConf),
     [{config, NewConf}|Config].
 
 end_per_testcase(_TestCase, Config) ->
     emqx_config:put(?config(config, Config)),
+    emqx_common_test_helpers:stop_apps([]),
     Config.
+
+modify_limiter(TestCase, NewConf) ->
+    Checks = [t_quota_qos0, t_quota_qos1, t_quota_qos2],
+    case lists:member(TestCase, Checks) of
+        true ->
+            modify_limiter(NewConf);
+        _ ->
+            ok
+    end.
+
+%% per_client 5/1s,5
+%% aggregated 10/1s,10
+modify_limiter(#{emqx_limiter := Limiter} = NewConf) ->
+    #{message_routing := #{bucket := Bucket} = Routing} = Limiter,
+    #{default := #{per_client := Client} = Default} = Bucket,
+    Client2 = Client#{rate := 5,
+                      initial := 0,
+                      capacity := 5,
+                      low_water_mark := 1},
+    Default2 = Default#{per_client := Client2,
+                        aggregated := #{rate => 10,
+                                        initial => 0,
+                                        capacity => 10
+                                       }},
+    Bucket2 = Bucket#{default := Default2},
+    Routing2 = Routing#{bucket := Bucket2},
+
+    NewConf2 = NewConf#{emqx_limiter := Limiter#{message_routing := Routing2}},
+    emqx_config:put(NewConf2),
+    emqx_limiter_manager:restart_server(message_routing),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases for channel info/stats/caps
@@ -547,6 +582,7 @@ t_quota_qos0(_) ->
     {ok, Chann1} = emqx_channel:handle_in(Pub, Chann),
     {ok, Chann2} = emqx_channel:handle_in(Pub, Chann1),
     M1 = emqx_metrics:val('packets.publish.dropped') - 1,
+    timer:sleep(1000),
     {ok, Chann3} = emqx_channel:handle_timeout(ref, expire_quota_limit, Chann2),
     {ok, _} = emqx_channel:handle_in(Pub, Chann3),
     M1 = emqx_metrics:val('packets.publish.dropped') - 1,
@@ -713,12 +749,12 @@ t_handle_call_takeover_begin(_) ->
 
 t_handle_call_takeover_end(_) ->
     ok = meck:expect(emqx_session, takeover, fun(_) -> ok end),
-    {shutdown, takeovered, [], _, _Chan} =
+    {shutdown, takenover, [], _, _Chan} =
         emqx_channel:handle_call({takeover, 'end'}, channel()).
 
 t_handle_call_quota(_) ->
     {reply, ok, _Chan} = emqx_channel:handle_call(
-                           {quota, [{conn_messages_routing, {100,1}}]},
+                           {quota, default},
                            channel()
                          ).
 
@@ -886,7 +922,7 @@ t_ws_cookie_init(_) ->
                  conn_mod => emqx_ws_connection,
                  ws_cookie => WsCookie
                 },
-    Channel = emqx_channel:init(ConnInfo, #{zone => default, listener => {tcp, default}}),
+    Channel = emqx_channel:init(ConnInfo, #{zone => default, limiter => limiter_cfg(), listener => {tcp, default}}),
     ?assertMatch(#{ws_cookie := WsCookie}, emqx_channel:info(clientinfo, Channel)).
 
 %%--------------------------------------------------------------------
@@ -911,7 +947,7 @@ channel(InitFields) ->
     maps:fold(fun(Field, Value, Channel) ->
                       emqx_channel:set_field(Field, Value, Channel)
               end,
-              emqx_channel:init(ConnInfo, #{zone => default, listener => {tcp, default}}),
+              emqx_channel:init(ConnInfo, #{zone => default, limiter => limiter_cfg(), listener => {tcp, default}}),
               maps:merge(#{clientinfo => clientinfo(),
                            session    => session(),
                            conn_state => connected
@@ -957,5 +993,6 @@ session(InitFields) when is_map(InitFields) ->
 
 %% conn: 5/s; overall: 10/s
 quota() ->
-    emqx_limiter:init(zone, [{conn_messages_routing, {5, 1}},
-                             {overall_messages_routing, {10, 1}}]).
+    emqx_limiter_container:get_limiter_by_names([message_routing], limiter_cfg()).
+
+limiter_cfg() -> #{}.

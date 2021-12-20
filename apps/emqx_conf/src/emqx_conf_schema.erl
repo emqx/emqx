@@ -24,6 +24,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_authentication.hrl").
 
 -type log_level() :: debug | info | notice | warning | error | critical | alert | emergency | all.
 -type file() :: string().
@@ -49,6 +50,7 @@
         , emqx_authz_schema
         , emqx_auto_subscribe_schema
         , emqx_modules_schema
+        , emqx_plugins_schema
         , emqx_dashboard_schema
         , emqx_gateway_schema
         , emqx_prometheus_schema
@@ -57,13 +59,18 @@
         , emqx_psk_schema
         , emqx_limiter_schema
         , emqx_connector_schema
+        , emqx_slow_subs_schema
         ]).
 
 namespace() -> undefined.
 
 roots() ->
-    %% authorization configs are merged in THIS schema's "authorization" fields
-    lists:keydelete("authorization", 1, emqx_schema:roots(high)) ++
+    PtKey = ?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY,
+    case persistent_term:get(PtKey, undefined) of
+        undefined -> persistent_term:put(PtKey, emqx_authn_schema);
+        _ -> ok
+    end,
+    emqx_schema_high_prio_roots() ++
     [ {"node",
        sc(hoconsc:ref("node"),
           #{ desc => "Node name, cookie, config & data directories "
@@ -87,23 +94,13 @@ roots() ->
                      "should work, but in case you need to do performance "
                      "fine-turning or experiment a bit, this is where to look."
            })}
-    , {"authorization",
-       sc(hoconsc:ref("authorization"),
-          #{ desc => """
-Authorization a.k.a ACL.<br>
-In EMQ X, MQTT client access control is extremly flexible.<br>
-An out of the box set of authorization data sources are supported.
-For example,<br>
-'file' source is to support concise and yet generic ACL rules in a file;<br>
-'built-in-database' source can be used to store per-client customisable rule sets,
-natively in the EMQ X node;<br>
-'http' source to make EMQ X call an external HTTP API to make the decision;<br>
-'postgresql' etc. to look up clients or rules from external databases;<br>
-"""
-           })}
     , {"db",
        sc(ref("db"),
           #{ desc => "Settings of the embedded database."
+           })}
+    , {"system_monitor",
+       sc(ref("system_monitor"),
+          #{ desc => "Erlang process and application monitoring."
            })}
     ] ++
     emqx_schema:roots(medium) ++
@@ -251,14 +248,12 @@ fields("node") ->
     [ {"name",
        sc(string(),
           #{ default => "emqx@127.0.0.1"
-           , override_env => "EMQX_NODE_NAME"
            })}
     , {"cookie",
        sc(string(),
           #{ mapping => "vm_args.-setcookie",
              default => "emqxsecretcookie",
-             sensitive => true,
-             override_env => "EMQX_NODE_COOKIE"
+             sensitive => true
            })}
     , {"data_dir",
        sc(string(),
@@ -275,9 +270,25 @@ fields("node") ->
          #{  mapping => "emqx_machine.global_gc_interval"
           ,  default => "15m"
           })}
-    , {"crash_dump_dir",
+    , {"crash_dump_file",
        sc(file(),
           #{ mapping => "vm_args.-env ERL_CRASH_DUMP"
+           , desc => "Location of the crash dump file"
+           })}
+    , {"crash_dump_seconds",
+       sc(emqx_schema:duration_s(),
+          #{ mapping => "vm_args.-env ERL_CRASH_DUMP_SECONDS"
+           , default => "30s"
+           , desc => """
+The number of seconds that the broker is allowed to spend writing
+a crash dump
+"""
+           })}
+    , {"crash_dump_bytes",
+       sc(emqx_schema:bytesize(),
+          #{ mapping => "vm_args.-env ERL_CRASH_DUMP_BYTES"
+           , default => "100MB"
+           , desc => "The maximum size of a crash dump file in bytes."
            })}
     , {"dist_net_ticktime",
        sc(emqx_schema:duration(),
@@ -309,6 +320,64 @@ fields("node") ->
         #{
           }
         )}
+    ];
+
+fields("system_monitor") ->
+    [ {"top_num_items",
+       sc(non_neg_integer(),
+         #{ mapping => "system_monitor.top_num_items"
+          , default => 10
+          , desc => "The number of top processes per monitoring group"
+          })
+      }
+    , {"top_sample_interval",
+       sc(emqx_schema:duration(),
+         #{ mapping => "system_monitor.top_sample_interval"
+          , default => "2s"
+          , desc => "Specifies how often process top should be collected"
+          })
+      }
+    , {"top_max_procs",
+       sc(non_neg_integer(),
+         #{ mapping => "system_monitor.top_max_procs"
+          , default => 200000
+          , desc => "Stop collecting data when the number of processes exceeds this value"
+          })
+      }
+    , {"db_hostname",
+       sc(string(),
+         #{ mapping => "system_monitor.db_hostname"
+          , desc => "Hostname of the postgres database that collects the data points"
+          })
+      }
+    , {"db_port",
+       sc(integer(),
+         #{ mapping => "system_monitor.db_port"
+          , default => 5432
+          , desc => "Port of the postgres database that collects the data points"
+          })
+      }
+    , {"db_username",
+       sc(string(),
+         #{ mapping => "system_monitor.db_username"
+          , default => "system_monitor"
+          , desc    => "EMQX user name in the postgres database"
+          })
+      }
+    , {"db_password",
+       sc(binary(),
+         #{ mapping => "system_monitor.db_password"
+          , default => "system_monitor_password"
+          , desc    => "EMQX user password in the postgres database"
+          })
+      }
+    , {"db_name",
+       sc(string(),
+         #{ mapping => "system_monitor.db_name"
+          , default => "postgres"
+          , desc    => "Postgres database name"
+          })
+      }
     ];
 
 fields("db") ->
@@ -347,6 +416,23 @@ to <code>rlog</code>.
 List of core nodes that the replicant will connect to.<br/>
 Note: this parameter only takes effect when the <code>backend</code> is set
 to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.
+"""
+           })}
+    , {"rpc_module",
+       sc(hoconsc:enum([gen_rpc, rpc]),
+          #{ mapping => "mria.rlog_rpc_module"
+           , default => gen_rpc
+           , desc => """
+Protocol used for pushing transaction logs to the replicant nodes.
+"""
+           })}
+    , {"tlog_push_mode",
+       sc(hoconsc:enum([sync, async]),
+          #{ mapping => "mria.tlog_push_mode"
+           , default => async
+           , desc => """
+In sync mode the core node waits for an ack from the replicant nodes before sending the next
+transaction log entry.
 """
            })}
     ];
@@ -812,3 +898,22 @@ ensure_list(V) ->
 
 roots(Module) ->
     lists:map(fun({_BinName, Root}) -> Root end, hocon_schema:roots(Module)).
+
+%% Like authentication schema, authorization schema is incomplete in emqx_schema
+%% module, this function replaces the root filed "authorization" with a new schema
+emqx_schema_high_prio_roots() ->
+    Roots = emqx_schema:roots(high),
+    Authz = {"authorization",
+             sc(hoconsc:ref("authorization"),
+             #{ desc => """
+Authorization a.k.a ACL.<br>
+In EMQ X, MQTT client access control is extremly flexible.<br>
+An out of the box set of authorization data sources are supported.
+For example,<br>
+'file' source is to support concise and yet generic ACL rules in a file;<br>
+'built-in-database' source can be used to store per-client customisable rule sets,
+natively in the EMQ X node;<br>
+'http' source to make EMQ X call an external HTTP API to make the decision;<br>
+'postgresql' etc. to look up clients or rules from external databases;<br>
+""" })},
+    lists:keyreplace("authorization", 1, Roots, Authz).

@@ -28,7 +28,7 @@
                  {password, <<"pass">>}
                 ]).
 
-all() -> [t_trace_clientid, t_trace_topic, t_trace_ip_address].
+all() -> [t_trace_clientid, t_trace_topic, t_trace_ip_address, t_trace_clientid_utf8].
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
@@ -85,7 +85,6 @@ t_trace_clientid(_Config) ->
     emqtt:connect(T),
     emqtt:publish(T, <<"a/b/c">>, <<"hi">>),
     emqtt:ping(T),
-
     ok = filesync(<<"client">>, clientid),
     ok = filesync(<<"client2">>, clientid),
     ok = filesync(<<"client3">>, clientid),
@@ -105,6 +104,22 @@ t_trace_clientid(_Config) ->
 
     emqtt:disconnect(T),
     ?assertEqual([], emqx_trace_handler:running()).
+
+t_trace_clientid_utf8(_) ->
+    emqx_logger:set_log_level(debug),
+
+    Utf8Id = <<"client 漢字編碼"/utf8>>,
+    ok = emqx_trace_handler:install(clientid, Utf8Id, debug, "tmp/client-utf8.log"),
+    {ok, T} = emqtt:start_link([{clientid, Utf8Id}]),
+    emqtt:connect(T),
+    [begin emqtt:publish(T, <<"a/b/c">>, <<"hi">>) end|| _ <- lists:seq(1, 10)],
+    emqtt:ping(T),
+
+    ok = filesync(Utf8Id, clientid),
+    ok = emqx_trace_handler:uninstall(clientid, Utf8Id),
+    emqtt:disconnect(T),
+    ?assertEqual([], emqx_trace_handler:running()),
+    ok.
 
 t_trace_topic(_Config) ->
     {ok, T} = emqtt:start_link(?CLIENT),
@@ -161,6 +176,7 @@ t_trace_ip_address(_Config) ->
     ok = emqx_trace_handler:install(ip_address, "192.168.1.1", all, "tmp/ip_trace_y.log"),
     ok = filesync(<<"127.0.0.1">>, ip_address),
     ok = filesync(<<"192.168.1.1">>, ip_address),
+
     %% Verify the tracing file exits
     ?assert(filelib:is_regular("tmp/ip_trace_x.log")),
     ?assert(filelib:is_regular("tmp/ip_trace_y.log")),
@@ -198,7 +214,9 @@ t_trace_ip_address(_Config) ->
     emqtt:disconnect(T),
     ?assertEqual([], emqx_trace_handler:running()).
 
+
 filesync(Name, Type) ->
+    ct:sleep(50),
     filesync(Name, Type, 3).
 
 %% sometime the handler process is not started yet.

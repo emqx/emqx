@@ -120,6 +120,7 @@ all(Suite) ->
                       string:substr(atom_to_list(F), 1, 2) == "t_"
                 ]).
 
+%% set emqx app boot modules
 -spec(boot_modules(all|list(atom())) -> ok).
 boot_modules(Mods) ->
     application:set_env(emqx, boot_modules, Mods).
@@ -134,6 +135,7 @@ start_apps(Apps, Handler) when is_function(Handler) ->
     %% Because, minirest, ekka etc.. application will scan these modules
     lists:foreach(fun load/1, [emqx | Apps]),
     ekka:start(),
+    ok = emqx_ratelimiter_SUITE:base_conf(),
     lists:foreach(fun(App) -> start_app(App, Handler) end, [emqx | Apps]).
 
 load(App) ->
@@ -161,8 +163,7 @@ app_schema(App) ->
 mustache_vars(App) ->
     [{platform_data_dir, app_path(App, "data")},
      {platform_etc_dir,  app_path(App, "etc")},
-     {platform_log_dir,  app_path(App, "log")},
-     {platform_plugins_dir,  app_path(App, "plugins")}
+     {platform_log_dir,  app_path(App, "log")}
     ].
 
 start_app(App, Schema, ConfigFile, SpecAppConfig) ->

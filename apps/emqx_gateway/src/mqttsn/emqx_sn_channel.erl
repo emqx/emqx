@@ -1233,7 +1233,7 @@ handle_call(discard, _From, Channel) ->
 %    %% TODO: Should not drain deliver here (side effect)
 %    Delivers = emqx_misc:drain_deliver(),
 %    AllPendings = lists:append(Delivers, Pendings),
-%    shutdown_and_reply(takeovered, AllPendings, Channel);
+%    shutdown_and_reply(takenover, AllPendings, Channel);
 
 %handle_call(list_authz_cache, _From, Channel) ->
 %    {reply, emqx_authz_cache:list_authz_cache(), Channel};

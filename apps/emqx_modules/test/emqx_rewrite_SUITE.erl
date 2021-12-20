@@ -168,12 +168,11 @@ t_update_re_failed(_Config) ->
     }],
     Error = {badmatch,
         {error,
-            {error,
-                {emqx_modules_schema,
-                    [{validation_error,
-                        #{array_index => 1,path => "rewrite.re",
-                            reason => {<<"*^test/*">>,{"nothing to repeat",0}},
-                            value => <<"*^test/*">>}}]}}}},
+            {emqx_modules_schema,
+                [{validation_error,
+                    #{path => "rewrite.1.re",
+                      reason => {<<"*^test/*">>,{"nothing to repeat",0}},
+                      value => <<"*^test/*">>}}]}}},
     ?assertError(Error, emqx_rewrite:update(Rules)),
     ok.
 

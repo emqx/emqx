@@ -38,6 +38,7 @@ groups() ->
     [{require_seeds, [], [t_authenticate, t_update, t_destroy, t_is_superuser]}].
 
 init_per_testcase(_, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authentication:initialize_authentication(?GLOBAL, []),
     emqx_authn_test_lib:delete_authenticators(
       [authentication],
@@ -53,6 +54,7 @@ end_per_group(require_seeds, Config) ->
     Config.
 
 init_per_suite(Config) ->
+    _ = application:load(emqx_conf),
     case emqx_authn_test_lib:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
@@ -270,20 +272,20 @@ t_parse_query(_) ->
 
 raw_pgsql_auth_config() ->
     #{
-        mechanism => <<"password-based">>,
-        password_hash_algorithm => <<"plain">>,
-        salt_position => <<"suffix">>,
-        enable => <<"true">>,
+      mechanism => <<"password-based">>,
+      password_hash_algorithm => #{name => <<"plain">>,
+                                   salt_position => <<"suffix">>},
+      enable => <<"true">>,
 
-        backend => <<"postgresql">>,
-        database => <<"mqtt">>,
-        username => <<"root">>,
-        password => <<"public">>,
+      backend => <<"postgresql">>,
+      database => <<"mqtt">>,
+      username => <<"root">>,
+      password => <<"public">>,
 
-        query => <<"SELECT password_hash, salt, is_superuser_str as is_superuser
+      query => <<"SELECT password_hash, salt, is_superuser_str as is_superuser
                       FROM users where username = ${username} LIMIT 1">>,
-        server => pgsql_server()
-    }.
+      server => pgsql_server()
+     }.
 
 user_seeds() ->
     [#{data => #{
@@ -310,8 +312,8 @@ user_seeds() ->
                         password => <<"md5">>
                        },
        config_params => #{
-                          password_hash_algorithm => <<"md5">>,
-                          salt_position => <<"suffix">>
+                          password_hash_algorithm => #{name => <<"md5">>,
+                                                       salt_position => <<"suffix">>}
                          },
        result => {ok,#{is_superuser => false}}
       },
@@ -329,8 +331,8 @@ user_seeds() ->
        config_params => #{
               query => <<"SELECT password_hash, salt, is_superuser_int as is_superuser
                             FROM users where username = ${clientid} LIMIT 1">>,
-              password_hash_algorithm => <<"sha256">>,
-              salt_position => <<"prefix">>
+              password_hash_algorithm => #{name => <<"sha256">>,
+                                           salt_position => <<"prefix">>}
              },
        result => {ok,#{is_superuser => true}}
       },
@@ -348,8 +350,7 @@ user_seeds() ->
        config_params => #{
               query => <<"SELECT password_hash, salt, is_superuser_int as is_superuser
                             FROM users where username = ${username} LIMIT 1">>,
-              password_hash_algorithm => <<"bcrypt">>,
-              salt_position => <<"suffix">> % should be ignored
+              password_hash_algorithm => #{name => <<"bcrypt">>}
              },
        result => {ok,#{is_superuser => false}}
       },
@@ -368,8 +369,7 @@ user_seeds() ->
               % clientid variable & username credentials
               query => <<"SELECT password_hash, salt, is_superuser_int as is_superuser
                             FROM users where username = ${clientid} LIMIT 1">>,
-              password_hash_algorithm => <<"bcrypt">>,
-              salt_position => <<"suffix">>
+              password_hash_algorithm => #{name => <<"bcrypt">>}
              },
        result => {error,not_authorized}
       },
@@ -388,8 +388,7 @@ user_seeds() ->
               % Bad keys in query
               query => <<"SELECT 1 AS unknown_field
                             FROM users where username = ${username} LIMIT 1">>,
-              password_hash_algorithm => <<"bcrypt">>,
-              salt_position => <<"suffix">>
+              password_hash_algorithm => #{name => <<"bcrypt">>}
              },
        result => {error,not_authorized}
       },
@@ -406,8 +405,7 @@ user_seeds() ->
                         password => <<"wrongpass">>
                        },
        config_params => #{
-              password_hash_algorithm => <<"bcrypt">>,
-              salt_position => <<"suffix">>
+              password_hash_algorithm => #{name => <<"bcrypt">>}
              },
        result => {error,bad_username_or_password}
       }

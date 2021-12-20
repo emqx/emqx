@@ -16,6 +16,7 @@
 -module(emqx_conf).
 
 -compile({no_auto_import, [get/1, get/2]}).
+-include_lib("emqx/include/logger.hrl").
 
 -export([add_handler/2, remove_handler/1]).
 -export([get/1, get/2, get_raw/2, get_all/1]).
@@ -23,6 +24,7 @@
 -export([update/3, update/4]).
 -export([remove/2, remove/3]).
 -export([reset/2, reset/3]).
+-export([gen_doc/1]).
 
 %% for rpc
 -export([get_node_and_config/1]).
@@ -122,14 +124,29 @@ reset(Node, KeyPath, Opts) when Node =:= node() ->
 reset(Node, KeyPath, Opts) ->
     rpc:call(Node, ?MODULE, reset, [KeyPath, Opts]).
 
+-spec gen_doc(file:name_all()) -> ok.
+gen_doc(File) ->
+    Version = emqx_release:version(),
+    Title = "# EMQ X " ++ Version ++ " Configuration",
+    BodyFile = filename:join([code:lib_dir(emqx_conf), "etc", "emqx_conf.md"]),
+    {ok, Body} = file:read_file(BodyFile),
+    Doc = hocon_schema_doc:gen(emqx_conf_schema, #{title => Title,
+                                                   body => Body}),
+    file:write_file(File, Doc).
+
 %%--------------------------------------------------------------------
-%% Internal funcs
+%% Internal functions
 %%--------------------------------------------------------------------
 
 multicall(M, F, Args) ->
     case emqx_cluster_rpc:multicall(M, F, Args) of
-        {ok, _TnxId, Res} ->
+        {ok, _TnxId, Res} -> Res;
+        {retry, TnxId, Res, Nodes} ->
+            %% The init MFA return ok, but other nodes failed.
+            %% We return ok and alert an alarm.
+            ?SLOG(error, #{msg => "failed to update config in cluster", nodes => Nodes,
+                tnx_id => TnxId, mfa => {M, F, Args}}),
             Res;
-        {error, Reason} ->
-            {error, Reason}
+        {error, Error} -> %% all MFA return not ok or {ok, term()}.
+            Error
     end.

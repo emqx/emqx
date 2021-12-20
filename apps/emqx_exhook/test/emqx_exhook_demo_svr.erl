@@ -41,7 +41,7 @@
         , on_session_unsubscribed/2
         , on_session_resumed/2
         , on_session_discarded/2
-        , on_session_takeovered/2
+        , on_session_takenover/2
         , on_session_terminated/2
         , on_message_publish/2
         , on_message_delivered/2
@@ -130,7 +130,7 @@ on_provider_loaded(Req, Md) ->
                      #{name => <<"session.unsubscribed">>},
                      #{name => <<"session.resumed">>},
                      #{name => <<"session.discarded">>},
-                     #{name => <<"session.takeovered">>},
+                     #{name => <<"session.takenover">>},
                      #{name => <<"session.terminated">>},
                      #{name => <<"message.publish">>},
                      #{name => <<"message.delivered">>},
@@ -274,10 +274,10 @@ on_session_discarded(Req, Md) ->
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
--spec on_session_takeovered(emqx_exhook_pb:session_takeovered_request(), grpc:metadata())
+-spec on_session_takenover(emqx_exhook_pb:session_takenover_request(), grpc:metadata())
     -> {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}
      | {error, grpc_cowboy_h:error_response()}.
-on_session_takeovered(Req, Md) ->
+on_session_takenover(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
@@ -299,20 +299,30 @@ on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
     %% some cases for testing
     case From of
         <<"baduser">> ->
-            NMsg = Msg#{qos => 0,
+            NMsg = deny(Msg#{qos => 0,
                         topic => <<"">>,
                         payload => <<"">>
-                       },
+                       }),
             {ok, #{type => 'STOP_AND_RETURN',
                    value => {message, NMsg}}, Md};
         <<"gooduser">> ->
-            NMsg = Msg#{topic => From,
-                        payload => From},
+            NMsg = allow(Msg#{topic => From,
+                              payload => From}),
             {ok, #{type => 'STOP_AND_RETURN',
                    value => {message, NMsg}}, Md};
         _ ->
             {ok, #{type => 'IGNORE'}, Md}
     end.
+
+deny(Msg) ->
+    NHeader = maps:put(<<"allow_publish">>, <<"false">>,
+                       maps:get(headers, Msg, #{})),
+    maps:put(headers, NHeader, Msg).
+
+allow(Msg) ->
+    NHeader = maps:put(<<"allow_publish">>, <<"true">>,
+                       maps:get(headers, Msg, #{})),
+    maps:put(headers, NHeader, Msg).
 
 -spec on_message_delivered(emqx_exhook_pb:message_delivered_request(), grpc:metadata())
     -> {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}

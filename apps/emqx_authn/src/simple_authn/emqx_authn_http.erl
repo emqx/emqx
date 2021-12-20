@@ -43,8 +43,9 @@
 namespace() -> "authn-http".
 
 roots() ->
-    [ {config, hoconsc:mk(hoconsc:union(refs()),
-                          #{})}
+    [ {?CONF_NS,
+       hoconsc:mk(hoconsc:union(refs()),
+                  #{})}
     ].
 
 fields(get) ->
@@ -60,8 +61,8 @@ fields(post) ->
     ] ++ common_fields().
 
 common_fields() ->
-    [ {mechanism,       hoconsc:enum(['password-based'])}
-    , {backend,         hoconsc:enum(['http'])}
+    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
+    , {backend, emqx_authn_schema:backend(http)}
     , {url,             fun url/1}
     , {body,            fun body/1}
     , {request_timeout, fun request_timeout/1}
@@ -233,9 +234,9 @@ transform_header_name(Headers) ->
               end, #{}, Headers).
 
 check_ssl_opts(Conf) ->
-    case parse_url(hocon_schema:get_value("config.url", Conf)) of
+    case parse_url(get_conf_val("url", Conf)) of
         #{scheme := https} ->
-            case hocon_schema:get_value("config.ssl.enable", Conf) of
+            case get_conf_val("ssl.enable", Conf) of
                 true -> ok;
                 false -> false
             end;
@@ -244,8 +245,8 @@ check_ssl_opts(Conf) ->
     end.
 
 check_headers(Conf) ->
-    Method = to_bin(hocon_schema:get_value("config.method", Conf)),
-    Headers = hocon_schema:get_value("config.headers", Conf),
+    Method = to_bin(get_conf_val("method", Conf)),
+    Headers = get_conf_val("headers", Conf),
     Method =:= <<"post">> orelse (not maps:is_key(<<"content-type">>, Headers)).
 
 parse_url(URL) ->
@@ -284,7 +285,7 @@ replace_placeholders([{K, V0} | More], Credential, Acc) ->
         undefined ->
             error({cannot_get_variable, V0});
         V ->
-            replace_placeholders(More, Credential, [{K, emqx_authn_utils:bin(V)} | Acc])
+            replace_placeholders(More, Credential, [{K, to_bin(V)} | Acc])
     end.
 
 append_query(Path, []) ->
@@ -340,3 +341,6 @@ to_bin(B) when is_binary(B) ->
     B;
 to_bin(L) when is_list(L) ->
     list_to_binary(L).
+
+get_conf_val(Name, Conf) ->
+    hocon_schema:get_value(?CONF_NS ++ "." ++ Name, Conf).

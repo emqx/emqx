@@ -1,0 +1,13 @@
+%% -*- mode: erlang -*-
+{application, emqx_limiter,
+ [{description, "EMQ X Hierachical Limiter"},
+  {vsn, "1.0.0"}, % strict semver, bump manually!
+  {modules, []},
+  {registered, [emqx_limiter_sup]},
+  {applications, [kernel,stdlib,emqx]},
+  {mod, {emqx_limiter_app,[]}},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, []}
+ ]}.

@@ -40,7 +40,9 @@ gateway.coap {
 
 -define(HOST, "127.0.0.1").
 -define(PORT, 5683).
--define(CONN_URI, "coap://127.0.0.1/mqtt/connection?clientid=client1&username=admin&password=public").
+-define(CONN_URI,
+          "coap://127.0.0.1/mqtt/connection?clientid=client1&"
+          "username=admin&password=public").
 
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 
@@ -67,7 +69,7 @@ end_per_suite(Config) ->
 t_send_request_api(_) ->
     ClientId = start_client(),
     timer:sleep(200),
-    Path = emqx_mgmt_api_test_util:api_path(["gateway/coap/client1/request"]),
+    Path = emqx_mgmt_api_test_util:api_path(["gateway/coap/clients/client1/request"]),
     Token = <<"atoken">>,
     Payload = <<"simple echo this">>,
     Req = #{token => Token,
@@ -117,26 +119,40 @@ test_send_coap_request(UdpSock, Method, Content, Options, MsgId) ->
             Request = Request0#coap_message{id = MsgId},
             ?LOGT("send_coap_request Request=~p", [Request]),
             RequestBinary = emqx_coap_frame:serialize_pkt(Request, undefined),
-            ?LOGT("test udp socket send to ~p:~p, data=~p", [IpAddr, Port, RequestBinary]),
+            ?LOGT("test udp socket send to ~p:~p, data=~p",
+                  [IpAddr, Port, RequestBinary]),
             ok = gen_udp:send(UdpSock, IpAddr, Port, RequestBinary);
         {SchemeDiff, ChIdDiff, _, _} ->
-            error(lists:flatten(io_lib:format("scheme ~ts or ChId ~ts does not match with socket", [SchemeDiff, ChIdDiff])))
+            error(
+              lists:flatten(
+                io_lib:format(
+                    "scheme ~ts or ChId ~ts does not match with socket",
+                    [SchemeDiff, ChIdDiff])
+               ))
     end.
 
 test_recv_coap_response(UdpSock) ->
     {ok, {Address, Port, Packet}} = gen_udp:recv(UdpSock, 0, 2000),
     {ok, Response, _, _} = emqx_coap_frame:parse(Packet, undefined),
-    ?LOGT("test udp receive from ~p:~p, data1=~p, Response=~p", [Address, Port, Packet, Response]),
-    #coap_message{type = ack, method = Method, id=Id, token = Token, options = Options, payload = Payload} = Response,
-    ?LOGT("receive coap response Method=~p, Id=~p, Token=~p, Options=~p, Payload=~p", [Method, Id, Token, Options, Payload]),
+    ?LOGT("test udp receive from ~p:~p, data1=~p, Response=~p",
+          [Address, Port, Packet, Response]),
+    #coap_message{
+       type = ack, method = Method, id = Id,
+       token = Token, options = Options, payload = Payload} = Response,
+    ?LOGT("receive coap response Method=~p, Id=~p, Token=~p, "
+          "Options=~p, Payload=~p", [Method, Id, Token, Options, Payload]),
     Response.
 
 test_recv_coap_request(UdpSock) ->
     case gen_udp:recv(UdpSock, 0) of
         {ok, {_Address, _Port, Packet}} ->
             {ok, Request, _, _} = emqx_coap_frame:parse(Packet, undefined),
-            #coap_message{type = con, method = Method, id=Id, token = Token, payload = Payload, options = Options} = Request,
-            ?LOGT("receive coap request Method=~p, Id=~p, Token=~p, Options=~p, Payload=~p", [Method, Id, Token, Options, Payload]),
+            #coap_message{
+               type = con, method = Method, id = Id,
+               token = Token, payload = Payload, options = Options} = Request,
+            ?LOGT("receive coap request Method=~p, Id=~p, "
+                  "Token=~p, Options=~p, Payload=~p",
+                  [Method, Id, Token, Options, Payload]),
             Request;
         {error, Reason} ->
             ?LOGT("test_recv_coap_request failed, Reason=~p", [Reason]),

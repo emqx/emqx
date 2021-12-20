@@ -21,9 +21,14 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
+-behaviour(emqx_authz).
+
 %% AuthZ Callbacks
--export([ authorize/4
-        , description/0
+-export([ description/0
+        , init/1
+        , destroy/1
+        , dry_run/1
+        , authorize/4
         ]).
 
 -ifdef(TEST).
@@ -32,7 +37,19 @@
 -endif.
 
 description() ->
-    "AuthZ with redis".
+    "AuthZ with Redis".
+
+init(Source) ->
+    case emqx_authz_utils:create_resource(emqx_connector_redis, Source) of
+        {error, Reason} -> error({load_config_error, Reason});
+        {ok, Id} -> Source#{annotations => #{id => Id}}
+    end.
+
+destroy(#{annotations := #{id := Id}}) ->
+    ok = emqx_resource:remove(Id).
+
+dry_run(Source) ->
+    emqx_resource:create_dry_run(emqx_connector_redis, Source).
 
 authorize(Client, PubSub, Topic,
             #{cmd := CMD,
@@ -53,9 +70,10 @@ authorize(Client, PubSub, Topic,
 do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
 do_authorize(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
-    case emqx_authz_rule:match(Client, PubSub, Topic,
-                               emqx_authz_rule:compile({allow, all, Action, [TopicFilter]})
-                              )of
+    case emqx_authz_rule:match(
+           Client, PubSub, Topic,
+           emqx_authz_rule:compile({allow, all, Action, [TopicFilter]})
+          ) of
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Tail)
     end.
@@ -64,6 +82,8 @@ replvar(Cmd, Client = #{cn := CN}) ->
     replvar(repl(Cmd, ?PH_S_CERT_CN_NAME, CN), maps:remove(cn, Client));
 replvar(Cmd, Client = #{dn := DN}) ->
     replvar(repl(Cmd, ?PH_S_CERT_SUBJECT, DN), maps:remove(dn, Client));
+replvar(Cmd, Client = #{peerhost := IpAddr}) ->
+    replvar(repl(Cmd, ?PH_S_PEERHOST, inet_parse:ntoa(IpAddr)), maps:remove(peerhost, Client));
 replvar(Cmd, Client = #{clientid := ClientId}) ->
     replvar(repl(Cmd, ?PH_S_CLIENTID, ClientId), maps:remove(clientid, Client));
 replvar(Cmd, Client = #{username := Username}) ->

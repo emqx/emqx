@@ -22,6 +22,9 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
+
+-define(CERTS_PATH(CertName), filename:join(["../../lib/emqx/etc/certs/", CertName])).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -37,10 +40,58 @@ end_per_suite(_Config) ->
     application:stop(esockd),
     application:stop(cowboy).
 
+init_per_testcase(Case, Config)
+  when Case =:= t_max_conns_tcp; Case =:= t_current_conns_tcp ->
+    {ok, _} = emqx_config_handler:start_link(),
+    PrevListeners = emqx_config:get([listeners, tcp], #{}),
+    PrevRateLimit = emqx_config:get([rate_limit], #{}),
+    emqx_config:put(
+      [listeners, tcp],
+      #{listener_test => #{bind => {"127.0.0.1", 9999},
+                           max_connections => 4321,
+                           limiter => #{}
+                          }
+       }),
+    emqx_config:put([rate_limit], #{max_conn_rate => 1000}),
+    ok = emqx_listeners:start(),
+    [ {prev_listener_conf, PrevListeners}
+    , {prev_rate_limit_conf, PrevRateLimit}
+    | Config];
+init_per_testcase(t_wss_conn, Config) ->
+    {ok, _} = emqx_config_handler:start_link(),
+    PrevListeners = emqx_config:get([listeners, wss], #{}),
+    emqx_config:put(
+      [listeners, wss],
+      #{listener_test => #{bind => {{127,0,0,1}, 9998},
+                           limiter => #{},
+                           ssl => #{cacertfile => ?CERTS_PATH("cacert.pem"),
+                                    certfile => ?CERTS_PATH("cert.pem"),
+                                    keyfile => ?CERTS_PATH("key.pem")
+                                   }
+                          }
+       }),
+    ok = emqx_listeners:start(),
+    [ {prev_listener_conf, PrevListeners}
+    | Config];
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_config_handler:start_link(),
     Config.
 
+end_per_testcase(Case, Config)
+  when Case =:= t_max_conns_tcp; Case =:= t_current_conns_tcp ->
+    PrevListener = ?config(prev_listener_conf, Config),
+    PrevRateLimit = ?config(prev_rate_limit_conf, Config),
+    emqx_config:put([listeners, tcp], PrevListener),
+    emqx_config:put([rate_limit], PrevRateLimit),
+    emqx_listeners:stop(),
+    _ = emqx_config_handler:stop(),
+    ok;
+end_per_testcase(t_wss_conn, Config) ->
+    PrevListener = ?config(prev_listener_conf, Config),
+    emqx_config:put([listeners, wss], PrevListener),
+    emqx_listeners:stop(),
+    _ = emqx_config_handler:stop(),
+    ok;
 end_per_testcase(_, _Config) ->
     _ = emqx_config_handler:stop(),
     ok.
@@ -56,6 +107,18 @@ t_restart_listeners(_) ->
     ok = emqx_listeners:restart(),
     ok = emqx_listeners:stop().
 
+t_max_conns_tcp(_) ->
+    %% Note: Using a string representation for the bind address like
+    %% "127.0.0.1" does not work
+    ?assertEqual(4321, emqx_listeners:max_conns('tcp:listener_test', {{127,0,0,1}, 9999})).
+
+t_current_conns_tcp(_) ->
+    ?assertEqual(0, emqx_listeners:current_conns('tcp:listener_test', {{127,0,0,1}, 9999})).
+
+t_wss_conn(_) ->
+    {ok, Socket} = ssl:connect({127, 0, 0, 1}, 9998, [{verify, verify_none}], 1000),
+    ok = ssl:close(Socket).
+
 render_config_file() ->
     Path = local_path(["etc", "emqx.conf"]),
     {ok, Temp} = file:read_file(Path),
@@ -69,8 +132,7 @@ render_config_file() ->
 mustache_vars() ->
     [{platform_data_dir, local_path(["data"])},
      {platform_etc_dir,  local_path(["etc"])},
-     {platform_log_dir,  local_path(["log"])},
-     {platform_plugins_dir,  local_path(["plugins"])}
+     {platform_log_dir,  local_path(["log"])}
     ].
 
 generate_config() ->
@@ -81,10 +143,6 @@ generate_config() ->
 set_app_env({App, Lists}) ->
     lists:foreach(fun({authz_file, _Var}) ->
                       application:set_env(App, authz_file, local_path(["etc", "authz.conf"]));
-                     ({plugins_loaded_file, _Var}) ->
-                      application:set_env(App,
-                                          plugins_loaded_file,
-                                          local_path(["test", "emqx_SUITE_data","loaded_plugins"]));
                      ({Par, Var}) ->
                       application:set_env(App, Par, Var)
                   end, Lists).
@@ -101,4 +159,3 @@ get_base_dir(Module) ->
 
 get_base_dir() ->
     get_base_dir(?MODULE).
-

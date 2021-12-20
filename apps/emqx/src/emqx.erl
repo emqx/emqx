@@ -24,6 +24,7 @@
 
 %% Start/Stop the application
 -export([ start/0
+        , is_running/0
         , is_running/1
         , stop/0
         ]).
@@ -85,10 +86,17 @@ stop() ->
 %% @doc Is emqx running?
 -spec(is_running(node()) -> boolean()).
 is_running(Node) ->
-    case rpc:call(Node, erlang, whereis, [?APP]) of
+    case rpc:call(Node, ?MODULE, is_running, []) of
         {badrpc, _}          -> false;
-        undefined            -> false;
-        Pid when is_pid(Pid) -> true
+        Result               -> Result
+    end.
+
+%% @doc Is emqx running on this node?
+-spec(is_running() -> boolean()).
+is_running() ->
+    case whereis(?APP) of
+        undefined -> false;
+        _         -> true
     end.
 
 %%--------------------------------------------------------------------

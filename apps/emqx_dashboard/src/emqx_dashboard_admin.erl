@@ -41,6 +41,9 @@
         , verify_token/1
         , destroy_token_by_username/2
         ]).
+-export([ hash/1
+        , verify_hash/2
+        ]).
 
 -export([add_default_user/0]).
 
@@ -106,6 +109,23 @@ remove_user(Username) when is_binary(Username) ->
 update_user(Username, Desc) when is_binary(Username) ->
     return(mria:transaction(?DASHBOARD_SHARD, fun update_user_/2, [Username, Desc])).
 
+hash(Password) ->
+    SaltBin = emqx_dashboard_token:salt(),
+    <<SaltBin/binary, (sha256(SaltBin, Password))/binary>>.
+
+verify_hash(Origin, SaltHash) ->
+    case SaltHash of
+        <<Salt:4/binary, Hash/binary>> ->
+            case Hash =:= sha256(Salt, Origin) of
+                true -> ok;
+                false -> error
+            end;
+        _ -> error
+    end.
+
+sha256(SaltBin, Password) ->
+    crypto:hash('sha256', <<SaltBin/binary, Password/binary>>).
+
 %% @private
 update_user_(Username, Desc) ->
     case mnesia:wread({?ADMIN, Username}) of
@@ -170,13 +190,13 @@ check(_, undefined) ->
     {error, <<"password_not_provided">>};
 check(Username, Password) ->
     case lookup_user(Username) of
-        [#?ADMIN{pwdhash = <<Salt:4/binary, Hash/binary>>}] ->
-            case Hash =:= sha256(Salt, Password) of
-                true  -> ok;
-                false -> {error, <<"BAD_USERNAME_OR_PASSWORD">>}
+        [#?ADMIN{pwdhash = PwdHash}] ->
+            case verify_hash(Password, PwdHash) of
+                ok  -> ok;
+                error -> {error, <<"password_error">>}
             end;
         [] ->
-            {error, <<"BAD_USERNAME_OR_PASSWORD">>}
+            {error, <<"username_not_found">>}
     end.
 
 %%--------------------------------------------------------------------
@@ -204,13 +224,7 @@ destroy_token_by_username(Username, Token) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-hash(Password) ->
-    SaltBin = emqx_dashboard_token:salt(),
-    <<SaltBin/binary, (sha256(SaltBin, Password))/binary>>.
-
-sha256(SaltBin, Password) ->
-    crypto:hash('sha256', <<SaltBin/binary, Password/binary>>).
-
+-spec(add_default_user() -> {ok, map() | empty | default_user_exists } | {error, any()}).
 add_default_user() ->
     add_default_user(binenv(default_username), binenv(default_password)).
 
@@ -218,7 +232,7 @@ binenv(Key) ->
     iolist_to_binary(emqx_conf:get([emqx_dashboard, Key], "")).
 
 add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY(Password) ->
-    ok;
+    {ok, empty};
 
 add_default_user(Username, Password) ->
     case lookup_user(Username) of

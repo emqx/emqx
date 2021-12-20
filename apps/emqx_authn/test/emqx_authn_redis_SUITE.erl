@@ -23,11 +23,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
-
 -define(REDIS_HOST, "redis").
 -define(REDIS_PORT, 6379).
 -define(REDIS_RESOURCE, <<"emqx_authn_redis_SUITE">>).
-
 
 -define(PATH, [authentication]).
 
@@ -38,6 +36,7 @@ groups() ->
     [{require_seeds, [], [t_authenticate, t_update, t_destroy]}].
 
 init_per_testcase(_, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authentication:initialize_authentication(?GLOBAL, []),
     emqx_authn_test_lib:delete_authenticators(
       [authentication],
@@ -53,6 +52,7 @@ end_per_group(require_seeds, Config) ->
     Config.
 
 init_per_suite(Config) ->
+   _ = application:load(emqx_conf),
     case emqx_authn_test_lib:is_tcp_server_available(?REDIS_HOST, ?REDIS_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
@@ -98,11 +98,11 @@ t_create_invalid(_Config) ->
          AuthConfig#{password => <<"wrongpass">>},
          AuthConfig#{database => <<"5678">>},
          AuthConfig#{
-           query => <<"MGET password_hash:${username} salt:${username}">>},
+           cmd => <<"MGET password_hash:${username} salt:${username}">>},
          AuthConfig#{
-           query => <<"HMGET mqtt_user:${username} password_hash invalid_field">>},
+           cmd => <<"HMGET mqtt_user:${username} password_hash invalid_field">>},
          AuthConfig#{
-           query => <<"HMGET mqtt_user:${username} salt is_superuser">>}
+           cmd => <<"HMGET mqtt_user:${username} salt is_superuser">>}
         ],
 
     lists:foreach(
@@ -177,7 +177,7 @@ t_update(_Config) ->
     CorrectConfig = raw_redis_auth_config(),
     IncorrectConfig =
         CorrectConfig#{
-             query => <<"HMGET invalid_key:${username} password_hash salt is_superuser">>},
+             cmd => <<"HMGET invalid_key:${username} password_hash salt is_superuser">>},
 
     {ok, _} = emqx:update_config(
                 ?PATH,
@@ -208,137 +208,150 @@ t_update(_Config) ->
 
 raw_redis_auth_config() ->
     #{
-        mechanism => <<"password-based">>,
-        password_hash_algorithm => <<"plain">>,
-        salt_position => <<"suffix">>,
-        enable => <<"true">>,
+      mechanism => <<"password-based">>,
+      password_hash_algorithm => #{name => <<"plain">>,
+                                   salt_position => <<"suffix">>},
+      enable => <<"true">>,
 
-        backend => <<"redis">>,
-        query => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
-        database => <<"1">>,
-        password => <<"public">>,
-        server => redis_server()
-    }.
+      backend => <<"redis">>,
+      cmd => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
+      database => <<"1">>,
+      password => <<"public">>,
+      server => redis_server()
+     }.
 
 user_seeds() ->
     [#{data => #{
-                 password_hash => "plainsalt",
-                 salt => "salt",
-                 is_superuser => "1"
+                 password_hash => <<"plainsalt">>,
+                 salt => <<"salt">>,
+                 is_superuser => <<"1">>
                 },
        credentials => #{
                         username => <<"plain">>,
                         password => <<"plain">>},
-       key => "mqtt_user:plain",
+       key => <<"mqtt_user:plain">>,
        config_params => #{},
        result => {ok,#{is_superuser => true}}
       },
 
      #{data => #{
-                 password_hash => "9b4d0c43d206d48279e69b9ad7132e22",
-                 salt => "salt",
-                 is_superuser => "0"
+                 password_hash => <<"9b4d0c43d206d48279e69b9ad7132e22">>,
+                 salt => <<"salt">>,
+                 is_superuser => <<"0">>
                 },
        credentials => #{
                         username => <<"md5">>,
                         password => <<"md5">>
                        },
-       key => "mqtt_user:md5",
+       key => <<"mqtt_user:md5">>,
        config_params => #{
-                          password_hash_algorithm => <<"md5">>,
-                          salt_position => <<"suffix">>
+                          password_hash_algorithm => #{name => <<"md5">>,
+                                                       salt_position => <<"suffix">>}
                          },
        result => {ok,#{is_superuser => false}}
       },
 
      #{data => #{
-         password_hash => "ac63a624e7074776d677dd61a003b8c803eb11db004d0ec6ae032a5d7c9c5caf",
-         salt => "salt",
-         is_superuser => "1"
+         password_hash => <<"ac63a624e7074776d677dd61a003b8c803eb11db004d0ec6ae032a5d7c9c5caf">>,
+         salt => <<"salt">>,
+         is_superuser => <<"1">>
         },
        credentials => #{
                         clientid => <<"sha256">>,
                         password => <<"sha256">>
                        },
-       key => "mqtt_user:sha256",
+       key => <<"mqtt_user:sha256">>,
        config_params => #{
-              query => <<"HMGET mqtt_user:${clientid} password_hash salt is_superuser">>,
-              password_hash_algorithm => <<"sha256">>,
-              salt_position => <<"prefix">>
+              cmd => <<"HMGET mqtt_user:${clientid} password_hash salt is_superuser">>,
+              password_hash_algorithm => #{name => <<"sha256">>,
+                                           salt_position => <<"prefix">>}
              },
        result => {ok,#{is_superuser => true}}
       },
 
      #{data => #{
-                 password_hash => "$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u",
-                 salt => "$2b$12$wtY3h20mUjjmeaClpqZVve",
-                 is_superuser => "0"
+                 password_hash => <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                 salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
+                 is_superuser => <<"0">>
                 },
        credentials => #{
                         username => <<"bcrypt">>,
                         password => <<"bcrypt">>
                        },
-       key => "mqtt_user:bcrypt",
+       key => <<"mqtt_user:bcrypt">>,
        config_params => #{
-                          password_hash_algorithm => <<"bcrypt">>,
-                          salt_position => <<"suffix">> % should be ignored
+                          password_hash_algorithm => #{name => <<"bcrypt">>}
                          },
        result => {ok,#{is_superuser => false}}
       },
-
      #{data => #{
-                 password_hash => "$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u",
-                 salt => "$2b$12$wtY3h20mUjjmeaClpqZVve",
-                 is_superuser => "0"
+                 password_hash => <<"01dbee7f4a9e243e988b62c73cda935da05378b9">>,
+                 salt => <<"ATHENA.MIT.EDUraeburn">>,
+                 is_superuser => <<"0">>
+                },
+       credentials => #{
+                        username => <<"pbkdf2">>,
+                        password => <<"password">>
+                       },
+       key => <<"mqtt_user:pbkdf2">>,
+       config_params => #{
+                          password_hash_algorithm => #{name => <<"pbkdf2">>,
+                                                       iterations => 2,
+                                                       mac_fun => sha
+                                                      }
+                         },
+       result => {ok,#{is_superuser => false}}
+      },
+     #{data => #{
+                 password_hash => <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                 salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
+                 is_superuser => <<"0">>
                 },
        credentials => #{
                         username => <<"bcrypt0">>,
                         password => <<"bcrypt">>
                        },
-       key => "mqtt_user:bcrypt0",
+       key => <<"mqtt_user:bcrypt0">>,
        config_params => #{
               % clientid variable & username credentials
-              query => <<"HMGET mqtt_client:${clientid} password_hash salt is_superuser">>,
-              password_hash_algorithm => <<"bcrypt">>,
-              salt_position => <<"suffix">>
+              cmd => <<"HMGET mqtt_client:${clientid} password_hash salt is_superuser">>,
+              password_hash_algorithm => #{name => <<"bcrypt">>}
              },
        result => {error,not_authorized}
       },
 
      #{data => #{
-                 password_hash => "$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u",
-                 salt => "$2b$12$wtY3h20mUjjmeaClpqZVve",
-                 is_superuser => "0"
+                 password_hash => <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                 salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
+                 is_superuser => <<"0">>
                 },
        credentials => #{
                         username => <<"bcrypt1">>,
                         password => <<"bcrypt">>
                        },
-       key => "mqtt_user:bcrypt1",
+       key => <<"mqtt_user:bcrypt1">>,
        config_params => #{
-              % Bad key in query
-              query => <<"HMGET badkey:${username} password_hash salt is_superuser">>,
-              password_hash_algorithm => <<"bcrypt">>,
-              salt_position => <<"suffix">>
+              % Bad key in cmd
+              cmd => <<"HMGET badkey:${username} password_hash salt is_superuser">>,
+              password_hash_algorithm => #{name => <<"bcrypt">>}
              },
        result => {error,not_authorized}
       },
 
      #{data => #{
-                 password_hash => "$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u",
-                 salt => "$2b$12$wtY3h20mUjjmeaClpqZVve",
-                 is_superuser => "0"
+                 password_hash => <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                 salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
+                 is_superuser => <<"0">>
                 },
        credentials => #{
                         username => <<"bcrypt2">>,
                         % Wrong password
                         password => <<"wrongpass">>
                        },
-       key => "mqtt_user:bcrypt2",
+       key => <<"mqtt_user:bcrypt2">>,
        config_params => #{
-              query => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
-              password_hash_algorithm => <<"bcrypt">>,
-              salt_position => <<"suffix">>
+              cmd => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
+              password_hash_algorithm => #{name => <<"bcrypt">>}
              },
        result => {error,bad_username_or_password}
       }

@@ -17,6 +17,8 @@
 -ifndef(EMQX_AUTHN_HRL).
 -define(EMQX_AUTHN_HRL, true).
 
+-include_lib("emqx/include/emqx_authentication.hrl").
+
 -define(APP, emqx_authn).
 
 -define(AUTHN, emqx_authentication).
@@ -26,5 +28,10 @@
 -define(RE_PLACEHOLDER, "\\$\\{[a-z0-9\\-]+\\}").
 
 -define(AUTH_SHARD, emqx_authn_shard).
+
+%% has to be the same as the root field name defined in emqx_schema
+-define(CONF_NS, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME).
+-define(CONF_NS_ATOM, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
+-define(CONF_NS_BINARY, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY).
 
 -endif.

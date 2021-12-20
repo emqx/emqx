@@ -4,33 +4,48 @@
 
 -include_lib("typerefl/include/types.hrl").
 
+-import(hoconsc, [mk/2, ref/2]).
+
 -export([roots/0, fields/1]).
+
+-export([ get_response/0
+        , put_request/0
+        , post_request/0
+        ]).
+
+%% the config for http bridges do not need connectors
+-define(CONN_TYPES, [mqtt]).
+
+%%======================================================================================
+%% For HTTP APIs
+
+get_response() ->
+    http_schema("get").
+
+put_request() ->
+    http_schema("put").
+
+post_request() ->
+    http_schema("post").
+
+http_schema(Method) ->
+    Schemas = [ref(schema_mod(Type), Method) || Type <- ?CONN_TYPES],
+    hoconsc:union(Schemas).
 
 %%======================================================================================
 %% Hocon Schema Definitions
 
 roots() -> ["connectors"].
 
+fields(connectors) -> fields("connectors");
 fields("connectors") ->
     [ {mqtt,
-       sc(hoconsc:map(name,
-            hoconsc:union([ ref("mqtt_connector")
+       mk(hoconsc:map(name,
+            hoconsc:union([ ref(emqx_connector_mqtt_schema, "connector")
                           ])),
           #{ desc => "MQTT bridges"
           })}
-    ];
+    ].
 
-fields("mqtt_connector") ->
-    emqx_connector_mqtt_schema:fields("connector");
-
-fields("mqtt_connector_info") ->
-    [{id, sc(binary(), #{desc => "The connector Id"})}]
-    ++ fields("mqtt_connector");
-
-fields("mqtt_connector_test_info") ->
-    [{bridge_type, sc(mqtt, #{desc => "The Bridge Type"})}]
-    ++ fields("mqtt_connector").
-
-sc(Type, Meta) -> hoconsc:mk(Type, Meta).
-
-ref(Field) -> hoconsc:ref(?MODULE, Field).
+schema_mod(Type) ->
+    list_to_atom(lists:concat(["emqx_connector_", Type])).

@@ -31,6 +31,9 @@
 
 -export([format/2]).
 
+%% For CLI outputs
+-export([best_effort_json/1]).
+
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -50,6 +53,16 @@
                     single_line => boolean()}.
 
 -define(IS_STRING(String), (is_list(String) orelse is_binary(String))).
+
+%% @doc Format a list() or map() to JSON object.
+%% This is used for CLI result prints,
+%% or HTTP API result formatting.
+%% The JSON object is pretty-printed.
+%% NOTE: do not use this function for logging.
+best_effort_json(Input) ->
+    Config = #{depth => unlimited, single_line => true},
+    JsonReady = best_effort_json_obj(Input, Config),
+    jsx:encode(JsonReady, [space, {indent, 4}]).
 
 -spec format(logger:log_event(), config()) -> iodata().
 format(#{level := Level, msg := Msg, meta := Meta}, Config0) when is_map(Config0) ->

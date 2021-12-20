@@ -51,26 +51,26 @@ log() {
     echo "===< $msg"
 }
 
-docgen() {
+make_doc() {
     local libs_dir1 libs_dir2
     libs_dir1="$(find "_build/default/lib/" -maxdepth 2 -name ebin -type d)"
     libs_dir2="$(find "_build/$PROFILE/lib/" -maxdepth 2 -name ebin -type d)"
 
-    local conf_doc_markdown
-    conf_doc_markdown="$(pwd)/_build/${PROFILE}/rel/emqx/etc/emqx-config-doc.md"
-    echo "===< Generating config document $conf_doc_markdown"
+    local conf_doc_md
+    # TODO render md as html
+    conf_doc_md="$(pwd)/_build/${PROFILE}/lib/emqx_dashboard/priv/config.md"
+    echo "===< Generating config document $conf_doc_md"
     # shellcheck disable=SC2086
-    erl -noshell -pa $libs_dir1 $libs_dir2 -eval "file:write_file('$conf_doc_markdown', hocon_schema_doc:gen(emqx_conf_schema)), halt(0)."
+    erl -noshell -pa $libs_dir1 $libs_dir2 -eval "ok = emqx_conf:gen_doc(\"${conf_doc_md}\"), halt(0)."
 }
 
 make_rel() {
     # shellcheck disable=SC1010
-    ./rebar3 as "$PROFILE" do release,tar
+    ./rebar3 as "$PROFILE" do tar
     if [ "$(find "_build/$PROFILE/rel/emqx/lib/" -maxdepth 1 -name 'gpb-*' -type d)" != "" ]; then
         echo "gpb should not be included in the release"
         exit 1
     fi
-    docgen
 }
 
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup
@@ -205,6 +205,9 @@ make_docker_testing() {
 log "building artifact=$ARTIFACT for profile=$PROFILE"
 
 case "$ARTIFACT" in
+    doc)
+        make_doc
+        ;;
     rel)
         make_rel
         ;;

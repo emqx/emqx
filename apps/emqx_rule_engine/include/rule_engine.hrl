@@ -44,6 +44,7 @@
 
 -type rule() ::
        #{ id := rule_id()
+        , name := binary()
         , sql := binary()
         , outputs := [output()]
         , enabled := boolean()

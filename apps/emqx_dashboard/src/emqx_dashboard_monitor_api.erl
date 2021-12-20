@@ -29,6 +29,8 @@
                   , sent
                   , dropped]).
 
+-define(EMPTY_COLLECTION, {0, 0, 0, 0}).
+
 api_spec() ->
     {[ monitor_api()
      , monitor_nodes_api()
@@ -175,7 +177,7 @@ current_counters(get, _Params) ->
     {200, Response}.
 
 format_current_metrics(Collects) ->
-    format_current_metrics(Collects, {0,0,0,0}).
+    format_current_metrics(Collects, ?EMPTY_COLLECTION).
 format_current_metrics([], Acc) ->
     Acc;
 format_current_metrics([{Received, Sent, Sub, Conn} | Collects],
@@ -217,7 +219,7 @@ get_collect(Node) when Node =:= node() ->
     emqx_dashboard_collection:get_collect();
 get_collect(Node) ->
     case rpc:call(Node, emqx_dashboard_collection, get_collect, []) of
-        {badrpc, _Reason} -> #{};
+        {badrpc, _Reason} -> ?EMPTY_COLLECTION;
         Res -> Res
     end.
 

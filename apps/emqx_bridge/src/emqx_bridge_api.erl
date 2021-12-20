@@ -17,220 +17,270 @@
 
 -behaviour(minirest_api).
 
--export([api_spec/0]).
+-include_lib("typerefl/include/types.hrl").
 
--export([ list_create_bridges_in_cluster/2
-        , list_local_bridges/1
-        , crud_bridges_in_cluster/2
-        , manage_bridges/2
+-import(hoconsc, [mk/2, array/1, enum/1]).
+
+%% Swagger specs from hocon schema
+-export([api_spec/0, paths/0, schema/1, namespace/0]).
+
+%% API callbacks
+-export(['/bridges'/2, '/bridges/:id'/2,
+         '/bridges/:id/operation/:operation'/2]).
+
+-export([ list_local_bridges/1
         , lookup_from_local_node/2
         ]).
 
 -define(TYPES, [mqtt, http]).
+
+-define(CONN_TYPES, [mqtt]).
+
 -define(TRY_PARSE_ID(ID, EXPR),
     try emqx_bridge:parse_bridge_id(Id) of
-        {BridgeType, BridgeName} -> EXPR
+        {BridgeType, BridgeName} ->
+            EXPR
     catch
         error:{invalid_bridge_id, Id0} ->
-            {400, #{code => 'INVALID_ID', message => <<"invalid_bridge_id: ", Id0/binary,
-                ". Bridge Ids must be of format <bridge_type>:<name>">>}}
+            {400, error_msg('INVALID_ID', <<"invalid_bridge_id: ", Id0/binary,
+                ". Bridge Ids must be of format {type}:{name}">>)}
     end).
 
 -define(METRICS(MATCH, SUCC, FAILED, RATE, RATE_5, RATE_MAX),
     #{  matched => MATCH,
         success => SUCC,
         failed => FAILED,
-        speed => RATE,
-        speed_last5m => RATE_5,
-        speed_max => RATE_MAX
+        rate => RATE,
+        rate_last5m => RATE_5,
+        rate_max => RATE_MAX
     }).
 -define(metrics(MATCH, SUCC, FAILED, RATE, RATE_5, RATE_MAX),
     #{  matched := MATCH,
         success := SUCC,
         failed := FAILED,
-        speed := RATE,
-        speed_last5m := RATE_5,
-        speed_max := RATE_MAX
+        rate := RATE,
+        rate_last5m := RATE_5,
+        rate_max := RATE_MAX
     }).
 
-req_schema() ->
-    Schema = [
-        case maps:to_list(emqx:get_raw_config([bridges, T], #{})) of
-            %% the bridge is not configured, so we have no method to get the schema
-            [] -> #{};
-            [{_K, Conf} | _] ->
-                emqx_mgmt_api_configs:gen_schema(Conf)
-        end
-     || T <- ?TYPES],
-    #{'oneOf' => Schema}.
-
-node_schema() ->
-    #{type => string, example => "emqx@127.0.0.1"}.
-
-status_schema() ->
-    #{type => string, enum => [connected, disconnected]}.
-
-metrics_schema() ->
-    #{ type => object
-     , properties => #{
-           matched => #{type => integer, example => "0"},
-           success => #{type => integer, example => "0"},
-           failed => #{type => integer, example => "0"},
-           speed => #{type => number, format => float, example => "0.0"},
-           speed_last5m => #{type => number, format => float, example => "0.0"},
-           speed_max => #{type => number, format => float, example => "0.0"}
-       }
-    }.
-
-per_node_schema(Key, Schema) ->
-    #{
-        type => array,
-        items => #{
-            type => object,
-            properties => #{
-                node => node_schema(),
-                Key => Schema
-            }
-        }
-    }.
-
-resp_schema() ->
-    AddMetadata = fun(Prop) ->
-        Prop#{status => status_schema(),
-              node_status => per_node_schema(status, status_schema()),
-              metrics => metrics_schema(),
-              node_metrics => per_node_schema(metrics, metrics_schema()),
-              id => #{type => string, example => "http:my_http_bridge"},
-              bridge_type => #{type => string, enum => ?TYPES},
-              node => node_schema()
-            }
-    end,
-    more_props_resp_schema(AddMetadata).
-
-more_props_resp_schema(AddMetadata) ->
-    #{'oneOf' := Schema} = req_schema(),
-    Schema1 = [S#{properties => AddMetadata(Prop)}
-               || S = #{properties := Prop} <- Schema],
-    #{'oneOf' => Schema1}.
+namespace() -> "bridge".
 
 api_spec() ->
-    {bridge_apis(), []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
 
-bridge_apis() ->
-    [list_all_bridges_api(), crud_bridges_apis(), operation_apis()].
+paths() -> ["/bridges", "/bridges/:id", "/bridges/:id/operation/:operation"].
 
-list_all_bridges_api() ->
-    ReqSchema = more_props_resp_schema(fun(Prop) ->
-        Prop#{id => #{type => string, required => true}}
-    end),
-    RespSchema = resp_schema(),
-    Metadata = #{
+error_schema(Code, Message) ->
+    [ {code, mk(string(), #{example => Code})}
+    , {message, mk(string(), #{example => Message})}
+    ].
+
+get_response_body_schema() ->
+    emqx_dashboard_swagger:schema_with_examples(emqx_bridge_schema:get_response(),
+        bridge_info_examples(get)).
+
+param_path_operation() ->
+    path_param(operation, enum([start, stop, restart]), <<"start">>).
+
+param_path_id() ->
+    path_param(id, binary(), <<"http:my_http_bridge">>).
+
+path_param(Name, Type, Example) ->
+    {Name, mk(Type,
+        #{ in => path
+         , required => true
+         , example => Example
+         })}.
+
+bridge_info_array_example(Method) ->
+    [Config || #{value := Config} <- maps:values(bridge_info_examples(Method))].
+
+bridge_info_examples(Method) ->
+    maps:merge(conn_bridge_examples(Method), #{
+        <<"http_bridge">> => #{
+            summary => <<"HTTP Bridge">>,
+            value => info_example(http, awesome, Method)
+        }
+    }).
+
+conn_bridge_examples(Method) ->
+    lists:foldl(fun(Type, Acc) ->
+            SType = atom_to_list(Type),
+            KeyIngress = bin(SType ++ "_ingress"),
+            KeyEgress = bin(SType ++ "_egress"),
+            maps:merge(Acc, #{
+                KeyIngress => #{
+                    summary => bin(string:uppercase(SType) ++ " Ingress Bridge"),
+                    value => info_example(Type, ingress, Method)
+                },
+                KeyEgress => #{
+                    summary => bin(string:uppercase(SType) ++ " Egress Bridge"),
+                    value => info_example(Type, egress, Method)
+                }
+            })
+        end, #{}, ?CONN_TYPES).
+
+info_example(Type, Direction, Method) ->
+    maps:merge(info_example_basic(Type, Direction),
+               method_example(Type, Direction, Method)).
+
+method_example(Type, Direction, get) ->
+    SType = atom_to_list(Type),
+    SDir = atom_to_list(Direction),
+    SName = case Type of
+        http -> "my_" ++ SType ++ "_bridge";
+        _ -> "my_" ++ SDir ++ "_" ++ SType ++ "_bridge"
+    end,
+    #{
+        id => bin(SType ++ ":" ++ SName),
+        type => bin(SType),
+        name => bin(SName)
+    };
+method_example(Type, Direction, post) ->
+    SType = atom_to_list(Type),
+    SDir = atom_to_list(Direction),
+    SName = case Type of
+        http -> "my_" ++ SType ++ "_bridge";
+        _ -> "my_" ++ SDir ++ "_" ++ SType ++ "_bridge"
+    end,
+    #{
+        type => bin(SType),
+        name => bin(SName)
+    };
+method_example(_Type, _Direction, put) ->
+    #{}.
+
+info_example_basic(http, _) ->
+    #{
+        url => <<"http://localhost:9901/messages/${topic}">>,
+        request_timeout => <<"30s">>,
+        connect_timeout => <<"30s">>,
+        max_retries => 3,
+        retry_interval => <<"10s">>,
+        pool_type => <<"random">>,
+        pool_size => 4,
+        enable_pipelining => true,
+        ssl => #{enable => false},
+        local_topic => <<"emqx_http/#">>,
+        method => post,
+        body => <<"${payload}">>
+    };
+info_example_basic(mqtt, ingress) ->
+    #{
+        connector => <<"mqtt:my_mqtt_connector">>,
+        direction => ingress,
+        remote_topic => <<"aws/#">>,
+        remote_qos => 1,
+        local_topic => <<"from_aws/${topic}">>,
+        local_qos => <<"${qos}">>,
+        payload => <<"${payload}">>,
+        retain => <<"${retain}">>
+    };
+info_example_basic(mqtt, egress) ->
+    #{
+        connector => <<"mqtt:my_mqtt_connector">>,
+        direction => egress,
+        local_topic => <<"emqx/#">>,
+        remote_topic => <<"from_emqx/${topic}">>,
+        remote_qos => <<"${qos}">>,
+        payload => <<"${payload}">>,
+        retain => false
+    }.
+
+schema("/bridges") ->
+    #{
+        operationId => '/bridges',
         get => #{
+            tags => [<<"bridges">>],
+            summary => <<"List Bridges">>,
             description => <<"List all created bridges">>,
             responses => #{
-                <<"200">> => emqx_mgmt_util:array_schema(resp_schema(),
-                    <<"A list of the bridges">>)
+                200 => emqx_dashboard_swagger:schema_with_example(
+                        array(emqx_bridge_schema:get_response()),
+                        bridge_info_array_example(get))
             }
         },
         post => #{
+            tags => [<<"bridges">>],
+            summary => <<"Create Bridge">>,
             description => <<"Create a new bridge">>,
-            'requestBody' => emqx_mgmt_util:schema(ReqSchema),
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                            emqx_bridge_schema:post_request(),
+                            bridge_info_examples(post)),
             responses => #{
-                <<"201">> => emqx_mgmt_util:schema(RespSchema, <<"Bridge created">>),
-                <<"400">> => emqx_mgmt_util:error_schema(<<"Create bridge failed">>,
-                    ['UPDATE_FAILED'])
+                201 => get_response_body_schema(),
+                400 => error_schema('BAD_ARG', "Create bridge failed")
             }
         }
-    },
-    {"/bridges/", Metadata, list_create_bridges_in_cluster}.
+    };
 
-crud_bridges_apis() ->
-    ReqSchema = req_schema(),
-    RespSchema = resp_schema(),
-    Metadata = #{
+schema("/bridges/:id") ->
+    #{
+        operationId => '/bridges/:id',
         get => #{
+            tags => [<<"bridges">>],
+            summary => <<"Get Bridge">>,
             description => <<"Get a bridge by Id">>,
             parameters => [param_path_id()],
             responses => #{
-                <<"200">> => emqx_mgmt_util:array_schema(RespSchema,
-                    <<"The details of the bridge">>),
-                <<"404">> => emqx_mgmt_util:error_schema(<<"Bridge not found">>, ['NOT_FOUND'])
+                200 => get_response_body_schema(),
+                404 => error_schema('NOT_FOUND', "Bridge not found")
             }
         },
         put => #{
+            tags => [<<"bridges">>],
+            summary => <<"Update Bridge">>,
             description => <<"Update a bridge">>,
             parameters => [param_path_id()],
-            'requestBody' => emqx_mgmt_util:schema(ReqSchema),
+            requestBody => emqx_dashboard_swagger:schema_with_examples(
+                            emqx_bridge_schema:put_request(),
+                            bridge_info_examples(put)),
             responses => #{
-                <<"200">> => emqx_mgmt_util:array_schema(RespSchema, <<"Bridge updated">>),
-                <<"400">> => emqx_mgmt_util:error_schema(<<"Update bridge failed">>,
-                    ['UPDATE_FAILED'])
+                200 => get_response_body_schema(),
+                400 => error_schema('BAD_ARG', "Update bridge failed")
             }
         },
         delete => #{
+            tags => [<<"bridges">>],
+            summary => <<"Delete Bridge">>,
             description => <<"Delete a bridge">>,
             parameters => [param_path_id()],
             responses => #{
-                <<"204">> => emqx_mgmt_util:schema(<<"Bridge deleted">>),
-                <<"404">> => emqx_mgmt_util:error_schema(<<"Bridge not found">>, ['NOT_FOUND'])
+                204 => <<"Bridge deleted">>
             }
         }
-    },
-    {"/bridges/:id", Metadata, crud_bridges_in_cluster}.
+    };
 
-operation_apis() ->
-    Metadata = #{
+schema("/bridges/:id/operation/:operation") ->
+    #{
+        operationId => '/bridges/:id/operation/:operation',
         post => #{
+            tags => [<<"bridges">>],
+            summary => <<"Start/Stop/Restart Bridge">>,
             description => <<"Start/Stop/Restart bridges on a specific node">>,
             parameters => [
-                param_path_node(),
                 param_path_id(),
-                param_path_operation()],
+                param_path_operation()
+            ],
             responses => #{
-                <<"500">> => emqx_mgmt_util:error_schema(<<"Operation Failed">>,
-                                                         ['INTERNAL_ERROR']),
-                <<"200">> => emqx_mgmt_util:schema(<<"Operation success">>)}}},
-    {"/nodes/:node/bridges/:id/operation/:operation", Metadata, manage_bridges}.
-
-param_path_node() ->
-    #{
-        name => node,
-        in => path,
-        schema => #{type => string},
-        required => true,
-        example => node()
+                500 => error_schema('INTERNAL_ERROR', "Operation Failed"),
+                200 => <<"Operation success">>
+            }
+        }
     }.
 
-param_path_id() ->
-    #{
-        name => id,
-        in => path,
-        schema => #{type => string},
-        required => true
-    }.
-
-param_path_operation()->
-    #{
-        name => operation,
-        in => path,
-        required => true,
-        schema => #{
-            type => string,
-            enum => [start, stop, restart]},
-        example => restart
-    }.
-
-list_create_bridges_in_cluster(post, #{body := #{<<"id">> := Id} = Conf}) ->
-    ?TRY_PARSE_ID(Id,
-        case emqx_bridge:lookup(BridgeType, BridgeName) of
-            {ok, _} -> {400, #{code => 'ALREADY_EXISTS', message => <<"bridge already exists">>}};
-            {error, not_found} ->
-                case ensure_bridge(BridgeType, BridgeName, maps:remove(<<"id">>, Conf)) of
-                    ok -> lookup_from_all_nodes(Id, BridgeType, BridgeName, 201);
-                    {error, Error} -> {400, Error}
-                end
-        end);
-list_create_bridges_in_cluster(get, _Params) ->
+'/bridges'(post, #{body := #{<<"type">> := BridgeType} = Conf}) ->
+    BridgeName = maps:get(<<"name">>, Conf, emqx_misc:gen_id()),
+    case emqx_bridge:lookup(BridgeType, BridgeName) of
+        {ok, _} ->
+            {400, error_msg('ALREADY_EXISTS', <<"bridge already exists">>)};
+        {error, not_found} ->
+            case ensure_bridge_created(BridgeType, BridgeName, Conf) of
+                ok -> lookup_from_all_nodes(BridgeType, BridgeName, 201);
+                {error, Error} -> {400, Error}
+            end
+    end;
+'/bridges'(get, _Params) ->
     {200, zip_bridges([list_local_bridges(Node) || Node <- mria_mnesia:running_nodes()])}.
 
 list_local_bridges(Node) when Node =:= node() ->
@@ -238,36 +288,36 @@ list_local_bridges(Node) when Node =:= node() ->
 list_local_bridges(Node) ->
     rpc_call(Node, list_local_bridges, [Node]).
 
-crud_bridges_in_cluster(get, #{bindings := #{id := Id}}) ->
-    ?TRY_PARSE_ID(Id, lookup_from_all_nodes(Id, BridgeType, BridgeName, 200));
+'/bridges/:id'(get, #{bindings := #{id := Id}}) ->
+    ?TRY_PARSE_ID(Id, lookup_from_all_nodes(BridgeType, BridgeName, 200));
 
-crud_bridges_in_cluster(put, #{bindings := #{id := Id}, body := Conf}) ->
+'/bridges/:id'(put, #{bindings := #{id := Id}, body := Conf}) ->
     ?TRY_PARSE_ID(Id,
         case emqx_bridge:lookup(BridgeType, BridgeName) of
             {ok, _} ->
-                case ensure_bridge(BridgeType, BridgeName, Conf) of
-                    ok -> lookup_from_all_nodes(Id, BridgeType, BridgeName, 200);
+                case ensure_bridge_created(BridgeType, BridgeName, Conf) of
+                    ok -> lookup_from_all_nodes(BridgeType, BridgeName, 200);
                     {error, Error} -> {400, Error}
                 end;
             {error, not_found} ->
-                {404, #{code => 'NOT_FOUND', message => <<"bridge not found">>}}
+                {404, error_msg('NOT_FOUND',<<"bridge not found">>)}
         end);
 
-crud_bridges_in_cluster(delete, #{bindings := #{id := Id}}) ->
+'/bridges/:id'(delete, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id,
         case emqx_conf:remove(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
                 #{override_to => cluster}) of
             {ok, _} -> {204};
             {error, Reason} ->
-                {500, #{code => 102, message => emqx_resource_api:stringify(Reason)}}
+                {500, error_msg('UNKNOWN_ERROR', Reason)}
         end).
 
-lookup_from_all_nodes(Id, BridgeType, BridgeName, SuccCode) ->
+lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
     case rpc_multicall(lookup_from_local_node, [BridgeType, BridgeName]) of
         {ok, [{ok, _} | _] = Results} ->
             {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
         {ok, [{error, not_found} | _]} ->
-            {404, error_msg('NOT_FOUND', <<"not_found: ", Id/binary>>)};
+            {404, error_msg('NOT_FOUND', <<"not_found">>)};
         {error, ErrL} ->
             {500, error_msg('UNKNOWN_ERROR', ErrL)}
     end.
@@ -278,23 +328,30 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         Error -> Error
     end.
 
-manage_bridges(post, #{bindings := #{node := Node, id := Id, operation := Op}}) ->
-    OperFun =
-        fun (<<"start">>) -> start;
-            (<<"stop">>) -> stop;
-            (<<"restart">>) -> restart
-        end,
-    ?TRY_PARSE_ID(Id,
-        case rpc_call(binary_to_atom(Node, latin1), emqx_bridge, OperFun(Op),
-                [BridgeType, BridgeName]) of
-            ok -> {200};
-            {error, Reason} ->
-                {500, #{code => 102, message => emqx_resource_api:stringify(Reason)}}
-        end).
+'/bridges/:id/operation/:operation'(post, #{bindings :=
+        #{id := Id, operation := Op}}) ->
+    ?TRY_PARSE_ID(Id, case operation_to_conf_req(Op) of
+        invalid -> {404, error_msg('BAD_ARG', <<"invalid operation">>)};
+        UpReq ->
+            case emqx_conf:update(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
+                    UpReq, #{override_to => cluster}) of
+                {ok, _} -> {200};
+                {error, {pre_config_update, _, bridge_not_found}} ->
+                    {404, error_msg('NOT_FOUND', <<"bridge not found">>)};
+                {error, Reason} ->
+                    {500, error_msg('UNKNOWN_ERROR', Reason)}
+            end
+    end).
 
-ensure_bridge(BridgeType, BridgeName, Conf) ->
-    case emqx_conf:update(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName], Conf,
-            #{override_to => cluster}) of
+operation_to_conf_req(<<"start">>) -> start;
+operation_to_conf_req(<<"stop">>) -> stop;
+operation_to_conf_req(<<"restart">>) -> restart;
+operation_to_conf_req(_) -> invalid.
+
+ensure_bridge_created(BridgeType, BridgeName, Conf) ->
+    Conf1 = maps:without([<<"type">>, <<"name">>], Conf),
+    case emqx_conf:update(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
+            Conf1, #{override_to => cluster}) of
         {ok, _} -> ok;
         {error, Reason} ->
             {error, error_msg('BAD_ARG', Reason)}
@@ -346,12 +403,14 @@ aggregate_metrics(AllMetrics) ->
         end, InitMetrics, AllMetrics).
 
 format_resp(#{id := Id, raw_config := RawConf,
-              resource_data := #{mod := Mod, status := Status, metrics := Metrics}}) ->
+              resource_data := #{status := Status, metrics := Metrics}}) ->
+    {Type, Name} = emqx_bridge:parse_bridge_id(Id),
     IsConnected = fun(started) -> connected; (_) -> disconnected end,
     RawConf#{
         id => Id,
+        type => Type,
+        name => Name,
         node => node(),
-        bridge_type => emqx_bridge:bridge_type(Mod),
         status => IsConnected(Status),
         metrics => Metrics
     }.
@@ -378,4 +437,7 @@ rpc_call(Node, Mod, Fun, Args) ->
 error_msg(Code, Msg) when is_binary(Msg) ->
     #{code => Code, message => Msg};
 error_msg(Code, Msg) ->
-    #{code => Code, message => list_to_binary(io_lib:format("~p", [Msg]))}.
+    #{code => Code, message => bin(io_lib:format("~p", [Msg]))}.
+
+bin(S) when is_list(S) ->
+    list_to_binary(S).

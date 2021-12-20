@@ -23,9 +23,6 @@ case "$1" in
     purge)
         rm -f /etc/default/emqx
 
-        # ensure we remove the rc.d scripts installed by postinst
-        update-rc.d emqx remove >/dev/null
-
         if [ -d /var/lib/emqx ]; then
                 rm -r /var/lib/emqx
         fi
@@ -57,6 +54,11 @@ case "$1" in
         fi
         if [ -d /usr/lib/emqx ]; then
                 rm -r /usr/lib/emqx
+        fi
+
+        if systemctl status --no-pager; then
+          systemctl disable emqx;
+          rm -f /etc/systemd/emqx.service
         fi
     ;;
 

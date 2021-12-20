@@ -57,6 +57,7 @@
                           sl_alloc,
                           ll_alloc,
                           fix_alloc,
+                          literal_alloc,
                           std_alloc
                          ]).
 

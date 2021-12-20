@@ -142,6 +142,7 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid)
     true = ets:insert(?CHAN_TAB, Chan),
     true = ets:insert(?CHAN_CONN_TAB, {Chan, ConnMod}),
     ok = emqx_cm_registry:register_channel(Chan),
+    mark_channel_connected(ChanPid),
     cast({registered, Chan}).
 
 %% @doc Unregister a channel.
@@ -290,8 +291,9 @@ create_session(ClientInfo, ConnInfo) ->
     ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
     Session.
 
-get_session_confs(#{zone := Zone}, #{receive_maximum := MaxInflight, expiry_interval := EI}) ->
-    #{max_subscriptions => get_mqtt_conf(Zone, max_subscriptions),
+get_session_confs(#{zone := Zone, clientid := ClientId}, #{receive_maximum := MaxInflight, expiry_interval := EI}) ->
+    #{clientid => ClientId,
+      max_subscriptions => get_mqtt_conf(Zone, max_subscriptions),
       upgrade_qos => get_mqtt_conf(Zone, upgrade_qos),
       max_inflight => MaxInflight,
       retry_interval => get_mqtt_conf(Zone, retry_interval),
@@ -300,7 +302,8 @@ get_session_confs(#{zone := Zone}, #{receive_maximum := MaxInflight, expiry_inte
       %% TODO: Add conf for allowing/disallowing persistent sessions.
       %% Note that the connection info is already enriched to have
       %% default config values for session expiry.
-      is_persistent => EI > 0
+      is_persistent => EI > 0,
+      latency_stats => emqx_config:get_zone_conf(Zone, [latency_stats])
      }.
 
 mqueue_confs(Zone) ->
@@ -549,11 +552,7 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{chan_pmon := PMon}
     ?tp(emqx_cm_process_down, #{pid => Pid, reason => _Reason}),
     ChanPids = [Pid | emqx_misc:drain_down(?BATCH_SIZE)],
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
-    lists:foreach(
-      fun({ChanPid, _ClientID}) ->
-              mark_channel_disconnected(ChanPid)
-      end,
-      Items),
+    lists:foreach(fun mark_channel_disconnected/1, ChanPids),
     ok = emqx_pool:async_submit(fun lists:foreach/2, [fun ?MODULE:clean_down/1, Items]),
     {noreply, State#{chan_pmon := PMon1}};
 handle_info(Info, State) ->

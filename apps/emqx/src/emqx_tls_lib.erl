@@ -353,11 +353,12 @@ is_valid_pem_file(Path) ->
 %% @doc This is to return SSL file content in management APIs.
 file_content_as_options(undefined) -> undefined;
 file_content_as_options(#{<<"enable">> := false} = SSL) ->
-    maps:without(?SSL_FILE_OPT_NAMES, SSL);
+    {ok, maps:without(?SSL_FILE_OPT_NAMES, SSL)};
 file_content_as_options(#{<<"enable">> := true} = SSL) ->
     file_content_as_options(?SSL_FILE_OPT_NAMES, SSL).
 
-file_content_as_options([], SSL) -> {ok, SSL};
+file_content_as_options([], SSL) ->
+    {ok, SSL};
 file_content_as_options([Key | Keys], SSL) ->
     case maps:get(Key, SSL, undefined) of
         undefined -> file_content_as_options(Keys, SSL);

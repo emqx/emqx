@@ -22,6 +22,7 @@
 -include("emqx_authn.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_authentication.hrl").
 
 -import(hoconsc, [mk/2, ref/1]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
@@ -32,8 +33,10 @@
 
 % Swagger
 
--define(API_TAGS_GLOBAL, [<<"authentication">>, <<"authentication config(global)">>]).
--define(API_TAGS_SINGLE, [<<"authentication">>, <<"authentication config(single listener)">>]).
+-define(API_TAGS_GLOBAL, [?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY,
+                          <<"authentication config(global)">>]).
+-define(API_TAGS_SINGLE, [?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY,
+                          <<"authentication config(single listener)">>]).
 
 -export([ api_spec/0
         , paths/0
@@ -793,9 +796,10 @@ add_user(ChainName,
          AuthenticatorID,
          #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo) ->
     IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
-    case emqx_authentication:add_user(ChainName, AuthenticatorID, #{ user_id => UserID
-                                                      , password => Password
-                                                      , is_superuser => IsSuperuser}) of
+    case emqx_authentication:add_user(ChainName, AuthenticatorID,
+                                      #{ user_id => UserID
+                                       , password => Password
+                                       , is_superuser => IsSuperuser}) of
         {ok, User} ->
             {201, User};
         {error, Reason} ->
@@ -845,7 +849,8 @@ list_users(ChainName, AuthenticatorID, PageParams) ->
     end.
 
 update_config(Path, ConfigRequest) ->
-    emqx:update_config(Path, ConfigRequest, #{rawconf_with_defaults => true}).
+    emqx_conf:update(Path, ConfigRequest, #{rawconf_with_defaults => true,
+                                            override_to => cluster}).
 
 get_raw_config_with_defaults(ConfKeyPath) ->
     NConfKeyPath = [atom_to_binary(Key, utf8) || Key <- ConfKeyPath],
@@ -1027,7 +1032,7 @@ authenticator_examples() ->
                 backend => <<"redis">>,
                 server => <<"127.0.0.1:6379">>,
                 database => 0,
-                query => <<"HMGET ${username} password_hash salt">>,
+                cmd => <<"HMGET ${username} password_hash salt">>,
                 password_hash_algorithm => <<"sha256">>,
                 salt_position => <<"prefix">>
             }

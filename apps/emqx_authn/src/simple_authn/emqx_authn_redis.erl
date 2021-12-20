@@ -42,8 +42,8 @@
 namespace() -> "authn-redis".
 
 roots() ->
-    [ {config, hoconsc:mk(hoconsc:union(refs()),
-                          #{})}
+    [ {?CONF_NS, hoconsc:mk(hoconsc:union(refs()),
+                            #{})}
     ].
 
 fields(standalone) ->
@@ -56,23 +56,14 @@ fields(sentinel) ->
     common_fields() ++ emqx_connector_redis:fields(sentinel).
 
 common_fields() ->
-    [{mechanism,               {enum, ['password-based']}},
-     {backend,                 {enum, [redis]}},
-     {query,                   fun query/1},
-     {password_hash_algorithm, fun password_hash_algorithm/1},
-     {salt_position,           fun salt_position/1}
+    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
+    , {backend, emqx_authn_schema:backend(redis)}
+    , {cmd,                     fun cmd/1}
+    , {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     ] ++ emqx_authn_schema:common_fields().
 
-query(type) -> string();
-query(_) -> undefined.
-
-password_hash_algorithm(type) -> {enum, [plain, md5, sha, sha256, sha512, bcrypt]};
-password_hash_algorithm(default) -> sha256;
-password_hash_algorithm(_) -> undefined.
-
-salt_position(type) -> {enum, [prefix, suffix]};
-salt_position(default) -> prefix;
-salt_position(_) -> undefined.
+cmd(type) -> string();
+cmd(_) -> undefined.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -87,17 +78,18 @@ refs() ->
 create(_AuthenticatorID, Config) ->
     create(Config).
 
-create(#{query := Query,
+create(#{cmd := Cmd,
          password_hash_algorithm := Algorithm} = Config) ->
+    ok = emqx_authn_password_hashing:init(Algorithm),
     try
-        NQuery = parse_query(Query),
+        NCmd = parse_cmd(Cmd),
         ok = emqx_authn_utils:ensure_apps_started(Algorithm),
         State = maps:with(
                   [password_hash_algorithm, salt_position],
                   Config),
         ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
         NState = State#{
-                   query => NQuery,
+                   cmd => NCmd,
                    resource_id => ResourceId},
         case emqx_resource:create_local(ResourceId, emqx_connector_redis, Config) of
             {ok, already_created} ->
@@ -108,8 +100,8 @@ create(#{query := Query,
                 {error, Reason}
         end
     catch
-        error:{unsupported_query, _Query} ->
-            {error, {unsupported_query, Query}};
+        error:{unsupported_cmd, _Cmd} ->
+            {error, {unsupported_cmd, Cmd}};
         error:missing_password_hash ->
             {error, missing_password_hash};
         error:{unsupported_fields, Fields} ->
@@ -128,14 +120,16 @@ update(Config, State) ->
 authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(#{password := Password} = Credential,
-             #{query := {Command, Key, Fields},
-               resource_id := ResourceId} = State) ->
+             #{cmd := {Command, Key, Fields},
+               resource_id := ResourceId,
+               password_hash_algorithm := Algorithm}) ->
     NKey = binary_to_list(iolist_to_binary(replace_placeholders(Key, Credential))),
     case emqx_resource:query(ResourceId, {cmd, [Command, NKey | Fields]}) of
         {ok, Values} ->
             case merge(Fields, Values) of
                 #{<<"password_hash">> := _} = Selected ->
-                    case emqx_authn_utils:check_password(Password, Selected, State) of
+                    case emqx_authn_utils:check_password_from_selected_map(
+                          Algorithm, Selected, Password) of
                         ok ->
                             {ok, emqx_authn_utils:is_superuser(Selected)};
                         {error, Reason} ->
@@ -162,15 +156,15 @@ destroy(#{resource_id := ResourceId}) ->
 %%------------------------------------------------------------------------------
 
 %% Only support HGET and HMGET
-parse_query(Query) ->
-    case string:tokens(Query, " ") of
+parse_cmd(Cmd) ->
+    case string:tokens(Cmd, " ") of
         [Command, Key, Field | Fields] when Command =:= "HGET" orelse Command =:= "HMGET" ->
             NFields = [Field | Fields],
             check_fields(NFields),
             NKey = parse_key(Key),
             {Command, NKey, NFields};
         _ ->
-            error({unsupported_query, Query})
+            error({unsupported_cmd, Cmd})
     end.
 
 check_fields(Fields) ->

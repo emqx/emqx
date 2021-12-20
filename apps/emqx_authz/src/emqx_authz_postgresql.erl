@@ -21,9 +21,13 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
+-behaviour(emqx_authz).
+
 %% AuthZ Callbacks
 -export([ description/0
-        , parse_query/1
+        , init/1
+        , destroy/1
+        , dry_run/1
         , authorize/4
         ]).
 
@@ -33,19 +37,33 @@
 -endif.
 
 description() ->
-    "AuthZ with postgresql".
+    "AuthZ with Postgresql".
 
-parse_query(undefined) ->
-    undefined;
+init(#{query := SQL} = Source) ->
+    case emqx_authz_utils:create_resource(emqx_connector_pgsql, Source) of
+        {error, Reason} -> error({load_config_error, Reason});
+        {ok, Id} -> Source#{annotations =>
+                            #{id => Id,
+                              query => parse_query(SQL)}}
+    end.
+
+destroy(#{annotations := #{id := Id}}) ->
+    ok = emqx_resource:remove(Id).
+
+dry_run(Source) ->
+    emqx_resource:create_dry_run(emqx_connector_pgsql, Source).
+
 parse_query(Sql) ->
     case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
-        {match, Variables} ->
-            Params = [Var || [Var] <- Variables],
-            Vars = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(Params))],
-            NSql = lists:foldl(fun({Param, Var}, S) ->
-                       re:replace(S, Param, Var, [{return, list}])
-                   end, Sql, lists:zip(Params, Vars)),
-            {NSql, Params};
+        {match, Capured} ->
+            PlaceHolders = [PlaceHolder || [PlaceHolder] <- Capured],
+            Replacements = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(PlaceHolders))],
+            NSql = lists:foldl(
+                     fun({PlaceHolder, Replacement}, S) ->
+                             re:replace(
+                               S, emqx_authz:ph_to_re(PlaceHolder), Replacement, [{return, list}])
+                     end, Sql, lists:zip(PlaceHolders, Replacements)),
+            {NSql, PlaceHolders};
         nomatch ->
             {Sql, []}
     end.
