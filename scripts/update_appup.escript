@@ -316,7 +316,7 @@ contains_restart_application(Application, Actions) ->
 find_application_stop_instruction(Application, Actions) ->
     {Before, After0} =
         lists:splitwith(
-          fun({apply, {application, stop, [Application]}}) ->
+          fun({apply, {application, stop, [App]}}) when App =:= Application ->
                   false;
              (_) ->
                   true
@@ -345,7 +345,7 @@ ensure_version(Version, OldInstructions) ->
     case contains_version(Version, OldVersions) of
         false ->
             [{Version, []} | OldInstructions];
-        _ ->
+        true ->
             OldInstructions
     end.
 
@@ -358,10 +358,8 @@ contains_version(Needle, Haystack) when is_list(Needle) ->
                   nomatch ->
                       false
               end;
-         (Needle) ->
-              true;
-         (_) ->
-              false
+         (Vsn) ->
+              Vsn =:= Needle
       end,
       Haystack).
 
