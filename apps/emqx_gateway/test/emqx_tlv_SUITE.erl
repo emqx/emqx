@@ -21,8 +21,8 @@
 
 -define(LOGT(Format, Args), logger:debug("TEST_SUITE: " ++ Format, Args)).
 
--include_lib("emqx_gateway/src/lwm2m/include/emqx_lwm2m.hrl").
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include("emqx_lwm2m.hrl").
+-include("emqx_coap.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 %%--------------------------------------------------------------------

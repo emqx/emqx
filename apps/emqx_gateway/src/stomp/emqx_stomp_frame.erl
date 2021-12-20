@@ -70,7 +70,7 @@
 
 -behaviour(emqx_gateway_frame).
 
--include("src/stomp/include/emqx_stomp.hrl").
+-include("emqx_stomp.hrl").
 
 -export([ initial_parse_state/1
         , parse/2

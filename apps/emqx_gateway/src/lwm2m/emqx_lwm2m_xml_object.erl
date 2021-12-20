@@ -16,7 +16,7 @@
 
 -module(emqx_lwm2m_xml_object).
 
--include_lib("emqx_gateway/src/lwm2m/include/emqx_lwm2m.hrl").
+-include("emqx_lwm2m.hrl").
 -include_lib("xmerl/include/xmerl.hrl").
 
 -export([ get_obj_def/2

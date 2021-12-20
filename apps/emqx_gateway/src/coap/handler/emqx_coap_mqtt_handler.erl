@@ -16,7 +16,7 @@
 
 -module(emqx_coap_mqtt_handler).
 
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include("emqx_coap.hrl").
 
 -export([handle_request/4]).
 -import(emqx_coap_message, [response/2, response/3]).

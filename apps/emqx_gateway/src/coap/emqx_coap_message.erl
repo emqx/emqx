@@ -34,7 +34,7 @@
 -export([ set/3, set_payload/2, get_option/2
         , get_option/3, set_payload_block/3, set_payload_block/4]).
 
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include("emqx_coap.hrl").
 
 request(Type, Method) ->
     request(Type, Method, <<>>, []).

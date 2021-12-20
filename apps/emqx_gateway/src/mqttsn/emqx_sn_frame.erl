@@ -20,7 +20,7 @@
 
 -behaviour(emqx_gateway_frame).
 
--include("src/mqttsn/include/emqx_sn.hrl").
+-include("emqx_sn.hrl").
 
 -export([ initial_parse_state/1
         , serialize_opts/0

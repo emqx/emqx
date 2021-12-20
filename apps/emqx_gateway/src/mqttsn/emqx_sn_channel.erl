@@ -18,7 +18,7 @@
 
 -behaviour(emqx_gateway_channel).
 
--include("src/mqttsn/include/emqx_sn.hrl").
+-include("emqx_sn.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").

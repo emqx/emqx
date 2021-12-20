@@ -18,8 +18,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
--include_lib("emqx_gateway/src/lwm2m/include/emqx_lwm2m.hrl").
+-include("emqx_coap.hrl").
+-include("emqx_lwm2m.hrl").
 
 %% API
 -export([ new/0, init/4, update/3, parse_object_list/1

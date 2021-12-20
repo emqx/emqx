@@ -18,7 +18,7 @@
 
 -behaviour(emqx_gateway_channel).
 
--include("src/stomp/include/emqx_stomp.hrl").
+-include("emqx_stomp.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 

@@ -21,7 +21,7 @@
 
 -behaviour(gen_server).
 
--include("src/mqttsn/include/emqx_sn.hrl").
+-include("emqx_sn.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -export([ start_link/2

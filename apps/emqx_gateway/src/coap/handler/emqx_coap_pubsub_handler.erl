@@ -18,7 +18,7 @@
 -module(emqx_coap_pubsub_handler).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
+-include("emqx_coap.hrl").
 
 -export([handle_request/4]).
 
