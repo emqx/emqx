@@ -195,3 +195,4 @@ $(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target-testing,$(zt))))
 
 conf-segs:
 	@scripts/merge-config.escript
+
