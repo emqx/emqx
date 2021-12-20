@@ -26,7 +26,6 @@
 -export([ lookup/1
         , get_metrics/1
         , list_all/0
-        , create_local/3
         ]).
 
 -export([ hash_call/2
@@ -85,15 +84,6 @@ list_all() ->
         error:badarg -> []
     end.
 
-
--spec create_local(instance_id(), resource_type(), resource_config()) ->
-    {ok, resource_data()} | {error, term()}.
-create_local(InstId, ResourceType, InstConf) ->
-    case hash_call(InstId, {create, InstId, ResourceType, InstConf}, 15000) of
-        {ok, Data} -> {ok, Data};
-        Error -> Error
-    end.
-
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
@@ -105,8 +95,8 @@ init({Pool, Id}) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #state{worker_pool = Pool, worker_id = Id}}.
 
-handle_call({create, InstId, ResourceType, Config}, _From, State) ->
-    {reply, do_create(InstId, ResourceType, Config), State};
+handle_call({create, InstId, ResourceType, Config, Opts}, _From, State) ->
+    {reply, do_create(InstId, ResourceType, Config, Opts), State};
 
 handle_call({create_dry_run, InstId, ResourceType, Config}, _From, State) ->
     {reply, do_create_dry_run(InstId, ResourceType, Config), State};
@@ -146,7 +136,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% suppress the race condition check, as these functions are protected in gproc workers
 -dialyzer({nowarn_function, [do_recreate/4,
-                             do_create/3,
+                             do_create/4,
                              do_restart/1,
                              do_stop/1,
                              do_health_check/1]}).
@@ -160,7 +150,7 @@ do_recreate(InstId, ResourceType, NewConfig, Params) ->
             case do_create_dry_run(TestInstId, ResourceType, Config) of
                 ok ->
                     do_remove(ResourceType, InstId, ResourceState),
-                    do_create(InstId, ResourceType, Config);
+                    do_create(InstId, ResourceType, Config, #{force_create => true});
                 Error ->
                     Error
             end;
@@ -170,7 +160,8 @@ do_recreate(InstId, ResourceType, NewConfig, Params) ->
             {error, not_found}
     end.
 
-do_create(InstId, ResourceType, Config) ->
+do_create(InstId, ResourceType, Config, Opts) ->
+    ForceCreate = maps:get(force_create, Opts, false),
     case lookup(InstId) of
         {ok, _} -> {ok, already_created};
         _ ->
@@ -183,11 +174,14 @@ do_create(InstId, ResourceType, Config) ->
                     %% status and then do ets:insert/2
                     _ = do_health_check(Res0#{state => ResourceState}),
                     {ok, force_lookup(InstId)};
-                {error, Reason} ->
-                    logger:error("start ~ts resource ~ts failed: ~p",
+                {error, Reason} when ForceCreate == true ->
+                    logger:error("start ~ts resource ~ts failed: ~p, "
+                                 "force_create it as a stopped resource",
                                  [ResourceType, InstId, Reason]),
                     ets:insert(emqx_resource_instance, {InstId, Res0}),
-                    {ok, Res0}
+                    {ok, Res0};
+                {error, Reason} when ForceCreate == false ->
+                    {error, Reason}
             end
     end.
 

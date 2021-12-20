@@ -29,6 +29,12 @@
     metrics := emqx_plugin_libs_metrics:metrics()
 }.
 -type resource_group() :: binary().
+-type create_opts() :: #{
+        %% The emqx_resource:create/4 will return OK event if the Mod:on_start/2 fails,
+        %% the 'status' of the resource will be 'stopped' in this case.
+        %% Defaults to 'false'
+        force_create => boolean()
+    }.
 -type after_query() :: {[OnSuccess :: after_query_fun()], [OnFailed :: after_query_fun()]} |
     undefined.
 
