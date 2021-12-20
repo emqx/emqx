@@ -209,7 +209,8 @@ t_handle_in_qos2_publish_with_error_return(_) ->
     {ok, ?PUBREC_PACKET(2, ?RC_NO_MATCHING_SUBSCRIBERS), Channel1} =
         emqx_channel:handle_in(Publish2, Channel),
     Publish3 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 3, <<"payload">>),
-    {ok, ?PUBREC_PACKET(3, ?RC_RECEIVE_MAXIMUM_EXCEEDED), Channel1} =
+    {ok, [{outgoing, ?DISCONNECT_PACKET(?RC_RECEIVE_MAXIMUM_EXCEEDED)},
+          {close, receive_maximum_exceeded}], Channel1} =
         emqx_channel:handle_in(Publish3, Channel1).
 
 t_handle_in_puback_ok(_) ->
