@@ -55,7 +55,11 @@ init(#{path := Path} = Source) ->
 
 destroy(_Source) -> ok.
 
-dry_run(_Source) -> ok.
+dry_run(#{path := Path}) ->
+    case file:consult(Path) of
+        {ok, _} -> ok;
+        {error, _} = Error -> Error
+    end.
 
 authorize(Client, PubSub, Topic, #{annotations := #{rules := Rules}}) ->
     emqx_authz_rule:matches(Client, PubSub, Topic, Rules).
