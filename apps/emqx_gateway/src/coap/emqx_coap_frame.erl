@@ -18,17 +18,15 @@
 
 -behaviour(emqx_gateway_frame).
 
-%% emqx_gateway_frame API
+%% emqx_gateway_frame callbacks
 -export([ initial_parse_state/1
         , serialize_opts/0
         , serialize_pkt/2
         , parse/2
         , format/1
         , type/1
-        , is_message/1]).
-
-%% API
--export([]).
+        , is_message/1
+        ]).
 
 -include("include/emqx_coap.hrl").
 -include("apps/emqx/include/types.hrl").
@@ -58,9 +56,11 @@
 %% API
 %%--------------------------------------------------------------------
 
+-spec initial_parse_state(map()) -> emqx_gateway_frame:parse_state().
 initial_parse_state(_) ->
     #{}.
 
+-spec serialize_opts() -> emqx_gateway_frame:serialize_options().
 serialize_opts() ->
     #{}.
 
@@ -235,6 +235,9 @@ method_to_class_code(Method) ->
 %%--------------------------------------------------------------------
 %% parse
 %%--------------------------------------------------------------------
+
+-spec parse(binary(), emqx_gateway_frame:parse_state())
+    -> emqx_gateway_frame:parse_result().
 parse(<<?VERSION:2, Type:2, 0:4, 0:3, 0:5, MsgId:16>>, ParseState) ->
     {ok,
      #coap_message{ type = decode_type(Type)

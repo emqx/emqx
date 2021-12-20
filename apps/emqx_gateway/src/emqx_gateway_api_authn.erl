@@ -194,8 +194,8 @@ schema("/gateway/:name/authentication/users") ->
           , responses =>
               ?STANDARD_RESP(
                  #{ 200 => emqx_dashboard_swagger:schema_with_example(
-                             ref(emqx_authn_api, response_user),
-                             emqx_authn_api:response_user_examples())
+                             ref(emqx_authn_api, response_users),
+                             emqx_authn_api:response_users_example())
                   })
           },
        post =>

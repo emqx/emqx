@@ -87,8 +87,7 @@ paths() ->
     , {<<"lte_lifetime">>, timestamp}
     ]).
 
--define(query_fun, {?MODULE, query}).
--define(format_fun, {?MODULE, format_channel_info}).
+-define(QUERY_FUN, {?MODULE, query}).
 
 clients(get, #{ bindings := #{name := Name0}
               , query_string := Params
@@ -99,14 +98,14 @@ clients(get, #{ bindings := #{name := Name0}
             undefined ->
                 Response = emqx_mgmt_api:cluster_query(
                              Params, TabName,
-                             ?CLIENT_QS_SCHEMA, ?query_fun),
+                             ?CLIENT_QS_SCHEMA, ?QUERY_FUN),
                 emqx_mgmt_util:generate_response(Response);
             Node1 ->
                 Node = binary_to_atom(Node1, utf8),
                 ParamsWithoutNode = maps:without([<<"node">>], Params),
                 Response = emqx_mgmt_api:node_query(
                              Node, ParamsWithoutNode,
-                             TabName, ?CLIENT_QS_SCHEMA, ?query_fun),
+                             TabName, ?CLIENT_QS_SCHEMA, ?QUERY_FUN),
                 emqx_mgmt_util:generate_response(Response)
         end
     end).
@@ -148,6 +147,10 @@ subscriptions(get, #{ bindings := #{name := Name0,
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
     with_gateway(Name0, fun(GwName, _) ->
         case emqx_gateway_http:list_client_subscriptions(GwName, ClientId) of
+            {error, nosupport} ->
+                return_http_error(405, <<"Not support to list subscriptions">>);
+            {error, noimpl} ->
+                return_http_error(501, <<"Not implemented now">>);
             {error, Reason} ->
                 return_http_error(500, Reason);
             {ok, Subs} ->
@@ -165,13 +168,21 @@ subscriptions(post, #{ bindings := #{name := Name0,
         case {maps:get(<<"topic">>, Body, undefined), subopts(Body)} of
             {undefined, _} ->
                 return_http_error(400, "Miss topic property");
-            {Topic, QoS} ->
+            {Topic, SubOpts} ->
                 case emqx_gateway_http:client_subscribe(
-                       GwName, ClientId, Topic, QoS) of
+                       GwName, ClientId, Topic, SubOpts) of
+                    {error, nosupport} ->
+                        return_http_error(
+                          405,
+                          <<"Not support to add a subscription">>);
+                    {error, noimpl} ->
+                        return_http_error(
+                          501,
+                          <<"Not implemented now">>);
                     {error, Reason} ->
                         return_http_error(404, Reason);
-                    ok ->
-                        {204}
+                    {ok, {NTopic, NSubOpts}}->
+                        {201, maps:merge(NSubOpts, #{topic => NTopic})}
                 end
         end
     end);
@@ -193,12 +204,16 @@ subscriptions(delete, #{ bindings := #{name := Name0,
 %% Utils
 
 subopts(Req) ->
-    #{ qos => maps:get(<<"qos">>, Req, 0)
-     , rap => maps:get(<<"rap">>, Req, 0)
-     , nl => maps:get(<<"nl">>, Req, 0)
-     , rh => maps:get(<<"rh">>, Req, 0)
-     , sub_props => extra_sub_props(maps:get(<<"sub_props">>, Req, #{}))
-     }.
+    SubOpts = #{ qos => maps:get(<<"qos">>, Req, 0)
+               , rap => maps:get(<<"rap">>, Req, 0)
+               , nl => maps:get(<<"nl">>, Req, 0)
+               , rh => maps:get(<<"rh">>, Req, 1)
+               },
+    SubProps = extra_sub_props(maps:get(<<"sub_props">>, Req, #{})),
+    case maps:size(SubProps) of
+        0 -> SubOpts;
+        _ -> maps:put(sub_props, SubProps, SubOpts)
+    end.
 
 extra_sub_props(Props) ->
     maps:filter(
@@ -444,8 +459,7 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
      , post =>
         #{ description => <<"Create a subscription membership">>
          , parameters => params_client_insta()
-         %% FIXME:
-         , requestBody => emqx_dashboard_swagger:schema_with_examples(
+         , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                             ref(subscription),
                             examples_subsctiption())
          , responses =>
@@ -878,5 +892,4 @@ example_general_subscription() ->
      , nl => 0
      , rap => 0
      , rh => 0
-     , sub_props => #{}
      }.

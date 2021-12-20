@@ -334,13 +334,14 @@ handle_call({subscribe_from_client, TopicFilter, Qos}, _From,
         deny ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"Authorization deny">>}, Channel};
         _ ->
-            {ok, NChannel} = do_subscribe([{TopicFilter, #{qos => Qos}}], Channel),
+            {ok, _, NChannel} = do_subscribe([{TopicFilter, #{qos => Qos}}], Channel),
             {reply, ok, NChannel}
     end;
 
 handle_call({subscribe, Topic, SubOpts}, _From, Channel) ->
-    {ok, NChannel} = do_subscribe([{Topic, SubOpts}], Channel),
-    {reply, ok, NChannel};
+    {ok,
+     [{NTopicFilter, NSubOpts}], NChannel} = do_subscribe([{Topic, SubOpts}], Channel),
+    {reply, {ok, {NTopicFilter, NSubOpts}}, NChannel};
 
 handle_call({unsubscribe_from_client, TopicFilter}, _From,
             Channel = #channel{conn_state = connected}) ->
@@ -350,6 +351,9 @@ handle_call({unsubscribe_from_client, TopicFilter}, _From,
 handle_call({unsubscribe, Topic}, _From, Channel) ->
     {ok, NChannel} = do_unsubscribe([Topic], Channel),
     {reply, ok, NChannel};
+
+handle_call(subscriptions, _From, Channel = #channel{subscriptions = Subs}) ->
+    {reply, {ok, maps:to_list(Subs)}, Channel};
 
 handle_call({publish, Topic, Qos, Payload}, _From,
             Channel = #channel{
@@ -369,7 +373,10 @@ handle_call({publish, Topic, Qos, Payload}, _From,
     end;
 
 handle_call(kick, _From, Channel) ->
-    {shutdown, kicked, ok, Channel};
+    {shutdown, kicked, ok, ensure_disconnected(kicked, Channel)};
+
+handle_call(discard, _From, Channel) ->
+    {shutdown, discarded, ok, Channel};
 
 handle_call(Req, _From, Channel) ->
     ?SLOG(warning, #{ msg => "unexpected_call"
@@ -431,11 +438,12 @@ terminate(Reason, Channel) ->
 %%--------------------------------------------------------------------
 
 do_subscribe(TopicFilters, Channel) ->
-    NChannel = lists:foldl(
-        fun({TopicFilter, SubOpts}, ChannelAcc) ->
-            do_subscribe(TopicFilter, SubOpts, ChannelAcc)
-        end, Channel, parse_topic_filters(TopicFilters)),
-    {ok, NChannel}.
+    {MadeSubs, NChannel} = lists:foldl(
+        fun({TopicFilter, SubOpts}, {MadeSubs, ChannelAcc}) ->
+            {Sub, Channel1} = do_subscribe(TopicFilter, SubOpts, ChannelAcc),
+            {MadeSubs ++ [Sub], Channel1}
+        end, {[], Channel}, parse_topic_filters(TopicFilters)),
+    {ok, MadeSubs, NChannel}.
 
 %% @private
 do_subscribe(TopicFilter, SubOpts, Channel =
@@ -445,17 +453,20 @@ do_subscribe(TopicFilter, SubOpts, Channel =
     NTopicFilter = emqx_mountpoint:mount(Mountpoint, TopicFilter),
     NSubOpts = maps:merge(?DEFAULT_SUBOPTS, SubOpts),
     SubId = maps:get(clientid, ClientInfo, undefined),
+    %% XXX: is_new?
     IsNew = not maps:is_key(NTopicFilter, Subs),
     case IsNew of
         true ->
             ok = emqx:subscribe(NTopicFilter, SubId, NSubOpts),
             ok = emqx_hooks:run('session.subscribed',
                                 [ClientInfo, NTopicFilter, NSubOpts#{is_new => IsNew}]),
-            Channel#channel{subscriptions = Subs#{NTopicFilter => NSubOpts}};
+            {{NTopicFilter, NSubOpts},
+             Channel#channel{subscriptions = Subs#{NTopicFilter => NSubOpts}}};
         _ ->
             %% Update subopts
             ok = emqx:subscribe(NTopicFilter, SubId, NSubOpts),
-            Channel#channel{subscriptions = Subs#{NTopicFilter => NSubOpts}}
+            {{NTopicFilter, NSubOpts},
+             Channel#channel{subscriptions = Subs#{NTopicFilter => NSubOpts}}}
     end.
 
 do_unsubscribe(TopicFilters, Channel) ->

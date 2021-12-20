@@ -497,11 +497,11 @@ examples_gateway_confs() ->
              , auto_observe => false
              , update_msg_publish_condition => <<"always">>
              , translators =>
-                #{ command => #{topic => <<"/dn/#">>}
-                 , response => #{topic => <<"/up/resp">>}
-                 , notify => #{topic => <<"/up/notify">>}
-                 , register => #{topic => <<"/up/resp">>}
-                 , update => #{topic => <<"/up/resp">>}
+                #{ command => #{topic => <<"dn/#">>}
+                 , response => #{topic => <<"up/resp">>}
+                 , notify => #{topic => <<"up/notify">>}
+                 , register => #{topic => <<"up/resp">>}
+                 , update => #{topic => <<"up/resp">>}
                  }
              , listeners =>
                 [ #{ type => <<"udp">>
@@ -599,11 +599,11 @@ examples_update_gateway_confs() ->
              , auto_observe => false
              , update_msg_publish_condition => <<"always">>
              , translators =>
-                #{ command => #{topic => <<"/dn/#">>}
-                 , response => #{topic => <<"/up/resp">>}
-                 , notify => #{topic => <<"/up/notify">>}
-                 , register => #{topic => <<"/up/resp">>}
-                 , update => #{topic => <<"/up/resp">>}
+                #{ command => #{topic => <<"dn/#">>}
+                 , response => #{topic => <<"up/resp">>}
+                 , notify => #{topic => <<"up/notify">>}
+                 , register => #{topic => <<"up/resp">>}
+                 , update => #{topic => <<"up/resp">>}
                  }
              }
          }

@@ -25,7 +25,8 @@
         , validator/4
         , metrics_inc/2
         , run_hooks/3
-        , send_request/2]).
+        , send_request/2
+        ]).
 
 -export([ init/2
         , handle_in/2
@@ -48,59 +49,76 @@
 -define(AUTHN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 
 -record(channel, {
-                  %% Context
-                  ctx           :: emqx_gateway_ctx:context(),
-                  %% Connection Info
-                  conninfo      :: emqx_types:conninfo(),
-                  %% Client Info
-                  clientinfo    :: emqx_types:clientinfo(),
-                  %% Session
-                  session       :: emqx_coap_session:session() | undefined,
-                  %% Keepalive
-                  keepalive     :: emqx_keepalive:keepalive() | undefined,
-                  %% Timer
-                  timers :: #{atom() => disable | undefined | reference()},
-
-                  connection_required :: boolean(),
-
-                  conn_state :: idle | connected | disconnected,
-
-                  token :: binary() | undefined
-                 }).
+          %% Context
+          ctx           :: emqx_gateway_ctx:context(),
+          %% Connection Info
+          conninfo      :: emqx_types:conninfo(),
+          %% Client Info
+          clientinfo    :: emqx_types:clientinfo(),
+          %% Session
+          session       :: emqx_coap_session:session() | undefined,
+          %% Keepalive
+          keepalive     :: emqx_keepalive:keepalive() | undefined,
+          %% Timer
+          timers :: #{atom() => disable | undefined | reference()},
+          %% Connection mode
+          connection_required :: boolean(),
+          %% Connection State
+          conn_state :: conn_state(),
+          %% Session token to identity this connection
+          token :: binary() | undefined
+         }).
 
 -type channel() :: #channel{}.
+
+-type conn_state() :: idle | connecting | connected | disconnected.
+
+-type reply() :: {outgoing, coap_message()}
+               | {outgoing, [coap_message()]}
+               | {event, conn_state()|updated}
+               | {close, Reason :: atom()}.
+
+-type replies() :: reply() | [reply()].
+
 -define(TOKEN_MAXIMUM, 4294967295).
+
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session]).
+
 -define(DEF_IDLE_TIME, timer:seconds(30)).
 -define(GET_IDLE_TIME(Cfg), maps:get(idle_timeout, Cfg, ?DEF_IDLE_TIME)).
 
 -import(emqx_coap_medium, [reply/2, reply/3, reply/4, iter/3, iter/4]).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
+-spec info(channel()) -> emqx_types:infos().
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
 
+-spec info(list(atom())|atom(), channel()) -> term().
 info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 
 info(conninfo, #channel{conninfo = ConnInfo}) ->
     ConnInfo;
-info(conn_state, #channel{conn_state = CState}) ->
-    CState;
+info(conn_state, #channel{conn_state = ConnState}) ->
+    ConnState;
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
-    emqx_misc:maybe_apply(fun emqx_session:info/1, Session);
+    emqx_misc:maybe_apply(fun emqx_coap_session:info/1, Session);
 info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
     ClientId;
 info(ctx, #channel{ctx = Ctx}) ->
     Ctx.
 
+-spec stats(channel()) -> emqx_types:stats().
 stats(_) ->
     [].
 
+-spec init(map(), map()) -> channel().
 init(ConnInfoT = #{peername := {PeerHost, _},
                    sockname := {_, SockPort}},
      #{ctx := Ctx} = Config) ->
@@ -126,8 +144,8 @@ init(ConnInfoT = #{peername := {PeerHost, _},
                     }
                   ),
 
-    %% because it is possible to disconnect after init, and then trigger the $event.disconnected hook
-    %% and these two fields are required in the hook
+    %% because it is possible to disconnect after init, and then trigger the
+    %% $event.disconnected hook and these two fields are required in the hook
     ConnInfo = ConnInfoT#{proto_name => <<"CoAP">>, proto_ver => <<"1">>},
 
     Heartbeat = ?GET_IDLE_TIME(Config),
@@ -144,13 +162,19 @@ init(ConnInfoT = #{peername := {PeerHost, _},
 validator(Type, Topic, Ctx, ClientInfo) ->
     emqx_gateway_ctx:authorize(Ctx, ClientInfo, Type, Topic).
 
--spec send_request(pid(), emqx_coap_message()) -> any().
+-spec send_request(pid(), coap_message()) -> any().
 send_request(Channel, Request) ->
     gen_server:send_request(Channel, {?FUNCTION_NAME, Request}).
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 %%--------------------------------------------------------------------
+
+-spec handle_in(coap_message() | {frame_error, any()}, channel())
+      -> {ok, channel()}
+       | {ok, replies(), channel()}
+       | {shutdown, Reason :: term(), channel()}
+       | {shutdown, Reason :: term(), replies(), channel()}.
 handle_in(Msg, ChannleT) ->
     Channel = ensure_keepalive_timer(ChannleT),
     case emqx_coap_message:is_request(Msg) of
@@ -170,6 +194,7 @@ handle_deliver(Delivers, #channel{session = Session,
 %%--------------------------------------------------------------------
 %% Handle timeout
 %%--------------------------------------------------------------------
+
 handle_timeout(_, {keepalive, NewVal}, #channel{keepalive = KeepAlive} = Channel) ->
     case emqx_keepalive:check(NewVal, KeepAlive) of
         {ok, NewKeepAlive} ->
@@ -191,9 +216,71 @@ handle_timeout(_, _, Channel) ->
 %%--------------------------------------------------------------------
 %% Handle call
 %%--------------------------------------------------------------------
+
+-spec(handle_call(Req :: term(), From :: term(), channel())
+    -> {reply, Reply :: term(), channel()}
+     | {reply, Reply :: term(), replies(), channel()}
+     | {shutdown, Reason :: term(), Reply :: term(), channel()}
+     | {shutdown, Reason :: term(), Reply :: term(), coap_message(), channel()}).
 handle_call({send_request, Msg}, From, Channel) ->
     Result = call_session(handle_out, {{send_request, From}, Msg}, Channel),
     erlang:setelement(1, Result, noreply);
+
+handle_call({subscribe, Topic, SubOpts}, _From,
+            Channel = #channel{
+                         ctx = Ctx,
+                         clientinfo = ClientInfo
+                                    = #{clientid := ClientId,
+                                        mountpoint := Mountpoint},
+                         session = Session}) ->
+    Token = maps:get(token,
+                     maps:get(sub_props, SubOpts, #{}),
+                     <<>>),
+    NSubOpts = maps:merge(
+                 emqx_gateway_utils:default_subopts(),
+                 SubOpts),
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
+    _ = emqx_broker:subscribe(MountedTopic, ClientId, NSubOpts),
+
+    _ = run_hooks(Ctx, 'session.subscribed',
+                  [ClientInfo, MountedTopic, NSubOpts]),
+    %% modifty session state
+    SubReq = {Topic, Token},
+    TempMsg = #coap_message{type = non},
+    Result  = emqx_coap_session:process_subscribe(
+                SubReq, TempMsg, #{}, Session),
+    NSession = maps:get(session, Result),
+    {reply, {ok, {MountedTopic, NSubOpts}}, Channel#channel{session = NSession}};
+
+handle_call({unsubscribe, Topic}, _From,
+            Channel = #channel{
+                         ctx = Ctx,
+                         clientinfo = ClientInfo
+                                    = #{mountpoint := Mountpoint},
+                         session = Session}) ->
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
+    ok = emqx_broker:unsubscribe(MountedTopic),
+    _ = run_hooks(Ctx, 'session.unsubscribe',
+                  [ClientInfo, MountedTopic, #{}]),
+
+    %% modifty session state
+    UnSubReq = Topic,
+    TempMsg = #coap_message{type = non},
+    Result  = emqx_coap_session:process_subscribe(
+                UnSubReq, TempMsg, #{}, Session),
+    NSession = maps:get(session, Result),
+    {reply, ok, Channel#channel{session = NSession}};
+
+handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
+    Subs = emqx_coap_session:info(subscriptions, Session),
+    {reply, {ok, maps:to_list(Subs)}, Channel};
+
+handle_call(kick, _From, Channel) ->
+    NChannel = ensure_disconnected(kicked, Channel),
+    shutdown_and_reply(kicked, ok, NChannel);
+
+handle_call(discard, _From, Channel) ->
+    shutdown_and_reply(discarded, ok, Channel);
 
 handle_call(Req, _From, Channel) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -202,6 +289,9 @@ handle_call(Req, _From, Channel) ->
 %%--------------------------------------------------------------------
 %% Handle Cast
 %%--------------------------------------------------------------------
+
+-spec handle_cast(Req :: term(), channel())
+      -> ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
 handle_cast(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
     {ok, Channel}.
@@ -209,9 +299,9 @@ handle_cast(Req, Channel) ->
 %%--------------------------------------------------------------------
 %% Handle Info
 %%--------------------------------------------------------------------
-handle_info({subscribe, _}, Channel) ->
-    {ok, Channel};
 
+-spec(handle_info(Info :: term(), channel())
+      -> ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}).
 handle_info(Info, Channel) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {ok, Channel}.
@@ -352,15 +442,6 @@ fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
     Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
     {ok, ClientInfo#{mountpoint := Mountpoint1}}.
 
-ensure_connected(Channel = #channel{ctx = Ctx,
-                                    conninfo = ConnInfo,
-                                    clientinfo = ClientInfo}) ->
-    NConnInfo = ConnInfo#{ connected_at => erlang:system_time(millisecond)
-                         },
-    ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
-    _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, []]),
-    Channel#channel{conninfo = NConnInfo}.
-
 process_connect(#channel{ctx = Ctx,
                          session = Session,
                          conninfo = ConnInfo,
@@ -401,6 +482,21 @@ run_hooks(Ctx, Name, Args, Acc) ->
 metrics_inc(Name, Ctx) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
+%%--------------------------------------------------------------------
+%% Ensure connected
+
+ensure_connected(Channel = #channel{ctx = Ctx,
+                                    conninfo = ConnInfo,
+                                    clientinfo = ClientInfo}) ->
+    NConnInfo = ConnInfo#{ connected_at => erlang:system_time(millisecond)
+                         },
+    _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, []]),
+    ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
+    Channel#channel{conninfo = NConnInfo, conn_state = connected}.
+
+%%--------------------------------------------------------------------
+%% Ensure disconnected
+
 ensure_disconnected(Reason, Channel = #channel{
                                          ctx = Ctx,
                                          conninfo = ConnInfo,
@@ -409,9 +505,16 @@ ensure_disconnected(Reason, Channel = #channel{
     ok = run_hooks(Ctx, 'client.disconnected', [ClientInfo, Reason, NConnInfo]),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
+shutdown_and_reply(Reason, Reply, Channel) ->
+    {shutdown, Reason, Reply, Channel}.
+
+%shutdown_and_reply(Reason, Reply, OutPkt, Channel) ->
+%    {shutdown, Reason, Reply, OutPkt, Channel}.
+
 %%--------------------------------------------------------------------
 %% Call Chain
 %%--------------------------------------------------------------------
+
 call_session(Fun, Msg, #channel{session = Session} = Channel) ->
     Result = emqx_coap_session:Fun(Msg, Session),
     handle_result(Result, Channel).

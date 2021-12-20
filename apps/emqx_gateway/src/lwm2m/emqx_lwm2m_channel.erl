@@ -51,10 +51,25 @@
           clientinfo   :: emqx_types:clientinfo(),
           %% Session
           session      :: emqx_lwm2m_session:session() | undefined,
+          %% Channl State
+          %% TODO: is there need
+          conn_state   :: conn_state(),
           %% Timer
           timers       :: #{atom() => disable | undefined | reference()},
+          %% FIXME: don't store anonymouse func
           with_context :: function()
          }).
+
+-type channel() :: #channel{}.
+
+-type conn_state() :: idle | connecting | connected | disconnected.
+
+-type reply() :: {outgoing, coap_message()}
+               | {outgoing, [coap_message()]}
+               | {event, conn_state()|updated}
+               | {close, Reason :: atom()}.
+
+-type replies() :: reply() | [reply()].
 
 %% TODO:
 -define(DEFAULT_OVERRIDE,
@@ -79,8 +94,8 @@ info(Keys, Channel) when is_list(Keys) ->
 
 info(conninfo, #channel{conninfo = ConnInfo}) ->
     ConnInfo;
-info(conn_state, _) ->
-    connected;
+info(conn_state, #channel{conn_state = ConnState}) ->
+    ConnState;
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
@@ -125,14 +140,9 @@ init(ConnInfoT = #{peername := {PeerHost, _},
             , clientinfo = ClientInfo
             , timers = #{}
             , session = emqx_lwm2m_session:new()
-              %% FIXME: don't store anonymouse func
+            , conn_state = idle
             , with_context = with_context(Ctx, ClientInfo)
             }.
-
-with_context(Ctx, ClientInfo) ->
-    fun(Type, Topic) ->
-            with_context(Type, Topic, Ctx, ClientInfo)
-    end.
 
 lookup_cmd(Channel, Path, Action) ->
     gen_server:call(Channel, {?FUNCTION_NAME, Path, Action}).
@@ -143,9 +153,15 @@ send_cmd(Channel, Cmd) ->
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 %%--------------------------------------------------------------------
-handle_in(Msg, ChannleT) ->
-    Channel = update_life_timer(ChannleT),
-    call_session(handle_coap_in, Msg, Channel).
+
+-spec handle_in(coap_message() | {frame_error, any()}, channel())
+      -> {ok, channel()}
+       | {ok, replies(), channel()}
+       | {shutdown, Reason :: term(), channel()}
+       | {shutdown, Reason :: term(), replies(), channel()}.
+handle_in(Msg, Channle) ->
+    NChannel = update_life_timer(Channle),
+    call_session(handle_coap_in, Msg, NChannel).
 
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client
@@ -174,13 +190,75 @@ handle_timeout(_, _, Channel) ->
 %%--------------------------------------------------------------------
 %% Handle call
 %%--------------------------------------------------------------------
-handle_call({lookup_cmd, Path, Type}, _From, #channel{session = Session} = Channel) ->
+
+handle_call({lookup_cmd, Path, Type}, _From,
+            Channel = #channel{session = Session}) ->
     Result = emqx_lwm2m_session:find_cmd_record(Path, Type, Session),
     {reply, {ok, Result}, Channel};
 
 handle_call({send_cmd, Cmd}, _From, Channel) ->
     {ok, Outs, Channel2} = call_session(send_cmd, Cmd, Channel),
     {reply, ok, Outs, Channel2};
+
+handle_call({subscribe, Topic, SubOpts}, _From,
+            Channel = #channel{
+                         ctx = Ctx,
+                         clientinfo = ClientInfo
+                                    = #{clientid := ClientId,
+                                        mountpoint := Mountpoint},
+                         session = Session}) ->
+    NSubOpts = maps:merge(
+                 emqx_gateway_utils:default_subopts(),
+                 SubOpts),
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
+    _ = emqx_broker:subscribe(MountedTopic, ClientId, NSubOpts),
+
+    _ = run_hooks(Ctx, 'session.subscribed',
+                  [ClientInfo, MountedTopic, NSubOpts]),
+    %% modifty session state
+    Subs = emqx_lwm2m_session:info(subscriptions, Session),
+    NSubs = maps:put(MountedTopic, NSubOpts, Subs),
+    NSession = emqx_lwm2m_session:set_subscriptions(NSubs, Session),
+    {reply, {ok, {MountedTopic, NSubOpts}}, Channel#channel{session = NSession}};
+
+handle_call({unsubscribe, Topic}, _From,
+            Channel = #channel{
+                         ctx = Ctx,
+                         clientinfo = ClientInfo
+                                    = #{mountpoint := Mountpoint},
+                         session = Session}) ->
+    MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
+    ok = emqx_broker:unsubscribe(MountedTopic),
+    _ = run_hooks(Ctx, 'session.unsubscribe',
+                  [ClientInfo, MountedTopic, #{}]),
+    %% modifty session state
+    Subs = emqx_lwm2m_session:info(subscriptions, Session),
+    NSubs = maps:remove(MountedTopic, Subs),
+    NSession = emqx_lwm2m_session:set_subscriptions(NSubs, Session),
+    {reply, ok, Channel#channel{session = NSession}};
+
+handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
+    Subs = maps:to_list(emqx_lwm2m_session:info(subscriptions, Session)),
+    {reply, {ok, Subs}, Channel};
+
+handle_call(kick, _From, Channel) ->
+    NChannel = ensure_disconnected(kicked, Channel),
+    shutdown_and_reply(kicked, ok, NChannel);
+
+handle_call(discard, _From, Channel) ->
+    shutdown_and_reply(discarded, ok, Channel);
+
+%% TODO: No Session Takeover
+%handle_call({takeover, 'begin'}, _From, Channel = #channel{session = Session}) ->
+%    reply(Session, Channel#channel{takeover = true});
+%
+%handle_call({takeover, 'end'}, _From, Channel = #channel{session  = Session,
+%                                                  pendings = Pendings}) ->
+%    ok = emqx_session:takeover(Session),
+%    %% TODO: Should not drain deliver here (side effect)
+%    Delivers = emqx_misc:drain_deliver(),
+%    AllPendings = lists:append(Delivers, Pendings),
+%    shutdown_and_reply(takenover, AllPendings, Channel);
 
 handle_call(Req, _From, Channel) ->
     ?SLOG(error, #{ msg => "unexpected_call"
@@ -223,6 +301,41 @@ terminate(Reason, #channel{ctx = Ctx,
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% Ensure connected
+
+ensure_connected(Channel = #channel{
+                              ctx = Ctx,
+                              conninfo = ConnInfo,
+                              clientinfo = ClientInfo}) ->
+    _ = run_hooks(Ctx, 'client.connack', [ConnInfo, connection_accepted, []]),
+
+    NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
+    ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
+    Channel#channel{
+      conninfo = NConnInfo,
+      conn_state = connected
+     }.
+
+%%--------------------------------------------------------------------
+%% Ensure disconnected
+
+ensure_disconnected(Reason, Channel = #channel{
+                                         ctx = Ctx,
+                                         conninfo = ConnInfo,
+                                         clientinfo = ClientInfo}) ->
+    NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
+    ok = run_hooks(Ctx, 'client.disconnected',
+                   [ClientInfo, Reason, NConnInfo]),
+    Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
+
+shutdown_and_reply(Reason, Reply, Channel) ->
+    {shutdown, Reason, Reply, Channel}.
+
+%shutdown_and_reply(Reason, Reply, OutPkt, Channel) ->
+%    {shutdown, Reason, Reply, OutPkt, Channel}.
+
 set_peercert_infos(NoSSL, ClientInfo)
   when NoSSL =:= nossl;
        NoSSL =:= undefined ->
@@ -319,6 +432,7 @@ enrich_clientinfo(#coap_message{options = Options} = Msg,
     Query = maps:get(uri_query, Options, #{}),
     case Query of
         #{<<"ep">> := Epn, <<"lt">> := Lifetime} ->
+            %% FIXME: the following keys is not belong standrad protocol
             Username = maps:get(<<"imei">>, Query, Epn),
             Password = maps:get(<<"password">>, Query, undefined),
             ClientId = maps:get(<<"device_id">>, Query, Epn),
@@ -362,13 +476,6 @@ fix_mountpoint(_Packet, #{mountpoint := undefined} = ClientInfo) ->
 fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
     Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
     {ok, ClientInfo#{mountpoint := Mountpoint1}}.
-
-ensure_connected(Channel = #channel{ctx = Ctx,
-                                    conninfo = ConnInfo,
-                                    clientinfo = ClientInfo}) ->
-    _ = run_hooks(Ctx, 'client.connack', [ConnInfo, connection_accepted, []]),
-    ok = run_hooks(Ctx, 'client.connected', [ClientInfo, ConnInfo]),
-    Channel.
 
 process_connect(Channel = #channel{ctx = Ctx,
                                    session = Session,
@@ -418,29 +525,44 @@ gets([H | T], Map) ->
 gets([], Val) ->
     Val.
 
+%%--------------------------------------------------------------------
+%% With Context
+
+with_context(Ctx, ClientInfo) ->
+    fun(Type, Topic) ->
+        with_context(Type, Topic, Ctx, ClientInfo)
+    end.
+
 with_context(publish, [Topic, Msg], Ctx, ClientInfo) ->
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
         allow ->
-            emqx:publish(Msg);
+            _ = emqx_broker:publish(Msg),
+            ok;
         _ ->
             ?SLOG(error, #{ msg => "publish_denied"
                           , topic => Topic
-                          })
+                          }),
+            {error, deny}
     end;
 
-with_context(subscribe, [Topic, Opts], Ctx, #{username := Username} = ClientInfo) ->
+with_context(subscribe, [Topic, Opts], Ctx, ClientInfo) ->
+    #{clientid := ClientId,
+      endpoint_name := EndpointName} = ClientInfo,
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, Topic) of
         allow ->
             run_hooks(Ctx, 'session.subscribed', [ClientInfo, Topic, Opts]),
             ?SLOG(debug, #{ msg => "subscribe_topic_succeed"
                           , topic => Topic
-                          , endpoint_name => Username
+                          , clientid => ClientId
+                          , endpoint_name => EndpointName
                           }),
-            emqx:subscribe(Topic, Username, Opts);
+            emqx_broker:subscribe(Topic, ClientId, Opts),
+            ok;
         _ ->
             ?SLOG(error, #{ msg => "subscribe_denied"
                           , topic => Topic
-                          })
+                          }),
+            {error, deny}
     end;
 
 with_context(metrics, Name, Ctx, _ClientInfo) ->

@@ -73,4 +73,4 @@
                       , options = #{}
                       , payload = <<>>}).
 
--type emqx_coap_message() :: #coap_message{}.
+-type coap_message() :: #coap_message{}.

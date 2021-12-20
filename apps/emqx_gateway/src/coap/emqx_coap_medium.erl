@@ -53,8 +53,8 @@ out(Msg, Result) ->
 proto_out(Proto) ->
     proto_out(Proto, #{}).
 
-proto_out(Proto, Resut) ->
-    Resut#{proto => Proto}.
+proto_out(Proto, Result) ->
+    Result#{proto => Proto}.
 
 reply(Method, Req) when not is_record(Method, coap_message) ->
     reply(Method, <<>>, Req);

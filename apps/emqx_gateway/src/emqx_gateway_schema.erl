@@ -449,7 +449,7 @@ it has two purposes:
        sc(ref(clientinfo_override),
           #{ desc => ""
            })}
-    , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,  authentication_schema()}
+    , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM, authentication_schema()}
     ].
 
 common_listener_opts() ->
@@ -468,7 +468,7 @@ common_listener_opts() ->
        sc(integer(),
           #{ default => 1000
            })}
-    , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,  authentication_schema()}
+    , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM, authentication_schema()}
     , {mountpoint,
        sc(binary(),
           #{ default => undefined

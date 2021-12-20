@@ -1194,8 +1194,8 @@ handle_call({subscribe, Topic, SubOpts}, _From, Channel) ->
                 2 ->
                     case do_subscribe({?SN_INVALID_TOPIC_ID,
                                        Topic, SubOpts}, Channel) of
-                        {ok, _, NChannel} ->
-                            reply(ok, NChannel);
+                        {ok, {_, NTopicName, NSubOpts}, NChannel} ->
+                            reply({ok, {NTopicName, NSubOpts}}, NChannel);
                         {error, ?SN_EXCEED_LIMITATION} ->
                             reply({error, exceed_limitation}, Channel)
                     end;
@@ -1214,7 +1214,7 @@ handle_call({unsubscribe, Topic}, _From, Channel) ->
     reply(ok, NChannel);
 
 handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
-    reply(maps:to_list(emqx_session:info(subscriptions, Session)), Channel);
+    reply({ok, maps:to_list(emqx_session:info(subscriptions, Session))}, Channel);
 
 handle_call(kick, _From, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),

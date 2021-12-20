@@ -61,7 +61,7 @@
           session       :: undefined | map(),
           %% ClientInfo override specs
           clientinfo_override :: map(),
-          %% Connection Channel
+          %% Channel State
           conn_state    :: conn_state(),
           %% Heartbeat
           heartbeat     :: emqx_stomp_heartbeat:heartbeat(),
@@ -73,16 +73,16 @@
           transaction :: #{binary() => list()}
          }).
 
--type(channel() :: #channel{}).
+-type channel() :: #channel{}.
 
--type(conn_state() :: idle | connecting | connected | disconnected).
+-type conn_state() :: idle | connecting | connected | disconnected.
 
--type(reply() :: {outgoing, stomp_frame()}
+-type reply() :: {outgoing, stomp_frame()}
                | {outgoing, [stomp_frame()]}
                | {event, conn_state()|updated}
-               | {close, Reason :: atom()}).
+               | {close, Reason :: atom()}.
 
--type(replies() :: reply() | [reply()]).
+-type replies() :: reply() | [reply()].
 
 -define(TIMER_TABLE, #{
           incoming_timer => keepalive,
@@ -155,7 +155,7 @@ setting_peercert_infos(Peercert, ClientInfo) ->
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
 
--spec(info(list(atom())|atom(), channel()) -> term()).
+-spec info(list(atom())|atom(), channel()) -> term().
 info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 
@@ -174,7 +174,7 @@ info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
 info(ctx, #channel{ctx = Ctx}) ->
     Ctx.
 
--spec(stats(channel()) -> emqx_types:stats()).
+-spec stats(channel()) -> emqx_types:stats().
 stats(#channel{subscriptions = Subs}) ->
     [{subscriptions_cnt, length(Subs)}].
 
@@ -294,9 +294,9 @@ ensure_connected(Channel = #channel{
                               clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
-    Channel#channel{conninfo = NConnInfo,
-                 conn_state = connected
-                }.
+    Channel#channel{
+      conninfo = NConnInfo,
+      conn_state = connected}.
 
 process_connect(Channel = #channel{
                            ctx = Ctx,
@@ -660,7 +660,7 @@ handle_call({subscribe, Topic, SubOpts}, _From,
                                                   ),
                     NSubs = [{SubId, MountedTopic, <<"auto">>, NSubOpts}|Subs],
                     NChannel1 = NChannel#channel{subscriptions = NSubs},
-                    reply(ok, NChannel1);
+                    reply({ok, {MountedTopic, NSubOpts}}, NChannel1);
                 {error, ErrMsg, NChannel} ->
                     ?SLOG(error, #{ msg => "failed_to_subscribe_topic"
                                   , topic => Topic
@@ -688,11 +688,11 @@ handle_call({unsubscribe, Topic}, _From,
 
 %% Reply :: [{emqx_types:topic(), emqx_types:subopts()}]
 handle_call(subscriptions, _From, Channel = #channel{subscriptions = Subs}) ->
-    Reply = lists:map(
+    NSubs = lists:map(
               fun({_SubId, Topic, _Ack, SubOpts}) ->
                 {Topic, SubOpts}
               end, Subs),
-    reply(Reply, Channel);
+    reply({ok, NSubs}, Channel);
 
 handle_call(kick, _From, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),
