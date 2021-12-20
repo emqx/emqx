@@ -587,10 +587,5 @@ log(Msg) ->
 log(Msg, Args) ->
     io:format(standard_error, Msg, Args).
 
-ensure_string(Str) when is_binary(Str) ->
-    binary_to_list(Str);
-ensure_string(Str) when is_list(Str) ->
-    Str.
-
 otp_standard_apps() ->
     [ssl, mnesia, kernel, asn1, stdlib].
