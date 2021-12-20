@@ -43,7 +43,9 @@ fields("rule_creation") ->
 fields("rule_info") ->
     [ rule_id()
     , {"metrics", sc(ref("metrics"), #{desc => "The metrics of the rule"})}
-    , {"node_metrics", sc(ref("node_metrics"), #{desc => "The metrics of the rule"})}
+    , {"node_metrics", sc(hoconsc:array(ref("node_metrics")),
+        #{ desc => "The metrics of the rule for each node"
+         })}
     , {"from", sc(hoconsc:array(binary()),
         #{desc => "The topics of the rule", example => "t/#"})}
     , {"created_at", sc(binary(),

@@ -47,7 +47,7 @@
         , name := binary()
         , sql := binary()
         , outputs := [output()]
-        , enabled := boolean()
+        , enable := boolean()
         , description => binary()
         , created_at := integer() %% epoch in millisecond precision
         , from := list(topic())

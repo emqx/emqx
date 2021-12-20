@@ -164,14 +164,15 @@ param_path_id() ->
     Records = emqx_rule_engine:get_rules_ordered_by_ts(),
     {200, format_rule_resp(Records)};
 
-'/rules'(post, #{body := Params}) ->
-    Id = maps:get(<<"id">>, Params, list_to_binary(emqx_misc:gen_id(8))),
+'/rules'(post, #{body := Params0}) ->
+    Id = maps:get(<<"id">>, Params0, list_to_binary(emqx_misc:gen_id(8))),
+    Params = filter_out_request_body(Params0),
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
     case emqx_rule_engine:get_rule(Id) of
         {ok, _Rule} ->
             {400, #{code => 'BAD_ARGS', message => <<"rule id already exists">>}};
         not_found ->
-            case emqx:update_config(ConfPath, maps:remove(<<"id">>, Params), #{}) of
+            case emqx:update_config(ConfPath, Params, #{}) of
                 {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
                     [Rule] = get_one_rule(AllRules, Id),
                     {201, format_rule_resp(Rule)};
@@ -196,9 +197,10 @@ param_path_id() ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end;
 
-'/rules/:id'(put, #{bindings := #{id := Id}, body := Params}) ->
+'/rules/:id'(put, #{bindings := #{id := Id}, body := Params0}) ->
+    Params = filter_out_request_body(Params0),
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
-    case emqx:update_config(ConfPath, maps:remove(<<"id">>, Params), #{}) of
+    case emqx:update_config(ConfPath, Params, #{}) of
         {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
             [Rule] = get_one_rule(AllRules, Id),
             {200, format_rule_resp(Rule)};
@@ -233,7 +235,7 @@ format_rule_resp(#{ id := Id, name := Name,
                     from := Topics,
                     outputs := Output,
                     sql := SQL,
-                    enabled := Enabled,
+                    enable := Enable,
                     description := Descr}) ->
     NodeMetrics = get_rule_metrics(Id),
     #{id => Id,
@@ -243,7 +245,7 @@ format_rule_resp(#{ id := Id, name := Name,
       sql => SQL,
       metrics => aggregate_metrics(NodeMetrics),
       node_metrics => NodeMetrics,
-      enabled => Enabled,
+      enable => Enable,
       created_at => format_datetime(CreatedAt, millisecond),
       description => Descr
      }.
@@ -266,10 +268,12 @@ get_rule_metrics(Id) ->
                           rate_max := Max,
                           rate_last5m := Last5M
                         }) ->
-        #{ matched => Matched
-         , rate => Current
-         , rate_max => Max
-         , rate_last5m => Last5M
+        #{ metrics => #{
+            matched => Matched,
+            rate => Current,
+            rate_max => Max,
+            rate_last5m => Last5M
+           }
          , node => Node
          }
     end,
@@ -279,7 +283,8 @@ get_rule_metrics(Id) ->
 aggregate_metrics(AllMetrics) ->
     InitMetrics = #{matched => 0, rate => 0, rate_max => 0, rate_last5m => 0},
     lists:foldl(fun
-        (#{matched := Match1, rate := Rate1, rate_max := RateMax1, rate_last5m := Rate5m1},
+        (#{metrics := #{matched := Match1, rate := Rate1,
+                        rate_max := RateMax1, rate_last5m := Rate5m1}},
          #{matched := Match0, rate := Rate0, rate_max := RateMax0, rate_last5m := Rate5m0}) ->
             #{matched => Match1 + Match0, rate => Rate1 + Rate0,
               rate_max => RateMax1 + RateMax0, rate_last5m => Rate5m1 + Rate5m0}
@@ -287,3 +292,9 @@ aggregate_metrics(AllMetrics) ->
 
 get_one_rule(AllRules, Id) ->
     [R || R = #{id := Id0} <- AllRules, Id0 == Id].
+
+filter_out_request_body(Conf) ->
+    ExtraConfs = [<<"id">>, <<"status">>, <<"node_status">>, <<"node_metrics">>,
+        <<"metrics">>, <<"node">>],
+    maps:without(ExtraConfs, Conf).
+

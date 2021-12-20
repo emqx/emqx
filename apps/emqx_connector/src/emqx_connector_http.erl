@@ -169,6 +169,7 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
         pool_name => PoolName,
         host => Host,
         port => Port,
+        connect_timeout => ConnectTimeout,
         base_path => BasePath,
         request => preprocess_request(maps:get(request, Config, undefined))
     },
@@ -216,13 +217,17 @@ on_query(InstId, {KeyOrNum, Method, Request, Timeout}, AfterQuery,
     end,
     Result.
 
-on_health_check(_InstId, #{host := Host, port := Port} = State) ->
-    case gen_tcp:connect(Host, Port, emqx_misc:ipv6_probe([]), 3000) of
-        {ok, Sock} ->
-            gen_tcp:close(Sock),
-            {ok, State};
-        {error, _Reason} ->
-            {error, test_query_failed, State}
+on_health_check(_InstId, #{host := Host, port := Port, connect_timeout := Timeout} = State) ->
+    case do_health_check(Host, Port, Timeout) of
+        ok -> {ok, State};
+        {error, Reason} ->
+            {error, {http_health_check_failed, Reason}, State}
+    end.
+
+do_health_check(Host, Port, Timeout) ->
+    case gen_tcp:connect(Host, Port, emqx_misc:ipv6_probe([]), Timeout) of
+        {ok, Sock} -> gen_tcp:close(Sock), ok;
+        {error, Reason} -> {error, Reason}
     end.
 
 %%--------------------------------------------------------------------

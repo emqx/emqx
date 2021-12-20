@@ -38,9 +38,9 @@
             _ = ConnName,
             EXPR
     catch
-        error:{invalid_bridge_id, Id0} ->
-            {400, #{code => 'INVALID_ID', message => <<"invalid_bridge_id: ", Id0/binary,
-                ". Bridge Ids must be of format {type}:{name}">>}}
+        error:{invalid_connector_id, Id0} ->
+            {400, #{code => 'INVALID_ID', message => <<"invalid_connector_id: ", Id0/binary,
+                ". Connector Ids must be of format {type}:{name}">>}}
     end).
 
 namespace() -> "connector".
@@ -234,7 +234,8 @@ schema("/connectors/:id") ->
                 {404, error_msg('NOT_FOUND', <<"connector not found">>)}
         end);
 
-'/connectors/:id'(put, #{bindings := #{id := Id}, body := Params}) ->
+'/connectors/:id'(put, #{bindings := #{id := Id}, body := Params0}) ->
+    Params = filter_out_request_body(Params0),
     ?TRY_PARSE_ID(Id,
         case emqx_connector:lookup(ConnType, ConnName) of
             {ok, _} ->
@@ -276,6 +277,10 @@ format_resp(ConnId, RawConf) ->
         <<"name">> => Name,
         <<"num_of_bridges">> => NumOfBridges
     }.
+
+filter_out_request_body(Conf) ->
+    ExtraConfs = [<<"num_of_bridges">>, <<"type">>, <<"name">>],
+    maps:without(ExtraConfs, Conf).
 
 bin(S) when is_list(S) ->
     list_to_binary(S).

@@ -12,6 +12,7 @@
         ]).
 
 -export([ common_bridge_fields/0
+        , metrics_status_fields/0
         , direction_field/2
         ]).
 
@@ -48,12 +49,23 @@ common_bridge_fields() ->
     , {connector,
         mk(binary(),
            #{ nullable => false
+            , example => <<"mqtt:my_mqtt_connector">>
             , desc =>"""
-The connector name to be used for this bridge.
-Connectors are configured as 'connectors.{type}.{name}',
-for example 'connectors.http.mybridge'.
+The connector Id to be used for this bridge. Connector Ids must be of format: '{type}:{name}'.<br>
+In config files, you can find the corresponding config entry for a connector by such path: 'connectors.{type}.{name}'.<br>
 """
             })}
+    ].
+
+metrics_status_fields() ->
+    [ {"metrics", mk(ref(?MODULE, "metrics"), #{desc => "The metrics of the bridge"})}
+    , {"node_metrics", mk(hoconsc:array(ref(?MODULE, "node_metrics")),
+        #{ desc => "The metrics of the bridge for each node"
+         })}
+    , {"status", mk(ref(?MODULE, "status"), #{desc => "The status of the bridge"})}
+    , {"node_status", mk(hoconsc:array(ref(?MODULE, "node_status")),
+        #{ desc => "The status of the bridge for each node"
+         })}
     ].
 
 direction_field(Dir, Desc) ->
@@ -72,7 +84,40 @@ fields(bridges) ->
     ++ [{T, mk(hoconsc:map(name, hoconsc:union([
             ref(schema_mod(T), "ingress"),
             ref(schema_mod(T), "egress")
-        ])), #{})} || T <- ?CONN_TYPES].
+        ])), #{})} || T <- ?CONN_TYPES];
+
+fields("metrics") ->
+    [ {"matched", mk(integer(), #{desc => "Count of this bridge is queried"})}
+    , {"success", mk(integer(), #{desc => "Count of query success"})}
+    , {"failed", mk(integer(), #{desc => "Count of query failed"})}
+    , {"rate", mk(float(), #{desc => "The rate of matched, times/second"})}
+    , {"rate_max", mk(float(), #{desc => "The max rate of matched, times/second"})}
+    , {"rate_last5m", mk(float(),
+        #{desc => "The average rate of matched in last 5 mins, times/second"})}
+    ];
+
+fields("node_metrics") ->
+    [ node_name()
+    , {"metrics", mk(ref(?MODULE, "metrics"), #{})}
+    ];
+
+fields("status") ->
+    [ {"matched", mk(integer(), #{desc => "Count of this bridge is queried"})}
+    , {"success", mk(integer(), #{desc => "Count of query success"})}
+    , {"failed", mk(integer(), #{desc => "Count of query failed"})}
+    , {"rate", mk(float(), #{desc => "The rate of matched, times/second"})}
+    , {"rate_max", mk(float(), #{desc => "The max rate of matched, times/second"})}
+    , {"rate_last5m", mk(float(),
+        #{desc => "The average rate of matched in last 5 mins, times/second"})}
+    ];
+
+fields("node_status") ->
+    [ node_name()
+    , {"status", mk(ref(?MODULE, "status"), #{})}
+    ].
+
+node_name() ->
+    {"node", mk(binary(), #{desc => "The node name", example => "emqx@127.0.0.1"})}.
 
 schema_mod(Type) ->
     list_to_atom(lists:concat(["emqx_bridge_", Type, "_schema"])).

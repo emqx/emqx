@@ -68,14 +68,9 @@ load_hook(Bridges) ->
         end, maps:to_list(Bridges)).
 
 do_load_hook(#{local_topic := _} = Conf) ->
-    case maps:find(direction, Conf) of
-        error ->
-            %% this bridge has no direction field, it means that it has only egress bridges
-            emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []});
-        {ok, egress} ->
-            emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []});
-        {ok, ingress} ->
-            ok
+    case maps:get(direction, Conf, egress) of
+        egress -> emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []});
+        ingress -> ok
     end;
 do_load_hook(_Conf) -> ok.
 
@@ -111,13 +106,15 @@ bridge_type(emqx_connector_http) -> http.
 post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated}
         = diff_confs(NewConf, OldConf),
-    _ = perform_bridge_changes([
+    %% The config update will be failed if any task in `perform_bridge_changes` failed.
+    Result = perform_bridge_changes([
         {fun remove/3, Removed},
         {fun create/3, Added},
         {fun update/3, Updated}
     ]),
     ok = unload_hook(),
-    ok = load_hook(NewConf).
+    ok = load_hook(NewConf),
+    Result.
 
 perform_bridge_changes(Tasks) ->
     perform_bridge_changes(Tasks, ok).
@@ -195,13 +192,13 @@ create(Type, Name, Conf) ->
     ?SLOG(info, #{msg => "create bridge", type => Type, name => Name,
         config => Conf}),
     case emqx_resource:create_local(resource_id(Type, Name), emqx_bridge:resource_type(Type),
-            parse_confs(Type, Name, Conf)) of
+            parse_confs(Type, Name, Conf), #{force_create => true}) of
         {ok, already_created} -> maybe_disable_bridge(Type, Name, Conf);
         {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
         {error, Reason} -> {error, Reason}
     end.
 
-update(Type, Name, {_OldConf, Conf}) ->
+update(Type, Name, {OldConf, Conf}) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
     %%
     %% - if the connection related configs like `servers` is updated, we should restart/start
@@ -210,11 +207,22 @@ update(Type, Name, {_OldConf, Conf}) ->
     %% the `method` or `headers` of a HTTP bridge is changed, then the bridge can be updated
     %% without restarting the bridge.
     %%
-    ?SLOG(info, #{msg => "update bridge", type => Type, name => Name,
-        config => Conf}),
-    case recreate(Type, Name, Conf) of
-        {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
-        {error, _} = Err -> Err
+    case if_only_to_toggole_enable(OldConf, Conf) of
+        false ->
+            ?SLOG(info, #{msg => "update bridge", type => Type, name => Name,
+                config => Conf}),
+            case recreate(Type, Name, Conf) of
+                {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
+                {error, not_found} ->
+                    ?SLOG(warning, #{ msg => "updating a non-exist bridge, create a new one"
+                                    , type => Type, name => Name, config => Conf}),
+                    create(Type, Name, Conf);
+                {error, Reason} -> {update_bridge_failed, Reason}
+            end;
+        true ->
+            %% we don't need to recreate the bridge if this config change is only to
+            %% toggole the config 'bridge.{type}.{name}.enable'
+            ok
     end.
 
 recreate(Type, Name) ->
@@ -263,10 +271,8 @@ get_matched_bridges(Topic) ->
             (_BName, #{direction := ingress}, Acc1) ->
                 Acc1;
             (BName, #{direction := egress} = Egress, Acc1) ->
-                get_matched_bridge_id(Egress, Topic, BType, BName, Acc1);
-            %% HTTP, MySQL bridges only have egress direction
-            (BName, BridgeConf, Acc1) ->
-                get_matched_bridge_id(BridgeConf, Topic, BType, BName, Acc1)
+                %% HTTP, MySQL bridges only have egress direction
+                get_matched_bridge_id(Egress, Topic, BType, BName, Acc1)
         end, Acc0, Conf)
     end, [], Bridges).
 
@@ -336,6 +342,17 @@ maybe_disable_bridge(Type, Name, Conf) ->
     case maps:get(enable, Conf, true) of
         false -> stop(Type, Name);
         true -> ok
+    end.
+
+if_only_to_toggole_enable(OldConf, Conf) ->
+    #{added := Added, removed := Removed, changed := Updated} =
+        emqx_map_lib:diff_maps(OldConf, Conf),
+    case {Added, Removed, Updated} of
+        {Added, Removed, #{enable := _}= Updated}
+            when map_size(Added) =:= 0,
+                 map_size(Removed) =:= 0,
+                 map_size(Updated) =:= 1 -> true;
+        {_, _, _} -> false
     end.
 
 bin(Bin) when is_binary(Bin) -> Bin;

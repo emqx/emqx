@@ -134,7 +134,12 @@ method_example(Type, Direction, get) ->
     #{
         id => bin(SType ++ ":" ++ SName),
         type => bin(SType),
-        name => bin(SName)
+        name => bin(SName),
+        metrics => ?METRICS(0, 0, 0, 0, 0, 0),
+        node_metrics => [
+            #{node => node(),
+              metrics => ?METRICS(0, 0, 0, 0, 0, 0)}
+        ]
     };
 method_example(Type, Direction, post) ->
     SType = atom_to_list(Type),
@@ -269,7 +274,8 @@ schema("/bridges/:id/operation/:operation") ->
         }
     }.
 
-'/bridges'(post, #{body := #{<<"type">> := BridgeType} = Conf}) ->
+'/bridges'(post, #{body := #{<<"type">> := BridgeType} = Conf0}) ->
+    Conf = filter_out_request_body(Conf0),
     BridgeName = maps:get(<<"name">>, Conf, emqx_misc:gen_id()),
     case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, _} ->
@@ -291,7 +297,8 @@ list_local_bridges(Node) ->
 '/bridges/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id, lookup_from_all_nodes(BridgeType, BridgeName, 200));
 
-'/bridges/:id'(put, #{bindings := #{id := Id}, body := Conf}) ->
+'/bridges/:id'(put, #{bindings := #{id := Id}, body := Conf0}) ->
+    Conf = filter_out_request_body(Conf0),
     ?TRY_PARSE_ID(Id,
         case emqx_bridge:lookup(BridgeType, BridgeName) of
             {ok, _} ->
@@ -334,7 +341,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
         invalid -> {404, error_msg('BAD_ARG', <<"invalid operation">>)};
         UpReq ->
             case emqx_conf:update(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
-                    UpReq, #{override_to => cluster}) of
+                    {UpReq, BridgeType, BridgeName}, #{override_to => cluster}) of
                 {ok, _} -> {200};
                 {error, {pre_config_update, _, bridge_not_found}} ->
                     {404, error_msg('NOT_FOUND', <<"bridge not found">>)};
@@ -422,6 +429,11 @@ rpc_multicall(Func, Args) ->
         [] -> {ok, [Res || {ok, Res} <- ResL]};
         ErrL -> {error, ErrL}
     end.
+
+filter_out_request_body(Conf) ->
+    ExtraConfs = [<<"id">>, <<"status">>, <<"node_status">>, <<"node_metrics">>,
+        <<"metrics">>, <<"node">>],
+    maps:without(ExtraConfs, Conf).
 
 rpc_call(Node, Fun, Args) ->
     rpc_call(Node, ?MODULE, Fun, Args).

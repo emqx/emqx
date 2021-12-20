@@ -47,7 +47,7 @@ test_rule(Sql, Select, Context, EventTopics) ->
         sql => Sql,
         from => EventTopics,
         outputs => [#{mod => ?MODULE, func => get_selected_data, args => #{}}],
-        enabled => true,
+        enable => true,
         is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
         fields => emqx_rule_sqlparser:select_fields(Select),
         doeach => emqx_rule_sqlparser:select_doeach(Select),

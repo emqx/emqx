@@ -84,6 +84,9 @@ stop(#{client_pid := Pid}) ->
     safe_stop(Pid, fun() -> emqtt:stop(Pid) end, 1000),
     ok.
 
+ping(undefined) ->
+    pang;
+
 ping(#{client_pid := Pid}) ->
     emqtt:ping(Pid).
 

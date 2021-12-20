@@ -33,7 +33,9 @@
 
 -export([ check_config/2
         , check_and_create/3
+        , check_and_create/4
         , check_and_create_local/3
+        , check_and_create_local/4
         , check_and_recreate/4
         , check_and_recreate_local/4
         ]).
@@ -42,7 +44,9 @@
 %% provisional solution: rpc:multical to all the nodes for creating/updating/removing
 %% todo: replicate operations
 -export([ create/3 %% store the config and start the instance
+        , create/4
         , create_local/3
+        , create_local/4
         , create_dry_run/2 %% run start/2, health_check/2 and stop/1 sequentially
         , create_dry_run_local/2
         , recreate/4 %% this will do create_dry_run, stop the old instance and start a new one
@@ -141,12 +145,22 @@ apply_query_after_calls(Funcs) ->
 -spec create(instance_id(), resource_type(), resource_config()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create(InstId, ResourceType, Config) ->
-    cluster_call(create_local, [InstId, ResourceType, Config]).
+    create(InstId, ResourceType, Config, #{}).
+
+-spec create(instance_id(), resource_type(), resource_config(), create_opts()) ->
+    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
+create(InstId, ResourceType, Config, Opts) ->
+    cluster_call(create_local, [InstId, ResourceType, Config, Opts]).
 
 -spec create_local(instance_id(), resource_type(), resource_config()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create_local(InstId, ResourceType, Config) ->
-    call_instance(InstId, {create, InstId, ResourceType, Config}).
+    create_local(InstId, ResourceType, Config, #{}).
+
+-spec create_local(instance_id(), resource_type(), resource_config(), create_opts()) ->
+    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
+create_local(InstId, ResourceType, Config, Opts) ->
+    call_instance(InstId, {create, InstId, ResourceType, Config, Opts}).
 
 -spec create_dry_run(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
@@ -188,7 +202,7 @@ query(InstId, Request) ->
 query(InstId, Request, AfterQuery) ->
     case get_instance(InstId) of
         {ok, #{status := stopped}} ->
-            error({InstId, stopped});
+            error({resource_stopped, InstId});
         {ok, #{mod := Mod, state := ResourceState, status := started}} ->
             %% the resource state is readonly to Module:on_query/4
             %% and the `after_query()` functions should be thread safe
@@ -294,14 +308,24 @@ check_config(ResourceType, RawConfigTerm) ->
 -spec check_and_create(instance_id(), resource_type(), raw_resource_config()) ->
     {ok, resource_data() | 'already_created'} | {error, term()}.
 check_and_create(InstId, ResourceType, RawConfig) ->
+    check_and_create(InstId, ResourceType, RawConfig, #{}).
+
+-spec check_and_create(instance_id(), resource_type(), raw_resource_config(), create_opts()) ->
+    {ok, resource_data() | 'already_created'} | {error, term()}.
+check_and_create(InstId, ResourceType, RawConfig, Opts) ->
     check_and_do(ResourceType, RawConfig,
-        fun(InstConf) -> create(InstId, ResourceType, InstConf) end).
+        fun(InstConf) -> create(InstId, ResourceType, InstConf, Opts) end).
 
 -spec check_and_create_local(instance_id(), resource_type(), raw_resource_config()) ->
     {ok, resource_data()} | {error, term()}.
 check_and_create_local(InstId, ResourceType, RawConfig) ->
+    check_and_create_local(InstId, ResourceType, RawConfig, #{}).
+
+-spec check_and_create_local(instance_id(), resource_type(), raw_resource_config(),
+    create_opts()) -> {ok, resource_data()} | {error, term()}.
+check_and_create_local(InstId, ResourceType, RawConfig, Opts) ->
     check_and_do(ResourceType, RawConfig,
-        fun(InstConf) -> create_local(InstId, ResourceType, InstConf) end).
+        fun(InstConf) -> create_local(InstId, ResourceType, InstConf, Opts) end).
 
 -spec check_and_recreate(instance_id(), resource_type(), raw_resource_config(), term()) ->
     {ok, resource_data()} | {error, term()}.

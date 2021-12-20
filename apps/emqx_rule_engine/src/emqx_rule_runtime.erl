@@ -48,7 +48,7 @@
 -spec(apply_rules(list(rule()), input()) -> ok).
 apply_rules([], _Input) ->
     ok;
-apply_rules([#{enabled := false}|More], Input) ->
+apply_rules([#{enable := false}|More], Input) ->
     apply_rules(More, Input);
 apply_rules([Rule = #{id := RuleID}|More], Input) ->
     try apply_rule_discard_result(Rule, Input)

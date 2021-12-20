@@ -76,13 +76,17 @@ fields("put") ->
 
 fields("get") ->
     [ id_field()
-    ] ++ fields("post").
+    ] ++ emqx_bridge_schema:metrics_status_fields() ++ fields("post").
 
 basic_config() ->
     [ {enable,
         mk(boolean(),
-           #{ desc =>"Enable or disable this bridge"
+           #{ desc => "Enable or disable this bridge"
             , default => true
+            })}
+    , {direction,
+        mk(egress,
+           #{ desc => "The direction of this bridge, MUST be egress"
             })}
     ]
     ++ proplists:delete(base_url, emqx_connector_http:fields(config)).

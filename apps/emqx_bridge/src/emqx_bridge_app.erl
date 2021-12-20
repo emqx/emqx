@@ -40,10 +40,15 @@ stop(_State) ->
     ok.
 
 -define(IS_OPER(O), when Oper == start; Oper == stop; Oper == restart).
-pre_config_update(_, Oper, undefined) ?IS_OPER(Oper) ->
+pre_config_update(_, {Oper, _, _}, undefined) ?IS_OPER(Oper) ->
     {error, bridge_not_found};
-pre_config_update(_, Oper, OldConfig) ?IS_OPER(Oper) ->
-    {ok, OldConfig#{<<"enable">> => operation_to_enable(Oper)}};
+pre_config_update(_, {Oper, Type, Name}, OldConfig) ?IS_OPER(Oper) ->
+    case perform_operation(Oper, Type, Name) of
+        ok ->
+            %% we also need to save the 'enable' to the config files
+            {ok, OldConfig#{<<"enable">> => operation_to_enable(Oper)}};
+        {error, _} = Err -> Err
+    end;
 pre_config_update(_, Conf, _OldConfig) ->
     {ok, Conf}.
 
@@ -51,3 +56,7 @@ pre_config_update(_, Conf, _OldConfig) ->
 operation_to_enable(start) -> true;
 operation_to_enable(stop) -> false;
 operation_to_enable(restart) -> true.
+
+perform_operation(start, Type, Name) -> emqx_bridge:restart(Type, Name);
+perform_operation(restart, Type, Name) -> emqx_bridge:restart(Type, Name);
+perform_operation(stop, Type, Name) -> emqx_bridge:stop(Type, Name).
