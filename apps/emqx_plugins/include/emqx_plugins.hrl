@@ -14,18 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_plugins_app).
+-ifndef(EMQX_PLUGINS_HRL).
+-define(EMQX_PLUGINS_HRL, true).
 
--behaviour(application).
+-define(CONF_ROOT, plugins).
 
--export([ start/2
-        , stop/1
-        ]).
-
-start(_Type, _Args) ->
-    {ok, Sup} = emqx_plugins_sup:start_link(),
-    ok = emqx_plugins:ensure_started(), %% load all pre-configured
-    {ok, Sup}.
-
-stop(_State) ->
-    ok.
+-endif.

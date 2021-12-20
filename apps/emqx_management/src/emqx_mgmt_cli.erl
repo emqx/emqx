@@ -225,47 +225,51 @@ if_valid_qos(QoS, Fun) ->
     end.
 
 plugins(["list"]) ->
-    lists:foreach(fun print/1, emqx_plugins:list());
-
-plugins(["load", Name]) ->
-    case emqx_plugins:load(list_to_atom(Name)) of
-        ok ->
-            emqx_ctl:print("Plugin ~ts loaded successfully.~n", [Name]);
-        {error, Reason}   ->
-            emqx_ctl:print("Load plugin ~ts error: ~p.~n", [Name, Reason])
-    end;
-
-plugins(["unload", "emqx_management"])->
-    emqx_ctl:print("Plugin emqx_management can not be unloaded.~n");
-
-plugins(["unload", Name]) ->
-    case emqx_plugins:unload(list_to_atom(Name)) of
-        ok ->
-            emqx_ctl:print("Plugin ~ts unloaded successfully.~n", [Name]);
-        {error, Reason} ->
-            emqx_ctl:print("Unload plugin ~ts error: ~p.~n", [Name, Reason])
-    end;
-
-plugins(["reload", Name]) ->
-    try list_to_existing_atom(Name) of
-        PluginName ->
-            case emqx_mgmt:reload_plugin(node(), PluginName) of
-                ok ->
-                    emqx_ctl:print("Plugin ~ts reloaded successfully.~n", [Name]);
-                {error, Reason} ->
-                    emqx_ctl:print("Reload plugin ~ts error: ~p.~n", [Name, Reason])
-            end
-    catch
-        error:badarg ->
-            emqx_ctl:print("Reload plugin ~ts error: The plugin doesn't exist.~n", [Name])
-    end;
-
+    emqx_plugins_cli:list(fun emqx_ctl:print/2);
+plugins(["describe", NameVsn]) ->
+    emqx_plugins_cli:describe(NameVsn, fun emqx_ctl:print/2);
+plugins(["install", NameVsn]) ->
+    emqx_plugins_cli:ensure_installed(NameVsn, fun emqx_ctl:print/2);
+plugins(["uninstall", NameVsn])->
+    emqx_plugins_cli:ensure_uninstalled(NameVsn, fun emqx_ctl:print/2);
+plugins(["start", NameVsn]) ->
+    emqx_plugins_cli:ensure_started(NameVsn, fun emqx_ctl:print/2);
+plugins(["stop", NameVsn]) ->
+    emqx_plugins_cli:ensure_stopped(NameVsn, fun emqx_ctl:print/2);
+plugins(["restart", NameVsn]) ->
+    emqx_plugins_cli:restart(NameVsn, fun emqx_ctl:print/2);
+plugins(["disable", NameVsn]) ->
+    emqx_plugins_cli:ensure_disabled(NameVsn, fun emqx_ctl:print/2);
+plugins(["enable", NameVsn]) ->
+    emqx_plugins_cli:ensure_enabled(NameVsn, no_move, fun emqx_ctl:print/2);
+plugins(["enable", NameVsn, "front"]) ->
+    emqx_plugins_cli:ensure_enabled(NameVsn, front, fun emqx_ctl:print/2);
+plugins(["enable", NameVsn, "rear"]) ->
+    emqx_plugins_cli:ensure_enabled(NameVsn, rear, fun emqx_ctl:print/2);
+plugins(["enable", NameVsn, "before", Other]) ->
+    emqx_plugins_cli:ensure_enabled(NameVsn, {before, Other}, fun emqx_ctl:print/2);
 plugins(_) ->
-    emqx_ctl:usage([{"plugins list",            "Show loaded plugins"},
-                    {"plugins load <Plugin>",   "Load plugin"},
-                    {"plugins unload <Plugin>", "Unload plugin"},
-                    {"plugins reload <Plugin>", "Reload plugin"}
-                   ]).
+    emqx_ctl:usage(
+      [{"plugins <command> [Name-Vsn]", "e.g. 'start emqx_plugin_template-5.0-rc.1'"},
+       {"plugins list",               "List all installed plugins"},
+       {"plugins describe  Name-Vsn", "Describe an installed plugins"},
+       {"plugins install   Name-Vsn", "Install a plugin package placed\n"
+                                      "in plugin'sinstall_dir"},
+       {"plugins uninstall Name-Vsn", "Uninstall a plugin. NOTE: it deletes\n"
+                                      "all files in install_dir/Name-Vsn"},
+       {"plugins start     Name-Vsn", "Start a plugin"},
+       {"plugins stop      Name-Vsn", "Stop a plugin"},
+       {"plugins restart   Name-Vsn", "Stop then start a plugin"},
+       {"plugins disable   Name-Vsn", "Disable auto-boot"},
+       {"plugins enable    Name-Vsn [Position]",
+        "Enable auto-boot at Position in the boot list, where Position could be\n"
+        "'front', 'rear', or 'before Other-Vsn' to specify a relative position.\n"
+        "The Position parameter can be used to adjust the boot order.\n"
+        "If no Position is given, an already configured plugin\n"
+        "will stary at is old position; a newly plugin is appended to the rear\n"
+        "e.g. plugins disable foo-0.1.0 front\n"
+        "     plugins enable bar-0.2.0 before foo-0.1.0"}
+       ]).
 
 %%--------------------------------------------------------------------
 %% @doc vm command

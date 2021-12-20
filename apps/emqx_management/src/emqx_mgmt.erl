@@ -79,14 +79,6 @@
         , do_unsubscribe/2
         ]).
 
-%% Plugins
--export([ list_plugins/0
-        , list_plugins/1
-        , load_plugin/2
-        , unload_plugin/2
-        , reload_plugin/2
-        ]).
-
 %% Listeners
 -export([ list_listeners/0
         , list_listeners/1
@@ -456,33 +448,6 @@ do_unsubscribe(ClientId, Topic) ->
         [{_, Pid}] ->
             Pid ! {unsubscribe, [emqx_topic:parse(Topic)]}
     end.
-
-%%--------------------------------------------------------------------
-%% Plugins
-%%--------------------------------------------------------------------
-
-list_plugins() ->
-    [{Node, list_plugins(Node)} || Node <- mria_mnesia:running_nodes()].
-
-list_plugins(Node) when Node =:= node() ->
-    emqx_plugins:list();
-list_plugins(Node) ->
-    rpc_call(Node, list_plugins, [Node]).
-
-load_plugin(Node, Plugin) when Node =:= node() ->
-    emqx_plugins:load(Plugin);
-load_plugin(Node, Plugin) ->
-    rpc_call(Node, load_plugin, [Node, Plugin]).
-
-unload_plugin(Node, Plugin) when Node =:= node() ->
-    emqx_plugins:unload(Plugin);
-unload_plugin(Node, Plugin) ->
-    rpc_call(Node, unload_plugin, [Node, Plugin]).
-
-reload_plugin(Node, Plugin) when Node =:= node() ->
-    emqx_plugins:reload(Plugin);
-reload_plugin(Node, Plugin) ->
-    rpc_call(Node, reload_plugin, [Node, Plugin]).
 
 %%--------------------------------------------------------------------
 %% Listeners

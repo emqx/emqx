@@ -20,14 +20,18 @@
 
 -export([ roots/0
         , fields/1
+        , namespace/0
         ]).
 
 -include_lib("typerefl/include/types.hrl").
+-include("emqx_plugins.hrl").
 
-roots() -> ["plugins"].
+namespace() -> "plugin".
 
-fields("plugins") ->
-    #{fields => fields(),
+roots() -> [?CONF_ROOT].
+
+fields(?CONF_ROOT) ->
+    #{fields => root_fields(),
       desc => """
 Manage EMQ X plugins.
 <br>
@@ -37,44 +41,39 @@ or installed as a standalone package in a location specified by
 <br>
 The standalone-installed plugins are referred to as 'external' plugins.
 """
+     };
+fields(state) ->
+    #{ fields => state_fields(),
+       desc => "A per-plugin config to describe the desired state of the plugin."
      }.
 
-fields() ->
-    [ {prebuilt, fun prebuilt/1}
-    , {external, fun external/1}
+state_fields() ->
+    [ {name_vsn,
+       hoconsc:mk(string(),
+                  #{ desc => "The {name}-{version} of the plugin.<br>"
+                             "It should match the plugin application name-vsn as the "
+                             "for the plugin release package name<br>"
+                             "For example: my_plugin-0.1.0."
+                   , nullable => false
+                   })}
+    , {enable,
+       hoconsc:mk(boolean(),
+                  #{ desc => "Set to 'true' to enable this plugin"
+                   , nullable => false
+                   })}
+    ].
+
+root_fields() ->
+    [ {states, fun states/1}
     , {install_dir, fun install_dir/1}
     ].
 
-prebuilt(type) -> hoconsc:map("name", boolean());
-prebuilt(nullable) -> true;
-prebuilt(T) when T=/= desc -> undefined;
-prebuilt(desc) -> """
-A map() from plugin name to a boolean (true | false) flag to indicate
-whether or not to enable the prebuilt plugin.
-<br>
-Most of the prebuilt plugins from 4.x are converted into features since 5.0.
-""" ++ prebuilt_plugins() ++
-"""
-<br>
-Enabled plugins are loaded (started) as a part of EMQ X node's boot sequence.
-Plugins can be loaded on the fly, and enabled from dashbaord UI and/or CLI.
-<br>
-Example config: <code>{emqx_foo_bar: true, emqx_bazz: false}</code>
-""".
-
-external(type) -> hoconsc:map("name", string());
-external(nullable) -> true;
-external(T) when T =/= desc -> undefined;
-external(desc) ->
-"""
-A map from plugin name to a version number string for enabled ones.
-To disable an external plugin, set the value to 'false'.
-<br>
-Enabled plugins are loaded (started) as a part of EMQ X node's boot sequence.
-Plugins can be loaded on the fly, and enabled from dashbaord UI and/or CLI.
-<br>
-Example config: <code>{emqx_extplug1: \"0.1.0\", emqx_extplug2: false}</code>
-""".
+states(type) -> hoconsc:array(hoconsc:ref(state));
+states(nullable) -> true;
+states(default) -> [];
+states(desc) -> "An array of plugins in the desired states.<br>"
+                "The plugins are started in the defined order";
+states(_) -> undefined.
 
 install_dir(type) -> string();
 install_dir(nullable) -> true;
@@ -88,12 +87,3 @@ the sub-directory named as <code>emqx_foo_bar-0.1.0</code>.
 NOTE: For security reasons, this directory should **NOT** be writable
 by anyone expect for <code>emqx</code> (or any user which runs EMQ X)
 """.
-
-%% TODO: when we have some prebuilt plugins, change this function to:
-%% """
-%% The names should be one of
-%%   - name1
-%%   - name2
-%% """
-prebuilt_plugins() ->
-    "So far, we do not have any prebuilt plugins".

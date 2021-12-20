@@ -28,7 +28,6 @@
 
 post_boot() ->
     ok = ensure_apps_started(),
-    _ = emqx_plugins:load(),
     ok = print_vsn(),
     ok = start_autocluster(),
     ignore.
@@ -79,7 +78,7 @@ start_one_app(App) ->
     end.
 
 %% list of app names which should be rebooted when:
-%% 1. due to static static config change
+%% 1. due to static config change
 %% 2. after join a cluster
 reboot_apps() ->
     [ gproc
@@ -104,6 +103,7 @@ reboot_apps() ->
     , emqx_exhook
     , emqx_authn
     , emqx_authz
+    , emqx_plugins
     ].
 
 sorted_reboot_apps() ->
