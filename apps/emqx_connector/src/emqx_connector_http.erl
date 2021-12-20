@@ -173,16 +173,11 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
         base_path => BasePath,
         request => preprocess_request(maps:get(request, Config, undefined))
     },
-    case do_health_check(Host, Port, ConnectTimeout) of
-        ok ->
-            case ehttpc_sup:start_pool(PoolName, PoolOpts) of
-                {ok, _} -> {ok, State};
-                {error, {already_started, _}} -> {ok, State};
-                {error, Reason} ->
-                    {error, Reason}
-            end;
+    case ehttpc_sup:start_pool(PoolName, PoolOpts) of
+        {ok, _} -> {ok, State};
+        {error, {already_started, _}} -> {ok, State};
         {error, Reason} ->
-            {error, {http_start_failed, Reason}}
+            {error, Reason}
     end.
 
 on_stop(InstId, #{pool_name := PoolName}) ->
