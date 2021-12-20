@@ -453,7 +453,7 @@ jobs:
              -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.version }}\" }" \
              ${{ secrets.EMQX_IO_RELEASE_API }}
     - name: push docker image to docker hub
-      if: github.event_name == 'release'
+      if: github.event_name == 'release' && matrix.profile == 'emqx'
       run: |
         set -e -x -u
         sudo make docker-prepare
