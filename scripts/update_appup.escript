@@ -315,11 +315,11 @@ merge_update_actions(App, Changes, Vsns) ->
     lists:map(fun(Ret = {<<".*">>, _}) ->
                       Ret;
                  ({Vsn, Actions}) ->
-                      {Vsn, do_merge_update_actions(App, Vsn, Changes, Actions)}
+                      {Vsn, do_merge_update_actions(App, Changes, Actions)}
               end,
               Vsns).
 
-do_merge_update_actions(App, Vsn, {New0, Changed0, Deleted0}, OldActions) ->
+do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
     AppSpecific = app_specific_actions(App) -- OldActions,
     AlreadyHandled = lists:flatten(lists:map(fun process_old_action/1, OldActions)),
     New = New0 -- AlreadyHandled,
