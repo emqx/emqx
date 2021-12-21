@@ -204,7 +204,10 @@ fi
 if ! check_erlang_start >/dev/null 2>&1; then
     BUILT_ON="$(head -1 "${REL_DIR}/BUILT_ON")"
     ## failed to start, might be due to missing libs, try to be portable
-    export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-$DYNLIBS_DIR}"
+    if [ "$LD_LIBRARY_PATH" != "$DYNLIBS_DIR" ]; then
+        export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
+    fi
     if ! check_erlang_start; then
         ## it's hopeless
         echoerr "FATAL: Unable to start Erlang."
