@@ -22,5 +22,6 @@ sed -i -E 's#level => warning#level => debug#g' _build/dev/rel/emqx/releases/5.0
 
 # cp _build/emqx/rel/emqx/releases/emqx_vars _build/dev/rel/emqx/releases/
 cp _build/emqx/rel/emqx/etc/emqx.conf _build/dev/rel/emqx/etc/
+cp -r apps/emqx/etc/certs _build/dev/rel/emqx/etc/
 
 echo "telemetry { enable = false }" >> _build/dev/rel/emqx/etc/emqx.conf

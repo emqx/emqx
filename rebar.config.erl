@@ -248,6 +248,7 @@ relx_apps(ReleaseType, Edition) ->
     , inets
     , compiler
     , runtime_tools
+    , {hocon, load}
     , {emqx, load} % started by emqx_machine
     , {emqx_conf, load}
     , emqx_machine

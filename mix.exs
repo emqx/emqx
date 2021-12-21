@@ -10,7 +10,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def project do
     [
-      apps_path: "apps",
+      app: :emqx_mix,
       version: pkg_vsn(),
       deps: deps(),
       releases: releases()
@@ -31,19 +31,19 @@ defmodule EMQXUmbrella.MixProject do
       {:mria, github: "emqx/mria", tag: "0.1.5", override: true},
       {:ekka, github: "emqx/ekka", tag: "0.11.1", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.5.1", override: true},
-      {:minirest, github: "emqx/minirest", tag: "1.2.7"},
+      {:minirest, github: "emqx/minirest", tag: "1.2.7", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.1"},
       {:replayq, "0.3.3", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
-      {:emqtt, github: "emqx/emqtt", tag: "1.4.3"},
+      {:emqtt, github: "emqx/emqtt", tag: "1.4.3", override: true},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "klarna-incubator/system_monitor", tag: "2.2.0"},
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.16.0", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.22.0"},
-      {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.4.1"},
+      {:hocon, github: "emqx/hocon", tag: "0.22.0", override: true},
+      {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.4.1", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
       # in conflict by ehttpc and emqtt
@@ -57,11 +57,41 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by cowboy_swagger and cowboy
       {:ranch, "1.8.0", override: true},
       # in conflict by emqx and observer_cli
-      {:recon, github: "ferd/recon", tag: "2.5.1", override: true}
-    ] ++ bcrypt_dep() ++ quicer_dep()
+      {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
+      {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
+    ] ++
+      Enum.map(
+        [
+          :emqx,
+          :emqx_conf,
+          :emqx_machine,
+          :emqx_plugin_libs,
+          :emqx_resource,
+          :emqx_connector,
+          :emqx_authn,
+          :emqx_authz,
+          :emqx_auto_subscribe,
+          :emqx_gateway,
+          :emqx_exhook,
+          :emqx_bridge,
+          :emqx_rule_engine,
+          :emqx_modules,
+          :emqx_management,
+          :emqx_dashboard,
+          :emqx_statsd,
+          :emqx_retainer,
+          :emqx_prometheus,
+          :emqx_psk,
+          :emqx_slow_subs,
+          :emqx_plugins
+        ],
+        &umbrella/1
+      ) ++ bcrypt_dep() ++ quicer_dep()
   end
 
-  defp releases do
+  defp umbrella(app), do: {app, path: "apps/#{app}", manager: :rebar3, override: true}
+
+  defp releases() do
     [
       emqx: [
         applications: [
@@ -102,7 +132,8 @@ defmodule EMQXUmbrella.MixProject do
           emqx_prometheus: :permanent,
           emqx_psk: :permanent,
           emqx_slow_subs: :permanent,
-          emqx_plugins: :permanent
+          emqx_plugins: :permanent,
+          emqx_mix: :none
         ],
         skip_mode_validation_for: [
           :emqx_gateway,
@@ -122,7 +153,7 @@ defmodule EMQXUmbrella.MixProject do
           :assemble,
           &create_RELEASES/1,
           &copy_files/1,
-          &copy_nodetool/1,
+          &copy_nodetool/1
         ]
       ]
     ]
@@ -149,35 +180,40 @@ defmodule EMQXUmbrella.MixProject do
       Path.join(etc, "vm.args"),
       force: overwrite?
     )
+
     Mix.Generator.copy_file(
       "apps/emqx/etc/emqx_cloud/vm.args",
       Path.join(release.version_path, "vm.args"),
       force: overwrite?
     )
 
-
     release
   end
 
   # needed by nodetool and by release_handler
   def create_RELEASES(release) do
-    apps = Enum.map(release.applications, fn {app_name, app_props} ->
-      app_vsn = Keyword.fetch!(app_props, :vsn)
-      app_path =
-        "./lib"
-        |> Path.join("#{app_name}-#{app_vsn}")
-        |> to_charlist()
-      {app_name, app_vsn, app_path}
-    end)
-    release_entry =
-    [{
-      :release,
-      to_charlist(release.name),
-      to_charlist(release.version),
-      release.erts_version,
-      apps,
-      :permanent
-    }]
+    apps =
+      Enum.map(release.applications, fn {app_name, app_props} ->
+        app_vsn = Keyword.fetch!(app_props, :vsn)
+
+        app_path =
+          "./lib"
+          |> Path.join("#{app_name}-#{app_vsn}")
+          |> to_charlist()
+
+        {app_name, app_vsn, app_path}
+      end)
+
+    release_entry = [
+      {
+        :release,
+        to_charlist(release.name),
+        to_charlist(release.version),
+        release.erts_version,
+        apps,
+        :permanent
+      }
+    ]
 
     release.path
     |> Path.join("releases")
@@ -207,7 +243,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def bcrypt_dep() do
     if enable_bcrypt?(),
-      do: [{:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.0"}],
+      do: [{:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.0", override: true}],
       else: []
   end
 
