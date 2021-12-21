@@ -18,9 +18,11 @@
 
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--export([cleanup_resources/0,
-         make_resource_id/1,
-         create_resource/2]).
+-export([ cleanup_resources/0
+        , make_resource_id/1
+        , create_resource/2
+        , update_config/2
+        ]).
 
 -define(RESOURCE_GROUP, <<"emqx_authz">>).
 
@@ -44,6 +46,10 @@ cleanup_resources() ->
 make_resource_id(Name) ->
     NameBin = bin(Name),
     emqx_resource:generate_id(?RESOURCE_GROUP, NameBin).
+
+update_config(Path, ConfigRequest) ->
+    emqx_conf:update(Path, ConfigRequest, #{rawconf_with_defaults => true,
+                                            override_to => cluster}).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
