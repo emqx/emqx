@@ -227,14 +227,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% api user & app id banned
 %%--------------------------------------------------------------------
-
+-spec(check_api_banned(User :: binary()) ->
+    ok | {lock_user,{User :: binary(), Interval :: integer()}}).
 check_api_banned(User) ->
     case look_up({api_user, User}) of
-        {error, not_found} ->
+        [] ->
             new_api_banned(User);
-        {ok, #banned{reason = R}} when R < 10 ->
+        [#banned{reason = R} | _] when R < 10 ->
             update_api_banned(User, R + 1);
-        {ok, #banned{until = Until}} ->
+        [#banned{until = Until} | _] ->
             case Until - erlang:system_time(second) of
                 Interval when Interval > 0 ->
                     {lock_user, {User, Interval}};
@@ -252,7 +253,7 @@ new_api_banned(User) ->
         at = Now,
         until = Now + 60
     },
-    emqx_banned:create(NewBanned).
+    mria:dirty_write(?BANNED_TAB, NewBanned).
 
 update_api_banned(User, Count) ->
     Now = erlang:system_time(second),
@@ -263,7 +264,7 @@ update_api_banned(User, Count) ->
         at = Now,
         until = Now + 300
     },
-    emqx_banned:create(NewBanned).
+    mria:dirty_write(?BANNED_TAB, NewBanned).
 
 %%--------------------------------------------------------------------
 %% Internal functions
