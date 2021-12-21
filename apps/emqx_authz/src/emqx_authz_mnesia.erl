@@ -114,18 +114,19 @@ authorize(#{username := Username,
 %% Management API
 %%--------------------------------------------------------------------
 
+-spec(init_tables() -> ok).
 init_tables() ->
     ok = mria_rlog:wait_for_shards([?ACL_SHARDED], infinity).
 
 -spec(store_rules(who(), rules()) -> ok).
 store_rules({username, Username}, Rules) ->
-    Record = #emqx_acl{who = {?ACL_TABLE_USERNAME, Username}, rules = Rules},
+    Record = #emqx_acl{who = {?ACL_TABLE_USERNAME, Username}, rules = normalize_rules(Rules)},
     mria:dirty_write(Record);
 store_rules({clientid, Clientid}, Rules) ->
-    Record = #emqx_acl{who = {?ACL_TABLE_CLIENTID, Clientid}, rules = Rules},
+    Record = #emqx_acl{who = {?ACL_TABLE_CLIENTID, Clientid}, rules = normalize_rules(Rules)},
     mria:dirty_write(Record);
 store_rules(all, Rules) ->
-    Record = #emqx_acl{who = ?ACL_TABLE_ALL, rules = Rules},
+    Record = #emqx_acl{who = ?ACL_TABLE_ALL, rules = normalize_rules(Rules)},
     mria:dirty_write(Record).
 
 -spec(purge_rules() -> ok).
@@ -176,6 +177,29 @@ record_count() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+normalize_rules(Rules) ->
+    lists:map(fun normalize_rule/1, Rules).
+
+normalize_rule({Permission, Action, Topic}) ->
+    {normalize_permission(Permission),
+     normalize_action(Action),
+     normalize_topic(Topic)};
+normalize_rule(Rule) ->
+    error({invalid_rule, Rule}).
+
+normalize_topic(Topic) when is_list(Topic) -> list_to_binary(Topic);
+normalize_topic(Topic) when is_binary(Topic) -> Topic;
+normalize_topic(Topic) -> error({invalid_rule_topic, Topic}).
+
+normalize_action(publish) -> publish;
+normalize_action(subscribe) -> subscribe;
+normalize_action(all) -> all;
+normalize_action(Action) -> error({invalid_rule_action, Action}).
+
+normalize_permission(allow) -> allow;
+normalize_permission(deny) -> deny;
+normalize_permission(Permission) -> error({invalid_rule_permission, Permission}).
+
 do_get_rules(Key) ->
     case mnesia:dirty_read(?ACL_TABLE, Key) of
         [#emqx_acl{rules = Rules}] -> {ok, Rules};
@@ -184,9 +208,8 @@ do_get_rules(Key) ->
 
 do_authorize(_Client, _PubSub, _Topic, []) -> nomatch;
 do_authorize(Client, PubSub, Topic, [ {Permission, Action, TopicFilter} | Tail]) ->
-    case emqx_authz_rule:match(Client, PubSub, Topic,
-                               emqx_authz_rule:compile({Permission, all, Action, [TopicFilter]})
-                              ) of
+    Rule = emqx_authz_rule:compile({Permission, all, Action, [TopicFilter]}),
+    case emqx_authz_rule:match(Client, PubSub, Topic, Rule) of
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Tail)
     end.
