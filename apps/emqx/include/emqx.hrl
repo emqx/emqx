@@ -131,9 +131,10 @@
 -record(banned, {
           who    :: {clientid,  binary()}
                   | {peerhost, inet:ip_address()}
-                  | {username,   binary()},
+                  | {username,   binary()}
+                  | {api_user,   binary()},
           by     :: binary(),
-          reason :: binary(),
+          reason :: binary() | integer(),
           at     :: integer(),
           until  :: integer()
         }).

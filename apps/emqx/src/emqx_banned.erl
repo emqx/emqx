@@ -31,6 +31,7 @@
 -export([start_link/0, stop/0]).
 
 -export([ check/1
+        , check_api_banned/1
         , create/1
         , look_up/1
         , delete/1
@@ -184,7 +185,8 @@ look_up(Who) ->
 
 -spec(delete({clientid, emqx_types:clientid()}
            | {username, emqx_types:username()}
-           | {peerhost, emqx_types:peerhost()}) -> ok).
+           | {peerhost, emqx_types:peerhost()}
+           | {api_user, binary()}) -> ok).
 delete(Who) when is_map(Who)->
     delete(pares_who(Who));
 delete(Who) ->
@@ -221,6 +223,47 @@ terminate(_Reason, #{expiry_timer := TRef}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%%--------------------------------------------------------------------
+%% api user & app id banned
+%%--------------------------------------------------------------------
+
+check_api_banned(User) ->
+    case look_up({api_user, User}) of
+        {error, not_found} ->
+            new_api_banned(User);
+        {ok, #banned{reason = R}} when R < 10 ->
+            update_api_banned(User, R + 1);
+        {ok, #banned{until = Until}} ->
+            case Until - erlang:system_time(second) of
+                Interval when Interval > 0 ->
+                    {lock_user, {User, Interval}};
+                _ ->
+                    delete({api_user, User})
+            end
+    end.
+
+new_api_banned(User) ->
+    Now = erlang:system_time(second),
+    NewBanned = #banned{
+        who = {api_user, User},
+        by = <<"emqx_dashboard">>,
+        reason = 1,
+        at = Now,
+        until = Now + 60
+    },
+    emqx_banned:create(NewBanned).
+
+update_api_banned(User, Count) ->
+    Now = erlang:system_time(second),
+    NewBanned = #banned{
+        who = {api_user, User},
+        by = <<"emqx_dashboard">>,
+        reason = Count,
+        at = Now,
+        until = Now + 300
+    },
+    emqx_banned:create(NewBanned).
 
 %%--------------------------------------------------------------------
 %% Internal functions

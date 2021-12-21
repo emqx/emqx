@@ -34,6 +34,16 @@ end_per_suite(_Config) ->
     mria:stop(),
     mria_mnesia:delete_schema().
 
+t_api_user_banned(_) ->
+    BadUsername = <<"bad_username">>,
+    Fun =
+        fun(_) ->
+            ?assertEqual(ok, emqx_banned:check_api_banned(BadUsername))
+        end,
+    lists:foreach(Fun, lists:seq(1, 10)),
+    {lock_user, {BadUsername, Interval}} = emqx_banned:check_api_banned(BadUsername),
+    ?assertEqual(true, Interval > 295).
+
 t_add_delete(_) ->
     Banned = #banned{who = {clientid, <<"TestClient">>},
                      by = <<"banned suite">>,

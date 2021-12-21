@@ -143,8 +143,17 @@ authorize(Req) ->
                                 <<"WORNG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET">>,
                                 <<"Check username/password or api_key/api_secret">>)
                     end;
-                {error, _} ->
-                    return_unauthorized(<<"WORNG_USERNAME_OR_PWD">>, <<"Check username/password">>)
+                {error, <<"password_error">>} ->
+                    case emqx_banned:check_api_banned(Username) of
+                        ok ->
+                            return_unauthorized(
+                                <<"WORNG_USERNAME_OR_PWD">>, <<"Check username/password">>);
+                        {lock_user, {Username, RetryAfter}} ->
+                            Message = list_to_binary(
+                                io_lib:format("User ~p locked, retry after ~p seconds",
+                                    [Username, RetryAfter])),
+                            {401, #{code => 'AUTH_LOCKED', message => Message}}
+                    end
             end;
         {bearer, Token} ->
             case emqx_dashboard_admin:verify_token(Token) of
