@@ -118,17 +118,89 @@ defmodule EMQXUmbrella.MixProject do
           :emqx_prometheus,
           :emqx_plugins
         ],
-        steps: [:assemble, &copy_files/1]
+        steps: [
+          :assemble,
+          &create_RELEASES/1,
+          &copy_files/1,
+          &copy_nodetool/1,
+        ]
       ]
     ]
   end
 
   def copy_files(release) do
+    overwrite? = Keyword.get(release.options, :overwrite, false)
+
+    bin = Path.join(release.path, "bin")
     etc = Path.join(release.path, "etc")
 
-    # FIXME: Remove??
-    File.mkdir_p!(etc)
-    File.cp!("apps/emqx_authz/etc/acl.conf", Path.join(etc, "acl.conf"))
+    Mix.Generator.create_directory(bin)
+    Mix.Generator.create_directory(etc)
+
+    Mix.Generator.copy_file(
+      "apps/emqx_authz/etc/acl.conf",
+      Path.join(etc, "acl.conf"),
+      force: overwrite?
+    )
+
+    # FIXME: check if cloud/edge!!
+    Mix.Generator.copy_file(
+      "apps/emqx/etc/emqx_cloud/vm.args",
+      Path.join(etc, "vm.args"),
+      force: overwrite?
+    )
+    Mix.Generator.copy_file(
+      "apps/emqx/etc/emqx_cloud/vm.args",
+      Path.join(release.version_path, "vm.args"),
+      force: overwrite?
+    )
+
+
+    release
+  end
+
+  # needed by nodetool and by release_handler
+  def create_RELEASES(release) do
+    apps = Enum.map(release.applications, fn {app_name, app_props} ->
+      app_vsn = Keyword.fetch!(app_props, :vsn)
+      app_path =
+        "./lib"
+        |> Path.join("#{app_name}-#{app_vsn}")
+        |> to_charlist()
+      {app_name, app_vsn, app_path}
+    end)
+    release_entry =
+    [{
+      :release,
+      to_charlist(release.name),
+      to_charlist(release.version),
+      release.erts_version,
+      apps,
+      :permanent
+    }]
+
+    release.path
+    |> Path.join("releases")
+    |> Path.join("RELEASES")
+    |> File.open!([:write, :utf8], fn handle ->
+      IO.puts(handle, "%% coding: utf-8")
+      :io.format(handle, '~tp.~n', [release_entry])
+    end)
+
+    release
+  end
+
+  def copy_nodetool(release) do
+    [shebang, rest] =
+      "bin/nodetool"
+      |> File.read!()
+      |> String.split("\n", parts: 2)
+
+    path = Path.join([release.path, "bin", "nodetool"])
+    # the elixir version of escript + start.boot required the boot_var
+    # RELEASE_LIB to be defined.
+    boot_var = "%%!-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib"
+    File.write!(path, [shebang, "\n", boot_var, "\n", rest])
 
     release
   end
