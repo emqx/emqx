@@ -32,7 +32,7 @@
 
 -import(emqx_gateway_api_authn, [schema_authn/0]).
 
-%% minirest/dashbaord_swagger behaviour callbacks
+%% minirest/dashboard_swagger behaviour callbacks
 -export([ api_spec/0
         , paths/0
         , schema/1
