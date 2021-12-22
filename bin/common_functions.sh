@@ -60,6 +60,7 @@ relx_rem_sh() {
     TICKTIME="$(relx_nodetool rpcterms net_kernel get_net_ticktime)"
 
     # shellcheck disable=SC2086 # $EPMD_ARG is supposed to be split by whitespace
+    # shellcheck disable=SC2153 # $NAME_TYPE is defined by `common_defs2.sh`, which runs before this is called
     # Setup remote shell command to control node
     exec "$BINDIR/erl" "$NAME_TYPE" "$id" -remsh "$NAME" -boot "$REL_DIR/start_clean" \
          -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
@@ -90,7 +91,9 @@ relx_escript() {
     "$ERTS_DIR/bin/escript" "$ROOTDIR/$scriptpath" "$@"
 }
 
-# Output a start command for the last argument of run_erl
+# Output a start command for the last argument of run_erl.
+# The calling script defines `$START_OPTION`, when the command is to
+# start EMQX in the background.
 relx_start_command() {
     printf "exec \"%s\" \"%s\"" "$RUNNER_SCRIPT" \
            "$START_OPTION"
@@ -128,6 +131,7 @@ generate_config() {
     # This is needed by the Elixir scripts.
     # Do NOT append `.config`.
     RELEASE_SYS_CONFIG="$CONFIGS_DIR/app.$NOW_TIME"
+    export RELEASE_SYS_CONFIG
 
     CONFIG_ARGS="-config $CONF_FILE -args_file $HOCON_GEN_ARG_FILE"
 
@@ -212,6 +216,7 @@ latest_vm_args() {
         echo "$vm_args_file"
     else
         echoerr "node not initialized?"
+        # shellcheck disable=SC2153 # $COMMAND is defined by the calling script
         echoerr "Generated config file vm.*.args is not found for command '$COMMAND'"
         echoerr "in config dir: $CONFIGS_DIR"
         echoerr "In case the file has been deleted while the node is running,"

@@ -5,7 +5,9 @@
 set -euo pipefail
 
 BASE="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+# shellcheck disable=SC1090,SC1091
 source "$BASE/bin/common_defs.sh"
+# shellcheck disable=SC1090,SC1091
 source "$BASE/bin/common_functions.sh"
 
 # Make sure log directory exists
@@ -182,7 +184,9 @@ case "${COMMAND}" in
         IS_BOOT_COMMAND='no'
         ;;
 esac
+export IS_BOOT_COMMAND
 
+# shellcheck disable=SC1090,SC1091
 source "$BASE/bin/common_defs2.sh"
 
 cd "$ROOTDIR"
@@ -205,6 +209,7 @@ case "${COMMAND}" in
                 HEART_OPTION="start"
                 ;;
         esac
+        export START_OPTION
         RUN_PARAM="$*"
 
         # Set arguments for the heart command

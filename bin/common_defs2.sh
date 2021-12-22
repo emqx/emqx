@@ -7,6 +7,9 @@
 ## they require the variable `IS_BOOT_COMMAND` to be set to either
 ## `yes` or `no` for the name definition to be done properly.
 
+## This should be sourced after the calling script has define the
+## `$COMMAND` variable.
+
 ## make EMQX_NODE_COOKIE right
 if [ -n "${EMQX_NODE_NAME:-}" ]; then
     export EMQX_NODE__NAME="${EMQX_NODE_NAME}"
@@ -22,7 +25,7 @@ NAME="${EMQX_NODE__NAME:-}"
 if [ -z "$NAME" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         # for boot commands, inspect emqx.conf for node name
-        NAME="$(call_hocon -s $SCHEMA_MOD -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
+        NAME="$(call_hocon -s "$SCHEMA_MOD" -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
     else
         vm_args_file="$(latest_vm_args 'EMQX_NODE__NAME')"
         NAME="$(grep -E '^-s?name' "${vm_args_file}" | awk '{print $2}')"
@@ -31,7 +34,7 @@ fi
 
 # force to use 'emqx' short name
 [ -z "$NAME" ] && NAME='emqx'
-MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
+export MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
 
 case "$NAME" in
     *@*)
@@ -40,6 +43,7 @@ case "$NAME" in
     *)
         NAME_TYPE='-sname'
 esac
+export NAME_TYPE
 SHORT_NAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
 export ESCRIPT_NAME="$SHORT_NAME"
 
@@ -53,7 +57,7 @@ fi
 COOKIE="${EMQX_NODE__COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE="$(call_hocon -s $SCHEMA_MOD -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
+        COOKIE="$(call_hocon -s "$SCHEMA_MOD" -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
     else
         vm_args_file="$(latest_vm_args 'EMQX_NODE__COOKIE')"
         COOKIE="$(grep -E '^-setcookie' "${vm_args_file}" | awk '{print $2}')"

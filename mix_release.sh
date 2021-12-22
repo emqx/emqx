@@ -1,6 +1,4 @@
 #!/bin/bash
-# shellcheck disable=SC1000-SC9999
-
 set -ex
 
 mix release --overwrite

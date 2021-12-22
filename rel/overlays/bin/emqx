@@ -5,7 +5,9 @@
 set -euo pipefail
 
 BASE="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+# shellcheck disable=SC1090,SC1091
 source "$BASE/bin/common_defs.sh"
+# shellcheck disable=SC1090,SC1091
 source "$BASE/bin/common_functions.sh"
 
 # Make sure log directory exists
@@ -30,12 +32,14 @@ case "${COMMAND}" in
         IS_BOOT_COMMAND='no'
         ;;
 esac
+export IS_BOOT_COMMAND
 
+# shellcheck disable=SC1090,SC1091
 source "$BASE/bin/common_defs2.sh"
 
 cd "$ROOTDIR"
 
-# FIXME!!!
+# FIXME!!! Create case for commands.
 generate_config "$NAME_TYPE" "$NAME"
 # Must be explicitly exported here in order to be picked up correctly
 export RELEASE_SYS_CONFIG

@@ -5,8 +5,8 @@ if [ "$DEBUG" -eq 1 ]; then
     set -x
 fi
 
-ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
-# shellcheck disable=SC1090
+ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/.. || exit 1; pwd -P)"
+# shellcheck disable=SC1090,SC1091
 . "$ROOT_DIR"/releases/emqx_vars
 
 # defined in emqx_vars
@@ -14,15 +14,16 @@ export RUNNER_ROOT_DIR
 export RUNNER_ETC_DIR
 export REL_VSN
 
-RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
-CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
-REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
-SCHEMA_MOD=emqx_conf_schema
+export RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
+export CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
+export REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
+export SCHEMA_MOD=emqx_conf_schema
 
 WHOAMI=$(whoami)
+export WHOAMI
 
 # Make sure data/configs exists
-CONFIGS_DIR="$RUNNER_DATA_DIR/configs"
+export CONFIGS_DIR="$RUNNER_DATA_DIR/configs"
 
 # hocon try to read environment variables starting with "EMQX_"
 export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
@@ -33,7 +34,7 @@ export BINDIR="$ERTS_DIR/bin"
 export EMU="beam"
 export PROGNAME="erl"
 export ERTS_LIB_DIR="$ERTS_DIR/../lib"
-DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
+export DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
 
 ## backward compatible
 if [ -d "$ERTS_DIR/lib" ]; then
@@ -56,5 +57,6 @@ SED_REPLACE="sed -i "
 case $(sed --help 2>&1) in
     *GNU*) SED_REPLACE="sed -i ";;
     *BusyBox*) SED_REPLACE="sed -i ";;
-    *) SED_REPLACE="sed -i '' ";;
+    *) SED_REPLACE=(sed -i '' );;
 esac
+export SED_REPLACE
