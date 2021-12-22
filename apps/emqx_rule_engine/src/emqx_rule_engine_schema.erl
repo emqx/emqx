@@ -182,6 +182,7 @@ rule_name() ->
     {"name", sc(binary(),
         #{ desc => "The name of the rule"
          , default => ""
+         , nullable => false
          , example => "foo"
          })}.
 
