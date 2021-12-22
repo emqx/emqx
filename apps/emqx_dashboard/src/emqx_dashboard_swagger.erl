@@ -211,11 +211,16 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
 %%                   {good_nest_2, mk(ref(?MODULE, good_ref), #{})}
 %%                ]}
 %% ]
-check_request_body(#{body := Body}, Spec, _Module, CheckFun, false) ->
+check_request_body(#{body := Body}, Spec, _Module, CheckFun, false)when is_list(Spec) ->
     lists:foldl(fun({Name, Type}, Acc) ->
         Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
         maps:merge(Acc, CheckFun(Schema, Body, #{}))
-                end, #{}, Spec).
+                end, #{}, Spec);
+
+%% requestBody => #{content => #{ 'application/octet-stream' =>
+%% #{schema => #{ type => string, format => binary}}}
+check_request_body(#{body := Body}, Spec, _Module, _CheckFun, false)when is_map(Spec) ->
+    Body.
 
 %% tags, description, summary, security, deprecated
 meta_to_spec(Meta, Module) ->
@@ -287,6 +292,7 @@ trans_desc(Spec, Hocon) ->
         Desc -> Spec#{description => to_bin(Desc)}
     end.
 
+request_body(#{content := _} = Content, _Module) -> {Content, []};
 request_body([], _Module) -> {[], []};
 request_body(Schema, Module) ->
     {{Props, Refs}, Examples} =
