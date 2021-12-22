@@ -50,14 +50,20 @@ unreg() ->
 on_gateway_load(_Gateway = #{ name := GwName,
                               config := Config
                             }, Ctx) ->
-    %% Xml registry
-    {ok, RegPid} = emqx_lwm2m_xml_object_db:start_link(maps:get(xml_dir, Config)),
-
-    Listeners = emqx_gateway_utils:normalize_config(Config),
-    ListenerPids = lists:map(fun(Lis) ->
-                                     start_listener(GwName, Ctx, Lis)
-                             end, Listeners),
-    {ok, ListenerPids, _GwState = #{ctx => Ctx, registry => RegPid}}.
+    XmlDir = maps:get(xml_dir, Config),
+    case emqx_lwm2m_xml_object_db:start_link(XmlDir) of
+        {ok, RegPid} ->
+            Listeners = emqx_gateway_utils:normalize_config(Config),
+            ListenerPids = lists:map(fun(Lis) ->
+                                             start_listener(GwName, Ctx, Lis)
+                                     end, Listeners),
+            {ok, ListenerPids, _GwState = #{ctx => Ctx, registry => RegPid}};
+        {error, Reason} ->
+            throw({badconf, #{ key => xml_dir
+                             , value => XmlDir
+                             , reason => Reason
+                             }})
+    end.
 
 on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
     GwName = maps:get(name, Gateway),

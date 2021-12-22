@@ -23,6 +23,8 @@
 
 -define(AUTHN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 
+-import(emqx_gateway_utils, [listener_id/3]).
+
 %% Mgmt APIs - gateway
 -export([ gateways/1
         ]).
@@ -59,10 +61,7 @@
         , with_authn/2
         , with_listener_authn/3
         , checks/2
-        , schema_bad_request/0
-        , schema_not_found/0
-        , schema_internal_error/0
-        , schema_no_content/0
+        , reason2resp/1
         ]).
 
 -type gateway_summary() ::
@@ -131,7 +130,7 @@ current_connections_count(GwName) ->
 get_listeners_status(GwName, Config) ->
     Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:map(fun({Type, LisName, ListenOn, _, _}) ->
-        Name0 = emqx_gateway_utils:listener_id(GwName, Type, LisName),
+        Name0 = listener_id(GwName, Type, LisName),
         Name = {Name0, ListenOn},
         LisO = #{id => Name0, type => Type, name => LisName},
         case catch esockd:listener(Name) of
@@ -223,12 +222,7 @@ remove_authn(GwName, ListenerId) ->
 
 confexp(ok) -> ok;
 confexp({ok, Res}) -> {ok, Res};
-confexp({error, badarg}) ->
-    error({update_conf_error, badarg});
-confexp({error, not_found}) ->
-    error({update_conf_error, not_found});
-confexp({error, already_exist}) ->
-    error({update_conf_error, already_exist}).
+confexp({error, Reason}) -> error(Reason).
 
 %%--------------------------------------------------------------------
 %% Mgmt APIs - clients
@@ -322,6 +316,59 @@ with_channel(GwName, ClientId, Fun) ->
 %% Utils
 %%--------------------------------------------------------------------
 
+-spec reason2resp({atom(), map()} | any()) -> binary() | any().
+reason2resp({badconf, #{key := Key, value := Value, reason := Reason}}) ->
+    fmt400err("Bad config value '~s' for '~s', reason: ~s",
+              [Value, Key, Reason]);
+reason2resp({badres, #{resource := gateway,
+                       gateway := GwName,
+                       reason := not_found}}) ->
+    fmt400err("The ~s gateway is unloaded", [GwName]);
+
+reason2resp({badres, #{resource := gateway,
+                       gateway := GwName,
+                       reason := already_exist}}) ->
+    fmt400err("The ~s gateway has loaded", [GwName]);
+
+reason2resp({badres, #{resource := listener,
+                       listener := {GwName, LType, LName},
+                       reason := not_found}}) ->
+    fmt400err("Listener ~s not found",
+              [listener_id(GwName, LType, LName)]);
+
+reason2resp({badres, #{resource := listener,
+                       listener := {GwName, LType, LName},
+                       reason := already_exist}}) ->
+    fmt400err("The listener ~s of ~s already exist",
+              [listener_id(GwName, LType, LName), GwName]);
+
+reason2resp({badres, #{resource := authn,
+                       gateway := GwName,
+                       reason := not_found}}) ->
+    fmt400err("The authentication not found on ~s", [GwName]);
+
+reason2resp({badres, #{resource := authn,
+                       gateway := GwName,
+                       reason := already_exist}}) ->
+    fmt400err("The authentication already exist on ~s", [GwName]);
+
+reason2resp({badres, #{resource := listener_authn,
+                       listener := {GwName, LType, LName},
+                       reason := not_found}}) ->
+    fmt400err("The authentication not found on ~s",
+              [listener_id(GwName, LType, LName)]);
+
+reason2resp({badres, #{resource := listener_authn,
+                       listener := {GwName, LType, LName},
+                       reason := already_exist}}) ->
+    fmt400err("The authentication already exist on ~s",
+              [listener_id(GwName, LType, LName)]);
+
+reason2resp(R) -> return_http_error(500, R).
+
+fmt400err(Fmt, Args) ->
+    return_http_error(400, io_lib:format(Fmt, Args)).
+
 -spec return_http_error(integer(), any()) -> {integer(), binary()}.
 return_http_error(Code, Msg) ->
     {Code, emqx_json:encode(
@@ -378,19 +425,12 @@ with_gateway(GwName0, Fun) ->
             Path = lists:concat(
                      lists:join(".", lists:map(fun to_list/1, Path0))),
             return_http_error(404, "Resource not found. path: " ++ Path);
-        %% Exceptions from: confexp/1
-        error : {update_conf_error, badarg} ->
-            return_http_error(400, "Bad arguments");
-        error : {update_conf_error, not_found} ->
-            return_http_error(404, "Resource not found");
-        error : {update_conf_error, already_exist} ->
-            return_http_error(400, "Resource already exist");
         Class : Reason : Stk ->
             ?SLOG(error, #{ msg => "uncatched_error"
                           , reason => {Class, Reason}
                           , stacktrace => Stk
                           }),
-            return_http_error(500, {Class, Reason, Stk})
+            reason2resp(Reason)
     end.
 
 -spec checks(list(), map()) -> ok.
@@ -407,20 +447,6 @@ to_list(A) when is_atom(A) ->
     atom_to_list(A);
 to_list(B) when is_binary(B) ->
     binary_to_list(B).
-
-%%--------------------------------------------------------------------
-%% common schemas
-
-schema_bad_request() ->
-    emqx_mgmt_util:error_schema(
-      <<"Some Params missed">>, ['PARAMETER_MISSED']).
-schema_internal_error() ->
-    emqx_mgmt_util:error_schema(
-      <<"Ineternal Server Error">>, ['INTERNAL_SERVER_ERROR']).
-schema_not_found() ->
-    emqx_mgmt_util:error_schema(<<"Resource Not Found">>).
-schema_no_content() ->
-    #{description => <<"No Content">>}.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
