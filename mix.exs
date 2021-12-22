@@ -340,31 +340,12 @@ defmodule EMQXUmbrella.MixProject do
     ])
   end
 
-  def project_path() do
-    Path.expand("..", __ENV__.file)
-  end
-
   def pkg_vsn() do
-    project_path()
-    |> Path.join("pkg-vsn.sh")
-    |> System.cmd([])
-    |> elem(0)
-    |> String.trim()
-    |> String.split("-")
-    |> Enum.reverse()
-    |> tl()
-    |> Enum.reverse()
-    |> fix_vsn()
-    |> Enum.join("-")
-  end
+    basedir = Path.dirname(__ENV__.file)
+    script = Path.join(basedir, "pkg-vsn.sh")
+    {str_vsn, 0} = System.cmd(script, [])
 
-  # FIXME: remove hack
-  defp fix_vsn([vsn | extras]) do
-    if Version.parse(vsn) == :error do
-      [vsn <> ".0" | extras]
-    else
-      [vsn | extras]
-    end
+    String.trim(str_vsn)
   end
 
   defp win32?(),

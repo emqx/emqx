@@ -24,7 +24,7 @@ jobs:
       - name: produce emqx.conf.all template
         run: make conf-segs
       - name: elixir release
-        run: ./mix_release.sh
+        run: mix release --overwrite
       - name: start release
         run: |
           cd _build/dev/rel/emqx_base
