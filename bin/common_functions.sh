@@ -125,6 +125,10 @@ generate_config() {
     local CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
     local HOCON_GEN_ARG_FILE="$CONFIGS_DIR/vm.$NOW_TIME.args"
 
+    # This is needed by the Elixir scripts.
+    # Do NOT append `.config`.
+    RELEASE_SYS_CONFIG="$CONFIGS_DIR/app.$NOW_TIME"
+
     CONFIG_ARGS="-config $CONF_FILE -args_file $HOCON_GEN_ARG_FILE"
 
     ## Merge hocon generated *.args into the vm.args
@@ -207,7 +211,7 @@ latest_vm_args() {
     if [ -f "$vm_args_file" ]; then
         echo "$vm_args_file"
     else
-        echoerr "ERRRO: node not initialized?"
+        echoerr "node not initialized?"
         echoerr "Generated config file vm.*.args is not found for command '$COMMAND'"
         echoerr "in config dir: $CONFIGS_DIR"
         echoerr "In case the file has been deleted while the node is running,"
