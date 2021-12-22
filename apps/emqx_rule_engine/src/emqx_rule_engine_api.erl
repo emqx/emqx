@@ -257,10 +257,15 @@ format_output(Outputs) ->
     [do_format_output(Out) || Out <- Outputs].
 
 do_format_output(#{mod := Mod, func := Func, args := Args}) ->
-    #{function => list_to_binary(lists:concat([Mod,":",Func])),
+    #{function => printable_function_name(Mod, Func),
       args => maps:remove(preprocessed_tmpl, Args)};
 do_format_output(BridgeChannelId) when is_binary(BridgeChannelId) ->
     BridgeChannelId.
+
+printable_function_name(emqx_rule_outputs, Func) ->
+    Func;
+printable_function_name(Mod, Func) ->
+    list_to_binary(lists:concat([Mod,":",Func])).
 
 get_rule_metrics(Id) ->
     Format = fun (Node, #{matched := Matched,
