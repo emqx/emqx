@@ -376,7 +376,8 @@ jobs:
           type=ref,event=branch
           type=ref,event=pr
           type=ref,event=tag
-          type=semver,pattern={{version}}
+          type=match,pattern=v(.*),group=1
+          type=match,pattern=e(.*),group=1
         labels:
           org.opencontainers.image.otp.version=${{ matrix.otp }}
     - uses: docker/login-action@v1
