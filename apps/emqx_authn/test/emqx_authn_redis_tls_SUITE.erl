@@ -1,0 +1,153 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+-module(emqx_authn_redis_tls_SUITE).
+
+-compile(nowarn_export_all).
+-compile(export_all).
+
+-include("emqx_authn.hrl").
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
+
+-define(REDIS_HOST, "redis-tls").
+-define(REDIS_PORT, 6380).
+
+-define(PATH, [authentication]).
+
+all() ->
+    emqx_common_test_helpers:all(?MODULE).
+
+groups() ->
+    [].
+
+init_per_testcase(_, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    emqx_authentication:initialize_authentication(?GLOBAL, []),
+    emqx_authn_test_lib:delete_authenticators(
+      [authentication],
+      ?GLOBAL),
+    Config.
+
+init_per_suite(Config) ->
+    _ = application:load(emqx_conf),
+    case emqx_authn_test_lib:is_tcp_server_available(?REDIS_HOST, ?REDIS_PORT) of
+        true ->
+            ok = emqx_common_test_helpers:start_apps([emqx_authn]),
+            ok = start_apps([emqx_resource, emqx_connector]),
+            Config;
+        false ->
+            {skip, no_redis}
+    end.
+
+end_per_suite(_Config) ->
+    emqx_authn_test_lib:delete_authenticators(
+      [authentication],
+      ?GLOBAL),
+    ok = stop_apps([emqx_resource, emqx_connector]),
+    ok = emqx_common_test_helpers:stop_apps([emqx_authn]).
+
+%%------------------------------------------------------------------------------
+%% Tests
+%%------------------------------------------------------------------------------
+
+t_create(_Config) ->
+    ?assertMatch(
+       {ok, _},
+       create_redis_auth_with_ssl_opts(
+         #{<<"server_name_indication">> => <<"redis-tls">>,
+           <<"verify">> => <<"verify_peer">>,
+           <<"versions">> => [<<"tlsv1.3">>],
+           <<"ciphers">> => [<<"TLS_CHACHA20_POLY1305_SHA256">>]})).
+
+t_create_invalid(_Config) ->
+    %% invalid server_name
+    ?assertMatch(
+       {error, _},
+       create_redis_auth_with_ssl_opts(
+         #{<<"server_name_indication">> => <<"redis-tls-unknown-host">>,
+           <<"verify">> => <<"verify_peer">>,
+           <<"versions">> => [<<"tlsv1.3">>],
+           <<"ciphers">> => [<<"TLS_CHACHA20_POLY1305_SHA256">>]})),
+
+    %% invalid server_name (eredis connects by ip address)
+    ?assertMatch(
+       {error, _},
+       create_redis_auth_with_ssl_opts(
+         #{<<"verify">> => <<"verify_peer">>,
+           <<"versions">> => [<<"tlsv1.3">>],
+           <<"ciphers">> => [<<"TLS_CHACHA20_POLY1305_SHA256">>]})),
+
+    %% incompatible versions
+    ?assertMatch(
+        {error, _},
+        create_redis_auth_with_ssl_opts(
+                   #{<<"server_name_indication">> => <<"redis-tls">>,
+                     <<"verify">> => <<"verify_peer">>,
+                     <<"versions">> => [<<"tlsv1.1">>, <<"tlsv1.2">>]})),
+
+    %% incompatible ciphers
+    ?assertMatch(
+       {error, _},
+       create_redis_auth_with_ssl_opts(
+         #{<<"server_name_indication">> => <<"redis-tls">>,
+           <<"verify">> => <<"verify_peer">>,
+           <<"versions">> => [<<"tlsv1.3">>],
+           <<"ciphers">> => [<<"TLS_AES_128_GCM_SHA256">>]})).
+
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
+
+create_redis_auth_with_ssl_opts(SpecificSSLOpts) ->
+    AuthConfig = raw_redis_auth_config(SpecificSSLOpts),
+    emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}).
+
+raw_redis_auth_config(SpecificSSLOpts) ->
+    SSLOpts = maps:merge(
+                client_ssl_opts(),
+                #{enable => <<"true">>}),
+    #{
+      mechanism => <<"password-based">>,
+      password_hash_algorithm => #{name => <<"plain">>,
+                                   salt_position => <<"suffix">>},
+      enable => <<"true">>,
+
+      backend => <<"redis">>,
+      cmd => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
+      database => <<"1">>,
+      password => <<"public">>,
+      server => redis_server(),
+      ssl => maps:merge(SSLOpts, SpecificSSLOpts)
+     }.
+
+redis_server() ->
+    iolist_to_binary(
+      io_lib:format(
+        "~s:~b",
+        [?REDIS_HOST, ?REDIS_PORT])).
+
+start_apps(Apps) ->
+    lists:foreach(fun application:ensure_all_started/1, Apps).
+
+stop_apps(Apps) ->
+    lists:foreach(fun application:stop/1, Apps).
+
+client_ssl_opts() ->
+    Dir = code:lib_dir(emqx_authn, test),
+    #{keyfile    => filename:join([Dir, <<"data/certs">>, "redis-tls-client.key"]),
+      certfile   => filename:join([Dir, <<"data/certs">>, "redis-tls-client.crt"]),
+      cacertfile => filename:join([Dir, <<"data/certs">>, "redis-tls-ca.crt"])}.

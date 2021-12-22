@@ -52,7 +52,7 @@ end_per_group(require_seeds, Config) ->
     Config.
 
 init_per_suite(Config) ->
-   _ = application:load(emqx_conf),
+    _ = application:load(emqx_conf),
     case emqx_authn_test_lib:is_tcp_server_available(?REDIS_HOST, ?REDIS_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
