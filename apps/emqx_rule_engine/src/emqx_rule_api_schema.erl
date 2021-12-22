@@ -68,6 +68,7 @@ fields("rule_events") ->
 fields("rule_test") ->
     [ {"context", sc(hoconsc:union([ ref("ctx_pub")
                                    , ref("ctx_sub")
+                                   , ref("ctx_unsub")
                                    , ref("ctx_delivered")
                                    , ref("ctx_acked")
                                    , ref("ctx_dropped")
