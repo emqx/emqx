@@ -83,7 +83,7 @@ gateway(post, Request) ->
                     {ok, NGwConf} ->
                         {201, NGwConf};
                     {error, Reason} ->
-                        return_http_error(500, Reason)
+                        emqx_gateway_http:reason2resp(Reason)
                 end
         end
     catch

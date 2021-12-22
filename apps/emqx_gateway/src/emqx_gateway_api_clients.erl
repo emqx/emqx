@@ -745,7 +745,8 @@ common_client_props() ->
                        "due to exceeding the length">>})}
     , {awaiting_rel_cnt,
        mk(integer(),
-          #{ desc => <<"Number of awaiting PUBREC packet">>})}
+          %% FIXME: PUBREC ??
+          #{ desc => <<"Number of awaiting acknowledge packet">>})}
     , {awaiting_rel_max,
        mk(integer(),
           #{ desc => <<"Maximum allowed number of awaiting PUBREC "
@@ -755,25 +756,25 @@ common_client_props() ->
           #{ desc => <<"Number of bytes received by EMQ X Broker">>})}
     , {recv_cnt,
        mk(integer(),
-          #{ desc => <<"Number of TCP packets received">>})}
+          #{ desc => <<"Number of socket packets received">>})}
     , {recv_pkt,
        mk(integer(),
-          #{ desc => <<"Number of MQTT packets received">>})}
+          #{ desc => <<"Number of protocol packets received">>})}
     , {recv_msg,
        mk(integer(),
-          #{ desc => <<"Number of PUBLISH packets received">>})}
+          #{ desc => <<"Number of message packets received">>})}
     , {send_oct,
        mk(integer(),
           #{ desc => <<"Number of bytes sent">>})}
     , {send_cnt,
        mk(integer(),
-          #{ desc => <<"Number of TCP packets sent">>})}
+          #{ desc => <<"Number of socket packets sent">>})}
     , {send_pkt,
        mk(integer(),
-          #{ desc => <<"Number of MQTT packets sent">>})}
+          #{ desc => <<"Number of protocol packets sent">>})}
     , {send_msg,
        mk(integer(),
-          #{ desc => <<"Number of PUBLISH packets sent">>})}
+          #{ desc => <<"Number of message packets sent">>})}
     , {mailbox_len,
        mk(integer(),
           #{ desc => <<"Process mailbox size">>})}
