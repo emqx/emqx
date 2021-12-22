@@ -326,6 +326,9 @@ relx_overlay(ReleaseType, Edition) ->
     , {template, "data/emqx_vars", "releases/emqx_vars"}
     , {template, "data/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
     , {copy, "bin/emqx", "bin/emqx"}
+    , {copy, "bin/common_defs.sh", "bin/common_defs.sh"}
+    , {copy, "bin/common_defs2.sh", "bin/common_defs2.sh"}
+    , {copy, "bin/common_functions.sh", "bin/common_functions.sh"}
     , {copy, "bin/emqx_ctl", "bin/emqx_ctl"}
     , {copy, "bin/node_dump", "bin/node_dump"}
     , {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript"}

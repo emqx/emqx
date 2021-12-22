@@ -4,26 +4,9 @@
 
 set -euo pipefail
 
-DEBUG="${DEBUG:-0}"
-if [ "$DEBUG" -eq 1 ]; then
-    set -x
-fi
-
-ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
-# shellcheck disable=SC1090
-. "$ROOT_DIR"/releases/emqx_vars
-
-# defined in emqx_vars
-export RUNNER_ROOT_DIR
-export RUNNER_ETC_DIR
-export REL_VSN
-
-RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
-CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
-REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
-SCHEMA_MOD=emqx_conf_schema
-
-WHOAMI=$(whoami)
+BASE="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+source "$BASE/bin/common_defs.sh"
+source "$BASE/bin/common_functions.sh"
 
 # Make sure log directory exists
 mkdir -p "$RUNNER_LOG_DIR"
@@ -32,42 +15,7 @@ mkdir -p "$RUNNER_LOG_DIR"
 mkdir -p "$RUNNER_DATA_DIR"
 
 # Make sure data/configs exists
-CONFIGS_DIR="$RUNNER_DATA_DIR/configs"
 mkdir -p "$CONFIGS_DIR"
-
-# hocon try to read environment variables starting with "EMQX_"
-export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
-
-export ROOTDIR="$RUNNER_ROOT_DIR"
-export ERTS_DIR="$ROOTDIR/erts-$ERTS_VSN"
-export BINDIR="$ERTS_DIR/bin"
-export EMU="beam"
-export PROGNAME="erl"
-export ERTS_LIB_DIR="$ERTS_DIR/../lib"
-DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
-
-# Echo to stderr on errors
-echoerr() { echo "ERROR: $*" 1>&2; }
-
-die() {
-    echoerr "ERROR: $1"
-    errno=${2:-1}
-    exit "$errno"
-}
-
-assert_node_alive() {
-    if ! relx_nodetool "ping" > /dev/null; then
-        die "node_is_not_running!" 1
-    fi
-}
-
-
-# Echo to stderr on errors
-echoerr() { echo "$*" 1>&2; }
-
-check_erlang_start() {
-    "$BINDIR/$PROGNAME" -noshell -boot "$REL_DIR/start_clean" -s crypto start -s erlang halt
-}
 
 usage() {
     local command="$1"
@@ -216,30 +164,6 @@ if ! check_erlang_start >/dev/null 2>&1; then
     echoerr "WARNING: There seem to be missing dynamic libs from the OS. Using libs from ${DYNLIBS_DIR}"
 fi
 
-## backward compatible
-if [ -d "$ERTS_DIR/lib" ]; then
-    export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
-fi
-
-# Simple way to check the correct user and fail early
-check_user() {
-    # Validate that the user running the script is the owner of the
-    # RUN_DIR.
-    if [ "$RUNNER_USER" ] && [ "x$WHOAMI" != "x$RUNNER_USER" ]; then
-        if [ "x$WHOAMI" != "xroot" ]; then
-            echo "You need to be root or use sudo to run this command"
-            exit 1
-        fi
-        CMD="DEBUG=$DEBUG \"$RUNNER_SCRIPT\" "
-        for ARG in "$@"; do
-            CMD="${CMD} \"$ARG\""
-        done
-        # This will drop priviledges into the runner user
-        # It exec's in a new shell and the current shell will exit
-        exec su - "$RUNNER_USER" -c "$CMD"
-    fi
-}
-
 # Make sure the user running this script is the owner and/or su to that user
 check_user "$@"
 ES=$?
@@ -247,204 +171,9 @@ if [ "$ES" -ne 0 ]; then
     exit $ES
 fi
 
-# EPMD_ARG="-start_epmd true $PROTO_DIST_ARG"
-NO_EPMD="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
-EPMD_ARG="${EPMD_ARG:-${NO_EPMD}}"
-
-# Warn the user if ulimit -n is less than 1024
-ULIMIT_F=$(ulimit -n)
-if [ "$ULIMIT_F" -lt 1024 ]; then
-    echo "!!!!"
-    echo "!!!! WARNING: ulimit -n is ${ULIMIT_F}; 1024 is the recommended minimum."
-    echo "!!!!"
-fi
-
-SED_REPLACE="sed -i "
-case $(sed --help 2>&1) in
-    *GNU*) SED_REPLACE="sed -i ";;
-    *BusyBox*) SED_REPLACE="sed -i ";;
-    *) SED_REPLACE="sed -i '' ";;
-esac
-
-# Get node pid
-relx_get_pid() {
-    if output="$(relx_nodetool rpcterms os getpid)"
-    then
-        # shellcheck disable=SC2001 # Escaped quote taken as closing quote in editor
-        echo "$output" | sed -e 's/"//g'
-        return 0
-    else
-        echo "$output"
-        return 1
-    fi
-}
-
-# Connect to a remote node
-relx_rem_sh() {
-    # Generate a unique id used to allow multiple remsh to the same node
-    # transparently
-    id="remsh$(relx_gen_id)-${NAME}"
-    # Get the node's ticktime so that we use the same thing.
-    TICKTIME="$(relx_nodetool rpcterms net_kernel get_net_ticktime)"
-
-    # shellcheck disable=SC2086 # $EPMD_ARG is supposed to be split by whitespace
-    # Setup remote shell command to control node
-    exec "$BINDIR/erl" "$NAME_TYPE" "$id" -remsh "$NAME" -boot "$REL_DIR/start_clean" \
-         -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
-         -setcookie "$COOKIE" -hidden -kernel net_ticktime "$TICKTIME" $EPMD_ARG
-}
-
-# Generate a random id
-relx_gen_id() {
-    od -t x -N 4 /dev/urandom | head -n1 | awk '{print $2}'
-}
-
-# Control a node
-relx_nodetool() {
-    command="$1"; shift
-    ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARG" \
-    "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" "$NAME_TYPE" "$NAME" \
-                                -setcookie "$COOKIE" "$command" "$@"
-}
-
-call_hocon() {
-    "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" hocon "$@" \
-        || die "call_hocon_failed: $*" $?
-}
-
-# Run an escript in the node's environment
-relx_escript() {
-    shift; scriptpath="$1"; shift
-    "$ERTS_DIR/bin/escript" "$ROOTDIR/$scriptpath" "$@"
-}
-
-# Output a start command for the last argument of run_erl
-relx_start_command() {
-    printf "exec \"%s\" \"%s\"" "$RUNNER_SCRIPT" \
-           "$START_OPTION"
-}
-
-# Function to generate app.config and vm.args
-generate_config() {
-    local name_type="$1"
-    local node_name="$2"
-    ## Delete the *.siz files first or it cann't start after
-    ## changing the config 'log.rotation.size'
-    rm -rf "${RUNNER_LOG_DIR}"/*.siz
-
-    EMQX_LICENSE_CONF_OPTION=""
-    if [ "${EMQX_LICENSE_CONF:-}" != "" ]; then
-        EMQX_LICENSE_CONF_OPTION="-c ${EMQX_LICENSE_CONF}"
-    fi
-
-    ## timestamp for each generation
-    local NOW_TIME
-    NOW_TIME="$(call_hocon now_time)"
-
-    ## ths command populates two files: app.<time>.config and vm.<time>.args
-    ## NOTE: the generate command merges environment variables to the base config (emqx.conf),
-    ## but does not include the cluster-override.conf and local-override.conf
-    ## meaning, certain overrides will not be mapped to app.<time>.config file
-    ## disable SC2086 to allow EMQX_LICENSE_CONF_OPTION to split
-    # shellcheck disable=SC2086
-    call_hocon -v -t "$NOW_TIME" -I "$CONFIGS_DIR/" -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf $EMQX_LICENSE_CONF_OPTION -d "$RUNNER_DATA_DIR"/configs generate
-
-    ## filenames are per-hocon convention
-    local CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
-    local HOCON_GEN_ARG_FILE="$CONFIGS_DIR/vm.$NOW_TIME.args"
-
-    CONFIG_ARGS="-config $CONF_FILE -args_file $HOCON_GEN_ARG_FILE"
-
-    ## Merge hocon generated *.args into the vm.args
-    TMP_ARG_FILE="$CONFIGS_DIR/vm.args.tmp"
-    cp "$RUNNER_ETC_DIR/vm.args" "$TMP_ARG_FILE"
-    echo "" >> "$TMP_ARG_FILE"
-    echo "-pa ${REL_DIR}/consolidated" >> "$TMP_ARG_FILE"
-    ## read lines from generated vm.<time>.args file
-    ## drop comment lines, and empty lines using sed
-    ## pipe the lines to a while loop
-    sed '/^#/d' "$HOCON_GEN_ARG_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
-        ## in the loop, split the 'key[:space:]value' pair
-        ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
-        ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
-        ## use the key to look up in vm.args file for the value
-        TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" || true | awk '{print $NF}')
-        ## compare generated (to override) value to original (to be overriden) value
-        if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
-            ## if they are different
-            if [ -n "$TMP_ARG_VALUE" ]; then
-                ## if the old value is present, replace it with generated value
-                sh -c "$SED_REPLACE 's|^$ARG_KEY.*$|$ARG_LINE|' $TMP_ARG_FILE"
-            else
-                ## otherwise append generated value to the end
-                echo "$ARG_LINE" >> "$TMP_ARG_FILE"
-            fi
-        fi
-    done
-    echo "$name_type $node_name" >> "$TMP_ARG_FILE"
-    ## rename the generated vm.<time>.args file
-    mv -f "$TMP_ARG_FILE" "$HOCON_GEN_ARG_FILE"
-
-    # shellcheck disable=SC2086
-    if ! relx_nodetool chkconfig $CONFIG_ARGS; then
-        die "failed_to_check_config $CONFIG_ARGS"
-    fi
-}
-
-# check if a PID is down
-is_down() {
-    PID="$1"
-    if ps -p "$PID" >/dev/null; then
-        # still around
-        # shellcheck disable=SC2009 # this grep pattern is not a part of the progra names
-        if ps -p "$PID" | grep -q 'defunct'; then
-            # zombie state, print parent pid
-            parent="$(ps -o ppid= -p "$PID" | tr -d ' ')"
-            echo "WARN: $PID is marked <defunct>, parent:"
-            ps -p "$parent"
-            return 0
-        fi
-        return 1
-    fi
-    # it's gone
-    return 0
-}
-
-wait_for() {
-    local WAIT_TIME
-    local CMD
-    WAIT_TIME="$1"
-    shift
-    CMD="$*"
-    while true; do
-        if $CMD >/dev/null 2>&1; then
-            return 0
-        fi
-        if [ "$WAIT_TIME" -le 0 ]; then
-            return 1
-        fi
-        WAIT_TIME=$((WAIT_TIME - 1))
-        sleep 1
-    done
-}
-
-latest_vm_args() {
-    local hint_var_name="$1"
-    local vm_args_file
-    vm_args_file="$(find "$CONFIGS_DIR" -type f -name "vm.*.args" | sort | tail -1)"
-    if [ -f "$vm_args_file" ]; then
-        echo "$vm_args_file"
-    else
-        echoerr "ERRRO: node not initialized?"
-        echoerr "Generated config file vm.*.args is not found for command '$COMMAND'"
-        echoerr "in config dir: $CONFIGS_DIR"
-        echoerr "In case the file has been deleted while the node is running,"
-        echoerr "set environment variable '$hint_var_name' to continue"
-        exit 1
-    fi
-}
-
-## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
+## IS_BOOT_COMMAND is set for later to inspect node name and cookie
+## from hocon config (or env variable), which resides in
+## `common_defs2.sh`.
 case "${COMMAND}" in
     start|console|console_clean|foreground)
         IS_BOOT_COMMAND='yes'
@@ -454,61 +183,7 @@ case "${COMMAND}" in
         ;;
 esac
 
-## make EMQX_NODE_COOKIE right
-if [ -n "${EMQX_NODE_NAME:-}" ]; then
-    export EMQX_NODE__NAME="${EMQX_NODE_NAME}"
-    unset EMQX_NODE_NAME
-fi
-## Possible ways to configure emqx node name:
-## 1. configure node.name in emqx.conf
-## 2. override with environment variable EMQX_NODE__NAME
-## Node name is either short-name (without '@'), e.g. 'emqx'
-## or long name (with '@') e.g. 'emqx@example.net' or 'emqx@127.0.0.1'
-NAME="${EMQX_NODE__NAME:-}"
-if [ -z "$NAME" ]; then
-    if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        # for boot commands, inspect emqx.conf for node name
-        NAME="$(call_hocon -s $SCHEMA_MOD -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
-    else
-        vm_args_file="$(latest_vm_args 'EMQX_NODE__NAME')"
-        NAME="$(grep -E '^-s?name' "${vm_args_file}" | awk '{print $2}')"
-    fi
-fi
-
-# force to use 'emqx' short name
-[ -z "$NAME" ] && NAME='emqx'
-MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
-
-case "$NAME" in
-    *@*)
-        NAME_TYPE='-name'
-       ;;
-    *)
-        NAME_TYPE='-sname'
-esac
-SHORT_NAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
-export ESCRIPT_NAME="$SHORT_NAME"
-
-PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
-
-## make EMQX_NODE_COOKIE right
-if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
-    export EMQX_NODE__COOKIE="${EMQX_NODE_COOKIE}"
-    unset EMQX_NODE_COOKIE
-fi
-COOKIE="${EMQX_NODE__COOKIE:-}"
-if [ -z "$COOKIE" ]; then
-    if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE="$(call_hocon -s $SCHEMA_MOD -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
-    else
-        vm_args_file="$(latest_vm_args 'EMQX_NODE__COOKIE')"
-        COOKIE="$(grep -E '^-setcookie' "${vm_args_file}" | awk '{print $2}')"
-    fi
-fi
-
-if [ -z "$COOKIE" ]; then
-    die "Please set node.cookie in $RUNNER_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
-fi
+source "$BASE/bin/common_defs2.sh"
 
 cd "$ROOTDIR"
 
