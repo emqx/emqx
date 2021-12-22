@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_plugins_sup).
+-module(emqx_plugin_template_sup).
 
 -behaviour(supervisor).
 
@@ -26,20 +26,5 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Monitor = emqx_plugins_monitor,
-    Children = [
-        #{id => Monitor,
-            start => {Monitor, start_link, []},
-            restart => permanent,
-            shutdown => brutal_kill,
-            type => worker,
-            modules => [Monitor]
-        }
-    ],
-    SupFlags =
-        #{
-            strategy => one_for_one,
-            intensity => 100,
-            period => 10
-        },
-    {ok, {SupFlags, Children}}.
+    {ok, { {one_for_all, 0, 1}, []} }.
+
