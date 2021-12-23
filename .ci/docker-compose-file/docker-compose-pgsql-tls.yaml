@@ -1,11 +1,11 @@
 version: '3.9'
 
 services:
-  pgsql_server:
-    container_name: pgsql
+  pgsql_server_tls:
+    container_name: pgsql-tls
     build:
-      context: ../..
-      dockerfile: .ci/docker-compose-file/pgsql/Dockerfile
+      context: pgsql
+      dockerfile: Dockerfile
       args:
         POSTGRES_USER: postgres
         BUILD_FROM: postgres:${PGSQL_TAG}
@@ -16,7 +16,7 @@ services:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: public
     ports:
-      - "5432:5432"
+      - "5433:5432"
     command:
       - -c
       - ssl=on
@@ -28,5 +28,7 @@ services:
       - ssl_ca_file=/var/lib/postgresql/root.crt
       - -c
       - hba_file=/var/lib/postgresql/pg_hba.conf
+      - -c
+      - ssl_min_protocol_version=TLSv1.2
     networks:
       - emqx_bridge
