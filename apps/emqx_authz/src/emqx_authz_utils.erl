@@ -32,7 +32,7 @@
 
 create_resource(Module, Config) ->
     ResourceID = make_resource_id(Module),
-    case emqx_resource:create(ResourceID, Module, Config) of
+    case emqx_resource:create_local(ResourceID, Module, Config) of
         {ok, already_created} -> {ok, ResourceID};
         {ok, _} -> {ok, ResourceID};
         {error, Reason} -> {error, Reason}
@@ -40,7 +40,7 @@ create_resource(Module, Config) ->
 
 cleanup_resources() ->
     lists:foreach(
-      fun emqx_resource:remove/1,
+      fun emqx_resource:remove_local/1,
       emqx_resource:list_group_instances(?RESOURCE_GROUP)).
 
 make_resource_id(Name) ->
