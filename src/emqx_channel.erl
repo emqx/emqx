@@ -599,7 +599,7 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_2},
             ?LOG(warning, "Dropped the qos2 packet ~w "
                  "due to awaiting_rel is full.", [PacketId]),
             ok = emqx_metrics:inc('packets.publish.dropped'),
-            handle_out(pubrec, {PacketId, RC}, Channel)
+            handle_out(disconnect, RC, Channel)
     end.
 
 ensure_quota(_, Channel = #channel{quota = undefined}) ->
