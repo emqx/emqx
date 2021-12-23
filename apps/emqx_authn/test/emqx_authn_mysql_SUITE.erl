@@ -22,8 +22,6 @@
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
-
 
 -define(MYSQL_HOST, "mysql").
 -define(MYSQL_PORT, 3306).

@@ -20,6 +20,7 @@ up:
 		-f .ci/docker-compose-file/docker-compose.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+		-f .ci/docker-compose-file/docker-compose-mysql-tls.yaml \
 		-f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-pgsql-tls.yaml \
 		-f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
@@ -31,6 +32,7 @@ down:
 		-f .ci/docker-compose-file/docker-compose.yaml \
 		-f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+		-f .ci/docker-compose-file/docker-compose-mysql-tls.yaml \
 		-f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
 		-f .ci/docker-compose-file/docker-compose-pgsql-tls.yaml \
 		-f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
