@@ -243,6 +243,7 @@ get_env(Zone, Key, Def) ->
 
 -spec(set_env(zone(), atom(), term()) -> ok).
 set_env(Zone, Key, Val) ->
+    on_conf_update(Key, Val, Zone),
     persistent_term:put(?KEY(Zone, Key), Val).
 
 -spec(unset_env(zone(), atom()) -> boolean()).
@@ -296,3 +297,8 @@ do_reload() ->
     [persistent_term:put(?KEY(Zone, Key), Val)
       || {Zone, Opts} <- emqx:get_env(zones, []), {Key, Val} <- Opts].
 
+on_conf_update(overall_messages_routing, {Capacity, Interval}, Zone) ->
+    esockd_limiter:update({Zone, overall_messages_routing}, Capacity, Interval),
+    ok;
+on_conf_update(_, _, _) ->
+    ok.
