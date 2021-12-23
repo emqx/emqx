@@ -91,14 +91,13 @@ store_retained(_, Msg =#message{topic = Topic}) ->
                                                          expiry_time = ExpiryTime},
                                                write);
                               [] ->
-                                  ?LOG(error,
-                                       "Cannot retain message(topic=~ts) for table is full!",
-                                       [Topic]),
-                                  ok
+                                  mnesia:abort(table_is_full)
                           end
             end,
-            {atomic, ok} = mria:transaction(?RETAINER_SHARD, Fun),
-            ok
+            case mria:transaction(?RETAINER_SHARD, Fun) of
+                {atomic, ok} ->  ok;
+                {aborted, Reason} -> ?SLOG(error, #{msg => "failed_to_retain_message", topic => Topic, reason => Reason})
+            end
     end.
 
 clear_expired(_) ->

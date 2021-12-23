@@ -217,11 +217,11 @@ handle_call({page_read, Topic, Page, Limit}, _, #{context := Context} = State) -
     {reply, Result, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info(clear_expired, #{context := Context} = State) ->
@@ -248,7 +248,7 @@ handle_info(release_deliver_quota, #{context := Context, wait_quotas := Waits} =
                      wait_quotas := []}};
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{clear_timer := TRef1, release_quota_timer := TRef2}) ->

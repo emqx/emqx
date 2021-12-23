@@ -138,7 +138,7 @@ init([]) ->
           {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
           {stop, Reason :: term(), NewState :: term()}.
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignore, State}.
 
 %%--------------------------------------------------------------------
@@ -153,7 +153,7 @@ handle_call(Req, _From, State) ->
           {noreply, NewState :: term(), hibernate} |
           {stop, Reason :: term(), NewState :: term()}.
 handle_cast(Req, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -168,7 +168,7 @@ handle_cast(Req, State) ->
           {noreply, NewState :: term(), hibernate} |
           {stop, Reason :: normal | term(), NewState :: term()}.
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 %%--------------------------------------------------------------------

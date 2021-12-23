@@ -292,7 +292,7 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                    fun check_banned/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
-            ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
+            ?SLOG(debug, #{msg => "recv_packet", packet => emqx_packet:format(Packet)}),
             NChannel1 = NChannel#channel{
                                         will_msg = emqx_packet:will_msg(NConnPkt),
                                         alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
