@@ -9,8 +9,7 @@
     stdlib,
     gproc,
     jsx,
-    emqx,
-    emqx_conf
+    emqx
    ]},
   {env,[]},
   {modules, []},

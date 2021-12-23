@@ -135,6 +135,12 @@ add_app(G, App, undefined) ->
     ?SLOG(debug, #{msg => "app_is_not_loaded", app => App}),
     %% not loaded
     add_app(G, App, []);
+% We ALWAYS want to add `emqx_conf', even if no other app declare a
+% dependency on it.  Otherwise, emqx may fail to load the config
+% schemas, especially in the test profile.
+add_app(G, App = emqx_conf, []) ->
+    digraph:add_vertex(G, App),
+    ok;
 add_app(_G, _App, []) ->
     ok;
 add_app(G, App, [Dep | Deps]) ->
