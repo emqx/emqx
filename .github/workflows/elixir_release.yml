@@ -27,9 +27,12 @@ jobs:
         run: mix release --overwrite
       - name: start release
         run: |
-          cd _build/dev/rel/emqx_base
-          bin/emqx daemon_iex
+          cd _build/dev/rel/emqx
+          bin/emqx start
       - name: check if started
         run: |
           sleep 10
           nc -zv localhost 1883
+          cd _build/dev/rel/emqx
+          bin/emqx ping
+          bin/emqx ctl status

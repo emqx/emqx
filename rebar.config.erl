@@ -219,6 +219,7 @@ overlay_vars_pkg(bin) ->
     , {runner_log_dir, "$RUNNER_ROOT_DIR/log"}
     , {runner_data_dir, "$RUNNER_ROOT_DIR/data"}
     , {runner_user, ""}
+    , {is_elixir, "no"}
     ];
 overlay_vars_pkg(pkg) ->
     [ {platform_bin_dir, ""}
@@ -234,6 +235,7 @@ overlay_vars_pkg(pkg) ->
     , {runner_log_dir, "/var/log/emqx"}
     , {runner_data_dir, "/var/lib/emqx"}
     , {runner_user, "emqx"}
+    , {is_elixir, "no"}
     ].
 
 relx_apps(ReleaseType, Edition) ->

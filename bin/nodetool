@@ -126,6 +126,23 @@ do(Args) ->
                     io:format("RPC to ~p failed: ~p~n", [TargetNode, Reason]),
                     halt(1)
             end;
+        ["eval-elixir" | ListOfArgs] ->
+            JoinedArgs = string:join(ListOfArgs, " "),
+            case rpc:call(TargetNode, 'Elixir.Code', eval_string, [JoinedArgs]) of
+                {Value, []} ->
+                    %% Since we are in Erlang land, we ask Elixir to
+                    %% format the result as well:
+                    case rpc:call(TargetNode, 'Elixir.Kernel', inspect, [Value, [{pretty, true}]]) of
+                        {badrpc, Reason} ->
+                            io:format("RPC to ~p failed: ~p~n", [TargetNode, Reason]),
+                            halt(1);
+                        PrettyStr ->
+                            io:format("~s~n", [PrettyStr])
+                    end;
+                {badrpc, Reason} ->
+                    io:format("RPC to ~p failed: ~p~n", [TargetNode, Reason]),
+                    halt(1)
+            end;
         Other ->
             io:format("Other: ~p~n", [Other]),
             io:format("Usage: nodetool chkconfig|getpid|ping|stop|rpc|rpc_infinity|rpcterms|eval|cold_eval [Terms] [RPC]\n")

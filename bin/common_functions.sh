@@ -16,7 +16,12 @@ assert_node_alive() {
 }
 
 check_erlang_start() {
-    "$BINDIR/$PROGNAME" -noshell -boot "$REL_DIR/start_clean" -s crypto start -s erlang halt
+  "$BINDIR/$PROGNAME" \
+    -noshell \
+    -boot_var RELEASE_LIB "$ERTS_LIB_DIR/lib" \
+    -boot "$REL_DIR/start_clean" \
+    -s crypto start \
+    -s erlang halt
 }
 
 # Simple way to check the correct user and fail early
@@ -62,9 +67,24 @@ relx_rem_sh() {
     # shellcheck disable=SC2086 # $EPMD_ARG is supposed to be split by whitespace
     # shellcheck disable=SC2153 # $NAME_TYPE is defined by `common_defs2.sh`, which runs before this is called
     # Setup remote shell command to control node
-    exec "$BINDIR/erl" "$NAME_TYPE" "$id" -remsh "$NAME" -boot "$REL_DIR/start_clean" \
-         -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
-         -setcookie "$COOKIE" -hidden -kernel net_ticktime "$TICKTIME" $EPMD_ARG
+    if [ "$IS_ELIXIR" = "yes" ]
+    then
+      exec "$REL_DIR/iex" \
+           --remsh "$NAME" \
+           --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
+           --cookie "$COOKIE" \
+           --hidden \
+           --erl "-kernel net_ticktime $TICKTIME" \
+           --erl "$EPMD_ARG" \
+           --erl "$NAME_TYPE $id" \
+           --boot "$REL_DIR/start_clean"
+    else
+      exec "$BINDIR/erl" "$NAME_TYPE" "$id" \
+           -remsh "$NAME" -boot "$REL_DIR/start_clean" \
+           -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
+           -setcookie "$COOKIE" -hidden -kernel net_ticktime "$TICKTIME" \
+           $EPMD_ARG
+    fi
 }
 
 # Generate a random id
