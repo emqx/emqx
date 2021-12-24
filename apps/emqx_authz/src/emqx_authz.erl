@@ -31,7 +31,6 @@
         , lookup/0
         , lookup/1
         , move/2
-        , move/3
         , update/2
         , authorize/5
         ]).
@@ -109,15 +108,12 @@ lookup(Type) ->
     {Source, _Front, _Rear} = take(Type),
     Source.
 
-move(Type, Cmd) ->
-    move(Type, Cmd, #{}).
-
-move(Type, #{<<"before">> := Before}, Opts) ->
-    emqx_authz_utils:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))}, Opts);
-move(Type, #{<<"after">> := After}, Opts) ->
-    emqx_authz_utils:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_AFTER(type(After))}, Opts);
-move(Type, Position, Opts) ->
-    emqx_authz_utils:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), Position}, Opts).
+move(Type, #{<<"before">> := Before}) ->
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))});
+move(Type, #{<<"after">> := After}) ->
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_AFTER(type(After))});
+move(Type, Position) ->
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), Position}).
 
 update({?CMD_REPLACE, Type}, Sources) ->
     emqx_authz_utils:update_config(?CONF_KEY_PATH, {{?CMD_REPLACE, type(Type)}, Sources});
