@@ -34,6 +34,8 @@
                         , page_params/0
                         , properties/1]).
 
+-define(MAX_BASE64_PAYLOAD_SIZE, 1048576). %% 1MB = 1024 x 1024
+
 api_spec() ->
     {[lookup_retained_api(), with_topic_api(), config_api()], []}.
 
@@ -179,7 +181,13 @@ format_message(#message{ id = ID, qos = Qos, topic = Topic, from = From
 
 format_detail_message(#message{payload = Payload} = Msg) ->
     Base = format_message(Msg),
-    Base#{payload => Payload}.
+    EncodePayload = base64:encode(Payload),
+    case erlang:byte_size(EncodePayload) =< ?MAX_BASE64_PAYLOAD_SIZE of
+        true ->
+            Base#{payload => EncodePayload};
+        _ ->
+            Base#{payload => base64:encode(<<"PAYLOAD_TOO_LARGE">>)}
+    end.
 
 to_bin_string(Data) when is_binary(Data) ->
     Data;
