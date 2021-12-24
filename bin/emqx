@@ -481,7 +481,13 @@ case "${COMMAND}" in
         shift
         if [ "$IS_ELIXIR" = "yes" ]
         then
-          relx_nodetool "eval-elixir" "$@"
+          "$REL_DIR/elixir" \
+              --hidden \
+              --cookie "$COOKIE" \
+              --boot "$REL_DIR/start_clean" \
+              --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
+              --vm-args "$(latest_vm_args 'EMQX_NODE__NAME')"\
+              --rpc-eval "$NAME" "$@"
         else
           relx_nodetool "eval" "$@"
         fi
