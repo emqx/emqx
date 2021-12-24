@@ -170,20 +170,6 @@ defmodule EMQXUmbrella.MixProject do
       force: overwrite?
     )
 
-    # FIXME: check if cloud/edge???
-    Mix.Generator.copy_file(
-      "apps/emqx/etc/emqx_cloud/vm.args",
-      Path.join(etc, "vm.args"),
-      force: overwrite?
-    )
-
-    # FIXME: check if cloud/edge!!
-    Mix.Generator.copy_file(
-      "apps/emqx/etc/emqx_cloud/vm.args",
-      Path.join(release.version_path, "vm.args"),
-      force: overwrite?
-    )
-
     # required by emqx_authz
     File.cp_r!(
       "apps/emqx/etc/certs",
@@ -242,6 +228,21 @@ defmodule EMQXUmbrella.MixProject do
     File.write!(
       Path.join([release.path, "releases", "emqx_vars"]),
       vars_rendered
+    )
+
+    # FIXME: check if cloud/edge???
+    vm_args_rendered =
+      File.read!("apps/emqx/etc/emqx_cloud/vm.args")
+      |> from_rebar_to_eex_template()
+      |> EEx.eval_string(assigns)
+
+    File.write!(
+      Path.join(etc, "vm.args"),
+      vm_args_rendered
+    )
+    File.write!(
+      Path.join(release.version_path, "vm.args"),
+      vm_args_rendered
     )
 
     Enum.each(
