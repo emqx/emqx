@@ -24,12 +24,12 @@ defmodule EMQXUmbrella.MixProject do
       {:lc, github: "qzhuyan/lc", tag: "0.1.2"},
       {:typerefl, github: "k32/typerefl", tag: "0.8.5", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.1.12"},
-      {:gproc, "0.8.0", override: true},
+      {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.0", override: true},
       {:mria, github: "emqx/mria", tag: "0.1.5", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.11.1", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.11.2", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.5.1", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.2.7", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.1"},
@@ -38,7 +38,7 @@ defmodule EMQXUmbrella.MixProject do
       {:emqtt, github: "emqx/emqtt", tag: "1.4.3", override: true},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
       {:observer_cli, "1.7.1"},
-      {:system_monitor, github: "klarna-incubator/system_monitor", tag: "2.2.0"},
+      {:system_monitor, github: "k32/system_monitor", tag: "2.2.1"},
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.16.0", override: true},
@@ -52,13 +52,19 @@ defmodule EMQXUmbrella.MixProject do
       {:epgsql, github: "epgsql/epgsql", tag: "4.6.0", override: true},
       # in conflict by mongodb and eredis_cluster
       {:poolboy, github: "emqx/poolboy", tag: "1.5.2", override: true},
-      # in conflict by gun and emqtt
-      {:cowlib, "2.8.0", override: true},
-      # in conflict by cowboy_swagger and cowboy
-      {:ranch, "1.8.0", override: true},
       # in conflict by emqx and observer_cli
       {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
-      {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
+      {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},
+      # dependencies of dependencies; we choose specific refs to match
+      # what rebar3 chooses.
+      # in conflict by gun and emqtt
+      {:cowlib,
+       github: "ninenines/cowlib", ref: "c6553f8308a2ca5dcd69d845f0a7d098c40c3363", override: true},
+      # in conflict by cowboy_swagger and cowboy
+      {:ranch,
+       github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
+      # in conflict by grpc and eetcd
+      {:gpb, "4.11.2", override: true}
     ] ++ umbrella_apps() ++ bcrypt_dep() ++ quicer_dep()
   end
 
@@ -240,6 +246,7 @@ defmodule EMQXUmbrella.MixProject do
       Path.join(etc, "vm.args"),
       vm_args_rendered
     )
+
     File.write!(
       Path.join(release.version_path, "vm.args"),
       vm_args_rendered
