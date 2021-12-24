@@ -77,68 +77,80 @@ defmodule EMQXUmbrella.MixProject do
 
   defp releases() do
     [
-      emqx: [
-        applications: [
-          logger: :permanent,
-          esasl: :load,
-          crypto: :permanent,
-          public_key: :permanent,
-          asn1: :permanent,
-          syntax_tools: :permanent,
-          ssl: :permanent,
-          os_mon: :permanent,
-          inets: :permanent,
-          compiler: :permanent,
-          runtime_tools: :permanent,
-          emqx: :load,
-          emqx_conf: :load,
-          emqx_machine: :permanent,
-          mria: :load,
-          mnesia: :load,
-          ekka: :load,
-          emqx_plugin_libs: :load,
-          emqx_http_lib: :permanent,
-          emqx_resource: :permanent,
-          emqx_connector: :permanent,
-          emqx_authn: :permanent,
-          emqx_authz: :permanent,
-          emqx_auto_subscribe: :permanent,
-          emqx_gateway: :permanent,
-          emqx_exhook: :permanent,
-          emqx_bridge: :permanent,
-          emqx_rule_engine: :permanent,
-          emqx_modules: :permanent,
-          emqx_management: :permanent,
-          emqx_dashboard: :permanent,
-          emqx_statsd: :permanent,
-          emqx_retainer: :permanent,
-          emqx_prometheus: :permanent,
-          emqx_psk: :permanent,
-          emqx_slow_subs: :permanent,
-          emqx_plugins: :permanent,
-          emqx_mix: :none
-        ],
-        skip_mode_validation_for: [
-          :emqx_gateway,
-          :emqx_dashboard,
-          :emqx_resource,
-          :emqx_connector,
-          :emqx_exhook,
-          :emqx_bridge,
-          :emqx_modules,
-          :emqx_management,
-          :emqx_statsd,
-          :emqx_retainer,
-          :emqx_prometheus,
-          :emqx_plugins
-        ],
-        steps: [
+      emqx: fn ->
+        base_steps = [
           :assemble,
           &create_RELEASES/1,
           &copy_files/1,
-          &copy_nodetool/1
+          &copy_escript(&1, "nodetool"),
+          &copy_escript(&1, "install_upgrade.escript")
         ]
-      ]
+
+        steps =
+          if System.get_env("ELIXIR_MAKE_TAR") == "yes" do
+            base_steps ++ [:tar]
+          else
+            base_steps
+          end
+
+        [
+          applications: [
+            logger: :permanent,
+            esasl: :load,
+            crypto: :permanent,
+            public_key: :permanent,
+            asn1: :permanent,
+            syntax_tools: :permanent,
+            ssl: :permanent,
+            os_mon: :permanent,
+            inets: :permanent,
+            compiler: :permanent,
+            runtime_tools: :permanent,
+            emqx: :load,
+            emqx_conf: :load,
+            emqx_machine: :permanent,
+            mria: :load,
+            mnesia: :load,
+            ekka: :load,
+            emqx_plugin_libs: :load,
+            emqx_http_lib: :permanent,
+            emqx_resource: :permanent,
+            emqx_connector: :permanent,
+            emqx_authn: :permanent,
+            emqx_authz: :permanent,
+            emqx_auto_subscribe: :permanent,
+            emqx_gateway: :permanent,
+            emqx_exhook: :permanent,
+            emqx_bridge: :permanent,
+            emqx_rule_engine: :permanent,
+            emqx_modules: :permanent,
+            emqx_management: :permanent,
+            emqx_dashboard: :permanent,
+            emqx_statsd: :permanent,
+            emqx_retainer: :permanent,
+            emqx_prometheus: :permanent,
+            emqx_psk: :permanent,
+            emqx_slow_subs: :permanent,
+            emqx_plugins: :permanent,
+            emqx_mix: :none
+          ],
+          skip_mode_validation_for: [
+            :emqx_gateway,
+            :emqx_dashboard,
+            :emqx_resource,
+            :emqx_connector,
+            :emqx_exhook,
+            :emqx_bridge,
+            :emqx_modules,
+            :emqx_management,
+            :emqx_statsd,
+            :emqx_retainer,
+            :emqx_prometheus,
+            :emqx_plugins
+          ],
+          steps: steps
+        ]
+      end
     ]
   end
 
@@ -236,7 +248,7 @@ defmodule EMQXUmbrella.MixProject do
       [
         "common_defs.sh",
         "common_defs2.sh",
-        "common_functions.sh",
+        "common_functions.sh"
       ],
       &Mix.Generator.copy_file(
         "bin/#{&1}",
@@ -255,7 +267,7 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   # needed by nodetool and by release_handler
-  def create_RELEASES(release) do
+  defp create_RELEASES(release) do
     apps =
       Enum.map(release.applications, fn {app_name, app_props} ->
         app_vsn = Keyword.fetch!(app_props, :vsn)
@@ -290,13 +302,13 @@ defmodule EMQXUmbrella.MixProject do
     release
   end
 
-  def copy_nodetool(release) do
+  defp copy_escript(release, escript_name) do
     [shebang, rest] =
-      "bin/nodetool"
+      "bin/#{escript_name}"
       |> File.read!()
       |> String.split("\n", parts: 2)
 
-    path = Path.join([release.path, "bin", "nodetool"])
+    path = Path.join([release.path, "bin", escript_name])
     # the elixir version of escript + start.boot required the boot_var
     # RELEASE_LIB to be defined.
     boot_var = "%%!-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib"
@@ -305,24 +317,24 @@ defmodule EMQXUmbrella.MixProject do
     release
   end
 
-  def bcrypt_dep() do
+  defp bcrypt_dep() do
     if enable_bcrypt?(),
       do: [{:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.0", override: true}],
       else: []
   end
 
-  def quicer_dep() do
+  defp quicer_dep() do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
       do: [{:quicer, github: "emqx/quic", tag: "0.0.9", override: true}],
       else: []
   end
 
-  def enable_bcrypt?() do
+  defp enable_bcrypt?() do
     not win32?()
   end
 
-  def enable_quicer?() do
+  defp enable_quicer?() do
     not Enum.any?([
       build_without_quic?(),
       win32?(),
@@ -330,7 +342,7 @@ defmodule EMQXUmbrella.MixProject do
     ])
   end
 
-  def pkg_vsn() do
+  defp pkg_vsn() do
     basedir = Path.dirname(__ENV__.file)
     script = Path.join(basedir, "pkg-vsn.sh")
     {str_vsn, 0} = System.cmd(script, [])
