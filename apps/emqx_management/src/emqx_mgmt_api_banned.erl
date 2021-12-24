@@ -101,15 +101,15 @@ fields(ban) ->
             desc => <<"Banned type clientid, username, peerhost">>,
             nullable => false,
             example => username})},
-        {who, hoconsc:mk(binary(), #{
+        {who, hoconsc:mk(emqx_schema:unicode_binary(), #{
             desc => <<"Client info as banned type">>,
             nullable => false,
-            example => <<"Badass">>})},
+            example => <<"Badass坏"/utf8>>})},
         {by, hoconsc:mk(binary(), #{
             desc => <<"Commander">>,
             nullable => true,
             example => <<"mgmt_api">>})},
-        {reason, hoconsc:mk(binary(), #{
+        {reason, hoconsc:mk(emqx_schema:unicode_binary(), #{
             desc => <<"Banned reason">>,
             nullable => true,
             example => <<"Too many requests">>})},

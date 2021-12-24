@@ -194,6 +194,7 @@ format(Traces) ->
               end, Traces).
 
 init([]) ->
+    ok = mria:wait_for_tables([?TRACE]),
     erlang:process_flag(trap_exit, true),
     OriginLogLevel = emqx_logger:get_primary_log_level(),
     ok = filelib:ensure_dir(trace_dir()),

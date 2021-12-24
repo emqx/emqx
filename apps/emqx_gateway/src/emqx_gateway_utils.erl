@@ -90,6 +90,7 @@ childspec(Id, Type, Mod, Args) ->
     -> {ok, pid()}
      | {error, supervisor:startchild_err()}.
 supervisor_ret({ok, Pid, _Info}) -> {ok, Pid};
+supervisor_ret({error, {Reason, _Child}}) -> {error, Reason};
 supervisor_ret(Ret) -> Ret.
 
 -spec find_sup_child(Sup :: pid() | atom(), ChildId :: supervisor:child_id())

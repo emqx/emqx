@@ -112,7 +112,7 @@ init([Gateway, Ctx, _GwDscrptr]) ->
         true ->
             case cb_gateway_load(State) of
                 {error, Reason} ->
-                    {stop, {load_gateway_failure, Reason}};
+                    {stop, Reason};
                 {ok, NState} ->
                     {ok, NState}
             end
@@ -360,7 +360,7 @@ cb_gateway_unload(State = #state{name = GwName,
                           , reason => {Class, Reason}
                           , stacktrace => Stk
                           }),
-            {error, {Class, Reason, Stk}}
+            {error, Reason}
     after
         _ = do_deinit_authn(State#state.authns)
     end.
@@ -381,7 +381,7 @@ cb_gateway_load(State = #state{name = GwName,
         case CbMod:on_gateway_load(Gateway, NCtx) of
             {error, Reason} ->
                 do_deinit_authn(AuthnNames),
-                throw({callback_return_error, Reason});
+                {error, Reason};
             {ok, ChildPidOrSpecs, GwState} ->
                 ChildPids = start_child_process(ChildPidOrSpecs),
                 {ok, State#state{
@@ -403,7 +403,7 @@ cb_gateway_load(State = #state{name = GwName,
                           , reason => {Class, Reason1}
                           , stacktrace => Stk
                           }),
-            {error, {Class, Reason1, Stk}}
+            {error, Reason1}
     end.
 
 cb_gateway_update(Config,
@@ -412,7 +412,7 @@ cb_gateway_update(Config,
     try
         #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
         case CbMod:on_gateway_update(Config, detailed_gateway_info(State), GwState) of
-            {error, Reason} -> throw({callback_return_error, Reason});
+            {error, Reason} -> {error, Reason};
             {ok, ChildPidOrSpecs, NGwState} ->
                 %% XXX: Hot-upgrade ???
                 ChildPids = start_child_process(ChildPidOrSpecs),
@@ -430,7 +430,7 @@ cb_gateway_update(Config,
                           , reason => {Class, Reason1}
                           , stacktrace => Stk
                           }),
-            {error, {Class, Reason1, Stk}}
+            {error, Reason1}
     end.
 
 start_child_process([]) -> [];

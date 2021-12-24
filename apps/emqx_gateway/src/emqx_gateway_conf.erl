@@ -248,7 +248,8 @@ update(Req) ->
     res(emqx_conf:update([gateway], Req, #{override_to => cluster})).
 
 res({ok, Result}) -> {ok, Result};
-res({error, {pre_config_update,emqx_gateway_conf,Reason}}) -> {error, Reason};
+res({error, {pre_config_update,?MODULE,Reason}}) -> {error, Reason};
+res({error, {post_config_update,?MODULE,Reason}}) -> {error, Reason};
 res({error, Reason}) -> {error, Reason}.
 
 bin({LType, LName}) ->
@@ -314,12 +315,12 @@ pre_config_update(_, {load_gateway, GwName, Conf}, RawConf) ->
             NConf = tune_gw_certs(fun convert_certs/2, GwName, Conf),
             {ok, emqx_map_lib:deep_merge(RawConf, #{GwName => NConf})};
         _ ->
-            {error, already_exist}
+            badres_gateway(already_exist, GwName)
     end;
 pre_config_update(_, {update_gateway, GwName, Conf}, RawConf) ->
     case maps:get(GwName, RawConf, undefined) of
         undefined ->
-            {error, not_found};
+            badres_gateway(not_found, GwName);
         _ ->
             NConf = maps:without([<<"listeners">>, ?AUTHN_BIN], Conf),
             {ok, emqx_map_lib:deep_merge(RawConf, #{GwName => NConf})}
@@ -341,13 +342,13 @@ pre_config_update(_, {add_listener, GwName, {LType, LName}, Conf}, RawConf) ->
                    RawConf,
                    #{GwName => #{<<"listeners">> => NListener}})};
         _ ->
-            {error, already_exist}
+            badres_listener(already_exist, GwName, LType, LName)
     end;
 pre_config_update(_, {update_listener, GwName, {LType, LName}, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
            [GwName, <<"listeners">>, LType, LName], RawConf, undefined) of
         undefined ->
-            {error, not_found};
+            badres_listener(not_found, GwName, LType, LName);
         OldConf ->
             NConf = convert_certs(certs_dir(GwName), Conf, OldConf),
             NListener = #{LType => #{LName => NConf}},
@@ -374,14 +375,14 @@ pre_config_update(_, {add_authn, GwName, Conf}, RawConf) ->
                    RawConf,
                    #{GwName => #{?AUTHN_BIN => Conf}})};
         _ ->
-            {error, already_exist}
+            badres_authn(already_exist, GwName)
     end;
 pre_config_update(_, {add_authn, GwName, {LType, LName}, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
            [GwName, <<"listeners">>, LType, LName],
            RawConf, undefined) of
         undefined ->
-            {error, not_found};
+            badres_listener(not_found, GwName, LType, LName);
         Listener ->
             case maps:get(?AUTHN_BIN, Listener, undefined) of
                 undefined ->
@@ -391,14 +392,14 @@ pre_config_update(_, {add_authn, GwName, {LType, LName}, Conf}, RawConf) ->
                                    #{LType => #{LName => NListener}}}},
                     {ok, emqx_map_lib:deep_merge(RawConf, NGateway)};
                 _ ->
-                    {error, already_exist}
+                    badres_listener_authn(already_exist, GwName, LType, LName)
             end
     end;
 pre_config_update(_, {update_authn, GwName, Conf}, RawConf) ->
     case emqx_map_lib:deep_get(
            [GwName, ?AUTHN_BIN], RawConf, undefined) of
         undefined ->
-            {error, not_found};
+            badres_authn(not_found, GwName);
         _ ->
             {ok, emqx_map_lib:deep_merge(
                    RawConf,
@@ -409,11 +410,11 @@ pre_config_update(_, {update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
            [GwName, <<"listeners">>, LType, LName],
            RawConf, undefined) of
         undefined ->
-            {error, not_found};
+            badres_listener(not_found, GwName, LType, LName);
         Listener ->
             case maps:get(?AUTHN_BIN, Listener, undefined) of
                 undefined ->
-                    {error, not_found};
+                    badres_listener_authn(not_found, GwName, LType, LName);
                 Auth ->
                     NListener = maps:put(
                                   ?AUTHN_BIN,
@@ -436,6 +437,38 @@ pre_config_update(_, {remove_authn, GwName, {LType, LName}}, RawConf) ->
 pre_config_update(_, UnknownReq, _RawConf) ->
     logger:error("Unknown configuration update request: ~0p", [UnknownReq]),
     {error, badreq}.
+
+badres_gateway(not_found, GwName) ->
+    {error, {badres, #{resource => gateway, gateway => GwName,
+                       reason => not_found}}};
+badres_gateway(already_exist, GwName) ->
+    {error, {badres, #{resource => gateway, gateway => GwName,
+                       reason => already_exist}}}.
+
+badres_listener(not_found, GwName, LType, LName) ->
+    {error, {badres, #{resource => listener, gateway => GwName,
+                       listener => {GwName, LType, LName},
+                       reason => not_found}}};
+badres_listener(already_exist, GwName, LType, LName) ->
+    {error, {badres, #{resource => listener, gateway => GwName,
+                       listener => {GwName, LType, LName},
+                       reason => already_exist}}}.
+
+badres_authn(not_found, GwName) ->
+    {error, {badres, #{resource => authn, gateway => GwName,
+                       reason => not_found}}};
+badres_authn(already_exist, GwName) ->
+    {error, {badres, #{resource => authn, gateway => GwName,
+                       reason => already_exist}}}.
+
+badres_listener_authn(not_found, GwName, LType, LName) ->
+    {error, {badres, #{resource => listener_authn, gateway => GwName,
+                       listener => {GwName, LType, LName},
+                       reason => not_found}}};
+badres_listener_authn(already_exist, GwName, LType, LName) ->
+    {error, {badres, #{resource => listener_authn, gateway => GwName,
+                       listener => {GwName, LType, LName},
+                       reason => already_exist}}}.
 
 -spec post_config_update(list(atom()),
                          emqx_config:update_request(),

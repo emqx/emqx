@@ -278,7 +278,7 @@ sampling(Node, Counter) ->
     rpc:call(Node, ?MODULE, sampling, [Node, Counter]).
 
 select_data() ->
-    Time = emqx_dashboard_collection:get_local_time() - 7200000,
+    Time = emqx_dashboard_collection:get_universal_epoch() - 7200000,
     ets:select(?TAB_COLLECT, [{{mqtt_collect,'$1','$2'}, [{'>', '$1', Time}], ['$_']}]).
 
 format(Collects) ->

@@ -22,7 +22,7 @@
 
 -export([get_collect/0]).
 
--export([get_local_time/0]).
+-export([get_universal_epoch/0]).
 
 -boot_mnesia({mnesia, [boot]}).
 
@@ -108,7 +108,7 @@ handle_info(collect, State = #{count := Count, collect := Collect, temp_collect 
 
 handle_info(clear_expire_data, State = #{expire_interval := ExpireInterval}) ->
     timer(?CLEAR_INTERVAL, clear_expire_data),
-    T1 = get_local_time(),
+    T1 = get_universal_epoch(),
     Spec = ets:fun2ms(fun({_, T, _C} = Data) when (T1 - T) > ExpireInterval -> Data end),
     Collects = ets:select(?TAB_COLLECT, Spec),
     lists:foreach(fun(Collect) ->
@@ -161,7 +161,7 @@ flush({Connection, Route, Subscription}, {Received0, Sent0, Dropped0}) ->
                diff(Received, Received0),
                diff(Sent, Sent0),
                diff(Dropped, Dropped0)},
-    Ts = get_local_time(),
+    Ts = get_universal_epoch(),
     {atomic, ok} = mria:transaction(mria:local_content_shard(),
                                     fun mnesia:write/3,
                                     [ ?TAB_COLLECT
@@ -179,8 +179,8 @@ timer(Secs, Msg) ->
     erlang:send_after(Secs, self(), Msg).
 
 get_today_remaining_seconds() ->
-    ?CLEAR_INTERVAL - (get_local_time() rem ?CLEAR_INTERVAL).
+    ?CLEAR_INTERVAL - (get_universal_epoch() rem ?CLEAR_INTERVAL).
 
-get_local_time() ->
-    (calendar:datetime_to_gregorian_seconds(calendar:local_time()) -
+get_universal_epoch() ->
+    (calendar:datetime_to_gregorian_seconds(calendar:universal_time()) -
         calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}})).
