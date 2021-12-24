@@ -50,18 +50,24 @@ is_cmd(Fun) ->
 %% Cmds
 
 gateway(["list"]) ->
-    lists:foreach(fun(#{name := Name} = Gateway) ->
-        %% TODO: More infos: listeners?, connected?
-        Status = maps:get(status, Gateway, stopped),
-        print("Gateway(name=~ts, status=~ts)~n", [Name, Status])
-    end, emqx_gateway:list());
+    lists:foreach(
+      fun (#{name := Name, status := unloaded}) ->
+            print("Gateway(name=~ts, status=unloaded)\n", [Name]);
+          (#{name := Name, status := stopped, stopped_at := StoppedAt}) ->
+            print("Gateway(name=~ts, status=stopped, stopped_at=~ts)\n",
+                  [Name, StoppedAt]);
+          (#{name := Name, status := running, current_connections := ConnCnt,
+             started_at := StartedAt}) ->
+            print("Gateway(name=~ts, status=running, clients=~w, started_at=~ts)\n",
+                  [Name, ConnCnt, StartedAt])
+    end, emqx_gateway_http:gateways(all));
 
 gateway(["lookup", Name]) ->
     case emqx_gateway:lookup(atom(Name)) of
         undefined ->
-            print("undefined~n");
+            print("undefined\n");
         Info ->
-            print("~p~n", [Info])
+            print("~p\n", [Info])
     end;
 
 gateway(["load", Name, Conf]) ->
@@ -70,17 +76,17 @@ gateway(["load", Name, Conf]) ->
            emqx_json:decode(Conf, [return_maps])
           ) of
         {ok, _} ->
-            print("ok~n");
+            print("ok\n");
         {error, Reason} ->
-            print("Error: ~p~n", [Reason])
+            print("Error: ~p\n", [Reason])
     end;
 
 gateway(["unload", Name]) ->
     case emqx_gateway_conf:unload_gateway(bin(Name)) of
         ok ->
-            print("ok~n");
+            print("ok\n");
         {error, Reason} ->
-            print("Error: ~p~n", [Reason])
+            print("Error: ~p\n", [Reason])
     end;
 
 gateway(["stop", Name]) ->
@@ -89,9 +95,9 @@ gateway(["stop", Name]) ->
            #{<<"enable">> => <<"false">>}
           ) of
         {ok, _} ->
-            print("ok~n");
+            print("ok\n");
         {error, Reason} ->
-            print("Error: ~p~n", [Reason])
+            print("Error: ~p\n", [Reason])
     end;
 
 gateway(["start", Name]) ->
@@ -100,9 +106,9 @@ gateway(["start", Name]) ->
            #{<<"enable">> => <<"true">>}
           ) of
         {ok, _} ->
-            print("ok~n");
+            print("ok\n");
         {error, Reason} ->
-            print("Error: ~p~n", [Reason])
+            print("Error: ~p\n", [Reason])
     end;
 
 gateway(_) ->
@@ -123,7 +129,7 @@ gateway(_) ->
 'gateway-registry'(["list"]) ->
     lists:foreach(
       fun({Name, #{cbkmod := CbMod}}) ->
-        print("Registered Name: ~ts, Callback Module: ~ts~n", [Name, CbMod])
+        print("Registered Name: ~ts, Callback Module: ~ts\n", [Name, CbMod])
       end,
     emqx_gateway_registry:list());
 
@@ -137,15 +143,15 @@ gateway(_) ->
     InfoTab = emqx_gateway_cm:tabname(info, Name),
     case ets:info(InfoTab) of
         undefined ->
-            print("Bad Gateway Name.~n");
+            print("Bad Gateway Name.\n");
         _ ->
-        dump(InfoTab, client)
+            dump(InfoTab, client)
     end;
 
 'gateway-clients'(["lookup", Name, ClientId]) ->
     ChanTab = emqx_gateway_cm:tabname(chan, Name),
     case ets:lookup(ChanTab, bin(ClientId)) of
-        [] -> print("Not Found.~n");
+        [] -> print("Not Found.\n");
         [Chann] ->
             InfoTab = emqx_gateway_cm:tabname(info, Name),
             [ChannInfo] = ets:lookup(InfoTab, Chann),
@@ -154,8 +160,8 @@ gateway(_) ->
 
 'gateway-clients'(["kick", Name, ClientId]) ->
     case emqx_gateway_cm:kick_session(Name, bin(ClientId)) of
-        ok -> print("ok~n");
-        _ -> print("Not Found.~n")
+        ok -> print("ok\n");
+        _ -> print("Not Found.\n")
     end;
 
 'gateway-clients'(_) ->
@@ -171,11 +177,11 @@ gateway(_) ->
     Tab = emqx_gateway_metrics:tabname(Name),
     case ets:info(Tab) of
         undefined ->
-            print("Bad Gateway Name.~n");
+            print("Bad Gateway Name.\n");
         _ ->
             lists:foreach(
               fun({K, V}) ->
-                print("~-30s: ~w~n", [K, V])
+                print("~-30s: ~w\n", [K, V])
               end, lists:sort(ets:tab2list(Tab)))
     end;
 
@@ -232,7 +238,7 @@ print_record({client, {_, Infos, Stats}}) ->
     print("Client(~ts, username=~ts, peername=~ts, "
           "clean_start=~ts, keepalive=~w, "
           "subscriptions=~w, delivered_msgs=~w, "
-          "connected=~ts, created_at=~w, connected_at=~w)~n",
+          "connected=~ts, created_at=~w, connected_at=~w)\n",
           [format(K, maps:get(K, Info)) || K <- InfoKeys]).
 
 print(S) -> emqx_ctl:print(S).

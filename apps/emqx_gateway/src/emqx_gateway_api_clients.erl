@@ -532,7 +532,21 @@ params_client_searching_in_qs() ->
     , {lte_connected_at,
        mk(binary(),
           M#{desc => <<"Match the client socket connected datatime less than "
-                       " a certain value">>})}
+                       "a certain value">>})}
+    , {endpoint_name,
+       mk(binary(),
+          M#{desc => <<"Match the lwm2m client's endpoint name">>})}
+    , {like_endpoint_name,
+       mk(binary(),
+          M#{desc => <<"Use sub-string to match lwm2m client's endpoint name">>})}
+    , {gte_lifetime,
+       mk(binary(),
+          M#{desc => <<"Match the lwm2m client registered lifetime greater "
+                        "than a certain value">>})}
+    , {lte_lifetime,
+       mk(binary(),
+          M#{desc => <<"Match the lwm2m client registered lifetime less than "
+                       "a certain value">>})}
     ].
 
 params_paging() ->
