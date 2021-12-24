@@ -8,7 +8,7 @@ defmodule EMQXUmbrella.MixProject do
   |> Kernel.==(:lt)
   |> if(do: Code.require_file("lib/mix/release.exs"))
 
-  def project do
+  def project() do
     [
       app: :emqx_mix,
       version: pkg_vsn(),
@@ -17,7 +17,7 @@ defmodule EMQXUmbrella.MixProject do
     ]
   end
 
-  defp deps do
+  defp deps() do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
     [
@@ -59,37 +59,21 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqx and observer_cli
       {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
       {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
-    ] ++
-      Enum.map(
-        [
-          :emqx,
-          :emqx_conf,
-          :emqx_machine,
-          :emqx_plugin_libs,
-          :emqx_resource,
-          :emqx_connector,
-          :emqx_authn,
-          :emqx_authz,
-          :emqx_auto_subscribe,
-          :emqx_gateway,
-          :emqx_exhook,
-          :emqx_bridge,
-          :emqx_rule_engine,
-          :emqx_modules,
-          :emqx_management,
-          :emqx_dashboard,
-          :emqx_statsd,
-          :emqx_retainer,
-          :emqx_prometheus,
-          :emqx_psk,
-          :emqx_slow_subs,
-          :emqx_plugins
-        ],
-        &umbrella/1
-      ) ++ bcrypt_dep() ++ quicer_dep()
+    ] ++ umbrella_apps() ++ bcrypt_dep() ++ quicer_dep()
   end
 
-  defp umbrella(app), do: {app, path: "apps/#{app}", manager: :rebar3, override: true}
+  defp umbrella_apps() do
+    "apps/*"
+    |> Path.wildcard()
+    |> Enum.map(fn path ->
+      app =
+        path
+        |> String.trim_leading("apps/")
+        |> String.to_atom()
+
+      {app, path: path, manager: :rebar3, override: true}
+    end)
+  end
 
   defp releases() do
     [
