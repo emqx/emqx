@@ -16,20 +16,17 @@
 
 -module(emqx_authz_http_test_server).
 
--behaviour(gen_server).
+-behaviour(supervisor).
 -behaviour(cowboy_handler).
 
 % cowboy_server callbacks
 -export([init/2]).
 
-% gen_server callbacks
--export([init/1,
-         handle_call/3,
-         handle_cast/2
-        ]).
+% supervisor callbacks
+-export([init/1]).
 
 % API
--export([start/2,
+-export([start_link/2,
          stop/0,
          set_handler/1
         ]).
@@ -38,52 +35,52 @@
 %% API
 %%------------------------------------------------------------------------------
 
-start(Port, Path) ->
-    Dispatch = cowboy_router:compile([
-        {'_', [{Path, ?MODULE, []}]}
-    ]),
-    {ok, _} = cowboy:start_clear(?MODULE,
-        [{port, Port}],
-        #{env => #{dispatch => Dispatch}}
-    ),
-    {ok, _} = gen_server:start_link({local, ?MODULE}, ?MODULE, [], []),
-    ok.
+start_link(Port, Path) ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [Port, Path]).
 
 stop() ->
-    gen_server:stop(?MODULE),
-    cowboy:stop_listener(?MODULE).
+    gen_server:stop(?MODULE).
 
 set_handler(F) when is_function(F, 2) ->
-    gen_server:call(?MODULE, {set_handler, F}).
+    true = ets:insert(?MODULE, {handler, F}),
+    ok.
 
 %%------------------------------------------------------------------------------
-%% gen_server API
+%% supervisor API
 %%------------------------------------------------------------------------------
 
-init([]) ->
-    F = fun(Req0, State) ->
-                Req = cowboy_req:reply(
-                        400,
-                        #{<<"content-type">> => <<"text/plain">>},
-                        <<"">>,
-                        Req0),
-                {ok, Req, State}
-        end,
-    {ok, F}.
+init([Port, Path]) ->
+    Dispatch = cowboy_router:compile(
+                 [
+                  {'_', [{Path, ?MODULE, []}]}
+                 ]),
+    TransOpts = #{socket_opts => [{port, Port}],
+                  connection_type => supervisor},
+    ProtoOpts = #{env => #{dispatch => Dispatch}},
 
-handle_cast(_, F) ->
-    {noreply, F}.
+    Tab = ets:new(?MODULE, [set, named_table, public]),
+    ets:insert(Tab, {handler, fun default_handler/2}),
 
-handle_call({set_handler, F}, _From, _F) ->
-    {reply, ok, F};
-
-handle_call(get_handler, _From, F) ->
-    {reply, F, F}.
+    ChildSpec = ranch:child_spec(?MODULE, ranch_tcp, TransOpts, cowboy_clear, ProtoOpts),
+    {ok, {{one_for_one, 10, 10}, [ChildSpec]}}.
 
 %%------------------------------------------------------------------------------
 %% cowboy_server API
 %%------------------------------------------------------------------------------
 
 init(Req, State) ->
-    Handler = gen_server:call(?MODULE, get_handler),
+    [{handler, Handler}] = ets:lookup(?MODULE, handler),
     Handler(Req, State).
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
+default_handler(Req0, State) ->
+    Req = cowboy_req:reply(
+            400,
+            #{<<"content-type">> => <<"text/plain">>},
+            <<"">>,
+            Req0),
+    {ok, Req, State}.
+

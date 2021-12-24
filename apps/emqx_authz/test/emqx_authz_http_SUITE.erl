@@ -50,7 +50,7 @@ set_special_configs(_) ->
 
 init_per_testcase(_Case, Config) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
-    ok = emqx_authz_http_test_server:start(?HTTP_PORT, ?HTTP_PATH),
+    {ok, _} = emqx_authz_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
     Config.
 
 end_per_testcase(_Case, _Config) ->
