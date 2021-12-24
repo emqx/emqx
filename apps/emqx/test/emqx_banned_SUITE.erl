@@ -39,9 +39,13 @@ t_add_delete(_) ->
                      by = <<"banned suite">>,
                      reason = <<"test">>,
                      at = erlang:system_time(second),
-                     until = erlang:system_time(second) + 1000
+                     until = erlang:system_time(second) + 1
                     },
     {ok, _} = emqx_banned:create(Banned),
+    {error, {already_exist, Banned}} = emqx_banned:create(Banned),
+    ?assertEqual(1, emqx_banned:info(size)),
+    {error, {already_exist, Banned}} =
+        emqx_banned:create(Banned#banned{until = erlang:system_time(second) + 100}),
     ?assertEqual(1, emqx_banned:info(size)),
 
     ok = emqx_banned:delete({clientid, <<"TestClient">>}),
@@ -68,10 +72,14 @@ t_check(_) ->
                     username => <<"user">>,
                     peerhost => {127,0,0,1}
                    },
+    ClientInfo5 = #{},
+    ClientInfo6 = #{clientid => <<"client1">>},
     ?assert(emqx_banned:check(ClientInfo1)),
     ?assert(emqx_banned:check(ClientInfo2)),
     ?assert(emqx_banned:check(ClientInfo3)),
     ?assertNot(emqx_banned:check(ClientInfo4)),
+    ?assertNot(emqx_banned:check(ClientInfo5)),
+    ?assertNot(emqx_banned:check(ClientInfo6)),
     ok = emqx_banned:delete({clientid, <<"BannedClient">>}),
     ok = emqx_banned:delete({username, <<"BannedUser">>}),
     ok = emqx_banned:delete({peerhost, {192,168,0,1}}),
@@ -83,8 +91,10 @@ t_check(_) ->
 
 t_unused(_) ->
     {ok, Banned} = emqx_banned:start_link(),
-    {ok, _} = emqx_banned:create(#banned{who = {clientid, <<"BannedClient">>},
-                                    until = erlang:system_time(second)}),
+    {ok, _} = emqx_banned:create(#banned{who = {clientid, <<"BannedClient1">>},
+        until = erlang:system_time(second)}),
+    {ok, _} = emqx_banned:create(#banned{who = {clientid, <<"BannedClient2">>},
+        until = erlang:system_time(second) - 1}),
     ?assertEqual(ignored, gen_server:call(Banned, unexpected_req)),
     ?assertEqual(ok, gen_server:cast(Banned, unexpected_msg)),
     ?assertEqual(ok, Banned ! ok),
