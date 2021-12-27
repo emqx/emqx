@@ -314,6 +314,16 @@ defmodule EMQXUmbrella.MixProject do
       File.chmod!(Path.join(bin, name), 0o755)
     end
 
+    built_on_rendered =
+      File.read!("data/BUILT_ON")
+      |> from_rebar_to_eex_template()
+      |> EEx.eval_string(assigns)
+
+    File.write!(
+      Path.join([release.version_path, "BUILT_ON"]),
+      built_on_rendered
+    )
+
     release
   end
 
@@ -396,6 +406,7 @@ defmodule EMQXUmbrella.MixProject do
       # FIXME: this is empty in `make emqx` ???
       erl_opts: "",
       emqx_description: emqx_description(release_type, edition_type),
+      built_on_arch: built_on(),
       is_elixir: "yes"
     ]
   end
@@ -420,6 +431,7 @@ defmodule EMQXUmbrella.MixProject do
       # FIXME: this is empty in `make emqx` ???
       erl_opts: "",
       emqx_description: emqx_description(release_type, edition_type),
+      built_on: built_on(),
       is_elixir: "yes"
     ]
   end
@@ -520,5 +532,50 @@ defmodule EMQXUmbrella.MixProject do
       str,
       "<%= \\g{1} %>"
     )
+  end
+
+  defp built_on() do
+    system_architecture = to_string(:erlang.system_info(:system_architecture))
+    elixir_version = System.version()
+    words = wordsize()
+
+    "#{elixir_version}-#{otp_release()}-#{system_architecture}-#{words}"
+  end
+
+  # https://github.com/erlang/rebar3/blob/e3108ac187b88fff01eca6001a856283a3e0ec87/src/rebar_utils.erl#L142
+  defp wordsize() do
+    size =
+      try do
+        :erlang.system_info({:wordsize, :external})
+      rescue
+        ErlangError ->
+          :erlang.system_info(:wordsize)
+      end
+
+    to_string(8 * size)
+  end
+
+  # As from Erlang/OTP 17, the OTP release number corresponds to the
+  # major OTP version number. No erlang:system_info() argument gives
+  # the exact OTP version.
+  # https://www.erlang.org/doc/man/erlang.html#system_info_otp_release
+  # https://github.com/erlang/rebar3/blob/e3108ac187b88fff01eca6001a856283a3e0ec87/src/rebar_utils.erl#L572-L577
+  defp otp_release() do
+    major_version = System.otp_release()
+    root_dir = to_string(:code.root_dir())
+
+    [root_dir, "releases", major_version, "OTP_VERSION"]
+    |> Path.join()
+    |> File.read()
+    |> case do
+      {:error, _} ->
+        major_version
+
+      {:ok, version} ->
+        version
+        |> String.trim()
+        |> String.split("**")
+        |> List.first()
+    end
   end
 end
