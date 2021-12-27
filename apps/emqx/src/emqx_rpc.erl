@@ -30,27 +30,27 @@
           , rpc_nodes/1
           ]}).
 
--define(RPC, gen_rpc).
-
 -define(DefaultClientNum, 1).
 
 call(Node, Mod, Fun, Args) ->
-    filter_result(?RPC:call(rpc_node(Node), Mod, Fun, Args)).
+    filter_result(gen_rpc:call(rpc_node(Node), Mod, Fun, Args)).
 
 call(Key, Node, Mod, Fun, Args) ->
-    filter_result(?RPC:call(rpc_node({Key, Node}), Mod, Fun, Args)).
+    filter_result(gen_rpc:call(rpc_node({Key, Node}), Mod, Fun, Args)).
 
 multicall(Nodes, Mod, Fun, Args) ->
-    filter_result(?RPC:multicall(rpc_nodes(Nodes), Mod, Fun, Args)).
+    filter_result(gen_rpc:multicall(rpc_nodes(Nodes), Mod, Fun, Args)).
 
 multicall(Key, Nodes, Mod, Fun, Args) ->
-    filter_result(?RPC:multicall(rpc_nodes([{Key, Node} || Node <- Nodes]), Mod, Fun, Args)).
+    filter_result(gen_rpc:multicall(rpc_nodes([{Key, Node} || Node <- Nodes]), Mod, Fun, Args)).
 
 cast(Node, Mod, Fun, Args) ->
-    filter_result(?RPC:cast(rpc_node(Node), Mod, Fun, Args)).
+    %% Note: using a non-ordered cast here, since the generated key is
+    %% random anyway:
+    filter_result(gen_rpc:cast(rpc_node(Node), Mod, Fun, Args)).
 
 cast(Key, Node, Mod, Fun, Args) ->
-    filter_result(?RPC:cast(rpc_node({Key, Node}), Mod, Fun, Args)).
+    filter_result(gen_rpc:ordered_cast(rpc_node({Key, Node}), Mod, Fun, Args)).
 
 rpc_node(Node) when is_atom(Node) ->
     {Node, rand:uniform(max_client_num())};
