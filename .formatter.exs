@@ -1,6 +1,7 @@
 [
   inputs: [
     "mix.exs",
-    "config/*.exs"
+    "config/*.exs",
+    "scripts/*.exs",
   ]
 ]

@@ -84,23 +84,11 @@ defmodule EMQXUmbrella.MixProject do
   defp releases() do
     [
       emqx: fn ->
-        release_type = read_enum_env_var(
-          "EMQX_RELEASE_TYPE",
-          [:cloud, :edge],
-          :cloud
-        )
-
-        package_type = read_enum_env_var(
-          "EMQX_PACKAGE_TYPE",
-          [:bin, :pkg],
-          :bin
-        )
-
-        edition_type = read_enum_env_var(
-          "EMQX_EDITION_TYPE",
-          [:community, :enterprise],
-          :community
-        )
+        %{
+          release_type: release_type,
+          package_type: package_type,
+          edition_type: edition_type
+        } = read_inputs()
 
         base_steps = [
           :assemble,
@@ -179,6 +167,35 @@ defmodule EMQXUmbrella.MixProject do
     ]
   end
 
+  defp read_inputs() do
+    release_type =
+      read_enum_env_var(
+        "EMQX_RELEASE_TYPE",
+        [:cloud, :edge],
+        :cloud
+      )
+
+    package_type =
+      read_enum_env_var(
+        "EMQX_PACKAGE_TYPE",
+        [:bin, :pkg],
+        :bin
+      )
+
+    edition_type =
+      read_enum_env_var(
+        "EMQX_EDITION_TYPE",
+        [:community, :enterprise],
+        :community
+      )
+
+    %{
+      release_type: release_type,
+      package_type: package_type,
+      edition_type: edition_type
+    }
+  end
+
   defp copy_files(release, release_type, package_type, edition_type) do
     overwrite? = Keyword.get(release.options, :overwrite, false)
 
@@ -233,13 +250,14 @@ defmodule EMQXUmbrella.MixProject do
       vars_rendered
     )
 
-    vm_args_template_path = case release_type do
-                              :cloud ->
-                                "apps/emqx/etc/emqx_cloud/vm.args"
+    vm_args_template_path =
+      case release_type do
+        :cloud ->
+          "apps/emqx/etc/emqx_cloud/vm.args"
 
-                              :edge ->
-                                "apps/emqx/etc/emqx_edge/vm.args"
-                            end
+        :edge ->
+          "apps/emqx/etc/emqx_edge/vm.args"
+      end
 
     vm_args_rendered =
       File.read!(vm_args_template_path)
@@ -389,12 +407,10 @@ defmodule EMQXUmbrella.MixProject do
           |> String.to_atom()
 
         if value not in allowed_values do
-          Mix.raise(
-            """
-            Invalid value #{raw_value} for variable #{env_var}.
-            Allowed values are: #{inspect(allowed_values)}
-            """
-          )
+          Mix.raise("""
+          Invalid value #{raw_value} for variable #{env_var}.
+          Allowed values are: #{inspect(allowed_values)}
+          """)
         end
 
         value
