@@ -286,28 +286,33 @@ defmodule EMQXUmbrella.MixProject do
       vm_args_rendered
     )
 
-    Enum.each(
-      [
-        "emqx",
-        "emqx_ctl",
-        "common_defs.sh",
-        "common_defs2.sh",
-        "common_functions.sh"
-      ],
-      &Mix.Generator.copy_file(
-        "bin/#{&1}",
-        Path.join(bin, &1),
+    for name <- [
+          "emqx",
+          "emqx_ctl",
+          "common_defs.sh",
+          "common_defs2.sh",
+          "common_functions.sh"
+        ] do
+      Mix.Generator.copy_file(
+        "bin/#{name}",
+        Path.join(bin, name),
         force: overwrite?
       )
-    )
 
-    Enum.each(
-      [
-        "emqx",
-        "emqx_ctl"
-      ],
-      &File.chmod!(Path.join(bin, &1), 0o755)
-    )
+      # Files with the version appended are expected by the release
+      # upgrade script `install_upgrade.escript`
+      Mix.Generator.copy_file(
+        Path.join(bin, name),
+        Path.join(bin, name <> "-#{release.version}"),
+        force: overwrite?
+      )
+    end
+
+    for base_name <- ["emqx", "emqx_ctl"],
+        suffix <- ["", "-#{release.version}"] do
+      name = base_name <> suffix
+      File.chmod!(Path.join(bin, name), 0o755)
+    end
 
     release
   end
@@ -354,11 +359,19 @@ defmodule EMQXUmbrella.MixProject do
       |> File.read!()
       |> String.split("\n", parts: 2)
 
-    path = Path.join([release.path, "bin", escript_name])
     # the elixir version of escript + start.boot required the boot_var
     # RELEASE_LIB to be defined.
     boot_var = "%%!-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib"
-    File.write!(path, [shebang, "\n", boot_var, "\n", rest])
+
+    # Files with the version appended are expected by the release
+    # upgrade script `install_upgrade.escript`
+    Enum.each(
+      [escript_name, escript_name <> "-" <> release.version],
+      fn name ->
+        path = Path.join([release.path, "bin", name])
+        File.write!(path, [shebang, "\n", boot_var, "\n", rest])
+      end
+    )
 
     release
   end
