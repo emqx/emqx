@@ -195,6 +195,11 @@ login(post, #{body := Params}) ->
                     version => Version,
                     license => #{edition => emqx_release:edition()}
                    }};
+        {error, {lock_user, RetryAfter}} ->
+            Message = list_to_binary(
+                io_lib:format("User ~p locked, retry after ~p seconds",
+                    [Username, RetryAfter])),
+            {401, 'AUTH_LOCKED', Message};
         {error, _} ->
             {401, #{code => ?ERROR_USERNAME_OR_PWD, message => <<"Auth filed">>}}
     end.

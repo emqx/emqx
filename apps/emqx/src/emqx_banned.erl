@@ -22,7 +22,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
-
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
@@ -31,11 +30,12 @@
 -export([start_link/0, stop/0]).
 
 -export([ check/1
-        , check_api_banned/1
         , create/1
         , look_up/1
         , delete/1
         , info/1
+        , is_banned_api/1
+        , check_banned_api/1
         , format/1
         , parse/1
         , to_timestamp/1
@@ -227,9 +227,24 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% api user & app id banned
 %%--------------------------------------------------------------------
--spec(check_api_banned(User :: binary()) ->
-    ok | {lock_user,{User :: binary(), Interval :: integer()}}).
-check_api_banned(User) ->
+-spec(is_banned_api(User :: binary()) -> boolean()).
+is_banned_api(User) ->
+    case look_up({api_user, User}) of
+        [] ->
+            false;
+        [#banned{reason = R, until = Until} | _] ->
+            case Until > erlang:system_time(second) of
+                true ->
+                    R >= 10;
+                false ->
+                    _ = delete({api_user, User}),
+                    false
+            end
+    end.
+
+-spec(check_banned_api(User :: binary()) ->
+    ok | {lock_user,{User :: binary(), RetryAfter :: integer()}}).
+check_banned_api(User) ->
     case look_up({api_user, User}) of
         [] ->
             new_api_banned(User);
@@ -245,15 +260,7 @@ check_api_banned(User) ->
     end.
 
 new_api_banned(User) ->
-    Now = erlang:system_time(second),
-    NewBanned = #banned{
-        who = {api_user, User},
-        by = <<"emqx_dashboard">>,
-        reason = 1,
-        at = Now,
-        until = Now + 60
-    },
-    mria:dirty_write(?BANNED_TAB, NewBanned).
+    update_api_banned(User, 300).
 
 update_api_banned(User, Count) ->
     Now = erlang:system_time(second),

@@ -189,14 +189,20 @@ check(undefined, _) ->
 check(_, undefined) ->
     {error, <<"password_not_provided">>};
 check(Username, Password) ->
-    case lookup_user(Username) of
-        [#?ADMIN{pwdhash = PwdHash}] ->
-            case verify_hash(Password, PwdHash) of
-                ok  -> ok;
-                error -> {error, <<"password_error">>}
-            end;
-        [] ->
-            {error, <<"username_not_found">>}
+    case emqx_banned:is_banned_api(Username) of
+        true ->
+            {error, emqx_banned:check_banned_api(Username)};
+        false ->
+            case lookup_user(Username) of
+                [#?ADMIN{pwdhash = PwdHash}] ->
+                    case verify_hash(Password, PwdHash) of
+                        ok  -> ok;
+                        error -> {error, <<"password_error">>}
+                    end;
+                [] ->
+                    emqx_banned:check_banned_api(Username)
+                    {error, <<"username_not_found">>}
+            end
     end.
 
 %%--------------------------------------------------------------------

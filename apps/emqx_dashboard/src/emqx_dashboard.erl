@@ -144,33 +144,31 @@ authorize(Req) ->
                                 <<"Check username/password or api_key/api_secret">>)
                     end;
                 {error, <<"password_error">>} ->
-                    case emqx_banned:check_api_banned(Username) of
-                        ok ->
-                            return_unauthorized(
-                                <<"WORNG_USERNAME_OR_PWD">>, <<"Check username/password">>);
-                        {lock_user, {Username, RetryAfter}} ->
-                            Message = list_to_binary(
-                                io_lib:format("User ~p locked, retry after ~p seconds",
-                                    [Username, RetryAfter])),
-                            {401, #{code => 'AUTH_LOCKED', message => Message}}
-                    end
+                    return_unauthorized(
+                        <<"WORNG_USERNAME_OR_PWD">>, <<"Check username/password">>);
+                {error, {lock_user, RetryAfter}} ->
+                    Message = list_to_binary(
+                        io_lib:format("User ~p locked, retry after ~p seconds",
+                            [Username, RetryAfter])),
+                    {401, 'AUTH_LOCKED', Message}
             end;
         {bearer, Token} ->
             case emqx_dashboard_admin:verify_token(Token) of
                 ok ->
                     ok;
                 {error, token_timeout} ->
-                    return_unauthorized(<<"TOKEN_TIME_OUT">>, <<"POST '/login', get new token">>);
+                    {401, 'TOKEN_TIME_OUT', <<"POST '/login', refresh token">>};
                 {error, not_found} ->
-                    return_unauthorized(<<"BAD_TOKEN">>, <<"POST '/login'">>)
+                    {401, 'BAD_TOKEN', <<"POST '/login' get a token">>}
             end;
         _ ->
             return_unauthorized(<<"AUTHORIZATION_HEADER_ERROR">>,
-                <<"Support authorization: basic/bearer ">>)
+                <<"Support authorization: basic/bearer">>)
     end.
 
 return_unauthorized(Code, Message) ->
-    {401, #{<<"WWW-Authenticate">> =>
-    <<"Basic Realm=\"minirest-server\"">>},
+    {
+        401,
+        #{<<"WWW-Authenticate">> => <<"Basic Realm=\"minirest-server\"">>},
         #{code => Code, message => Message}
     }.
