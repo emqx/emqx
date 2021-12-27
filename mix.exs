@@ -288,6 +288,8 @@ defmodule EMQXUmbrella.MixProject do
 
     Enum.each(
       [
+        "emqx",
+        "emqx_ctl",
         "common_defs.sh",
         "common_defs2.sh",
         "common_functions.sh"
@@ -299,10 +301,12 @@ defmodule EMQXUmbrella.MixProject do
       )
     )
 
-    Mix.Generator.copy_file(
-      "bin/emqx",
-      Path.join(bin, "emqx"),
-      force: overwrite?
+    Enum.each(
+      [
+        "emqx",
+        "emqx_ctl"
+      ],
+      &File.chmod!(Path.join(bin, &1), 0o755)
     )
 
     release
