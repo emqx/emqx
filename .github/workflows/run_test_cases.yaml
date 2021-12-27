@@ -63,6 +63,7 @@ jobs:
           run: |
             docker-compose \
                 -f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mongo-single-tls.yaml \
                 -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-mysql-tls.yaml \
                 -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \

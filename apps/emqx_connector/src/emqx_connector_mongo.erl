@@ -18,6 +18,7 @@
 -include("emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -type server() :: emqx_schema:ip_port().
 -reflect_type([server/0]).
@@ -37,7 +38,7 @@
 
 -export([roots/0, fields/1]).
 
--export([mongo_query/5]).
+-export([mongo_query/5, check_worker_health/1]).
 
 %%=====================================================================
 roots() ->
@@ -158,28 +159,42 @@ on_query(InstId,
     end.
 
 -dialyzer({nowarn_function, [on_health_check/2]}).
-on_health_check(_InstId, #{poolname := PoolName} = State) ->
+on_health_check(InstId, #{poolname := PoolName} = State) ->
     case health_check(PoolName) of
-        true -> {ok, State};
-        false -> {error, health_check_failed, State}
+        true ->
+            ?tp(debug, emqx_connector_mongo_health_check, #{instance_id => InstId,
+                                                            status => ok}),
+            {ok, State};
+        false ->
+            ?tp(warning, emqx_connector_mongo_health_check, #{instance_id => InstId,
+                                                              status => failed}),
+            {error, health_check_failed, State}
     end.
 
 health_check(PoolName) ->
-    Status = [begin
-        case ecpool_worker:client(Worker) of
-            {ok, Conn} ->
-                %% we don't care if this returns something or not, we just to test the connection
-                try mongo_api:find_one(Conn, <<"foo">>, {}, #{}) of
-                    _ -> true
-                catch
-                    _Class:_Error -> false
-                end;
-            _ -> false
-        end
-    end || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
-    length(Status) > 0 andalso lists:all(fun(St) -> St =:= true end, Status).
+    Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    Status = rpc:pmap({?MODULE, check_worker_health}, [], Workers),
+    length(Status) > 0 andalso lists:all(fun(St) -> St end, Status).
 
 %% ===================================================================
+
+%% mongo_api:find_one/4 typing is invalid
+-dialyzer({nowarn_function, [check_worker_health/1]}).
+
+check_worker_health(Worker) -> 
+    case ecpool_worker:client(Worker) of
+        {ok, Conn} ->
+            %% we don't care if this returns something or not, we just to test the connection
+            try mongo_api:find_one(Conn, <<"foo">>, #{}, #{}) of
+                {error, _} -> false;
+                _ ->
+                    true
+            catch
+                _Class:_Error -> false
+            end;
+        _ -> false
+    end.
+
 connect(Opts) ->
     Type = proplists:get_value(mongo_type, Opts, single),
     Hosts = proplists:get_value(hosts, Opts, []),
