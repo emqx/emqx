@@ -28,6 +28,8 @@
         %, 'gateway-banned'/1
         ]).
 
+-elvis([{elvis_style, function_naming_convention, disable}]).
+
 -spec load() -> ok.
 load() ->
     Cmds = [Fun || {Fun, _} <- ?MODULE:module_info(exports), is_cmd(Fun)],
