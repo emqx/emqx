@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 ## EMQ docker image start script
 # Huang Rui <vowstar@gmail.com>
 # EMQ X Team <support@emqx.io>
