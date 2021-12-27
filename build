@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # This script helps to build release artifacts.
 # arg1: profile, e.g. emqx | emqx-edge | emqx-pkg | emqx-edge-pkg
