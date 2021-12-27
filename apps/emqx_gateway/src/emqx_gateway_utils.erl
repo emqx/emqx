@@ -18,12 +18,19 @@
 -module(emqx_gateway_utils).
 
 -include("emqx_gateway.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([ childspec/2
         , childspec/3
         , childspec/4
         , supervisor_ret/1
         , find_sup_child/2
+        ]).
+
+-export([ start_listeners/4
+        , start_listener/4
+        , stop_listeners/2
+        , stop_listener/2
         ]).
 
 -export([ apply/2
@@ -89,9 +96,15 @@ childspec(Id, Type, Mod, Args) ->
 -spec supervisor_ret(supervisor:startchild_ret())
     -> {ok, pid()}
      | {error, supervisor:startchild_err()}.
-supervisor_ret({ok, Pid, _Info}) -> {ok, Pid};
-supervisor_ret({error, {Reason, _Child}}) -> {error, Reason};
-supervisor_ret(Ret) -> Ret.
+supervisor_ret({ok, Pid, _Info}) ->
+    {ok, Pid};
+supervisor_ret({error, {Reason, Child}}) ->
+    case element(1, Child) == child of
+        true -> {error, Reason};
+        _ -> {error, {Reason, Child}}
+    end;
+supervisor_ret(Ret) ->
+    Ret.
 
 -spec find_sup_child(Sup :: pid() | atom(), ChildId :: supervisor:child_id())
     -> false
@@ -101,6 +114,120 @@ find_sup_child(Sup, ChildId) ->
         false -> false;
         {_Id, Pid, _Type, _Mods} -> {ok, Pid}
     end.
+
+%% @doc start listeners. close all listeners if someone failed
+-spec start_listeners(Listeners :: list(),
+                      GwName :: atom(),
+                      Ctx :: map(),
+                      ModCfg)
+    -> {ok, [pid()]}
+     | {error, term()}
+    when ModCfg :: #{frame_mod := atom(), chann_mod := atom()}.
+start_listeners(Listeners, GwName, Ctx, ModCfg) ->
+    start_listeners(Listeners, GwName, Ctx, ModCfg, []).
+
+start_listeners([], _, _, _, Acc) ->
+    {ok, lists:map(fun({listener, {_, Pid}}) -> Pid end, Acc)};
+start_listeners([L | Ls], GwName, Ctx, ModCfg, Acc) ->
+    case start_listener(GwName, Ctx, L, ModCfg) of
+        {ok, {ListenerId, ListenOn, Pid}} ->
+            NAcc = Acc ++ [{listener, {{ListenerId, ListenOn}, Pid}}],
+            start_listeners(Ls, GwName, Ctx, ModCfg, NAcc);
+        {error, Reason} ->
+            lists:foreach(fun({listener, {{ListenerId, ListenOn}, _}}) ->
+                esockd:close({ListenerId, ListenOn})
+            end, Acc),
+            {error, {Reason, L}}
+    end.
+
+-spec start_listener(GwName :: atom(),
+                     Ctx :: emqx_gateway_ctx:context(),
+                     Listener :: tuple(),
+                     ModCfg :: map())
+    -> {ok, pid()}
+     | {error, term()}.
+start_listener(GwName, Ctx,
+               {Type, LisName, ListenOn, SocketOpts, Cfg}, ModCfg) ->
+    ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
+    ListenerId  = emqx_gateway_utils:listener_id(GwName, Type, LisName),
+
+    NCfg = maps:merge(Cfg, ModCfg),
+    case start_listener(GwName, Ctx, Type,
+                        LisName, ListenOn, SocketOpts, NCfg) of
+        {ok, Pid} ->
+            console_print("Gateway ~ts:~ts:~ts on ~ts started.~n",
+                          [GwName, Type, LisName, ListenOnStr]),
+            {ok, {ListenerId, ListenOn, Pid}};
+        {error, Reason} ->
+            ?ELOG("Failed to start gateway ~ts:~ts:~ts on ~ts: ~0p~n",
+                  [GwName, Type, LisName, ListenOnStr, Reason]),
+            emqx_gateway_utils:supervisor_ret({error, Reason})
+    end.
+
+start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
+    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
+    NCfg = Cfg#{ ctx => Ctx
+               , listener => {GwName, Type, LisName}
+               },
+    NSocketOpts = merge_default(Type, SocketOpts),
+    MFA = {emqx_gateway_conn, start_link, [NCfg]},
+    do_start_listener(Type, Name, ListenOn, NSocketOpts, MFA).
+
+merge_default(Udp, Options) ->
+    {Key, Default} = case Udp of
+                         udp ->
+                             {udp_options, default_udp_options()};
+                         dtls ->
+                             {udp_options, default_udp_options()};
+                         tcp ->
+                             {tcp_options, default_tcp_options()};
+                         ssl ->
+                             {tcp_options, default_tcp_options()}
+                     end,
+    case lists:keytake(Key, 1, Options) of
+        {value, {Key, TcpOpts}, Options1} ->
+            [{Key, emqx_misc:merge_opts(Default, TcpOpts)}
+             | Options1];
+        false ->
+            [{Key, Default} | Options]
+    end.
+
+do_start_listener(Type, Name, ListenOn, SocketOpts, MFA)
+  when Type == tcp;
+       Type == ssl ->
+    esockd:open(Name, ListenOn, SocketOpts, MFA);
+do_start_listener(udp, Name, ListenOn, SocketOpts, MFA) ->
+    esockd:open_udp(Name, ListenOn, SocketOpts, MFA);
+do_start_listener(dtls, Name, ListenOn, SocketOpts, MFA) ->
+    esockd:open_dtls(Name, ListenOn, SocketOpts, MFA).
+
+-spec stop_listeners(GwName :: atom(), Listeners :: list()) -> ok.
+stop_listeners(GwName, Listeners) ->
+    lists:foreach(fun(L) -> stop_listener(GwName, L) end, Listeners).
+
+-spec stop_listener(GwName :: atom(), Listener :: tuple()) -> ok.
+stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
+    StopRet = stop_listener(GwName, Type, LisName, ListenOn, SocketOpts, Cfg),
+    ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
+    case StopRet of
+        ok ->
+            console_print("Gateway ~ts:~ts:~ts on ~ts stopped.~n",
+                          [GwName, Type, LisName, ListenOnStr]);
+        {error, Reason} ->
+            ?ELOG("Failed to stop gateway ~ts:~ts:~ts on ~ts: ~0p~n",
+                  [GwName, Type, LisName, ListenOnStr, Reason])
+    end,
+    StopRet.
+
+stop_listener(GwName, Type, LisName, ListenOn, _SocketOpts, _Cfg) ->
+    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
+    esockd:close(Name, ListenOn).
+
+-ifndef(TEST).
+console_print(Fmt, Args) -> ?ULOG(Fmt, Args).
+-else.
+console_print(_Fmt, _Args) -> ok.
+-endif.
 
 apply({M, F, A}, A2) when is_atom(M),
                           is_atom(M),

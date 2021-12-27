@@ -19,6 +19,8 @@
 
 -behaviour(emqx_gateway_impl).
 
+-include_lib("emqx/include/logger.hrl").
+
 %% APIs
 -export([ reg/0
         , unreg/0
@@ -28,8 +30,6 @@
         , on_gateway_update/3
         , on_gateway_unload/2
         ]).
-
--include_lib("emqx/include/logger.hrl").
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -54,10 +54,20 @@ on_gateway_load(_Gateway = #{ name := GwName,
     case emqx_lwm2m_xml_object_db:start_link(XmlDir) of
         {ok, RegPid} ->
             Listeners = emqx_gateway_utils:normalize_config(Config),
-            ListenerPids = lists:map(fun(Lis) ->
-                                             start_listener(GwName, Ctx, Lis)
-                                     end, Listeners),
-            {ok, ListenerPids, _GwState = #{ctx => Ctx, registry => RegPid}};
+            ModCfg = #{frame_mod => emqx_coap_frame,
+                       chann_mod => emqx_lwm2m_channel
+                      },
+            case emqx_gateway_utils:start_listeners(
+                   Listeners, GwName, Ctx, ModCfg) of
+                {ok, ListenerPids} ->
+                    {ok, ListenerPids, #{ctx => Ctx, registry => RegPid}};
+                {error, {Reason, Listener}} ->
+                    emqx_lwm2m_xml_object_db:stop(),
+                    throw({badconf, #{ key => listeners
+                                     , vallue => Listener
+                                     , reason => Reason
+                                     }})
+            end;
         {error, Reason} ->
             throw({badconf, #{ key => xml_dir
                              , value => XmlDir
@@ -85,73 +95,4 @@ on_gateway_unload(_Gateway = #{ name := GwName,
                               }, _GwState = #{registry := RegPid}) ->
     exit(RegPid, kill),
     Listeners = emqx_gateway_utils:normalize_config(Config),
-    lists:foreach(fun(Lis) ->
-        stop_listener(GwName, Lis)
-    end, Listeners).
-
-%%--------------------------------------------------------------------
-%% Internal funcs
-%%--------------------------------------------------------------------
-
-start_listener(GwName, Ctx, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
-    ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
-    case start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) of
-        {ok, Pid} ->
-            console_print("Gateway ~ts:~ts:~ts on ~ts started.~n",
-                          [GwName, Type, LisName, ListenOnStr]),
-            Pid;
-        {error, Reason} ->
-            ?ELOG("Failed to start gateway ~ts:~ts:~ts on ~ts: ~0p~n",
-                  [GwName, Type, LisName, ListenOnStr, Reason]),
-            throw({badconf, Reason})
-    end.
-
-start_listener(GwName, Ctx, Type, LisName, ListenOn, SocketOpts, Cfg) ->
-    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
-    NCfg = Cfg#{ ctx => Ctx
-               , listener => {GwName, Type, LisName}
-               , frame_mod => emqx_coap_frame
-               , chann_mod => emqx_lwm2m_channel
-               },
-    NSocketOpts = merge_default(SocketOpts),
-    MFA = {emqx_gateway_conn, start_link, [NCfg]},
-    do_start_listener(Type, Name, ListenOn, NSocketOpts, MFA).
-
-merge_default(Options) ->
-    Default = emqx_gateway_utils:default_udp_options(),
-    case lists:keytake(udp_options, 1, Options) of
-        {value, {udp_options, TcpOpts}, Options1} ->
-            [{udp_options, emqx_misc:merge_opts(Default, TcpOpts)}
-             | Options1];
-        false ->
-            [{udp_options, Default} | Options]
-    end.
-
-do_start_listener(udp, Name, ListenOn, SocketOpts, MFA) ->
-    esockd:open_udp(Name, ListenOn, SocketOpts, MFA);
-
-do_start_listener(dtls, Name, ListenOn, SocketOpts, MFA) ->
-    esockd:open_dtls(Name, ListenOn, SocketOpts, MFA).
-
-stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
-    StopRet = stop_listener(GwName, Type, LisName, ListenOn, SocketOpts, Cfg),
-    ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
-    case StopRet of
-        ok ->
-            console_print("Gateway ~ts:~ts:~ts on ~ts stopped.~n",
-                          [GwName, Type, LisName, ListenOnStr]);
-        {error, Reason} ->
-            ?ELOG("Failed to stop gateway ~ts:~ts:~ts on ~ts: ~0p~n",
-                  [GwName, Type, LisName, ListenOnStr, Reason])
-    end,
-    StopRet.
-
-stop_listener(GwName, Type, LisName, ListenOn, _SocketOpts, _Cfg) ->
-    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
-    esockd:close(Name, ListenOn).
-
--ifndef(TEST).
-console_print(Fmt, Args) -> ?ULOG(Fmt, Args).
--else.
-console_print(_Fmt, _Args) -> ok.
--endif.
+    emqx_gateway_utils:stop_listeners(GwName, Listeners).
