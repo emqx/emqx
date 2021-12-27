@@ -106,47 +106,7 @@ defmodule EMQXUmbrella.MixProject do
           end
 
         [
-          applications: [
-            logger: :permanent,
-            crypto: :permanent,
-            public_key: :permanent,
-            asn1: :permanent,
-            syntax_tools: :permanent,
-            ssl: :permanent,
-            os_mon: :permanent,
-            inets: :permanent,
-            compiler: :permanent,
-            runtime_tools: :permanent,
-            hocon: :load,
-            emqx: :load,
-            emqx_conf: :load,
-            emqx_machine: :permanent,
-            mria: :load,
-            mnesia: :load,
-            ekka: :load,
-            emqx_plugin_libs: :load,
-            esasl: :load,
-            emqx_http_lib: :permanent,
-            emqx_resource: :permanent,
-            emqx_connector: :permanent,
-            emqx_authn: :permanent,
-            emqx_authz: :permanent,
-            emqx_auto_subscribe: :permanent,
-            emqx_gateway: :permanent,
-            emqx_exhook: :permanent,
-            emqx_bridge: :permanent,
-            emqx_rule_engine: :permanent,
-            emqx_modules: :permanent,
-            emqx_management: :permanent,
-            emqx_dashboard: :permanent,
-            emqx_statsd: :permanent,
-            emqx_retainer: :permanent,
-            emqx_prometheus: :permanent,
-            emqx_psk: :permanent,
-            emqx_slow_subs: :permanent,
-            emqx_plugins: :permanent,
-            emqx_mix: :none
-          ],
+          applications: applications(release_type),
           skip_mode_validation_for: [
             :emqx_gateway,
             :emqx_dashboard,
@@ -165,6 +125,58 @@ defmodule EMQXUmbrella.MixProject do
         ]
       end
     ]
+  end
+
+  def applications(release_type) do
+    [
+      logger: :permanent,
+      crypto: :permanent,
+      public_key: :permanent,
+      asn1: :permanent,
+      syntax_tools: :permanent,
+      ssl: :permanent,
+      os_mon: :permanent,
+      inets: :permanent,
+      compiler: :permanent,
+      runtime_tools: :permanent,
+      hocon: :load,
+      emqx: :load,
+      emqx_conf: :load,
+      emqx_machine: :permanent,
+      mria: :load,
+      mnesia: :load,
+      ekka: :load,
+      emqx_plugin_libs: :load,
+      esasl: :load,
+      observer_cli: :permanent,
+      system_monitor: :permanent,
+      emqx_http_lib: :permanent,
+      emqx_resource: :permanent,
+      emqx_connector: :permanent,
+      emqx_authn: :permanent,
+      emqx_authz: :permanent,
+      emqx_auto_subscribe: :permanent,
+      emqx_gateway: :permanent,
+      emqx_exhook: :permanent,
+      emqx_bridge: :permanent,
+      emqx_rule_engine: :permanent,
+      emqx_modules: :permanent,
+      emqx_management: :permanent,
+      emqx_dashboard: :permanent,
+      emqx_retainer: :permanent,
+      emqx_statsd: :permanent,
+      emqx_prometheus: :permanent,
+      emqx_psk: :permanent,
+      emqx_slow_subs: :permanent,
+      emqx_plugins: :permanent,
+      emqx_mix: :none
+    ] ++
+      if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
+      if(enable_bcrypt?(), do: [bcrypt: :permanent], else: []) ++
+      if(release_type == :cloud,
+        do: [xmerl: :permanent, observer: :load],
+        else: []
+      )
   end
 
   defp read_inputs() do
