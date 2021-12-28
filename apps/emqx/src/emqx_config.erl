@@ -281,7 +281,7 @@ init_load(SchemaMod, RawConf) when is_map(RawConf) ->
                             maps:with(RootNames, RawConfWithEnvs)).
 
 include_dirs() ->
-    [filename:join(emqx:data_dir(), "configs") ++ "/"].
+    [filename:join(emqx:data_dir(), "configs")].
 
 merge_envs(SchemaMod, RawConf) ->
     Opts = #{logger => fun(_, _) -> ok end, %% everything should have been logged already when check_config
