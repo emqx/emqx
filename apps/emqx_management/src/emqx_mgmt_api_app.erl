@@ -100,7 +100,7 @@ fields(app) ->
             #{desc => "ApiKey create datetime",
                 example => <<"2021-12-01T00:00:00.000Z">>
             })},
-        {desc, hoconsc:mk(emqx_schema:unicode_binary(),
+        {desc, hoconsc:mk(binary(),
             #{example => <<"Note">>, nullable => true})},
         {enable, hoconsc:mk(boolean(), #{desc => "Enable/Disable", nullable => true})}
     ];
