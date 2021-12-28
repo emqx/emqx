@@ -33,7 +33,7 @@
 -export([connect/1]).
 
 -export([ query/3
-        , query/4
+        , prepared_query/4
         ]).
 
 -export([do_health_check/1]).
@@ -120,7 +120,7 @@ connect(Opts) ->
 query(Conn, SQL, Params) ->
     epgsql:equery(Conn, SQL, Params).
 
-query(Conn, Name, SQL, Params) ->
+prepared_query(Conn, Name, SQL, Params) ->
     epgsql:prepared_query2(Conn, Name, SQL, Params).
 
 conn_opts(Opts) ->
