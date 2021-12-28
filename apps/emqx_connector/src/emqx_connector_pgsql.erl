@@ -32,7 +32,7 @@
 
 -export([connect/1]).
 
--export([query/3]).
+-export([query/4]).
 
 -export([do_health_check/1]).
 
@@ -85,7 +85,7 @@ on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
 on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := PoolName} = State) ->
     ?SLOG(debug, #{msg => "postgresql connector received sql query",
         connector => InstId, sql => SQL, state => State}),
-    case Result = ecpool:pick_and_do(PoolName, {?MODULE, query, [SQL, Params]}, no_handover) of
+    case Result = ecpool:pick_and_do(PoolName, {?MODULE, query, [InstId, SQL, Params]}, no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "postgresql connector do sql query failed",
@@ -112,8 +112,8 @@ connect(Opts) ->
     Password = proplists:get_value(password, Opts),
     epgsql:connect(Host, Username, Password, conn_opts(Opts)).
 
-query(Conn, SQL, Params) ->
-    epgsql:equery(Conn, SQL, Params).
+query(Conn, Name, SQL, Params) ->
+    epgsql:prepared_query2(Conn, Name, SQL, Params).
 
 conn_opts(Opts) ->
     conn_opts(Opts, []).
