@@ -6,11 +6,7 @@ target_files=()
 while IFS='' read -r line;
 do
   target_files+=("$line");
-done < <(grep -r -l \
-              --exclude-dir=.git \
-              --exclude-dir=_build \
-              --exclude-dir=deps \
-              "^#!/bin/" .)
+done < <(git grep -r -l "^#!/bin/" .)
 return_code=0
 for i in "${target_files[@]}"; do
   echo checking "$i" ...
