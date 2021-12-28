@@ -44,6 +44,7 @@
 
 -define(MESSAGE_ID_NOT_FOUND, 'MESSAGE_ID_NOT_FOUND').
 -define(MESSAGE_ID_SCHEMA_ERROR, 'MESSAGE_ID_SCHEMA_ERROR').
+-define(MAX_PAYLOAD_SIZE, 1048576). %% 1MB = 1024 x 1024
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
@@ -157,11 +158,11 @@ delayed_message(get, #{bindings := #{msgid := Id}}) ->
     case emqx_delayed:get_delayed_message(Id) of
         {ok, Message} ->
             Payload = maps:get(payload, Message),
-            case size(Payload) > ?MAX_PAYLOAD_LENGTH of
+            case erlang:byte_size(Payload) > ?MAX_PAYLOAD_SIZE of
                 true ->
-                    {200, Message#{payload => ?PAYLOAD_TOO_LARGE}};
+                    {200, Message};
                 _ ->
-                    {200, Message#{payload => Payload}}
+                    {200, Message#{payload => base64:encode(Payload)}}
             end;
         {error, id_schema_error} ->
             {400, generate_http_code_map(id_schema_error, Id)};
