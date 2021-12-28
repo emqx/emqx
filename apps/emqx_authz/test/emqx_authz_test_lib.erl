@@ -70,6 +70,7 @@ test_samples(ClientInfo, Samples) ->
 test_no_topic_rules(ClientInfo, SetupSamples) ->
     %% No rules
 
+    ok = reset_authorizers(deny, false),
     ok = SetupSamples(ClientInfo, []),
 
     ok = test_samples(

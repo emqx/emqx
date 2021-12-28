@@ -20,14 +20,10 @@
 
 -reflect_type([ permission/0
               , action/0
-              , url/0
               ]).
-
--typerefl_from_string({url/0, emqx_http_lib, uri_parse}).
 
 -type action() :: publish | subscribe | all.
 -type permission() :: allow | deny.
--type url() :: emqx_http_lib:uri_map().
 
 -export([ namespace/0
         , roots/0
@@ -143,10 +139,11 @@ fields(redis_cluster) ->
 http_common_fields() ->
     [ {type,            #{type => http}}
     , {enable,          #{type => boolean(), default => true}}
-    , {url,             #{type => url()}}
     , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
     , {body,            #{type => map(), nullable => true}}
-    ] ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
+    , {path,            #{type => string(), default => ""}}
+    , {query,           #{type => string(), default => ""}}
+    ] ++ emqx_connector_http:fields(config).
 
 mongo_common_fields() ->
     [ {collection, #{type => atom()}}
@@ -203,7 +200,7 @@ check_ssl_opts(Conf)
   when Conf =:= #{} ->
     true;
 check_ssl_opts(Conf) ->
-    case emqx_authz_http:parse_url(hocon_schema:get_value("config.url", Conf)) of
+    case emqx_authz_http:parse_url(hocon_schema:get_value("config.base_url", Conf)) of
         #{scheme := https} ->
             case hocon_schema:get_value("config.ssl.enable", Conf) of
                 true -> ok;

@@ -18,10 +18,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -31,86 +29,123 @@ groups() ->
 
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps(
-           [emqx_connector, emqx_conf, emqx_authz],
-           fun set_special_configs/1
-          ),
+           [emqx_conf, emqx_authz],
+           fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    {ok, _} = emqx:update_config(
-                [authorization],
-                #{<<"no_match">> => <<"allow">>,
-                  <<"cache">> => #{<<"enable">> => <<"true">>},
-                  <<"sources">> => []}),
-    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_conf]),
-    ok.
+    ok = emqx_authz_test_lib:restore_authorizers(),
+    ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
+
+init_per_testcase(_TestCase, Config) ->
+    ok = emqx_authz_test_lib:reset_authorizers(),
+    ok = setup_config(),
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    ok = emqx_authz_mnesia:purge_rules().
 
 set_special_configs(emqx_authz) ->
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-    {ok, _} = emqx:update_config([authorization, sources],
-                                 [#{<<"type">> => <<"built-in-database">>}]),
-    ok;
-set_special_configs(_App) ->
+    ok = emqx_authz_test_lib:reset_authorizers();
+
+set_special_configs(_) ->
     ok.
-
-init_per_testcase(t_authz, Config) ->
-     emqx_authz_mnesia:store_rules(
-       {username, <<"test_username">>},
-       [{allow, publish, <<"test/", ?PH_S_USERNAME>>},
-        {allow, subscribe, <<"eq #">>}]),
-
-     emqx_authz_mnesia:store_rules(
-       {clientid, <<"test_clientid">>},
-       [{allow, publish, <<"test/", ?PH_S_CLIENTID>>},
-        {deny, subscribe, <<"eq #">>}]),
-
-     emqx_authz_mnesia:store_rules(
-       all,
-       [{deny, all, <<"#">>}]),
-
-    Config;
-init_per_testcase(_, Config) -> Config.
-
-end_per_testcase(t_authz, Config) ->
-    ok = emqx_authz_mnesia:purge_rules(),
-    Config;
-end_per_testcase(_, Config) -> Config.
 
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
+t_username_topic_rules(_Config) ->
+    ok = test_topic_rules(username).
 
-t_authz(_) ->
-    ClientInfo1 = #{clientid => <<"test">>,
-                    username => <<"test">>,
-                    peerhost => {127,0,0,1},
-                    listener => {tcp, default}
-                   },
-    ClientInfo2 = #{clientid => <<"fake_clientid">>,
-                    username => <<"test_username">>,
-                    peerhost => {127,0,0,1},
-                    listener => {tcp, default}
-                   },
-    ClientInfo3 = #{clientid => <<"test_clientid">>,
-                    username => <<"fake_username">>,
-                    peerhost => {127,0,0,1},
-                    listener => {tcp, default}
-                   },
+t_clientid_topic_rules(_Config) ->
+    ok = test_topic_rules(clientid).
 
-    ?assertEqual(deny, emqx_access_control:authorize(
-                         ClientInfo1, subscribe, <<"#">>)),
-    ?assertEqual(deny, emqx_access_control:authorize(
-                         ClientInfo1, publish, <<"#">>)),
+t_all_topic_rules(_Config) ->
+    ok = test_topic_rules(all).
 
-    ?assertEqual(allow, emqx_access_control:authorize(
-                          ClientInfo2, publish, <<"test/test_username">>)),
-    ?assertEqual(allow, emqx_access_control:authorize(
-                          ClientInfo2, subscribe, <<"#">>)),
+test_topic_rules(Key) ->
+    ClientInfo = #{clientid => <<"clientid">>,
+                   username => <<"username">>,
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => {tcp, default}
+                  },
 
-    ?assertEqual(allow, emqx_access_control:authorize(
-                          ClientInfo3, publish, <<"test/test_clientid">>)),
-    ?assertEqual(deny,  emqx_access_control:authorize(
-                          ClientInfo3, subscribe, <<"#">>)),
+    SetupSamples = fun(CInfo, Samples) ->
+                           setup_client_samples(CInfo, Samples, Key)
+                   end,
 
-    ok.
+    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, SetupSamples),
+
+    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, SetupSamples),
+
+    ok = emqx_authz_test_lib:test_deny_topic_rules(ClientInfo, SetupSamples).
+
+t_normalize_rules(_Config) ->
+    ClientInfo = #{clientid => <<"clientid">>,
+                   username => <<"username">>,
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => {tcp, default}
+                  },
+
+    ok = emqx_authz_mnesia:store_rules(
+           {username, <<"username">>},
+           [{allow, publish, "t"}]),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)),
+
+    ?assertException(
+       error,
+       {invalid_rule, _},
+       emqx_authz_mnesia:store_rules(
+         {username, <<"username">>},
+         [[allow, publish, <<"t">>]])),
+
+    ?assertException(
+       error,
+       {invalid_rule_action, _},
+       emqx_authz_mnesia:store_rules(
+         {username, <<"username">>},
+         [{allow, pub, <<"t">>}])),
+
+    ?assertException(
+       error,
+       {invalid_rule_permission, _},
+       emqx_authz_mnesia:store_rules(
+         {username, <<"username">>},
+         [{accept, publish, <<"t">>}])).
+
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
+
+raw_mnesia_authz_config() ->
+    #{
+        <<"enable">> => <<"true">>,
+        <<"type">> => <<"built-in-database">>
+    }.
+
+setup_client_samples(ClientInfo, Samples, Key) ->
+    ok = emqx_authz_mnesia:purge_rules(),
+    Rules = lists:flatmap(
+           fun(#{topics := Topics, permission := Permission, action := Action}) ->
+                   lists:map(
+                     fun(Topic) ->
+                             {binary_to_atom(Permission), binary_to_atom(Action), Topic}
+                     end,
+                     Topics)
+           end,
+           Samples),
+    #{username := Username, clientid := ClientId} = ClientInfo,
+    Who = case Key of
+              username -> {username, Username};
+              clientid -> {clientid, ClientId};
+              all -> all
+          end,
+    ok = emqx_authz_mnesia:store_rules(Who, Rules).
+
+setup_config() ->
+    emqx_authz_test_lib:setup_config(raw_mnesia_authz_config(), #{}).

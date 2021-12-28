@@ -56,7 +56,7 @@ end_per_suite(_Config) ->
     ok = stop_apps([emqx_resource, emqx_connector]),
     ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
 
-init_per_testcase(Config) ->
+init_per_testcase(_TestCase, Config) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
     Config.
 
