@@ -1,6 +1,29 @@
 defmodule EMQXUmbrella.MixProject do
   use Mix.Project
 
+  @moduledoc """
+
+  The purpose of this file is to configure the release of EMQX under
+  Mix.  Since EMQX uses its own configuration conventions and startup
+  procedures, one cannot simply use `iex -S mix`.  Instead, it's
+  recommendd to build and use the release.
+
+  ## Release Environment Variables
+
+  The release build is controlled by a few environment variables.
+
+    * `ELIXIR_MAKE_TAR` - If set to `yes`, will produce a `.tar.gz`
+      tarball along with the release.
+    * `EMQX_RELEASE_TYPE` - Must be one of `cloud | edge`.  Controls a
+      few dependencies and the `vm.args` to be used.  Defaults to
+      `cloud`.
+    * `EMQX_PACKAGE_TYPE` - Must be one of `bin | pkg`.  Controls
+      whether the build is intended for direct usage or for packaging.
+      Defaults to `bin`.
+    * `EMQX_EDITION_TYPE` - Must be one of `community | enterprise`.
+      Defaults to `community`.
+  """
+
   # Temporary hack while 1.13.2 is not released
   System.version()
   |> Version.parse!()
