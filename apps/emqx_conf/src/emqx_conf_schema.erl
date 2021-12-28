@@ -479,7 +479,7 @@ fields("rpc") ->
            })}
     , {"tcp_client_num",
        sc(range(1, 256),
-          #{ default => 1
+          #{ default => 10
            })}
     , {"connect_timeout",
        sc(emqx_schema:duration(),

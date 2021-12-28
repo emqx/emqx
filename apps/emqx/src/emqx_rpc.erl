@@ -30,7 +30,7 @@
           , rpc_nodes/1
           ]}).
 
--define(DefaultClientNum, 1).
+-define(DefaultClientNum, 10).
 
 call(Node, Mod, Fun, Args) ->
     filter_result(gen_rpc:call(rpc_node(Node), Mod, Fun, Args)).
