@@ -42,24 +42,9 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Mngr = ?CHILD(emqx_exhook_mngr, worker,
-                  [servers(), auto_reconnect(), request_options()]),
+    _ = emqx_exhook_mgr:init_counter_table(),
+    Mngr = ?CHILD(emqx_exhook_mgr, worker, []),
     {ok, {{one_for_one, 10, 100}, [Mngr]}}.
-
-servers() ->
-    env(servers, []).
-
-auto_reconnect() ->
-    env(auto_reconnect, 60000).
-
-request_options() ->
-    #{timeout => env(request_timeout, 5000),
-      request_failed_action => env(request_failed_action, deny),
-      pool_size => env(pool_size, erlang:system_info(schedulers))
-     }.
-
-env(Key, Def) ->
-    emqx_conf:get([exhook, Key], Def).
 
 %%--------------------------------------------------------------------
 %% APIs

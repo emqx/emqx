@@ -173,15 +173,15 @@ handle_call(get_telemetry, _From, State) ->
     {reply, {ok, get_telemetry(State)}, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected msg: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_continue(Continue, State) ->
-    ?LOG(error, "Unexpected continue: ~p", [Continue]),
+    ?SLOG(error, #{msg => "unexpected_continue", continue => Continue}),
     {noreply, State}.
 
 handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer = TRef}) ->
@@ -192,7 +192,7 @@ handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer
     {noreply, ensure_report_timer(State)};
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -220,37 +220,24 @@ os_info() ->
             [{os_name, Name},
              {os_version, Version}];
         {unix, _} ->
-            case file:read_file_info("/etc/os-release") of
+            case file:read_file("/etc/os-release") of
                 {error, _} ->
                     [{os_name, "Unknown"},
                      {os_version, "Unknown"}];
-                {ok, FileInfo} ->
-                    case FileInfo#file_info.access of
-                        Access when Access =:= read orelse Access =:= read_write ->
-                            OSInfo = lists:foldl(fun(Line, Acc) ->
-                                                     [Var, Value] = string:tokens(Line, "="),
-                                                     NValue = case Value of
-                                                                  _ when is_list(Value) ->
-                                                                      lists:nth(1, string:tokens(Value, "\""));
-                                                                  _ ->
-                                                                      Value
-                                                              end,
-                                                     [{Var, NValue} | Acc]
-                                                 end, [], string:tokens(os:cmd("cat /etc/os-release"), "\n")),
-                            [{os_name, get_value("NAME", OSInfo, "Unknown")},
-                             {os_version, get_value("VERSION", OSInfo,
-                                                    get_value("VERSION_ID", OSInfo, "Unknown"))}];
-                        _ ->
-                            [{os_name, "Unknown"},
-                             {os_version, "Unknown"}]
-                    end
+                {ok, FileContent} ->
+                    OSInfo = parse_os_release(FileContent),
+                    [{os_name, get_value("NAME", OSInfo)},
+                     {os_version, get_value("VERSION", OSInfo,
+                                            get_value("VERSION_ID", OSInfo,
+                                                      get_value("PRETTY_NAME", OSInfo)))}]
             end;
         {win32, nt} ->
             Ver = os:cmd("ver"),
             case re:run(Ver, "[a-zA-Z ]+ \\[Version ([0-9]+[\.])+[0-9]+\\]", [{capture, none}]) of
                 match ->
                     [NVer | _] = string:tokens(Ver, "\r\n"),
-                    {match, [Version]} = re:run(NVer, "([0-9]+[\.])+[0-9]+", [{capture, first, list}]),
+                    {match, [Version]} =
+                        re:run(NVer, "([0-9]+[\.])+[0-9]+", [{capture, first, list}]),
                     [Name | _] = string:split(NVer, " [Version "),
                     [{os_name, Name},
                      {os_version, Version}];
@@ -307,7 +294,8 @@ generate_uuid() ->
     <<NTimeHigh:16>> = <<16#01:4, TimeHigh:12>>,
     <<NClockSeq:16>> = <<1:1, 0:1, ClockSeq:14>>,
     <<Node:48>> = <<First:7, 1:1, Last:40>>,
-    list_to_binary(io_lib:format("~.16B-~.16B-~.16B-~.16B-~.16B", [TimeLow, TimeMid, NTimeHigh, NClockSeq, Node])).
+    list_to_binary(io_lib:format( "~.16B-~.16B-~.16B-~.16B-~.16B"
+                                , [TimeLow, TimeMid, NTimeHigh, NClockSeq, Node])).
 
 get_telemetry(#state{uuid = UUID}) ->
     OSInfo = os_info(),
@@ -339,7 +327,22 @@ report_telemetry(State = #state{url = URL}) ->
 httpc_request(Method, URL, Headers, Body) ->
     httpc:request(Method, {URL, Headers, "application/json", Body}, [], []).
 
+parse_os_release(FileContent) ->
+    lists:foldl(fun(Line, Acc) ->
+                        [Var, Value] = string:tokens(Line, "="),
+                        NValue = case Value of
+                                     _ when is_list(Value) ->
+                                         lists:nth(1, string:tokens(Value, "\""));
+                                     _ ->
+                                         Value
+                                 end,
+                        [{Var, NValue} | Acc]
+                end,
+                [], string:tokens(binary:bin_to_list(FileContent), "\n")).
+
 bin(L) when is_list(L) ->
     list_to_binary(L);
+bin(A) when is_atom(A) ->
+    atom_to_binary(A);
 bin(B) when is_binary(B) ->
     B.

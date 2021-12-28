@@ -310,7 +310,7 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
                     _ -> Acc
                 end;
             {error, Node, Reason} ->
-                ?LOG(error, "download trace log error:~p", [{Node, TraceLog, Reason}]),
+                ?SLOG(error, #{msg => "download_trace_log_error", node => Node, log => TraceLog, reason => Reason}),
                 Acc
         end
                 end, [], TraceFiles).

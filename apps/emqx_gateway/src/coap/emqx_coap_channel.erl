@@ -460,8 +460,9 @@ process_connect(#channel{ctx = Ctx,
         {ok, _Sess} ->
             RandVal = rand:uniform(?TOKEN_MAXIMUM),
             Token = erlang:list_to_binary(erlang:integer_to_list(RandVal)),
+            NResult = Result#{events => [{event, connected}]},
             iter(Iter,
-                 reply({ok, created}, Token, Msg, Result),
+                 reply({ok, created}, Token, Msg, NResult),
                  Channel#channel{token = Token});
         {error, Reason} ->
             ?SLOG(error, #{ msg => "failed_open_session"
@@ -568,7 +569,8 @@ process_out(Outs, Result, Channel, _) ->
                 Reply ->
                     [Reply | Outs2]
             end,
-    {ok, {outgoing, Outs3}, Channel}.
+    Events = maps:get(events, Result, []),
+    {ok, [{outgoing, Outs3}] ++ Events, Channel}.
 
 %% leaf node
 process_nothing(_, _, Channel) ->
@@ -607,4 +609,6 @@ process_reply(Reply, Result, #channel{session = Session} = Channel, _) ->
     Session2 = emqx_coap_session:set_reply(Reply, Session),
     Outs = maps:get(out, Result, []),
     Outs2 = lists:reverse(Outs),
-    {ok, {outgoing, [Reply | Outs2]}, Channel#channel{session = Session2}}.
+    Events = maps:get(events, Result, []),
+    {ok, [{outgoing, [Reply | Outs2]}] ++ Events,
+     Channel#channel{session = Session2}}.

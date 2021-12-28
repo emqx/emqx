@@ -292,7 +292,7 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                    fun check_banned/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
-            ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
+            ?SLOG(debug, #{msg => "recv_packet", packet => emqx_packet:format(Packet)}),
             NChannel1 = NChannel#channel{
                                         will_msg = emqx_packet:will_msg(NConnPkt),
                                         alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
@@ -637,7 +637,7 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_2},
                 packet_id => PacketId
             }),
             ok = emqx_metrics:inc('packets.publish.dropped'),
-            handle_out(pubrec, {PacketId, RC}, Channel)
+            handle_out(disconnect, RC, Channel)
     end.
 
 ensure_quota(_, Channel = #channel{quota = undefined}) ->

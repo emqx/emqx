@@ -47,6 +47,11 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
+-spec start_link(string())
+    -> {ok, pid()}
+     | ignore
+     | {error, no_xml_files_found}
+     | {error, term()}.
 start_link(XmlDir) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [XmlDir], []).
 
@@ -85,8 +90,11 @@ stop() ->
 init([XmlDir]) ->
     _ = ets:new(?LWM2M_OBJECT_DEF_TAB, [set, named_table, protected]),
     _ = ets:new(?LWM2M_OBJECT_NAME_TO_ID_TAB, [set, named_table, protected]),
-    load(XmlDir),
-    {ok, #state{}}.
+    case load(XmlDir) of
+        ok ->
+            {ok, #state{}};
+        {error, Reason} -> {stop, Reason}
+    end.
 
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
@@ -116,7 +124,7 @@ load(BaseDir) ->
                     Wild
             end,
     case filelib:wildcard(Wild2) of
-        [] -> error(no_xml_files_found, BaseDir);
+        [] -> {error, no_xml_files_found};
         AllXmlFiles -> load_loop(AllXmlFiles)
     end.
 

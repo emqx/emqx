@@ -84,7 +84,7 @@ init([Pool, Id]) ->
           {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
           {stop, Reason :: term(), NewState :: term()}.
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected call: ~p", [Req]),
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 %%--------------------------------------------------------------------
@@ -101,12 +101,12 @@ handle_call(Req, _From, State) ->
 handle_cast({async_submit, Task}, State) ->
     try run(Task)
     catch _:Error:Stacktrace ->
-            ?LOG(error, "Error: ~0p, ~0p", [Error, Stacktrace])
+            ?SLOG(error, #{msg => "crashed_handling_async_task", exception => Error, stacktrace => Stacktrace})
     end,
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -121,7 +121,7 @@ handle_cast(Msg, State) ->
           {noreply, NewState :: term(), hibernate} |
           {stop, Reason :: normal | term(), NewState :: term()}.
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected info: ~p", [Info]),
+    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 %%--------------------------------------------------------------------

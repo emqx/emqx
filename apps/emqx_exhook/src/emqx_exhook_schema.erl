@@ -32,61 +32,58 @@
 
 -reflect_type([duration/0]).
 
--export([namespace/0, roots/0, fields/1]).
+-export([namespace/0, roots/0, fields/1, server_config/0]).
 
-namespace() -> exhook.
+namespace() -> emqx_exhook.
 
-roots() -> [exhook].
+roots() -> [emqx_exhook].
 
-fields(exhook) ->
-    [ {request_failed_action,
-       sc(hoconsc:enum([deny, ignore]),
-          #{default => deny})}
-    , {request_timeout,
-       sc(duration(),
-          #{default => "5s"})}
-    , {auto_reconnect,
-       sc(hoconsc:union([false, duration()]),
-          #{ default => "60s"
-           })}
-    , {pool_size,
-       sc(integer(),
-          #{ nullable => true
-           })}
-    , {servers,
-       sc(hoconsc:array(ref(servers)),
+fields(emqx_exhook) ->
+    [{servers,
+      sc(hoconsc:array(ref(server)),
           #{default => []})}
     ];
 
-fields(servers) ->
-    [ {name,
-       sc(string(),
-          #{})}
-    , {url,
-       sc(string(),
-          #{})}
+fields(server) ->
+    [ {name, sc(binary(), #{})}
+    , {enable, sc(boolean(), #{default => true})}
+    , {url, sc(binary(), #{})}
+    , {request_timeout,
+       sc(duration(), #{default => "5s"})}
+    , {failed_action, failed_action()}
     , {ssl,
-       sc(ref(ssl_conf),
-          #{})}
+       sc(ref(ssl_conf), #{})}
+    , {auto_reconnect,
+       sc(hoconsc:union([false, duration()]),
+          #{default => "60s"})}
+    , {pool_size,
+       sc(integer(), #{default => 8, example => 8})}
     ];
 
 fields(ssl_conf) ->
-    [ {cacertfile,
-       sc(string(),
-          #{})
-       }
+    [ {enable, sc(boolean(), #{default => true})}
+    , {cacertfile,
+       sc(binary(),
+          #{example => <<"{{ platform_etc_dir }}/certs/cacert.pem">>})
+      }
     , {certfile,
-       sc(string(),
-          #{})
-       }
+       sc(binary(),
+          #{example => <<"{{ platform_etc_dir }}/certs/cert.pem">>})
+      }
     , {keyfile,
-       sc(string(),
-          #{})}
+       sc(binary(),
+          #{example => <<"{{ platform_etc_dir }}/certs/key.pem">>})}
     ].
 
 %% types
-
 sc(Type, Meta) -> Meta#{type => Type}.
 
 ref(Field) ->
     hoconsc:ref(?MODULE, Field).
+
+failed_action() ->
+    sc(hoconsc:enum([deny, ignore]),
+       #{default => deny}).
+
+server_config() ->
+    fields(server).

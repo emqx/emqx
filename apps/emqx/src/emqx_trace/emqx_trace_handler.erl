@@ -103,7 +103,7 @@ uninstall(Type, Name) ->
 -spec uninstall(HandlerId :: atom()) -> ok | {error, term()}.
 uninstall(HandlerId) ->
     Res = logger:remove_handler(HandlerId),
-    show_prompts(Res, HandlerId, "Stop trace"),
+    show_prompts(Res, HandlerId, "stop_trace"),
     Res.
 
 %% @doc Return all running trace handlers information.
@@ -151,7 +151,7 @@ install_handler(Who = #{name := Name, type := Type}, Level, LogFile) ->
         config => ?CONFIG(LogFile)
     },
     Res = logger:add_handler(HandlerId, logger_disk_log_h, Config),
-    show_prompts(Res, Who, "Start trace"),
+    show_prompts(Res, Who, "start_trace"),
     Res.
 
 filters(#{type := clientid, filter := Filter, name := Name}) ->
@@ -223,6 +223,6 @@ ensure_list(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin, utf8);
 ensure_list(List) when is_list(List) -> List.
 
 show_prompts(ok, Who, Msg) ->
-    ?LOG(info, Msg ++ " ~p " ++ "successfully~n", [Who]);
+    ?SLOG(info, #{msg => "trace_action_succeeded", action => Msg, traced => Who});
 show_prompts({error, Reason}, Who, Msg) ->
-    ?LOG(error, Msg ++ " ~p " ++ "failed with ~p~n", [Who, Reason]).
+    ?SLOG(info, #{msg => "trace_action_failed", action => Msg, traced => Who, reason => Reason}).
