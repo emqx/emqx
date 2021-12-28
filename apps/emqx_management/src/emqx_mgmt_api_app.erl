@@ -91,10 +91,11 @@ fields(app) ->
             """They are useful for accessing public data anonymously,"""
             """and are used to associate API requests.""",
                 example => <<"MzAyMjk3ODMwMDk0NjIzOTUxNjcwNzQ0NzQ3MTE2NDYyMDI">>})},
-        {expired_at, hoconsc:mk(emqx_schema:rfc3339_system_time(),
+        {expired_at, hoconsc:mk(hoconsc:union([undefined, emqx_schema:rfc3339_system_time()]),
             #{desc => "No longer valid datetime",
                 example => <<"2021-12-05T02:01:34.186Z">>,
-                nullable => true
+                nullable => true,
+                default => undefined
             })},
         {created_at, hoconsc:mk(emqx_schema:rfc3339_system_time(),
             #{desc => "ApiKey create datetime",
@@ -136,9 +137,15 @@ api_key(post, #{body := App}) ->
     #{
         <<"name">> := Name,
         <<"desc">> := Desc0,
-        <<"expired_at">> := ExpiredAt,
         <<"enable">> := Enable
     } = App,
+    %% undefined is never expired
+    ExpiredAt0 = maps:get(<<"expired_at">>, App, <<"undefined">>),
+    ExpiredAt =
+        case ExpiredAt0 of
+            <<"undefined">> -> undefined;
+            _ -> ExpiredAt0
+        end,
     Desc = unicode:characters_to_binary(Desc0, unicode),
     case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc) of
         {ok, NewApp} -> {200, format(NewApp)};
@@ -164,8 +171,13 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
         {error, not_found} -> {404, <<"NOT_FOUND">>}
     end.
 
-format(App = #{expired_at := ExpiredAt, created_at := CreateAt}) ->
+format(App = #{expired_at := ExpiredAt0, created_at := CreateAt}) ->
+    ExpiredAt =
+        case ExpiredAt0 of
+            undefined -> <<"undefined">>;
+            _ -> list_to_binary(calendar:system_time_to_rfc3339(ExpiredAt0))
+        end,
     App#{
-        expired_at => list_to_binary(calendar:system_time_to_rfc3339(ExpiredAt)),
+        expired_at => ExpiredAt,
         created_at => list_to_binary(calendar:system_time_to_rfc3339(CreateAt))
     }.
