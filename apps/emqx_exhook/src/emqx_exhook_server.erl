@@ -24,7 +24,7 @@
 -define(PB_CLIENT_MOD, emqx_exhook_v_1_hook_provider_client).
 
 %% Load/Unload
--export([ load/3
+-export([ load/2
         , unload/1
         ]).
 
@@ -33,23 +33,24 @@
 
 %% Infos
 -export([ name/1
+        , hookpoints/1
         , format/1
+        , failed_action/1
         ]).
 
--record(server, {
-          %% Server name (equal to grpc client channel name)
-          name :: binary(),
-          %% The function options
-          options :: map(),
-          %% gRPC channel pid
-          channel :: pid(),
-          %% Registered hook names and options
-          hookspec :: #{hookpoint() => map()},
-          %% Metrcis name prefix
-          prefix :: list()
-       }).
 
--type server() :: #server{}.
+-type server() :: #{%% Server name (equal to grpc client channel name)
+                    name := binary(),
+                    %% The function options
+                    options := map(),
+                    %% gRPC channel pid
+                    channel := pid(),
+                    %% Registered hook names and options
+                    hookspec := #{hookpoint() => map()},
+                    %% Metrcis name prefix
+                    prefix := list()
+                   }.
+
 
 -type hookpoint() :: 'client.connect'
                    | 'client.connack'
@@ -81,9 +82,13 @@
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(binary(), map(), map()) -> {ok, server()} | {error, term()} .
-load(Name, Opts0, ReqOpts) ->
-    {SvrAddr, ClientOpts} = channel_opts(Opts0),
+-spec load(binary(), map()) -> {ok, server()} | {error, term()} | disable.
+load(_Name, #{enable := false}) ->
+    disable;
+
+load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) ->
+    ReqOpts = #{timeout => Timeout, failed_action => FailedAction},
+    {SvrAddr, ClientOpts} = channel_opts(Opts),
     case emqx_exhook_sup:start_grpc_client_channel(
            Name,
            SvrAddr,
@@ -92,16 +97,15 @@ load(Name, Opts0, ReqOpts) ->
             case do_init(Name, ReqOpts) of
                 {ok, HookSpecs} ->
                     %% Reigster metrics
-                    Prefix = lists:flatten(
-                               io_lib:format("exhook.~ts.", [Name])),
+                    Prefix = lists:flatten(io_lib:format("exhook.~ts.", [Name])),
                     ensure_metrics(Prefix, HookSpecs),
                     %% Ensure hooks
                     ensure_hooks(HookSpecs),
-                    {ok, #server{name = Name,
-                                 options = ReqOpts,
-                                 channel = _ChannPoolPid,
-                                 hookspec = HookSpecs,
-                                 prefix = Prefix }};
+                    {ok, #{name => Name,
+                           options => ReqOpts,
+                           channel => _ChannPoolPid,
+                           hookspec => HookSpecs,
+                           prefix => Prefix }};
                 {error, _} = E ->
                     emqx_exhook_sup:stop_grpc_client_channel(Name), E
             end;
@@ -110,14 +114,16 @@ load(Name, Opts0, ReqOpts) ->
 
 %% @private
 channel_opts(Opts = #{url := URL}) ->
-    ClientOpts = #{pool_size => emqx_exhook_mngr:get_pool_size()},
+    ClientOpts = maps:merge(#{pool_size => erlang:system_info(schedulers)},
+                            Opts),
     case uri_string:parse(URL) of
-        #{scheme := "http", host := Host, port := Port} ->
+        #{scheme := <<"http">>, host := Host, port := Port} ->
             {format_http_uri("http", Host, Port), ClientOpts};
-        #{scheme := "https", host := Host, port := Port} ->
+        #{scheme := <<"https">>, host := Host, port := Port} ->
             SslOpts =
                 case maps:get(ssl, Opts, undefined) of
                     undefined -> [];
+                    #{enable := false} -> [];
                     MapOpts ->
                         filter(
                           [{cacertfile, maps:get(cacertfile, MapOpts, undefined)},
@@ -131,8 +137,8 @@ channel_opts(Opts = #{url := URL}) ->
                                 transport_opts => SslOpts}
                            },
             {format_http_uri("https", Host, Port), NClientOpts};
-        _ ->
-            error(bad_server_url)
+        Error ->
+            error({bad_server_url, URL, Error})
     end.
 
 format_http_uri(Scheme, Host, Port) ->
@@ -142,7 +148,7 @@ filter(Ls) ->
     [ E || E <- Ls, E /= undefined].
 
 -spec unload(server()) -> ok.
-unload(#server{name = Name, options = ReqOpts, hookspec = HookSpecs}) ->
+unload(#{name := Name, options := ReqOpts, hookspec := HookSpecs}) ->
     _ = do_deinit(Name, ReqOpts),
     _ = may_unload_hooks(HookSpecs),
     _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
@@ -155,7 +161,7 @@ do_deinit(Name, ReqOpts) ->
 do_init(ChannName, ReqOpts) ->
     %% BrokerInfo defined at: exhook.protos
     BrokerInfo = maps:with([version, sysdescr, uptime, datetime],
-                        maps:from_list(emqx_sys:info())),
+                           maps:from_list(emqx_sys:info())),
     Req = #{broker => BrokerInfo},
     case do_call(ChannName, 'on_provider_loaded', Req, ReqOpts) of
         {ok, InitialResp} ->
@@ -227,7 +233,7 @@ may_unload_hooks(HookSpecs) ->
         end
     end, maps:keys(HookSpecs)).
 
-format(#server{name = Name, hookspec = Hooks}) ->
+format(#{name := Name, hookspec := Hooks}) ->
     lists:flatten(
       io_lib:format("name=~ts, hooks=~0p, active=true", [Name, Hooks])).
 
@@ -235,15 +241,17 @@ format(#server{name = Name, hookspec = Hooks}) ->
 %% APIs
 %%--------------------------------------------------------------------
 
-name(#server{name = Name}) ->
+name(#{name := Name}) ->
     Name.
 
--spec call(hookpoint(), map(), server())
-  -> ignore
-   | {ok, Resp :: term()}
-   | {error, term()}.
-call(Hookpoint, Req, #server{name = ChannName, options = ReqOpts,
-                             hookspec = Hooks, prefix = Prefix}) ->
+hookpoints(#{hookspec := Hooks}) ->
+    maps:keys(Hooks).
+
+-spec call(hookpoint(), map(), server()) -> ignore
+              | {ok, Resp :: term()}
+              | {error, term()}.
+call(Hookpoint, Req, #{name := ChannName, options := ReqOpts,
+                       hookspec := Hooks, prefix := Prefix}) ->
     GrpcFunc = hk2func(Hookpoint),
     case maps:get(Hookpoint, Hooks, undefined) of
         undefined -> ignore;
@@ -298,6 +306,9 @@ do_call(ChannName, Fun, Req, ReqOpts) ->
                 req => Req, options => Options, stacktrace => Stk}),
             {error, Reason}
     end.
+
+failed_action(#{options := Opts}) ->
+    maps:get(failed_action, Opts).
 
 %%--------------------------------------------------------------------
 %% Internal funcs

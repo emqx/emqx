@@ -19,40 +19,9 @@
 -include("emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-
--export([ enable/1
-        , disable/1
-        , list/0
-        ]).
-
 -export([ cast/2
         , call_fold/3
         ]).
-
-%%--------------------------------------------------------------------
-%% Mgmt APIs
-%%--------------------------------------------------------------------
-
--spec enable(binary()) -> ok | {error, term()}.
-enable(Name) ->
-    with_mngr(fun(Pid) -> emqx_exhook_mngr:enable(Pid, Name) end).
-
--spec disable(binary()) -> ok | {error, term()}.
-disable(Name) ->
-    with_mngr(fun(Pid) -> emqx_exhook_mngr:disable(Pid, Name) end).
-
--spec list() -> [atom() | string()].
-list() ->
-    with_mngr(fun(Pid) -> emqx_exhook_mngr:list(Pid) end).
-
-with_mngr(Fun) ->
-    case lists:keyfind(emqx_exhook_mngr, 1,
-                       supervisor:which_children(emqx_exhook_sup)) of
-        {_, Pid, _, _} ->
-            Fun(Pid);
-        _ ->
-            {error, no_manager_svr}
-    end.
 
 %%--------------------------------------------------------------------
 %% Dispatch APIs
@@ -60,49 +29,46 @@ with_mngr(Fun) ->
 
 -spec cast(atom(), map()) -> ok.
 cast(Hookpoint, Req) ->
-    cast(Hookpoint, Req, emqx_exhook_mngr:running()).
+    cast(Hookpoint, Req, emqx_exhook_mgr:running()).
 
 cast(_, _, []) ->
     ok;
 cast(Hookpoint, Req, [ServerName|More]) ->
     %% XXX: Need a real asynchronous running
     _ = emqx_exhook_server:call(Hookpoint, Req,
-                                emqx_exhook_mngr:server(ServerName)),
+                                emqx_exhook_mgr:server(ServerName)),
     cast(Hookpoint, Req, More).
 
--spec call_fold(atom(), term(), function())
-  -> {ok, term()}
-   | {stop, term()}.
+-spec call_fold(atom(), term(), function()) -> {ok, term()}
+              | {stop, term()}.
 call_fold(Hookpoint, Req, AccFun) ->
-    FailedAction = emqx_exhook_mngr:get_request_failed_action(),
-    ServerNames = emqx_exhook_mngr:running(),
-    case ServerNames == [] andalso FailedAction == deny of
-        true ->
+    case emqx_exhook_mgr:running() of
+        [] ->
             {stop, deny_action_result(Hookpoint, Req)};
-        _ ->
-            call_fold(Hookpoint, Req, FailedAction, AccFun, ServerNames)
+        ServerNames ->
+            call_fold(Hookpoint, Req, AccFun, ServerNames)
     end.
 
-call_fold(_, Req, _, _, []) ->
+call_fold(_, Req, _, []) ->
     {ok, Req};
-call_fold(Hookpoint, Req, FailedAction, AccFun, [ServerName|More]) ->
-    Server = emqx_exhook_mngr:server(ServerName),
+call_fold(Hookpoint, Req, AccFun, [ServerName|More]) ->
+    Server = emqx_exhook_mgr:server(ServerName),
     case emqx_exhook_server:call(Hookpoint, Req, Server) of
         {ok, Resp} ->
             case AccFun(Req, Resp) of
                 {stop, NReq} ->
                     {stop, NReq};
                 {ok, NReq} ->
-                    call_fold(Hookpoint, NReq, FailedAction, AccFun, More);
+                    call_fold(Hookpoint, NReq, AccFun, More);
                 _ ->
-                    call_fold(Hookpoint, Req, FailedAction, AccFun, More)
+                    call_fold(Hookpoint, Req, AccFun, More)
             end;
         _ ->
-            case FailedAction of
+            case emqx_exhook_server:failed_action(Server) of
+                ignore ->
+                    call_fold(Hookpoint, Req, AccFun, More);
                 deny ->
-                    {stop, deny_action_result(Hookpoint, Req)};
-                _ ->
-                    call_fold(Hookpoint, Req, FailedAction, AccFun, More)
+                    {stop, deny_action_result(Hookpoint, Req)}
             end
     end.
 
