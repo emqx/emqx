@@ -304,7 +304,7 @@ permafy(TargetNode, RelName, Vsn) ->
                   make_permanent, [Vsn], ?TIMEOUT),
     ?INFO("Made release permanent: ~p", [Vsn]),
     %% upgrade/downgrade the scripts by replacing them
-    Scripts = [RelNameStr, RelNameStr++"_ctl", "cuttlefish", "nodetool",
+    Scripts = [RelNameStr, RelNameStr ++ "_ctl", "nodetool",
                "install_upgrade.escript"],
     [{ok, _} = file:copy(filename:join(["bin", File++"-"++Vsn]),
                          filename:join(["bin", File]))
