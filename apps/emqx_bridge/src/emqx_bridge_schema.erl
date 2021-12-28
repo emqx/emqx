@@ -71,6 +71,7 @@ metrics_status_fields() ->
 direction_field(Dir, Desc) ->
     {direction, mk(Dir,
         #{ nullable => false
+         , default => egress
          , desc => "The direction of the bridge. Can be one of 'ingress' or 'egress'.<br>"
             ++ Desc
          })}.
