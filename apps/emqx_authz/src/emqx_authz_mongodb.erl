@@ -46,10 +46,10 @@ init(Source) ->
     end.
 
 dry_run(Source) ->
-    emqx_resource:create_dry_run(emqx_connector_mongo, Source).
+    emqx_resource:create_dry_run_local(emqx_connector_mongo, Source).
 
 destroy(#{annotations := #{id := Id}}) ->
-    ok = emqx_resource:remove(Id).
+    ok = emqx_resource:remove_local(Id).
 
 authorize(Client, PubSub, Topic,
             #{collection := Collection,
