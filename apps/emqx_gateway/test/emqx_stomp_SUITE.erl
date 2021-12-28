@@ -17,7 +17,7 @@
 -module(emqx_stomp_SUITE).
 
 -include_lib("eunit/include/eunit.hrl").
--include("emqx_stomp.hrl").
+-include("src/stomp/include/emqx_stomp.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).

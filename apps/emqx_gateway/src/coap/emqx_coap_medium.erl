@@ -20,7 +20,7 @@
 
 -module(emqx_coap_medium).
 
--include("emqx_coap.hrl").
+-include("src/coap/include/emqx_coap.hrl").
 
 %% API
 -export([ empty/0, reset/1, reset/2

@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_exproto_channel).
--include("emqx_exproto.hrl").
+-include("src/exproto/include/emqx_exproto.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/types.hrl").

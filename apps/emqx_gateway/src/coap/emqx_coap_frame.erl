@@ -28,7 +28,7 @@
         , is_message/1
         ]).
 
--include("emqx_coap.hrl").
+-include("src/coap/include/emqx_coap.hrl").
 -include_lib("emqx/include/types.hrl").
 
 -define(VERSION, 1).

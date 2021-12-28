@@ -18,7 +18,7 @@
 
 -behaviour(minirest_api).
 
--include("emqx_coap.hrl").
+-include("src/coap/include/emqx_coap.hrl").
 
 %% API
 -export([api_spec/0]).
