@@ -144,7 +144,8 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_prometheus,
             :emqx_plugins
           ],
-          steps: steps
+          steps: steps,
+          strip_beams: false
         ]
       end
     ]
