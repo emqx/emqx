@@ -57,11 +57,11 @@ init_per_testcase(_Case, Config) ->
     emqx_authn_test_lib:delete_authenticators(
       [authentication],
       ?GLOBAL),
-    emqx_authn_http_test_server:start(?HTTP_PORT, ?HTTP_PATH),
+    {ok, _} = emqx_authn_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    ok = emqx_authn_http_test_server:stop() .
+    ok = emqx_authn_http_test_server:stop().
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -118,7 +118,7 @@ test_user_auth(#{handler := Handler,
                 ?PATH,
                 {create_authenticator, ?GLOBAL, AuthConfig}),
 
-    emqx_authn_http_test_server:set_handler(Handler),
+    ok = emqx_authn_http_test_server:set_handler(Handler),
 
     ?assertEqual(Result, emqx_access_control:authenticate(?CREDENTIALS)),
 
@@ -221,15 +221,15 @@ test_is_superuser({Kind, Value, ExpectedValue}) ->
                                   iolist_to_binary([<<"is_superuser=">>, Value])}
                          end,
 
-    emqx_authn_http_test_server:set_handler(
-      fun(Req0, State) ->
-              Req = cowboy_req:reply(
-                      200,
-                      #{<<"content-type">> => ContentType},
-                      Res,
-                      Req0),
-              {ok, Req, State}
-      end),
+    ok = emqx_authn_http_test_server:set_handler(
+           fun(Req0, State) ->
+                   Req = cowboy_req:reply(
+                           200,
+                           #{<<"content-type">> => ContentType},
+                           Res,
+                           Req0),
+                   {ok, Req, State}
+           end),
 
     ?assertMatch(
        {ok, #{is_superuser := ExpectedValue}},

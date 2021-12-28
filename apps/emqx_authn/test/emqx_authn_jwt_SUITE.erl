@@ -156,7 +156,7 @@ t_jwt_authenticator_public_key(_) ->
     ok.
 
 t_jwks_renewal(_Config) ->
-    ok = emqx_authn_http_test_server:start(?JWKS_PORT, ?JWKS_PATH),
+    {ok, _} = emqx_authn_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH),
     ok = emqx_authn_http_test_server:set_handler(fun jwks_handler/2),
 
     PrivateKey = test_rsa_key(private),
