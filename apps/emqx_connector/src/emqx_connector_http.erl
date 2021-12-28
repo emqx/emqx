@@ -199,8 +199,8 @@ on_query(InstId, {Method, Request, Timeout}, AfterQuery, State) ->
     on_query(InstId, {undefined, Method, Request, Timeout}, AfterQuery, State);
 on_query(InstId, {KeyOrNum, Method, Request, Timeout}, AfterQuery,
         #{pool_name := PoolName, base_path := BasePath} = State) ->
-    ?TRACE("QUERY", #{request => Request, connector => InstId, state => State},
-        "http connector received request"),
+    ?TRACE("QUERY", "http_connector_received",
+        #{request => Request, connector => InstId, state => State}),
     NRequest = update_path(BasePath, Request),
     case Result = ehttpc:request(case KeyOrNum of
                                      undefined -> PoolName;

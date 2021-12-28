@@ -85,14 +85,13 @@ on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
 on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := _PoolName} = State) ->
     on_query(InstId, {sql, SQL, Params, default_timeout}, AfterQuery, State);
 on_query(InstId, {sql, SQL, Params, Timeout}, AfterQuery, #{poolname := PoolName} = State) ->
-    ?TRACE("QUERY", #{connector => InstId, sql => SQL, state => State},
-        "mysql connector received sql query"),
+    ?TRACE("QUERY", "mysql_connector_received", #{connector => InstId, sql => SQL, state => State}),
     case Result = ecpool:pick_and_do(
                     PoolName,
                     {mysql, query, [SQL, Params, Timeout]},
                     no_handover) of
         {error, Reason} ->
-            ?SLOG(error, #{msg => "mysql connector do sql query failed",
+            ?SLOG(error, #{msg => "mysql_connector_do_sql_query_failed",
                 connector => InstId, sql => SQL, reason => Reason}),
             emqx_resource:query_failed(AfterQuery);
         _ ->

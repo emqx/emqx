@@ -74,9 +74,19 @@ t_base_test(_Config) ->
     ?assertEqual(node(), maps:get(initiator, Query)),
     ?assert(maps:is_key(created_at, Query)),
     ?assertEqual(ok, receive_msg(3, test)),
+    ?assertEqual({ok, 2, ok}, emqx_cluster_rpc:multicall(M, F, A)),
     {atomic, Status} = emqx_cluster_rpc:status(),
-    ?assertEqual(3, length(Status)),
-    ?assert(lists:all(fun(I) -> maps:get(tnx_id, I) =:= 1 end, Status)),
+    case length(Status) =:= 3 of
+        true -> ?assert(lists:all(fun(I) -> maps:get(tnx_id, I) =:= 2 end, Status));
+        false ->
+            %% wait for mnesia to write in.
+            ct:sleep(42),
+            {atomic, Status1} = emqx_cluster_rpc:status(),
+            ct:pal("status: ~p", Status),
+            ct:pal("status1: ~p", Status1),
+            ?assertEqual(3, length(Status1)),
+            ?assert(lists:all(fun(I) -> maps:get(tnx_id, I) =:= 2 end, Status))
+    end,
     ok.
 
 t_commit_fail_test(_Config) ->

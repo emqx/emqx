@@ -184,6 +184,12 @@ roots(low) ->
     , {"latency_stats",
        sc(ref("latency_stats"),
           #{})}
+    , {"trace",
+       sc(ref("trace"),
+          #{desc => """
+Real-time filtering logs for the ClientID or Topic or IP for debugging.
+"""
+          })}
     ].
 
 fields("persistent_session_store") ->
@@ -981,6 +987,17 @@ when deactivated, but after the retention time.
 fields("latency_stats") ->
     [ {"samples", sc(integer(), #{default => 10,
                                   desc => "the number of smaples for calculate the average latency of delivery"})}
+    ];
+fields("trace") ->
+    [ {"payload_encode", sc(hoconsc:enum([hex, text, null]), #{
+        default => text,
+        desc => """
+Determine the format of the payload format in the trace file.</br>
+- `text`: Text-based protocol or plain text protocol. It is recommended when payload is json encode.</br>
+- `hex`: Binary hexadecimal encode. It is recommended when payload is a custom binary protocol.</br>
+- `null`: Don't show payload in trace log file.
+        """
+    })}
     ].
 
 mqtt_listener() ->

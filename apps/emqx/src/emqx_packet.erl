@@ -44,7 +44,9 @@
         , will_msg/1
         ]).
 
--export([format/1]).
+-export([ format/1
+        , format/2
+        ]).
 
 -define(TYPE_NAMES,
         { 'CONNECT'
@@ -435,25 +437,28 @@ will_msg(#mqtt_packet_connect{clientid     = ClientId,
 
 %% @doc Format packet
 -spec(format(emqx_types:packet()) -> iolist()).
-format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
-    format_header(Header, format_variable(Variable, Payload)).
+format(Packet) -> format(Packet, emqx_trace_handler:payload_encode()).
+
+%% @doc Format packet
+-spec(format(emqx_types:packet(), hex | text | null) -> iolist()).
+format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}, PayloadEncode) ->
+    HeaderIO = format_header(Header),
+    case format_variable(Variable, Payload, PayloadEncode) of
+        "" -> HeaderIO;
+        VarIO -> [HeaderIO,",", VarIO]
+    end.
 
 format_header(#mqtt_packet_header{type = Type,
                                   dup = Dup,
                                   qos = QoS,
-                                  retain = Retain}, S) ->
-    S1 = case S == undefined of
-             true -> <<>>;
-             false -> [", ", S]
-         end,
-    io_lib:format("~ts(Q~p, R~p, D~p~ts)", [type_name(Type), QoS, i(Retain), i(Dup), S1]).
+                                  retain = Retain}) ->
+    io_lib:format("~ts(Q~p, R~p, D~p)", [type_name(Type), QoS, i(Retain), i(Dup)]).
 
-format_variable(undefined, _) ->
-    undefined;
-format_variable(Variable, undefined) ->
-    format_variable(Variable);
-format_variable(Variable, Payload) ->
-    io_lib:format("~ts, Payload=~ts", [format_variable(Variable), Payload]).
+format_variable(undefined, _, _) -> "";
+format_variable(Variable, undefined, PayloadEncode) ->
+    format_variable(Variable, PayloadEncode);
+format_variable(Variable, Payload, PayloadEncode) ->
+    [format_variable(Variable, PayloadEncode), format_payload(Payload, PayloadEncode)].
 
 format_variable(#mqtt_packet_connect{
                  proto_ver    = ProtoVer,
@@ -467,55 +472,63 @@ format_variable(#mqtt_packet_connect{
                  will_topic   = WillTopic,
                  will_payload = WillPayload,
                  username     = Username,
-                 password     = Password}) ->
-    Format = "ClientId=~ts, ProtoName=~ts, ProtoVsn=~p, CleanStart=~ts, KeepAlive=~p, Username=~ts, Password=~ts",
-    Args = [ClientId, ProtoName, ProtoVer, CleanStart, KeepAlive, Username, format_password(Password)],
-    {Format1, Args1} = if
-                        WillFlag -> {Format ++ ", Will(Q~p, R~p, Topic=~ts, Payload=~0p)",
-                                     Args ++ [WillQoS, i(WillRetain), WillTopic, WillPayload]};
-                        true -> {Format, Args}
-                       end,
-    io_lib:format(Format1, Args1);
+                 password     = Password},
+    PayloadEncode) ->
+    Base = io_lib:format(
+        "ClientId=~ts, ProtoName=~ts, ProtoVsn=~p, CleanStart=~ts, KeepAlive=~p, Username=~ts, Password=~ts",
+        [ClientId, ProtoName, ProtoVer, CleanStart, KeepAlive, Username, format_password(Password)]),
+    case WillFlag of
+        true ->
+            [Base, io_lib:format(", Will(Q~p, R~p, Topic=~ts ",
+                [WillQoS, i(WillRetain), WillTopic]),
+                format_payload(WillPayload, PayloadEncode), ")"];
+        false ->
+            Base
+    end;
 
 format_variable(#mqtt_packet_disconnect
-                {reason_code = ReasonCode}) ->
+                {reason_code = ReasonCode}, _) ->
     io_lib:format("ReasonCode=~p", [ReasonCode]);
 
 format_variable(#mqtt_packet_connack{ack_flags   = AckFlags,
-                                     reason_code = ReasonCode}) ->
+                                     reason_code = ReasonCode}, _) ->
     io_lib:format("AckFlags=~p, ReasonCode=~p", [AckFlags, ReasonCode]);
 
 format_variable(#mqtt_packet_publish{topic_name = TopicName,
-                                     packet_id  = PacketId}) ->
+                                     packet_id  = PacketId}, _) ->
     io_lib:format("Topic=~ts, PacketId=~p", [TopicName, PacketId]);
 
 format_variable(#mqtt_packet_puback{packet_id = PacketId,
-                                    reason_code = ReasonCode}) ->
+                                    reason_code = ReasonCode}, _) ->
     io_lib:format("PacketId=~p, ReasonCode=~p", [PacketId, ReasonCode]);
 
 format_variable(#mqtt_packet_subscribe{packet_id     = PacketId,
-                                       topic_filters = TopicFilters}) ->
+                                       topic_filters = TopicFilters}, _) ->
     io_lib:format("PacketId=~p, TopicFilters=~0p", [PacketId, TopicFilters]);
 
 format_variable(#mqtt_packet_unsubscribe{packet_id     = PacketId,
-                                         topic_filters = Topics}) ->
+                                         topic_filters = Topics}, _) ->
     io_lib:format("PacketId=~p, TopicFilters=~0p", [PacketId, Topics]);
 
 format_variable(#mqtt_packet_suback{packet_id = PacketId,
-                                    reason_codes = ReasonCodes}) ->
+                                    reason_codes = ReasonCodes}, _) ->
     io_lib:format("PacketId=~p, ReasonCodes=~p", [PacketId, ReasonCodes]);
 
-format_variable(#mqtt_packet_unsuback{packet_id = PacketId}) ->
+format_variable(#mqtt_packet_unsuback{packet_id = PacketId}, _) ->
     io_lib:format("PacketId=~p", [PacketId]);
 
-format_variable(#mqtt_packet_auth{reason_code = ReasonCode}) ->
+format_variable(#mqtt_packet_auth{reason_code = ReasonCode}, _) ->
     io_lib:format("ReasonCode=~p", [ReasonCode]);
 
-format_variable(PacketId) when is_integer(PacketId) ->
+format_variable(PacketId, _) when is_integer(PacketId) ->
     io_lib:format("PacketId=~p", [PacketId]).
 
-format_password(undefined) -> undefined;
-format_password(_Password) -> '******'.
+format_password(undefined) -> "undefined";
+format_password(_Password) -> "******".
+
+format_payload(Payload, text) -> ["Payload=", io_lib:format("~ts", [Payload])];
+format_payload(Payload, hex) -> ["Payload(hex)=", binary:encode_hex(Payload)];
+format_payload(_, null) -> "Payload=******".
 
 i(true)  -> 1;
 i(false) -> 0;

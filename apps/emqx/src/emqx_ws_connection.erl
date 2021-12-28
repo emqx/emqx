@@ -431,11 +431,11 @@ websocket_info(Info, State) ->
 websocket_close({_, ReasonCode, _Payload}, State) when is_integer(ReasonCode) ->
     websocket_close(ReasonCode, State);
 websocket_close(Reason, State) ->
-    ?TRACE("CLOSED", #{transport => websocket, reason => Reason}, "websocket_closed"),
+    ?TRACE("SOCKET", "websocket_closed", #{reason => Reason}),
     handle_info({sock_closed, Reason}, State).
 
 terminate(Reason, _Req, #state{channel = Channel}) ->
-    ?TRACE("TERMINATE", #{transport => websocket, reason => Reason}, "webscoket_terminated"),
+    ?TRACE("SOCKET", "websocket_terminated", #{reason => Reason}),
     emqx_channel:terminate(Reason, Channel);
 
 terminate(_Reason, _Req, _UnExpectedState) ->
@@ -479,7 +479,7 @@ handle_info({connack, ConnAck}, State) ->
     return(enqueue(ConnAck, State));
 
 handle_info({close, Reason}, State) ->
-    ?TRACE("CLOSE", #{reason => Reason}, "force_socket_close"),
+    ?TRACE("SOCKET", "socket_force_closed", #{reason => Reason}),
     return(enqueue({close, Reason}, State));
 
 handle_info({event, connected}, State = #state{channel = Channel}) ->
@@ -662,7 +662,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
 
 handle_incoming(Packet, State = #state{listener = {Type, Listener}})
   when is_record(Packet, mqtt_packet) ->
-    ?TRACE("RECV", #{transport => websocket}, Packet),
+    ?TRACE("WS-MQTT", "mqtt_packet_received", #{packet => Packet}),
     ok = inc_incoming_stats(Packet),
     NState = case emqx_pd:get_counter(incoming_pubs) >
                   get_active_n(Type, Listener) of
@@ -726,7 +726,7 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
                     ok = emqx_metrics:inc('delivery.dropped'),
                     <<>>;
-            Data -> ?TRACE("SEND", #{transport => websocket}, Packet),
+            Data -> ?TRACE("WS-MQTT", "mqtt_packet_sent", #{packet => Packet}),
                     ok = inc_outgoing_stats(Packet),
                     Data
         catch

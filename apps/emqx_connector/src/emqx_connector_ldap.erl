@@ -87,16 +87,15 @@ on_stop(InstId, #{poolname := PoolName}) ->
 
 on_query(InstId, {search, Base, Filter, Attributes}, AfterQuery, #{poolname := PoolName} = State) ->
     Request = {Base, Filter, Attributes},
-    ?TRACE("QUERY", #{request => Request, connector => InstId, state => State},
-        "ldap connector received request"),
+    ?TRACE("QUERY", "ldap_connector_received",
+        #{request => Request, connector => InstId, state => State}),
     case Result = ecpool:pick_and_do(
                     PoolName,
                     {?MODULE, search, [Base, Filter, Attributes]},
                     no_handover) of
         {error, Reason} ->
-            ?SLOG(error, #{msg => "ldap connector do request failed",
-                           request => Request, connector => InstId,
-                           reason => Reason}),
+            ?SLOG(error, #{msg => "ldap_connector_do_request_failed",
+                request => Request, connector => InstId, reason => Reason}),
             emqx_resource:query_failed(AfterQuery);
         _ ->
             emqx_resource:query_success(AfterQuery)

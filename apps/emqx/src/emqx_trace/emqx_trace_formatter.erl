@@ -22,35 +22,36 @@
 -spec format(LogEvent, Config) -> unicode:chardata() when
     LogEvent :: logger:log_event(),
     Config :: logger:config().
-format(#{level := trace, msg := Msg, meta := Meta, action := Action}, _Config) ->
+format(#{level := trace, event := Event, meta := Meta, msg := Msg},
+    #{payload_encode := PEncode}) ->
     Time = calendar:system_time_to_rfc3339(erlang:system_time(second)),
     ClientId = maps:get(clientid, Meta, ""),
     Peername = maps:get(peername, Meta, ""),
-    MsgBin = format_msg(Msg),
-    MetaBin = format_map(maps:without([clientid, peername], Meta)),
-    [Time, " [", Action, "] ", ClientId, "@", Peername, " ", MsgBin, " ( ",
-        MetaBin, ")\n"];
+    MetaBin = format_meta(Meta, PEncode),
+    [Time, " [", Event, "] ", ClientId, "@", Peername, " msg: ", Msg, MetaBin, "\n"];
 
 format(Event, Config) ->
     emqx_logger_textfmt:format(Event, Config).
 
-format_msg(Bin)when is_binary(Bin) -> Bin;
-format_msg(List) when is_list(List) -> List;
-format_msg({publish, Payload}) ->
-    io_lib:format("Publish Payload:(~ts) TO ", [Payload]);
-format_msg({subscribe, SubId, SubOpts}) ->
-    [io_lib:format("SUBSCRIBE ~ts, Opts( ", [SubId]),
-        format_map(SubOpts), ")"];
-format_msg({unsubscribe, SubOpts}) ->
-    [io_lib:format("UNSUBSCRIBE ~ts, Opts( ", [maps:get(subid, SubOpts, "undefined")]),
-        format_map(maps:without([subid], SubOpts)), ")"];
-format_msg(Packet) ->
-    emqx_packet:format(Packet).
+format_meta(Meta0, Encode) ->
+    Packet = format_packet(maps:get(packet, Meta0, undefined), Encode),
+    Payload = format_payload(maps:get(payload, Meta0, undefined), Encode),
+    Meta1 = maps:without([msg, clientid, peername, packet, payload], Meta0),
+    case Meta1 =:= #{} of
+        true -> [Packet, Payload];
+        false ->
+            Meta2 = lists:map(fun({K, V}) -> [to_iolist(K), ": ", to_iolist(V)] end,
+                maps:to_list(Meta1)),
+            [Packet, ", ", lists:join(",", Meta2), Payload]
+    end.
 
-format_map(Map) ->
-    maps:fold(fun(K, V, Acc) ->
-        [to_iolist(K), ":", to_iolist(V), " "|Acc]
-              end, [], Map).
+format_packet(undefined, _) -> "";
+format_packet(Packet, Encode) -> [", packet: ", emqx_packet:format(Packet, Encode)].
+
+format_payload(undefined, _) -> "";
+format_payload(Payload, text) -> [", payload: ", io_lib:format("~ts", [Payload])];
+format_payload(Payload, hex) -> [", payload(hex): ", binary:encode_hex(Payload)];
+format_payload(_, null) -> ", payload=******".
 
 to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 to_iolist(Int) when is_integer(Int) -> integer_to_list(Int);

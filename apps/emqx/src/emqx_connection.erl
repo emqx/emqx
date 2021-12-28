@@ -526,7 +526,7 @@ handle_msg({connack, ConnAck}, State) ->
     handle_outgoing(ConnAck, State);
 
 handle_msg({close, Reason}, State) ->
-    ?TRACE("CLOSE", #{reason => Reason}, "force_socket_close"),
+    ?TRACE("SOCKET", "socket_force_closed", #{reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_msg({event, connected}, State = #state{channel = Channel}) ->
@@ -565,7 +565,7 @@ terminate(Reason, State = #state{channel = Channel, transport = Transport,
         emqx_congestion:cancel_alarms(Socket, Transport, Channel1),
         emqx_channel:terminate(Reason, Channel1),
         close_socket_ok(State),
-        ?TRACE("TERMINATE", #{reason => Reason}, "terminated")
+        ?TRACE("SOCKET", "tcp_socket_terminated", #{reason => Reason})
     catch
         E : C : S ->
             ?tp(warning, unclean_terminate, #{exception => E, context => C, stacktrace => S})
@@ -715,7 +715,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
 
 handle_incoming(Packet, State) when is_record(Packet, mqtt_packet) ->
     ok = inc_incoming_stats(Packet),
-    ?TRACE("RECV", #{}, Packet),
+    ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     with_channel(handle_in, [Packet], State);
 
 handle_incoming(FrameError, State) ->
@@ -754,13 +754,13 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
             <<>> -> ?SLOG(warning, #{
                         msg => "packet_is_discarded",
                         reason => "frame_is_too_large",
-                        packet => emqx_packet:format(Packet)
+                        packet => emqx_packet:format(Packet, null)
                     }),
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
                     ok = emqx_metrics:inc('delivery.dropped'),
                     <<>>;
             Data ->
-                    ?TRACE("SEND", #{}, Packet),
+                    ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
                     ok = inc_outgoing_stats(Packet),
                     Data
         catch

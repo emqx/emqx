@@ -35,8 +35,10 @@
         , filter_topic/2
         , filter_ip_address/2
         ]).
+-export([template/1]).
 
 -export([handler_id/2]).
+-export([payload_encode/0]).
 
 -type tracer() :: #{
          name := binary(),
@@ -145,13 +147,14 @@ filters(#{type := topic, filter := Filter, name := Name}) ->
 filters(#{type := ip_address, filter := Filter, name := Name}) ->
     [{ip_address, {fun ?MODULE:filter_ip_address/2, {ensure_list(Filter), Name}}}].
 
-formatter(#{type := Type}) ->
+formatter(#{type := _Type}) ->
     {emqx_trace_formatter,
         #{
-            template => template(Type),
+            template => [],
             single_line => false,
             max_size => unlimited,
-            depth => unlimited
+            depth => unlimited,
+            payload_encode => payload_encode()
         }
     }.
 
@@ -180,6 +183,8 @@ filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) 
         _ ->
             Acc
     end.
+
+payload_encode() -> emqx_config:get([trace, payload_encode], text).
 
 handler_id(Name, Type) ->
     try

@@ -137,13 +137,13 @@ on_query(InstId,
          AfterQuery,
          #{poolname := PoolName} = State) ->
     Request = {Action, Collection, Selector, Docs},
-    ?TRACE("QUERY", #{request => Request, connector => InstId, state => State},
-        "mongodb connector received request"),
+    ?TRACE("QUERY", "mongodb_connector_received",
+        #{request => Request, connector => InstId, state => State}),
     case ecpool:pick_and_do(PoolName,
                             {?MODULE, mongo_query, [Action, Collection, Selector, Docs]},
                             no_handover) of
         {error, Reason} ->
-            ?SLOG(error, #{msg => "mongodb connector do query failed",
+            ?SLOG(error, #{msg => "mongodb_connector_do_query_failed",
                 request => Request, reason => Reason,
                 connector => InstId}),
             emqx_resource:query_failed(AfterQuery),

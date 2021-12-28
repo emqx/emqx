@@ -84,22 +84,22 @@ mnesia(boot) ->
 publish(#message{topic = <<"$SYS/", _/binary>>}) -> ignore;
 publish(#message{from = From, topic = Topic, payload = Payload}) when
     is_binary(From); is_atom(From) ->
-    ?TRACE("PUBLISH", #{topic => Topic}, {publish, Payload}).
+    ?TRACE("PUBLISH", "publish_to", #{topic => Topic, payload => Payload}).
 
 subscribe(<<"$SYS/", _/binary>>, _SubId, _SubOpts) -> ignore;
 subscribe(Topic, SubId, SubOpts) ->
-    ?TRACE("SUBSCRIBE", #{topic => Topic}, {subscribe, SubId, SubOpts}).
+    ?TRACE("SUBSCRIBE", "subscribe", #{topic => Topic, sub_opts => SubOpts, sub_id => SubId}).
 
 unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) -> ignore;
 unsubscribe(Topic, SubOpts) ->
-    ?TRACE("UNSUBSCRIBE", #{topic => Topic}, {unsubscribe, SubOpts}).
+    ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
 
-log(Action, Meta0, Msg) ->
+log(Event, Msg, Meta0) ->
     case persistent_term:get(?TRACE_FILTER, undefined) of
         undefined -> ok;
         List ->
             Meta = maps:merge(logger:get_process_metadata(), Meta0),
-            Log = #{level => trace, action => Action, meta => Meta, msg => Msg},
+            Log = #{level => trace, event => Event, meta => Meta, msg => Msg},
             log_filter(List, Log)
     end.
 
@@ -112,11 +112,12 @@ log_filter([{Id, FilterFun, Filter, Name} | Rest], Log0) ->
             case logger_config:get(ets:whereis(logger), Id) of
                 {ok, #{module := Module} = HandlerConfig0} ->
                     HandlerConfig = maps:without(?OWN_KEYS, HandlerConfig0),
+                    io:format("~p~n", [{Module, Log, HandlerConfig}]),
                     try Module:log(Log, HandlerConfig)
                     catch C:R:S ->
                         case logger:remove_handler(Id) of
                             ok ->
-                                logger:internal_log(error, {removed_failing_handler, Id});
+                                logger:internal_log(error, {removed_failing_handler, Id, C, R, S});
                             {error,{not_found,_}} ->
                                 %% Probably already removed by other client
                                 %% Don't report again
@@ -528,5 +529,5 @@ update_trace_handler() ->
 
 filter_cli_handler(Names) ->
     lists:filter(fun(Name) ->
-        notmatch =:= re:run(Name, "^CLI-+.", [])
+        nomatch =:= re:run(Name, "^CLI-+.", [])
                  end, Names).

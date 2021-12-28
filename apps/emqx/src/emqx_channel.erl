@@ -292,7 +292,7 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                    fun check_banned/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
-            ?TRACE("RECV", #{}, Packet),
+            ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
             NChannel1 = NChannel#channel{
                                         will_msg = emqx_packet:will_msg(NConnPkt),
                                         alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)

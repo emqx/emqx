@@ -83,12 +83,12 @@ on_stop(InstId, #{poolname := PoolName}) ->
 on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
     on_query(InstId, {sql, SQL, []}, AfterQuery, State);
 on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := PoolName} = State) ->
-    ?TRACE("QUERY", #{connector => InstId, sql => SQL, state => State},
-        "postgresql connector received sql query"),
+    ?TRACE("QUERY", "postgresql_connector_received",
+        #{connector => InstId, sql => SQL, state => State}),
     case Result = ecpool:pick_and_do(PoolName, {?MODULE, query, [SQL, Params]}, no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "postgresql connector do sql query failed",
+                msg => "postgresql_connector_do_sql_query_failed",
                 connector => InstId, sql => SQL, reason => Reason}),
             emqx_resource:query_failed(AfterQuery);
         _ ->
