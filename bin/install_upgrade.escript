@@ -248,10 +248,6 @@ parse_version(V) when is_list(V) ->
     hd(string:tokens(V,"/")).
 
 check_and_install(TargetNode, Vsn) ->
-    %% Backup the vm.args. VM args should be unchanged during hot upgrade
-    %% but we still backup it here
-    {ok, [[CurrVmArgs]]} = rpc:call(TargetNode, init, get_argument, [vm_args], ?TIMEOUT),
-    {ok, _} = file:copy(CurrVmArgs, filename:join(["releases", Vsn, "vm.args"])),
     %% Backup the sys.config, this will be used when we check and install release
     %% NOTE: We cannot backup the old sys.config directly, because the
     %% configs for plugins are only in app-envs, not in the old sys.config
@@ -308,7 +304,7 @@ permafy(TargetNode, RelName, Vsn) ->
                   make_permanent, [Vsn], ?TIMEOUT),
     ?INFO("Made release permanent: ~p", [Vsn]),
     %% upgrade/downgrade the scripts by replacing them
-    Scripts = [RelNameStr, RelNameStr++"_ctl", "cuttlefish", "nodetool",
+    Scripts = [RelNameStr, RelNameStr ++ "_ctl", "nodetool",
                "install_upgrade.escript"],
     [{ok, _} = file:copy(filename:join(["bin", File++"-"++Vsn]),
                          filename:join(["bin", File]))
