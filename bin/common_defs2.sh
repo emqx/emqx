@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 ## NOTE: those are defined separately from `common_defs.sh` because
 ## they require `common_functions.sh` to be sourced prior to sourcing

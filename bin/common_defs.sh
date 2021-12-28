@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 DEBUG="${DEBUG:-0}"
 if [ "$DEBUG" -eq 1 ]; then

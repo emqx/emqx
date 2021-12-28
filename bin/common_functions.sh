@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Echo to stderr on errors
 echoerr() { echo "ERROR: $*" 1>&2; }
