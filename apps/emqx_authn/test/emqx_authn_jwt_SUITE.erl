@@ -23,8 +23,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--include("emqx_authn.hrl").
-
 -define(AUTHN_ID, <<"mechanism:jwt">>).
 
 -define(JWKS_PORT, 33333).
@@ -156,7 +154,7 @@ t_jwt_authenticator_public_key(_) ->
     ok.
 
 t_jwks_renewal(_Config) ->
-    {ok, _} = emqx_authn_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH),
+    {ok, _} = emqx_authn_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
     ok = emqx_authn_http_test_server:set_handler(fun jwks_handler/2),
 
     PrivateKey = test_rsa_key(private),
@@ -164,45 +162,63 @@ t_jwks_renewal(_Config) ->
     JWS = generate_jws('public-key', Payload, PrivateKey),
     Credential = #{username => <<"myuser">>,
 			       password => JWS},
+    
+    BadConfig0 = #{mechanism => jwt,
+                   algorithm => 'public-key',
+                   ssl => #{enable => false},
+                   verify_claims => [],
 
-    BadConfig = #{mechanism => jwt,
-                  algorithm => 'public-key',
-                  ssl => #{enable => false},
-                  verify_claims => [],
-
-                  use_jwks => true,
-                  endpoint => "http://127.0.0.1:" ++ integer_to_list(?JWKS_PORT + 1) ++ ?JWKS_PATH,
-                  refresh_interval => 1000
-                 },
+                   use_jwks => true,
+                   endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT + 1) ++ ?JWKS_PATH,
+                   refresh_interval => 1000
+                  },
 
     ok = snabbkaffe:start_trace(),
 
     {{ok, State0}, _} = ?wait_async_action(
-                           emqx_authn_jwt:create(?AUTHN_ID, BadConfig),
+                           emqx_authn_jwt:create(?AUTHN_ID, BadConfig0),
                            #{?snk_kind := jwks_endpoint_response},
-                           1000),
+                           10000),
 
     ok = snabbkaffe:stop(),
 
     ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, State0)),
     ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State0)),
 
-    GoodConfig = BadConfig#{endpoint =>
-                            "http://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH},
+    ClientSSLOpts = client_ssl_opts(),
+    BadClientSSLOpts = ClientSSLOpts#{server_name_indication => "authn-https-unknown-host"},
+
+    BadConfig1 = BadConfig0#{endpoint =>
+                            "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH,
+                            ssl => BadClientSSLOpts},
 
     ok = snabbkaffe:start_trace(),
 
     {{ok, State1}, _} = ?wait_async_action(
-                           emqx_authn_jwt:update(GoodConfig, State0),
+                           emqx_authn_jwt:create(?AUTHN_ID, BadConfig1),
                            #{?snk_kind := jwks_endpoint_response},
-                           1000),
+                           10000),
 
     ok = snabbkaffe:stop(),
 
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential, State1)),
-    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State1)),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, State1)),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State0)),
 
-    ?assertEqual(ok, emqx_authn_jwt:destroy(State1)),
+    GoodConfig = BadConfig1#{ssl => ClientSSLOpts},
+
+    ok = snabbkaffe:start_trace(),
+
+    {{ok, State2}, _} = ?wait_async_action(
+                           emqx_authn_jwt:update(GoodConfig, State1),
+                           #{?snk_kind := jwks_endpoint_response},
+                           10000),
+
+    ok = snabbkaffe:stop(),
+
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential, State2)),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State2)),
+
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State2)),
     ok = emqx_authn_http_test_server:stop().
 
 %%------------------------------------------------------------------------------
@@ -220,12 +236,17 @@ jwks_handler(Req0, State) ->
     {ok, Req, State}.
 
 test_rsa_key(public) ->
-    Dir = code:lib_dir(emqx_authn, test),
-    list_to_binary(filename:join([Dir, "data/public_key.pem"]));
+    data_file("public_key.pem");
 
 test_rsa_key(private) ->
+    data_file("private_key.pem").
+
+data_file(Name) ->
     Dir = code:lib_dir(emqx_authn, test),
-    list_to_binary(filename:join([Dir, "data/private_key.pem"])).
+    list_to_binary(filename:join([Dir, "data", Name])).
+
+cert_file(Name) ->
+    data_file(filename:join(["certs", Name])).
 
 generate_jws('hmac-based', Payload, Secret) ->
     JWK = jose_jwk:from_oct(Secret),
@@ -243,3 +264,19 @@ generate_jws('public-key', Payload, PrivateKey) ->
     Signed = jose_jwt:sign(JWK, Header, Payload),
     {_, JWS} = jose_jws:compact(Signed),
     JWS.
+
+client_ssl_opts() ->
+    #{keyfile    => cert_file("authn-https-client.key"),
+      certfile   => cert_file("authn-https-client.crt"),
+      cacertfile => cert_file("authn-https-ca.crt"),
+      enable => true,
+      verify => verify_peer,
+      server_name_indication => "authn-https"
+    }.
+
+server_ssl_opts() ->
+    [{keyfile, cert_file("authn-https-server.key")},
+     {certfile, cert_file("authn-https-server.crt")},
+     {cacertfile, cert_file("authn-https-ca.crt")},
+     {verify, verify_none}
+    ].
