@@ -49,6 +49,9 @@
 
 -type emqx_admin() :: #?ADMIN{}.
 
+-type pwd_type() :: int | uppercase | lowercase.
+-type bad_pwd() :: too_short | too_long | {bad_char, integer()} | {missing_types, [pwd_type()]}.
+
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
@@ -86,13 +89,18 @@ force_add_user(Username, Password, Desc) ->
 
 %% @private
 add_user_(Username, Password, Desc) ->
-    case mnesia:wread({?ADMIN, Username}) of
-        []  ->
-            Admin = #?ADMIN{username = Username, pwdhash = hash(Password), description = Desc},
-            mnesia:write(Admin),
-            #{username => Username, description => Desc};
-        [_] ->
-            mnesia:abort(<<"Username Already Exist">>)
+    case check_pwd(Password) of
+        pass ->
+            case mnesia:wread({?ADMIN, Username}) of
+                []  ->
+                    Admin = #?ADMIN{username = Username, pwdhash = hash(Password), description = Desc},
+                    mnesia:write(Admin),
+                    #{username => Username, description => Desc};
+                [_] ->
+                    mnesia:abort(<<"Username Already Exist">>)
+            end;
+        {error, Reason} ->
+            {error, {bad_password, Reason}}
     end.
 
 -spec(remove_user(binary()) -> {ok, any()} | {error, any()}).
@@ -143,7 +151,12 @@ change_password(Username, OldPasswd, NewPasswd) when is_binary(Username) ->
     end.
 
 change_password(Username, Password) when is_binary(Username), is_binary(Password) ->
-    change_password_hash(Username, hash(Password)).
+    case check_pwd(Password) of
+        pass ->
+            change_password_hash(Username, hash(Password));
+        {error, Reason} ->
+            {error, {bad_password, Reason}}
+    end.
 
 change_password_hash(Username, PasswordHash) ->
     update_pwd(Username, fun(User) ->
@@ -204,6 +217,37 @@ check(Username, Password) ->
                     {error, <<"username_not_found">>}
             end
     end.
+
+-spec(check_pwd(PWD :: binary()) -> pass | {error, bad_pwd()}).
+check_pwd(PWD) when size(PWD) < 8 ->
+    {error, too_short};
+check_pwd(PWD) when size(PWD) > 16 ->
+    {error, too_long};
+check_pwd(PWD) ->
+    loop_check_pwd(binary_to_list(PWD), []).
+
+loop_check_pwd([], State) ->
+    case [int, uppercase, lowercase] -- State of
+        [] ->
+            pass;
+        List ->
+            {error, {missing_types, List}}
+    end;
+%  underline _ ignore
+loop_check_pwd([95 | Tail], State) ->
+    loop_check_pwd(Tail, State);
+% int
+loop_check_pwd([H | Tail], State) when 48 =< H, H =< 57 ->
+    loop_check_pwd(Tail, [int | State]);
+% A to Z
+loop_check_pwd([H | Tail], State) when 65 =< H, H =< 90 ->
+    loop_check_pwd(Tail, [uppercase | State]);
+% a to z
+loop_check_pwd([H | Tail], State) when 97 =< H, H =< 122 ->
+    loop_check_pwd(Tail, [lowercase | State]);
+% other
+loop_check_pwd([H | _], _State) ->
+    {error, {bad_char, H}}.
 
 %%--------------------------------------------------------------------
 %% token
