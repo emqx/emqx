@@ -137,4 +137,4 @@ You can read the mqtt protocol via the following links:
 
 ## License
 
-Apache License 2.0, see [LICENSE](./LICENSE).
+See [LICENSE](./LICENSE).

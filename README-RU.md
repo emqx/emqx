@@ -138,4 +138,4 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 
 ## Лицензия
 
-Apache License 2.0, см. [LICENSE](./LICENSE).
+см. [LICENSE](./LICENSE).

@@ -148,4 +148,4 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 
 ## 开源许可
 
-Apache License 2.0, 详见 [LICENSE](./LICENSE)。
+详见 [LICENSE](./LICENSE)。
