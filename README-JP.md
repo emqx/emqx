@@ -129,4 +129,4 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 
 ## License
 
-Apache License 2.0, see [LICENSE](https://github.com/emqx/MQTTX/blob/master/LICENSE).
+See [LICENSE](./LICENSE).
