@@ -228,6 +228,9 @@ users(post, #{body := Params}) ->
             case emqx_dashboard_admin:add_user(Username, Password, Desc) of
                 {ok, Result} ->
                     {200, Result};
+                {error, {bad_password, Reason}} ->
+                    Message = list_to_binary(io_lib:format("bad password ~p", [Reason])),
+                    {400, #{code => <<"CREATE_USER_FAIL">>, message => Message}};
                 {error, Reason} ->
                     {400, #{code => <<"CREATE_USER_FAIL">>, message => Reason}}
             end
@@ -262,6 +265,9 @@ change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->
     case emqx_dashboard_admin:change_password(Username, OldPwd, NewPwd) of
         {ok, _} ->
             {204};
+        {error, {bad_password, Reason}} ->
+            Message = list_to_binary(io_lib:format("bad password ~p", [Reason])),
+            {400, #{code => <<"CREATE_USER_FAIL">>, message => Message}};
         {error, Reason} ->
             {400, #{code => <<"CHANGE_PWD_FAIL">>, message => Reason}}
     end.
