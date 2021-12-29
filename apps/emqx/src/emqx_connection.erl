@@ -754,7 +754,7 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
             <<>> -> ?SLOG(warning, #{
                         msg => "packet_is_discarded",
                         reason => "frame_is_too_large",
-                        packet => emqx_packet:format(Packet, null)
+                        packet => emqx_packet:format(Packet, hidden)
                     }),
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
                     ok = emqx_metrics:inc('delivery.dropped'),

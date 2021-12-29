@@ -26,7 +26,7 @@
 -export([ publish/1
         , subscribe/3
         , unsubscribe/2
-        , log/3
+        , log/4
         ]).
 
 -export([ start_link/0
@@ -52,8 +52,7 @@
 
 -define(TRACE, ?MODULE).
 -define(MAX_SIZE, 30).
--define(TRACE_FILTER, emqx_trace_filter).
--define(OWN_KEYS,[level,filters,filter_default,handlers]).
+-define(OWN_KEYS, [level, filters, filter_default, handlers]).
 
 -ifdef(TEST).
 -export([ log_file/2
@@ -94,18 +93,14 @@ unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) -> ignore;
 unsubscribe(Topic, SubOpts) ->
     ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
 
-log(Event, Msg, Meta0) ->
-    case persistent_term:get(?TRACE_FILTER, undefined) of
-        undefined -> ok;
-        List ->
-            Meta =
-                case logger:get_process_metadata() of
-                    undefined -> Meta0;
-                    ProcMeta -> maps:merge(ProcMeta, Meta0)
-                end,
-            Log = #{level => trace, event => Event, meta => Meta, msg => Msg},
-            log_filter(List, Log)
-    end.
+log(List, Event, Msg, Meta0) ->
+    Meta =
+        case logger:get_process_metadata() of
+            undefined -> Meta0;
+            ProcMeta -> maps:merge(ProcMeta, Meta0)
+        end,
+    Log = #{level => trace, event => Event, meta => Meta, msg => Msg},
+    log_filter(List, Log).
 
 log_filter([], _Log) -> ok;
 log_filter([{Id, FilterFun, Filter, Name} | Rest], Log0) ->
@@ -196,7 +191,7 @@ update(Name, Enable) ->
     transaction(Tran).
 
 check() ->
-    erlang:send(?MODULE, {mnesia_table_event, check}).
+    gen_server:call(?MODULE, check).
 
 -spec get_trace_filename(Name :: binary()) ->
     {ok, FileName :: string()} | {error, not_found}.
@@ -241,6 +236,9 @@ init([]) ->
     update_trace_handler(),
     {ok, #{timer => TRef, monitors => #{}}}.
 
+handle_call(check, _From, State) ->
+    {_, NewState} = handle_info({mnesia_table_event, check}, State),
+    {reply, ok, NewState};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{unexpected_call => Req}),
     {reply, ok, State}.
@@ -259,8 +257,7 @@ handle_info({'DOWN', _Ref, process, Pid, _Reason}, State = #{monitors := Monitor
             lists:foreach(fun file:delete/1, Files),
             {noreply, State#{monitors => NewMonitors}}
     end;
-handle_info({timeout, TRef, update_trace},
-    #{timer := TRef} = State) ->
+handle_info({timeout, TRef, update_trace}, #{timer := TRef} = State) ->
     Traces = get_enable_trace(),
     NextTRef = update_trace(Traces),
     update_trace_handler(),
@@ -344,10 +341,10 @@ disable_finished(Traces) ->
 
 start_trace(Traces, Started0) ->
     Started = lists:map(fun(#{name := Name}) -> Name end, Started0),
-    lists:foldl(fun(#?TRACE{name = Name} = Trace, {Running, StartedAcc}) ->
+    lists:foldl(fun(#?TRACE{name = Name} = Trace,
+        {Running, StartedAcc}) ->
         case lists:member(Name, StartedAcc) of
-            true ->
-                {[Name | Running], StartedAcc};
+            true -> {[Name | Running], StartedAcc};
             false ->
                 case start_trace(Trace) of
                     ok -> {[Name | Running], [Name | StartedAcc]};
@@ -366,9 +363,11 @@ start_trace(Trace) ->
     emqx_trace_handler:install(Who, debug, log_file(Name, Start)).
 
 stop_trace(Finished, Started) ->
-    lists:foreach(fun(#{name := Name, type := Type}) ->
+    lists:foreach(fun(#{name := Name, type := Type, filter := Filter}) ->
         case lists:member(Name, Finished) of
-            true -> emqx_trace_handler:uninstall(Type, Name);
+            true ->
+                ?TRACE("API", "trace_stopping", #{Type => Filter}),
+                emqx_trace_handler:uninstall(Type, Name);
             false -> ok
         end
                   end, Started).
@@ -455,7 +454,7 @@ to_trace(#{type := ip_address, ip_address := Filter} = Trace, Rec) ->
     case validate_ip_address(Filter) of
         ok ->
             Trace0 = maps:without([type, ip_address], Trace),
-            to_trace(Trace0, Rec#?TRACE{type = ip_address, filter = Filter});
+            to_trace(Trace0, Rec#?TRACE{type = ip_address, filter = binary_to_list(Filter)});
         Error -> Error
     end;
 to_trace(#{type := Type}, _Rec) -> {error, io_lib:format("required ~s field", [Type])};

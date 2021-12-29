@@ -129,11 +129,10 @@ schema("/trace/:name/log") ->
                 hoconsc:ref(position),
                 hoconsc:ref(node)
             ],
-            %% todo response data
             responses => #{
                 200 =>
                 [
-                    {items, hoconsc:mk(binary(), #{example => "BinBinBin"})}
+                    {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})}
                     | fields(bytes) ++ fields(position)
                 ]
             }
@@ -307,7 +306,7 @@ download_trace_log(get, #{bindings := #{name := Name}}) ->
             {ok, ZipFile} = zip:zip(ZipFileName, Zips, [{cwd, ZipDir}]),
             emqx_trace:delete_files_after_send(ZipFileName, Zips),
             Headers = #{
-                <<"content-type">> => <<"application/octet-stream">>,
+                <<"content-type">> => <<"application/x-zip">>,
                 <<"content-disposition">> =>
                 iolist_to_binary("attachment; filename=" ++ filename:basename(ZipFile))
             },

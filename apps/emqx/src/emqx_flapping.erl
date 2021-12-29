@@ -121,7 +121,7 @@ handle_cast({detected, #flapping{clientid   = ClientId,
                 peer_host => fmt_host(PeerHost),
                 detect_cnt => DetectCnt,
                 wind_time_in_ms => WindTime
-            }, #{clientid => unicode:characters_to_list(ClientId, utf8)}),
+            }, #{clientid => ClientId}),
             Now = erlang:system_time(second),
             Banned = #banned{who    = {clientid, ClientId},
                              by     = <<"flapping detector">>,
@@ -136,7 +136,7 @@ handle_cast({detected, #flapping{clientid   = ClientId,
                 peer_host => fmt_host(PeerHost),
                 detect_cnt => DetectCnt,
                 interval => Interval
-            }, #{clientid => unicode:characters_to_list(ClientId, utf8)})
+            }, #{clientid => ClientId})
     end,
     {noreply, State};
 

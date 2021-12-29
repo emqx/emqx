@@ -67,13 +67,24 @@
     case logger:allow(Level, ?MODULE) of
         true ->
             logger:log(Level, (Data), (Meta#{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
-                , line => ?LINE
+                                            , line => ?LINE
             }));
         false ->
             ok
     end).
 
--define(TRACE(Event, Msg, Meta), emqx_trace:log(Event, Msg, Meta)).
+-define(TRACE_FILTER, emqx_trace_filter).
+
+%% Only evaluate when necessary
+-define(TRACE(Event, Msg, Meta),
+    begin
+    case persistent_term:get(?TRACE_FILTER, undefined) of
+        undefined -> ok;
+        [] -> ok;
+        List ->
+           emqx_trace:log(List, Event, Msg, Meta)
+    end
+    end).
 
 %% print to 'user' group leader
 -define(ULOG(Fmt, Args), io:format(user, Fmt, Args)).

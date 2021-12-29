@@ -25,7 +25,7 @@
 format(#{level := trace, event := Event, meta := Meta, msg := Msg},
     #{payload_encode := PEncode}) ->
     Time = calendar:system_time_to_rfc3339(erlang:system_time(second)),
-    ClientId = maps:get(clientid, Meta, ""),
+    ClientId = to_iolist(maps:get(clientid, Meta, "")),
     Peername = maps:get(peername, Meta, ""),
     MetaBin = format_meta(Meta, PEncode),
     [Time, " [", Event, "] ", ClientId, "@", Peername, " msg: ", Msg, MetaBin, "\n"];
@@ -39,10 +39,7 @@ format_meta(Meta0, Encode) ->
     Meta1 = maps:without([msg, clientid, peername, packet, payload], Meta0),
     case Meta1 =:= #{} of
         true -> [Packet, Payload];
-        false ->
-            Meta2 = lists:map(fun({K, V}) -> [to_iolist(K), ": ", to_iolist(V)] end,
-                maps:to_list(Meta1)),
-            [Packet, ", ", lists:join(",", Meta2), Payload]
+        false -> [Packet, ", ", map_to_iolist(Meta1), Payload]
     end.
 
 format_packet(undefined, _) -> "";
@@ -50,12 +47,16 @@ format_packet(Packet, Encode) -> [", packet: ", emqx_packet:format(Packet, Encod
 
 format_payload(undefined, _) -> "";
 format_payload(Payload, text) -> [", payload: ", io_lib:format("~ts", [Payload])];
-format_payload(Payload, hex) -> [", payload(hex): ", binary:encode_hex(Payload)];
-format_payload(_, null) -> ", payload=******".
+format_payload(Payload, hex) -> [", payload(hex): ", emqx_packet:encode_hex(Payload)];
+format_payload(_, hidden) -> ", payload=******".
 
 to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 to_iolist(Int) when is_integer(Int) -> integer_to_list(Int);
 to_iolist(Float) when is_float(Float) -> float_to_list(Float, [{decimals, 2}]);
-to_iolist(Bin)when is_binary(Bin)  -> unicode:characters_to_binary(Bin);
-to_iolist(List) when is_list(List) -> unicode:characters_to_list(List);
-to_iolist(Term) -> io_lib:format("~0p", [Term]).
+to_iolist(SubMap) when is_map(SubMap) -> ["[", map_to_iolist(SubMap), "]"];
+to_iolist(Char) -> emqx_logger_textfmt:try_format_unicode(Char).
+
+map_to_iolist(Map) ->
+    lists:join(",",
+        lists:map(fun({K, V}) -> [to_iolist(K), ": ", to_iolist(V)] end,
+            maps:to_list(Map))).

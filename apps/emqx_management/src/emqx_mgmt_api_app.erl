@@ -149,7 +149,7 @@ api_key(post, #{body := App}) ->
     Desc = unicode:characters_to_binary(Desc0, unicode),
     case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc) of
         {ok, NewApp} -> {200, format(NewApp)};
-        {error, Reason} -> {400, Reason}
+        {error, Reason} -> {400, io_lib:format("~p", [Reason])}
     end.
 
 api_key_by_name(get, #{bindings := #{name := Name}}) ->

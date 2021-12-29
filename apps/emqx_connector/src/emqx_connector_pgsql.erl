@@ -88,7 +88,8 @@ on_query(InstId, QueryParams, AfterQuery, #{poolname := PoolName} = State) ->
                           {prepared_query, Name, SQL} -> {prepared_query, [Name, SQL, []]};
                           {prepared_query, Name, SQL, Params} -> {prepared_query, [Name, SQL, Params]}
                       end,
-    ?TRACE("QUERY", "postgresql_connector_received", #{connector => InstId, command => Command, args => Args, state => State}}),
+    ?TRACE("QUERY", "postgresql_connector_received",
+        #{connector => InstId, command => Command, args => Args, state => State}),
     case Result = ecpool:pick_and_do(PoolName, {?MODULE, Command, Args}, no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{

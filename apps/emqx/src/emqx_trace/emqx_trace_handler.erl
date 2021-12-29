@@ -119,11 +119,11 @@ uninstall(HandlerId) ->
 running() ->
     lists:foldl(fun filter_traces/2, [], emqx_logger:get_log_handlers(started)).
 
--spec filter_clientid(logger:log_event(), {string(), atom()}) -> logger:log_event() | stop.
+-spec filter_clientid(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
 filter_clientid(#{meta := #{clientid := ClientId}} = Log, {ClientId, _Name}) -> Log;
 filter_clientid(_Log, _ExpectId) -> stop.
 
--spec filter_topic(logger:log_event(), {string(), atom()}) -> logger:log_event() | stop.
+-spec filter_topic(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
 filter_topic(#{meta := #{topic := Topic}} = Log, {TopicFilter, _Name}) ->
     case emqx_topic:match(Topic, TopicFilter) of
         true -> Log;
@@ -140,7 +140,7 @@ filter_ip_address(#{meta := #{peername := Peername}} = Log, {IP, _Name}) ->
 filter_ip_address(_Log, _ExpectId) -> stop.
 
 filters(#{type := clientid, filter := Filter, name := Name}) ->
-    [{clientid, {fun ?MODULE:filter_clientid/2, {ensure_list(Filter), Name}}}];
+    [{clientid, {fun ?MODULE:filter_clientid/2, {Filter, Name}}}];
 filters(#{type := topic, filter := Filter, name := Name}) ->
     [{topic, {fun ?MODULE:filter_topic/2, {ensure_bin(Filter), Name}}}];
 filters(#{type := ip_address, filter := Filter, name := Name}) ->
@@ -149,8 +149,9 @@ filters(#{type := ip_address, filter := Filter, name := Name}) ->
 formatter(#{type := _Type}) ->
     {emqx_trace_formatter,
         #{
-            template => [],
-            single_line => false,
+            %% template is for ?SLOG message not ?TRACE.
+            template => [time," [",level,"] ", msg,"\n"],
+            single_line => true,
             max_size => unlimited,
             depth => unlimited,
             payload_encode => payload_encode()

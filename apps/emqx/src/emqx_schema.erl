@@ -985,13 +985,13 @@ fields("latency_stats") ->
                                   desc => "the number of smaples for calculate the average latency of delivery"})}
     ];
 fields("trace") ->
-    [ {"payload_encode", sc(hoconsc:enum([hex, text, null]), #{
+    [ {"payload_encode", sc(hoconsc:enum([hex, text, hidden]), #{
         default => text,
         desc => """
-Determine the format of the payload format in the trace file.</br>
-- `text`: Text-based protocol or plain text protocol. It is recommended when payload is json encode.</br>
-- `hex`: Binary hexadecimal encode. It is recommended when payload is a custom binary protocol.</br>
-- `null`: Don't show payload in trace log file.
+Determine the format of the payload format in the trace file.<br>
+`text`: Text-based protocol or plain text protocol. It is recommended when payload is json encode.<br>
+`hex`: Binary hexadecimal encode. It is recommended when payload is a custom binary protocol.<br>
+`hidden`: payload is obfuscated as `******`
         """
     })}
     ].

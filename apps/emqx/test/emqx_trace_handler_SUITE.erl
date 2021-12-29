@@ -32,19 +32,22 @@ all() -> [t_trace_clientid, t_trace_topic, t_trace_ip_address, t_trace_clientid_
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([emqx_modules]),
+    emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_modules]).
+    emqx_common_test_helpers:stop_apps([]).
 
 init_per_testcase(t_trace_clientid, Config) ->
+    init(),
     Config;
 init_per_testcase(_Case, Config) ->
     _ = [logger:remove_handler(Id) ||#{id := Id} <- emqx_trace_handler:running()],
+    init(),
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    terminate(),
     ok.
 
 t_trace_clientid(_Config) ->
@@ -66,11 +69,11 @@ t_trace_clientid(_Config) ->
     ?assert(filelib:is_regular("tmp/client3.log")),
 
     %% Get current traces
-    ?assertMatch([#{type := clientid, filter := "client", name := <<"CLI-client1">>,
+    ?assertMatch([#{type := clientid, filter := <<"client">>, name := <<"CLI-client1">>,
         level := debug, dst := "tmp/client.log"},
-        #{type := clientid, filter := "client2", name := <<"CLI-client2">>
+        #{type := clientid, filter := <<"client2">>, name := <<"CLI-client2">>
             , level := debug, dst := "tmp/client2.log"},
-        #{type := clientid, filter := "client3", name := <<"CLI-client3">>,
+        #{type := clientid, filter := <<"client3">>, name := <<"CLI-client3">>,
             level := debug, dst := "tmp/client3.log"}
     ], emqx_trace_handler:running()),
 
@@ -231,3 +234,9 @@ filesync(Name0, Type, Retry) ->
         ct:sleep(100),
         filesync(Name, Type, Retry - 1)
     end.
+
+init() ->
+    emqx_trace:start_link().
+
+terminate() ->
+    catch ok = gen_server:stop(emqx_trace, normal, 5000).
