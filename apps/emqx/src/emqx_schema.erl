@@ -828,7 +828,7 @@ fields("broker") ->
            })
       }
     , {"shared_subscription_strategy",
-       sc(hoconsc:enum([random, round_robin]),
+       sc(hoconsc:enum([random, round_robin, sticky, hash_topic, hash_clientid]),
           #{ default => round_robin
            })
       }
