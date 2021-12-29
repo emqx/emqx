@@ -98,7 +98,11 @@ log(Event, Msg, Meta0) ->
     case persistent_term:get(?TRACE_FILTER, undefined) of
         undefined -> ok;
         List ->
-            Meta = maps:merge(logger:get_process_metadata(), Meta0),
+            Meta =
+                case logger:get_process_metadata() of
+                    undefined -> Meta0;
+                    ProcMeta -> maps:merge(ProcMeta, Meta0)
+                end,
             Log = #{level => trace, event => Event, meta => Meta, msg => Msg},
             log_filter(List, Log)
     end.

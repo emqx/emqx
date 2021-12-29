@@ -535,16 +535,20 @@ enqueue(Msg, Session = #session{mqueue = Q}) when is_record(Msg, message) ->
     (Dropped =/= undefined) andalso log_dropped(Dropped, Session),
     Session#session{mqueue = NewQ}.
 
-log_dropped(Msg = #message{qos = QoS}, #session{mqueue = Q}) ->
-    case (QoS == ?QOS_0) andalso (not emqx_mqueue:info(store_qos0, Q)) of
+log_dropped(Msg = #message{qos = QoS, topic = Topic}, #session{mqueue = Q}) ->
+    Payload = emqx_message:to_log_map(Msg),
+     #{store_qos0 := StoreQos0} = QueueInfo = emqx_mqueue:info(Q),
+    case (QoS == ?QOS_0) andalso (not StoreQos0) of
         true  ->
             ok = emqx_metrics:inc('delivery.dropped.qos0_msg'),
             ?SLOG(warning, #{msg => "dropped_qos0_msg",
-                             payload => emqx_message:to_log_map(Msg)});
+                             queue => QueueInfo,
+                             payload => Payload}, #{topic => Topic});
         false ->
             ok = emqx_metrics:inc('delivery.dropped.queue_full'),
             ?SLOG(warning, #{msg => "dropped_msg_due_to_mqueue_is_full",
-                             payload => emqx_message:to_log_map(Msg)})
+                             queue => QueueInfo,
+                             payload => Payload}, #{topic => Topic})
     end.
 
 enrich_fun(Session = #session{subscriptions = Subs}) ->

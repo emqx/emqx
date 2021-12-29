@@ -552,7 +552,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                 msg => "cannot_publish_to_topic",
                 topic => Topic,
                 reason => emqx_reason_codes:name(Rc)
-            }),
+            }, #{topic => Topic}),
             case emqx:get_config([authorization, deny_action], ignore) of
                 ignore ->
                     case QoS of
@@ -570,7 +570,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                 msg => "cannot_publish_to_topic",
                 topic => Topic,
                 reason => emqx_reason_codes:name(Rc)
-            }),
+            }, #{topic => Topic}),
             case QoS of
                 ?QOS_0 ->
                     ok = emqx_metrics:inc('packets.publish.dropped'),
@@ -585,7 +585,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                 msg => "cannot_publish_to_topic",
                 topic => Topic,
                 reason => emqx_reason_codes:name(Rc)
-            }),
+            }, #{topic => Topic}),
             handle_out(disconnect, Rc, NChannel)
     end.
 
@@ -635,7 +635,7 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_2},
                 msg => "dropped_qos2_packet",
                 reason => emqx_reason_codes:name(RC),
                 packet_id => PacketId
-            }),
+            }, #{topic => Msg#message.topic}),
             ok = emqx_metrics:inc('packets.publish.dropped'),
             handle_out(pubrec, {PacketId, RC}, Channel)
     end.
@@ -687,7 +687,7 @@ process_subscribe([Topic = {TopicFilter, SubOpts} | More], SubProps, Channel, Ac
             ?SLOG(warning, #{
                 msg => "cannot_subscribe_topic_filter",
                 reason => emqx_reason_codes:name(ReasonCode)
-            }),
+            }, #{topic => TopicFilter}),
             process_subscribe(More, SubProps, Channel, [{Topic, ReasonCode} | Acc])
     end.
 
@@ -703,7 +703,7 @@ do_subscribe(TopicFilter, SubOpts = #{qos := QoS}, Channel =
             ?SLOG(warning, #{
                 msg => "cannot_subscribe_topic_filter",
                 reason => emqx_reason_codes:text(RC)
-            }),
+            }, #{topic => NTopicFilter}),
             {RC, Channel}
     end.
 

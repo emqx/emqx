@@ -262,7 +262,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
         {ok, RawRichConf} ->
             init_load(SchemaMod, RawRichConf);
         {error, Reason} ->
-            ?SLOG(error, #{msg => failed_to_load_hocon_conf,
+            ?SLOG(error, #{msg => "failed_to_load_hocon_conf",
                            reason => Reason,
                            include_dirs => IncDir
                           }),
@@ -396,7 +396,7 @@ save_to_override_conf(RawConf, Opts) ->
             case file:write_file(FileName, hocon_pp:do(RawConf, #{})) of
                 ok -> ok;
                 {error, Reason} ->
-                    ?SLOG(error, #{msg => failed_to_write_override_file,
+                    ?SLOG(error, #{msg => "failed_to_write_override_file",
                                    filename => FileName,
                                    reason => Reason}),
                     {error, Reason}

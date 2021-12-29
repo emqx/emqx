@@ -43,7 +43,6 @@ groups() ->
     [].
 
 init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
       [?CONF_NS_ATOM],
       ?GLOBAL),
@@ -56,9 +55,8 @@ init_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
     ok = emqx_common_test_helpers:start_apps(
-           [emqx_authn, emqx_dashboard],
+           [emqx_conf, emqx_authn, emqx_dashboard],
            fun set_special_configs/1),
 
     ?AUTHN:delete_chain(?GLOBAL),

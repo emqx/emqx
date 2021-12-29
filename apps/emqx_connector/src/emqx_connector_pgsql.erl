@@ -56,7 +56,7 @@ on_start(InstId, #{server := {Host, Port},
                    auto_reconnect := AutoReconn,
                    pool_size := PoolSize,
                    ssl := SSL } = Config) ->
-    ?SLOG(info, #{msg => "starting postgresql connector",
+    ?SLOG(info, #{msg => "starting_postgresql_connector",
                   connector => InstId, config => Config}),
     SslOpts = case maps:get(enable, SSL) of
         true ->

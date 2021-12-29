@@ -260,7 +260,7 @@ code_change(_OldVsn, State, _Extra) ->
 init_resume_worker(RemotePid, SessionID, #{ pmon := Pmon } = State) ->
     case emqx_session_router_worker_sup:start_worker(SessionID, RemotePid) of
         {error, What} ->
-            ?SLOG(error, #{msg => "Could not start resume worker", reason => What}),
+            ?SLOG(error, #{msg => "failed_to_start_resume_worker", reason => What}),
             error;
         {ok, Pid} ->
             Pmon1 = emqx_pmon:monitor(Pid, Pmon),

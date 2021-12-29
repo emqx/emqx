@@ -204,8 +204,9 @@ publish(Msg) when is_record(Msg, message) ->
     _ = emqx_trace:publish(Msg),
     emqx_message:is_sys(Msg) orelse emqx_metrics:inc('messages.publish'),
     case emqx_hooks:run_fold('message.publish', [], emqx_message:clean_dup(Msg)) of
-        #message{headers = #{allow_publish := false}} ->
-            ?TRACE("MQTT", "msg_publish_not_allowed", #{message => emqx_message:to_log_map(Msg)}),
+        #message{headers = #{allow_publish := false}, topic = Topic} ->
+            Message = emqx_message:to_log_map(Msg),
+            ?TRACE("MQTT", "msg_publish_not_allowed", #{message => Message, topic => Topic}),
             [];
         Msg1 = #message{topic = Topic} ->
             emqx_persistent_session:persist_message(Msg1),
@@ -225,7 +226,9 @@ safe_publish(Msg) when is_record(Msg, message) ->
                 reason => Reason,
                 payload => emqx_message:to_log_map(Msg),
                 stacktrace => Stk
-            }),
+            },
+                #{topic => Msg#message.topic}
+            ),
             []
     end.
 
@@ -279,7 +282,7 @@ forward(Node, To, Delivery, async) ->
                 msg => "async_forward_msg_to_node_failed",
                 node => Node,
                 reason => Reason
-            }),
+            }, #{topic => To}),
             {error, badrpc}
     end;
 
@@ -290,7 +293,7 @@ forward(Node, To, Delivery, sync) ->
                 msg => "sync_forward_msg_to_node_failed",
                 node => Node,
                 reason => Reason
-            }),
+            }, #{topic => To}),
             {error, badrpc};
         Result ->
             emqx_metrics:inc('messages.forward'), Result

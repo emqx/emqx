@@ -55,7 +55,7 @@ on_start(InstId, #{servers := Servers0,
                    pool_size := PoolSize,
                    auto_reconnect := AutoReconn,
                    ssl := SSL} = Config) ->
-    ?SLOG(info, #{msg => "starting ldap connector",
+    ?SLOG(info, #{msg => "starting_ldap_connector",
                   connector => InstId, config => Config}),
     Servers = [begin proplists:get_value(host, S) end || S <- Servers0],
     SslOpts = case maps:get(enable, SSL) of
@@ -81,7 +81,7 @@ on_start(InstId, #{servers := Servers0,
     {ok, #{poolname => PoolName}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    ?SLOG(info, #{msg => "stopping ldap connector",
+    ?SLOG(info, #{msg => "stopping_ldap_connector",
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 

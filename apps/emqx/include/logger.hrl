@@ -59,15 +59,19 @@
 
 %% structured logging
 -define(SLOG(Level, Data),
-        %% check 'allow' here, only evaluate Data when necessary
-        case logger:allow(Level, ?MODULE) of
-            true ->
-                logger:log(Level, (Data), #{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
-                                           , line => ?LINE
-                                           });
-            false ->
-                ok
-        end).
+        ?SLOG(Level, Data, #{})).
+
+%% structured logging, meta is for handler's filter.
+-define(SLOG(Level, Data, Meta),
+%% check 'allow' here, only evaluate Data when necessary
+    case logger:allow(Level, ?MODULE) of
+        true ->
+            logger:log(Level, (Data), Meta#{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
+                , line => ?LINE
+            });
+        false ->
+            ok
+    end).
 
 -define(TRACE(Event, Msg, Meta), emqx_trace:log(Event, Msg, Meta)).
 

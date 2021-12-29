@@ -448,20 +448,23 @@ kick_session(Action, ClientId, ChanPid) ->
                           , action => Action
                           , error => Error
                           , reason => Reason
-                          })
+                          },
+                #{clientid => unicode:characters_to_list(ClientId, utf8)})
     end.
 
 kick_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] ->
             ?SLOG(warning, #{msg => "kicked_an_unknown_session",
-                             clientid => ClientId}),
+                             clientid => ClientId},
+                #{clientid => unicode:characters_to_list(ClientId, utf8)}),
             ok;
         ChanPids ->
             case length(ChanPids) > 1 of
                 true ->
                     ?SLOG(warning, #{msg => "more_than_one_channel_found",
-                                     chan_pids => ChanPids});
+                                     chan_pids => ChanPids},
+                        #{clientid => unicode:characters_to_list(ClientId, utf8)});
                 false -> ok
             end,
             lists:foreach(fun(Pid) -> kick_session(ClientId, Pid) end, ChanPids)

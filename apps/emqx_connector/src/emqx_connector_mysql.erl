@@ -56,7 +56,7 @@ on_start(InstId, #{server := {Host, Port},
                    auto_reconnect := AutoReconn,
                    pool_size := PoolSize,
                    ssl := SSL } = Config) ->
-    ?SLOG(info, #{msg => "starting mysql connector",
+    ?SLOG(info, #{msg => "starting_mysql_connector",
                   connector => InstId, config => Config}),
     SslOpts = case maps:get(enable, SSL) of
         true ->
@@ -76,7 +76,7 @@ on_start(InstId, #{server := {Host, Port},
     {ok, #{poolname => PoolName}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    ?SLOG(info, #{msg => "stopping mysql connector",
+    ?SLOG(info, #{msg => "stopping_mysql_connector",
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 

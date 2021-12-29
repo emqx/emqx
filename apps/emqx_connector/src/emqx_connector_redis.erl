@@ -87,7 +87,7 @@ on_start(InstId, #{redis_type := Type,
                    pool_size := PoolSize,
                    auto_reconnect := AutoReconn,
                    ssl := SSL } = Config) ->
-    ?SLOG(info, #{msg => "starting redis connector",
+    ?SLOG(info, #{msg => "starting_redis_connector",
                   connector => InstId, config => Config}),
     Servers = case Type of
                 single -> [{servers, [maps:get(server, Config)]}];
@@ -120,7 +120,7 @@ on_start(InstId, #{redis_type := Type,
     {ok, #{poolname => PoolName, type => Type}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    ?SLOG(info, #{msg => "stopping redis connector",
+    ?SLOG(info, #{msg => "stopping_redis_connector",
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 

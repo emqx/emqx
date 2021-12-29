@@ -128,7 +128,7 @@ on_start(InstId, Config = #{mongo_type := Type,
     {ok, #{poolname => PoolName, type => Type}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    ?SLOG(info, #{msg => "stopping mongodb connector",
+    ?SLOG(info, #{msg => "stopping_mongodb_connector",
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
