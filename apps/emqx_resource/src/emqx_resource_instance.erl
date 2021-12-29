@@ -173,6 +173,8 @@ do_create(InstId, ResourceType, Config, Opts) ->
                     %% this is the first time we do health check, this will update the
                     %% status and then do ets:insert/2
                     _ = do_health_check(Res0#{state => ResourceState}),
+                    HealthCheckInterval = maps:get(health_check_interval, Opts, 15000),
+                    emqx_resource_health_check_sup:create_health_check_process(InstId, HealthCheckInterval),
                     {ok, force_lookup(InstId)};
                 {error, Reason} when ForceCreate == true ->
                     logger:error("start ~ts resource ~ts failed: ~p, "
@@ -216,7 +218,9 @@ do_remove(Mod, InstId, ResourceState, ClearMetrics) ->
     case ClearMetrics of
         true -> ok = emqx_plugin_libs_metrics:clear_metrics(resource_metrics, InstId);
         false -> ok
-    end.
+    end,
+    _ = emqx_resource_health_check_sup:delete_health_check_process(InstId),
+    ok.
 
 do_restart(InstId) ->
     case lookup(InstId) of
