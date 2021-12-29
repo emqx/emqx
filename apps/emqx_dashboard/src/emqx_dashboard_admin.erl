@@ -213,7 +213,7 @@ check(Username, Password) ->
                         error -> {error, <<"password_error">>}
                     end;
                 [] ->
-                    emqx_banned:check_banned_api(Username)
+                    emqx_banned:check_banned_api(Username),
                     {error, <<"username_not_found">>}
             end
     end.
@@ -286,6 +286,6 @@ add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY
 
 add_default_user(Username, Password) ->
     case lookup_user(Username) of
-        [] -> add_user(Username, Password, <<"administrator">>);
+        [] -> force_add_user(Username, Password, <<"administrator">>);
         _  -> {ok, default_user_exists}
     end.
