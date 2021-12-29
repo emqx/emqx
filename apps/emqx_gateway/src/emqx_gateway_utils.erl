@@ -144,7 +144,7 @@ start_listeners([L | Ls], GwName, Ctx, ModCfg, Acc) ->
                      Ctx :: emqx_gateway_ctx:context(),
                      Listener :: tuple(),
                      ModCfg :: map())
-    -> {ok, pid()}
+    -> {ok, {ListenerId :: atom(), esockd:listen_on(), pid()}}
      | {error, term()}.
 start_listener(GwName, Ctx,
                {Type, LisName, ListenOn, SocketOpts, Cfg}, ModCfg) ->

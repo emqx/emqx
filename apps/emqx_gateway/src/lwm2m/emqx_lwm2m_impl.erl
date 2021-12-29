@@ -62,7 +62,7 @@ on_gateway_load(_Gateway = #{ name := GwName,
                 {ok, ListenerPids} ->
                     {ok, ListenerPids, #{ctx => Ctx, registry => RegPid}};
                 {error, {Reason, Listener}} ->
-                    emqx_lwm2m_xml_object_db:stop(),
+                    _ = emqx_lwm2m_xml_object_db:stop(),
                     throw({badconf, #{ key => listeners
                                      , vallue => Listener
                                      , reason => Reason
