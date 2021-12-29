@@ -107,14 +107,14 @@ info_example_basic(mqtt) ->
     #{
         mode => cluster_shareload,
         server => <<"127.0.0.1:1883">>,
-        reconnect_interval => <<"30s">>,
+        reconnect_interval => <<"15s">>,
         proto_ver => <<"v4">>,
         username => <<"foo">>,
         password => <<"bar">>,
         clientid => <<"foo">>,
         clean_start => true,
         keepalive => <<"300s">>,
-        retry_interval => <<"30s">>,
+        retry_interval => <<"15s">>,
         max_inflight => 100,
         ssl => #{
             enable => false

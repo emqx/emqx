@@ -59,7 +59,7 @@ Template with variables is allowed.
 """
            })}
     , {request_timeout, mk(emqx_schema:duration_ms(),
-          #{ default => <<"30s">>
+          #{ default => <<"15s">>
            , desc =>"""
 How long will the HTTP request timeout.
 """

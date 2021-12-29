@@ -158,8 +158,8 @@ method_example(_Type, _Direction, put) ->
 info_example_basic(http, _) ->
     #{
         url => <<"http://localhost:9901/messages/${topic}">>,
-        request_timeout => <<"30s">>,
-        connect_timeout => <<"30s">>,
+        request_timeout => <<"15s">>,
+        connect_timeout => <<"15s">>,
         max_retries => 3,
         retry_interval => <<"10s">>,
         pool_type => <<"random">>,

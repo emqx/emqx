@@ -75,7 +75,7 @@ For example: http://localhost:9901/
            })}
     , {connect_timeout,
         sc(emqx_schema:duration_ms(),
-           #{ default => "30s"
+           #{ default => "15s"
             , desc => "The timeout when connecting to the HTTP server"
             })}
     , {max_retries,
