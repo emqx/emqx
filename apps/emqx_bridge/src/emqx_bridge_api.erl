@@ -276,7 +276,7 @@ schema("/bridges/:id/operation/:operation") ->
 
 '/bridges'(post, #{body := #{<<"type">> := BridgeType} = Conf0}) ->
     Conf = filter_out_request_body(Conf0),
-    BridgeName = maps:get(<<"name">>, Conf, emqx_misc:gen_id()),
+    BridgeName = emqx_misc:gen_id(),
     case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, _} ->
             {400, error_msg('ALREADY_EXISTS', <<"bridge already exists">>)};

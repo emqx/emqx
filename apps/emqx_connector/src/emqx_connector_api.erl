@@ -212,7 +212,7 @@ schema("/connectors/:id") ->
     {200, [format_resp(Conn) || Conn <- emqx_connector:list()]};
 
 '/connectors'(post, #{body := #{<<"type">> := ConnType} = Params}) ->
-    ConnName = maps:get(<<"name">>, Params, emqx_misc:gen_id()),
+    ConnName = emqx_misc:gen_id(),
     case emqx_connector:lookup(ConnType, ConnName) of
         {ok, _} ->
             {400, error_msg('ALREADY_EXISTS', <<"connector already exists">>)};
