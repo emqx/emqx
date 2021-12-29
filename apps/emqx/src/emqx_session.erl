@@ -564,10 +564,10 @@ maybe_nack(Msg) ->
 
 get_subopts(Topic, SubMap) ->
     case maps:find(Topic, SubMap) of
-        {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
-            [{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}];
-        {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
-            [{nl, Nl}, {qos, QoS}, {rap, Rap}];
+        {ok, #{nl := Nl, qos := QoS, subid := SubId}} ->
+            [{nl, Nl}, {qos, QoS}, {subid, SubId}];
+        {ok, #{nl := Nl, qos := QoS}} ->
+            [{nl, Nl}, {qos, QoS}];
         error -> []
     end.
 
@@ -582,12 +582,6 @@ enrich_subopts([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS},
 enrich_subopts([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS},
                Session = #session{upgrade_qos = false}) ->
     enrich_subopts(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, Session);
-enrich_subopts([{rap, 1}|Opts], Msg, Session) ->
-    enrich_subopts(Opts, Msg, Session);
-enrich_subopts([{rap, 0}|Opts], Msg = #message{headers = #{retained := true}}, Session) ->
-    enrich_subopts(Opts, Msg, Session);
-enrich_subopts([{rap, 0}|Opts], Msg, Session) ->
-    enrich_subopts(Opts, emqx_message:set_flag(retain, false, Msg), Session);
 enrich_subopts([{subid, SubId}|Opts], Msg, Session) ->
     Props = emqx_message:get_header(properties, Msg, #{}),
     Msg1 = emqx_message:set_header(properties, Props#{'Subscription-Identifier' => SubId}, Msg),

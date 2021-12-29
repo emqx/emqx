@@ -20,6 +20,7 @@
 
 -include("emqx_retainer.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -export([start_link/0]).
 
@@ -485,8 +486,20 @@ unload() ->
     emqx:unhook('message.publish', {?MODULE, on_message_publish}),
     emqx:unhook('session.subscribed', {?MODULE, on_session_subscribed}).
 
-handle_retain_opts(#{rap := 0}, Message) ->
+%% @see https://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html 3.3.1.3 RETAIN
+%% MQTT 5.0 with rap = 1 or MQTT 3.x with is_bridge = true
+handle_retain_opts(#{rap := 1}, Message) ->
+    Message;
+
+%% MQTT 5. 0 with rap = 0
+handle_retain_opts(#{rap := 0, mqtt_version := ?MQTT_PROTO_V5}, Message) ->
     emqx_message:set_header(retain, false, Message);
 
+%% @see http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html 3.3.1.3 RETAIN
+%% MQTT 3.x, when is new subscription, set RETAIN flag to 1 (keep)
+handle_retain_opts(#{is_new := true}, Message) ->
+    Message;
+
+%% MQTT 3.x, when is an established subscription, set RETAIN flag to 0
 handle_retain_opts(_, Message) ->
-    Message.
+    emqx_message:set_header(retain, false, Message).

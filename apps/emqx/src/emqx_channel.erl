@@ -1567,9 +1567,12 @@ put_subid_in_subopts(_Properties, TopicFilters) -> TopicFilters.
 
 enrich_subopts(SubOpts, _Channel = ?IS_MQTT_V5) ->
     SubOpts;
-enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBridge}}) ->
+enrich_subopts(SubOpts, #channel{conninfo = #{proto_ver := Version},
+                                 clientinfo = #{zone := Zone, is_bridge := IsBridge}}) ->
     NL = flag(get_mqtt_conf(Zone, ignore_loop_deliver)),
-    SubOpts#{rap => flag(IsBridge), nl => NL}.
+    SubOpts#{rap => flag(IsBridge),
+             nl => NL,
+             mqtt_version => Version}.
 
 %%--------------------------------------------------------------------
 %% Enrich ConnAck Caps
