@@ -23,7 +23,7 @@
 all() -> [{group, parallel}, {group, sequence}].
 suite() -> [{timetrap, {minutes, 1}}].
 groups() -> [
-    {parallel, [parallel], [t_create, t_update, t_delete, t_authorize]},
+    {parallel, [parallel], [t_create, t_update, t_delete, t_authorize, t_create_unexpired_app]},
     {sequence, [], [t_create_failed]}
             ].
 
@@ -137,7 +137,15 @@ t_authorize(_Config) ->
     },
     ?assertMatch({ok, #{<<"api_key">> := _, <<"enable">> := true}}, update_app(Name, Expired)),
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader)),
+    ok.
 
+t_create_unexpired_app(_Config) ->
+    Name1 = <<"EMQX-UNEXPIRED-API-KEY-1">>,
+    Name2 = <<"EMQX-UNEXPIRED-API-KEY-2">>,
+    {ok, Create1} = create_unexpired_app(Name1, #{}),
+    ?assertMatch(#{<<"expired_at">> := <<"undefined">>}, Create1),
+    {ok, Create2} = create_unexpired_app(Name2, #{expired_at => <<"undefined">>}),
+    ?assertMatch(#{<<"expired_at">> := <<"undefined">>}, Create2),
     ok.
 
 
@@ -165,6 +173,15 @@ create_app(Name) ->
         desc => <<"Note"/utf8>>,
         enable => true
     },
+    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, App) of
+        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        Error -> Error
+    end.
+
+create_unexpired_app(Name, Params) ->
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
+    App = maps:merge(#{name => Name, desc => <<"Note"/utf8>>, enable => true}, Params),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, App) of
         {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
         Error -> Error
