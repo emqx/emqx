@@ -211,8 +211,20 @@ on_query(InstId, {KeyOrNum, Method, Request, Timeout}, AfterQuery,
                            request => NRequest, reason => Reason,
                            connector => InstId}),
             emqx_resource:query_failed(AfterQuery);
-        _ ->
-            emqx_resource:query_success(AfterQuery)
+        {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            emqx_resource:query_success(AfterQuery);
+        {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            emqx_resource:query_success(AfterQuery);
+        {ok, StatusCode, _} ->
+            ?SLOG(error, #{msg => "http connector do reqeust, received error response",
+                           request => NRequest, connector => InstId,
+                           status_code => StatusCode}),
+            emqx_resource:query_failed(AfterQuery);
+        {ok, StatusCode, _, _} ->
+            ?SLOG(error, #{msg => "http connector do reqeust, received error response",
+                           request => NRequest, connector => InstId,
+                           status_code => StatusCode}),
+            emqx_resource:query_failed(AfterQuery)
     end,
     Result.
 
