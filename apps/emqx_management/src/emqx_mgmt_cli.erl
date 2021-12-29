@@ -266,7 +266,7 @@ plugins(_) ->
         "'front', 'rear', or 'before Other-Vsn' to specify a relative position.\n"
         "The Position parameter can be used to adjust the boot order.\n"
         "If no Position is given, an already configured plugin\n"
-        "will stary at is old position; a newly plugin is appended to the rear\n"
+        "will stay at is old position; a newly plugin is appended to the rear\n"
         "e.g. plugins disable foo-0.1.0 front\n"
         "     plugins enable bar-0.2.0 before foo-0.1.0"}
        ]).
