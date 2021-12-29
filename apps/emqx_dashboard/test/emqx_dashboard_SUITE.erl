@@ -101,25 +101,25 @@ set_special_configs(_) ->
 
 t_overview(_) ->
     mnesia:clear_table(?ADMIN),
-    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"simple_description">>),
+    emqx_dashboard_admin:add_user(<<"admin1">>, <<"Public0000">>, <<"simple_description">>),
     [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)),
-                               auth_header_())) || Overview <- ?OVERVIEWS].
+                               auth_header_(<<"admin1">>, <<"Public0000">>))) || Overview <- ?OVERVIEWS].
 
 t_admins_add_delete(_) ->
     mnesia:clear_table(?ADMIN),
     Desc = <<"simple description">>,
-    ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, Desc),
-    ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, Desc),
+    ok = emqx_dashboard_admin:add_user(<<"username">>, <<"Password000">>, Desc),
+    ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"Password0001">>, Desc),
     Admins = emqx_dashboard_admin:all_users(),
     ?assertEqual(2, length(Admins)),
     ok = emqx_dashboard_admin:remove_user(<<"username1">>),
     Users = emqx_dashboard_admin:all_users(),
     ?assertEqual(1, length(Users)),
     ok = emqx_dashboard_admin:change_password(<<"username">>,
-                                              <<"password">>,
-                                              <<"pwd">>),
+                                              <<"Password000">>,
+                                              <<"Password0002">>),
     timer:sleep(10),
-    Header = auth_header_(<<"username">>, <<"pwd">>),
+    Header = auth_header_(<<"username">>, <<"Password0002">>),
     ?assert(request_dashboard(get, api_path("brokers"), Header)),
 
     ok = emqx_dashboard_admin:remove_user(<<"username">>),
@@ -128,37 +128,37 @@ t_admins_add_delete(_) ->
 t_rest_api(_Config) ->
     mnesia:clear_table(?ADMIN),
     Desc = <<"administrator">>,
-    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, Desc),
+    emqx_dashboard_admin:force_add_user(<<"admin">>, <<"public">>, Desc),
     {ok, 200, Res0} = http_get(["users"]),
     ?assertEqual([#{<<"username">> => <<"admin">>,
                     <<"description">> => <<"administrator">>}], get_http_data(Res0)),
     {ok, 200, _} = http_put(["users", "admin"], #{<<"description">> => <<"a_new_description">>}),
     {ok, 200, _} = http_post(["users"], #{<<"username">> => <<"usera">>,
-                                          <<"password">> => <<"passwd">>,
+                                          <<"password">> => <<"Public0000">>,
                                           <<"description">> => Desc}),
     {ok, 204, _} = http_delete(["users", "usera"]),
     {ok, 404, _} = http_delete(["users", "usera"]),
     {ok, 204, _} = http_put( ["users", "admin", "change_pwd"]
                            , #{<<"old_pwd">> => <<"public">>,
-                               <<"new_pwd">> => <<"newpwd">>}),
+                               <<"new_pwd">> => <<"NewPwd0001">>}),
     mnesia:clear_table(?ADMIN),
-    emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"administrator">>),
+    emqx_dashboard_admin:force_add_user(<<"admin">>, <<"public">>, <<"administrator">>),
     ok.
 
 t_cli(_Config) ->
     [mria:dirty_delete(?ADMIN, Admin) ||  Admin <- mnesia:dirty_all_keys(?ADMIN)],
-    emqx_dashboard_cli:admins(["add", "username", "password"]),
+    emqx_dashboard_cli:admins(["add", "username", "Password000"]),
     [#?ADMIN{ username = <<"username">>, pwdhash = <<Salt:4/binary, Hash/binary>>}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
-    ?assertEqual(Hash, crypto:hash(sha256, <<Salt/binary, <<"password">>/binary>>)),
-    emqx_dashboard_cli:admins(["passwd", "username", "newpassword"]),
+    ?assertEqual(Hash, crypto:hash(sha256, <<Salt/binary, <<"Password000">>/binary>>)),
+    emqx_dashboard_cli:admins(["passwd", "username", "NewPassword1"]),
     [#?ADMIN{username = <<"username">>, pwdhash = <<Salt1:4/binary, Hash1/binary>>}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
-    ?assertEqual(Hash1, crypto:hash(sha256, <<Salt1/binary, <<"newpassword">>/binary>>)),
+    ?assertEqual(Hash1, crypto:hash(sha256, <<Salt1/binary, <<"NewPassword1">>/binary>>)),
     emqx_dashboard_cli:admins(["del", "username"]),
     [] = emqx_dashboard_admin:lookup_user(<<"username">>),
-    emqx_dashboard_cli:admins(["add", "admin1", "pass1"]),
-    emqx_dashboard_cli:admins(["add", "admin2", "passw2"]),
+    emqx_dashboard_cli:admins(["add", "admin1", "Pass0001"]),
+    emqx_dashboard_cli:admins(["add", "admin2", "Pass0002"]),
     AdminList = emqx_dashboard_admin:all_users(),
     ?assertEqual(2, length(AdminList)).
 
