@@ -228,12 +228,12 @@ raw_pgsql_authz_config() ->
 q(Sql) ->
     emqx_resource:query(
       ?PGSQL_RESOURCE,
-      {sql, Sql}).
+      {query, Sql}).
 
 insert(Sql, Params) ->
     {ok, _} = emqx_resource:query(
                 ?PGSQL_RESOURCE,
-                {sql, Sql, Params}),
+                {query, Sql, Params}),
     ok.
 
 init_table() ->
