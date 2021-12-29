@@ -107,9 +107,14 @@ schema("/trace/:name/download") ->
         get => #{
             description => "Download trace log by name",
             parameters => [hoconsc:ref(name)],
-            %% todo zip file octet-stream
             responses => #{
-                200 => <<"TODO octet-stream">>
+                200 =>
+                #{description => "A trace zip file",
+                    content => #{
+                        'application/octet-stream' =>
+                             #{schema => #{type => "string", format => "binary"}}
+                    }
+                }
             }
         }
     };
@@ -126,7 +131,11 @@ schema("/trace/:name/log") ->
             ],
             %% todo response data
             responses => #{
-                200 => <<"TODO">>
+                200 =>
+                [
+                    {items, hoconsc:mk(binary(), #{example => "BinBinBin"})}
+                    | fields(bytes) ++ fields(position)
+                ]
             }
         }
     }.
@@ -208,6 +217,7 @@ fields(position) ->
             nullable => true,
             default => 0
         })}].
+
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
 
@@ -296,7 +306,12 @@ download_trace_log(get, #{bindings := #{name := Name}}) ->
             ZipFileName = ZipDir ++ binary_to_list(Name) ++ ".zip",
             {ok, ZipFile} = zip:zip(ZipFileName, Zips, [{cwd, ZipDir}]),
             emqx_trace:delete_files_after_send(ZipFileName, Zips),
-            {200, ZipFile};
+            Headers = #{
+                <<"content-type">> => <<"application/octet-stream">>,
+                <<"content-disposition">> =>
+                iolist_to_binary("attachment; filename=" ++ filename:basename(ZipFile))
+            },
+            {200, Headers, {file, ZipFile}};
         {error, not_found} -> ?NOT_FOUND(Name)
     end.
 
@@ -324,11 +339,10 @@ cluster_call(Mod, Fun, Args, Timeout) ->
     BadNodes =/= [] andalso ?LOG(error, "rpc call failed on ~p ~p", [BadNodes, {Mod, Fun, Args}]),
     GoodRes.
 
-stream_log_file(get, #{bindings := #{name := Name}, query_string := Query} = T) ->
+stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
     Node0 = maps:get(<<"node">>, Query, atom_to_binary(node())),
     Position = maps:get(<<"position">>, Query, 0),
     Bytes = maps:get(<<"bytes">>, Query, 1000),
-    logger:error("~p", [T]),
     case to_node(Node0) of
         {ok, Node} ->
             case rpc:call(Node, ?MODULE, read_trace_file, [Name, Position, Bytes]) of
