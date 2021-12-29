@@ -39,7 +39,7 @@ fields("config") ->
 
 fields("connector") ->
     [ {mode,
-        sc(hoconsc:enum([cluster_singleton, cluster_shareload]),
+        sc(hoconsc:enum([cluster_shareload]),
            #{ default => cluster_shareload
             , desc => """
 The mode of the MQTT Bridge. Can be one of 'cluster_singleton' or 'cluster_shareload'<br>
@@ -75,10 +75,6 @@ topic filters for 'remote_topic' of ingress connections.
         sc(binary(),
            #{ default => "emqx"
             , desc => "The password of the MQTT protocol"
-            })}
-    , {clientid,
-        sc(binary(),
-           #{ desc => "The clientid of the MQTT protocol"
             })}
     , {clean_start,
         sc(boolean(),

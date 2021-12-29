@@ -218,7 +218,7 @@ schema("/connectors/:id") ->
             {400, error_msg('ALREADY_EXISTS', <<"connector already exists">>)};
         {error, not_found} ->
             case emqx_connector:update(ConnType, ConnName,
-                    maps:without([<<"type">>, <<"name">>], Params)) of
+                    filter_out_request_body(Params)) of
                 {ok, #{raw_config := RawConf}} ->
                     Id = emqx_connector:connector_id(ConnType, ConnName),
                     {201, format_resp(Id, RawConf)};
@@ -279,7 +279,7 @@ format_resp(ConnId, RawConf) ->
     }.
 
 filter_out_request_body(Conf) ->
-    ExtraConfs = [<<"num_of_bridges">>, <<"type">>, <<"name">>],
+    ExtraConfs = [<<"clientid">>, <<"num_of_bridges">>, <<"type">>, <<"name">>],
     maps:without(ExtraConfs, Conf).
 
 bin(S) when is_list(S) ->

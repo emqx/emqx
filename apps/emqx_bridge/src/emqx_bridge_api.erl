@@ -431,8 +431,8 @@ rpc_multicall(Func, Args) ->
     end.
 
 filter_out_request_body(Conf) ->
-    ExtraConfs = [<<"id">>, <<"status">>, <<"node_status">>, <<"node_metrics">>,
-        <<"metrics">>, <<"node">>],
+    ExtraConfs = [<<"id">>, <<"status">>, <<"node_status">>,
+        <<"node_metrics">>, <<"metrics">>, <<"node">>],
     maps:without(ExtraConfs, Conf).
 
 rpc_call(Node, Fun, Args) ->
