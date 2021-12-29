@@ -23,18 +23,32 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-init_per_testcase(_TestCase, Config) ->
+init_per_suite(Config) ->
+    emqx_ct_helpers:start_apps([emqx_retainer]),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([emqx_retainer]).
+
+init_per_testcase(TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, Config) ->
-    Config.
+    emqx_retainer:clean(<<"#">>).
 
-% t_cmd(_) ->
-%     error('TODO').
+t_cmd(_) ->
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+    emqtt:publish(C1, <<"/retained">>, <<"this is a retained message">>, [{qos, 0}, {retain, true}]),
+    emqtt:publish(C1, <<"/retained/2">>, <<"this is a retained message">>, [{qos, 0}, {retain, true}]),
+    timer:sleep(1000),
+    ?assertMatch(ok, emqx_retainer_cli:cmd(["topics"])),
+    ?assertMatch(ok, emqx_retainer_cli:cmd(["info"])),
+    ?assertMatch(ok, emqx_retainer_cli:cmd(["clean", "retained"])),
+    ?assertMatch(ok, emqx_retainer_cli:cmd(["clean"])).
 
 % t_unload(_) ->
 %     error('TODO').
 
 % t_load(_) ->
 %     error('TODO').
-
