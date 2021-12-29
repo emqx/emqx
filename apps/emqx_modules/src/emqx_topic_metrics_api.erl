@@ -73,6 +73,7 @@ properties() ->
 
 topic_metrics_api() ->
     MetaData = #{
+        %% Get all nodes metrics and accumulate all of these
         get => #{
             description => <<"List topic metrics">>,
             responses => #{
@@ -133,87 +134,160 @@ topic_param() ->
     }.
 
 %%--------------------------------------------------------------------
-%% api callback
+%% HTTP Callbacks
+%%--------------------------------------------------------------------
+
 topic_metrics(get, _) ->
-    list_metrics();
+    case cluster_accumulation_metrics() of
+        {error, Reason} ->
+            {500, Reason};
+        {ok, Metrics} ->
+            {200, Metrics}
+    end;
+
 topic_metrics(put, #{body := #{<<"topic">> := Topic, <<"action">> := <<"reset">>}}) ->
-    reset(Topic);
+    case reset(Topic) of
+        ok -> {200};
+        {error, Reason} -> reason2httpresp(Reason)
+    end;
 topic_metrics(put, #{body := #{<<"action">> := <<"reset">>}}) ->
-    reset();
+    case reset() of
+        ok -> {200};
+        {error, Reason} -> reason2httpresp(Reason)
+    end;
+
 topic_metrics(post, #{body := #{<<"topic">> := <<>>}}) ->
     {400, 'BAD_REQUEST', <<"Topic can not be empty">>};
 topic_metrics(post, #{body := #{<<"topic">> := Topic}}) ->
-    register(Topic).
-
-operate_topic_metrics(Method, #{bindings := #{topic := Topic0}}) ->
-    Topic = decode_topic(Topic0),
-    case Method of
-        get ->
-            get_metrics(Topic);
-        put ->
-            register(Topic);
-        delete ->
-            deregister(Topic)
+    case emqx_modules_conf:add_topic_metrics(Topic) of
+        {ok, Topic} ->
+            {200};
+        {error, Reason} ->
+            reason2httpresp(Reason)
     end.
 
-decode_topic(Topic) ->
-    uri_string:percent_decode(Topic).
+operate_topic_metrics(get, #{bindings := #{topic := Topic0}}) ->
+    case cluster_accumulation_metrics(emqx_http_lib:uri_decode(Topic0)) of
+        {ok, Metrics} ->
+            {200, Metrics};
+        {error, Reason} ->
+            reason2httpresp(Reason)
+    end;
+
+operate_topic_metrics(delete, #{bindings := #{topic := Topic0}}) ->
+    case emqx_modules_conf:remove_topic_metrics(emqx_http_lib:uri_decode(Topic0)) of
+        ok -> {200};
+        {error, Reason} ->
+            reason2httpresp(Reason)
+    end.
 
 %%--------------------------------------------------------------------
-%% api apply
-list_metrics() ->
-    {200, emqx_topic_metrics:metrics()}.
+%% Internal funcs
+%%--------------------------------------------------------------------
 
-register(Topic) ->
-    case emqx_topic_metrics:register(Topic) of
-        {error, quota_exceeded} ->
-            Message = list_to_binary(io_lib:format("Max topic metrics count is ~p",
-                                        [emqx_topic_metrics:max_limit()])),
-            {409, #{code => ?EXCEED_LIMIT, message => Message}};
-        {error, bad_topic} ->
-            Message = list_to_binary(io_lib:format("Bad Topic, topic cannot have wildcard ~p",
-                                        [Topic])),
-            {400, #{code => ?BAD_TOPIC, message => Message}};
-        {error, {quota_exceeded, bad_topic}} ->
-            Message = list_to_binary(
-                          io_lib:format(
-                              "Max topic metrics count is ~p, and topic cannot have wildcard ~p",
-                              [emqx_topic_metrics:max_limit(), Topic])),
-            {400, #{code => ?BAD_REQUEST, message => Message}};
-        {error, already_existed} ->
-            Message = list_to_binary(io_lib:format("Topic ~p already registered", [Topic])),
-            {400, #{code => ?BAD_TOPIC, message => Message}};
-        ok ->
-            {200}
+cluster_accumulation_metrics() ->
+    case multicall(emqx_topic_metrics, metrics, []) of
+        {SuccResList, []} ->
+            {ok, accumulate_nodes_metrics(SuccResList)};
+        {_, FailedNodes} ->
+            {error, {badrpc, FailedNodes}}
     end.
 
-deregister(Topic) ->
-    case emqx_topic_metrics:deregister(Topic) of
-        {error, topic_not_found} ->
-            Message = list_to_binary(io_lib:format("Topic ~p not found", [Topic])),
-            {404, #{code => ?ERROR_TOPIC, message => Message}};
-        ok ->
-            {200}
+cluster_accumulation_metrics(Topic) ->
+    case multicall(emqx_topic_metrics, metrics, [Topic]) of
+        {SuccResList, []} ->
+            case lists:filter(fun({error, _}) -> false; (_) -> true
+                              end, SuccResList) of
+                [] -> {error, topic_not_found};
+                TopicMetrics ->
+                    NTopicMetrics = [ [T] || T <- TopicMetrics],
+                    [AccMetrics] = accumulate_nodes_metrics(NTopicMetrics),
+                    {ok, AccMetrics}
+            end;
+        {_, FailedNodes} ->
+            {error, {badrpc, FailedNodes}}
     end.
 
-get_metrics(Topic) ->
-    case emqx_topic_metrics:metrics(Topic) of
-        {error, topic_not_found} ->
-            Message = list_to_binary(io_lib:format("Topic ~p not found", [Topic])),
-            {404, #{code => ?ERROR_TOPIC, message => Message}};
-        Metrics ->
-            {200, Metrics}
-    end.
+accumulate_nodes_metrics(NodesTopicMetrics) ->
+    AccMap = lists:foldl(fun(TopicMetrics, ExAcc) ->
+        MetricsMap = lists:foldl(
+                       fun(#{topic := Topic,
+                             metrics := Metrics,
+                             create_time := CreateTime}, Acc) ->
+                               Acc#{Topic => {Metrics, CreateTime}}
+                       end, #{}, TopicMetrics),
+        accumulate_metrics(MetricsMap, ExAcc)
+    end, #{}, NodesTopicMetrics),
+    maps:fold(fun(Topic, {Metrics, CreateTime1}, Acc1) ->
+        [#{topic => Topic,
+           metrics => Metrics,
+           create_time => CreateTime1} | Acc1]
+    end, [], AccMap).
+
+%% @doc TopicMetricsIn :: #{<<"topic">> := {Metrics, CreateTime}}
+accumulate_metrics(TopicMetricsIn, TopicMetricsAcc) ->
+    Topics = maps:keys(TopicMetricsIn),
+    lists:foldl(fun(Topic, Acc) ->
+        {Metrics, CreateTime} = maps:get(Topic, TopicMetricsIn),
+        NMetrics = do_accumulation_metrics(
+                     Metrics,
+                     maps:get(Topic, TopicMetricsAcc, undefined)
+                    ),
+        maps:put(Topic, {NMetrics, CreateTime}, Acc)
+    end, #{}, Topics).
+
+%% @doc MetricsIn :: #{'messages.dropped.rate' :: integer(), ...}
+do_accumulation_metrics(MetricsIn, undefined) -> MetricsIn;
+do_accumulation_metrics(MetricsIn, MetricsAcc) ->
+    Keys = maps:keys(MetricsIn),
+    lists:foldl(fun(Key, Acc) ->
+        InVal = maps:get(Key, MetricsIn),
+        NVal = InVal + maps:get(Key, MetricsAcc, 0),
+        maps:put(Key, NVal, Acc)
+    end, #{}, Keys).
 
 reset() ->
-    ok = emqx_topic_metrics:reset(),
-    {200}.
+    _ = multicall(emqx_topic_metrics, reset, []),
+    ok.
 
 reset(Topic) ->
-    case emqx_topic_metrics:reset(Topic) of
-        {error, topic_not_found} ->
-            Message = list_to_binary(io_lib:format("Topic ~p not found", [Topic])),
-            {404, #{code => ?ERROR_TOPIC, message => Message}};
-        ok ->
-            {200}
+    case multicall(emqx_topic_metrics, reset, [Topic]) of
+        {SuccResList, []} ->
+            case lists:filter(fun({error, _}) -> true; (_) -> false
+                              end, SuccResList) of
+                [{error, Reason} | _] ->
+                    {error, Reason};
+                [] ->
+                    ok
+            end
     end.
+
+%%--------------------------------------------------------------------
+%% utils
+
+multicall(M, F, A) ->
+    emqx_rpc:multicall(mria_mnesia:running_nodes(), M, F, A).
+
+reason2httpresp(quota_exceeded) ->
+    Msg = list_to_binary(
+            io_lib:format("Max topic metrics count is ~p",
+                          [emqx_topic_metrics:max_limit()])),
+    {409, #{code => ?EXCEED_LIMIT, message => Msg}};
+reason2httpresp(bad_topic) ->
+    Msg = <<"Bad Topic, topic cannot have wildcard">>,
+    {400, #{code => ?BAD_TOPIC, message => Msg}};
+reason2httpresp({quota_exceeded, bad_topic}) ->
+    Msg = list_to_binary(
+            io_lib:format(
+                "Max topic metrics count is ~p, and topic cannot have wildcard",
+                [emqx_topic_metrics:max_limit()])),
+    {400, #{code => ?BAD_REQUEST, message => Msg}};
+reason2httpresp(already_existed) ->
+    Msg = <<"Topic already registered">>,
+    {400, #{code => ?BAD_TOPIC, message => Msg}};
+reason2httpresp(not_found) ->
+    Msg = <<"Topic not found">>,
+    {404, #{code => ?ERROR_TOPIC, message => Msg}};
+reason2httpresp(topic_not_found) ->
+    Msg = <<"Topic not found">>,
+    {404, #{code => ?ERROR_TOPIC, message => Msg}}.

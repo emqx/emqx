@@ -220,7 +220,6 @@ handle_call({register, Topic}, _From, State = #state{speeds = Speeds}) ->
 
 handle_call({deregister, all}, _From, State) ->
     true = ets:delete_all_objects(?TAB),
-    update_config([]),
     {reply, ok, State#state{speeds = #{}}};
 
 handle_call({deregister, Topic}, _From, State = #state{speeds = Speeds}) ->
@@ -232,7 +231,6 @@ handle_call({deregister, Topic}, _From, State = #state{speeds = Speeds}) ->
             NSpeeds = lists:foldl(fun(Metric, Acc) ->
                                       maps:remove({Topic, Metric}, Acc)
                                   end, Speeds, ?TOPIC_METRICS),
-            remove_topic_config(Topic),
             {reply, ok, State#state{speeds = NSpeeds}}
     end;
 
@@ -316,7 +314,6 @@ do_register(Topic, Speeds) ->
                     NSpeeds = lists:foldl(fun(Metric, Acc) ->
                                               maps:put({Topic, Metric}, #speed{}, Acc)
                                           end, Speeds, ?TOPIC_METRICS),
-                    add_topic_config(Topic),
                     {ok, NSpeeds};
                 {true, true} ->
                     {error, bad_topic};
@@ -350,18 +347,6 @@ format({Topic, Data}) ->
         ResetTime ->
             TopicMetrics#{reset_time => ResetTime}
     end.
-
-remove_topic_config(Topic) when is_binary(Topic) ->
-    Topics = emqx_config:get_raw([<<"topic_metrics">>], []) -- [#{<<"topic">> => Topic}],
-    update_config(Topics).
-
-add_topic_config(Topic) when is_binary(Topic) ->
-    Topics = emqx_config:get_raw([<<"topic_metrics">>], []) ++ [#{<<"topic">> => Topic}],
-    update_config(lists:usort(Topics)).
-
-update_config(Topics) when is_list(Topics) ->
-    {ok, _} = emqx:update_config([topic_metrics], Topics),
-    ok.
 
 try_inc(Topic, Metric) ->
     _ = inc(Topic, Metric),
