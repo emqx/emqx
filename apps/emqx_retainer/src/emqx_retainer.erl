@@ -28,10 +28,10 @@
         , on_message_publish/2
         ]).
 
--export([ dispatch/5
+-export([ dispatch/6
         , delete_message/2
         , store_retained/2
-        , deliver/6]).
+        , deliver/7]).
 
 -export([ get_expiry_time/1
         , update_config/1
@@ -76,11 +76,11 @@
 -spec on_session_subscribed(_, _, emqx_types:subopts(), _) -> any().
 on_session_subscribed(_, _, #{share := ShareName}, _) when ShareName =/= undefined ->
     ok;
-on_session_subscribed(_, Topic, #{rh := Rh} = Opts, Context) ->
+on_session_subscribed(ClientInfo, Topic, #{rh := Rh} = Opts, Context) ->
     IsNew = maps:get(is_new, Opts, true),
     case Rh =:= 0 orelse (Rh =:= 1 andalso IsNew) of
-        true -> dispatch(Context, Topic, Opts);
-        _ -> ok
+          true -> dispatch(Context, Topic, ClientInfo, Opts);
+          _ -> ok
     end.
 
 %% RETAIN flag set to 1 and payload containing zero bytes
@@ -112,26 +112,26 @@ on_message_publish(Msg, _) ->
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec dispatch(context(), pid(), topic(), emqx_types:subopts(), cursor()) -> ok.
-dispatch(Context, Pid, Topic, Opts, Cursor) ->
+-spec dispatch(context(), pid(), topic(), emqx_types:clientinfo(), emqx_types:subopts(), cursor()) -> ok.
+dispatch(Context, Pid, Topic, ClientInfo, Opts, Cursor) ->
     Mod = get_backend_module(),
     case Cursor =/= undefined orelse emqx_topic:wildcard(Topic) of
         false ->
             {ok, Result} = Mod:read_message(Context, Topic),
-            deliver(Result, Context, Pid, Topic, Opts, undefined);
+            deliver(Result, Context, Pid, Topic, ClientInfo, Opts, undefined);
         true  ->
             {ok, Result, NewCursor} =  Mod:match_messages(Context, Topic, Cursor),
-            deliver(Result, Context, Pid, Topic, Opts, NewCursor)
+            deliver(Result, Context, Pid, Topic, ClientInfo, Opts, NewCursor)
     end.
 
-deliver([], Context, Pid, Topic, Opts, Cursor) ->
+deliver([], Context, Pid, Topic, ClientInfo, Opts, Cursor) ->
     case Cursor of
         undefined ->
             ok;
         _ ->
-            dispatch(Context, Pid, Topic, Opts, Cursor)
+            dispatch(Context, Pid, Topic, ClientInfo, Opts, Cursor)
     end;
-deliver(Result, #{context_id := Id} = Context, Pid, Topic, Opts, Cursor) ->
+deliver(Result, #{context_id := Id} = Context, Pid, Topic, ClientInfo, Opts, Cursor) ->
     case erlang:is_process_alive(Pid) of
         false ->
             ok;
@@ -139,12 +139,12 @@ deliver(Result, #{context_id := Id} = Context, Pid, Topic, Opts, Cursor) ->
             #{msg_deliver_quota := MaxDeliverNum} = emqx:get_config([?APP, flow_control]),
             case MaxDeliverNum of
                 0 ->
-                    _ = [Pid ! {deliver, Topic, handle_retain_opts(Opts, Msg)} || Msg <- Result],
+                    _ = [Pid ! {deliver, Topic, handle_retain_opts(ClientInfo, Opts, Msg)} || Msg <- Result],
                     ok;
                 _ ->
-                    case do_deliver(Result, Id, Pid, Topic, Opts) of
+                    case do_deliver(Result, Id, Pid, Topic, ClientInfo, Opts) of
                         ok ->
-                            deliver([], Context, Pid, Topic, Opts, Cursor);
+                            deliver([], Context, Pid, Topic, ClientInfo, Opts, Cursor);
                         abort ->
                             ok
                     end
@@ -281,9 +281,9 @@ is_too_big(Size) ->
     Limit > 0 andalso (Size > Limit).
 
 %% @private
-dispatch(Context, Topic, Opts) ->
-    emqx_retainer_pool:async_submit(fun ?MODULE:dispatch/5,
-                                    [Context, self(), Topic, Opts, undefined]).
+dispatch(Context, Topic, ClientInfo, Opts) ->
+    emqx_retainer_pool:async_submit(fun ?MODULE:dispatch/6,
+                                    [Context, self(), Topic, ClientInfo, Opts, undefined]).
 
 -spec delete_message(context(), topic()) -> ok.
 delete_message(Context, Topic) ->
@@ -306,16 +306,16 @@ clean(Context) ->
     Mod = get_backend_module(),
     Mod:clean(Context).
 
--spec do_deliver(list(term()), pos_integer(), pid(), topic(), emqx_types:subopts()) -> ok | abort.
-do_deliver([Msg | T], Id, Pid, Topic, Opts) ->
+-spec do_deliver(list(term()), pos_integer(), pid(), topic(), emqx_types:clientinfo(), emqx_types:subopts()) -> ok | abort.
+do_deliver([Msg | T], Id, Pid, Topic, ClientInfo, Opts) ->
     case require_semaphore(?DELIVER_SEMAPHORE, Id) of
         true ->
-            Pid ! {deliver, Topic, handle_retain_opts(Opts, Msg)},
-            do_deliver(T, Id, Pid, Topic, Opts);
+            Pid ! {deliver, Topic, handle_retain_opts(ClientInfo, Opts, Msg)},
+            do_deliver(T, Id, Pid, Topic, ClientInfo, Opts);
         _ ->
             abort
     end;
-do_deliver([], _, _, _, _) ->
+do_deliver([], _, _, _, _, _) ->
     ok.
 
 -spec require_semaphore(semaphore(), pos_integer()) -> boolean().
@@ -488,18 +488,18 @@ unload() ->
 
 %% @see https://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html 3.3.1.3 RETAIN
 %% MQTT 5.0 with rap = 1 or MQTT 3.x with is_bridge = true
-handle_retain_opts(#{rap := 1}, Message) ->
+handle_retain_opts(#{proto_ver := ?MQTT_PROTO_V5}, #{rap := 1}, Message) ->
     Message;
 
 %% MQTT 5. 0 with rap = 0
-handle_retain_opts(#{rap := 0, mqtt_version := ?MQTT_PROTO_V5}, Message) ->
-    emqx_message:set_header(retain, false, Message);
+handle_retain_opts(#{proto_ver := ?MQTT_PROTO_V5}, #{rap := 0}, Message) ->
+    emqx_message:set_flag(retain, false, Message);
 
 %% @see http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html 3.3.1.3 RETAIN
-%% MQTT 3.x, when is new subscription, set RETAIN flag to 1 (keep)
-handle_retain_opts(#{is_new := true}, Message) ->
+%% MQTT 3.x(other protocol treat as MQTT 3.x), when is new subscription, set RETAIN flag to 1 (keep)
+handle_retain_opts(_, #{is_new := true}, Message) ->
     Message;
 
 %% MQTT 3.x, when is an established subscription, set RETAIN flag to 0
-handle_retain_opts(_, Message) ->
-    emqx_message:set_header(retain, false, Message).
+handle_retain_opts(_, _, Message) ->
+    emqx_message:set_flag(retain, false, Message).

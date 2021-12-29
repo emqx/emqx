@@ -20,24 +20,25 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(BASE_CONF, <<"""
 emqx_retainer {
-    enable = true
-    msg_clear_interval = 0s
-    msg_expiry_interval = 0s
-    max_payload_size = 1MB
-    flow_control {
-        max_read_number = 0
-        msg_deliver_quota = 0
-        quota_release_interval = 0s
-    }
-    config {
-        type = built_in_database
-        storage_type = ram
-        max_retained_messages = 0
-        }
-  }""">>).
+               enable = true
+               msg_clear_interval = 0s
+               msg_expiry_interval = 0s
+               max_payload_size = 1MB
+               flow_control {
+                             max_read_number = 0
+                             msg_deliver_quota = 0
+                             quota_release_interval = 0s
+                            }
+               config {
+                       type = built_in_database
+                       storage_type = ram
+                       max_retained_messages = 0
+                      }
+              }""">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -122,7 +123,7 @@ t_publish_message_expiry_interval(_) ->
     Msgs = receive_messages(4),
     ?assertEqual(2, length(Msgs)),  %% [MQTT-3.3.2-5]
 
-    L = lists:map(fun(Msg) -> MessageExpiryInterval = maps:get('Message-Expiry-Interval', maps:get(properties, Msg)), MessageExpiryInterval < 10 end, Msgs), 
+    L = lists:map(fun(Msg) -> MessageExpiryInterval = maps:get('Message-Expiry-Interval', maps:get(properties, Msg)), MessageExpiryInterval < 10 end, Msgs),
     ?assertEqual(2, length(L)),  %% [MQTT-3.3.2-6]
 
     ok = emqtt:disconnect(Client1),
@@ -160,3 +161,28 @@ t_subscribe_retain_handing(_) ->
     clean_retained( <<"topic/A">>),
     clean_retained( <<"topic/B">>),
     clean_retained( <<"topic/C">>).
+
+t_publish_rap(Config) ->
+
+    {ok, Client1} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:connect(Client1),
+
+    Topic0 = <<"/test/0">>,
+    {ok, _} = emqtt:publish(Client1, Topic0, #{}, <<"retained message">>,
+                            [{qos, ?QOS_1}, {retain, true}]),
+
+
+    {ok, _, [2]} = emqtt:subscribe(Client1, #{}, [{Topic0, [{rap, true}, {qos, 2}]}]),
+
+    [Msg1 | _] = receive_messages(1),
+    ?assertEqual(true, maps:get(retain, Msg1)),  %% [MQTT-3.3.1-12]
+
+    Topic1 = <<"/test/1">>,
+    {ok, _} = emqtt:publish(Client1, Topic1, #{}, <<"retained message">>,
+                            [{qos, ?QOS_1}, {retain, true}]),
+
+    {ok, _, [2]} = emqtt:subscribe(Client1, #{}, [{Topic1, [{rap, false}, {qos, 2}]}]),
+
+    [Msg2 | _] = receive_messages(1),
+    ?assertEqual(false, maps:get(retain, Msg2)),  %% [MQTT-3.3.1-13]
+    ok = emqtt:disconnect(Client1).

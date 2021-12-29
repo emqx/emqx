@@ -520,30 +520,6 @@ t_connack_assigned_clienid(Config) ->
 %% Publish
 %%--------------------------------------------------------------------
 
-t_publish_rap(Config) ->
-    ConnFun = ?config(conn_fun, Config),
-    Topic = nth(1, ?TOPICS),
-
-    {ok, Client1} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:ConnFun(Client1),
-    {ok, _, [2]} = emqtt:subscribe(Client1, #{}, [{Topic, [{rap, true}, {qos, 2}]}]),
-    {ok, _} = emqtt:publish(Client1, Topic, #{}, <<"retained message">>,
-                            [{qos, ?QOS_1}, {retain, true}]),
-    [Msg1 | _] = receive_messages(1),
-    ?assertEqual(true, maps:get(retain, Msg1)),  %% [MQTT-3.3.1-12]
-    ok = emqtt:disconnect(Client1),
-
-    {ok, Client2} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:ConnFun(Client2),
-    {ok, _, [2]} = emqtt:subscribe(Client2, #{}, [{Topic, [{rap, false}, {qos, 2}]}]),
-    {ok, _} = emqtt:publish(Client2, Topic, #{}, <<"retained message">>,
-                            [{qos, ?QOS_1}, {retain, true}]),
-    [Msg2 | _] = receive_messages(1),
-    ?assertEqual(false, maps:get(retain, Msg2)),  %% [MQTT-3.3.1-13]
-    ok = emqtt:disconnect(Client2),
-
-    clean_retained(Topic, Config).
-
 t_publish_wildtopic(Config) ->
     ConnFun = ?config(conn_fun, Config),
     process_flag(trap_exit, true),

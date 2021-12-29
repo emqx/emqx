@@ -23,6 +23,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -231,6 +232,25 @@ t_flow_control(_) ->
     ?assert(Diff > timer:seconds(1) andalso Diff < timer:seconds(2.5)),
 
     ok = emqtt:disconnect(C1).
+
+t_publish_rap(Config) ->
+
+    {ok, Client1} = emqtt:start_link([{proto_ver, v3} | Config]),
+    {ok, _} = emqtt:connect(Client1),
+
+    Topic0 = <<"/test/v3">>,
+    {ok, _} = emqtt:publish(Client1, Topic0, #{}, <<"retained message">>,
+                            [{qos, ?QOS_1}, {retain, true}]),
+
+
+    {ok, _, [2]} = emqtt:subscribe(Client1, #{}, [{Topic0, [{qos, 2}]}]),
+    [Msg1 | _] = receive_messages(1),
+    ?assertEqual(true, maps:get(retain, Msg1)),
+
+    {ok, _, [2]} = emqtt:subscribe(Client1, #{}, [{Topic0, [{qos, 2}]}]),
+    [Msg2 | _] = receive_messages(1),
+    ?assertEqual(false, maps:get(retain, Msg2)),  %% [MQTT-3.3.1-13]
+    ok = emqtt:disconnect(Client1).
 
 %%--------------------------------------------------------------------
 %% Helper functions

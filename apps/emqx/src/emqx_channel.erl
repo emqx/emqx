@@ -204,6 +204,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
      #{zone := Zone, limiter := LimiterCfg, listener := {Type, Listener}}) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Protocol = maps:get(protocol, ConnInfo, mqtt),
+    ProtoVer = maps:get(proto_ver, ConnInfo, ?MQTT_PROTO_V3),
     MountPoint = case emqx_config:get_listener_conf(Type, Listener, [mountpoint]) of
         <<>> -> undefined;
         MP -> MP
@@ -213,6 +214,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port},
                    #{zone         => Zone,
                      listener     => emqx_listeners:listener_id(Type, Listener),
                      protocol     => Protocol,
+                     proto_ver    => ProtoVer,
                      peerhost     => PeerHost,
                      sockport     => SockPort,
                      clientid     => undefined,
@@ -1250,7 +1252,7 @@ enrich_conninfo(ConnPkt = #mqtt_packet_connect{
                              username    = Username
                             },
                 Channel = #channel{conninfo   = ConnInfo,
-                                   clientinfo = #{zone := Zone}
+                                   clientinfo = #{zone := Zone} = ClientInfo
                                   }) ->
     ExpiryInterval = expiry_interval(Zone, ConnPkt),
     NConnInfo = ConnInfo#{proto_name  => ProtoName,
@@ -1263,7 +1265,10 @@ enrich_conninfo(ConnPkt = #mqtt_packet_connect{
                           expiry_interval => ExpiryInterval,
                           receive_maximum => receive_maximum(Zone, ConnProps)
                          },
-    {ok, Channel#channel{conninfo = NConnInfo}}.
+    NClientInfo = ClientInfo#{proto_ver => ProtoVer},
+    {ok, Channel#channel{conninfo = NConnInfo,
+                         clientinfo = NClientInfo
+                        }}.
 
 %% If the Session Expiry Interval is absent the value 0 is used.
 expiry_interval(_, #mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
@@ -1567,12 +1572,9 @@ put_subid_in_subopts(_Properties, TopicFilters) -> TopicFilters.
 
 enrich_subopts(SubOpts, _Channel = ?IS_MQTT_V5) ->
     SubOpts;
-enrich_subopts(SubOpts, #channel{conninfo = #{proto_ver := Version},
-                                 clientinfo = #{zone := Zone, is_bridge := IsBridge}}) ->
+enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBridge}}) ->
     NL = flag(get_mqtt_conf(Zone, ignore_loop_deliver)),
-    SubOpts#{rap => flag(IsBridge),
-             nl => NL,
-             mqtt_version => Version}.
+    SubOpts#{rap => flag(IsBridge), nl => NL}.
 
 %%--------------------------------------------------------------------
 %% Enrich ConnAck Caps

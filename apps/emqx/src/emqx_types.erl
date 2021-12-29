@@ -138,6 +138,7 @@
                         is_bridge    := boolean(),
                         is_superuser := boolean(),
                         mountpoint   := maybe(binary()),
+                        proto_ver    => proto_ver(),
                         ws_cookie    => maybe(list()),
                         password     => maybe(binary()),
                         auth_result  => auth_result(),

@@ -193,8 +193,7 @@
 -define(DEFAULT_SUBOPTS, #{rh  => 0, %% Retain Handling
                            rap => 0, %% Retain as Publish
                            nl  => 0, %% No Local
-                           qos => 0, %% QoS
-                           mqtt_version => ?MQTT_PROTO_V5
+                           qos => 0  %% QoS
                           }).
 
 -record(mqtt_packet_connect, {
