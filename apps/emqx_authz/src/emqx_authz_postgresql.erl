@@ -48,10 +48,10 @@ init(#{query := SQL} = Source) ->
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
-    ok = emqx_resource:remove(Id).
+    ok = emqx_resource:remove_local(Id).
 
 dry_run(Source) ->
-    emqx_resource:create_dry_run(emqx_connector_pgsql, Source).
+    emqx_resource:create_dry_run_local(emqx_connector_pgsql, Source).
 
 parse_query(Sql) ->
     case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
@@ -73,7 +73,7 @@ authorize(Client, PubSub, Topic,
                                query := {Query, Params}
                               }
              }) ->
-    case emqx_resource:query(ResourceID, {sql, Query, replvar(Params, Client)}) of
+    case emqx_resource:query(ResourceID, {prepared_query, ResourceID, Query, replvar(Params, Client)}) of
         {ok, _Columns, []} -> nomatch;
         {ok, Columns, Rows} ->
             do_authorize(Client, PubSub, Topic, Columns, Rows);

@@ -87,6 +87,7 @@ basic_config() ->
     , {direction,
         mk(egress,
            #{ desc => "The direction of this bridge, MUST be egress"
+            , default => egress
             })}
     ]
     ++ proplists:delete(base_url, emqx_connector_http:fields(config)).

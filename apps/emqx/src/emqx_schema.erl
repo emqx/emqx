@@ -38,7 +38,6 @@
 -type ip_port() :: tuple().
 -type cipher() :: map().
 -type rfc3339_system_time() :: integer().
--type unicode_binary() :: binary().
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
@@ -52,7 +51,6 @@
 -typerefl_from_string({cipher/0, emqx_schema, to_erl_cipher_suite}).
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 -typerefl_from_string({rfc3339_system_time/0, emqx_schema, rfc3339_to_system_time}).
--typerefl_from_string({unicode_binary/0, emqx_schema, to_unicode_binary}).
 
 -export([ validate_heap_size/1
         , parse_user_lookup_fun/1
@@ -66,8 +64,7 @@
          to_bar_separated_list/1, to_ip_port/1,
          to_erl_cipher_suite/1,
          to_comma_separated_atoms/1,
-         rfc3339_to_system_time/1,
-         to_unicode_binary/1]).
+         rfc3339_to_system_time/1]).
 
 -behaviour(hocon_schema).
 
@@ -76,8 +73,7 @@
                 comma_separated_list/0, bar_separated_list/0, ip_port/0,
                 cipher/0,
                 comma_separated_atoms/0,
-                rfc3339_system_time/0,
-                unicode_binary/0]).
+                rfc3339_system_time/0]).
 
 -export([namespace/0, roots/0, roots/1, fields/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
@@ -1406,9 +1402,6 @@ rfc3339_to_system_time(DateTime) ->
     catch error: _ ->
         {error, bad_rfc3339_timestamp}
     end.
-
-to_unicode_binary(Str) ->
-    {ok, unicode:characters_to_binary(Str)}.
 
 to_bar_separated_list(Str) ->
     {ok, string:tokens(Str, "| ")}.

@@ -207,13 +207,16 @@ basic_config(#{
         username => User,
         password => Password,
         clean_start => CleanStart,
-        keepalive => KeepAlive,
+        keepalive => ms_to_s(KeepAlive),
         retry_interval => RetryIntv,
         max_inflight => MaxInflight,
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl)),
         if_record_metrics => true
     }.
+
+ms_to_s(Ms) ->
+    erlang:ceil(Ms / 1000).
 
 clientid(Id) ->
     iolist_to_binary([Id, ":", atom_to_list(node())]).

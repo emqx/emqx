@@ -265,10 +265,15 @@ process_request(#{
         } = Conf, Msg) ->
     Conf#{ method => make_method(emqx_plugin_libs_rule:proc_tmpl(MethodTks, Msg))
          , path => emqx_plugin_libs_rule:proc_tmpl(PathTks, Msg)
-         , body => emqx_plugin_libs_rule:proc_tmpl(BodyTks, Msg)
+         , body => process_request_body(BodyTks, Msg)
          , headers => maps:to_list(proc_headers(HeadersTks, Msg))
          , request_timeout => ReqTimeout
          }.
+
+process_request_body([], Msg) ->
+    emqx_json:encode(Msg);
+process_request_body(BodyTks, Msg) ->
+    emqx_plugin_libs_rule:proc_tmpl(BodyTks, Msg).
 
 proc_headers(HeaderTks, Msg) ->
     maps:fold(fun(K, V, Acc) ->

@@ -48,12 +48,12 @@ init(#{url := Url} = Source) ->
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
-    ok = emqx_resource:remove(Id).
+    ok = emqx_resource:remove_local(Id).
 
 dry_run(Source) ->
     URIMap = maps:get(url, Source),
     NSource = maps:put(base_url, maps:remove(query, URIMap), Source),
-    emqx_resource:create_dry_run(emqx_connector_http, NSource).
+    emqx_resource:create_dry_run_local(emqx_connector_http, NSource).
 
 authorize(Client, PubSub, Topic,
             #{type := http,

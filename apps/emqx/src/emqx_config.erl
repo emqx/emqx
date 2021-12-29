@@ -264,6 +264,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
         {error, Reason} ->
             ?SLOG(error, #{msg => "failed_to_load_hocon_conf",
                            reason => Reason,
+                           pwd => file:get_cwd(),
                            include_dirs => IncDir
                           }),
             error(failed_to_load_hocon_conf)

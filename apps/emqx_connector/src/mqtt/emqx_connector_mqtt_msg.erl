@@ -66,7 +66,7 @@ to_remote_msg(#message{flags = Flags0} = Msg, Vars) ->
 to_remote_msg(MapMsg, #{remote_topic := TopicToken, payload := PayloadToken,
         remote_qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) when is_map(MapMsg) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
-    Payload = replace_vars_in_str(PayloadToken, MapMsg),
+    Payload = process_payload(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
     Retain = replace_simple_var(RetainToken, MapMsg),
     #mqtt_msg{qos = QoS,
@@ -82,12 +82,17 @@ to_broker_msg(#{dup := Dup, properties := Props} = MapMsg,
             #{local_topic := TopicToken, payload := PayloadToken,
               local_qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
-    Payload = replace_vars_in_str(PayloadToken, MapMsg),
+    Payload = process_payload(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
     Retain = replace_simple_var(RetainToken, MapMsg),
     set_headers(Props,
         emqx_message:set_flags(#{dup => Dup, retain => Retain},
             emqx_message:make(bridge, QoS, topic(Mountpoint, Topic), Payload))).
+
+process_payload([], Msg) ->
+    emqx_json:encode(Msg);
+process_payload(Tks, Msg) ->
+    replace_vars_in_str(Tks, Msg).
 
 %% Replace a string contains vars to another string in which the placeholders are replace by the
 %% corresponding values. For example, given "a: ${var}", if the var=1, the result string will be:

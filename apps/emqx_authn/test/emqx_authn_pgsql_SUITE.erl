@@ -441,12 +441,12 @@ create_user(Values) ->
 q(Sql) ->
     emqx_resource:query(
       ?PGSQL_RESOURCE,
-      {sql, Sql}).
+      {query, Sql}).
 
 q(Sql, Params) ->
     emqx_resource:query(
       ?PGSQL_RESOURCE,
-      {sql, Sql, Params}).
+      {query, Sql, Params}).
 
 drop_seeds() ->
     {ok, _, _} = q("DROP TABLE IF EXISTS users"),

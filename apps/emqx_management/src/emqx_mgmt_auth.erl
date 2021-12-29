@@ -37,7 +37,7 @@
     api_secret_hash = <<>> :: binary() | '_',
     enable = true :: boolean() | '_',
     desc = <<>> :: binary() | '_',
-    expired_at = 0 :: integer() | '_',
+    expired_at = 0 :: integer() | undefined | '_',
     created_at = 0 :: integer() | '_'
               }).
 
