@@ -455,8 +455,7 @@ kick_session(Action, ClientId, ChanPid) ->
 kick_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] ->
-            ?SLOG(warning, #{msg => "kicked_an_unknown_session",
-                             clientid => ClientId},
+            ?SLOG(warning, #{msg => "kicked_an_unknown_session"},
                 #{clientid => unicode:characters_to_list(ClientId, utf8)}),
             ok;
         ChanPids ->

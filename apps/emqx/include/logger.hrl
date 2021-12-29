@@ -63,12 +63,12 @@
 
 %% structured logging, meta is for handler's filter.
 -define(SLOG(Level, Data, Meta),
-%% check 'allow' here, only evaluate Data when necessary
+%% check 'allow' here, only evaluate Data and Meta when necessary
     case logger:allow(Level, ?MODULE) of
         true ->
-            logger:log(Level, (Data), Meta#{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
+            logger:log(Level, (Data), (Meta#{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
                 , line => ?LINE
-            });
+            }));
         false ->
             ok
     end).

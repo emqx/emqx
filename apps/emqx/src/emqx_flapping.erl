@@ -118,7 +118,6 @@ handle_cast({detected, #flapping{clientid   = ClientId,
         true -> %% Flapping happened:(
             ?SLOG(warning, #{
                 msg => "flapping_detected",
-                client_id => ClientId,
                 peer_host => fmt_host(PeerHost),
                 detect_cnt => DetectCnt,
                 wind_time_in_ms => WindTime
@@ -134,7 +133,6 @@ handle_cast({detected, #flapping{clientid   = ClientId,
         false ->
             ?SLOG(warning, #{
                 msg => "client_disconnected",
-                client_id => ClientId,
                 peer_host => fmt_host(PeerHost),
                 detect_cnt => DetectCnt,
                 interval => Interval

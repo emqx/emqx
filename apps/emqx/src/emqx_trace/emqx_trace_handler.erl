@@ -35,7 +35,6 @@
         , filter_topic/2
         , filter_ip_address/2
         ]).
--export([template/1]).
 
 -export([handler_id/2]).
 -export([payload_encode/0]).
@@ -157,20 +156,6 @@ formatter(#{type := _Type}) ->
             payload_encode => payload_encode()
         }
     }.
-
-%% Don't log clientid since clientid only supports exact match, all client ids are the same.
-%% if clientid is not latin characters. the logger_formatter restricts the output must be `~tp`
-%% (actually should use `~ts`), the utf8 characters clientid will become very difficult to read.
-template(clientid) ->
-    [time, " [", level, "] ", {peername, [peername, " "], []}, msg, "\n"];
-template(_) ->
-    [time, " [", level, "] ",
-        {clientid,
-            [{peername, [clientid, "@", peername, " "], [clientid, " "]}],
-            [{peername, [peername, " "], []}]
-        },
-        msg, "\n"
-    ].
 
 filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) ->
     Init = #{id => Id, level => Level, dst => Dst},
