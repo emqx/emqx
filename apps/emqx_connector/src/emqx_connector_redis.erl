@@ -94,7 +94,7 @@ on_start(InstId, #{redis_type := Type,
                    pool_size := PoolSize,
                    auto_reconnect := AutoReconn,
                    ssl := SSL } = Config) ->
-    ?SLOG(info, #{msg => "starting redis connector",
+    ?SLOG(info, #{msg => "starting_redis_connector",
                   connector => InstId, config => Config}),
     Servers = case Type of
                 single -> [{servers, [maps:get(server, Config)]}];
@@ -127,20 +127,20 @@ on_start(InstId, #{redis_type := Type,
     {ok, #{poolname => PoolName, type => Type}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    ?SLOG(info, #{msg => "stopping redis connector",
+    ?SLOG(info, #{msg => "stopping_redis_connector",
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId, {cmd, Command}, AfterCommand, #{poolname := PoolName, type := Type} = State) ->
-    ?SLOG(debug, #{msg => "redis connector received cmd query",
-        connector => InstId, sql => Command, state => State}),
+    ?TRACE("QUERY", "redis_connector_received",
+        #{connector => InstId, sql => Command, state => State}),
     Result = case Type of
                  cluster -> eredis_cluster:q(PoolName, Command);
                  _ -> ecpool:pick_and_do(PoolName, {?MODULE, cmd, [Type, Command]}, no_handover)
              end,
     case Result of
         {error, Reason} ->
-            ?SLOG(error, #{msg => "redis connector do cmd query failed",
+            ?SLOG(error, #{msg => "redis_connector_do_cmd_query_failed",
                 connector => InstId, sql => Command, reason => Reason}),
             emqx_resource:query_failed(AfterCommand);
         _ ->

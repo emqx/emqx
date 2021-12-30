@@ -312,6 +312,9 @@ responses(Responses, Module) ->
 
 response(Status, Bin, {Acc, RefsAcc, Module}) when is_binary(Bin) ->
     {Acc#{integer_to_binary(Status) => #{description => Bin}}, RefsAcc, Module};
+%% Support swagger raw object(file download).
+response(Status, #{content := _} = Content, {Acc, RefsAcc, Module}) ->
+    {Acc#{integer_to_binary(Status) => Content}, RefsAcc, Module};
 response(Status, ?REF(StructName), {Acc, RefsAcc, Module}) ->
     response(Status, ?R_REF(Module, StructName), {Acc, RefsAcc, Module});
 response(Status, ?R_REF(_Mod, _Name) = RRef, {Acc, RefsAcc, Module}) ->

@@ -158,15 +158,15 @@ handle_puback(#{packet_id := PktId, reason_code := RC}, Parent)
        RC =:= ?RC_NO_MATCHING_SUBSCRIBERS ->
     Parent ! {batch_ack, PktId}, ok;
 handle_puback(#{packet_id := PktId, reason_code := RC}, _Parent) ->
-    ?SLOG(warning, #{msg => "publish to remote node falied",
+    ?SLOG(warning, #{msg => "publish_to_remote_node_falied",
         packet_id => PktId, reason_code => RC}).
 
 handle_publish(Msg, undefined) ->
-    ?SLOG(error, #{msg => "cannot publish to local broker as"
-                          " 'ingress' is not configured",
+    ?SLOG(error, #{msg => "cannot_publish_to_local_broker_as"
+                          "_'ingress'_is_not_configured",
                    message => Msg});
 handle_publish(Msg, Vars) ->
-    ?SLOG(debug, #{msg => "publish to local broker",
+    ?SLOG(debug, #{msg => "publish_to_local_broker",
                    message => Msg, vars => Vars}),
     emqx_metrics:inc('bridge.mqtt.message_received_from_remote', 1),
     case Vars of

@@ -58,7 +58,7 @@ on_start(InstId, #{server := {Host, Port},
                    auto_reconnect := AutoReconn,
                    pool_size := PoolSize,
                    ssl := SSL } = Config) ->
-    ?SLOG(info, #{msg => "starting postgresql connector",
+    ?SLOG(info, #{msg => "starting_postgresql_connector",
                   connector => InstId, config => Config}),
     SslOpts = case maps:get(enable, SSL) of
         true ->
@@ -88,12 +88,12 @@ on_query(InstId, QueryParams, AfterQuery, #{poolname := PoolName} = State) ->
                           {prepared_query, Name, SQL} -> {prepared_query, [Name, SQL, []]};
                           {prepared_query, Name, SQL, Params} -> {prepared_query, [Name, SQL, Params]}
                       end,
-    ?SLOG(debug, #{msg => "postgresql connector received sql query",
-        connector => InstId, command => Command, args => Args, state => State}),
+    ?TRACE("QUERY", "postgresql_connector_received",
+        #{connector => InstId, command => Command, args => Args, state => State}),
     case Result = ecpool:pick_and_do(PoolName, {?MODULE, Command, Args}, no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "postgresql connector do sql query failed",
+                msg => "postgresql_connector_do_sql_query_failed",
                 connector => InstId, sql => SQL, reason => Reason}),
             emqx_resource:query_failed(AfterQuery);
         _ ->

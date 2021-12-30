@@ -128,7 +128,7 @@ on_start(InstId, Config = #{mongo_type := Type,
     {ok, #{poolname => PoolName, type => Type}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    ?SLOG(info, #{msg => "stopping mongodb connector",
+    ?SLOG(info, #{msg => "stopping_mongodb_connector",
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
@@ -137,14 +137,13 @@ on_query(InstId,
          AfterQuery,
          #{poolname := PoolName} = State) ->
     Request = {Action, Collection, Selector, Docs},
-    ?SLOG(debug, #{msg => "mongodb connector received request",
-        request => Request, connector => InstId,
-        state => State}),
+    ?TRACE("QUERY", "mongodb_connector_received",
+        #{request => Request, connector => InstId, state => State}),
     case ecpool:pick_and_do(PoolName,
                             {?MODULE, mongo_query, [Action, Collection, Selector, Docs]},
                             no_handover) of
         {error, Reason} ->
-            ?SLOG(error, #{msg => "mongodb connector do query failed",
+            ?SLOG(error, #{msg => "mongodb_connector_do_query_failed",
                 request => Request, reason => Reason,
                 connector => InstId}),
             emqx_resource:query_failed(AfterQuery),

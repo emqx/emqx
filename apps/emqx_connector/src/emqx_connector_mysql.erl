@@ -56,7 +56,7 @@ on_start(InstId, #{server := {Host, Port},
                    auto_reconnect := AutoReconn,
                    pool_size := PoolSize,
                    ssl := SSL } = Config) ->
-    ?SLOG(info, #{msg => "starting mysql connector",
+    ?SLOG(info, #{msg => "starting_mysql_connector",
                   connector => InstId, config => Config}),
     SslOpts = case maps:get(enable, SSL) of
         true ->
@@ -76,7 +76,7 @@ on_start(InstId, #{server := {Host, Port},
     {ok, #{poolname => PoolName}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    ?SLOG(info, #{msg => "stopping mysql connector",
+    ?SLOG(info, #{msg => "stopping_mysql_connector",
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
@@ -85,14 +85,13 @@ on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
 on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := _PoolName} = State) ->
     on_query(InstId, {sql, SQL, Params, default_timeout}, AfterQuery, State);
 on_query(InstId, {sql, SQL, Params, Timeout}, AfterQuery, #{poolname := PoolName} = State) ->
-    ?SLOG(debug, #{msg => "mysql connector received sql query",
-        connector => InstId, sql => SQL, state => State}),
+    ?TRACE("QUERY", "mysql_connector_received", #{connector => InstId, sql => SQL, state => State}),
     case Result = ecpool:pick_and_do(
                     PoolName,
                     {mysql, query, [SQL, Params, Timeout]},
                     no_handover) of
         {error, Reason} ->
-            ?SLOG(error, #{msg => "mysql connector do sql query failed",
+            ?SLOG(error, #{msg => "mysql_connector_do_sql_query_failed",
                 connector => InstId, sql => SQL, reason => Reason}),
             emqx_resource:query_failed(AfterQuery);
         _ ->

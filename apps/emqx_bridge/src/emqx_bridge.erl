@@ -214,7 +214,7 @@ update(Type, Name, {OldConf, Conf}) ->
             case recreate(Type, Name, Conf) of
                 {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
                 {error, not_found} ->
-                    ?SLOG(warning, #{ msg => "updating a non-exist bridge, create a new one"
+                    ?SLOG(warning, #{ msg => "updating_a_non-exist_bridge_need_create_a_new_one"
                                     , type => Type, name => Name, config => Conf}),
                     create(Type, Name, Conf);
                 {error, Reason} -> {update_bridge_failed, Reason}
@@ -242,7 +242,7 @@ create_dry_run(Type, Conf) ->
     end.
 
 remove(Type, Name, _Conf) ->
-    ?SLOG(info, #{msg => "remove bridge", type => Type, name => Name}),
+    ?SLOG(info, #{msg => "remove_bridge", type => Type, name => Name}),
     case emqx_resource:remove_local(resource_id(Type, Name)) of
         ok -> ok;
         {error, not_found} -> ok;

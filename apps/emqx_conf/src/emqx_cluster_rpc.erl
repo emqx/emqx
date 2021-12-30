@@ -236,7 +236,7 @@ catch_up(#{node := Node, retry_interval := RetryMs} = State, SkipResult) ->
                 false -> RetryMs
             end;
         {aborted, Reason} ->
-            ?SLOG(error, #{msg => "read_next_mfa transaction failed", error => Reason}),
+            ?SLOG(error, #{msg => "read_next_mfa_transaction_failed", error => Reason}),
             RetryMs
     end.
 
@@ -248,7 +248,7 @@ read_next_mfa(Node) ->
                 TnxId = max(LatestId - 1, 0),
                 commit(Node, TnxId),
                 ?SLOG(notice, #{
-                    msg => "New node first catch up and start commit.",
+                    msg => "new_node_first_catch_up_and_start_commit.",
                     node => Node, tnx_id => TnxId}),
                 TnxId;
             [#cluster_rpc_commit{tnx_id = LastAppliedID}] -> LastAppliedID + 1
@@ -277,7 +277,7 @@ do_catch_up(ToTnxId, Node) ->
                 io_lib:format("~p catch up failed by LastAppliedId(~p) > ToTnxId(~p)",
                 [Node, LastAppliedId, ToTnxId])),
             ?SLOG(error, #{
-                msg => "catch up failed!",
+                msg => "catch_up_failed!",
                 last_applied_id => LastAppliedId,
                 to_tnx_id => ToTnxId
             }),

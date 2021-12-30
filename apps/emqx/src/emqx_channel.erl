@@ -292,7 +292,7 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                    fun check_banned/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
-            ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
+            ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
             NChannel1 = NChannel#channel{
                                         will_msg = emqx_packet:will_msg(NConnPkt),
                                         alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
@@ -550,9 +550,8 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
         {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
             ?SLOG(warning, #{
                 msg => "cannot_publish_to_topic",
-                topic => Topic,
                 reason => emqx_reason_codes:name(Rc)
-            }),
+            }, #{topic => Topic}),
             case emqx:get_config([authorization, deny_action], ignore) of
                 ignore ->
                     case QoS of
@@ -568,9 +567,8 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
         {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
             ?SLOG(warning, #{
                 msg => "cannot_publish_to_topic",
-                topic => Topic,
                 reason => emqx_reason_codes:name(Rc)
-            }),
+            }, #{topic => Topic}),
             case QoS of
                 ?QOS_0 ->
                     ok = emqx_metrics:inc('packets.publish.dropped'),
@@ -585,7 +583,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                 msg => "cannot_publish_to_topic",
                 topic => Topic,
                 reason => emqx_reason_codes:name(Rc)
-            }),
+            }, #{topic => Topic}),
             handle_out(disconnect, Rc, NChannel)
     end.
 
@@ -635,7 +633,7 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_2},
                 msg => "dropped_qos2_packet",
                 reason => emqx_reason_codes:name(RC),
                 packet_id => PacketId
-            }),
+            }, #{topic => Msg#message.topic}),
             ok = emqx_metrics:inc('packets.publish.dropped'),
             handle_out(pubrec, {PacketId, RC}, Channel)
     end.
@@ -687,7 +685,7 @@ process_subscribe([Topic = {TopicFilter, SubOpts} | More], SubProps, Channel, Ac
             ?SLOG(warning, #{
                 msg => "cannot_subscribe_topic_filter",
                 reason => emqx_reason_codes:name(ReasonCode)
-            }),
+            }, #{topic => TopicFilter}),
             process_subscribe(More, SubProps, Channel, [{Topic, ReasonCode} | Acc])
     end.
 
@@ -703,7 +701,7 @@ do_subscribe(TopicFilter, SubOpts = #{qos := QoS}, Channel =
             ?SLOG(warning, #{
                 msg => "cannot_subscribe_topic_filter",
                 reason => emqx_reason_codes:text(RC)
-            }),
+            }, #{topic => NTopicFilter}),
             {RC, Channel}
     end.
 

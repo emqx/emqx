@@ -118,7 +118,7 @@ on_message_received(Msg, HookPoint) ->
 %% ===================================================================
 on_start(InstId, Conf) ->
     InstanceId = binary_to_atom(InstId, utf8),
-    ?SLOG(info, #{msg => "starting mqtt connector",
+    ?SLOG(info, #{msg => "starting_mqtt_connector",
                   connector => InstanceId, config => Conf}),
     BasicConf = basic_config(Conf),
     BridgeConf = BasicConf#{
@@ -139,19 +139,18 @@ on_start(InstId, Conf) ->
     end.
 
 on_stop(_InstId, #{name := InstanceId}) ->
-    ?SLOG(info, #{msg => "stopping mqtt connector",
+    ?SLOG(info, #{msg => "stopping_mqtt_connector",
                   connector => InstanceId}),
     case ?MODULE:drop_bridge(InstanceId) of
         ok -> ok;
         {error, not_found} -> ok;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "stop mqtt connector",
+            ?SLOG(error, #{msg => "stop_mqtt_connector",
                 connector => InstanceId, reason => Reason})
     end.
 
 on_query(_InstId, {send_message, Msg}, AfterQuery, #{name := InstanceId}) ->
-    ?SLOG(debug, #{msg => "send msg to remote node", message => Msg,
-        connector => InstanceId}),
+    ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
     emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg),
     emqx_resource:query_success(AfterQuery).
 
