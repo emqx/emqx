@@ -29,7 +29,6 @@
         , destroy/1
         , dry_run/1
         , authorize/4
-        , parse_url/1
         ]).
 
 -ifdef(TEST).
@@ -113,18 +112,6 @@ authorize(Client, PubSub, Topic,
             ignore
     end.
 
-parse_url(URL)
-  when URL =:= undefined ->
-    #{};
-parse_url(URL) ->
-    {ok, URIMap} = emqx_http_lib:uri_parse(URL),
-    case maps:get(query, URIMap, undefined) of
-        undefined ->
-            URIMap#{query => ""};
-        _ ->
-            URIMap
-    end.
-
 query_string(Body) ->
     query_string(maps:to_list(Body), []).
 
@@ -147,13 +134,13 @@ replvar_deep(Map, PubSub, Topic, Vars, VarEncode) when is_map(Map) ->
       lists:map(
         fun({Key, Value}) ->
                 {replvar(Key, PubSub, Topic, Vars, VarEncode),
-                 replvar(Value, PubSub, Topic, Vars, VarEncode)}
+                 replvar_deep(Value, PubSub, Topic, Vars, VarEncode)}
         end,
         maps:to_list(Map)));
 replvar_deep(List, PubSub, Topic, Vars, VarEncode) when is_list(List) ->
     lists:map(
       fun(Value) ->
-              replvar(Value, PubSub, Topic, Vars, VarEncode)
+              replvar_deep(Value, PubSub, Topic, Vars, VarEncode)
       end,
       List);
 replvar_deep(Number, _PubSub, _Topic, _Vars, _VarEncode) when is_number(Number) ->

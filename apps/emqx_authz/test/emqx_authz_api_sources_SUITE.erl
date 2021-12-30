@@ -29,7 +29,9 @@
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
                    <<"enable">> => true,
-                   <<"url">> => <<"https://fake.com:443/">>,
+                   <<"base_url">> => <<"https://fake.com:443/">>,
+                   <<"path">> => <<"foo">>,
+                   <<"query">> => <<"a=b">>,
                    <<"headers">> => #{},
                    <<"method">> => <<"get">>,
                    <<"request_timeout">> => <<"5s">>
@@ -37,9 +39,7 @@
 -define(SOURCE2, #{<<"type">> => <<"mongodb">>,
                    <<"enable">> => true,
                    <<"mongo_type">> => <<"sharded">>,
-                   <<"servers">> => [<<"127.0.0.1:27017">>,
-                                     <<"192.168.0.1:27017">>
-                                    ],
+                   <<"servers">> => <<"127.0.0.1:27017,192.168.0.1:27017">>,
                    <<"pool_size">> => 1,
                    <<"database">> => <<"mqtt">>,
                    <<"ssl">> => #{<<"enable">> => false},
@@ -87,9 +87,11 @@
   "\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
                   }).
 
+-define(MATCH_RSA_KEY, <<"-----BEGIN RSA PRIVATE KEY", _/binary>>).
+-define(MATCH_CERT, <<"-----BEGIN CERTIFICATE", _/binary>>).
+
 all() ->
-    []. %% Todo: Waiting for @terry-xiaoyu to fix the config_not_found error
-    % emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 groups() ->
     [].
@@ -98,7 +100,7 @@ init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, create_dry_run,
-                fun(emqx_connector_mysql, _) -> {ok, meck_data};
+                fun(emqx_connector_mysql, _) -> ok;
                    (T, C) -> meck:passthrough([T, C])
                 end),
     meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
@@ -186,26 +188,65 @@ t_api(_) ->
     {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result3)),
 
+    Keyfile = emqx_common_test_helpers:app_path(
+                emqx,
+                filename:join(["etc", "certs", "key.pem"])),
+    Certfile = emqx_common_test_helpers:app_path(
+                 emqx,
+                 filename:join(["etc", "certs", "cert.pem"])),
+    Cacertfile = emqx_common_test_helpers:app_path(
+                   emqx,
+                   filename:join(["etc", "certs", "cacert.pem"])),
+
     {ok, 204, _} = request(put, uri(["authorization", "sources", "mongodb"]),
-                           ?SOURCE2#{<<"ssl">> := #{
-                                         <<"enable">> => true,
-                                         <<"cacertfile">> => <<"fake cacert file">>,
-                                         <<"certfile">> => <<"fake cert file">>,
-                                         <<"keyfile">> => <<"fake key file">>,
-                                         <<"verify">> => false
+                           ?SOURCE2#{<<"ssl">> => #{
+                                         <<"enable">> => <<"true">>,
+                                         <<"cacertfile">> => Cacertfile,
+                                         <<"certfile">> => Certfile,
+                                         <<"keyfile">> => Keyfile,
+                                         <<"verify">> => <<"verify_none">>
                                         }}),
     {ok, 200, Result4} = request(get, uri(["authorization", "sources", "mongodb"]), []),
     ?assertMatch(#{<<"type">> := <<"mongodb">>,
-                   <<"ssl">> := #{<<"enable">> := true,
-                                  <<"cacertfile">> := <<"fake cacert file">>,
-                                  <<"certfile">> := <<"fake cert file">>,
-                                  <<"keyfile">> := <<"fake key file">>,
-                                  <<"verify">> := false
+                   <<"ssl">> := #{<<"enable">> := <<"true">>,
+                                  <<"cacertfile">> := ?MATCH_CERT,
+                                  <<"certfile">> := ?MATCH_CERT,
+                                  <<"keyfile">> := ?MATCH_RSA_KEY,
+                                  <<"verify">> := <<"verify_none">>
                                  }
                   }, jsx:decode(Result4)),
-    ?assert(filelib:is_file(filename:join([data_dir(), "certs", "cacert-fake.pem"]))),
-    ?assert(filelib:is_file(filename:join([data_dir(), "certs", "cert-fake.pem"]))),
-    ?assert(filelib:is_file(filename:join([data_dir(), "certs", "key-fake.pem"]))),
+
+    {ok, Cacert} = file:read_file(Cacertfile),
+    {ok, Cert} = file:read_file(Certfile),
+    {ok, Key} = file:read_file(Keyfile),
+
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "mongodb"]),
+                           ?SOURCE2#{<<"ssl">> => #{
+                                         <<"enable">> => <<"true">>,
+                                         <<"cacertfile">> => Cacert,
+                                         <<"certfile">> => Cert,
+                                         <<"keyfile">> => Key,
+                                         <<"verify">> => <<"verify_none">>
+                                        }}),
+    {ok, 200, Result5} = request(get, uri(["authorization", "sources", "mongodb"]), []),
+    ?assertMatch(#{<<"type">> := <<"mongodb">>,
+                   <<"ssl">> := #{<<"enable">> := <<"true">>,
+                                  <<"cacertfile">> := ?MATCH_CERT,
+                                  <<"certfile">> := ?MATCH_CERT,
+                                  <<"keyfile">> := ?MATCH_RSA_KEY,
+                                  <<"verify">> := <<"verify_none">>
+                                 }
+                  }, jsx:decode(Result5)),
+
+
+    #{ssl := #{cacertfile := SavedCacertfile,
+               certfile := SavedCertfile,
+               keyfile := SavedKeyfile
+              }} = emqx_authz:lookup(mongodb),
+
+    ?assert(filelib:is_file(SavedCacertfile)),
+    ?assert(filelib:is_file(SavedCertfile)),
+    ?assert(filelib:is_file(SavedKeyfile)),
 
     {ok, 204, _} = request(
                      put,
@@ -229,8 +270,8 @@ t_api(_) ->
                          uri(["authorization", "sources", binary_to_list(Type)]),
                          [])
       end, Sources),
-    {ok, 200, Result5} = request(get, uri(["authorization", "sources"]), []),
-    ?assertEqual([], get_sources(Result5)),
+    {ok, 200, Result6} = request(get, uri(["authorization", "sources"]), []),
+    ?assertEqual([], get_sources(Result6)),
     ?assertEqual([], emqx:get_config([authorization, sources])),
     ok.
 

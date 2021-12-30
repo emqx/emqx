@@ -28,7 +28,6 @@
 -export([ namespace/0
         , roots/0
         , fields/1
-        , validations/0
         ]).
 
 -import(emqx_schema, [mk_duration/2]).
@@ -153,11 +152,6 @@ mongo_common_fields() ->
                  default => true}}
     ].
 
-validations() ->
-    [ {check_ssl_opts, fun check_ssl_opts/1}
-    , {check_headers, fun check_headers/1}
-    ].
-
 headers(type) -> map();
 headers(converter) ->
     fun(Headers) ->
@@ -196,28 +190,6 @@ transform_header_name(Headers) ->
                       maps:put(K, V, Acc)
               end, #{}, Headers).
 
-check_ssl_opts(Conf)
-  when Conf =:= #{} ->
-    true;
-check_ssl_opts(Conf) ->
-    case emqx_authz_http:parse_url(hocon_schema:get_value("config.base_url", Conf)) of
-        #{scheme := https} ->
-            case hocon_schema:get_value("config.ssl.enable", Conf) of
-                true -> ok;
-                false -> false
-            end;
-        #{scheme := http} ->
-            ok
-    end.
-
-check_headers(Conf)
-    when Conf =:= #{} ->
-    true;
-check_headers(Conf) ->
-    Method = to_bin(hocon_schema:get_value("config.method", Conf)),
-    Headers = hocon_schema:get_value("config.headers", Conf),
-    Method =:= <<"post">> orelse (not maps:is_key(<<"content-type">>, Headers)).
-
 union_array(Item) when is_list(Item) ->
     hoconsc:array(hoconsc:union(Item)).
 
@@ -253,9 +225,3 @@ to_list(A) when is_atom(A) ->
 to_list(B) when is_binary(B) ->
     binary_to_list(B).
 
-to_bin(A) when is_atom(A) ->
-    atom_to_binary(A);
-to_bin(B) when is_binary(B) ->
-    B;
-to_bin(L) when is_list(L) ->
-    list_to_binary(L).
