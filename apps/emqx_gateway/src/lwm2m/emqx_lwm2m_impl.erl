@@ -92,7 +92,7 @@ on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
 
 on_gateway_unload(_Gateway = #{ name := GwName,
                                 config := Config
-                              }, _GwState = #{registry := RegPid}) ->
-    exit(RegPid, kill),
+                              }, _GwState = #{registry := _RegPid}) ->
+    _ = try emqx_lwm2m_xml_object_db:stop() catch _ : _  -> ok end,
     Listeners = emqx_gateway_utils:normalize_config(Config),
     emqx_gateway_utils:stop_listeners(GwName, Listeners).
