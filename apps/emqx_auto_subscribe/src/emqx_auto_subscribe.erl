@@ -83,7 +83,7 @@ update_(Topics) when length(Topics) =< ?MAX_AUTO_SUBSCRIBE ->
     case emqx_conf:update([auto_subscribe, topics],
                           Topics,
                           #{rawconf_with_defaults => true, override_to => cluster}) of
-        {ok, #{config := NewTopics}} ->
+        {ok, #{raw_config := NewTopics}} ->
             ok = update_hook(),
             {ok, NewTopics};
         {error, Reason} ->

@@ -222,7 +222,7 @@ generate_max_delayed_messages(Config) ->
 
 update_config_(Config) ->
     case emqx_delayed:update_config(Config) of
-        {ok, #{config := NewDelayed}} ->
+        {ok, #{raw_config := NewDelayed}} ->
             case maps:get(<<"enable">>, Config, undefined) of
                 undefined ->
                     ignore;
