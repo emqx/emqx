@@ -102,6 +102,7 @@ set_special_configs(_App) ->
                    <<"query">> => <<"abcb">>
                   }).
 -define(SOURCE5, #{<<"type">> => <<"redis">>,
+                   <<"redis_type">> => <<"single">>,
                    <<"enable">> => true,
                    <<"server">> => <<"127.0.0.1:27017">>,
                    <<"pool_size">> => 1,

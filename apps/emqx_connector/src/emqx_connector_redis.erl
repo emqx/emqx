@@ -20,12 +20,19 @@
 -include_lib("emqx/include/logger.hrl").
 
 -type server() :: tuple().
-
+%% {"127.0.0.1", 7000}
+%% For eredis:start_link/1~7
 -reflect_type([server/0]).
-
 -typerefl_from_string({server/0, ?MODULE, to_server}).
 
--export([to_server/1]).
+-type servers() :: list().
+%% [{"127.0.0.1", 7000}, {"127.0.0.2", 7000}]
+%% For eredis_cluster
+-reflect_type([servers/0]).
+-typerefl_from_string({servers/0, ?MODULE, to_servers}).
+
+-export([ to_server/1
+        , to_servers/1]).
 
 -export([roots/0, fields/1]).
 
@@ -63,14 +70,14 @@ fields(single) ->
     redis_fields() ++
     emqx_connector_schema_lib:ssl_fields();
 fields(cluster) ->
-    [ {servers, #{type => hoconsc:array(server())}}
+    [ {servers, #{type => servers()}}
     , {redis_type, #{type => hoconsc:enum([cluster]),
                      default => cluster}}
     ] ++
     redis_fields() ++
     emqx_connector_schema_lib:ssl_fields();
 fields(sentinel) ->
-    [ {servers, #{type => hoconsc:array(server())}}
+    [ {servers, #{type => servers()}}
     , {redis_type, #{type => hoconsc:enum([sentinel]),
                      default => sentinel}}
     , {sentinel, #{type => string()}}
@@ -181,7 +188,23 @@ redis_fields() ->
     ].
 
 to_server(Server) ->
-    case string:tokens(Server, ":") of
-        [Host, Port] -> {ok, {Host, list_to_integer(Port)}};
-        _ -> {error, Server}
+    try {ok, parse_server(Server)}
+    catch
+        throw : Error  ->
+            Error
+    end.
+
+to_servers(Servers) ->
+    try {ok, lists:map(fun parse_server/1, string:tokens(Servers, ", "))}
+    catch
+        throw : _Reason ->
+            {error, Servers}
+    end.
+
+parse_server(Server) ->
+    case string:tokens(Server, ": ") of
+        [Host, Port] ->
+            {Host, list_to_integer(Port)};
+        _ ->
+            throw({error, Server})
     end.

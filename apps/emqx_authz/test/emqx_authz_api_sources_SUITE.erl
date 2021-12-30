@@ -37,9 +37,7 @@
 -define(SOURCE2, #{<<"type">> => <<"mongodb">>,
                    <<"enable">> => true,
                    <<"mongo_type">> => <<"sharded">>,
-                   <<"servers">> => [<<"127.0.0.1:27017">>,
-                                     <<"192.168.0.1:27017">>
-                                    ],
+                   <<"servers">> => <<"127.0.0.1:27017, 192.168.0.1:27017">>,
                    <<"pool_size">> => 1,
                    <<"database">> => <<"mqtt">>,
                    <<"ssl">> => #{<<"enable">> => false},
@@ -70,9 +68,7 @@
                   }).
 -define(SOURCE5, #{<<"type">> => <<"redis">>,
                    <<"enable">> => true,
-                   <<"servers">> => [<<"127.0.0.1:6379">>,
-                                     <<"127.0.0.1:6380">>
-                                    ],
+                   <<"servers">> => <<"127.0.0.1:6379, 127.0.0.1:6380">>,
                    <<"pool_size">> => 1,
                    <<"database">> => 0,
                    <<"password">> => <<"ee">>,
@@ -88,7 +84,7 @@
                   }).
 
 all() ->
-    []. %% Todo: Waiting for @terry-xiaoyu to fix the config_not_found error
+    []. %% Todo: Waiting for fixing the ssl cert test.
     % emqx_common_test_helpers:all(?MODULE).
 
 groups() ->
