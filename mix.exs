@@ -312,10 +312,7 @@ defmodule EMQXUmbrella.MixProject do
 
     for name <- [
           "emqx",
-          "emqx_ctl",
-          "common_defs.sh",
-          "common_defs2.sh",
-          "common_functions.sh"
+          "emqx_ctl"
         ] do
       Mix.Generator.copy_file(
         "bin/#{name}",
