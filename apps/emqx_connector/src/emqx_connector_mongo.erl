@@ -178,9 +178,6 @@ health_check(PoolName) ->
 
 %% ===================================================================
 
-%% mongo_api:find_one/4 typing is invalid
--dialyzer({nowarn_function, [check_worker_health/1]}).
-
 check_worker_health(Worker) -> 
     case ecpool_worker:client(Worker) of
         {ok, Conn} ->
