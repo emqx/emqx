@@ -23,7 +23,7 @@
 -include_lib("emqx_slow_subs/include/emqx_slow_subs.hrl").
 
 -export([ start_link/0, on_stats_update/2, update_settings/1
-        , clear_history/0, init_topk_tab/0
+        , clear_history/0, init_topk_tab/0, post_config_update/5
         ]).
 
 %% gen_server callbacks
@@ -123,8 +123,8 @@ on_stats_update(#{clientid := ClientId,
 clear_history() ->
     gen_server:call(?MODULE, ?FUNCTION_NAME, ?DEF_CALL_TIMEOUT).
 
-update_settings(Enable) ->
-    gen_server:call(?MODULE, {?FUNCTION_NAME, Enable}, ?DEF_CALL_TIMEOUT).
+update_settings(Conf) ->
+    emqx_conf:update([emqx_slow_subs], Conf, #{override_to => cluster}).
 
 init_topk_tab() ->
     case ets:whereis(?TOPK_TAB) of
@@ -138,11 +138,16 @@ init_topk_tab() ->
             ?TOPK_TAB
     end.
 
+post_config_update(_KeyPath, _UpdateReq, NewConf, _OldConf, _AppEnvs) ->
+    gen_server:call(?MODULE, {update_settings, NewConf}, ?DEF_CALL_TIMEOUT).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
+    emqx_conf:add_handler([emqx_slow_subs], ?MODULE),
+
     InitState = #{enable => false,
                   last_tick_at => 0,
                   expire_timer => undefined,
@@ -152,7 +157,8 @@ init([]) ->
     Enable = emqx:get_config([emqx_slow_subs, enable]),
     {ok, check_enable(Enable, InitState)}.
 
-handle_call({update_settings, Enable}, _From, State) ->
+handle_call({update_settings, #{enable := Enable} = Conf}, _From, State) ->
+    emqx_config:put([emqx_slow_subs], Conf),
     State2 = check_enable(Enable, State),
     {reply, ok, State2};
 
