@@ -30,6 +30,7 @@
 -export([ node_query/5
         , cluster_query/4
         , select_table_with_count/5
+        , b2i/1
         ]).
 
 -export([do_query/6]).

@@ -251,7 +251,8 @@ publish(TickTime, Notices) ->
     ok.
 
 load() ->
-    MaxSize = emqx:get_config([emqx_slow_subs, top_k_num]),
+    MaxSizeT = emqx:get_config([emqx_slow_subs, top_k_num]),
+    MaxSize = erlang:min(MaxSizeT, ?MAX_TAB_SIZE),
     _ = emqx:hook('message.slow_subs_stats',
                   {?MODULE, on_stats_update, [#{max_size => MaxSize}]}
                  ),

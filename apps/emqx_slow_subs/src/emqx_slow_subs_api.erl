@@ -87,7 +87,11 @@ slow_subs(delete, _) ->
     ok = emqx_slow_subs:clear_history(),
     {204};
 
-slow_subs(get, #{query_string := QS}) ->
+slow_subs(get, #{query_string := QST}) ->
+    LimitT = maps:get(<<"limit">>, QST, ?MAX_TAB_SIZE),
+    Limit = erlang:min(?MAX_TAB_SIZE, emqx_mgmt_api:b2i(LimitT)),
+    Page = maps:get(<<"page">>, QST, 1),
+    QS = QST#{<<"limit">> => Limit, <<"page">> => Page},
     Data = emqx_mgmt_api:paginate({?TOPK_TAB, [{traverse, last_prev}]}, QS, ?FORMAT_FUN),
     {200, Data}.
 
