@@ -130,7 +130,7 @@ config(get, _) ->
 
 config(put, #{body := Body}) ->
     try
-        ok = emqx_retainer:update_config(Body),
+        {ok, _} = emqx_retainer:update_config(Body),
         {200,  emqx:get_raw_config([emqx_retainer])}
     catch _:Reason:_ ->
             {400,
