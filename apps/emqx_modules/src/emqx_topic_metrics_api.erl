@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-%% TODO: refactor uri path
+
 -module(emqx_topic_metrics_api).
 
 -behaviour(minirest_api).
@@ -151,10 +151,8 @@ topic_metrics(put, #{body := #{<<"topic">> := Topic, <<"action">> := <<"reset">>
         {error, Reason} -> reason2httpresp(Reason)
     end;
 topic_metrics(put, #{body := #{<<"action">> := <<"reset">>}}) ->
-    case reset() of
-        ok -> {200};
-        {error, Reason} -> reason2httpresp(Reason)
-    end;
+    reset(),
+    {200};
 
 topic_metrics(post, #{body := #{<<"topic">> := <<>>}}) ->
     {400, 'BAD_REQUEST', <<"Topic can not be empty">>};
@@ -177,8 +175,7 @@ operate_topic_metrics(get, #{bindings := #{topic := Topic0}}) ->
 operate_topic_metrics(delete, #{bindings := #{topic := Topic0}}) ->
     case emqx_modules_conf:remove_topic_metrics(emqx_http_lib:uri_decode(Topic0)) of
         ok -> {200};
-        {error, Reason} ->
-            reason2httpresp(Reason)
+        {error, Reason} -> reason2httpresp(Reason)
     end.
 
 %%--------------------------------------------------------------------
@@ -285,9 +282,9 @@ reason2httpresp({quota_exceeded, bad_topic}) ->
 reason2httpresp(already_existed) ->
     Msg = <<"Topic already registered">>,
     {400, #{code => ?BAD_TOPIC, message => Msg}};
-reason2httpresp(not_found) ->
+reason2httpresp(topic_not_found) ->
     Msg = <<"Topic not found">>,
     {404, #{code => ?ERROR_TOPIC, message => Msg}};
-reason2httpresp(topic_not_found) ->
+reason2httpresp(not_found) ->
     Msg = <<"Topic not found">>,
     {404, #{code => ?ERROR_TOPIC, message => Msg}}.

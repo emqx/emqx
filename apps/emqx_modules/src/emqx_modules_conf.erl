@@ -81,8 +81,8 @@ cfg_update(topic_metrics, Action, Params) ->
           #{override_to => cluster})).
 
 res({ok, Result}) -> {ok, Result};
-res({error, {pre_config_update,?MODULE,Reason}}) -> {error, Reason};
-res({error, {post_config_update,?MODULE,Reason}}) -> {error, Reason};
+res({error, {pre_config_update, ?MODULE, Reason}}) -> {error, Reason};
+res({error, {post_config_update, ?MODULE, Reason}}) -> {error, Reason};
 res({error, Reason}) -> {error, Reason}.
 
 %%--------------------------------------------------------------------
@@ -97,7 +97,7 @@ pre_config_update(_, {add_topic_metrics, Topic0}, RawConf) ->
     Topic = #{<<"topic">> => Topic0},
     case lists:member(Topic, RawConf) of
         true ->
-            {error, already_exist};
+            {error, already_existed};
         _ ->
             {ok, RawConf ++ [Topic]}
     end;
