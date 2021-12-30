@@ -580,7 +580,7 @@ common_listener_opts() ->
           #{ nullable => {true, recursively}
            , desc => <<"The authenticatior for this listener">>
            })}
-    ].
+    ] ++ emqx_gateway_schema:proxy_protocol_opts().
 
 %%--------------------------------------------------------------------
 %% examples
