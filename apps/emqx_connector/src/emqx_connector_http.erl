@@ -201,7 +201,7 @@ on_query(InstId, {KeyOrNum, Method, Request, Timeout}, AfterQuery,
         #{pool_name := PoolName, base_path := BasePath} = State) ->
     ?TRACE("QUERY", "http_connector_received",
         #{request => Request, connector => InstId, state => State}),
-    NRequest = update_path(BasePath, Request),
+    NRequest = formalize_request(Method, BasePath, Request),
     case Result = ehttpc:request(case KeyOrNum of
                                      undefined -> PoolName;
                                      _ -> {PoolName, KeyOrNum}
@@ -310,10 +310,14 @@ check_ssl_opts(URLFrom, Conf) ->
         {_, _} -> false
     end.
 
-update_path(BasePath, {Path, Headers}) ->
-    {filename:join(BasePath, Path), Headers};
-update_path(BasePath, {Path, Headers, Body}) ->
-    {filename:join(BasePath, Path), Headers, Body}.
+formalize_request(Method, BasePath, {Path, Headers, _Body})
+        when Method =:= get; Method =:= delete ->
+    formalize_request(Method, BasePath, {Path, Headers});
+formalize_request(_Method, BasePath, {Path, Headers, Body}) ->
+    {filename:join(BasePath, Path), Headers, Body};
+
+formalize_request(_Method, BasePath, {Path, Headers}) ->
+    {filename:join(BasePath, Path), Headers}.
 
 bin(Bin) when is_binary(Bin) ->
     Bin;
