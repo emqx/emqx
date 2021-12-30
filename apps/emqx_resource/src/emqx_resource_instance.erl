@@ -149,7 +149,7 @@ do_recreate(InstId, ResourceType, NewConfig, Params) ->
             TestInstId = iolist_to_binary(emqx_misc:gen_id(16)),
             case do_create_dry_run(TestInstId, ResourceType, Config) of
                 ok ->
-                    do_remove(ResourceType, InstId, ResourceState),
+                    do_remove(ResourceType, InstId, ResourceState, false),
                     do_create(InstId, ResourceType, Config, #{force_create => true});
                 Error ->
                     Error
@@ -208,10 +208,15 @@ do_remove(InstId) ->
     end.
 
 do_remove(Mod, InstId, ResourceState) ->
+    do_remove(Mod, InstId, ResourceState, true).
+
+do_remove(Mod, InstId, ResourceState, ClearMetrics) ->
     _ = emqx_resource:call_stop(InstId, Mod, ResourceState),
     ets:delete(emqx_resource_instance, InstId),
-    ok = emqx_plugin_libs_metrics:clear_metrics(resource_metrics, InstId),
-    ok.
+    case ClearMetrics of
+        true -> ok = emqx_plugin_libs_metrics:clear_metrics(resource_metrics, InstId);
+        false -> ok
+    end.
 
 do_restart(InstId) ->
     case lookup(InstId) of
