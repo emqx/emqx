@@ -504,7 +504,7 @@ case "$1" in
         "$BINDIR/run_erl" -daemon "$PIPE_DIR" "$RUNNER_LOG_DIR" \
                           "$(relx_start_command)"
 
-        WAIT_TIME=${WAIT_FOR_ERLANG:-15}
+        WAIT_TIME=${WAIT_FOR_ERLANG:-150}
         while [ "$WAIT_TIME" -gt 0 ]; do
             if ! relx_nodetool "ping" >/dev/null 2>&1; then
                 WAIT_TIME=$((WAIT_TIME - 1))
@@ -516,7 +516,7 @@ case "$1" in
                 echo "$EMQX_DESCRIPTION $REL_VSN is started successfully!"
                 exit 0
             fi
-        done && echo "$EMQX_DESCRIPTION $REL_VSN failed to start within ${WAIT_FOR_ERLANG:-15} seconds,"
+        done && echo "$EMQX_DESCRIPTION $REL_VSN failed to start within ${WAIT_FOR_ERLANG:-150} seconds,"
         echo "see the output of '$0 console' for more information."
         echo "If you want to wait longer, set the environment variable"
         echo "WAIT_FOR_ERLANG to the number of seconds to wait."
@@ -530,7 +530,7 @@ case "$1" in
             echoerr "Graceful shutdown failed PID=[$PID]"
             exit 1
         fi
-        WAIT_TIME="${WAIT_FOR_ERLANG_STOP:-60}"
+        WAIT_TIME="${WAIT_FOR_ERLANG_STOP:-120}"
         if ! wait_for "$WAIT_TIME" 'is_down' "$PID"; then
             msg="dangling after ${WAIT_TIME} seconds"
             # also log to syslog
