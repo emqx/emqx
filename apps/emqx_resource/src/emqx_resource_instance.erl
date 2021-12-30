@@ -217,7 +217,7 @@ do_restart(InstId) ->
     case lookup(InstId) of
         {ok, #{mod := Mod, state := ResourceState, config := Config} = Data} ->
             _ = case ResourceState of
-                undefine -> ok;
+                undefined -> ok;
                 _ -> emqx_resource:call_stop(InstId, Mod, ResourceState)
             end,
             case emqx_resource:call_start(InstId, Mod, Config) of

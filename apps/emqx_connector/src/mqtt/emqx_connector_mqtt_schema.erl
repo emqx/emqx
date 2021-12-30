@@ -55,6 +55,11 @@ clientid conflicts between different nodes. And we can only use shared subscript
 topic filters for 'remote_topic' of ingress connections.
 """
             })}
+    , {name,
+       sc(binary(),
+          #{ nullable => true
+           , desc => "Connector name, used as a human-readable description of the connector."
+           })}
     , {server,
         sc(emqx_schema:ip_port(),
            #{ default => "127.0.0.1:1883"
@@ -94,7 +99,7 @@ topic filters for 'remote_topic' of ingress connections.
 Queue messages in disk files.
 """
             })}
-    ] ++ emqx_connector_schema:common_fields() ++ emqx_connector_schema_lib:ssl_fields();
+    ] ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("ingress") ->
     %% the message maybe subscribed by rules, in this case 'local_topic' is not necessary
