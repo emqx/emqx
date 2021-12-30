@@ -222,7 +222,10 @@ update(Type, Name, {OldConf, Conf}) ->
         true ->
             %% we don't need to recreate the bridge if this config change is only to
             %% toggole the config 'bridge.{type}.{name}.enable'
-            ok
+            case maps:get(enable, Conf, true) of
+                false -> stop(Type, Name);
+                true -> start(Type, Name)
+            end
     end.
 
 recreate(Type, Name) ->

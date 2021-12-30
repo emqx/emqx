@@ -216,7 +216,10 @@ do_remove(Mod, InstId, ResourceState) ->
 do_restart(InstId) ->
     case lookup(InstId) of
         {ok, #{mod := Mod, state := ResourceState, config := Config} = Data} ->
-            _ = emqx_resource:call_stop(InstId, Mod, ResourceState),
+            _ = case ResourceState of
+                undefine -> ok;
+                _ -> emqx_resource:call_stop(InstId, Mod, ResourceState)
+            end,
             case emqx_resource:call_start(InstId, Mod, Config) of
                 {ok, NewResourceState} ->
                     ets:insert(emqx_resource_instance,

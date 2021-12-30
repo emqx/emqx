@@ -356,9 +356,8 @@ operation_to_conf_req(<<"restart">>) -> restart;
 operation_to_conf_req(_) -> invalid.
 
 ensure_bridge_created(BridgeType, BridgeName, Conf) ->
-    Conf1 = maps:without([<<"type">>, <<"name">>], Conf),
     case emqx_conf:update(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
-            Conf1, #{override_to => cluster}) of
+            Conf, #{override_to => cluster}) of
         {ok, _} -> ok;
         {error, Reason} ->
             {error, error_msg('BAD_ARG', Reason)}
@@ -411,12 +410,12 @@ aggregate_metrics(AllMetrics) ->
 
 format_resp(#{id := Id, raw_config := RawConf,
               resource_data := #{status := Status, metrics := Metrics}}) ->
-    {Type, Name} = emqx_bridge:parse_bridge_id(Id),
+    {Type, BridgeName} = emqx_bridge:parse_bridge_id(Id),
     IsConnected = fun(started) -> connected; (_) -> disconnected end,
     RawConf#{
         id => Id,
         type => Type,
-        name => Name,
+        name => maps:get(<<"name">>, RawConf, BridgeName),
         node => node(),
         status => IsConnected(Status),
         metrics => Metrics
@@ -431,7 +430,7 @@ rpc_multicall(Func, Args) ->
     end.
 
 filter_out_request_body(Conf) ->
-    ExtraConfs = [<<"id">>, <<"status">>, <<"node_status">>,
+    ExtraConfs = [<<"id">>, <<"type">>, <<"status">>, <<"node_status">>,
         <<"node_metrics">>, <<"metrics">>, <<"node">>],
     maps:without(ExtraConfs, Conf).
 

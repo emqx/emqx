@@ -155,8 +155,7 @@ schema("/connectors") ->
         },
         post => #{
             tags => [<<"connectors">>],
-            description => <<"Create a new connector by given Id <br>"
-                             "The ID must be of format '{type}:{name}'">>,
+            description => <<"Create a new connector">>,
             summary => <<"Create connector">>,
             requestBody => post_request_body_schema(),
             responses => #{
@@ -270,16 +269,16 @@ format_resp(#{<<"id">> := Id} = RawConf) ->
 
 format_resp(ConnId, RawConf) ->
     NumOfBridges = length(emqx_bridge:list_bridges_by_connector(ConnId)),
-    {Type, Name} = emqx_connector:parse_connector_id(ConnId),
+    {Type, ConnName} = emqx_connector:parse_connector_id(ConnId),
     RawConf#{
         <<"id">> => ConnId,
         <<"type">> => Type,
-        <<"name">> => Name,
+        <<"name">> => maps:get(<<"name">>, RawConf, ConnName),
         <<"num_of_bridges">> => NumOfBridges
     }.
 
 filter_out_request_body(Conf) ->
-    ExtraConfs = [<<"clientid">>, <<"num_of_bridges">>, <<"type">>, <<"name">>],
+    ExtraConfs = [<<"clientid">>, <<"num_of_bridges">>, <<"type">>],
     maps:without(ExtraConfs, Conf).
 
 bin(S) when is_list(S) ->

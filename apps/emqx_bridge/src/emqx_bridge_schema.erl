@@ -43,9 +43,13 @@ http_schema(Method) ->
 common_bridge_fields() ->
     [ {enable,
         mk(boolean(),
-           #{ desc =>"Enable or disable this bridge"
+           #{ desc => "Enable or disable this bridge"
             , default => true
             })}
+    , {name,
+       mk(binary(),
+          #{ desc => "Bridge name, used as a human-readable description of the bridge."
+           })}
     , {connector,
         mk(binary(),
            #{ nullable => false

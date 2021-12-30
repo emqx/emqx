@@ -94,7 +94,7 @@ topic filters for 'remote_topic' of ingress connections.
 Queue messages in disk files.
 """
             })}
-    ] ++ emqx_connector_schema_lib:ssl_fields();
+    ] ++ emqx_connector_schema:common_fields() ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("ingress") ->
     %% the message maybe subscribed by rules, in this case 'local_topic' is not necessary

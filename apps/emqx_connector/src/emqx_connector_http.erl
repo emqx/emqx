@@ -112,7 +112,7 @@ If the request is provided, the caller can send HTTP requests via
 <code>emqx_resource:query(ResourceId, {send_message, BridgeId, Message})</code>
 """
          })}
-    ] ++ emqx_connector_schema_lib:ssl_fields();
+    ] ++ emqx_connector_schema:common_fields() ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("request") ->
     [ {method, hoconsc:mk(hoconsc:enum([post, put, get, delete]), #{nullable => true})}

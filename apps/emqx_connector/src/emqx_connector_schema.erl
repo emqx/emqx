@@ -8,6 +8,8 @@
 
 -export([roots/0, fields/1]).
 
+-export([common_fields/0]).
+
 -export([ get_response/0
         , put_request/0
         , post_request/0
@@ -49,3 +51,10 @@ fields("connectors") ->
 
 schema_mod(Type) ->
     list_to_atom(lists:concat(["emqx_connector_", Type])).
+
+common_fields() ->
+    [ {name,
+       mk(binary(),
+          #{ desc => "Connector name, used as a human-readable description of the connector."
+           })}
+    ].
