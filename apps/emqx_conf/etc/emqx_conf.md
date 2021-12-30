@@ -2,6 +2,20 @@ EMQ X configuration file is in [HOCON](https://github.com/emqx/hocon) format.
 HOCON, or Human-Optimized Config Object Notation is a format for human-readable data,
 and a superset of JSON.
 
+## Layered
+
+EMQ X configuration consists of 3 layers.
+From bottom up:
+
+1. Immutable base: `emqx.conf` + `EMQX_` prfixed environment variables.<br>
+   Changes in this layer require a full node restart to take effect.
+1. Cluster override: The path of which is configured by `cluster_override_conf_file`.<br>
+   Overrides made from management APIs (or dashboard) for all nodes in the cluster.
+1. Local override: The path of which is configured by `local_override_conf_file`.<br>
+   Special overrides applied to local node.
+
+For detailed override rules, see [Config overlay rules](#config-overlay-rules).
+
 ## Syntax
 
 In config file the values can be notated as JSON like ojbects, such as
@@ -12,7 +26,7 @@ node {
 }
 ```
 
-Another equivalent representation is flat, suh as
+Another equivalent representation is flat, such as
 
 ```
 node.name="127.0.0.1"
@@ -117,17 +131,14 @@ because the field name is `enable`, not `enabled`.
 
 <strong>NOTE:</strong> Unknown root keys are however silently discarded.
 
-### Config overlay
+### Config overlay rules
 
-HOCON values are overlayed, earlier defined values are at layers closer to the bottom.
-The overall order of the overlay rules from bottom up are:
+HOCON objects are overlayed, in general:
 
-1. `emqx.conf` the base config file
-1. `EMQX_` prfixed environment variables
-1. Cluster override file, the path of which is configured as `cluster_override_conf_file` in the lower layers
-1. Local override file, the path of which is configured as `local_override_conf_file` in the lower layers
+- Within one file, objects defined 'later' recursively override objects defined 'earlier'
+- When layered, 'later' (hihger lalyer) objects override objects defined 'earlier' (lower layer)
 
-Below are the rules of config value overlay.
+Below are more detailed rules.
 
 #### Struct Fileds
 
