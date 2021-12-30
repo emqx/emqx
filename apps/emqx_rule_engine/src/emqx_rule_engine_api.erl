@@ -172,7 +172,7 @@ param_path_id() ->
         {ok, _Rule} ->
             {400, #{code => 'BAD_ARGS', message => <<"rule id already exists">>}};
         not_found ->
-            case emqx:update_config(ConfPath, Params, #{}) of
+            case emqx_conf:update(ConfPath, Params, #{}) of
                 {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
                     [Rule] = get_one_rule(AllRules, Id),
                     {201, format_rule_resp(Rule)};
@@ -200,7 +200,7 @@ param_path_id() ->
 '/rules/:id'(put, #{bindings := #{id := Id}, body := Params0}) ->
     Params = filter_out_request_body(Params0),
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
-    case emqx:update_config(ConfPath, Params, #{}) of
+    case emqx_conf:update(ConfPath, Params, #{}) of
         {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
             [Rule] = get_one_rule(AllRules, Id),
             {200, format_rule_resp(Rule)};
