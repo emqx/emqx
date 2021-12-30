@@ -318,13 +318,11 @@ jobs:
         SYSTEM: ${{ matrix.os }}
       working-directory: source
       run: |
-        docker run -i --rm \
-        -v $(pwd):/emqx \
-        --workdir /emqx \
-        --platform linux/$ARCH \
-        ghcr.io/emqx/emqx-builder/4.4-4:$OTP-$SYSTEM \
-        bash -euc "make ${PROFILE}-${PACKAGE} || cat rebar3.crashdump; \
-                   EMQX_NAME=$PROFILE && .ci/build_packages/tests.sh"
+        ./scripts/buildx.sh \
+          --profile "${PROFILE}" \
+          --pkgtype "${PACKAGE}" \
+          --arch "${ARCH}" \
+          --builder "ghcr.io/emqx/emqx-builder/4.4-4:${OTP}-${SYSTEM}"
     - name: create sha256
       working-directory: source
       env:

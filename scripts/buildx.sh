@@ -14,19 +14,19 @@ set -euo pipefail
 
 help() {
     echo
-    echo "-h|--help:            To display this usage information"
-    echo "--pkgtype zip|pkg:    Specify to build zip or deb|rpm package"
-    echo "--arch amd64|arm64:   Target arch to build the EMQ X package for."
-    echo "--src_dir <SRC_DIR>:  EMQ X source ode in this dir, default to PWD"
-    echo "--profile <PROFILE>:  EMQ X profile to build, e.g. emqx, emqx-edge"
-    echo "--builder <BUILDER>:  Builder image to pull."
-    echo "                      E.g. ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10"
+    echo "-h|--help:           To display this usage information"
+    echo "--profile <PROFILE>: EMQ X profile to build, e.g. emqx, emqx-edge"
+    echo "--pkgtype zip|pkg:   Specify which package to build, zip for .zip and pkg for .rpm or .deb"
+    echo "--arch amd64|arm64:  Target arch to build the EMQ X package for"
+    echo "--src_dir <SRC_DIR>: EMQ X source ode in this dir, default to PWD"
+    echo "--builder <BUILDER>: Builder image to pull"
+    echo "                     E.g. ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10"
 }
 
 while [ "$#" -gt 0 ]; do
     case $1 in
-   -h|--help)
-       help
+    -h|--help)
+        help
         exit 0
         ;;
     --src_dir)
@@ -62,14 +62,23 @@ if [ -z "${PROFILE:-}" ] || [ -z "${PKGTYPE:-}" ] || [ -z "${BUILDER:-}" ] || [ 
     exit 1
 fi
 
-docker run --rm --privileged tonistiigi/binfmt:latest --install ${ARCH}
+if [ "$PKGTYPE" != 'zip' ] && [ "$PKGTYPE" != 'pkg' ]; then
+    echo "Bad --pkgtype option, should be zip or pkg"
+    exit 1
+fi
 
 cd "${SRC_DIR:-.}"
 
+PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
+OTP_VSN_SYSTEM=$(echo "$BUILDER" | cut -d ':' -f2)
+PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN_SYSTEM}-${ARCH}"
+
+docker info
+docker run --rm --privileged tonistiigi/binfmt:latest --install ${ARCH}
 docker run -i --rm \
     -v "$(pwd)":/emqx \
     --workdir /emqx \
     --platform="linux/$ARCH" \
     -e EMQX_NAME="$PROFILE" \
     "$BUILDER" \
-    bash -euc "make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh"
+    bash -euc "make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PKG_NAME $PKGTYPE"
