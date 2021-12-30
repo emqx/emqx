@@ -40,43 +40,28 @@
 description() ->
     "AuthZ with http".
 
-init(#{url := Url} = Source) ->
-    NSource = maps:put(base_url, maps:remove(query, Url), Source),
-    case emqx_authz_utils:create_resource(emqx_connector_http, NSource) of
+init(Config) ->
+    NConfig = parse_config(Config),
+    case emqx_authz_utils:create_resource(emqx_connector_http, NConfig) of
         {error, Reason} -> error({load_config_error, Reason});
-        {ok, Id} -> Source#{annotations => #{id => Id}}
+        {ok, Id} -> NConfig#{annotations => #{id => Id}}
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).
 
-dry_run(Source) ->
-    URIMap = maps:get(url, Source),
-    NSource = maps:put(base_url, maps:remove(query, URIMap), Source),
-    emqx_resource:create_dry_run_local(emqx_connector_http, NSource).
+dry_run(Config) ->
+    emqx_resource:create_dry_run_local(emqx_connector_http, parse_config(Config)).
 
-authorize(Client, PubSub, Topic,
-            #{type := http,
-              url := #{path := Path} = URL,
-              headers := Headers,
-              method := Method,
-              request_timeout := RequestTimeout,
-              annotations := #{id := ResourceID}
-             } = Source) ->
-    Request = case Method of
-                  get  ->
-                      Query = maps:get(query, URL, ""),
-                      Path1 = replvar(Path ++ "?" ++ Query, PubSub, Topic, Client),
-                      {Path1, maps:to_list(Headers)};
-                  _ ->
-                      Body0 = serialize_body(
-                                maps:get('Accept', Headers, <<"application/json">>),
-                                maps:get(body, Source, #{})
-                              ),
-                      Body1 = replvar(Body0, PubSub, Topic, Client),
-                      Path1 = replvar(Path, PubSub, Topic, Client),
-                      {Path1, maps:to_list(Headers), Body1}
-              end,
+authorize( Client
+         , PubSub
+         , Topic
+         , #{ type            := http
+            , annotations     := #{id := ResourceID}
+            , method := Method
+            , request_timeout := RequestTimeout
+            } = Config) ->
+    Request = generate_request(PubSub, Topic, Client, Config),
     case emqx_resource:query(ResourceID, {Method, Request, RequestTimeout}) of
         {ok, 200, _Headers} ->
             {matched, allow};
@@ -84,6 +69,8 @@ authorize(Client, PubSub, Topic,
             {matched, allow};
         {ok, 200, _Headers, _Body} ->
             {matched, allow};
+        {ok, _Status, _Headers} ->
+            nomatch;
         {ok, _Status, _Headers, _Body} ->
             nomatch;
         {error, Reason} ->
@@ -92,6 +79,24 @@ authorize(Client, PubSub, Topic,
                            reason => Reason}),
             ignore
     end.
+
+parse_config(#{ url := URL
+              , method := Method
+              , headers := Headers
+              , request_timeout := ReqTimeout
+              } = Conf) ->
+    {BaseURLWithPath, Query} = parse_fullpath(URL),
+    BaseURLMap = parse_url(BaseURLWithPath),
+    Conf#{ method          => Method
+         , base_url        => maps:remove(query, BaseURLMap)
+         , base_query      => cow_qs:parse_qs(bin(Query))
+         , body            => maps:get(body, Conf, #{})
+         , headers         => Headers
+         , request_timeout => ReqTimeout
+         }.
+
+parse_fullpath(RawURL) ->
+    cow_http:parse_fullpath(bin(RawURL)).
 
 parse_url(URL)
   when URL =:= undefined ->
@@ -105,12 +110,45 @@ parse_url(URL) ->
             URIMap
     end.
 
+generate_request( PubSub
+                , Topic
+                , Client
+                , #{ method := Method
+                   , base_url := #{path := Path}
+                   , base_query := BaseQuery
+                   , headers := Headers
+                   , body := Body0
+                   }) ->
+    Body = replace_placeholders(maps:to_list(Body0), PubSub, Topic, Client),
+    NBaseQuery = replace_placeholders(BaseQuery, PubSub, Topic, Client),
+    case Method of
+        get  ->
+            NPath = append_query(Path, NBaseQuery ++ Body),
+            {NPath, maps:to_list(Headers)};
+        _ ->
+            NPath = append_query(Path, NBaseQuery),
+            NBody = serialize_body(
+                      maps:get(<<"Accept">>, Headers, <<"application/json">>),
+                      Body
+                     ),
+            {NPath, maps:to_list(Headers), NBody}
+    end.
+
+append_query(Path, []) ->
+    Path;
+append_query(Path, Query) ->
+    Path ++ "?" ++ binary_to_list(query_string(Query)).
+
 query_string(Body) ->
-    query_string(maps:to_list(Body), []).
+    query_string(Body, []).
 
 query_string([], Acc) ->
-    <<$&, Str/binary>> = iolist_to_binary(lists:reverse(Acc)),
-    Str;
+    case iolist_to_binary(lists:reverse(Acc)) of
+        <<$&, Str/binary>> ->
+            Str;
+        <<>> ->
+            <<>>
+    end;
 query_string([{K, V} | More], Acc) ->
     query_string( More
                 , [ ["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)]
@@ -121,30 +159,34 @@ serialize_body(<<"application/json">>, Body) ->
 serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
     query_string(Body).
 
-replvar(Str0, PubSub, Topic,
-        #{username := Username,
-          clientid := Clientid,
-          peerhost := IpAddress,
-          protocol := Protocol,
-          mountpoint := Mountpoint
-         }) when is_list(Str0);
-                 is_binary(Str0) ->
-    NTopic = emqx_http_lib:uri_encode(Topic),
-    Str1 = re:replace( Str0, emqx_authz:ph_to_re(?PH_S_CLIENTID)
-                     , bin(Clientid), [global, {return, binary}]),
-    Str2 = re:replace( Str1, emqx_authz:ph_to_re(?PH_S_USERNAME)
-                     , bin(Username), [global, {return, binary}]),
-    Str3 = re:replace( Str2, emqx_authz:ph_to_re(?PH_S_HOST)
-                     , inet_parse:ntoa(IpAddress), [global, {return, binary}]),
-    Str4 = re:replace( Str3, emqx_authz:ph_to_re(?PH_S_PROTONAME)
-                     , bin(Protocol), [global, {return, binary}]),
-    Str5 = re:replace( Str4, emqx_authz:ph_to_re(?PH_S_MOUNTPOINT)
-                     , bin(Mountpoint), [global, {return, binary}]),
-    Str6 = re:replace( Str5, emqx_authz:ph_to_re(?PH_S_TOPIC)
-                     , bin(NTopic), [global, {return, binary}]),
-    Str7 = re:replace( Str6, emqx_authz:ph_to_re(?PH_S_ACTION)
-                     , bin(PubSub), [global, {return, binary}]),
-    Str7.
+replace_placeholders(KVs, PubSub, Topic, Client) ->
+    replace_placeholders(KVs, PubSub, Topic, Client, []).
+
+replace_placeholders([], _PubSub, _Topic, _Client, Acc) ->
+    lists:reverse(Acc);
+replace_placeholders([{K, V0} | More], PubSub, Topic, Client, Acc) ->
+    case replace_placeholder(V0, PubSub, Topic, Client) of
+        undefined ->
+            error({cannot_get_variable, V0});
+        V ->
+            replace_placeholders(More, PubSub, Topic, Client, [{bin(K), bin(V)} | Acc])
+    end.
+
+replace_placeholder(?PH_USERNAME, _PubSub, _Topic, Client) ->
+    bin(maps:get(username, Client, undefined));
+replace_placeholder(?PH_CLIENTID, _PubSub, _Topic, Client) ->
+    bin(maps:get(clientid, Client, undefined));
+replace_placeholder(?PH_HOST,     _PubSub, _Topic, Client) ->
+    inet_parse:ntoa(maps:get(peerhost, Client, undefined));
+replace_placeholder(?PH_PROTONAME, _PubSub, _Topic, Client) ->
+    bin(maps:get(protocol, Client, undefined));
+replace_placeholder(?PH_TOPIC, _PubSub, Topic, _Client) ->
+    bin(emqx_http_lib:uri_encode(Topic));
+replace_placeholder(?PH_ACTION, PubSub, _Topic, _Client) ->
+    bin(PubSub);
+
+replace_placeholder(Constant, _, _, _) ->
+    Constant.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B;

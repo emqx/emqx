@@ -17,17 +17,14 @@
 -module(emqx_authz_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx_connector/include/emqx_connector.hrl").
 
 -reflect_type([ permission/0
               , action/0
-              , url/0
               ]).
-
--typerefl_from_string({url/0, emqx_http_lib, uri_parse}).
 
 -type action() :: publish | subscribe | all.
 -type permission() :: allow | deny.
--type url() :: emqx_http_lib:uri_map().
 
 -export([ namespace/0
         , roots/0
@@ -143,7 +140,7 @@ fields(redis_cluster) ->
 http_common_fields() ->
     [ {type,            #{type => http}}
     , {enable,          #{type => boolean(), default => true}}
-    , {url,             #{type => url()}}
+    , {url,             fun url/1}
     , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
     , {body,            #{type => map(), nullable => true}}
     ] ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
@@ -176,6 +173,11 @@ headers_no_content_type(converter) ->
     end;
 headers_no_content_type(default) -> default_headers_no_content_type();
 headers_no_content_type(_) -> undefined.
+
+url(type) -> binary();
+url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
+url(nullable) -> false;
+url(_) -> undefined.
 
 %%--------------------------------------------------------------------
 %% Internal functions
