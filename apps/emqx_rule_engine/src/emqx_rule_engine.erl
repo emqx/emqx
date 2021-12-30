@@ -187,11 +187,11 @@ init([]) ->
     {ok, #{}}.
 
 handle_call({insert_rule, Rule}, _From, State) ->
-    _ = emqx_plugin_libs_rule:cluster_call(?MODULE, do_insert_rule, [Rule]),
+    do_insert_rule(Rule),
     {reply, ok, State};
 
 handle_call({delete_rule, Rule}, _From, State) ->
-    _ = emqx_plugin_libs_rule:cluster_call(?MODULE, do_delete_rule, [Rule]),
+    do_delete_rule(Rule),
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
