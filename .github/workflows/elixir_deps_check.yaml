@@ -1,0 +1,22 @@
+---
+
+name: Elixir Dependency Version Check
+
+on: [pull_request]
+
+jobs:
+  elixir_deps_check:
+    runs-on: ubuntu-20.04
+    container: hexpm/elixir:1.13.1-erlang-24.2-alpine-3.15.0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2.4.0
+      - name: install
+        run: apk add make bash curl git
+      - name: ensure rebar
+        run: ./scripts/ensure-rebar3.sh 3.16.1-emqx-1
+      - name: check elixir deps
+        run: ./scripts/check-elixir-deps-discrepancies.exs
+
+...

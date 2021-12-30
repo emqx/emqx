@@ -66,7 +66,13 @@ assert_node_alive() {
 echoerr() { echo "$*" 1>&2; }
 
 check_erlang_start() {
-    "$BINDIR/$PROGNAME" -noshell -boot "$REL_DIR/start_clean" -s crypto start -s erlang halt
+  # RELEASE_LIB is used by Elixir
+  "$BINDIR/$PROGNAME" \
+    -noshell \
+    -boot_var RELEASE_LIB "$ERTS_LIB_DIR/lib" \
+    -boot "$REL_DIR/start_clean" \
+    -s crypto start \
+    -s erlang halt
 }
 
 usage() {
@@ -289,9 +295,24 @@ relx_rem_sh() {
 
     # shellcheck disable=SC2086 # $EPMD_ARG is supposed to be split by whitespace
     # Setup remote shell command to control node
-    exec "$BINDIR/erl" "$NAME_TYPE" "$id" -remsh "$NAME" -boot "$REL_DIR/start_clean" \
-         -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
-         -setcookie "$COOKIE" -hidden -kernel net_ticktime "$TICKTIME" $EPMD_ARG
+    if [ "$IS_ELIXIR" = "yes" ]
+    then
+      exec "$REL_DIR/iex" \
+           --remsh "$NAME" \
+           --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
+           --cookie "$COOKIE" \
+           --hidden \
+           --erl "-kernel net_ticktime $TICKTIME" \
+           --erl "$EPMD_ARG" \
+           --erl "$NAME_TYPE $id" \
+           --boot "$REL_DIR/start_clean"
+    else
+      exec "$BINDIR/erl" "$NAME_TYPE" "$id" \
+           -remsh "$NAME" -boot "$REL_DIR/start_clean" \
+           -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
+           -setcookie "$COOKIE" -hidden -kernel net_ticktime "$TICKTIME" \
+           $EPMD_ARG
+    fi
 }
 
 # Generate a random id
@@ -352,6 +373,11 @@ generate_config() {
     ## filenames are per-hocon convention
     local CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
     local HOCON_GEN_ARG_FILE="$CONFIGS_DIR/vm.$NOW_TIME.args"
+
+    # This is needed by the Elixir scripts.
+    # Do NOT append `.config`.
+    RELEASE_SYS_CONFIG="$CONFIGS_DIR/app.$NOW_TIME"
+    export RELEASE_SYS_CONFIG
 
     CONFIG_ARGS="-config $CONF_FILE -args_file $HOCON_GEN_ARG_FILE"
 
@@ -688,11 +714,23 @@ case "${COMMAND}" in
         # shellcheck disable=SC2086 # $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
-        set -- "$BINDIR/erlexec" \
-            -boot "$BOOTFILE" -mode "$CODE_LOADING_MODE" \
-            -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
-            -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
-            $CONFIG_ARGS $EPMD_ARG
+        if [ "$IS_ELIXIR" = yes ]
+        then
+          set -- "$REL_DIR/iex" \
+              --boot "$BOOTFILE" \
+              --erl "-mode $CODE_LOADING_MODE" \
+              --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
+              --erl "-mnesia dir \"${MNESIA_DATA_DIR}\"" \
+              --erl "$CONFIG_ARGS" \
+              --erl "$EPMD_ARG" \
+              --werl
+        else
+          set -- "$BINDIR/erlexec" \
+              -boot "$BOOTFILE" -mode "$CODE_LOADING_MODE" \
+              -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
+              -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
+              $CONFIG_ARGS $EPMD_ARG
+        fi
 
         # Log the startup
         logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS}"
@@ -727,11 +765,25 @@ case "${COMMAND}" in
         # shellcheck disable=SC2086 # $CONFIG_ARGS $EPMD_ARG are supposed to be split by whitespace
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
-        set -- "$BINDIR/erlexec" $FOREGROUNDOPTIONS \
-            -boot "$REL_DIR/$BOOTFILE" -mode "$CODE_LOADING_MODE" \
-            -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
-            -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
-            $CONFIG_ARGS $EPMD_ARG
+        if [ "$IS_ELIXIR" = yes ]
+        then
+          set -- "$REL_DIR/elixir" \
+              --boot "$REL_DIR/start" \
+              --erl "$FOREGROUNDOPTIONS" \
+              --erl "-mode $CODE_LOADING_MODE" \
+              --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
+              --boot-var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
+              --erl "-mnesia dir \"${MNESIA_DATA_DIR}\"" \
+              --erl "$CONFIG_ARGS" \
+              --erl "$EPMD_ARG" \
+              --no-halt
+        else
+          set -- "$BINDIR/erlexec" $FOREGROUNDOPTIONS \
+              -boot "$REL_DIR/$BOOTFILE" -mode "$CODE_LOADING_MODE" \
+              -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
+              -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
+              $CONFIG_ARGS $EPMD_ARG
+        fi
 
         # Log the startup
         logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS}"
@@ -773,7 +825,18 @@ case "${COMMAND}" in
         assert_node_alive
 
         shift
-        relx_nodetool "eval" "$@"
+        if [ "$IS_ELIXIR" = "yes" ]
+        then
+          "$REL_DIR/elixir" \
+              --hidden \
+              --cookie "$COOKIE" \
+              --boot "$REL_DIR/start_clean" \
+              --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
+              --vm-args "$(latest_vm_args 'EMQX_NODE__NAME')"\
+              --rpc-eval "$NAME" "$@"
+        else
+          relx_nodetool "eval" "$@"
+        fi
         ;;
     *)
         usage "$COMMAND"

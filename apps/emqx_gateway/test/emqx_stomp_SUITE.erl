@@ -17,7 +17,7 @@
 -module(emqx_stomp_SUITE).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx_gateway/src/stomp/include/emqx_stomp.hrl").
+-include("src/stomp/include/emqx_stomp.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -419,7 +419,7 @@ t_rest_clienit_info(_) ->
 %%
 %% TODO: Start/Stop, List Instace
 %%
-%% TODO: RateLimit, OOM, 
+%% TODO: RateLimit, OOM,
 
 with_connection(DoFun) ->
     {ok, Sock} = gen_tcp:connect({127, 0, 0, 1},

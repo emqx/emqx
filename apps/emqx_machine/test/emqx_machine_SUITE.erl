@@ -43,7 +43,7 @@ init_per_suite(Config) ->
     %%
     application:unload(emqx_authz),
 
-    emqx_common_test_helpers:start_apps([]),
+    emqx_common_test_helpers:start_apps([emqx_conf]),
     Config.
 
 end_per_suite(_Config) ->

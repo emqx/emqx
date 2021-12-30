@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx_gateway/src/mqttsn/include/emqx_sn.hrl").
+-include("src/mqttsn/include/emqx_sn.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").

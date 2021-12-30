@@ -13,6 +13,7 @@ RUNNER_LIB_DIR="{{ runner_lib_dir }}"
 RUNNER_ETC_DIR="{{ runner_etc_dir }}"
 RUNNER_DATA_DIR="{{ runner_data_dir }}"
 RUNNER_USER="{{ runner_user }}"
+IS_ELIXIR="{{ is_elixir }}"
 
 EMQX_LICENSE_CONF=''
 export EMQX_DESCRIPTION='{{ emqx_description }}'

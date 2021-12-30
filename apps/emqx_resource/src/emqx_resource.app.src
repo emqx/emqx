@@ -8,7 +8,6 @@
    [kernel,
     stdlib,
     gproc,
-    hocon,
     jsx,
     emqx
    ]},

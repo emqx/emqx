@@ -3,7 +3,6 @@
         {vsn, "0.1.0"},
         {registered, []},
         {mod, {emqx_conf_app, []}},
-        {included_applications, [hocon]},
         {applications, [kernel, stdlib]},
         {env, []},
         {modules, []}

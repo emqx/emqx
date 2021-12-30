@@ -12,6 +12,7 @@
     eredis_cluster,
     eredis,
     epgsql,
+    eldap2,
     mysql,
     mongodb,
     ehttpc,

@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx_gateway/src/mqttsn/include/emqx_sn.hrl").
+-include("src/mqttsn/include/emqx_sn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 %%--------------------------------------------------------------------
@@ -181,4 +181,3 @@ gen_next(0, Acc) ->
 gen_next(N, Acc) ->
     Byte = rand:uniform(256) - 1,
     gen_next(N-1, <<Acc/binary, Byte:8>>).
-
