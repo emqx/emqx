@@ -5,9 +5,9 @@ services:
     container_name: redis-tls
     image: redis:${REDIS_TAG}
     volumes:
-      - ./redis/certs/server.crt:/etc/certs/redis.crt
-      - ./redis/certs/server.key:/etc/certs/redis.key
-      - ./redis/certs/ca.crt:/etc/certs/ca.crt
+      - ./certs/server.crt:/etc/certs/redis.crt
+      - ./certs/server.key:/etc/certs/redis.key
+      - ./certs/ca.crt:/etc/certs/ca.crt
     ports:
       - "6380:6380"
     command:

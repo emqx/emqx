@@ -70,7 +70,7 @@ end_per_testcase(_Case, _Config) ->
 
 t_create(_Config) ->
     {ok, _} = create_https_auth_with_ssl_opts(
-                #{<<"server_name_indication">> => <<"authn-https">>,
+                #{<<"server_name_indication">> => <<"authn-server">>,
                   <<"verify">> => <<"verify_peer">>,
                   <<"versions">> => [<<"tlsv1.2">>],
                   <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]}),
@@ -81,7 +81,7 @@ t_create(_Config) ->
 
 t_create_invalid_domain(_Config) ->
     {ok, _} = create_https_auth_with_ssl_opts(
-                #{<<"server_name_indication">> => <<"authn-https-unknown-host">>,
+                #{<<"server_name_indication">> => <<"authn-server-unknown-host">>,
                   <<"verify">> => <<"verify_peer">>,
                   <<"versions">> => [<<"tlsv1.2">>],
                   <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]}),
@@ -92,7 +92,7 @@ t_create_invalid_domain(_Config) ->
 
 t_create_invalid_version(_Config) ->
     {ok, _} = create_https_auth_with_ssl_opts(
-                #{<<"server_name_indication">> => <<"authn-https">>,
+                #{<<"server_name_indication">> => <<"authn-server">>,
                   <<"verify">> => <<"verify_peer">>,
                   <<"versions">> => [<<"tlsv1.1">>]}),
 
@@ -102,7 +102,7 @@ t_create_invalid_version(_Config) ->
 
 t_create_invalid_ciphers(_Config) ->
     {ok, _} = create_https_auth_with_ssl_opts(
-                #{<<"server_name_indication">> => <<"authn-https">>,
+                #{<<"server_name_indication">> => <<"authn-server">>,
                   <<"verify">> => <<"verify_peer">>,
                   <<"versions">> => [<<"tlsv1.2">>],
                   <<"ciphers">> => [<<"ECDHE-ECDSA-AES256-SHA384">>]}),
@@ -121,7 +121,7 @@ create_https_auth_with_ssl_opts(SpecificSSLOpts) ->
 
 raw_https_auth_config(SpecificSSLOpts) ->
     SSLOpts = maps:merge(
-                client_ssl_opts(),
+                emqx_authn_test_lib:client_ssl_cert_opts(),
                 #{enable => <<"true">>}),
     #{
         mechanism => <<"password-based">>,
@@ -151,15 +151,10 @@ cowboy_handler(Req0, State) ->
             Req0),
     {ok, Req, State}.
 
-client_ssl_opts() ->
-    #{keyfile    => cert_path("authn-https-client.key"),
-      certfile   => cert_path("authn-https-client.crt"),
-      cacertfile => cert_path("authn-https-ca.crt")}.
-
 server_ssl_opts() ->
-    [{keyfile, cert_path("authn-https-server.key")},
-     {certfile, cert_path("authn-https-server.crt")},
-     {cacertfile, cert_path("authn-https-ca.crt")},
+    [{keyfile, cert_path("server.key")},
+     {certfile, cert_path("server.crt")},
+     {cacertfile, cert_path("ca.crt")},
      {verify, verify_none},
      {versions, ['tlsv1.2', 'tlsv1.3']},
      {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}

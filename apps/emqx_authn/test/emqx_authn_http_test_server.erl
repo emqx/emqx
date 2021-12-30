@@ -68,7 +68,7 @@ init([Port, Path, SSLOpts]) ->
 
     ChildSpec = ranch:child_spec(?MODULE, Transport, TransOpts, CowboyModule, ProtoOpts),
 
-    {ok, {{one_for_one, 10, 10}, [ChildSpec]}}.
+    {ok, {#{}, [ChildSpec]}}.
 
 %%------------------------------------------------------------------------------
 %% cowboy_server API

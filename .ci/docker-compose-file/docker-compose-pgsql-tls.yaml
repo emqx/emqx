@@ -4,8 +4,8 @@ services:
   pgsql_server_tls:
     container_name: pgsql-tls
     build:
-      context: pgsql
-      dockerfile: Dockerfile
+      context: ./
+      dockerfile: ./pgsql/Dockerfile
       args:
         POSTGRES_USER: postgres
         BUILD_FROM: postgres:${PGSQL_TAG}

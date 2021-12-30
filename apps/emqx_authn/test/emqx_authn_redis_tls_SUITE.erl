@@ -68,7 +68,7 @@ t_create(_Config) ->
     ?assertMatch(
        {ok, _},
        create_redis_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"redis-tls">>,
+         #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.3">>],
            <<"ciphers">> => [<<"TLS_CHACHA20_POLY1305_SHA256">>]})).
@@ -78,16 +78,8 @@ t_create_invalid(_Config) ->
     ?assertMatch(
        {error, _},
        create_redis_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"redis-tls-unknown-host">>,
+         #{<<"server_name_indication">> => <<"authn-server-unknown-host">>,
            <<"verify">> => <<"verify_peer">>,
-           <<"versions">> => [<<"tlsv1.3">>],
-           <<"ciphers">> => [<<"TLS_CHACHA20_POLY1305_SHA256">>]})),
-
-    %% invalid server_name (eredis connects by ip address)
-    ?assertMatch(
-       {error, _},
-       create_redis_auth_with_ssl_opts(
-         #{<<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.3">>],
            <<"ciphers">> => [<<"TLS_CHACHA20_POLY1305_SHA256">>]})),
 
@@ -95,7 +87,7 @@ t_create_invalid(_Config) ->
     ?assertMatch(
         {error, _},
         create_redis_auth_with_ssl_opts(
-                   #{<<"server_name_indication">> => <<"redis-tls">>,
+                   #{<<"server_name_indication">> => <<"authn-server">>,
                      <<"verify">> => <<"verify_peer">>,
                      <<"versions">> => [<<"tlsv1.1">>, <<"tlsv1.2">>]})),
 
@@ -103,7 +95,7 @@ t_create_invalid(_Config) ->
     ?assertMatch(
        {error, _},
        create_redis_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"redis-tls">>,
+         #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.3">>],
            <<"ciphers">> => [<<"TLS_AES_128_GCM_SHA256">>]})).
@@ -118,7 +110,7 @@ create_redis_auth_with_ssl_opts(SpecificSSLOpts) ->
 
 raw_redis_auth_config(SpecificSSLOpts) ->
     SSLOpts = maps:merge(
-                client_ssl_opts(),
+                emqx_authn_test_lib:client_ssl_cert_opts(),
                 #{enable => <<"true">>}),
     #{
       mechanism => <<"password-based">>,
@@ -145,9 +137,3 @@ start_apps(Apps) ->
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
-
-client_ssl_opts() ->
-    Dir = code:lib_dir(emqx_authn, test),
-    #{keyfile    => filename:join([Dir, <<"data/certs">>, "redis-tls-client.key"]),
-      certfile   => filename:join([Dir, <<"data/certs">>, "redis-tls-client.crt"]),
-      cacertfile => filename:join([Dir, <<"data/certs">>, "redis-tls-ca.crt"])}.

@@ -66,12 +66,12 @@ end_per_suite(_Config) ->
 
 t_create(_Config) ->
     %% openssl s_client -tls1_2 -cipher ECDHE-RSA-AES256-GCM-SHA384 \
-    %% -starttls postgres -connect pgsql-tls:5432 \
-    %% -cert pgsql-tls-client.crt -key pgsql-tls-client.key -CAfile pgsql-tls-ca.crt
+    %% -starttls postgres -connect authn-server:5432 \
+    %% -cert client.crt -key client.key -CAfile ca.crt
     ?assertMatch(
        {ok, _},
        create_pgsql_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"pgsql-tls">>,
+         #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.2">>],
            <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]})).
@@ -82,20 +82,14 @@ t_create_invalid(_Config) ->
     ?assertMatch(
        {error, _},
        create_pgsql_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"pgsql-tls-unknown-host">>,
+         #{<<"server_name_indication">> => <<"authn-server-unknown-host">>,
            <<"verify">> => <<"verify_peer">>})),
-
-    %% invalid server_name 
-    ?assertMatch(
-       {error, _},
-       create_pgsql_auth_with_ssl_opts(
-         #{<<"verify">> => <<"verify_peer">>})),
 
     %% incompatible versions
     ?assertMatch(
        {error, _},
        create_pgsql_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"pgsql-tls">>,
+         #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.1">>]})),
 
@@ -103,7 +97,7 @@ t_create_invalid(_Config) ->
     ?assertMatch(
        {error, _},
        create_pgsql_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"pgsql-tls">>,
+         #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.2">>],
            <<"ciphers">> => [<<"ECDHE-ECDSA-AES128-GCM-SHA256">>]})).
@@ -118,7 +112,7 @@ create_pgsql_auth_with_ssl_opts(SpecificSSLOpts) ->
 
 raw_pgsql_auth_config(SpecificSSLOpts) ->
     SSLOpts = maps:merge(
-                client_ssl_opts(),
+                emqx_authn_test_lib:client_ssl_cert_opts(),
                 #{enable => <<"true">>}),
     #{
       mechanism => <<"password-based">>,
@@ -149,8 +143,3 @@ start_apps(Apps) ->
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
 
-client_ssl_opts() ->
-    Dir = code:lib_dir(emqx_authn, test),
-    #{keyfile    => filename:join([Dir, <<"data/certs">>, "pgsql-tls-client.key"]),
-      certfile   => filename:join([Dir, <<"data/certs">>, "pgsql-tls-client.crt"]),
-      cacertfile => filename:join([Dir, <<"data/certs">>, "pgsql-tls-ca.crt"])}.

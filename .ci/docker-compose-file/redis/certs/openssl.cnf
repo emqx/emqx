@@ -1,7 +1,0 @@
-[ server_cert ]
-keyUsage = digitalSignature, keyEncipherment
-nsCertType = server
-
-[ client_cert ]
-keyUsage = digitalSignature, keyEncipherment
-nsCertType = client

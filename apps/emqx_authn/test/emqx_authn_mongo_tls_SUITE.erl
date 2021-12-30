@@ -68,12 +68,12 @@ end_per_suite(_Config) ->
 
 %% openssl s_client -tls1_2 -cipher ECDHE-RSA-AES256-GCM-SHA384 \
 %%   -connect mongo-tls:27017 \
-%%   -cert mongo-tls-client.crt -key mongo-tls-client.key -CAfile mongo-tls-ca.crt
+%%   -cert client.crt -key client.key -CAfile ca.crt
 
 t_create(_Config) ->
     ?check_trace(
        create_mongo_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"mongo-tls">>,
+         #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.2">>],
            <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]}),
@@ -89,7 +89,7 @@ t_create(_Config) ->
 t_create_invalid_server_name(_Config) ->
     ?check_trace(
        create_mongo_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"mongo-tls-unknown-host">>,
+         #{<<"server_name_indication">> => <<"authn-server-unknown-host">>,
            <<"verify">> => <<"verify_peer">>}),
        fun({ok, _}, Trace) ->
                ?assertEqual(
@@ -106,7 +106,7 @@ t_create_invalid_server_name(_Config) ->
 t_create_invalid_version(_Config) ->
     ?check_trace(
        create_mongo_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"mongo-tls">>,
+         #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.1">>]}),
        fun({ok, _}, Trace) ->
@@ -124,7 +124,7 @@ t_create_invalid_version(_Config) ->
 t_invalid_ciphers(_Config) ->
     ?check_trace(
        create_mongo_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"mongo-tls">>,
+         #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.2">>],
            <<"ciphers">> => [<<"DHE-RSA-AES256-GCM-SHA384">>]}),
@@ -146,7 +146,7 @@ create_mongo_auth_with_ssl_opts(SpecificSSLOpts) ->
 
 raw_mongo_auth_config(SpecificSSLOpts) ->
     SSLOpts = maps:merge(
-                client_ssl_opts(),
+                emqx_authn_test_lib:client_ssl_cert_opts(),
                 #{enable => <<"true">>}),
     #{
       mechanism => <<"password-based">>,
@@ -183,9 +183,3 @@ start_apps(Apps) ->
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
-
-client_ssl_opts() ->
-    Dir = code:lib_dir(emqx_authn, test),
-    #{keyfile    => filename:join([Dir, <<"data/certs">>, "mongo-tls-client.key"]),
-      certfile   => filename:join([Dir, <<"data/certs">>, "mongo-tls-client.crt"]),
-      cacertfile => filename:join([Dir, <<"data/certs">>, "mongo-tls-ca.crt"])}.

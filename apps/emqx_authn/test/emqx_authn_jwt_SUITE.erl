@@ -186,7 +186,7 @@ t_jwks_renewal(_Config) ->
     ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State0)),
 
     ClientSSLOpts = client_ssl_opts(),
-    BadClientSSLOpts = ClientSSLOpts#{server_name_indication => "authn-https-unknown-host"},
+    BadClientSSLOpts = ClientSSLOpts#{server_name_indication => "authn-server-unknown-host"},
 
     BadConfig1 = BadConfig0#{endpoint =>
                             "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH,
@@ -266,17 +266,16 @@ generate_jws('public-key', Payload, PrivateKey) ->
     JWS.
 
 client_ssl_opts() ->
-    #{keyfile    => cert_file("authn-https-client.key"),
-      certfile   => cert_file("authn-https-client.crt"),
-      cacertfile => cert_file("authn-https-ca.crt"),
-      enable => true,
-      verify => verify_peer,
-      server_name_indication => "authn-https"
-    }.
+    maps:merge(
+      emqx_authn_test_lib:client_ssl_cert_opts(),
+      #{enable => true,
+        verify => verify_peer,
+        server_name_indication => "authn-server"
+       }).
 
 server_ssl_opts() ->
-    [{keyfile, cert_file("authn-https-server.key")},
-     {certfile, cert_file("authn-https-server.crt")},
-     {cacertfile, cert_file("authn-https-ca.crt")},
+    [{keyfile, cert_file("server.key")},
+     {certfile, cert_file("server.crt")},
+     {cacertfile, cert_file("ca.crt")},
      {verify, verify_none}
     ].
