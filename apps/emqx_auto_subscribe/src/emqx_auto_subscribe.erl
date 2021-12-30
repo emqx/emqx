@@ -16,8 +16,6 @@
 
 -module(emqx_auto_subscribe).
 
--include_lib("emqx/include/logger.hrl").
-
 -define(HOOK_POINT, 'client.connected').
 
 -define(MAX_AUTO_SUBSCRIBE, 20).
@@ -89,11 +87,8 @@ update_(Topics) when length(Topics) =< ?MAX_AUTO_SUBSCRIBE ->
             ok = update_hook(),
             {ok, NewTopics};
         {error, Reason} ->
-            ?LOG(error, "Auto Subscribe update config failed: ~0p", [Reason]),
             {error, Reason}
     end;
-    % {ok, _} = emqx:update_config([auto_subscribe, topics], Topics),
-    % update_hook();
 update_(_Topics) ->
     {error, quota_exceeded}.
 
