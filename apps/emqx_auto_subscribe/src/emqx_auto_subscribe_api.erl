@@ -22,6 +22,7 @@
 
 -export([auto_subscribe/2]).
 
+-define(INTERNAL_ERROR, 'INTERNAL_ERROR').
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
@@ -90,6 +91,9 @@ auto_subscribe(put, #{body := Params}) ->
             Message = list_to_binary(io_lib:format("Max auto subscribe topic count is  ~p",
                                         [emqx_auto_subscribe:max_limit()])),
             {409, #{code => ?EXCEED_LIMIT, message => Message}};
-        ok ->
-            {200, emqx_auto_subscribe:list()}
+        {error, Reason} ->
+            Message = list_to_binary(io_lib:format("Update config failed ~p", [Reason])),
+            {500, #{code => ?INTERNAL_ERROR, message => Message}};
+        {ok, NewTopics} ->
+            {200, NewTopics}
     end.
