@@ -107,6 +107,5 @@ settings(get, _) ->
     {200, emqx:get_raw_config([?APP_NAME], #{})};
 
 settings(put, #{body := Body}) ->
-    {ok, #{config := #{enable := Enable}}} = emqx:update_config([?APP], Body),
-    _ = emqx_slow_subs:update_settings(Enable),
+    _ = emqx_slow_subs:update_settings(Body),
     {200, emqx:get_raw_config([?APP_NAME], #{})}.

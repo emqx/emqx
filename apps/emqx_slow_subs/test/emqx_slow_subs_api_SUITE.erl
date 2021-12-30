@@ -32,6 +32,7 @@
 
 -define(BASE_PATH, "api").
 -define(NOW, erlang:system_time(millisecond)).
+-define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
 -define(CONF_DEFAULT, <<"""
 emqx_slow_subs
@@ -49,23 +50,42 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    application:load(emqx_conf),
+    ok = ekka:start(),
+    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
+    meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
+    meck:expect(emqx_alarm, activate, 3, ok),
+    meck:expect(emqx_alarm, deactivate, 3, ok),
+
     ok = emqx_config:init_load(emqx_slow_subs_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_slow_subs]),
     {ok, _} = application:ensure_all_started(emqx_authn),
     Config.
 
 end_per_suite(Config) ->
+    ekka:stop(),
+    mria:stop(),
+    mria_mnesia:delete_schema(),
+    meck:unload(emqx_alarm),
+
     application:stop(emqx_authn),
     emqx_mgmt_api_test_util:end_suite([emqx_slow_subs]),
     Config.
 
 init_per_testcase(_, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(),
     application:ensure_all_started(emqx_slow_subs),
     timer:sleep(500),
     Config.
 
 end_per_testcase(_, Config) ->
     application:stop(emqx_slow_subs),
+    case erlang:whereis(node()) of
+        undefined -> ok;
+        P ->
+            erlang:unlink(P),
+            erlang:exit(P, kill)
+    end,
     Config.
 
 t_get_history(_) ->
@@ -118,6 +138,8 @@ t_settting(_) ->
                                 [],
                                 auth_header_()
                             ),
+
+    timer:sleep(1000),
 
     GetReturn = decode_json(GetData),
 
