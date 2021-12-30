@@ -187,7 +187,7 @@ delete_delayed_message(Id0) ->
             mria:dirty_delete(?TAB, {Timestamp, Id})
     end.
 update_config(Config) ->
-    {ok, _} = emqx:update_config([delayed], Config).
+    emqx_conf:update([delayed], Config, #{rawconf_with_defaults => true, override_to => cluster}).
 
 %%--------------------------------------------------------------------
 %% gen_server callback
