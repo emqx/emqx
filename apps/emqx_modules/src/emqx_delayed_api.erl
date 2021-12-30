@@ -240,7 +240,7 @@ update_config_(Config) ->
             {200, NewDelayed};
         {error, Reason} ->
             Message = list_to_binary(
-                          io_lib:format("Update delayed message config failed ~p", [Reason])),
+                          io_lib:format("Update config failed ~p", [Reason])),
             {500, ?INTERNAL_ERROR, Message}
     end.
 
