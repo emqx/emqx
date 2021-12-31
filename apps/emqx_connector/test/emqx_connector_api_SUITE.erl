@@ -26,11 +26,8 @@
 -define(BRIDGE_CONF_DEFAULT, <<"bridges: {}">>).
 -define(CONNECTR_TYPE, <<"mqtt">>).
 -define(CONNECTR_NAME, <<"test_connector">>).
--define(CONNECTR_ID, <<"mqtt:test_connector">>).
 -define(BRIDGE_NAME_INGRESS, <<"ingress_test_bridge">>).
 -define(BRIDGE_NAME_EGRESS, <<"egress_test_bridge">>).
--define(BRIDGE_ID_INGRESS, <<"mqtt:ingress_test_bridge">>).
--define(BRIDGE_ID_EGRESS, <<"mqtt:egress_test_bridge">>).
 -define(MQTT_CONNECOTR(Username),
 #{
     <<"server">> => <<"127.0.0.1:1883">>,
@@ -123,32 +120,21 @@ t_mqtt_crud_apis(_) ->
                                , <<"name">> => ?CONNECTR_NAME
                                }),
 
-    %ct:pal("---connector: ~p", [Connector]),
-    ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
-                  , <<"type">> := ?CONNECTR_TYPE
-                  , <<"name">> := ?CONNECTR_NAME
-                  , <<"server">> := <<"127.0.0.1:1883">>
-                  , <<"username">> := User1
-                  , <<"password">> := <<"">>
-                  , <<"proto_ver">> := <<"v4">>
-                  , <<"ssl">> := #{<<"enable">> := false}
-                  }, jsx:decode(Connector)),
-
-    %% create a again returns an error
-    {ok, 400, RetMsg} = request(post, uri(["connectors"]),
-        ?MQTT_CONNECOTR(User1)#{ <<"type">> => ?CONNECTR_TYPE
-                               , <<"name">> => ?CONNECTR_NAME
-                               }),
-    ?assertMatch(
-        #{ <<"code">> := _
-         , <<"message">> := <<"connector already exists">>
-         }, jsx:decode(RetMsg)),
+    #{ <<"id">> := ConnctorID
+     , <<"type">> := ?CONNECTR_TYPE
+     , <<"name">> := ?CONNECTR_NAME
+     , <<"server">> := <<"127.0.0.1:1883">>
+     , <<"username">> := User1
+     , <<"password">> := <<"">>
+     , <<"proto_ver">> := <<"v4">>
+     , <<"ssl">> := #{<<"enable">> := false}
+     } = jsx:decode(Connector),
 
     %% update the request-path of the connector
     User2 = <<"user2">>,
-    {ok, 200, Connector2} = request(put, uri(["connectors", ?CONNECTR_ID]),
+    {ok, 200, Connector2} = request(put, uri(["connectors", ConnctorID]),
                                  ?MQTT_CONNECOTR(User2)),
-    ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
+    ?assertMatch(#{ <<"id">> := ConnctorID
                   , <<"server">> := <<"127.0.0.1:1883">>
                   , <<"username">> := User2
                   , <<"password">> := <<"">>
@@ -158,7 +144,7 @@ t_mqtt_crud_apis(_) ->
 
     %% list all connectors again, assert Connector2 is in it
     {ok, 200, Connector2Str} = request(get, uri(["connectors"]), []),
-    ?assertMatch([#{ <<"id">> := ?CONNECTR_ID
+    ?assertMatch([#{ <<"id">> := ConnctorID
                    , <<"type">> := ?CONNECTR_TYPE
                    , <<"name">> := ?CONNECTR_NAME
                    , <<"server">> := <<"127.0.0.1:1883">>
@@ -169,8 +155,8 @@ t_mqtt_crud_apis(_) ->
                    }], jsx:decode(Connector2Str)),
 
     %% get the connector by id
-    {ok, 200, Connector3Str} = request(get, uri(["connectors", ?CONNECTR_ID]), []),
-    ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
+    {ok, 200, Connector3Str} = request(get, uri(["connectors", ConnctorID]), []),
+    ?assertMatch(#{ <<"id">> := ConnctorID
                   , <<"type">> := ?CONNECTR_TYPE
                   , <<"name">> := ?CONNECTR_NAME
                   , <<"server">> := <<"127.0.0.1:1883">>
@@ -181,11 +167,11 @@ t_mqtt_crud_apis(_) ->
                   }, jsx:decode(Connector3Str)),
 
     %% delete the connector
-    {ok, 204, <<>>} = request(delete, uri(["connectors", ?CONNECTR_ID]), []),
+    {ok, 204, <<>>} = request(delete, uri(["connectors", ConnctorID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
 
     %% update a deleted connector returns an error
-    {ok, 404, ErrMsg2} = request(put, uri(["connectors", ?CONNECTR_ID]),
+    {ok, 404, ErrMsg2} = request(put, uri(["connectors", ConnctorID]),
                                  ?MQTT_CONNECOTR(User2)),
     ?assertMatch(
         #{ <<"code">> := _
@@ -205,28 +191,28 @@ t_mqtt_conn_bridge_ingress(_) ->
                                , <<"name">> => ?CONNECTR_NAME
                                }),
 
-    ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
-                  , <<"server">> := <<"127.0.0.1:1883">>
-                  , <<"num_of_bridges">> := 0
-                  , <<"username">> := User1
-                  , <<"password">> := <<"">>
-                  , <<"proto_ver">> := <<"v4">>
-                  , <<"ssl">> := #{<<"enable">> := false}
-                  }, jsx:decode(Connector)),
+    #{ <<"id">> := ConnctorID
+     , <<"server">> := <<"127.0.0.1:1883">>
+     , <<"num_of_bridges">> := 0
+     , <<"username">> := User1
+     , <<"password">> := <<"">>
+     , <<"proto_ver">> := <<"v4">>
+     , <<"ssl">> := #{<<"enable">> := false}
+     } = jsx:decode(Connector),
 
     %% ... and a MQTT bridge, using POST
     %% we bind this bridge to the connector created just now
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
-        ?MQTT_BRIDGE_INGRESS(?CONNECTR_ID)#{
+        ?MQTT_BRIDGE_INGRESS(ConnctorID)#{
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_INGRESS
         }),
 
-    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_INGRESS
-                  , <<"type">> := <<"mqtt">>
-                  , <<"status">> := <<"connected">>
-                  , <<"connector">> := ?CONNECTR_ID
-                  }, jsx:decode(Bridge)),
+    #{ <<"id">> := BridgeIDIngress
+     , <<"type">> := <<"mqtt">>
+     , <<"status">> := <<"connected">>
+     , <<"connector">> := ConnctorID
+     } = jsx:decode(Bridge),
 
     %% we now test if the bridge works as expected
 
@@ -252,17 +238,17 @@ t_mqtt_conn_bridge_ingress(_) ->
         end),
 
     %% get the connector by id, verify the num_of_bridges now is 1
-    {ok, 200, Connector1Str} = request(get, uri(["connectors", ?CONNECTR_ID]), []),
-    ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
+    {ok, 200, Connector1Str} = request(get, uri(["connectors", ConnctorID]), []),
+    ?assertMatch(#{ <<"id">> := ConnctorID
                   , <<"num_of_bridges">> := 1
                   }, jsx:decode(Connector1Str)),
 
     %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID_INGRESS]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDIngress]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     %% delete the connector
-    {ok, 204, <<>>} = request(delete, uri(["connectors", ?CONNECTR_ID]), []),
+    {ok, 204, <<>>} = request(delete, uri(["connectors", ConnctorID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
     ok.
 
@@ -279,29 +265,28 @@ t_mqtt_conn_bridge_egress(_) ->
                                }),
 
     %ct:pal("---connector: ~p", [Connector]),
-    ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
-                  , <<"server">> := <<"127.0.0.1:1883">>
-                  , <<"username">> := User1
-                  , <<"password">> := <<"">>
-                  , <<"proto_ver">> := <<"v4">>
-                  , <<"ssl">> := #{<<"enable">> := false}
-                  }, jsx:decode(Connector)),
+    #{ <<"id">> := ConnctorID
+     , <<"server">> := <<"127.0.0.1:1883">>
+     , <<"username">> := User1
+     , <<"password">> := <<"">>
+     , <<"proto_ver">> := <<"v4">>
+     , <<"ssl">> := #{<<"enable">> := false}
+     } = jsx:decode(Connector),
 
     %% ... and a MQTT bridge, using POST
     %% we bind this bridge to the connector created just now
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
-        ?MQTT_BRIDGE_EGRESS(?CONNECTR_ID)#{
+        ?MQTT_BRIDGE_EGRESS(ConnctorID)#{
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_EGRESS
         }),
 
-    %ct:pal("---bridge: ~p", [Bridge]),
-    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_EGRESS
-                  , <<"type">> := ?CONNECTR_TYPE
-                  , <<"name">> := ?BRIDGE_NAME_EGRESS
-                  , <<"status">> := <<"connected">>
-                  , <<"connector">> := ?CONNECTR_ID
-                  }, jsx:decode(Bridge)),
+    #{ <<"id">> := BridgeIDEgress
+     , <<"type">> := ?CONNECTR_TYPE
+     , <<"name">> := ?BRIDGE_NAME_EGRESS
+     , <<"status">> := <<"connected">>
+     , <<"connector">> := ConnctorID
+     } = jsx:decode(Bridge),
 
     %% we now test if the bridge works as expected
     LocalTopic = <<"local_topic/1">>,
@@ -326,19 +311,19 @@ t_mqtt_conn_bridge_egress(_) ->
         end),
 
     %% verify the metrics of the bridge
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", ?BRIDGE_ID_EGRESS]), []),
-    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_EGRESS
+    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    ?assertMatch(#{ <<"id">> := BridgeIDEgress
                   , <<"metrics">> := ?metrics(1, 1, 0, _, _, _)
                   , <<"node_metrics">> :=
                       [#{<<"node">> := _, <<"metrics">> := ?metrics(1, 1, 0, _, _, _)}]
                   }, jsx:decode(BridgeStr)),
 
     %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID_EGRESS]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     %% delete the connector
-    {ok, 204, <<>>} = request(delete, uri(["connectors", ?CONNECTR_ID]), []),
+    {ok, 204, <<>>} = request(delete, uri(["connectors", ConnctorID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
     ok.
 
@@ -358,37 +343,37 @@ t_mqtt_conn_update(_) ->
                                  }),
 
     %ct:pal("---connector: ~p", [Connector]),
-    ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
-                  , <<"server">> := <<"127.0.0.1:1883">>
-                  }, jsx:decode(Connector)),
+    #{ <<"id">> := ConnctorID
+     , <<"server">> := <<"127.0.0.1:1883">>
+     } = jsx:decode(Connector),
 
     %% ... and a MQTT bridge, using POST
     %% we bind this bridge to the connector created just now
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
-        ?MQTT_BRIDGE_EGRESS(?CONNECTR_ID)#{
+        ?MQTT_BRIDGE_EGRESS(ConnctorID)#{
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_EGRESS
         }),
-    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_EGRESS
-                  , <<"type">> := <<"mqtt">>
-                  , <<"name">> := ?BRIDGE_NAME_EGRESS
-                  , <<"status">> := <<"connected">>
-                  , <<"connector">> := ?CONNECTR_ID
-                  }, jsx:decode(Bridge)),
+    #{ <<"id">> := BridgeIDEgress
+     , <<"type">> := <<"mqtt">>
+     , <<"name">> := ?BRIDGE_NAME_EGRESS
+     , <<"status">> := <<"connected">>
+     , <<"connector">> := ConnctorID
+     } = jsx:decode(Bridge),
 
     %% then we try to update 'server' of the connector, to an unavailable IP address
     %% the update should fail because of 'unreachable' or 'connrefused'
-    {ok, 400, _ErrorMsg} = request(put, uri(["connectors", ?CONNECTR_ID]),
+    {ok, 400, _ErrorMsg} = request(put, uri(["connectors", ConnctorID]),
                                  ?MQTT_CONNECOTR2(<<"127.0.0.1:2603">>)),
     %% we fix the 'server' parameter to a normal one, it should work
-    {ok, 200, _} = request(put, uri(["connectors", ?CONNECTR_ID]),
+    {ok, 200, _} = request(put, uri(["connectors", ConnctorID]),
                                  ?MQTT_CONNECOTR2(<<"127.0.0.1 : 1883">>)),
     %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID_EGRESS]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     %% delete the connector
-    {ok, 204, <<>>} = request(delete, uri(["connectors", ?CONNECTR_ID]), []),
+    {ok, 204, <<>>} = request(delete, uri(["connectors", ConnctorID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []).
 
 t_mqtt_conn_update2(_) ->
@@ -404,36 +389,36 @@ t_mqtt_conn_update2(_) ->
                                  , <<"name">> => ?CONNECTR_NAME
                                  }),
 
-    ?assertMatch(#{ <<"id">> := ?CONNECTR_ID
-                  , <<"server">> := <<"127.0.0.1:2603">>
-                  }, jsx:decode(Connector)),
+    #{ <<"id">> := ConnctorID
+     , <<"server">> := <<"127.0.0.1:2603">>
+     } = jsx:decode(Connector),
 
     %% ... and a MQTT bridge, using POST
     %% we bind this bridge to the connector created just now
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
-        ?MQTT_BRIDGE_EGRESS(?CONNECTR_ID)#{
+        ?MQTT_BRIDGE_EGRESS(ConnctorID)#{
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_EGRESS
         }),
-    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_EGRESS
-                  , <<"type">> := <<"mqtt">>
-                  , <<"name">> := ?BRIDGE_NAME_EGRESS
-                  , <<"status">> := <<"disconnected">>
-                  , <<"connector">> := ?CONNECTR_ID
-                  }, jsx:decode(Bridge)),
+    #{ <<"id">> := BridgeIDEgress
+     , <<"type">> := <<"mqtt">>
+     , <<"name">> := ?BRIDGE_NAME_EGRESS
+     , <<"status">> := <<"disconnected">>
+     , <<"connector">> := ConnctorID
+     } = jsx:decode(Bridge),
     %% we fix the 'server' parameter to a normal one, it should work
-    {ok, 200, _} = request(put, uri(["connectors", ?CONNECTR_ID]),
+    {ok, 200, _} = request(put, uri(["connectors", ConnctorID]),
                                  ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)),
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", ?BRIDGE_ID_EGRESS]), []),
-    ?assertMatch(#{ <<"id">> := ?BRIDGE_ID_EGRESS
+    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    ?assertMatch(#{ <<"id">> := BridgeIDEgress
                   , <<"status">> := <<"connected">>
                   }, jsx:decode(BridgeStr)),
     %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", ?BRIDGE_ID_EGRESS]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     %% delete the connector
-    {ok, 204, <<>>} = request(delete, uri(["connectors", ?CONNECTR_ID]), []),
+    {ok, 204, <<>>} = request(delete, uri(["connectors", ConnctorID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []).
 
 t_mqtt_conn_testing(_) ->

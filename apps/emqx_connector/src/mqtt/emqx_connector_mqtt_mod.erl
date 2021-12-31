@@ -168,7 +168,6 @@ handle_publish(Msg, undefined) ->
 handle_publish(Msg, Vars) ->
     ?SLOG(debug, #{msg => "publish_to_local_broker",
                    message => Msg, vars => Vars}),
-    emqx_metrics:inc('bridge.mqtt.message_received_from_remote', 1),
     case Vars of
         #{on_message_received := {Mod, Func, Args}} ->
             _ = erlang:apply(Mod, Func, [Msg | Args]);

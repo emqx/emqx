@@ -96,7 +96,6 @@ reboot_apps() ->
     , emqx_resource
     , emqx_rule_engine
     , emqx_bridge
-    , emqx_bridge_mqtt
     , emqx_plugin_libs
     , emqx_management
     , emqx_retainer
@@ -112,17 +111,17 @@ sorted_reboot_apps() ->
 
 app_deps(App) ->
     case application:get_key(App, applications) of
-        undefined -> [];
+        undefined -> undefined;
         {ok, List} -> lists:filter(fun(A) -> lists:member(A, reboot_apps()) end, List)
     end.
 
 sorted_reboot_apps(Apps) ->
     G = digraph:new(),
     try
-        lists:foreach(fun({App, Deps}) -> add_app(G, App, Deps) end, Apps),
+        NoDepApps = add_apps_to_digraph(G, Apps),
         case digraph_utils:topsort(G) of
             Sorted when is_list(Sorted) ->
-                Sorted;
+                Sorted ++ (NoDepApps -- Sorted);
             false ->
                 Loops = find_loops(G),
                 error({circular_application_dependency, Loops})
@@ -131,17 +130,29 @@ sorted_reboot_apps(Apps) ->
         digraph:delete(G)
     end.
 
-add_app(G, App, undefined) ->
+add_apps_to_digraph(G, Apps) ->
+    lists:foldl(fun
+            ({App, undefined}, Acc) ->
+                ?SLOG(debug, #{msg => "app_is_not_loaded", app => App}),
+                Acc;
+            ({App, []}, Acc) ->
+                Acc ++ [App]; %% use '++' to keep the original order
+            ({App, Deps}, Acc) ->
+                add_app_deps_to_digraph(G, App, Deps),
+                Acc
+        end, [], Apps).
+
+add_app_deps_to_digraph(G, App, undefined) ->
     ?SLOG(debug, #{msg => "app_is_not_loaded", app => App}),
     %% not loaded
-    add_app(G, App, []);
-add_app(_G, _App, []) ->
+    add_app_deps_to_digraph(G, App, []);
+add_app_deps_to_digraph(_G, _App, []) ->
     ok;
-add_app(G, App, [Dep | Deps]) ->
+add_app_deps_to_digraph(G, App, [Dep | Deps]) ->
     digraph:add_vertex(G, App),
     digraph:add_vertex(G, Dep),
     digraph:add_edge(G, Dep, App), %% dep -> app as dependency
-    add_app(G, App, Deps).
+    add_app_deps_to_digraph(G, App, Deps).
 
 find_loops(G) ->
     lists:filtermap(

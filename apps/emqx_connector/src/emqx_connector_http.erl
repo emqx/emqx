@@ -75,7 +75,7 @@ For example: http://localhost:9901/
            })}
     , {connect_timeout,
         sc(emqx_schema:duration_ms(),
-           #{ default => "30s"
+           #{ default => "15s"
             , desc => "The timeout when connecting to the HTTP server"
             })}
     , {max_retries,
@@ -201,7 +201,7 @@ on_query(InstId, {KeyOrNum, Method, Request, Timeout}, AfterQuery,
         #{pool_name := PoolName, base_path := BasePath} = State) ->
     ?TRACE("QUERY", "http_connector_received",
         #{request => Request, connector => InstId, state => State}),
-    NRequest = update_path(BasePath, Request),
+    NRequest = formalize_request(Method, BasePath, Request),
     case Result = ehttpc:request(case KeyOrNum of
                                      undefined -> PoolName;
                                      _ -> {PoolName, KeyOrNum}
@@ -211,8 +211,20 @@ on_query(InstId, {KeyOrNum, Method, Request, Timeout}, AfterQuery,
                            request => NRequest, reason => Reason,
                            connector => InstId}),
             emqx_resource:query_failed(AfterQuery);
-        _ ->
-            emqx_resource:query_success(AfterQuery)
+        {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            emqx_resource:query_success(AfterQuery);
+        {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            emqx_resource:query_success(AfterQuery);
+        {ok, StatusCode, _} ->
+            ?SLOG(error, #{msg => "http connector do reqeust, received error response",
+                           request => NRequest, connector => InstId,
+                           status_code => StatusCode}),
+            emqx_resource:query_failed(AfterQuery);
+        {ok, StatusCode, _, _} ->
+            ?SLOG(error, #{msg => "http connector do reqeust, received error response",
+                           request => NRequest, connector => InstId,
+                           status_code => StatusCode}),
+            emqx_resource:query_failed(AfterQuery)
     end,
     Result.
 
@@ -298,10 +310,14 @@ check_ssl_opts(URLFrom, Conf) ->
         {_, _} -> false
     end.
 
-update_path(BasePath, {Path, Headers}) ->
-    {filename:join(BasePath, Path), Headers};
-update_path(BasePath, {Path, Headers, Body}) ->
-    {filename:join(BasePath, Path), Headers, Body}.
+formalize_request(Method, BasePath, {Path, Headers, _Body})
+        when Method =:= get; Method =:= delete ->
+    formalize_request(Method, BasePath, {Path, Headers});
+formalize_request(_Method, BasePath, {Path, Headers, Body}) ->
+    {filename:join(BasePath, Path), Headers, Body};
+
+formalize_request(_Method, BasePath, {Path, Headers}) ->
+    {filename:join(BasePath, Path), Headers}.
 
 bin(Bin) when is_binary(Bin) ->
     Bin;

@@ -107,14 +107,14 @@ info_example_basic(mqtt) ->
     #{
         mode => cluster_shareload,
         server => <<"127.0.0.1:1883">>,
-        reconnect_interval => <<"30s">>,
+        reconnect_interval => <<"15s">>,
         proto_ver => <<"v4">>,
         username => <<"foo">>,
         password => <<"bar">>,
         clientid => <<"foo">>,
         clean_start => true,
         keepalive => <<"300s">>,
-        retry_interval => <<"30s">>,
+        retry_interval => <<"15s">>,
         max_inflight => 100,
         ssl => #{
             enable => false
@@ -155,8 +155,7 @@ schema("/connectors") ->
         },
         post => #{
             tags => [<<"connectors">>],
-            description => <<"Create a new connector by given Id <br>"
-                             "The ID must be of format '{type}:{name}'">>,
+            description => <<"Create a new connector">>,
             summary => <<"Create connector">>,
             requestBody => post_request_body_schema(),
             responses => #{
@@ -212,13 +211,13 @@ schema("/connectors/:id") ->
     {200, [format_resp(Conn) || Conn <- emqx_connector:list()]};
 
 '/connectors'(post, #{body := #{<<"type">> := ConnType} = Params}) ->
-    ConnName = maps:get(<<"name">>, Params, emqx_misc:gen_id()),
+    ConnName = emqx_misc:gen_id(),
     case emqx_connector:lookup(ConnType, ConnName) of
         {ok, _} ->
             {400, error_msg('ALREADY_EXISTS', <<"connector already exists">>)};
         {error, not_found} ->
             case emqx_connector:update(ConnType, ConnName,
-                    maps:without([<<"type">>, <<"name">>], Params)) of
+                    filter_out_request_body(Params)) of
                 {ok, #{raw_config := RawConf}} ->
                     Id = emqx_connector:connector_id(ConnType, ConnName),
                     {201, format_resp(Id, RawConf)};
@@ -270,16 +269,16 @@ format_resp(#{<<"id">> := Id} = RawConf) ->
 
 format_resp(ConnId, RawConf) ->
     NumOfBridges = length(emqx_bridge:list_bridges_by_connector(ConnId)),
-    {Type, Name} = emqx_connector:parse_connector_id(ConnId),
+    {Type, ConnName} = emqx_connector:parse_connector_id(ConnId),
     RawConf#{
         <<"id">> => ConnId,
         <<"type">> => Type,
-        <<"name">> => Name,
+        <<"name">> => maps:get(<<"name">>, RawConf, ConnName),
         <<"num_of_bridges">> => NumOfBridges
     }.
 
 filter_out_request_body(Conf) ->
-    ExtraConfs = [<<"num_of_bridges">>, <<"type">>, <<"name">>],
+    ExtraConfs = [<<"clientid">>, <<"num_of_bridges">>, <<"type">>],
     maps:without(ExtraConfs, Conf).
 
 bin(S) when is_list(S) ->

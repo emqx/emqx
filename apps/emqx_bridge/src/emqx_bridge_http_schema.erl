@@ -59,7 +59,7 @@ Template with variables is allowed.
 """
            })}
     , {request_timeout, mk(emqx_schema:duration_ms(),
-          #{ default => <<"30s">>
+          #{ default => <<"15s">>
            , desc =>"""
 How long will the HTTP request timeout.
 """
@@ -84,6 +84,10 @@ basic_config() ->
            #{ desc => "Enable or disable this bridge"
             , default => true
             })}
+    , {name,
+       mk(binary(),
+          #{ desc => "Bridge name, used as a human-readable description of the bridge."
+           })}
     , {direction,
         mk(egress,
            #{ desc => "The direction of this bridge, MUST be egress"
