@@ -110,7 +110,19 @@ init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     Config.
 end_per_testcase(_, _Config) ->
+    clear_resources(),
     ok.
+
+clear_resources() ->
+    lists:foreach(fun(#{id := Id}) ->
+            ok = emqx_rule_engine:delete_rule(Id)
+        end, emqx_rule_engine:get_rules()),
+    lists:foreach(fun(#{id := Id}) ->
+            ok = emqx_bridge:remove(Id)
+        end, emqx_bridge:list()),
+    lists:foreach(fun(#{<<"id">> := Id}) ->
+            ok = emqx_connector:delete(Id)
+        end, emqx_connector:list()).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -505,6 +517,85 @@ t_ingress_mqtt_bridge_with_rules(_) ->
 
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDIngress]), []),
+    {ok, 204, <<>>} = request(delete, uri(["connectors", ConnctorID]), []).
+
+t_egress_mqtt_bridge_with_rules(_) ->
+    {ok, 201, Connector} = request(post, uri(["connectors"]),
+        ?MQTT_CONNECOTR(<<"user1">>)#{ <<"type">> => ?CONNECTR_TYPE
+                               , <<"name">> => ?CONNECTR_NAME
+                               }),
+    #{ <<"id">> := ConnctorID } = jsx:decode(Connector),
+
+    {ok, 201, Bridge} = request(post, uri(["bridges"]),
+        ?MQTT_BRIDGE_EGRESS(ConnctorID)#{
+            <<"type">> => ?CONNECTR_TYPE,
+            <<"name">> => ?BRIDGE_NAME_EGRESS
+        }),
+    #{ <<"id">> := BridgeIDEgress } = jsx:decode(Bridge),
+
+    {ok, 201, Rule} = request(post, uri(["rules"]),
+        #{<<"name">> => <<"A rule send messages to a sink mqtt bridge">>,
+          <<"enable">> => true,
+          <<"outputs">> => [BridgeIDEgress],
+          <<"sql">> => <<"SELECT * from \"t/1\"">>
+        }),
+    #{<<"id">> := RuleId} = jsx:decode(Rule),
+
+    %% we now test if the bridge works as expected
+    LocalTopic = <<"local_topic/1">>,
+    RemoteTopic = <<"remote_topic/", LocalTopic/binary>>,
+    Payload = <<"hello">>,
+    emqx:subscribe(RemoteTopic),
+    %% PUBLISH a message to the 'local' broker, as we have only one broker,
+    %% the remote broker is also the local one.
+    emqx:publish(emqx_message:make(LocalTopic, Payload)),
+    %% we should receive a message on the "remote" broker, with specified topic
+    ?assert(
+        receive
+            {deliver, RemoteTopic, #message{payload = Payload}} ->
+                ct:pal("local broker got message: ~p on topic ~p", [Payload, RemoteTopic]),
+                true;
+            Msg ->
+                ct:pal("Msg: ~p", [Msg]),
+                false
+        after 100 ->
+            false
+        end),
+    emqx:unsubscribe(RemoteTopic),
+
+    %% PUBLISH a message to the rule.
+    Payload2 = <<"hi">>,
+    RuleTopic = <<"t/1">>,
+    RemoteTopic2 = <<"remote_topic/", RuleTopic/binary>>,
+    emqx:subscribe(RemoteTopic2),
+    emqx:publish(emqx_message:make(RuleTopic, Payload2)),
+    {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
+    #{ <<"id">> := RuleId
+     , <<"metrics">> := #{<<"matched">> := 1}
+     } = jsx:decode(Rule1),
+    %% we should receive a message on the "remote" broker, with specified topic
+    ?assert(
+        receive
+            {deliver, RemoteTopic2, #message{payload = Payload2}} ->
+                ct:pal("local broker got message: ~p on topic ~p", [Payload2, RemoteTopic2]),
+                true;
+            Msg ->
+                ct:pal("Msg: ~p", [Msg]),
+                false
+        after 100 ->
+            false
+        end),
+
+    %% verify the metrics of the bridge
+    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
+    ?assertMatch(#{ <<"id">> := BridgeIDEgress
+                  , <<"metrics">> := ?metrics(2, 2, 0, _, _, _)
+                  , <<"node_metrics">> :=
+                      [#{<<"node">> := _, <<"metrics">> := ?metrics(2, 2, 0, _, _, _)}]
+                  }, jsx:decode(BridgeStr)),
+
+    {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
     {ok, 204, <<>>} = request(delete, uri(["connectors", ConnctorID]), []).
 
 %%--------------------------------------------------------------------
