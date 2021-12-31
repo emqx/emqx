@@ -155,7 +155,7 @@ format_delayed(#delayed_message{key = {ExpectTimeStamp, Id}, delayed = Delayed,
     },
     case WithPayload of
         true ->
-            Result#{payload => base64:encode(Payload)};
+            Result#{payload => Payload};
         _ ->
             Result
     end.
