@@ -94,7 +94,10 @@ send_message(BridgeId, Message) ->
         not_found ->
             throw({bridge_not_found, BridgeId});
         #{enable := true} ->
-            emqx_resource:query(ResId, {send_message, Message});
+            case emqx_resource:query(ResId, {send_message, Message}) of
+                {error, {emqx_resource, Reason}} -> throw({bridge_not_ready, Reason});
+                Result -> Result
+            end;
         #{enable := false} ->
             throw({bridge_stopped, BridgeId})
     end.

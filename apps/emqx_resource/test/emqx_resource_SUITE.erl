@@ -142,7 +142,7 @@ t_stop_start(_) ->
 
     ?assertNot(is_process_alive(Pid0)),
 
-    ?assertException(error, {resource_stopped, ?ID}, emqx_resource:query(?ID, get_state)),
+    ?assertMatch({emqx_resource, #{reason := stopped}}, emqx_resource:query(?ID, get_state)),
 
     ok = emqx_resource:restart(?ID),
 

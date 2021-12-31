@@ -240,7 +240,8 @@ handle_output(RuleId, OutId, Selected, Envs) ->
     catch
         Err:Reason:ST ->
             ok = emqx_plugin_libs_metrics:inc_failed(rule_metrics, RuleId),
-            ?SLOG(error, #{msg => "output_failed",
+            Level = case Err of throw -> debug; _ -> error end,
+            ?SLOG(Level, #{msg => "output_failed",
                            output => OutId,
                            exception => Err,
                            reason => Reason,
