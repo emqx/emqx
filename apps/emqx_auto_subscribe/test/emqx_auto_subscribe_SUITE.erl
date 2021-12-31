@@ -117,7 +117,7 @@ end_per_suite(_) ->
     application:unload(?APP),
     meck:unload(emqx_resource),
     meck:unload(emqx_schema),
-    emqx_common_test_helpers:stop_apps([emqx_dashboard, ?APP]).
+    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_conf, ?APP]).
 
 t_auto_subscribe(_) ->
     emqx_auto_subscribe:update([#{<<"topic">> => Topic} || Topic <- ?TOPICS]),
