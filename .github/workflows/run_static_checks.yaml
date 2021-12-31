@@ -1,7 +1,7 @@
 name: Run static checks
 
 concurrency:
-  group: test-${{ github.event_name }}-${{ github.ref }}
+  group: static-check-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 on:
@@ -13,17 +13,11 @@ on:
 
 jobs:
     run_static_analysis:
-        strategy:
-          matrix:
-            emqx_builder:
-              - 5.0-3:24.1.5-3 # run dialyzer on latest OTP
-
-        runs-on: self-hosted
-        container: "ghcr.io/emqx/emqx-builder/${{ matrix.emqx_builder }}-ubuntu20.04"
-
-        steps:
-        - uses: actions/checkout@v2
-        - name: xref
-          run: make xref
-        - name: dialyzer
-          run: make dialyzer
+      runs-on: self-hosted
+      container: "ghcr.io/emqx/emqx-builder/5.0-3:24.1.5-3-alpine3.14"
+      steps:
+      - uses: actions/checkout@v2
+      - name: xref
+        run: make xref
+      - name: dialyzer
+        run: make dialyzer
