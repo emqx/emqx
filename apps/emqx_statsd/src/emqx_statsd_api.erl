@@ -62,7 +62,7 @@ statsd(put, #{body := Body}) ->
             case maps:get(<<"enable">>, Body) of
                 true ->
                     _ = emqx_statsd_sup:stop_child(?APP),
-                    emqx_statsd_sup:start_child(?APP, maps:get(config, Config));
+                    _ = emqx_statsd_sup:start_child(?APP, maps:get(config, Config));
                 false ->
                     _ = emqx_statsd_sup:stop_child(?APP)
             end,
