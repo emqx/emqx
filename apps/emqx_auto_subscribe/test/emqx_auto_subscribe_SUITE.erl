@@ -85,7 +85,7 @@ init_per_suite(Config) ->
                 }
             ]
         }">>),
-    emqx_common_test_helpers:start_apps([emqx_dashboard, ?APP], fun set_special_configs/1),
+    emqx_common_test_helpers:start_apps([emqx_dashboard, emqx_conf, ?APP], fun set_special_configs/1),
     Config.
 
 set_special_configs(emqx_dashboard) ->
@@ -113,15 +113,17 @@ topic_config(T) ->
 
 end_per_suite(_) ->
     application:unload(emqx_management),
+    application:unload(emqx_conf),
     application:unload(?APP),
     meck:unload(emqx_resource),
     meck:unload(emqx_schema),
     emqx_common_test_helpers:stop_apps([emqx_dashboard, ?APP]).
 
 t_auto_subscribe(_) ->
+    emqx_auto_subscribe:update([#{<<"topic">> => Topic} || Topic <- ?TOPICS]),
     {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
     {ok, _} = emqtt:connect(Client),
-    timer:sleep(100),
+    timer:sleep(200),
     ?assertEqual(check_subs(length(?TOPICS)), ok),
     emqtt:disconnect(Client),
     ok.
@@ -148,6 +150,7 @@ t_update(_) ->
 
 check_subs(Count) ->
     Subs = ets:tab2list(emqx_suboption),
+    ct:pal("--->  ~p ~p ~n", [Subs, Count]),
     ?assert(length(Subs) >= Count),
     check_subs((Subs), ?ENSURE_TOPICS).
 
