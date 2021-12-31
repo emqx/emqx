@@ -297,14 +297,18 @@ jobs:
         SYSTEM: ${{ matrix.os }}
       working-directory: source
       run: |
-        docker run -i --rm \
-        -v $(pwd):/emqx \
-        --workdir /emqx \
-        --platform linux/$ARCH \
-        ghcr.io/emqx/emqx-builder/5.0-3:$OTP-$SYSTEM \
-        bash -euc "make $PROFILE-zip || cat rebar3.crashdump; \
-                   make $PROFILE-pkg || cat rebar3.crashdump; \
-                   EMQX_NAME=$PROFILE && .ci/build_packages/tests.sh"
+        ./scripts/buildx.sh \
+          --profile "${PROFILE}" \
+          --pkgtype "zip" \
+          --arch "${ARCH}" \
+          --builder "ghcr.io/emqx/emqx-builder/5.0-3:${OTP}-${SYSTEM}"
+        ## the pkg build is incremental on the zip build
+        ./scripts/buildx.sh \
+          --profile "${PROFILE}" \
+          --pkgtype "pkg" \
+          --arch "${ARCH}" \
+          --builder "ghcr.io/emqx/emqx-builder/5.0-3:${OTP}-${SYSTEM}"
+
     - name: create sha256
       env:
         PROFILE: ${{ matrix.profile}}
