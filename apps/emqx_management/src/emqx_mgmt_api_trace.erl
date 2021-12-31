@@ -308,7 +308,7 @@ download_trace_log(get, #{bindings := #{name := Name}}) ->
             %% TODO use file replace file_binary.(delete file after send is not ready now).
             {ok, Binary} = file:read_file(ZipFile),
             ZipName = filename:basename(ZipFile),
-            file:delete(ZipFile),
+            _ = file:delete(ZipFile),
             Headers = #{
                 <<"content-type">> => <<"application/x-zip">>,
                 <<"content-disposition">> => iolist_to_binary("attachment; filename=" ++ ZipName)
