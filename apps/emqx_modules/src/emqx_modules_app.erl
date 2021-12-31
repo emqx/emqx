@@ -38,7 +38,8 @@ maybe_enable_modules() ->
     emqx_event_message:enable(),
     emqx_conf_cli:load(),
     ok = emqx_rewrite:enable(),
-    emqx_topic_metrics:enable().
+    emqx_topic_metrics:enable(),
+    emqx_modules_conf:load().
 
 maybe_disable_modules() ->
     emqx_conf:get([delayed, enable], true) andalso emqx_delayed:disable(),
@@ -47,4 +48,5 @@ maybe_disable_modules() ->
     emqx_event_message:disable(),
     emqx_rewrite:disable(),
     emqx_conf_cli:unload(),
-    emqx_topic_metrics:disable().
+    emqx_topic_metrics:disable(),
+    emqx_modules_conf:unload().
