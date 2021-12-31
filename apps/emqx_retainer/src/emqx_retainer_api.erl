@@ -84,7 +84,7 @@ with_topic_api() ->
             parameters => parameters(),
             responses => #{
                 <<"200">> => object_schema(message_props(), <<"List retained messages">>),
-                <<"404">> => error_schema(<<"Reatined Not Exists">>, ['NOT_FOUND']),
+                <<"404">> => error_schema(<<"Retained Not Exists">>, ['NOT_FOUND']),
                 <<"405">> => schema(<<"NotAllowed">>)
             }
         },
