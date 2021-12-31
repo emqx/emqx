@@ -101,7 +101,7 @@ do_apply_rule(#{
         true ->
             ok = emqx_plugin_libs_metrics:inc_matched(rule_metrics, RuleId),
             Collection2 = filter_collection(Input, InCase, DoEach, Collection),
-            {ok, [handle_output_list(Outputs, Coll, Input) || Coll <- Collection2]};
+            {ok, [handle_output_list(RuleId, Outputs, Coll, Input) || Coll <- Collection2]};
         false ->
             {error, nomatch}
     end;
@@ -118,7 +118,7 @@ do_apply_rule(#{id := RuleId,
                 {match_conditions_error, {_EXCLASS_,_EXCPTION_,_ST_}}) of
         true ->
             ok = emqx_plugin_libs_metrics:inc_matched(rule_metrics, RuleId),
-            {ok, handle_output_list(Outputs, Selected, Input)};
+            {ok, handle_output_list(RuleId, Outputs, Selected, Input)};
         false ->
             {error, nomatch}
     end.
@@ -231,14 +231,15 @@ number(Bin) ->
     catch error:badarg -> binary_to_float(Bin)
     end.
 
-handle_output_list(Outputs, Selected, Envs) ->
-    [handle_output(Out, Selected, Envs) || Out <- Outputs].
+handle_output_list(RuleId, Outputs, Selected, Envs) ->
+    [handle_output(RuleId, Out, Selected, Envs) || Out <- Outputs].
 
-handle_output(OutId, Selected, Envs) ->
+handle_output(RuleId, OutId, Selected, Envs) ->
     try
         do_handle_output(OutId, Selected, Envs)
     catch
         Err:Reason:ST ->
+            ok = emqx_plugin_libs_metrics:inc_failed(rule_metrics, RuleId),
             ?SLOG(error, #{msg => "output_failed",
                            output => OutId,
                            exception => Err,
