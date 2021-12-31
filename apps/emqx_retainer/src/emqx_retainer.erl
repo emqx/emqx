@@ -53,11 +53,13 @@
                   , context := undefined | context()
                   , clear_timer := undefined | reference()
                   , release_quota_timer := undefined | reference()
+                  , stats_timer := undefined | reference()
                   , wait_quotas := list()
                   }.
 
 -define(DEF_MAX_PAYLOAD_SIZE, (1024 * 1024)).
 -define(DEF_EXPIRY_INTERVAL, 0).
+-define(STATS_INTERVAL, 1000).
 
 -define(CAST(Msg), gen_server:cast(?MODULE, Msg)).
 
@@ -69,6 +71,7 @@
 -callback match_messages(context(), topic(), cursor()) -> {ok, list(), cursor()}.
 -callback clear_expired(context()) -> ok.
 -callback clean(context()) -> ok.
+-callback size(context()) -> non_neg_integer().
 
 %%--------------------------------------------------------------------
 %% Hook API
@@ -253,13 +256,20 @@ handle_info(release_deliver_quota, #{context := Context, wait_quotas := Waits} =
     {noreply, State#{release_quota_timer := add_timer(Interval, release_deliver_quota),
                      wait_quotas := []}};
 
+handle_info(stats, #{context := Context} = State) ->
+    Mod = get_backend_module(),
+    Size = Mod:size(Context),
+    ok = emqx_metrics:set('messages.retained', Size),
+    {noreply, State#{stats_timer := add_timer(?STATS_INTERVAL, stats)}};
+
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #{clear_timer := TRef1, release_quota_timer := TRef2}) ->
+terminate(_Reason, #{clear_timer := TRef1, release_quota_timer := TRef2, stats_timer := TRef3}) ->
     _ = stop_timer(TRef1),
     _ = stop_timer(TRef2),
+    _ = stop_timer(TRef3),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -275,6 +285,7 @@ new_state() ->
       context => undefined,
       clear_timer => undefined,
       release_quota_timer => undefined,
+      stats_timer => undefined,
       wait_quotas => []}.
 
 -spec new_context(pos_integer()) -> context().
@@ -409,19 +420,22 @@ enable_retainer(#{context_id := ContextId} = State,
            context_id := NewContextId,
            context := Context,
            clear_timer := add_timer(ClearInterval, clear_expired),
-           release_quota_timer := add_timer(ReleaseInterval, release_deliver_quota)}.
+           release_quota_timer := add_timer(ReleaseInterval, release_deliver_quota),
+           stats_timer := add_timer(?STATS_INTERVAL, stats)}.
 
 -spec disable_retainer(state()) -> state().
 disable_retainer(#{clear_timer := TRef1,
                    release_quota_timer := TRef2,
                    context := Context,
-                   wait_quotas := Waits} = State) ->
+                   wait_quotas := Waits,
+                   stats_timer := TRef3} = State) ->
     unload(),
     ok = lists:foreach(fun(E) -> gen_server:reply(E, false) end, Waits),
     ok = close_resource(Context),
     State#{enable := false,
            clear_timer := stop_timer(TRef1),
            release_quota_timer := stop_timer(TRef2),
+           stats_timer := stop_timer(TRef3),
            wait_quotas := []}.
 
 -spec stop_timer(undefined | reference()) -> undefined.
