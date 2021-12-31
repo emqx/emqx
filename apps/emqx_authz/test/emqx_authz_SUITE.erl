@@ -164,6 +164,16 @@ t_update_source(_) ->
 
     {ok, _} = emqx_authz:update(?CMD_REPLACE, []).
 
+t_delete_source(_) ->
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE1]),
+
+    ?assertMatch([ #{type := http,  enable := true}
+                 ], emqx_conf:get([authorization, sources], [])),
+
+    {ok, _} = emqx_authz:update({?CMD_DELETE, http},  #{}),
+
+    ?assertMatch([], emqx_conf:get([authorization, sources], [])).
+
 t_move_source(_) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE,
                                 [?SOURCE1, ?SOURCE2, ?SOURCE3,

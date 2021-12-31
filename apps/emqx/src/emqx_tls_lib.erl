@@ -34,6 +34,9 @@
 
 -include("logger.hrl").
 
+-define(IS_TRUE(Val), ((Val =:= true) or (Val =:= <<"true">>))).
+-define(IS_FALSE(Val), ((Val =:= false) or (Val =:= <<"false">>))).
+
 -define(SSL_FILE_OPT_NAMES, [<<"keyfile">>, <<"certfile">>, <<"cacertfile">>]).
 
 %% non-empty string
@@ -235,7 +238,8 @@ ensure_ssl_files(Dir, Opts) ->
     ensure_ssl_files(Dir, Opts, _DryRun = false).
 
 ensure_ssl_files(_Dir, undefined, _DryRun) -> {ok, undefined};
-ensure_ssl_files(_Dir, #{<<"enable">> := false} = Opts, _DryRun) -> {ok, Opts};
+ensure_ssl_files(_Dir, #{<<"enable">> := False} = Opts, _DryRun) when ?IS_FALSE(False) ->
+    {ok, Opts};
 ensure_ssl_files(Dir, Opts, DryRun) ->
     ensure_ssl_files(Dir, Opts, ?SSL_FILE_OPT_NAMES, DryRun).
 
@@ -352,9 +356,9 @@ is_valid_pem_file(Path) ->
 
 %% @doc This is to return SSL file content in management APIs.
 file_content_as_options(undefined) -> undefined;
-file_content_as_options(#{<<"enable">> := false} = SSL) ->
+file_content_as_options(#{<<"enable">> := False} = SSL) when ?IS_FALSE(False) ->
     {ok, maps:without(?SSL_FILE_OPT_NAMES, SSL)};
-file_content_as_options(#{<<"enable">> := true} = SSL) ->
+file_content_as_options(#{<<"enable">> := True} = SSL) when ?IS_TRUE(True) ->
     file_content_as_options(?SSL_FILE_OPT_NAMES, SSL).
 
 file_content_as_options([], SSL) ->

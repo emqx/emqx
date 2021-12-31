@@ -56,7 +56,14 @@ authorize(Client, PubSub, Topic,
               selector := Selector,
               annotations := #{id := ResourceID}
              }) ->
-    case emqx_resource:query(ResourceID, {find, Collection, replvar(Selector, Client), #{}}) of
+    RenderedSelector = replvar(Selector, Client),
+    Result = try
+                 emqx_resource:query(ResourceID, {find, Collection, RenderedSelector, #{}})
+             catch
+                 error:Error -> {error, Error}
+             end,
+
+    case Result of
         {error, Reason} ->
             ?SLOG(error, #{msg => "query_mongo_error",
                            reason => Reason,
@@ -65,9 +72,9 @@ authorize(Client, PubSub, Topic,
         [] -> nomatch;
         Rows ->
             Rules = [ emqx_authz_rule:compile({Permission, all, Action, Topics})
-                     || #{<<"topics">> := Topics,
-                          <<"permission">> := Permission,
-                          <<"action">> := Action} <- Rows],
+                      || #{<<"topics">> := Topics,
+                           <<"permission">> := Permission,
+                           <<"action">> := Action} <- Rows],
             do_authorize(Client, PubSub, Topic, Rules)
     end.
 

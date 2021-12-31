@@ -167,6 +167,24 @@ t_lookups(_Config) ->
            [{allow, subscribe, <<"a">>},
             {deny, subscribe, <<"b">>}]).
 
+t_bad_selector(_Config) ->
+    ClientInfo = #{clientid => <<"clientid">>,
+                   cn => <<"cn">>,
+                   dn => <<"dn">>,
+                   username => <<"username">>,
+                   peerhost => {127,0,0,1},
+                   zone => default,
+                   listener => {tcp, default}
+                  },
+
+    ok = setup_config(
+           #{<<"selector">> => #{<<"$in">> => #{<<"a">> => 1}}}),
+
+    ok = emqx_authz_test_lib:test_samples(
+           ClientInfo,
+           [{deny, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}]).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

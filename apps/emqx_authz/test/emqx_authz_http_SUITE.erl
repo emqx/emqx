@@ -233,8 +233,8 @@ t_json_body(_Config) ->
                    ?assertMatch(
                       #{<<"username">> := <<"user name">>,
                         <<"CLIENT_client id">> := <<"client id">>,
-                        <<"peerhost">> := <<"127.0.0.1">>,
-                        <<"proto_name">> := <<"MQTT">>,
+                        <<"peerhost">> := [<<"127.0.0.1">>, 1],
+                        <<"proto_name">> := #{<<"proto">> := <<"MQTT">>},
                         <<"mountpoint">> := <<"MOUNTPOINT">>,
                         <<"topic">> := <<"t">>,
                         <<"action">> := <<"publish">>},
@@ -253,8 +253,8 @@ t_json_body(_Config) ->
                              "action/${action}">>,
              <<"body">> => #{<<"username">> => <<"${username}">>,
                              <<"CLIENT_${clientid}">> => <<"${clientid}">>,
-                             <<"peerhost">> => <<"${peerhost}">>,
-                             <<"proto_name">> => <<"${proto_name}">>,
+                             <<"peerhost">> => [<<"${peerhost}">>, 1],
+                             <<"proto_name">> => #{<<"proto">> => <<"${proto_name}">>},
                              <<"mountpoint">> => <<"${mountpoint}">>,
                              <<"topic">> => <<"${topic}">>,
                              <<"action">> => <<"${action}">>}
