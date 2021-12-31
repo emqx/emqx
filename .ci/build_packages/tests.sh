@@ -69,86 +69,84 @@ emqx_prepare(){
 emqx_test(){
     cd "${PACKAGE_PATH}"
     local packagename="${PACKAGE_FILE_NAME}"
+    case "$PKG_SUFFIX" in
+        "zip")
+            unzip -q "${PACKAGE_PATH}/${packagename}"
+            export EMQX_ZONE__EXTERNAL__SERVER__KEEPALIVE=60 \
+                    EMQX_MQTT__MAX_TOPIC_ALIAS=10
+            sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
-        case ${packagename##*.} in
-            "zip")
-                unzip -q "${PACKAGE_PATH}/${packagename}"
-                export EMQX_ZONE__EXTERNAL__SERVER__KEEPALIVE=60 \
-                       EMQX_MQTT__MAX_TOPIC_ALIAS=10
-                sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
-
-                echo "running ${packagename} start"
-                if ! "${PACKAGE_PATH}"/emqx/bin/emqx start; then
-                    cat "${PACKAGE_PATH}"/emqx/log/erlang.log.1 || true
-                    cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
-                    exit 1
-                fi
-                IDLE_TIME=0
-                while ! "${PACKAGE_PATH}"/emqx/bin/emqx_ctl status | grep -qE 'Node\s.*@.*\sis\sstarted'
-                do
-                    if [ $IDLE_TIME -gt 10 ]
-                    then
-                        echo "emqx running error"
-                        exit 1
-                    fi
-                    sleep 10
-                    IDLE_TIME=$((IDLE_TIME+1))
-                done
-                pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
-                "${PACKAGE_PATH}"/emqx/bin/emqx stop
-                echo "running ${packagename} stop"
-                rm -rf "${PACKAGE_PATH}"/emqx
-            ;;
-            "deb")
-                dpkg -i "${PACKAGE_PATH}/${packagename}"
-                if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "ii" ]
+            echo "running ${packagename} start"
+            if ! "${PACKAGE_PATH}"/emqx/bin/emqx start; then
+                cat "${PACKAGE_PATH}"/emqx/log/erlang.log.1 || true
+                cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
+                exit 1
+            fi
+            IDLE_TIME=0
+            while ! "${PACKAGE_PATH}"/emqx/bin/emqx_ctl status | grep -qE 'Node\s.*@.*\sis\sstarted'
+            do
+                if [ $IDLE_TIME -gt 10 ]
                 then
-                    echo "package install error"
+                    echo "emqx running error"
                     exit 1
                 fi
+                sleep 10
+                IDLE_TIME=$((IDLE_TIME+1))
+            done
+            pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
+            "${PACKAGE_PATH}"/emqx/bin/emqx stop
+            echo "running ${packagename} stop"
+            rm -rf "${PACKAGE_PATH}"/emqx
+        ;;
+        "deb")
+            dpkg -i "${PACKAGE_PATH}/${packagename}"
+            if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "ii" ]
+            then
+                echo "package install error"
+                exit 1
+            fi
 
-                echo "running ${packagename} start"
-                running_test
-                echo "running ${packagename} stop"
+            echo "running ${packagename} start"
+            running_test
+            echo "running ${packagename} stop"
 
-                dpkg -r "${EMQX_NAME}"
-                if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "rc" ]
-                then
-                    echo "package remove error"
-                    exit 1
-                fi
+            dpkg -r "${EMQX_NAME}"
+            if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "rc" ]
+            then
+                echo "package remove error"
+                exit 1
+            fi
 
-                dpkg -P "${EMQX_NAME}"
-                if dpkg -l |grep -q emqx
-                then
-                    echo "package uninstall error"
-                    exit 1
-                fi
-            ;;
-            "rpm")
-                if [[ "${ARCH}" == "amd64" && $(rpm -E '%{rhel}') == 7 ]] ; then
-                    # EMQX OTP requires openssl11 to have TLS1.3 support
-                    yum install -y openssl11
-                fi
+            dpkg -P "${EMQX_NAME}"
+            if dpkg -l |grep -q emqx
+            then
+                echo "package uninstall error"
+                exit 1
+            fi
+        ;;
+        "rpm")
+            if [[ "${ARCH}" == "amd64" && $(rpm -E '%{rhel}') == 7 ]] ; then
+                # EMQX OTP requires openssl11 to have TLS1.3 support
+                yum install -y openssl11
+            fi
 
-                rpm -ivh "${PACKAGE_PATH}/${packagename}"
-                if ! rpm -q emqx | grep -q emqx; then
-                    echo "package install error"
-                    exit 1
-                fi
+            rpm -ivh "${PACKAGE_PATH}/${packagename}"
+            if ! rpm -q emqx | grep -q emqx; then
+                echo "package install error"
+                exit 1
+            fi
 
-                echo "running ${packagename} start"
-                running_test
-                echo "running ${packagename} stop"
+            echo "running ${packagename} start"
+            running_test
+            echo "running ${packagename} stop"
 
-                rpm -e "${EMQX_NAME}"
-                if [ "$(rpm -q emqx)" != "package emqx is not installed" ];then
-                    echo "package uninstall error"
-                    exit 1
-                fi
-            ;;
-
-        esac
+            rpm -e "${EMQX_NAME}"
+            if [ "$(rpm -q emqx)" != "package emqx is not installed" ];then
+                echo "package uninstall error"
+                exit 1
+            fi
+        ;;
+    esac
 }
 
 running_test(){
