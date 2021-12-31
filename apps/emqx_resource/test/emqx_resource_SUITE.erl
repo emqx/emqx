@@ -96,9 +96,7 @@ t_query(_) ->
         ?assert(false)
     end,
 
-    ?assertException(
-       error,
-       {get_instance, _Reason},
+    ?assertMatch({error, {emqx_resource, #{reason := not_found}}},
        emqx_resource:query(<<"unknown">>, get_state)),
 
     ok = emqx_resource:remove_local(?ID).
@@ -142,7 +140,8 @@ t_stop_start(_) ->
 
     ?assertNot(is_process_alive(Pid0)),
 
-    ?assertMatch({emqx_resource, #{reason := stopped}}, emqx_resource:query(?ID, get_state)),
+    ?assertMatch({error, {emqx_resource, #{reason := stopped}}},
+        emqx_resource:query(?ID, get_state)),
 
     ok = emqx_resource:restart(?ID),
 
