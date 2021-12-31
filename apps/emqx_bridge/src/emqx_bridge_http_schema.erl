@@ -68,7 +68,6 @@ How long will the HTTP request timeout.
 
 fields("post") ->
     [ type_field()
-    , name_field()
     ] ++ fields("bridge");
 
 fields("put") ->
@@ -102,9 +101,6 @@ id_field() ->
 
 type_field() ->
     {type, mk(http, #{desc => "The Bridge Type"})}.
-
-name_field() ->
-    {name, mk(binary(), #{desc => "The Bridge Name"})}.
 
 method() ->
     enum([post, put, get, delete]).
