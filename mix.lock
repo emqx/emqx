@@ -23,7 +23,7 @@
   "gproc": {:git, "https://github.com/uwiger/gproc.git", "ce7397809aca0d6eb3aac6db65953752e47fb511", [tag: "0.8.0"]},
   "grpc": {:git, "https://github.com/emqx/grpc-erl", "9dd00ce65ecbd7fac2de5537edb9976d40b07fe9", [tag: "0.6.4"]},
   "gun": {:git, "https://github.com/emqx/gun.git", "89134e57b3e706c9851701907e00df69d84e9de5", [tag: "1.3.6"]},
-  "hocon": {:git, "https://github.com/emqx/hocon.git", "b6baf9c5fcbc3e9f0e72959cb18e863de4cc1d33", [tag: "0.22.0"]},
+  "hocon": {:git, "https://github.com/emqx/hocon.git", "0b1918a07620587a28ecec9c797b5c02c615cccd", [tag: "0.22.2"]},
   "hut": {:hex, :hut, "1.3.0", "71f2f054e657c03f959cf1acc43f436ea87580696528ca2a55c8afb1b06c85e7", [:"erlang.mk", :rebar, :rebar3], [], "hexpm", "7e15d28555d8a1f2b5a3a931ec120af0753e4853a4c66053db354f35bf9ab563"},
   "jiffy": {:git, "https://github.com/emqx/jiffy.git", "baa1f4e750ae3c5c9e54f9c2e52280b7fc24a8d9", [tag: "1.0.5"]},
   "jose": {:git, "https://github.com/potatosalad/erlang-jose.git", "991649695aaccd92c8effb1c1e88e6159fe8e9a6", [tag: "1.11.2"]},
