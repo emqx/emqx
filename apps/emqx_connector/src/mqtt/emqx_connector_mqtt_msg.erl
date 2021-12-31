@@ -78,10 +78,9 @@ to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
     Msg#message{topic = topic(Mountpoint, Topic)}.
 
 %% published from remote node over a MQTT connection
-to_broker_msg(#{dup := Dup, properties := Props} = MapMsg0,
+to_broker_msg(#{dup := Dup, properties := Props} = MapMsg,
             #{local_topic := TopicToken, payload := PayloadToken,
               local_qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) ->
-    MapMsg = format_msg_received(MapMsg0),
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = process_payload(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
@@ -89,33 +88,6 @@ to_broker_msg(#{dup := Dup, properties := Props} = MapMsg0,
     set_headers(Props,
         emqx_message:set_flags(#{dup => Dup, retain => Retain},
             emqx_message:make(bridge, QoS, topic(Mountpoint, Topic), Payload))).
-
-format_msg_received(#{dup := Dup, payload := Payload, properties := Props,
-        qos := QoS, retain := Retain, topic := Topic}) ->
-    #{event => '$bridges/mqtt',
-      id => emqx_guid:to_hexstr(emqx_guid:gen()),
-      payload => Payload,
-      topic => Topic,
-      qos => QoS,
-      flags => #{dup => Dup, retain => Retain},
-      pub_props => printable_maps(Props),
-      timestamp => erlang:system_time(millisecond),
-      node => node()
-    }.
-
-printable_maps(undefined) -> #{};
-printable_maps(Headers) ->
-    maps:fold(
-        fun ('User-Property', V0, AccIn) when is_list(V0) ->
-                AccIn#{
-                    'User-Property' => maps:from_list(V0),
-                    'User-Property-Pairs' => [#{
-                        key => Key,
-                        value => Value
-                     } || {Key, Value} <- V0]
-                };
-            (K, V0, AccIn) -> AccIn#{K => V0}
-        end, #{}, Headers).
 
 process_payload([], Msg) ->
     emqx_json:encode(Msg);

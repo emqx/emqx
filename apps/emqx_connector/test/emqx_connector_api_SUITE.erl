@@ -22,7 +22,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"connectors: {}">>).
+%% output functions
+-export([ inspect/3
+        ]).
+
 -define(BRIDGE_CONF_DEFAULT, <<"bridges: {}">>).
 -define(CONNECTR_TYPE, <<"mqtt">>).
 -define(CONNECTR_NAME, <<"test_connector">>).
@@ -67,6 +70,9 @@
       <<"failed">> := FAILED, <<"rate">> := SPEED,
       <<"rate_last5m">> := SPEED5M, <<"rate_max">> := SPEEDMAX}).
 
+inspect(Selected, _Envs, _Args) ->
+    persistent_term:put(?MODULE, #{inspect => Selected}).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -89,13 +95,15 @@ init_per_suite(Config) ->
     %% some testcases (may from other app) already get emqx_connector started
     _ = application:stop(emqx_resource),
     _ = application:stop(emqx_connector),
-    ok = emqx_common_test_helpers:start_apps([emqx_connector, emqx_bridge, emqx_dashboard]),
-    ok = emqx_config:init_load(emqx_connector_schema, ?CONF_DEFAULT),
+    ok = emqx_common_test_helpers:start_apps([emqx_rule_engine, emqx_connector,
+        emqx_bridge, emqx_dashboard]),
+    ok = emqx_config:init_load(emqx_connector_schema, <<"connectors: {}">>),
+    ok = emqx_config:init_load(emqx_rule_engine_schema, <<"rule_engine {rules {}}">>),
     ok = emqx_config:init_load(emqx_bridge_schema, ?BRIDGE_CONF_DEFAULT),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_connector, emqx_bridge, emqx_dashboard]),
+    emqx_common_test_helpers:stop_apps([emqx_rule_engine, emqx_connector, emqx_bridge, emqx_dashboard]),
     ok.
 
 init_per_testcase(_, Config) ->
@@ -223,7 +231,6 @@ t_mqtt_conn_bridge_ingress(_) ->
     %% PUBLISH a message to the 'remote' broker, as we have only one broker,
     %% the remote broker is also the local one.
     emqx:publish(emqx_message:make(RemoteTopic, Payload)),
-
     %% we should receive a message on the local broker, with specified topic
     ?assert(
         receive
@@ -434,6 +441,71 @@ t_mqtt_conn_testing(_) ->
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_EGRESS
         }).
+
+t_ingress_mqtt_bridge_with_rules(_) ->
+    {ok, 201, Connector} = request(post, uri(["connectors"]),
+        ?MQTT_CONNECOTR(<<"user1">>)#{ <<"type">> => ?CONNECTR_TYPE
+                               , <<"name">> => ?CONNECTR_NAME
+                               }),
+    #{ <<"id">> := ConnctorID } = jsx:decode(Connector),
+
+    {ok, 201, Bridge} = request(post, uri(["bridges"]),
+        ?MQTT_BRIDGE_INGRESS(ConnctorID)#{
+            <<"type">> => ?CONNECTR_TYPE,
+            <<"name">> => ?BRIDGE_NAME_INGRESS
+        }),
+    #{ <<"id">> := BridgeIDIngress } = jsx:decode(Bridge),
+
+    {ok, 201, Rule} = request(post, uri(["rules"]),
+        #{<<"name">> => <<"A rule get messages from a source mqtt bridge">>,
+          <<"enable">> => true,
+          <<"outputs">> => [#{<<"function">> => "emqx_connector_api_SUITE:inspect"}],
+          <<"sql">> => <<"SELECT * from \"$bridges/", BridgeIDIngress/binary, "\"">>
+        }),
+    #{<<"id">> := RuleId} = jsx:decode(Rule),
+
+    %% we now test if the bridge works as expected
+
+    RemoteTopic = <<"remote_topic/1">>,
+    LocalTopic = <<"local_topic/", RemoteTopic/binary>>,
+    Payload = <<"hello">>,
+    emqx:subscribe(LocalTopic),
+    %% PUBLISH a message to the 'remote' broker, as we have only one broker,
+    %% the remote broker is also the local one.
+    emqx:publish(emqx_message:make(RemoteTopic, Payload)),
+    %% we should receive a message on the local broker, with specified topic
+    ?assert(
+        receive
+            {deliver, LocalTopic, #message{payload = Payload}} ->
+                ct:pal("local broker got message: ~p on topic ~p", [Payload, LocalTopic]),
+                true;
+            Msg ->
+                ct:pal("Msg: ~p", [Msg]),
+                false
+        after 100 ->
+            false
+        end),
+    %% and also the rule should be matched, with matched + 1:
+    {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
+    #{ <<"id">> := RuleId
+     , <<"metrics">> := #{<<"matched">> := 1}
+     } = jsx:decode(Rule1),
+    %% we also check if the outputs of the rule is triggered
+    ?assertMatch(#{inspect := #{
+        event := '$bridges/mqtt',
+        id := MsgId,
+        payload := Payload,
+        topic := RemoteTopic,
+        qos := 0,
+        dup := false,
+        retain := false,
+        pub_props := #{},
+        timestamp := _
+    }} when is_binary(MsgId), persistent_term:get(?MODULE)),
+
+    {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDIngress]), []),
+    {ok, 204, <<>>} = request(delete, uri(["connectors", ConnctorID]), []).
 
 %%--------------------------------------------------------------------
 %% HTTP Request

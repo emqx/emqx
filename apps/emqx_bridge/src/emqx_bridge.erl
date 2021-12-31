@@ -81,12 +81,12 @@ on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
     case maps:get(sys, Flags, false) of
         false ->
             Msg = emqx_rule_events:eventmsg_publish(Message),
-            send_to_egress_matched_bridges(Topic, Msg);
+            send_to_matched_egress_bridges(Topic, Msg);
         true -> ok
     end,
     {ok, Message}.
 
-send_to_egress_matched_bridges(Topic, Msg) ->
+send_to_matched_egress_bridges(Topic, Msg) ->
     lists:foreach(fun (Id) ->
         try send_message(Id, Msg) of
             ok -> ok;
