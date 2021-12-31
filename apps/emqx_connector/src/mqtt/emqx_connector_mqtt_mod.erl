@@ -173,14 +173,26 @@ handle_publish(Msg, Vars) ->
             _ = erlang:apply(Mod, Func, [Msg | Args]);
         _ -> ok
     end,
-    case maps:get(local_topic, Vars, undefined) of
-        undefined -> ok;
-        _Topic ->
-            emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars))
-    end.
+    maybe_publish_to_local_broker(Msg, Vars).
 
 handle_disconnected(Reason, Parent) ->
     Parent ! {disconnected, self(), Reason}.
+
+maybe_publish_to_local_broker(#{topic := Topic} = Msg, #{remote_topic := SubTopic} = Vars) ->
+    case maps:get(local_topic, Vars, undefined) of
+        undefined ->
+            %% local topic is not set, discard it
+            ok;
+        _ ->
+            case emqx_topic:match(Topic, SubTopic) of
+                true ->
+                    _ = emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars)),
+                    ok;
+                false ->
+                    ?SLOG(warning, #{msg => "discard_message_as_topic_not_matched",
+                        message => Msg, subscribed => SubTopic, got_topic => Topic})
+            end
+    end.
 
 make_hdlr(Parent, Vars) ->
     #{puback => {fun ?MODULE:handle_puback/2, [Parent]},
