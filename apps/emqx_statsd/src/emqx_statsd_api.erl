@@ -55,13 +55,19 @@ statsd(get, _Params) ->
     {200, emqx:get_raw_config([<<"statsd">>], #{})};
 
 statsd(put, #{body := Body}) ->
-    {ok, Config} = emqx:update_config([statsd], Body),
-    case maps:get(<<"enable">>, Body) of
-        true ->
-            _ = emqx_statsd_sup:stop_child(?APP),
-            emqx_statsd_sup:start_child(?APP, maps:get(config, Config));
-        false ->
-            _ = emqx_statsd_sup:stop_child(?APP),
-            ok
-    end,
-    {200, emqx:get_raw_config([<<"statsd">>], #{})}.
+    case emqx:update_config([statsd],
+                            Body,
+                            #{rawconf_with_defaults => true, override_to => cluster}) of
+        {ok, #{raw_config := NewConfig, config := Config}} ->
+            case maps:get(<<"enable">>, Body) of
+                true ->
+                    _ = emqx_statsd_sup:stop_child(?APP),
+                    emqx_statsd_sup:start_child(?APP, maps:get(config, Config));
+                false ->
+                    _ = emqx_statsd_sup:stop_child(?APP)
+            end,
+            {200, NewConfig};
+        {error, Reason} ->
+            Message = list_to_binary(io_lib:format("Update config failed ~p", [Reason])),
+            {500, 'INTERNAL_ERROR', Message}
+    end.

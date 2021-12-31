@@ -94,7 +94,7 @@ terminate(_Reason, #state{estatsd_pid = Pid}) ->
     ok.
 
 %%------------------------------------------------------------------------------
-%% Internale function
+%% Internal function
 %%------------------------------------------------------------------------------
 trans_metrics_name(Name) ->
     Name0 = atom_to_binary(Name, utf8),
