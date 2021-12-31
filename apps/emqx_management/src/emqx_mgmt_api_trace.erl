@@ -304,13 +304,16 @@ download_trace_log(get, #{bindings := #{name := Name}}) ->
             Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
             ZipFileName = ZipDir ++ binary_to_list(Name) ++ ".zip",
             {ok, ZipFile} = zip:zip(ZipFileName, Zips, [{cwd, ZipDir}]),
-            emqx_trace:delete_files_after_send(ZipFileName, Zips),
+            %% emqx_trace:delete_files_after_send(ZipFileName, Zips),
+            %% TODO use file replace file_binary.(delete file after send is not ready now).
+            {ok, Binary} = file:read_file(ZipFile),
+            ZipName = filename:basename(ZipFile),
+            file:delete(ZipFile),
             Headers = #{
                 <<"content-type">> => <<"application/x-zip">>,
-                <<"content-disposition">> =>
-                iolist_to_binary("attachment; filename=" ++ filename:basename(ZipFile))
+                <<"content-disposition">> => iolist_to_binary("attachment; filename=" ++ ZipName)
             },
-            {200, Headers, {file, ZipFile}};
+            {200, Headers, {file_binary, ZipName, Binary}};
         {error, not_found} -> ?NOT_FOUND(Name)
     end.
 
