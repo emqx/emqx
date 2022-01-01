@@ -59,12 +59,10 @@ statsd(put, #{body := Body}) ->
                             Body,
                             #{rawconf_with_defaults => true, override_to => cluster}) of
         {ok, #{raw_config := NewConfig, config := Config}} ->
+            _ = emqx_statsd_sup:stop_child(?APP),
             case maps:get(<<"enable">>, Body) of
-                true ->
-                    _ = emqx_statsd_sup:stop_child(?APP),
-                    emqx_statsd_sup:start_child(?APP, maps:get(config, Config));
-                false ->
-                    _ = emqx_statsd_sup:stop_child(?APP)
+                true -> emqx_statsd_sup:start_child(?APP, maps:get(config, Config));
+                false -> ok
             end,
             {200, NewConfig};
         {error, Reason} ->

@@ -39,11 +39,14 @@
         , lookup/3
         , list/0
         , list_bridges_by_connector/1
+        , create/2
         , create/3
         , recreate/2
         , recreate/3
         , create_dry_run/2
+        , remove/1
         , remove/3
+        , update/2
         , update/3
         , start/2
         , stop/2
@@ -81,12 +84,12 @@ on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
     case maps:get(sys, Flags, false) of
         false ->
             Msg = emqx_rule_events:eventmsg_publish(Message),
-            send_to_egress_matched_bridges(Topic, Msg);
+            send_to_matched_egress_bridges(Topic, Msg);
         true -> ok
     end,
     {ok, Message}.
 
-send_to_egress_matched_bridges(Topic, Msg) ->
+send_to_matched_egress_bridges(Topic, Msg) ->
     lists:foreach(fun (Id) ->
         try send_message(Id, Msg) of
             ok -> ok;
@@ -207,6 +210,10 @@ stop(Type, Name) ->
 restart(Type, Name) ->
     emqx_resource:restart(resource_id(Type, Name)).
 
+create(BridgeId, Conf) ->
+    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
+    create(BridgeType, BridgeName, Conf).
+
 create(Type, Name, Conf) ->
     ?SLOG(info, #{msg => "create bridge", type => Type, name => Name,
         config => Conf}),
@@ -216,6 +223,10 @@ create(Type, Name, Conf) ->
         {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
         {error, Reason} -> {error, Reason}
     end.
+
+update(BridgeId, {OldConf, Conf}) ->
+    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
+    update(BridgeType, BridgeName, {OldConf, Conf}).
 
 update(Type, Name, {OldConf, Conf}) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
@@ -262,6 +273,10 @@ create_dry_run(Type, Conf) ->
         {error, _} = Error ->
             Error
     end.
+
+remove(BridgeId) ->
+    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
+    remove(BridgeType, BridgeName, #{}).
 
 remove(Type, Name, _Conf) ->
     ?SLOG(info, #{msg => "remove_bridge", type => Type, name => Name}),
