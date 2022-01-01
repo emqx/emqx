@@ -75,7 +75,7 @@ save_files_return_opts(Options, Dir) ->
     CA = do_save_file(CAFile, Dir),
     Verify = GetD(verify, verify_none),
     SNI = Get(server_name_indication),
-    Versions = emqx_tls_lib:integral_versions(Get(tls_versions)),
+    Versions = emqx_tls_lib:integral_versions(Get(versions)),
     Ciphers = emqx_tls_lib:integral_ciphers(Versions, Get(ciphers)),
     filter([{keyfile, Key}, {certfile, Cert}, {cacertfile, CA},
             {verify, Verify}, {server_name_indication, SNI}, {versions, Versions}, {ciphers, Ciphers}]).

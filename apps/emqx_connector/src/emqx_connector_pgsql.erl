@@ -59,10 +59,12 @@ on_start(InstId, #{server := {Host, Port},
     ?SLOG(info, #{msg => "starting postgresql connector",
                   connector => InstId, config => Config}),
     SslOpts = case maps:get(enable, SSL) of
-        true ->
-            [{ssl, [{server_name_indication, disable} |
-                    emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)]}];
-        false -> []
+                  true ->
+                      [{ssl, true},
+                       {ssl_opts,
+                        emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)}];
+                  false ->
+                      [{ssl, false}]
     end,
     Options = [{host, Host},
                {port, Port},

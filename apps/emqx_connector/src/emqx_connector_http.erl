@@ -203,10 +203,12 @@ on_query(InstId, {KeyOrNum, Method, Request, Timeout}, AfterQuery,
                    request => Request, connector => InstId,
                    state => State}),
     NRequest = update_path(BasePath, Request),
-    case Result = ehttpc:request(case KeyOrNum of
-                                     undefined -> PoolName;
-                                     _ -> {PoolName, KeyOrNum}
-                                 end, Method, NRequest, Timeout) of
+    Name = case KeyOrNum of
+               undefined -> PoolName;
+               _ -> {PoolName, KeyOrNum}
+           end,
+    Result = ehttpc:request(Name, Method, NRequest, Timeout),
+    case Result of
         {error, Reason} ->
             ?SLOG(error, #{msg => "http connector do reqeust failed",
                            request => NRequest, reason => Reason,

@@ -1,13 +1,15 @@
 version: '3.9'
 
 services:
-  redis_server:
-    container_name: redis
+  redis_server_tls:
+    container_name: redis-tls
     image: redis:${REDIS_TAG}
     volumes:
-      - ../../apps/emqx/etc/certs/cacert.pem:/etc/certs/ca.crt
-      - ../../apps/emqx/etc/certs/cert.pem:/etc/certs/redis.crt
-      - ../../apps/emqx/etc/certs/key.pem:/etc/certs/redis.key
+      - ./certs/server.crt:/etc/certs/redis.crt
+      - ./certs/server.key:/etc/certs/redis.key
+      - ./certs/ca.crt:/etc/certs/ca.crt
+    ports:
+      - "6380:6380"
     command:
       - redis-server
       - "--bind 0.0.0.0 ::"
@@ -16,6 +18,8 @@ services:
       - --tls-cert-file /etc/certs/redis.crt
       - --tls-key-file /etc/certs/redis.key
       - --tls-ca-cert-file /etc/certs/ca.crt
+      - --tls-protocols "TLSv1.3"
+      - --tls-ciphersuites "TLS_CHACHA20_POLY1305_SHA256"
     restart: always
     networks:
-      - emqx_bridge
+      emqx_bridge:

@@ -114,8 +114,8 @@ certfile(_) -> undefined.
 keyfile(type) -> string();
 keyfile(_) -> undefined.
 
-verify(type) -> boolean();
-verify(default) -> false;
+verify(type) -> hoconsc:enum([verify_peer, verify_none]);
+verify(default) -> verify_none;
 verify(_) -> undefined.
 
 server_name_indication(type) -> string();
