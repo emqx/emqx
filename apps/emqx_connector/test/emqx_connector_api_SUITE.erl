@@ -108,6 +108,9 @@ end_per_suite(_Config) ->
 
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    %% assert we there's no connectors and no bridges at first
+    {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
     Config.
 end_per_testcase(_, _Config) ->
     clear_resources(),
@@ -200,10 +203,6 @@ t_mqtt_crud_apis(_) ->
     ok.
 
 t_mqtt_conn_bridge_ingress(_) ->
-    %% assert we there's no connectors and no bridges at first
-    {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
-    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
-
     %% then we add a mqtt connector, using POST
     User1 = <<"user1">>,
     {ok, 201, Connector} = request(post, uri(["connectors"]),
@@ -272,10 +271,6 @@ t_mqtt_conn_bridge_ingress(_) ->
     ok.
 
 t_mqtt_conn_bridge_egress(_) ->
-    %% assert we there's no connectors and no bridges at first
-    {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
-    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
-
     %% then we add a mqtt connector, using POST
     User1 = <<"user1">>,
     {ok, 201, Connector} = request(post, uri(["connectors"]),
@@ -350,10 +345,6 @@ t_mqtt_conn_bridge_egress(_) ->
 %% - update a connector should also update all of the the bridges
 %% - cannot delete a connector that is used by at least one bridge
 t_mqtt_conn_update(_) ->
-    %% assert we there's no connectors and no bridges at first
-    {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
-    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
-
     %% then we add a mqtt connector, using POST
     {ok, 201, Connector} = request(post, uri(["connectors"]),
                             ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)
@@ -396,10 +387,6 @@ t_mqtt_conn_update(_) ->
     {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []).
 
 t_mqtt_conn_update2(_) ->
-    %% assert we there's no connectors and no bridges at first
-    {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
-    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
-
     %% then we add a mqtt connector, using POST
     %% but this connector is point to a unreachable server "2603"
     {ok, 201, Connector} = request(post, uri(["connectors"]),
@@ -439,6 +426,34 @@ t_mqtt_conn_update2(_) ->
     %% delete the connector
     {ok, 204, <<>>} = request(delete, uri(["connectors", ConnctorID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []).
+
+t_mqtt_conn_update3(_) ->
+    %% we add a mqtt connector, using POST
+    {ok, 201, Connector} = request(post, uri(["connectors"]),
+                            ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)
+                                #{ <<"type">> => ?CONNECTR_TYPE
+                                 , <<"name">> => ?CONNECTR_NAME
+                                 }),
+    #{ <<"id">> := ConnctorID } = jsx:decode(Connector),
+
+    %% ... and a MQTT bridge, using POST
+    %% we bind this bridge to the connector created just now
+    {ok, 201, Bridge} = request(post, uri(["bridges"]),
+        ?MQTT_BRIDGE_EGRESS(ConnctorID)#{
+            <<"type">> => ?CONNECTR_TYPE,
+            <<"name">> => ?BRIDGE_NAME_EGRESS
+        }),
+    #{ <<"id">> := BridgeIDEgress
+     , <<"status">> := <<"connected">>
+     , <<"connector">> := ConnctorID
+     } = jsx:decode(Bridge),
+
+    %% delete the connector should fail because it is in use by a bridge
+    {ok, 403, _} = request(delete, uri(["connectors", ConnctorID]), []),
+    %% delete the bridge
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
+    %% the connector now can be deleted without problems
+    {ok, 204, <<>>} = request(delete, uri(["connectors", ConnctorID]), []).
 
 t_mqtt_conn_testing(_) ->
     %% APIs for testing the connectivity

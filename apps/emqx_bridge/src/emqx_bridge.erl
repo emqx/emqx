@@ -259,7 +259,7 @@ update(Type, Name, {OldConf, Conf}) ->
     end.
 
 recreate(Type, Name) ->
-    recreate(Type, Name, emqx:get_raw_config([bridges, Type, Name])).
+    recreate(Type, Name, emqx:get_config([bridges, Type, Name])).
 
 recreate(Type, Name, Conf) ->
     emqx_resource:recreate_local(resource_id(Type, Name),

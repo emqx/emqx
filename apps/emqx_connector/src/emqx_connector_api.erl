@@ -253,6 +253,10 @@ schema("/connectors/:id") ->
             {ok, _} ->
                 case emqx_connector:delete(ConnType, ConnName) of
                     {ok, _} -> {204};
+                    {error, {post_config_update, _, {dependency_bridges_exist, BridgeID}}} ->
+                        {403, error_msg('DEPENDENCY_EXISTS',
+                             <<"Cannot remove the connector as it's in use by a bridge: ",
+                                BridgeID/binary>>)};
                     {error, Error} -> {400, error_msg('BAD_ARG', Error)}
                 end;
             {error, not_found} ->
