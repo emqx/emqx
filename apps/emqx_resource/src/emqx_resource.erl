@@ -58,6 +58,7 @@
 %% Calls to the callback module with current resource state
 %% They also save the state after the call finished (except query/2,3).
 -export([ restart/1  %% restart the instance.
+        , restart/2
         , health_check/1 %% verify if the resource is working normally
         , stop/1   %% stop the instance
         , query/2  %% query the instance
@@ -68,7 +69,6 @@
 -export([ call_start/3  %% start the instance
         , call_health_check/3 %% verify if the resource is working normally
         , call_stop/3   %% stop the instance
-        , call_config_merge/4 %% merge the config when updating
         , call_jsonify/2
         ]).
 
@@ -86,11 +86,8 @@
 
 -optional_callbacks([ on_query/4
                     , on_health_check/2
-                    , on_config_merge/3
                     , on_jsonify/1
                     ]).
-
--callback on_config_merge(resource_config(), resource_config(), term()) -> resource_config().
 
 -callback on_jsonify(resource_config()) -> jsx:json_term().
 
@@ -169,18 +166,17 @@ create_dry_run(ResourceType, Config) ->
 -spec create_dry_run_local(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run_local(ResourceType, Config) ->
-    InstId = emqx_resource_instance:make_test_id(),
-    call_instance(InstId, {create_dry_run, InstId, ResourceType, Config}).
+    call_instance(<<?TEST_ID_PREFIX>>, {create_dry_run, ResourceType, Config}).
 
--spec recreate(instance_id(), resource_type(), resource_config(), term()) ->
+-spec recreate(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
-recreate(InstId, ResourceType, Config, Params) ->
-    cluster_call(recreate_local, [InstId, ResourceType, Config, Params]).
+recreate(InstId, ResourceType, Config, Opts) ->
+    cluster_call(recreate_local, [InstId, ResourceType, Config, Opts]).
 
--spec recreate_local(instance_id(), resource_type(), resource_config(), term()) ->
+-spec recreate_local(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
-recreate_local(InstId, ResourceType, Config, Params) ->
-    call_instance(InstId, {recreate, InstId, ResourceType, Config, Params}).
+recreate_local(InstId, ResourceType, Config, Opts) ->
+    call_instance(InstId, {recreate, InstId, ResourceType, Config, Opts}).
 
 -spec remove(instance_id()) -> ok | {error, Reason :: term()}.
 remove(InstId) ->
@@ -216,7 +212,11 @@ query(InstId, Request, AfterQuery) ->
 
 -spec restart(instance_id()) -> ok | {error, Reason :: term()}.
 restart(InstId) ->
-    call_instance(InstId, {restart, InstId}).
+    restart(InstId, #{}).
+
+-spec restart(instance_id(), create_opts()) -> ok | {error, Reason :: term()}.
+restart(InstId, Opts) ->
+    call_instance(InstId, {restart, InstId, Opts}).
 
 -spec stop(instance_id()) -> ok | {error, Reason :: term()}.
 stop(InstId) ->
@@ -276,14 +276,6 @@ call_health_check(InstId, Mod, ResourceState) ->
 call_stop(InstId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_stop(InstId, ResourceState)).
 
--spec call_config_merge(module(), resource_config(), resource_config(), term()) ->
-    resource_config().
-call_config_merge(Mod, OldConfig, NewConfig, Params) ->
-    case erlang:function_exported(Mod, on_config_merge, 3) of
-        true -> ?SAFE_CALL(Mod:on_config_merge(OldConfig, NewConfig, Params));
-        false -> NewConfig
-    end.
-
 -spec call_jsonify(module(), resource_config()) -> jsx:json_term().
 call_jsonify(Mod, Config) ->
     case erlang:function_exported(Mod, on_jsonify, 1) of
@@ -330,17 +322,17 @@ check_and_create_local(InstId, ResourceType, RawConfig, Opts) ->
     check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> create_local(InstId, ResourceType, InstConf, Opts) end).
 
--spec check_and_recreate(instance_id(), resource_type(), raw_resource_config(), term()) ->
+-spec check_and_recreate(instance_id(), resource_type(), raw_resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, term()}.
-check_and_recreate(InstId, ResourceType, RawConfig, Params) ->
+check_and_recreate(InstId, ResourceType, RawConfig, Opts) ->
     check_and_do(ResourceType, RawConfig,
-        fun(InstConf) -> recreate(InstId, ResourceType, InstConf, Params) end).
+        fun(InstConf) -> recreate(InstId, ResourceType, InstConf, Opts) end).
 
--spec check_and_recreate_local(instance_id(), resource_type(), raw_resource_config(), term()) ->
+-spec check_and_recreate_local(instance_id(), resource_type(), raw_resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, term()}.
-check_and_recreate_local(InstId, ResourceType, RawConfig, Params) ->
+check_and_recreate_local(InstId, ResourceType, RawConfig, Opts) ->
     check_and_do(ResourceType, RawConfig,
-        fun(InstConf) -> recreate_local(InstId, ResourceType, InstConf, Params) end).
+        fun(InstConf) -> recreate_local(InstId, ResourceType, InstConf, Opts) end).
 
 check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
     case check_config(ResourceType, RawConfig) of

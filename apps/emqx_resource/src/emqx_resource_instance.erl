@@ -103,17 +103,17 @@ init({Pool, Id}) ->
 handle_call({create, InstId, ResourceType, Config, Opts}, _From, State) ->
     {reply, do_create(InstId, ResourceType, Config, Opts), State};
 
-handle_call({create_dry_run, InstId, ResourceType, Config}, _From, State) ->
-    {reply, do_create_dry_run(InstId, ResourceType, Config), State};
+handle_call({create_dry_run, ResourceType, Config}, _From, State) ->
+    {reply, do_create_dry_run(ResourceType, Config), State};
 
-handle_call({recreate, InstId, ResourceType, Config, Params}, _From, State) ->
-    {reply, do_recreate(InstId, ResourceType, Config, Params), State};
+handle_call({recreate, InstId, ResourceType, Config, Opts}, _From, State) ->
+    {reply, do_recreate(InstId, ResourceType, Config, Opts), State};
 
 handle_call({remove, InstId}, _From, State) ->
     {reply, do_remove(InstId), State};
 
-handle_call({restart, InstId}, _From, State) ->
-    {reply, do_restart(InstId), State};
+handle_call({restart, InstId, Opts}, _From, State) ->
+    {reply, do_restart(InstId, Opts), State};
 
 handle_call({stop, InstId}, _From, State) ->
     {reply, do_stop(InstId), State};
@@ -142,20 +142,17 @@ code_change(_OldVsn, State, _Extra) ->
 %% suppress the race condition check, as these functions are protected in gproc workers
 -dialyzer({nowarn_function, [do_recreate/4,
                              do_create/4,
-                             do_restart/1,
+                             do_restart/2,
                              do_stop/1,
                              do_health_check/1]}).
 
-do_recreate(InstId, ResourceType, NewConfig, Params) ->
+do_recreate(InstId, ResourceType, NewConfig, Opts) ->
     case lookup(InstId) of
-        {ok, #{mod := ResourceType, state := ResourceState, config := OldConfig}} ->
-            Config = emqx_resource:call_config_merge(ResourceType, OldConfig,
-                        NewConfig, Params),
-            TestInstId = make_test_id(),
-            case do_create_dry_run(TestInstId, ResourceType, Config) of
+        {ok, #{mod := ResourceType} = Data} ->
+            case do_create_dry_run(ResourceType, NewConfig) of
                 ok ->
-                    do_remove(ResourceType, InstId, ResourceState, false),
-                    do_create(InstId, ResourceType, Config, #{force_create => true});
+                    do_remove(Data, false),
+                    do_create(InstId, ResourceType, NewConfig, Opts#{force_create => true});
                 Error ->
                     Error
             end;
@@ -166,99 +163,85 @@ do_recreate(InstId, ResourceType, NewConfig, Params) ->
     end.
 
 do_create(InstId, ResourceType, Config, Opts) ->
-    ForceCreate = maps:get(force_create, Opts, false),
     case lookup(InstId) of
         {ok, _} -> {ok, already_created};
-        _ ->
-            Res0 = #{id => InstId, mod => ResourceType, config => Config,
-                     status => starting, state => undefined},
-            %% The `emqx_resource:call_start/3` need the instance exist beforehand
-            ets:insert(emqx_resource_instance, {InstId, Res0}),
-            case emqx_resource:call_start(InstId, ResourceType, Config) of
-                {ok, ResourceState} ->
-                    ok = emqx_plugin_libs_metrics:create_metrics(resource_metrics, InstId),
-                    %% this is the first time we do health check, this will update the
-                    %% status and then do ets:insert/2
-                    _ = do_health_check(Res0#{state => ResourceState}),
-                    HealthCheckInterval = maps:get(health_check_interval, Opts, 15000),
-                    emqx_resource_health_check_sup:create_health_check_process(InstId, HealthCheckInterval),
+        {error, not_found} ->
+            case do_start(InstId, ResourceType, Config, Opts) of
+                ok ->
+                    ok = emqx_resource_health_check_sup:create_checker(InstId,
+                        maps:get(health_check_interval, Opts, 15000)),
+                    ok = emqx_plugin_libs_metrics:clear_metrics(resource_metrics, InstId),
                     {ok, force_lookup(InstId)};
-                {error, Reason} when ForceCreate == true ->
-                    logger:error("start ~ts resource ~ts failed: ~p, "
-                                 "force_create it as a stopped resource",
-                                 [ResourceType, InstId, Reason]),
-                    ets:insert(emqx_resource_instance, {InstId, Res0}),
-                    {ok, Res0};
-                {error, Reason} when ForceCreate == false ->
-                    ets:delete(emqx_resource_instance, InstId),
-                    {error, Reason}
+                Error -> Error
             end
     end.
 
-do_create_dry_run(InstId, ResourceType, Config) ->
-    case emqx_resource:call_start(InstId, ResourceType, Config) of
-        {ok, ResourceState0} ->
-            Return = case emqx_resource:call_health_check(InstId, ResourceType, ResourceState0) of
-                {ok, ResourceState1} -> ok;
-                {error, Reason, ResourceState1} ->
-                    {error, Reason}
-            end,
-            _ = emqx_resource:call_stop(InstId, ResourceType, ResourceState1),
+do_create_dry_run(ResourceType, Config) ->
+    InstId = make_test_id(),
+    Opts = #{force_create => false},
+    case do_create(InstId, ResourceType, Config, Opts) of
+        {ok, Data} ->
+            Return = do_health_check(Data),
+            _ = do_remove(Data),
             Return;
         {error, Reason} ->
             {error, Reason}
     end.
 
-do_remove(InstId) ->
-    case lookup(InstId) of
-        {ok, #{mod := Mod, state := ResourceState}} ->
-            do_remove(Mod, InstId, ResourceState);
-        Error ->
-            Error
-    end.
+do_remove(Instance) ->
+    do_remove(Instance, true).
 
-do_remove(Mod, InstId, ResourceState) ->
-    do_remove(Mod, InstId, ResourceState, true).
-
-do_remove(Mod, InstId, ResourceState, ClearMetrics) ->
-    _ = emqx_resource:call_stop(InstId, Mod, ResourceState),
+do_remove(InstId, ClearMetrics) when is_binary(InstId) ->
+    do_with_instance_data(InstId, fun do_remove/2, [ClearMetrics]);
+do_remove(#{id := InstId} = Data, ClearMetrics) ->
+    _ = do_stop(Data),
     ets:delete(emqx_resource_instance, InstId),
     case ClearMetrics of
         true -> ok = emqx_plugin_libs_metrics:clear_metrics(resource_metrics, InstId);
         false -> ok
     end,
-    _ = emqx_resource_health_check_sup:delete_health_check_process(InstId),
+    _ = emqx_resource_health_check_sup:delete_checker(InstId),
     ok.
 
-do_restart(InstId) ->
+do_restart(InstId, Opts) ->
     case lookup(InstId) of
-        {ok, #{mod := Mod, state := ResourceState, config := Config} = Data} ->
-            _ = case ResourceState of
-                undefined -> ok;
-                _ -> emqx_resource:call_stop(InstId, Mod, ResourceState)
-            end,
-            case emqx_resource:call_start(InstId, Mod, Config) of
-                {ok, NewResourceState} ->
-                    ets:insert(emqx_resource_instance,
-                        {InstId, Data#{state => NewResourceState, status => started}}),
-                    ok;
-                {error, Reason} ->
-                    ets:insert(emqx_resource_instance, {InstId, Data#{status => stopped}}),
-                    {error, Reason}
-            end;
+        {ok, #{mod := ResourceType, config := Config} = Data} ->
+            ok = do_stop(Data),
+            do_start(InstId, ResourceType, Config, Opts);
         Error ->
             Error
     end.
 
-do_stop(InstId) ->
-    case lookup(InstId) of
-        {ok, #{mod := Mod, state := ResourceState} = Data} ->
-            _ = emqx_resource:call_stop(InstId, Mod, ResourceState),
-            ets:insert(emqx_resource_instance, {InstId, Data#{status => stopped}}),
+do_start(InstId, ResourceType, Config, Opts) when is_binary(InstId) ->
+    ForceCreate = maps:get(force_create, Opts, false),
+    Res0 = #{id => InstId, mod => ResourceType, config => Config,
+             status => starting, state => undefined},
+    %% The `emqx_resource:call_start/3` need the instance exist beforehand
+    ets:insert(emqx_resource_instance, {InstId, Res0}),
+    case emqx_resource:call_start(InstId, ResourceType, Config) of
+        {ok, ResourceState} ->
+            %% this is the first time we do health check, this will update the
+            %% status and then do ets:insert/2
+            _ = do_health_check(Res0#{state => ResourceState}),
             ok;
-        Error ->
-            Error
+        {error, Reason} when ForceCreate == true ->
+            logger:warning("start ~ts resource ~ts failed: ~p, force_create it",
+                [ResourceType, InstId, Reason]),
+            ets:insert(emqx_resource_instance, {InstId, Res0}),
+            ok;
+        {error, Reason} when ForceCreate == false ->
+            ets:delete(emqx_resource_instance, InstId),
+            {error, Reason}
     end.
+
+do_stop(InstId) when is_binary(InstId) ->
+    do_with_instance_data(InstId, fun do_stop/1, []);
+do_stop(#{state := undefined}) ->
+    ok;
+do_stop(#{id := InstId, mod := Mod, state := ResourceState} = Data) ->
+    _ = emqx_resource:call_stop(InstId, Mod, ResourceState),
+    ets:insert(emqx_resource_instance, {InstId, Data#{status => stopped}}),
+    ok.
 
 do_health_check(InstId) when is_binary(InstId) ->
     case lookup(InstId) of
@@ -283,6 +266,12 @@ do_health_check(#{id := InstId, mod := Mod, state := ResourceState0} = Data) ->
 %%------------------------------------------------------------------------------
 %% internal functions
 %%------------------------------------------------------------------------------
+
+do_with_instance_data(InstId, Do, Args) ->
+    case lookup(InstId) of
+        {ok, Data} -> erlang:apply(Do, [Data | Args]);
+        Error -> Error
+    end.
 
 proc_name(Mod, Id) ->
     list_to_atom(lists:concat([Mod, "_", Id])).

@@ -15,29 +15,21 @@
 %%--------------------------------------------------------------------
 -module(emqx_resource_health_check).
 
--export([child_spec/2]).
-
 -export([start_link/2]).
 
 -export([health_check/2]).
 
-child_spec(Name, Sleep) -> 
-    #{id => {health_check, Name},
-      start => {?MODULE, start_link, [Name, Sleep]},
-      restart => transient,
-      shutdown => 5000, type => worker, modules => [?MODULE]}.
-
-start_link(Name, Sleep) -> 
+start_link(Name, Sleep) ->
     Pid = proc_lib:spawn_link(?MODULE, health_check, [Name, Sleep]),
     {ok, Pid}.
 
-health_check(Name, SleepTime) -> 
+health_check(Name, SleepTime) ->
     timer:sleep(SleepTime),
-    case emqx_resource:health_check(Name) of 
-        ok -> 
+    case emqx_resource:health_check(Name) of
+        ok ->
             emqx_alarm:deactivate(Name);
-        {error, _} -> 
-            emqx_alarm:activate(Name, #{name => Name}, 
-                                <<Name/binary, " health check failed">>)
+        {error, _} ->
+            emqx_alarm:activate(Name, #{name => Name},
+                <<Name/binary, " health check failed">>)
     end,
     health_check(Name, SleepTime).
