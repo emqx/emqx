@@ -35,6 +35,7 @@
         ]).
 
 -export([ load/0
+        , lookup/1
         , lookup/2
         , lookup/3
         , list/0
@@ -190,6 +191,10 @@ list() ->
 list_bridges_by_connector(ConnectorId) ->
     [B || B = #{raw_config := #{<<"connector">> := Id}} <- list(),
          ConnectorId =:= Id].
+
+lookup(Id) ->
+    {Type, Name} = parse_bridge_id(Id),
+    lookup(Type, Name).
 
 lookup(Type, Name) ->
     RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),
