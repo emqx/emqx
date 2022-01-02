@@ -19,18 +19,7 @@
 
 -export([start_link/0]).
 
--export([init/1,
-         create_checker/2,
-         delete_checker/1]).
-
--define(HEALTH_CHECK_MOD, emqx_resource_health_check).
--define(ID(NAME), {resource_health_check, NAME}).
-
-child_spec(Name, Sleep) ->
-    #{id => ?ID(Name),
-      start => {?HEALTH_CHECK_MOD, start_link, [Name, Sleep]},
-      restart => transient,
-      shutdown => 5000, type => worker, modules => [?HEALTH_CHECK_MOD]}.
+-export([init/1]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
@@ -38,22 +27,3 @@ start_link() ->
 init([]) ->
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
     {ok, {SupFlags, []}}.
-
-create_checker(Name, Sleep) ->
-    case supervisor:start_child(?MODULE, child_spec(Name, Sleep)) of
-        {ok, _} -> ok;
-        {error, already_present} -> ok;
-        {error, {already_started, _}} -> ok;
-        Error -> Error
-    end.
-
-delete_checker(Name) ->
-    case supervisor:terminate_child(?MODULE, {health_check, Name}) of
-        ok ->
-            case supervisor:delete_child(?MODULE, {health_check, Name}) of
-                {error, not_found} -> ok;
-                Error -> Error
-            end;
-        {error, not_found} -> ok;
-        Error -> Error
-	end.

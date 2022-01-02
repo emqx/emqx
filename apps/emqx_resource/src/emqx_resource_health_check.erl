@@ -15,13 +15,46 @@
 %%--------------------------------------------------------------------
 -module(emqx_resource_health_check).
 
--export([start_link/2]).
+-export([ start_link/2
+        , create_checker/2
+        , delete_checker/1
+        ]).
 
 -export([health_check/2]).
+
+-define(SUP, emqx_resource_health_check_sup).
+-define(ID(NAME), {resource_health_check, NAME}).
+
+child_spec(Name, Sleep) ->
+    #{id => ?ID(Name),
+      start => {?MODULE, start_link, [Name, Sleep]},
+      restart => transient,
+      shutdown => 5000, type => worker, modules => [?MODULE]}.
 
 start_link(Name, Sleep) ->
     Pid = proc_lib:spawn_link(?MODULE, health_check, [Name, Sleep]),
     {ok, Pid}.
+
+create_checker(Name, Sleep) ->
+    case supervisor:start_child(?SUP, child_spec(Name, Sleep)) of
+        {ok, _} -> ok;
+        {error, already_present} -> ok;
+        {error, {already_started, _}} ->
+            ok = delete_checker(Name),
+            create_checker(Name, Sleep);
+        Error -> Error
+    end.
+
+delete_checker(Name) ->
+    case supervisor:terminate_child(?SUP, {health_check, Name}) of
+        ok ->
+            case supervisor:delete_child(?SUP, {health_check, Name}) of
+                {error, not_found} -> ok;
+                Error -> Error
+            end;
+        {error, not_found} -> ok;
+        Error -> Error
+	end.
 
 health_check(Name, SleepTime) ->
     timer:sleep(SleepTime),
