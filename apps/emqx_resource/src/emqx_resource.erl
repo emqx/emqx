@@ -82,7 +82,6 @@
         ]).
 
 -define(HOCON_CHECK_OPTS, #{atom_key => true, nullable => true}).
-
 -define(DEFAULT_RESOURCE_GROUP, <<"default">>).
 
 -optional_callbacks([ on_query/4
@@ -170,7 +169,7 @@ create_dry_run(ResourceType, Config) ->
 -spec create_dry_run_local(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run_local(ResourceType, Config) ->
-    InstId = iolist_to_binary(emqx_misc:gen_id(16)),
+    InstId = emqx_resource_instance:make_test_id(),
     call_instance(InstId, {create_dry_run, InstId, ResourceType, Config}).
 
 -spec recreate(instance_id(), resource_type(), resource_config(), term()) ->
@@ -201,14 +200,18 @@ query(InstId, Request) ->
 -spec query(instance_id(), Request :: term(), after_query()) -> Result :: term().
 query(InstId, Request, AfterQuery) ->
     case get_instance(InstId) of
+        {ok, #{status := starting}} ->
+            query_error(starting, <<"cannot serve query when the resource "
+                "instance is still starting">>);
         {ok, #{status := stopped}} ->
-            error({resource_stopped, InstId});
+            query_error(stopped, <<"cannot serve query when the resource "
+                "instance is stopped">>);
         {ok, #{mod := Mod, state := ResourceState, status := started}} ->
             %% the resource state is readonly to Module:on_query/4
             %% and the `after_query()` functions should be thread safe
             Mod:on_query(InstId, Request, AfterQuery, ResourceState);
-        {error, Reason} ->
-            error({get_instance, {InstId, Reason}})
+        {error, not_found} ->
+            query_error(not_found, <<"the resource id not exists">>)
     end.
 
 -spec restart(instance_id()) -> ok | {error, Reason :: term()}.
@@ -368,3 +371,6 @@ cluster_call(Func, Args) ->
         {ok, _TxnId, Result} -> Result;
         Failed -> Failed
     end.
+
+query_error(Reason, Msg) ->
+    {error, {?MODULE, #{reason => Reason, msg => Msg}}}.

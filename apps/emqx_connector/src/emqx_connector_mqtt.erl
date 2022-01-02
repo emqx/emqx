@@ -68,10 +68,6 @@ fields("put") ->
 
 fields("post") ->
     [ {type, mk(mqtt, #{desc => "The Connector Type"})}
-    , {name, mk(binary(),
-        #{ desc => "The Connector Name"
-         , example => <<"my_mqtt_connector">>
-         })}
     ] ++ fields("put").
 
 %% ===================================================================

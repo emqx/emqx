@@ -26,6 +26,7 @@
 -export([ lookup/1
         , get_metrics/1
         , list_all/0
+        , make_test_id/0
         ]).
 
 -export([ hash_call/2
@@ -61,13 +62,17 @@ hash_call(InstId, Request) ->
 hash_call(InstId, Request, Timeout) ->
     gen_server:call(pick(InstId), Request, Timeout).
 
--spec lookup(instance_id()) -> {ok, resource_data()} | {error, Reason :: term()}.
+-spec lookup(instance_id()) -> {ok, resource_data()} | {error, not_found}.
 lookup(InstId) ->
     case ets:lookup(emqx_resource_instance, InstId) of
         [] -> {error, not_found};
         [{_, Data}] ->
             {ok, Data#{id => InstId, metrics => get_metrics(InstId)}}
     end.
+
+make_test_id() ->
+    RandId = iolist_to_binary(emqx_misc:gen_id(16)),
+    <<?TEST_ID_PREFIX, RandId/binary>>.
 
 get_metrics(InstId) ->
     emqx_plugin_libs_metrics:get_metrics(resource_metrics, InstId).
@@ -146,7 +151,7 @@ do_recreate(InstId, ResourceType, NewConfig, Params) ->
         {ok, #{mod := ResourceType, state := ResourceState, config := OldConfig}} ->
             Config = emqx_resource:call_config_merge(ResourceType, OldConfig,
                         NewConfig, Params),
-            TestInstId = iolist_to_binary(emqx_misc:gen_id(16)),
+            TestInstId = make_test_id(),
             case do_create_dry_run(TestInstId, ResourceType, Config) of
                 ok ->
                     do_remove(ResourceType, InstId, ResourceState, false),
@@ -166,7 +171,9 @@ do_create(InstId, ResourceType, Config, Opts) ->
         {ok, _} -> {ok, already_created};
         _ ->
             Res0 = #{id => InstId, mod => ResourceType, config => Config,
-                     status => stopped, state => undefined},
+                     status => starting, state => undefined},
+            %% The `emqx_resource:call_start/3` need the instance exist beforehand
+            ets:insert(emqx_resource_instance, {InstId, Res0}),
             case emqx_resource:call_start(InstId, ResourceType, Config) of
                 {ok, ResourceState} ->
                     ok = emqx_plugin_libs_metrics:create_metrics(resource_metrics, InstId),
@@ -181,6 +188,7 @@ do_create(InstId, ResourceType, Config, Opts) ->
                     ets:insert(emqx_resource_instance, {InstId, Res0}),
                     {ok, Res0};
                 {error, Reason} when ForceCreate == false ->
+                    ets:delete(emqx_resource_instance, InstId),
                     {error, Reason}
             end
     end.

@@ -59,13 +59,13 @@ statsd(put, #{body := Body}) ->
                             Body,
                             #{rawconf_with_defaults => true, override_to => cluster}) of
         {ok, #{raw_config := NewConfig, config := Config}} ->
+            _ = emqx_statsd_sup:stop_child(?APP),
             case maps:get(<<"enable">>, Body) of
                 true ->
                     ok = emqx_statsd_sup:ensure_child_stopped(?APP),
                     ok = emqx_statsd_sup:ensure_child_started(?APP, maps:get(config, Config));
                 false ->
                     ok = emqx_statsd_sup:ensure_child_stopped(?APP)
-            end,
             {200, NewConfig};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("Update config failed ~p", [Reason])),
