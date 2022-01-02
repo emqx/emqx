@@ -45,7 +45,12 @@ init([]) ->
               restart => transient,
               shutdown => 5000, type => worker, modules => [Mod]}
         end || Idx <- lists:seq(1, ?POOL_SIZE)],
-    {ok, {SupFlags, [Metrics | ResourceInsts]}}.
+    HealthCheck = 
+            #{id => emqx_resource_health_check_sup,
+              start => {emqx_resource_health_check_sup, start_link, []},
+              restart => transient,
+              shutdown => 5000, type => supervisor, modules => [emqx_resource_health_check_sup]},
+    {ok, {SupFlags, [HealthCheck, Metrics | ResourceInsts]}}.
 
 %% internal functions
 ensure_pool(Pool, Type, Opts) ->
