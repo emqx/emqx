@@ -36,28 +36,25 @@ start_link(Name, Sleep) ->
     {ok, Pid}.
 
 create_checker(Name, Sleep) ->
+    create_checker(Name, Sleep, false).
+
+create_checker(Name, Sleep, Retry) ->
     case supervisor:start_child(?SUP, child_spec(Name, Sleep)) of
         {ok, _} -> ok;
         {error, already_present} -> ok;
-        {error, {already_started, _}} ->
+        {error, {already_started, _}} when Retry == false ->
             ok = delete_checker(Name),
-            create_checker(Name, Sleep);
+            create_checker(Name, Sleep, true);
         Error -> Error
     end.
 
 delete_checker(Name) ->
-    case supervisor:terminate_child(?SUP, {health_check, Name}) of
-        ok ->
-            case supervisor:delete_child(?SUP, {health_check, Name}) of
-                {error, not_found} -> ok;
-                Error -> Error
-            end;
-        {error, not_found} -> ok;
+    case supervisor:terminate_child(?SUP, ?ID(Name)) of
+        ok -> supervisor:delete_child(?SUP, ?ID(Name));
         Error -> Error
 	end.
 
 health_check(Name, SleepTime) ->
-    timer:sleep(SleepTime),
     case emqx_resource:health_check(Name) of
         ok ->
             emqx_alarm:deactivate(Name);
@@ -65,4 +62,5 @@ health_check(Name, SleepTime) ->
             emqx_alarm:activate(Name, #{name => Name},
                 <<Name/binary, " health check failed">>)
     end,
+    timer:sleep(SleepTime),
     health_check(Name, SleepTime).

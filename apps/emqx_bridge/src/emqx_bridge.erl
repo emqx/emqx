@@ -247,7 +247,7 @@ update(Type, Name, {OldConf, Conf}) ->
                     ?SLOG(warning, #{ msg => "updating_a_non-exist_bridge_need_create_a_new_one"
                                     , type => Type, name => Name, config => Conf}),
                     create(Type, Name, Conf);
-                {error, Reason} -> {update_bridge_failed, Reason}
+                {error, Reason} -> {error, {update_bridge_failed, Reason}}
             end;
         true ->
             %% we don't need to recreate the bridge if this config change is only to

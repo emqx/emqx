@@ -140,11 +140,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 %% suppress the race condition check, as these functions are protected in gproc workers
--dialyzer({nowarn_function, [do_recreate/4,
-                             do_create/4,
-                             do_restart/2,
-                             do_stop/1,
-                             do_health_check/1]}).
+-dialyzer({nowarn_function, [ do_recreate/4
+                            , do_create/4
+                            , do_restart/2
+                            , do_start/4
+                            , do_stop/1
+                            , do_health_check/1
+                            , start_and_check/5
+                            ]}).
 
 do_recreate(InstId, ResourceType, NewConfig, Opts) ->
     case lookup(InstId) of
@@ -183,12 +186,12 @@ do_create(InstId, ResourceType, Config, Opts) ->
 
 do_create_dry_run(ResourceType, Config) ->
     InstId = make_test_id(),
-    Opts = #{async_create => false},
-    case do_create(InstId, ResourceType, Config, Opts) of
-        {ok, Data} ->
-            Return = do_health_check(Data),
-            _ = do_remove(Data),
-            Return;
+    case emqx_resource:call_start(InstId, ResourceType, Config) of
+        {ok, ResourceState} ->
+            case emqx_resource:call_health_check(InstId, ResourceType, ResourceState) of
+                {ok, _} -> ok;
+                {error, Reason, _} -> {error, Reason}
+            end;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -252,7 +255,7 @@ do_stop(#{state := undefined}) ->
     ok;
 do_stop(#{id := InstId, mod := Mod, state := ResourceState} = Data) ->
     _ = emqx_resource:call_stop(InstId, Mod, ResourceState),
-    ok = emqx_resource_health_check:delete_checker(InstId),
+    _ = emqx_resource_health_check:delete_checker(InstId),
     ets:insert(emqx_resource_instance, {InstId, Data#{status => stopped}}),
     ok.
 
