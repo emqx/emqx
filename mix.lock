@@ -31,7 +31,7 @@
   "lc": {:git, "https://github.com/qzhuyan/lc.git", "6f98d098e5aaf4fcd6afbbb2acca96855c474600", [tag: "0.1.2"]},
   "minirest": {:git, "https://github.com/emqx/minirest.git", "f3f80b3e07295d8b6db22ed456318e0cc9dd167f", [tag: "1.2.7"]},
   "mnesia_rocksdb": {:git, "https://github.com/k32/mnesia_rocksdb", "68a80d127c49005480e0dd1f73149e8621052100", [tag: "0.1.5-k32"]},
-  "mongodb": {:git, "https://github.com/emqx/mongodb-erlang", "2ffe62f42dafb98eaafead9d340a674c5f9279a5", [tag: "v3.0.10"]},
+  "mongodb": {:git, "https://github.com/emqx/mongodb-erlang", "7c6d6fcd562c0b9c88e123ee1cf5ed0b97d0f3ac", [tag: "v3.0.11"]},
   "mria": {:git, "https://github.com/emqx/mria.git", "2bf3a71abc3635f910be4b943fa4ccbf8b8257fa", [tag: "0.1.5"]},
   "mysql": {:git, "https://github.com/emqx/mysql-otp", "bdabac44cc8836a9e23897b7e1b77c7df7e04f70", [tag: "1.7.1"]},
   "observer_cli": {:hex, :observer_cli, "1.7.1", "c9ca1f623a3ef0158283a3c37cd7b7235bfe85927ad6e26396dd247e2057f5a1", [:mix, :rebar3], [{:recon, "~>2.5.1", [hex: :recon, repo: "hexpm", optional: false]}], "hexpm", "4ccafaaa2ce01b85ddd14591f4d5f6731b4e13b610a70fb841f0701178478280"},

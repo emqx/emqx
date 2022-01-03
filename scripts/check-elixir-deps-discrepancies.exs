@@ -100,7 +100,8 @@ else
 
   IO.puts(
     IO.ANSI.red() <>
-      "Update `mix.exs` to match Rebar3's references (use `overwrite: true` if necessary) and try again" <>
+      "Update `mix.exs` to match Rebar3's references (use `overwrite: true` if necessary) " <>
+      "and/or run `mix deps.get` to update and try again" <>
       IO.ANSI.reset()
   )
 
