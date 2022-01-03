@@ -29,5 +29,6 @@ jobs:
             for your contributions.
           # we don't want stalebot to analyze pull requests
           only-pr-labels: "ZZZDisabledZZZ"
+          operations-per-run: 80
 
 ...
