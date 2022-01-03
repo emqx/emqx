@@ -98,10 +98,6 @@ roots() ->
        sc(ref("db"),
           #{ desc => "Settings of the embedded database."
            })}
-    , {"system_monitor",
-       sc(ref("system_monitor"),
-          #{ desc => "Erlang process and application monitoring."
-           })}
     ] ++
     emqx_schema:roots(medium) ++
     emqx_schema:roots(low) ++
@@ -320,64 +316,6 @@ a crash dump
         #{
           }
         )}
-    ];
-
-fields("system_monitor") ->
-    [ {"top_num_items",
-       sc(non_neg_integer(),
-         #{ mapping => "system_monitor.top_num_items"
-          , default => 10
-          , desc => "The number of top processes per monitoring group"
-          })
-      }
-    , {"top_sample_interval",
-       sc(emqx_schema:duration(),
-         #{ mapping => "system_monitor.top_sample_interval"
-          , default => "2s"
-          , desc => "Specifies how often process top should be collected"
-          })
-      }
-    , {"top_max_procs",
-       sc(non_neg_integer(),
-         #{ mapping => "system_monitor.top_max_procs"
-          , default => 200000
-          , desc => "Stop collecting data when the number of processes exceeds this value"
-          })
-      }
-    , {"db_hostname",
-       sc(string(),
-         #{ mapping => "system_monitor.db_hostname"
-          , desc => "Hostname of the postgres database that collects the data points"
-          })
-      }
-    , {"db_port",
-       sc(integer(),
-         #{ mapping => "system_monitor.db_port"
-          , default => 5432
-          , desc => "Port of the postgres database that collects the data points"
-          })
-      }
-    , {"db_username",
-       sc(string(),
-         #{ mapping => "system_monitor.db_username"
-          , default => "system_monitor"
-          , desc    => "EMQX user name in the postgres database"
-          })
-      }
-    , {"db_password",
-       sc(binary(),
-         #{ mapping => "system_monitor.db_password"
-          , default => "system_monitor_password"
-          , desc    => "EMQX user password in the postgres database"
-          })
-      }
-    , {"db_name",
-       sc(string(),
-         #{ mapping => "system_monitor.db_name"
-          , default => "postgres"
-          , desc    => "Postgres database name"
-          })
-      }
     ];
 
 fields("db") ->
