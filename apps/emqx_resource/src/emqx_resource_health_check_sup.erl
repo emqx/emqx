@@ -19,9 +19,7 @@
 
 -export([start_link/0]).
 
--export([init/1,
-         create_health_check_process/2,
-         delete_health_check_process/1]).
+-export([init/1]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
@@ -29,12 +27,3 @@ start_link() ->
 init([]) ->
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
     {ok, {SupFlags, []}}.
-
-create_health_check_process(Name, Sleep) -> 
-    supervisor:start_child(emqx_resource_health_check_sup, 
-                           emqx_resource_health_check:child_spec(Name, Sleep)).
-
-delete_health_check_process(Name) -> 
-    _ = supervisor:terminate_child(emqx_resource_health_check_sup, {health_check, Name}),
-    _ = supervisor:delete_child(emqx_resource_health_check_sup, {health_check, Name}),
-    ok.

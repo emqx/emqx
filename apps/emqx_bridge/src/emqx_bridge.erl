@@ -35,6 +35,7 @@
         ]).
 
 -export([ load/0
+        , lookup/1
         , lookup/2
         , lookup/3
         , list/0
@@ -191,6 +192,10 @@ list_bridges_by_connector(ConnectorId) ->
     [B || B = #{raw_config := #{<<"connector">> := Id}} <- list(),
          ConnectorId =:= Id].
 
+lookup(Id) ->
+    {Type, Name} = parse_bridge_id(Id),
+    lookup(Type, Name).
+
 lookup(Type, Name) ->
     RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),
     lookup(Type, Name, RawConf).
@@ -218,7 +223,7 @@ create(Type, Name, Conf) ->
     ?SLOG(info, #{msg => "create bridge", type => Type, name => Name,
         config => Conf}),
     case emqx_resource:create_local(resource_id(Type, Name), emqx_bridge:resource_type(Type),
-            parse_confs(Type, Name, Conf), #{force_create => true}) of
+            parse_confs(Type, Name, Conf), #{async_create => true}) of
         {ok, already_created} -> maybe_disable_bridge(Type, Name, Conf);
         {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
         {error, Reason} -> {error, Reason}
@@ -247,7 +252,7 @@ update(Type, Name, {OldConf, Conf}) ->
                     ?SLOG(warning, #{ msg => "updating_a_non-exist_bridge_need_create_a_new_one"
                                     , type => Type, name => Name, config => Conf}),
                     create(Type, Name, Conf);
-                {error, Reason} -> {update_bridge_failed, Reason}
+                {error, Reason} -> {error, {update_bridge_failed, Reason}}
             end;
         true ->
             %% we don't need to recreate the bridge if this config change is only to
@@ -263,7 +268,8 @@ recreate(Type, Name) ->
 
 recreate(Type, Name, Conf) ->
     emqx_resource:recreate_local(resource_id(Type, Name),
-        emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf), []).
+        emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf),
+        #{async_create => true}).
 
 create_dry_run(Type, Conf) ->
     Conf0 = Conf#{<<"ingress">> => #{<<"remote_topic">> => <<"t">>}},

@@ -49,7 +49,7 @@ init([]) ->
             #{id => emqx_resource_health_check_sup,
               start => {emqx_resource_health_check_sup, start_link, []},
               restart => transient,
-              shutdown => 5000, type => supervisor, modules => [emqx_resource_health_check_sup]},
+              shutdown => infinity, type => supervisor, modules => [emqx_resource_health_check_sup]},
     {ok, {SupFlags, [HealthCheck, Metrics | ResourceInsts]}}.
 
 %% internal functions

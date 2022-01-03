@@ -15,29 +15,52 @@
 %%--------------------------------------------------------------------
 -module(emqx_resource_health_check).
 
--export([child_spec/2]).
-
--export([start_link/2]).
+-export([ start_link/2
+        , create_checker/2
+        , delete_checker/1
+        ]).
 
 -export([health_check/2]).
 
-child_spec(Name, Sleep) -> 
-    #{id => {health_check, Name},
+-define(SUP, emqx_resource_health_check_sup).
+-define(ID(NAME), {resource_health_check, NAME}).
+
+child_spec(Name, Sleep) ->
+    #{id => ?ID(Name),
       start => {?MODULE, start_link, [Name, Sleep]},
       restart => transient,
       shutdown => 5000, type => worker, modules => [?MODULE]}.
 
-start_link(Name, Sleep) -> 
+start_link(Name, Sleep) ->
     Pid = proc_lib:spawn_link(?MODULE, health_check, [Name, Sleep]),
     {ok, Pid}.
 
-health_check(Name, SleepTime) -> 
-    timer:sleep(SleepTime),
-    case emqx_resource:health_check(Name) of 
-        ok -> 
+create_checker(Name, Sleep) ->
+    create_checker(Name, Sleep, false).
+
+create_checker(Name, Sleep, Retry) ->
+    case supervisor:start_child(?SUP, child_spec(Name, Sleep)) of
+        {ok, _} -> ok;
+        {error, already_present} -> ok;
+        {error, {already_started, _}} when Retry == false ->
+            ok = delete_checker(Name),
+            create_checker(Name, Sleep, true);
+        Error -> Error
+    end.
+
+delete_checker(Name) ->
+    case supervisor:terminate_child(?SUP, ?ID(Name)) of
+        ok -> supervisor:delete_child(?SUP, ?ID(Name));
+        Error -> Error
+	end.
+
+health_check(Name, SleepTime) ->
+    case emqx_resource:health_check(Name) of
+        ok ->
             emqx_alarm:deactivate(Name);
-        {error, _} -> 
-            emqx_alarm:activate(Name, #{name => Name}, 
-                                <<Name/binary, " health check failed">>)
+        {error, _} ->
+            emqx_alarm:activate(Name, #{name => Name},
+                <<Name/binary, " health check failed">>)
     end,
+    timer:sleep(SleepTime),
     health_check(Name, SleepTime).
