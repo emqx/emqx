@@ -22,26 +22,33 @@
         , health_check/3
         ]).
 
+-include_lib("emqx/include/logger.hrl").
+
 pool_name(ID) when is_binary(ID) ->
     list_to_atom(binary_to_list(ID)).
 
 start_pool(Name, Mod, Options) ->
     case ecpool:start_sup_pool(Name, Mod, Options) of
-        {ok, _} -> logger:log(info, "Initiated ~0p Successfully", [Name]);
+        {ok, _} ->
+            ?SLOG(info, #{msg => "start_ecpool_ok", pool_name => Name});
         {error, {already_started, _Pid}} ->
             stop_pool(Name),
             start_pool(Name, Mod, Options);
         {error, Reason} ->
-            logger:log(error, "Initiate ~0p failed ~0p", [Name, Reason]),
+            ?SLOG(error, #{msg => "start_ecpool_error", pool_name => Name,
+                           reason => Reason}),
             error({start_pool_failed, Name})
     end.
 
 stop_pool(Name) ->
     case ecpool:stop_sup_pool(Name) of
-        ok -> logger:log(info, "Destroyed ~0p Successfully", [Name]);
-        {error, not_found} -> ok;
+        ok ->
+            ?SLOG(info, #{msg => "stop_ecpool_ok", pool_name => Name});
+        {error, not_found} ->
+            ok;
         {error, Reason} ->
-            logger:log(error, "Destroy ~0p failed, ~0p", [Name, Reason]),
+            ?SLOG(error, #{msg => "stop_ecpool_failed", pool_name => Name,
+                           reason => Reason}),
             error({stop_pool_failed, Name})
     end.
 

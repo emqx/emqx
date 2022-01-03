@@ -34,6 +34,8 @@
         , on_jsonify/1
         ]).
 
+
+%% ecpool callback
 -export([connect/1]).
 
 -export([roots/0, fields/1]).
@@ -125,7 +127,7 @@ on_start(InstId, Config = #{mongo_type := Type,
             {options, init_topology_options(maps:to_list(Topology), [])},
             {worker_options, init_worker_options(maps:to_list(NConfig), SslOpts)}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts),
+    ok = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts),
     {ok, #{poolname => PoolName, type => Type}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
@@ -177,18 +179,22 @@ health_check(PoolName) ->
 
 %% ===================================================================
 
-check_worker_health(Worker) -> 
+%% TODO: log reasons
+check_worker_health(Worker) ->
     case ecpool_worker:client(Worker) of
         {ok, Conn} ->
             %% we don't care if this returns something or not, we just to test the connection
             try mongo_api:find_one(Conn, <<"foo">>, #{}, #{}) of
-                {error, _} -> false;
+                {error, _Reason} ->
+                    false;
                 _ ->
                     true
             catch
-                _Class:_Error -> false
+                _ : _ ->
+                    false
             end;
-        _ -> false
+        _ ->
+            false
     end.
 
 connect(Opts) ->
