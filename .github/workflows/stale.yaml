@@ -1,0 +1,31 @@
+---
+
+name: Manage stale issues
+
+on:
+  schedule:
+    # run hourly
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: none
+
+    steps:
+      - name: Close Stale Issues
+        uses: actions/stale@v4.1.0
+        with:
+          days-before-stale: 7
+          days-before-close: 7
+          exempt-issue-labels: 'internal,BUG,help wanted,#triage/accepted,#needs-triage,Feature'
+          stale-issue-label: "#triage/stale"
+          stale-issue-message: >-
+            This issue has been automatically marked as stale because it has not had
+            recent activity. It will be closed if no further activity occurs. Thank you
+            for your contributions.
+
+...
