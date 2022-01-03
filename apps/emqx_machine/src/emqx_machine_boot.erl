@@ -85,7 +85,6 @@ reboot_apps() ->
     , esockd
     , ranch
     , cowboy
-    , emqx_conf
     , emqx
     , emqx_prometheus
     , emqx_modules
@@ -121,7 +120,8 @@ sorted_reboot_apps(Apps) ->
         NoDepApps = add_apps_to_digraph(G, Apps),
         case digraph_utils:topsort(G) of
             Sorted when is_list(Sorted) ->
-                Sorted ++ (NoDepApps -- Sorted);
+                %% ensure emqx_conf boot up first
+                [emqx_conf | Sorted ++ (NoDepApps -- Sorted)];
             false ->
                 Loops = find_loops(G),
                 error({circular_application_dependency, Loops})
