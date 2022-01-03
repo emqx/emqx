@@ -26,7 +26,6 @@
 -export([ lookup/1
         , get_metrics/1
         , list_all/0
-        , make_test_id/0
         ]).
 
 -export([ hash_call/2

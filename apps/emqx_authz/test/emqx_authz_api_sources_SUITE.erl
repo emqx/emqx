@@ -38,8 +38,8 @@
                   }).
 -define(SOURCE2, #{<<"type">> => <<"mongodb">>,
                    <<"enable">> => true,
-                   <<"mongo_type">> => <<"sharded">>,
-                   <<"servers">> => <<"127.0.0.1:27017,192.168.0.1:27017">>,
+                   <<"mongo_type">> => <<"single">>,
+                   <<"server">> => <<"127.0.0.1:27017">>,
                    <<"pool_size">> => 1,
                    <<"database">> => <<"mqtt">>,
                    <<"ssl">> => #{<<"enable">> => false},
@@ -160,6 +160,13 @@ end_per_testcase(_, _Config) -> ok.
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
+t_mongodb_connectivity(_) ->
+    Type = single,
+    Hosts = ["127.0.0.1:27017", "192.168.0.1:27017"],
+    TopologyOpts = [{pool_size, 1}],
+    WorkerOpts = [{database, <<"mqtt">>}, {ssl, false}],
+    {ok, Pid} = mongo_api:connect(Type, Hosts, TopologyOpts, WorkerOpts),
+    ?assertEqual(undefined, mongo_api:find_one(Pid, <<"foo">>, #{<<"key">> => 123}, #{})).
 
 t_api(_) ->
     {ok, 200, Result1} = request(get, uri(["authorization", "sources"]), []),
