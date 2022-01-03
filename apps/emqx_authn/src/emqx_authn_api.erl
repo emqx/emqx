@@ -979,7 +979,7 @@ authenticator_examples() ->
                 mechanism => <<"password-based">>,
                 backend => <<"http">>,
                 method => <<"post">>,
-                url => <<"http://127.0.0.2:8080">>,
+                url => <<"http://127.0.0.1:18083">>,
                 headers => #{
                     <<"content-type">> => <<"application/json">>
                 },

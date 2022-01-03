@@ -25,7 +25,7 @@
     mod := module(),
     config := resource_config(),
     state := resource_state(),
-    status := started | stopped,
+    status := started | stopped | starting,
     metrics := emqx_plugin_libs_metrics:metrics()
 }.
 -type resource_group() :: binary().
@@ -33,7 +33,7 @@
         %% The emqx_resource:create/4 will return OK event if the Mod:on_start/2 fails,
         %% the 'status' of the resource will be 'stopped' in this case.
         %% Defaults to 'false'
-        force_create => boolean()
+        async_create => boolean()
     }.
 -type after_query() :: {[OnSuccess :: after_query_fun()], [OnFailed :: after_query_fun()]} |
     undefined.
@@ -41,3 +41,5 @@
 %% the `after_query_fun()` is mainly for callbacks that increment counters or do some fallback
 %% actions upon query failure
 -type after_query_fun() :: {fun((...) -> ok), Args :: [term()]}.
+
+-define(TEST_ID_PREFIX, "_test_:").

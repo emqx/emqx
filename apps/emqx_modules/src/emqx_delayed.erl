@@ -155,7 +155,7 @@ format_delayed(#delayed_message{key = {ExpectTimeStamp, Id}, delayed = Delayed,
     },
     case WithPayload of
         true ->
-            Result#{payload => base64:encode(Payload)};
+            Result#{payload => Payload};
         _ ->
             Result
     end.
@@ -187,7 +187,7 @@ delete_delayed_message(Id0) ->
             mria:dirty_delete(?TAB, {Timestamp, Id})
     end.
 update_config(Config) ->
-    {ok, _} = emqx:update_config([delayed], Config).
+    emqx_conf:update([delayed], Config, #{rawconf_with_defaults => true, override_to => cluster}).
 
 %%--------------------------------------------------------------------
 %% gen_server callback

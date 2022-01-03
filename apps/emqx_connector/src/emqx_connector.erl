@@ -37,31 +37,26 @@
 config_key_path() ->
     [connectors].
 
+-dialyzer([{nowarn_function, [post_config_update/5]}, error_handling]).
 post_config_update([connectors, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
     ConnId = connector_id(Type, Name),
-    LinkedBridgeIds = lists:foldl(fun
-        (#{id := BId, raw_config := #{<<"connector">> := ConnId0}}, Acc)
-                when ConnId0 == ConnId ->
-            [BId | Acc];
-        (_, Acc) -> Acc
-    end, [], emqx_bridge:list()),
-    case LinkedBridgeIds of
-        [] -> ok;
-        _ -> {error, {dependency_bridges_exist, LinkedBridgeIds}}
+    try foreach_linked_bridges(ConnId, fun(#{id := BId}) ->
+            throw({dependency_bridges_exist, BId})
+        end)
+    catch throw:Error -> {error, Error}
     end;
-post_config_update([connectors, Type, Name], _Req, NewConf, _OldConf, _AppEnvs) ->
+post_config_update([connectors, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
     ConnId = connector_id(Type, Name),
-    lists:foreach(fun
-        (#{id := BId, raw_config := #{<<"connector">> := ConnId0}}) when ConnId0 == ConnId ->
+    foreach_linked_bridges(ConnId,
+        fun(#{id := BId}) ->
             {BType, BName} = emqx_bridge:parse_bridge_id(BId),
             BridgeConf = emqx:get_config([bridges, BType, BName]),
-            case emqx_bridge:recreate(BType, BName, BridgeConf#{connector => NewConf}) of
-                {ok, _} -> ok;
+            case emqx_bridge:update(BType, BName, {BridgeConf#{connector => OldConf},
+                    BridgeConf#{connector => NewConf}}) of
+                ok -> ok;
                 {error, Reason} -> error({update_bridge_error, Reason})
-            end;
-        (_) ->
-            ok
-    end, emqx_bridge:list()).
+            end
+        end).
 
 connector_id(Type0, Name0) ->
     Type = bin(Type0),
@@ -112,3 +107,10 @@ delete(Type, Name) ->
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+foreach_linked_bridges(ConnId, Do) ->
+    lists:foreach(fun
+        (#{raw_config := #{<<"connector">> := ConnId0}} = Bridge) when ConnId0 == ConnId ->
+            Do(Bridge);
+        (_) -> ok
+    end, emqx_bridge:list()).

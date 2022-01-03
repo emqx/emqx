@@ -80,8 +80,15 @@ format(Rule = #{topic := Topic}) when is_map(Rule) ->
     }.
 
 update_(Topics) when length(Topics) =< ?MAX_AUTO_SUBSCRIBE ->
-    {ok, _} = emqx:update_config([auto_subscribe, topics], Topics),
-    update_hook();
+    case emqx_conf:update([auto_subscribe, topics],
+                          Topics,
+                          #{rawconf_with_defaults => true, override_to => cluster}) of
+        {ok, #{raw_config := NewTopics}} ->
+            ok = update_hook(),
+            {ok, NewTopics};
+        {error, Reason} ->
+            {error, Reason}
+    end;
 update_(_Topics) ->
     {error, quota_exceeded}.
 
