@@ -41,6 +41,7 @@
   "quicer": {:git, "https://github.com/emqx/quic.git", "ef73617d0f10f0f30f3aa77eb4a2f6ae071a2e29", [tag: "0.0.9"]},
   "ranch": {:git, "https://github.com/ninenines/ranch.git", "a692f44567034dacf5efcaa24a24183788594eb7", [ref: "a692f44567034dacf5efcaa24a24183788594eb7"]},
   "recon": {:git, "https://github.com/ferd/recon.git", "f7b6c08e6e9e2219db58bfb012c58c178822e01e", [tag: "2.5.1"]},
+  "redbug": {:hex, :redbug, "2.0.7", "40f477681e4957a1ebce19b23a9b53cd8113da6133014c506e3e194a6e4ffc89", [:rebar3], [], "hexpm", "3624feb7a4b78fd9ae0e66cc3158fe7422770ad6987a1ebf8df4d3303b1c4b0c"},
   "replayq": {:hex, :replayq, "0.3.3", "29344e4fd7c41c232d7f20d7a6e6712169ca585583bbb4bb6dd518f04e0d6cc4", [:rebar3], [], "hexpm", "3a527aff0960cf7ba7d189c79d7f0fbc170adb62e351acc223ccd6d094095c27"},
   "rocksdb": {:git, "https://github.com/k32/erlang-rocksdb.git", "e74972c3da4fe1f08eb66d39fce643a2d25a60be", [tag: "1.7.2-k32"]},
   "rulesql": {:git, "https://github.com/emqx/rulesql.git", "fec11b1a3cbf98480d19c06d3aca10442e1e02a9", [tag: "0.1.4"]},

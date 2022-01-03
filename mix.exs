@@ -45,6 +45,7 @@ defmodule EMQXUmbrella.MixProject do
     # other exact versions, and not ranges.
     [
       {:lc, github: "qzhuyan/lc", tag: "0.1.2"},
+      {:redbug, "2.0.7"},
       {:typerefl, github: "k32/typerefl", tag: "0.8.6", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.1.12"},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
@@ -163,6 +164,7 @@ defmodule EMQXUmbrella.MixProject do
       inets: :permanent,
       compiler: :permanent,
       runtime_tools: :permanent,
+      redbug: :permanent,
       hocon: :load,
       emqx: :load,
       emqx_conf: :load,
