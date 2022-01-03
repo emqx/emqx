@@ -20,12 +20,19 @@
 -include_lib("emqx/include/logger.hrl").
 
 -type server() :: tuple().
-
+%% {"127.0.0.1", 7000}
+%% For eredis:start_link/1~7
 -reflect_type([server/0]).
-
 -typerefl_from_string({server/0, ?MODULE, to_server}).
 
--export([to_server/1]).
+-type servers() :: list().
+%% [{"127.0.0.1", 7000}, {"127.0.0.2", 7000}]
+%% For eredis_cluster
+-reflect_type([servers/0]).
+-typerefl_from_string({servers/0, ?MODULE, to_servers}).
+
+-export([ to_server/1
+        , to_servers/1]).
 
 -export([roots/0, fields/1]).
 
@@ -63,14 +70,14 @@ fields(single) ->
     redis_fields() ++
     emqx_connector_schema_lib:ssl_fields();
 fields(cluster) ->
-    [ {servers, #{type => hoconsc:array(server())}}
+    [ {servers, #{type => servers()}}
     , {redis_type, #{type => hoconsc:enum([cluster]),
                      default => cluster}}
     ] ++
     redis_fields() ++
     emqx_connector_schema_lib:ssl_fields();
 fields(sentinel) ->
-    [ {servers, #{type => hoconsc:array(server())}}
+    [ {servers, #{type => servers()}}
     , {redis_type, #{type => hoconsc:enum([sentinel]),
                      default => sentinel}}
     , {sentinel, #{type => string()}}
@@ -87,7 +94,7 @@ on_start(InstId, #{redis_type := Type,
                    pool_size := PoolSize,
                    auto_reconnect := AutoReconn,
                    ssl := SSL } = Config) ->
-    ?SLOG(info, #{msg => "starting redis connector",
+    ?SLOG(info, #{msg => "starting_redis_connector",
                   connector => InstId, config => Config}),
     Servers = case Type of
                 single -> [{servers, [maps:get(server, Config)]}];
@@ -120,20 +127,20 @@ on_start(InstId, #{redis_type := Type,
     {ok, #{poolname => PoolName, type => Type}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    ?SLOG(info, #{msg => "stopping redis connector",
+    ?SLOG(info, #{msg => "stopping_redis_connector",
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId, {cmd, Command}, AfterCommand, #{poolname := PoolName, type := Type} = State) ->
-    ?SLOG(debug, #{msg => "redis connector received cmd query",
-        connector => InstId, sql => Command, state => State}),
+    ?TRACE("QUERY", "redis_connector_received",
+        #{connector => InstId, sql => Command, state => State}),
     Result = case Type of
                  cluster -> eredis_cluster:q(PoolName, Command);
                  _ -> ecpool:pick_and_do(PoolName, {?MODULE, cmd, [Type, Command]}, no_handover)
              end,
     case Result of
         {error, Reason} ->
-            ?SLOG(error, #{msg => "redis connector do cmd query failed",
+            ?SLOG(error, #{msg => "redis_connector_do_cmd_query_failed",
                 connector => InstId, sql => Command, reason => Reason}),
             emqx_resource:query_failed(AfterCommand);
         _ ->
@@ -181,7 +188,23 @@ redis_fields() ->
     ].
 
 to_server(Server) ->
-    case string:tokens(Server, ":") of
-        [Host, Port] -> {ok, {Host, list_to_integer(Port)}};
-        _ -> {error, Server}
+    try {ok, parse_server(Server)}
+    catch
+        throw : Error  ->
+            Error
+    end.
+
+to_servers(Servers) ->
+    try {ok, lists:map(fun parse_server/1, string:tokens(Servers, ", "))}
+    catch
+        throw : _Reason ->
+            {error, Servers}
+    end.
+
+parse_server(Server) ->
+    case string:tokens(Server, ": ") of
+        [Host, Port] ->
+            {Host, list_to_integer(Port)};
+        _ ->
+            throw({error, Server})
     end.

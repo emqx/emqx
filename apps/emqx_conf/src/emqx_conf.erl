@@ -144,7 +144,7 @@ multicall(M, F, Args) ->
         {retry, TnxId, Res, Nodes} ->
             %% The init MFA return ok, but other nodes failed.
             %% We return ok and alert an alarm.
-            ?SLOG(error, #{msg => "failed to update config in cluster", nodes => Nodes,
+            ?SLOG(error, #{msg => "failed_to_update_config_in_cluster", nodes => Nodes,
                 tnx_id => TnxId, mfa => {M, F, Args}}),
             Res;
         {error, Error} -> %% all MFA return not ok or {ok, term()}.

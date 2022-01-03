@@ -188,7 +188,7 @@ callback_mode() -> [state_functions].
 
 %% @doc Config should be a map().
 init(#{name := Name} = ConnectOpts) ->
-    ?SLOG(debug, #{msg => "starting bridge worker",
+    ?SLOG(debug, #{msg => "starting_bridge_worker",
                    name => Name}),
     erlang:process_flag(trap_exit, true),
     Queue = open_replayq(Name, maps:get(replayq, ConnectOpts, #{})),
@@ -335,7 +335,7 @@ common(_StateName, cast, {send_to_remote, Msg}, #{replayq := Q} = State) ->
     NewQ = replayq:append(Q, [Msg]),
     {keep_state, State#{replayq => NewQ}, {next_event, internal, maybe_send}};
 common(StateName, Type, Content, #{name := Name} = State) ->
-    ?SLOG(notice, #{msg => "Bridge discarded event",
+    ?SLOG(notice, #{msg => "bridge_discarded_event",
         name => Name, type => Type, state_name => StateName,
         content => Content}),
     {keep_state, State}.
@@ -349,7 +349,7 @@ do_connect(#{connect_opts := ConnectOpts,
             {ok, State#{connection => Conn}};
         {error, Reason} ->
             ConnectOpts1 = obfuscate(ConnectOpts),
-            ?SLOG(error, #{msg => "Failed to connect",
+            ?SLOG(error, #{msg => "failed_to_connect",
                 config => ConnectOpts1, reason => Reason}),
             {error, Reason, State}
     end.
@@ -386,8 +386,8 @@ pop_and_send_loop(#{replayq := Q} = State, N) ->
     end.
 
 do_send(#{connect_opts := #{forwards := undefined}}, _QAckRef, Msg) ->
-    ?SLOG(error, #{msg => "cannot forward messages to remote broker"
-                          " as 'egress' is not configured",
+    ?SLOG(error, #{msg => "cannot_forward_messages_to_remote_broker"
+                          "_as_'egress'_is_not_configured",
                    messages => Msg});
 do_send(#{inflight := Inflight,
           connection := Connection,
@@ -398,7 +398,7 @@ do_send(#{inflight := Inflight,
                     emqx_metrics:inc('bridge.mqtt.message_sent_to_remote'),
                     emqx_connector_mqtt_msg:to_remote_msg(Message, Vars)
                 end,
-    ?SLOG(debug, #{msg => "publish to remote broker",
+    ?SLOG(debug, #{msg => "publish_to_remote_broker",
         message => Msg, vars => Vars}),
     case emqx_connector_mqtt_mod:send(Connection, [ExportMsg(Msg)]) of
         {ok, Refs} ->

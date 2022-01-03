@@ -39,7 +39,7 @@ fields("config") ->
 
 fields("connector") ->
     [ {mode,
-        sc(hoconsc:enum([cluster_singleton, cluster_shareload]),
+        sc(hoconsc:enum([cluster_shareload]),
            #{ default => cluster_shareload
             , desc => """
 The mode of the MQTT Bridge. Can be one of 'cluster_singleton' or 'cluster_shareload'<br>
@@ -55,12 +55,17 @@ clientid conflicts between different nodes. And we can only use shared subscript
 topic filters for 'remote_topic' of ingress connections.
 """
             })}
+    , {name,
+       sc(binary(),
+          #{ nullable => true
+           , desc => "Connector name, used as a human-readable description of the connector."
+           })}
     , {server,
         sc(emqx_schema:ip_port(),
            #{ default => "127.0.0.1:1883"
             , desc => "The host and port of the remote MQTT broker"
             })}
-    , {reconnect_interval, mk_duration("reconnect interval", #{default => "30s"})}
+    , {reconnect_interval, mk_duration("reconnect interval", #{default => "15s"})}
     , {proto_ver,
         sc(hoconsc:enum([v3, v4, v5]),
            #{ default => v4
@@ -76,17 +81,13 @@ topic filters for 'remote_topic' of ingress connections.
            #{ default => "emqx"
             , desc => "The password of the MQTT protocol"
             })}
-    , {clientid,
-        sc(binary(),
-           #{ desc => "The clientid of the MQTT protocol"
-            })}
     , {clean_start,
         sc(boolean(),
            #{ default => true
             , desc => "The clean-start or the clean-session of the MQTT protocol"
             })}
     , {keepalive, mk_duration("keepalive", #{default => "300s"})}
-    , {retry_interval, mk_duration("retry interval", #{default => "30s"})}
+    , {retry_interval, mk_duration("retry interval", #{default => "15s"})}
     , {max_inflight,
         sc(integer(),
            #{ default => 32

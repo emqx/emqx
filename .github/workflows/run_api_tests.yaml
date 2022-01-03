@@ -61,7 +61,7 @@ jobs:
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqx-fvt
-        ref: 1.0.2-dev1
+        ref: 1.0.3-dev1
         path: .
     - uses: actions/setup-java@v1
       with:
@@ -93,7 +93,7 @@ jobs:
       run: |
         /opt/jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
-          -t .ci/api-test-suite/${{ matrix.script_name }}.jmx \
+          -t api-test-suite/${{ matrix.script_name }}.jmx \
           -Demqx_ip="127.0.0.1" \
           -l jmeter_logs/${{ matrix.script_name }}.jtl \
           -j jmeter_logs/logs/${{ matrix.script_name }}.log

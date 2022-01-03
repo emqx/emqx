@@ -31,9 +31,7 @@
         , lookup/0
         , lookup/1
         , move/2
-        , move/3
         , update/2
-        , update/3
         , authorize/5
         ]).
 
@@ -112,28 +110,19 @@ lookup(Type) ->
     {Source, _Front, _Rear} = take(Type),
     Source.
 
-move(Type, Cmd) ->
-    move(Type, Cmd, #{}).
+move(Type, #{<<"before">> := Before}) ->
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))});
+move(Type, #{<<"after">> := After}) ->
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_AFTER(type(After))});
+move(Type, Position) ->
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {?CMD_MOVE, type(Type), Position}).
 
-move(Type, #{<<"before">> := Before}, Opts) ->
-    emqx:update_config( ?CONF_KEY_PATH
-                      , {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))}, Opts);
-move(Type, #{<<"after">> := After}, Opts) ->
-    emqx:update_config( ?CONF_KEY_PATH
-                      , {?CMD_MOVE, type(Type), ?CMD_MOVE_AFTER(type(After))}, Opts);
-move(Type, Position, Opts) ->
-    emqx:update_config( ?CONF_KEY_PATH
-                      , {?CMD_MOVE, type(Type), Position}, Opts).
-
+update({?CMD_REPLACE, Type}, Sources) ->
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {{?CMD_REPLACE, type(Type)}, Sources});
+update({?CMD_DELETE, Type}, Sources) ->
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {{?CMD_DELETE, type(Type)}, Sources});
 update(Cmd, Sources) ->
-    update(Cmd, Sources, #{}).
-
-update({?CMD_REPLACE, Type}, Sources, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {{?CMD_REPLACE, type(Type)}, Sources}, Opts);
-update({?CMD_DELETE, Type}, Sources, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {{?CMD_DELETE, type(Type)}, Sources}, Opts);
-update(Cmd, Sources, Opts) ->
-    emqx:update_config(?CONF_KEY_PATH, {Cmd, Sources}, Opts).
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {Cmd, Sources}).
 
 do_update({?CMD_MOVE, Type, ?CMD_MOVE_TOP}, Conf) when is_list(Conf) ->
     {Source, Front, Rear} = take(Type, Conf),
@@ -167,7 +156,8 @@ do_update({{?CMD_REPLACE, Type}, #{<<"enable">> := Enable} = Source}, Conf)
             NConf;
         {error, _} = Error -> Error
     end;
-do_update({{?CMD_REPLACE, Type}, Source}, Conf) when is_map(Source), is_list(Conf) ->
+do_update({{?CMD_REPLACE, Type}, Source}, Conf)
+  when is_map(Source), is_list(Conf) ->
     {_Old, Front, Rear} = take(Type, Conf),
     NConf = Front ++ [Source | Rear],
     ok = check_dup_types(NConf),

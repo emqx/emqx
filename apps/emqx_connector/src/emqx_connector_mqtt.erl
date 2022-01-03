@@ -29,7 +29,7 @@
         , bridges/0
         ]).
 
--export([on_message_received/2]).
+-export([on_message_received/3]).
 
 %% callbacks of behaviour emqx_resource
 -export([ on_start/2
@@ -68,10 +68,6 @@ fields("put") ->
 
 fields("post") ->
     [ {type, mk(mqtt, #{desc => "The Connector Type"})}
-    , {name, mk(binary(),
-        #{ desc => "The Connector Name"
-         , example => <<"my_mqtt_connector">>
-         })}
     ] ++ fields("put").
 
 %% ===================================================================
@@ -105,26 +101,29 @@ drop_bridge(Name) ->
     case supervisor:terminate_child(?MODULE, Name) of
         ok ->
             supervisor:delete_child(?MODULE, Name);
+        {error, not_found} ->
+            ok;
         {error, Error} ->
             {error, Error}
     end.
 
 %% ===================================================================
-%% When use this bridge as a data source, ?MODULE:on_message_received/2 will be called
+%% When use this bridge as a data source, ?MODULE:on_message_received will be called
 %% if the bridge received msgs from the remote broker.
-on_message_received(Msg, HookPoint) ->
+on_message_received(Msg, HookPoint, InstId) ->
+    _ = emqx_resource:query(InstId, {message_received, Msg}),
     emqx:run_hook(HookPoint, [Msg]).
 
 %% ===================================================================
 on_start(InstId, Conf) ->
     InstanceId = binary_to_atom(InstId, utf8),
-    ?SLOG(info, #{msg => "starting mqtt connector",
+    ?SLOG(info, #{msg => "starting_mqtt_connector",
                   connector => InstanceId, config => Conf}),
     BasicConf = basic_config(Conf),
     BridgeConf = BasicConf#{
         name => InstanceId,
-        clientid => clientid(maps:get(clientid, Conf, InstId)),
-        subscriptions => make_sub_confs(maps:get(ingress, Conf, undefined)),
+        clientid => clientid(InstId),
+        subscriptions => make_sub_confs(maps:get(ingress, Conf, undefined), InstId),
         forwards => make_forward_confs(maps:get(egress, Conf, undefined))
     },
     case ?MODULE:create_bridge(BridgeConf) of
@@ -139,19 +138,21 @@ on_start(InstId, Conf) ->
     end.
 
 on_stop(_InstId, #{name := InstanceId}) ->
-    ?SLOG(info, #{msg => "stopping mqtt connector",
+    ?SLOG(info, #{msg => "stopping_mqtt_connector",
                   connector => InstanceId}),
     case ?MODULE:drop_bridge(InstanceId) of
         ok -> ok;
         {error, not_found} -> ok;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "stop mqtt connector",
+            ?SLOG(error, #{msg => "stop_mqtt_connector",
                 connector => InstanceId, reason => Reason})
     end.
 
+on_query(_InstId, {message_received, _Msg}, AfterQuery, _State) ->
+    emqx_resource:query_success(AfterQuery);
+
 on_query(_InstId, {send_message, Msg}, AfterQuery, #{name := InstanceId}) ->
-    ?SLOG(debug, #{msg => "send msg to remote node", message => Msg,
-        connector => InstanceId}),
+    ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
     emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg),
     emqx_resource:query_success(AfterQuery).
 
@@ -167,15 +168,15 @@ ensure_mqtt_worker_started(InstanceId) ->
         {error, Reason} -> {error, Reason}
     end.
 
-make_sub_confs(EmptyMap) when map_size(EmptyMap) == 0 ->
+make_sub_confs(EmptyMap, _) when map_size(EmptyMap) == 0 ->
     undefined;
-make_sub_confs(undefined) ->
+make_sub_confs(undefined, _) ->
     undefined;
-make_sub_confs(SubRemoteConf) ->
+make_sub_confs(SubRemoteConf, InstId) ->
     case maps:take(hookpoint, SubRemoteConf) of
         error -> SubRemoteConf;
         {HookPoint, SubConf} ->
-            MFA = {?MODULE, on_message_received, [HookPoint]},
+            MFA = {?MODULE, on_message_received, [HookPoint, InstId]},
             SubConf#{on_message_received => MFA}
     end.
 
@@ -208,13 +209,16 @@ basic_config(#{
         username => User,
         password => Password,
         clean_start => CleanStart,
-        keepalive => KeepAlive,
+        keepalive => ms_to_s(KeepAlive),
         retry_interval => RetryIntv,
         max_inflight => MaxInflight,
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl)),
         if_record_metrics => true
     }.
+
+ms_to_s(Ms) ->
+    erlang:ceil(Ms / 1000).
 
 clientid(Id) ->
     iolist_to_binary([Id, ":", atom_to_list(node())]).

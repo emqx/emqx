@@ -118,11 +118,10 @@ handle_cast({detected, #flapping{clientid   = ClientId,
         true -> %% Flapping happened:(
             ?SLOG(warning, #{
                 msg => "flapping_detected",
-                client_id => ClientId,
                 peer_host => fmt_host(PeerHost),
                 detect_cnt => DetectCnt,
                 wind_time_in_ms => WindTime
-            }),
+            }, #{clientid => ClientId}),
             Now = erlang:system_time(second),
             Banned = #banned{who    = {clientid, ClientId},
                              by     = <<"flapping detector">>,
@@ -134,11 +133,10 @@ handle_cast({detected, #flapping{clientid   = ClientId,
         false ->
             ?SLOG(warning, #{
                 msg => "client_disconnected",
-                client_id => ClientId,
                 peer_host => fmt_host(PeerHost),
                 detect_cnt => DetectCnt,
                 interval => Interval
-            })
+            }, #{clientid => ClientId})
     end,
     {noreply, State};
 

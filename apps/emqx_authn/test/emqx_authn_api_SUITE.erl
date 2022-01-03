@@ -67,7 +67,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_authn, emqx_dashboard]),
+    emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authn]),
     ok.
 
 set_special_configs(emqx_dashboard) ->

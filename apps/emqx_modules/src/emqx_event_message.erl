@@ -44,8 +44,15 @@ list() ->
 
 update(Params) ->
     disable(),
-    {ok, _} = emqx:update_config([event_message], Params),
-    enable().
+    case emqx_conf:update([event_message],
+                        Params,
+                        #{rawconf_with_defaults => true, override_to => cluster}) of
+        {ok, #{raw_config := NewEventMessage}} ->
+            enable(),
+            {ok, NewEventMessage};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 enable() ->
     lists:foreach(fun({_Topic, false}) -> ok;

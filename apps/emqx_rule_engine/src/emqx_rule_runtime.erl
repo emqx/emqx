@@ -101,7 +101,7 @@ do_apply_rule(#{
         true ->
             ok = emqx_plugin_libs_metrics:inc_matched(rule_metrics, RuleId),
             Collection2 = filter_collection(Input, InCase, DoEach, Collection),
-            {ok, [handle_output_list(Outputs, Coll, Input) || Coll <- Collection2]};
+            {ok, [handle_output_list(RuleId, Outputs, Coll, Input) || Coll <- Collection2]};
         false ->
             {error, nomatch}
     end;
@@ -118,7 +118,7 @@ do_apply_rule(#{id := RuleId,
                 {match_conditions_error, {_EXCLASS_,_EXCPTION_,_ST_}}) of
         true ->
             ok = emqx_plugin_libs_metrics:inc_matched(rule_metrics, RuleId),
-            {ok, handle_output_list(Outputs, Selected, Input)};
+            {ok, handle_output_list(RuleId, Outputs, Selected, Input)};
         false ->
             {error, nomatch}
     end.
@@ -231,15 +231,17 @@ number(Bin) ->
     catch error:badarg -> binary_to_float(Bin)
     end.
 
-handle_output_list(Outputs, Selected, Envs) ->
-    [handle_output(Out, Selected, Envs) || Out <- Outputs].
+handle_output_list(RuleId, Outputs, Selected, Envs) ->
+    [handle_output(RuleId, Out, Selected, Envs) || Out <- Outputs].
 
-handle_output(OutId, Selected, Envs) ->
+handle_output(RuleId, OutId, Selected, Envs) ->
     try
         do_handle_output(OutId, Selected, Envs)
     catch
         Err:Reason:ST ->
-            ?SLOG(error, #{msg => "output_failed",
+            ok = emqx_plugin_libs_metrics:inc_failed(rule_metrics, RuleId),
+            Level = case Err of throw -> debug; _ -> error end,
+            ?SLOG(Level, #{msg => "output_failed",
                            output => OutId,
                            exception => Err,
                            reason => Reason,
@@ -248,7 +250,7 @@ handle_output(OutId, Selected, Envs) ->
     end.
 
 do_handle_output(BridgeId, Selected, _Envs) when is_binary(BridgeId) ->
-    ?SLOG(debug, #{msg => "output to bridge", bridge_id => BridgeId}),
+    ?TRACE("BRIDGE", "output_to_bridge", #{bridge_id => BridgeId}),
     emqx_bridge:send_message(BridgeId, Selected);
 do_handle_output(#{mod := Mod, func := Func, args := Args}, Selected, Envs) ->
     Mod:Func(Selected, Envs, Args).

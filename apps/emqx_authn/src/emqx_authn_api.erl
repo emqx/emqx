@@ -726,7 +726,7 @@ with_chain(ListenerID, Fun) ->
 create_authenticator(ConfKeyPath, ChainName, Config) ->
     case update_config(ConfKeyPath, {create_authenticator, ChainName, Config}) of
         {ok, #{post_config_update := #{emqx_authentication := #{id := ID}},
-            raw_config := AuthenticatorsConfig}} ->
+               raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
             {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
         {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
@@ -872,7 +872,7 @@ fill_defaults(Configs) when is_list(Configs) ->
 fill_defaults(Config) ->
     emqx_authn:check_config(Config, #{only_fill_defaults => true}).
 
-convert_certs(#{ssl := SSLOpts} = Config) ->
+convert_certs(#{ssl := #{enable := true} = SSLOpts} = Config) ->
     NSSLOpts = lists:foldl(fun(K, Acc) ->
                                case maps:get(K, Acc, undefined) of
                                    undefined -> Acc;
@@ -979,7 +979,7 @@ authenticator_examples() ->
                 mechanism => <<"password-based">>,
                 backend => <<"http">>,
                 method => <<"post">>,
-                url => <<"http://127.0.0.2:8080">>,
+                url => <<"http://127.0.0.1:18083">>,
                 headers => #{
                     <<"content-type">> => <<"application/json">>
                 },

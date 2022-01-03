@@ -90,7 +90,7 @@ t_log_and_pub(_) ->
     ?assert(RecSum >= 5),
     ?assert(lists:all(fun(E) -> E =< 3 end, Recs)),
 
-    timer:sleep(2000),
+    timer:sleep(3000),
     ?assert(ets:info(?TOPK_TAB, size) =:= 0),
     [Client ! stop || Client <- Clients],
     ok.

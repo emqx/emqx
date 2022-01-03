@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -13,18 +13,17 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-module(emqx_resource_health_check_sup).
 
--define(TOPK_TAB, emqx_slow_subs_topk).
+-behaviour(supervisor).
 
--define(INDEX(Latency, ClientId), {Latency, ClientId}).
+-export([start_link/0]).
 
--define(MAX_TAB_SIZE, 1000).
+-export([init/1]).
 
--record(top_k, { index :: index()
-               , type :: emqx_message_latency_stats:latency_type()
-               , last_update_time :: pos_integer()
-               , extra = []
-               }).
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
--type top_k() :: #top_k{}.
--type index() :: ?INDEX(non_neg_integer(), emqx_types:clientid()).
+init([]) ->
+    SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
+    {ok, {SupFlags, []}}.

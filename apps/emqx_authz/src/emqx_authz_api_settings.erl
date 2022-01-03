@@ -54,8 +54,9 @@ settings(get, _Params) ->
 settings(put, #{body := #{<<"no_match">> := NoMatch,
                           <<"deny_action">> := DenyAction,
                           <<"cache">> := Cache}}) ->
-    {ok, _} = emqx:update_config([authorization, no_match], NoMatch),
-    {ok, _} = emqx:update_config([authorization, deny_action], DenyAction),
-    {ok, _} = emqx:update_config([authorization, cache], Cache),
+    {ok, _} = emqx_authz_utils:update_config([authorization, no_match], NoMatch),
+    {ok, _} = emqx_authz_utils:update_config(
+                [authorization, deny_action], DenyAction),
+    {ok, _} = emqx_authz_utils:update_config([authorization, cache], Cache),
     ok = emqx_authz_cache:drain_cache(),
     {200, authorization_settings()}.

@@ -18,6 +18,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -include("emqx_mgmt.hrl").
 
@@ -386,18 +387,20 @@ trace(["list"]) ->
         emqx_ctl:print("Trace(~s=~s, level=~s, destination=~p)~n", [Type, Filter, Level, Dst])
                   end, emqx_trace_handler:running());
 
-trace(["stop", Operation, ClientId]) ->
-    case trace_type(Operation) of
-        {ok, Type} -> trace_off(Type, ClientId);
+trace(["stop", Operation, Filter0]) ->
+    case trace_type(Operation, Filter0) of
+        {ok, Type, Filter} -> trace_off(Type, Filter);
         error -> trace([])
     end;
 
 trace(["start", Operation, ClientId, LogFile]) ->
     trace(["start", Operation, ClientId, LogFile, "all"]);
 
-trace(["start", Operation, ClientId, LogFile, Level]) ->
-    case trace_type(Operation) of
-        {ok, Type} -> trace_on(Type, ClientId, list_to_existing_atom(Level), LogFile);
+trace(["start", Operation, Filter0, LogFile, Level]) ->
+    case trace_type(Operation, Filter0) of
+        {ok, Type, Filter} ->
+            trace_on(name(Filter0), Type, Filter,
+                list_to_existing_atom(Level), LogFile);
         error -> trace([])
     end;
 
@@ -417,20 +420,23 @@ trace(_) ->
             "Stop tracing for a client ip on local node"}
     ]).
 
-trace_on(Who, Name, Level, LogFile) ->
-    case emqx_trace_handler:install(Who, Name, Level, LogFile) of
+trace_on(Name, Type, Filter, Level, LogFile) ->
+    case emqx_trace_handler:install(Name, Type, Filter, Level, LogFile) of
         ok ->
-            emqx_ctl:print("trace ~s ~s successfully~n", [Who, Name]);
+            emqx_trace:check(),
+            emqx_ctl:print("trace ~s ~s successfully~n", [Filter, Name]);
         {error, Error} ->
-            emqx_ctl:print("[error] trace ~s ~s: ~p~n", [Who, Name, Error])
+            emqx_ctl:print("[error] trace ~s ~s: ~p~n", [Filter, Name, Error])
     end.
 
-trace_off(Who, Name) ->
-    case emqx_trace_handler:uninstall(Who, Name) of
+trace_off(Type, Filter) ->
+    ?TRACE("CLI", "trace_stopping", #{Type => Filter}),
+    case emqx_trace_handler:uninstall(Type, name(Filter)) of
         ok ->
-            emqx_ctl:print("stop tracing ~s ~s successfully~n", [Who, Name]);
+            emqx_trace:check(),
+            emqx_ctl:print("stop tracing ~s ~s successfully~n", [Type, Filter]);
         {error, Error} ->
-            emqx_ctl:print("[error] stop tracing ~s ~s: ~p~n", [Who, Name, Error])
+            emqx_ctl:print("[error] stop tracing ~s ~s: ~p~n", [Type, Filter, Error])
     end.
 
 %%--------------------------------------------------------------------
@@ -459,9 +465,9 @@ traces(["delete", Name]) ->
 traces(["start", Name, Operation, Filter]) ->
     traces(["start", Name, Operation, Filter, "900"]);
 
-traces(["start", Name, Operation, Filter, DurationS]) ->
-    case trace_type(Operation) of
-        {ok, Type} ->  trace_cluster_on(Name, Type, Filter, DurationS);
+traces(["start", Name, Operation, Filter0, DurationS]) ->
+    case trace_type(Operation, Filter0) of
+        {ok, Type, Filter} ->  trace_cluster_on(Name, Type, Filter, DurationS);
         error -> traces([])
     end;
 
@@ -503,10 +509,10 @@ trace_cluster_off(Name) ->
         {error, Error} -> emqx_ctl:print("[error] Stop cluster_trace ~s: ~p~n", [Name, Error])
     end.
 
-trace_type("client") -> {ok, clientid};
-trace_type("topic") -> {ok, topic};
-trace_type("ip_address") -> {ok, ip_address};
-trace_type(_) -> error.
+trace_type("client", ClientId) -> {ok, clientid, list_to_binary(ClientId)};
+trace_type("topic", Topic) -> {ok, topic, list_to_binary(Topic)};
+trace_type("ip_address", IP) -> {ok, ip_address, IP};
+trace_type(_, _) -> error.
 
 %%--------------------------------------------------------------------
 %% @doc Listeners Command
@@ -716,3 +722,6 @@ format_listen_on({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~ts:~w", [Addr, Port]);
 format_listen_on({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]).
+
+name(Filter) ->
+    iolist_to_binary(["CLI-", Filter]).

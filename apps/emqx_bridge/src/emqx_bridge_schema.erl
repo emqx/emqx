@@ -43,9 +43,13 @@ http_schema(Method) ->
 common_bridge_fields() ->
     [ {enable,
         mk(boolean(),
-           #{ desc =>"Enable or disable this bridge"
+           #{ desc => "Enable or disable this bridge"
             , default => true
             })}
+    , {name,
+       mk(binary(),
+          #{ desc => "Bridge name, used as a human-readable description of the bridge."
+           })}
     , {connector,
         mk(binary(),
            #{ nullable => false
@@ -71,6 +75,7 @@ metrics_status_fields() ->
 direction_field(Dir, Desc) ->
     {direction, mk(Dir,
         #{ nullable => false
+         , default => egress
          , desc => "The direction of the bridge. Can be one of 'ingress' or 'egress'.<br>"
             ++ Desc
          })}.

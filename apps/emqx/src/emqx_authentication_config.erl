@@ -187,7 +187,7 @@ convert_certs(CertsDir, Config) ->
         {ok, SSL} ->
             new_ssl_config(Config, SSL);
         {error, Reason} ->
-            ?SLOG(error, Reason#{msg => bad_ssl_config}),
+            ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
             throw({bad_ssl_config, Reason})
     end.
 
@@ -199,7 +199,7 @@ convert_certs(CertsDir, NewConfig, OldConfig) ->
             ok = emqx_tls_lib:delete_ssl_files(CertsDir, NewSSL1, OldSSL),
             new_ssl_config(NewConfig, NewSSL1);
         {error, Reason} ->
-            ?SLOG(error, Reason#{msg => bad_ssl_config}),
+            ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
             throw({bad_ssl_config, Reason})
     end.
 

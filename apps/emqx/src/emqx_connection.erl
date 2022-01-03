@@ -449,14 +449,12 @@ handle_msg({'$gen_cast', Req}, State) ->
     {ok, NewState};
 
 handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
-    ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => Inet}),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
     when_bytes_in(Oct, Data, State);
 
 handle_msg({quic, Data, _Sock, _, _, _}, State) ->
-    ?SLOG(debug, #{msg => "RECV_data", data => Data, transport => quic}),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
@@ -528,7 +526,7 @@ handle_msg({connack, ConnAck}, State) ->
     handle_outgoing(ConnAck, State);
 
 handle_msg({close, Reason}, State) ->
-    ?SLOG(debug, #{msg => "force_socket_close", reason => Reason}),
+    ?TRACE("SOCKET", "socket_force_closed", #{reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_msg({event, connected}, State = #state{channel = Channel}) ->
@@ -566,7 +564,8 @@ terminate(Reason, State = #state{channel = Channel, transport = Transport,
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
         emqx_congestion:cancel_alarms(Socket, Transport, Channel1),
         emqx_channel:terminate(Reason, Channel1),
-        close_socket_ok(State)
+        close_socket_ok(State),
+        ?TRACE("SOCKET", "tcp_socket_terminated", #{reason => Reason})
     catch
         E : C : S ->
             ?tp(warning, unclean_terminate, #{exception => E, context => C, stacktrace => S})
@@ -716,7 +715,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
 
 handle_incoming(Packet, State) when is_record(Packet, mqtt_packet) ->
     ok = inc_incoming_stats(Packet),
-    ?SLOG(debug, #{msg => "RECV_packet", packet => emqx_packet:format(Packet)}),
+    ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     with_channel(handle_in, [Packet], State);
 
 handle_incoming(FrameError, State) ->
@@ -755,15 +754,13 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
             <<>> -> ?SLOG(warning, #{
                         msg => "packet_is_discarded",
                         reason => "frame_is_too_large",
-                        packet => emqx_packet:format(Packet)
+                        packet => emqx_packet:format(Packet, hidden)
                     }),
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
                     ok = emqx_metrics:inc('delivery.dropped'),
                     <<>>;
-            Data -> ?SLOG(debug, #{
-                        msg => "SEND_packet",
-                        packet => emqx_packet:format(Packet)
-                    }),
+            Data ->
+                    ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
                     ok = inc_outgoing_stats(Packet),
                     Data
         catch
@@ -875,7 +872,7 @@ check_limiter(Needs,
                 {ok, Limiter2} ->
                     WhenOk(Data, Msgs, State#state{limiter = Limiter2});
                 {pause, Time, Limiter2} ->
-                    ?SLOG(warning, #{msg => "pause time dueto rate limit",
+                    ?SLOG(warning, #{msg => "pause_time_dueto_rate_limit",
                                      needs => Needs,
                                      time_in_ms => Time}),
 
@@ -915,7 +912,7 @@ retry_limiter(#state{limiter = Limiter} = State) ->
                                 , limiter_timer = undefined
                                 });
             {pause, Time, Limiter2} ->
-                ?SLOG(warning, #{msg => "pause time dueto rate limit",
+                ?SLOG(warning, #{msg => "pause_time_dueto_rate_limit",
                                  types => Types,
                                  time_in_ms => Time}),
 
