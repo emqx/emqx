@@ -38,139 +38,139 @@
         }).
 
 format_error(invalid_name) ->
-  "BPAPI module name should follow <API>_proto_v<number> pattern";
+    "BPAPI module name should follow <API>_proto_v<number> pattern";
 format_error(invalid_introduced_in) ->
-  "-introduced_in attribute should be present and its value should be a semver string";
+    "-introduced_in attribute should be present and its value should be a semver string";
 format_error(invalid_deprecated_since) ->
-  "value of -deprecated_since attribute should be a semver string";
+    "value of -deprecated_since attribute should be a semver string";
 format_error({invalid_fun, Name, Arity}) ->
-  io_lib:format("malformed function ~p/~p. "
-                "BPAPI functions should have exactly one clause "
-                "and call (emqx_|e)rpc at the top level",
-                [Name, Arity]).
+    io_lib:format("malformed function ~p/~p. "
+                  "BPAPI functions should have exactly one clause "
+                  "and call (emqx_|e)rpc at the top level",
+                  [Name, Arity]).
 
 parse_transform(Forms, _Options) ->
-  log("Original:~n~p", [Forms]),
-  State = #s{file = File} = lists:foldl(fun go/2, #s{}, Forms),
-  log("parse_trans state: ~p", [State]),
-  case check(State) of
-    [] ->
-      finalize(Forms, State);
-    Errors ->
-      {error, [{File, [{Line, ?MODULE, Msg} || {Line, Msg} <- Errors]}], []}
-  end.
+    log("Original:~n~p", [Forms]),
+    State = #s{file = File} = lists:foldl(fun go/2, #s{}, Forms),
+    log("parse_trans state: ~p", [State]),
+    case check(State) of
+        [] ->
+            finalize(Forms, State);
+        Errors ->
+            {error, [{File, [{Line, ?MODULE, Msg} || {Line, Msg} <- Errors]}], []}
+    end.
 
 %% Scan erl_forms:
 go({attribute, _, file, {File, _}}, S) ->
-  S#s{file = File};
+    S#s{file = File};
 go({attribute, Line, module, Mod}, S) ->
-  case emqx_bpapi:api_and_version(Mod) of
-    {ok, API, Vsn} -> S#s{api = API, version = Vsn, module = Mod};
-    error          -> push_err(Line, invalid_name, S)
-  end;
+    case api_and_version(Mod) of
+        {ok, API, Vsn} -> S#s{api = API, version = Vsn, module = Mod};
+        error          -> push_err(Line, invalid_name, S)
+    end;
 go({attribute, _Line, introduced_in, Str}, S) ->
-  case is_list(Str) andalso emqx_bpapi:parse_semver(Str) of
-    {ok, Vsn} -> S#s{introduced_in = Vsn};
-    false     -> S %% Don't report error here, it's done in check/1
-  end;
+    case is_list(Str) andalso parse_semver(Str) of
+        {ok, Vsn} -> S#s{introduced_in = Vsn};
+        error     -> S %% Don't report error here, it's done in check/1
+    end;
 go({attribute, Line, deprecated_since, Str}, S) ->
-  case is_list(Str) andalso emqx_bpapi:parse_semver(Str) of
-    {ok, Vsn} -> S#s{deprecated_since = Vsn};
-    false     -> push_err(Line, invalid_deprecated_since, S)
-  end;
+    case is_list(Str) andalso parse_semver(Str) of
+        {ok, Vsn} -> S#s{deprecated_since = Vsn};
+        error     -> push_err(Line, invalid_deprecated_since, S)
+    end;
 go({function, Line, Name, Arity, Clauses}, S) ->
-  analyze_fun(Line, Name, Arity, Clauses, S);
+    analyze_fun(Line, Name, Arity, Clauses, S);
 go(_, S) ->
-  S.
+    S.
 
 check(#s{errors = Err0, introduced_in = II}) ->
-  [{none, invalid_introduced_in} || II =:= undefined] ++
-    Err0.
+    [{none, invalid_introduced_in} || II =:= undefined] ++
+        Err0.
 
 finalize(Forms, S) ->
-  {Attrs, Funcs} = lists:splitwith(fun is_attribute/1, Forms),
-  AST = mk_meta_fun(S),
-  log("Meta fun:~n~p", [AST]),
-  Attrs ++ [mk_export()] ++ [AST|Funcs].
+    {Attrs, Funcs} = lists:splitwith(fun is_attribute/1, Forms),
+    AST = mk_meta_fun(S),
+    log("Meta fun:~n~p", [AST]),
+    Attrs ++ [mk_export()] ++ [AST|Funcs].
 
 mk_meta_fun(#s{api = API, version = Vsn, targets = Targets}) ->
-  Line = 0,
-  Calls = [{From, To} || {call, From, To} <- Targets],
-  Casts = [{From, To} || {cast, From, To} <- Targets],
-  Ret = typerefl_quote:const(Line, #{ api => API
-                                    , version => Vsn
-                                    , calls => Calls
-                                    , casts => Casts
-                                    }),
-  {function, Line, ?META_FUN, _Arity = 0,
-   [{clause, Line, _Args = [], _Guards = [],
-     [Ret]}]}.
+    Line = 0,
+    Calls = [{From, To} || {call, From, To} <- Targets],
+    Casts = [{From, To} || {cast, From, To} <- Targets],
+    Ret = typerefl_quote:const(Line, #{ api => API
+                                      , version => Vsn
+                                      , calls => Calls
+                                      , casts => Casts
+                                      }),
+    {function, Line, ?META_FUN, _Arity = 0,
+     [{clause, Line, _Args = [], _Guards = [],
+       [Ret]}]}.
 
 mk_export() ->
-  {attribute, 0, export, [{?META_FUN, 0}]}.
+    {attribute, 0, export, [{?META_FUN, 0}]}.
 
 is_attribute({attribute, _Line, _Attr, _Val}) -> true;
 is_attribute(_)                               -> false.
 
 %% Extract the target function of the RPC call
 analyze_fun(Line, Name, Arity, [{clause, Line, Head, _Guards, Exprs}], S) ->
-  analyze_exprs(Line, Name, Arity, Head, Exprs, S);
+    analyze_exprs(Line, Name, Arity, Head, Exprs, S);
 analyze_fun(Line, Name, Arity, _Clauses, S) ->
-  invalid_fun(Line, Name, Arity, S).
+    invalid_fun(Line, Name, Arity, S).
 
 analyze_exprs(Line, Name, Arity, Head, Exprs, S) ->
-  log("~p/~p (~p):~n~p", [Name, Arity, Head, Exprs]),
-  try
-    [{call, _, CallToBackend, CallArgs}] = Exprs,
-    OuterArgs = extract_outer_args(Head),
-    Key = {S#s.module, Name, OuterArgs},
-    {Semantics, Target} = extract_target_call(CallToBackend, CallArgs),
-    push_target({Semantics, Key, Target}, S)
-  catch
-    _:Err:Stack ->
-      log("Failed to process function call:~n~s~nStack: ~p", [Err, Stack]),
-      invalid_fun(Line, Name, Arity, S)
-  end.
+    log("~p/~p (~p):~n~p", [Name, Arity, Head, Exprs]),
+    try
+        [{call, _, CallToBackend, CallArgs}] = Exprs,
+        OuterArgs = extract_outer_args(Head),
+        Key = {S#s.module, Name, OuterArgs},
+        {Semantics, Target} = extract_target_call(CallToBackend, CallArgs),
+        push_target({Semantics, Key, Target}, S)
+    catch
+        _:Err:Stack ->
+            log("Failed to process function call:~n~s~nStack: ~p", [Err, Stack]),
+            invalid_fun(Line, Name, Arity, S)
+    end.
 
 -spec extract_outer_args(erl_parse:abstract_form()) -> [atom()].
 extract_outer_args(Abs) ->
-  lists:map(fun({var, _, Var}) ->
-                Var;
-               ({match, _, {var, _, Var}, _}) ->
-                Var;
-               ({match, _, _, {var, _, Var}}) ->
-                Var
-            end,
-            Abs).
+    lists:map(fun({var, _, Var}) ->
+                      Var;
+                 ({match, _, {var, _, Var}, _}) ->
+                      Var;
+                 ({match, _, _, {var, _, Var}}) ->
+                      Var
+              end,
+              Abs).
 
 -spec extract_target_call(Abs, [Abs]) -> {semantics(), emqx_bpapi:call()}
-          when Abs :: erl_parse:abstract_form().
+              when Abs :: erl_parse:abstract_form().
 extract_target_call(RPCBackend, OuterArgs) ->
-  {Semantics, {atom, _, M}, {atom, _, F}, A} = extract_mfa(RPCBackend, OuterArgs),
-  {Semantics, {M, F, list_to_args(A)}}.
+    {Semantics, {atom, _, M}, {atom, _, F}, A} = extract_mfa(RPCBackend, OuterArgs),
+    {Semantics, {M, F, list_to_args(A)}}.
 
 -define(BACKEND(MOD, FUN), {remote, _, {atom, _, MOD}, {atom, _, FUN}}).
 -define(IS_RPC(MOD), (MOD =:= erpc orelse MOD =:= rpc)).
 
 -spec extract_mfa(Abs, #s{}) -> {call | cast, Abs, Abs, Abs}
-          when Abs :: erl_parse:abstract_form().
+              when Abs :: erl_parse:abstract_form().
 %% gen_rpc:
 extract_mfa(?BACKEND(gen_rpc, _), _) ->
-  %% gen_rpc has an extremely messy API, thankfully it's fully wrapped
-  %% by emqx_rpc, so we simply forbid direct calls to it:
-  error("direct call to gen_rpc");
+    %% gen_rpc has an extremely messy API, thankfully it's fully wrapped
+    %% by emqx_rpc, so we simply forbid direct calls to it:
+    error("direct call to gen_rpc");
 %% emqx_rpc:
 extract_mfa(?BACKEND(emqx_rpc, CallOrCast), [_Node, M, F, A]) ->
-  {call_or_cast(CallOrCast), M, F, A};
+    {call_or_cast(CallOrCast), M, F, A};
 extract_mfa(?BACKEND(emqx_rpc, CallOrCast), [_Tag, _Node, M, F, A]) ->
-  {call_or_cast(CallOrCast), M, F, A};
+    {call_or_cast(CallOrCast), M, F, A};
 %% (e)rpc:
 extract_mfa(?BACKEND(RPC, CallOrCast), [_Node, M, F, A]) when ?IS_RPC(RPC) ->
-  {call_or_cast(CallOrCast), M, F, A};
+    {call_or_cast(CallOrCast), M, F, A};
 extract_mfa(?BACKEND(RPC, CallOrCast), [_Node, M, F, A, _Timeout]) when ?IS_RPC(RPC) ->
-  {call_or_cast(CallOrCast), M, F, A};
+    {call_or_cast(CallOrCast), M, F, A};
 extract_mfa(_, _) ->
-  error("unrecognized RPC call").
+    error("unrecognized RPC call").
 
 call_or_cast(cast)      -> cast;
 call_or_cast(multicast) -> cast;
@@ -178,23 +178,43 @@ call_or_cast(multicall) -> call;
 call_or_cast(call)      -> call.
 
 list_to_args({cons, _, {var, _, A}, T}) ->
-  [A|list_to_args(T)];
+    [A|list_to_args(T)];
 list_to_args({nil, _}) ->
-  [].
+    [].
 
 invalid_fun(Line, Name, Arity, S) ->
-  push_err(Line, {invalid_fun, Name, Arity}, S).
+    push_err(Line, {invalid_fun, Name, Arity}, S).
 
 push_err(Line, Err, S = #s{errors = Errs}) ->
-  S#s{errors = [{Line, Err}|Errs]}.
+    S#s{errors = [{Line, Err}|Errs]}.
 
 push_target(Target, S = #s{targets = Targets}) ->
-  S#s{targets = [Target|Targets]}.
+    S#s{targets = [Target|Targets]}.
+
+
+-spec parse_semver(string()) -> {ok, emqx_bpapi:semver()}
+                              | error.
+parse_semver(Str) ->
+    Opts = [{capture, all_but_first, list}],
+    case re:run(Str, "^([0-9]+)\\.([0-9]+)\\.([0-9]+)$", Opts) of
+        {match, [A, B, C]} -> {ok, {list_to_integer(A), list_to_integer(B), list_to_integer(C)}};
+        nomatch            -> error
+    end.
+
+-spec api_and_version(module()) -> {ok, emqx_bpapi:api(), emqx_bpapi:version()} | error.
+api_and_version(Module) ->
+    Opts = [{capture, all_but_first, list}],
+    case re:run(atom_to_list(Module), "(.*)_proto_v([0-9]+)$", Opts) of
+        {match, [API, VsnStr]} ->
+            {ok, list_to_atom(API), list_to_integer(VsnStr)};
+        nomatch ->
+            error
+    end.
 
 -ifdef(debug).
 log(Fmt, Args) ->
-  io:format(user, "!! " ++ Fmt ++ "~n", Args).
+    io:format(user, "!! " ++ Fmt ++ "~n", Args).
 -else.
 log(_, _) ->
-  ok.
+    ok.
 -endif.
