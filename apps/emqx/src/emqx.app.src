@@ -17,6 +17,7 @@
                  , jiffy
                  , lc
                  , hocon
+                 , emqx_bpapi
                  ]},
   {mod, {emqx_app,[]}},
   {env, []},
