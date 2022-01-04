@@ -16,20 +16,22 @@
 
 -module(emqx_bpapi_static_checks).
 
--export([run/1, run/0]).
+-export([dump/1, dump/0]).
 
 -include_lib("emqx/include/logger.hrl").
 
-%% `emqx_bpapi:call' enriched with dialyzer spec
--type typed_call() :: {emqx_bpapi:call(), _DialyzerSpec}.
--type typed_rpc() :: {typed_call(), typed_call()}.
-
--type fulldump() :: #{emqx_bpapi:api() =>
-                          #{emqx_bpapi:api_version() =>
-                                #{ calls := [typed_rpc()]
-                                 , casts := [typed_rpc()]
-                                 }
+-type api_dump() :: #{{emqx_bpapi:api(), emqx_bpapi:api_version()} =>
+                          #{ calls := [emqx_bpapi:rpc()]
+                           , casts := [emqx_bpapi:rpc()]
                            }}.
+
+-type dialyzer_spec() :: {_Type, [_Type]}.
+
+-type dialyzer_dump() :: #{mfa() => dialyzer_spec()}.
+
+-type fulldump() :: #{ api        => api_dump()
+                     , signatures => dialyzer_dump()
+                     }.
 
 %% Applications we wish to ignore in the analysis:
 -define(IGNORED_APPS, "gen_rpc, recon, observer_cli, snabbkaffe, ekka, mria").
@@ -40,24 +42,26 @@
 
 -define(XREF, myxref).
 
-run() ->
+dump() ->
     case {filelib:wildcard("*_plt"), filelib:wildcard("_build/emqx*/lib")} of
         {[PLT|_], [RelDir|_]} ->
-            run(#{plt => PLT, reldir => RelDir});
+            dump(#{plt => PLT, reldir => RelDir});
         _ ->
             error("failed to guess run options")
     end.
 
--spec run(map()) -> boolean().
-run(Opts) ->
+%% Collect the local BPAPI modules to a dump file:
+-spec dump(map()) -> boolean().
+dump(Opts) ->
     put(bpapi_ok, true),
     PLT = prepare(Opts),
     %% First we run XREF to find all callers of any known RPC backend:
     Callers = find_remote_calls(Opts),
     {BPAPICalls, NonBPAPICalls} = lists:partition(fun is_bpapi_call/1, Callers),
     warn_nonbpapi_rpcs(NonBPAPICalls),
-    CombinedAPI = collect_bpapis(BPAPICalls, PLT),
-    dump_api(CombinedAPI),
+    APIDump = collect_bpapis(BPAPICalls),
+    DialyzerDump = collect_signatures(PLT, APIDump),
+    dump_api(#{api => APIDump, signatures => DialyzerDump}),
     erase(bpapi_ok).
 
 prepare(#{reldir := RelDir, plt := PLT}) ->
@@ -100,45 +104,58 @@ is_bpapi_call({Module, _Function, _Arity}) ->
     end.
 
 -spec dump_api(fulldump()) -> ok.
-dump_api(Term) ->
-    Filename = filename:join(code:priv_dir(emqx_bpapi), emqx_app:get_release() ++ ".bpapi"),
+dump_api(Term = #{api := _, signatures := _}) ->
+    Filename = filename:join(code:priv_dir(emqx), emqx_app:get_release() ++ ".bpapi"),
     file:write_file(Filename, io_lib:format("~0p.", [Term])).
 
--spec collect_bpapis([mfa()], _PLT) -> fulldump().
-collect_bpapis(L, PLT) ->
+-spec collect_bpapis([mfa()]) -> api_dump().
+collect_bpapis(L) ->
     Modules = lists:usort([M || {M, _F, _A} <- L]),
     lists:foldl(fun(Mod, Acc) ->
                         #{ api     := API
                          , version := Vsn
-                         , calls   := Calls0
-                         , casts   := Casts0
+                         , calls   := Calls
+                         , casts   := Casts
                          } = Mod:bpapi_meta(),
-                        Calls = enrich(PLT, Calls0),
-                        Casts = enrich(PLT, Casts0),
-                        Acc#{API => #{Vsn => #{ calls => Calls
-                                              , casts => Casts
-                                              }}}
+                        Acc#{{API, Vsn} => #{ calls => Calls
+                                            , casts => Casts
+                                            }}
                 end,
                 #{},
                 Modules
                ).
 
-%% Add information about types from the PLT
--spec enrich(_PLT, [emqx_bpapi:rpc()]) -> [typed_rpc()].
-enrich(PLT, Calls) ->
-    [case {lookup_type(PLT, From), lookup_type(PLT, To)} of
-         {{value, TFrom}, {value, TTo}} ->
-             {{From, TFrom}, {To, TTo}};
-         {_, none} ->
-             setnok(),
-             ?CRITICAL("Backplane API function ~s calls a missing remote function ~s",
-                       [format_call(From), format_call(To)]),
-             error(missing_target)
-     end
-     || {From, To} <- Calls].
+-spec collect_signatures(_PLT, api_dump()) -> dialyzer_dump().
+collect_signatures(PLT, APIs) ->
+    maps:fold(fun(_APIAndVersion, #{calls := Calls, casts := Casts}, Acc0) ->
+                      Acc1 = lists:foldl(fun enrich/2, {Acc0, PLT}, Calls),
+                      {Acc, PLT} = lists:foldl(fun enrich/2, Acc1, Casts),
+                      Acc
+              end,
+              #{},
+              APIs).
 
-lookup_type(PLT, {M, F, A}) ->
-    dialyzer_plt:lookup(PLT, {M, F, length(A)}).
+%% Add information about the call types from the PLT
+-spec enrich(emqx_bpapi:rpc(), {dialyzer_dump(), _PLT}) -> {dialyzer_dump(), _PLT}.
+enrich({From0, To0}, {Acc0, PLT}) ->
+    From = call_to_mfa(From0),
+    To   = call_to_mfa(To0),
+    case {dialyzer_plt:lookup(PLT, From), dialyzer_plt:lookup(PLT, To)} of
+        {{value, TFrom}, {value, TTo}} ->
+            Acc = Acc0#{ From => TFrom
+                       , To   => TTo
+                       },
+            {Acc, PLT};
+        {_, none} ->
+            setnok(),
+            ?CRITICAL("Backplane API function ~s calls a missing remote function ~s",
+                      [format_call(From0), format_call(To0)]),
+            error(missing_target)
+     end.
+
+-spec call_to_mfa(emqx_bpapi:call()) -> mfa().
+call_to_mfa({M, F, A}) ->
+    {M, F, length(A)}.
 
 format_call({M, F, A}) ->
     io_lib:format("~p:~p/~p", [M, F, length(A)]).
