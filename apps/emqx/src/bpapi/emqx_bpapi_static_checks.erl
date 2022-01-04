@@ -16,7 +16,7 @@
 
 -module(emqx_bpapi_static_checks).
 
--export([dump/1, dump/0]).
+-export([dump/1, dump/0, check_compat/1]).
 
 -include_lib("emqx/include/logger.hrl").
 
@@ -31,7 +31,10 @@
 
 -type fulldump() :: #{ api        => api_dump()
                      , signatures => dialyzer_dump()
+                     , release    => string()
                      }.
+
+-type param_types() :: #{emqx_bpapi:var_name() => _Type}.
 
 %% Applications we wish to ignore in the analysis:
 -define(IGNORED_APPS, "gen_rpc, recon, observer_cli, snabbkaffe, ekka, mria").
@@ -42,6 +45,101 @@
 
 -define(XREF, myxref).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Functions related to BPAPI compatibility checking
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+-spec check_compat([file:filename()]) -> boolean().
+check_compat(DumpFilenames) ->
+    put(bpapi_ok, true),
+    Dumps = lists:map(fun(FN) ->
+                              {ok, [Dump]} = file:consult(FN),
+                              Dump
+                      end,
+                      DumpFilenames),
+    [check_compat(I, J) || I <- Dumps, J <- Dumps],
+    erase(bpapi_ok).
+
+%% Note: sets nok flag
+-spec check_compat(fulldump(), fulldump()) -> ok.
+check_compat(Dump1, Dump2) ->
+    check_api_immutability(Dump1, Dump2),
+    typecheck_apis(Dump1, Dump2).
+
+%% It's not allowed to change BPAPI modules. Check that no changes
+%% have been made. (sets nok flag)
+-spec check_api_immutability(fulldump(), fulldump()) -> ok.
+check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api := APIs2})
+  when Rel2 >= Rel1 ->
+    %% TODO: Handle API deprecation
+    maps:map(fun(Key = {API, Version}, Val) ->
+                         case maps:get(Key, APIs2, undefined) of
+                             Val ->
+                                 ok;
+                             undefined ->
+                                 setnok(),
+                                 ?ERROR("API ~p v~p was removed in release ~p without being deprecated.",
+                                        [API, Version, Rel2]);
+                             _Val ->
+                                 setnok(),
+                                 ?ERROR("API ~p v~p was changed between ~p and ~p. Backplane API should be immutable.",
+                                        [API, Version, Rel1, Rel2])
+                         end
+                 end,
+                 APIs1),
+    ok;
+check_api_immutability(_, _) ->
+    ok.
+
+%% Note: sets nok flag
+-spec typecheck_apis(fulldump(), fulldump()) -> ok.
+typecheck_apis( #{release := CallerRelease, api := CallerAPIs, signatures := CallerSigs}
+              , #{release := CalleeRelease, signatures := CalleeSigs}
+              ) ->
+    AllCalls = lists:flatten([[Calls, Casts]
+                              || #{calls := Calls, casts := Casts} <- maps:values(CallerAPIs)]),
+    lists:foreach(fun({From, To}) ->
+                          Caller = get_param_types(CallerSigs, From),
+                          Callee = get_param_types(CalleeSigs, To),
+                          %% TODO: check return types
+                          case typecheck_rpc(Caller, Callee) of
+                              [] ->
+                                  ok;
+                              TypeErrors ->
+                                  setnok(),
+                                  [?ERROR("Incompatible RPC call: "
+                                          "type of the parameter ~p of RPC call ~s on release ~p "
+                                          "is not a subtype of the target function ~s on release ~p",
+                                          [Var, format_call(From), CallerRelease,
+                                           format_call(To), CalleeRelease])
+                                   || Var <- TypeErrors]
+                          end
+                  end,
+                  AllCalls).
+
+-spec typecheck_rpc(param_types(), param_types()) -> [emqx_bpapi:var_name()].
+typecheck_rpc(Caller, Callee) ->
+    maps:fold(fun(Var, CalleeType, Acc) ->
+                      #{Var := CallerType} = Caller,
+                      case erl_types:t_is_subtype(CallerType, CalleeType) of
+                          true  -> Acc;
+                          false -> [Var|Acc]
+                      end
+              end,
+              [],
+              Callee).
+
+-spec get_param_types(dialyzer_dump(), emqx_bpapi:call()) -> param_types().
+get_param_types(Signatures, {M, F, A}) ->
+    Arity = length(A),
+    #{{M, F, Arity} := {_RetType, AttrTypes}} = Signatures,
+    Arity = length(AttrTypes), % assert
+    maps:from_list(lists:zip(A, AttrTypes)).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Functions related to BPAPI dumping
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 dump() ->
     case {filelib:wildcard("*_plt"), filelib:wildcard("_build/emqx*/lib")} of
         {[PLT|_], [RelDir|_]} ->
@@ -50,7 +148,7 @@ dump() ->
             error("failed to guess run options")
     end.
 
-%% Collect the local BPAPI modules to a dump file:
+%% Collect the local BPAPI modules to a dump file
 -spec dump(map()) -> boolean().
 dump(Opts) ->
     put(bpapi_ok, true),
@@ -61,7 +159,8 @@ dump(Opts) ->
     warn_nonbpapi_rpcs(NonBPAPICalls),
     APIDump = collect_bpapis(BPAPICalls),
     DialyzerDump = collect_signatures(PLT, APIDump),
-    dump_api(#{api => APIDump, signatures => DialyzerDump}),
+    Release = emqx_app:get_release(),
+    dump_api(#{api => APIDump, signatures => DialyzerDump, release => Release}),
     erase(bpapi_ok).
 
 prepare(#{reldir := RelDir, plt := PLT}) ->
@@ -104,8 +203,8 @@ is_bpapi_call({Module, _Function, _Arity}) ->
     end.
 
 -spec dump_api(fulldump()) -> ok.
-dump_api(Term = #{api := _, signatures := _}) ->
-    Filename = filename:join(code:priv_dir(emqx), emqx_app:get_release() ++ ".bpapi"),
+dump_api(Term = #{api := _, signatures := _, release := Release}) ->
+    Filename = filename:join(code:priv_dir(emqx), Release ++ ".bpapi"),
     file:write_file(Filename, io_lib:format("~0p.", [Term])).
 
 -spec collect_bpapis([mfa()]) -> api_dump().
@@ -122,8 +221,7 @@ collect_bpapis(L) ->
                                             }}
                 end,
                 #{},
-                Modules
-               ).
+                Modules).
 
 -spec collect_signatures(_PLT, api_dump()) -> dialyzer_dump().
 collect_signatures(PLT, APIs) ->
@@ -146,7 +244,7 @@ enrich({From0, To0}, {Acc0, PLT}) ->
                        , To   => TTo
                        },
             {Acc, PLT};
-        {_, none} ->
+        {{value, _}, none} ->
             setnok(),
             ?CRITICAL("Backplane API function ~s calls a missing remote function ~s",
                       [format_call(From0), format_call(To0)]),
