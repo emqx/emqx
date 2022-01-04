@@ -90,7 +90,7 @@ listeners() ->
         Name = listener_name(Protocol, Port),
         RanchOptions = ranch_opts(maps:without([protocol], ListenerOptions)),
         {Name, Protocol, Port, RanchOptions}
-    end || ListenerOptions <- emqx_conf:get([emqx_dashboard, listeners], [])].
+    end || ListenerOptions <- emqx_conf:get([dashboard, listeners], [])].
 
 ranch_opts(RanchOptions) ->
     Keys = [ {ack_timeout, handshake_timeout}

@@ -94,7 +94,7 @@ set_special_configs(emqx_dashboard) ->
                default_username => <<"admin">>,
                default_password => <<"public">>
               },
-    emqx_config:put([emqx_dashboard], Config),
+    emqx_config:put([dashboard], Config),
     ok;
 set_special_configs(_) ->
     ok.

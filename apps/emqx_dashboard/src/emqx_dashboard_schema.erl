@@ -22,9 +22,9 @@
         ,namespace/0]).
 
 namespace() -> <<"dashboard">>.
-roots() -> ["emqx_dashboard"].
+roots() -> ["dashboard"].
 
-fields("emqx_dashboard") ->
+fields("dashboard") ->
     [ {listeners, hoconsc:array(hoconsc:union([hoconsc:ref(?MODULE, "http"),
                                                hoconsc:ref(?MODULE, "https")]))}
     , {default_username, fun default_username/1}
