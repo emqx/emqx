@@ -3,6 +3,7 @@ name: Compatibility Test Suite
 on:
   schedule:
     - cron:  '0 */6 * * *'
+  pull_request:
   push:
     tags:
       - v*
@@ -46,11 +47,12 @@ jobs:
           fi
       - name: run test cases
         run: |
-          export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
-          printenv > .env
           docker exec -i erlang sh -c "make ensure-rebar3"
-          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_ldap"
-          docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_ldap"
+          printenv | grep "^EMQX_" > .env
+          docker exec -i \
+            -e "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" \
+            --env-file .env \
+            erlang sh -c "make apps/emqx_auth_ldap-ct"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
@@ -115,11 +117,11 @@ jobs:
           fi
       - name: run test cases
         run: |
-          export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
-          printenv > .env
-          docker exec -i erlang sh -c "make ensure-rebar3"
-          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mongo"
-          docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_mongo"
+          printenv | grep "^EMQX_" > .env
+          docker exec -i \
+            -e "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" \
+            --env-file .env \
+            erlang sh -c "make apps/emqx_auth_mongo-ct"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
@@ -197,11 +199,11 @@ jobs:
           fi
       - name: run test cases
         run: |
-          export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
-          printenv > .env
-          docker exec -i erlang sh -c "make ensure-rebar3"
-          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_mysql"
-          docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_mysql"
+          printenv | grep "^EMQX_" > .env
+          docker exec -i \
+            -e "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" \
+            --env-file .env \
+            erlang sh -c "make apps/emqx_auth_mysql-ct"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
@@ -270,12 +272,12 @@ jobs:
         run: |
           export EMQX_AUTH__PGSQL__USERNAME=root \
                  EMQX_AUTH__PGSQL__PASSWORD=public \
-                 EMQX_AUTH__PGSQL__DATABASE=mqtt \
-                 CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
-          printenv > .env
-          docker exec -i erlang sh -c "make ensure-rebar3"
-          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_pgsql"
-          docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_pgsql"
+                 EMQX_AUTH__PGSQL__DATABASE=mqtt
+          printenv | grep "^EMQX_" > .env
+          docker exec -i \
+            -e "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" \
+            --env-file .env \
+            erlang sh -c "make apps/emqx_auth_pgsql-ct"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
@@ -391,12 +393,12 @@ jobs:
           fi
       - name: run test cases
         run: |
-          export CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_
           export EMQX_AUTH__REIDS__PASSWORD=public
-          printenv > .env
-          docker exec -i erlang sh -c "make ensure-rebar3"
-          docker exec -i erlang sh -c "./rebar3 eunit --dir apps/emqx_auth_redis"
-          docker exec --env-file .env -i erlang sh -c "./rebar3 ct --dir apps/emqx_auth_redis"
+          printenv | grep "^EMQX_" > .env
+          docker exec -i \
+            -e "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" \
+            --env-file .env \
+            erlang sh -c "make apps/emqx_auth_redis-ct"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
