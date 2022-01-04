@@ -22,7 +22,7 @@
         , forward_async/3
         ]).
 
--include_lib("emqx_bpapi/include/bpapi.hrl").
+-include("bpapi.hrl").
 -include("emqx.hrl").
 
 -spec forward(node(), emqx_types:topic(), emqx_types:delivery()) -> emqx_types:deliver_result().
