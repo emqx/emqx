@@ -45,7 +45,7 @@ set_special_configs(emqx_dashboard) ->
                                port => 18083
                               }]
               },
-    emqx_config:put([emqx_dashboard], Config),
+    emqx_config:put([dashboard], Config),
     ok;
 set_special_configs(_App) ->
     ok.

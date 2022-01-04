@@ -146,7 +146,7 @@ exhooks(get, _) ->
     {200, ServerL2};
 
 exhooks(post, #{body := Body}) ->
-    case emqx_exhook_mgr:update_config([emqx_exhook, servers], {add, Body}) of
+    case emqx_exhook_mgr:update_config([exhook, servers], {add, Body}) of
         {ok, Result} ->
             {201, Result};
         {error, Error} ->
@@ -168,7 +168,7 @@ action_with_name(get, #{bindings := #{name := Name}}) ->
     end;
 
 action_with_name(put, #{bindings := #{name := Name}, body := Body}) ->
-    case emqx_exhook_mgr:update_config([emqx_exhook, servers],
+    case emqx_exhook_mgr:update_config([exhook, servers],
                                        {update, Name, Body}) of
         {ok, not_found} ->
             {400, #{code => <<"BAD_REQUEST">>,
@@ -187,7 +187,7 @@ action_with_name(put, #{bindings := #{name := Name}, body := Body}) ->
     end;
 
 action_with_name(delete, #{bindings := #{name := Name}}) ->
-    case emqx_exhook_mgr:update_config([emqx_exhook, servers],
+    case emqx_exhook_mgr:update_config([exhook, servers],
                                        {delete, Name}) of
         {ok, _} ->
             {200};
@@ -200,7 +200,7 @@ action_with_name(delete, #{bindings := #{name := Name}}) ->
 move(post, #{bindings := #{name := Name}, body := Body}) ->
     #{<<"position">> := PositionT, <<"related">> := Related} = Body,
     Position = erlang:binary_to_atom(PositionT),
-    case emqx_exhook_mgr:update_config([emqx_exhook, servers],
+    case emqx_exhook_mgr:update_config([exhook, servers],
                                        {move, Name, Position, Related}) of
         {ok, ok} ->
             {200};
