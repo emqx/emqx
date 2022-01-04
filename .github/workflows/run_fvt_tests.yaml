@@ -17,7 +17,7 @@ jobs:
           id: install_erlang
           with:
             otp-version: 23.2
-        - name: prepare
+        - name: make docker
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
               echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
@@ -26,12 +26,12 @@ jobs:
               make deps-emqx-ee
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
+              make emqx-ee-docker
             else
               echo "TARGET=emqx/emqx" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
+              make emqx-docker
             fi
-        - name: make emqx image
-          run: make docker
         - name: run emqx
           timeout-minutes: 5
           run: |
@@ -79,11 +79,11 @@ jobs:
               echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
               make deps-emqx-ee
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
+              make emqx-ee-docker
             else
               echo "TARGET=emqx/emqx" >> $GITHUB_ENV
+              make emqx-docker
             fi
-        - name: make emqx image
-          run: make docker
         - name: install k3s
           env:
             KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"

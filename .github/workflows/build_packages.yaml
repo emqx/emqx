@@ -338,17 +338,6 @@ jobs:
     strategy:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
-        arch:
-          - [amd64, x86_64]
-          - [arm64v8, aarch64]
-          - [arm32v7, arm]
-          - [i386, i386]
-          - [s390x, s390x]
-        exclude:
-          - profile: emqx-ee
-            arch: [i386, i386]
-          - profile: emqx-ee
-            arch: [s390x, s390x]
 
     steps:
     - uses: actions/download-artifact@v2
@@ -357,22 +346,56 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - name: build emqx docker image
-      env:
-        PROFILE: ${{ matrix.profile }}
-        ARCH: ${{ matrix.arch[0] }}
-        QEMU_ARCH: ${{ matrix.arch[1] }}
-      run: |
-        sudo docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-
-        cd source
-        sudo TARGET=emqx/$PROFILE ARCH=$ARCH QEMU_ARCH=$QEMU_ARCH  make docker
-        cd _packages/$PROFILE && for var in $(ls ${PROFILE}-docker-* ); do sudo bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"; done && cd -
-    - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
+    - uses: docker/setup-buildx-action@v1
+    - uses: docker/setup-qemu-action@v1
       with:
-        name: ${{ matrix.profile }}
-        path: source/_packages/${{ matrix.profile }}/.
+        image: tonistiigi/binfmt:latest
+        platforms: all
+    - uses: docker/metadata-action@v3
+      id: meta
+      with:
+        images: ${{ github.repository_owner }}/${{ matrix.profile }}
+        flavor: |
+          latest=${{ !github.event.release.prerelease }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=match,pattern=[v|e](.*),group=1
+        labels:
+          org.opencontainers.image.otp.version=${{ matrix.otp }}
+    - uses: docker/login-action@v1
+      if: github.event_name == 'release'
+      with:
+        username: ${{ secrets.DOCKER_HUB_USER }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+    - uses: docker/build-push-action@v2
+      with:
+        push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
+        pull: true
+        no-cache: true
+        platforms: linux/amd64,linux/arm64
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          BUILD_FROM=emqx/build-env:erl23.2.7.2-emqx-3-alpine
+          RUN_FROM=alpine:3.12
+          EMQX_NAME=${{ matrix.profile }}
+        file: source/deploy/docker/Dockerfile
+        context: source
+    - uses: aws-actions/configure-aws-credentials@v1
+      if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx'
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+    - name: Push image to aws ecr
+      if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx'
+      run: |
+        version=${GITHUB_REF##*/}
+        docker pull emqx/emqx:${version#v}
+        docker tag emqx/emqx:${version#v} public.ecr.aws/emqx/emqx:${version#v}
+        aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+        docker push public.ecr.aws/emqx/emqx:${version#v}
 
   delete-artifact:
     runs-on: ubuntu-20.04
@@ -452,15 +475,6 @@ jobs:
              -X POST \
              -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.version }}\" }" \
              ${{ secrets.EMQX_IO_RELEASE_API }}
-    - name: push docker image to docker hub
-      if: github.event_name == 'release' && matrix.profile == 'emqx'
-      run: |
-        set -e -x -u
-        sudo make docker-prepare
-        cd _packages/${{ matrix.profile }} && for var in $(ls |grep docker |grep -v sha256); do unzip $var; sudo docker load < ${var%.*}; rm -f ${var%.*}; done && cd -
-        echo ${{ secrets.DOCKER_HUB_TOKEN }} |sudo docker login -u ${{ secrets.DOCKER_HUB_USER }} --password-stdin
-        sudo TARGET=emqx/${{ matrix.profile }} make docker-push
-        sudo TARGET=emqx/${{ matrix.profile }} make docker-manifest-list
     - name: push docker image to aws ecr
       if: github.event_name == 'release'
       run: |
