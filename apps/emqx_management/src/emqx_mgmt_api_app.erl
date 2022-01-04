@@ -139,13 +139,7 @@ api_key(post, #{body := App}) ->
         <<"desc">> := Desc0,
         <<"enable">> := Enable
     } = App,
-    %% undefined is never expired
-    ExpiredAt0 = maps:get(<<"expired_at">>, App, <<"undefined">>),
-    ExpiredAt =
-        case ExpiredAt0 of
-            <<"undefined">> -> undefined;
-            _ -> ExpiredAt0
-        end,
+    ExpiredAt = ensure_expired_at(App),
     Desc = unicode:characters_to_binary(Desc0, unicode),
     case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc) of
         {ok, NewApp} -> {200, format(NewApp)};
@@ -164,7 +158,7 @@ api_key_by_name(delete, #{bindings := #{name := Name}}) ->
     end;
 api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
     Enable = maps:get(<<"enable">>, Body, undefined),
-    ExpiredAt = maps:get(<<"expired_at">>, Body, undefined),
+    ExpiredAt = ensure_expired_at(Body),
     Desc = maps:get(<<"desc">>, Body, undefined),
     case emqx_mgmt_auth:update(Name, Enable, ExpiredAt, Desc) of
         {ok, App} -> {200, format(App)};
@@ -181,3 +175,6 @@ format(App = #{expired_at := ExpiredAt0, created_at := CreateAt}) ->
         expired_at => ExpiredAt,
         created_at => list_to_binary(calendar:system_time_to_rfc3339(CreateAt))
     }.
+
+ensure_expired_at(#{<<"expired_at">> := ExpiredAt})when is_integer(ExpiredAt) -> ExpiredAt;
+ensure_expired_at(_) -> undefined.

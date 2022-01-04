@@ -96,6 +96,13 @@ t_update(_Config) ->
     ?assertEqual(calendar:rfc3339_to_system_time(binary_to_list(ExpiredAt)),
         calendar:rfc3339_to_system_time(binary_to_list(maps:get(<<"expired_at">>, Update1)))
     ),
+    Unexpired1 = maps:without([expired_at], Change),
+    {ok, Update2} = update_app(Name, Unexpired1),
+    ?assertEqual(<<"undefined">>, maps:get(<<"expired_at">>, Update2)),
+    Unexpired2 = Change#{expired_at => <<"undefined">>},
+    {ok, Update3} = update_app(Name, Unexpired2),
+    ?assertEqual(<<"undefined">>, maps:get(<<"expired_at">>, Update3)),
+
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, update_app(<<"Not-Exist">>, Change)),
     ok.
 
@@ -137,6 +144,10 @@ t_authorize(_Config) ->
     },
     ?assertMatch({ok, #{<<"api_key">> := _, <<"enable">> := true}}, update_app(Name, Expired)),
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader)),
+    UnExpired = #{expired_at => undefined},
+    ?assertMatch({ok, #{<<"api_key">> := _, <<"expired_at">> := <<"undefined">>}},
+        update_app(Name, UnExpired)),
+    {ok, _Status1} = emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader),
     ok.
 
 t_create_unexpired_app(_Config) ->
