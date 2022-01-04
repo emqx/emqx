@@ -23,21 +23,10 @@
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
-    [ {group, metrics}
-    , {group, rate} ].
+    emqx_common_test_helpers:all(?MODULE).
 
 suite() ->
     [{ct_hooks, [cth_surefire]}, {timetrap, {seconds, 30}}].
-
-groups() ->
-    [{metrics, [sequence],
-        [ t_rule
-        , t_no_creation_1
-        ]},
-    {rate, [sequence],
-        [ rule_rate
-        ]}
-    ].
 
 -define(NAME, ?MODULE).
 
@@ -59,12 +48,66 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     ok.
 
-t_no_creation_1(_) ->
-    ?assertEqual(ok, emqx_plugin_libs_metrics:inc(?NAME, <<"rule1">>, 'rules.matched')).
+t_get_metrics(_) ->
+    Metrics = [a, b, c],
+    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"testid">>, Metrics),
+    %% all the metrics are set to zero at start
+    ?assertMatch(#{
+        rate := #{
+            a := #{current := 0.0, max := 0.0, last5m := 0.0},
+            b := #{current := 0.0, max := 0.0, last5m := 0.0},
+            c := #{current := 0.0, max := 0.0, last5m := 0.0}
+        },
+        counters := #{
+            a := 0,
+            b := 0,
+            c := 0
+        }
+    }, emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>)),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, a),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, b),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, c),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, c),
+    ct:sleep(1500),
+    ?LET(#{
+        rate := #{
+            a := #{current := CurrA, max := MaxA, last5m := _},
+            b := #{current := CurrB, max := MaxB, last5m := _},
+            c := #{current := CurrC, max := MaxC, last5m := _}
+        },
+        counters := #{
+            a := 1,
+            b := 1,
+            c := 2
+        }
+    }, emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>),
+    {?assert(CurrA > 0), ?assert(CurrB > 0), ?assert(CurrC > 0),
+     ?assert(MaxA > 0), ?assert(MaxB > 0), ?assert(MaxC > 0)}),
+    ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"testid">>).
 
-t_rule(_) ->
-    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule1">>),
-    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule2">>),
+t_get_metrics_2(_) ->
+    Metrics = [a, b, c],
+    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"testid">>, Metrics,
+        [a]),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, a),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, b),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, c),
+    ?assertMatch(#{
+        rate := Rate = #{
+            a := #{current := _, max := _, last5m := _}
+        },
+        counters := #{
+            a := 1,
+            b := 1,
+            c := 1
+        }
+    } when map_size(Rate) =:= 1, emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>)),
+    ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"testid">>).
+
+t_inc_matched(_) ->
+    Metrics = ['rules.matched'],
+    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule1">>, Metrics),
+    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule2">>, Metrics),
     ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule1">>, 'rules.matched'),
     ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule2">>, 'rules.matched'),
     ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule2">>, 'rules.matched'),
@@ -74,20 +117,20 @@ t_rule(_) ->
     ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"rule1">>),
     ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"rule2">>).
 
-rule_rate(_) ->
-    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule1">>),
-    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule:2">>),
+t_rate(_) ->
+    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule1">>, ['rules.matched']),
+    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule:2">>, ['rules.matched']),
     ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule1">>, 'rules.matched'),
     ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule1">>, 'rules.matched'),
     ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule:2">>, 'rules.matched'),
     ?assertEqual(2, emqx_plugin_libs_metrics:get(?NAME, <<"rule1">>, 'rules.matched')),
     ct:sleep(1000),
-    ?LET(#{max := Max, current := Current},
+    ?LET(#{'rules.matched' := #{max := Max, current := Current}},
          emqx_plugin_libs_metrics:get_rate(?NAME, <<"rule1">>),
          {?assert(Max =< 2),
           ?assert(Current =< 2)}),
     ct:sleep(2100),
-    ?LET(#{max := Max, current := Current, last5m := Last5Min}, emqx_plugin_libs_metrics:get_rate(?NAME, <<"rule1">>),
+    ?LET(#{'rules.matched' := #{max := Max, current := Current, last5m := Last5Min}}, emqx_plugin_libs_metrics:get_rate(?NAME, <<"rule1">>),
          {?assert(Max =< 2),
           ?assert(Current == 0),
           ?assert(Last5Min =< 0.67)}),
