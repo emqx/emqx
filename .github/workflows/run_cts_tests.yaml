@@ -52,7 +52,7 @@ jobs:
           docker exec -i \
             -e "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" \
             --env-file .env \
-            erlang sh -c "make apps/emqx_auth_ldap-ct"
+            erlang sh -c "./rebar3 ct --dir apps/emqx_auth_ldap"
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
