@@ -443,17 +443,6 @@ jobs:
       with:
         name: ${{ matrix.profile }}
         path: ./_packages/${{ matrix.profile }}
-    - name: install dos2unix
-      run: sudo apt-get update && sudo apt install -y dos2unix
-    - name: get packages
-      run: |
-        set -e -u
-        cd _packages/${{ matrix.profile }}
-        for var in $( ls |grep emqx |grep -v sha256); do
-          dos2unix $var.sha256
-          echo "$(cat $var.sha256) $var" | sha256sum -c || exit 1
-        done
-        cd -
     - name: upload aws s3
       run: |
         set -e -u
