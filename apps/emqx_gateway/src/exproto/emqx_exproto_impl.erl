@@ -148,13 +148,16 @@ stop_grpc_server(GwName) ->
 start_grpc_client_channel(_GwName, undefined) ->
     undefined;
 start_grpc_client_channel(GwName, Options = #{address := Address}) ->
-    {Host, Port} = try emqx_gateway_utils:parse_address(Address)
-                   catch error : badarg ->
-                         throw({badconf, #{key => address,
-                                           value => Address,
-                                           reason => illegal_grpc_address
-                                          }})
-                   end,
+    #{host := Host, port := Port} =
+        case emqx_http_lib:uri_parse(Address) of
+            {ok, URIMap0} -> URIMap0;
+            {error, _Reason} ->
+              throw({badconf, #{key => address,
+                                value => Address,
+                                reason => illegal_grpc_address
+                               }})
+
+        end,
     case maps:to_list(maps:get(ssl, Options, #{})) of
         [] ->
             SvrAddr = compose_http_uri(http, Host, Port),
@@ -170,7 +173,7 @@ start_grpc_client_channel(GwName, Options = #{address := Address}) ->
 compose_http_uri(Scheme, Host, Port) ->
     lists:flatten(
       io_lib:format(
-        "~s://~s:~w", [Scheme, Host, Port])).
+        "~s://~s:~w", [Scheme, inet:ntoa(Host), Port])).
 
 stop_grpc_client_channel(GwName) ->
     _ = grpc_client_sup:stop_channel_pool(GwName),

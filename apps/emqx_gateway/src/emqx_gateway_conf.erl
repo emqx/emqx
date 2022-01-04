@@ -275,7 +275,7 @@ ret_gw(GwName, {ok, #{raw_config := GwConf}}) ->
                 end, maps:to_list(SubConf)),
             [NLConfs | Acc]
         end, [], maps:to_list(LsConf)),
-    {ok, maps:merge(GwConf1, #{<<"listeners">> => NLsConf})};
+    {ok, maps:merge(GwConf1, #{<<"listeners">> => lists:append(NLsConf)})};
 ret_gw(_GwName, Err) -> Err.
 
 ret_authn(GwName, {ok, #{raw_config := GwConf}}) ->

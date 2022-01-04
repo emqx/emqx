@@ -8,9 +8,9 @@
 -behaviour(supervisor).
 
 -export([ start_link/0
-        , start_child/1
-        , start_child/2
-        , stop_child/1
+        , ensure_child_started/1
+        , ensure_child_started/2
+        , ensure_child_stopped/1
         ]).
 
 -export([init/1]).
@@ -26,19 +26,24 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
--spec start_child(supervisor:child_spec()) -> ok.
-start_child(ChildSpec) when is_map(ChildSpec) ->
+-spec ensure_child_started(supervisor:child_spec()) -> ok.
+ensure_child_started(ChildSpec) when is_map(ChildSpec) ->
     assert_started(supervisor:start_child(?MODULE, ChildSpec)).
 
--spec start_child(atom(), map()) -> ok.
-start_child(Mod, Opts) when is_atom(Mod) andalso is_map(Opts) ->
+-spec ensure_child_started(atom(), map()) -> ok.
+ensure_child_started(Mod, Opts) when is_atom(Mod) andalso is_map(Opts) ->
     assert_started(supervisor:start_child(?MODULE, ?CHILD(Mod, Opts))).
 
--spec(stop_child(any()) -> ok | {error, term()}).
-stop_child(ChildId) ->
+%% @doc Stop the child worker process.
+-spec ensure_child_stopped(any()) -> ok.
+ensure_child_stopped(ChildId) ->
     case supervisor:terminate_child(?MODULE, ChildId) of
-        ok -> supervisor:delete_child(?MODULE, ChildId);
-        Error -> Error
+        ok ->
+            %% with terminate_child/2 returned 'ok', it's not possible
+            %% for supervisor:delete_child/2 to return {error, Reason}
+            ok = supervisor:delete_child(?MODULE, ChildId);
+        {error, not_found} ->
+            ok
     end.
 
 init([]) ->
@@ -50,5 +55,5 @@ init([]) ->
 
 assert_started({ok, _Pid}) -> ok;
 assert_started({ok, _Pid, _Info}) -> ok;
-assert_started({error, {already_tarted, _Pid}}) -> ok;
+assert_started({error, {already_started, _Pid}}) -> ok;
 assert_started({error, Reason}) -> erlang:error(Reason).

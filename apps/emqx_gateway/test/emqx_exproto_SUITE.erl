@@ -69,7 +69,7 @@ set_special_cfg(emqx_gateway) ->
     emqx_config:put(
       [gateway, exproto],
       #{server => #{bind => 9100},
-        handler => #{address => "127.0.0.1:9001"},
+        handler => #{address => "http://127.0.0.1:9001"},
         listeners => listener_confs(LisType)
        });
 set_special_cfg(_App) ->

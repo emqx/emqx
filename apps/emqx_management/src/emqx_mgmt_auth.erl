@@ -68,11 +68,11 @@ update(Name, Enable, ExpiredAt, Desc) ->
     Fun = fun() ->
         case mnesia:read(?APP, Name, write) of
             [] -> mnesia:abort(not_found);
-            [App0 = #?APP{enable = Enable0, expired_at = ExpiredAt0, desc = Desc0}] ->
+            [App0 = #?APP{enable = Enable0, desc = Desc0}] ->
                 App =
                     App0#?APP{
+                        expired_at = ExpiredAt,
                         enable = ensure_not_undefined(Enable, Enable0),
-                        expired_at = ensure_not_undefined(ExpiredAt, ExpiredAt0),
                         desc = ensure_not_undefined(Desc, Desc0)
                     },
                 ok = mnesia:write(App),
