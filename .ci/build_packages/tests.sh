@@ -1,10 +1,46 @@
-#!/bin/bash
-set -x -e -u
+#!/usr/bin/env bash
+
+set -euo pipefail
+set -x
+
+if [ -z "${1:-}" ]; then
+    echo "Usage $0 <PACKAGE_NAME> zip|pkg"
+    exit 1
+fi
+
+if [ "${2:-}" != 'zip' ] && [ "${2:-}" != 'pkg' ]; then
+    echo "Usage $0 <PACKAGE_NAME> zip|pkg"
+    exit 1
+fi
+
+PACKAGE_NAME="${1}"
+PACKAGE_TYPE="${2}"
+
 export DEBUG=1
 export CODE_PATH=${CODE_PATH:-"/emqx"}
 export EMQX_NAME=${EMQX_NAME:-"emqx"}
 export PACKAGE_PATH="${CODE_PATH}/_packages/${EMQX_NAME}"
 export RELUP_PACKAGE_PATH="${CODE_PATH}/_upgrade_base"
+
+if [ "$PACKAGE_TYPE" = 'zip' ]; then
+    PKG_SUFFIX="zip"
+else
+    SYSTEM="$("$CODE_PATH"/scripts/get-distro.sh)"
+    case "${SYSTEM:-}" in
+        ubuntu*|debian*|raspbian*)
+            PKG_SUFFIX='deb'
+            ;;
+        *)
+            PKG_SUFFIX='rpm'
+            ;;
+    esac
+fi
+PACKAGE_FILE_NAME="${PACKAGE_NAME}.${PKG_SUFFIX}"
+
+PACKAGE_FILE="${PACKAGE_PATH}/${PACKAGE_FILE_NAME}.${PKG_SUFFIX}"
+if ! [ -f "$PACKAGE_FILE" ]; then
+    echo "$PACKAGE_FILE is not a file"
+fi
 
 case "$(uname -m)" in
     x86_64)
@@ -30,11 +66,9 @@ emqx_prepare(){
 
 emqx_test(){
     cd "${PACKAGE_PATH}"
-
-    for var in "$PACKAGE_PATH"/"${EMQX_NAME}"-*;do
-        case ${var##*.} in
+    local packagename="${PACKAGE_FILE_NAME}"
+        case "$PKG_SUFFIX" in
             "zip")
-                packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.zip)
                 unzip -q "${PACKAGE_PATH}/${packagename}"
                 export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60
                 export EMQX_MQTT__MAX_TOPIC_ALIAS=10
@@ -42,7 +76,6 @@ emqx_test(){
                 export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
                 if [[ $(arch) == *arm* || $(arch) == aarch64 ]]; then
                     export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
-                    export WAIT_FOR_ERLANG_STOP=120
                 fi
                 # sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
@@ -72,7 +105,6 @@ emqx_test(){
                 rm -rf "${PACKAGE_PATH}"/emqx
             ;;
             "deb")
-                packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.deb)
                 dpkg -i "${PACKAGE_PATH}/${packagename}"
                 if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "ii" ]
                 then
@@ -99,15 +131,8 @@ emqx_test(){
                 fi
             ;;
             "rpm")
-                packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.rpm)
-
-                if [[ "${ARCH}" == "amd64" && $(rpm -E '%{rhel}') == 7 ]] ;
-                then
-                    # EMQX OTP requires openssl11 to have TLS1.3 support
-                    yum install -y openssl11;
-                fi
-                rpm -ivh "${PACKAGE_PATH}/${packagename}"
-                if ! rpm -q emqx | grep -q emqx; then
+                yum install -y "${PACKAGE_PATH}/${packagename}"
+                if ! rpm -q "${EMQX_NAME}" | grep -q "${EMQX_NAME}"; then
                     echo "package install error"
                     exit 1
                 fi
@@ -124,7 +149,6 @@ emqx_test(){
             ;;
 
         esac
-    done
 }
 
 run_test(){
@@ -142,7 +166,6 @@ EOF
         ## for ARM, due to CI env issue, skip start of quic listener for the moment
         [[ $(arch) == *arm* || $(arch) == aarch64 ]] && tee -a "$emqx_env_vars" <<EOF
 export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
-export WAIT_FOR_ERLANG_STOP=120
 EOF
     else
         echo "Error: cannot locate emqx_vars"

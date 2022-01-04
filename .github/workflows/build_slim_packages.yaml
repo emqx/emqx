@@ -43,19 +43,23 @@ jobs:
 
     steps:
     - uses: actions/checkout@v1
-    - name: build zip package
-      run: make ${{ matrix.profile }}-zip
-    - name: build deb/rpm packages
-      run: make ${{ matrix.profile }}-pkg
-    - name: packages test
+    - name: prepare
       run: |
-        export CODE_PATH=$GITHUB_WORKSPACE
-        EMQX_NAME=${{ matrix.profile }} .ci/build_packages/tests.sh
+        echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
+        echo "CODE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+        echo "EMQX_PKG_NAME=${{ matrix.profile }}-$(./pkg-vsn.sh)-otp${{ matrix.otp }}-${{ matrix.os }}-amd64" >> $GITHUB_ENV
+    - name: build and test zip package
+      run: |
+        make ${EMQX_NAME}-zip
+        .ci/build_packages/tests.sh "$EMQX_PKG_NAME" zip
+    - name: build and test deb/rpm packages
+      run: |
+        make ${EMQX_NAME}-pkg
+        .ci/build_packages/tests.sh "$EMQX_PKG_NAME" pkg
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.profile}}-${{ matrix.otp }}-${{ matrix.os }}
         path: _packages/**/*.zip
-
   mac:
     if: contains(github.event.pull_request.labels.*.name, 'Mac')
     strategy:
