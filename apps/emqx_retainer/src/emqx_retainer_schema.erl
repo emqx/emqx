@@ -6,9 +6,9 @@
 
 -define(TYPE(Type), hoconsc:mk(Type)).
 
-roots() -> ["emqx_retainer"].
+roots() -> ["retainer"].
 
-fields("emqx_retainer") ->
+fields("retainer") ->
     [ {enable, sc(boolean(), false)}
     , {msg_expiry_interval, sc(emqx_schema:duration_ms(), "0s")}
     , {msg_clear_interval, sc(emqx_schema:duration_ms(), "0s")}

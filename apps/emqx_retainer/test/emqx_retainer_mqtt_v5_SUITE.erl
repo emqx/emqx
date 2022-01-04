@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(BASE_CONF, <<"""
-emqx_retainer {
+retainer {
     enable = true
     msg_clear_interval = 0s
     msg_expiry_interval = 0s

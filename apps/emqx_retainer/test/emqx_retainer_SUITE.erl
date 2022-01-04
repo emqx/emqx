@@ -28,7 +28,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 -define(BASE_CONF, <<"""
-emqx_retainer {
+retainer {
     enable = true
     msg_clear_interval = 0s
     msg_expiry_interval = 0s
