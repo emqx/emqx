@@ -578,15 +578,14 @@ case "${COMMAND}" in
         "$BINDIR/run_erl" -daemon "$PIPE_DIR" "$RUNNER_LOG_DIR" \
                           "$(relx_start_command)"
 
-        WAIT_TIME=${WAIT_FOR_ERLANG:-15}
+        WAIT_TIME=${EMQX_WAIT_FOR_START:-120}
         if wait_for "$WAIT_TIME" 'relx_nodetool' 'ping'; then
             echo "$EMQX_DESCRIPTION $REL_VSN is started successfully!"
             exit 0
         else
-            echo "$EMQX_DESCRIPTION $REL_VSN failed to start within ${WAIT_TIME} seconds,"
-            echo "see the output of '$0 console' for more information."
-            echo "If you want to wait longer, set the environment variable"
-            echo "WAIT_FOR_ERLANG to the number of seconds to wait."
+            echo "$EMQX_DESCRIPTION $REL_VSN failed to start in ${WAIT_TIME} seconds."
+            echo "Please find more information in erlang.log.N"
+            echo "Or run 'DEBUG=1 $0 console' to have logs printed to console."
             exit 1
         fi
         ;;
@@ -598,13 +597,13 @@ case "${COMMAND}" in
             echoerr "Graceful shutdown failed PID=[$PID]"
             exit 1
         fi
-        WAIT_TIME="${WAIT_FOR_ERLANG_STOP:-60}"
+        WAIT_TIME="${EMQX_WAIT_FOR_STOP:-120}"
         if ! wait_for "$WAIT_TIME" 'is_down' "$PID"; then
             msg="dangling after ${WAIT_TIME} seconds"
             # also log to syslog
             logger -t "${REL_NAME}[${PID}]" "STOP: $msg"
             # log to user console
-            echoerr "stop failed, $msg"
+            echoerr "Stop failed, $msg"
             echo "ERROR: $PID is still around"
             ps -p "$PID"
             exit 1
