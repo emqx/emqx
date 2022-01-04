@@ -11,17 +11,21 @@
 ## ./scripts/buildx.sh --profile emqx --pkgtype tgz --arch arm64 --builder ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10
 
 set -euo pipefail
+set -x
 
 help() {
     echo
-    echo "-h|--help:           To display this usage information"
-    echo "--profile <PROFILE>: EMQ X profile to build, e.g. emqx, emqx-edge"
-    echo "--pkgtype tgz|pkg:   Specify which package to build, tgz for .tar.gz"
-    echo "                     and pkg for .rpm or .deb"
-    echo "--arch amd64|arm64:  Target arch to build the EMQ X package for"
-    echo "--src_dir <SRC_DIR>: EMQ X source ode in this dir, default to PWD"
-    echo "--builder <BUILDER>: Builder image to pull"
-    echo "                     E.g. ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10"
+    echo "-h|--help:                   To display this usage information"
+    echo "--profile <PROFILE>:         EMQ X profile to build, e.g. emqx, emqx-edge"
+    echo "--pkgtype tgz|pkg|elixirpkg: Specify which package to build, tgz for .tar.gz,"
+    echo "                             pkg and elixirpkg for .rpm or .deb"
+    echo "--arch amd64|arm64:          Target arch to build the EMQ X package for"
+    echo "--src_dir <SRC_DIR>:         EMQ X source ode in this dir, default to PWD"
+    echo "--builder <BUILDER>:         Builder image to pull"
+    echo "                             E.g. ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10"
+    echo "--otp <OTP_VSN>:             OTP version being used in the builder"
+    echo "--elixir <ELIXIR_VSN>:       Elixir version being used in the builder"
+    echo "--system <SYSTEM>:           OS used in the builder image"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -50,6 +54,18 @@ while [ "$#" -gt 0 ]; do
         ARCH="$2"
         shift 2
         ;;
+    --otp)
+        OTP_VSN="$2"
+        shift 2
+        ;;
+    --elixir)
+        ELIXIR_VSN="$2"
+        shift 2
+        ;;
+    --system)
+        SYSTEM="$2"
+        shift 2
+        ;;
     *)
       echo "WARN: Unknown arg (ignored): $1"
       shift
@@ -58,21 +74,37 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "${PROFILE:-}" ] || [ -z "${PKGTYPE:-}" ] || [ -z "${BUILDER:-}" ] || [ -z "${ARCH:-}" ]; then
+if [ -z "${PROFILE:-}" ]    ||
+   [ -z "${PKGTYPE:-}" ]    ||
+   [ -z "${BUILDER:-}" ]    ||
+   [ -z "${ARCH:-}" ]       ||
+   [ -z "${OTP_VSN:-}" ]    ||
+   [ -z "${ELIXIR_VSN:-}" ] ||
+   [ -z "${SYSTEM:-}" ]; then
     help
     exit 1
 fi
 
-if [ "$PKGTYPE" != 'tgz' ] && [ "$PKGTYPE" != 'pkg' ]; then
-    echo "Bad --pkgtype option, should be tgz or pkg"
+case "$PKGTYPE" in
+  tgz|pkg|elixirpkg)
+    true
+    ;;
+  *)
+    echo "Bad --pkgtype option, should be zip or pkg"
     exit 1
-fi
+    ;;
+esac
 
 cd "${SRC_DIR:-.}"
 
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh "$PROFILE")}"
-OTP_VSN_SYSTEM=$(echo "$BUILDER" | cut -d ':' -f2)
-PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN_SYSTEM}-${ARCH}"
+
+if [ "$PKGTYPE" = "elixirpkg" ]
+then
+  PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-elixir${ELIXIR_VSN}-${SYSTEM}-${ARCH}"
+else
+  PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
+fi
 
 docker info
 docker run --rm --privileged tonistiigi/binfmt:latest --install "${ARCH}"

@@ -6,6 +6,11 @@
 
 set -euo pipefail
 
+DEBUG="${DEBUG:-0}"
+if [ "$DEBUG" -eq 1 ]; then
+    set -x
+fi
+
 PROFILE="$1"
 ARTIFACT="$2"
 
@@ -198,6 +203,53 @@ make_docker_testing() {
        -f "${DOCKERFILE_TESTING}" .
 }
 
+# used to control the Elixir Mix Release output
+# see docstring in `mix.exs`
+export_release_vars() {
+  local profile="$1"
+  case "$profile" in
+    emqx)
+      export EMQX_RLEASE_TYPE=cloud \
+             EMQX_PACKAGE_TYPE=bin \
+             EMQX_EDITION_TYPE=community \
+             ELIXIR_MAKE_TAR=no
+      ;;
+    emqx-edge)
+      export EMQX_RLEASE_TYPE=edge \
+             EMQX_PACKAGE_TYPE=bin \
+             EMQX_EDITION_TYPE=community \
+             ELIXIR_MAKE_TAR=no
+      ;;
+    emqx-enterprise)
+      export EMQX_RLEASE_TYPE=cloud \
+             EMQX_PACKAGE_TYPE=bin \
+             EMQX_EDITION_TYPE=enterprise \
+             ELIXIR_MAKE_TAR=no
+      ;;
+    emqx-pkg)
+      export EMQX_RLEASE_TYPE=cloud \
+             EMQX_PACKAGE_TYPE=pkg \
+             EMQX_EDITION_TYPE=community \
+             ELIXIR_MAKE_TAR=yes
+      ;;
+    emqx-edge-pkg)
+      export EMQX_RLEASE_TYPE=edge \
+             EMQX_PACKAGE_TYPE=pkg \
+             EMQX_EDITION_TYPE=community \
+             ELIXIR_MAKE_TAR=yes
+      ;;
+    emqx-enterprise-pkg)
+      export EMQX_RLEASE_TYPE=cloud \
+             EMQX_PACKAGE_TYPE=pkg \
+             EMQX_EDITION_TYPE=enterprise \
+             ELIXIR_MAKE_TAR=yes
+      ;;
+    *)
+      echo Invalid profile "$profile"
+      exit 1
+  esac
+}
+
 log "building artifact=$ARTIFACT for profile=$PROFILE"
 
 case "$ARTIFACT" in
@@ -219,13 +271,20 @@ case "$ARTIFACT" in
             exit 0
         fi
         make -C "deploy/packages/${PKGERDIR}" clean
-        EMQX_REL="$(pwd)" EMQX_BUILD="${PROFILE}" SYSTEM="${SYSTEM}" make -C "deploy/packages/${PKGERDIR}"
+        env EMQX_REL="$(pwd)" \
+            EMQX_BUILD="${PROFILE}" \
+            SYSTEM="${SYSTEM}" \
+            make -C "deploy/packages/${PKGERDIR}"
         ;;
     docker)
         make_docker
         ;;
     docker-testing)
         make_docker_testing
+        ;;
+    elixir)
+        export_release_vars "$PROFILE"
+        env MIX_ENV=prod mix release --overwrite
         ;;
     *)
         log "Unknown artifact $ARTIFACT"

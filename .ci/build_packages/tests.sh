@@ -4,14 +4,19 @@ set -euo pipefail
 set -x
 
 if [ -z "${1:-}" ]; then
-    echo "Usage $0 <PACKAGE_NAME> tgz|pkg"
+    echo "Usage $0 <PACKAGE_NAME> tgz|pkg|elixirpkg"
     exit 1
 fi
 
-if [ "${2:-}" != 'tgz' ] && [ "${2:-}" != 'pkg' ]; then
-    echo "Usage $0 <PACKAGE_NAME> tgz|pkg"
+case "${2:-}" in
+  tgz|pkg|elixirpkg)
+    true
+    ;;
+  *)
+    echo "Usage $0 <PACKAGE_NAME> zip|pkg|elixirpkg"
     exit 1
-fi
+    ;;
+esac
 
 PACKAGE_NAME="${1}"
 PACKAGE_TYPE="${2}"

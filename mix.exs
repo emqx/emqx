@@ -124,7 +124,7 @@ defmodule EMQXUmbrella.MixProject do
 
         steps =
           if System.get_env("ELIXIR_MAKE_TAR") == "yes" do
-            base_steps ++ [:tar]
+            base_steps ++ [&prepare_tar_overlays/1, :tar]
           else
             base_steps
           end
@@ -233,6 +233,10 @@ defmodule EMQXUmbrella.MixProject do
       edition_type: edition_type
     }
   end
+
+  #############################################################################
+  #  Custom Steps
+  #############################################################################
 
   defp copy_files(release, release_type, package_type, edition_type) do
     overwrite? = Keyword.get(release.options, :overwrite, false)
@@ -409,6 +413,26 @@ defmodule EMQXUmbrella.MixProject do
     release
   end
 
+  # The `:tar` built-in step in Mix Release does not currently add the
+  # `etc` directory into the resulting tarball.  The workaround is to
+  # add those to the `:overlays` key before running `:tar`.
+  # See: https://hexdocs.pm/mix/1.13.1/Mix.Release.html#__struct__/0
+  defp prepare_tar_overlays(release) do
+    Enum.each(
+      ["mnesia", "configs", "patches", "scripts"],
+      fn dir ->
+        path = Path.join([release.path, "data", dir])
+        File.mkdir_p!(path)
+      end
+    )
+
+    Map.update!(release, :overlays, &["etc", "data" | &1])
+  end
+
+  #############################################################################
+  #  Helper functions
+  #############################################################################
+
   defp template_vars(release, release_type, :bin = _package_type, edition_type) do
     [
       platform_bin_dir: "bin",
@@ -454,7 +478,7 @@ defmodule EMQXUmbrella.MixProject do
       # FIXME: this is empty in `make emqx` ???
       erl_opts: "",
       emqx_description: emqx_description(release_type, edition_type),
-      built_on: built_on(),
+      built_on_arch: built_on(),
       is_elixir: "yes"
     ]
   end
