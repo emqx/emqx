@@ -362,15 +362,10 @@ jobs:
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
       with:
-        name: emqx-docker-image-zip
+        name: emqx-docker-image
         path: /tmp
     - name: load docker image
-      env:
-        imgname: ${{ needs.build.outputs.imgname }}
-        version: ${{ needs.build.outputs.version }}
-      run: |
-        unzip -q /tmp/${imgname}-docker-${version}.zip -d /tmp
-        docker load < /tmp/${imgname}-docker-${version}
+      run: docker load < /tmp/emqx.tar
     - name: docker compose up
       timeout-minutes: 5
       env:
