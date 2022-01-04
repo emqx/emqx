@@ -1,19 +1,14 @@
 name: Broker tests
 
-concurrency:
-  group: apt-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
-
 on:
   push:
     tags:
-#      - v*
+      - v*
   pull_request:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: "ghcr.io/emqx/emqx-builder/5.0:23.2.7.2-emqx-2-ubuntu20.04"
     outputs:
       version: ${{ steps.build_docker.outputs.version}}
     steps:
@@ -29,12 +24,96 @@ jobs:
         path: /tmp/apache-jmeter.tgz
     - uses: actions/checkout@v2
     - name: zip emqx docker image
+      id: build_docker
       if: endsWith(github.repository, 'emqx')
       run: |
         make emqx-docker
         echo "::set-output name=version::$(./pkg-vsn.sh)"
-        docker save -o emqx.tar emqx/emqx:${{ steps.build_docker.outputs.version}}
+        docker save -o emqx.tar emqx/emqx:$(./pkg-vsn.sh)
     - uses: actions/upload-artifact@v2
       with:
         name: emqx.tar
         path: ./emqx.tar
+  mqtt_subscription:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        subscription_type:
+        - mqtt_subscription_topic_metrics
+
+    needs: build
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/download-artifact@v2
+      with:
+        name: emqx.tar
+        path: /tmp
+    - name: load docker image
+      run: |
+        docker load < /tmp/emqx.tar
+    - name: docker compose up
+      timeout-minutes: 5
+      env:
+        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build.outputs.version }}
+      run: |
+        docker-compose \
+          -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
+          up -d --build
+    - name: wait docker compose up
+      timeout-minutes: 5
+      run: |
+        while [ "$(docker inspect -f '{{ .State.Health.Status}}' node1.emqx.io)" != "healthy" ] || [ "$(docker inspect -f '{{ .State.Health.Status}}' node2.emqx.io)" != "healthy" ]; do
+          echo "['$(date -u +"%y-%m-%dt%h:%m:%sz")']:waiting emqx";
+          sleep 5;
+        done
+        while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
+             != $(docker ps -a --filter name=client | wc -l) ]; do
+          sleep 1
+        done
+        docker ps -a
+        echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
+    - uses: actions/checkout@v2
+      with:
+        repository: emqx/emqx-fvt
+        ref: broker-autotest
+        path: scripts
+    - uses: actions/setup-java@v1
+      with:
+        java-version: '8.0.282' # The JDK version to make available on the path.
+        java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
+        architecture: x64 # (x64 or x86) - defaults to x64
+    - uses: actions/download-artifact@v2
+      with:
+        name: apache-jmeter.tgz
+        path: /tmp
+    - name: install jmeter
+      timeout-minutes: 10
+      env:
+          JMETER_VERSION: 5.3
+      run: |
+        cd /tmp && tar -xvf apache-jmeter.tgz
+        echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
+        echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
+        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-2.0.2-jar-with-dependencies.jar
+        ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
+    - name: run jmeter
+      run: |
+        /opt/jmeter/bin/jmeter.sh \
+          -Jjmeter.save.saveservice.output_format=xml -n \
+          -t scripts/broker-autotest-suite/${{ matrix.subscription_type }}.jmx \
+          -Demqx_ip=$HAPROXY_IP \
+          -l jmeter_logs/${{ matrix.subscription_type }}.jtl \
+          -j jmeter_logs/logs/${{ matrix.subscription_type }}.log
+    - name: check logs
+      run: |
+        if cat jmeter_logs/${{ matrix.subscription_type }}}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
+          echo "check logs filed"
+          exit 1
+        fi
+    - uses: actions/upload-artifact@v1
+      if: always()
+      with:
+        name: jmeter_logs
+        path: ./jmeter_logs
