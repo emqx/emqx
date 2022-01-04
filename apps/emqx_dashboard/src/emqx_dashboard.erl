@@ -151,9 +151,9 @@ authorize(Req) ->
                 ok ->
                     ok;
                 {error, token_timeout} ->
-                    return_unauthorized(<<"TOKEN_TIME_OUT">>, <<"POST '/login', get new token">>);
+                    {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
                 {error, not_found} ->
-                    return_unauthorized(<<"BAD_TOKEN">>, <<"POST '/login'">>)
+                    {401, 'BAD_TOKEN', <<"Get a token by POST /login">>}
             end;
         _ ->
             return_unauthorized(<<"AUTHORIZATION_HEADER_ERROR">>,

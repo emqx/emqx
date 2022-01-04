@@ -375,7 +375,7 @@ discard_session(ClientId) when is_binary(ClientId) ->
 -spec kick_or_kill(kick | discard, module(), pid()) -> ok.
 kick_or_kill(Action, ConnMod, Pid) ->
     try
-        %% this is essentailly a gen_server:call implemented in emqx_connection
+        %% this is essentially a gen_server:call implemented in emqx_connection
         %% and emqx_ws_connection.
         %% the handle_call is implemented in emqx_channel
         ok = apply(ConnMod, call, [Pid, Action, ?T_KICK])
@@ -390,19 +390,12 @@ kick_or_kill(Action, ConnMod, Pid) ->
             ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action});
         _ : {timeout, {gen_server, call, _}} ->
             ?tp(warning, "session_kick_timeout",
-                #{pid => Pid,
-                  action => Action,
-                  stale_channel => stale_channel_info(Pid)
-                 }),
+                #{pid => Pid, action => Action, stale_channel => stale_channel_info(Pid)}),
             ok = force_kill(Pid);
         _ : Error : St ->
             ?tp(error, "session_kick_exception",
-                #{pid => Pid,
-                  action => Action,
-                  reason => Error,
-                  stacktrace => St,
-                  stale_channel => stale_channel_info(Pid)
-                 }),
+                #{pid => Pid, action => Action, reason => Error, stacktrace => St,
+                    stale_channel => stale_channel_info(Pid)}),
             ok = force_kill(Pid)
     end.
 
@@ -448,20 +441,22 @@ kick_session(Action, ClientId, ChanPid) ->
                           , action => Action
                           , error => Error
                           , reason => Reason
-                          })
+                          },
+                #{clientid => ClientId})
     end.
 
 kick_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] ->
-            ?SLOG(warning, #{msg => "kicked_an_unknown_session",
-                             clientid => ClientId}),
+            ?SLOG(warning, #{msg => "kicked_an_unknown_session"},
+                #{clientid => ClientId}),
             ok;
         ChanPids ->
             case length(ChanPids) > 1 of
                 true ->
                     ?SLOG(warning, #{msg => "more_than_one_channel_found",
-                                     chan_pids => ChanPids});
+                                     chan_pids => ChanPids},
+                        #{clientid => ClientId});
                 false -> ok
             end,
             lists:foreach(fun(Pid) -> kick_session(ClientId, Pid) end, ChanPids)
@@ -478,12 +473,12 @@ with_channel(ClientId, Fun) ->
         Pids  -> Fun(lists:last(Pids))
     end.
 
-%% @doc Get all registed channel pids. Debugg/test interface
+%% @doc Get all registered channel pids. Debug/test interface
 all_channels() ->
     Pat = [{{'_', '$1'}, [], ['$1']}],
     ets:select(?CHAN_TAB, Pat).
 
-%% @doc Get all registed clientIDs. Debugg/test interface
+%% @doc Get all registered clientIDs. Debug/test interface
 all_client_ids() ->
     Pat = [{{'$1', '_'}, [], ['$1']}],
     ets:select(?CHAN_TAB, Pat).
@@ -511,7 +506,7 @@ lookup_channels(local, ClientId) ->
 rpc_call(Node, Fun, Args, Timeout) ->
     case rpc:call(Node, ?MODULE, Fun, Args, 2 * Timeout) of
         {badrpc, Reason} ->
-            %% since eqmx app 4.3.10, the 'kick' and 'discard' calls hanndler
+            %% since emqx app 4.3.10, the 'kick' and 'discard' calls handler
             %% should catch all exceptions and always return 'ok'.
             %% This leaves 'badrpc' only possible when there is problem
             %% calling the remote node.

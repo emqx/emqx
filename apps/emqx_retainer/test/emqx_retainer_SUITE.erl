@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -define(APP, emqx_retainer).
+-define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -49,12 +50,38 @@ emqx_retainer {
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
+    application:load(emqx_conf),
+    ok = ekka:start(),
+    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
+    meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
+    meck:expect(emqx_alarm, activate, 3, ok),
+    meck:expect(emqx_alarm, deactivate, 3, ok),
+
     ok = emqx_config:init_load(emqx_retainer_schema, ?BASE_CONF),
     emqx_common_test_helpers:start_apps([emqx_retainer]),
     Config.
 
 end_per_suite(_Config) ->
+    ekka:stop(),
+    mria:stop(),
+    mria_mnesia:delete_schema(),
+    meck:unload(emqx_alarm),
+
     emqx_common_test_helpers:stop_apps([emqx_retainer]).
+
+init_per_testcase(_, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(),
+    timer:sleep(200),
+    Config.
+
+end_per_testcase(_, Config) ->
+    case erlang:whereis(node()) of
+        undefined -> ok;
+        P ->
+            erlang:unlink(P),
+            erlang:exit(P, kill)
+    end,
+    Config.
 
 %%--------------------------------------------------------------------
 %% Test Cases

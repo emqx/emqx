@@ -153,9 +153,8 @@ t_destroy(_Config) ->
       ?GLOBAL),
 
     % Authenticator should not be usable anymore
-    ?assertException(
-       error,
-       _,
+    ?assertMatch(
+       ignore,
        emqx_authn_http:authenticate(
          Credentials,
          State)).

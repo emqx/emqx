@@ -312,6 +312,9 @@ responses(Responses, Module) ->
 
 response(Status, Bin, {Acc, RefsAcc, Module}) when is_binary(Bin) ->
     {Acc#{integer_to_binary(Status) => #{description => Bin}}, RefsAcc, Module};
+%% Support swagger raw object(file download).
+response(Status, #{content := _} = Content, {Acc, RefsAcc, Module}) ->
+    {Acc#{integer_to_binary(Status) => Content}, RefsAcc, Module};
 response(Status, ?REF(StructName), {Acc, RefsAcc, Module}) ->
     response(Status, ?R_REF(Module, StructName), {Acc, RefsAcc, Module});
 response(Status, ?R_REF(_Mod, _Name) = RRef, {Acc, RefsAcc, Module}) ->
@@ -423,8 +426,10 @@ typename_to_spec("duration_ms()", _Mod) -> #{type => string, example => <<"32s">
 typename_to_spec("percent()", _Mod) -> #{type => number, example => <<"12%">>};
 typename_to_spec("file()", _Mod) -> #{type => string, example => <<"/path/to/file">>};
 typename_to_spec("ip_port()", _Mod) -> #{type => string, example => <<"127.0.0.1:80">>};
+typename_to_spec("ip_ports()", _Mod) -> #{type => string, example => <<"127.0.0.1:80, 127.0.0.2:80">>};
 typename_to_spec("url()", _Mod) -> #{type => string, example => <<"http://127.0.0.1">>};
 typename_to_spec("server()", Mod) -> typename_to_spec("ip_port()", Mod);
+typename_to_spec("servers()", Mod) -> typename_to_spec("ip_ports()", Mod);
 typename_to_spec("connect_timeout()", Mod) -> typename_to_spec("timeout()", Mod);
 typename_to_spec("timeout()", _Mod) -> #{<<"oneOf">> => [#{type => string, example => infinity},
     #{type => integer, example => 100}], example => infinity};

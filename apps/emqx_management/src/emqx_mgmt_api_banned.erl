@@ -101,7 +101,7 @@ fields(ban) ->
             desc => <<"Banned type clientid, username, peerhost">>,
             nullable => false,
             example => username})},
-        {who, hoconsc:mk(emqx_schema:unicode_binary(), #{
+        {who, hoconsc:mk(binary(), #{
             desc => <<"Client info as banned type">>,
             nullable => false,
             example => <<"Badass坏"/utf8>>})},
@@ -109,19 +109,17 @@ fields(ban) ->
             desc => <<"Commander">>,
             nullable => true,
             example => <<"mgmt_api">>})},
-        {reason, hoconsc:mk(emqx_schema:unicode_binary(), #{
+        {reason, hoconsc:mk(binary(), #{
             desc => <<"Banned reason">>,
             nullable => true,
             example => <<"Too many requests">>})},
-        {at, hoconsc:mk(binary(), #{
+        {at, hoconsc:mk(emqx_schema:rfc3339_system_time(), #{
             desc => <<"Create banned time, rfc3339, now if not specified">>,
             nullable => true,
-            validator => fun is_rfc3339/1,
             example => <<"2021-10-25T21:48:47+08:00">>})},
-        {until, hoconsc:mk(binary(), #{
+        {until, hoconsc:mk(emqx_schema:rfc3339_system_time(), #{
             desc => <<"Cancel banned time, rfc3339, now + 5 minute if not specified">>,
             nullable => true,
-            validator => fun is_rfc3339/1,
             example => <<"2021-10-25T21:53:47+08:00">>})
         }
     ];
@@ -130,22 +128,19 @@ fields(meta) ->
         emqx_dashboard_swagger:fields(limit) ++
         [{count, hoconsc:mk(integer(), #{example => 1})}].
 
-is_rfc3339(Time) ->
-    try
-        emqx_banned:to_timestamp(Time),
-        ok
-    catch _:_ -> {error, Time}
-    end.
-
 banned(get, #{query_string := Params}) ->
     Response = emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN),
     {200, Response};
 banned(post, #{body := Body}) ->
-    case emqx_banned:create(emqx_banned:parse(Body)) of
-        {ok, Banned} ->
-            {200, format(Banned)};
-        {error, {already_exist, Old}} ->
-            {400, #{code => 'ALREADY_EXISTED', message => format(Old)}}
+    case emqx_banned:parse(Body) of
+        {error, Reason} ->
+            {400, #{code => 'PARAMS_ERROR', message => list_to_binary(Reason)}};
+        Ban ->
+            case emqx_banned:create(Ban) of
+                {ok, Banned} -> {200, format(Banned)};
+                {error, {already_exist, Old}} ->
+                    {400, #{code => 'ALREADY_EXISTED', message => format(Old)}}
+            end
     end.
 
 delete_banned(delete, #{bindings := Params}) ->

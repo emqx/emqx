@@ -157,9 +157,8 @@ t_destroy(_Config) ->
       ?GLOBAL),
 
     % Authenticator should not be usable anymore
-    ?assertException(
-       error,
-       _,
+    ?assertMatch(
+       ignore,
        emqx_authn_mysql:authenticate(
          #{username => <<"plain">>,
            password => <<"plain">>

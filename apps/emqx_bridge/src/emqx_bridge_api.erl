@@ -158,8 +158,8 @@ method_example(_Type, _Direction, put) ->
 info_example_basic(http, _) ->
     #{
         url => <<"http://localhost:9901/messages/${topic}">>,
-        request_timeout => <<"30s">>,
-        connect_timeout => <<"30s">>,
+        request_timeout => <<"15s">>,
+        connect_timeout => <<"15s">>,
         max_retries => 3,
         retry_interval => <<"10s">>,
         pool_type => <<"random">>,
@@ -276,7 +276,7 @@ schema("/bridges/:id/operation/:operation") ->
 
 '/bridges'(post, #{body := #{<<"type">> := BridgeType} = Conf0}) ->
     Conf = filter_out_request_body(Conf0),
-    BridgeName = maps:get(<<"name">>, Conf, emqx_misc:gen_id()),
+    BridgeName = emqx_misc:gen_id(),
     case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, _} ->
             {400, error_msg('ALREADY_EXISTS', <<"bridge already exists">>)};
@@ -356,9 +356,8 @@ operation_to_conf_req(<<"restart">>) -> restart;
 operation_to_conf_req(_) -> invalid.
 
 ensure_bridge_created(BridgeType, BridgeName, Conf) ->
-    Conf1 = maps:without([<<"type">>, <<"name">>], Conf),
     case emqx_conf:update(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
-            Conf1, #{override_to => cluster}) of
+            Conf, #{override_to => cluster}) of
         {ok, _} -> ok;
         {error, Reason} ->
             {error, error_msg('BAD_ARG', Reason)}
@@ -411,12 +410,12 @@ aggregate_metrics(AllMetrics) ->
 
 format_resp(#{id := Id, raw_config := RawConf,
               resource_data := #{status := Status, metrics := Metrics}}) ->
-    {Type, Name} = emqx_bridge:parse_bridge_id(Id),
+    {Type, BridgeName} = emqx_bridge:parse_bridge_id(Id),
     IsConnected = fun(started) -> connected; (_) -> disconnected end,
     RawConf#{
         id => Id,
         type => Type,
-        name => Name,
+        name => maps:get(<<"name">>, RawConf, BridgeName),
         node => node(),
         status => IsConnected(Status),
         metrics => Metrics
@@ -431,8 +430,8 @@ rpc_multicall(Func, Args) ->
     end.
 
 filter_out_request_body(Conf) ->
-    ExtraConfs = [<<"id">>, <<"status">>, <<"node_status">>, <<"node_metrics">>,
-        <<"metrics">>, <<"node">>],
+    ExtraConfs = [<<"id">>, <<"type">>, <<"status">>, <<"node_status">>,
+        <<"node_metrics">>, <<"metrics">>, <<"node">>],
     maps:without(ExtraConfs, Conf).
 
 rpc_call(Node, Fun, Args) ->

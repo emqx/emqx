@@ -46,10 +46,10 @@ init(Source) ->
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
-    ok = emqx_resource:remove(Id).
+    ok = emqx_resource:remove_local(Id).
 
 dry_run(Source) ->
-    emqx_resource:create_dry_run(emqx_connector_http, Source).
+    emqx_resource:create_dry_run_local(emqx_connector_http, Source).
 
 authorize(Client, PubSub, Topic,
             #{type := http,

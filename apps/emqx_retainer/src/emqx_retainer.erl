@@ -36,7 +36,8 @@
         , update_config/1
         , clean/0
         , delete/1
-        , page_read/3]).
+        , page_read/3
+        , post_config_update/5]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -165,24 +166,31 @@ get_expiry_time(#message{timestamp = Ts}) ->
 get_stop_publish_clear_msg() ->
     emqx_conf:get([?APP, stop_publish_clear_msg], false).
 
--spec update_config(hocon:config()) -> ok.
+-spec update_config(hocon:config()) -> {ok, _} | {error, _}.
 update_config(Conf) ->
-    gen_server:call(?MODULE, {?FUNCTION_NAME, Conf}).
+    emqx_conf:update([emqx_retainer], Conf, #{override_to => cluster}).
 
 clean() ->
-    gen_server:call(?MODULE, ?FUNCTION_NAME).
+    call(?FUNCTION_NAME).
 
 delete(Topic) ->
-    gen_server:call(?MODULE, {?FUNCTION_NAME, Topic}).
+    call({?FUNCTION_NAME, Topic}).
 
 page_read(Topic, Page, Limit) ->
-    gen_server:call(?MODULE, {?FUNCTION_NAME, Topic, Page, Limit}).
+    call({?FUNCTION_NAME, Topic, Page, Limit}).
+
+post_config_update(_, _UpdateReq, NewConf, OldConf, _AppEnvs) ->
+    call({update_config, NewConf, OldConf}).
+
+call(Req) ->
+    gen_server:call(?MODULE, Req, infinity).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
+    emqx_conf:add_handler([emqx_retainer], ?MODULE),
     init_shared_context(),
     State = new_state(),
     #{enable := Enable} = Cfg = emqx:get_config([?APP]),
@@ -194,9 +202,7 @@ init([]) ->
              State
      end}.
 
-handle_call({update_config, Conf}, _, State) ->
-    OldConf = emqx:get_config([?APP]),
-    {ok, #{config := NewConf}} = emqx:update_config([?APP], Conf),
+handle_call({update_config, NewConf, OldConf}, _, State) ->
     State2 = update_config(State, NewConf, OldConf),
     {reply, ok, State2};
 
@@ -326,7 +332,7 @@ require_semaphore(Semaphore, Id) ->
 
 -spec wait_semaphore(non_neg_integer(), pos_integer()) -> boolean().
 wait_semaphore(X, Id) when X < 0 ->
-    gen_server:call(?MODULE, {?FUNCTION_NAME, Id}, infinity);
+    call({?FUNCTION_NAME, Id});
 wait_semaphore(_, _) ->
     true.
 

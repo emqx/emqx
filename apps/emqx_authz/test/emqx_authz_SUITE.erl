@@ -31,10 +31,9 @@ groups() ->
 
 init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
-    meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
-    meck:expect(emqx_resource, remove, fun(_) -> ok end),
-    meck:expect(emqx_resource, create_dry_run, fun(_, _) -> ok end),
+    meck:expect(emqx_resource, create_local, fun(_, _, _) -> {ok, meck_data} end),
+    meck:expect(emqx_resource, remove_local, fun(_) -> ok end),
+    meck:expect(emqx_resource, create_dry_run_local, fun(_, _) -> ok end),
 
     ok = emqx_common_test_helpers:start_apps(
            [emqx_connector, emqx_conf, emqx_authz],
@@ -105,6 +104,7 @@ set_special_configs(_App) ->
                    <<"query">> => <<"abcb">>
                   }).
 -define(SOURCE5, #{<<"type">> => <<"redis">>,
+                   <<"redis_type">> => <<"single">>,
                    <<"enable">> => true,
                    <<"server">> => <<"127.0.0.1:27017">>,
                    <<"pool_size">> => 1,

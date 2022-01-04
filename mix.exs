@@ -45,7 +45,8 @@ defmodule EMQXUmbrella.MixProject do
     # other exact versions, and not ranges.
     [
       {:lc, github: "qzhuyan/lc", tag: "0.1.2"},
-      {:typerefl, github: "k32/typerefl", tag: "0.8.5", override: true},
+      {:redbug, "2.0.7"},
+      {:typerefl, github: "k32/typerefl", tag: "0.8.6", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.1.12"},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
@@ -54,8 +55,8 @@ defmodule EMQXUmbrella.MixProject do
       {:mria, github: "emqx/mria", tag: "0.1.5", override: true},
       {:ekka, github: "emqx/ekka", tag: "0.11.2", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.5.1", override: true},
-      {:minirest, github: "emqx/minirest", tag: "1.2.7", override: true},
-      {:ecpool, github: "emqx/ecpool", tag: "0.5.1"},
+      {:minirest, github: "emqx/minirest", tag: "1.2.9", override: true},
+      {:ecpool, github: "emqx/ecpool", tag: "0.5.2"},
       {:replayq, "0.3.3", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       {:emqtt, github: "emqx/emqtt", tag: "1.4.3", override: true},
@@ -72,7 +73,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by ehttpc and emqtt
       {:gun, github: "emqx/gun", tag: "1.3.6", override: true},
       # in conflict by emqx_connectior and system_monitor
-      {:epgsql, github: "epgsql/epgsql", tag: "4.6.0", override: true},
+      {:epgsql, github: "emqx/epgsql", tag: "4.7-emqx.1", override: true},
       # in conflict by mongodb and eredis_cluster
       {:poolboy, github: "emqx/poolboy", tag: "1.5.2", override: true},
       # in conflict by emqx and observer_cli
@@ -163,6 +164,7 @@ defmodule EMQXUmbrella.MixProject do
       inets: :permanent,
       compiler: :permanent,
       runtime_tools: :permanent,
+      redbug: :permanent,
       hocon: :load,
       emqx: :load,
       emqx_conf: :load,

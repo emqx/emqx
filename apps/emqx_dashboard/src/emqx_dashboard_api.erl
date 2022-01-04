@@ -123,7 +123,7 @@ schema("/users/:username") ->
                 #{in => path, example => <<"admin">>})}],
             'requestBody' => [
                 { description
-                , mk(emqx_schema:unicode_binary(),
+                , mk(binary(),
                     #{desc => <<"User description">>, example => <<"administrator">>})}
             ],
             responses => #{
@@ -176,7 +176,7 @@ schema("/users/:username/change_pwd") ->
 fields(user) ->
     [
         {description,
-            mk(emqx_schema:unicode_binary(),
+            mk(binary(),
                 #{desc => <<"User description">>, example => "administrator"})},
         {username,
             mk(binary(),

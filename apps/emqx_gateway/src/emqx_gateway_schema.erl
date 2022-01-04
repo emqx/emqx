@@ -50,6 +50,8 @@
 
 -export([namespace/0, roots/0 , fields/1]).
 
+-export([proxy_protocol_opts/0]).
+
 namespace() -> gateway.
 
 roots() -> [gateway].

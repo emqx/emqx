@@ -55,7 +55,7 @@ on_start(InstId, #{servers := Servers0,
                    pool_size := PoolSize,
                    auto_reconnect := AutoReconn,
                    ssl := SSL} = Config) ->
-    ?SLOG(info, #{msg => "starting ldap connector",
+    ?SLOG(info, #{msg => "starting_ldap_connector",
                   connector => InstId, config => Config}),
     Servers = [begin proplists:get_value(host, S) end || S <- Servers0],
     SslOpts = case maps:get(enable, SSL) of
@@ -81,23 +81,21 @@ on_start(InstId, #{servers := Servers0,
     {ok, #{poolname => PoolName}}.
 
 on_stop(InstId, #{poolname := PoolName}) ->
-    ?SLOG(info, #{msg => "stopping ldap connector",
+    ?SLOG(info, #{msg => "stopping_ldap_connector",
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId, {search, Base, Filter, Attributes}, AfterQuery, #{poolname := PoolName} = State) ->
     Request = {Base, Filter, Attributes},
-    ?SLOG(debug, #{msg => "ldap connector received request",
-                   request => Request, connector => InstId,
-                   state => State}),
+    ?TRACE("QUERY", "ldap_connector_received",
+        #{request => Request, connector => InstId, state => State}),
     case Result = ecpool:pick_and_do(
                     PoolName,
                     {?MODULE, search, [Base, Filter, Attributes]},
                     no_handover) of
         {error, Reason} ->
-            ?SLOG(error, #{msg => "ldap connector do request failed",
-                           request => Request, connector => InstId,
-                           reason => Reason}),
+            ?SLOG(error, #{msg => "ldap_connector_do_request_failed",
+                request => Request, connector => InstId, reason => Reason}),
             emqx_resource:query_failed(AfterQuery);
         _ ->
             emqx_resource:query_success(AfterQuery)

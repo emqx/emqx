@@ -197,15 +197,7 @@ critical(Metadata, Format, Args) when is_map(Metadata) ->
 set_metadata_clientid(<<>>) ->
     ok;
 set_metadata_clientid(ClientId) ->
-    try
-        %% try put string format client-id metadata so
-        %% so the log is not like <<"...">>
-        Id = unicode:characters_to_list(ClientId, utf8),
-        set_proc_metadata(#{clientid => Id})
-    catch
-        _: _->
-            ok
-    end.
+    set_proc_metadata(#{clientid => ClientId}).
 
 -spec(set_metadata_peername(peername_str()) -> ok).
 set_metadata_peername(Peername) ->

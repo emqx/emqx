@@ -343,17 +343,16 @@ t_create_replace(_Config) ->
                    listener => {tcp, default}
                   },
 
-    %% Bad URL
+    %% Create with valid URL
     ok = setup_handler_and_config(
            fun(Req0, State) ->
                    Req = cowboy_req:reply(200, Req0),
                    {ok, Req, State}
            end,
-           #{<<"base_url">> => <<"http://127.0.0.1:33331/authz">>}),
-
+           #{<<"base_url">> => <<"http://127.0.0.1:33333/authz">>}),
 
     ?assertEqual(
-        deny,
+        allow,
         emqx_access_control:authorize(ClientInfo, publish, <<"t">>)),
 
     %% Changing to other bad config does not work
@@ -366,14 +365,14 @@ t_create_replace(_Config) ->
         emqx_authz:update({?CMD_REPLACE, http}, BadConfig)),
 
     ?assertEqual(
-        deny,
+        allow,
         emqx_access_control:authorize(ClientInfo, publish, <<"t">>)),
 
     %% Changing to valid config
     OkConfig = maps:merge(
                   raw_http_authz_config(),
                   #{<<"base_url">> => <<"http://127.0.0.1:33333/authz">>}),
-    
+
     ?assertMatch(
         {ok, _},
         emqx_authz:update({?CMD_REPLACE, http}, OkConfig)),

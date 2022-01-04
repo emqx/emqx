@@ -44,7 +44,11 @@
         , will_msg/1
         ]).
 
--export([format/1]).
+-export([ format/1
+        , format/2
+        ]).
+
+-export([encode_hex/1]).
 
 -define(TYPE_NAMES,
         { 'CONNECT'
@@ -435,25 +439,28 @@ will_msg(#mqtt_packet_connect{clientid     = ClientId,
 
 %% @doc Format packet
 -spec(format(emqx_types:packet()) -> iolist()).
-format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
-    format_header(Header, format_variable(Variable, Payload)).
+format(Packet) -> format(Packet, emqx_trace_handler:payload_encode()).
+
+%% @doc Format packet
+-spec(format(emqx_types:packet(), hex | text | hidden) -> iolist()).
+format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}, PayloadEncode) ->
+    HeaderIO = format_header(Header),
+    case format_variable(Variable, Payload, PayloadEncode) of
+        "" -> HeaderIO;
+        VarIO -> [HeaderIO,",", VarIO]
+    end.
 
 format_header(#mqtt_packet_header{type = Type,
                                   dup = Dup,
                                   qos = QoS,
-                                  retain = Retain}, S) ->
-    S1 = case S == undefined of
-             true -> <<>>;
-             false -> [", ", S]
-         end,
-    io_lib:format("~ts(Q~p, R~p, D~p~ts)", [type_name(Type), QoS, i(Retain), i(Dup), S1]).
+                                  retain = Retain}) ->
+    io_lib:format("~ts(Q~p, R~p, D~p)", [type_name(Type), QoS, i(Retain), i(Dup)]).
 
-format_variable(undefined, _) ->
-    undefined;
-format_variable(Variable, undefined) ->
-    format_variable(Variable);
-format_variable(Variable, Payload) ->
-    io_lib:format("~ts, Payload=~0p", [format_variable(Variable), Payload]).
+format_variable(undefined, _, _) -> "";
+format_variable(Variable, undefined, PayloadEncode) ->
+    format_variable(Variable, PayloadEncode);
+format_variable(Variable, Payload, PayloadEncode) ->
+    [format_variable(Variable, PayloadEncode), format_payload(Payload, PayloadEncode)].
 
 format_variable(#mqtt_packet_connect{
                  proto_ver    = ProtoVer,
@@ -467,57 +474,140 @@ format_variable(#mqtt_packet_connect{
                  will_topic   = WillTopic,
                  will_payload = WillPayload,
                  username     = Username,
-                 password     = Password}) ->
-    Format = "ClientId=~ts, ProtoName=~ts, ProtoVsn=~p, CleanStart=~ts, KeepAlive=~p, Username=~ts, Password=~ts",
-    Args = [ClientId, ProtoName, ProtoVer, CleanStart, KeepAlive, Username, format_password(Password)],
-    {Format1, Args1} = if
-                        WillFlag -> {Format ++ ", Will(Q~p, R~p, Topic=~ts, Payload=~0p)",
-                                     Args ++ [WillQoS, i(WillRetain), WillTopic, WillPayload]};
-                        true -> {Format, Args}
-                       end,
-    io_lib:format(Format1, Args1);
+                 password     = Password},
+    PayloadEncode) ->
+    Base = io_lib:format(
+        "ClientId=~ts, ProtoName=~ts, ProtoVsn=~p, CleanStart=~ts, KeepAlive=~p, Username=~ts, Password=~ts",
+        [ClientId, ProtoName, ProtoVer, CleanStart, KeepAlive, Username, format_password(Password)]),
+    case WillFlag of
+        true ->
+            [Base, io_lib:format(", Will(Q~p, R~p, Topic=~ts ",
+                [WillQoS, i(WillRetain), WillTopic]),
+                format_payload(WillPayload, PayloadEncode), ")"];
+        false ->
+            Base
+    end;
 
 format_variable(#mqtt_packet_disconnect
-                {reason_code = ReasonCode}) ->
+                {reason_code = ReasonCode}, _) ->
     io_lib:format("ReasonCode=~p", [ReasonCode]);
 
 format_variable(#mqtt_packet_connack{ack_flags   = AckFlags,
-                                     reason_code = ReasonCode}) ->
+                                     reason_code = ReasonCode}, _) ->
     io_lib:format("AckFlags=~p, ReasonCode=~p", [AckFlags, ReasonCode]);
 
 format_variable(#mqtt_packet_publish{topic_name = TopicName,
-                                     packet_id  = PacketId}) ->
+                                     packet_id  = PacketId}, _) ->
     io_lib:format("Topic=~ts, PacketId=~p", [TopicName, PacketId]);
 
 format_variable(#mqtt_packet_puback{packet_id = PacketId,
-                                    reason_code = ReasonCode}) ->
+                                    reason_code = ReasonCode}, _) ->
     io_lib:format("PacketId=~p, ReasonCode=~p", [PacketId, ReasonCode]);
 
 format_variable(#mqtt_packet_subscribe{packet_id     = PacketId,
-                                       topic_filters = TopicFilters}) ->
-    io_lib:format("PacketId=~p, TopicFilters=~0p", [PacketId, TopicFilters]);
+                                       topic_filters = TopicFilters}, _) ->
+    [io_lib:format("PacketId=~p ", [PacketId]), "TopicFilters=",
+        format_topic_filters(TopicFilters)];
 
 format_variable(#mqtt_packet_unsubscribe{packet_id     = PacketId,
-                                         topic_filters = Topics}) ->
-    io_lib:format("PacketId=~p, TopicFilters=~0p", [PacketId, Topics]);
+                                         topic_filters = Topics}, _) ->
+    [io_lib:format("PacketId=~p ", [PacketId]), "TopicFilters=",
+        format_topic_filters(Topics)];
 
 format_variable(#mqtt_packet_suback{packet_id = PacketId,
-                                    reason_codes = ReasonCodes}) ->
+                                    reason_codes = ReasonCodes}, _) ->
     io_lib:format("PacketId=~p, ReasonCodes=~p", [PacketId, ReasonCodes]);
 
-format_variable(#mqtt_packet_unsuback{packet_id = PacketId}) ->
+format_variable(#mqtt_packet_unsuback{packet_id = PacketId}, _) ->
     io_lib:format("PacketId=~p", [PacketId]);
 
-format_variable(#mqtt_packet_auth{reason_code = ReasonCode}) ->
+format_variable(#mqtt_packet_auth{reason_code = ReasonCode}, _) ->
     io_lib:format("ReasonCode=~p", [ReasonCode]);
 
-format_variable(PacketId) when is_integer(PacketId) ->
+format_variable(PacketId, _) when is_integer(PacketId) ->
     io_lib:format("PacketId=~p", [PacketId]).
 
-format_password(undefined) -> undefined;
-format_password(_Password) -> '******'.
+format_password(undefined) -> "undefined";
+format_password(_Password) -> "******".
+
+format_payload(Payload, text) -> ["Payload=", io_lib:format("~ts", [Payload])];
+format_payload(Payload, hex) -> ["Payload(hex)=", encode_hex(Payload)];
+format_payload(_, hidden) -> "Payload=******".
 
 i(true)  -> 1;
 i(false) -> 0;
 i(I) when is_integer(I) -> I.
 
+format_topic_filters(Filters) ->
+    ["[",
+        lists:join(",",
+            lists:map(
+                fun({TopicFilter, SubOpts}) ->
+                    io_lib:format("~ts(~p)", [TopicFilter, SubOpts]);
+                    (TopicFilter) ->
+                        io_lib:format("~ts", [TopicFilter])
+                end, Filters)),
+        "]"].
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Hex encoding functions
+%% Copy from binary:encode_hex/1 (was only introduced in OTP24).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-define(HEX(X), (hex(X)):16).
+-compile({inline,[hex/1]}).
+-spec encode_hex(Bin) -> Bin2 when
+    Bin :: binary(),
+    Bin2 :: <<_:_*16>>.
+encode_hex(Data) when byte_size(Data) rem 8 =:= 0 ->
+    << <<?HEX(A),?HEX(B),?HEX(C),?HEX(D),?HEX(E),?HEX(F),?HEX(G),?HEX(H)>> || <<A,B,C,D,E,F,G,H>> <= Data >>;
+encode_hex(Data) when byte_size(Data) rem 7 =:= 0 ->
+    << <<?HEX(A),?HEX(B),?HEX(C),?HEX(D),?HEX(E),?HEX(F),?HEX(G)>> || <<A,B,C,D,E,F,G>> <= Data >>;
+encode_hex(Data) when byte_size(Data) rem 6 =:= 0 ->
+    << <<?HEX(A),?HEX(B),?HEX(C),?HEX(D),?HEX(E),?HEX(F)>> || <<A,B,C,D,E,F>> <= Data >>;
+encode_hex(Data) when byte_size(Data) rem 5 =:= 0 ->
+    << <<?HEX(A),?HEX(B),?HEX(C),?HEX(D),?HEX(E)>> || <<A,B,C,D,E>> <= Data >>;
+encode_hex(Data) when byte_size(Data) rem 4 =:= 0 ->
+    << <<?HEX(A),?HEX(B),?HEX(C),?HEX(D)>> || <<A,B,C,D>> <= Data >>;
+encode_hex(Data) when byte_size(Data) rem 3 =:= 0 ->
+    << <<?HEX(A),?HEX(B),?HEX(C)>> || <<A,B,C>> <= Data >>;
+encode_hex(Data) when byte_size(Data) rem 2 =:= 0 ->
+    << <<?HEX(A),?HEX(B)>> || <<A,B>> <= Data >>;
+encode_hex(Data) when is_binary(Data) ->
+    << <<?HEX(N)>> || <<N>> <= Data >>;
+encode_hex(Bin) ->
+    erlang:error(badarg, [Bin]).
+
+hex(X) ->
+    element(
+        X+1, {16#3030, 16#3031, 16#3032, 16#3033, 16#3034, 16#3035, 16#3036, 16#3037, 16#3038, 16#3039, 16#3041,
+            16#3042, 16#3043, 16#3044, 16#3045, 16#3046,
+            16#3130, 16#3131, 16#3132, 16#3133, 16#3134, 16#3135, 16#3136, 16#3137, 16#3138, 16#3139, 16#3141,
+            16#3142, 16#3143, 16#3144, 16#3145, 16#3146,
+            16#3230, 16#3231, 16#3232, 16#3233, 16#3234, 16#3235, 16#3236, 16#3237, 16#3238, 16#3239, 16#3241,
+            16#3242, 16#3243, 16#3244, 16#3245, 16#3246,
+            16#3330, 16#3331, 16#3332, 16#3333, 16#3334, 16#3335, 16#3336, 16#3337, 16#3338, 16#3339, 16#3341,
+            16#3342, 16#3343, 16#3344, 16#3345, 16#3346,
+            16#3430, 16#3431, 16#3432, 16#3433, 16#3434, 16#3435, 16#3436, 16#3437, 16#3438, 16#3439, 16#3441,
+            16#3442, 16#3443, 16#3444, 16#3445, 16#3446,
+            16#3530, 16#3531, 16#3532, 16#3533, 16#3534, 16#3535, 16#3536, 16#3537, 16#3538, 16#3539, 16#3541,
+            16#3542, 16#3543, 16#3544, 16#3545, 16#3546,
+            16#3630, 16#3631, 16#3632, 16#3633, 16#3634, 16#3635, 16#3636, 16#3637, 16#3638, 16#3639, 16#3641,
+            16#3642, 16#3643, 16#3644, 16#3645, 16#3646,
+            16#3730, 16#3731, 16#3732, 16#3733, 16#3734, 16#3735, 16#3736, 16#3737, 16#3738, 16#3739, 16#3741,
+            16#3742, 16#3743, 16#3744, 16#3745, 16#3746,
+            16#3830, 16#3831, 16#3832, 16#3833, 16#3834, 16#3835, 16#3836, 16#3837, 16#3838, 16#3839, 16#3841,
+            16#3842, 16#3843, 16#3844, 16#3845, 16#3846,
+            16#3930, 16#3931, 16#3932, 16#3933, 16#3934, 16#3935, 16#3936, 16#3937, 16#3938, 16#3939, 16#3941,
+            16#3942, 16#3943, 16#3944, 16#3945, 16#3946,
+            16#4130, 16#4131, 16#4132, 16#4133, 16#4134, 16#4135, 16#4136, 16#4137, 16#4138, 16#4139, 16#4141,
+            16#4142, 16#4143, 16#4144, 16#4145, 16#4146,
+            16#4230, 16#4231, 16#4232, 16#4233, 16#4234, 16#4235, 16#4236, 16#4237, 16#4238, 16#4239, 16#4241,
+            16#4242, 16#4243, 16#4244, 16#4245, 16#4246,
+            16#4330, 16#4331, 16#4332, 16#4333, 16#4334, 16#4335, 16#4336, 16#4337, 16#4338, 16#4339, 16#4341,
+            16#4342, 16#4343, 16#4344, 16#4345, 16#4346,
+            16#4430, 16#4431, 16#4432, 16#4433, 16#4434, 16#4435, 16#4436, 16#4437, 16#4438, 16#4439, 16#4441,
+            16#4442, 16#4443, 16#4444, 16#4445, 16#4446,
+            16#4530, 16#4531, 16#4532, 16#4533, 16#4534, 16#4535, 16#4536, 16#4537, 16#4538, 16#4539, 16#4541,
+            16#4542, 16#4543, 16#4544, 16#4545, 16#4546,
+            16#4630, 16#4631, 16#4632, 16#4633, 16#4634, 16#4635, 16#4636, 16#4637, 16#4638, 16#4639, 16#4641,
+            16#4642, 16#4643, 16#4644, 16#4645, 16#4646}).

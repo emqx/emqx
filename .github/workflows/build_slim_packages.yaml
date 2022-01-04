@@ -74,7 +74,7 @@ jobs:
         - macos-11
         - macos-10.15
 
-    runs-on: ${{  matrix.macos }}
+    runs-on: ${{ matrix.macos }}
 
     steps:
     - uses: actions/checkout@v2

@@ -35,15 +35,19 @@
         ]).
 
 -export([ load/0
+        , lookup/1
         , lookup/2
         , lookup/3
         , list/0
         , list_bridges_by_connector/1
+        , create/2
         , create/3
         , recreate/2
         , recreate/3
         , create_dry_run/2
+        , remove/1
         , remove/3
+        , update/2
         , update/3
         , start/2
         , stop/2
@@ -80,17 +84,36 @@ unload_hook() ->
 on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
     case maps:get(sys, Flags, false) of
         false ->
-            lists:foreach(fun (Id) ->
-                    send_message(Id, emqx_rule_events:eventmsg_publish(Message))
-                end, get_matched_bridges(Topic));
+            Msg = emqx_rule_events:eventmsg_publish(Message),
+            send_to_matched_egress_bridges(Topic, Msg);
         true -> ok
     end,
     {ok, Message}.
 
+send_to_matched_egress_bridges(Topic, Msg) ->
+    lists:foreach(fun (Id) ->
+        try send_message(Id, Msg) of
+            ok -> ok;
+            Error -> ?SLOG(error, #{msg => "send_message_to_bridge_failed",
+                        bridge => Id, error => Error})
+        catch Err:Reason:ST ->
+            ?SLOG(error, #{msg => "send_message_to_bridge_crash",
+                bridge => Id, error => Err, reason => Reason,
+                stacktrace => ST})
+        end
+    end, get_matched_bridges(Topic)).
+
 send_message(BridgeId, Message) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
     ResId = emqx_bridge:resource_id(BridgeType, BridgeName),
-    emqx_resource:query(ResId, {send_message, Message}).
+    case emqx:get_config([bridges, BridgeType, BridgeName], not_found) of
+        not_found ->
+            {error, {bridge_not_found, BridgeId}};
+        #{enable := true} ->
+            emqx_resource:query(ResId, {send_message, Message});
+        #{enable := false} ->
+            {error, {bridge_stopped, BridgeId}}
+    end.
 
 config_key_path() ->
     [bridges].
@@ -169,6 +192,10 @@ list_bridges_by_connector(ConnectorId) ->
     [B || B = #{raw_config := #{<<"connector">> := Id}} <- list(),
          ConnectorId =:= Id].
 
+lookup(Id) ->
+    {Type, Name} = parse_bridge_id(Id),
+    lookup(Type, Name).
+
 lookup(Type, Name) ->
     RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),
     lookup(Type, Name, RawConf).
@@ -188,15 +215,23 @@ stop(Type, Name) ->
 restart(Type, Name) ->
     emqx_resource:restart(resource_id(Type, Name)).
 
+create(BridgeId, Conf) ->
+    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
+    create(BridgeType, BridgeName, Conf).
+
 create(Type, Name, Conf) ->
     ?SLOG(info, #{msg => "create bridge", type => Type, name => Name,
         config => Conf}),
     case emqx_resource:create_local(resource_id(Type, Name), emqx_bridge:resource_type(Type),
-            parse_confs(Type, Name, Conf), #{force_create => true}) of
+            parse_confs(Type, Name, Conf), #{async_create => true}) of
         {ok, already_created} -> maybe_disable_bridge(Type, Name, Conf);
         {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
         {error, Reason} -> {error, Reason}
     end.
+
+update(BridgeId, {OldConf, Conf}) ->
+    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
+    update(BridgeType, BridgeName, {OldConf, Conf}).
 
 update(Type, Name, {OldConf, Conf}) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
@@ -214,23 +249,27 @@ update(Type, Name, {OldConf, Conf}) ->
             case recreate(Type, Name, Conf) of
                 {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
                 {error, not_found} ->
-                    ?SLOG(warning, #{ msg => "updating a non-exist bridge, create a new one"
+                    ?SLOG(warning, #{ msg => "updating_a_non-exist_bridge_need_create_a_new_one"
                                     , type => Type, name => Name, config => Conf}),
                     create(Type, Name, Conf);
-                {error, Reason} -> {update_bridge_failed, Reason}
+                {error, Reason} -> {error, {update_bridge_failed, Reason}}
             end;
         true ->
             %% we don't need to recreate the bridge if this config change is only to
             %% toggole the config 'bridge.{type}.{name}.enable'
-            ok
+            case maps:get(enable, Conf, true) of
+                false -> stop(Type, Name);
+                true -> start(Type, Name)
+            end
     end.
 
 recreate(Type, Name) ->
-    recreate(Type, Name, emqx:get_raw_config([bridges, Type, Name])).
+    recreate(Type, Name, emqx:get_config([bridges, Type, Name])).
 
 recreate(Type, Name, Conf) ->
     emqx_resource:recreate_local(resource_id(Type, Name),
-        emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf), []).
+        emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf),
+        #{async_create => true}).
 
 create_dry_run(Type, Conf) ->
     Conf0 = Conf#{<<"ingress">> => #{<<"remote_topic">> => <<"t">>}},
@@ -241,8 +280,12 @@ create_dry_run(Type, Conf) ->
             Error
     end.
 
+remove(BridgeId) ->
+    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
+    remove(BridgeType, BridgeName, #{}).
+
 remove(Type, Name, _Conf) ->
-    ?SLOG(info, #{msg => "remove bridge", type => Type, name => Name}),
+    ?SLOG(info, #{msg => "remove_bridge", type => Type, name => Name}),
     case emqx_resource:remove_local(resource_id(Type, Name)) of
         ok -> ok;
         {error, not_found} -> ok;
@@ -276,6 +319,8 @@ get_matched_bridges(Topic) ->
         end, Acc0, Conf)
     end, [], Bridges).
 
+get_matched_bridge_id(#{enable := false}, _Topic, _BType, _BName, Acc) ->
+    Acc;
 get_matched_bridge_id(#{local_topic := Filter}, Topic, BType, BName, Acc) ->
     case emqx_topic:match(Topic, Filter) of
         true -> [bridge_id(BType, BName) | Acc];
@@ -306,21 +351,21 @@ parse_confs(Type, Name, #{connector := ConnId, direction := Direction} = Conf)
         {Type, ConnName} ->
             ConnectorConfs = emqx:get_config([connectors, Type, ConnName]),
             make_resource_confs(Direction, ConnectorConfs,
-                maps:without([connector, direction], Conf), Name);
+                maps:without([connector, direction], Conf), Type, Name);
         {_ConnType, _ConnName} ->
             error({cannot_use_connector_with_different_type, ConnId})
     end;
-parse_confs(_Type, Name, #{connector := ConnectorConfs, direction := Direction} = Conf)
+parse_confs(Type, Name, #{connector := ConnectorConfs, direction := Direction} = Conf)
         when is_map(ConnectorConfs) ->
     make_resource_confs(Direction, ConnectorConfs,
-        maps:without([connector, direction], Conf), Name).
+        maps:without([connector, direction], Conf), Type, Name).
 
-make_resource_confs(ingress, ConnectorConfs, BridgeConf, Name) ->
-    BName = bin(Name),
+make_resource_confs(ingress, ConnectorConfs, BridgeConf, Type, Name) ->
+    BName = bridge_id(Type, Name),
     ConnectorConfs#{
         ingress => BridgeConf#{hookpoint => <<"$bridges/", BName/binary>>}
     };
-make_resource_confs(egress, ConnectorConfs, BridgeConf, _Name) ->
+make_resource_confs(egress, ConnectorConfs, BridgeConf, _Type, _Name) ->
     ConnectorConfs#{
         egress => BridgeConf
     }.

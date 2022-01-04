@@ -14,7 +14,7 @@ fields("emqx_slow_subs") ->
           "The latency threshold for statistics, the minimum value is 100ms")}
     , {expire_interval,
        sc(emqx_schema:duration_ms(),
-          "5m",
+          "300s",
           "The eviction time of the record, which in the statistics record table")}
     , {top_k_num,
        sc(integer(),

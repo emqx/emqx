@@ -75,7 +75,7 @@ For example: http://localhost:9901/
            })}
     , {connect_timeout,
         sc(emqx_schema:duration_ms(),
-           #{ default => "30s"
+           #{ default => "15s"
             , desc => "The timeout when connecting to the HTTP server"
             })}
     , {max_retries,
@@ -143,7 +143,7 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
                    retry_interval := RetryInterval,
                    pool_type := PoolType,
                    pool_size := PoolSize} = Config) ->
-    ?SLOG(info, #{msg => "starting http connector",
+    ?SLOG(info, #{msg => "starting_http_connector",
                   connector => InstId, config => Config}),
     {Transport, TransportOpts} = case Scheme of
                                      http ->
@@ -181,13 +181,13 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
     end.
 
 on_stop(InstId, #{pool_name := PoolName}) ->
-    ?SLOG(info, #{msg => "stopping http connector",
+    ?SLOG(info, #{msg => "stopping_http_connector",
                   connector => InstId}),
     ehttpc_sup:stop_pool(PoolName).
 
 on_query(InstId, {send_message, Msg}, AfterQuery, State) ->
     case maps:get(request, State, undefined) of
-        undefined -> ?SLOG(error, #{msg => "request not found", connector => InstId});
+        undefined -> ?SLOG(error, #{msg => "request_not_found", connector => InstId});
         Request ->
             #{method := Method, path := Path, body := Body, headers := Headers,
               request_timeout := Timeout} = process_request(Request, Msg),
@@ -199,23 +199,32 @@ on_query(InstId, {Method, Request, Timeout}, AfterQuery, State) ->
     on_query(InstId, {undefined, Method, Request, Timeout}, AfterQuery, State);
 on_query(InstId, {KeyOrNum, Method, Request, Timeout}, AfterQuery,
         #{pool_name := PoolName, base_path := BasePath} = State) ->
-    ?SLOG(debug, #{msg => "http connector received request",
-                   request => Request, connector => InstId,
-                   state => State}),
-    NRequest = update_path(BasePath, Request),
-    Name = case KeyOrNum of
-               undefined -> PoolName;
-               _ -> {PoolName, KeyOrNum}
-           end,
-    Result = ehttpc:request(Name, Method, NRequest, Timeout),
-    case Result of
+    ?TRACE("QUERY", "http_connector_received",
+        #{request => Request, connector => InstId, state => State}),
+    NRequest = formalize_request(Method, BasePath, Request),
+    case Result = ehttpc:request(case KeyOrNum of
+                                     undefined -> PoolName;
+                                     _ -> {PoolName, KeyOrNum}
+                                 end, Method, NRequest, Timeout) of
         {error, Reason} ->
-            ?SLOG(error, #{msg => "http connector do reqeust failed",
+            ?SLOG(error, #{msg => "http_connector_do_reqeust_failed",
                            request => NRequest, reason => Reason,
                            connector => InstId}),
             emqx_resource:query_failed(AfterQuery);
-        _ ->
-            emqx_resource:query_success(AfterQuery)
+        {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            emqx_resource:query_success(AfterQuery);
+        {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            emqx_resource:query_success(AfterQuery);
+        {ok, StatusCode, _} ->
+            ?SLOG(error, #{msg => "http connector do reqeust, received error response",
+                           request => NRequest, connector => InstId,
+                           status_code => StatusCode}),
+            emqx_resource:query_failed(AfterQuery);
+        {ok, StatusCode, _, _} ->
+            ?SLOG(error, #{msg => "http connector do reqeust, received error response",
+                           request => NRequest, connector => InstId,
+                           status_code => StatusCode}),
+            emqx_resource:query_failed(AfterQuery)
     end,
     Result.
 
@@ -268,10 +277,15 @@ process_request(#{
         } = Conf, Msg) ->
     Conf#{ method => make_method(emqx_plugin_libs_rule:proc_tmpl(MethodTks, Msg))
          , path => emqx_plugin_libs_rule:proc_tmpl(PathTks, Msg)
-         , body => emqx_plugin_libs_rule:proc_tmpl(BodyTks, Msg)
+         , body => process_request_body(BodyTks, Msg)
          , headers => maps:to_list(proc_headers(HeadersTks, Msg))
          , request_timeout => ReqTimeout
          }.
+
+process_request_body([], Msg) ->
+    emqx_json:encode(Msg);
+process_request_body(BodyTks, Msg) ->
+    emqx_plugin_libs_rule:proc_tmpl(BodyTks, Msg).
 
 proc_headers(HeaderTks, Msg) ->
     maps:fold(fun(K, V, Acc) ->
@@ -296,10 +310,14 @@ check_ssl_opts(URLFrom, Conf) ->
         {_, _} -> false
     end.
 
-update_path(BasePath, {Path, Headers}) ->
-    {filename:join(BasePath, Path), Headers};
-update_path(BasePath, {Path, Headers, Body}) ->
-    {filename:join(BasePath, Path), Headers, Body}.
+formalize_request(Method, BasePath, {Path, Headers, _Body})
+        when Method =:= get; Method =:= delete ->
+    formalize_request(Method, BasePath, {Path, Headers});
+formalize_request(_Method, BasePath, {Path, Headers, Body}) ->
+    {filename:join(BasePath, Path), Headers, Body};
+
+formalize_request(_Method, BasePath, {Path, Headers}) ->
+    {filename:join(BasePath, Path), Headers}.
 
 bin(Bin) when is_binary(Bin) ->
     Bin;

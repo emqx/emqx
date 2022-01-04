@@ -18,6 +18,8 @@
 
 -define(INDEX(Latency, ClientId), {Latency, ClientId}).
 
+-define(MAX_TAB_SIZE, 1000).
+
 -record(top_k, { index :: index()
                , type :: emqx_message_latency_stats:latency_type()
                , last_update_time :: pos_integer()

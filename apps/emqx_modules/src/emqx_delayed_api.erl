@@ -25,12 +25,14 @@
 -define(MAX_PAYLOAD_LENGTH, 2048).
 -define(PAYLOAD_TOO_LARGE, 'PAYLOAD_TOO_LARGE').
 
--export([status/2
-    , delayed_messages/2
-    , delayed_message/2
-]).
+-export([ status/2
+        , delayed_messages/2
+        , delayed_message/2
+        ]).
 
--export([paths/0, fields/1, schema/1]).
+-export([ paths/0
+        , fields/1
+        , schema/1]).
 
 %% for rpc
 -export([update_config_/1]).
@@ -40,15 +42,21 @@
 -define(ALREADY_ENABLED, 'ALREADY_ENABLED').
 -define(ALREADY_DISABLED, 'ALREADY_DISABLED').
 
+-define(INTERNAL_ERROR, 'INTERNAL_ERROR').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
 -define(MESSAGE_ID_NOT_FOUND, 'MESSAGE_ID_NOT_FOUND').
 -define(MESSAGE_ID_SCHEMA_ERROR, 'MESSAGE_ID_SCHEMA_ERROR').
+-define(MAX_PAYLOAD_SIZE, 1048576). %% 1MB = 1024 x 1024
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
 
-paths() -> ["/mqtt/delayed", "/mqtt/delayed/messages", "/mqtt/delayed/messages/:msgid"].
+paths() ->
+    [ "/mqtt/delayed"
+    , "/mqtt/delayed/messages"
+    , "/mqtt/delayed/messages/:msgid"
+    ].
 
 schema("/mqtt/delayed") ->
     #{
@@ -157,11 +165,11 @@ delayed_message(get, #{bindings := #{msgid := Id}}) ->
     case emqx_delayed:get_delayed_message(Id) of
         {ok, Message} ->
             Payload = maps:get(payload, Message),
-            case size(Payload) > ?MAX_PAYLOAD_LENGTH of
+            case erlang:byte_size(Payload) > ?MAX_PAYLOAD_SIZE of
                 true ->
-                    {200, Message#{payload => ?PAYLOAD_TOO_LARGE}};
+                    {200, Message};
                 _ ->
-                    {200, Message#{payload => Payload}}
+                    {200, Message#{payload => base64:encode(Payload)}}
             end;
         {error, id_schema_error} ->
             {400, generate_http_code_map(id_schema_error, Id)};
@@ -188,8 +196,7 @@ get_status() ->
 update_config(Config) ->
     case generate_config(Config) of
         {ok, Config} ->
-            update_config_(Config),
-            {200, get_status()};
+            update_config_(Config);
         {error, {Code, Message}} ->
             {400, #{code => Code, message => Message}}
     end.
@@ -214,29 +221,28 @@ generate_max_delayed_messages(Config) ->
     {ok, Config}.
 
 update_config_(Config) ->
-    lists:foreach(fun(Node) ->
-        update_config_(Node, Config)
-                  end, mria_mnesia:running_nodes()).
-
-update_config_(Node, Config) when Node =:= node() ->
-    _ = emqx_delayed:update_config(Config),
-    case maps:get(<<"enable">>, Config, undefined) of
-        undefined ->
-            ignore;
-        true ->
-            emqx_delayed:enable();
-        false ->
-            emqx_delayed:disable()
-    end,
-    case maps:get(<<"max_delayed_messages">>, Config, undefined) of
-        undefined ->
-            ignore;
-        Max ->
-            ok = emqx_delayed:set_max_delayed_messages(Max)
-    end;
-
-update_config_(Node, Config) ->
-    rpc_call(Node, ?MODULE, ?FUNCTION_NAME, [Node, Config]).
+    case emqx_delayed:update_config(Config) of
+        {ok, #{raw_config := NewDelayed}} ->
+            case maps:get(<<"enable">>, Config, undefined) of
+                undefined ->
+                    ignore;
+                true ->
+                    emqx_delayed:enable();
+                false ->
+                    emqx_delayed:disable()
+            end,
+            case maps:get(<<"max_delayed_messages">>, Config, undefined) of
+                undefined ->
+                    ignore;
+                Max ->
+                    ok = emqx_delayed:set_max_delayed_messages(Max)
+            end,
+            {200, NewDelayed};
+        {error, Reason} ->
+            Message = list_to_binary(
+                          io_lib:format("Update config failed ~p", [Reason])),
+            {500, ?INTERNAL_ERROR, Message}
+    end.
 
 generate_http_code_map(id_schema_error, Id) ->
     #{code => ?MESSAGE_ID_SCHEMA_ERROR, message =>
@@ -244,9 +250,3 @@ generate_http_code_map(id_schema_error, Id) ->
 generate_http_code_map(not_found, Id) ->
     #{code => ?MESSAGE_ID_NOT_FOUND, message =>
           iolist_to_binary(io_lib:format("Message ID ~p not found", [Id]))}.
-
-rpc_call(Node, Module, Fun, Args) ->
-    case rpc:call(Node, Module, Fun, Args) of
-        {badrpc, Reason} -> {error, Reason};
-        Result -> Result
-    end.

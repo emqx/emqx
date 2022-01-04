@@ -210,7 +210,10 @@ fi
 if ! check_erlang_start >/dev/null 2>&1; then
     BUILT_ON="$(head -1 "${REL_DIR}/BUILT_ON")"
     ## failed to start, might be due to missing libs, try to be portable
-    export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-$DYNLIBS_DIR}"
+    if [ "$LD_LIBRARY_PATH" != "$DYNLIBS_DIR" ]; then
+        export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
+    fi
     if ! check_erlang_start; then
         ## it's hopeless
         echoerr "FATAL: Unable to start Erlang."
@@ -454,6 +457,26 @@ wait_for() {
     done
 }
 
+wait_until_return_val() {
+    local RESULT
+    local WAIT_TIME
+    local CMD
+    RESULT="$1"
+    WAIT_TIME="$2"
+    shift 2
+    CMD="$*"
+    while true; do
+        if [ "$($CMD 2>/dev/null)" = "$RESULT" ]; then
+            return 0
+        fi
+        if [ "$WAIT_TIME" -le 0 ]; then
+            return 1
+        fi
+        WAIT_TIME=$((WAIT_TIME - 1))
+        sleep 1
+    done
+}
+
 latest_vm_args() {
     local hint_var_name="$1"
     local vm_args_file
@@ -579,7 +602,8 @@ case "${COMMAND}" in
                           "$(relx_start_command)"
 
         WAIT_TIME=${EMQX_WAIT_FOR_START:-120}
-        if wait_for "$WAIT_TIME" 'relx_nodetool' 'ping'; then
+        if wait_until_return_val "true" "$WAIT_TIME" 'relx_nodetool' \
+                'eval' 'emqx:is_running()'; then
             echo "$EMQX_DESCRIPTION $REL_VSN is started successfully!"
             exit 0
         else

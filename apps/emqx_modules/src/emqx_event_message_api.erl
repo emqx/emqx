@@ -53,5 +53,10 @@ event_message(get, _Params) ->
     {200, emqx_event_message:list()};
 
 event_message(put, #{body := Body}) ->
-    _ = emqx_event_message:update(Body),
-    {200, emqx_event_message:list()}.
+    case emqx_event_message:update(Body) of
+        {ok, NewConfig} ->
+            {200, NewConfig};
+        {error, Reason} ->
+            Message = list_to_binary(io_lib:format("Update config failed ~p", [Reason])),
+            {500, 'INTERNAL_ERROR', Message}
+    end.

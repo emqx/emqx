@@ -37,7 +37,6 @@
         , info/1
         , format/1
         , parse/1
-        , to_timestamp/1
         ]).
 
 %% gen_server callbacks
@@ -52,6 +51,11 @@
 -elvis([{elvis_style, state_record_and_type, disable}]).
 
 -define(BANNED_TAB, ?MODULE).
+
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -106,31 +110,35 @@ format(#banned{who = Who0,
     }.
 
 parse(Params) ->
-    Who    = pares_who(Params),
-    By     = maps:get(<<"by">>, Params, <<"mgmt_api">>),
-    Reason = maps:get(<<"reason">>, Params, <<"">>),
-    At     = parse_time(maps:get(<<"at">>, Params, undefined), erlang:system_time(second)),
-    Until  = parse_time(maps:get(<<"until">>, Params, undefined), At + 5 * 60),
-    #banned{
-        who    = Who,
-        by     = By,
-        reason = Reason,
-        at     = At,
-        until  = Until
-    }.
-
+    case pares_who(Params) of
+        {error, Reason} -> {error, Reason};
+        Who  ->
+            By     = maps:get(<<"by">>, Params, <<"mgmt_api">>),
+            Reason = maps:get(<<"reason">>, Params, <<"">>),
+            At     = maps:get(<<"at">>, Params, erlang:system_time(second)),
+            Until  = maps:get(<<"until">>, Params, At + 5 * 60),
+            case Until > erlang:system_time(second) of
+                true ->
+                    #banned{
+                        who    = Who,
+                        by     = By,
+                        reason = Reason,
+                        at     = At,
+                        until  = Until
+                    };
+                false ->
+                    {error, "already_expired"}
+            end
+    end.
 pares_who(#{as := As, who := Who}) ->
     pares_who(#{<<"as">> => As, <<"who">> => Who});
 pares_who(#{<<"as">> := peerhost, <<"who">> := Peerhost0}) ->
-    {ok, Peerhost} = inet:parse_address(binary_to_list(Peerhost0)),
-    {peerhost, Peerhost};
+    case inet:parse_address(binary_to_list(Peerhost0)) of
+        {ok, Peerhost} -> {peerhost, Peerhost};
+        {error, einval} -> {error, "bad peerhost"}
+    end;
 pares_who(#{<<"as">> := As, <<"who">> := Who}) ->
     {As, Who}.
-
-parse_time(undefined, Default) ->
-    Default;
-parse_time(Rfc3339, _Default) ->
-    to_timestamp(Rfc3339).
 
 maybe_format_host({peerhost, Host}) ->
     AddrBinary = list_to_binary(inet:ntoa(Host)),
@@ -140,11 +148,6 @@ maybe_format_host({As, Who}) ->
 
 to_rfc3339(Timestamp) ->
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
-
-to_timestamp(Rfc3339) when is_binary(Rfc3339) ->
-    to_timestamp(binary_to_list(Rfc3339));
-to_timestamp(Rfc3339) ->
-    calendar:rfc3339_to_system_time(Rfc3339, [{unit, second}]).
 
 -spec(create(emqx_types:banned() | map()) ->
     {ok, emqx_types:banned()} | {error, {already_exist, emqx_types:banned()}}).
@@ -168,10 +171,11 @@ create(Banned = #banned{who = Who})  ->
             mria:dirty_write(?BANNED_TAB, Banned),
             {ok, Banned};
         [OldBanned = #banned{until = Until}] ->
-            case Until < erlang:system_time(second) of
-                true ->
-                    {error, {already_exist, OldBanned}};
-                false ->
+            %% Don't support shorten or extend the until time by overwrite.
+            %% We don't support update api yet, user must delete then create new one.
+            case Until > erlang:system_time(second) of
+                true -> {error, {already_exist, OldBanned}};
+                false -> %% overwrite expired one is ok.
                     mria:dirty_write(?BANNED_TAB, Banned),
                     {ok, Banned}
             end

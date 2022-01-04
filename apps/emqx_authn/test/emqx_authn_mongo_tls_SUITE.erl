@@ -91,7 +91,7 @@ t_create_invalid_server_name(_Config) ->
        create_mongo_auth_with_ssl_opts(
          #{<<"server_name_indication">> => <<"authn-server-unknown-host">>,
            <<"verify">> => <<"verify_peer">>}),
-       fun({ok, _}, Trace) ->
+       fun({error, _}, Trace) ->
                ?assertEqual(
                   [failed],
                   ?projection(
@@ -109,7 +109,7 @@ t_create_invalid_version(_Config) ->
          #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.1">>]}),
-       fun({ok, _}, Trace) ->
+       fun({error, _}, Trace) ->
                ?assertEqual(
                   [failed],
                   ?projection(
@@ -118,7 +118,7 @@ t_create_invalid_version(_Config) ->
        end).
 
 
-%% docker-compose-mongo-single-tls.yaml: 
+%% docker-compose-mongo-single-tls.yaml:
 %% --setParameter opensslCipherConfig='HIGH:!EXPORT:!aNULL:!DHE:!kDHE@STRENGTH'
 
 t_invalid_ciphers(_Config) ->
@@ -128,7 +128,7 @@ t_invalid_ciphers(_Config) ->
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.2">>],
            <<"ciphers">> => [<<"DHE-RSA-AES256-GCM-SHA384">>]}),
-       fun({ok, _}, Trace) ->
+       fun({error, _}, Trace) ->
                ?assertEqual(
                   [failed],
                   ?projection(

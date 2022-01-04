@@ -85,7 +85,7 @@ republish(Selected, #{flags := Flags, metadata := #{rule_id := RuleId}},
     Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected, 0),
     Retain = replace_simple_var(RetainTks, Selected, false),
-    ?SLOG(debug, #{msg => "republish", topic => Topic, payload => Payload}),
+    ?TRACE("RULE", "republish_message", #{topic => Topic, payload => Payload}),
     safe_publish(RuleId, Topic, QoS, Flags#{retain => Retain}, Payload);
 
 %% in case this is a "$events/" event
@@ -99,7 +99,7 @@ republish(Selected, #{metadata := #{rule_id := RuleId}},
     Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected, 0),
     Retain = replace_simple_var(RetainTks, Selected, false),
-    ?SLOG(debug, #{msg => "republish", topic => Topic, payload => Payload}),
+    ?TRACE("RULE", "republish_message_with_flags", #{topic => Topic, payload => Payload}),
     safe_publish(RuleId, Topic, QoS, #{retain => Retain}, Payload).
 
 %%--------------------------------------------------------------------
