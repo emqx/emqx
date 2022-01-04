@@ -13,10 +13,9 @@ etc/emqx_retainer.conf:
 ## Where to store the retained messages.
 ## Notice that all nodes in a cluster are to have the same storage_type.
 ##
-## Value: ram | disc | disc_only
+## Value: ram | disc
 ##  - ram: memory only
 ##  - disc: both memory and disc
-##  - disc_only: disc only
 ##
 ## Default: ram
 retainer.storage_type = ram
@@ -56,4 +55,3 @@ Author
 ------
 
 EMQ X Team
-
