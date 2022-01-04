@@ -82,7 +82,12 @@ spec:
           claimName: {{ tpl . $ }}
         {{- end }}
       {{- end }}
-      {{- if .Values.emqxLicneseSecretName  }}
+      {{- if .Values.emqxLicenseSecretName  }}
+      - name: emqx-license
+        secret:
+          secretName: {{ .Values.emqxLicenseSecretName }}
+      ## Compatible with previous misspellings
+      {{- else if .Values.emqxLicneseSecretName }}
       - name: emqx-license
         secret:
           secretName: {{ .Values.emqxLicneseSecretName }}
@@ -159,7 +164,13 @@ spec:
           - name: emqx-loaded-modules
             mountPath: "/opt/emqx/data/loaded_modules"
             subPath: "loaded_modules"
-          {{ if .Values.emqxLicneseSecretName  }}
+          {{ if .Values.emqxLicenseSecretName  }}
+          - name: emqx-license
+            mountPath: "/opt/emqx/etc/emqx.lic"
+            subPath: "emqx.lic"
+            readOnly: true
+          ## Compatible with previous misspellings
+          {{ else if .Values.emqxLicneseSecretName  }}
           - name: emqx-license
             mountPath: "/opt/emqx/etc/emqx.lic"
             subPath: "emqx.lic"
