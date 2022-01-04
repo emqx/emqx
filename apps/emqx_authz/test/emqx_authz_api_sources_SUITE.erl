@@ -26,6 +26,7 @@
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
+-define(MONGO_SINGLE_HOST, "mongo:27017").
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
                    <<"enable">> => true,
@@ -39,7 +40,7 @@
 -define(SOURCE2, #{<<"type">> => <<"mongodb">>,
                    <<"enable">> => true,
                    <<"mongo_type">> => <<"single">>,
-                   <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"server">> => <<?MONGO_SINGLE_HOST>>,
                    <<"pool_size">> => 1,
                    <<"database">> => <<"mqtt">>,
                    <<"ssl">> => #{<<"enable">> => false},
@@ -48,7 +49,7 @@
                   }).
 -define(SOURCE3, #{<<"type">> => <<"mysql">>,
                    <<"enable">> => true,
-                   <<"server">> => <<"127.0.0.1:3306">>,
+                   <<"server">> => <<"mysql:3306">>,
                    <<"pool_size">> => 1,
                    <<"database">> => <<"mqtt">>,
                    <<"username">> => <<"xx">>,
@@ -59,7 +60,7 @@
                   }).
 -define(SOURCE4, #{<<"type">> => <<"postgresql">>,
                    <<"enable">> => true,
-                   <<"server">> => <<"127.0.0.1:5432">>,
+                   <<"server">> => <<"pgsql:5432">>,
                    <<"pool_size">> => 1,
                    <<"database">> => <<"mqtt">>,
                    <<"username">> => <<"xx">>,
@@ -70,7 +71,7 @@
                   }).
 -define(SOURCE5, #{<<"type">> => <<"redis">>,
                    <<"enable">> => true,
-                   <<"servers">> => <<"127.0.0.1:6379, 127.0.0.1:6380">>,
+                   <<"servers">> => <<"redis:6379,127.0.0.1:6380">>,
                    <<"pool_size">> => 1,
                    <<"database">> => 0,
                    <<"password">> => <<"ee">>,
@@ -96,12 +97,13 @@ groups() ->
 
 init_per_suite(Config) ->
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
+    meck:expect(emqx_resource, create_local, fun(_, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, create_dry_run_local,
                 fun(emqx_connector_mysql, _) -> ok;
+                   (emqx_connector_mongo, _) -> ok;
                    (T, C) -> meck:passthrough([T, C])
                 end),
-    meck:expect(emqx_resource, health_check, fun(_) -> ok end),
+    meck:expect(emqx_resource, health_check, fun(St) -> {ok, St} end),
     meck:expect(emqx_resource, remove_local, fun(_) -> ok end ),
 
     ok = emqx_common_test_helpers:start_apps(
@@ -160,13 +162,6 @@ end_per_testcase(_, _Config) -> ok.
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
-t_mongodb_connectivity(_) ->
-    Type = single,
-    Hosts = ["127.0.0.1:27017", "192.168.0.1:27017"],
-    TopologyOpts = [{pool_size, 1}],
-    WorkerOpts = [{database, <<"mqtt">>}, {ssl, false}],
-    {ok, Pid} = mongo_api:connect(Type, Hosts, TopologyOpts, WorkerOpts),
-    ?assertEqual(undefined, mongo_api:find_one(Pid, <<"foo">>, #{<<"key">> => 123}, #{})).
 
 t_api(_) ->
     {ok, 200, Result1} = request(get, uri(["authorization", "sources"]), []),
