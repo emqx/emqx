@@ -20,7 +20,7 @@ fields("emqx_retainer") ->
 
 fields(mnesia_config) ->
     [ {type, ?TYPE(hoconsc:union([built_in_database]))}
-    , {storage_type, sc(hoconsc:union([ram, disc, disc_only]), ram)}
+    , {storage_type, sc(hoconsc:union([ram, disc]), ram)}
     , {max_retained_messages, sc(integer(), 0, fun is_pos_integer/1)}
     ];
 
