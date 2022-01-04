@@ -128,6 +128,19 @@ make_zip() {
     (cd "${tard}" && zip -qr - emqx) > "${zipball}"
 }
 
+## This function builds the default docker image based on alpine:3.14 (by default)
+make_docker() {
+    EMQX_BUILDER="${EMQX_BUILDER:-${EMQX_DEFAULT_BUILDER}}"
+    EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"
+    set -x
+    docker build --no-cache --pull \
+       --build-arg BUILD_FROM="${EMQX_BUILDER}" \
+       --build-arg RUN_FROM="${EMQX_RUNNER}" \
+       --build-arg EMQX_NAME="$PROFILE" \
+       --tag "emqx/$PROFILE:${PKG_VSN}" \
+       -f "${DOCKERFILE}" .
+}
+
 log "building artifact=$ARTIFACT for profile=$PROFILE"
 
 case "$ARTIFACT" in
@@ -147,6 +160,10 @@ case "$ARTIFACT" in
         fi
         make -C "deploy/packages/${PKGERDIR}" clean
         EMQX_REL="$(pwd)" EMQX_BUILD="${PROFILE}" SYSTEM="${SYSTEM}" make -C "deploy/packages/${PKGERDIR}"
+        ;;
+
+    docker)
+        make_docker
         ;;
     *)
         log "Unknown artifact $ARTIFACT"
