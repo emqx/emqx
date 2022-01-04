@@ -95,7 +95,7 @@
 -spec connect(limiter_type(),
               bucket_name() | #{limiter_type() => bucket_name()}) -> emqx_htb_limiter:limiter().
 connect(Type, BucketName) when is_atom(BucketName) ->
-    Path = [emqx_limiter, Type, bucket, BucketName],
+    Path = [limiter, Type, bucket, BucketName],
     case emqx:get_config(Path, undefined) of
         undefined ->
             ?SLOG(error, #{msg => "bucket_config_not_found", path => Path}),
@@ -447,7 +447,7 @@ dispatch_burst_to_buckets([], _, Alloced, Nodes) ->
 init_tree(Type, State) ->
     #{global := Global,
       zone := Zone,
-      bucket := Bucket} = emqx:get_config([emqx_limiter, Type]),
+      bucket := Bucket} = emqx:get_config([limiter, Type]),
     {Factor, Root} = make_root(Global, Zone),
     State2 = State#{root := Root},
     {NodeId, State3} = make_zone(maps:to_list(Zone), Factor, 1, State2),

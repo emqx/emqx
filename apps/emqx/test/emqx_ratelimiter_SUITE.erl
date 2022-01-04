@@ -25,7 +25,7 @@
 -include_lib("common_test/include/ct.hrl").
 
 -define(BASE_CONF, <<"""
-emqx_limiter {
+limiter {
   bytes_in {
     global.rate = infinity
     zone.default.rate = infinity
@@ -496,7 +496,7 @@ start_client(Name, EndTime, Counter, Number) ->
 
 start_client(Name, EndTime, Counter) ->
     #{per_client := PerClient} =
-        emqx_config:get([emqx_limiter, message_routing, bucket, Name]),
+        emqx_config:get([limiter, message_routing, bucket, Name]),
     #{rate := Rate} = PerClient,
     Client = #client{start = ?NOW,
                      endtime = EndTime,
@@ -578,18 +578,18 @@ to_rate(Str) ->
     Rate.
 
 with_global(Modifier, ZoneName, ZoneModifier, Buckets, Case) ->
-    Path = [emqx_limiter, message_routing],
+    Path = [limiter, message_routing],
     #{global := Global} = Cfg = emqx_config:get(Path),
     Cfg2 = Cfg#{global := Modifier(Global)},
     with_zone(Cfg2, ZoneName, ZoneModifier, Buckets, Case).
 
 with_zone(Name, Modifier, Buckets, Case) ->
-    Path = [emqx_limiter, message_routing],
+    Path = [limiter, message_routing],
     Cfg = emqx_config:get(Path),
     with_zone(Cfg, Name, Modifier, Buckets, Case).
 
 with_zone(Cfg, Name, Modifier, Buckets, Case) ->
-    Path = [emqx_limiter, message_routing],
+    Path = [limiter, message_routing],
     #{zone := ZoneCfgs,
       bucket := BucketCfgs} = Cfg,
     ZoneCfgs2 = apply_modifier(Name, Modifier, ZoneCfgs),
@@ -598,11 +598,11 @@ with_zone(Cfg, Name, Modifier, Buckets, Case) ->
     with_config(Path, fun(_) -> Cfg2 end, Case).
 
 with_bucket(Bucket, Modifier, Case) ->
-    Path = [emqx_limiter, message_routing, bucket, Bucket],
+    Path = [limiter, message_routing, bucket, Bucket],
     with_config(Path, Modifier, Case).
 
 with_per_client(Bucket, Modifier, Case) ->
-    Path = [emqx_limiter, message_routing, bucket, Bucket, per_client],
+    Path = [limiter, message_routing, bucket, Bucket, per_client],
     with_config(Path, Modifier, Case).
 
 with_config(Path, Modifier, Case) ->

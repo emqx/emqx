@@ -89,6 +89,6 @@ make_child(Type) ->
       modules => [emqx_limiter_server]}.
 
 childs() ->
-    Conf = emqx:get_config([emqx_limiter]),
+    Conf = emqx:get_config([limiter]),
     Types = maps:keys(Conf),
     [make_child(Type) || Type <- Types].

@@ -56,16 +56,16 @@
 
 -import(emqx_schema, [sc/2, map/2]).
 
-roots() -> [emqx_limiter].
-
-fields(emqx_limiter) ->
-    [ {bytes_in, sc(ref(limiter), #{})}
-    , {message_in, sc(ref(limiter), #{})}
-    , {connection, sc(ref(limiter), #{})}
-    , {message_routing, sc(ref(limiter), #{})}
-    ];
+roots() -> [limiter].
 
 fields(limiter) ->
+    [ {bytes_in, sc(ref(limiter_opts), #{})}
+    , {message_in, sc(ref(limiter_opts), #{})}
+    , {connection, sc(ref(limiter_opts), #{})}
+    , {message_routing, sc(ref(limiter_opts), #{})}
+    ];
+
+fields(limiter_opts) ->
     [ {global, sc(ref(rate_burst), #{})}
     , {zone, sc(map("zone name", ref(rate_burst)), #{})}
     , {bucket, sc(map("bucket id", ref(bucket)),
