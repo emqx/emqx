@@ -1,0 +1,15 @@
+{application, emqx_bpapi,
+ [{description, "A library for verifying safety of RPC calls"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {applications,
+   [kernel,
+    stdlib,
+    typerefl %% Just for some metaprogramming utils
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.

@@ -14,8 +14,10 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc wrap gen_rpc?
 -module(emqx_rpc).
+
+%% Note: please don't forget to add new API functions to
+%% `emqx_bpapi_trans:extract_mfa'
 
 -export([ call/4
         , call/5
