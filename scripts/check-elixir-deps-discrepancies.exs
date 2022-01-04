@@ -1,5 +1,8 @@
 #!/usr/bin/env elixir
 
+# ensure we have a mix.lock
+{_, 0} = System.cmd("mix", ["deps.get"], into: IO.stream())
+
 # ensure we have a fresh rebar.lock
 
 case File.stat("rebar.lock") do
