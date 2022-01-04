@@ -10,6 +10,16 @@ on:
       - v*
       - e*
   pull_request:
+    # GitHub pull_request action is by default triggered when
+    # opened reopened or synchronize,
+    # we add labeled and unlabeled to the list because
+    # the mac job dpends on the PR having a 'Mac' label
+    types:
+      - labeled
+      - unlabeled
+      - opened
+      - reopened
+      - synchronize
   workflow_dispatch:
 
 jobs:
@@ -47,7 +57,7 @@ jobs:
         path: _packages/**/*.zip
 
   mac:
-
+    if: contains(github.event.pull_request.labels.*.name, 'Mac')
     strategy:
       fail-fast: false
       matrix:
