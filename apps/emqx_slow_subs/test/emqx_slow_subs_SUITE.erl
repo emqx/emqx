@@ -27,7 +27,7 @@
 -define(NOW, erlang:system_time(millisecond)).
 
 -define(BASE_CONF, <<"""
-emqx_slow_subs {
+slow_subs {
     enable = true
 	top_k_num = 5,
     expire_interval = 3000

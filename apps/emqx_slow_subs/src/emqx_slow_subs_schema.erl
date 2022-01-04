@@ -4,9 +4,9 @@
 
 -export([roots/0, fields/1]).
 
-roots() -> ["emqx_slow_subs"].
+roots() -> ["slow_subs"].
 
-fields("emqx_slow_subs") ->
+fields("slow_subs") ->
     [ {enable, sc(boolean(), false, "switch of this function")}
     , {threshold,
        sc(emqx_schema:duration_ms(),

@@ -80,7 +80,7 @@ fields(record) ->
     ].
 
 conf_schema() ->
-    Ref = hoconsc:ref(emqx_slow_subs_schema, "emqx_slow_subs"),
+    Ref = hoconsc:ref(emqx_slow_subs_schema, "slow_subs"),
     hoconsc:mk(Ref, #{}).
 
 slow_subs(delete, _) ->
@@ -104,8 +104,8 @@ encode_record(#top_k{index = ?INDEX(Latency, ClientId),
       last_update_time => Ts}.
 
 settings(get, _) ->
-    {200, emqx:get_raw_config([?APP_NAME], #{})};
+    {200, emqx:get_raw_config([slow_subs], #{})};
 
 settings(put, #{body := Body}) ->
     _ = emqx_slow_subs:update_settings(Body),
-    {200, emqx:get_raw_config([?APP_NAME], #{})}.
+    {200, emqx:get_raw_config([slow_subs], #{})}.

@@ -35,7 +35,7 @@
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
 -define(CONF_DEFAULT, <<"""
-emqx_slow_subs
+slow_subs
 {
  enable = true
  top_k_num = 5,
@@ -121,7 +121,7 @@ t_clear(_) ->
     ?assertEqual(0, ets:info(?TOPK_TAB, size)).
 
 t_settting(_) ->
-    Conf = emqx:get_config([emqx_slow_subs]),
+    Conf = emqx:get_config([slow_subs]),
     Conf2 = Conf#{threshold => 1000},
     {ok, Data} = request_api(put,
                              api_path(["slow_subscriptions", "settings"]),
