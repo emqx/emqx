@@ -14,7 +14,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container: "ghcr.io/emqx/emqx-builder/5.0:23.2.7.2-emqx-2-ubuntu20.04"
-   outputs:
+    outputs:
       version: ${{ steps.build_docker.outputs.version}}
     steps:
     - name: download jmeter
