@@ -172,7 +172,7 @@ t_gateway_exproto(_) ->
     %% post
     GwConf = #{name => <<"exproto">>,
                server => #{bind => <<"9100">>},
-               handler => #{address => <<"127.0.0.1:9001">>},
+               handler => #{address => <<"http://127.0.0.1:9001">>},
                listeners => [
                   #{name => <<"def">>, type => <<"tcp">>, bind => <<"7993">>}
                 ]
