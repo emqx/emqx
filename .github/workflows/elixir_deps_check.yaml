@@ -16,6 +16,11 @@ jobs:
         uses: actions/checkout@v2.4.0
       - name: ensure rebar
         run: ./scripts/ensure-rebar3.sh 3.16.1-emqx-1
+      - name: setup mix
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
       - name: check elixir deps
         run: ./scripts/check-elixir-deps-discrepancies.exs
 
