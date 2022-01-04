@@ -71,12 +71,12 @@ prometheus(put, #{body := Body}) ->
                             Body,
                             #{rawconf_with_defaults => true, override_to => cluster}) of
         {ok, #{raw_config := NewConfig, config := Config}} ->
-            case maps:get(<<"enable">>, Body) of
+            case maps:get(<<"enable">>, Body, true) of
                 true ->
-                    _ = emqx_prometheus_sup:stop_child(?APP),
-                    emqx_prometheus_sup:start_child(?APP, Config);
+                    ok = emqx_prometheus_sup:stop_child(?APP),
+                    ok = emqx_prometheus_sup:start_child(?APP, Config);
                 false ->
-                    _ = emqx_prometheus_sup:stop_child(?APP)
+                    ok = emqx_prometheus_sup:stop_child(?APP)
             end,
             {200, NewConfig};
         {error, Reason} ->
