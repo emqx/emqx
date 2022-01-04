@@ -30,7 +30,9 @@
         , page_read/4
         , match_messages/3
         , clear_expired/1
-        , clean/1]).
+        , clean/1
+        , size/1
+        ]).
 
 -export([create_resource/1]).
 
@@ -75,7 +77,6 @@ store_retained(_, Msg =#message{topic = Topic}) ->
     ExpiryTime = emqx_retainer:get_expiry_time(Msg),
     case is_table_full() of
         false ->
-            ok = emqx_metrics:inc('messages.retained'),
             mria:dirty_write(?TAB,
                              #retained{topic = topic2tokens(Topic),
                                        msg = Msg,
@@ -158,6 +159,10 @@ match_messages(_, Topic, Cursor) ->
 clean(_) ->
     _ = mria:clear_table(?TAB),
     ok.
+
+size(_) ->
+    table_size().
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------

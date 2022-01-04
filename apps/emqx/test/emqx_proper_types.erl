@@ -288,7 +288,7 @@ systopic_metrics() ->
               <<"messages/qos2/received">>, <<"messages/qos2/sent">>,
               <<"messages/publish">>, <<"messages/dropped">>,
               <<"messages/dropped/expired">>, <<"messages/dropped/no_subscribers">>,
-              <<"messages/forward">>, <<"messages/retained">>,
+              <<"messages/forward">>,
               <<"messages/delayed">>, <<"messages/delivered">>,
               <<"messages/acked">>],
     ?LET({Nodename, T},
