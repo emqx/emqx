@@ -490,15 +490,6 @@ jobs:
              -X POST \
              -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.version }}\" }" \
              ${{ secrets.EMQX_IO_RELEASE_API }}
-    - name: push docker image to docker hub
-      if: github.event_name == 'release'
-      run: |
-        set -e -x -u
-        sudo make docker-prepare
-        cd _packages/${{ matrix.profile }} && for var in $(ls |grep docker |grep -v sha256); do unzip $var; sudo docker load < ${var%.*}; rm -f ${var%.*}; done && cd -
-        echo ${{ secrets.DOCKER_HUB_TOKEN }} |sudo docker login -u ${{ secrets.DOCKER_HUB_USER }} --password-stdin
-        sudo TARGET=emqx/${{ matrix.profile }} make docker-push
-        sudo TARGET=emqx/${{ matrix.profile }} make docker-manifest-list
     - name: update repo.emqx.io
       if: github.event_name == 'release' && matrix.profile == 'emqx-ee'
       run: |
