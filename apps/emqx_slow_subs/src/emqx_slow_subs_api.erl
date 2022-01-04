@@ -72,11 +72,16 @@ schema("/slow_subscriptions/settings") ->
      }.
 
 fields(record) ->
-    [
-     {clientid, mk(string(), #{desc => <<"the clientid">>})},
-     {latency, mk(integer(), #{desc => <<"average time for message delivery or time for message expire">>})},
-     {type, mk(string(), #{desc => <<"type of the latency, could be average or expire">>})},
-     {last_update_time, mk(integer(), #{desc => <<"the timestamp of last update">>})}
+    [ {clientid,
+       mk(string(), #{desc => <<"the clientid">>})},
+      {latency,
+       mk(integer(),
+          #{desc => <<"average time for message delivery or time for message expire">>})},
+      {type,
+       mk(string(),
+          #{desc => <<"type of the latency, could be average or expire">>})},
+      {last_update_time,
+       mk(integer(), #{desc => <<"the timestamp of last update">>})}
     ].
 
 conf_schema() ->

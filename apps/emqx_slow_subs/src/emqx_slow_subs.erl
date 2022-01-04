@@ -104,7 +104,8 @@ on_stats_update(#{clientid := ClientId,
     case ets:lookup(?TOPK_TAB, LastIndex) of
         [#top_k{index = Index}] ->
             %% if last value == the new value, update the type and last_update_time
-            %% XXX for clients whose latency are stable for a long time, is it possible to reduce updates?
+            %% XXX for clients whose latency are stable for a long time, is it
+            %% possible to reduce updates?
             ets:insert(?TOPK_TAB,
                        #top_k{index = Index, type = Type, last_update_time = Ts});
         [_] ->

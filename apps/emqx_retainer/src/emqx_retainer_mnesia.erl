@@ -95,7 +95,11 @@ store_retained(_, Msg =#message{topic = Topic}) ->
             end,
             case mria:transaction(?RETAINER_SHARD, Fun) of
                 {atomic, ok} ->  ok;
-                {aborted, Reason} -> ?SLOG(error, #{msg => "failed_to_retain_message", topic => Topic, reason => Reason})
+                {aborted, Reason} ->
+                    ?SLOG(error, #{ msg => "failed_to_retain_message"
+                                  , topic => Topic
+                                  , reason => Reason
+                                  })
             end
     end.
 

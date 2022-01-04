@@ -94,7 +94,8 @@ fields(client_bucket) ->
     , {initial, sc(initial(), #{default => "0"})}
       %% low_water_mark add for emqx_channel and emqx_session
       %% both modules consume first and then check
-      %% so we need to use this value to prevent excessive consumption (e.g, consumption from an empty bucket)
+      %% so we need to use this value to prevent excessive consumption
+      %% (e.g, consumption from an empty bucket)
     , {low_water_mark, sc(initial(),
                           #{desc => "if the remaining tokens are lower than this value,
 the check/consume will succeed, but it will be forced to hang for a short period of time",

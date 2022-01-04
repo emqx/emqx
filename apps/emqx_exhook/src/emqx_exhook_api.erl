@@ -77,7 +77,8 @@ schema("/exhooks/:name") ->
                   description => <<"Delete the server">>,
                   parameters => params_server_name_in_path(),
                   responses => #{204 => <<>>,
-                                 500 => error_codes([?BAD_RPC], <<"Bad RPC">>)                                }
+                                 500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
+                                }
                  }
      };
 
@@ -176,7 +177,8 @@ action_with_name(put, #{bindings := #{name := Name}, body := Body}) ->
                    }};
         {ok, {error, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => unicode:characters_to_binary(io_lib:format("Error Reason:~p~n", [Reason]))
+                    message => unicode:characters_to_binary(
+                                 io_lib:format("Error Reason:~p~n", [Reason]))
                    }};
         {ok, _} ->
             {200};

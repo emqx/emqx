@@ -89,6 +89,8 @@
 -export_type([index/0]).
 -import(emqx_limiter_decimal, [add/2, sub/2, mul/2,  put_to_counter/3]).
 
+-elvis([{elvis_style, no_if_expression, disable}]).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -337,8 +339,9 @@ longitudinal(#{id := Id,
 
     case lists:min([ShouldAlloc, Flow, Capacity]) of
         Avaiable when Avaiable > 0 ->
-            %% XXX if capacity is infinity, and flow always > 0, the value in counter
-            %% will be overflow at some point in the future, do we need to deal with this situation???
+            %% XXX if capacity is infinity, and flow always > 0, the value in
+            %% counter will be overflow at some point in the future, do we need
+            %% to deal with this situation???
             {Inc, Node2} = emqx_limiter_correction:add(Avaiable, Node),
             counters:add(Counter, Index, Inc),
 

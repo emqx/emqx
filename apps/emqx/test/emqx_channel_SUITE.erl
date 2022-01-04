@@ -923,7 +923,12 @@ t_ws_cookie_init(_) ->
                  conn_mod => emqx_ws_connection,
                  ws_cookie => WsCookie
                 },
-    Channel = emqx_channel:init(ConnInfo, #{zone => default, limiter => limiter_cfg(), listener => {tcp, default}}),
+    Channel = emqx_channel:init(
+                ConnInfo,
+                #{zone => default,
+                  limiter => limiter_cfg(),
+                  listener => {tcp, default}
+                 }),
     ?assertMatch(#{ws_cookie := WsCookie}, emqx_channel:info(clientinfo, Channel)).
 
 %%--------------------------------------------------------------------
@@ -948,7 +953,12 @@ channel(InitFields) ->
     maps:fold(fun(Field, Value, Channel) ->
                       emqx_channel:set_field(Field, Value, Channel)
               end,
-              emqx_channel:init(ConnInfo, #{zone => default, limiter => limiter_cfg(), listener => {tcp, default}}),
+              emqx_channel:init(
+                ConnInfo,
+                #{zone => default,
+                  limiter => limiter_cfg(),
+                  listener => {tcp, default}
+                 }),
               maps:merge(#{clientinfo => clientinfo(),
                            session    => session(),
                            conn_state => connected

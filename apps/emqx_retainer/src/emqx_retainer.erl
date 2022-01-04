@@ -461,11 +461,9 @@ check_timer(Timer, _, _) ->
 
 -spec get_backend_module() -> backend().
 get_backend_module() ->
-    #{type := Backend} = emqx:get_config([retainer, config]),
-    ModName = if Backend =:= built_in_database ->
-                      mnesia;
-                 true ->
-                      Backend
+    ModName = case emqx:get_config([retainer, config]) of
+                  #{type := built_in_database} -> mnesia;
+                  #{type := Backend} -> Backend
               end,
     erlang:list_to_existing_atom(io_lib:format("~ts_~ts", [?APP, ModName])).
 
