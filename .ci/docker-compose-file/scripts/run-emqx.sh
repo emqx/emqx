@@ -39,6 +39,7 @@ is_cluster_up() {
     is_node_listening node2.emqx.io
 }
 
+# shellcheck disable=SC2086
 docker-compose \
   -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
   $CLUSTER_OVERRIDES \
