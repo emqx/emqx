@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -27,9 +27,9 @@
 -type semantics() :: call | cast.
 
 -record(s,
-        { api              :: atom()
-        , module           :: atom()
-        , version          :: non_neg_integer() | undefined
+        { api              :: emqx_bpapi:api()
+        , module           :: module()
+        , version          :: emqx_bpapi:api_version() | undefined
         , targets = []     :: [{semantics(), emqx_bpapi:call(), emqx_bpapi:call()}]
         , errors = []      :: list()
         , file
