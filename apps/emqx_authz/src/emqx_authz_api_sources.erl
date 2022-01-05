@@ -412,9 +412,22 @@ get_raw_sources() ->
     RawSources = emqx:get_raw_config([authorization, sources], []),
     Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
     Conf = #{<<"sources">> => RawSources},
-    #{<<"sources">> := Sources} = hocon_schema:check_plain(Schema, Conf,
-                                                           #{only_fill_defaults => true}),
-    Sources.
+    #{<<"sources">> := Sources} = hocon_schema:check_plain(Schema, Conf, #{only_fill_defaults => true}),
+    merge_default_headers(Sources).
+
+merge_default_headers(Sources) ->
+    lists:map(fun(Source) ->
+        Convert =
+            case Source of
+                #{<<"method">> := <<"get">>} ->
+                    emqx_authz_schema:headers_no_content_type(converter);
+                #{<<"method">> := <<"post">>} ->
+                    emqx_authz_schema:headers(converter);
+                _ -> fun(H) -> H end
+            end,
+        Headers = Convert(maps:get(<<"headers">>, Source, #{})),
+        Source#{<<"headers">> => Headers}
+              end, Sources).
 
 get_raw_source(Type) ->
     lists:filter(fun (#{<<"type">> := T}) ->
