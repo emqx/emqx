@@ -164,7 +164,7 @@ headers(converter) ->
     fun(Headers) ->
         maps:to_list(maps:merge(default_headers(), transform_header_name(Headers)))
     end;
-headers(default) -> maps:to_list(default_headers());
+headers(default) -> default_headers();
 headers(_) -> undefined.
 
 headers_no_content_type(type) -> list({binary(), binary()});
@@ -172,7 +172,7 @@ headers_no_content_type(converter) ->
     fun(Headers) ->
        maps:to_list(maps:merge(default_headers_no_content_type(), transform_header_name(Headers)))
     end;
-headers_no_content_type(default) -> maps:to_list(default_headers_no_content_type());
+headers_no_content_type(default) -> default_headers_no_content_type();
 headers_no_content_type(_) -> undefined.
 
 url(type) -> binary();
