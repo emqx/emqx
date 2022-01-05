@@ -22,6 +22,7 @@
 %% @doc The Gateway defination
 -type gateway() ::
         #{ name    := gateway_name()
+         %% Description
          , descr   => binary() | undefined
          %% Appears only in getting gateway info
          , status  => stopped | running | unloaded

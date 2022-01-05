@@ -53,23 +53,16 @@ is_cmd(Fun) ->
 
 gateway(["list"]) ->
     lists:foreach(
-      fun (#{name := Name, status := unloaded}) ->
-            print("Gateway(name=~ts, status=unloaded)\n", [Name]);
-          (#{name := Name, status := stopped, stopped_at := StoppedAt}) ->
-            print("Gateway(name=~ts, status=stopped, stopped_at=~ts)\n",
-                  [Name, StoppedAt]);
-          (#{name := Name, status := running, current_connections := ConnCnt,
-             started_at := StartedAt}) ->
-            print("Gateway(name=~ts, status=running, clients=~w, started_at=~ts)\n",
-                  [Name, ConnCnt, StartedAt])
+    fun (GwSummary) ->
+        print(format_gw_summary(GwSummary))
     end, emqx_gateway_http:gateways(all));
 
 gateway(["lookup", Name]) ->
     case emqx_gateway:lookup(atom(Name)) of
         undefined ->
             print("undefined\n");
-        Info ->
-            print("~p\n", [Info])
+        Gateway ->
+            print(format_gateway(Gateway))
     end;
 
 gateway(["load", Name, Conf]) ->
@@ -80,7 +73,7 @@ gateway(["load", Name, Conf]) ->
         {ok, _} ->
             print("ok\n");
         {error, Reason} ->
-            print("Error: ~p\n", [Reason])
+            print("Error: ~ts\n", [format_error(Reason)])
     end;
 
 gateway(["unload", Name]) ->
@@ -88,7 +81,7 @@ gateway(["unload", Name]) ->
         ok ->
             print("ok\n");
         {error, Reason} ->
-            print("Error: ~p\n", [Reason])
+            print("Error: ~ts\n", [format_error(Reason)])
     end;
 
 gateway(["stop", Name]) ->
@@ -99,7 +92,7 @@ gateway(["stop", Name]) ->
         {ok, _} ->
             print("ok\n");
         {error, Reason} ->
-            print("Error: ~p\n", [Reason])
+            print("Error: ~ts\n", [format_error(Reason)])
     end;
 
 gateway(["start", Name]) ->
@@ -110,23 +103,24 @@ gateway(["start", Name]) ->
         {ok, _} ->
             print("ok\n");
         {error, Reason} ->
-            print("Error: ~p\n", [Reason])
+            print("Error: ~ts\n", [format_error(Reason)])
     end;
 
 gateway(_) ->
-    emqx_ctl:usage([ {"gateway list",
-                        "List all gateway"}
-                   , {"gateway lookup <Name>",
-                        "Lookup a gateway detailed informations"}
-                   , {"gateway load   <Name> <JsonConf>",
-                        "Load a gateway with config"}
-                   , {"gateway unload <Name>",
-                        "Unload the gateway"}
-                   , {"gateway stop   <Name>",
-                        "Stop the gateway"}
-                   , {"gateway start  <Name>",
-                        "Start the gateway"}
-                   ]).
+    emqx_ctl:usage(
+      [ {"gateway list",
+           "List all gateway"}
+      , {"gateway lookup <Name>",
+           "Lookup a gateway detailed informations"}
+      , {"gateway load   <Name> <JsonConf>",
+           "Load a gateway with config"}
+      , {"gateway unload <Name>",
+           "Unload the gateway"}
+      , {"gateway stop   <Name>",
+           "Stop the gateway"}
+      , {"gateway start  <Name>",
+           "Start the gateway"}
+      ]).
 
 'gateway-registry'(["list"]) ->
     lists:foreach(
@@ -255,3 +249,50 @@ format(peername, {IPAddr, Port}) ->
 
 format(_, Val) ->
     Val.
+
+format_gw_summary(#{name := Name, status := unloaded}) ->
+    io_lib:format("Gateway(name=~ts, status=unloaded)\n", [Name]);
+
+format_gw_summary(#{name := Name, status := stopped,
+                    stopped_at := StoppedAt}) ->
+    io_lib:format("Gateway(name=~ts, status=stopped, stopped_at=~ts)\n",
+                  [Name, StoppedAt]);
+format_gw_summary(#{name := Name, status := running,
+                    current_connections := ConnCnt,
+                    started_at := StartedAt}) ->
+    io_lib:format("Gateway(name=~ts, status=running, clients=~w, "
+                  "started_at=~ts)\n", [Name, ConnCnt, StartedAt]).
+
+format_gateway(#{name := Name,
+                 status := unloaded}) ->
+    io_lib:format(
+        "name: ~ts\n"
+        "status: unloaded\n", [Name]);
+
+format_gateway(Gw =
+               #{name := Name,
+                 status := Status,
+                 created_at := CreatedAt,
+                 config := Config
+                }) ->
+    {StopOrStart, Timestamp} =
+        case Status of
+            stopped -> {stopped_at, maps:get(stopped_at, Gw)};
+            running -> {started_at, maps:get(started_at, Gw)}
+        end,
+    io_lib:format(
+        "name: ~ts\n"
+        "status: ~ts\n"
+        "created_at: ~ts\n"
+        "~ts: ~ts\n"
+        "config: ~p\n",
+        [Name, Status,
+         emqx_gateway_utils:unix_ts_to_rfc3339(CreatedAt),
+         StopOrStart, emqx_gateway_utils:unix_ts_to_rfc3339(Timestamp),
+         Config]).
+
+format_error(Reason) ->
+    case emqx_gateway_http:reason2msg(Reason) of
+        error -> io_lib:format("~p", [Reason]);
+        Msg -> Msg
+    end.

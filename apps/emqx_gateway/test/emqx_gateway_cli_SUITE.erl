@@ -29,6 +29,23 @@
 gateway {}
 ">>).
 
+%% The config with json format for mqtt-sn gateway
+-define(CONF_MQTTSN, "
+{\"idle_timeout\": \"30s\",
+ \"enable_stats\": true,
+ \"mountpoint\": \"mqttsn/\",
+ \"gateway_id\": 1,
+ \"broadcast\": true,
+ \"enable_qos3\": true,
+ \"predefined\": [{\"id\": 1001, \"topic\": \"pred/a\"}],
+ \"listeners\":
+    [{\"type\": \"udp\",
+      \"name\": \"ct\",
+      \"bind\": \"2885\"
+    }]
+}
+").
+
 %%--------------------------------------------------------------------
 %% Setup
 %%--------------------------------------------------------------------
@@ -109,16 +126,61 @@ t_gateway_list(_) ->
       "Gateway(name=stomp, status=unloaded)\n"
       , acc_print()).
 
-t_gateway_load(_) ->
+t_gateway_load_unload_lookup(_) ->
+    emqx_gateway_cli:gateway(["lookup", "mqttsn"]),
+    ?assertEqual("undefined\n", acc_print()),
+
+    emqx_gateway_cli:gateway(["load", "mqttsn", ?CONF_MQTTSN]),
+    ?assertEqual("ok\n", acc_print()),
+
+    %% TODO: bad config name, format???
+
+    emqx_gateway_cli:gateway(["lookup", "mqttsn"]),
+    %% TODO: assert it. for example:
+    %% name: mqttsn
+    %% status: running
+    %% created_at: 2022-01-05T14:40:20.039+08:00
+    %% started_at: 2022-01-05T14:42:37.894+08:00
+    %% config: #{broadcast => false,enable => true,enable_qos3 => true,
+    %%           enable_stats => true,gateway_id => 1,idle_timeout => 30000,
+    %%           mountpoint => <<>>,predefined => []}
+    _ = acc_print(),
+
+    emqx_gateway_cli:gateway(["load", "mqttsn", "{}"]),
+    ?assertEqual(
+        "Error: The mqttsn gateway already loaded\n"
+        , acc_print()),
+
+    emqx_gateway_cli:gateway(["load", "bad-gw-name", "{}"]),
+    %% TODO: assert it. for example:
+    %% Error: Illegal gateway name
+    _ = acc_print(),
+
+    emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()),
+    %% Always return ok, even the gateway has unloaded
+    emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()),
+
+    emqx_gateway_cli:gateway(["lookup", "mqttsn"]),
+    ?assertEqual("undefined\n", acc_print()),
     ok.
 
-t_gateway_unload(_) ->
-    ok.
+t_gateway_start_stop(_) ->
+    emqx_gateway_cli:gateway(["load", "mqttsn", ?CONF_MQTTSN]),
+    ?assertEqual("ok\n", acc_print()),
 
-t_gateway_start(_) ->
-    ok.
+    emqx_gateway_cli:gateway(["stop", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()),
+    %% dupliacted stop gateway, return ok
+    emqx_gateway_cli:gateway(["stop", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()),
 
-t_gateway_stop(_) ->
+    emqx_gateway_cli:gateway(["start", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()),
+    %% dupliacted start gateway, return ok
+    emqx_gateway_cli:gateway(["start", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()),
     ok.
 
 t_gateway_clients_usage(_) ->
