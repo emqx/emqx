@@ -61,10 +61,8 @@ statsd(put, #{body := Body}) ->
         {ok, #{raw_config := NewConfig, config := Config}} ->
             ok = emqx_statsd_sup:ensure_child_stopped(?APP),
             case maps:get(<<"enable">>, Body) of
-                true ->
-                    ok = emqx_statsd_sup:ensure_child_started(?APP, maps:get(config, Config));
-                false ->
-                    ok
+                true -> emqx_statsd_sup:ensure_child_started(?APP, Config);
+                false -> ok
             end,
             {200, NewConfig};
         {error, Reason} ->

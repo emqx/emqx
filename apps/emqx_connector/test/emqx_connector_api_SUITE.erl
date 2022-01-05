@@ -221,6 +221,7 @@ t_mqtt_conn_bridge_ingress(_) ->
 
     %% ... and a MQTT bridge, using POST
     %% we bind this bridge to the connector created just now
+    timer:sleep(50),
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
         ?MQTT_BRIDGE_INGRESS(ConnctorID)#{
             <<"type">> => ?CONNECTR_TYPE,
