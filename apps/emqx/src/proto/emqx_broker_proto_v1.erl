@@ -16,14 +16,18 @@
 
 -module(emqx_broker_proto_v1).
 
--introduced_in("5.0.0").
+-behaviour(emqx_bpapi).
 
--export([ forward/3
+-export([ introduced_in/0
+        , forward/3
         , forward_async/3
         ]).
 
 -include("bpapi.hrl").
 -include("emqx.hrl").
+
+introduced_in() ->
+    "5.0.0".
 
 -spec forward(node(), emqx_types:topic(), emqx_types:delivery()) -> emqx_types:deliver_result().
 forward(Node, Topic, Delivery = #delivery{}) when is_binary(Topic) ->

@@ -15,9 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bpapi).
 
--export_type([var_name/0, call/0, rpc/0, bpapi_meta/0, semver/0]).
-
--type semver() :: {non_neg_integer(), non_neg_integer(), non_neg_integer()}.
+-export_type([var_name/0, call/0, rpc/0, bpapi_meta/0]).
 
 -type api() :: atom().
 -type api_version() :: non_neg_integer().
@@ -31,3 +29,11 @@
          , calls   := [rpc()]
          , casts   := [rpc()]
          }.
+
+-callback introduced_in() -> string().
+
+-callback deprecated_since() -> string().
+
+-callback bpapi_meta() -> bpapi_meta().
+
+-optional_callbacks([deprecated_since/0]).

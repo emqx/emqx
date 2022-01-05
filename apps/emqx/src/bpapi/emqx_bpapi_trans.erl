@@ -30,8 +30,6 @@
         { api              :: atom()
         , module           :: atom()
         , version          :: non_neg_integer() | undefined
-        , introduced_in    :: emqx_bpapi:semver() | undefined
-        , deprecated_since :: emqx_bpapi:semver() | undefined
         , targets = []     :: [{semantics(), emqx_bpapi:call(), emqx_bpapi:call()}]
         , errors = []      :: [string()]
         , file
@@ -39,10 +37,6 @@
 
 format_error(invalid_name) ->
     "BPAPI module name should follow <API>_proto_v<number> pattern";
-format_error(invalid_introduced_in) ->
-    "-introduced_in attribute should be present and its value should be a semver string";
-format_error(invalid_deprecated_since) ->
-    "value of -deprecated_since attribute should be a semver string";
 format_error({invalid_fun, Name, Arity}) ->
     io_lib:format("malformed function ~p/~p. "
                   "BPAPI functions should have exactly one clause "
@@ -68,24 +62,18 @@ go({attribute, Line, module, Mod}, S) ->
         {ok, API, Vsn} -> S#s{api = API, version = Vsn, module = Mod};
         error          -> push_err(Line, invalid_name, S)
     end;
-go({attribute, _Line, introduced_in, Str}, S) ->
-    case is_list(Str) andalso parse_semver(Str) of
-        {ok, Vsn} -> S#s{introduced_in = Vsn};
-        error     -> S %% Don't report error here, it's done in check/1
-    end;
-go({attribute, Line, deprecated_since, Str}, S) ->
-    case is_list(Str) andalso parse_semver(Str) of
-        {ok, Vsn} -> S#s{deprecated_since = Vsn};
-        error     -> push_err(Line, invalid_deprecated_since, S)
-    end;
+go({function, _Line, introduced_in, 0, _}, S)  ->
+    S;
+go({function, _Line, deprecated_since, 0, _}, S)  ->
+    S;
 go({function, Line, Name, Arity, Clauses}, S) ->
     analyze_fun(Line, Name, Arity, Clauses, S);
 go(_, S) ->
     S.
 
-check(#s{errors = Err0, introduced_in = II}) ->
-    [{none, invalid_introduced_in} || II =:= undefined] ++
-        Err0.
+check(#s{errors = Err}) ->
+    %% Post-processing checks can be placed here
+    Err.
 
 finalize(Forms, S) ->
     {Attrs, Funcs} = lists:splitwith(fun is_attribute/1, Forms),
@@ -190,16 +178,6 @@ push_err(Line, Err, S = #s{errors = Errs}) ->
 
 push_target(Target, S = #s{targets = Targets}) ->
     S#s{targets = [Target|Targets]}.
-
-
--spec parse_semver(string()) -> {ok, emqx_bpapi:semver()}
-                              | error.
-parse_semver(Str) ->
-    Opts = [{capture, all_but_first, list}],
-    case re:run(Str, "^([0-9]+)\\.([0-9]+)\\.([0-9]+)$", Opts) of
-        {match, [A, B, C]} -> {ok, {list_to_integer(A), list_to_integer(B), list_to_integer(C)}};
-        nomatch            -> error
-    end.
 
 -spec api_and_version(module()) -> {ok, emqx_bpapi:api(), emqx_bpapi:version()} | error.
 api_and_version(Module) ->
