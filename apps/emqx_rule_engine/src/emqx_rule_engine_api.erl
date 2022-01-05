@@ -43,6 +43,40 @@
         {error, REASON} ->
             {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(REASON)}}
     end).
+-define(METRICS(MATCH, PASS, FAIL, FAIL_EX, FAIL_NORES, O_TOTAL, O_FAIL, O_FAIL_OOS,
+        O_FAIL_UNKNOWN, O_SUCC, RATE, RATE_MAX, RATE_5),
+    #{
+        matched => MATCH,
+        passed => PASS,
+        failed => FAIL,
+        'failed.exception' => FAIL_EX,
+        'failed.no_result' => FAIL_NORES,
+        'outputs.total' => O_TOTAL,
+        'outputs.failed' => O_FAIL,
+        'outputs.failed.out_of_service' => O_FAIL_OOS,
+        'outputs.failed.unknown' => O_FAIL_UNKNOWN,
+        'outputs.success' => O_SUCC,
+        rate => RATE,
+        rate_max => RATE_MAX,
+        rate_last5m => RATE_5
+    }).
+-define(metrics(MATCH, PASS, FAIL, FAIL_EX, FAIL_NORES, O_TOTAL, O_FAIL, O_FAIL_OOS,
+        O_FAIL_UNKNOWN, O_SUCC, RATE, RATE_MAX, RATE_5),
+    #{
+        matched := MATCH,
+        passed := PASS,
+        failed := FAIL,
+        'failed.exception' := FAIL_EX,
+        'failed.no_result' := FAIL_NORES,
+        'outputs.total' := O_TOTAL,
+        'outputs.failed' := O_FAIL,
+        'outputs.failed.out_of_service' := O_FAIL_OOS,
+        'outputs.failed.unknown' := O_FAIL_UNKNOWN,
+        'outputs.success' := O_SUCC,
+        rate := RATE,
+        rate_max := RATE_MAX,
+        rate_last5m := RATE_5
+    }).
 
 namespace() -> "rule".
 
@@ -268,17 +302,23 @@ printable_function_name(Mod, Func) ->
     list_to_binary(lists:concat([Mod,":",Func])).
 
 get_rule_metrics(Id) ->
-    Format = fun (Node, #{matched := Matched,
-                          rate := Current,
-                          rate_max := Max,
-                          rate_last5m := Last5M
-                        }) ->
-        #{ metrics => #{
-            matched => Matched,
-            rate => Current,
-            rate_max => Max,
-            rate_last5m => Last5M
-           }
+    Format = fun (Node, #{
+            counters :=
+                #{matched := Matched, passed := Passed, failed := Failed,
+                 'failed.exception' := FailedEx,
+                 'failed.no_result' := FailedNoRes,
+                 'outputs.total' := OTotal,
+                 'outputs.failed' := OFailed,
+                 'outputs.failed.out_of_service' := OFailedOOS,
+                 'outputs.failed.unknown' := OFailedUnknown,
+                 'outputs.success' := OFailedSucc
+                 },
+            rate :=
+                #{matched :=
+                    #{current := Current, max := Max, last5m := Last5M}
+                 }}) ->
+        #{ metrics => ?METRICS(Matched, Passed, Failed, FailedEx, FailedNoRes,
+            OTotal, OFailed, OFailedOOS, OFailedUnknown, OFailedSucc, Current, Max, Last5M)
          , node => Node
          }
     end,
@@ -286,13 +326,21 @@ get_rule_metrics(Id) ->
      || Node <- mria_mnesia:running_nodes()].
 
 aggregate_metrics(AllMetrics) ->
-    InitMetrics = #{matched => 0, rate => 0, rate_max => 0, rate_last5m => 0},
+    InitMetrics = ?METRICS(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     lists:foldl(fun
-        (#{metrics := #{matched := Match1, rate := Rate1,
-                        rate_max := RateMax1, rate_last5m := Rate5m1}},
-         #{matched := Match0, rate := Rate0, rate_max := RateMax0, rate_last5m := Rate5m0}) ->
-            #{matched => Match1 + Match0, rate => Rate1 + Rate0,
-              rate_max => RateMax1 + RateMax0, rate_last5m => Rate5m1 + Rate5m0}
+        (#{metrics := ?metrics(Match1, Passed1, Failed1, FailedEx1, FailedNoRes1,
+             OTotal1, OFailed1, OFailedOOS1, OFailedUnknown1, OFailedSucc1,
+             Rate1, RateMax1, Rate5m1)},
+          ?metrics(Match0, Passed0, Failed0, FailedEx0, FailedNoRes0,
+             OTotal0, OFailed0, OFailedOOS0, OFailedUnknown0, OFailedSucc0,
+             Rate0, RateMax0, Rate5m0)) ->
+        ?METRICS(Match1 + Match0, Passed1 + Passed0, Failed1 + Failed0,
+             FailedEx1 + FailedEx0, FailedNoRes1 + FailedNoRes0,
+             OTotal1 + OTotal0, OFailed1 + OFailed0,
+             OFailedOOS1 + OFailedOOS0,
+             OFailedUnknown1 + OFailedUnknown0,
+             OFailedSucc1 + OFailedSucc0,
+             Rate1 + Rate0, RateMax1 + RateMax0, Rate5m1 + Rate5m0)
         end, InitMetrics, AllMetrics).
 
 get_one_rule(AllRules, Id) ->

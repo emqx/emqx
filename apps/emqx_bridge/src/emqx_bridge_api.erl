@@ -418,8 +418,15 @@ format_resp(#{id := Id, raw_config := RawConf,
         name => maps:get(<<"name">>, RawConf, BridgeName),
         node => node(),
         status => IsConnected(Status),
-        metrics => Metrics
+        metrics => format_metrics(Metrics)
     }.
+
+format_metrics(#{
+        counters := #{failed := Failed, exception := Ex, matched := Match, success := Succ},
+        rate := #{
+            matched := #{current := Rate, last5m := Rate5m, max := RateMax}
+        } }) ->
+    ?METRICS(Match, Succ, Failed + Ex, Rate, Rate5m, RateMax).
 
 rpc_multicall(Func, Args) ->
     Nodes = mria_mnesia:running_nodes(),
