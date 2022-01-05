@@ -1369,14 +1369,6 @@ t_metrics(_Config) ->
     emqtt:stop(Client),
     emqx_rule_registry:remove_rule(TopicRule).
 
-message() -> 
-   <<"{\"date\": \"2020-04-24\",
-     \"sensors\": [
-         {\"name\": \"a\", \"idx \":0},
-         {\"name\": \"b\", \"idx \":1},
-         {\"name\": \"c\", \"idx \":2}
-     ]}">>.
-
 t_metrics1(_Config) ->
     ok = emqx_rule_engine:load_providers(),
     TopicRule = create_simple_repub_rule(
@@ -1396,8 +1388,13 @@ t_metrics1(_Config) ->
     {ok, _} = emqtt:connect(Client),
     ct:sleep(200),
 
-
-    emqtt:publish(Client, <<"t1">>, message(), 0),
+    Message =  <<"{\"date\": \"2020-04-24\",
+                   \"sensors\": [
+                       {\"name\": \"a\", \"idx \":0},
+                       {\"name\": \"b\", \"idx \":1},
+                       {\"name\": \"c\", \"idx \":2}
+                   ]}">>,
+    emqtt:publish(Client, <<"t1">>, Message, 0),
     ct:sleep(200),
     ?assertEqual(1, emqx_rule_metrics:get_rules_matched(RuleId)),
     ?assertEqual(1, emqx_rule_metrics:get_rules_passed(RuleId)),
