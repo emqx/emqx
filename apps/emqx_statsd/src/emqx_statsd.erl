@@ -85,8 +85,8 @@ do_stop() ->
     emqx_statsd_sup:ensure_child_stopped(?APP).
 
 do_restart() ->
-    ok = do_start(),
     ok = do_stop(),
+    ok = do_start(),
     ok.
 
 cluster_call(F, A) ->

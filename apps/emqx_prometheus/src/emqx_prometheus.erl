@@ -103,8 +103,8 @@ do_stop() ->
     end.
 
 do_restart() ->
-    ok = do_start(),
     ok = do_stop(),
+    ok = do_start(),
     ok.
 
 cluster_call(F, A) ->
