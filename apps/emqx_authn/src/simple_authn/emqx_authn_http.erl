@@ -19,6 +19,7 @@
 -include("emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx_connector/include/emqx_connector.hrl").
 
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
@@ -77,7 +78,7 @@ validations() ->
     ].
 
 url(type) -> binary();
-url(validator) -> [fun check_url/1];
+url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
 url(nullable) -> false;
 url(_) -> undefined.
 
@@ -118,16 +119,16 @@ create(_AuthenticatorID, Config) ->
     create(Config).
 
 create(#{method := Method,
-         url := URL,
+         url := RawURL,
          headers := Headers,
          body := Body,
          request_timeout := RequestTimeout} = Config) ->
-    #{path := Path,
-      query := Query} = URIMap = parse_url(URL),
+    {BsaeUrlWithPath, Query} = parse_fullpath(RawURL),
+    URIMap = parse_url(BsaeUrlWithPath),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     State = #{method          => Method,
-              path            => Path,
-              base_query      => cow_qs:parse_qs(list_to_binary(Query)),
+              path            => maps:get(path, URIMap),
+              base_query      => cow_qs:parse_qs(to_bin(Query)),
               headers         => maps:to_list(Headers),
               body            => maps:to_list(Body),
               request_timeout => RequestTimeout,
@@ -204,11 +205,8 @@ destroy(#{resource_id := ResourceId}) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-check_url(URL) ->
-    case emqx_http_lib:uri_parse(URL) of
-        {ok, _} -> true;
-        {error, _} -> false
-    end.
+parse_fullpath(RawURL) ->
+    cow_http:parse_fullpath(to_bin(RawURL)).
 
 check_body(Body) ->
     lists:all(
@@ -234,7 +232,8 @@ transform_header_name(Headers) ->
               end, #{}, Headers).
 
 check_ssl_opts(Conf) ->
-    case parse_url(get_conf_val("url", Conf)) of
+    {BaseUrlWithPath, _Query} = parse_fullpath(get_conf_val("url", Conf)),
+    case parse_url(BaseUrlWithPath) of
         #{scheme := https} ->
             case get_conf_val("ssl.enable", Conf) of
                 true -> ok;
@@ -264,12 +263,13 @@ generate_request(Credential, #{method := Method,
                                headers := Headers,
                                body := Body0}) ->
     Body = replace_placeholders(Body0, Credential),
+    NBaseQuery = replace_placeholders(BaseQuery, Credential),
     case Method of
         get ->
-            NPath = append_query(Path, BaseQuery ++ Body),
+            NPath = append_query(Path, NBaseQuery ++ Body),
             {NPath, Headers};
         post ->
-            NPath = append_query(Path, BaseQuery),
+            NPath = append_query(Path, NBaseQuery),
             ContentType = proplists:get_value(<<"content-type">>, Headers),
             NBody = serialize_body(ContentType, Body),
             {NPath, Headers, NBody}
