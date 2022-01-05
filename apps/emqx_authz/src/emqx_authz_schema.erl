@@ -31,6 +31,10 @@
         , fields/1
         , validations/0
         ]).
+-export([
+    headers_no_content_type/1,
+    headers/1
+        ]).
 
 -import(emqx_schema, [mk_duration/2]).
 -include_lib("hocon/include/hoconsc.hrl").
