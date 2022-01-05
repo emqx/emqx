@@ -57,14 +57,14 @@
 }).
 
 update(Config) ->
-    case emqx:update_config([statsd],
+    case emqx_conf:update([statsd],
                             Config,
                             #{rawconf_with_defaults => true, override_to => cluster}) of
         {ok, #{raw_config := NewConfigRows}} ->
-            _ = start(),
+            ok = stop(),
             case maps:get(<<"enable">>, Config, true) of
                 true ->
-                    ok = stop();
+                    ok = start();
                 false ->
                     ignore
             end,

@@ -73,7 +73,7 @@
 %%--------------------------------------------------------------------
 %% update new config
 update(Config) ->
-    case emqx:update_config([prometheus], Config,
+    case emqx_conf:update([prometheus], Config,
                             #{rawconf_with_defaults => true, override_to => cluster}) of
         {ok, #{raw_config := NewConfigRows}} ->
             case maps:get(<<"enable">>, Config, true) of
