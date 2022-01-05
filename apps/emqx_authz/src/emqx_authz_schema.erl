@@ -33,6 +33,7 @@
         ]).
 
 -import(emqx_schema, [mk_duration/2]).
+-include_lib("hocon/include/hoconsc.hrl").
 
 %%--------------------------------------------------------------------
 %% Hocon Schema
@@ -158,20 +159,20 @@ validations() ->
     , {check_headers, fun check_headers/1}
     ].
 
-headers(type) -> map();
+headers(type) -> list({binary(), binary()});
 headers(converter) ->
     fun(Headers) ->
-       maps:merge(default_headers(), transform_header_name(Headers))
+        maps:to_list(maps:merge(default_headers(), transform_header_name(Headers)))
     end;
-headers(default) -> default_headers();
+headers(default) -> maps:to_list(default_headers());
 headers(_) -> undefined.
 
-headers_no_content_type(type) -> map();
+headers_no_content_type(type) -> list({binary(), binary()});
 headers_no_content_type(converter) ->
     fun(Headers) ->
-       maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+       maps:to_list(maps:merge(default_headers_no_content_type(), transform_header_name(Headers)))
     end;
-headers_no_content_type(default) -> default_headers_no_content_type();
+headers_no_content_type(default) -> maps:to_list(default_headers_no_content_type());
 headers_no_content_type(_) -> undefined.
 
 url(type) -> binary();
@@ -221,7 +222,7 @@ check_headers(Conf)
 check_headers(Conf) ->
     Method = to_bin(hocon_schema:get_value("config.method", Conf)),
     Headers = hocon_schema:get_value("config.headers", Conf),
-    Method =:= <<"post">> orelse (not maps:is_key(<<"content-type">>, Headers)).
+    Method =:= <<"post">> orelse (not lists:member(<<"content-type">>, Headers)).
 
 union_array(Item) when is_list(Item) ->
     hoconsc:array(hoconsc:union(Item)).

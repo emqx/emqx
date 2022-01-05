@@ -124,14 +124,14 @@ generate_request( PubSub
     case Method of
         get  ->
             NPath = append_query(Path, NBaseQuery ++ Body),
-            {NPath, maps:to_list(Headers)};
+            {NPath, Headers};
         _ ->
             NPath = append_query(Path, NBaseQuery),
             NBody = serialize_body(
                       maps:get(<<"Accept">>, Headers, <<"application/json">>),
                       Body
                      ),
-            {NPath, maps:to_list(Headers), NBody}
+            {NPath, Headers, NBody}
     end.
 
 append_query(Path, []) ->
