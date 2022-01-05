@@ -45,24 +45,22 @@
 create_resource(#{storage_type := StorageType}) ->
     Copies = case StorageType of
                  ram       -> ram_copies;
-                 disc      -> disc_copies;
-                 disc_only -> disc_only_copies
+                 disc      -> disc_copies
              end,
-    TableType = case StorageType of
-                    disc_only -> set;
-                    _ -> ordered_set
-                end,
+
     StoreProps = [{ets, [compressed,
                          {read_concurrency, true},
                          {write_concurrency, true}]},
                   {dets, [{auto_save, 1000}]}],
+
     ok = mria:create_table(?TAB, [
-                {type, TableType},
-                {rlog_shard, ?RETAINER_SHARD},
-                {storage, Copies},
-                {record_name, retained},
-                {attributes, record_info(fields, retained)},
-                {storage_properties, StoreProps}]),
+                                  {type, ordered_set},
+                                  {rlog_shard, ?RETAINER_SHARD},
+                                  {storage, Copies},
+                                  {record_name, retained},
+                                  {attributes, record_info(fields, retained)},
+                                  {storage_properties, StoreProps}
+                                 ]),
     ok = mria_rlog:wait_for_shards([?RETAINER_SHARD], infinity),
     case mnesia:table_info(?TAB, storage_type) of
         Copies -> ok;
