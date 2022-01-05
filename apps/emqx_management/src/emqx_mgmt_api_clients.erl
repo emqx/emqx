@@ -333,31 +333,24 @@ query({Qs, Fuzzy}, Start, Limit) ->
 
 match_fun(Ms, Fuzzy) ->
     MsC = ets:match_spec_compile(Ms),
-    REFuzzy = lists:map(fun({K, like, S}) ->
-                  {ok, RE} = re:compile(escape(S)),
-                  {K, like, RE}
-              end, Fuzzy),
     fun(Rows) ->
          case ets:match_spec_run(Rows, MsC) of
              [] -> [];
              Ls ->
                  lists:filter(fun(E) ->
-                    run_fuzzy_match(E, REFuzzy)
+                    run_fuzzy_match(E, Fuzzy)
                  end, Ls)
          end
     end.
 
-escape(B) when is_binary(B) ->
-    re:replace(B, <<"\\\\">>, <<"\\\\\\\\">>, [{return, binary}, global]).
-
 run_fuzzy_match(_, []) ->
     true;
-run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE}|Fuzzy]) ->
-    Val = case maps:get(Key, ClientInfo, "") of
-              undefined -> "";
+run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr}|Fuzzy]) ->
+    Val = case maps:get(Key, ClientInfo, undefined) of
+              undefined -> <<>>;
               V -> V
           end,
-    re:run(Val, RE, [{capture, none}]) == match andalso run_fuzzy_match(E, Fuzzy).
+    binary:match(Val, SubStr) /= nomatch andalso run_fuzzy_match(E, Fuzzy).
 
 %%--------------------------------------------------------------------
 %% QueryString to Match Spec
@@ -453,9 +446,24 @@ params2qs_test() ->
 
     [{{'$1', #{}, '_'}, [], ['$_']}] = qs2ms([]).
 
-escape_test() ->
-    Str = <<"\\n">>,
-    {ok, Re} = re:compile(escape(Str)),
-    {match, _} = re:run(<<"\\name">>, Re).
+fuzzy_match_test() ->
+    Info = {emqx_channel_info,
+            #{clientinfo =>
+              #{ clientid => <<"abcde">>
+               , username => <<"abc\\name*[]()">>
+               }}, []
+           },
+    true = run_fuzzy_match(Info, [{clientid, like, <<"abcde">>}]),
+    true = run_fuzzy_match(Info, [{clientid, like, <<"bcd">>}]),
+    false = run_fuzzy_match(Info, [{clientid, like, <<"defh">>}]),
+
+    true = run_fuzzy_match(Info, [{username, like, <<"\\name">>}]),
+    true = run_fuzzy_match(Info, [{username, like, <<"*">>}]),
+    true = run_fuzzy_match(Info, [{username, like, <<"[]">>}]),
+    true = run_fuzzy_match(Info, [{username, like, <<"()">>}]),
+    false = run_fuzzy_match(Info, [{username, like, <<"))">>}]),
+
+    true = run_fuzzy_match(Info, [{clientid, like, <<"de">>},
+                                  {username, like, <<"[]">>}]).
 
 -endif.
