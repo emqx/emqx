@@ -22,6 +22,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("kernel/include/file.hrl").
+-include_lib("stdlib/include/zip.hrl").
 
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
@@ -110,6 +112,30 @@ t_http_test(_Config) ->
     ?assertEqual(<<>>, Clear),
 
     unload(),
+    ok.
+
+t_download_log(_Config) ->
+    ClientId = <<"client-test-download">>,
+    Now = erlang:system_time(second),
+    Start = to_rfc3339(Now),
+    Name = <<"test_client_id">>,
+    load(),
+    ok = emqx_trace:create([{<<"name">>, Name},
+        {<<"type">>, clientid}, {<<"clientid">>, ClientId}, {<<"start_at">>, Start}]),
+    ct:sleep(50),
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    [begin _ = emqtt:ping(Client) end ||_ <- lists:seq(1, 5)],
+    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
+    Header = auth_header_(),
+    {ok, Binary} = request_api(get, api_path("trace/test_client_id/download"), Header),
+    {ok, [_Comment,
+        #zip_file{name = ZipName, info = #file_info{size = Size, type = regular, access = read_write}}]}
+        = zip:table(Binary),
+    ?assert(Size > 0),
+    ZipNamePrefix = lists:flatten(io_lib:format("~s-trace_~s", [node(), Name])),
+    ?assertNotEqual(nomatch, re:run(ZipName, [ZipNamePrefix])),
+    ok = emqtt:disconnect(Client),
     ok.
 
 t_stream_log(_Config) ->

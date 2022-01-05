@@ -338,7 +338,8 @@ collect_trace_file(TraceLog) ->
 cluster_call(Mod, Fun, Args, Timeout) ->
     Nodes = mria_mnesia:running_nodes(),
     {GoodRes, BadNodes} = rpc:multicall(Nodes, Mod, Fun, Args, Timeout),
-    BadNodes =/= [] andalso ?LOG(error, "rpc call failed on ~p ~p", [BadNodes, {Mod, Fun, Args}]),
+    BadNodes =/= [] andalso
+        ?SLOG(error, #{msg => "rpc call failed", bad_nodes => BadNodes, mfa => {Mod, Fun, Args}}),
     GoodRes.
 
 stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
@@ -354,8 +355,12 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
                 {eof, Size} ->
                     Meta = #{<<"position">> => Size, <<"bytes">> => Bytes},
                     {200, #{meta => Meta, items => <<"">>}};
+                {error, enoent} -> %% the waiting trace should return "" not error.
+                    Meta = #{<<"position">> => Position, <<"bytes">> => Bytes},
+                    {200, #{meta => Meta, items => <<"">>}};
                 {error, Reason} ->
-                    logger:log(error, "read_file_failed ~p", [{Node, Name, Reason, Position, Bytes}]),
+                    ?SLOG(error, #{msg => "read_file_failed",
+                        node => Node, name => Name, reason => Reason, position => Position, bytes => Bytes}),
                     {400, #{code => 'READ_FILE_ERROR', message => Reason}};
                 {badrpc, nodedown} ->
                     {400, #{code => 'RPC_ERROR', message => "BadRpc node down"}}
