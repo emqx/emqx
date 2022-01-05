@@ -31,7 +31,7 @@
         , module           :: atom()
         , version          :: non_neg_integer() | undefined
         , targets = []     :: [{semantics(), emqx_bpapi:call(), emqx_bpapi:call()}]
-        , errors = []      :: [string()]
+        , errors = []      :: list()
         , file
         }).
 
@@ -120,7 +120,7 @@ analyze_exprs(Line, Name, Arity, Head, Exprs, S) ->
             invalid_fun(Line, Name, Arity, S)
     end.
 
--spec extract_outer_args(erl_parse:abstract_form()) -> [atom()].
+-spec extract_outer_args([erl_parse:abstract_form()]) -> [atom()].
 extract_outer_args(Abs) ->
     lists:map(fun({var, _, Var}) ->
                       Var;
@@ -131,8 +131,7 @@ extract_outer_args(Abs) ->
               end,
               Abs).
 
--spec extract_target_call(Abs, [Abs]) -> {semantics(), emqx_bpapi:call()}
-              when Abs :: erl_parse:abstract_form().
+-spec extract_target_call(_AST, [_AST]) -> {semantics(), emqx_bpapi:call()}.
 extract_target_call(RPCBackend, OuterArgs) ->
     {Semantics, {atom, _, M}, {atom, _, F}, A} = extract_mfa(RPCBackend, OuterArgs),
     {Semantics, {M, F, list_to_args(A)}}.
@@ -140,8 +139,6 @@ extract_target_call(RPCBackend, OuterArgs) ->
 -define(BACKEND(MOD, FUN), {remote, _, {atom, _, MOD}, {atom, _, FUN}}).
 -define(IS_RPC(MOD), (MOD =:= erpc orelse MOD =:= rpc)).
 
--spec extract_mfa(Abs, #s{}) -> {call | cast, Abs, Abs, Abs}
-              when Abs :: erl_parse:abstract_form().
 %% gen_rpc:
 extract_mfa(?BACKEND(gen_rpc, _), _) ->
     %% gen_rpc has an extremely messy API, thankfully it's fully wrapped

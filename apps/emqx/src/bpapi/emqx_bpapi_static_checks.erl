@@ -72,21 +72,22 @@ check_compat(Dump1, Dump2) ->
 check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api := APIs2})
   when Rel2 >= Rel1 ->
     %% TODO: Handle API deprecation
-    maps:map(fun(Key = {API, Version}, Val) ->
-                         case maps:get(Key, APIs2, undefined) of
-                             Val ->
-                                 ok;
-                             undefined ->
-                                 setnok(),
-                                 ?ERROR("API ~p v~p was removed in release ~p without being deprecated.",
-                                        [API, Version, Rel2]);
-                             _Val ->
-                                 setnok(),
-                                 ?ERROR("API ~p v~p was changed between ~p and ~p. Backplane API should be immutable.",
-                                        [API, Version, Rel1, Rel2])
-                         end
-                 end,
-                 APIs1),
+    _ = maps:map(
+          fun(Key = {API, Version}, Val) ->
+                  case maps:get(Key, APIs2, undefined) of
+                      Val ->
+                          ok;
+                      undefined ->
+                          setnok(),
+                          ?ERROR("API ~p v~p was removed in release ~p without being deprecated.",
+                                 [API, Version, Rel2]);
+                      _Val ->
+                          setnok(),
+                          ?ERROR("API ~p v~p was changed between ~p and ~p. Backplane API should be immutable.",
+                                 [API, Version, Rel1, Rel2])
+                  end
+          end,
+          APIs1),
     ok;
 check_api_immutability(_, _) ->
     ok.
