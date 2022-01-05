@@ -492,7 +492,7 @@ jobs:
              -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.version }}\" }" \
              ${{ secrets.EMQX_IO_RELEASE_API }}
     - name: push docker image to aws ecr
-      if: github.event_name == 'release'
+      if: github.event_name == 'release' && matrix.profile == 'emqx'
       run: |
         set -e -x -u
         aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
