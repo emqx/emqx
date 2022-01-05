@@ -382,6 +382,7 @@ jobs:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
     - uses: docker/build-push-action@v2
+      if: matrix.profile != 'emqx-ee'
       with:
         push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
         pull: true
@@ -394,6 +395,21 @@ jobs:
           RUN_FROM=alpine:3.14
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
+        context: source
+    - uses: docker/build-push-action@v2
+      if: matrix.profile == 'emqx-ee'
+      with:
+        push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
+        pull: true
+        no-cache: true
+        platforms: linux/amd64,linux/arm64
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-4:${{ matrix.otp }}-alpine3.14
+          RUN_FROM=alpine:3.14
+          EMQX_NAME=${{ matrix.profile }}
+        file: source/deploy/docker/Dockerfile.enterprise
         context: source
     - uses: aws-actions/configure-aws-credentials@v1
       if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx'
