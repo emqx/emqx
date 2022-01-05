@@ -71,6 +71,14 @@
 
 -define(T_CALL, infinity).
 
+%% NOTE: This order cannot be changed! This is to make the metric working during relup.
+%% Append elements to this list to add new metrics.
+-define(METRICS, ['matched', 'passed', 'failed', 'failed.exception', 'failed.no_result',
+    'outputs.total', 'outputs.success', 'outputs.failed', 'outputs.failed.out_of_service',
+    'outputs.failed.unknown']).
+
+-define(RATE_METRICS, ['matched']).
+
 config_key_path() ->
     [rule_engine, rules].
 
@@ -162,10 +170,10 @@ get_rule(Id) ->
 load_hooks_for_rule(#{from := Topics}) ->
     lists:foreach(fun emqx_rule_events:load/1, Topics).
 
-add_metrics_for_rule(#{id := Id}) ->
-    ok = emqx_plugin_libs_metrics:create_metrics(rule_metrics, Id).
+add_metrics_for_rule(Id) ->
+    ok = emqx_plugin_libs_metrics:create_metrics(rule_metrics, Id, ?METRICS, ?RATE_METRICS).
 
-clear_metrics_for_rule(#{id := Id}) ->
+clear_metrics_for_rule(Id) ->
     ok = emqx_plugin_libs_metrics:clear_metrics(rule_metrics, Id).
 
 unload_hooks_for_rule(#{id := Id, from := Topics}) ->
@@ -243,7 +251,7 @@ do_create_rule(Params = #{id := RuleId, sql := Sql, outputs := Outputs}) ->
 
 do_insert_rule(#{id := Id} = Rule) ->
     ok = load_hooks_for_rule(Rule),
-    ok = add_metrics_for_rule(Rule),
+    ok = add_metrics_for_rule(Id),
     true = ets:insert(?RULE_TAB, {Id, maps:remove(id, Rule)}),
     ok.
 
@@ -251,7 +259,7 @@ do_delete_rule(RuleId) ->
     case get_rule(RuleId) of
         {ok, Rule} ->
             ok = unload_hooks_for_rule(Rule),
-            ok = clear_metrics_for_rule(Rule),
+            ok = clear_metrics_for_rule(RuleId),
             true = ets:delete(?RULE_TAB, RuleId),
             ok;
         not_found -> ok

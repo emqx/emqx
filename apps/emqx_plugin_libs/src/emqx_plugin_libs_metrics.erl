@@ -28,7 +28,7 @@
         , inc/4
         , get/3
         , get_rate/2
-        , get_all_counters/2
+        , get_counters/2
         , create_metrics/3
         , create_metrics/4
         , clear_metrics/2
@@ -129,15 +129,15 @@ get(Name, Id, Metric) ->
 get_rate(Name, Id) ->
     gen_server:call(Name, {get_rate, Id}).
 
--spec(get_all_counters(handler_name(), metric_id()) -> map()).
-get_all_counters(Name, Id) ->
+-spec(get_counters(handler_name(), metric_id()) -> map()).
+get_counters(Name, Id) ->
     maps:map(fun(_Metric, Index) ->
             get(Name, Id, Index)
         end, get_indexes(Name, Id)).
 
 -spec(get_metrics(handler_name(), metric_id()) -> metrics()).
 get_metrics(Name, Id) ->
-    #{rate => get_rate(Name, Id), counters => get_all_counters(Name, Id)}.
+    #{rate => get_rate(Name, Id), counters => get_counters(Name, Id)}.
 
 -spec inc(handler_name(), metric_id(), atom()) -> ok.
 inc(Name, Id, Metric) ->
@@ -145,7 +145,7 @@ inc(Name, Id, Metric) ->
 
 -spec inc(handler_name(), metric_id(), atom(), pos_integer()) -> ok.
 inc(Name, Id, Metric, Val) ->
-    counters:add(get_ref(Name, Id), idx_metric(Name, Id,Metric), Val).
+    counters:add(get_ref(Name, Id), idx_metric(Name, Id, Metric), Val).
 
 start_link(Name) ->
     gen_server:start_link({local, Name}, ?MODULE, Name, []).
@@ -176,8 +176,8 @@ handle_call({create_metrics, Id, Metrics, RateMetrics}, _From,
                 State#state{metric_ids = sets:add_element(Id, MIDs),
                             rates = Rate1}};
         _ ->
-            {reply, {error, metrics_to}, State}
-    end.
+            {reply, {error, not_super_set_of, {RateMetrics, Metrics}}, State}
+    end;
 
 handle_call({delete_metrics, Id}, _From,
             State = #state{metric_ids = MIDs, rates = Rates}) ->
@@ -229,35 +229,39 @@ stop(Name) ->
 create_counters(_Name, _Id, []) ->
     error({create_counter_error, must_provide_a_list_of_metrics});
 create_counters(Name, Id, Metrics) ->
+    %% backup the old counters
+    OlderCounters = maps:with(Metrics, get_counters(Name, Id)),
+    %% create the new counter
     Size = length(Metrics),
     Indexes = maps:from_list(lists:zip(Metrics, lists:seq(1, Size))),
-    Counters = get_counters(Name),
+    Counters = get_pterm(Name),
     CntrRef = counters:new(Size, [write_concurrency]),
     persistent_term:put(?CntrRef(Name),
-        Counters#{Id => #{ref => CntrRef, indexes => Indexes}}).
+        Counters#{Id => #{ref => CntrRef, indexes => Indexes}}),
+    %% restore the old counters
+    lists:foreach(fun({Metric, N}) ->
+            inc(Name, Id, Metric, N)
+        end, maps:to_list(OlderCounters)).
 
 delete_counters(Name, Id) ->
-    persistent_term:put(?CntrRef(Name), maps:remove(Id, get_counters(Name))).
+    persistent_term:put(?CntrRef(Name), maps:remove(Id, get_pterm(Name))).
 
 get_ref(Name, Id) ->
-    case maps:find(Id, get_counters(Name)) of
+    case maps:find(Id, get_pterm(Name)) of
         {ok, #{ref := Ref}} -> Ref;
         error -> not_found
     end.
 
 idx_metric(Name, Id, Metric) ->
-    case get_indexes(Name, Id) of
-        not_found -> not_found;
-        Indexes -> maps:get(Metric, Indexes, not_found)
-    end.
+    maps:get(Metric, get_indexes(Name, Id)).
 
 get_indexes(Name, Id) ->
-    case maps:find(Id, get_counters(Name)) of
+    case maps:find(Id, get_pterm(Name)) of
         {ok, #{indexes := Indexes}} -> Indexes;
-        error -> not_found
+        error -> #{}
     end.
 
-get_counters(Name) ->
+get_pterm(Name) ->
     persistent_term:get(?CntrRef(Name), #{}).
 
 calculate_rate(_CurrVal, undefined) ->

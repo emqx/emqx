@@ -104,6 +104,35 @@ t_get_metrics_2(_) ->
     } when map_size(Rate) =:= 1, emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>)),
     ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"testid">>).
 
+t_recreate_metrics(_) ->
+    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"testid">>, [a]),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, a),
+    ?assertMatch(#{
+            rate := R = #{
+                a := #{current := _, max := _, last5m := _}
+            },
+            counters := C = #{
+                a := 1
+            }
+        } when map_size(R) == 1 andalso map_size(C) == 1,
+        emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>)),
+    %% we create the metrics again, to add some counters
+    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"testid">>, [a, b, c]),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, b),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, c),
+    ?assertMatch(#{
+            rate := R = #{
+                a := #{current := _, max := _, last5m := _},
+                b := #{current := _, max := _, last5m := _},
+                c := #{current := _, max := _, last5m := _}
+            },
+            counters := C = #{
+                a := 1, b := 1, c := 1
+            }
+        } when map_size(R) == 3 andalso map_size(C) == 3,
+        emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>)),
+    ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"testid">>).
+
 t_inc_matched(_) ->
     Metrics = ['rules.matched'],
     ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule1">>, Metrics),
