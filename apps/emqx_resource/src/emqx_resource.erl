@@ -346,9 +346,9 @@ filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
 
 inc_metrics_funcs(InstId) ->
-    OnFailed = [{fun emqx_plugin_libs_metrics:inc_failed/2, [resource_metrics, InstId]}],
-    OnSucc = [ {fun emqx_plugin_libs_metrics:inc_matched/2, [resource_metrics, InstId]}
-             , {fun emqx_plugin_libs_metrics:inc_success/2, [resource_metrics, InstId]}
+    OnFailed = [{fun emqx_plugin_libs_metrics:inc/2, [resource_metrics, InstId, failed]}],
+    OnSucc = [ {fun emqx_plugin_libs_metrics:inc/2, [resource_metrics, InstId, matched]}
+             , {fun emqx_plugin_libs_metrics:inc/2, [resource_metrics, success]}
              ],
     {OnSucc, OnFailed}.
 
