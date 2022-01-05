@@ -127,7 +127,8 @@ groups() ->
        t_sqlparse_new_map
       ]},
      {rule_metrics, [],
-      [t_metrics
+      [t_metrics,
+       t_metrics1
       ]},
      {events, [],
       [t_events
@@ -1350,6 +1351,53 @@ t_metrics(_Config) ->
     ct:sleep(200),
 
     emqtt:publish(Client, <<"t1">>, <<"{\"msg\":\"hello\"}">>, 0),
+    ct:sleep(200),
+    ?assertEqual(1, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(1, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_no_result(RuleId)),
+    
+    emqtt:publish(Client, <<"t1">>, <<"{\"msg1\":\"hello\"}">>, 0),
+    ct:sleep(200),
+    ?assertEqual(2, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(1, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(1, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(1, emqx_rule_metrics:get_rules_no_result(RuleId)),
+
+    emqtt:stop(Client),
+    emqx_rule_registry:remove_rule(TopicRule).
+
+message() -> 
+   <<"{\"date\": \"2020-04-24\",
+     \"sensors\": [
+         {\"name\": \"a\", \"idx \":0},
+         {\"name\": \"b\", \"idx \":1},
+         {\"name\": \"c\", \"idx \":2}
+     ]}">>.
+
+t_metrics1(_Config) ->
+    ok = emqx_rule_engine:load_providers(),
+    TopicRule = create_simple_repub_rule(
+                    <<"t2">>,
+                "FOREACH payload.sensors "
+                "DO clientid,item.name as name, item.idx as idx "
+                "INCASE item.idx >= 1 "
+                "FROM \"t1\" "),
+    #rule{id = RuleId} = TopicRule,
+    ?assertEqual(0, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_no_result(RuleId)),
+    
+    {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client),
+    ct:sleep(200),
+
+
+    emqtt:publish(Client, <<"t1">>, message(), 0),
     ct:sleep(200),
     ?assertEqual(1, emqx_rule_metrics:get_rules_matched(RuleId)),
     ?assertEqual(1, emqx_rule_metrics:get_rules_passed(RuleId)),
