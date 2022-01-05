@@ -55,15 +55,8 @@ statsd(get, _Params) ->
     {200, emqx:get_raw_config([<<"statsd">>], #{})};
 
 statsd(put, #{body := Body}) ->
-    case emqx:update_config([statsd],
-                            Body,
-                            #{rawconf_with_defaults => true, override_to => cluster}) of
-        {ok, #{raw_config := NewConfig, config := Config}} ->
-            ok = emqx_statsd_sup:ensure_child_stopped(?APP),
-            case maps:get(<<"enable">>, Body) of
-                true -> emqx_statsd_sup:ensure_child_started(?APP, Config);
-                false -> ok
-            end,
+    case emqx_statsd:update(Body) of
+        {ok, NewConfig} ->
             {200, NewConfig};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("Update config failed ~p", [Reason])),
