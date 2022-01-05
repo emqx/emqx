@@ -22,14 +22,26 @@
 %% be used by the prometheus application
 -behaviour(prometheus_collector).
 
+-include("emqx_prometheus.hrl").
+
 -include_lib("prometheus/include/prometheus.hrl").
 -include_lib("prometheus/include/prometheus_model.hrl").
-
+-include_lib("emqx/include/logger.hrl").
 
 -import(prometheus_model_helpers,
         [ create_mf/5
         , gauge_metric/1
         , counter_metric/1
+        ]).
+
+-export([ update/1
+        , start/0
+        , stop/0
+        , restart/0
+        % for rpc
+        , do_start/0
+        , do_stop/0
+        , do_restart/0
         ]).
 
 %% APIs
@@ -57,6 +69,53 @@
 -define(TIMER_MSG, '#interval').
 
 -record(state, {push_gateway, timer, interval}).
+
+%%--------------------------------------------------------------------
+%% update new config
+update(Config) ->
+    case emqx:update_config([prometheus], Config,
+                            #{rawconf_with_defaults => true, override_to => cluster}) of
+        {ok, #{raw_config := NewConfigRows}} ->
+            case maps:get(<<"enable">>, Config, true) of
+                true ->
+                    ok = restart();
+                false ->
+                    ok = stop()
+            end,
+            {ok, NewConfigRows};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+start()   -> cluster_call(do_start, []).
+stop()    -> cluster_call(do_stop, []).
+restart() -> cluster_call(do_restart, []).
+
+do_start() ->
+    emqx_prometheus_sup:start_child(?APP, emqx_conf:get([prometheus])).
+
+do_stop() ->
+    emqx_prometheus_sup:stop_child(?APP).
+
+do_restart() ->
+    case {stop(), start()} of
+        {ok, ok} ->
+            ok;
+        {Error1, Error2} ->
+            ?LOG(error, "~p restart failed stop: ~p start: ~p", [?MODULE, Error1, Error2])
+    end.
+
+cluster_call(F, A) ->
+    [ok = rpc_call(N, F, A) || N <- mria_mnesia:running_nodes()].
+
+rpc_call(N, F, A) ->
+    case rpc:call(N, ?MODULE, F, A, 5000) of
+        {badrpc, R} ->
+            ?LOG(error, "RPC Node: ~p ~p ~p failed, Reason: ~p", [N, ?MODULE, F, R]),
+            {error, {badrpc, R}};
+        Result ->
+            Result
+    end.
 
 %%--------------------------------------------------------------------
 %% APIs

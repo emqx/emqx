@@ -67,17 +67,8 @@ prometheus(get, _Params) ->
     {200, emqx:get_raw_config([<<"prometheus">>], #{})};
 
 prometheus(put, #{body := Body}) ->
-    case emqx:update_config([prometheus],
-                            Body,
-                            #{rawconf_with_defaults => true, override_to => cluster}) of
-        {ok, #{raw_config := NewConfig, config := Config}} ->
-            case maps:get(<<"enable">>, Body, true) of
-                true ->
-                    ok = emqx_prometheus_sup:stop_child(?APP),
-                    ok = emqx_prometheus_sup:start_child(?APP, Config);
-                false ->
-                    ok = emqx_prometheus_sup:stop_child(?APP)
-            end,
+    case emqx_prometheus:update(Body) of
+        {ok, NewConfig} ->
             {200, NewConfig};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("Update config failed ~p", [Reason])),

@@ -25,6 +25,18 @@
 
 -include("emqx_statsd.hrl").
 
+-include_lib("emqx/include/logger.hrl").
+
+-export([ update/1
+        , start/0
+        , stop/0
+        , restart/0
+        %% for rpc
+        , do_start/0
+        , do_stop/0
+        , do_restart/0
+        ]).
+
 %% Interface
 -export([start_link/1]).
 
@@ -43,6 +55,52 @@
     flush_time_interval  :: pos_integer(),
     estatsd_pid          :: pid()
 }).
+
+update(Config) ->
+    case emqx:update_config([statsd],
+                            Config,
+                            #{rawconf_with_defaults => true, override_to => cluster}) of
+        {ok, #{raw_config := NewConfigRows}} ->
+            start(),
+            case maps:get(<<"enable">>, Config) of
+                true -> stop();
+                false -> ok
+            end,
+            {ok, NewConfigRows};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+
+start()   -> cluster_call(do_start, []).
+stop()    -> cluster_call(do_stop, []).
+restart() -> cluster_call(do_restart, []).
+
+do_start() ->
+    emqx_statsd_sup:ensure_child_started(?APP, emqx_conf:get([statsd], #{})).
+
+do_stop() ->
+    emqx_statsd_sup:ensure_child_stopped(?APP).
+
+do_restart() ->
+    case {stop(), start()} of
+        {ok, ok} ->
+            ok;
+        {Error1, Error2} ->
+            ?LOG(error, "~p restart failed stop: ~p start: ~p", [?MODULE, Error1, Error2])
+    end.
+
+cluster_call(F, A) ->
+    [ok = rpc_call(N, F, A) || N <- mria_mnesia:running_nodes()].
+
+rpc_call(N, F, A) ->
+    case rpc:call(N, ?MODULE, F, A, 5000) of
+        {badrpc, R} ->
+            ?LOG(error, "RPC Node: ~p ~p ~p failed, Reason: ~p", [N, ?MODULE, F, R]),
+            {error, {badrpc, R}};
+        Result ->
+            Result
+    end.
 
 start_link(Opts) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
