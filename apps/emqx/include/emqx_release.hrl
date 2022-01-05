@@ -24,4 +24,4 @@
 
 %% NOTE: This version number should be manually bumped for each release
 
--define(EMQX_RELEASE, "5.0-beta.2").
+-define(EMQX_RELEASE, "5.0-beta.3").
