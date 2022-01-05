@@ -300,7 +300,7 @@ forward(Node, To, Delivery, sync) ->
     end.
 
 -spec(dispatch(emqx_types:topic(), emqx_types:delivery()) -> emqx_types:deliver_result()).
-dispatch(Topic, Delivery) ->
+dispatch(Topic, Delivery = #delivery{}) when is_binary(Topic) ->
     case emqx:is_running() of
         true  ->
             do_dispatch(Topic, Delivery);
