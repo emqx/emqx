@@ -15,7 +15,7 @@ on:
 
 jobs:
   run_static_analysis:
-    runs-on: self-hosted
+    runs-on: ubuntu-20.04
 
     strategy:
       fail-fast: false
