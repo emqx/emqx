@@ -95,18 +95,21 @@ do_start() ->
     emqx_prometheus_sup:start_child(?APP, emqx_conf:get([prometheus])).
 
 do_stop() ->
-    emqx_prometheus_sup:stop_child(?APP).
-
-do_restart() ->
-    case {stop(), start()} of
-        {ok, ok} ->
+    case emqx_prometheus_sup:stop_child(?APP) of
+        ok ->
             ok;
-        {Error1, Error2} ->
-            ?LOG(error, "~p restart failed stop: ~p start: ~p", [?MODULE, Error1, Error2])
+        {error, not_found} ->
+            ok
     end.
 
+do_restart() ->
+    ok = do_start(),
+    ok = do_stop(),
+    ok.
+
 cluster_call(F, A) ->
-    [ok = rpc_call(N, F, A) || N <- mria_mnesia:running_nodes()].
+    [ok = rpc_call(N, F, A) || N <- mria_mnesia:running_nodes()],
+    ok.
 
 rpc_call(N, F, A) ->
     case rpc:call(N, ?MODULE, F, A, 5000) of

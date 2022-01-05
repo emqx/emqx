@@ -61,10 +61,12 @@ update(Config) ->
                             Config,
                             #{rawconf_with_defaults => true, override_to => cluster}) of
         {ok, #{raw_config := NewConfigRows}} ->
-            start(),
-            case maps:get(<<"enable">>, Config) of
-                true -> stop();
-                false -> ok
+            _ = start(),
+            case maps:get(<<"enable">>, Config, true) of
+                true ->
+                    ok = stop();
+                false ->
+                    ignore
             end,
             {ok, NewConfigRows};
         {error, Reason} ->
@@ -83,15 +85,13 @@ do_stop() ->
     emqx_statsd_sup:ensure_child_stopped(?APP).
 
 do_restart() ->
-    case {stop(), start()} of
-        {ok, ok} ->
-            ok;
-        {Error1, Error2} ->
-            ?LOG(error, "~p restart failed stop: ~p start: ~p", [?MODULE, Error1, Error2])
-    end.
+    ok = do_start(),
+    ok = do_stop(),
+    ok.
 
 cluster_call(F, A) ->
-    [ok = rpc_call(N, F, A) || N <- mria_mnesia:running_nodes()].
+    [ok = rpc_call(N, F, A) || N <- mria_mnesia:running_nodes()],
+    ok.
 
 rpc_call(N, F, A) ->
     case rpc:call(N, ?MODULE, F, A, 5000) of
