@@ -35,8 +35,6 @@
         ]).
 
 -export([ get_metrics/2
-        , get_matched/2
-        , inc_matched/2
         ]).
 
 %% gen_server callbacks
@@ -74,7 +72,6 @@
 -define(CntrRef(Name), {?MODULE, Name}).
 -define(SAMPCOUNT_5M, (?SECS_5M div ?SAMPLING)).
 
-%% the rate of 'matched'
 -record(rate, {
             max = 0 :: number(),
             current = 0 :: number(),
@@ -106,11 +103,11 @@ child_spec(Name) ->
      , modules => [emqx_plugin_libs_metrics]
      }.
 
--spec(create_metrics(handler_name(), metric_id(), [atom()]) -> ok).
+-spec(create_metrics(handler_name(), metric_id(), [atom()]) -> ok | {error, term()}).
 create_metrics(Name, Id, Metrics) ->
     create_metrics(Name, Id, Metrics, Metrics).
 
--spec(create_metrics(handler_name(), metric_id(), [atom()], [atom()]) -> ok).
+-spec(create_metrics(handler_name(), metric_id(), [atom()], [atom()]) -> ok | {error, term()}).
 create_metrics(Name, Id, Metrics, RateMetrics) ->
     gen_server:call(Name, {create_metrics, Id, Metrics, RateMetrics}).
 
@@ -150,12 +147,6 @@ inc(Name, Id, Metric) ->
 inc(Name, Id, Metric, Val) ->
     counters:add(get_ref(Name, Id), idx_metric(Name, Id,Metric), Val).
 
-inc_matched(Name, Id) ->
-    inc(Name, Id, 'matched', 1).
-
-get_matched(Name, Id) ->
-    get(Name, Id, 'matched').
-
 start_link(Name) ->
     gen_server:start_link({local, Name}, ?MODULE, Name, []).
 
@@ -174,14 +165,19 @@ handle_call({get_rate, Id}, _From, State = #state{rates = Rates}) ->
 
 handle_call({create_metrics, Id, Metrics, RateMetrics}, _From,
             State = #state{metric_ids = MIDs, rates = Rates}) ->
-    RatePerId = maps:from_list([{M, #rate{}} || M <- RateMetrics]),
-    Rate1= case Rates of
-        undefined -> #{Id => RatePerId};
-        _ -> Rates#{Id => RatePerId}
-    end,
-    {reply, create_counters(get_self_name(), Id, Metrics),
-     State#state{metric_ids = sets:add_element(Id, MIDs),
-                 rates = Rate1}};
+    case RateMetrics -- Metrics of
+        [] ->
+            RatePerId = maps:from_list([{M, #rate{}} || M <- RateMetrics]),
+            Rate1 = case Rates of
+                undefined -> #{Id => RatePerId};
+                _ -> Rates#{Id => RatePerId}
+            end,
+            {reply, create_counters(get_self_name(), Id, Metrics),
+                State#state{metric_ids = sets:add_element(Id, MIDs),
+                            rates = Rate1}};
+        _ ->
+            {reply, {error, metrics_to}, State}
+    end.
 
 handle_call({delete_metrics, Id}, _From,
             State = #state{metric_ids = MIDs, rates = Rates}) ->
