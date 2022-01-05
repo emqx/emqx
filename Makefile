@@ -3,7 +3,8 @@ REBAR_VERSION = 3.16.1-emqx-1
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
-export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/4.4-2:23.3.4.9-3-alpine3.14
+# FIXME: use tagged version once merged
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/elixir:24.1.5-3-1.13.1-alpine3.14
 export EMQX_DEFAULT_RUNNER = alpine:3.14
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
@@ -197,13 +198,13 @@ quickrun:
 	./_build/$(PROFILE)/rel/emqx/bin/emqx console
 
 ## docker target is to create docker instructions
-.PHONY: $(REL_PROFILES:%=%-docker)
+.PHONY: $(REL_PROFILES:%=%-docker) $(REL_PROFILES:%=%-elixir-docker)
 define gen-docker-target
 $1-docker: $(COMMON_DEPS)
 	@$(BUILD) $1 docker
 endef
-ALL_TGZS = $(REL_PROFILES)
-$(foreach zt,$(ALL_TGZS),$(eval $(call gen-docker-target,$(zt))))
+ALL_DOCKERS = $(REL_PROFILES) $(REL_PROFILES:%=%-elixir)
+$(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
 
 ## emqx-docker-testing
 ## emqx-enterprise-docker-testing

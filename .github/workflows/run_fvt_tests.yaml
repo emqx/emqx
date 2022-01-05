@@ -14,7 +14,8 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/5.0-3:24.1.5-3-alpine3.14
+    # FIXME: use tagged version once merged
+    container: ghcr.io/emqx/emqx-builder/elixir:24.1.5-3-1.13.1-alpine3.14
 
     steps:
       - uses: actions/checkout@v2
@@ -41,6 +42,7 @@ jobs:
           - emqx
           - emqx-edge
           - emqx-enterprise
+          - emqx-elixir
         cluster_db_backend:
           - mnesia
           - rlog
@@ -82,7 +84,8 @@ jobs:
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-${{ matrix.os }}
+        # FIXME: use tagged version once merged
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/elixir:${{ matrix.otp }}-1.13.1-${{ matrix.os }}
       run: |
         make ${{ matrix.profile }}-docker
     - name: run emqx
@@ -91,6 +94,10 @@ jobs:
       run: |
         set -x
         IMAGE=emqx/${{ matrix.profile }}:$(./pkg-vsn.sh ${{ matrix.profile }})
+        if [[ "${{ matrix.profile }}" = *-elixir ]]
+        then
+          export IS_ELIXIR=yes
+        fi
         ./.ci/docker-compose-file/scripts/run-emqx.sh $IMAGE ${{ matrix.cluster_db_backend }}
     - name: make paho tests
       run: |
@@ -152,7 +159,8 @@ jobs:
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-${{ matrix.os }}
+        # FIXME: use tagged version once merged
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/elixir:${{ matrix.otp }}-1.13.1-${{ matrix.os }}
       run: |
         make ${{ matrix.profile }}-docker
         echo "TARGET=emqx/${{ matrix.profile }}" >> $GITHUB_ENV

@@ -243,10 +243,20 @@ defmodule EMQXUmbrella.MixProject do
 
     bin = Path.join(release.path, "bin")
     etc = Path.join(release.path, "etc")
+    log = Path.join(release.path, "log")
 
     Mix.Generator.create_directory(bin)
     Mix.Generator.create_directory(etc)
+    Mix.Generator.create_directory(log)
     Mix.Generator.create_directory(Path.join(etc, "certs"))
+
+    Enum.each(
+      ["mnesia", "configs", "patches", "scripts"],
+      fn dir ->
+        path = Path.join([release.path, "data", dir])
+        Mix.Generator.create_directory(path)
+      end
+    )
 
     Mix.Generator.copy_file(
       "apps/emqx_authz/etc/acl.conf",
@@ -418,14 +428,6 @@ defmodule EMQXUmbrella.MixProject do
   # add those to the `:overlays` key before running `:tar`.
   # See: https://hexdocs.pm/mix/1.13.1/Mix.Release.html#__struct__/0
   defp prepare_tar_overlays(release) do
-    Enum.each(
-      ["mnesia", "configs", "patches", "scripts"],
-      fn dir ->
-        path = Path.join([release.path, "data", dir])
-        File.mkdir_p!(path)
-      end
-    )
-
     Map.update!(release, :overlays, &["etc", "data" | &1])
   end
 

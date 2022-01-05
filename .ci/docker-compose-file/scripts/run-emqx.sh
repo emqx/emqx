@@ -19,17 +19,27 @@ fi
 } >> .ci/docker-compose-file/conf.cluster.env
 
 is_node_up() {
-  local node
-  node="$1"
-  docker exec -i "$node" \
-         bash -c "emqx eval \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1
+  local node="$1"
+  if [ "${IS_ELIXIR:-no}" = "yes" ]
+  then
+    docker exec -i "$node" \
+           bash -c "emqx eval \"[:\\\"emqx@node1.emqx.io\\\", :\\\"emqx@node2.emqx.io\\\"] = :ekka_cluster.info()[:running_nodes]\""
+  else
+    docker exec -i "$node" \
+           bash -c "emqx eval \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1
+  fi
 }
 
 is_node_listening() {
-  local node
-  node="$1"
-  docker exec -i "$node" \
-         emqx eval "ok = case gen_tcp:connect(\"localhost\", 1883, []) of {ok, P} -> gen_tcp:close(P), ok; _ -> exit(1) end." > /dev/null 2>&1
+  local node="$1"
+  if [ "${IS_ELIXIR:-no}" = "yes" ]
+  then
+    docker exec -i "$node" \
+           emqx eval ":ok = case :gen_tcp.connect('localhost', 1883, []), do: ({:ok, port} -> (:gen_tcp.close(port); :ok); _ -> :error)" > /dev/null 2>&1
+  else
+    docker exec -i "$node" \
+           emqx eval "ok = case gen_tcp:connect(\"localhost\", 1883, []) of {ok, P} -> gen_tcp:close(P), ok; _ -> exit(1) end." > /dev/null 2>&1
+  fi
 }
 
 is_cluster_up() {

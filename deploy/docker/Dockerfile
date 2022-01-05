@@ -1,4 +1,5 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-3:24.1.5-3-alpine3.14
+# FIXME: use tagged version once merged
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/elixir:24.1.5-3-1.13.1-alpine3.14
 ARG RUN_FROM=alpine:3.14
 FROM ${BUILD_FROM} AS builder
 
@@ -22,17 +23,23 @@ COPY . /emqx
 
 ARG EMQX_NAME=emqx
 
-RUN cd /emqx \
-    && rm -rf _build/$EMQX_NAME/lib \
-    && make $EMQX_NAME
+RUN if [[ "$EMQX_NAME" = *-elixir ]]; then \
+      export EMQX_LIB_PATH="_build/prod/lib"; \
+      export EMQX_REL_PATH="/emqx/_build/prod/rel/emqx"; \
+    else \
+      export EMQX_LIB_PATH="_build/$EMQX_NAME/lib"; \
+      export EMQX_REL_PATH="/emqx/_build/$EMQX_NAME/rel/emqx"; \
+    fi \
+    && cd /emqx \
+    && rm -rf $EMQX_LIB_PATH \
+    && make $EMQX_NAME \
+    && mkdir -p /emqx-rel \
+    && mv $EMQX_REL_PATH /emqx-rel
 
 FROM $RUN_FROM
 
-## define ARG again after 'FROM $RUN_FROM'
-ARG EMQX_NAME=emqx
-
 COPY deploy/docker/docker-entrypoint.sh /usr/bin/
-COPY --from=builder /emqx/_build/$EMQX_NAME/rel/emqx /opt/emqx
+COPY --from=builder /emqx-rel/emqx /opt/emqx
 
 RUN ln -s /opt/emqx/bin/* /usr/local/bin/
 RUN apk add --no-cache curl ncurses-libs openssl sudo libstdc++ bash
