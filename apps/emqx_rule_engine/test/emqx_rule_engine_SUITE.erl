@@ -38,6 +38,7 @@ all() ->
     , {group, events}
     , {group, multi_actions}
     , {group, bugs}
+    , {group, rule_metrics}
     ].
 
 suite() ->
@@ -124,6 +125,9 @@ groups() ->
        t_sqlparse_array_range_2,
        t_sqlparse_true_false,
        t_sqlparse_new_map
+      ]},
+     {rule_metrics, [],
+      [t_metrics
       ]},
      {events, [],
       [t_events
@@ -1323,6 +1327,43 @@ t_sqlselect_3(_Config) ->
     after 1000 ->
         ok
     end,
+
+    emqtt:stop(Client),
+    emqx_rule_registry:remove_rule(TopicRule).
+
+t_metrics(_Config) ->
+    ok = emqx_rule_engine:load_providers(),
+    TopicRule = create_simple_repub_rule(
+                    <<"t2">>,
+                    "SELECT payload.msg as msg "
+                    "FROM \"t1\" "
+                    "WHERE msg= 'hello' "),
+    #rule{id = RuleId} = TopicRule,
+    ?assertEqual(0, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_no_result(RuleId)),
+    
+    {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client),
+    ct:sleep(200),
+
+    emqtt:publish(Client, <<"t1">>, <<"{\"msg\":\"hello\"}">>, 0),
+    ct:sleep(200),
+    ?assertEqual(1, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(1, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_no_result(RuleId)),
+    
+    emqtt:publish(Client, <<"t1">>, <<"{\"msg1\":\"hello\"}">>, 0),
+    ct:sleep(200),
+    ?assertEqual(2, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(1, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(1, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(1, emqx_rule_metrics:get_rules_no_result(RuleId)),
 
     emqtt:stop(Client),
     emqx_rule_registry:remove_rule(TopicRule).
