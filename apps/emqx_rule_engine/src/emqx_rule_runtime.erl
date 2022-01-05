@@ -51,6 +51,7 @@ apply_rules([], _Input) ->
 apply_rules([#rule{enabled = false}|More], Input) ->
     apply_rules(More, Input);
 apply_rules([Rule = #rule{id = RuleID}|More], Input) ->
+    ok = emqx_rule_metrics:inc_rules_matched(RuleID),
     try apply_rule_discard_result(Rule, Input)
     catch
         %% ignore the errors if select or match failed
@@ -89,15 +90,21 @@ do_apply_rule(#rule{id = RuleId,
                     on_action_failed = OnFailed,
                     actions = Actions}, Input) ->
     {Selected, Collection} = ?RAISE(select_and_collect(Fields, Input),
+                                        emqx_rule_metrics:inc_rules_exception(RuleId),
                                         {select_and_collect_error, {_EXCLASS_,_EXCPTION_,_ST_}}),
     ColumnsAndSelected = maps:merge(Input, Selected),
     case ?RAISE(match_conditions(Conditions, ColumnsAndSelected),
+                emqx_rule_metrics:inc_rules_exception(RuleId),
                 {match_conditions_error, {_EXCLASS_,_EXCPTION_,_ST_}}) of
         true ->
-            ok = emqx_rule_metrics:inc(RuleId, 'rules.matched'),
-            Collection2 = filter_collection(Input, InCase, DoEach, Collection),
+            Collection2 = filter_collection(RuleId, Input, InCase, DoEach, Collection),
+            case Collection2 of 
+                [] -> emqx_rule_metrics:inc_rules_no_result(RuleId);
+                _ -> emqx_rule_metrics:inc_rules_passed(RuleId)
+            end,
             {ok, [take_actions(Actions, Coll, Input, OnFailed) || Coll <- Collection2]};
         false ->
+            ok = emqx_rule_metrics:inc_rules_no_result(RuleId),
             {error, nomatch}
     end;
 
@@ -107,14 +114,17 @@ do_apply_rule(#rule{id = RuleId,
                     conditions = Conditions,
                     on_action_failed = OnFailed,
                     actions = Actions}, Input) ->
-    Selected = ?RAISE(select_and_transform(Fields, Input),
+    Selected = ?RAISE(select_and_transform(Fields, Input), 
+                      emqx_rule_metrics:inc_rules_exception(RuleId),
                       {select_and_transform_error, {_EXCLASS_,_EXCPTION_,_ST_}}),
     case ?RAISE(match_conditions(Conditions, maps:merge(Input, Selected)),
+                emqx_rule_metrics:inc_rules_exception(RuleId),
                 {match_conditions_error, {_EXCLASS_,_EXCPTION_,_ST_}}) of
         true ->
-            ok = emqx_rule_metrics:inc(RuleId, 'rules.matched'),
+            ok = emqx_rule_metrics:inc_rules_passed(RuleId),
             {ok, take_actions(Actions, Selected, Input, OnFailed)};
         false ->
+            ok = emqx_rule_metrics:inc_rules_no_result(RuleId),
             {error, nomatch}
     end.
 
@@ -166,16 +176,18 @@ select_and_collect([Field|More], Input, {Output, LastKV}) ->
         {nested_put(Key, Val, Output), LastKV}).
 
 %% Filter each item got from FOREACH
--dialyzer({nowarn_function, filter_collection/4}).
-filter_collection(Input, InCase, DoEach, {CollKey, CollVal}) ->
+-dialyzer({nowarn_function, filter_collection/5}).
+filter_collection(RuleId, Input, InCase, DoEach, {CollKey, CollVal}) ->
     lists:filtermap(
         fun(Item) ->
             InputAndItem = maps:merge(Input, #{CollKey => Item}),
             case ?RAISE(match_conditions(InCase, InputAndItem),
+                    emqx_rule_metrics:inc_rules_exception(RuleId),
                     {match_incase_error, {_EXCLASS_,_EXCPTION_,_ST_}}) of
                 true when DoEach == [] -> {true, InputAndItem};
                 true ->
                     {true, ?RAISE(select_and_transform(DoEach, InputAndItem),
+                                  emqx_rule_metrics:inc_rules_exception(RuleId),
                                   {doeach_error, {_EXCLASS_,_EXCPTION_,_ST_}})};
                 false -> false
             end

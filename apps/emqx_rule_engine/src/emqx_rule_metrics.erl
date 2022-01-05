@@ -25,16 +25,20 @@
         , stop/0
         ]).
 
--export([ get_rules_matched/1
-        , get_actions_taken/1
+-export([ get_actions_taken/1
         , get_actions_success/1
         , get_actions_error/1
         , get_actions_exception/1
         , get_actions_retry/1
+        , get_rules_matched/1
+        , get_rules_failed/1
+        , get_rules_passed/1
+        , get_rules_exception/1
+        , get_rules_no_result/1
+        
         ]).
 
--export([ inc_rules_matched/1
-        , inc_rules_matched/2
+-export([ inc_rules_matched/2
         , inc_actions_taken/1
         , inc_actions_taken/2
         , inc_actions_success/1
@@ -45,6 +49,11 @@
         , inc_actions_exception/2
         , inc_actions_retry/1
         , inc_actions_retry/2
+        , inc_rules_matched/1
+        , inc_rules_failed/1
+        , inc_rules_passed/1
+        , inc_rules_exception/1
+        , inc_rules_no_result/1
         ]).
 
 -export([ inc/2
@@ -145,6 +154,10 @@ get_overall_rule_speed() ->
 get_rule_metrics(Id) ->
     #{max := Max, current := Current, last5m := Last5M} = get_rule_speed(Id),
     #{matched => get_rules_matched(Id),
+      failed => get_rules_failed(Id),
+      passed => get_rules_passed(Id),
+      exception => get_rules_exception(Id),
+      no_result => get_rules_no_result(Id),
       speed => Current,
       speed_max => Max,
       speed_last5m => Last5M
@@ -181,11 +194,6 @@ inc(Id, Metric, Val) ->
 inc_overall(Metric, Val) ->
     emqx_metrics:inc(Metric, Val).
 
-inc_rules_matched(Id) ->
-    inc_rules_matched(Id, 1).
-inc_rules_matched(Id, Val) ->
-    inc(Id, 'rules.matched', Val).
-
 inc_actions_taken(Id) ->
     inc_actions_taken(Id, 1).
 inc_actions_taken(Id, Val) ->
@@ -211,8 +219,32 @@ inc_actions_retry(Id) ->
 inc_actions_retry(Id, Val) ->
     inc(Id, 'actions.retry', Val).
 
-get_rules_matched(Id) ->
-    get(Id, 'rules.matched').
+inc_rules_matched(Id) ->
+    inc_rules_matched(Id, 1).
+inc_rules_matched(Id, Val) ->
+    inc(Id, 'rules.matched', Val).
+
+inc_rules_failed(Id) ->
+    inc_rules_failed(Id, 1).
+inc_rules_failed(Id, Val) ->
+    inc(Id, 'rules.failed', Val).
+
+inc_rules_passed(Id) ->
+    inc_rules_passed(Id, 1).
+inc_rules_passed(Id, Val) ->
+    inc(Id, 'rules.passed', Val).
+
+inc_rules_exception(Id) ->
+    inc_rules_exception(Id, 1).
+inc_rules_exception(Id, Val) ->
+    inc(Id, 'rules.failed', Val),
+    inc(Id, 'rules.exception', Val).
+
+inc_rules_no_result(Id) ->
+    inc_rules_no_result(Id, 1).
+inc_rules_no_result(Id, Val) ->
+    inc(Id, 'rules.failed', Val),
+    inc(Id, 'rules.no_result', Val).
 
 get_actions_taken(Id) ->
     get(Id, 'actions.taken').
@@ -228,6 +260,21 @@ get_actions_exception(Id) ->
 
 get_actions_retry(Id) ->
     get(Id, 'actions.retry').
+
+get_rules_matched(Id) ->
+    get(Id, 'rules.matched').
+
+get_rules_failed(Id) ->
+    get(Id, 'rules.failed').
+
+get_rules_passed(Id) ->
+    get(Id, 'rules.passed').
+
+get_rules_exception(Id) ->
+    get(Id, 'rules.exception').
+
+get_rules_no_result(Id) ->
+    get(Id, 'rules.no_result').
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -420,21 +467,29 @@ precision(Float, N) ->
 %% Metrics Definitions
 %%------------------------------------------------------------------------------
 
-max_counters_size() -> 7.
+max_counters_size() -> 11.
 
-metrics_idx('rules.matched') ->       1;
-metrics_idx('actions.success') ->     2;
-metrics_idx('actions.error') ->       3;
-metrics_idx('actions.taken') ->       4;
-metrics_idx('actions.exception') ->   5;
-metrics_idx('actions.retry') ->       6;
-metrics_idx(_) ->                     7.
+metrics_idx('actions.success') ->     1;
+metrics_idx('actions.error') ->       2;
+metrics_idx('actions.taken') ->       3;
+metrics_idx('actions.exception') ->   4;
+metrics_idx('actions.retry') ->       5;
+metrics_idx('rules.matched') ->       6;
+metrics_idx('rules.failed') ->        7;
+metrics_idx('rules.passed') ->        8;
+metrics_idx('rules.exception') ->     9;
+metrics_idx('rules.no_result') ->     10;
+metrics_idx(_) ->                     11.
 
 overall_metrics() ->
-    [ 'rules.matched'
-    , 'actions.success'
+    [ 'actions.success'
     , 'actions.error'
     , 'actions.taken'
     , 'actions.exception'
     , 'actions.retry'
+    , 'rules.matched'
+    , 'rules.failed'
+    , 'rules.passed'
+    , 'rules.exception'
+    , 'rules.no_result'
     ].
