@@ -160,6 +160,7 @@ raw_mongo_auth_config(SpecificSSLOpts) ->
       database => <<"mqtt">>,
       collection => <<"users">>,
       server => mongo_server(),
+      w_mode => <<"unsafe">>,
 
       selector => #{<<"username">> => <<"${username}">>},
       password_hash_field => <<"password_hash">>,

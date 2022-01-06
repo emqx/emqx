@@ -39,6 +39,7 @@
                    <<"enable">> => true,
                    <<"mongo_type">> => <<"single">>,
                    <<"server">> => <<?MONGO_SINGLE_HOST>>,
+                   <<"w_mode">> => <<"unsafe">>,
                    <<"pool_size">> => 1,
                    <<"database">> => <<"mqtt">>,
                    <<"ssl">> => #{<<"enable">> => false},

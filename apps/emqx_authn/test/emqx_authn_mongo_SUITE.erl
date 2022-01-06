@@ -82,7 +82,8 @@ t_create_invalid(_Config) ->
     InvalidConfigs =
         [
          AuthConfig#{mongo_type => <<"unknown">>},
-         AuthConfig#{selector => <<"{ \"username\": \"${username}\" }">>}
+         AuthConfig#{selector => <<"{ \"username\": \"${username}\" }">>},
+         AuthConfig#{w_mode => <<"unknown">>}
         ],
 
     lists:foreach(
@@ -247,6 +248,7 @@ raw_mongo_auth_config() ->
       database => <<"mqtt">>,
       collection => <<"users">>,
       server => mongo_server(),
+      w_mode => <<"unsafe">>,
 
       selector => #{<<"username">> => <<"${username}">>},
       password_hash_field => <<"password_hash">>,
