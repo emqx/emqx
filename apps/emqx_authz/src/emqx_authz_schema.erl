@@ -17,6 +17,7 @@
 -module(emqx_authz_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx_connector/include/emqx_connector.hrl").
 
 -reflect_type([ permission/0
               , action/0
@@ -28,9 +29,15 @@
 -export([ namespace/0
         , roots/0
         , fields/1
+        , validations/0
+        ]).
+
+-export([ headers_no_content_type/1
+        , headers/1
         ]).
 
 -import(emqx_schema, [mk_duration/2]).
+-include_lib("hocon/include/hoconsc.hrl").
 
 %%--------------------------------------------------------------------
 %% Hocon Schema
@@ -138,11 +145,10 @@ fields(redis_cluster) ->
 http_common_fields() ->
     [ {type,            #{type => http}}
     , {enable,          #{type => boolean(), default => true}}
+    , {url,             fun url/1}
     , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
     , {body,            #{type => map(), nullable => true}}
-    , {path,            #{type => string(), default => ""}}
-    , {query,           #{type => string(), default => ""}}
-    ] ++ emqx_connector_http:fields(config).
+    ] ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
 
 mongo_common_fields() ->
     [ {collection, #{type => atom()}}
@@ -152,21 +158,31 @@ mongo_common_fields() ->
                  default => true}}
     ].
 
-headers(type) -> map();
+validations() ->
+    [ {check_ssl_opts, fun check_ssl_opts/1}
+    , {check_headers, fun check_headers/1}
+    ].
+
+headers(type) -> list({binary(), binary()});
 headers(converter) ->
     fun(Headers) ->
-       maps:merge(default_headers(), transform_header_name(Headers))
+        maps:to_list(maps:merge(default_headers(), transform_header_name(Headers)))
     end;
 headers(default) -> default_headers();
 headers(_) -> undefined.
 
-headers_no_content_type(type) -> map();
+headers_no_content_type(type) -> list({binary(), binary()});
 headers_no_content_type(converter) ->
     fun(Headers) ->
-       maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+       maps:to_list(maps:merge(default_headers_no_content_type(), transform_header_name(Headers)))
     end;
 headers_no_content_type(default) -> default_headers_no_content_type();
 headers_no_content_type(_) -> undefined.
+
+url(type) -> binary();
+url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
+url(nullable) -> false;
+url(_) -> undefined.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -189,6 +205,28 @@ transform_header_name(Headers) ->
                       K = list_to_binary(string:to_lower(to_list(K0))),
                       maps:put(K, V, Acc)
               end, #{}, Headers).
+
+check_ssl_opts(Conf)
+  when Conf =:= #{} ->
+    true;
+check_ssl_opts(Conf) ->
+    case emqx_authz_http:parse_url(hocon_schema:get_value("config.url", Conf)) of
+        #{scheme := https} ->
+            case hocon_schema:get_value("config.ssl.enable", Conf) of
+                true -> ok;
+                false -> false
+            end;
+        #{scheme := http} ->
+            ok
+    end.
+
+check_headers(Conf)
+    when Conf =:= #{} ->
+    true;
+check_headers(Conf) ->
+    Method = to_bin(hocon_schema:get_value("config.method", Conf)),
+    Headers = hocon_schema:get_value("config.headers", Conf),
+    Method =:= <<"post">> orelse (not lists:member(<<"content-type">>, Headers)).
 
 union_array(Item) when is_list(Item) ->
     hoconsc:array(hoconsc:union(Item)).
@@ -225,3 +263,9 @@ to_list(A) when is_atom(A) ->
 to_list(B) when is_binary(B) ->
     binary_to_list(B).
 
+to_bin(A) when is_atom(A) ->
+    atom_to_binary(A);
+to_bin(B) when is_binary(B) ->
+    B;
+to_bin(L) when is_list(L) ->
+    list_to_binary(L).

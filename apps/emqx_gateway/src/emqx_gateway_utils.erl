@@ -70,7 +70,7 @@
 -define(DEFAULT_IDLE_TIMEOUT, 30000).
 -define(DEFAULT_GC_OPTS, #{count => 1000, bytes => 1024*1024}).
 -define(DEFAULT_OOM_POLICY, #{max_heap_size => 4194304,
-                              message_queue_len => 32000}).
+                              max_message_queue_len => 32000}).
 
 -elvis([{elvis_style, god_modules, disable}]).
 

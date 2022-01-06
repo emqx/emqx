@@ -30,9 +30,7 @@
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
                    <<"enable">> => true,
-                   <<"base_url">> => <<"https://fake.com:443/">>,
-                   <<"path">> => <<"foo">>,
-                   <<"query">> => <<"a=b">>,
+                   <<"url">> => <<"https://fake.com:443/acl?username=", ?PH_USERNAME/binary>>,
                    <<"headers">> => #{},
                    <<"method">> => <<"get">>,
                    <<"request_timeout">> => <<"5s">>

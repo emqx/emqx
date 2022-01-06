@@ -37,7 +37,9 @@
         , clean/0
         , delete/1
         , page_read/3
-        , post_config_update/5]).
+        , post_config_update/5
+        , stats_fun/0
+        ]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -69,6 +71,7 @@
 -callback match_messages(context(), topic(), cursor()) -> {ok, list(), cursor()}.
 -callback clear_expired(context()) -> ok.
 -callback clean(context()) -> ok.
+-callback size(context()) -> non_neg_integer().
 
 %%--------------------------------------------------------------------
 %% Hook API
@@ -185,6 +188,9 @@ post_config_update(_, _UpdateReq, NewConf, OldConf, _AppEnvs) ->
 call(Req) ->
     gen_server:call(?MODULE, Req, infinity).
 
+stats_fun() ->
+    gen_server:cast(?MODULE, ?FUNCTION_NAME).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -225,6 +231,12 @@ handle_call({page_read, Topic, Page, Limit}, _, #{context := Context} = State) -
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
+
+handle_cast(stats_fun, #{context := Context} = State) ->
+    Mod = get_backend_module(),
+    Size = Mod:size(Context),
+    emqx_stats:setstat('retained.count', 'retained.max', Size),
+    {noreply, State};
 
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
@@ -485,8 +497,11 @@ close_resource(_) ->
 load(Context) ->
     _ = emqx:hook('session.subscribed', {?MODULE, on_session_subscribed, [Context]}),
     _ = emqx:hook('message.publish', {?MODULE, on_message_publish, [Context]}),
+    emqx_stats:update_interval(emqx_retainer_stats, fun ?MODULE:stats_fun/0),
     ok.
 
 unload() ->
     emqx:unhook('message.publish', {?MODULE, on_message_publish}),
-    emqx:unhook('session.subscribed', {?MODULE, on_session_subscribed}).
+    emqx:unhook('session.subscribed', {?MODULE, on_session_subscribed}),
+    emqx_stats:cancel_update(emqx_retainer_stats),
+    ok.
