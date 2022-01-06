@@ -3,76 +3,90 @@
   [
    {"4.3.6",
     [ {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.5",
     [ {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
     , {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.4",
-    [ {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    [ {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.3",
-    [ {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    [ {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.2",
-    [ {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]},
-      {apply,{emqx_stats,cancel_update,[rule_registery_stats]}},
-      {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    [ {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    , {apply,{emqx_stats,cancel_update,[rule_registery_stats]}}
+    , {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.1",
-    [ {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]},
-      {apply,{emqx_stats,cancel_update,[rule_registery_stats]}},
-      {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    [ {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    , {apply,{emqx_stats,cancel_update,[rule_registery_stats]}}
+    , {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.0",
-    [ {load_module,emqx_rule_funcs,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]},
-      {apply,{emqx_stats,cancel_update,[rule_registery_stats]}},
-      {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    [ {load_module,emqx_rule_funcs,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    , {apply,{emqx_stats,cancel_update,[rule_registery_stats]}}
+    , {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
     ]},
    {<<".*">>, []}
   ],
   [
    {"4.3.6",
     [ {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.5",
     [ {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
     , {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.4",
-    [ {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    [ {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.3",
-    [ {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    [ {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.2",
-    [ {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]},
-      {apply,{emqx_stats,cancel_update,[rule_registery_stats]}},
-      {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    [ {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    , {apply,{emqx_stats,cancel_update,[rule_registery_stats]}}
+    , {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.1",
-    [ {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]},
-      {apply,{emqx_stats,cancel_update,[rule_registery_stats]}},
-      {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    [ {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    , {apply,{emqx_stats,cancel_update,[rule_registery_stats]}}
+    , {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
     ]},
    {"4.3.0",
-    [ {load_module,emqx_rule_funcs,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]},
-      {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]},
-      {apply,{emqx_stats,cancel_update,[rule_registery_stats]}},
-      {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    [ {load_module,emqx_rule_funcs,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_engine,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]}
+    , {apply,{emqx_stats,cancel_update,[rule_registery_stats]}}
+    , {load_module,emqx_rule_actions,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]}
     ]},
    {<<".*">>, []}
   ]
