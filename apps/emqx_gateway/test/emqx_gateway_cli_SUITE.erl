@@ -124,7 +124,17 @@ t_gateway_list(_) ->
       "Gateway(name=lwm2m, status=unloaded)\n"
       "Gateway(name=mqttsn, status=unloaded)\n"
       "Gateway(name=stomp, status=unloaded)\n"
-      , acc_print()).
+      , acc_print()),
+
+    emqx_gateway_cli:gateway(["load", "mqttsn", ?CONF_MQTTSN]),
+    ?assertEqual("ok\n", acc_print()),
+
+    emqx_gateway_cli:gateway(["list"]),
+    %% TODO: assert it.
+    _ = acc_print(),
+
+    emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()).
 
 t_gateway_load_unload_lookup(_) ->
     emqx_gateway_cli:gateway(["lookup", "mqttsn"]),

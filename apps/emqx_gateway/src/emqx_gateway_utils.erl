@@ -291,9 +291,8 @@ is_running(ListenerId, #{<<"bind">> := ListenOn0}) ->
     end.
 
 %% same with emqx_authentication:global_chain/1
-global_chain(mqtt) ->
-    'mqtt:global';
-global_chain('mqtt-sn') ->
+-spec global_chain(GatewayName :: atom()) -> atom().
+global_chain('mqttsn') ->
     'mqtt-sn:global';
 global_chain(coap) ->
     'coap:global';

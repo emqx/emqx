@@ -81,7 +81,7 @@ t_start_stop_update(_) ->
            ?GWNAME, #{enable => false, idle_timeout => 2000}),
     #{status := stopped,
       config := #{idle_timeout := 2000}} = emqx_gateway:lookup(?GWNAME),
-    
+
     ok = emqx_gateway:update(
            ?GWNAME, #{enable => true, idle_timeout => 3000}),
     #{status := running,

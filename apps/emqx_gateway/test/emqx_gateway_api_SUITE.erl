@@ -30,9 +30,7 @@
 
 %% this parses to #{}, will not cause config cleanup
 %% so we will need call emqx_config:erase
--define(CONF_DEFAULT, <<"
-gateway {}
-">>).
+-define(CONF_DEFAULT, <<"gateway {}">>).
 
 %%--------------------------------------------------------------------
 %% Setup
@@ -307,6 +305,10 @@ t_listeners_authn(_) ->
 
     {200, ConfResp3} = request(get, Path),
     assert_confs(AuthConf2, ConfResp3),
+
+    {204, _} = request(delete, Path),
+    %% FIXME: 204?
+    {204, _} = request(get, Path),
     {204, _} = request(delete, "/gateway/stomp").
 
 t_listeners_authn_data_mgmt(_) ->
@@ -340,32 +342,32 @@ t_listeners_authn_data_mgmt(_) ->
     {200,
      #{data := [UserRespd1]} } = request(
                                    get,
-                                   "/gateway/stomp/listeners/stomp:tcp:def/authentication/users"),
+                                   Path ++ "/users"),
     assert_confs(UserRespd1, User1),
 
     {200, UserRespd2} = request(
                           get,
-                          "/gateway/stomp/listeners/stomp:tcp:def/authentication/users/test"),
+                          Path ++ "/users/test"),
     assert_confs(UserRespd2, User1),
 
     {200, UserRespd3} = request(
                           put,
-                          "/gateway/stomp/listeners/stomp:tcp:def/authentication/users/test",
+                          Path ++ "/users/test",
                           #{password => <<"654321">>, is_superuser => true}),
     assert_confs(UserRespd3, User1#{is_superuser => true}),
 
     {200, UserRespd4} = request(
                           get,
-                          "/gateway/stomp/listeners/stomp:tcp:def/authentication/users/test"),
+                          Path ++ "/users/test"),
     assert_confs(UserRespd4, User1#{is_superuser => true}),
 
     {204, _} = request(
                  delete,
-                 "/gateway/stomp/listeners/stomp:tcp:def/authentication/users/test"),
+                 Path ++ "/users/test"),
 
     {200, #{data := []}} = request(
                              get,
-                             "/gateway/stomp/listeners/stomp:tcp:def/authentication/users"),
+                             Path ++ "/users"),
     {204, _} = request(delete, "/gateway/stomp").
 
 %%--------------------------------------------------------------------

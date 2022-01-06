@@ -175,15 +175,13 @@ gateway(_) ->
                    ]).
 
 'gateway-metrics'([Name]) ->
-    Tab = emqx_gateway_metrics:tabname(Name),
-    case ets:info(Tab) of
+    case emqx_gateway_metrics:lookup(atom(Name)) of
         undefined ->
             print("Bad Gateway Name.\n");
-        _ ->
+        Metrics ->
             lists:foreach(
-              fun({K, V}) ->
-                print("~-30s: ~w\n", [K, V])
-              end, lists:sort(ets:tab2list(Tab)))
+              fun({K, V}) -> print("~-30s: ~w\n", [K, V]) end,
+              Metrics)
     end;
 
 'gateway-metrics'(_) ->
