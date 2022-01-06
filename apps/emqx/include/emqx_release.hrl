@@ -24,4 +24,8 @@
 
 %% NOTE: This version number should be manually bumped for each release
 
--define(EMQX_RELEASE, "5.0-beta.3").
+%% NOTE: This version number should have 3 numeric parts
+%% (Major.Minor.Patch), and extra info can be added after a final
+%% hyphen.
+
+-define(EMQX_RELEASE, "5.0.0-beta.3").
