@@ -146,7 +146,6 @@
          {counter, 'messages.dropped.expired'},  % QoS2 Messages expired
          {counter, 'messages.dropped.no_subscribers'},  % Messages dropped
          {counter, 'messages.forward'},       % Messages forward
-         {counter, 'messages.retained'},      % Messages retained
          {counter, 'messages.delayed'},       % Messages delayed
          {counter, 'messages.delivered'},     % Messages delivered
          {counter, 'messages.acked'}          % Messages acked
@@ -207,7 +206,7 @@ stop() -> gen_server:stop(?SERVER).
 
 %% BACKW: v4.3.0
 upgrade_retained_delayed_counter_type() ->
-    Ks = ['messages.retained', 'messages.delayed'],
+    Ks = ['messages.delayed'],
     gen_server:call(?SERVER, {set_type_to_counter, Ks}, infinity).
 
 %%--------------------------------------------------------------------
@@ -556,7 +555,7 @@ reserved_idx('messages.dropped')             -> 109;
 reserved_idx('messages.dropped.expired')     -> 110;
 reserved_idx('messages.dropped.no_subscribers') -> 111;
 reserved_idx('messages.forward')             -> 112;
-reserved_idx('messages.retained')            -> 113;
+%%reserved_idx('messages.retained')            -> 113; %% keep the index, new metrics can use this
 reserved_idx('messages.delayed')             -> 114;
 reserved_idx('messages.delivered')           -> 115;
 reserved_idx('messages.acked')               -> 116;
@@ -592,4 +591,3 @@ reserved_idx('olp.gc')                       -> 303;
 reserved_idx('olp.new_conn')                 -> 304;
 
 reserved_idx(_)                              -> undefined.
-

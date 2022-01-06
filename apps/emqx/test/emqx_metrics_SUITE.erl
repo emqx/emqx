@@ -71,19 +71,10 @@ t_inc_dec(_) ->
     with_metrics_server(
       fun() ->
         ?assertEqual(0, emqx_metrics:val('bytes.received')),
-        ?assertEqual(0, emqx_metrics:val('messages.retained')),
         ok = emqx_metrics:inc('bytes.received'),
         ok = emqx_metrics:inc('bytes.received', 2),
         ok = emqx_metrics:inc('bytes.received', 2),
-        ?assertEqual(5, emqx_metrics:val('bytes.received')),
-        ok = emqx_metrics:inc('messages.retained', 2),
-        ok = emqx_metrics:inc('messages.retained', 2),
-        ?assertEqual(4, emqx_metrics:val('messages.retained')),
-        ok = emqx_metrics:dec('messages.retained'),
-        ok = emqx_metrics:dec('messages.retained', 1),
-        ?assertEqual(2, emqx_metrics:val('messages.retained')),
-        ok = emqx_metrics:set('messages.retained', 3),
-        ?assertEqual(3, emqx_metrics:val('messages.retained'))
+        ?assertEqual(5, emqx_metrics:val('bytes.received'))
       end).
 
 t_inc_recv(_) ->
@@ -162,21 +153,12 @@ t_trans(_) ->
         ok = emqx_metrics:trans(inc, 'bytes.received'),
         ok = emqx_metrics:trans(inc, 'bytes.received', 2),
         ?assertEqual(0, emqx_metrics:val('bytes.received')),
-        ok = emqx_metrics:trans(inc, 'messages.retained', 2),
-        ok = emqx_metrics:trans(inc, 'messages.retained', 2),
-        ?assertEqual(0, emqx_metrics:val('messages.retained')),
         ok = emqx_metrics:commit(),
         ?assertEqual(3, emqx_metrics:val('bytes.received')),
-        ?assertEqual(4, emqx_metrics:val('messages.retained')),
-        ok = emqx_metrics:trans(dec, 'messages.retained'),
-        ok = emqx_metrics:trans(dec, 'messages.retained', 1),
-        ?assertEqual(4, emqx_metrics:val('messages.retained')),
-        ok = emqx_metrics:commit(),
-        ?assertEqual(2, emqx_metrics:val('messages.retained'))
+        ok = emqx_metrics:commit()
       end).
 
 with_metrics_server(Fun) ->
     {ok, _} = emqx_metrics:start_link(),
     _ = Fun(),
     ok = emqx_metrics:stop().
-

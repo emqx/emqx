@@ -235,7 +235,7 @@ accumulate_metrics(TopicMetricsIn, TopicMetricsAcc) ->
 
 %% @doc MetricsIn :: #{'messages.dropped.rate' :: integer(), ...}
 do_accumulation_metrics(MetricsIn, undefined) -> MetricsIn;
-do_accumulation_metrics(MetricsIn, MetricsAcc) ->
+do_accumulation_metrics(MetricsIn, {MetricsAcc, _}) ->
     Keys = maps:keys(MetricsIn),
     lists:foldl(fun(Key, Acc) ->
         InVal = maps:get(Key, MetricsIn),

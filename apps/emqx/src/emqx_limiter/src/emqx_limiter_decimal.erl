@@ -20,7 +20,7 @@
 
 %% API
 -export([ add/2, sub/2, mul/2
-        , add_to_counter/3, put_to_counter/3, floor_div/2]).
+        , put_to_counter/3, floor_div/2]).
 -export_type([decimal/0, zero_or_float/0]).
 
 -type decimal() :: infinity | number().
@@ -59,22 +59,6 @@ floor_div(infinity, _) ->
 
 floor_div(A, B) ->
     erlang:floor(A / B).
-
--spec add_to_counter(counters:counters_ref(), pos_integer(), decimal()) ->
-          {zero_or_float(), zero_or_float()}.
-add_to_counter(_, _, infinity) ->
-    {0, 0};
-add_to_counter(Counter, Index, Val) when is_float(Val) ->
-    IntPart = erlang:floor(Val),
-    if IntPart > 0 ->
-            counters:add(Counter, Index, IntPart);
-       true ->
-            ok
-    end,
-    {IntPart, Val - IntPart};
-add_to_counter(Counter, Index, Val) ->
-    counters:add(Counter, Index, Val),
-    {Val, 0}.
 
 -spec put_to_counter(counters:counters_ref(), pos_integer(), decimal()) -> ok.
 put_to_counter(_, _, infinity) ->

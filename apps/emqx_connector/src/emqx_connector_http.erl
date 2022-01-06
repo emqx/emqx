@@ -262,11 +262,20 @@ preprocess_request(#{
      , request_timeout => maps:get(request_timeout, Req, 30000)
      }.
 
-preproc_headers(Headers) ->
+preproc_headers(Headers) when is_map(Headers) ->
     maps:fold(fun(K, V, Acc) ->
-            Acc#{emqx_plugin_libs_rule:preproc_tmpl(bin(K)) =>
-                 emqx_plugin_libs_rule:preproc_tmpl(bin(V))}
-        end, #{}, Headers).
+            [{
+                emqx_plugin_libs_rule:preproc_tmpl(bin(K)),
+                emqx_plugin_libs_rule:preproc_tmpl(bin(V))
+            } | Acc]
+        end, [], Headers);
+preproc_headers(Headers) when is_list(Headers) ->
+    lists:map(fun({K, V}) ->
+        {
+            emqx_plugin_libs_rule:preproc_tmpl(bin(K)),
+            emqx_plugin_libs_rule:preproc_tmpl(bin(V))
+        }
+              end, Headers).
 
 process_request(#{
             method := MethodTks,
@@ -278,7 +287,7 @@ process_request(#{
     Conf#{ method => make_method(emqx_plugin_libs_rule:proc_tmpl(MethodTks, Msg))
          , path => emqx_plugin_libs_rule:proc_tmpl(PathTks, Msg)
          , body => process_request_body(BodyTks, Msg)
-         , headers => maps:to_list(proc_headers(HeadersTks, Msg))
+         , headers => proc_headers(HeadersTks, Msg)
          , request_timeout => ReqTimeout
          }.
 
@@ -288,10 +297,12 @@ process_request_body(BodyTks, Msg) ->
     emqx_plugin_libs_rule:proc_tmpl(BodyTks, Msg).
 
 proc_headers(HeaderTks, Msg) ->
-    maps:fold(fun(K, V, Acc) ->
-            Acc#{emqx_plugin_libs_rule:proc_tmpl(K, Msg) =>
-                 emqx_plugin_libs_rule:proc_tmpl(V, Msg)}
-        end, #{}, HeaderTks).
+    lists:map(fun({K, V}) ->
+            {
+                emqx_plugin_libs_rule:proc_tmpl(K, Msg),
+                emqx_plugin_libs_rule:proc_tmpl(V, Msg)
+            }
+              end, HeaderTks).
 
 make_method(M) when M == <<"POST">>; M == <<"post">> -> post;
 make_method(M) when M == <<"PUT">>; M == <<"put">> -> put;

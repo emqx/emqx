@@ -64,9 +64,7 @@ set_special_configs(_App) ->
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
                    <<"enable">> => true,
-                   <<"base_url">> => <<"https://example.com:443/">>,
-                   <<"path">> => <<"a/b">>,
-                   <<"query">> => <<"c=d">>,
+                   <<"url">> => <<"https://example.com:443/a/b?c=d">>,
                    <<"headers">> => #{},
                    <<"method">> => <<"get">>,
                    <<"request_timeout">> => 5000
