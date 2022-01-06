@@ -349,43 +349,55 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 code_change({down, Vsn}, State = #state{metric_ids = MIDs}, _Extra)
-        when Vsn =:= "4.2.0";
-             Vsn =:= "4.2.1" ->
-    emqx_metrics:ensure('actions.failure'),
-    emqx_metrics:set('actions.failure',
-                     emqx_metrics:val('actions.error')
-                     + emqx_metrics:val('actions.exception')),
+        when Vsn =:= "4.3.0";
+             Vsn =:= "4.3.1";
+             Vsn =:= "4.3.2";
+             Vsn =:= "4.3.3";
+             Vsn =:= "4.3.4";
+             Vsn =:= "4.3.5";
+             Vsn =:= "4.3.6" ->
     [begin
-        Matched = get_rules_matched(Id),
-        Succ = get_actions_success(Id),
+        Passed = get_rules_passed(Id),
+        Take = get_actions_taken(Id),
+        Success = get_actions_success(Id),
         Error = get_actions_error(Id),
-        Except = get_actions_exception(Id),
+        Exception = get_actions_exception(Id),
+        Retry = get_actions_retry(Id),
         ok = delete_counters(Id),
-        ok = create_counters(Id),
-        inc_rules_matched(Id, Matched),
-        inc_actions_success(Id, Succ),
-        inc_actions_error(Id, Error + Except)
+        ok = create_counters(Id, 7),
+        inc_rules_matched(Id, Passed),
+        inc_actions_taken(Id, Take),
+        inc_actions_success(Id, Success),
+        inc_actions_error(Id, Error),
+        inc_actions_exception(Id, Exception),
+        inc_actions_retry(Id, Retry)
     end || Id <- sets:to_list(MIDs)],
     {ok, State};
 
 code_change(Vsn, State = #state{metric_ids = MIDs}, _Extra)
-        when Vsn =:= "4.2.0";
-             Vsn =:= "4.2.1" ->
-    [emqx_metrics:ensure(Name)
-     || Name <-
-        ['actions.error', 'actions.taken',
-         'actions.exception', 'actions.retry'
-        ]],
-    emqx_metrics:set('actions.error', emqx_metrics:val('actions.failure')),
+        when Vsn =:= "4.3.0";
+             Vsn =:= "4.3.1";
+             Vsn =:= "4.3.2";
+             Vsn =:= "4.3.3";
+             Vsn =:= "4.3.4";
+             Vsn =:= "4.3.5";
+             Vsn =:= "4.3.6" ->
     [begin
         Matched = get_rules_matched(Id),
-        Succ = get_actions_success(Id),
+        Take = get_actions_taken(Id),
+        Success = get_actions_success(Id),
         Error = get_actions_error(Id),
+        Exception = get_actions_exception(Id),
+        Retry = get_actions_retry(Id),
         ok = delete_counters(Id),
         ok = create_counters(Id),
         inc_rules_matched(Id, Matched),
-        inc_actions_success(Id, Succ),
-        inc_actions_error(Id, Error)
+        inc_rules_passed(Id, Matched),
+        inc_actions_taken(Id, Take),
+        inc_actions_success(Id, Success),
+        inc_actions_error(Id, Error),
+        inc_actions_exception(Id, Exception),
+        inc_actions_retry(Id, Retry)
     end || Id <- sets:to_list(MIDs)],
     {ok, State};
 
@@ -407,10 +419,12 @@ async_refresh_resource_status() ->
     spawn(emqx_rule_engine, refresh_resource_status, []).
 
 create_counters(Id) ->
+    create_counters(Id, max_counters_size()).
+create_counters(Id, Size) ->
     case couters_ref(Id) of
         not_found ->
             ok = persistent_term:put(?CRefID(Id),
-                    counters:new(max_counters_size(), [write_concurrency]));
+                    counters:new(Size, [write_concurrency]));
         _Ref -> ok
     end.
 
@@ -468,12 +482,12 @@ precision(Float, N) ->
 
 max_counters_size() -> 11.
 
-metrics_idx('actions.success') ->     1;
-metrics_idx('actions.error') ->       2;
-metrics_idx('actions.taken') ->       3;
-metrics_idx('actions.exception') ->   4;
-metrics_idx('actions.retry') ->       5;
-metrics_idx('rules.matched') ->       6;
+metrics_idx('rules.matched') ->       1;
+metrics_idx('actions.success') ->     2;
+metrics_idx('actions.error') ->       3;
+metrics_idx('actions.taken') ->       4;
+metrics_idx('actions.exception') ->   5;
+metrics_idx('actions.retry') ->       6;
 metrics_idx('rules.failed') ->        7;
 metrics_idx('rules.passed') ->        8;
 metrics_idx('rules.exception') ->     9;
@@ -481,12 +495,12 @@ metrics_idx('rules.no_result') ->     10;
 metrics_idx(_) ->                     11.
 
 overall_metrics() ->
-    [ 'actions.success'
+    [ 'rules.matched'
+    , 'actions.success'
     , 'actions.error'
     , 'actions.taken'
     , 'actions.exception'
     , 'actions.retry'
-    , 'rules.matched'
     , 'rules.failed'
     , 'rules.passed'
     , 'rules.exception'
