@@ -35,7 +35,6 @@
         , get_rules_passed/1
         , get_rules_exception/1
         , get_rules_no_result/1
-        
         ]).
 
 -export([ inc_rules_matched/2
