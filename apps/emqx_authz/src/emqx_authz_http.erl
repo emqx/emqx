@@ -128,7 +128,7 @@ generate_request( PubSub
         _ ->
             NPath = append_query(Path, NBaseQuery),
             NBody = serialize_body(
-                      maps:get(<<"Accept">>, Headers, <<"application/json">>),
+                      proplists:get_value(<<"Accept">>, Headers, <<"application/json">>),
                       Body
                      ),
             {NPath, Headers, NBody}
@@ -180,6 +180,8 @@ replace_placeholder(?PH_HOST,     _PubSub, _Topic, Client) ->
     inet_parse:ntoa(maps:get(peerhost, Client, undefined));
 replace_placeholder(?PH_PROTONAME, _PubSub, _Topic, Client) ->
     bin(maps:get(protocol, Client, undefined));
+replace_placeholder(?PH_MOUNTPOINT, _PubSub, _Topic, Client) ->
+    bin(maps:get(mountpoint, Client, undefined));
 replace_placeholder(?PH_TOPIC, _PubSub, Topic, _Client) ->
     bin(emqx_http_lib:uri_encode(Topic));
 replace_placeholder(?PH_ACTION, PubSub, _Topic, _Client) ->
