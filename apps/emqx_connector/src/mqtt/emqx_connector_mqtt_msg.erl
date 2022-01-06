@@ -20,7 +20,7 @@
         , from_binary/1
         , make_pub_vars/2
         , to_remote_msg/2
-        , to_broker_msg/2
+        , to_broker_msg/3
         , estimate_size/1
         ]).
 
@@ -78,9 +78,9 @@ to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
     Msg#message{topic = topic(Mountpoint, Topic)}.
 
 %% published from remote node over a MQTT connection
-to_broker_msg(#{dup := Dup, properties := Props} = MapMsg,
+to_broker_msg(#{dup := Dup} = MapMsg,
             #{local_topic := TopicToken, payload := PayloadToken,
-              local_qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) ->
+              local_qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}, Props) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = process_payload(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
