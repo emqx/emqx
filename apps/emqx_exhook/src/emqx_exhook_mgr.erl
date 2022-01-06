@@ -162,9 +162,7 @@ pre_config_update(_, {enable, Name, Enable}, OldConf) ->
     case replace_conf(Name,
                       fun(Conf) -> Conf#{<<"enable">> => Enable} end, OldConf) of
         not_found -> {error, not_found};
-        NewConf ->
-            ct:pal(">>>> enable Name:~p Enable:~p, New:~p~n", [Name, Enable, NewConf]),
-            {ok, NewConf}
+        NewConf -> {ok, NewConf}
     end.
 
 post_config_update(_KeyPath, UpdateReq, NewConf, _OldConf, _AppEnvs) ->
