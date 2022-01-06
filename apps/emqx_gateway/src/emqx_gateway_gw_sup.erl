@@ -51,7 +51,6 @@ create_insta(Sup, Gateway = #{name := Name}, GwDscrptr) ->
         {ok, _GwInstaPid} -> {error, alredy_existed};
         false ->
             Ctx = ctx(Sup, Name),
-            %%
             ChildSpec = emqx_gateway_utils:childspec(
                           Name,
                           worker,

@@ -90,7 +90,7 @@ t_cleanup_channels(Conf) ->
        [],
        emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)).
 
-t_unexpected_msg_handling(Conf) ->
+t_handle_unexpected_msg(Conf) ->
     Pid = proplists:get_value(registry, Conf),
     _ = Pid ! unexpected_info,
     ok = gen_server:cast(Pid, unexpected_cast),

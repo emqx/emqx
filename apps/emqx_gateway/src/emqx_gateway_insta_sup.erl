@@ -308,8 +308,7 @@ do_update_one_by_one(NCfg, State = #state{
                                       name = GwName,
                                       config = OCfg,
                                       status = Status}) ->
-    OEnable = maps:get(enable, OCfg, true),
-    NEnable = maps:get(enable, NCfg, OEnable),
+    NEnable = maps:get(enable, NCfg, true),
 
     OAuths = authns(GwName, OCfg),
     NAuths = authns(GwName, NCfg),
