@@ -55,23 +55,23 @@ apply_rules([Rule = #rule{id = RuleID}|More], Input) ->
     catch
         %% ignore the errors if select or match failed
         _:{select_and_transform_error, Error} ->
-            emqx_rule_metrics:inc_rules_exception(RuleId),
+            emqx_rule_metrics:inc_rules_exception(RuleID),
             ?LOG(warning, "SELECT clause exception for ~s failed: ~p",
                  [RuleID, Error]);
         _:{match_conditions_error, Error} ->
-            emqx_rule_metrics:inc_rules_exception(RuleId),
+            emqx_rule_metrics:inc_rules_exception(RuleID),
             ?LOG(warning, "WHERE clause exception for ~s failed: ~p",
                  [RuleID, Error]);
         _:{select_and_collect_error, Error} ->
-            emqx_rule_metrics:inc_rules_exception(RuleId),
+            emqx_rule_metrics:inc_rules_exception(RuleID),
             ?LOG(warning, "FOREACH clause exception for ~s failed: ~p",
                  [RuleID, Error]);
         _:{match_incase_error, Error} ->
-            emqx_rule_metrics:inc_rules_exception(RuleId),
+            emqx_rule_metrics:inc_rules_exception(RuleID),
             ?LOG(warning, "INCASE clause exception for ~s failed: ~p",
                  [RuleID, Error]);
         _:Error:StkTrace ->
-            emqx_rule_metrics:inc_rules_exception(RuleId),
+            emqx_rule_metrics:inc_rules_exception(RuleID),
             ?LOG(error, "Apply rule ~s failed: ~p. Stacktrace:~n~p",
                  [RuleID, Error, StkTrace])
     end,
