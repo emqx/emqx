@@ -35,11 +35,14 @@ jobs:
         - emqx-enterprise
         otp:
         - 24.1.5-3
+        elixir:
+        - 1.13.1
         os:
         - ubuntu20.04
         - centos7
 
-    container: "ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-${{ matrix.os }}"
+    # FIXME: use tagged version once merged
+    container: "ghcr.io/emqx/emqx-builder/elixir:${{ matrix.otp }}-${{ matrix.elixir }}-${{ matrix.os }}"
 
     steps:
     - uses: actions/checkout@v1
@@ -48,6 +51,7 @@ jobs:
         echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
         echo "CODE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
         echo "EMQX_PKG_NAME=${{ matrix.profile }}-$(./pkg-vsn.sh ${{ matrix.profile }})-otp${{ matrix.otp }}-${{ matrix.os }}-amd64" >> $GITHUB_ENV
+        echo "EMQX_ELIXIRPKG_NAME=${{ matrix.profile }}-$(./pkg-vsn.sh ${{ matrix.profile }})-otp${{ matrix.otp }}-elixir${{ matrix.elixir }}-${{ matrix.os }}-amd64" >> $GITHUB_ENV
     - name: Get deps git refs for cache
       id: deps-refs
       run: |
@@ -56,13 +60,17 @@ jobs:
     - name: load rocksdb cache
       uses: actions/cache@v2
       with:
-        path: _build/default/lib/rocksdb/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-amd64-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
+        path: |
+          _build/default/lib/rocksdb/
+          deps/rocksdb/priv/
+        key: ${{ matrix.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-amd64-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
     - name: load quicer cache
       uses: actions/cache@v2
       with:
-        path: _build/default/lib/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-amd64-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+        path: |
+          _build/default/lib/quicer/
+          deps/quicer/priv/
+        key: ${{ matrix.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-amd64-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
     - name: build and test tgz package
       run: |
         make ${EMQX_NAME}-tgz
@@ -75,6 +83,10 @@ jobs:
       run: |
         make ${EMQX_NAME}-pkg
         .ci/build_packages/tests.sh "$EMQX_PKG_NAME" pkg
+    - name: build and test deb/rpm packages (Elixir)
+      run: |
+        make ${EMQX_NAME}-elixirpkg
+        .ci/build_packages/tests.sh "$EMQX_ELIXIRPKG_NAME" elixirpkg
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.profile}}-${{ matrix.otp }}-${{ matrix.os }}
