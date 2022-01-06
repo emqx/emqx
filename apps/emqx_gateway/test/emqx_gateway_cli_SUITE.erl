@@ -41,7 +41,7 @@ gateway {}
  \"listeners\":
     [{\"type\": \"udp\",
       \"name\": \"ct\",
-      \"bind\": \"2885\"
+      \"bind\": \"1884\"
     }]
 }
 ").
@@ -163,8 +163,7 @@ t_gateway_load_unload_lookup(_) ->
     ?assertEqual("ok\n", acc_print()),
 
     emqx_gateway_cli:gateway(["lookup", "mqttsn"]),
-    ?assertEqual("undefined\n", acc_print()),
-    ok.
+    ?assertEqual("undefined\n", acc_print()).
 
 t_gateway_start_stop(_) ->
     emqx_gateway_cli:gateway(["load", "mqttsn", ?CONF_MQTTSN]),
@@ -181,22 +180,78 @@ t_gateway_start_stop(_) ->
     %% dupliacted start gateway, return ok
     emqx_gateway_cli:gateway(["start", "mqttsn"]),
     ?assertEqual("ok\n", acc_print()),
-    ok.
+
+    emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()).
 
 t_gateway_clients_usage(_) ->
-    ok.
+    ?assertEqual(
+       ["gateway-clients list   <Name>            "
+            "# List all clients for a gateway\n",
+        "gateway-clients lookup <Name> <ClientId> "
+            "# Lookup the Client Info for specified client\n",
+        "gateway-clients kick   <Name> <ClientId> "
+            "# Kick out a client\n"],
+       emqx_gateway_cli:'gateway-clients'(usage)
+     ).
 
-t_gateway_clients_list(_) ->
-    ok.
+t_gateway_clients(_) ->
+    emqx_gateway_cli:gateway(["load", "mqttsn", ?CONF_MQTTSN]),
+    ?assertEqual("ok\n", acc_print()),
 
-t_gateway_clients_lookup(_) ->
-    ok.
+    Socket = sn_client_connect(<<"client1">>),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["list", "mqttsn"]),
+    ClientDesc1 = acc_print(),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["lookup", "mqttsn", "client1"]),
+    ClientDesc2 = acc_print(),
+    ?assertEqual(ClientDesc1, ClientDesc2),
+
+    sn_client_disconnect(Socket),
+    timer:sleep(500),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["lookup", "mqttsn", "bad-client"]),
+    ?assertEqual("Not Found.\n", acc_print()),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["lookup", "bad-gw", "bad-client"]),
+    ?assertEqual("Bad Gateway Name.\n", acc_print()),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["list", "mqttsn"]),
+    %% no print for empty client list
+
+    _ = emqx_gateway_cli:'gateway-clients'(["list", "bad-gw"]),
+    ?assertEqual("Bad Gateway Name.\n", acc_print()),
+
+    emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()).
 
 t_gateway_clients_kick(_) ->
-    ok.
+    emqx_gateway_cli:gateway(["load", "mqttsn", ?CONF_MQTTSN]),
+    ?assertEqual("ok\n", acc_print()),
+
+    Socket = sn_client_connect(<<"client1">>),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["list", "mqttsn"]),
+    _ = acc_print(),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["kick", "mqttsn", "bad-client"]),
+    ?assertEqual("Not Found.\n", acc_print()),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["kick", "mqttsn", "client1"]),
+    ?assertEqual("ok\n", acc_print()),
+
+    sn_client_disconnect(Socket),
+
+    emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()).
 
 t_gateway_metrcis_usage(_) ->
-    ok.
+    ?assertEqual(
+       [ "gateway-metrics <Name> "
+            "# List all metrics for a gateway\n"],
+       emqx_gateway_cli:'gateway-metrics'(usage)
+     ).
 
 t_gateway_metrcis(_) ->
     ok.
@@ -210,3 +265,14 @@ acc_print(Acc) ->
     after 200 ->
         Acc
     end.
+
+sn_client_connect(ClientId) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    _ = emqx_sn_protocol_SUITE:send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, 16#05, 0>>,
+                 emqx_sn_protocol_SUITE:receive_response(Socket)),
+    Socket.
+
+sn_client_disconnect(Socket) ->
+    _ = emqx_sn_protocol_SUITE:send_disconnect_msg(Socket, undefined),
+    gen_udp:close(Socket), ok.

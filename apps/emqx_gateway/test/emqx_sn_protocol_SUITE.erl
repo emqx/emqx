@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module (emqx_sn_protocol_SUITE).
+-module(emqx_sn_protocol_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).

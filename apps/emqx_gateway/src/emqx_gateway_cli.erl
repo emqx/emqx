@@ -135,7 +135,7 @@ gateway(_) ->
                    ]).
 
 'gateway-clients'(["list", Name]) ->
-    %% FIXME: page me?
+    %% XXX: page me?
     InfoTab = emqx_gateway_cm:tabname(info, Name),
     case ets:info(InfoTab) of
         undefined ->
@@ -146,12 +146,17 @@ gateway(_) ->
 
 'gateway-clients'(["lookup", Name, ClientId]) ->
     ChanTab = emqx_gateway_cm:tabname(chan, Name),
-    case ets:lookup(ChanTab, bin(ClientId)) of
-        [] -> print("Not Found.\n");
-        [Chann] ->
-            InfoTab = emqx_gateway_cm:tabname(info, Name),
-            [ChannInfo] = ets:lookup(InfoTab, Chann),
-            print_record({client, ChannInfo})
+    case ets:info(ChanTab) of
+        undefined ->
+            print("Bad Gateway Name.\n");
+        _ ->
+            case ets:lookup(ChanTab, bin(ClientId)) of
+                [] -> print("Not Found.\n");
+                [Chann] ->
+                    InfoTab = emqx_gateway_cm:tabname(info, Name),
+                    [ChannInfo] = ets:lookup(InfoTab, Chann),
+                    print_record({client, ChannInfo})
+            end
     end;
 
 'gateway-clients'(["kick", Name, ClientId]) ->
