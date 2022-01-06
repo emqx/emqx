@@ -165,7 +165,7 @@ handle_publish(Msg, undefined) ->
     ?SLOG(error, #{msg => "cannot_publish_to_local_broker_as"
                           "_'ingress'_is_not_configured",
                    message => Msg});
-handle_publish(Msg0, Vars) ->
+handle_publish(#{properties := Props} = Msg0, Vars) ->
     Msg = format_msg_received(Msg0),
     ?SLOG(debug, #{msg => "publish_to_local_broker",
                    message => Msg, vars => Vars}),
@@ -174,7 +174,7 @@ handle_publish(Msg0, Vars) ->
             _ = erlang:apply(Mod, Func, [Msg | Args]);
         _ -> ok
     end,
-    maybe_publish_to_local_broker(Msg0, Vars).
+    maybe_publish_to_local_broker(Msg, Vars, Props).
 
 handle_disconnected(Reason, Parent) ->
     Parent ! {disconnected, self(), Reason}.
@@ -195,14 +195,15 @@ sub_remote_topics(ClientPid, #{remote_topic := FromTopic, remote_qos := QoS}) ->
 process_config(Config) ->
     maps:without([conn_type, address, receive_mountpoint, subscriptions, name], Config).
 
-maybe_publish_to_local_broker(#{topic := Topic} = Msg, #{remote_topic := SubTopic} = Vars) ->
+maybe_publish_to_local_broker(#{topic := Topic} = Msg, #{remote_topic := SubTopic} = Vars,
+        Props) ->
     case maps:get(local_topic, Vars, undefined) of
         undefined ->
             ok; %% local topic is not set, discard it
         _ ->
             case emqx_topic:match(Topic, SubTopic) of
                 true ->
-                    _ = emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars)),
+                    _ = emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars, Props)),
                     ok;
                 false ->
                     ?SLOG(warning, #{msg => "discard_message_as_topic_not_matched",

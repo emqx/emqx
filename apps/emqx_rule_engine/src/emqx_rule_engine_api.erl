@@ -46,36 +46,36 @@
 -define(METRICS(MATCH, PASS, FAIL, FAIL_EX, FAIL_NORES, O_TOTAL, O_FAIL, O_FAIL_OOS,
         O_FAIL_UNKNOWN, O_SUCC, RATE, RATE_MAX, RATE_5),
     #{
-        matched => MATCH,
-        passed => PASS,
-        failed => FAIL,
-        'failed.exception' => FAIL_EX,
-        'failed.no_result' => FAIL_NORES,
+        'sql.matched' => MATCH,
+        'sql.passed' => PASS,
+        'sql.failed' => FAIL,
+        'sql.failed.exception' => FAIL_EX,
+        'sql.failed.no_result' => FAIL_NORES,
         'outputs.total' => O_TOTAL,
         'outputs.failed' => O_FAIL,
         'outputs.failed.out_of_service' => O_FAIL_OOS,
         'outputs.failed.unknown' => O_FAIL_UNKNOWN,
         'outputs.success' => O_SUCC,
-        rate => RATE,
-        rate_max => RATE_MAX,
-        rate_last5m => RATE_5
+        'sql.matched.rate' => RATE,
+        'sql.matched.rate.max' => RATE_MAX,
+        'sql.matched.rate.last5m' => RATE_5
     }).
 -define(metrics(MATCH, PASS, FAIL, FAIL_EX, FAIL_NORES, O_TOTAL, O_FAIL, O_FAIL_OOS,
         O_FAIL_UNKNOWN, O_SUCC, RATE, RATE_MAX, RATE_5),
     #{
-        matched := MATCH,
-        passed := PASS,
-        failed := FAIL,
-        'failed.exception' := FAIL_EX,
-        'failed.no_result' := FAIL_NORES,
+        'sql.matched' := MATCH,
+        'sql.passed' := PASS,
+        'sql.failed' := FAIL,
+        'sql.failed.exception' := FAIL_EX,
+        'sql.failed.no_result' := FAIL_NORES,
         'outputs.total' := O_TOTAL,
         'outputs.failed' := O_FAIL,
         'outputs.failed.out_of_service' := O_FAIL_OOS,
         'outputs.failed.unknown' := O_FAIL_UNKNOWN,
         'outputs.success' := O_SUCC,
-        rate := RATE,
-        rate_max := RATE_MAX,
-        rate_last5m := RATE_5
+        'sql.matched.rate' := RATE,
+        'sql.matched.rate.max' := RATE_MAX,
+        'sql.matched.rate.last5m' := RATE_5
     }).
 
 namespace() -> "rule".
@@ -304,9 +304,9 @@ printable_function_name(Mod, Func) ->
 get_rule_metrics(Id) ->
     Format = fun (Node, #{
             counters :=
-                #{matched := Matched, passed := Passed, failed := Failed,
-                 'failed.exception' := FailedEx,
-                 'failed.no_result' := FailedNoRes,
+                #{'sql.matched' := Matched, 'sql.passed' := Passed, 'sql.failed' := Failed,
+                 'sql.failed.exception' := FailedEx,
+                 'sql.failed.no_result' := FailedNoRes,
                  'outputs.total' := OTotal,
                  'outputs.failed' := OFailed,
                  'outputs.failed.out_of_service' := OFailedOOS,
@@ -314,7 +314,7 @@ get_rule_metrics(Id) ->
                  'outputs.success' := OFailedSucc
                  },
             rate :=
-                #{matched :=
+                #{'sql.matched' :=
                     #{current := Current, max := Max, last5m := Last5M}
                  }}) ->
         #{ metrics => ?METRICS(Matched, Passed, Failed, FailedEx, FailedNoRes,
