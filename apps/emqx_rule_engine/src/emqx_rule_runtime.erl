@@ -94,7 +94,7 @@ do_apply_rule(#rule{id = RuleId,
                     conditions = Conditions,
                     on_action_failed = OnFailed,
                     actions = Actions}, Input) ->
-    {Selected, Collection} = ?RAISE(select_and_collect(Fields, Input),                                        
+    {Selected, Collection} = ?RAISE(select_and_collect(Fields, Input),
                                         {select_and_collect_error, {_EXCLASS_,_EXCPTION_,_ST_}}),
     ColumnsAndSelected = maps:merge(Input, Selected),
     case ?RAISE(match_conditions(Conditions, ColumnsAndSelected),
@@ -117,7 +117,7 @@ do_apply_rule(#rule{id = RuleId,
                     conditions = Conditions,
                     on_action_failed = OnFailed,
                     actions = Actions}, Input) ->
-    Selected = ?RAISE(select_and_transform(Fields, Input), 
+    Selected = ?RAISE(select_and_transform(Fields, Input),
                       {select_and_transform_error, {_EXCLASS_,_EXCPTION_,_ST_}}),
     case ?RAISE(match_conditions(Conditions, maps:merge(Input, Selected)),
                 {match_conditions_error, {_EXCLASS_,_EXCPTION_,_ST_}}) of
