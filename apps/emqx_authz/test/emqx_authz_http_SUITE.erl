@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -156,49 +156,14 @@ t_query_params(_Config) ->
                    Req = cowboy_req:reply(200, Req0),
                    {ok, Req, State}
            end,
-           #{<<"query">> => <<"username=${username}&"
-                             "clientid=${clientid}&"
-                             "peerhost=${peerhost}&"
-                             "proto_name=${proto_name}&"
-                             "mountpoint=${mountpoint}&"
-                             "topic=${topic}&"
-                             "action=${action}">>
-            }),
-
-    ClientInfo = #{clientid => <<"client id">>,
-                   username => <<"user name">>,
-                   peerhost => {127,0,0,1},
-                   protocol => <<"MQTT">>,
-                   mountpoint => <<"MOUNTPOINT">>,
-                   zone => default,
-                   listener => {tcp, default}
-                  },
-
-    ?assertEqual(
-        allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)).
-
-t_path_params(_Config) ->
-    ok = setup_handler_and_config(
-           fun(Req0, State) ->
-                   <<"/authz/"
-                     "username/user%20name/"
-                     "clientid/client%20id/"
-                     "peerhost/127.0.0.1/"
-                     "proto_name/MQTT/"
-                     "mountpoint/MOUNTPOINT/"
-                     "topic/t/"
-                     "action/publish">> = cowboy_req:path(Req0),
-                   Req = cowboy_req:reply(200, Req0),
-                   {ok, Req, State}
-           end,
-           #{<<"path">> => <<"username/${username}/"
-                             "clientid/${clientid}/"
-                             "peerhost/${peerhost}/"
-                             "proto_name/${proto_name}/"
-                             "mountpoint/${mountpoint}/"
-                             "topic/${topic}/"
-                             "action/${action}">>
+           #{<<"url">> => <<"http://127.0.0.1:33333/authz/users/?"
+                            "username=${username}&"
+                            "clientid=${clientid}&"
+                            "peerhost=${host}&"
+                            "proto_name=${proto_name}&"
+                            "mountpoint=${mountpoint}&"
+                            "topic=${topic}&"
+                            "action=${action}">>
             }),
 
     ClientInfo = #{clientid => <<"client id">>,
@@ -218,23 +183,16 @@ t_json_body(_Config) ->
     ok = setup_handler_and_config(
            fun(Req0, State) ->
                    ?assertEqual(
-                      <<"/authz/"
-                        "username/user%20name/"
-                        "clientid/client%20id/"
-                        "peerhost/127.0.0.1/"
-                        "proto_name/MQTT/"
-                        "mountpoint/MOUNTPOINT/"
-                        "topic/t/"
-                        "action/publish">>,
+                      <<"/authz/users/">>,
                       cowboy_req:path(Req0)),
 
                    {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
 
                    ?assertMatch(
                       #{<<"username">> := <<"user name">>,
-                        <<"CLIENT_client id">> := <<"client id">>,
-                        <<"peerhost">> := [<<"127.0.0.1">>, 1],
-                        <<"proto_name">> := #{<<"proto">> := <<"MQTT">>},
+                        <<"CLIENT">> := <<"client id">>,
+                        <<"peerhost">> := <<"127.0.0.1">>,
+                        <<"proto_name">> := <<"MQTT">>,
                         <<"mountpoint">> := <<"MOUNTPOINT">>,
                         <<"topic">> := <<"t">>,
                         <<"action">> := <<"publish">>},
@@ -244,17 +202,10 @@ t_json_body(_Config) ->
                    {ok, Req, State}
            end,
            #{<<"method">> => <<"post">>,
-             <<"path">> => <<"username/${username}/"
-                             "clientid/${clientid}/"
-                             "peerhost/${peerhost}/"
-                             "proto_name/${proto_name}/"
-                             "mountpoint/${mountpoint}/"
-                             "topic/${topic}/"
-                             "action/${action}">>,
              <<"body">> => #{<<"username">> => <<"${username}">>,
-                             <<"CLIENT_${clientid}">> => <<"${clientid}">>,
-                             <<"peerhost">> => [<<"${peerhost}">>, 1],
-                             <<"proto_name">> => #{<<"proto">> => <<"${proto_name}">>},
+                             <<"CLIENT">> => <<"${clientid}">>,
+                             <<"peerhost">> => <<"${host}">>,
+                             <<"proto_name">> => <<"${proto_name}">>,
                              <<"mountpoint">> => <<"${mountpoint}">>,
                              <<"topic">> => <<"${topic}">>,
                              <<"action">> => <<"${action}">>}
@@ -278,17 +229,10 @@ t_form_body(_Config) ->
     ok = setup_handler_and_config(
            fun(Req0, State) ->
                    ?assertEqual(
-                      <<"/authz/"
-                        "username/user%20name/"
-                        "clientid/client%20id/"
-                        "peerhost/127.0.0.1/"
-                        "proto_name/MQTT/"
-                        "mountpoint/MOUNTPOINT/"
-                        "topic/t/"
-                        "action/publish">>,
+                      <<"/authz/users/">>,
                       cowboy_req:path(Req0)),
-                    
-                   {ok, PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
+
+                   {ok, [{PostVars, true}], Req1} = cowboy_req:read_urlencoded_body(Req0),
 
                    ?assertMatch(
                       #{<<"username">> := <<"user name">>,
@@ -298,22 +242,15 @@ t_form_body(_Config) ->
                         <<"mountpoint">> := <<"MOUNTPOINT">>,
                         <<"topic">> := <<"t">>,
                         <<"action">> := <<"publish">>},
-                      maps:from_list(PostVars)),
+                     jiffy:decode(PostVars, [return_maps])),
 
                    Req = cowboy_req:reply(200, Req1),
                    {ok, Req, State}
            end,
            #{<<"method">> => <<"post">>,
-             <<"path">> => <<"username/${username}/"
-                             "clientid/${clientid}/"
-                             "peerhost/${peerhost}/"
-                             "proto_name/${proto_name}/"
-                             "mountpoint/${mountpoint}/"
-                             "topic/${topic}/"
-                             "action/${action}">>,
              <<"body">> => #{<<"username">> => <<"${username}">>,
                              <<"clientid">> => <<"${clientid}">>,
-                             <<"peerhost">> => <<"${peerhost}">>,
+                             <<"peerhost">> => <<"${host}">>,
                              <<"proto_name">> => <<"${proto_name}">>,
                              <<"mountpoint">> => <<"${mountpoint}">>,
                              <<"topic">> => <<"${topic}">>,
@@ -349,7 +286,8 @@ t_create_replace(_Config) ->
                    Req = cowboy_req:reply(200, Req0),
                    {ok, Req, State}
            end,
-           #{<<"base_url">> => <<"http://127.0.0.1:33333/authz">>}),
+           #{<<"url">> =>
+                 <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>}),
 
     ?assertEqual(
         allow,
@@ -358,7 +296,8 @@ t_create_replace(_Config) ->
     %% Changing to other bad config does not work
     BadConfig = maps:merge(
                   raw_http_authz_config(),
-                  #{<<"base_url">> => <<"http://127.0.0.1:33332/authz">>}),
+                  #{<<"url">> =>
+                        <<"http://127.0.0.1:33332/authz/users/?topic=${topic}&action=${action}">>}),
 
     ?assertMatch(
         {error, _},
@@ -371,7 +310,8 @@ t_create_replace(_Config) ->
     %% Changing to valid config
     OkConfig = maps:merge(
                   raw_http_authz_config(),
-                  #{<<"base_url">> => <<"http://127.0.0.1:33333/authz">>}),
+                 #{<<"url">> =>
+                       <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>}),
 
     ?assertMatch(
         {ok, _},
@@ -388,12 +328,9 @@ t_create_replace(_Config) ->
 raw_http_authz_config() ->
     #{
         <<"enable">> => <<"true">>,
-
         <<"type">> => <<"http">>,
         <<"method">> => <<"get">>,
-        <<"base_url">> => <<"http://127.0.0.1:33333/authz">>,
-        <<"path">> => <<"users/${username}/">>,
-        <<"query">> => <<"topic=${topic}&action=${action}">>,
+        <<"url">> => <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>,
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
     }.
 
