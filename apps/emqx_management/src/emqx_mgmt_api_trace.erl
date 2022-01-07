@@ -339,7 +339,7 @@ cluster_call(Mod, Fun, Args, Timeout) ->
     Nodes = mria_mnesia:running_nodes(),
     {GoodRes, BadNodes} = rpc:multicall(Nodes, Mod, Fun, Args, Timeout),
     BadNodes =/= [] andalso
-        ?SLOG(error, #{msg => "rpc call failed", bad_nodes => BadNodes, mfa => {Mod, Fun, Args}}),
+        ?SLOG(error, #{msg => "rpc_call_failed", bad_nodes => BadNodes, mfa => {Mod, Fun, Args}}),
     GoodRes.
 
 stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
