@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
     # FIXME: use tagged version once merged
-    container: "ghcr.io/emqx/emqx-builder/elixir:24.1.5-3-1.13.1-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/elixir:1.13.1-24.1.5-3-ubuntu20.04"
 
     outputs:
       ce_old_vsns: ${{ steps.find_old_versons.outputs.ce_old_vsns }}
@@ -351,7 +351,7 @@ jobs:
           --otp "${OTP}" \
           --elixir "${ELIXIR}" \
           --system "${SYSTEM}" \
-          --builder "ghcr.io/emqx/emqx-builder/elixir:${OTP}-${ELIXIR}-${SYSTEM}"
+          --builder "ghcr.io/emqx/emqx-builder/elixir:${ELIXIR}-${OTP}-${SYSTEM}"
         ## the pkg build is incremental on the tgz build
         ./scripts/buildx.sh \
           --profile "${PROFILE}" \
@@ -360,7 +360,7 @@ jobs:
           --otp "${OTP}" \
           --elixir "${ELIXIR}" \
           --system "${SYSTEM}" \
-          --builder "ghcr.io/emqx/emqx-builder/elixir:${OTP}-${ELIXIR}-${SYSTEM}"
+          --builder "ghcr.io/emqx/emqx-builder/elixir:${ELIXIR}-${OTP}-${SYSTEM}"
 
         ./scripts/buildx.sh \
           --profile "${PROFILE}" \
@@ -369,7 +369,7 @@ jobs:
           --otp "${OTP}" \
           --elixir "${ELIXIR}" \
           --system "${SYSTEM}" \
-          --builder "ghcr.io/emqx/emqx-builder/elixir:${OTP}-${ELIXIR}-${SYSTEM}"
+          --builder "ghcr.io/emqx/emqx-builder/elixir:${ELIXIR}-${OTP}-${SYSTEM}"
 
     - name: create sha256
       env:
@@ -450,7 +450,7 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
           # FIXME: use tagged version once merged
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/elixir:${{ matrix.otp }}-${{ matrix.elixir }}-alpine3.14
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/elixir:${{ matrix.elixir }}-${{ matrix.otp }}-alpine3.14
           RUN_FROM=alpine:3.14
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile

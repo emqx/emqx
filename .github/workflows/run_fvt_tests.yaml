@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
     # FIXME: use tagged version once merged
-    container: ghcr.io/emqx/emqx-builder/elixir:24.1.5-3-1.13.1-alpine3.14
+    container: ghcr.io/emqx/emqx-builder/elixir:1.13.1-24.1.5-3-alpine3.14
 
     steps:
       - uses: actions/checkout@v2
@@ -85,7 +85,7 @@ jobs:
       working-directory: source
       env:
         # FIXME: use tagged version once merged
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/elixir:${{ matrix.otp }}-1.13.1-${{ matrix.os }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/elixir:1.13.1-${{ matrix.otp }}-${{ matrix.os }}
       run: |
         make ${{ matrix.profile }}-docker
     - name: run emqx
@@ -160,7 +160,7 @@ jobs:
       working-directory: source
       env:
         # FIXME: use tagged version once merged
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/elixir:${{ matrix.otp }}-1.13.1-${{ matrix.os }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/elixir:1.13.1-${{ matrix.otp }}-${{ matrix.os }}
       run: |
         make ${{ matrix.profile }}-docker
         echo "TARGET=emqx/${{ matrix.profile }}" >> $GITHUB_ENV

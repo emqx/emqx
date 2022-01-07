@@ -42,7 +42,7 @@ jobs:
         - centos7
 
     # FIXME: use tagged version once merged
-    container: "ghcr.io/emqx/emqx-builder/elixir:${{ matrix.otp }}-${{ matrix.elixir }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/elixir:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     steps:
     - uses: actions/checkout@v1
@@ -51,7 +51,7 @@ jobs:
         echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
         echo "CODE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
         echo "EMQX_PKG_NAME=${{ matrix.profile }}-$(./pkg-vsn.sh ${{ matrix.profile }})-otp${{ matrix.otp }}-${{ matrix.os }}-amd64" >> $GITHUB_ENV
-        echo "EMQX_ELIXIRPKG_NAME=${{ matrix.profile }}-$(./pkg-vsn.sh ${{ matrix.profile }})-otp${{ matrix.otp }}-elixir${{ matrix.elixir }}-${{ matrix.os }}-amd64" >> $GITHUB_ENV
+        echo "EMQX_ELIXIRPKG_NAME=${{ matrix.profile }}-$(./pkg-vsn.sh ${{ matrix.profile }})-elixir${{ matrix.elixir }}-otp${{ matrix.otp }}-${{ matrix.os }}-amd64" >> $GITHUB_ENV
     - name: Get deps git refs for cache
       id: deps-refs
       run: |

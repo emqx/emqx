@@ -1,5 +1,5 @@
 # FIXME: use tagged version once merged
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/elixir:24.1.5-3-1.13.1-alpine3.14
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/elixir:1.13.1-24.1.5-3-alpine3.14
 ARG RUN_FROM=alpine:3.14
 FROM ${BUILD_FROM} AS builder
 
