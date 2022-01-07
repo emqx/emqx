@@ -154,7 +154,6 @@ defmodule EMQXUmbrella.MixProject do
 
   def applications(release_type) do
     [
-      logger: :permanent,
       crypto: :permanent,
       public_key: :permanent,
       asn1: :permanent,
