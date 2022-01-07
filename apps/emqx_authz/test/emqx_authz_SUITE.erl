@@ -73,6 +73,7 @@ set_special_configs(_App) ->
                    <<"enable">> => true,
                    <<"mongo_type">> => <<"single">>,
                    <<"server">> => <<"127.0.0.1:27017">>,
+                   <<"w_mode">> => <<"unsafe">>,
                    <<"pool_size">> => 1,
                    <<"database">> => <<"mqtt">>,
                    <<"ssl">> => #{<<"enable">> => false},

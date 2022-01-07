@@ -34,7 +34,6 @@
         , on_jsonify/1
         ]).
 
-
 %% ecpool callback
 -export([connect/1]).
 
@@ -55,17 +54,21 @@ fields(single) ->
     [ {mongo_type, #{type => single,
                      default => single}}
     , {server, fun server/1}
+    , {w_mode, fun w_mode/1}
     ] ++ mongo_fields();
 fields(rs) ->
     [ {mongo_type, #{type => rs,
                      default => rs}}
     , {servers, fun servers/1}
+    , {w_mode, fun w_mode/1}
+    , {r_mode, fun r_mode/1}
     , {replica_set_name, fun replica_set_name/1}
     ] ++ mongo_fields();
 fields(sharded) ->
     [ {mongo_type, #{type => sharded,
                      default => sharded}}
     , {servers, fun servers/1}
+    , {w_mode, fun w_mode/1}
     ] ++ mongo_fields();
 fields(topology) ->
     [ {pool_size, fun emqx_connector_schema_lib:pool_size/1}
@@ -270,6 +273,14 @@ server(_) -> undefined.
 servers(type) -> binary();
 servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
 servers(_) -> undefined.
+
+w_mode(type) -> hoconsc:enum([unsafe, safe]);
+w_mode(default) -> unsafe;
+w_mode(_) -> undefined.
+
+r_mode(type) -> hoconsc:enum([master, slave_ok]);
+r_mode(default) -> master;
+r_mode(_) -> undefined.
 
 duration(type) -> emqx_schema:duration_ms();
 duration(nullable) -> true;
