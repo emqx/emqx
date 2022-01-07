@@ -36,8 +36,9 @@
 
 -type param_types() :: #{emqx_bpapi:var_name() => _Type}.
 
-%% Applications we wish to ignore in the analysis:
--define(IGNORED_APPS, "gen_rpc, recon, observer_cli, snabbkaffe, ekka, mria").
+%% Applications and modules we wish to ignore in the analysis:
+-define(IGNORED_APPS, "gen_rpc, recon, redbug, observer_cli, snabbkaffe, ekka, mria").
+-define(IGNORED_MODULES, "emqx_rpc").
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
 %% List of functions in the RPC backend modules that we can ignore:
@@ -162,6 +163,7 @@ dump(Opts) ->
     DialyzerDump = collect_signatures(PLT, APIDump),
     Release = emqx_app:get_release(),
     dump_api(#{api => APIDump, signatures => DialyzerDump, release => Release}),
+    xref:stop(?XREF),
     erase(bpapi_ok).
 
 prepare(#{reldir := RelDir, plt := PLT}) ->
@@ -176,7 +178,7 @@ prepare(#{reldir := RelDir, plt := PLT}) ->
     dialyzer_plt:from_file(PLT).
 
 find_remote_calls(_Opts) ->
-    Query = "XC | (A - [" ?IGNORED_APPS "]:App)
+    Query = "XC | (A - [" ?IGNORED_APPS "]:App - [" ?IGNORED_MODULES "] : Mod)
                || ([" ?RPC_MODULES "] : Mod - " ?IGNORED_RPC_CALLS ")",
     {ok, Calls} = xref:q(?XREF, Query),
     ?INFO("Calls to RPC modules ~p", [Calls]),
