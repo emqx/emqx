@@ -27,6 +27,12 @@
         , multicall/5
         ]).
 
+-export_type([ badrpc/0
+             , call_result/0
+             , cast_result/0
+             , multicall_result/0
+             ]).
+
 -compile({inline,
           [ rpc_node/1
           , rpc_nodes/1
@@ -34,23 +40,37 @@
 
 -define(DefaultClientNum, 1).
 
+-type badrpc() ::  {badrpc, term()} | {badtcp, term()}.
+
+-type call_result() :: term() | badrpc().
+
+-type cast_result() :: true.
+
+-type multicall_result() :: {_Results :: [term()], _BadNodes :: [node()]}.
+
+-spec call(node(), module(), atom(), list()) -> call_result().
 call(Node, Mod, Fun, Args) ->
     filter_result(gen_rpc:call(rpc_node(Node), Mod, Fun, Args)).
 
+-spec call(term(), node(), module(), atom(), list()) -> call_result().
 call(Key, Node, Mod, Fun, Args) ->
     filter_result(gen_rpc:call(rpc_node({Key, Node}), Mod, Fun, Args)).
 
+-spec multicall([node()], module(), atom(), list()) -> multicall_result().
 multicall(Nodes, Mod, Fun, Args) ->
-    filter_result(gen_rpc:multicall(rpc_nodes(Nodes), Mod, Fun, Args)).
+    gen_rpc:multicall(rpc_nodes(Nodes), Mod, Fun, Args).
 
+-spec multicall(term(), [node()], module(), atom(), list()) -> multicall_result().
 multicall(Key, Nodes, Mod, Fun, Args) ->
-    filter_result(gen_rpc:multicall(rpc_nodes([{Key, Node} || Node <- Nodes]), Mod, Fun, Args)).
+    gen_rpc:multicall(rpc_nodes([{Key, Node} || Node <- Nodes]), Mod, Fun, Args).
 
+-spec cast(node(), module(), atom(), list()) -> cast_result().
 cast(Node, Mod, Fun, Args) ->
-    filter_result(gen_rpc:cast(rpc_node(Node), Mod, Fun, Args)).
+    gen_rpc:cast(rpc_node(Node), Mod, Fun, Args).
 
+-spec cast(term(), node(), module(), atom(), list()) -> cast_result().
 cast(Key, Node, Mod, Fun, Args) ->
-    filter_result(gen_rpc:cast(rpc_node({Key, Node}), Mod, Fun, Args)).
+    gen_rpc:cast(rpc_node({Key, Node}), Mod, Fun, Args).
 
 rpc_node(Node) when is_atom(Node) ->
     {Node, rand:uniform(max_client_num())};
