@@ -29,10 +29,11 @@
 introduced_in() ->
     "5.0.0".
 
--spec forward(node(), emqx_types:topic(), emqx_types:delivery()) -> emqx_types:deliver_result().
+-spec forward(node(), emqx_types:topic(), emqx_types:delivery()) -> emqx_types:deliver_result()
+                                                                  | emqx_rpc:badrpc().
 forward(Node, Topic, Delivery = #delivery{}) when is_binary(Topic) ->
     emqx_rpc:call(Topic, Node, emqx_broker, dispatch, [Topic, Delivery]).
 
--spec forward_async(node(), emqx_types:topic(), emqx_types:delivery()) -> ok.
+-spec forward_async(node(), emqx_types:topic(), emqx_types:delivery()) -> true.
 forward_async(Node, Topic, Delivery = #delivery{}) when is_binary(Topic) ->
     emqx_rpc:cast(Topic, Node, emqx_broker, dispatch, [Topic, Delivery]).

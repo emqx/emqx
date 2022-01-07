@@ -60,7 +60,6 @@ prop_nodes() ->
          begin
              Nodes = punch(Nodes0),
              case emqx_rpc:multicall(Nodes, erlang, system_time, []) of
-                 {badrpc, _Reason} -> true;
                  {RealResults, RealBadNodes}
                    when is_list(RealResults);
                         is_list(RealBadNodes) ->
@@ -74,7 +73,6 @@ prop_nodes_with_key() ->
          begin
              Nodes = punch(Nodes0),
              case emqx_rpc:multicall(Key, Nodes, erlang, system_time, []) of
-                 {badrpc, _Reason} -> true;
                  {RealResults, RealBadNodes}
                    when is_list(RealResults);
                         is_list(RealBadNodes) ->
