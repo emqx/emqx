@@ -100,11 +100,24 @@ authorize(_Path, ApiKey, ApiSecret) ->
         {ok, true, ExpiredAt, SecretHash} when ExpiredAt >= Now ->
             case emqx_dashboard_admin:verify_hash(ApiSecret, SecretHash) of
                 ok -> ok;
-                error -> {error, "secret_error"}
+                error ->
+                    check_banned(ApiKey, {error, "secret_error"})
             end;
-        {ok, true, _ExpiredAt, _SecretHash} -> {error, "secret_expired"};
-        {ok, false, _ExpiredAt, _SecretHash} -> {error, "secret_disable"};
-        {error, Reason} -> {error, Reason}
+        {ok, true, _ExpiredAt, _SecretHash} ->
+            check_banned(ApiKey, {error, "secret_expired"});
+        {ok, false, _ExpiredAt, _SecretHash} ->
+            check_banned(ApiKey, {error, "secret_disable"});
+        {error, not_found} ->
+            check_banned(ApiKey, {error, "not_found"})
+    end.
+
+check_banned(ApiKey, Response) ->
+    case emqx_banned:is_banned_app(ApiKey) of
+        {lock_user, RetryAfter} ->
+            {error, {lock_user, RetryAfter}};
+        false ->
+            _ = emqx_banned:check_banned_app(ApiKey),
+            Response
     end.
 
 find_by_api_key(ApiKey) ->
@@ -112,7 +125,7 @@ find_by_api_key(ApiKey) ->
     case trans(Fun) of
         {ok, [#?APP{api_secret_hash = SecretHash, enable = Enable, expired_at = ExpiredAt}]} ->
             {ok, Enable, ExpiredAt, SecretHash};
-        _ -> {error, "not_found"}
+        _ -> {error, not_found}
     end.
 
 ensure_not_undefined(undefined, Old) -> Old;

@@ -126,46 +126,53 @@ listener_name(Protocol, Port) ->
 authorize(Req) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {basic, Username, Password} ->
-            case emqx_dashboard_admin:check(Username, Password) of
-                ok ->
-                    ok;
-                {error, <<"username_not_found">>} ->
-                    Path = cowboy_req:path(Req),
-                    case emqx_mgmt_auth:authorize(Path, Username, Password) of
-                        ok ->
-                            ok;
-                        {error, <<"not_allowed">>} ->
-                            return_unauthorized(
-                                <<"WORNG_USERNAME_OR_PWD">>,
-                                <<"Check username/password">>);
-                        {error, _} ->
-                            return_unauthorized(
-                                <<"WORNG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET">>,
-                                <<"Check username/password or api_key/api_secret">>)
-                    end;
-                {error, <<"password_error">>} ->
-                    return_unauthorized(
-                        <<"WORNG_USERNAME_OR_PWD">>, <<"Check username/password">>);
-                {error, {lock_user, RetryAfter}} ->
-                    Message = list_to_binary(
-                        io_lib:format("User ~p locked, retry after ~p seconds",
-                            [Username, RetryAfter])),
-                    {401, 'AUTH_LOCKED', Message}
-            end;
+            basic_admin_auth(Req, Username, Password);
         {bearer, Token} ->
-            case emqx_dashboard_admin:verify_token(Token) of
-                ok ->
-                    ok;
-                {error, token_timeout} ->
-                    {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
-                {error, not_found} ->
-                    {401, 'BAD_TOKEN', <<"Get a token by POST /login">>}
-            end;
+            jwt_admin_auth(Token);
         _ ->
-            return_unauthorized(<<"AUTHORIZATION_HEADER_ERROR">>,
-                <<"Support authorization: basic/bearer">>)
+            return_unauthorized()
     end.
 
+basic_admin_auth(Req, Username, Password) ->
+    case emqx_dashboard_admin:check(Username, Password) of
+        ok ->
+            ok;
+        {error, {lock_user, RetryAfter}} ->
+            return_locked_user(Username, RetryAfter);
+        {error, <<"username_not_found">>} ->
+            basic_app_auth(Req, Username, Password);
+        _ ->
+            return_unauthorized()
+    end.
+
+basic_app_auth(Req, AppID, Secret) ->
+    Path = cowboy_req:path(Req),
+    case emqx_mgmt_auth:authorize(Path, AppID, Secret) of
+        ok ->
+            ok;
+        {error, {lock_user, RetryAfter}} ->
+            return_locked_user(AppID, RetryAfter);
+        _ ->
+            return_unauthorized()
+    end.
+
+jwt_admin_auth(Token) ->
+    case emqx_dashboard_admin:verify_token(Token) of
+        ok ->
+            ok;
+        {error, token_timeout} ->
+            {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
+        {error, not_found} ->
+            {401, 'BAD_TOKEN', <<"Get a token by POST /login">>}
+    end.
+
+return_locked_user(UserName, RetryAfter) ->
+    Message = list_to_binary(
+        io_lib:format("User ~p locked, retry after ~p seconds", [UserName, RetryAfter])),
+    {401, 'AUTH_LOCKED', Message}.
+
+return_unauthorized() ->
+    return_unauthorized(<<"WORNG_USERNAME_OR_PWD">>, <<"Check username/password">>).
 return_unauthorized(Code, Message) ->
     {
         401,

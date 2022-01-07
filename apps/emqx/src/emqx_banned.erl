@@ -27,7 +27,8 @@
 
 -boot_mnesia({mnesia, [boot]}).
 
--export([start_link/0, stop/0]).
+-export([ start_link/0
+        , stop/0]).
 
 -export([ check/1
         , create/1
@@ -36,6 +37,8 @@
         , info/1
         , is_banned_api/1
         , check_banned_api/1
+        , is_banned_app/1
+        , check_banned_app/1
         , format/1
         , parse/1
         ]).
@@ -231,17 +234,26 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% api user & app id banned
 %%--------------------------------------------------------------------
--spec(is_banned_api(User :: binary()) -> boolean()).
+-spec(is_banned_api(User :: binary()) -> false | {lock_user, RetryAfter :: integer()}).
 is_banned_api(User) ->
-    case look_up({api_user, User}) of
+    is_banned_api_app({api_user, User}).
+
+-spec(is_banned_app(User :: binary()) -> false | {lock_user, RetryAfter :: integer()}).
+is_banned_app(User) ->
+    is_banned_api_app({app_user, User}).
+
+-spec(is_banned_api_app({api_user | app_user, User :: binary()}) ->
+    false | {lock_user, RetryAfter :: integer()}).
+is_banned_api_app(UserOrApp) ->
+    case look_up(UserOrApp) of
         [] ->
             false;
         [#banned{reason = R, until = Until} | _] ->
-            case Until > erlang:system_time(second) of
-                true ->
-                    R >= 10;
-                false ->
-                    _ = delete({api_user, User}),
+            case Until - erlang:system_time(second) of
+                RetryAfter when RetryAfter > 0 andalso R >= 10 ->
+                    {lock_user, RetryAfter};
+                _ ->
+                    _ = delete(UserOrApp),
                     false
             end
     end.
@@ -249,27 +261,37 @@ is_banned_api(User) ->
 -spec(check_banned_api(User :: binary()) ->
     ok | {lock_user,{User :: binary(), RetryAfter :: integer()}}).
 check_banned_api(User) ->
-    case look_up({api_user, User}) of
+    check_banned_api_app({api_user, User}).
+
+-spec(check_banned_app(User :: binary()) ->
+    ok | {lock_user,{User :: binary(), RetryAfter :: integer()}}).
+check_banned_app(User) ->
+    check_banned_api_app({app_user, User}).
+
+-spec(check_banned_api_app({api_user | app_user, User :: binary()}) ->
+    ok | {lock_user, RetryAfter :: integer()}).
+check_banned_api_app(User) ->
+    case look_up(User) of
         [] ->
-            new_api_banned(User);
+            new_api_app_banned(User);
         [#banned{reason = R} | _] when R < 10 ->
-            update_api_banned(User, R + 1);
+            update_api_app_banned(User, R + 1);
         [#banned{until = Until} | _] ->
             case Until - erlang:system_time(second) of
                 Interval when Interval > 0 ->
-                    {lock_user, {User, Interval}};
+                    {lock_user, Interval};
                 _ ->
-                    delete({api_user, User})
+                    delete(User)
             end
     end.
 
-new_api_banned(User) ->
-    update_api_banned(User, 300).
+new_api_app_banned(User) ->
+    update_api_app_banned(User, 300).
 
-update_api_banned(User, Count) ->
+update_api_app_banned(User, Count) ->
     Now = erlang:system_time(second),
     NewBanned = #banned{
-        who = {api_user, User},
+        who = User,
         by = <<"emqx_dashboard">>,
         reason = Count,
         at = Now,
