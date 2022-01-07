@@ -86,7 +86,7 @@ stop() ->
 %% @doc Is emqx running?
 -spec(is_running(node()) -> boolean()).
 is_running(Node) ->
-    case rpc:call(Node, ?MODULE, is_running, []) of
+    case emqx_proto_v1:is_running(Node) of
         {badrpc, _}          -> false;
         Result               -> Result
     end.
