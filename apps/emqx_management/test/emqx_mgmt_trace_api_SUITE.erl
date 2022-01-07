@@ -24,6 +24,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("kernel/include/file.hrl").
 -include_lib("stdlib/include/zip.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
@@ -120,9 +121,7 @@ t_download_log(_Config) ->
     Start = to_rfc3339(Now),
     Name = <<"test_client_id">>,
     load(),
-    ok = emqx_trace:create([{<<"name">>, Name},
-        {<<"type">>, clientid}, {<<"clientid">>, ClientId}, {<<"start_at">>, Start}]),
-    ct:sleep(50),
+    create_trace(Name, ClientId, Start),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     [begin _ = emqtt:ping(Client) end ||_ <- lists:seq(1, 5)],
@@ -138,6 +137,18 @@ t_download_log(_Config) ->
     ok = emqtt:disconnect(Client),
     ok.
 
+create_trace(Name, ClientId, Start) ->
+    ?check_trace(
+        #{timetrap => 900},
+        begin
+            ok = emqx_trace:create([{<<"name">>, Name},
+                {<<"type">>, clientid}, {<<"clientid">>, ClientId}, {<<"start_at">>, Start}]),
+            ?block_until(#{?snk_kind := update_trace_done})
+        end,
+        fun(Trace) ->
+            ?assertMatch([#{}], ?of_kind(update_trace_done, Trace))
+        end).
+
 t_stream_log(_Config) ->
     application:set_env(emqx, allow_anonymous, true),
     emqx_trace:clear(),
@@ -146,9 +157,7 @@ t_stream_log(_Config) ->
     Now = erlang:system_time(second),
     Name = <<"test_stream_log">>,
     Start = to_rfc3339(Now - 10),
-    ok = emqx_trace:create(#{<<"name">> => Name,
-        <<"type">> => clientid, <<"clientid">> => ClientId, <<"start_at">> => Start}),
-    ct:sleep(200),
+    create_trace(Name, ClientId, Start),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     [begin _ = emqtt:ping(Client) end || _ <- lists:seq(1, 5)],

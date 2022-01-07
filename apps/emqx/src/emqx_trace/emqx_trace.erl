@@ -19,6 +19,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -boot_mnesia({mnesia, [boot]}).
 -export([mnesia/1]).
@@ -261,6 +262,7 @@ handle_info({timeout, TRef, update_trace}, #{timer := TRef} = State) ->
     Traces = get_enable_trace(),
     NextTRef = update_trace(Traces),
     update_trace_handler(),
+    ?tp(update_trace_done, #{}),
     {noreply, State#{timer => NextTRef}};
 
 handle_info({mnesia_table_event, _Events}, State = #{timer := TRef}) ->
