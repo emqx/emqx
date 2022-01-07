@@ -420,8 +420,8 @@ t_mqtt_conn_update2(_) ->
     %% we fix the 'server' parameter to a normal one, it should work
     {ok, 200, _} = request(put, uri(["connectors", ConnctorID]),
                                  ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)),
-    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
     wait_for_resource_ready(BridgeIDEgress, 5),
+    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
     ?assertMatch(#{ <<"id">> := BridgeIDEgress
                   , <<"status">> := <<"connected">>
                   }, jsx:decode(BridgeStr)),

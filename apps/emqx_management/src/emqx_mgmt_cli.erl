@@ -442,7 +442,7 @@ trace_off(Type, Filter) ->
 %%--------------------------------------------------------------------
 %% @doc Trace Cluster Command
 traces(["list"]) ->
-    {ok, List} = emqx_trace_api:list_trace(get, []),
+    {200, List} = emqx_mgmt_api_trace:trace(get, []),
     case List of
         [] ->
             emqx_ctl:print("Cluster Trace is empty~n", []);
