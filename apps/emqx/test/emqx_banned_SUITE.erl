@@ -35,14 +35,32 @@ end_per_suite(_Config) ->
     mria_mnesia:delete_schema().
 
 t_api_user_banned(_) ->
+    %% username & password
     BadUsername = <<"bad_username">>,
+    ?assertNot(emqx_banned:is_banned_api(BadUsername)),
     Fun =
         fun(_) ->
-            ?assertEqual(ok, emqx_banned:check_api_banned(BadUsername))
+            ?assertEqual(ok, emqx_banned:check_banned_api(BadUsername))
         end,
     lists:foreach(Fun, lists:seq(1, 10)),
-    {lock_user, {BadUsername, Interval}} = emqx_banned:check_api_banned(BadUsername),
-    ?assertEqual(true, Interval > 295).
+    {lock_user, Interval} = emqx_banned:check_banned_api(BadUsername),
+    {lock_user, RetryAfter} = emqx_banned:is_banned_api(BadUsername),
+    ?assert(Interval >= 295),
+    ?assert(RetryAfter >= 295),
+    ok = emqx_banned:delete({api_user, BadUsername}),
+
+    %% app id & secret
+    ?assertNot(emqx_banned:is_banned_app(BadUsername)),
+    Fun2 =
+        fun(_) ->
+            ?assertEqual(ok, emqx_banned:check_banned_app(BadUsername))
+        end,
+    lists:foreach(Fun2, lists:seq(1, 10)),
+    {lock_user, Interval2} = emqx_banned:check_banned_app(BadUsername),
+    {lock_user, RetryAfter2} = emqx_banned:is_banned_app(BadUsername),
+    ?assertEqual(true, Interval2 >= 295),
+    ?assertEqual(true, RetryAfter2 >= 295),
+    ok = emqx_banned:delete({app_user, BadUsername}).
 
 t_add_delete(_) ->
     Banned = #banned{who = {clientid, <<"TestClient">>},

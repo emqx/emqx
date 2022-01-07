@@ -286,7 +286,7 @@ check_banned_api_app(User) ->
     end.
 
 new_api_app_banned(User) ->
-    update_api_app_banned(User, 300).
+    update_api_app_banned(User, 1).
 
 update_api_app_banned(User, Count) ->
     Now = erlang:system_time(second),
