@@ -632,6 +632,7 @@ case "${COMMAND}" in
             ps -p "$PID"
             exit 1
         fi
+        echo "ok"
         logger -t "${REL_NAME}[${PID}]" "STOP: OK"
         ;;
 
