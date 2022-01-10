@@ -27,3 +27,7 @@ t_statsd(_) ->
     end,
     gen_udp:close(Socket).
 
+t_management(_) ->
+    ?assertMatch(ok, emqx_statsd:start()),
+    ?assertMatch(ok, emqx_statsd:stop()),
+    ?assertMatch(ok, emqx_statsd:restart()).
