@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_mgmt_api_plugin).
+-module(emqx_mgmt_api_plugins).
 
 -behaviour(minirest_api).
 
@@ -65,7 +65,7 @@ schema("/plugins") ->
         'operationId' => list_plugins,
         get => #{
             description => "List all install plugins.<br>"
-            "Plugins starts in the order of the list from the top to the bottom. <br>"
+            "Plugins are launched in top-down order.<br>"
             "Using `POST /plugins/{name}/move` to change the boot order.",
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(plugin))
