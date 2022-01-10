@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_mgmt_publish_api_SUITE).
+-module(emqx_mgmt_api_publish_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -78,4 +78,3 @@ receive_assert(Topic, Qos, Payload) ->
     after 5000 ->
         timeout
     end.
-

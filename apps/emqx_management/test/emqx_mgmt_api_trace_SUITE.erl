@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_mgmt_trace_api_SUITE).
+-module(emqx_mgmt_api_trace_SUITE).
 
 %% API
 -compile(export_all).

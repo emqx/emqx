@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_mgmt_listeners_api_SUITE).
+-module(emqx_mgmt_api_listeners_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
