@@ -55,6 +55,10 @@ proper: $(REBAR)
 ct: $(REBAR) conf-segs
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v
 
+.PHONY: static_checks
+static_checks: dialyzer xref
+	@$(REBAR) ct --suite apps/emqx/test/emqx_bpapi_suite --readable false
+
 APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
 
 ## app/name-ct targets are intended for local tests hence cover is not enabled
