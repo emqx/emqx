@@ -45,6 +45,13 @@ if [ "$(uname -s)" = 'Linux' ]; then
     esac
 fi
 
+if [ "${SYSTEM}" = 'windows' ]; then
+    # windows does not like the find
+    FIND="/usr/bin/find"
+else
+    FIND='find'
+fi
+
 log() {
     local msg="$1"
     # rebar3 prints ===>, so we print ===<
@@ -53,21 +60,20 @@ log() {
 
 make_doc() {
     local libs_dir1 libs_dir2
-    libs_dir1="$(find "_build/default/lib/" -maxdepth 2 -name ebin -type d)"
-    libs_dir2="$(find "_build/$PROFILE/lib/" -maxdepth 2 -name ebin -type d)"
-
-    local conf_doc_md
-    # TODO render md as html
-    conf_doc_md="$(pwd)/_build/${PROFILE}/lib/emqx_dashboard/priv/config.md"
-    echo "===< Generating config document $conf_doc_md"
+    libs_dir1="$("$FIND" "_build/default/lib/" -maxdepth 2 -name ebin -type d)"
+    libs_dir2="$("$FIND" "_build/$PROFILE/lib/" -maxdepth 2 -name ebin -type d)"
     # shellcheck disable=SC2086
-    erl -noshell -pa $libs_dir1 $libs_dir2 -eval "ok = emqx_conf:gen_doc(\"${conf_doc_md}\"), halt(0)."
+    erl -noshell -pa $libs_dir1 $libs_dir2 -eval \
+        "F = filename:join(['_build', '${PROFILE}', lib, emqx_dashboard, priv, 'config.md']), \
+         io:format(\"===< Generating: ~s~n\", [F]),
+         ok = emqx_conf:gen_doc(F), \
+         halt(0)."
 }
 
 make_rel() {
     # shellcheck disable=SC1010
     ./rebar3 as "$PROFILE" do tar
-    if [ "$(find "_build/$PROFILE/rel/emqx/lib/" -maxdepth 1 -name 'gpb-*' -type d)" != "" ]; then
+    if [ "$("$FIND" "_build/$PROFILE/rel/emqx/lib/" -maxdepth 1 -name 'gpb-*' -type d)" != "" ]; then
         echo "gpb should not be included in the release"
         exit 1
     fi
@@ -93,7 +99,7 @@ make_relup() {
                 rm -rf "$tmp_dir"
             fi
             releases+=( "$base_vsn" )
-        done < <(find _upgrade_base -maxdepth 1 -name "*$PROFILE-otp${OTP_VSN}-$SYSTEM*-$ARCH.zip" -type f)
+        done < <("$FIND" _upgrade_base -maxdepth 1 -name "*$PROFILE-otp${OTP_VSN}-$SYSTEM*-$ARCH.zip" -type f)
     fi
     if [ ${#releases[@]} -eq 0 ]; then
         log "No upgrade base found, relup ignored"
@@ -113,7 +119,7 @@ cp_dyn_libs() {
     mkdir -p "$target_dir"
     while read -r so_file; do
         cp -L "$so_file" "$target_dir/"
-    done < <(find "$rel_dir" -type f \( -name "*.so*" -o -name "beam.smp" \) -print0 \
+    done < <("$FIND" "$rel_dir" -type f \( -name "*.so*" -o -name "beam.smp" \) -print0 \
         | xargs -0 ldd \
         | grep -E '(libcrypto)|(libtinfo)' \
         | awk '{print $3}' \
