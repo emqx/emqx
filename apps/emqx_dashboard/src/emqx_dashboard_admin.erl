@@ -100,7 +100,7 @@ add_user_(Username, Password, Desc) ->
                     mnesia:abort(<<"Username Already Exist">>)
             end;
         {error, Reason} ->
-            {error, {bad_password, Reason}}
+            mnesia:abort({bad_password, Reason})
     end.
 
 -spec(remove_user(binary()) -> {ok, any()} | {error, any()}).
