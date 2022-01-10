@@ -17,12 +17,16 @@ jobs:
       matrix:
         otp:
           - 24.1.5-3
+        elixir:
+          - 1.13.1
         os:
           - ubuntu20.04
         arch:
           - amd64
     runs-on: ubuntu-latest
-    container: "ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-${{ matrix.os }}"
+    # FIXME: use tagged version once merged
+    container: ghcr.io/emqx/emqx-builder/elixir:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+
     steps:
     - uses: actions/checkout@v2
 

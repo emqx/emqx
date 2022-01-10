@@ -12,28 +12,24 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: ghcr.io/emqx/emqx-builder/5.0-3:24.1.5-3-alpine3.14
+    # FIXME: use tagged version once merged
+    container: ghcr.io/emqx/emqx-builder/elixir:1.13.1-23.3.4.9-3-ubuntu20.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v2.4.0
-      - name: setup mix
-        run: |
-          mix local.hex --force
-          mix local.rebar --force
-          mix deps.get
-      - name: produce emqx.conf.all template
-        run: make conf-segs
+      - name: install tools
+        run: apt update && apt install netcat-openbsd
       - name: elixir release
-        run: mix release --overwrite
+        run: make emqx-elixir
       - name: start release
         run: |
-          cd _build/dev/rel/emqx
+          cd _build/prod/rel/emqx
           bin/emqx start
       - name: check if started
         run: |
           sleep 10
           nc -zv localhost 1883
-          cd _build/dev/rel/emqx
+          cd _build/prod/rel/emqx
           bin/emqx ping
           bin/emqx ctl status
