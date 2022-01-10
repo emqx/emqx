@@ -25,7 +25,7 @@ C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build
 
 Depending on your visual studio version and OS, the paths may differ.
 The first path is for rebar3 port compiler to find `cl.exe` and `link.exe`
-The second path is for Powershell or CMD to setup environment variables.
+The second path is for CMD to setup environment variables.
 
 ### Erlang/OTP
 
@@ -73,6 +73,7 @@ Some of the unix world tools are required to build EMQ X.  Including:
 * git
 * curl
 * make
+* cmake
 * jq
 * zip / unzip
 
@@ -81,14 +82,14 @@ We recommend using [scoop](https://scoop.sh/), or [Chocolatey](https://chocolate
 When using scoop:
 
 ```
-scoop install git curl make jq zip unzip
+scoop install git curl make cmake jq zip unzip
 ```
 
 ## Build EMQ X source code
 
 * Clone the repo: `git clone https://github.com/emqx/emqx.git`
 
-* Start CMD or Powershell
+* Start CMD console
 
 * Execute `vcvarsall.bat x86_amd64` to load environment variables
 

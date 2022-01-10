@@ -59,6 +59,7 @@ jobs:
         profile: # only CE for windows
           - emqx
         otp:
+          ## gleam-lang/setup-erlang does not yet support the installation of otp24 on windows
           - 23.2
 
     steps:
@@ -71,7 +72,6 @@ jobs:
     - uses: ilammy/msvc-dev-cmd@v1
     - uses: gleam-lang/setup-erlang@v1.1.2
       id: install_erlang
-      ## gleam-lang/setup-erlang does not yet support the installation of otp24 on windows
       with:
         otp-version: ${{ matrix.otp }}
     - name: build

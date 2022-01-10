@@ -1,5 +1,7 @@
 * text=auto
 *.* text eol=lf
+./build text eol=lf
+scripts/* text eol=lf
 *.cmd text eol=crlf
 *.jpg -text
 *.png -text
