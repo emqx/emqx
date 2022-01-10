@@ -73,10 +73,9 @@ update(Config) ->
             {error, Reason}
     end.
 
-
-start()   -> cluster_call(do_start, []).
-stop()    -> cluster_call(do_stop, []).
-restart() -> cluster_call(do_restart, []).
+start()   -> check_multicall_result(emqx_statsd_proto_v1:start(mria_mnesia:running_nodes())).
+stop()    -> check_multicall_result(emqx_statsd_proto_v1:stop(mria_mnesia:running_nodes())).
+restart() -> check_multicall_result(emqx_statsd_proto_v1:restart(mria_mnesia:running_nodes())).
 
 do_start() ->
     emqx_statsd_sup:ensure_child_started(?APP, emqx_conf:get([statsd], #{})).
@@ -88,19 +87,6 @@ do_restart() ->
     ok = do_stop(),
     ok = do_start(),
     ok.
-
-cluster_call(F, A) ->
-    [ok = rpc_call(N, F, A) || N <- mria_mnesia:running_nodes()],
-    ok.
-
-rpc_call(N, F, A) ->
-    case rpc:call(N, ?MODULE, F, A, 5000) of
-        {badrpc, R} ->
-            ?LOG(error, "RPC Node: ~p ~p ~p failed, Reason: ~p", [N, ?MODULE, F, R]),
-            {error, {badrpc, R}};
-        Result ->
-            Result
-    end.
 
 start_link(Opts) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
@@ -175,3 +161,11 @@ tags(Map) ->
 
 ensure_timer(State =#state{sample_time_interval = SampleTimeInterval}) ->
     State#state{timer = emqx_misc:start_timer(SampleTimeInterval, sample_timeout)}.
+
+check_multicall_result({Results, []}) ->
+    case lists:all(fun(ok) -> true; (_) -> false end, Results) of
+        true  -> ok;
+        false -> error({bad_result, Results})
+    end;
+check_multicall_result({_, _}) ->
+    error(multicall_failed).
