@@ -348,7 +348,7 @@ handle_info(ticking, State = #state{rule_speeds = RuleSpeeds0,
 handle_info(_Info, State) ->
     {noreply, State}.
 
-code_change({down, Vsn}, State = #state{metric_ids = MIDs}, _Extra)
+code_change({down, _Vsn}, State = #state{metric_ids = MIDs}, [Vsn])
         when Vsn =:= "4.3.0";
              Vsn =:= "4.3.1";
              Vsn =:= "4.3.2";
@@ -374,7 +374,7 @@ code_change({down, Vsn}, State = #state{metric_ids = MIDs}, _Extra)
     end || Id <- sets:to_list(MIDs)],
     {ok, State};
 
-code_change(Vsn, State = #state{metric_ids = MIDs}, _Extra)
+code_change(_Vsn, State = #state{metric_ids = MIDs}, [Vsn])
         when Vsn =:= "4.3.0";
              Vsn =:= "4.3.1";
              Vsn =:= "4.3.2";
