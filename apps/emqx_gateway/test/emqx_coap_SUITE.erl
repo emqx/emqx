@@ -19,6 +19,11 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-import(emqx_gateway_test_utils,
+        [ request/2
+        , request/3
+        ]).
+
 -include_lib("er_coap_client/include/coap.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -48,114 +53,115 @@ gateway.coap
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([emqx_gateway], fun set_special_cfg/1),
+    ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
+    emqx_mgmt_api_test_util:init_suite([emqx_gateway]),
     Config.
 
-set_special_cfg(emqx_gateway) ->
-    ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT);
-
-set_special_cfg(_) ->
-    ok.
-
-end_per_suite(Config) ->
+end_per_suite(_) ->
     {ok, _} = emqx:remove_config([<<"gateway">>,<<"coap">>]),
-    emqx_common_test_helpers:stop_apps([emqx_gateway]),
-    Config.
+    emqx_mgmt_api_test_util:end_suite([emqx_gateway]).
 
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
-t_connection(_Config) ->
+
+t_connection(_) ->
     Action = fun(Channel) ->
-                     %% connection
-                     Token = connection(Channel),
+        %% connection
+        Token = connection(Channel),
 
-                     timer:sleep(100),
-                     ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
+        timer:sleep(100),
+        ?assertNotEqual(
+           [],
+           emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
 
-                     %% heartbeat
-                     HeartURI = ?MQTT_PREFIX ++ "/connection?clientid=client1&token=" ++ Token,
-                     ?LOGT("send heartbeat request:~ts~n", [HeartURI]),
-                     {ok, changed, _} = er_coap_client:request(put, HeartURI),
+        %% heartbeat
+        HeartURI = ?MQTT_PREFIX ++
+                   "/connection?clientid=client1&token=" ++
+                   Token,
 
-                     disconnection(Channel, Token),
+        ?LOGT("send heartbeat request:~ts~n", [HeartURI]),
+        {ok, changed, _} = er_coap_client:request(put, HeartURI),
 
-                     timer:sleep(100),
-                     ?assertEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))
-             end,
+        disconnection(Channel, Token),
+
+        timer:sleep(100),
+        ?assertEqual(
+           [],
+           emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))
+    end,
     do(Action).
 
-
-t_publish(_Config) ->
+t_publish(_) ->
     Action = fun(Channel, Token) ->
-                     Topic = <<"/abc">>,
-                     Payload = <<"123">>,
+        Topic = <<"/abc">>,
+        Payload = <<"123">>,
 
-                     TopicStr = binary_to_list(Topic),
-                     URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
+        TopicStr = binary_to_list(Topic),
+        URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
 
-                     %% Sub topic first
-                     emqx:subscribe(Topic),
+        %% Sub topic first
+        emqx:subscribe(Topic),
 
-                     Req = make_req(post, Payload),
-                     {ok, changed, _} = do_request(Channel, URI, Req),
+        Req = make_req(post, Payload),
+        {ok, changed, _} = do_request(Channel, URI, Req),
 
-                     receive
-                         {deliver, Topic, Msg} ->
-                             ?assertEqual(Topic, Msg#message.topic),
-                             ?assertEqual(Payload, Msg#message.payload)
-                     after
-                         500 ->
-                             ?assert(false)
-                     end
-             end,
-
+        receive
+            {deliver, Topic, Msg} ->
+                ?assertEqual(Topic, Msg#message.topic),
+                ?assertEqual(Payload, Msg#message.payload)
+        after
+            500 ->
+                ?assert(false)
+        end
+    end,
     with_connection(Action).
 
-
-%t_publish_authz_deny(_Config) ->
+%t_publish_authz_deny(_) ->
 %    Action = fun(Channel, Token) ->
-%                     Topic = <<"/abc">>,
-%                     Payload = <<"123">>,
-%                     InvalidToken = lists:reverse(Token),
+%        Topic = <<"/abc">>,
+%        Payload = <<"123">>,
+%        InvalidToken = lists:reverse(Token),
 %
-%                     TopicStr = binary_to_list(Topic),
-%                     URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ InvalidToken,
+%        TopicStr = binary_to_list(Topic),
+%        URI = ?PS_PREFIX ++
+%              TopicStr ++
+%              "?clientid=client1&token=" ++ InvalidToken,
 %
-%                     %% Sub topic first
-%                     emqx:subscribe(Topic),
+%        %% Sub topic first
+%        emqx:subscribe(Topic),
 %
-%                     Req = make_req(post, Payload),
-%                     Result = do_request(Channel, URI, Req),
-%                     ?assertEqual({error, reset}, Result)
-%             end,
+%        Req = make_req(post, Payload),
+%        Result = do_request(Channel, URI, Req),
+%        ?assertEqual({error, reset}, Result)
+%    end,
 %
 %    with_connection(Action).
 
-t_subscribe(_Config) ->
+t_subscribe(_) ->
     Topic = <<"/abc">>,
     Fun = fun(Channel, Token) ->
-                  TopicStr = binary_to_list(Topic),
-                  Payload = <<"123">>,
+        TopicStr = binary_to_list(Topic),
+        Payload = <<"123">>,
 
-                  URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
-                  Req = make_req(get, Payload, [{observe, 0}]),
-                  {ok, content, _} = do_request(Channel, URI, Req),
-                  ?LOGT("observer topic:~ts~n", [Topic]),
+        URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
+        Req = make_req(get, Payload, [{observe, 0}]),
+        {ok, content, _} = do_request(Channel, URI, Req),
+        ?LOGT("observer topic:~ts~n", [Topic]),
 
-                  timer:sleep(100),
-                  [SubPid] = emqx:subscribers(Topic),
-                  ?assert(is_pid(SubPid)),
+        timer:sleep(100),
+        [SubPid] = emqx:subscribers(Topic),
+        ?assert(is_pid(SubPid)),
 
-                  %% Publish a message
-                  emqx:publish(emqx_message:make(Topic, Payload)),
-                  {ok, content, Notify} = with_response(Channel),
-                  ?LOGT("observer get Notif=~p", [Notify]),
+        %% Publish a message
+        emqx:publish(emqx_message:make(Topic, Payload)),
+        {ok, content, Notify} = with_response(Channel),
+        ?LOGT("observer get Notif=~p", [Notify]),
 
-                  #coap_content{payload = PayloadRecv} = Notify,
+        #coap_content{payload = PayloadRecv} = Notify,
 
-                  ?assertEqual(Payload, PayloadRecv)
-          end,
+        ?assertEqual(Payload, PayloadRecv)
+    end,
 
     with_connection(Fun),
     timer:sleep(100),
@@ -163,63 +169,117 @@ t_subscribe(_Config) ->
     ?assertEqual([], emqx:subscribers(Topic)).
 
 
-t_un_subscribe(_Config) ->
+t_un_subscribe(_) ->
     Topic = <<"/abc">>,
     Fun = fun(Channel, Token) ->
-                  TopicStr = binary_to_list(Topic),
-                  Payload = <<"123">>,
+        TopicStr = binary_to_list(Topic),
+        Payload = <<"123">>,
 
-                  URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
+        URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
 
-                  Req = make_req(get, Payload, [{observe, 0}]),
-                  {ok, content, _} = do_request(Channel, URI, Req),
-                  ?LOGT("observer topic:~ts~n", [Topic]),
+        Req = make_req(get, Payload, [{observe, 0}]),
+        {ok, content, _} = do_request(Channel, URI, Req),
+        ?LOGT("observer topic:~ts~n", [Topic]),
 
-                  timer:sleep(100),
-                  [SubPid] = emqx:subscribers(Topic),
-                  ?assert(is_pid(SubPid)),
+        timer:sleep(100),
+        [SubPid] = emqx:subscribers(Topic),
+        ?assert(is_pid(SubPid)),
 
-                  UnReq = make_req(get, Payload, [{observe, 1}]),
-                  {ok, nocontent, _} = do_request(Channel, URI, UnReq),
-                  ?LOGT("un observer topic:~ts~n", [Topic]),
-                  timer:sleep(100),
-                  ?assertEqual([], emqx:subscribers(Topic))
-          end,
+        UnReq = make_req(get, Payload, [{observe, 1}]),
+        {ok, nocontent, _} = do_request(Channel, URI, UnReq),
+        ?LOGT("un observer topic:~ts~n", [Topic]),
+        timer:sleep(100),
+        ?assertEqual([], emqx:subscribers(Topic))
+    end,
 
     with_connection(Fun).
 
-t_observe_wildcard(_Config) ->
+t_observe_wildcard(_) ->
     Fun = fun(Channel, Token) ->
-                  %% resolve_url can't process wildcard with #
-                  Topic = <<"/abc/+">>,
-                  TopicStr = binary_to_list(Topic),
-                  Payload = <<"123">>,
+        %% resolve_url can't process wildcard with #
+        Topic = <<"/abc/+">>,
+        TopicStr = binary_to_list(Topic),
+        Payload = <<"123">>,
 
-                  URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
-                  Req = make_req(get, Payload, [{observe, 0}]),
-                  {ok, content, _} = do_request(Channel, URI, Req),
-                  ?LOGT("observer topic:~ts~n", [Topic]),
+        URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
+        Req = make_req(get, Payload, [{observe, 0}]),
+        {ok, content, _} = do_request(Channel, URI, Req),
+        ?LOGT("observer topic:~ts~n", [Topic]),
 
-                  timer:sleep(100),
-                  [SubPid] = emqx:subscribers(Topic),
-                  ?assert(is_pid(SubPid)),
+        timer:sleep(100),
+        [SubPid] = emqx:subscribers(Topic),
+        ?assert(is_pid(SubPid)),
 
-                  %% Publish a message
-                  PubTopic = <<"/abc/def">>,
-                  emqx:publish(emqx_message:make(PubTopic, Payload)),
-                  {ok, content, Notify} = with_response(Channel),
+        %% Publish a message
+        PubTopic = <<"/abc/def">>,
+        emqx:publish(emqx_message:make(PubTopic, Payload)),
+        {ok, content, Notify} = with_response(Channel),
 
-                  ?LOGT("observer get Notif=~p", [Notify]),
+        ?LOGT("observer get Notif=~p", [Notify]),
 
-                  #coap_content{payload = PayloadRecv} = Notify,
+        #coap_content{payload = PayloadRecv} = Notify,
 
-                  ?assertEqual(Payload, PayloadRecv)
-          end,
+        ?assertEqual(Payload, PayloadRecv)
+    end,
 
     with_connection(Fun).
+
+t_clients_api(_) ->
+    Fun = fun(_Channel, _Token) ->
+        ClientId = <<"client1">>,
+        %% list
+        {200, #{data := [Client1]}} = request(get, "/gateway/coap/clients"),
+        #{clientid := ClientId} = Client1,
+        %% searching
+        {200, #{data := [Client2]}} =
+            request(get, "/gateway/coap/clients",
+                    [{<<"clientid">>, ClientId}]),
+        {200, #{data := [Client3]}} =
+            request(get, "/gateway/coap/clients",
+                    [{<<"like_clientid">>, <<"cli">>}]),
+        %% lookup
+        {200, Client4} =
+            request(get, "/gateway/coap/clients/client1"),
+        %% assert
+        Client1 = Client2 = Client3 = Client4,
+        %% kickout
+        {204, _} =
+            request(delete, "/gateway/coap/clients/client1"),
+        {200, #{data := []}} = request(get, "/gateway/coap/clients")
+    end,
+    with_connection(Fun).
+
+t_clients_subscription_api(_) ->
+    Fun = fun(_Channel, _Token) ->
+        Path = "/gateway/coap/clients/client1/subscriptions",
+        %% list
+        {200, []} = request(get, Path),
+        %% create
+        SubReq = #{ topic => <<"tx">>
+                  , qos => 0
+                  , nl => 0
+                  , rap => 0
+                  , rh => 0
+                  },
+
+        {201, SubsResp} = request(post, Path, SubReq),
+        {200, [SubsResp2]} = request(get, Path),
+        ?assertEqual(
+           maps:get(topic, SubsResp),
+           maps:get(topic, SubsResp2)),
+
+        {204, _} = request(delete, Path ++ "/tx"),
+
+        {200, []} = request(get, Path)
+    end,
+    with_connection(Fun).
+
+%%--------------------------------------------------------------------
+%% helpers
 
 connection(Channel) ->
-    URI = ?MQTT_PREFIX ++ "/connection?clientid=client1&username=admin&password=public",
+    URI = ?MQTT_PREFIX ++
+          "/connection?clientid=client1&username=admin&password=public",
     Req = make_req(post),
     {ok, created, Data} = do_request(Channel, URI, Req),
     #coap_content{payload = BinToken} = Data,
@@ -252,7 +312,8 @@ do_request(Channel, URI, #coap_message{options = Opts} = Req) ->
 
 with_response(Channel) ->
     receive
-        {coap_response, _ChId, Channel, _Ref, Message=#coap_message{method=Code}} ->
+        {coap_response, _ChId, Channel,
+         _Ref, Message=#coap_message{method=Code}} ->
             return_response(Code, Message);
         {coap_error, _ChId, Channel, _Ref, reset} ->
             {error, reset}
@@ -280,10 +341,10 @@ do(Fun) ->
 
 with_connection(Action) ->
     Fun = fun(Channel) ->
-                  Token = connection(Channel),
-                  timer:sleep(100),
-                  Action(Channel, Token),
-                  disconnection(Channel, Token),
-                  timer:sleep(100)
-          end,
+        Token = connection(Channel),
+        timer:sleep(100),
+        Action(Channel, Token),
+        disconnection(Channel, Token),
+        timer:sleep(100)
+    end,
     do(Fun).

@@ -247,6 +247,7 @@ handle_call({subscribe, Topic, SubOpts}, _From,
     %% modifty session state
     SubReq = {Topic, Token},
     TempMsg = #coap_message{type = non},
+    %% FIXME: The subopts is not used for emqx_coap_session
     Result  = emqx_coap_session:process_subscribe(
                 SubReq, TempMsg, #{}, Session),
     NSession = maps:get(session, Result),

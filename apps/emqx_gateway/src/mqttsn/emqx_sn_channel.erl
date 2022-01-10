@@ -931,7 +931,7 @@ do_subscribe({TopicId, TopicName, SubOpts},
                           clientinfo = ClientInfo
                                      = #{mountpoint := Mountpoint}}) ->
     NTopicName = emqx_mountpoint:mount(Mountpoint, TopicName),
-    NSubOpts = maps:merge(?DEFAULT_SUBOPTS, SubOpts),
+    NSubOpts = maps:merge(emqx_gateway_utils:default_subopts(), SubOpts),
     case emqx_session:subscribe(ClientInfo, NTopicName, NSubOpts, Session) of
         {ok, NSession} ->
             {ok, {TopicId, NTopicName, NSubOpts},
