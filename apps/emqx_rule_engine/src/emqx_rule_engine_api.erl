@@ -246,7 +246,7 @@ param_path_id() ->
 
 '/rules/:id'(delete, #{bindings := #{id := Id}}) ->
     ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
-    case emqx:remove_config(ConfPath, #{}) of
+    case emqx_conf:remove(ConfPath, #{}) of
         {ok, _} -> {204};
         {error, Reason} ->
             ?SLOG(error, #{msg => "delete_rule_failed",

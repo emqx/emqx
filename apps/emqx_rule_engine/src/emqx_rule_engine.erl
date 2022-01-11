@@ -119,7 +119,7 @@ post_config_update(_, _Req, NewRules, OldRules, _AppEnvs) ->
 load_rules() ->
     maps_foreach(fun({Id, Rule}) ->
             {ok, _} = create_rule(Rule#{id => bin(Id)})
-        end, emqx_conf:get([rule_engine, rules], #{})).
+        end, emqx:get_config([rule_engine, rules], #{})).
 
 -spec create_rule(map()) -> {ok, rule()} | {error, term()}.
 create_rule(Params = #{id := RuleId}) when is_binary(RuleId) ->
