@@ -324,58 +324,60 @@ handle_info(ticking, State = #state{rule_speeds = RuleSpeeds0}) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-code_change({down, _Vsn}, State = #state{metric_ids = MIDs}, [Vsn])
-        when Vsn =:= "4.3.0";
-             Vsn =:= "4.3.1";
-             Vsn =:= "4.3.2";
-             Vsn =:= "4.3.3";
-             Vsn =:= "4.3.4";
-             Vsn =:= "4.3.5";
-             Vsn =:= "4.3.6" ->
-    [begin
-        Passed = get_rules_passed(Id),
-        Take = get_actions_taken(Id),
-        Success = get_actions_success(Id),
-        Error = get_actions_error(Id),
-        Exception = get_actions_exception(Id),
-        Retry = get_actions_retry(Id),
-        ok = delete_counters(Id),
-        ok = create_counters(Id, 7),
-        inc_rules_matched(Id, Passed),
-        inc_actions_taken(Id, Take),
-        inc_actions_success(Id, Success),
-        inc_actions_error(Id, Error),
-        inc_actions_exception(Id, Exception),
-        inc_actions_retry(Id, Retry)
-    end || Id <- sets:to_list(MIDs)],
-    {ok, State};
+code_change({down, _Vsn}, State = #state{metric_ids = MIDs}, [Vsn]) ->
+    case string:tokens(Vsn, ".") of 
+        ["4", "3", Val] ->
+            case string:to_integer(Val) =< 7 of
+                true ->
+                    [begin
+                        Passed = get_rules_passed(Id),
+                        Take = get_actions_taken(Id),
+                        Success = get_actions_success(Id),
+                        Error = get_actions_error(Id),
+                        Exception = get_actions_exception(Id),
+                        Retry = get_actions_retry(Id),
+                        ok = delete_counters(Id),
+                        ok = create_counters(Id, 7),
+                        inc_rules_matched(Id, Passed),
+                        inc_actions_taken(Id, Take),
+                        inc_actions_success(Id, Success),
+                        inc_actions_error(Id, Error),
+                        inc_actions_exception(Id, Exception),
+                        inc_actions_retry(Id, Retry)
+                    end || Id <- sets:to_list(MIDs)],
+                    {ok, State};
+                false -> {ok, State}
+            end;
+        _ -> {ok, State}
+    end;
 
-code_change(_Vsn, State = #state{metric_ids = MIDs}, [Vsn])
-        when Vsn =:= "4.3.0";
-             Vsn =:= "4.3.1";
-             Vsn =:= "4.3.2";
-             Vsn =:= "4.3.3";
-             Vsn =:= "4.3.4";
-             Vsn =:= "4.3.5";
-             Vsn =:= "4.3.6" ->
-    [begin
-        Matched = get_rules_matched(Id),
-        Take = get_actions_taken(Id),
-        Success = get_actions_success(Id),
-        Error = get_actions_error(Id),
-        Exception = get_actions_exception(Id),
-        Retry = get_actions_retry(Id),
-        ok = delete_counters(Id),
-        ok = create_counters(Id),
-        inc_rules_matched(Id, Matched),
-        inc_rules_passed(Id, Matched),
-        inc_actions_taken(Id, Take),
-        inc_actions_success(Id, Success),
-        inc_actions_error(Id, Error),
-        inc_actions_exception(Id, Exception),
-        inc_actions_retry(Id, Retry)
-    end || Id <- sets:to_list(MIDs)],
-    {ok, State};
+code_change(_Vsn, State = #state{metric_ids = MIDs}, [Vsn]) ->
+    case string:tokens(Vsn, ".") of
+        ["4", "3", Val] ->
+            case string:to_integer(Val) =< 7 of
+                true ->
+                    [begin
+                        Matched = get_rules_matched(Id),
+                        Take = get_actions_taken(Id),
+                        Success = get_actions_success(Id),
+                        Error = get_actions_error(Id),
+                        Exception = get_actions_exception(Id),
+                        Retry = get_actions_retry(Id),
+                        ok = delete_counters(Id),
+                        ok = create_counters(Id),
+                        inc_rules_matched(Id, Matched),
+                        inc_rules_passed(Id, Matched),
+                        inc_actions_taken(Id, Take),
+                        inc_actions_success(Id, Success),
+                        inc_actions_error(Id, Error),
+                        inc_actions_exception(Id, Exception),
+                        inc_actions_retry(Id, Retry)
+                    end || Id <- sets:to_list(MIDs)],
+                    {ok, State};
+                false -> {ok, State}
+            end;
+        _ -> {ok, State}
+    end;
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
