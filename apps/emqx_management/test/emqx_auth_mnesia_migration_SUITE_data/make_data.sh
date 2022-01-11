@@ -1,5 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
 set -eux pipefail
+
 # Helper script for creating data export files
 
 container() {

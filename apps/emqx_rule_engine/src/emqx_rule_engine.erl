@@ -491,10 +491,23 @@ may_update_rule_params(Rule, Params = #{on_action_failed := OnFailed}) ->
 may_update_rule_params(Rule = #rule{actions = OldActions}, Params = #{actions := Actions}) ->
     %% prepare new actions before removing old ones
     NewActions = prepare_actions(Actions, maps:get(enabled, Params, true)),
+    ok = restore_action_metrics(OldActions, NewActions),
     _ = ?CLUSTER_CALL(clear_actions, [OldActions]),
     may_update_rule_params(Rule#rule{actions = NewActions}, maps:remove(actions, Params));
 may_update_rule_params(Rule, _Params) -> %% ignore all the unsupported params
     Rule.
+
+%% NOTE: if the user removed an action, but the action is not the last one in the list,
+%% the `restore_action_metrics/2` will not work as expected!
+restore_action_metrics([#action_instance{id = OldId} | OldActions],
+                       [#action_instance{id = NewId} | NewActions]) ->
+    emqx_rule_metrics:inc_actions_taken(NewId, emqx_rule_metrics:get_actions_taken(OldId)),
+    emqx_rule_metrics:inc_actions_success(NewId, emqx_rule_metrics:get_actions_success(OldId)),
+    emqx_rule_metrics:inc_actions_error(NewId, emqx_rule_metrics:get_actions_error(OldId)),
+    emqx_rule_metrics:inc_actions_exception(NewId, emqx_rule_metrics:get_actions_exception(OldId)),
+    restore_action_metrics(OldActions, NewActions);
+restore_action_metrics(_, _) ->
+    ok.
 
 ignore_lib_apps(Apps) ->
     LibApps = [kernel, stdlib, sasl, appmon, eldap, erts,

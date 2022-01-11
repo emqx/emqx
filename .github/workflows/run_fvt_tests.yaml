@@ -24,10 +24,12 @@ jobs:
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
               echo "PROFILE=emqx-ee" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
+              make emqx-ee-docker
             else
               echo "TARGET=emqx/emqx" >> $GITHUB_ENV
               echo "PROFILE=emqx" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
+              make emqx-docker
             fi
         - name: make emqx image
           env:

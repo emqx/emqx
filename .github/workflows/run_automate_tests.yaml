@@ -39,6 +39,7 @@ jobs:
           echo "::set-output name=imgname::emqx-ee"
           echo "::set-output name=version::$(./pkg-vsn.sh)"
         else
+          make emqx-docker
           echo "::set-output name=imgname::emqx"
           echo "::set-output name=version::$(./pkg-vsn.sh)"
         fi
