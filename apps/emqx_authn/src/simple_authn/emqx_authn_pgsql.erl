@@ -80,7 +80,7 @@ create(#{query := Query0,
               placeholders => PlaceHolders,
               password_hash_algorithm => Algorithm,
               resource_id => ResourceId},
-    case emqx_resource:create_local(ResourceId, emqx_connector_pgsql, Config) of
+    case emqx_resource:create_local(ResourceId, emqx_connector_pgsql, Config#{named_queries => #{ResourceId => Query}}) of
         {ok, already_created} ->
             {ok, State};
         {ok, _} ->
@@ -101,12 +101,11 @@ update(Config, State) ->
 authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(#{password := Password} = Credential,
-             #{query := Query,
-               placeholders := PlaceHolders,
+             #{placeholders := PlaceHolders,
                resource_id := ResourceId,
                password_hash_algorithm := Algorithm}) ->
     Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
-    case emqx_resource:query(ResourceId, {prepared_query, ResourceId, Query, Params}) of
+    case emqx_resource:query(ResourceId, {prepared_query, ResourceId, Params}) of
         {ok, _Columns, []} -> ignore;
         {ok, Columns, [Row | _]} ->
             NColumns = [Name || #column{name = Name} <- Columns],
@@ -133,7 +132,6 @@ destroy(#{resource_id := ResourceId}) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-%% TODO: Support prepare
 parse_query(Query) ->
     case re:run(Query, ?RE_PLACEHOLDER, [global, {capture, all, binary}]) of
         {match, Captured} ->

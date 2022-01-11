@@ -39,12 +39,19 @@
 description() ->
     "AuthZ with Postgresql".
 
-init(#{query := SQL} = Source) ->
-    case emqx_authz_utils:create_resource(emqx_connector_pgsql, Source) of
-        {error, Reason} -> error({load_config_error, Reason});
-        {ok, Id} -> Source#{annotations =>
-                            #{id => Id,
-                              query => parse_query(SQL)}}
+init(#{query := SQL0} = Source) ->
+    {SQL, PlaceHolders} = parse_query(SQL0),
+    ResourceID = emqx_authz_utils:make_resource_id(emqx_connector_pgsql),
+    case emqx_resource:create_local(
+            ResourceID,
+            emqx_connector_pgsql,
+            Source#{named_queries => #{ResourceID => SQL}}) of
+        {ok, _} ->
+            Source#{annotations =>
+                        #{id => ResourceID,
+                          placeholders => PlaceHolders}};
+        {error, Reason} ->
+            error({load_config_error, Reason})
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -70,10 +77,10 @@ parse_query(Sql) ->
 
 authorize(Client, PubSub, Topic,
             #{annotations := #{id := ResourceID,
-                               query := {Query, Params}
+                               placeholders := Placeholders
                               }
              }) ->
-    case emqx_resource:query(ResourceID, {prepared_query, ResourceID, Query, replvar(Params, Client)}) of
+    case emqx_resource:query(ResourceID, {prepared_query, ResourceID, replvar(Placeholders, Client)}) of
         {ok, _Columns, []} -> nomatch;
         {ok, Columns, Rows} ->
             do_authorize(Client, PubSub, Topic, Columns, Rows);
