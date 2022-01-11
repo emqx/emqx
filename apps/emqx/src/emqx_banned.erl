@@ -193,7 +193,8 @@ look_up(Who) ->
 -spec(delete({clientid, emqx_types:clientid()}
            | {username, emqx_types:username()}
            | {peerhost, emqx_types:peerhost()}
-           | {api_user, binary()}) -> ok).
+           | {api_user, binary()}
+           | {app_user, binary()}) -> ok).
 delete(Who) when is_map(Who)->
     delete(pares_who(Who));
 delete(Who) ->

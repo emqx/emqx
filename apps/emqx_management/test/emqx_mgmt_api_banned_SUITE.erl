@@ -72,7 +72,15 @@ t_create(_Config) ->
         <<"who">> => PeerHost
     }, PeerHostBannedRes),
     {ok, #{<<"data">> := List}} = list_banned(),
-    Bans = lists:sort(lists:map(fun(#{<<"who">> := W, <<"as">> := A}) ->  {A, W} end, List)),
+    Bans0 = lists:sort(lists:map(fun(#{<<"who">> := W, <<"as">> := A}) ->  {A, W} end, List)),
+    Fun =
+        fun
+            ({<<"clientid">>, _}) -> true;
+            ({<<"peerhost">>, _}) -> true;
+            (_) -> false
+        end,
+    %% filte some bad req, banned api user & app user
+    Bans = lists:filter(Fun, Bans0),
     ?assertEqual([{<<"clientid">>, ClientId}, {<<"peerhost">>, PeerHost}], Bans),
     ok.
 

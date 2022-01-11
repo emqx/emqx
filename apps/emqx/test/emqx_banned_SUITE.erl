@@ -30,6 +30,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    mnesia:clear_table(emqx_banned),
     ekka:stop(),
     mria:stop(),
     mria_mnesia:delete_schema().
