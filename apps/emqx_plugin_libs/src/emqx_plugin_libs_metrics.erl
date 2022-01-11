@@ -33,6 +33,7 @@
         ]).
 
 -export([ get_metrics/2
+        , get_metrics/3
         , get_matched/2
         , get_success/2
         , get_failed/2
@@ -59,7 +60,7 @@
 -define(SAMPLING, 1).
 -endif.
 
--export_type([metrics/0]).
+-export_type([metric_id/0, handler_name/0, metrics/0]).
 
 -type metrics() :: #{
     matched => integer(),
@@ -136,6 +137,10 @@ get_metrics(Name, Id) ->
       rate_max => Max,
       rate_last5m => Last5M
     }.
+
+-spec(get_metrics(node(), handler_name(), metric_id()) -> metrics() | emqx_rpc:badrpc()).
+get_metrics(Node, Name, Id) ->
+    emqx_plugins_proto_v1:get_remote_metrics(Node, Name, Id).
 
 -spec inc(handler_name(), metric_id(), atom()) -> ok.
 inc(Name, Id, Metric) ->
@@ -312,4 +317,3 @@ metrics_idx('matched') -> 1;
 metrics_idx('success') -> 2;
 metrics_idx('failed') -> 3;
 metrics_idx(_) -> 32.
-
