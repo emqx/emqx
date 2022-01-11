@@ -58,8 +58,8 @@
 -export([ list_subscriptions/1
         , list_subscriptions_via_topic/2
         , list_subscriptions_via_topic/3
-        , lookup_subscriptions/1
         , lookup_subscriptions/2
+        , lookup_subscriptions/3
         ]).
 
 %% Routes
@@ -322,18 +322,20 @@ list_subscriptions_via_topic(Node, Topic, {M,F}) when Node =:= node() ->
 list_subscriptions_via_topic(Node, Topic, FormatFun) ->
     rpc_call(Node, list_subscriptions_via_topic, [Node, Topic, FormatFun]).
 
-lookup_subscriptions(ClientId) ->
-    lists:append([lookup_subscriptions(Node, ClientId) || Node <- ekka_mnesia:running_nodes()]).
+lookup_subscriptions(ClientId, FormatFun) ->
+    lists:append([lookup_subscriptions(Node, ClientId, FormatFun) || Node <- ekka_mnesia:running_nodes()]).
 
-lookup_subscriptions(Node, ClientId) when Node =:= node() ->
-    case ets:lookup(emqx_subid, ClientId) of
-        [] -> [];
-        [{_, Pid}] ->
-            ets:match_object(emqx_suboption, {{Pid, '_'}, '_'})
-    end;
+lookup_subscriptions(Node, ClientId, {M, F}) when Node =:= node() ->
+    Result = case ets:lookup(emqx_subid, ClientId) of
+                 [] -> [];
+                 [{_, Pid}] ->
+                     ets:match_object(emqx_suboption, {{Pid, '_'}, '_'})
+             end,
+    %% format at the called node
+    erlang:apply(M, F, [Result]);
 
-lookup_subscriptions(Node, ClientId) ->
-    rpc_call(Node, lookup_subscriptions, [Node, ClientId]).
+lookup_subscriptions(Node, ClientId, FormatFun) ->
+    rpc_call(Node, lookup_subscriptions, [Node, ClientId, FormatFun]).
 
 %%--------------------------------------------------------------------
 %% Routes
