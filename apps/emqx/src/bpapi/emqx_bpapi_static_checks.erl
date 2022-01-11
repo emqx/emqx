@@ -16,7 +16,7 @@
 
 -module(emqx_bpapi_static_checks).
 
--export([dump/1, dump/0, check_compat/1]).
+-export([run/0, dump/1, dump/0, check_compat/1]).
 
 -include_lib("emqx/include/logger.hrl").
 
@@ -34,6 +34,10 @@
                      , release    => string()
                      }.
 
+-type dump_options() :: #{ reldir := file:name()
+                         , plt    := file:name()
+                         }.
+
 -type param_types() :: #{emqx_bpapi:var_name() => _Type}.
 
 %% Applications and modules we wish to ignore in the analysis:
@@ -49,6 +53,19 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Functions related to BPAPI compatibility checking
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+-spec run() -> boolean().
+run() ->
+    dump(), %% TODO: check return value
+    Dumps = filelib:wildcard(dumps_dir() ++ "/*.bpapi"),
+    case Dumps of
+        [] ->
+            ?ERROR("No BPAPI dumps are found in ~s, abort", [dumps_dir()]),
+            false;
+        _ ->
+            ?NOTICE("Running API compatibility checks for ~p", [Dumps]),
+            check_compat(Dumps)
+    end.
 
 -spec check_compat([file:filename()]) -> boolean().
 check_compat(DumpFilenames) ->
@@ -143,15 +160,19 @@ get_param_types(Signatures, {M, F, A}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 dump() ->
-    case {filelib:wildcard("*_plt"), filelib:wildcard("_build/emqx*/lib")} of
+    case { filelib:wildcard(project_root_dir() ++ "/*_plt")
+         , filelib:wildcard(project_root_dir() ++ "/_build/emqx*/lib")
+         } of
         {[PLT|_], [RelDir|_]} ->
-            dump(#{plt => PLT, reldir => RelDir});
+            dump(#{ plt => PLT
+                  , reldir => RelDir
+                  });
         _ ->
             error("failed to guess run options")
     end.
 
 %% Collect the local BPAPI modules to a dump file
--spec dump(map()) -> boolean().
+-spec dump(dump_options()) -> boolean().
 dump(Opts) ->
     put(bpapi_ok, true),
     PLT = prepare(Opts),
@@ -207,7 +228,8 @@ is_bpapi_call({Module, _Function, _Arity}) ->
 
 -spec dump_api(fulldump()) -> ok.
 dump_api(Term = #{api := _, signatures := _, release := Release}) ->
-    Filename = filename:join(code:priv_dir(emqx), Release ++ ".bpapi"),
+    Filename = filename:join(dumps_dir(), Release ++ ".bpapi"),
+    ok = filelib:ensure_dir(Filename),
     file:write_file(Filename, io_lib:format("~0p.", [Term])).
 
 -spec collect_bpapis([mfa()]) -> api_dump().
@@ -263,3 +285,9 @@ format_call({M, F, A}) ->
 
 setnok() ->
     put(bpapi_ok, false).
+
+dumps_dir() ->
+    filename:join(project_root_dir(), "apps/emqx/test/emqx_bpapi_suite_data").
+
+project_root_dir() ->
+    string:trim(os:cmd("git rev-parse --show-toplevel")).
