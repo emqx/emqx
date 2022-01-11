@@ -163,6 +163,11 @@ profiles() ->
        [ {erl_opts, common_compile_opts()}
        , {project_app_dirs, project_app_dirs(ce)}
        ]}
+    , {lcheck,
+       [ {erl_opts, common_compile_opts()}
+       , {project_app_dirs, project_app_dirs(ce)}
+       , {dialyzer, [{warnings, [unmatched_returns, error_handling]}]}
+       ]}
     , {test,
        [ {deps, test_deps()}
        , {erl_opts, common_compile_opts() ++ erl_opts_i(ce) }
