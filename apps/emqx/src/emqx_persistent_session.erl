@@ -309,11 +309,11 @@ resume(ClientInfo = #{clientid := ClientID}, ConnInfo, Session) ->
     {Session2, Pendings4 ++ WriterPendings}.
 
 resume_begin(Nodes, SessionID) ->
-    Res = erpc:multicall(Nodes, emqx_session_router, resume_begin, [self(), SessionID]),
+    Res = emqx_persistent_session_proto_v1:resume_begin(Nodes, self(), SessionID),
     [{Node, Marker} || {{ok, {ok, Marker}}, Node} <- lists:zip(Res, Nodes)].
 
 resume_end(Nodes, SessionID) ->
-    Res = erpc:multicall(Nodes, emqx_session_router, resume_end, [self(), SessionID]),
+    Res = emqx_persistent_session_proto_v1:resume_end(Nodes, self(), SessionID),
     ?tp(ps_erpc_multical_result, #{ res => Res, sid => SessionID }),
     %% TODO: Should handle the errors
     [ {deliver, STopic, M}

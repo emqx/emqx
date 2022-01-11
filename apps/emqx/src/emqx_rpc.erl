@@ -31,6 +31,8 @@
              , call_result/0
              , cast_result/0
              , multicall_result/0
+             , erpc/1
+             , erpc_multicast/1
              ]).
 
 -compile({inline,
@@ -47,6 +49,14 @@
 -type cast_result() :: true.
 
 -type multicall_result() :: {_Results :: [term()], _BadNodes :: [node()]}.
+
+-type erpc(Ret) :: {ok, Ret}
+                 | {throw, _Err}
+                 | {exit, {exception | signal, _Reason}}
+                 | {error, {exception, _Reason, _Stack :: list()}}
+                 | {error, {erpc, _Reason}}.
+
+-type erpc_multicast(Ret) :: [erpc(Ret)].
 
 -spec call(node(), module(), atom(), list()) -> call_result().
 call(Node, Mod, Fun, Args) ->
