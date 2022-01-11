@@ -134,7 +134,7 @@ g(Key, Opts, Val) ->
 parse(<<>>, Parser) ->
     {more, Parser};
 
-parse(Bytes, #{phase := body, len := Len, state := State}) ->
+parse(Bytes, #{phase := body, length := Len, state := State}) ->
     parse(body, Bytes, State, Len);
 
 parse(Bytes, Parser = #{pre := Pre}) ->
