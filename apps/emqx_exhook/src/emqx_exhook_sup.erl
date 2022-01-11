@@ -42,7 +42,8 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    _ = emqx_exhook_mgr:init_counter_table(),
+    _ = emqx_exhook_metrics:init(),
+    _ = emqx_exhook_mgr:init_ref_counter_table(),
     Mngr = ?CHILD(emqx_exhook_mgr, worker, []),
     {ok, {{one_for_one, 10, 100}, [Mngr]}}.
 

@@ -30,14 +30,16 @@
         , lookup/1
         , enable/1
         , disable/1
-        , server_status/1
-        , all_servers_status/0
+        , server_info/1
+        , all_servers_info/0
+        , server_hooks_metrics/1
         ]).
 
 %% Helper funcs
 -export([ running/0
         , server/1
-        , init_counter_table/0
+        , hooks/1
+        , init_ref_counter_table/0
         ]).
 
 -export([ update_config/2
@@ -86,9 +88,9 @@
                         }.
 
 -define(DEFAULT_TIMEOUT, 60000).
--define(CNTER, emqx_exhook_counter).
+-define(REFRESH_INTERVAL, timer:seconds(5)).
 
--export_type([server_info/0]).
+-export_type([servers/0, server/0, server_info/0]).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -113,17 +115,20 @@ enable(Name) ->
 disable(Name) ->
     update_config([exhook, servers], {enable, Name, false}).
 
-server_status(Name) ->
-    call({server_status, Name}).
+server_info(Name) ->
+    call({?FUNCTION_NAME, Name}).
 
-all_servers_status() ->
-    call(all_servers_status).
+all_servers_info() ->
+    call(?FUNCTION_NAME).
+
+server_hooks_metrics(Name) ->
+    call({?FUNCTION_NAME, Name}).
 
 call(Req) ->
     gen_server:call(?MODULE, Req, ?DEFAULT_TIMEOUT).
 
-init_counter_table() ->
-    _ = ets:new(?CNTER, [named_table, public]).
+init_ref_counter_table() ->
+    _ = ets:new(?HOOKS_REF_COUNTER, [named_table, public]).
 
 %%=====================================================================
 %% Hocon schema
@@ -180,6 +185,7 @@ init([]) ->
     ServerL = emqx:get_config([exhook, servers]),
     {Waiting, Running, Stopped} = load_all_servers(ServerL),
     Orders = reorder(ServerL),
+    refresh_tick(),
     {ok, ensure_reload_timer(
            #{waiting => Waiting,
              running => Running,
@@ -235,6 +241,8 @@ handle_call({update_config, {delete, ToDelete}, _}, _From, State) ->
                      orders := maps:remove(ToDelete, Orders)
                     },
 
+    emqx_exhook_metrics:delete_server(ToDelete),
+
     {reply, ok, State3};
 
 handle_call({update_config, {add, RawConf}, NewConfL},
@@ -245,32 +253,22 @@ handle_call({update_config, {add, RawConf}, NewConfL},
     case emqx_exhook_server:load(Name, Conf) of
         {ok, ServerState} ->
             save(Name, ServerState),
-            Status = running,
-            Hooks = hooks(Name),
             State2 = State#{running := Running#{Name => Conf}};
         {error, _} ->
-            Status = running,
-            Hooks = [],
             StateT = State#{waiting := Waitting#{Name => Conf}},
             State2 = ensure_reload_timer(StateT);
         disable ->
-            Status = stopped,
-            Hooks = [],
             State2 = State#{stopped := Stopped#{Name => Conf}}
     end,
     Orders = reorder(NewConfL),
-    Resulte = maps:merge(Conf, #{status => Status, hooks => Hooks}),
-    {reply, Resulte, State2#{orders := Orders}};
+    {reply, ok, State2#{orders := Orders}};
 
 handle_call({lookup, Name}, _From, State) ->
     case where_is_server(Name, State) of
         not_found ->
             Result = not_found;
         {Where, #{Name := Conf}} ->
-            Result = maps:merge(Conf,
-                                #{ status => Where
-                                 , hooks => hooks(Name)
-                                 })
+            Result = maps:merge(Conf, #{status => Where})
     end,
     {reply, Result, State};
 
@@ -282,21 +280,41 @@ handle_call({update_config, {enable, Name, _Enable}, NewConfL}, _From, State) ->
     {Result, State2} = restart_server(Name, NewConfL, State),
     {reply, Result, State2};
 
-handle_call({server_status, Name}, _From, State) ->
+handle_call({server_info, Name}, _From, State) ->
     case where_is_server(Name, State) of
         not_found ->
             Result = not_found;
         {Status, _} ->
-            Result = Status
+            HooksMetrics = emqx_exhook_metrics:server_metrics(Name),
+            Result = #{ status => Status
+                      , metrics => HooksMetrics
+                      }
     end,
     {reply, Result, State};
 
-handle_call(all_servers_status, _From, #{running := Running,
-                                         waiting := Waiting,
-                                         stopped := Stopped} = State) ->
-    {reply, #{running => maps:keys(Running),
-              waiting => maps:keys(Waiting),
-              stopped => maps:keys(Stopped)}, State};
+handle_call(all_servers_info, _From, #{running := Running,
+                                       waiting := Waiting,
+                                       stopped := Stopped} = State) ->
+    MakeStatus = fun(Status, Servers, Acc) ->
+                         lists:foldl(fun(Name, IAcc) -> IAcc#{Name => Status} end,
+                                     Acc,
+                                     maps:keys(Servers))
+                 end,
+    Status = lists:foldl(fun({Status, Servers}, Acc) -> MakeStatus(Status, Servers, Acc) end,
+                         #{},
+                         [{running, Running}, {waiting, Waiting}, {stopped, Stopped}]),
+
+    Metrics = emqx_exhook_metrics:servers_metrics(),
+
+    Result = #{ status => Status
+              , metrics => Metrics
+              },
+
+    {reply, Result, State};
+
+handle_call({server_hooks_metrics, Name}, _From, State) ->
+    Result = emqx_exhook_metrics:hooks_metrics(Name),
+    {reply, Result, State};
 
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -317,6 +335,11 @@ handle_info({timeout, _Ref, {reload, Name}}, State) ->
                  "Reason: ~0p", [Name, Reason]),
             {noreply, ensure_reload_timer(NState)}
     end;
+
+handle_info(refresh_tick, State) ->
+    refresh_tick(),
+    emqx_exhook_metrics:update(?REFRESH_INTERVAL),
+    {noreply, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -490,7 +513,6 @@ get_servers_info(Status, Map) ->
            end,
     maps:fold(Fold, [], Map).
 
-
 where_is_server(Name, #{running := Running}) when is_map_key(Name, Running) ->
     {running, Running};
 
@@ -549,6 +571,10 @@ sort_name_by_order(Names, Orders) ->
                        maps:get(A, Orders) < maps:get(B, Orders)
                end,
                Names).
+
+refresh_tick() ->
+    erlang:send_after(?REFRESH_INTERVAL, self(), ?FUNCTION_NAME).
+
 %%--------------------------------------------------------------------
 %% Server state persistent
 save(Name, ServerState) ->
@@ -590,5 +616,5 @@ hooks(Name) ->
         undefined ->
             [];
         Service ->
-            emqx_exhook_server:hookpoints(Service)
+            emqx_exhook_server:hooks(Service)
     end.
