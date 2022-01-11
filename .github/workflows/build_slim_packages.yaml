@@ -53,6 +53,7 @@ jobs:
         make ${EMQX_NAME}-zip
         .ci/build_packages/tests.sh "$EMQX_PKG_NAME" zip
     - name: run static checks
+      if: contains(matrix.os, 'ubuntu')
       run: |
         make static_checks
     - name: build and test deb/rpm packages
