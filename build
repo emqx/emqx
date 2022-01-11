@@ -31,7 +31,7 @@ case "$ARCH" in
         ARCH='arm64'
         ;;
     arm*)
-        ARCH=arm
+        ARCH='arm64'
         ;;
 esac
 export ARCH

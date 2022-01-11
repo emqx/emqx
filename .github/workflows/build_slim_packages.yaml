@@ -74,7 +74,7 @@ jobs:
     - name: build and test tgz package
       run: |
         make ${EMQX_NAME}-tgz
-        .ci/build_packages/tests.sh "$EMQX_PKG_NAME" tgz
+        .ci/build_packages/tests.sh "$EMQX_PKG_NAME" tgz amd64
     - name: run static checks
       if: contains(matrix.os, 'ubuntu')
       run: |
@@ -82,11 +82,11 @@ jobs:
     - name: build and test deb/rpm packages
       run: |
         make ${EMQX_NAME}-pkg
-        .ci/build_packages/tests.sh "$EMQX_PKG_NAME" pkg
+        .ci/build_packages/tests.sh "$EMQX_PKG_NAME" pkg amd64
     - name: build and test deb/rpm packages (Elixir)
       run: |
         make ${EMQX_NAME}-elixirpkg
-        .ci/build_packages/tests.sh "$EMQX_ELIXIRPKG_NAME" elixirpkg
+        .ci/build_packages/tests.sh "$EMQX_ELIXIRPKG_NAME" elixirpkg amd64
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.profile}}-${{ matrix.otp }}-${{ matrix.os }}

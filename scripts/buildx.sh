@@ -114,4 +114,4 @@ docker run -i --rm \
     --platform="linux/$ARCH" \
     -e EMQX_NAME="$PROFILE" \
     "$BUILDER" \
-    bash -euc "make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PKG_NAME $PKGTYPE"
+    bash -euc "make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PKG_NAME $PKGTYPE $ARCH"
