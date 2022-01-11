@@ -55,22 +55,22 @@ get_raw(KeyPath, Default) ->
 %% @doc Returns all values in the cluster.
 -spec get_all(emqx_map_lib:config_key_path()) -> #{node() => term()}.
 get_all(KeyPath) ->
-    {ResL, []} = rpc:multicall(?MODULE, get_node_and_config, [KeyPath], 5000),
+    {ResL, []} = emqx_conf_proto_v1:get_all(KeyPath),
     maps:from_list(ResL).
 
 %% @doc Returns the specified node's KeyPath, or exception if not found
 -spec get_by_node(node(), emqx_map_lib:config_key_path()) -> term().
-get_by_node(Node, KeyPath)when Node =:= node() ->
+get_by_node(Node, KeyPath) when Node =:= node() ->
     emqx:get_config(KeyPath);
 get_by_node(Node, KeyPath) ->
-    rpc:call(Node, ?MODULE, get_by_node, [Node, KeyPath]).
+    emqx_conf_proto_v1:get_config(Node, KeyPath).
 
 %% @doc Returns the specified node's KeyPath, or the default value if not found
 -spec get_by_node(node(), emqx_map_lib:config_key_path(), term()) -> term().
-get_by_node(Node, KeyPath, Default)when Node =:= node() ->
+get_by_node(Node, KeyPath, Default) when Node =:= node() ->
     emqx:get_config(KeyPath, Default);
 get_by_node(Node, KeyPath, Default) ->
-    rpc:call(Node, ?MODULE, get_by_node, [Node, KeyPath, Default]).
+    emqx_conf_proto_v1:get_config(Node, KeyPath, Default).
 
 %% @doc Returns the specified node's KeyPath, or config_not_found if key path not found
 -spec get_node_and_config(emqx_map_lib:config_key_path()) -> term().
@@ -88,11 +88,11 @@ update(KeyPath, UpdateReq, Opts0) ->
 %% @doc Update the specified node's key path in local-override.conf.
 -spec update(node(), emqx_map_lib:config_key_path(), emqx_config:update_request(),
     emqx_config:update_opts()) ->
-    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
-update(Node, KeyPath, UpdateReq, Opts0)when Node =:= node() ->
+    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()} | emqx_rpc:badrpc().
+update(Node, KeyPath, UpdateReq, Opts0) when Node =:= node() ->
     emqx:update_config(KeyPath, UpdateReq, Opts0#{override_to => local});
-update(Node, KeyPath, UpdateReq, Opts0) ->
-    rpc:call(Node, ?MODULE, update, [Node, KeyPath, UpdateReq, Opts0], 5000).
+update(Node, KeyPath, UpdateReq, Opts) ->
+    emqx_conf_proto_v1:update(Node, KeyPath, UpdateReq, Opts).
 
 %% @doc remove all value of key path in cluster-override.conf or local-override.conf.
 -spec remove(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
@@ -107,7 +107,7 @@ remove(KeyPath, Opts0) ->
 remove(Node, KeyPath, Opts) when Node =:= node() ->
     emqx:remove_config(KeyPath, Opts#{override_to => local});
 remove(Node, KeyPath, Opts) ->
-    rpc:call(Node, ?MODULE, remove, [KeyPath, Opts]).
+    emqx_conf_proto_v1:remove_config(Node, KeyPath, Opts).
 
 %% @doc reset all value of key path in cluster-override.conf or local-override.conf.
 -spec reset(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
