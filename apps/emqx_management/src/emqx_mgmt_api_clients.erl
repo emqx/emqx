@@ -710,26 +710,19 @@ ms(created_at, X) ->
 %% Match funcs
 
 fuzzy_filter_fun(Fuzzy) ->
-    REFuzzy = lists:map(fun({K, like, S}) ->
-                 {ok, RE} = re:compile(escape(S)),
-                 {K, like, RE}
-              end, Fuzzy),
     fun(MsRaws) when is_list(MsRaws) ->
-            lists:filter( fun(E) -> run_fuzzy_filter(E, REFuzzy) end
-                        , MsRaws)
+        lists:filter( fun(E) -> run_fuzzy_filter(E, Fuzzy) end
+                    , MsRaws)
     end.
-
-escape(B) when is_binary(B) ->
-    re:replace(B, <<"\\\\">>, <<"\\\\\\\\">>, [{return, binary}, global]).
 
 run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, _, RE} | Fuzzy]) ->
-    Val = case maps:get(Key, ClientInfo, "") of
-              undefined -> "";
+run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} | Fuzzy]) ->
+    Val = case maps:get(Key, ClientInfo, <<>>) of
+              undefined -> <<>>;
               V -> V
           end,
-    re:run(Val, RE, [{capture, none}]) == match andalso run_fuzzy_filter(E, Fuzzy).
+    binary:match(Val, SubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).
 
 %%--------------------------------------------------------------------
 %% format funcs
