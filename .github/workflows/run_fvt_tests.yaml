@@ -44,7 +44,9 @@ jobs:
         cluster_db_backend:
           - mnesia
           - rlog
-
+        exclude:
+          - profile: emqx-edge
+            cluster_db_backend: rlog
     steps:
     - uses: actions/download-artifact@v2
       with:
