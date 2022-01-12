@@ -9,4 +9,4 @@ Homepage: https://www.emqx.com
 Package: emqx
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: EMQX, a distributed, massively scalable, highly extensible MQTT message broker written in Erlang/OTP
+Description: EMQ X, a distributed, massively scalable, highly extensible MQTT message broker.

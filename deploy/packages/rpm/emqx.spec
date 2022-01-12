@@ -14,7 +14,7 @@ Release: %{_release}%{?dist}
 Summary: emqx
 Group: System Environment/Daemons
 License: Apache License Version 2.0
-URL: https://www.emqx.io
+URL: https://www.emqx.com
 BuildRoot: %{_tmppath}/%{_name}-%{_version}-root
 Provides: %{_name}
 AutoReq: 0
@@ -26,7 +26,7 @@ Requires: libatomic
 %endif
 
 %description
-EMQX, a distributed, massively scalable, highly extensible MQTT message broker written in Erlang/OTP.
+EMQ X, a distributed, massively scalable, highly extensible MQTT message broker.
 
 %prep
 
