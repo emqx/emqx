@@ -32,14 +32,10 @@ is_node_up() {
 
 is_node_listening() {
   local node="$1"
-  if [ "${IS_ELIXIR:-no}" = "yes" ]
-  then
-    docker exec -i "$node" \
-           emqx eval ":ok = case :gen_tcp.connect('localhost', 1883, []), do: ({:ok, port} -> (:gen_tcp.close(port); :ok); _ -> :error)" > /dev/null 2>&1
-  else
-    docker exec -i "$node" \
-           emqx eval "ok = case gen_tcp:connect(\"localhost\", 1883, []) of {ok, P} -> gen_tcp:close(P), ok; _ -> exit(1) end." > /dev/null 2>&1
-  fi
+  docker exec -i "$node" \
+         emqx ctl listeners | \
+    grep -A6 'tcp:default' | \
+    grep -qE 'running *: true'
 }
 
 is_cluster_up() {
