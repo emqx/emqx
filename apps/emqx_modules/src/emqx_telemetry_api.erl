@@ -153,15 +153,10 @@ enable_telemetry(Enable) ->
         enable_telemetry(Node, Enable)
     end, mria_mnesia:running_nodes()).
 
-enable_telemetry(Node, Enable) when Node =:= node() ->
-    case Enable of
-        true ->
-            emqx_telemetry:enable();
-        false ->
-            emqx_telemetry:disable()
-    end;
-enable_telemetry(Node, Enable) ->
-    rpc_call(Node, ?MODULE, enable_telemetry, [Node, Enable]).
+enable_telemetry(Node, true) ->
+    is_ok(emqx_telemetry_proto_v1:enable_telemetry(Node));
+enable_telemetry(Node, false) ->
+    is_ok(emqx_telemetry_proto_v1:disable_telemetry(Node)).
 
 get_telemetry_status() ->
     #{enabled => emqx_telemetry:get_status()}.
@@ -170,8 +165,8 @@ get_telemetry_data() ->
     {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
     TelemetryData.
 
-rpc_call(Node, Module, Fun, Args) ->
-    case rpc:call(Node, Module, Fun, Args) of
+is_ok(Result) ->
+    case Result of
         {badrpc, Reason} -> {error, Reason};
         Result -> Result
     end.

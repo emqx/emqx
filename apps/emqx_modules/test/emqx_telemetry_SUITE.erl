@@ -43,11 +43,13 @@ t_uuid(_) ->
     {ok, UUID2} = emqx_telemetry:get_uuid(),
     emqx_telemetry:disable(),
     emqx_telemetry:enable(),
+    emqx_telemetry_proto_v1:disable_telemetry(node()),
+    emqx_telemetry_proto_v1:enable_telemetry(node()),
     {ok, UUID3} = emqx_telemetry:get_uuid(),
-    {ok, UUID4} = emqx_modules_proto_v1:get_uuid(node()),
+    {ok, UUID4} = emqx_telemetry_proto_v1:get_uuid(node()),
     ?assertEqual(UUID2, UUID3),
     ?assertEqual(UUID3, UUID4),
-    ?assertMatch({badrpc, nodedown}, emqx_modules_proto_v1:get_uuid('fake@node')).
+    ?assertMatch({badrpc, nodedown}, emqx_telemetry_proto_v1:get_uuid('fake@node')).
 
 t_official_version(_) ->
     true = emqx_telemetry:official_version("0.0.0"),
