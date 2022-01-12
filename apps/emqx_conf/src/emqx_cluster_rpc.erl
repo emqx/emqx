@@ -18,6 +18,10 @@
 
 %% API
 -export([start_link/0, mnesia/1]).
+
+%% Note: multicall functions are statically checked by
+%% `emqx_bapi_trans' and `emqx_bpapi_static_checks' modules. Don't
+%% forget to update it when adding or removing them here:
 -export([multicall/3, multicall/5, query/1, reset/0, status/0,
          skip_failed_commit/1, fast_forward_to_commit/2]).
 -export([get_node_tnx_id/1, latest_tnx_id/0]).

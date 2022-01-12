@@ -48,6 +48,8 @@
 -define(IGNORED_MODULES, "emqx_rpc").
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
+%% List of known functions also known to do RPC:
+-define(RPC_FUNCTIONS, "emqx_cluster_rpc:multicall/3, emqx_cluster_rpc:multicall/5").
 %% List of functions in the RPC backend modules that we can ignore:
 -define(IGNORED_RPC_CALLS, "gen_rpc:nodes/0").
 
@@ -206,7 +208,7 @@ prepare(#{reldir := RelDir, plt := PLT}) ->
 
 find_remote_calls(_Opts) ->
     Query = "XC | (A - [" ?IGNORED_APPS "]:App - [" ?IGNORED_MODULES "] : Mod)
-               || ([" ?RPC_MODULES "] : Mod - " ?IGNORED_RPC_CALLS ")",
+               || (([" ?RPC_MODULES "] : Mod + [" ?RPC_FUNCTIONS "]) - " ?IGNORED_RPC_CALLS ")",
     {ok, Calls} = xref:q(?XREF, Query),
     ?INFO("Calls to RPC modules ~p", [Calls]),
     {Callers, _Callees} = lists:unzip(Calls),
