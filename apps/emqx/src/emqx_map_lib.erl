@@ -31,7 +31,7 @@
         ]).
 
 -export_type([config_key/0, config_key_path/0]).
--type config_key() :: atom() | binary() | string().
+-type config_key() :: atom() | binary() | [byte()].
 -type config_key_path() :: [config_key()].
 -type convert_fun() :: fun((...) -> {K1::any(), V1::any()} | drop).
 
