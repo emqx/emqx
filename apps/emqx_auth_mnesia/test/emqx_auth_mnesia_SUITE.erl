@@ -46,11 +46,15 @@ all() ->
 groups() ->
     [].
 
+init_per_suite(t_boot) ->
+    ok;
 init_per_suite(Config) ->
     ok = emqx_ct_helpers:start_apps([emqx_management, emqx_auth_mnesia], fun set_special_configs/1),
     create_default_app(),
     Config.
 
+end_per_suite(t_boot) ->
+    ok;
 end_per_suite(_Config) ->
     delete_default_app(),
     emqx_ct_helpers:stop_apps([emqx_management, emqx_auth_mnesia]).
@@ -65,9 +69,61 @@ set_special_configs(emqx) ->
 set_special_configs(_App) ->
     ok.
 
+set_default(ClientId, UserName, Pwd, HashType) ->
+    application:set_env(emqx_auth_mnesia, clientid_list, [{ClientId, Pwd}]),
+    application:set_env(emqx_auth_mnesia, username_list, [{UserName, Pwd}]),
+    application:set_env(emqx_auth_mnesia, password_hash, HashType),
+    ok.
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
+
+t_boot(_Config) ->
+    clean_all_users(),
+    emqx_ct_helpers:stop_apps([emqx_auth_mnesia]),
+    ClientId = <<"clientid-test">>,
+    UserName = <<"username-test">>,
+    Pwd = <<"emqx123456">>,
+    ok = emqx_ct_helpers:start_apps([emqx_auth_mnesia],
+        fun(_) -> set_default(ClientId, UserName, Pwd, sha256) end),
+    Ok = {stop, #{anonymous => false, auth_result => success}},
+    Failed = {stop, #{anonymous => false, auth_result => password_error}},
+    ?assertEqual(Ok,
+        emqx_auth_mnesia:check(#{clientid => ClientId, password => Pwd}, #{}, #{hash_type => sha256})),
+    ?assertEqual(Ok,
+        emqx_auth_mnesia:check(#{clientid => <<"NotExited">>, username => UserName, password => Pwd},
+            #{}, #{hash_type => sha256})),
+    ?assertEqual(Failed,
+        emqx_auth_mnesia:check(#{clientid => ClientId, password => <<Pwd/binary, "bad">>},
+            #{}, #{hash_type => sha256})),
+    ?assertEqual(Failed,
+        emqx_auth_mnesia:check(#{clientid => ClientId, username => UserName, password => <<Pwd/binary, "bad">>},
+            #{}, #{hash_type => sha256})),
+    emqx_ct_helpers:stop_apps([emqx_auth_mnesia]),
+
+    %% change default pwd
+    NewPwd = <<"emqx654321">>,
+    ok = emqx_ct_helpers:start_apps([emqx_auth_mnesia],
+        fun(_) -> set_default(ClientId, UserName, NewPwd, sha256) end),
+    ?assertEqual(Ok,
+        emqx_auth_mnesia:check(#{clientid => ClientId, password => NewPwd},
+            #{}, #{hash_type => sha256})),
+    ?assertEqual(Ok,
+        emqx_auth_mnesia:check(#{clientid => <<"NotExited">>, username => UserName, password => NewPwd},
+            #{}, #{hash_type => sha256})),
+    emqx_ct_helpers:stop_apps([emqx_auth_mnesia]),
+
+    %% change hash_type
+    NewPwd2 = <<"emqx6543210">>,
+    ok = emqx_ct_helpers:start_apps([emqx_auth_mnesia],
+        fun(_) -> set_default(ClientId, UserName, NewPwd2, plain) end),
+    ?assertEqual(Ok,
+        emqx_auth_mnesia:check(#{clientid => ClientId, password => NewPwd2},
+            #{}, #{hash_type => plain})),
+    ?assertEqual(Ok,
+        emqx_auth_mnesia:check(#{clientid => <<"NotExited">>, username => UserName, password => NewPwd2},
+            #{}, #{hash_type => plain})),
+    ok.
 
 t_management(_Config) ->
     clean_all_users(),

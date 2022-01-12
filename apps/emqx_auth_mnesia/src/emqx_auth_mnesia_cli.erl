@@ -22,6 +22,7 @@
 -define(TABLE, emqx_user).
 %% Auth APIs
 -export([ add_user/2
+        , force_add_user/2
         , update_user/2
         , remove_user/1
         , lookup_user/1
@@ -55,6 +56,28 @@ insert_user(User = #emqx_user{login = Login}) ->
         []    -> mnesia:write(User);
         [_|_] -> mnesia:abort(existed)
     end.
+
+force_add_user(Login, Password) ->
+    User = #emqx_user{
+        login = Login,
+        password = encrypted_data(Password),
+        created_at = erlang:system_time(millisecond)
+    },
+    ret(mnesia:transaction(fun insert_or_update_user/2, [Password, User])).
+
+insert_or_update_user(NewPwd, User = #emqx_user{login = Login}) ->
+    case mnesia:read(?TABLE, Login) of
+        []    -> mnesia:write(User);
+        [#emqx_user{password = Pwd}] ->
+            case emqx_auth_mnesia:match_password(NewPwd, hash_type(), [Pwd])  of
+                true -> ok;
+                false ->
+                    Res = mnesia:write(User),
+                    ?LOG(warning, "[Mnesia] (~p)'s password has be updated.", [Login]),
+                    Res
+            end
+    end.
+
 
 %% @doc Update User
 -spec(update_user(tuple(), binary()) -> ok | {error, any()}).
@@ -109,7 +132,7 @@ ret({atomic, ok})     -> ok;
 ret({aborted, Error}) -> {error, Error}.
 
 encrypted_data(Password) ->
-    HashType = application:get_env(emqx_auth_mnesia, password_hash, sha256),
+    HashType = hash_type(),
     SaltBin = salt(),
     <<SaltBin/binary, (hash(Password, SaltBin, HashType))/binary>>.
 
@@ -192,3 +215,5 @@ auth_username_cli(_) ->
                     {"user add <Username> <Password>", "Add username auth rule"},
                     {"user update <Username> <NewPassword>", "Update username auth rule"},
                     {"user delete <Username>", "Delete username auth rule"}]).
+hash_type() ->
+    application:get_env(emqx_auth_mnesia, password_hash, sha256).
