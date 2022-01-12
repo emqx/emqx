@@ -199,6 +199,11 @@ usage() {
 
 COMMAND="${1:-}"
 
+if [ -z "$COMMAND" ]; then
+    usage 'nil'
+    exit 1
+fi
+
 if [ "${2:-}" = 'help' ]; then
     ## 'ctl' command has its own usage info
     if [ "$COMMAND" != 'ctl' ]; then
