@@ -83,7 +83,8 @@
         [] -> ok;
         List ->
            emqx_trace:log(List, Event, Msg, Meta)
-    end
+    end,
+    ?SLOG(debug, Meta#{msg => Msg})
     end).
 
 %% print to 'user' group leader
