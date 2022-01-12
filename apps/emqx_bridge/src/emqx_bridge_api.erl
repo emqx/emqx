@@ -457,6 +457,10 @@ rpc_call(Node, Mod, Fun, Args) ->
         Res -> Res
     end.
 
+wrap_rpc({badrpc, Reason}) -> {error, Reason};
+wrap_rpc(Ret)              -> Ret.
+
+
 error_msg(Code, Msg) when is_binary(Msg) ->
     #{code => Code, message => Msg};
 error_msg(Code, Msg) ->
