@@ -7,13 +7,13 @@
       {update, emqx_auth_mnesia_sup, supervisor},
       {apply, {emqx_acl_mnesia_migrator, start_supervised, []}},
       {load_module,emqx_auth_mnesia_api, brutal_purge,soft_purge,[]},
-      {load_module,emqx_acl_mnesia, brutal_purge, soft_purge,[]},
+      {load_module,emqx_acl_mnesia, brutal_purge,soft_purge,[]},
       {load_module,emqx_acl_mnesia_api, brutal_purge,soft_purge,[]},
       {load_module,emqx_acl_mnesia_cli, brutal_purge,soft_purge,[]}
     ]},
     {<<"4.3.4">>, [
-      {load_module,emqx_auth_mnesia, brutal_purge, soft_purge,[]},
-      {load_module,emqx_auth_mnesia_cli, brutal_purge,soft_purge,[]},
+      {load_module,emqx_auth_mnesia, brutal_purge,soft_purge,[]},
+      {load_module,emqx_auth_mnesia_cli, brutal_purge,soft_purge,[]}
     ]},
     {<<".*">>, [
     ]}
@@ -30,8 +30,8 @@
       {delete_module,emqx_acl_mnesia_db}
     ]},
     {<<"4.3.4">>, [
-      {load_module,emqx_auth_mnesia, brutal_purge, soft_purge,[]},
-      {load_module,emqx_auth_mnesia_cli, brutal_purge,soft_purge,[]},
+      {load_module,emqx_auth_mnesia, brutal_purge,soft_purge,[]},
+      {load_module,emqx_auth_mnesia_cli, brutal_purge,soft_purge,[]}
     ]},
     {<<".*">>, [
     ]}
