@@ -3,8 +3,7 @@ REBAR_VERSION = 3.16.1-emqx-1
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
-# FIXME: use tagged version once merged
-export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/elixir:1.13.1-24.1.5-3-alpine3.14
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-4:1.13.1-24.1.5-3-alpine3.14
 export EMQX_DEFAULT_RUNNER = alpine:3.14
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)

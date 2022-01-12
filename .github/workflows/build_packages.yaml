@@ -19,8 +19,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    # FIXME: use tagged version once merged
-    container: "ghcr.io/emqx/emqx-builder/elixir:1.13.1-24.1.5-3-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-4:1.13.1-24.1.5-3-ubuntu20.04"
 
     outputs:
       ce_old_vsns: ${{ steps.find_old_versons.outputs.ce_old_vsns }}
@@ -353,7 +352,6 @@ jobs:
         SYSTEM: ${{ matrix.os }}
       if: ${{ matrix.build_elixir == 'no_elixir' }}
       working-directory: source
-      # FIXME: use tagged version once merged
       run: |
         ./scripts/buildx.sh \
           --profile "${PROFILE}" \
@@ -362,7 +360,7 @@ jobs:
           --otp "${OTP}" \
           --elixir "${ELIXIR}" \
           --system "${SYSTEM}" \
-          --builder "ghcr.io/emqx/emqx-builder/elixir:${ELIXIR}-${OTP}-${SYSTEM}"
+          --builder "ghcr.io/emqx/emqx-builder/5.0-4:${ELIXIR}-${OTP}-${SYSTEM}"
         ## the pkg build is incremental on the tgz build
         ./scripts/buildx.sh \
           --profile "${PROFILE}" \
@@ -371,7 +369,7 @@ jobs:
           --otp "${OTP}" \
           --elixir "${ELIXIR}" \
           --system "${SYSTEM}" \
-          --builder "ghcr.io/emqx/emqx-builder/elixir:${ELIXIR}-${OTP}-${SYSTEM}"
+          --builder "ghcr.io/emqx/emqx-builder/5.0-4:${ELIXIR}-${OTP}-${SYSTEM}"
 
     - name: build emqx packages (Elixir)
       env:
@@ -382,16 +380,26 @@ jobs:
         SYSTEM: ${{ matrix.os }}
       working-directory: source
       if: ${{ matrix.build_elixir == 'with_elixir' }}
-      # FIXME: use tagged version once merged
       run: |
         ./scripts/buildx.sh \
           --profile "${PROFILE}" \
-          --pkgtype "elixirpkg" \
+          --pkgtype "zip" \
           --arch "${ARCH}" \
           --otp "${OTP}" \
           --elixir "${ELIXIR}" \
           --system "${SYSTEM}" \
-          --builder "ghcr.io/emqx/emqx-builder/elixir:${ELIXIR}-${OTP}-${SYSTEM}"
+          --with-elixir \
+          --builder "ghcr.io/emqx/emqx-builder/5.0-4:${ELIXIR}-${OTP}-${SYSTEM}"
+
+        ./scripts/buildx.sh \
+          --profile "${PROFILE}" \
+          --pkgtype "pkg" \
+          --arch "${ARCH}" \
+          --otp "${OTP}" \
+          --elixir "${ELIXIR}" \
+          --system "${SYSTEM}" \
+          --with-elixir \
+          --builder "ghcr.io/emqx/emqx-builder/5.0-4:${ELIXIR}-${OTP}-${SYSTEM}"
 
     - name: create sha256
       env:
@@ -471,8 +479,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          # FIXME: use tagged version once merged
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/elixir:${{ matrix.elixir }}-${{ matrix.otp }}-alpine3.14
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-4:${{ matrix.elixir }}-${{ matrix.otp }}-alpine3.14
           RUN_FROM=alpine:3.14
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile

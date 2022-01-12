@@ -12,8 +12,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # FIXME: use tagged version once merged
-    container: ghcr.io/emqx/emqx-builder/elixir:1.13.1-23.3.4.9-3-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/5.0-4:1.13.1-23.3.4.9-3-ubuntu20.04
 
     steps:
       - name: Checkout
