@@ -64,7 +64,8 @@ tabname(Name) ->
 register_channel(Name, ClientId) when is_binary(ClientId) ->
     register_channel(Name, {ClientId, self()});
 
-register_channel(Name, {ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
+register_channel(Name, {ClientId, ChanPid}) 
+  when is_binary(ClientId), is_pid(ChanPid) ->
     mria:dirty_write(tabname(Name), record(ClientId, ChanPid)).
 
 %% @doc Unregister a global channel.
@@ -72,13 +73,15 @@ register_channel(Name, {ClientId, ChanPid}) when is_binary(ClientId), is_pid(Cha
 unregister_channel(Name, ClientId) when is_binary(ClientId) ->
     unregister_channel(Name, {ClientId, self()});
 
-unregister_channel(Name, {ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
+unregister_channel(Name, {ClientId, ChanPid})
+  when is_binary(ClientId), is_pid(ChanPid) ->
     mria:dirty_delete_object(tabname(Name), record(ClientId, ChanPid)).
 
 %% @doc Lookup the global channels.
 -spec lookup_channels(gateway_name(), binary()) -> list(pid()).
 lookup_channels(Name, ClientId) ->
-    [ChanPid || #channel{pid = ChanPid} <- mnesia:dirty_read(tabname(Name), ClientId)].
+    [ChanPid
+     || #channel{pid = ChanPid} <- mnesia:dirty_read(tabname(Name), ClientId)].
 
 record(ClientId, ChanPid) ->
     #channel{chid = ClientId, pid = ChanPid}.
@@ -111,10 +114,11 @@ handle_cast(Msg, State) ->
 
 handle_info({membership, {mnesia, down, Node}}, State = #{name := Name}) ->
     Tab = tabname(Name),
-    global:trans({?LOCK, self()},
-                 fun() ->
-                     mria:transaction(?CM_SHARD, fun cleanup_channels/2, [Node, Tab])
-                 end),
+    global:trans(
+      {?LOCK, self()},
+      fun() ->
+        mria:transaction(?CM_SHARD, fun cleanup_channels/2, [Node, Tab])
+      end),
     {noreply, State};
 
 handle_info({membership, _Event}, State) ->

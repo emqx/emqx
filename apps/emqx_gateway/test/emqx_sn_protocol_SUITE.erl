@@ -1766,6 +1766,10 @@ t_broadcast_test1(_) ->
     timer:sleep(600),
     gen_udp:close(Socket).
 
+t_socket_passvice(_) ->
+    %% TODO: test this gateway enter the passvie event
+    ok.
+
 t_clients_api(_) ->
     TsNow = emqx_gateway_utils:unix_ts_to_rfc3339(
               erlang:system_time(millisecond)),
