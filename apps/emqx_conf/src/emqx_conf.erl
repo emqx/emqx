@@ -81,9 +81,8 @@ get_node_and_config(KeyPath) ->
 -spec update(emqx_map_lib:config_key_path(), emqx_config:update_request(),
     emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
-update(KeyPath, UpdateReq, Opts0) ->
-    Args = [KeyPath, UpdateReq, Opts0],
-    multicall(emqx, update_config, Args).
+update(KeyPath, UpdateReq, Opts) ->
+    check_cluster_rpc_result(emqx_conf_proto_v1:update(KeyPath, UpdateReq, Opts)).
 
 %% @doc Update the specified node's key path in local-override.conf.
 -spec update(node(), emqx_map_lib:config_key_path(), emqx_config:update_request(),
@@ -97,9 +96,8 @@ update(Node, KeyPath, UpdateReq, Opts) ->
 %% @doc remove all value of key path in cluster-override.conf or local-override.conf.
 -spec remove(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
-remove(KeyPath, Opts0) ->
-    Args = [KeyPath, Opts0],
-    multicall(emqx, remove_config, Args).
+remove(KeyPath, Opts) ->
+    check_cluster_rpc_result(emqx_conf_proto_v1:remove_config(KeyPath, Opts)).
 
 %% @doc remove the specified node's key path in local-override.conf.
 -spec remove(node(), emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
@@ -112,9 +110,8 @@ remove(Node, KeyPath, Opts) ->
 %% @doc reset all value of key path in cluster-override.conf or local-override.conf.
 -spec reset(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
-reset(KeyPath, Opts0) ->
-    Args = [KeyPath, Opts0],
-    multicall(emqx, reset_config, Args).
+reset(KeyPath, Opts) ->
+    check_cluster_rpc_result(emqx_conf_proto_v1:reset(KeyPath, Opts)).
 
 %% @doc reset the specified node's key path in local-override.conf.
 -spec reset(node(), emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
@@ -122,7 +119,7 @@ reset(KeyPath, Opts0) ->
 reset(Node, KeyPath, Opts) when Node =:= node() ->
     emqx:reset_config(KeyPath, Opts#{override_to => local});
 reset(Node, KeyPath, Opts) ->
-    rpc:call(Node, ?MODULE, reset, [KeyPath, Opts]).
+    emqx_conf_proto_v1:reset(Node, KeyPath, Opts).
 
 -spec gen_doc(file:name_all()) -> ok.
 gen_doc(File) ->
@@ -138,14 +135,14 @@ gen_doc(File) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-multicall(M, F, Args) ->
-    case emqx_cluster_rpc:multicall(M, F, Args) of
+check_cluster_rpc_result(Result) ->
+    case Result of
         {ok, _TnxId, Res} -> Res;
         {retry, TnxId, Res, Nodes} ->
             %% The init MFA return ok, but other nodes failed.
             %% We return ok and alert an alarm.
             ?SLOG(error, #{msg => "failed_to_update_config_in_cluster", nodes => Nodes,
-                tnx_id => TnxId, mfa => {M, F, Args}}),
+                           tnx_id => TnxId}),
             Res;
         {error, Error} -> %% all MFA return not ok or {ok, term()}.
             Error
