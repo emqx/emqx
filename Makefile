@@ -152,17 +152,17 @@ define gen-relup-target
 $1-relup: $(COMMON_DEPS)
 	@$(BUILD) $1 relup
 endef
-ALL_ZIPS = $(REL_PROFILES)
-$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-relup-target,$(zt))))
+ALL_TGZS = $(REL_PROFILES)
+$(foreach zt,$(ALL_TGZS),$(eval $(call gen-relup-target,$(zt))))
 
-## zip target is to create a release package .zip with relup
-.PHONY: $(REL_PROFILES:%=%-zip)
-define gen-zip-target
-$1-zip: $1-relup
-	@$(BUILD) $1 zip
+## tgz target is to create a release package .tar.gz with relup
+.PHONY: $(REL_PROFILES:%=%-tgz)
+define gen-tgz-target
+$1-tgz: $1-relup
+	@$(BUILD) $1 tgz
 endef
-ALL_ZIPS = $(REL_PROFILES)
-$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-zip-target,$(zt))))
+ALL_TGZS = $(REL_PROFILES)
+$(foreach zt,$(ALL_TGZS),$(eval $(call gen-tgz-target,$(zt))))
 
 ## A pkg target depend on a regular release
 .PHONY: $(PKG_PROFILES)
@@ -185,20 +185,20 @@ define gen-docker-target
 $1-docker: $(COMMON_DEPS)
 	@$(BUILD) $1 docker
 endef
-ALL_ZIPS = $(REL_PROFILES)
-$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target,$(zt))))
+ALL_TGZS = $(REL_PROFILES)
+$(foreach zt,$(ALL_TGZS),$(eval $(call gen-docker-target,$(zt))))
 
 ## emqx-docker-testing
 ## emqx-enterprise-docker-testing
-## is to directly copy a unzipped zip-package to a
+## is to directly copy a extracted tgz-package to a
 ## base image such as ubuntu20.04. Mostly for testing
 .PHONY: $(REL_PROFILES:%=%-docker-testing)
 define gen-docker-target-testing
 $1-docker-testing: $(COMMON_DEPS)
 	@$(BUILD) $1 docker-testing
 endef
-ALL_ZIPS = $(REL_PROFILES)
-$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target-testing,$(zt))))
+ALL_TGZS = $(REL_PROFILES)
+$(foreach zt,$(ALL_TGZS),$(eval $(call gen-docker-target-testing,$(zt))))
 
 conf-segs:
 	@scripts/merge-config.escript
