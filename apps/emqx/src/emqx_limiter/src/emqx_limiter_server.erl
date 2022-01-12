@@ -89,13 +89,15 @@
 -export_type([index/0]).
 -import(emqx_limiter_decimal, [add/2, sub/2, mul/2,  put_to_counter/3]).
 
+-elvis([{elvis_style, no_if_expression, disable}]).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 -spec connect(limiter_type(),
               bucket_name() | #{limiter_type() => bucket_name()}) -> emqx_htb_limiter:limiter().
 connect(Type, BucketName) when is_atom(BucketName) ->
-    Path = [emqx_limiter, Type, bucket, BucketName],
+    Path = [limiter, Type, bucket, BucketName],
     case emqx:get_config(Path, undefined) of
         undefined ->
             ?SLOG(error, #{msg => "bucket_config_not_found", path => Path}),
@@ -337,8 +339,9 @@ longitudinal(#{id := Id,
 
     case lists:min([ShouldAlloc, Flow, Capacity]) of
         Avaiable when Avaiable > 0 ->
-            %% XXX if capacity is infinity, and flow always > 0, the value in counter
-            %% will be overflow at some point in the future, do we need to deal with this situation???
+            %% XXX if capacity is infinity, and flow always > 0, the value in
+            %% counter will be overflow at some point in the future, do we need
+            %% to deal with this situation???
             {Inc, Node2} = emqx_limiter_correction:add(Avaiable, Node),
             counters:add(Counter, Index, Inc),
 
@@ -447,7 +450,7 @@ dispatch_burst_to_buckets([], _, Alloced, Nodes) ->
 init_tree(Type, State) ->
     #{global := Global,
       zone := Zone,
-      bucket := Bucket} = emqx:get_config([emqx_limiter, Type]),
+      bucket := Bucket} = emqx:get_config([limiter, Type]),
     {Factor, Root} = make_root(Global, Zone),
     State2 = State#{root := Root},
     {NodeId, State3} = make_zone(maps:to_list(Zone), Factor, 1, State2),

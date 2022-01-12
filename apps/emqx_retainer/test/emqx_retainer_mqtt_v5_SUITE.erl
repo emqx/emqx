@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(BASE_CONF, <<"""
-emqx_retainer {
+retainer {
     enable = true
     msg_clear_interval = 0s
     msg_expiry_interval = 0s
@@ -94,13 +94,23 @@ t_publish_retain_message(_) ->
 
     {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client1),
-    {ok, _} = emqtt:publish(Client1, Topic, #{}, <<"retained message">>, [{qos, 2}, {retain, true}]),
-    {ok, _} = emqtt:publish(Client1, Topic, #{}, <<"new retained message">>, [{qos, 2}, {retain, true}]),
-    {ok, _} = emqtt:publish(Client1, Topic, #{}, <<"not retained message">>, [{qos, 2}, {retain, false}]),
+    {ok, _} = emqtt:publish(
+                Client1, Topic, #{},
+                <<"retained message">>,
+                [{qos, 2}, {retain, true}]),
+    {ok, _} = emqtt:publish(
+                Client1, Topic, #{},
+                <<"new retained message">>,
+                [{qos, 2}, {retain, true}]),
+    {ok, _} = emqtt:publish(
+                Client1, Topic, #{},
+                <<"not retained message">>,
+                [{qos, 2}, {retain, false}]),
     {ok, _, [2]} = emqtt:subscribe(Client1, Topic, 2),
 
     [Msg] = receive_messages(1),
-    ?assertEqual(<<"new retained message">>, maps:get(payload, Msg)),   %% [MQTT-3.3.1-5] [MQTT-3.3.1-8]
+    %% [MQTT-3.3.1-5] [MQTT-3.3.1-8]
+    ?assertEqual(<<"new retained message">>, maps:get(payload, Msg)),
 
     {ok, _, [0]} = emqtt:unsubscribe(Client1, Topic),
     {ok, _} = emqtt:publish(Client1, Topic, #{}, <<"">>, [{qos, 2}, {retain, true}]),
@@ -113,16 +123,33 @@ t_publish_retain_message(_) ->
 t_publish_message_expiry_interval(_) ->
     {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client1),
-    {ok, _} = emqtt:publish(Client1, <<"topic/A">>, #{'Message-Expiry-Interval' => 1}, <<"retained message">>, [{qos, 1}, {retain, true}]),
-    {ok, _} = emqtt:publish(Client1, <<"topic/B">>, #{'Message-Expiry-Interval' => 1}, <<"retained message">>, [{qos, 2}, {retain, true}]),
-    {ok, _} = emqtt:publish(Client1, <<"topic/C">>, #{'Message-Expiry-Interval' => 10}, <<"retained message">>, [{qos, 1}, {retain, true}]),
-    {ok, _} = emqtt:publish(Client1, <<"topic/D">>, #{'Message-Expiry-Interval' => 10}, <<"retained message">>, [{qos, 2}, {retain, true}]),
+    {ok, _} = emqtt:publish(
+                Client1, <<"topic/A">>, #{'Message-Expiry-Interval' => 1},
+                <<"retained message">>,
+                [{qos, 1}, {retain, true}]),
+    {ok, _} = emqtt:publish(
+                Client1, <<"topic/B">>, #{'Message-Expiry-Interval' => 1},
+                <<"retained message">>,
+                [{qos, 2}, {retain, true}]),
+    {ok, _} = emqtt:publish(
+                Client1, <<"topic/C">>, #{'Message-Expiry-Interval' => 10},
+                <<"retained message">>,
+                [{qos, 1}, {retain, true}]),
+    {ok, _} = emqtt:publish(
+                Client1, <<"topic/D">>, #{'Message-Expiry-Interval' => 10},
+                <<"retained message">>,
+                [{qos, 2}, {retain, true}]),
     timer:sleep(1500),
     {ok, _, [2]} = emqtt:subscribe(Client1, <<"topic/+">>, 2),
     Msgs = receive_messages(4),
     ?assertEqual(2, length(Msgs)),  %% [MQTT-3.3.2-5]
 
-    L = lists:map(fun(Msg) -> MessageExpiryInterval = maps:get('Message-Expiry-Interval', maps:get(properties, Msg)), MessageExpiryInterval < 10 end, Msgs), 
+    L = lists:map(
+          fun(Msg) ->
+            MessageExpiryInterval = maps:get('Message-Expiry-Interval',
+                                             maps:get(properties, Msg)),
+            MessageExpiryInterval < 10
+          end, Msgs),
     ?assertEqual(2, length(L)),  %% [MQTT-3.3.2-6]
 
     ok = emqtt:disconnect(Client1),
@@ -137,9 +164,21 @@ t_publish_message_expiry_interval(_) ->
 t_subscribe_retain_handing(_) ->
     {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client1),
-    ok = emqtt:publish(Client1, <<"topic/A">>, #{}, <<"retained message">>, [{qos, 0}, {retain, true}]),
-    {ok, _} = emqtt:publish(Client1, <<"topic/B">>, #{}, <<"retained message">>, [{qos, 1}, {retain, true}]),
-    {ok, _} = emqtt:publish(Client1, <<"topic/C">>, #{}, <<"retained message">>, [{qos, 2}, {retain, true}]),
+    ok = emqtt:publish(
+           Client1, <<"topic/A">>, #{},
+           <<"retained message">>,
+           [{qos, 0}, {retain, true}]
+          ),
+    {ok, _} = emqtt:publish(
+                Client1, <<"topic/B">>, #{},
+                <<"retained message">>,
+                [{qos, 1}, {retain, true}]
+               ),
+    {ok, _} = emqtt:publish(
+                Client1, <<"topic/C">>, #{},
+                <<"retained message">>,
+                [{qos, 2}, {retain, true}]
+               ),
 
     {ok, _, [2]} = emqtt:subscribe(Client1, #{}, [{<<"topic/+">>, [{rh, 1}, {qos, 2}]}]),
     ?assertEqual(3, length(receive_messages(3))),   %% [MQTT-3.3.1-10]

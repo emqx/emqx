@@ -27,12 +27,13 @@
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
 -define(CONF_DEFAULT, <<"
-emqx_exhook {servers = [
-                        {name = default,
-                         url = \"http://127.0.0.1:9000\"
-                         }
-                       ]
-            }
+exhook {
+  servers =
+    [ { name = default,
+        url = \"http://127.0.0.1:9000\"
+      }
+    ]
+}
 ">>).
 
 all() ->
@@ -49,7 +50,7 @@ init_per_suite(Config) ->
     _ = emqx_exhook_demo_svr:start(),
     ok = emqx_config:init_load(emqx_exhook_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_exhook]),
-    [Conf] = emqx:get_config([emqx_exhook, servers]),
+    [Conf] = emqx:get_config([exhook, servers]),
     [{template, Conf} | Config].
 
 end_per_suite(Config) ->

@@ -41,7 +41,7 @@ api_spec() ->
     {[lookup_retained_api(), with_topic_api(), config_api()], []}.
 
 conf_schema() ->
-    gen_schema(emqx:get_raw_config([emqx_retainer])).
+    gen_schema(emqx:get_raw_config([retainer])).
 
 message_props() ->
     properties([
@@ -126,12 +126,12 @@ with_topic_warp(Type, Params) ->
     check_backend(Type, Params, fun with_topic/2).
 
 config(get, _) ->
-    {200, emqx:get_raw_config([emqx_retainer])};
+    {200, emqx:get_raw_config([retainer])};
 
 config(put, #{body := Body}) ->
     try
         {ok, _} = emqx_retainer:update_config(Body),
-        {200,  emqx:get_raw_config([emqx_retainer])}
+        {200,  emqx:get_raw_config([retainer])}
     catch _:Reason:_ ->
             {400,
              #{code => 'UPDATE_FAILED',
@@ -188,7 +188,7 @@ to_bin_string(Data)  ->
     list_to_binary(io_lib:format("~p", [Data])).
 
 check_backend(Type, Params, Cont) ->
-    case emqx:get_config([emqx_retainer, config, type]) of
+    case emqx:get_config([retainer, config, type]) of
         built_in_database ->
             Cont(Type, Params);
         _ ->

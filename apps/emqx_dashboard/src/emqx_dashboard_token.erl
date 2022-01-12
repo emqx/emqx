@@ -163,7 +163,7 @@ jwt_expiration_time() ->
     erlang:system_time(millisecond) + token_ttl().
 
 token_ttl() ->
-    emqx_conf:get([emqx_dashboard, token_expired_time], ?EXPTIME).
+    emqx_conf:get([dashboard, token_expired_time], ?EXPTIME).
 
 format(Token, Username, ExpTime) ->
     #?ADMIN_JWT{

@@ -19,7 +19,8 @@
 -include_lib("typerefl/include/types.hrl").
 
 -export([ roots/0, fields/1, to_rate/1, to_capacity/1
-        , minimum_period/0, to_burst_rate/1, to_initial/1]).
+        , minimum_period/0, to_burst_rate/1, to_initial/1
+        , namespace/0]).
 
 -define(KILOBYTE, 1024).
 
@@ -56,16 +57,18 @@
 
 -import(emqx_schema, [sc/2, map/2]).
 
-roots() -> [emqx_limiter].
+namespace() -> limiter.
 
-fields(emqx_limiter) ->
-    [ {bytes_in, sc(ref(limiter), #{})}
-    , {message_in, sc(ref(limiter), #{})}
-    , {connection, sc(ref(limiter), #{})}
-    , {message_routing, sc(ref(limiter), #{})}
-    ];
+roots() -> [limiter].
 
 fields(limiter) ->
+    [ {bytes_in, sc(ref(limiter_opts), #{})}
+    , {message_in, sc(ref(limiter_opts), #{})}
+    , {connection, sc(ref(limiter_opts), #{})}
+    , {message_routing, sc(ref(limiter_opts), #{})}
+    ];
+
+fields(limiter_opts) ->
     [ {global, sc(ref(rate_burst), #{})}
     , {zone, sc(map("zone name", ref(rate_burst)), #{})}
     , {bucket, sc(map("bucket id", ref(bucket)),
@@ -94,7 +97,8 @@ fields(client_bucket) ->
     , {initial, sc(initial(), #{default => "0"})}
       %% low_water_mark add for emqx_channel and emqx_session
       %% both modules consume first and then check
-      %% so we need to use this value to prevent excessive consumption (e.g, consumption from an empty bucket)
+      %% so we need to use this value to prevent excessive consumption
+      %% (e.g, consumption from an empty bucket)
     , {low_water_mark, sc(initial(),
                           #{desc => "if the remaining tokens are lower than this value,
 the check/consume will succeed, but it will be forced to hang for a short period of time",

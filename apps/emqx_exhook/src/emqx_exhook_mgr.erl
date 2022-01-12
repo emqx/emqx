@@ -108,10 +108,10 @@ lookup(Name) ->
     call({lookup, Name}).
 
 enable(Name) ->
-    update_config([emqx_exhook, servers], {enable, Name, true}).
+    update_config([exhook, servers], {enable, Name, true}).
 
 disable(Name) ->
-    update_config([emqx_exhook, servers], {enable, Name, false}).
+    update_config([exhook, servers], {enable, Name, false}).
 
 server_status(Name) ->
     call({server_status, Name}).
@@ -176,8 +176,8 @@ post_config_update(_KeyPath, UpdateReq, NewConf, _OldConf, _AppEnvs) ->
 
 init([]) ->
     process_flag(trap_exit, true),
-    emqx_conf:add_handler([emqx_exhook, servers], ?MODULE),
-    ServerL = emqx:get_config([emqx_exhook, servers]),
+    emqx_conf:add_handler([exhook, servers], ?MODULE),
+    ServerL = emqx:get_config([exhook, servers]),
     {Waiting, Running, Stopped} = load_all_servers(ServerL),
     Orders = reorder(ServerL),
     {ok, ensure_reload_timer(

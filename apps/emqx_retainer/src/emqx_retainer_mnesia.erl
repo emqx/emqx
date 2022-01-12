@@ -95,7 +95,11 @@ store_retained(_, Msg =#message{topic = Topic}) ->
             end,
             case mria:transaction(?RETAINER_SHARD, Fun) of
                 {atomic, ok} ->  ok;
-                {aborted, Reason} -> ?SLOG(error, #{msg => "failed_to_retain_message", topic => Topic, reason => Reason})
+                {aborted, Reason} ->
+                    ?SLOG(error, #{ msg => "failed_to_retain_message"
+                                  , topic => Topic
+                                  , reason => Reason
+                                  })
             end
     end.
 
@@ -140,7 +144,7 @@ page_read(_, Topic, Page, Limit) ->
     {ok, Rows}.
 
 match_messages(_, Topic, Cursor) ->
-    MaxReadNum = emqx:get_config([?APP, flow_control, max_read_number]),
+    MaxReadNum = emqx:get_config([retainer, flow_control, max_read_number]),
     case Cursor of
         undefined ->
             case MaxReadNum of
@@ -249,7 +253,7 @@ make_cursor(Topic) ->
 
 -spec is_table_full() -> boolean().
 is_table_full() ->
-    #{max_retained_messages := Limit} = emqx:get_config([?APP, config]),
+    #{max_retained_messages := Limit} = emqx:get_config([retainer, config]),
     Limit > 0 andalso (table_size() >= Limit).
 
 -spec table_size() -> non_neg_integer().

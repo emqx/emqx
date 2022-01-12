@@ -130,7 +130,7 @@ basic_conf() ->
       stats => stats_conf(),
       listeners => listeners_conf(),
       zones => zone_conf(),
-      emqx_limiter => emqx:get_config([emqx_limiter])
+      limiter => emqx:get_config([limiter])
     }.
 
 set_test_listener_confs() ->
@@ -201,7 +201,7 @@ modify_limiter(TestCase, NewConf) ->
 
 %% per_client 5/1s,5
 %% aggregated 10/1s,10
-modify_limiter(#{emqx_limiter := Limiter} = NewConf) ->
+modify_limiter(#{limiter := Limiter} = NewConf) ->
     #{message_routing := #{bucket := Bucket} = Routing} = Limiter,
     #{default := #{per_client := Client} = Default} = Bucket,
     Client2 = Client#{rate := 5,
@@ -216,7 +216,7 @@ modify_limiter(#{emqx_limiter := Limiter} = NewConf) ->
     Bucket2 = Bucket#{default := Default2},
     Routing2 = Routing#{bucket := Bucket2},
 
-    NewConf2 = NewConf#{emqx_limiter := Limiter#{message_routing := Routing2}},
+    NewConf2 = NewConf#{limiter := Limiter#{message_routing := Routing2}},
     emqx_config:put(NewConf2),
     emqx_limiter_manager:restart_server(message_routing),
     ok.
@@ -923,7 +923,12 @@ t_ws_cookie_init(_) ->
                  conn_mod => emqx_ws_connection,
                  ws_cookie => WsCookie
                 },
-    Channel = emqx_channel:init(ConnInfo, #{zone => default, limiter => limiter_cfg(), listener => {tcp, default}}),
+    Channel = emqx_channel:init(
+                ConnInfo,
+                #{zone => default,
+                  limiter => limiter_cfg(),
+                  listener => {tcp, default}
+                 }),
     ?assertMatch(#{ws_cookie := WsCookie}, emqx_channel:info(clientinfo, Channel)).
 
 %%--------------------------------------------------------------------
@@ -948,7 +953,12 @@ channel(InitFields) ->
     maps:fold(fun(Field, Value, Channel) ->
                       emqx_channel:set_field(Field, Value, Channel)
               end,
-              emqx_channel:init(ConnInfo, #{zone => default, limiter => limiter_cfg(), listener => {tcp, default}}),
+              emqx_channel:init(
+                ConnInfo,
+                #{zone => default,
+                  limiter => limiter_cfg(),
+                  listener => {tcp, default}
+                 }),
               maps:merge(#{clientinfo => clientinfo(),
                            session    => session(),
                            conn_state => connected

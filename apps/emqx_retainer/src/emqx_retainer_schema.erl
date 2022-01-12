@@ -2,13 +2,15 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, namespace/0]).
 
 -define(TYPE(Type), hoconsc:mk(Type)).
 
-roots() -> ["emqx_retainer"].
+namespace() -> "retainer".
 
-fields("emqx_retainer") ->
+roots() -> ["retainer"].
+
+fields("retainer") ->
     [ {enable, sc(boolean(), false)}
     , {msg_expiry_interval, sc(emqx_schema:duration_ms(), "0s")}
     , {msg_clear_interval, sc(emqx_schema:duration_ms(), "0s")}

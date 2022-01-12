@@ -2,11 +2,13 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, namespace/0]).
 
-roots() -> ["emqx_slow_subs"].
+namespace() -> "slow_subs".
 
-fields("emqx_slow_subs") ->
+roots() -> ["slow_subs"].
+
+fields("slow_subs") ->
     [ {enable, sc(boolean(), false, "switch of this function")}
     , {threshold,
        sc(emqx_schema:duration_ms(),
@@ -23,8 +25,8 @@ fields("emqx_slow_subs") ->
     , {notice_interval,
        sc(emqx_schema:duration_ms(),
           "0s",
-          "The interval for pushing statistics table records to the system topic. When set to 0, push is disabled"
-          "publish topk list to $SYS/brokers/${node}/slow_subs per notice_interval"
+          "The interval for pushing statistics table records to the system topic. "
+          "publish topk list to $SYS/brokers/${node}/slow_subs per notice_interval. "
           "publish is disabled if set to 0s."
          )}
     , {notice_qos,

@@ -34,11 +34,11 @@
 
 -export([namespace/0, roots/0, fields/1, server_config/0]).
 
-namespace() -> emqx_exhook.
+namespace() -> exhook.
 
-roots() -> [emqx_exhook].
+roots() -> [exhook].
 
-fields(emqx_exhook) ->
+fields(exhook) ->
     [{servers,
       sc(hoconsc:array(ref(server)),
           #{default => []})}

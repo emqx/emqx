@@ -21,7 +21,7 @@
 -export([execute/2]).
 
 execute(Req, Env) ->
-    CORS = emqx_conf:get([emqx_dashboard, cors], false),
+    CORS = emqx_conf:get([dashboard, cors], false),
     case CORS andalso cowboy_req:header(<<"origin">>, Req, undefined) of
         false ->
             {ok, Req, Env};
