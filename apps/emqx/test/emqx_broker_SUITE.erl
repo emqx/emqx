@@ -381,9 +381,9 @@ t_connected_client_count_persistent(Config) when is_list(Config) ->
     ChanPids = emqx_cm:all_channels(),
     {ok, {ok, [_, _]}} = wait_for_events(
                            fun() ->
-                                   lists:foreach(
-                                     fun(ChanPid) -> exit(ChanPid, kill) end,
-                                     ChanPids)
+                                lists:foreach(
+                                    fun(ChanPid) -> exit(ChanPid, kill) end,
+                                    ChanPids)
                            end,
                            [ emqx_cm_connected_client_count_dec
                            , emqx_cm_process_down
