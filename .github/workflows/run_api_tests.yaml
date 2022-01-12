@@ -18,21 +18,18 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: zip emqx-broker
-      if: endsWith(github.repository, 'emqx')
+    - name: build EMQ X CE and EE tgz package
       run: |
-        make emqx-zip
-    - name: zip emqx-broker
-      if: endsWith(github.repository, 'enterprise')
-      run: |
-        echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
-        git config --global credential.helper store
-        make emqx-enterprise-zip
+        make emqx-tgz
+        make emqx-enterprise-tgz
     - uses: actions/upload-artifact@v2
       with:
-        name: emqx-broker
-        path: _packages/**/*.zip
-
+        name: emqx-ce
+        path: _packages/emqx/*.tar.gz
+    - uses: actions/upload-artifact@v2
+      with:
+        name: emqx-ee
+        path: _packages/emqx-enterprise/*.tar.gz
   api-test:
     needs: build
     runs-on: ubuntu-latest
@@ -57,6 +54,9 @@ jobs:
           - api_topic_rewrite
           - api_event_message
           - api_stats
+        edition:
+          - emqx-ce
+            #TODO: add emqx-ee
     steps:
     - uses: actions/checkout@v2
       with:
@@ -70,13 +70,13 @@ jobs:
         architecture: x64 # (x64 or x86) - defaults to x64
     - uses: actions/download-artifact@v2
       with:
-        name: emqx-broker
+        name: ${{ matrix.edition }}
         path: .
-    - name: start emqx-broker
+    - name: start EMQ X service
       env:
         EMQX_LISTENERS__WSS__DEFAULT__BIND: "0.0.0.0:8085"
       run: |
-        unzip ./emqx/*.zip
+        tar -zxf ./*.tar.gz
         ./emqx/bin/emqx start
     - name: install jmeter
       timeout-minutes: 10
@@ -117,4 +117,7 @@ jobs:
     steps:
     - uses: geekyeggo/delete-artifact@v1
       with:
-        name: emqx-broker
+        name: emqx-ce
+    - uses: geekyeggo/delete-artifact@v1
+      with:
+        name: emqx-ee

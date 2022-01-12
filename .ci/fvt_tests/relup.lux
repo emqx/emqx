@@ -22,7 +22,7 @@
 
 [shell emqx]
     !cd $PACKAGE_PATH
-    !unzip -q -o $PROFILE-ubuntu20.04-$(echo $old_vsn | sed  -r 's/[v|e]//g')-amd64.zip
+    !tar -zxf ${PROFILE}-$(echo $old_vsn | sed  -r 's/[v|e]//g')-*-ubuntu20.04-amd64.tar.gz
     ?SH-PROMPT
 
     !cd emqx
@@ -82,7 +82,7 @@
     !echo "" > log/emqx.log.1
     ?SH-PROMPT
 
-    !cp -f ../$PROFILE-ubuntu20.04-$VSN-amd64.zip releases/
+    !cp -f ../$PROFILE-$VSN-*-ubuntu20.04-amd64.tar.gz releases/
 
     !./bin/emqx install $VSN
     ?Made release permanent: "$VSN"
@@ -107,7 +107,7 @@
     !echo "" > log/emqx.log.1
     ?SH-PROMPT
 
-    !cp -f ../$PROFILE-ubuntu20.04-$VSN-amd64.zip releases/
+    !cp -f ../$PROFILE-$VSN-*-ubuntu20.04-amd64.tar.gz releases/
 
     !./bin/emqx install $VSN
     ?Made release permanent: "$VSN"

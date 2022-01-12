@@ -85,11 +85,11 @@ jobs:
         $version = $( "${{ github.ref }}" -replace "^(.*)/(.*)/" )
         if ($version -match "^v[0-9]+\.[0-9]+(\.[0-9]+)?") {
           $regex = "[0-9]+\.[0-9]+(-alpha|-beta|-rc)?\.[0-9]+"
-          $pkg_name = "${{ matrix.profile }}-$([regex]::matches($version, $regex).value)-otp${{ matrix.otp }}-windows-amd64.zip"
-          }
+          $pkg_name = "${{ matrix.profile }}-$([regex]::matches($version, $regex).value)-otp${{ matrix.otp }}-windows-amd64.tar.gz"
+        }
         else {
-          $pkg_name = "${{ matrix.profile }}-$($version -replace '/')-otp${{ matrix.otp }}-windows-amd64.zip"
-          }
+          $pkg_name = "${{ matrix.profile }}-$($version -replace '/')-otp${{ matrix.otp }}-windows-amd64.tar.gz"
+        }
         ## We do not build/release bcrypt and quic for windows package
         Remove-Item -Recurse -Force -Path _build/default/lib/bcrypt/
         Remove-Item -Recurse -Force -Path _build/default/lib/quicer/
@@ -192,12 +192,12 @@ jobs:
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
         rm -rf _build/${{ matrix.profile }}/lib
-        make ${{ matrix.profile }}-zip
+        make ${{ matrix.profile }}-tgz
     - name: test
       working-directory: source
       run: |
-        pkg_name=$(find _packages/${{ matrix.profile }} -mindepth 1 -maxdepth 1 -iname \*.zip)
-        unzip -q $pkg_name
+        pkg_name=$(find _packages/${{ matrix.profile }} -mindepth 1 -maxdepth 1 -iname \*.tar.gz)
+        tar -zxf $pkg_name
         # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
@@ -297,7 +297,7 @@ jobs:
       with:
         path: source/_build/default/lib/quicer/
         key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
-    - name: downloads old emqx zip packages
+    - name: download old emqx tgz packages
       env:
         OTP_VSN: ${{ matrix.otp }}
         PROFILE: ${{ matrix.profile }}
@@ -320,10 +320,10 @@ jobs:
         old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
         for tag in ${old_vsns[@]}; do
           package_name="${PROFILE}-${tag#[e|v]}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
-          if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.zip) | grep -oE "^[23]+")" ]; then
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.zip
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.zip.sha256
-            echo "$(cat $package_name.zip.sha256) $package_name.zip" | sha256sum -c || exit 1
+          if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.tar.gz) | grep -oE "^[23]+")" ]; then
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.tar.gz
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.tar.gz.sha256
+            echo "$(cat $package_name.tar.gz.sha256) $package_name.tar.gz" | sha256sum -c || exit 1
           fi
         done
     - name: build emqx packages
@@ -336,10 +336,10 @@ jobs:
       run: |
         ./scripts/buildx.sh \
           --profile "${PROFILE}" \
-          --pkgtype "zip" \
+          --pkgtype "tgz" \
           --arch "${ARCH}" \
           --builder "ghcr.io/emqx/emqx-builder/5.0-3:${OTP}-${SYSTEM}"
-        ## the pkg build is incremental on the zip build
+        ## the pkg build is incremental on the tgz build
         ./scripts/buildx.sh \
           --profile "${PROFILE}" \
           --pkgtype "pkg" \

@@ -63,10 +63,10 @@ jobs:
       with:
         path: _build/default/lib/quicer/
         key: ${{ matrix.os }}-${{ matrix.otp }}-amd64-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
-    - name: build and test zip package
+    - name: build and test tgz package
       run: |
-        make ${EMQX_NAME}-zip
-        .ci/build_packages/tests.sh "$EMQX_PKG_NAME" zip
+        make ${EMQX_NAME}-tgz
+        .ci/build_packages/tests.sh "$EMQX_PKG_NAME" tgz
     - name: run static checks
       if: contains(matrix.os, 'ubuntu')
       run: |
@@ -78,7 +78,7 @@ jobs:
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.profile}}-${{ matrix.otp }}-${{ matrix.os }}
-        path: _packages/**/*.zip
+        path: _packages/${{ matrix.profile}}/*.tar.gz
   mac:
     strategy:
       fail-fast: false
@@ -140,11 +140,11 @@ jobs:
         . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
-        make ${{ matrix.profile }}-zip
+        make ${{ matrix.profile }}-tgz
     - name: test
       run: |
-        pkg_name=$(find _packages/${{ matrix.profile }} -mindepth 1 -maxdepth 1 -iname \*.zip)
-        unzip -q $pkg_name
+        pkg_name=$(find _packages/${{ matrix.profile }} -mindepth 1 -maxdepth 1 -iname \*.tar.gz)
+        tar -zxf $pkg_name
         # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
@@ -166,4 +166,4 @@ jobs:
     - uses: actions/upload-artifact@v2
       with:
         name: macos
-        path: _packages/**/*.zip
+        path: _packages/**/*.tar.gz
