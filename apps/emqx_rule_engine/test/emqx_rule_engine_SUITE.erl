@@ -38,6 +38,7 @@ all() ->
     , {group, events}
     , {group, multi_actions}
     , {group, bugs}
+    , {group, rule_metrics}
     ].
 
 suite() ->
@@ -124,6 +125,10 @@ groups() ->
        t_sqlparse_array_range_2,
        t_sqlparse_true_false,
        t_sqlparse_new_map
+      ]},
+     {rule_metrics, [],
+      [t_metrics,
+       t_metrics1
       ]},
      {events, [],
       [t_events
@@ -1323,6 +1328,110 @@ t_sqlselect_3(_Config) ->
     after 1000 ->
         ok
     end,
+
+    emqtt:stop(Client),
+    emqx_rule_registry:remove_rule(TopicRule).
+
+t_metrics(_Config) ->
+    ok = emqx_rule_engine:load_providers(),
+    TopicRule = create_simple_repub_rule(
+                    <<"t2">>,
+                    "SELECT payload.msg as msg, payload.idx as idx "
+                    "FROM \"t1\" "
+                    "WHERE msg = 'hello' and idx + 1 > 2 "),
+    #rule{id = RuleId} = TopicRule,
+    ?assertEqual(0, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_no_result(RuleId)),
+    {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client),
+    ct:sleep(200),
+    PublishMoreTimes = fun(SomeMessage, Times) ->
+        [begin
+            emqtt:publish(Client, <<"t1">>, SomeMessage, 0),
+            ct:sleep(200)
+         end || _ <- lists:seq(1, Times)] end,
+    PublishMoreTimes(<<"{\"msg\":\"hello\", \"idx\":5}">>, 10),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_no_result(RuleId)),
+    PublishMoreTimes(<<"{\"msg\":\"hello\", \"idx\":0}">>, 10),
+    ?assertEqual(20, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_no_result(RuleId)),
+    PublishMoreTimes(<<"{\"msg\":\"hello\", \"idx\":\"somevalue\"}">>, 10),
+    ?assertEqual(30, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(20, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_no_result(RuleId)),
+    emqtt:stop(Client),
+    emqx_rule_registry:remove_rule(TopicRule).
+
+t_metrics1(_Config) ->
+    ok = emqx_rule_engine:load_providers(),
+    TopicRule = create_simple_repub_rule(
+                    <<"t2">>,
+                "FOREACH payload.sensors "
+                "DO clientid,item.name as name, item.idx + 1 as idx "
+                "INCASE item.idx >= 1 "
+                "FROM \"t1\" "),
+    #rule{id = RuleId} = TopicRule,
+    ?assertEqual(0, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_no_result(RuleId)),   
+    {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client),
+    ct:sleep(200),
+    PublishMoreTimes = fun(SomeMessage, Times) ->
+        [begin
+            emqtt:publish(Client, <<"t1">>, SomeMessage, 0),
+            ct:sleep(200)
+         end || _ <- lists:seq(1, Times)] end,
+    Message =  <<"{\"date\": \"2020-04-24\",
+                   \"sensors\": [
+                       {\"name\": \"a\", \"idx\":0},
+                       {\"name\": \"b\", \"idx\":1},
+                       {\"name\": \"c\", \"idx\":2}
+                   ]}">>,
+    PublishMoreTimes(Message, 10),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_no_result(RuleId)),
+    Message1 =  <<"{\"date\": \"2020-04-24\",
+                   \"sensors\": [
+                       {\"name\": \"a\", \"idx\":0},
+                       {\"name\": \"b\", \"idx\":0},
+                       {\"name\": \"c\", \"idx\":0}
+                   ]}">>,
+    PublishMoreTimes(Message1, 10),
+    ?assertEqual(20, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_no_result(RuleId)),
+    Message2 =  <<"{\"date\": \"2020-04-24\",
+                   \"sensors\": [
+                       {\"name\": \"a\", \"idx\":0},
+                       {\"name\": \"b\", \"idx\":1},
+                       {\"name\": \"c\", \"idx\":\"some string\"}
+                   ]}">>,
+    PublishMoreTimes(Message2, 10),
+    ?assertEqual(30, emqx_rule_metrics:get_rules_matched(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_passed(RuleId)),
+    ?assertEqual(20, emqx_rule_metrics:get_rules_failed(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_exception(RuleId)),
+    ?assertEqual(10, emqx_rule_metrics:get_rules_no_result(RuleId)),
 
     emqtt:stop(Client),
     emqx_rule_registry:remove_rule(TopicRule).
