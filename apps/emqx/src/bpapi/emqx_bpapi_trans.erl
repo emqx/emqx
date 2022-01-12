@@ -150,10 +150,19 @@ extract_mfa(?BACKEND(emqx_rpc, CallOrCast), [_Node, M, F, A]) ->
 extract_mfa(?BACKEND(emqx_rpc, CallOrCast), [_Tag, _Node, M, F, A]) ->
     {call_or_cast(CallOrCast), M, F, A};
 %% (e)rpc:
+extract_mfa(?BACKEND(rpc, multicall), [M, F, A]) ->
+    {call_or_cast(multicall), M, F, A};
+extract_mfa(?BACKEND(rpc, multicall), [M, F, A, {integer, _, _Timeout}]) ->
+    {call_or_cast(multicall), M, F, A};
 extract_mfa(?BACKEND(RPC, CallOrCast), [_Node, M, F, A]) when ?IS_RPC(RPC) ->
     {call_or_cast(CallOrCast), M, F, A};
 extract_mfa(?BACKEND(RPC, CallOrCast), [_Node, M, F, A, _Timeout]) when ?IS_RPC(RPC) ->
     {call_or_cast(CallOrCast), M, F, A};
+%% emqx_cluster_rpc:
+extract_mfa(?BACKEND(emqx_cluster_rpc, multicall), [M, F, A]) ->
+    {call, M, F, A};
+extract_mfa(?BACKEND(emqx_cluster_rpc, multicall), [M, F, A, _RequiredNum, _Timeout]) ->
+    {call, M, F, A};
 extract_mfa(_, _) ->
     error("unrecognized RPC call").
 

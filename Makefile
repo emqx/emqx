@@ -139,10 +139,6 @@ xref: $(REBAR)
 dialyzer: $(REBAR)
 	@$(REBAR) as check dialyzer
 
-.PHONY: ldialyzer
-ldialyzer: $(REBAR)
-	@$(REBAR) as lcheck dialyzer
-
 COMMON_DEPS := $(REBAR) get-dashboard conf-segs
 
 ## rel target is to create release package without relup

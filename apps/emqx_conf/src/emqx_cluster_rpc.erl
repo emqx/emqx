@@ -18,12 +18,18 @@
 
 %% API
 -export([start_link/0, mnesia/1]).
+
+%% Note: multicall functions are statically checked by
+%% `emqx_bapi_trans' and `emqx_bpapi_static_checks' modules. Don't
+%% forget to update it when adding or removing them here:
 -export([multicall/3, multicall/5, query/1, reset/0, status/0,
          skip_failed_commit/1, fast_forward_to_commit/2]).
 -export([get_node_tnx_id/1, latest_tnx_id/0]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-    handle_continue/2, code_change/3]).
+         handle_continue/2, code_change/3]).
+
+-export_type([txn_id/0, succeed_num/0, multicall_return/0]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -37,6 +43,14 @@
 
 -define(CATCH_UP, catch_up).
 -define(TIMEOUT, timer:minutes(1)).
+
+-type txn_id() :: pos_integer().
+
+-type succeed_num() :: pos_integer() | all.
+
+-type multicall_return() :: {ok, txn_id(), _Result}
+                          | {error, term()}
+                          | {retry, txn_id(), _Result, node()}.
 
 %%%===================================================================
 %%% API
@@ -64,27 +78,11 @@ start_link(Node, Name, RetryMs) ->
 %% @doc return {ok, TnxId, MFARes} the first MFA result when all MFA run ok.
 %% return {error, MFARes} when the first MFA result is no ok or {ok, term()}.
 %% return {retry, TnxId, MFARes, Nodes} when some Nodes failed and some Node ok.
--spec multicall(Module, Function, Args) ->
-    {ok, TnxId, term()} | {error, Reason} | {retry, TnxId, MFARes, node()} when
-    Module :: module(),
-    Function :: atom(),
-    Args :: [term()],
-    MFARes :: term(),
-    TnxId :: pos_integer(),
-    Reason :: string().
+-spec multicall(module(), atom(), list()) -> multicall_return().
 multicall(M, F, A) ->
     multicall(M, F, A, all, timer:minutes(2)).
 
--spec multicall(Module, Function, Args, SucceedNum, Timeout) ->
-    {ok, TnxId, MFARes} | {error, Reason} | {retry, TnxId, MFARes, node()} when
-    Module :: module(),
-    Function :: atom(),
-    Args :: [term()],
-    SucceedNum :: pos_integer() | all,
-    TnxId :: pos_integer(),
-    MFARes :: term(),
-    Timeout :: timeout(),
-    Reason :: string().
+-spec multicall(module(), atom(), list(), succeed_num(), timeout()) -> multicall_return().
 multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNum >= 1 ->
     MFA = {initiate, {M, F, A}},
     Begin = erlang:monotonic_time(),

@@ -20,6 +20,9 @@
 
 -include_lib("emqx/include/logger.hrl").
 
+%% Using an undocumented API here :(
+-include_lib("dialyzer/src/dialyzer.hrl").
+
 -type api_dump() :: #{{emqx_bpapi:api(), emqx_bpapi:api_version()} =>
                           #{ calls := [emqx_bpapi:rpc()]
                            , casts := [emqx_bpapi:rpc()]
@@ -45,6 +48,8 @@
 -define(IGNORED_MODULES, "emqx_rpc").
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
+%% List of known functions also known to do RPC:
+-define(RPC_FUNCTIONS, "emqx_cluster_rpc:multicall/3, emqx_cluster_rpc:multicall/5").
 %% List of functions in the RPC backend modules that we can ignore:
 -define(IGNORED_RPC_CALLS, "gen_rpc:nodes/0").
 
@@ -128,21 +133,24 @@ typecheck_apis( #{release := CallerRelease, api := CallerAPIs, signatures := Cal
                                   setnok(),
                                   [?ERROR("Incompatible RPC call: "
                                           "type of the parameter ~p of RPC call ~s on release ~p "
-                                          "is not a subtype of the target function ~s on release ~p",
+                                          "is not a subtype of the target function ~s on release ~p.~n"
+                                          "Caller type: ~s~nCallee type: ~s~n",
                                           [Var, format_call(From), CallerRelease,
-                                           format_call(To), CalleeRelease])
-                                   || Var <- TypeErrors]
+                                           format_call(To), CalleeRelease,
+                                           erl_types:t_to_string(CallerType),
+                                           erl_types:t_to_string(CalleeType)])
+                                   || {Var, CallerType, CalleeType} <- TypeErrors]
                           end
                   end,
                   AllCalls).
 
--spec typecheck_rpc(param_types(), param_types()) -> [emqx_bpapi:var_name()].
+-spec typecheck_rpc(param_types(), param_types()) -> [{emqx_bpapi:var_name(), _Type, _Type}].
 typecheck_rpc(Caller, Callee) ->
     maps:fold(fun(Var, CalleeType, Acc) ->
                       #{Var := CallerType} = Caller,
                       case erl_types:t_is_subtype(CallerType, CalleeType) of
                           true  -> Acc;
-                          false -> [Var|Acc]
+                          false -> [{Var, CallerType, CalleeType}|Acc]
                       end
               end,
               [],
@@ -182,7 +190,7 @@ dump(Opts) ->
     warn_nonbpapi_rpcs(NonBPAPICalls),
     APIDump = collect_bpapis(BPAPICalls),
     DialyzerDump = collect_signatures(PLT, APIDump),
-    Release = emqx_app:get_release(),
+    [Release|_] = string:split(emqx_app:get_release(), "-"),
     dump_api(#{api => APIDump, signatures => DialyzerDump, release => Release}),
     xref:stop(?XREF),
     erase(bpapi_ok).
@@ -200,7 +208,7 @@ prepare(#{reldir := RelDir, plt := PLT}) ->
 
 find_remote_calls(_Opts) ->
     Query = "XC | (A - [" ?IGNORED_APPS "]:App - [" ?IGNORED_MODULES "] : Mod)
-               || ([" ?RPC_MODULES "] : Mod - " ?IGNORED_RPC_CALLS ")",
+               || (([" ?RPC_MODULES "] : Mod + [" ?RPC_FUNCTIONS "]) - " ?IGNORED_RPC_CALLS ")",
     {ok, Calls} = xref:q(?XREF, Query),
     ?INFO("Calls to RPC modules ~p", [Calls]),
     {Callers, _Callees} = lists:unzip(Calls),
@@ -263,9 +271,11 @@ collect_signatures(PLT, APIs) ->
 enrich({From0, To0}, {Acc0, PLT}) ->
     From = call_to_mfa(From0),
     To   = call_to_mfa(To0),
-    case {dialyzer_plt:lookup(PLT, From), dialyzer_plt:lookup(PLT, To)} of
-        {{value, TFrom}, {value, TTo}} ->
-            Acc = Acc0#{ From => TFrom
+    case {dialyzer_plt:lookup_contract(PLT, From), dialyzer_plt:lookup(PLT, To)} of
+        {{value, #contract{args = FromArgs}}, {value, TTo}} ->
+            %% TODO: Check return type
+            FromRet = erl_types:t_any(),
+            Acc = Acc0#{ From => {FromRet, FromArgs}
                        , To   => TTo
                        },
             {Acc, PLT};
