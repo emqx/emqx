@@ -40,9 +40,10 @@ else
 fi
 PACKAGE_FILE_NAME="${PACKAGE_NAME}.${PKG_SUFFIX}"
 
-PACKAGE_FILE="${PACKAGE_PATH}/${PACKAGE_FILE_NAME}.${PKG_SUFFIX}"
+PACKAGE_FILE="${PACKAGE_PATH}/${PACKAGE_FILE_NAME}"
 if ! [ -f "$PACKAGE_FILE" ]; then
     echo "$PACKAGE_FILE is not a file"
+    exit 1
 fi
 
 case "$(uname -m)" in
