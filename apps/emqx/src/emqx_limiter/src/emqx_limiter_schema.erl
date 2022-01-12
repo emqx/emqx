@@ -19,7 +19,8 @@
 -include_lib("typerefl/include/types.hrl").
 
 -export([ roots/0, fields/1, to_rate/1, to_capacity/1
-        , minimum_period/0, to_burst_rate/1, to_initial/1]).
+        , minimum_period/0, to_burst_rate/1, to_initial/1
+        , namespace/0]).
 
 -define(KILOBYTE, 1024).
 
@@ -55,6 +56,8 @@
 -export_type([limiter_type/0, bucket_name/0, zone_name/0]).
 
 -import(emqx_schema, [sc/2, map/2]).
+
+namespace() -> limiter.
 
 roots() -> [limiter].
 

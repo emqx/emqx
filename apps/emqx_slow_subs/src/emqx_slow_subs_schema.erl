@@ -2,7 +2,9 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, namespace/0]).
+
+namespace() -> "slow_subs".
 
 roots() -> ["slow_subs"].
 

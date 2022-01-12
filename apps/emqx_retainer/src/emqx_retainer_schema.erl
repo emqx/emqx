@@ -2,9 +2,11 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, namespace/0]).
 
 -define(TYPE(Type), hoconsc:mk(Type)).
+
+namespace() -> "retainer".
 
 roots() -> ["retainer"].
 
