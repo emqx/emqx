@@ -13,12 +13,37 @@ on:
 
 jobs:
   build:
+    strategy:
+      matrix:
+        otp:
+          - 24.1.5-3
+        os:
+          - ubuntu20.04
+        arch:
+          - amd64
     runs-on: ubuntu-latest
-    container: "ghcr.io/emqx/emqx-builder/5.0-3:24.1.5-3-ubuntu20.04"
-
+    container: "ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-${{ matrix.os }}"
     steps:
     - uses: actions/checkout@v2
+
+    - name: Get deps git refs for cache
+      id: deps-refs
+      run: |
+        scripts/get-dep-refs.sh
+        make clean-all
+    - name: load rocksdb cache
+      uses: actions/cache@v2
+      with:
+        path: source/_build/default/lib/rocksdb/
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
+    - name: load quicer cache
+      uses: actions/cache@v2
+      with:
+        path: source/_build/default/lib/quicer/
+        key: ${{ matrix.os }}-${{ matrix.otp }}-$${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+
     - name: build EMQ X CE and EE tgz package
+      if: endsWith(github.repository, 'emqx')
       run: |
         make emqx-tgz
         make emqx-enterprise-tgz
