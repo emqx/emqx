@@ -750,9 +750,10 @@ handle_deliver(Delivers, Channel = #channel{session = Session,
 
 ignore_local(Delivers, Subscriber, Session) ->
     Subs = emqx_session:info(subscriptions, Session),
-    lists:dropwhile(fun({deliver, Topic, #message{from = Publisher}}) ->
+    lists:dropwhile(fun({deliver, Topic, #message{from = Publisher} = Msg}) ->
                         case maps:find(Topic, Subs) of
                             {ok, #{nl := 1}} when Subscriber =:= Publisher ->
+                                ok = emqx_hooks:run('delivery.dropped', [Msg, #{node => node()}, no_local]),
                                 ok = emqx_metrics:inc('delivery.dropped'),
                                 ok = emqx_metrics:inc('delivery.dropped.no_local'),
                                 true;
