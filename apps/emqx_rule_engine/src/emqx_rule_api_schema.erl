@@ -81,11 +81,41 @@ fields("rule_test") ->
     ];
 
 fields("metrics") ->
-    [ {"matched", sc(integer(), #{desc => "How much times this rule is matched"})}
-    , {"rate", sc(float(), #{desc => "The rate of matched, times/second"})}
-    , {"rate_max", sc(float(), #{desc => "The max rate of matched, times/second"})}
-    , {"rate_last5m", sc(float(),
+    [ {"sql.matched", sc(integer(), #{
+            desc => "How much times the FROM clause of the SQL is matched."
+        })}
+    , {"sql.matched.rate", sc(float(), #{desc => "The rate of matched, times/second"})}
+    , {"sql.matched.rate.max", sc(float(), #{desc => "The max rate of matched, times/second"})}
+    , {"sql.matched.rate.last5m", sc(float(),
         #{desc => "The average rate of matched in last 5 mins, times/second"})}
+    , {"sql.passed", sc(integer(), #{desc => "How much times the SQL is passed"})}
+    , {"sql.failed", sc(integer(), #{desc => "How much times the SQL is failed"})}
+    , {"sql.failed.exception", sc(integer(), #{
+            desc => "How much times the SQL is failed due to exceptions. "
+                    "This may because of a crash when calling a SQL function, or "
+                    "trying to do arithmetic operation on undefined variables"
+        })}
+    , {"sql.failed.unknown", sc(integer(), #{
+            desc => "How much times the SQL is failed due to an unknown error."
+        })}
+    , {"outputs.total", sc(integer(), #{
+            desc => "How much times the outputs are called by the rule. "
+                    "This value may serveral times of 'sql.matched', depending on the "
+                    "number of the outputs of the rule."
+        })}
+    , {"outputs.success", sc(integer(), #{
+            desc => "How much times the rule success to call the outputs."
+        })}
+    , {"outputs.failed", sc(integer(), #{
+            desc => "How much times the rule failed to call the outputs."
+        })}
+    , {"outputs.failed.out_of_service", sc(integer(), #{
+            desc => "How much times the rule failed to call outputs due to the output is "
+                    "out of service. For example, a bridge is disabled or stopped."
+        })}
+    , {"outputs.failed.unknown", sc(integer(), #{
+            desc => "How much times the rule failed to call outputs due to to an unknown error."
+        })}
     ];
 
 fields("node_metrics") ->

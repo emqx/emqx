@@ -18,6 +18,7 @@
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 
@@ -371,8 +372,12 @@ zip_bridges([BridgesFirstNode | _] = BridgesAllNodes) ->
 
 pick_bridges_by_id(Id, BridgesAllNodes) ->
     lists:foldl(fun(BridgesOneNode, Acc) ->
-            [BridgeInfo] = [Bridge || Bridge = #{id := Id0} <- BridgesOneNode, Id0 == Id],
-            [BridgeInfo | Acc]
+            case [Bridge || Bridge = #{id := Id0} <- BridgesOneNode, Id0 == Id] of
+                [BridgeInfo] -> [BridgeInfo | Acc];
+                [] ->
+                    ?SLOG(warning, #{msg => "bridge_inconsistent_in_cluster", bridge => Id}),
+                    Acc
+            end
         end, [], BridgesAllNodes).
 
 format_bridge_info([FirstBridge | _] = Bridges) ->
@@ -418,8 +423,15 @@ format_resp(#{id := Id, raw_config := RawConf,
         name => maps:get(<<"name">>, RawConf, BridgeName),
         node => node(),
         status => IsConnected(Status),
-        metrics => Metrics
+        metrics => format_metrics(Metrics)
     }.
+
+format_metrics(#{
+        counters := #{failed := Failed, exception := Ex, matched := Match, success := Succ},
+        rate := #{
+            matched := #{current := Rate, last5m := Rate5m, max := RateMax}
+        } }) ->
+    ?METRICS(Match, Succ, Failed + Ex, Rate, Rate5m, RateMax).
 
 rpc_multicall(Func, Args) ->
     Nodes = mria_mnesia:running_nodes(),

@@ -523,7 +523,21 @@ t_ingress_mqtt_bridge_with_rules(_) ->
     %% and also the rule should be matched, with matched + 1:
     {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
     #{ <<"id">> := RuleId
-     , <<"metrics">> := #{<<"matched">> := 1}
+     , <<"metrics">> := #{
+         <<"sql.matched">> := 1,
+         <<"sql.passed">> := 1,
+         <<"sql.failed">> := 0,
+         <<"sql.failed.exception">> := 0,
+         <<"sql.failed.no_result">> := 0,
+         <<"sql.matched.rate">> := _,
+         <<"sql.matched.rate.max">> := _,
+         <<"sql.matched.rate.last5m">> := _,
+         <<"outputs.total">> := 1,
+         <<"outputs.success">> := 1,
+         <<"outputs.failed">> := 0,
+         <<"outputs.failed.out_of_service">> := 0,
+         <<"outputs.failed.unknown">> := 0
+       }
      } = jsx:decode(Rule1),
     %% we also check if the outputs of the rule is triggered
     ?assertMatch(#{inspect := #{
@@ -578,7 +592,7 @@ t_egress_mqtt_bridge_with_rules(_) ->
     ?assert(
         receive
             {deliver, RemoteTopic, #message{payload = Payload}} ->
-                ct:pal("local broker got message: ~p on topic ~p", [Payload, RemoteTopic]),
+                ct:pal("remote broker got message: ~p on topic ~p", [Payload, RemoteTopic]),
                 true;
             Msg ->
                 ct:pal("Msg: ~p", [Msg]),
@@ -598,13 +612,27 @@ t_egress_mqtt_bridge_with_rules(_) ->
     emqx:publish(emqx_message:make(RuleTopic, Payload2)),
     {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
     #{ <<"id">> := RuleId
-     , <<"metrics">> := #{<<"matched">> := 1}
+     , <<"metrics">> := #{
+         <<"sql.matched">> := 1,
+         <<"sql.passed">> := 1,
+         <<"sql.failed">> := 0,
+         <<"sql.failed.exception">> := 0,
+         <<"sql.failed.no_result">> := 0,
+         <<"sql.matched.rate">> := _,
+         <<"sql.matched.rate.max">> := _,
+         <<"sql.matched.rate.last5m">> := _,
+         <<"outputs.total">> := 1,
+         <<"outputs.success">> := 1,
+         <<"outputs.failed">> := 0,
+         <<"outputs.failed.out_of_service">> := 0,
+         <<"outputs.failed.unknown">> := 0
+       }
      } = jsx:decode(Rule1),
     %% we should receive a message on the "remote" broker, with specified topic
     ?assert(
         receive
             {deliver, RemoteTopic2, #message{payload = Payload2}} ->
-                ct:pal("local broker got message: ~p on topic ~p", [Payload2, RemoteTopic2]),
+                ct:pal("remote broker got message: ~p on topic ~p", [Payload2, RemoteTopic2]),
                 true;
             Msg ->
                 ct:pal("Msg: ~p", [Msg]),

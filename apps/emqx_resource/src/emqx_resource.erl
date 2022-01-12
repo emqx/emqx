@@ -205,7 +205,12 @@ query(InstId, Request, AfterQuery) ->
         {ok, #{mod := Mod, state := ResourceState, status := started}} ->
             %% the resource state is readonly to Module:on_query/4
             %% and the `after_query()` functions should be thread safe
-            Mod:on_query(InstId, Request, AfterQuery, ResourceState);
+            ok = emqx_plugin_libs_metrics:inc(resource_metrics, InstId, matched),
+            try Mod:on_query(InstId, Request, AfterQuery, ResourceState)
+            catch Err:Reason:ST ->
+                emqx_plugin_libs_metrics:inc(resource_metrics, InstId, exception),
+                erlang:raise(Err, Reason, ST)
+            end;
         {error, not_found} ->
             query_error(not_found, <<"the resource id not exists">>)
     end.
@@ -346,9 +351,8 @@ filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
 
 inc_metrics_funcs(InstId) ->
-    OnFailed = [{fun emqx_plugin_libs_metrics:inc_failed/2, [resource_metrics, InstId]}],
-    OnSucc = [ {fun emqx_plugin_libs_metrics:inc_matched/2, [resource_metrics, InstId]}
-             , {fun emqx_plugin_libs_metrics:inc_success/2, [resource_metrics, InstId]}
+    OnFailed = [{fun emqx_plugin_libs_metrics:inc/3, [resource_metrics, InstId, failed]}],
+    OnSucc = [ {fun emqx_plugin_libs_metrics:inc/3, [resource_metrics, InstId, success]}
              ],
     {OnSucc, OnFailed}.
 

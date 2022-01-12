@@ -176,7 +176,8 @@ do_create(InstId, ResourceType, Config, Opts) ->
         {error, not_found} ->
             case do_start(InstId, ResourceType, Config, Opts) of
                 ok ->
-                    ok = emqx_plugin_libs_metrics:clear_metrics(resource_metrics, InstId),
+                    ok = emqx_plugin_libs_metrics:create_metrics(resource_metrics, InstId,
+                            [matched, success, failed, exception], [matched]),
                     {ok, force_lookup(InstId)};
                 Error ->
                     Error

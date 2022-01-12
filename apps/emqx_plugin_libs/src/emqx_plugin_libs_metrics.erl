@@ -28,17 +28,13 @@
         , inc/4
         , get/3
         , get_rate/2
-        , create_metrics/2
+        , get_counters/2
+        , create_metrics/3
+        , create_metrics/4
         , clear_metrics/2
         ]).
 
 -export([ get_metrics/2
-        , get_matched/2
-        , get_success/2
-        , get_failed/2
-        , inc_matched/2
-        , inc_success/2
-        , inc_failed/2
         ]).
 
 %% gen_server callbacks
@@ -61,13 +57,14 @@
 
 -export_type([metrics/0]).
 
+-type rate() :: #{
+    current => float(),
+    max => float(),
+    last5m => float()
+}.
 -type metrics() :: #{
-    matched => integer(),
-    success => integer(),
-    failed => integer(),
-    rate => float(),
-    rate_max => float(),
-    rate_last5m => float()
+    counters => #{atom() => integer()},
+    rate => #{atom() => rate()}
 }.
 -type handler_name() :: atom().
 -type metric_id() :: binary().
@@ -75,7 +72,6 @@
 -define(CntrRef(Name), {?MODULE, Name}).
 -define(SAMPCOUNT_5M, (?SECS_5M div ?SAMPLING)).
 
-%% the rate of 'matched'
 -record(rate, {
             max = 0 :: number(),
             current = 0 :: number(),
@@ -107,35 +103,41 @@ child_spec(Name) ->
      , modules => [emqx_plugin_libs_metrics]
      }.
 
--spec(create_metrics(handler_name(), metric_id()) -> ok).
-create_metrics(Name, Id) ->
-    gen_server:call(Name, {create_metrics, Id}).
+-spec(create_metrics(handler_name(), metric_id(), [atom()]) -> ok | {error, term()}).
+create_metrics(Name, Id, Metrics) ->
+    create_metrics(Name, Id, Metrics, Metrics).
+
+-spec(create_metrics(handler_name(), metric_id(), [atom()], [atom()]) -> ok | {error, term()}).
+create_metrics(Name, Id, Metrics, RateMetrics) ->
+    gen_server:call(Name, {create_metrics, Id, Metrics, RateMetrics}).
 
 -spec(clear_metrics(handler_name(), metric_id()) -> ok).
 clear_metrics(Name, Id) ->
     gen_server:call(Name, {delete_metrics, Id}).
 
--spec(get(handler_name(), metric_id(), atom()) -> number()).
+-spec(get(handler_name(), metric_id(), atom() | integer()) -> number()).
 get(Name, Id, Metric) ->
-    case get_couters_ref(Name, Id) of
+    case get_ref(Name, Id) of
         not_found -> 0;
-        Ref -> counters:get(Ref, metrics_idx(Metric))
+        Ref when is_atom(Metric) ->
+            counters:get(Ref, idx_metric(Name, Id, Metric));
+        Ref when is_integer(Metric) ->
+            counters:get(Ref, Metric)
     end.
 
 -spec(get_rate(handler_name(), metric_id()) -> map()).
 get_rate(Name, Id) ->
     gen_server:call(Name, {get_rate, Id}).
 
+-spec(get_counters(handler_name(), metric_id()) -> map()).
+get_counters(Name, Id) ->
+    maps:map(fun(_Metric, Index) ->
+            get(Name, Id, Index)
+        end, get_indexes(Name, Id)).
+
 -spec(get_metrics(handler_name(), metric_id()) -> metrics()).
 get_metrics(Name, Id) ->
-    #{max := Max, current := Current, last5m := Last5M} = get_rate(Name, Id),
-    #{matched => get_matched(Name, Id),
-      success => get_success(Name, Id),
-      failed => get_failed(Name, Id),
-      rate => Current,
-      rate_max => Max,
-      rate_last5m => Last5M
-    }.
+    #{rate => get_rate(Name, Id), counters => get_counters(Name, Id)}.
 
 -spec inc(handler_name(), metric_id(), atom()) -> ok.
 inc(Name, Id, Metric) ->
@@ -143,33 +145,7 @@ inc(Name, Id, Metric) ->
 
 -spec inc(handler_name(), metric_id(), atom(), pos_integer()) -> ok.
 inc(Name, Id, Metric, Val) ->
-    case get_couters_ref(Name, Id) of
-        not_found ->
-            %% this may occur when increasing a counter for
-            %% a rule that was created from a remove node.
-            create_metrics(Name, Id),
-            counters:add(get_couters_ref(Name, Id), metrics_idx(Metric), Val);
-        Ref ->
-            counters:add(Ref, metrics_idx(Metric), Val)
-    end.
-
-inc_matched(Name, Id) ->
-    inc(Name, Id, 'matched', 1).
-
-inc_success(Name, Id) ->
-    inc(Name, Id, 'success', 1).
-
-inc_failed(Name, Id) ->
-    inc(Name, Id, 'failed', 1).
-
-get_matched(Name, Id) ->
-    get(Name, Id, 'matched').
-
-get_success(Name, Id) ->
-    get(Name, Id, 'success').
-
-get_failed(Name, Id) ->
-    get(Name, Id, 'failed').
+    counters:add(get_ref(Name, Id), idx_metric(Name, Id, Metric), Val).
 
 start_link(Name) ->
     gen_server:start_link({local, Name}, ?MODULE, Name, []).
@@ -181,31 +157,36 @@ init(Name) ->
     persistent_term:put(?CntrRef(Name), #{}),
     {ok, #state{}}.
 
-handle_call({get_rate, _Id}, _From, State = #state{rates = undefined}) ->
-    {reply, format_rate(#rate{}), State};
 handle_call({get_rate, Id}, _From, State = #state{rates = Rates}) ->
     {reply, case maps:get(Id, Rates, undefined) of
-                undefined -> format_rate(#rate{});
-                Rate -> format_rate(Rate)
+                undefined -> #{};
+                RatesPerId -> format_rates_of_id(RatesPerId)
             end, State};
 
-handle_call({create_metrics, Id}, _From,
+handle_call({create_metrics, Id, Metrics, RateMetrics}, _From,
             State = #state{metric_ids = MIDs, rates = Rates}) ->
-    {reply, create_counters(get_self_name(), Id),
-     State#state{metric_ids = sets:add_element(Id, MIDs),
-                 rates =  case Rates of
-                                    undefined -> #{Id => #rate{}};
-                                    _ -> Rates#{Id => #rate{}}
-                                end}};
+    case RateMetrics -- Metrics of
+        [] ->
+            RatePerId = maps:from_list([{M, #rate{}} || M <- RateMetrics]),
+            Rate1 = case Rates of
+                undefined -> #{Id => RatePerId};
+                _ -> Rates#{Id => RatePerId}
+            end,
+            {reply, create_counters(get_self_name(), Id, Metrics),
+                State#state{metric_ids = sets:add_element(Id, MIDs),
+                            rates = Rate1}};
+        _ ->
+            {reply, {error, not_super_set_of, {RateMetrics, Metrics}}, State}
+    end;
 
 handle_call({delete_metrics, Id}, _From,
             State = #state{metric_ids = MIDs, rates = Rates}) ->
     {reply, delete_counters(get_self_name(), Id),
      State#state{metric_ids = sets:del_element(Id, MIDs),
-                 rates =  case Rates of
-                                    undefined -> undefined;
-                                    _ -> maps:remove(Id, Rates)
-                                end}};
+                 rates = case Rates of
+                        undefined -> undefined;
+                        _ -> maps:remove(Id, Rates)
+                    end}};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -218,10 +199,12 @@ handle_info(ticking, State = #state{rates = undefined}) ->
     {noreply, State};
 
 handle_info(ticking, State = #state{rates = Rates0}) ->
-    Rates = maps:map(
-                    fun(Id, Rate) ->
-                        calculate_rate(get_matched(get_self_name(), Id), Rate)
-                    end, Rates0),
+    Rates =
+        maps:map(fun(Id, RatesPerID) ->
+            maps:map(fun(Metric, Rate) ->
+                calculate_rate(get(get_self_name(), Id, Metric), Rate)
+            end, RatesPerID)
+        end, Rates0),
     erlang:send_after(timer:seconds(?SAMPLING), self(), ticking),
     {noreply, State#state{rates = Rates}};
 
@@ -243,29 +226,49 @@ stop(Name) ->
 %% Internal Functions
 %%------------------------------------------------------------------------------
 
-create_counters(Name, Id) ->
-    case get_couters_ref(Name, Id) of
-        not_found ->
-            Counters = get_all_counters(Name),
-            CntrRef = counters:new(max_counters_size(), [write_concurrency]),
-            persistent_term:put(?CntrRef(Name), Counters#{Id => CntrRef});
-        _Ref -> ok
-    end.
+create_counters(_Name, _Id, []) ->
+    error({create_counter_error, must_provide_a_list_of_metrics});
+create_counters(Name, Id, Metrics) ->
+    %% backup the old counters
+    OlderCounters = maps:with(Metrics, get_counters(Name, Id)),
+    %% create the new counter
+    Size = length(Metrics),
+    Indexes = maps:from_list(lists:zip(Metrics, lists:seq(1, Size))),
+    Counters = get_pterm(Name),
+    CntrRef = counters:new(Size, [write_concurrency]),
+    persistent_term:put(?CntrRef(Name),
+        Counters#{Id => #{ref => CntrRef, indexes => Indexes}}),
+    %% restore the old counters
+    lists:foreach(fun({Metric, N}) ->
+            inc(Name, Id, Metric, N)
+        end, maps:to_list(OlderCounters)).
 
 delete_counters(Name, Id) ->
-    persistent_term:put(?CntrRef(Name), maps:remove(Id, get_all_counters(Name))).
+    persistent_term:put(?CntrRef(Name), maps:remove(Id, get_pterm(Name))).
 
-get_couters_ref(Name, Id) ->
-    maps:get(Id, get_all_counters(Name), not_found).
+get_ref(Name, Id) ->
+    case maps:find(Id, get_pterm(Name)) of
+        {ok, #{ref := Ref}} -> Ref;
+        error -> not_found
+    end.
 
-get_all_counters(Name) ->
+idx_metric(Name, Id, Metric) ->
+    maps:get(Metric, get_indexes(Name, Id)).
+
+get_indexes(Name, Id) ->
+    case maps:find(Id, get_pterm(Name)) of
+        {ok, #{indexes := Indexes}} -> Indexes;
+        error -> #{}
+    end.
+
+get_pterm(Name) ->
     persistent_term:get(?CntrRef(Name), #{}).
 
 calculate_rate(_CurrVal, undefined) ->
     undefined;
 calculate_rate(CurrVal, #rate{max = MaxRate0, last_v = LastVal,
-                                     tick = Tick, last5m_acc = AccRate5Min0,
-                                     last5m_smpl = Last5MinSamples0}) ->
+                    tick = Tick, last5m_acc = AccRate5Min0,
+                    last5m_smpl = Last5MinSamples0}) ->
     %% calculate the current rate based on the last value of the counter
     CurrRate = (CurrVal - LastVal) / ?SAMPLING,
 
@@ -292,8 +295,13 @@ calculate_rate(CurrVal, #rate{max = MaxRate0, last_v = LastVal,
                 last_v = CurrVal, last5m_acc = Acc5Min,
                 last5m_smpl = Last5MinSamples, tick = Tick + 1}.
 
+format_rates_of_id(RatesPerId) ->
+    maps:map(fun(_Metric, Rates) ->
+            format_rate(Rates)
+        end, RatesPerId).
+
 format_rate(#rate{max = Max, current = Current, last5m = Last5Min}) ->
-    #{max => Max, current => precision(Current, 2), last5m => precision(Last5Min, 2)}.
+    #{max => precision(Max, 2), current => precision(Current, 2), last5m => precision(Last5Min, 2)}.
 
 precision(Float, N) ->
     Base = math:pow(10, N),
@@ -302,14 +310,3 @@ precision(Float, N) ->
 get_self_name() ->
     {registered_name, Name} = process_info(self(), registered_name),
     Name.
-
-%%------------------------------------------------------------------------------
-%% Metrics Definitions
-%%------------------------------------------------------------------------------
-
-max_counters_size() -> 32.
-metrics_idx('matched') -> 1;
-metrics_idx('success') -> 2;
-metrics_idx('failed') -> 3;
-metrics_idx(_) -> 32.
-
