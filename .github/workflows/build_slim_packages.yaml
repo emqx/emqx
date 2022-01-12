@@ -51,11 +51,7 @@ jobs:
     - name: Get deps git refs for cache
       id: deps-refs
       run: |
-        rebar3 get-deps
-        RocksDBRef=$(erl -noshell -eval '{ok,Raw}=file:consult("rebar.lock"), {_Vsn, Deps}=hd(Raw), {_, {git, _Url, {ref, Ref}},_} = lists:keyfind(<<"rocksdb">>,1, Deps), io:format("~s",[Ref]), init:stop().')
-        echo "::set-output name=DEP_ROCKSDB_REF::${RocksDBRef}"
-        QuicerRef=$(erl -noshell -eval '{ok,Raw}=file:consult("rebar.lock"), {_Vsn, Deps}=hd(Raw), {_, {git, _Url, {ref, Ref}},_} = lists:keyfind(<<"quicer">>,1, Deps), io:format("~s",[Ref]), init:stop().')
-        echo "::set-output name=DEP_QUICER_REF::${QuicerRef}"
+        scripts/get-dep-refs.sh
         make clean-all
     - name: load rocksdb cache
       uses: actions/cache@v2
@@ -127,11 +123,7 @@ jobs:
         . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
-        rebar3 get-deps
-        RocksDBRef=$(erl -noshell -eval '{ok,Raw}=file:consult("rebar.lock"), {_Vsn, Deps}=hd(Raw), {_, {git, _Url, {ref, Ref}},_} = lists:keyfind(<<"rocksdb">>,1, Deps), io:format("~s",[Ref]), init:stop().')
-        echo "::set-output name=DEP_ROCKSDB_REF::${RocksDBRef}"
-        QuicerRef=$(erl -noshell -eval '{ok,Raw}=file:consult("rebar.lock"), {_Vsn, Deps}=hd(Raw), {_, {git, _Url, {ref, Ref}},_} = lists:keyfind(<<"quicer">>,1, Deps), io:format("~s",[Ref]), init:stop().')
-        echo "::set-output name=DEP_QUICER_REF::${QuicerRef}"
+        scripts/get-dep-refs.sh
         make clean-all
     - name: load rocksdb cache
       uses: actions/cache@v2
