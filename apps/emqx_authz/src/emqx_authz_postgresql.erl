@@ -62,8 +62,8 @@ dry_run(Source) ->
 
 parse_query(Sql) ->
     case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
-        {match, Capured} ->
-            PlaceHolders = [PlaceHolder || [PlaceHolder] <- Capured],
+        {match, Captured} ->
+            PlaceHolders = [PlaceHolder || [PlaceHolder] <- Captured],
             Replacements = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(PlaceHolders))],
             NSql = lists:foldl(
                      fun({PlaceHolder, Replacement}, S) ->
@@ -80,13 +80,15 @@ authorize(Client, PubSub, Topic,
                                placeholders := Placeholders
                               }
              }) ->
-    case emqx_resource:query(ResourceID, {prepared_query, ResourceID, replvar(Placeholders, Client)}) of
+    RenderedParams = replvar(Placeholders, Client),
+    case emqx_resource:query(ResourceID, {prepared_query, ResourceID, RenderedParams}) of
         {ok, _Columns, []} -> nomatch;
         {ok, Columns, Rows} ->
             do_authorize(Client, PubSub, Topic, Columns, Rows);
         {error, Reason} ->
             ?SLOG(error, #{ msg => "query_postgresql_error"
                           , reason => Reason
+                          , params => RenderedParams
                           , resource_id => ResourceID}),
             nomatch
     end.

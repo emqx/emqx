@@ -143,6 +143,8 @@ authenticate(#{password := Password} = Credential,
         {error, Reason} ->
             ?SLOG(error, #{msg => "mongodb_query_failed",
                            resource => ResourceId,
+                           collection => Collection,
+                           selector => Selector2,
                            reason => Reason}),
             ignore;
         Doc ->
@@ -152,6 +154,8 @@ authenticate(#{password := Password} = Credential,
                 {error, {cannot_find_password_hash_field, PasswordHashField}} ->
                     ?SLOG(error, #{msg => "cannot_find_password_hash_field",
                                    resource => ResourceId,
+                                   collection => Collection,
+                                   selector => Selector2,
                                    password_hash_field => PasswordHashField}),
                     ignore;
                 {error, Reason} ->

@@ -58,13 +58,16 @@ authorize(Client, PubSub, Topic,
                                query := {Query, Params}
                               }
              }) ->
-    case emqx_resource:query(ResourceID, {sql, Query, replvar(Params, Client)}) of
+    RenderParams = replvar(Params, Client),
+    case emqx_resource:query(ResourceID, {sql, Query, RenderParams}) of
         {ok, _Columns, []} -> nomatch;
         {ok, Columns, Rows} ->
             do_authorize(Client, PubSub, Topic, Columns, Rows);
         {error, Reason} ->
             ?SLOG(error, #{ msg => "query_mysql_error"
                           , reason => Reason
+                          , query => Query
+                          , params => RenderParams
                           , resource_id => ResourceID}),
             nomatch
     end.

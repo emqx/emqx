@@ -101,7 +101,7 @@ handle_info({http, {RequestID, Result}},
                                         endpoint => Endpoint,
                                         reason => Reason}),
                        State1;
-                   {_StatusLine, _Headers, Body} ->
+                   {StatusLine, Headers, Body} ->
                        try
                            JWKS = jose_jwk:from(emqx_json:decode(Body, [return_maps])),
                            {_, JWKs} = JWKS#jose_jwk.keys,
@@ -109,6 +109,8 @@ handle_info({http, {RequestID, Result}},
                        catch _:_ ->
                                  ?SLOG(warning, #{msg => "invalid_jwks_returned",
                                                   endpoint => Endpoint,
+                                                  status => StatusLine,
+                                                  headers => Headers,
                                                   body => Body}),
                                  State1
                        end

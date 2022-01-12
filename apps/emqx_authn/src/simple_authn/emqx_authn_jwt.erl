@@ -18,6 +18,7 @@
 
 -include("emqx_authn.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
@@ -272,7 +273,7 @@ verify(JWS, [JWK | More], VerifyClaims) ->
             verify(JWS, More, VerifyClaims)
     catch
         _:_Reason:_Stacktrace ->
-            %% TODO: Add log
+            ?TRACE("JWT", "authn_jwt_invalid_signature", #{jwk => JWK, jws => JWS}),
             {error, invalid_signature}
     end.
 

@@ -123,6 +123,9 @@ authenticate(#{password := Password} = Credential,
         {error, Reason} ->
             ?SLOG(error, #{msg => "mysql_query_failed",
                            resource => ResourceId,
+                           query => Query,
+                           params => Params,
+                           timeout => Timeout,
                            reason => Reason}),
             ignore
     end.
