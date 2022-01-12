@@ -82,7 +82,7 @@
           timer = undefined :: undefined | reference()
         }).
 
-%% The count of 100-nanosecond intervals between the UUID epoch 
+%% The count of 100-nanosecond intervals between the UUID epoch
 %% 1582-10-15 00:00:00 and the UNIX epoch 1970-01-01 00:00:00.
 -define(GREGORIAN_EPOCH_OFFSET, 16#01b21dd213814000).
 
@@ -253,29 +253,23 @@ os_info() ->
             [{os_name, Name},
              {os_version, Version}];
         {unix, _} ->
-            case file:read_file_info("/etc/os-release") of
+            case file:read_file("/etc/os-release") of
                 {error, _} ->
                     [{os_name, "Unknown"},
                      {os_version, "Unknown"}];
-                {ok, FileInfo} ->
-                    case FileInfo#file_info.access of
-                        Access when Access =:= read orelse Access =:= read_write ->
-                            OSInfo = lists:foldl(fun(Line, Acc) ->
-                                                     [Var, Value] = string:tokens(Line, "="),
-                                                     NValue = case Value of
-                                                                  _ when is_list(Value) ->
-                                                                      lists:nth(1, string:tokens(Value, "\""));
-                                                                  _ ->
-                                                                      Value
-                                                              end,
-                                                     [{Var, NValue} | Acc]
-                                                 end, [], string:tokens(os:cmd("cat /etc/os-release"), "\n")),
-                            [{os_name, get_value("NAME", OSInfo)},
-                             {os_version, get_value("VERSION", OSInfo, get_value("VERSION_ID", OSInfo))}];
-                        _ ->
-                            [{os_name, "Unknown"},
-                             {os_version, "Unknown"}]
-                    end
+                {ok, FileContent} ->
+                    OSInfo = lists:foldl(fun(Line, Acc) ->
+                                                 [Var, Value] = string:tokens(Line, "="),
+                                                 NValue = case Value of
+                                                              _ when is_list(Value) ->
+                                                                  lists:nth(1, string:tokens(Value, "\""));
+                                                              _ ->
+                                                                  Value
+                                                          end,
+                                                 [{Var, NValue} | Acc]
+                                         end, [], string:tokens(binary:bin_to_list(FileContent), "\n")),
+                    [{os_name, get_value("NAME", OSInfo)},
+                     {os_version, get_value("VERSION", OSInfo, get_value("VERSION_ID", OSInfo, get_value("PRETTY_NAME", OSInfo)))}]
             end;
         {win32, nt} ->
             Ver = os:cmd("ver"),
@@ -429,5 +423,7 @@ module_attributes(Module) ->
 
 bin(L) when is_list(L) ->
     list_to_binary(L);
+bin(A) when is_atom(A) ->
+    atom_to_binary(A);
 bin(B) when is_binary(B) ->
     B.

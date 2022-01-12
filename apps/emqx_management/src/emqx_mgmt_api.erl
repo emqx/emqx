@@ -326,10 +326,12 @@ to_integer(I) when is_integer(I) ->
 to_integer(B) when is_binary(B) ->
     binary_to_integer(B).
 
+%% @doc The input timestamp time is in seconds, which needs to be
+%% converted to internal milliseconds here
 to_timestamp(I) when is_integer(I) ->
-    I;
+    I * 1000;
 to_timestamp(B) when is_binary(B) ->
-    binary_to_integer(B).
+    binary_to_integer(B) * 1000.
 
 aton(B) when is_binary(B) ->
     list_to_tuple([binary_to_integer(T) || T <- re:split(B, "[.]")]).
@@ -361,7 +363,7 @@ params2qs_test() ->
     ExpectedQs = [{str, '=:=', <<"abc">>},
                   {int, '=:=', 123},
                   {atom, '=:=', connected},
-                  {ts, '=:=', 156000},
+                  {ts, '=:=', 156000000},
                   {range, '>=', 1, '=<', 5}
                  ],
     FuzzyQs = [{fuzzy, like, <<"user">>},
