@@ -84,6 +84,11 @@ make_rel() {
     fi
 }
 
+make_elixir_rel() {
+  export_release_vars "$PROFILE"
+  env MIX_ENV=prod mix release --overwrite
+}
+
 ## extract previous version .tar.gz files to _build/$PROFILE/rel/emqx before making relup
 make_relup() {
     local rel_dir="_build/$PROFILE/rel/emqx"
@@ -124,21 +129,36 @@ cp_dyn_libs() {
 ## Re-pack the relx assembled .tar.gz to EMQ X's package naming scheme
 ## It assumes the .tar.gz has been built -- relies on Makefile dependency
 make_tgz() {
-    # build the tarball again to ensure relup is included
-    make_rel
+    local pkgpath="_packages/${PROFILE}"
+    local tarball
+    local target
+
+    if [ "${IS_ELIXIR:-no}" = "yes" ]
+    then
+      # ensure tarball exists
+      ELIXIR_MAKE_TAR=yes make_elixir_rel
+
+      local relpath="_build/prod"
+      tarball="${relpath}/${PROFILE}-${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
+      target="${pkgpath}/${PROFILE}-${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
+    else
+      # build the tarball again to ensure relup is included
+      # elixir does not have relup yet.
+      make_rel
+
+      local relpath="_build/${PROFILE}/rel/emqx"
+      tarball="${relpath}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
+      target="${pkgpath}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
+    fi
 
     tard="/tmp/emqx_untar_${PKG_VSN}"
     rm -rf "${tard}"
     mkdir -p "${tard}/emqx"
-    local relpath="_build/${PROFILE}/rel/emqx"
-    local pkgpath="_packages/${PROFILE}"
+
     mkdir -p "${pkgpath}"
-    local tarball="${relpath}/emqx-${PKG_VSN}.tar.gz"
     if [ ! -f "$tarball" ]; then
         log "ERROR: $tarball is not found"
     fi
-    local target
-    target="${pkgpath}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
     tar zxf "${tarball}" -C "${tard}/emqx"
     ## try to be portable for tar.gz packages.
     ## for DEB and RPM packages the dependencies are resoved by yum and apt
@@ -212,37 +232,37 @@ export_release_vars() {
       export EMQX_RLEASE_TYPE=cloud \
              EMQX_PACKAGE_TYPE=bin \
              EMQX_EDITION_TYPE=community \
-             ELIXIR_MAKE_TAR=no
+             ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-no}
       ;;
     emqx-edge)
       export EMQX_RLEASE_TYPE=edge \
              EMQX_PACKAGE_TYPE=bin \
              EMQX_EDITION_TYPE=community \
-             ELIXIR_MAKE_TAR=no
+             ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-no}
       ;;
     emqx-enterprise)
       export EMQX_RLEASE_TYPE=cloud \
              EMQX_PACKAGE_TYPE=bin \
              EMQX_EDITION_TYPE=enterprise \
-             ELIXIR_MAKE_TAR=no
+             ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-no}
       ;;
     emqx-pkg)
       export EMQX_RLEASE_TYPE=cloud \
              EMQX_PACKAGE_TYPE=pkg \
              EMQX_EDITION_TYPE=community \
-             ELIXIR_MAKE_TAR=yes
+             ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-yes}
       ;;
     emqx-edge-pkg)
       export EMQX_RLEASE_TYPE=edge \
              EMQX_PACKAGE_TYPE=pkg \
              EMQX_EDITION_TYPE=community \
-             ELIXIR_MAKE_TAR=yes
+             ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-yes}
       ;;
     emqx-enterprise-pkg)
       export EMQX_RLEASE_TYPE=cloud \
              EMQX_PACKAGE_TYPE=pkg \
              EMQX_EDITION_TYPE=enterprise \
-             ELIXIR_MAKE_TAR=yes
+             ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-yes}
       ;;
     *)
       echo Invalid profile "$profile"
@@ -283,8 +303,7 @@ case "$ARTIFACT" in
         make_docker_testing
         ;;
     elixir)
-        export_release_vars "$PROFILE"
-        env MIX_ENV=prod mix release --overwrite
+        make_elixir_rel
         ;;
     *)
         log "Unknown artifact $ARTIFACT"

@@ -235,3 +235,11 @@ $1-elixirpkg: $1-pkg-elixir
 	     $(BUILD) $1 pkg
 endef
 $(foreach pt,$(REL_PROFILES),$(eval $(call gen-elixirpkg-target,$(pt))))
+
+.PHONY: $(REL_PROFILES:%=%-elixir-zip)
+define gen-elixir-zip-target
+$1-elixir-zip: $(ELIXIR_COMMON_DEPS) mix-deps-get
+	@env IS_ELIXIR=yes $(BUILD) $1 zip
+endef
+ALL_ELIXIR_ZIPS = $(REL_PROFILES)
+$(foreach zt,$(ALL_ELIXIR_ZIPS),$(eval $(call gen-elixir-zip-target,$(zt))))

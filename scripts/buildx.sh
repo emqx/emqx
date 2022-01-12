@@ -17,8 +17,10 @@ help() {
     echo
     echo "-h|--help:                   To display this usage information"
     echo "--profile <PROFILE>:         EMQ X profile to build, e.g. emqx, emqx-edge"
-    echo "--pkgtype tgz|pkg|elixirpkg: Specify which package to build, tgz for .tar.gz,"
-    echo "                             pkg and elixirpkg for .rpm or .deb"
+    echo "--pkgtype tgz|pkg:           Specify which package to build, tgz for .tar.gz,"
+    echo "                             pkg for .rpm or .deb"
+    echo "--with-elixir:               Specify if the release should be built with Elixir, "
+    echo "                             defaults to false."
     echo "--arch amd64|arm64:          Target arch to build the EMQ X package for"
     echo "--src_dir <SRC_DIR>:         EMQ X source ode in this dir, default to PWD"
     echo "--builder <BUILDER>:         Builder image to pull"
@@ -62,6 +64,10 @@ while [ "$#" -gt 0 ]; do
         ELIXIR_VSN="$2"
         shift 2
         ;;
+    --with-elixir)
+        WITH_ELIXIR=yes
+        shift 1
+        ;;
     --system)
         SYSTEM="$2"
         shift 2
@@ -85,8 +91,12 @@ if [ -z "${PROFILE:-}" ]    ||
     exit 1
 fi
 
+if [ -z "${WITH_ELIXIR:-}" ]; then
+  WITH_ELIXIR=no
+fi
+
 case "$PKGTYPE" in
-  tgz|pkg|elixirpkg)
+  tgz|pkg)
     true
     ;;
   *)
@@ -99,7 +109,7 @@ cd "${SRC_DIR:-.}"
 
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh "$PROFILE")}"
 
-if [ "$PKGTYPE" = "elixirpkg" ]
+if [ "$WITH_ELIXIR" = "yes" ]
 then
   PKG_NAME="${PROFILE}-${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
 else
