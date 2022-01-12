@@ -32,7 +32,7 @@
              , cast_result/0
              , multicall_result/0
              , erpc/1
-             , erpc_multicast/1
+             , erpc_multicall/1
              ]).
 
 -compile({inline,
@@ -56,7 +56,7 @@
                  | {error, {exception, _Reason, _Stack :: list()}}
                  | {error, {erpc, _Reason}}.
 
--type erpc_multicast(Ret) :: [erpc(Ret)].
+-type erpc_multicall(Ret) :: [erpc(Ret)].
 
 -spec call(node(), module(), atom(), list()) -> call_result().
 call(Node, Mod, Fun, Args) ->

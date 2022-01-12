@@ -29,8 +29,7 @@
 -export(['/bridges'/2, '/bridges/:id'/2,
          '/bridges/:id/operation/:operation'/2]).
 
--export([ list_local_bridges/1
-        , lookup_from_local_node/2
+-export([ lookup_from_local_node/2
         ]).
 
 -define(TYPES, [mqtt, http]).
@@ -288,12 +287,8 @@ schema("/bridges/:id/operation/:operation") ->
             end
     end;
 '/bridges'(get, _Params) ->
-    {200, zip_bridges([list_local_bridges(Node) || Node <- mria_mnesia:running_nodes()])}.
-
-list_local_bridges(Node) when Node =:= node() ->
-    [format_resp(Data) || Data <- emqx_bridge:list()];
-list_local_bridges(Node) ->
-    rpc_call(Node, list_local_bridges, [Node]).
+    {200, zip_bridges([[format_resp(Data) || Data <- emqx_bridge_proto_v1:list_bridges(Node)]
+                       || Node <- mria_mnesia:running_nodes()])}.
 
 '/bridges/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id, lookup_from_all_nodes(BridgeType, BridgeName, 200));
@@ -321,7 +316,8 @@ list_local_bridges(Node) ->
         end).
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
-    case rpc_multicall(lookup_from_local_node, [BridgeType, BridgeName]) of
+    Nodes = mria_mnesia:running_nodes(),
+    case is_ok(emqx_bridge_proto_v1:lookup_from_all_nodes(Nodes, BridgeType, BridgeName)) of
         {ok, [{ok, _} | _] = Results} ->
             {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
         {ok, [{error, not_found} | _]} ->
@@ -433,9 +429,8 @@ format_metrics(#{
         } }) ->
     ?METRICS(Match, Succ, Failed + Ex, Rate, Rate5m, RateMax).
 
-rpc_multicall(Func, Args) ->
-    Nodes = mria_mnesia:running_nodes(),
-    ResL = erpc:multicall(Nodes, ?MODULE, Func, Args, 15000),
+
+is_ok(ResL) ->
     case lists:filter(fun({ok, _}) -> false; (_) -> true end, ResL) of
         [] -> {ok, [Res || {ok, Res} <- ResL]};
         ErrL -> {error, ErrL}
@@ -445,21 +440,6 @@ filter_out_request_body(Conf) ->
     ExtraConfs = [<<"id">>, <<"type">>, <<"status">>, <<"node_status">>,
         <<"node_metrics">>, <<"metrics">>, <<"node">>],
     maps:without(ExtraConfs, Conf).
-
-rpc_call(Node, Fun, Args) ->
-    rpc_call(Node, ?MODULE, Fun, Args).
-
-rpc_call(Node, Mod, Fun, Args) when Node =:= node() ->
-    apply(Mod, Fun, Args);
-rpc_call(Node, Mod, Fun, Args) ->
-    case rpc:call(Node, Mod, Fun, Args) of
-        {badrpc, Reason} -> {error, Reason};
-        Res -> Res
-    end.
-
-wrap_rpc({badrpc, Reason}) -> {error, Reason};
-wrap_rpc(Ret)              -> Ret.
-
 
 error_msg(Code, Msg) when is_binary(Msg) ->
     #{code => Code, message => Msg};
