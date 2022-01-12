@@ -41,7 +41,8 @@
 -behaviour(hocon_schema).
 
 -export([roots/0,
-         fields/1]).
+         fields/1,
+         namespace/0]).
 
 -export([type_ro/1,
          type_rw/1]).
@@ -51,6 +52,7 @@
          hash/2,
          check_password/4]).
 
+namespace() -> "authn-hash".
 roots() -> [pbkdf2, bcrypt, bcrypt_rw, other_algorithms].
 
 fields(bcrypt_rw) ->
