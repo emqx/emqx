@@ -24,6 +24,7 @@
         , ensure_enabled/1
         , ensure_enabled/2
         , ensure_disabled/1
+        , purge/1
         , delete_package/1
         ]).
 
