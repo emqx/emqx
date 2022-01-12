@@ -85,14 +85,23 @@ usage() {
     stop)
         echo "Stop the running EMQ X program"
         ;;
-    restart|reboot)
-        echo "Restart $EMQX_DESCRIPTION"
+    console)
+        echo "Boot up EMQ X service in an interactive Erlang or Elixir shell"
+        echo "This command needs a tty"
+        ;;
+    console_clean)
+        echo "This command does NOT boot up the EMQ X service"
+        echo "It only starts an interactive Erlang or Elixir console with all the"
+        echo "EMQ X code available"
+        ;;
+    foreground)
+        echo "Start EMQ X in foreground mode without an interactive shell"
         ;;
     pid)
-        echo "Print out $EMQX_DESCRIPTION process identifier"
+        echo "Print out EMQ X process identifier"
         ;;
     ping)
-        echo "Check if the $EMQX_DESCRIPTION node is up and running"
+        echo "Check if the EMQ X node is up and running"
         echo "This command exit with 0 silently if node is running"
         ;;
     escript)
@@ -100,47 +109,36 @@ usage() {
         echo "For example $REL_NAME escript /path/to/my/escript my_arg1 my_arg2"
         ;;
     attach)
-        echo "This command is applicable when $EMQX_DESCRIPTION is started in daemon"
+        echo "This command is applicable when EMQ X is started in daemon"
         echo "mode. it attaches the current shell to EMQ X's control console"
         echo "through a named pipe"
         echo "WARNING: try to use the safer alternative, remote_console command."
         ;;
     remote_console)
-        echo "Start a dummy Erlang node and hidden-connect $EMQX_DESCRIPTION to"
-        echo "with an interactive Erlang shell"
-        ;;
-    console)
-        echo "Boot up $EMQX_DESCRIPTION service in an interactive Erlang shell"
-        echo "This command is useful for troubleshooting"
-        ;;
-    console_clean)
-        echo "This command does NOT boot up the $EMQX_DESCRIPTION service"
-        echo "It only starts an interactive Erlang console with all the"
-        echo "EMQ X code available"
-        ;;
-    foreground)
-        echo "Start $EMQX_DESCRIPTION in foreground mode"
+        echo "Start a dummy Erlang or Elixir node and hidden-connect EMQ X to"
+        echo "with an interactive Erlang or Elixir shell"
         ;;
     ertspath)
         echo "Print path to Erlang runtime dir"
         ;;
     rpc)
         echo "Usge $REL_NAME rpc MODULE FUNCTION [ARGS, ...]"
-        echo "Connect to the $EMQX_DESCRIPTION node and make an Erlang RPC"
-        echo "The result of the RPC call must be 'ok'"
-        echo "This command blocks for at most 60 seconds in case the node"
-        echo "does not reply the call in time"
+        echo "Connect to the EMQ X node and make an Erlang RPC"
+        echo "This command blocks for at most 60 seconds."
+        echo "It exits with non-zero code in case of any RPC failure"
+        echo "including connection error and runtime exception"
         ;;
     rpcterms)
         echo "Usge $REL_NAME rpcterms MODULE FUNCTION [ARGS, ...]"
-        echo "Connect to the $EMQX_DESCRIPTION node and make an Erlang RPC"
-        echo "The result of the RPC call is pretty-printed as an Erlang term"
+        echo "Connect to the EMQ X node and make an Erlang RPC"
+        echo "The result of the RPC call is pretty-printed as an "
+        echo "Erlang term"
         ;;
     root_dir)
         echo "Print EMQ X installation root dir"
         ;;
     eval)
-        echo "Evaluate an Erlang expression in the EMQ X node"
+        echo "Evaluate an Erlang or Elxir expression in the EMQ X node"
         ;;
     versions)
         echo "List installed EMQ X versions and their status"
@@ -192,7 +190,23 @@ usage() {
         echo "                      don't make it permanent"
         ;;
     *)
-        echo "Usage: $REL_NAME {start|ertspath|foreground|stop|pid|ping|console|console_clean|attach|remote_console|upgrade|downgrade|install|uninstall|versions|escript|ctl|rpc|rpcterms|eval|root_dir} <help>"
+        echo "Usage: $REL_NAME COMMAND [help]"
+        echo ''
+        echo "Commonly used COMMANDs:"
+        echo "  start:      Start EMQ X in daemon mode"
+        echo "  console:    Start EMQ X in an interactive Erlang or Elixir shell"
+        echo "  foreground: Start EMQ X in foreground mode without an interactive shell"
+        echo "  stop:       Stop the running EMQ X node"
+        echo "  ctl:        Administration commands, execute '$REL_NAME ctl help' for more details"
+        echo ''
+        echo "More:"
+        echo "  Shell attach:  remote_console | attach"
+        echo "  Up/Down-grade: upgrade | downgrade | install | uninstall"
+        echo "  Install info:  ertspath | root_dir | versions | root_dir"
+        echo "  Runtime info:  pid | ping | versions"
+        echo "  Advanced:      console_clean | escript | rpc | rpcterms | eval"
+        echo ''
+        echo "Execute '$REL_NAME COMMAND help' for more information"
     ;;
     esac
 }
@@ -503,6 +517,10 @@ case "${COMMAND}" in
     start|console|console_clean|foreground)
         IS_BOOT_COMMAND='yes'
         ;;
+    ertspath)
+        echo "$ERTS_PATH"
+        exit 0
+        ;;
     *)
         IS_BOOT_COMMAND='no'
         ;;
@@ -639,11 +657,6 @@ case "${COMMAND}" in
         fi
         echo "ok"
         logger -t "${REL_NAME}[${PID}]" "STOP: OK"
-        ;;
-
-    restart|reboot)
-        echo "$EMQX_DESCRIPTION $REL_VSN is stopped: $("$RUNNER_BIN_DIR/$REL_NAME" stop)"
-        "$RUNNER_BIN_DIR/$REL_NAME" start
         ;;
 
     pid)
@@ -819,9 +832,6 @@ case "${COMMAND}" in
 
         # Start the VM
         exec "$@" -- ${1+$ARGS}
-        ;;
-    ertspath)
-        echo "$ERTS_PATH"
         ;;
     ctl)
         assert_node_alive
