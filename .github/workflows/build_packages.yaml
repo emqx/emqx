@@ -307,22 +307,24 @@ jobs:
       working-directory: source
       run: |
         set -e -x -u
-        broker=$PROFILE
-        if [ $PROFILE = "emqx" ];then
-            broker="emqx-ce"
+        if [ $PROFILE = 'emqx' ]; then
+            s3dir='emqx-ce'
+        elif [ $PROFILE = 'emqx-enterprise' ]; then
+            s3dir='emqx-ee'
+        elif [ $PROFILE = 'emqx-edge' ]; then
+            s3dir='emqx-edge'
+        else
+            echo "unknown profile $PROFILE"
+            exit 1
         fi
-        if [ ! -z "$(echo $SYSTEM | grep -oE 'raspbian')" ]; then
-            export ARCH="arm"
-        fi
-
         mkdir -p _upgrade_base
         cd _upgrade_base
         old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
         for tag in ${old_vsns[@]}; do
           package_name="${PROFILE}-${tag#[e|v]}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
-          if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.tar.gz) | grep -oE "^[23]+")" ]; then
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.tar.gz
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.tar.gz.sha256
+          if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$s3dir/$tag/$package_name.tar.gz) | grep -oE "^[23]+")" ]; then
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$s3dir/$tag/$package_name.tar.gz
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$s3dir/$tag/$package_name.tar.gz.sha256
             echo "$(cat $package_name.tar.gz.sha256) $package_name.tar.gz" | sha256sum -c || exit 1
           fi
         done
@@ -487,17 +489,23 @@ jobs:
     - name: upload aws s3
       run: |
         set -e -u
-        if [ "${{ matrix.profile }}"  == "emqx" ];then
-            broker="emqx-ce"
+        PROFILE=${{ matrix.profile }}
+        if [ $PROFILE = 'emqx' ]; then
+            s3dir='emqx-ce'
+        elif [ $PROFILE = 'emqx-enterprise' ]; then
+            s3dir='emqx-ee'
+        elif [ $PROFILE = 'emqx-edge' ]; then
+            s3dir='emqx-edge'
         else
-            broker=${{ matrix.profile }}
+            echo "unknown profile $PROFILE"
+            exit 1
         fi
         aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws configure set default.region ${{ secrets.AWS_DEFAULT_REGION }}
 
-        aws s3 cp --recursive _packages/${{ matrix.profile }} s3://${{ secrets.AWS_S3_BUCKET }}/$broker/${{ env.version }}
-        aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_ID }} --paths "/$broker/${{ env.version }}/*"
+        aws s3 cp --recursive _packages/${{ matrix.profile }} s3://${{ secrets.AWS_S3_BUCKET }}/$s3dir/${{ env.version }}
+        aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_ID }} --paths "/$s3dir/${{ env.version }}/*"
     - uses: Rory-Z/upload-release-asset@v1
       if: github.event_name == 'release'
       with:
