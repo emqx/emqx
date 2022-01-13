@@ -583,7 +583,7 @@ t_data(_) ->
     ?assertMatch({ok, _}, request_api(post, api_path(["data","import"]), [], auth_header_(), #{<<"filename">> => Filename, <<"node">> => Node})),
     ?assertMatch({ok, _}, request_api(post, api_path(["data","import"]), [], auth_header_(), #{<<"filename">> => Filename})),
     application:stop(emqx_rule_engine),
-    application:stop(emqx_dahboard),
+    application:stop(emqx_dashboard),
     ok.
 
 t_data_import_content(_) ->
@@ -598,7 +598,7 @@ t_data_import_content(_) ->
     Content = emqx_json:decode(Bin),
     ?assertMatch({ok, "{\"code\":0}"}, request_api(post, api_path(["data","import"]), [], auth_header_(), Content)),
     application:stop(emqx_rule_engine),
-    application:stop(emqx_dahboard).
+    application:stop(emqx_dashboard).
 
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).
