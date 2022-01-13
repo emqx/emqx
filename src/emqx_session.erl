@@ -392,7 +392,7 @@ dequeue(ClientInfo, Session = #session{inflight = Inflight, mqueue = Q}) ->
         true  -> {ok, Session};
         false ->
             {Msgs, Q1} = dequeue(ClientInfo, batch_n(Inflight), [], Q),
-            deliver(Msgs, [], Session#session{mqueue = Q1})
+            do_deliver(ClientInfo, Msgs, [], Session#session{mqueue = Q1})
     end.
 
 dequeue(_ClientInfo, 0, Msgs, Q) ->
@@ -422,22 +422,22 @@ acc_cnt(_Msg, Cnt) -> Cnt - 1.
 -spec(deliver(emqx_types:clientinfo(), list(emqx_types:deliver()), session())
       -> {ok, session()} | {ok, replies(), session()}).
 deliver(ClientInfo, [Deliver], Session) -> %% Optimize
-    Enrich = enrich_fun(Session),
-    deliver_msg(ClientInfo, Enrich(Deliver), Session);
+    Msg = enrich_delivers(Deliver, Session),
+    deliver_msg(ClientInfo, Msg, Session);
 
 deliver(ClientInfo, Delivers, Session) ->
-    Msgs = lists:map(enrich_fun(Session), Delivers),
-    deliver(ClientInfo, Msgs, [], Session).
+    Msgs = [enrich_delivers(D, Session) || D <- Delivers],
+    do_deliver(ClientInfo, Msgs, [], Session).
 
-deliver(_ClientInfo, [], Publishes, Session) ->
+do_deliver(_ClientInfo, [], Publishes, Session) ->
     {ok, lists:reverse(Publishes), Session};
 
-deliver(ClientInfo, [Msg | More], Acc, Session) ->
+do_deliver(ClientInfo, [Msg | More], Acc, Session) ->
     case deliver_msg(ClientInfo, Msg, Session) of
         {ok, Session1} ->
-            deliver(More, Acc, Session1);
+            do_deliver(ClientInfo, More, Acc, Session1);
         {ok, [Publish], Session1} ->
-            deliver(More, [Publish|Acc], Session1)
+            do_deliver(ClientInfo, More, [Publish|Acc], Session1)
     end.
 
 deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, Session) ->
@@ -462,7 +462,7 @@ deliver_msg(ClientInfo, Msg = #message{qos = QoS}, Session =
 -spec(enqueue(emqx_types:clientinfo(), list(emqx_types:deliver())|emqx_types:message(),
               session()) -> session()).
 enqueue(ClientInfo, Delivers, Session) when is_list(Delivers) ->
-    Msgs = lists:map(enrich_fun(Session), Delivers),
+    Msgs = [enrich_delivers(D, Session) || D <- Delivers],
     lists:foldl(fun(Msg, Session0) ->
             enqueue(ClientInfo, Msg, Session0)
         end, Session, Msgs);
@@ -487,10 +487,8 @@ log_dropped(ClientInfo, Msg = #message{qos = QoS}, #session{mqueue = Q}) ->
                  [emqx_message:format(Msg)])
     end.
 
-enrich_fun(Session = #session{subscriptions = Subs}) ->
-    fun({deliver, Topic, Msg}) ->
-            enrich_subopts(get_subopts(Topic, Subs), Msg, Session)
-    end.
+enrich_delivers({deliver, Topic, Msg}, Session = #session{subscriptions = Subs}) ->
+    enrich_subopts(get_subopts(Topic, Subs), Msg, Session).
 
 maybe_ack(Msg) ->
     case emqx_shared_sub:is_ack_required(Msg) of
