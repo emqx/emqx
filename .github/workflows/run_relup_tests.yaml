@@ -85,10 +85,10 @@ jobs:
         cd emqx/_upgrade_base
         old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
         for old_vsn in ${old_vsns[@]}; do
-          wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$old_vsn/$PROFILE-${old_vsn#[e|v]}-otp${OTP_VSN}-ubuntu20.04-amd64.zip
+          wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$old_vsn/$PROFILE-${old_vsn#[e|v]}-otp${OTP_VSN}-ubuntu20.04-amd64.tar.gz
         done
     - name: build emqx
-      run: make -C emqx ${PROFILE}-zip
+      run: make -C emqx ${PROFILE}-tgz
     - name: build emqtt-bench
       run: make -C emqtt-bench
     - name: build lux
@@ -105,8 +105,8 @@ jobs:
         set -e -x -u
         if [ -n "$OLD_VSNS" ]; then
             mkdir -p packages
-            cp emqx/_packages/${PROFILE}/*.zip packages
-            cp emqx/_upgrade_base/*.zip packages
+            cp emqx/_packages/${PROFILE}/*.tar.gz packages
+            cp emqx/_upgrade_base/*.tar.gz packages
             lux \
             --case_timeout infinity \
             --var PROFILE=$PROFILE \

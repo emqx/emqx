@@ -8,7 +8,7 @@
 ## i.e. will not work if docker command has to be executed with sudo
 
 ## example:
-## ./scripts/buildx.sh --profile emqx --pkgtype zip --arch arm64 --builder ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10
+## ./scripts/buildx.sh --profile emqx --pkgtype tgz --arch arm64 --builder ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10
 
 set -euo pipefail
 
@@ -16,7 +16,8 @@ help() {
     echo
     echo "-h|--help:           To display this usage information"
     echo "--profile <PROFILE>: EMQ X profile to build, e.g. emqx, emqx-edge"
-    echo "--pkgtype zip|pkg:   Specify which package to build, zip for .zip and pkg for .rpm or .deb"
+    echo "--pkgtype tgz|pkg:   Specify which package to build, tgz for .tar.gz"
+    echo "                     and pkg for .rpm or .deb"
     echo "--arch amd64|arm64:  Target arch to build the EMQ X package for"
     echo "--src_dir <SRC_DIR>: EMQ X source ode in this dir, default to PWD"
     echo "--builder <BUILDER>: Builder image to pull"
@@ -62,8 +63,8 @@ if [ -z "${PROFILE:-}" ] || [ -z "${PKGTYPE:-}" ] || [ -z "${BUILDER:-}" ] || [ 
     exit 1
 fi
 
-if [ "$PKGTYPE" != 'zip' ] && [ "$PKGTYPE" != 'pkg' ]; then
-    echo "Bad --pkgtype option, should be zip or pkg"
+if [ "$PKGTYPE" != 'tgz' ] && [ "$PKGTYPE" != 'pkg' ]; then
+    echo "Bad --pkgtype option, should be tgz or pkg"
     exit 1
 fi
 

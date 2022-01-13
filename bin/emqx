@@ -149,7 +149,6 @@ usage() {
         echo "release package tarball has already been deployed at one"
         echo "of the following locations:"
         echo "      releases/<relname>-<version>.tar.gz"
-        echo "      releases/<relname>-<version>.zip"
         ;;
     install)
         echo "Usage: $REL_NAME install [VERSION]"
@@ -157,7 +156,6 @@ usage() {
         echo "release package tarball has already been deployed at one"
         echo "of the following locations:"
         echo "      releases/<relname>-<version>.tar.gz"
-        echo "      releases/<relname>-<version>.zip"
         echo ""
         echo "     --no-permanent   Install release package VERSION but"
         echo "                      don't make it permanent"
@@ -173,7 +171,6 @@ usage() {
         echo "that a release package tarball has already been deployed at one"
         echo "of the following locations:"
         echo "      releases/<relname>-<version>.tar.gz"
-        echo "      releases/<relname>-<version>.zip"
         echo ""
         echo "     --no-permanent   Install release package VERSION but"
         echo "                      don't make it permanent"
@@ -184,7 +181,6 @@ usage() {
         echo "that a release package tarball has already been deployed at one"
         echo "of the following locations:"
         echo "      releases/<relname>-<version>.tar.gz"
-        echo "      releases/<relname>-<version>.zip"
         echo ""
         echo "     --no-permanent   Install release package VERSION but"
         echo "                      don't make it permanent"

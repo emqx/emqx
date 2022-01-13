@@ -184,7 +184,6 @@ find_and_link_release_package(Version, RelName) ->
     %% we've found where the actual release package is located
     ReleaseLink = filename:join(["releases", Version,
                                  RelNameStr ++ ".tar.gz"]),
-    ok = unpack_zipballs(RelNameStr, Version),
     TarBalls = [
         filename:join(["releases",
                         RelNameStr ++ "-" ++ Version ++ ".tar.gz"]),
@@ -218,22 +217,6 @@ find_and_link_release_package(Version, RelName) ->
             end,
             {Filename, ReleaseHandlerPackageLink}
     end.
-
-unpack_zipballs(RelNameStr, Version) ->
-    {ok, Cwd} = file:get_cwd(),
-    GzFile = filename:absname(filename:join(["releases", RelNameStr ++ "-" ++ Version ++ ".tar.gz"])),
-    ZipFiles = filelib:wildcard(filename:join(["releases", RelNameStr ++ "-*" ++ Version ++ "*.zip"])),
-    ?INFO("unzip ~p", [ZipFiles]),
-    [begin
-        TmdTarD="/tmp/emqx_untar_" ++ integer_to_list(erlang:system_time()),
-        ok = filelib:ensure_dir(filename:join([TmdTarD, "dummy"])),
-        {ok, _} = file:copy(Zip, filename:join([TmdTarD, "emqx.zip"])),
-        ok = file:set_cwd(filename:join([TmdTarD])),
-        {ok, _FileList} = zip:unzip("emqx.zip"),
-        ok = file:set_cwd(filename:join([TmdTarD, "emqx"])),
-        ok = erl_tar:create(GzFile, filelib:wildcard("*"), [compressed])
-     end || Zip <- ZipFiles],
-    file:set_cwd(Cwd).
 
 first_value(_Fun, []) -> no_value;
 first_value(Fun, [Value | Rest]) ->

@@ -4,12 +4,12 @@ set -euo pipefail
 set -x
 
 if [ -z "${1:-}" ]; then
-    echo "Usage $0 <PACKAGE_NAME> zip|pkg"
+    echo "Usage $0 <PACKAGE_NAME> tgz|pkg"
     exit 1
 fi
 
-if [ "${2:-}" != 'zip' ] && [ "${2:-}" != 'pkg' ]; then
-    echo "Usage $0 <PACKAGE_NAME> zip|pkg"
+if [ "${2:-}" != 'tgz' ] && [ "${2:-}" != 'pkg' ]; then
+    echo "Usage $0 <PACKAGE_NAME> tgz|pkg"
     exit 1
 fi
 
@@ -22,8 +22,8 @@ export EMQX_NAME=${EMQX_NAME:-"emqx"}
 export PACKAGE_PATH="${CODE_PATH}/_packages/${EMQX_NAME}"
 export RELUP_PACKAGE_PATH="${CODE_PATH}/_upgrade_base"
 
-if [ "$PACKAGE_TYPE" = 'zip' ]; then
-    PKG_SUFFIX="zip"
+if [ "$PACKAGE_TYPE" = 'tgz' ]; then
+    PKG_SUFFIX="tar.gz"
 else
     SYSTEM="$("$CODE_PATH"/scripts/get-distro.sh)"
     case "${SYSTEM:-}" in
@@ -37,9 +37,10 @@ else
 fi
 PACKAGE_FILE_NAME="${PACKAGE_NAME}.${PKG_SUFFIX}"
 
-PACKAGE_FILE="${PACKAGE_PATH}/${PACKAGE_FILE_NAME}.${PKG_SUFFIX}"
+PACKAGE_FILE="${PACKAGE_PATH}/${PACKAGE_FILE_NAME}"
 if ! [ -f "$PACKAGE_FILE" ]; then
     echo "$PACKAGE_FILE is not a file"
+    exit 1
 fi
 
 case "$(uname -m)" in
@@ -68,8 +69,8 @@ emqx_test(){
     cd "${PACKAGE_PATH}"
     local packagename="${PACKAGE_FILE_NAME}"
         case "$PKG_SUFFIX" in
-            "zip")
-                unzip -q "${PACKAGE_PATH}/${packagename}"
+            "tar.gz")
+                tar -zxf "${PACKAGE_PATH}/${packagename}"
                 export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60
                 export EMQX_MQTT__MAX_TOPIC_ALIAS=10
                 export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
@@ -205,10 +206,10 @@ relup_test(){
     if [ -d "${RELUP_PACKAGE_PATH}" ];then
         cd "${RELUP_PACKAGE_PATH}"
 
-        find . -maxdepth 1 -name "${EMQX_NAME}-*-${ARCH}.zip" |
+        find . -maxdepth 1 -name "${EMQX_NAME}-*-${ARCH}.tar.gz" |
             while read -r pkg; do
                 packagename=$(basename "${pkg}")
-                unzip "$packagename"
+                tar -zxf "$packagename"
                 if ! ./emqx/bin/emqx start; then
                     cat emqx/log/erlang.log.1 || true
                     cat emqx/log/emqx.log.1 || true
@@ -216,7 +217,7 @@ relup_test(){
                 fi
                 ./emqx/bin/emqx_ctl status
                 ./emqx/bin/emqx versions
-                cp "${PACKAGE_PATH}/${EMQX_NAME}"-*-"${TARGET_VERSION}-${ARCH}".zip ./emqx/releases
+                cp "${PACKAGE_PATH}/${EMQX_NAME}"-*-"${TARGET_VERSION}-${ARCH}".tar.gz ./emqx/releases
                 ./emqx/bin/emqx install "${TARGET_VERSION}"
                 [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${TARGET_VERSION}" ] || exit 1
                 ./emqx/bin/emqx_ctl status

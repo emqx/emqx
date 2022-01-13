@@ -32,8 +32,8 @@ Options:
   --make-command    A command used to assemble the release
   --release-dir     Release directory
   --src-dirs        Directories where source code is found. Defaults to '{src,apps,lib-*}/**/'
-  --binary-rel-url  Binary release URL pattern. %TAG% variable is substituted with the release tag.
-                    E.g. \"https://github.com/emqx/emqx/releases/download/v%TAG%/emqx-centos7-%TAG%-amd64.zip\"
+  --binary-rel-url  Binary release URL pattern. %VSN% variable is substituted with the version in release tag.
+                    E.g. \"https://github.com/emqx/emqx/releases/download/v%VSN%/emqx-%VSN%-otp-24.1.5-3-centos7-amd64.tar.gz\"
 ".
 
 -record(app,
@@ -172,8 +172,8 @@ download_prev_release(Tag, #{binary_rel_url := {ok, URL0}, clone_url := Repo}) -
     Dir = filename:basename(Repo, ".git") ++ [$-|Tag],
     Filename = filename:join(BaseDir, Dir),
     Script = "mkdir -p ${OUTFILE} &&
-              wget -c -O ${OUTFILE}.zip ${URL} &&
-              unzip -n -d ${OUTFILE} ${OUTFILE}.zip",
+              wget -c -O ${OUTFILE}.tar.gz ${URL} &&
+              tar -zxf ${OUTFILE} ${OUTFILE}.tar.gz",
     Env = [{"TAG", Tag}, {"OUTFILE", Filename}, {"URL", URL}],
     bash(Script, Env),
     {ok, Filename}.
