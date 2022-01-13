@@ -112,6 +112,7 @@ PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh "$PROFILE")}"
 if [ "$WITH_ELIXIR" = "yes" ]
 then
   PKG_NAME="${PROFILE}-${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
+  PROFILE="${PROFILE}-elixir"
 else
   PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
 fi

@@ -241,9 +241,12 @@ jobs:
           - 1.13.1
         # used to split elixir packages into a separate job, since the
         # entire job may take a lot of time, especially on arm64
-        # emulation
+        # emulation.
+        # we only want to build ubuntu and centos with elixir for the
+        # time being, so it's easier to just include those with
+        # `with_elixir` set.
         build_elixir:
-          - with_elixir
+          # - with_elixir
           - no_elixir
         arch:
           - amd64
@@ -272,6 +275,19 @@ jobs:
           profile: emqx-enterprise
         - os: raspbian10
           profile: emqx-enterprise
+        include:
+          - profile: emqx
+            otp: 24.1.5-3
+            elixir: 1.13.1
+            arch: amd64
+            build_elixir: with_elixir
+            os: ubuntu20.04
+          - profile: emqx
+            otp: 24.1.5-3
+            elixir: 1.13.1
+            arch: amd64
+            build_elixir: with_elixir
+            os: centos8
 
     defaults:
       run:
@@ -381,19 +397,10 @@ jobs:
       working-directory: source
       if: ${{ matrix.build_elixir == 'with_elixir' }}
       run: |
+        ## we currently only build zips for elixir
         ./scripts/buildx.sh \
           --profile "${PROFILE}" \
           --pkgtype "zip" \
-          --arch "${ARCH}" \
-          --otp "${OTP}" \
-          --elixir "${ELIXIR}" \
-          --system "${SYSTEM}" \
-          --with-elixir \
-          --builder "ghcr.io/emqx/emqx-builder/5.0-4:${ELIXIR}-${OTP}-${SYSTEM}"
-
-        ./scripts/buildx.sh \
-          --profile "${PROFILE}" \
-          --pkgtype "pkg" \
           --arch "${ARCH}" \
           --otp "${OTP}" \
           --elixir "${ELIXIR}" \
@@ -431,7 +438,7 @@ jobs:
           - emqx
           - emqx-enterprise
         # NOTE: for docker, only support latest otp and elixir
-        # version, not a matrix
+        # versions, not a matrix
         otp:
           - 24.1.5-3 # update to latest
         elixir:
@@ -465,6 +472,23 @@ jobs:
           type=semver,pattern={{version}}
         labels:
           org.opencontainers.image.otp.version=${{ matrix.otp }}
+    - name: docker metadata for elixir image
+      uses: docker/metadata-action@v3
+      if: ${{ matrix.profile == 'emqx' }}
+      id: meta-elixir
+      with:
+        images: ${{ github.repository_owner }}/${{ matrix.profile }}
+        flavor: |
+          latest=${{ !github.event.release.prerelease }}
+          suffix=-elixir
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=ref,event=tag
+          type=semver,pattern={{version}}
+        labels:
+          org.opencontainers.image.otp.version=${{ matrix.otp }}
+          org.opencontainers.image.elixir.version=${{ matrix.elixir }}
     - uses: docker/login-action@v1
       if: github.event_name == 'release'
       with:
@@ -484,6 +508,22 @@ jobs:
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
         context: source
+    - name: build docker image with elixir
+      uses: docker/build-push-action@v2
+      if: ${{ matrix.profile == 'emqx' }}
+      with:
+        push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
+        pull: true
+        no-cache: true
+        platforms: linux/amd64,linux/arm64
+        tags: ${{ steps.meta-elixir.outputs.tags }}
+        labels: ${{ steps.meta-elixir.outputs.labels }}
+        build-args: |
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-4:${{ matrix.elixir }}-${{ matrix.otp }}-alpine3.14
+          RUN_FROM=alpine:3.14
+          EMQX_NAME=emqx-elixir
+        file: source/deploy/docker/Dockerfile
+        context: source
     - uses: aws-actions/configure-aws-credentials@v1
       if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx'
       with:
@@ -494,6 +534,14 @@ jobs:
       if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx'
       run: |
         version=${GITHUB_REF##*/}
+        docker pull emqx/emqx:${version#v}
+        docker tag emqx/emqx:${version#v} public.ecr.aws/emqx/emqx:${version#v}
+        aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+        docker push public.ecr.aws/emqx/emqx:${version#v}
+    - name: Push image to aws ecr (elixir)
+      if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx'
+      run: |
+        version=${GITHUB_REF##*/}-elixir
         docker pull emqx/emqx:${version#v}
         docker tag emqx/emqx:${version#v} public.ecr.aws/emqx/emqx:${version#v}
         aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
