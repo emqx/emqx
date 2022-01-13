@@ -20,7 +20,7 @@
         , code_change/3
         ]).
 
--export([get_collect/0]).
+-export([get_collect/0, select_data/0]).
 
 -export([get_universal_epoch/0]).
 
@@ -51,6 +51,11 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 get_collect() -> gen_server:call(whereis(?MODULE), get_collect).
+
+-spec select_data() -> [#mqtt_collect{}].
+select_data() ->
+    Time = emqx_dashboard_collection:get_universal_epoch() - 7200000,
+    ets:select(?TAB_COLLECT, [{{mqtt_collect,'$1','$2'}, [{'>', '$1', Time}], ['$_']}]).
 
 init([]) ->
     timer(next_interval(), collect),
