@@ -100,7 +100,7 @@ log(List, Event, Msg, Meta0) ->
             undefined -> Meta0;
             ProcMeta -> maps:merge(ProcMeta, Meta0)
         end,
-    Log = #{level => trace, event => Event, meta => Meta, msg => Msg},
+    Log = #{level => debug, trace_event => Event, meta => Meta, msg => Msg},
     log_filter(List, Log).
 
 log_filter([], _Log) -> ok;

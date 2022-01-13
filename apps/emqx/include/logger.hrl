@@ -76,6 +76,7 @@
 -define(TRACE_FILTER, emqx_trace_filter).
 
 %% Only evaluate when necessary
+%% Always debug the trace events.
 -define(TRACE(Event, Msg, Meta),
     begin
     case persistent_term:get(?TRACE_FILTER, undefined) of
@@ -84,7 +85,8 @@
         List ->
            emqx_trace:log(List, Event, Msg, Meta)
     end,
-    ?SLOG(debug, Meta#{msg => Msg})
+    ?SLOG(debug, (emqx_trace_formatter:format_meta(Meta))#{msg => Msg, trace_event => Event},
+        #{trace_filter => ignore})
     end).
 
 %% print to 'user' group leader

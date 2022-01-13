@@ -16,13 +16,14 @@
 -module(emqx_trace_formatter).
 
 -export([format/2]).
+-export([format_meta/1]).
 
 %%%-----------------------------------------------------------------
 %%% API
 -spec format(LogEvent, Config) -> unicode:chardata() when
     LogEvent :: logger:log_event(),
     Config :: logger:config().
-format(#{level := trace, event := Event, meta := Meta, msg := Msg},
+format(#{level := debug, trace_event := Event, meta := Meta, msg := Msg},
     #{payload_encode := PEncode}) ->
     Time = calendar:system_time_to_rfc3339(erlang:system_time(second)),
     ClientId = to_iolist(maps:get(clientid, Meta, "")),
@@ -33,22 +34,36 @@ format(#{level := trace, event := Event, meta := Meta, msg := Msg},
 format(Event, Config) ->
     emqx_logger_textfmt:format(Event, Config).
 
+format_meta(Meta) ->
+    Encode = emqx_trace_handler:payload_encode(),
+    format_meta_(Meta, Encode).
+
 format_meta(Meta0, Encode) ->
-    Packet = format_packet(maps:get(packet, Meta0, undefined), Encode),
-    Payload = format_payload(maps:get(payload, Meta0, undefined), Encode),
-    Meta1 = maps:without([msg, clientid, peername, packet, payload], Meta0),
-    case Meta1 =:= #{} of
+    Meta1 = #{packet := Packet0, payload := Payload0} = format_meta_(Meta0, Encode),
+    Packet = enrich(", packet: ", Packet0),
+    Payload = enrich(", payload: ", Payload0),
+    Meta2 = maps:without([msg, clientid, peername, packet, payload], Meta1),
+    case Meta2 =:= #{} of
         true -> [Packet, Payload];
-        false -> [Packet, ", ", map_to_iolist(Meta1), Payload]
+        false -> [Packet, ", ", map_to_iolist(Meta2), Payload]
     end.
 
+enrich(_, "") -> "";
+enrich(Key, Bin) -> [Key, Bin].
+
+format_meta_(Meta, Encode) ->
+    Meta#{
+        packet => format_packet(maps:get(packet, Meta, undefined), Encode),
+        payload => format_payload(maps:get(payload, Meta, undefined), Encode)
+    }.
+
 format_packet(undefined, _) -> "";
-format_packet(Packet, Encode) -> [", packet: ", emqx_packet:format(Packet, Encode)].
+format_packet(Packet, Encode) -> emqx_packet:format(Packet, Encode).
 
 format_payload(undefined, _) -> "";
-format_payload(Payload, text) -> [", payload: ", io_lib:format("~ts", [Payload])];
-format_payload(Payload, hex) -> [", payload(hex): ", emqx_packet:encode_hex(Payload)];
-format_payload(_, hidden) -> ", payload=******".
+format_payload(Payload, text) -> io_lib:format("~ts", [Payload]);
+format_payload(Payload, hex) -> emqx_packet:encode_hex(Payload);
+format_payload(_, hidden) -> "******".
 
 to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 to_iolist(Int) when is_integer(Int) -> integer_to_list(Int);
