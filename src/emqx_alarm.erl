@@ -375,8 +375,10 @@ normalize_message(high_cpu_usage, #{usage := Usage}) ->
     list_to_binary(io_lib:format("~p% cpu usage", [Usage]));
 normalize_message(too_many_processes, #{usage := Usage}) ->
     list_to_binary(io_lib:format("~p% process usage", [Usage]));
-normalize_message(license_usage, #{high_watermark := High}) ->
+normalize_message(license_quota, #{high_watermark := High}) ->
     iolist_to_binary(["License: the number of connections exceeds ", High, "%"]);
+normalize_message(license_expiry, #{expiry_at := ExpiryAt}) ->
+    iolist_to_binary(["License will be expired at ", ExpiryAt]);
 normalize_message(partition, #{occurred := Node}) ->
     list_to_binary(io_lib:format("Partition occurs at node ~s", [Node]));
 normalize_message(<<"resource", _/binary>>, #{type := Type, id := ID}) ->
