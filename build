@@ -121,7 +121,7 @@ cp_dyn_libs() {
         cp -L "$so_file" "$target_dir/"
     done < <("$FIND" "$rel_dir" -type f \( -name "*.so*" -o -name "beam.smp" \) -print0 \
         | xargs -0 ldd \
-        | grep -E '(libcrypto)|(libtinfo)' \
+        | grep -E '(libcrypto)|(libtinfo)|(libatomic)' \
         | awk '{print $3}' \
         | sort -u)
 }
