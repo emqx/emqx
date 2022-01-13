@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,16 +14,27 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_prometheus_SUITE).
+-module(emqx_dashboard_proto_v1).
 
--include_lib("stdlib/include/assert.hrl").
+-behaviour(emqx_bpapi).
 
--compile(nowarn_export_all).
--compile(export_all).
+-export([ introduced_in/0
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+        , get_collect/1
+        , select_data/1
+        ]).
 
-t_start_stop(_) ->
-    ?assertMatch(ok, emqx_prometheus:start()),
-    ?assertMatch(ok, emqx_prometheus:stop()),
-    ?assertMatch(ok, emqx_prometheus:restart()).
+-include("emqx_dashboard.hrl").
+-include_lib("emqx/include/bpapi.hrl").
+
+introduced_in() ->
+    "5.0.0".
+
+-spec get_collect(node()) -> _.
+get_collect(Node) ->
+    rpc:call(Node, emqx_dashboard_collection, get_collect, []).
+
+-spec select_data(node()) -> [#mqtt_collect{}]
+                           | emqx_rpc:badrpc().
+select_data(Node) ->
+    rpc:call(Node, emqx_dashboard_collection, select_data, []).

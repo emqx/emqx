@@ -215,10 +215,8 @@ list_collect(Aggregate) ->
             merger_counters(Counters)
     end.
 
-get_collect(Node) when Node =:= node() ->
-    emqx_dashboard_collection:get_collect();
 get_collect(Node) ->
-    case rpc:call(Node, emqx_dashboard_collection, get_collect, []) of
+    case emqx_dashboard_proto_v1:get_collect(Node) of
         {badrpc, _Reason} -> ?EMPTY_COLLECTION;
         Res -> Res
     end.
@@ -267,19 +265,13 @@ key_replace([Term | List], All, Comparison, Default) ->
             key_replace(List, All, Comparison, Default)
     end.
 
-sampling(Node) when Node =:= node() ->
-    format(lists:sort(select_data()));
 sampling(Node) ->
-    rpc:call(Node, ?MODULE, sampling, [Node]).
+    Data = emqx_dashboard_proto_v1:select_data(Node),
+    format(lists:sort(Data)).
 
-sampling(Node, Counter) when Node =:= node() ->
-    format_single(lists:sort(select_data()), Counter);
 sampling(Node, Counter) ->
-    rpc:call(Node, ?MODULE, sampling, [Node, Counter]).
-
-select_data() ->
-    Time = emqx_dashboard_collection:get_universal_epoch() - 7200000,
-    ets:select(?TAB_COLLECT, [{{mqtt_collect,'$1','$2'}, [{'>', '$1', Time}], ['$_']}]).
+    Data = emqx_dashboard_proto_v1:select_data(Node),
+    format_single(lists:sort(Data), Counter).
 
 format(Collects) ->
     format(Collects, {[],[],[],[],[],[]}).

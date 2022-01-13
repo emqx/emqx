@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,16 +14,25 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_prometheus_SUITE).
+-module(emqx_prometheus_proto_v1).
 
--include_lib("stdlib/include/assert.hrl").
+-behaviour(emqx_bpapi).
 
--compile(nowarn_export_all).
--compile(export_all).
+-export([ introduced_in/0
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+        , start/1
+        , stop/1
+        ]).
 
-t_start_stop(_) ->
-    ?assertMatch(ok, emqx_prometheus:start()),
-    ?assertMatch(ok, emqx_prometheus:stop()),
-    ?assertMatch(ok, emqx_prometheus:restart()).
+-include_lib("emqx/include/bpapi.hrl").
+
+introduced_in() ->
+    "5.0.0".
+
+-spec start([node()]) -> emqx_rpc:multicall_result().
+start(Nodes) ->
+    rpc:multicall(Nodes, emqx_prometheus, do_start, [], 5000).
+
+-spec stop([node()]) -> emqx_rpc:multicall_result().
+stop(Nodes) ->
+    rpc:multicall(Nodes, emqx_prometheus, do_stop, [], 5000).

@@ -44,7 +44,7 @@ copy_override_conf_from_core_node() ->
             ?SLOG(debug, #{msg => "skip_copy_overide_conf_from_core_node"}),
             {ok, -1};
         Nodes ->
-            {Results, Failed} = rpc:multicall(Nodes, ?MODULE, get_override_config_file, [], 20000),
+            {Results, Failed} = emqx_conf_proto_v1:get_override_config_file(Nodes),
             {Ready, NotReady0} = lists:partition(fun(Res) -> element(1, Res) =:= ok end, Results),
             NotReady = lists:filter(fun(Res) -> element(1, Res) =:= error end, NotReady0),
             case (Failed =/= [] orelse NotReady =/= []) andalso Ready =/= [] of
