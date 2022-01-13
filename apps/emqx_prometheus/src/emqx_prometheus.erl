@@ -41,7 +41,6 @@
         % for rpc
         , do_start/0
         , do_stop/0
-        , do_restart/0
         ]).
 
 %% APIs
@@ -87,9 +86,17 @@ update(Config) ->
             {error, Reason}
     end.
 
-start()   -> cluster_call(do_start, []).
-stop()    -> cluster_call(do_stop, []).
-restart() -> cluster_call(do_restart, []).
+start() ->
+    {_, []} = emqx_prometheus_proto_v1:start(mria_mnesia:running_nodes()),
+    ok.
+
+stop() ->
+    {_, []} = emqx_prometheus_proto_v1:stop(mria_mnesia:running_nodes()),
+    ok.
+
+restart() ->
+    stop(),
+    stop().
 
 do_start() ->
     emqx_prometheus_sup:start_child(?APP, emqx_conf:get([prometheus])).
@@ -100,24 +107,6 @@ do_stop() ->
             ok;
         {error, not_found} ->
             ok
-    end.
-
-do_restart() ->
-    ok = do_stop(),
-    ok = do_start(),
-    ok.
-
-cluster_call(F, A) ->
-    [ok = rpc_call(N, F, A) || N <- mria_mnesia:running_nodes()],
-    ok.
-
-rpc_call(N, F, A) ->
-    case rpc:call(N, ?MODULE, F, A, 5000) of
-        {badrpc, R} ->
-            ?LOG(error, "RPC Node: ~p ~p ~p failed, Reason: ~p", [N, ?MODULE, F, R]),
-            {error, {badrpc, R}};
-        Result ->
-            Result
     end.
 
 %%--------------------------------------------------------------------
