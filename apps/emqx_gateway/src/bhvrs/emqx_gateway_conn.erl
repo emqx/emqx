@@ -649,7 +649,7 @@ parse_incoming(Data, Packets,
                           , reason => Reason
                           , stacktrace => Stk
                           }),
-            {[{frame_error, Reason}|Packets], State}
+            {[{frame_error, Reason} | Packets], State}
     end.
 
 next_incoming_msgs([Packet]) ->
