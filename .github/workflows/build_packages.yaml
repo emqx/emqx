@@ -164,27 +164,6 @@ jobs:
         kerl update releases
         kerl build ${{ matrix.otp }}
         kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
-
-    - name: Get deps git refs for cache
-      id: deps-refs
-      run: |
-        cd source
-        . $HOME/.kerl/${{ matrix.otp }}/activate
-        make ensure-rebar3
-        sudo cp rebar3 /usr/local/bin/rebar3
-        scripts/get-dep-refs.sh
-        make clean-all
-    - name: load rocksdb cache
-      uses: actions/cache@v2
-      with:
-        path: source/_build/default/lib/rocksdb/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
-    - name: load quicer cache
-      uses: actions/cache@v2
-      with:
-        path: source/_build/default/lib/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
-
     - name: build
       working-directory: source
       run: |
@@ -281,22 +260,6 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - name: Get deps git refs for cache
-      id: deps-refs
-      run: |
-        cd source
-        scripts/get-dep-refs.sh
-        make clean-all
-    - name: load rocksdb cache
-      uses: actions/cache@v2
-      with:
-        path: source/_build/default/lib/rocksdb/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
-    - name: load quicer cache
-      uses: actions/cache@v2
-      with:
-        path: source/_build/default/lib/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
     - name: downloads old emqx zip packages
       env:
         OTP_VSN: ${{ matrix.otp }}
@@ -378,9 +341,6 @@ jobs:
         # NOTE: for docker, only support latest otp version, not a matrix
         otp:
           - 24.1.5-3 # update to latest
-        arch:
-          - amd64
-          - arm64
 
     steps:
     - uses: actions/download-artifact@v2
@@ -412,33 +372,12 @@ jobs:
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
-
-    - name: Get deps git refs for cache
-      id: deps-refs
-      run: |
-        cd source
-        make ensure-rebar3
-        sudo cp rebar3 /usr/local/bin/rebar3
-        scripts/get-dep-refs.sh
-        make clean-all
-
-    - name: load rocksdb cache
-      uses: actions/cache@v2
-      with:
-        path: source/_build/default/lib/rocksdb/
-        key: alpine3.14-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
-    - name: load quicer cache
-      uses: actions/cache@v2
-      with:
-        path: source/_build/default/lib/quicer/
-        key: alpine3.14-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
-
     - uses: docker/build-push-action@v2
       with:
         push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
         pull: true
         no-cache: true
-        platforms: linux/${{ matrix.arch }}
+        platforms: linux/amd64,linux/arm64
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
