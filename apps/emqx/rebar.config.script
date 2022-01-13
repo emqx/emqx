@@ -1,3 +1,5 @@
+%% -*- mode: erlang -*-
+
 IsCentos6 = fun() ->
                 case file:read_file("/etc/centos-release") of
                     {ok, <<"CentOS release 6", _/binary >>} ->
