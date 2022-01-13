@@ -56,8 +56,8 @@ ct: $(REBAR) conf-segs
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v
 
 .PHONY: static_checks
-static_checks: dialyzer xref
-	@$(REBAR) ct --suite apps/emqx/test/emqx_bpapi_suite --readable false
+static_checks:
+	@$(REBAR) as check do xref, dialyzer, ct --suite apps/emqx/test/emqx_bpapi_suite --readable false
 
 APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
 
