@@ -126,8 +126,6 @@ jobs:
         path: source/_packages/${{ matrix.profile }}/.
 
   mac:
-    runs-on: macos-10.15
-
     needs: prepare
 
     strategy:
@@ -137,6 +135,9 @@ jobs:
           - 23.2.7.2-emqx-3
         exclude:
           - profile: emqx-edge
+        macos:
+          - macos-10.15
+    runs-on: ${{ matrix.macos  }}
 
     steps:
     - uses: actions/download-artifact@v2
@@ -154,8 +155,8 @@ jobs:
     - uses: actions/cache@v2
       id: cache
       with:
-        path: ~/.kerl
-        key: erl${{ matrix.erl_otp }}-macos10.15
+        path: ~/.kerl/${{ matrix.erl_otp }}
+        key: otp-install-${{ matrix.erl_otp }}-${{ matrix.macos }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
