@@ -1,5 +1,9 @@
 %% -*- mode: erlang -*-
 {VSN,
-  [{<<".*">>,[]}],
-  [{<<".*">>,[]}]
+  [{"4.4.0",
+    [{load_module,emqx_channel,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}],
+  [{"4.4.0",
+    [{load_module,emqx_channel,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}]
 }.
