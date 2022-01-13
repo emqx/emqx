@@ -105,8 +105,8 @@ jobs:
     - uses: actions/cache@v2
       id: cache
       with:
-        path: ~/.kerl
-        key: otp-${{ matrix.otp }}-${{ matrix.macos }}
+        path: ~/.kerl/${{ matrix.otp }}
+        key: otp-install-${{ matrix.otp }}-${{ matrix.macos }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
