@@ -183,7 +183,8 @@ operate_topic_metrics(delete, #{bindings := #{topic := Topic0}}) ->
 %%--------------------------------------------------------------------
 
 cluster_accumulation_metrics() ->
-    case multicall(emqx_topic_metrics, metrics, []) of
+    Nodes = mria_mnesia:running_nodes(),
+    case emqx_topic_metrics_proto_v1:metrics(Nodes) of
         {SuccResList, []} ->
             {ok, accumulate_nodes_metrics(SuccResList)};
         {_, FailedNodes} ->
@@ -191,7 +192,8 @@ cluster_accumulation_metrics() ->
     end.
 
 cluster_accumulation_metrics(Topic) ->
-    case multicall(emqx_topic_metrics, metrics, [Topic]) of
+    Nodes = mria_mnesia:running_nodes(),
+    case emqx_topic_metrics_proto_v1:metrics(Nodes, Topic) of
         {SuccResList, []} ->
             case lists:filter(fun({error, _}) -> false; (_) -> true
                               end, SuccResList) of
@@ -244,11 +246,13 @@ do_accumulation_metrics(MetricsIn, {MetricsAcc, _}) ->
     end, #{}, Keys).
 
 reset() ->
-    _ = multicall(emqx_topic_metrics, reset, []),
+    Nodes = mria_mnesia:running_nodes(),
+    _ = emqx_topic_metrics_proto_v1:reset(Nodes),
     ok.
 
 reset(Topic) ->
-    case multicall(emqx_topic_metrics, reset, [Topic]) of
+    Nodes = mria_mnesia:running_nodes(),
+    case emqx_topic_metrics_proto_v1:reset(Nodes, Topic) of
         {SuccResList, []} ->
             case lists:filter(fun({error, _}) -> true; (_) -> false
                               end, SuccResList) of
@@ -261,9 +265,6 @@ reset(Topic) ->
 
 %%--------------------------------------------------------------------
 %% utils
-
-multicall(M, F, A) ->
-    emqx_rpc:multicall(mria_mnesia:running_nodes(), M, F, A).
 
 reason2httpresp(quota_exceeded) ->
     Msg = list_to_binary(

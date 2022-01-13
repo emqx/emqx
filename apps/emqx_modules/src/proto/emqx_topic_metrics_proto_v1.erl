@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%%Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,13 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_modules_proto_v1).
+-module(emqx_topic_metrics_proto_v1).
 
 -behaviour(emqx_bpapi).
 
 -export([ introduced_in/0
 
-        , get_uuid/1
+        , metrics/1
+        , metrics/2
+        , reset/1
+        , reset/2
         ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -28,6 +31,18 @@
 introduced_in() ->
     "5.0.0".
 
--spec get_uuid(node()) -> {ok, binary()} | emqx_rpc:badrpc().
-get_uuid(Node) ->
-    rpc:call(Node, emqx_telemetry, get_uuid, []).
+-spec metrics([node()]) -> emqx_rpc:multicall_result().
+metrics(Nodes) ->
+    emqx_rpc:multicall(Nodes, emqx_topic_metrics, metrics, []).
+
+-spec metrics([node()], emqx_types:topic()) -> emqx_rpc:multicall_result().
+metrics(Nodes, Topic) ->
+    emqx_rpc:multicall(Nodes, emqx_topic_metrics, metrics, [Topic]).
+
+-spec reset([node()]) -> emqx_rpc:multicall_result().
+reset(Nodes) ->
+    emqx_rpc:multicall(Nodes, emqx_topic_metrics, reset, []).
+
+-spec reset([node()], emqx_types:topic()) -> emqx_rpc:multicall_result().
+reset(Nodes, Topic) ->
+    emqx_rpc:multicall(Nodes, emqx_topic_metrics, reset, [Topic]).

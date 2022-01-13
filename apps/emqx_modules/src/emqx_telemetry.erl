@@ -256,7 +256,7 @@ uptime() ->
 nodes_uuid() ->
     Nodes = lists:delete(node(), mria_mnesia:running_nodes()),
     lists:foldl(fun(Node, Acc) ->
-                    case emqx_modules_proto_v1:get_uuid(Node) of
+                    case emqx_telemetry_proto_v1:get_uuid(Node) of
                         {badrpc, _Reason} ->
                             Acc;
                         {ok, UUID} ->
