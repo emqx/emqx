@@ -31,10 +31,10 @@
 -define(PATH, [authentication]).
 
 all() ->
-    [{group, require_seeds}, t_create, t_create_invalid, t_parse_query].
+    [{group, require_seeds}, t_create_invalid, t_parse_query].
 
 groups() ->
-    [{require_seeds, [], [t_authenticate, t_update, t_destroy, t_is_superuser]}].
+    [{require_seeds, [], [t_create, t_authenticate, t_update, t_destroy, t_is_superuser]}].
 
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
@@ -171,7 +171,7 @@ t_update(_Config) ->
     IncorrectConfig =
         CorrectConfig#{
             query => <<"SELECT password_hash, salt, is_superuser_str as is_superuser
-                          FROM wrong_table where username = ${username} LIMIT 1">>},
+                          FROM users where username = ${username} LIMIT 0">>},
 
     {ok, _} = emqx:update_config(
                 ?PATH,

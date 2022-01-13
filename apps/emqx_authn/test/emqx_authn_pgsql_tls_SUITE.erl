@@ -125,8 +125,7 @@ raw_pgsql_auth_config(SpecificSSLOpts) ->
       username => <<"root">>,
       password => <<"public">>,
 
-      query => <<"SELECT password_hash, salt, is_superuser_str as is_superuser
-                      FROM users where username = ${username} LIMIT 1">>,
+      query => <<"SELECT 1">>,
       server => pgsql_server(),
       ssl => maps:merge(SSLOpts, SpecificSSLOpts)
      }.
