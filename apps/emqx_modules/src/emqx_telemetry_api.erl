@@ -18,12 +18,9 @@
 
 -behaviour(minirest_api).
 
--import(emqx_mgmt_util, [ schema/1
-                        , object_schema/1
-                        , object_schema/2
-                        , properties/1
-                        , bad_request/0
-                        ]).
+-include_lib("typerefl/include/types.hrl").
+
+-import(hoconsc, [mk/2, ref/1, ref/2, array/1]).
 
 % -export([cli/1]).
 
@@ -33,54 +30,139 @@
 
 -export([enable_telemetry/2]).
 
--export([api_spec/0]).
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        , fields/1
+        ]).
+
+-define(BAD_REQUEST, 'BAD_REQUEST').
 
 api_spec() ->
-    {[status_api(), data_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-properties() ->
-    properties([
-        {emqx_version, string, <<"EMQ X Version">>},
-        {license, object, [{edition, string, <<"EMQ X License">>}]},
-        {os_name, string, <<"OS Name">>},
-        {os_version, string, <<"OS Version">>},
-        {otp_version, string, <<"Erlang/OTP Version">>},
-        {up_time, string, <<"EMQ X Runtime">>},
-        {uuid, string, <<"EMQ X UUID">>},
-        {nodes_uuid, string, <<"EMQ X Cluster Nodes UUID">>},
-        {active_plugins, {array, string}, <<"EMQ X Active Plugins">>},
-        {active_modules, {array, string}, <<"EMQ X Active Modules">>},
-        {num_clients, integer, <<"EMQ X Current Connections">>},
-        {messages_received, integer, <<"EMQ X Current Received Message">>},
-        {messages_sent, integer, <<"EMQ X Current Sent Message">>}
-    ]).
+paths() ->
+    [ "/telemetry/status"
+    , "/telemetry/data"
+    ].
 
-status_api() ->
-    Props = properties([{enable, boolean}]),
-    Metadata = #{
-        get => #{
-            description => "Get telemetry status",
-            responses => #{<<"200">> => object_schema(Props)}
-        },
-        put => #{
-            description => "Enable or disable telemetry",
-            'requestBody' => object_schema(Props),
-            responses => #{
-                <<"200">> =>
-                    object_schema(properties([{enable, boolean, <<"">>}]),
-                        <<"Enable or disable telemetry successfully">>),
-                <<"400">> => bad_request()
+schema("/telemetry/status") ->
+    #{ 'operationId' => status,
+       get =>
+           #{ description => <<"Get telemetry status">>
+            , responses =>
+                  #{ 200 => status_schema(<<"Get telemetry status">>)}
+            },
+       put =>
+           #{ description => <<"Enable or disable telemetry">>
+            , 'requestBody' => status_schema(<<"Enable or disable telemetry">>)
+            , responses =>
+                  #{ 200 => status_schema(<<"Enable or disable telemetry successfully">>)
+                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                   }
             }
-        }
-    },
-    {"/telemetry/status", Metadata, status}.
+     };
+schema("/telemetry/data") ->
+    #{ 'operationId' => data,
+       get =>
+           #{ description => <<"Get telemetry data">>
+            , responses =>
+                  #{ 200 => mk(ref(?MODULE, telemetry), #{ desc => <<"Get telemetry data">>})}}
+     }.
 
-data_api() ->
-    Metadata = #{
-        get => #{
-            responses => #{
-                <<"200">> => object_schema(properties(), <<"Get telemetry data">>)}}},
-    {"/telemetry/data", Metadata, data}.
+status_schema(Desc) ->
+    mk(ref(?MODULE, status), #{desc => Desc}).
+
+fields(status) ->
+    [ { enable
+      , mk( boolean()
+          , #{ desc => <<"Telemetry status">>
+             , default => false
+             , example => false
+             })
+      }
+    ];
+fields(telemetry) ->
+    [ { emqx_version
+      , mk( string()
+          , #{ desc => <<"EMQ X Version">>
+             , example => <<"5.0.0-beta.3-32d1547c">>
+             })
+      }
+    , { license
+      , mk( map()
+          , #{ desc => <<"EMQ X License">>
+             , example => #{edition => <<"community">>}
+             })
+      }
+    , { os_name
+      , mk( string()
+          , #{ desc => <<"OS Name">>
+             , example => <<"Linux">>
+             })
+      }
+    , { os_version
+      , mk( string()
+          , #{ desc => <<"OS Version">>
+             , example => <<"20.04">>
+             })
+      }
+    , { otp_version
+      , mk( string()
+          , #{ desc => <<"Erlang/OTP Version">>
+             , example => <<"24">>
+             })
+      }
+    , { up_time
+      , mk( integer()
+          , #{ desc => <<"EMQ X Runtime">>
+             , example => 20220113
+             })
+      }
+    , { uuid
+      , mk( string()
+          , #{ desc => <<"EMQ X UUID">>
+             , example => <<"AAAAAAAA-BBBB-CCCC-2022-DDDDEEEEFFF">>
+             })
+      }
+    , { nodes_uuid
+      , mk( array(binary())
+          , #{ desc => <<"EMQ X Cluster Nodes UUID">>
+             , example => [ <<"AAAAAAAA-BBBB-CCCC-2022-DDDDEEEEFFF">>
+                          , <<"ZZZZZZZZ-CCCC-BBBB-2022-DDDDEEEEFFF">>]
+             })
+      }
+    , { active_plugins
+      , mk( array(binary())
+          , #{ desc => <<"EMQ X Active Plugins">>
+             , example => [<<"Plugin A">>, <<"Plugin B">>]
+             })
+      }
+    , { active_modules
+      , mk( array(binary())
+          , #{ desc => <<"EMQ X Active Modules">>
+             , example => [<<"Module A">>, <<"Module B">>]
+             })
+      }
+    , { num_clients
+      , mk( integer()
+          , #{ desc => <<"EMQ X Current Connections">>
+             , example => 20220113
+             })
+      }
+    , { messages_received
+      , mk( integer()
+          , #{ desc => <<"EMQ X Current Received Message">>
+             , example => 2022
+             })
+      }
+    , { messages_sent
+      , mk( integer()
+          , #{ desc => <<"EMQ X Current Sent Message">>
+             , example => 2022
+             })
+      }
+    ].
 
 %%--------------------------------------------------------------------
 %% HTTP API
