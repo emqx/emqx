@@ -24,11 +24,11 @@ jobs:
         make emqx-enterprise-tgz
     - uses: actions/upload-artifact@v2
       with:
-        name: emqx-ce
+        name: emqx-community
         path: _packages/emqx/*.tar.gz
     - uses: actions/upload-artifact@v2
       with:
-        name: emqx-ee
+        name: emqx-enterprise
         path: _packages/emqx-enterprise/*.tar.gz
   api-test:
     needs: build
@@ -55,8 +55,8 @@ jobs:
           - api_event_message
           - api_stats
         edition:
-          - emqx-ce
-            #TODO: add emqx-ee
+          - emqx-community
+            #TODO: add emqx-enterprise
     steps:
     - uses: actions/checkout@v2
       with:
@@ -117,7 +117,7 @@ jobs:
     steps:
     - uses: geekyeggo/delete-artifact@v1
       with:
-        name: emqx-ce
+        name: emqx-community
     - uses: geekyeggo/delete-artifact@v1
       with:
-        name: emqx-ee
+        name: emqx-enterprise
