@@ -452,7 +452,8 @@ event_info_common(Event, {TitleEN, TitleZH}, {DescrEN, DescrZH}, SqlExam) ->
     }.
 
 test_columns('message.dropped') ->
-    test_columns('message.publish');
+    [ {<<"reason">>, <<"no_subscribers">>}
+    ] ++ test_columns('message.publish');
 test_columns('message.publish') ->
     [ {<<"clientid">>, <<"c_emqx">>}
     , {<<"username">>, <<"u_emqx">>}
@@ -471,6 +472,9 @@ test_columns('message.delivered') ->
     , {<<"qos">>, 1}
     , {<<"payload">>, <<"{\"msg\": \"hello\"}">>}
     ];
+test_columns('delivery.dropped') ->
+    [ {<<"reason">>, <<"queue_full">>}
+    ] ++ test_columns('message.delivered');
 test_columns('client.connected') ->
     [ {<<"clientid">>, <<"c_emqx">>}
     , {<<"username">>, <<"u_emqx">>}
@@ -657,6 +661,7 @@ event_name(<<"$events/session_unsubscribed", _/binary>>) ->
 event_name(<<"$events/message_delivered", _/binary>>) -> 'message.delivered';
 event_name(<<"$events/message_acked", _/binary>>) -> 'message.acked';
 event_name(<<"$events/message_dropped", _/binary>>) -> 'message.dropped';
+event_name(<<"$events/delivery_dropped", _/binary>>) -> 'delivery.dropped';
 event_name(_) -> 'message.publish'.
 
 event_topic('client.connected') -> <<"$events/client_connected">>;
@@ -666,6 +671,7 @@ event_topic('session.unsubscribed') -> <<"$events/session_unsubscribed">>;
 event_topic('message.delivered') -> <<"$events/message_delivered">>;
 event_topic('message.acked') -> <<"$events/message_acked">>;
 event_topic('message.dropped') -> <<"$events/message_dropped">>;
+event_topic('delivery.dropped') -> <<"$events/delivery_dropped">>;
 event_topic('message.publish') -> <<"$events/message_publish">>.
 
 printable_maps(undefined) -> #{};
