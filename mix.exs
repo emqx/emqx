@@ -73,7 +73,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by ehttpc and emqtt
       {:gun, github: "emqx/gun", tag: "1.3.6", override: true},
       # in conflict by emqx_connectior and system_monitor
-      {:epgsql, github: "emqx/epgsql", tag: "4.7-emqx.1", override: true},
+      {:epgsql, github: "emqx/epgsql", tag: "4.7-emqx.2", override: true},
       # in conflict by mongodb and eredis_cluster
       {:poolboy, github: "emqx/poolboy", tag: "1.5.2", override: true},
       # in conflict by emqx and observer_cli
