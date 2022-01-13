@@ -125,8 +125,10 @@ connect(Opts) ->
     NamedQueries = proplists:get_value(named_queries, Opts),
     case epgsql:connect(Host, Username, Password, conn_opts(Opts)) of
         {ok, Conn} ->
-            parse(Conn, NamedQueries),
-            {ok, Conn};
+            case parse(Conn, NamedQueries) of
+                ok -> {ok, Conn};
+                {error, Reason} -> {error, Reason}
+            end;
         {error, Reason} ->
             {error, Reason}
     end.
