@@ -40,8 +40,10 @@ reset_authorizers(Nomatch, ChacheEnabled) ->
 
 setup_config(BaseConfig, SpecialParams) ->
     Config = maps:merge(BaseConfig, SpecialParams),
-    {ok, _} = emqx_authz:update(?CMD_REPLACE, [Config]),
-    ok.
+    case emqx_authz:update(?CMD_REPLACE, [Config]) of
+      {ok, _} -> ok;
+      {error, Reason} -> {error, Reason}
+    end.
 
 is_tcp_server_available(Host, Port) ->
     case gen_tcp:connect(Host, Port, [], ?DEFAULT_CHECK_AVAIL_TIMEOUT) of

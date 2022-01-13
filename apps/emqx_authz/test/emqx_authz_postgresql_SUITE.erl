@@ -167,7 +167,7 @@ t_pgsql_error(_Config) ->
                    listener => {tcp, default}
                   },
 
-    ok = setup_config(
+    {error, _} = setup_config(
       #{<<"query">> => <<"SOME INVALID STATEMENT">>}),
 
     ok = emqx_authz_test_lib:test_samples(
