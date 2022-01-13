@@ -73,7 +73,6 @@ set_default(ClientId, UserName, Pwd, HashType) ->
     application:set_env(emqx_auth_mnesia, clientid_list, [{ClientId, Pwd}]),
     application:set_env(emqx_auth_mnesia, username_list, [{UserName, Pwd}]),
     application:set_env(emqx_auth_mnesia, password_hash, HashType),
-    application:set_env(emqx_auth_mnesia, password_hash, HashType),
     ok.
 %%------------------------------------------------------------------------------
 %% Testcases
