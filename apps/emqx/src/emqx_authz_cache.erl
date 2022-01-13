@@ -28,6 +28,7 @@
         , get_cache_ttl/0
         , is_enabled/0
         , drain_cache/0
+        , drain_cache/1
         ]).
 
 %% export for test
@@ -153,6 +154,16 @@ foreach_authz_cache(Fun) ->
 drain_cache() ->
     _ = persistent_term:put(drain_k(), time_now()),
     ok.
+
+-spec drain_cache(emqx_types:clientid()) -> ok | {error, not_found}.
+drain_cache(ClientId) ->
+    case emqx_cm:lookup_channels(ClientId) of
+        [] ->
+            {error, not_found};
+        Pids when is_list(Pids) ->
+            erlang:send(lists:last(Pids), clean_authz_cache),
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions

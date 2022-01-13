@@ -29,7 +29,9 @@
         , lookup_node/1
         , list_brokers/0
         , lookup_broker/1
+        , node_info/0
         , node_info/1
+        , broker_info/0
         , broker_info/1
         ]).
 
@@ -65,6 +67,8 @@
         , list_subscriptions_via_topic/3
         , lookup_subscriptions/1
         , lookup_subscriptions/2
+
+        , do_list_subscriptions/0
         ]).
 
 %% Routes
@@ -80,7 +84,8 @@
         ]).
 
 %% Listeners
--export([ list_listeners/0
+-export([ do_list_listeners/0
+        , list_listeners/0
         , list_listeners/1
         , list_listeners_by_id/1
         , get_listener/2
@@ -134,7 +139,7 @@ list_nodes() ->
 
 lookup_node(Node) -> node_info(Node).
 
-node_info(Node) when Node =:= node() ->
+node_info() ->
     Memory  = emqx_vm:get_memory(),
     Info = maps:from_list([{K, list_to_binary(V)} || {K, V} <- emqx_vm:loads()]),
     BrokerInfo = emqx_sys:info(),
@@ -151,9 +156,10 @@ node_info(Node) when Node =:= node() ->
           node_status       => 'Running',
           uptime            => proplists:get_value(uptime, BrokerInfo),
           version           => iolist_to_binary(proplists:get_value(version, BrokerInfo))
-          };
+         }.
+
 node_info(Node) ->
-    rpc_call(Node, node_info, [Node]).
+    wrap_rpc(emqx_management_proto_v1:node_info(Node)).
 
 stopped_node_info(Node) ->
     #{name => Node, node_status => 'Stopped'}.
@@ -168,12 +174,12 @@ list_brokers() ->
 lookup_broker(Node) ->
     broker_info(Node).
 
-broker_info(Node) when Node =:= node() ->
+broker_info() ->
     Info = maps:from_list([{K, iolist_to_binary(V)} || {K, V} <- emqx_sys:info()]),
-    Info#{node => Node, otp_release => iolist_to_binary(otp_rel()), node_status => 'Running'};
+    Info#{node => node(), otp_release => iolist_to_binary(otp_rel()), node_status => 'Running'}.
 
 broker_info(Node) ->
-    rpc_call(Node, broker_info, [Node]).
+    wrap_rpc(emqx_management_proto_v1:broker_info(Node)).
 
 %%--------------------------------------------------------------------
 %% Metrics and Stats
@@ -182,10 +188,8 @@ broker_info(Node) ->
 get_metrics() ->
     nodes_info_count([get_metrics(Node) || Node <- mria_mnesia:running_nodes()]).
 
-get_metrics(Node) when Node =:= node() ->
-    emqx_metrics:all();
 get_metrics(Node) ->
-    rpc_call(Node, get_metrics, [Node]).
+    wrap_rpc(emqx_proto_v1:get_metrics(Node)).
 
 get_stats() ->
     GlobalStatsKeys =
@@ -209,10 +213,8 @@ delete_keys(List, []) ->
 delete_keys(List, [Key | Keys]) ->
     delete_keys(proplists:delete(Key, List), Keys).
 
-get_stats(Node) when Node =:= node() ->
-    emqx_stats:getstats();
 get_stats(Node) ->
-    rpc_call(Node, get_stats, [Node]).
+    wrap_rpc(emqx_proto_v1:get_stats(Node)).
 
 nodes_info_count(PropList) ->
     NodeCount =
@@ -267,11 +269,8 @@ kickout_client({ClientID, FormatFun}) ->
             check_results(Results)
     end.
 
-kickout_client(Node, ClientId) when Node =:= node() ->
-    emqx_cm:kick_session(ClientId);
-
 kickout_client(Node, ClientId) ->
-    rpc_call(Node, kickout_client, [Node, ClientId]).
+    wrap_rpc(emqx_broker_proto_v1:kickout_client(Node, ClientId)).
 
 list_authz_cache(ClientId) ->
     call_client(ClientId, list_authz_cache).
@@ -287,27 +286,15 @@ list_client_subscriptions(ClientId) ->
         [Result | _] -> Result
     end.
 
-client_subscriptions(Node, ClientId) when Node =:= node() ->
-    {Node, emqx_broker:subscriptions(ClientId)};
-
 client_subscriptions(Node, ClientId) ->
-    rpc_call(Node, client_subscriptions, [Node, ClientId]).
+    {Node, wrap_rpc(emqx_broker_proto_v1:client_subscriptions(Node, ClientId))}.
 
 clean_authz_cache(ClientId) ->
     Results = [clean_authz_cache(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
     check_results(Results).
 
-
-clean_authz_cache(Node, ClientId) when Node =:= node() ->
-    case emqx_cm:lookup_channels(ClientId) of
-        [] ->
-            {error, not_found};
-        Pids when is_list(Pids) ->
-            erlang:send(lists:last(Pids), clean_authz_cache),
-            ok
-    end;
 clean_authz_cache(Node, ClientId) ->
-    rpc_call(Node, clean_authz_cache, [Node, ClientId]).
+    wrap_rpc(emqx_proto_v1:clean_authz_cache(Node, ClientId)).
 
 clean_authz_cache_all() ->
     Results = [{Node, clean_authz_cache_all(Node)} || Node <- mria_mnesia:running_nodes()],
@@ -316,11 +303,8 @@ clean_authz_cache_all() ->
         BadNodes -> {error, BadNodes}
     end.
 
-clean_authz_cache_all(Node) when Node =:= node() ->
-    emqx_authz_cache:drain_cache();
-
 clean_authz_cache_all(Node) ->
-    rpc_call(Node, clean_authz_cache_all, [Node]).
+    wrap_rpc(emqx_proto_v1:clean_authz_cache(Node)).
 
 set_ratelimit_policy(ClientId, Policy) ->
     call_client(ClientId, {ratelimit, Policy}).
@@ -363,14 +347,15 @@ call_client(Node, ClientId, Req) ->
 %% Subscriptions
 %%--------------------------------------------------------------------
 
-list_subscriptions(Node) when Node =:= node() ->
+-spec do_list_subscriptions() -> [map()].
+do_list_subscriptions() ->
     case check_row_limit([mqtt_subproperty]) of
         false -> throw(max_row_limit);
         ok    -> [item(subscription, Sub) || Sub <- ets:tab2list(mqtt_subproperty)]
-    end;
+    end.
 
 list_subscriptions(Node) ->
-    rpc_call(Node, list_subscriptions, [Node]).
+    wrap_rpc(emqx_management_proto_v1:list_subscriptions(Node)).
 
 list_subscriptions_via_topic(Topic, FormatFun) ->
     lists:append([list_subscriptions_via_topic(Node, Topic, FormatFun)
@@ -455,14 +440,14 @@ do_unsubscribe(ClientId, Topic) ->
 %% Listeners
 %%--------------------------------------------------------------------
 
+do_list_listeners() ->
+    [Conf#{node => node(), id => Id} || {Id, Conf} <- emqx_listeners:list()].
+
 list_listeners() ->
     lists:append([list_listeners(Node) || Node <- mria_mnesia:running_nodes()]).
 
-list_listeners(Node) when Node =:= node() ->
-    [Conf#{node => Node, id => Id} || {Id, Conf} <- emqx_listeners:list()];
-
 list_listeners(Node) ->
-    rpc_call(Node, list_listeners, [Node]).
+    wrap_rpc(emqx_management_proto_v1:list_listeners(Node)).
 
 list_listeners_by_id(Id) ->
     listener_id_filter(Id, list_listeners()).
@@ -593,6 +578,11 @@ rpc_call(Node, Fun, Args) ->
         Res -> Res
     end.
 
+wrap_rpc({badrpc, Reason}) ->
+    {error, Reason};
+wrap_rpc(Res) ->
+    Res.
+
 otp_rel() ->
     lists:concat([emqx_vm:get_otp_version(), "/", erlang:system_info(version)]).
 
@@ -610,7 +600,7 @@ check_row_limit([Tab | Tables], Limit) ->
 check_results(Results) ->
     case lists:any(fun(Item) -> Item =:= ok end, Results) of
         true  -> ok;
-        false -> lists:last(Results)
+        false -> wrap_rpc(lists:last(Results))
     end.
 
 max_row_limit() ->

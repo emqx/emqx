@@ -21,7 +21,14 @@
 -include("bpapi.hrl").
 
 -export([ introduced_in/0
+
         , is_running/1
+
+        , get_stats/1
+        , get_metrics/1
+
+        , clean_authz_cache/1
+        , clean_authz_cache/2
         ]).
 
 introduced_in() ->
@@ -30,3 +37,22 @@ introduced_in() ->
 -spec is_running(node()) -> boolean() | {badrpc, term()}.
 is_running(Node) ->
     rpc:call(Node, emqx, is_running, []).
+
+-spec get_stats(node()) -> emqx_stats:stats() | {badrpc, _}.
+get_stats(Node) ->
+    rpc:call(Node, emqx_stats, getstats, []).
+
+-spec get_metrics(node()) -> [{emqx_metrics:metric_name(), non_neg_integer()}] | {badrpc, _}.
+get_metrics(Node) ->
+    rpc:call(Node, emqx_metrics, all, []).
+
+-spec clean_authz_cache(node(), emqx_types:clientid()) ->
+                ok
+              | {error, not_found}
+              | {badrpc, _}.
+clean_authz_cache(Node, ClientId) ->
+    rpc:call(Node, emqx_authz_cache, drain_cache, [ClientId]).
+
+-spec clean_authz_cache(node()) -> ok | {badrpc, _}.
+clean_authz_cache(Node) ->
+    rpc:call(Node, emqx_authz_cache, drain_cache, []).

@@ -19,8 +19,12 @@
 -behaviour(emqx_bpapi).
 
 -export([ introduced_in/0
+
         , forward/3
         , forward_async/3
+        , client_subscriptions/2
+
+        , kickout_client/2
         ]).
 
 -include("bpapi.hrl").
@@ -37,3 +41,13 @@ forward(Node, Topic, Delivery = #delivery{}) when is_binary(Topic) ->
 -spec forward_async(node(), emqx_types:topic(), emqx_types:delivery()) -> true.
 forward_async(Node, Topic, Delivery = #delivery{}) when is_binary(Topic) ->
     emqx_rpc:cast(Topic, Node, emqx_broker, dispatch, [Topic, Delivery]).
+
+-spec client_subscriptions(node(), emqx_types:clientid()) ->
+                [{emqx_types:topic(), emqx_types:subopts()}]
+              | emqx_rpc:badrpc().
+client_subscriptions(Node, ClientId) ->
+    rpc:call(Node, emqx_broker, subscriptions, [ClientId]).
+
+-spec kickout_client(node(), emqx_types:clientid()) -> ok | {badrpc, _}.
+kickout_client(Node, ClientId) ->
+    rpc:call(Node, emqx_cm, kick_session, [ClientId]).
