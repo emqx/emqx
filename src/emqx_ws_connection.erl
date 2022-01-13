@@ -63,7 +63,7 @@
           %% Simulate the active_n opt
           active_n :: pos_integer(),
           %% MQTT Piggyback
-          mqtt_piggyback :: single | multiple, 
+          mqtt_piggyback :: single | multiple,
           %% Limiter
           limiter :: maybe(emqx_limiter:limiter()),
           %% Limit Timer
@@ -486,6 +486,12 @@ parse_incoming(Data, State = #state{parse_state = ParseState}) ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, postpone({incoming, Packet}, NState))
     catch
+        error:proxy_protocol_config_disabled ->
+            ?LOG(error,
+                 "~nMalformed packet, "
+                 "please check proxy_protocol config for specific listeners and zones~n"),
+            FrameError = {frame_error, proxy_protocol_config_disabled},
+            postpone({incoming, FrameError} ,State);
         error:Reason:Stk ->
             ?LOG(error, "~nParse failed for ~0p~n~0p~nFrame data: ~0p",
                  [Reason, Stk, Data]),
@@ -544,7 +550,7 @@ handle_outgoing(Packets, State = #state{active_n = ActiveN, mqtt_piggyback = MQT
                      postpone({check_gc, Stats}, State);
                  false -> State
              end,
-    
+
     {case MQTTPiggyback of
          single -> [{binary, IoData}];
          multiple -> lists:map(fun(Bin) -> {binary, Bin} end, IoData)
@@ -689,4 +695,3 @@ trigger(Event) -> erlang:send(self(), Event).
 set_field(Name, Value, State) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, state)),
     setelement(Pos+1, State, Value).
-

@@ -589,6 +589,11 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [Packet|Packets], NState)
     catch
+        error:proxy_protocol_config_disabled ->
+            ?LOG(error,
+                 "~nMalformed packet, "
+                 "please check proxy_protocol config for specific listeners and zones~n"),
+            {[{frame_error, proxy_protocol_config_disabled} | Packets], State};
         error:Reason:Stk ->
             ?LOG(error, "~nParse failed for ~0p~n~0p~nFrame data:~0p",
                  [Reason, Stk, Data]),
@@ -812,4 +817,3 @@ stop(Reason, Reply, State) ->
 set_field(Name, Value, State) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, state)),
     setelement(Pos+1, State, Value).
-
