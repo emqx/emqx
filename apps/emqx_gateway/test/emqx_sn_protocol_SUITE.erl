@@ -648,7 +648,6 @@ t_publish_qos0_case05(_) ->
 
     gen_udp:close(Socket).
 
-
 t_publish_qos0_case06(_) ->
     Dup = 0,
     QoS = 0,

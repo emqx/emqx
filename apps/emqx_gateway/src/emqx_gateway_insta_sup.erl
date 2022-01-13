@@ -122,7 +122,6 @@ handle_call(info, _From, State) ->
     {reply, detailed_gateway_info(State), State};
 
 handle_call(disable, _From, State = #state{status = Status}) ->
-    %% XXX: The `disable` opertaion is not persist to config database
     case Status of
         running ->
             case cb_gateway_unload(State) of
@@ -328,7 +327,7 @@ do_update_one_by_one(NCfg, State = #state{
                              AuthnNames = init_authn(State#state.name, NCfg),
                              State#state{authns = AuthnNames}
                      end,
-            %% XXX: minimum impact update ???
+            %% TODO: minimum impact update ???
             cb_gateway_update(NCfg, NState);
         {running, false} ->
             case cb_gateway_unload(State) of
@@ -413,7 +412,6 @@ cb_gateway_update(Config,
         case CbMod:on_gateway_update(Config, detailed_gateway_info(State), GwState) of
             {error, Reason} -> {error, Reason};
             {ok, ChildPidOrSpecs, NGwState} ->
-                %% XXX: Hot-upgrade ???
                 ChildPids = start_child_process(ChildPidOrSpecs),
                 {ok, State#state{
                        config = Config,

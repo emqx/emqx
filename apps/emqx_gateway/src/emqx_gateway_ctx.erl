@@ -30,7 +30,7 @@
         #{ %% Gateway Name
            gwname := gateway_name()
            %% Authentication chains
-         , auth   := [emqx_authentication:chain_name()] | undefined
+         , auth   := [emqx_authentication:chain_name()]
            %% The ConnectionManager PID
          , cm     := pid()
          }.
@@ -64,18 +64,15 @@
 -spec authenticate(context(), emqx_types:clientinfo())
     -> {ok, emqx_types:clientinfo()}
      | {error, any()}.
-authenticate(_Ctx = #{auth := undefined}, ClientInfo) ->
-    {ok, mountpoint(ClientInfo)};
-authenticate(_Ctx = #{auth := _ChainName}, ClientInfo0) ->
+authenticate(_Ctx = #{auth := _ChainNames}, ClientInfo0)
+  when is_list(_ChainNames) ->
     ClientInfo = ClientInfo0#{zone => default},
     case emqx_access_control:authenticate(ClientInfo) of
         {ok, _} ->
             {ok, mountpoint(ClientInfo)};
         {error, Reason} ->
             {error, Reason}
-    end;
-authenticate(_Ctx, ClientInfo) ->
-    {ok, mountpoint(ClientInfo)}.
+    end.
 
 %% @doc Register the session to the cluster.
 %%
@@ -94,11 +91,6 @@ authenticate(_Ctx, ClientInfo) ->
 open_session(Ctx, CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
     open_session(Ctx, CleanStart, ClientInfo, ConnInfo,
                  CreateSessionFun, emqx_session).
-
-open_session(Ctx, false, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
-    logger:warning("clean_start=false is not supported now, "
-                   "fallback to clean_start mode"),
-    open_session(Ctx, true, ClientInfo, ConnInfo, CreateSessionFun, SessionMod);
 
 open_session(_Ctx = #{gwname := GwName},
              CleanStart, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
