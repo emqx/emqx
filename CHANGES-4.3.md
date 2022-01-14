@@ -10,6 +10,13 @@ File format:
 - One list item per change topic
   Change log ends with a list of github PRs
 
+## v4.3.12
+### Important changes
+
+### Minor changes
+* Fix updating `emqx_auth_mnesia.conf` password and restarting the new password does not take effect [#6717]
+* Fix import data crash when emqx_auth_mnesia's record is not empty [#6717]
+
 ## v4.3.11
 
 Important notes:
