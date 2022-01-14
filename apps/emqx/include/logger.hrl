@@ -82,11 +82,10 @@
     case persistent_term:get(?TRACE_FILTER, undefined) of
         undefined -> ok;
         [] -> ok;
-        List ->
-           emqx_trace:log(List, Msg, Meta#{trace_tag => Tag})
+        List -> emqx_trace:log(List, Msg, Meta#{trace_tag => Tag})
     end,
-    ?SLOG(debug, (emqx_trace_formatter:format_meta(Meta))#{msg => Msg, trace_tag => Tag},
-        #{trace_filter => ignore})
+    ?SLOG(debug, (emqx_trace_formatter:format_meta(Meta))#{msg => Msg, tag => Tag},
+        #{is_trace => false})
     end).
 
 %% print to 'user' group leader
