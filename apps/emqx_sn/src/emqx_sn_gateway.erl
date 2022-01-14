@@ -408,7 +408,8 @@ asleep(cast, {incoming, ?SN_PINGREQ_MSG(ClientIdPing)},
     inc_ping_counter(),
     case ClientIdPing of
         ClientId ->
-            case emqx_session:replay(emqx_channel:get_session(Channel)) of
+            case emqx_session:replay(emqx_channel:info(clientinfo, Channel),
+                        emqx_channel:get_session(Channel)) of
                 {ok, [], Session0} ->
                     State0 = send_message(?SN_PINGRESP_MSG(), State),
                     {keep_state, State0#state{
@@ -521,7 +522,8 @@ handle_event(info, {deliver, _Topic, Msg}, asleep,
     % section 6.14, Support of sleeping clients
     ?LOG(debug, "enqueue downlink message in asleep state, msg: ~0p, pending_topic_ids: ~0p",
          [Msg, Pendings]),
-    Session = emqx_session:enqueue(Msg, emqx_channel:get_session(Channel)),
+    Session = emqx_session:enqueue(emqx_channel:info(clientinfo, Channel),
+                Msg, emqx_channel:get_session(Channel)),
     {keep_state, State#state{channel = emqx_channel:set_session(Session, Channel)}};
 
 handle_event(info, Deliver = {deliver, _Topic, _Msg}, _StateName,
