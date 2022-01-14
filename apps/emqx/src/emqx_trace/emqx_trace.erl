@@ -27,7 +27,7 @@
 -export([ publish/1
         , subscribe/3
         , unsubscribe/2
-        , log/4
+        , log/3
         ]).
 
 -export([ start_link/0
@@ -94,13 +94,13 @@ unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) -> ignore;
 unsubscribe(Topic, SubOpts) ->
     ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
 
-log(List, Event, Msg, Meta0) ->
+log(List, Msg, Meta0) ->
     Meta =
         case logger:get_process_metadata() of
             undefined -> Meta0;
             ProcMeta -> maps:merge(ProcMeta, Meta0)
         end,
-    Log = #{level => debug, trace_event => Event, meta => Meta, msg => Msg},
+    Log = #{level => debug, meta => Meta, msg => Msg},
     log_filter(List, Log).
 
 log_filter([], _Log) -> ok;

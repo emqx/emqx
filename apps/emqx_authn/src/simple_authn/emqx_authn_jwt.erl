@@ -272,7 +272,7 @@ verify(JWS, [JWK | More], VerifyClaims) ->
         {false, _, _} ->
             verify(JWS, More, VerifyClaims)
     catch
-        _:_Reason:_Stacktrace ->
+        _:_Reason ->
             ?TRACE("JWT", "authn_jwt_invalid_signature", #{jwk => JWK, jws => JWS}),
             {error, invalid_signature}
     end.

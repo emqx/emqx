@@ -23,35 +23,35 @@
 -spec format(LogEvent, Config) -> unicode:chardata() when
     LogEvent :: logger:log_event(),
     Config :: logger:config().
-format(#{level := debug, trace_event := Event, meta := Meta, msg := Msg},
+format(#{level := debug, meta := Meta = #{trace_tag := Tag}, msg := Msg},
     #{payload_encode := PEncode}) ->
     Time = calendar:system_time_to_rfc3339(erlang:system_time(second)),
     ClientId = to_iolist(maps:get(clientid, Meta, "")),
     Peername = maps:get(peername, Meta, ""),
     MetaBin = format_meta(Meta, PEncode),
-    [Time, " [", Event, "] ", ClientId, "@", Peername, " msg: ", Msg, MetaBin, "\n"];
+    [Time, " [", Tag, "] ", ClientId, "@", Peername, " msg: ", Msg, MetaBin, "\n"];
 
 format(Event, Config) ->
     emqx_logger_textfmt:format(Event, Config).
 
 format_meta(Meta) ->
     Encode = emqx_trace_handler:payload_encode(),
-    format_meta_(Meta, Encode).
+    do_format_meta(Meta, Encode).
 
 format_meta(Meta0, Encode) ->
-    Meta1 = #{packet := Packet0, payload := Payload0} = format_meta_(Meta0, Encode),
+    Meta1 = #{packet := Packet0, payload := Payload0} = do_format_meta(Meta0, Encode),
     Packet = enrich(", packet: ", Packet0),
     Payload = enrich(", payload: ", Payload0),
-    Meta2 = maps:without([msg, clientid, peername, packet, payload], Meta1),
+    Meta2 = maps:without([msg, clientid, peername, packet, payload, trace_tag], Meta1),
     case Meta2 =:= #{} of
         true -> [Packet, Payload];
         false -> [Packet, ", ", map_to_iolist(Meta2), Payload]
     end.
 
 enrich(_, "") -> "";
-enrich(Key, Bin) -> [Key, Bin].
+enrich(Key, IoData) -> [Key, IoData].
 
-format_meta_(Meta, Encode) ->
+do_format_meta(Meta, Encode) ->
     Meta#{
         packet => format_packet(maps:get(packet, Meta, undefined), Encode),
         payload => format_payload(maps:get(payload, Meta, undefined), Encode)

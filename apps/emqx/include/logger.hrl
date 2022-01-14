@@ -77,15 +77,15 @@
 
 %% Only evaluate when necessary
 %% Always debug the trace events.
--define(TRACE(Event, Msg, Meta),
+-define(TRACE(Tag, Msg, Meta),
     begin
     case persistent_term:get(?TRACE_FILTER, undefined) of
         undefined -> ok;
         [] -> ok;
         List ->
-           emqx_trace:log(List, Event, Msg, Meta)
+           emqx_trace:log(List, Msg, Meta#{trace_tag => Tag})
     end,
-    ?SLOG(debug, (emqx_trace_formatter:format_meta(Meta))#{msg => Msg, trace_event => Event},
+    ?SLOG(debug, (emqx_trace_formatter:format_meta(Meta))#{msg => Msg, trace_tag => Tag},
         #{trace_filter => ignore})
     end).
 
