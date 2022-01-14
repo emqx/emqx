@@ -32,6 +32,8 @@
         , description/0
         ]).
 
+-export([match_password/3]).
+
 init(#{clientid_list := ClientidList, username_list := UsernameList}) ->
     ok = ekka_mnesia:create_table(?TABLE, [
             {disc_copies, [node()]},
@@ -45,7 +47,7 @@ init(#{clientid_list := ClientidList, username_list := UsernameList}) ->
 
 %% @private
 add_default_user({Login, Password}) when is_tuple(Login) ->
-    emqx_auth_mnesia_cli:add_user(Login, Password).
+    emqx_auth_mnesia_cli:force_add_user(Login, Password).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->

@@ -602,7 +602,7 @@ import(Filename, OverridesJson) ->
             Overrides = emqx_json:decode(OverridesJson, [return_maps]),
             Data = maps:merge(Imported, Overrides),
             Version = to_version(maps:get(<<"version">>, Data)),
-            read_global_auth_type(Data),
+            read_global_auth_type(Data, Version),
             try
                 do_import_data(Data, Version),
                 logger:debug("The emqx data has been imported successfully"),
@@ -621,7 +621,7 @@ import(Filename, OverridesJson) ->
             Overrides = emqx_json:decode(OverridesJson, [return_maps]),
             Data = maps:merge(Imported, Overrides),
             Version = to_version(maps:get(<<"version">>, Data)),
-            read_global_auth_type(Data),
+            read_global_auth_type(Data, Version),
             case is_version_supported(Data, Version) of
                 true  ->
                     try
@@ -696,17 +696,17 @@ is_version_supported2(Version) ->
     end.
 -endif.
 
-read_global_auth_type(Data) ->
+read_global_auth_type(Data, Version) ->
     case {maps:get(<<"auth_mnesia">>, Data, []), maps:get(<<"acl_mnesia">>, Data, [])} of
         {[], []} ->
             %% Auth mnesia plugin is not used:
             ok;
         _ ->
-            do_read_global_auth_type(Data)
+            do_read_global_auth_type(Data, Version)
     end.
 
 -ifdef(EMQX_ENTERPRISE).
-do_read_global_auth_type(Data) ->
+do_read_global_auth_type(Data, _Version) ->
     case Data of
         #{<<"auth.mnesia.as">> := <<"username">>} ->
             application:set_env(emqx_auth_mnesia, as, username);
@@ -717,13 +717,15 @@ do_read_global_auth_type(Data) ->
     end.
 
 -else.
-do_read_global_auth_type(Data) ->
+do_read_global_auth_type(Data, FromVersion) ->
     case Data of
         #{<<"auth.mnesia.as">> := <<"username">>} ->
             application:set_env(emqx_auth_mnesia, as, username);
         #{<<"auth.mnesia.as">> := <<"clientid">>} ->
             application:set_env(emqx_auth_mnesia, as, clientid);
-        _ ->
+        _ when FromVersion =:= "4.0" orelse
+            FromVersion =:= "4.1" orelse
+            FromVersion =:= "4.2"->
             logger:error("While importing data from EMQX versions prior to 4.3 "
                          "it is necessary to specify the value of \"auth.mnesia.as\" parameter "
                          "as it was configured in etc/plugins/emqx_auth_mnesia.conf.\n"
@@ -732,7 +734,9 @@ do_read_global_auth_type(Data) ->
                          "or\n"
                          "  $ emqx_ctl data import <filename> --env '{\"auth.mnesia.as\":\"clientid\"}'",
                          []),
-            error(import_failed)
+            error(import_failed);
+        _ ->
+            ok
     end.
 -endif.
 
