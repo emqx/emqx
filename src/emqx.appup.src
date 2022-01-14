@@ -4,12 +4,14 @@
     [ {load_module,emqx_channel,brutal_purge,soft_purge,[]}
     , {load_module,emqx_metrics,brutal_purge,soft_purge,[]}
     , {load_module,emqx_session,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_alarm,brutal_purge,soft_purge,[]}
     ]},
    {<<".*">>,[]}],
   [{"4.4.0",
     [ {load_module,emqx_channel,brutal_purge,soft_purge,[]}
     , {load_module,emqx_metrics,brutal_purge,soft_purge,[]}
     , {load_module,emqx_session,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_alarm,brutal_purge,soft_purge,[]}
     ]},
    {<<".*">>,[]}]
 }.
