@@ -412,21 +412,25 @@ get_raw_sources() ->
     RawSources = emqx:get_raw_config([authorization, sources], []),
     Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
     Conf = #{<<"sources">> => RawSources},
-    #{<<"sources">> := Sources} = hocon_schema:check_plain(Schema, Conf, #{only_fill_defaults => true}),
+    Options = #{only_fill_defaults => true},
+    #{<<"sources">> := Sources} = hocon_schema:check_plain(Schema, Conf, Options),
     merge_default_headers(Sources).
 
 merge_default_headers(Sources) ->
     lists:map(fun(Source) ->
-        Convert =
-            case Source of
-                #{<<"method">> := <<"get">>} ->
-                    emqx_authz_schema:headers_no_content_type(converter);
-                #{<<"method">> := <<"post">>} ->
-                    emqx_authz_schema:headers(converter);
-                _ -> fun(H) -> H end
-            end,
-        Headers = Convert(maps:get(<<"headers">>, Source, #{})),
-        Source#{<<"headers">> => Headers}
+        case maps:find(<<"headers">>, Source) of
+            {ok, Headers} ->
+                NewHeaders =
+                    case Source of
+                        #{<<"method">> := <<"get">>} ->
+                            (emqx_authz_schema:headers_no_content_type(converter))(Headers);
+                        #{<<"method">> := <<"post">>} ->
+                            (emqx_authz_schema:headers(converter))(Headers);
+                        _ -> Headers
+                    end,
+                Source#{<<"headers">> => NewHeaders};
+            error -> Source
+        end
               end, Sources).
 
 get_raw_source(Type) ->
