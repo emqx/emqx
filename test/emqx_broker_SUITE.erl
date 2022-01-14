@@ -23,19 +23,63 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
-all() -> emqx_ct:all(?MODULE).
+all() ->
+    [ {group, all_cases}
+    , {group, connected_client_count_group}
+    ].
 
-init_per_suite(Config) ->
+groups() ->
+    TCs = emqx_ct:all(?MODULE),
+    ConnClientTCs = [ t_connected_client_count_persistent
+                    , t_connected_client_count_anonymous
+                    , t_connected_client_count_transient_takeover
+                    , t_connected_client_stats
+                    ],
+    OtherTCs = TCs -- ConnClientTCs,
+    [ {all_cases, [], OtherTCs}
+    , {connected_client_count_group, [ {group, tcp}
+                                     , {group, ws}
+                                     ]}
+    , {tcp, [], ConnClientTCs}
+    , {ws, [], ConnClientTCs}
+    ].
+
+init_per_group(connected_client_count_group, Config) ->
+    Config;
+init_per_group(tcp, Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([]),
+    [{conn_fun, connect} | Config];
+init_per_group(ws, Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([]),
+    [ {ssl, false}
+    , {enable_websocket, true}
+    , {conn_fun, ws_connect}
+    , {port, 8083}
+    , {host, "localhost"}
+    | Config
+    ];
+init_per_group(_Group, Config) ->
     emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
     Config.
 
-end_per_suite(_Config) ->
+end_per_group(connected_client_count_group, _Config) ->
+    ok;
+end_per_group(_Group, _Config) ->
     emqx_ct_helpers:stop_apps([]).
+
+init_per_suite(Config) ->
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
 
 init_per_testcase(Case, Config) ->
     ?MODULE:Case({init, Config}).
@@ -276,6 +320,322 @@ t_stats_fun(Config) when is_list(Config) ->
 t_stats_fun({'end', _Config}) ->
     ok = emqx_broker:unsubscribe(<<"topic">>),
     ok = emqx_broker:unsubscribe(<<"topic2">>).
+
+%% persistent sessions, when gone, do not contribute to connected
+%% client count
+t_connected_client_count_persistent({init, Config}) ->
+    ok = snabbkaffe:start_trace(),
+    process_flag(trap_exit, true),
+    Config;
+t_connected_client_count_persistent(Config) when is_list(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    ClientID = <<"clientid">>,
+    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    {ok, ConnPid0} = emqtt:start_link([ {clean_start, false}
+                                      , {clientid, ClientID}
+                                      | Config]),
+    {{ok, _}, {ok, [_]}} = wait_for_events(
+                             fun() -> emqtt:ConnFun(ConnPid0) end,
+                             [emqx_cm_connected_client_count_inc]
+                            ),
+    ?assertEqual(1, emqx_cm:get_connected_client_count()),
+    {ok, {ok, [_]}} = wait_for_events(
+                        fun() -> emqtt:disconnect(ConnPid0) end,
+                        [emqx_cm_connected_client_count_dec]
+                       ),
+    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    %% reconnecting
+    {ok, ConnPid1} = emqtt:start_link([ {clean_start, false}
+                                      , {clientid, ClientID}
+                                      | Config
+                                      ]),
+    {{ok, _}, {ok, [_]}} = wait_for_events(
+                             fun() -> emqtt:ConnFun(ConnPid1) end,
+                             [emqx_cm_connected_client_count_inc]
+                            ),
+    ?assertEqual(1, emqx_cm:get_connected_client_count()),
+    %% taking over
+    {ok, ConnPid2} = emqtt:start_link([ {clean_start, false}
+                                      , {clientid, ClientID}
+                                      | Config
+                                      ]),
+    {{ok, _}, {ok, [_, _]}} = wait_for_events(
+                             fun() -> emqtt:ConnFun(ConnPid2) end,
+                             [ emqx_cm_connected_client_count_inc
+                             , emqx_cm_connected_client_count_dec
+                             ],
+                             500
+                            ),
+    ?assertEqual(1, emqx_cm:get_connected_client_count()),
+    %% abnormal exit of channel process
+    ChanPids = emqx_cm:all_channels(),
+    {ok, {ok, [_, _]}} = wait_for_events(
+                           fun() ->
+                                   lists:foreach(
+                                     fun(ChanPid) -> exit(ChanPid, kill) end,
+                                     ChanPids)
+                           end,
+                           [ emqx_cm_connected_client_count_dec
+                           , emqx_cm_process_down
+                           ]
+                          ),
+    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    ok;
+t_connected_client_count_persistent({'end', _Config}) ->
+    snabbkaffe:stop(),
+    ok.
+
+%% connections without client_id also contribute to connected client
+%% count
+t_connected_client_count_anonymous({init, Config}) ->
+    ok = snabbkaffe:start_trace(),
+    process_flag(trap_exit, true),
+    Config;
+t_connected_client_count_anonymous(Config) when is_list(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    %% first client
+    {ok, ConnPid0} = emqtt:start_link([ {clean_start, true}
+                                      | Config]),
+    {{ok, _}, {ok, [_]}} = wait_for_events(
+                             fun() -> emqtt:ConnFun(ConnPid0) end,
+                             [emqx_cm_connected_client_count_inc]
+                            ),
+    ?assertEqual(1, emqx_cm:get_connected_client_count()),
+    %% second client
+    {ok, ConnPid1} = emqtt:start_link([ {clean_start, true}
+                                      | Config]),
+    {{ok, _}, {ok, [_]}} = wait_for_events(
+                             fun() -> emqtt:ConnFun(ConnPid1) end,
+                             [emqx_cm_connected_client_count_inc]
+                            ),
+    ?assertEqual(2, emqx_cm:get_connected_client_count()),
+    %% when first client disconnects, shouldn't affect the second
+    {ok, {ok, [_, _]}} = wait_for_events(
+                        fun() -> emqtt:disconnect(ConnPid0) end,
+                        [ emqx_cm_connected_client_count_dec
+                        , emqx_cm_process_down
+                        ]
+                       ),
+    ?assertEqual(1, emqx_cm:get_connected_client_count()),
+    %% reconnecting
+    {ok, ConnPid2} = emqtt:start_link([ {clean_start, true}
+                                      | Config
+                                      ]),
+    {{ok, _}, {ok, [_]}} = wait_for_events(
+                             fun() -> emqtt:ConnFun(ConnPid2) end,
+                             [emqx_cm_connected_client_count_inc]
+                            ),
+    ?assertEqual(2, emqx_cm:get_connected_client_count()),
+    {ok, {ok, [_, _]}} = wait_for_events(
+                           fun() -> emqtt:disconnect(ConnPid1) end,
+                           [ emqx_cm_connected_client_count_dec
+                           , emqx_cm_process_down
+                           ]
+                          ),
+    ?assertEqual(1, emqx_cm:get_connected_client_count()),
+    %% abnormal exit of channel process
+    Chans = emqx_cm:all_channels(),
+    {ok, {ok, [_, _]}} = wait_for_events(
+                           fun() ->
+                                   lists:foreach(
+                                     fun(ChanPid) -> exit(ChanPid, kill) end,
+                                     Chans)
+                           end,
+                           [ emqx_cm_connected_client_count_dec
+                           , emqx_cm_process_down
+                           ]
+                          ),
+    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    ok;
+t_connected_client_count_anonymous({'end', _Config}) ->
+    snabbkaffe:stop(),
+    ok.
+
+t_connected_client_count_transient_takeover({init, Config}) ->
+    ok = snabbkaffe:start_trace(),
+    process_flag(trap_exit, true),
+    Config;
+t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    ClientID = <<"clientid">>,
+    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    %% we spawn several clients simultaneously to cause the race
+    %% condition for the client id lock
+    NumClients = 20,
+    {ok, {ok, [_, _]}} =
+        wait_for_events(
+          fun() ->
+                  lists:foreach(
+                    fun(_) ->
+                            spawn(
+                              fun() ->
+                                      {ok, ConnPid} =
+                                          emqtt:start_link([ {clean_start, true}
+                                                           , {clientid, ClientID}
+                                                           | Config]),
+                                      %% don't assert the result: most of them fail
+                                      %% during the race
+                                      emqtt:ConnFun(ConnPid),
+                                      ok
+                              end),
+                            ok
+                    end,
+                    lists:seq(1, NumClients))
+          end,
+          %% there can be only one channel that wins the race for the
+          %% lock for this client id.  we also expect a decrement
+          %% event because the client dies along with the ephemeral
+          %% process.
+          [ emqx_cm_connected_client_count_inc
+          , emqx_cm_connected_client_count_dec
+          ],
+          1000),
+    %% Since more than one pair of inc/dec may be emitted, we need to
+    %% wait for full stabilization
+    timer:sleep(100),
+    %% It must be 0 again because we spawn-linked the clients in
+    %% ephemeral processes above, and all should be dead now.
+    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    %% connecting again
+    {ok, ConnPid1} = emqtt:start_link([ {clean_start, true}
+                                      , {clientid, ClientID}
+                                      | Config
+                                      ]),
+    {{ok, _}, {ok, [_]}} =
+        wait_for_events(
+          fun() -> emqtt:ConnFun(ConnPid1) end,
+          [emqx_cm_connected_client_count_inc]
+         ),
+    ?assertEqual(1, emqx_cm:get_connected_client_count()),
+    %% abnormal exit of channel process
+    [ChanPid] = emqx_cm:all_channels(),
+    {ok, {ok, [_, _]}} =
+        wait_for_events(
+          fun() ->
+                  exit(ChanPid, kill),
+                  ok
+          end,
+          [ emqx_cm_connected_client_count_dec
+          , emqx_cm_process_down
+          ]
+         ),
+    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    ok;
+t_connected_client_count_transient_takeover({'end', _Config}) ->
+    snabbkaffe:stop(),
+    ok.
+
+t_connected_client_stats({init, Config}) ->
+    ok = supervisor:terminate_child(emqx_kernel_sup, emqx_stats),
+    {ok, _} = supervisor:restart_child(emqx_kernel_sup, emqx_stats),
+    ok = snabbkaffe:start_trace(),
+    Config;
+t_connected_client_stats(Config) when is_list(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    ?assertEqual(0, emqx_stats:getstat('live_connections.count')),
+    ?assertEqual(0, emqx_stats:getstat('live_connections.max')),
+    {ok, ConnPid} = emqtt:start_link([ {clean_start, true}
+                                     , {clientid, <<"clientid">>}
+                                     | Config
+                                     ]),
+    {{ok, _}, {ok, [_]}} = wait_for_events(
+                             fun() -> emqtt:ConnFun(ConnPid) end,
+                             [emqx_cm_connected_client_count_inc]
+                            ),
+    %% ensure stats are synchronized
+    {_, {ok, [_]}} = wait_for_stats(
+                       fun emqx_cm:stats_fun/0,
+                       [#{count_stat => 'live_connections.count',
+                          max_stat => 'live_connections.max'}]
+                      ),
+    ?assertEqual(1, emqx_stats:getstat('live_connections.count')),
+    ?assertEqual(1, emqx_stats:getstat('live_connections.max')),
+    {ok, {ok, [_]}} = wait_for_events(
+                        fun() -> emqtt:disconnect(ConnPid) end,
+                        [emqx_cm_connected_client_count_dec]
+                       ),
+    %% ensure stats are synchronized
+    {_, {ok, [_]}} = wait_for_stats(
+                       fun emqx_cm:stats_fun/0,
+                       [#{count_stat => 'live_connections.count',
+                          max_stat => 'live_connections.max'}]
+                      ),
+    ?assertEqual(0, emqx_stats:getstat('live_connections.count')),
+    ?assertEqual(1, emqx_stats:getstat('live_connections.max')),
+    ok;
+t_connected_client_stats({'end', _Config}) ->
+    ok = snabbkaffe:stop(),
+    ok = supervisor:terminate_child(emqx_kernel_sup, emqx_stats),
+    {ok, _} = supervisor:restart_child(emqx_kernel_sup, emqx_stats),
+    ok.
+
+%% the count must be always non negative
+t_connect_client_never_negative({init, Config}) ->
+    Config;
+t_connect_client_never_negative(Config) when is_list(Config) ->
+    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    %% would go to -1
+    ChanPid = list_to_pid("<0.0.1>"),
+    emqx_cm:mark_channel_disconnected(ChanPid),
+    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    %% would be 0, if really went to -1
+    emqx_cm:mark_channel_connected(ChanPid),
+    ?assertEqual(1, emqx_cm:get_connected_client_count()),
+    ok;
+t_connect_client_never_negative({'end', _Config}) ->
+    ok.
+
+wait_for_events(Action, Kinds) ->
+    wait_for_events(Action, Kinds, 500).
+
+wait_for_events(Action, Kinds, Timeout) ->
+    Predicate = fun(#{?snk_kind := K}) ->
+                        lists:member(K, Kinds)
+                end,
+    N = length(Kinds),
+    {ok, Sub} = snabbkaffe_collector:subscribe(Predicate, N, Timeout, 0),
+    Res = Action(),
+    case snabbkaffe_collector:receive_events(Sub) of
+        {timeout, _} ->
+            {Res, timeout};
+        {ok, Events} ->
+            {Res, {ok, Events}}
+    end.
+
+wait_for_stats(Action, Stats) ->
+    Predicate = fun(Event = #{?snk_kind := emqx_stats_setstat}) ->
+                        Stat = maps:with(
+                                 [ count_stat
+                                 , max_stat
+                                 ], Event),
+                        lists:member(Stat, Stats);
+                   (_) ->
+                        false
+                end,
+    N = length(Stats),
+    Timeout = 500,
+    {ok, Sub} = snabbkaffe_collector:subscribe(Predicate, N, Timeout, 0),
+    Res = Action(),
+    case snabbkaffe_collector:receive_events(Sub) of
+        {timeout, _} ->
+            {Res, timeout};
+        {ok, Events} ->
+            {Res, {ok, Events}}
+    end.
+
+insert_fake_channels() ->
+    %% Insert copies to simulate missed counts
+    Tab = emqx_channel_info,
+    Key = ets:first(Tab),
+    [{_Chan, ChanInfo = #{conn_state := connected}, Stats}] = ets:lookup(Tab, Key),
+    ets:insert(Tab, [ {{"fake" ++ integer_to_list(N), undefined}, ChanInfo, Stats}
+                     || N <- lists:seq(1, 9)]),
+    %% these should not be counted
+    ets:insert(Tab, [ { {"fake" ++ integer_to_list(N), undefined}
+                      , ChanInfo#{conn_state := disconnected}, Stats}
+                     || N <- lists:seq(10, 20)]).
 
 recv_msgs(Count) ->
     recv_msgs(Count, []).

@@ -76,7 +76,7 @@ make_relup() {
                 rm -rf "$tmp_dir"
             fi
             releases+=( "$base_vsn" )
-        done < <(find _upgrade_base -maxdepth 1 -name "*$PROFILE-$SYSTEM*-$ARCH.zip" -type f)
+        done < <(find _upgrade_base -maxdepth 1 -name "*$PROFILE-otp${OTP_VSN}-$SYSTEM*-$ARCH.zip" -type f)
     fi
     if [ ${#releases[@]} -eq 0 ]; then
         log "No upgrade base found, relup ignored"
@@ -120,7 +120,7 @@ make_zip() {
         log "ERROR: $tarball is not found"
     fi
     local zipball
-    zipball="${pkgpath}/${PROFILE}-${SYSTEM}-${PKG_VSN}-${ARCH}.zip"
+    zipball="${pkgpath}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.zip"
     tar zxf "${tarball}" -C "${tard}/emqx"
     ## try to be portable for zip packages.
     ## for DEB and RPM packages the dependencies are resoved by yum and apt
@@ -139,6 +139,49 @@ make_docker() {
        --build-arg EMQX_NAME="$PROFILE" \
        --tag "emqx/$PROFILE:${PKG_VSN}" \
        -f "${DOCKERFILE}" .
+}
+
+## This function accepts any base docker image,
+## a emqx zip-image, and a image tag (for the image to be built),
+## to build a docker image which runs EMQ X
+##
+## Export below variables to quickly build an image
+##
+## Name               Default                         Example
+## ---------------------------------------------------------------------
+## EMQX_BASE_IMAGE    current os                      centos:7
+## EMQX_ZIP_PACKAGE   _packages/<current-zip-target>  /tmp/emqx-4.4.0-otp24.1.5-3-centos7-amd64.zip
+## EMQX_IMAGE_TAG     emqx/emqx:<current-vns-rel>     emqx/emqx:testing-tag
+##
+make_docker_testing() {
+    if [ -z "${EMQX_BASE_IMAGE:-}" ]; then
+        case "$SYSTEM" in
+            ubuntu20*)
+                EMQX_BASE_IMAGE="ubuntu:20.04"
+                ;;
+            centos8)
+                EMQX_BASE_IMAGE="centos:8"
+                ;;
+            *)
+                echo "Unsupported testing base image for $SYSTEM"
+                exit 1
+                ;;
+        esac
+    fi
+    EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-emqx/$PROFILE:${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}}"
+    local defaultzip
+    defaultzip="_packages/${PROFILE}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.zip"
+    local zip="${EMQX_ZIP_PACKAGE:-$defaultzip}"
+    if [ ! -f "$zip" ]; then
+        log "ERROR: $zip not built?"
+        exit 1
+    fi
+    set -x
+    docker build \
+       --build-arg BUILD_FROM="${EMQX_BASE_IMAGE}" \
+       --build-arg EMQX_ZIP_PACKAGE="${zip}" \
+       --tag "$EMQX_IMAGE_TAG" \
+       -f "${DOCKERFILE_TESTING}" .
 }
 
 log "building artifact=$ARTIFACT for profile=$PROFILE"
@@ -161,9 +204,11 @@ case "$ARTIFACT" in
         make -C "deploy/packages/${PKGERDIR}" clean
         EMQX_REL="$(pwd)" EMQX_BUILD="${PROFILE}" SYSTEM="${SYSTEM}" make -C "deploy/packages/${PKGERDIR}"
         ;;
-
     docker)
         make_docker
+        ;;
+    docker-testing)
+        make_docker_testing
         ;;
     *)
         log "Unknown artifact $ARTIFACT"

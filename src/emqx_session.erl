@@ -95,6 +95,8 @@
 -import(emqx_zone, [get_env/3]).
 
 -record(session, {
+          %% Client's id
+          clientid :: emqx_types:clientid(),
           %% Client’s Subscriptions.
           subscriptions :: map(),
           %% Max subscriptions allowed
@@ -121,8 +123,15 @@
           %% Awaiting PUBREL Timeout (Unit: millsecond)
           await_rel_timeout :: timeout(),
           %% Created at
-          created_at :: pos_integer()
-         }).
+          created_at :: pos_integer(),
+          %% Message deliver latency stats
+          latency_stats :: emqx_message_latency_stats:stats()
+          }).
+
+%% in the previous code, we will replace the message record with the pubrel atom
+%% in the pubrec function, this will lose the creation time of the message,
+%% but now we need this time to calculate latency, so now pubrel atom is changed to this record
+-record(pubrel_await, {timestamp :: non_neg_integer()}).
 
 -type(session() :: #session{}).
 
@@ -148,19 +157,26 @@
                      mqueue_dropped,
                      next_pkt_id,
                      awaiting_rel_cnt,
-                     awaiting_rel_max
+                     awaiting_rel_max,
+                     latency_stats
                     ]).
 
 -define(DEFAULT_BATCH_N, 1000).
 
+-ifdef(TEST).
+-define(GET_CLIENT_ID(C), maps:get(clientid, C, <<>>)).
+-else.
+-define(GET_CLIENT_ID(C), maps:get(clientid, C)).
+-endif.
 
 %%--------------------------------------------------------------------
 %% Init a Session
 %%--------------------------------------------------------------------
 
 -spec(init(emqx_types:clientinfo(), emqx_types:conninfo()) -> session()).
-init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
-    #session{max_subscriptions = get_env(Zone, max_subscriptions, 0),
+init(#{zone := Zone} = CInfo, #{receive_maximum := MaxInflight}) ->
+    #session{clientid          = ?GET_CLIENT_ID(CInfo),
+             max_subscriptions = get_env(Zone, max_subscriptions, 0),
              subscriptions     = #{},
              upgrade_qos       = get_env(Zone, upgrade_qos, false),
              inflight          = emqx_inflight:new(MaxInflight),
@@ -170,7 +186,8 @@ init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
              awaiting_rel      = #{},
              max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
              await_rel_timeout = timer:seconds(get_env(Zone, await_rel_timeout, 300)),
-             created_at        = erlang:system_time(millisecond)
+             created_at        = erlang:system_time(millisecond),
+             latency_stats     = emqx_message_latency_stats:new(Zone)
             }.
 
 %% @private init mq
@@ -227,7 +244,9 @@ info(awaiting_rel_max, #session{max_awaiting_rel = Max}) ->
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout div 1000;
 info(created_at, #session{created_at = CreatedAt}) ->
-    CreatedAt.
+    CreatedAt;
+info(latency_stats, #session{latency_stats = Stats}) ->
+    emqx_message_latency_stats:latency(Stats).
 
 %% @doc Get stats of the session.
 -spec(stats(session()) -> emqx_types:stats()).
@@ -269,7 +288,8 @@ unsubscribe(ClientInfo, TopicFilter, UnSubOpts, Session = #session{subscriptions
     case maps:find(TopicFilter, Subs) of
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
-            ok = emqx_hooks:run('session.unsubscribed', [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]),
+            ok = emqx_hooks:run('session.unsubscribed',
+                                [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]),
             {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}};
         error ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
@@ -320,7 +340,8 @@ puback(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            return_with(Msg, dequeue(ClientInfo, Session#session{inflight = Inflight1}));
+            Session2 = update_latency(Msg, Session),
+            return_with(Msg, dequeue(ClientInfo, Session2#session{inflight = Inflight1}));
         {value, {_Pubrel, _Ts}} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
@@ -343,9 +364,10 @@ return_with(Msg, {ok, Publishes, Session}) ->
 pubrec(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
-            Inflight1 = emqx_inflight:update(PacketId, with_ts(pubrel), Inflight),
+            Update = with_ts(#pubrel_await{timestamp = Msg#message.timestamp}),
+            Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
             {ok, Msg, Session#session{inflight = Inflight1}};
-        {value, {pubrel, _Ts}} ->
+        {value, {_PUBREL, _Ts}} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
@@ -374,9 +396,10 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
        | {error, emqx_types:reason_code()}).
 pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {pubrel, _Ts}} ->
+        {value, {Pubrel, _Ts}} when is_record(Pubrel, pubrel_await) ->
+            Session2 = update_latency(Pubrel, Session),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            dequeue(ClientInfo, Session#session{inflight = Inflight1});
+            dequeue(ClientInfo, Session2#session{inflight = Inflight1});
         {value, _Other} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
@@ -403,11 +426,11 @@ dequeue(ClientInfo, Cnt, Msgs, Q) ->
         {empty, _Q} -> dequeue(ClientInfo, 0, Msgs, Q);
         {{value, Msg}, Q1} ->
             case emqx_message:is_expired(Msg) of
-                true  ->
+                true ->
                     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, expired]),
                     ok = inc_delivery_expired_cnt(),
                     dequeue(ClientInfo, Cnt, Msgs, Q1);
-                false -> dequeue(ClientInfo, acc_cnt(Msg, Cnt), [Msg|Msgs], Q1)
+                false -> dequeue(ClientInfo, acc_cnt(Msg, Cnt), [Msg | Msgs], Q1)
             end
     end.
 
@@ -437,15 +460,17 @@ do_deliver(ClientInfo, [Msg | More], Acc, Session) ->
         {ok, Session1} ->
             do_deliver(ClientInfo, More, Acc, Session1);
         {ok, [Publish], Session1} ->
-            do_deliver(ClientInfo, More, [Publish|Acc], Session1)
+            do_deliver(ClientInfo, More, [Publish | Acc], Session1)
     end.
 
 deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, Session) ->
+    emqx:run_hook('message.publish_done',
+                  [Msg, #{session_rebirth_time => Session#session.created_at}]),
     {ok, [{undefined, maybe_ack(Msg)}], Session};
 
 deliver_msg(ClientInfo, Msg = #message{qos = QoS}, Session =
-            #session{next_pkt_id = PacketId, inflight = Inflight})
-    when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
+                #session{next_pkt_id = PacketId, inflight = Inflight})
+  when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
     case emqx_inflight:is_full(Inflight) of
         true ->
             Session1 = case maybe_nack(Msg) of
@@ -459,7 +484,7 @@ deliver_msg(ClientInfo, Msg = #message{qos = QoS}, Session =
             {ok, [Publish], next_pkt_id(Session1)}
     end.
 
--spec(enqueue(emqx_types:clientinfo(), list(emqx_types:deliver())|emqx_types:message(),
+-spec(enqueue(emqx_types:clientinfo(), list(emqx_types:deliver()) | emqx_types:message(),
               session()) -> session()).
 enqueue(ClientInfo, Delivers, Session) when is_list(Delivers) ->
     Msgs = [enrich_delivers(D, Session) || D <- Delivers],
@@ -510,23 +535,23 @@ get_subopts(Topic, SubMap) ->
     end.
 
 enrich_subopts([], Msg, _Session) -> Msg;
-enrich_subopts([{nl, 1}|Opts], Msg, Session) ->
+enrich_subopts([{nl, 1} | Opts], Msg, Session) ->
     enrich_subopts(Opts, emqx_message:set_flag(nl, Msg), Session);
-enrich_subopts([{nl, 0}|Opts], Msg, Session) ->
+enrich_subopts([{nl, 0} | Opts], Msg, Session) ->
     enrich_subopts(Opts, Msg, Session);
-enrich_subopts([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS},
+enrich_subopts([{qos, SubQoS} | Opts], Msg = #message{qos = PubQoS},
                Session = #session{upgrade_qos = true}) ->
     enrich_subopts(Opts, Msg#message{qos = max(SubQoS, PubQoS)}, Session);
-enrich_subopts([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS},
+enrich_subopts([{qos, SubQoS} | Opts], Msg = #message{qos = PubQoS},
                Session = #session{upgrade_qos = false}) ->
     enrich_subopts(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, Session);
-enrich_subopts([{rap, 1}|Opts], Msg, Session) ->
+enrich_subopts([{rap, 1} | Opts], Msg, Session) ->
     enrich_subopts(Opts, Msg, Session);
-enrich_subopts([{rap, 0}|Opts], Msg = #message{headers = #{retained := true}}, Session) ->
+enrich_subopts([{rap, 0} | Opts], Msg = #message{headers = #{retained := true}}, Session) ->
     enrich_subopts(Opts, Msg, Session);
-enrich_subopts([{rap, 0}|Opts], Msg, Session) ->
+enrich_subopts([{rap, 0} | Opts], Msg, Session) ->
     enrich_subopts(Opts, emqx_message:set_flag(retain, false, Msg), Session);
-enrich_subopts([{subid, SubId}|Opts], Msg, Session) ->
+enrich_subopts([{subid, SubId} | Opts], Msg, Session) ->
     Props = emqx_message:get_header(properties, Msg, #{}),
     Msg1 = emqx_message:set_header(properties, Props#{'Subscription-Identifier' => SubId}, Msg),
     enrich_subopts(Opts, Msg1, Session).
@@ -544,17 +569,20 @@ await(PacketId, Msg, Session = #session{inflight = Inflight}) ->
 %%--------------------------------------------------------------------
 
 -spec(retry(emqx_types:clientinfo(), session()) -> {ok, session()} | {ok, replies(), timeout(), session()}).
-retry(ClientInfo, Session = #session{inflight = Inflight}) ->
+retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = RetryInterval}) ->
     case emqx_inflight:is_empty(Inflight) of
         true  -> {ok, Session};
-        false -> retry_delivery(emqx_inflight:to_list(sort_fun(), Inflight),
-                    [], erlang:system_time(millisecond), Session, ClientInfo)
+        false ->
+            Now = erlang:system_time(millisecond),
+            Session2 = check_expire_latency(Now, RetryInterval, Session),
+            retry_delivery(emqx_inflight:to_list(sort_fun(), Inflight),
+                           [], Now, Session2, ClientInfo)
     end.
 
 retry_delivery([], Acc, _Now, Session = #session{retry_interval = Interval}, _ClientInfo) ->
     {ok, lists:reverse(Acc), Interval, Session};
 
-retry_delivery([{PacketId, {Msg, Ts}}|More], Acc, Now, Session =
+retry_delivery([{PacketId, {Msg, Ts}} | More], Acc, Now, Session =
                #session{retry_interval = Interval, inflight = Inflight}, ClientInfo) ->
     case (Age = age(Now, Ts)) >= Interval of
         true ->
@@ -574,12 +602,12 @@ do_retry_delivery(PacketId, Msg, Now, Acc, Inflight, ClientInfo)
         false ->
             Msg1 = emqx_message:set_flag(dup, true, Msg),
             Inflight1 = emqx_inflight:update(PacketId, {Msg1, Now}, Inflight),
-            {[{PacketId, Msg1}|Acc], Inflight1}
+            {[{PacketId, Msg1} | Acc], Inflight1}
     end;
 
-do_retry_delivery(PacketId, pubrel, Now, Acc, Inflight, _) ->
-    Inflight1 = emqx_inflight:update(PacketId, {pubrel, Now}, Inflight),
-    {[{pubrel, PacketId}|Acc], Inflight1}.
+do_retry_delivery(PacketId, Pubrel, Now, Acc, Inflight, _) ->
+    Inflight1 = emqx_inflight:update(PacketId, {Pubrel, Now}, Inflight),
+    {[{pubrel, PacketId} | Acc], Inflight1}.
 
 %%--------------------------------------------------------------------
 %% Expire Awaiting Rel
@@ -622,10 +650,10 @@ resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = 
 
 -spec(replay(emqx_types:clientinfo(), session()) -> {ok, replies(), session()}).
 replay(ClientInfo, Session = #session{inflight = Inflight}) ->
-    Pubs = lists:map(fun({PacketId, {pubrel, _Ts}}) ->
-                             {pubrel, PacketId};
+    Pubs = lists:map(fun({PacketId, {Pubrel,  _Ts}}) when is_record(Pubrel, pubrel_await) ->
+                         {pubrel, PacketId};
                         ({PacketId, {Msg, _Ts}}) ->
-                             {PacketId, emqx_message:set_flag(dup, true, Msg)}
+                         {PacketId, emqx_message:set_flag(dup, true, Msg)}
                      end, emqx_inflight:to_list(Inflight)),
     case dequeue(ClientInfo, Session) of
         {ok, NSession} -> {ok, Pubs, NSession};
@@ -672,6 +700,35 @@ next_pkt_id(Session = #session{next_pkt_id = Id}) ->
     Session#session{next_pkt_id = Id + 1}.
 
 %%--------------------------------------------------------------------
+%% Message Latency Stats
+%%--------------------------------------------------------------------
+update_latency(Msg,
+               #session{clientid = ClientId,
+                        latency_stats = Stats,
+                        created_at = CreateAt} = S) ->
+    case get_birth_timestamp(Msg, CreateAt) of
+        0 -> S;
+        Ts ->
+            Latency = erlang:system_time(millisecond) - Ts,
+            Stats2 = emqx_message_latency_stats:update(ClientId, Latency, Stats),
+            S#session{latency_stats = Stats2}
+    end.
+
+check_expire_latency(Now, Interval,
+                     #session{clientid = ClientId, latency_stats = Stats} = S) ->
+    Stats2 = emqx_message_latency_stats:check_expire(ClientId, Now, Interval, Stats),
+    S#session{latency_stats = Stats2}.
+
+get_birth_timestamp(#message{timestamp = Ts}, CreateAt) when CreateAt =< Ts ->
+    Ts;
+
+get_birth_timestamp(#pubrel_await{timestamp = Ts}, CreateAt) when CreateAt =< Ts ->
+    Ts;
+
+get_birth_timestamp(_, _) ->
+    0.
+
+%%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
 
@@ -698,4 +755,3 @@ age(Now, Ts) -> Now - Ts.
 set_field(Name, Value, Session) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, session)),
     setelement(Pos+1, Session, Value).
-

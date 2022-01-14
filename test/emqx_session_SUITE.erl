@@ -180,7 +180,8 @@ t_puback_with_dequeue(_) ->
     ?assertEqual(<<"t2">>, emqx_message:topic(Msg3)).
 
 t_puback_error_packet_id_in_use(_) ->
-    Inflight = emqx_inflight:insert(1, {pubrel, ts(millisecond)}, emqx_inflight:new()),
+    Now = ts(millisecond),
+    Inflight = emqx_inflight:insert(1, {{pubrel_await, Now}, Now}, emqx_inflight:new()),
     {error, ?RC_PACKET_IDENTIFIER_IN_USE} =
         emqx_session:puback(clientinfo(), 1, session(#{inflight => Inflight})).
 
@@ -192,10 +193,11 @@ t_pubrec(_) ->
     Inflight = emqx_inflight:insert(2, {Msg, ts(millisecond)}, emqx_inflight:new()),
     Session = session(#{inflight => Inflight}),
     {ok, Msg, Session1} = emqx_session:pubrec(2, Session),
-    ?assertMatch([{pubrel, _}], emqx_inflight:values(emqx_session:info(inflight, Session1))).
+    ?assertMatch([{{pubrel_await, _}, _}], emqx_inflight:values(emqx_session:info(inflight, Session1))).
 
 t_pubrec_packet_id_in_use_error(_) ->
-    Inflight = emqx_inflight:insert(1, {pubrel, ts(millisecond)}, emqx_inflight:new()),
+    Now = ts(millisecond),
+    Inflight = emqx_inflight:insert(1, {{pubrel_await, Now}, Now}, emqx_inflight:new()),
     {error, ?RC_PACKET_IDENTIFIER_IN_USE} =
         emqx_session:pubrec(1, session(#{inflight => Inflight})).
 
@@ -211,7 +213,8 @@ t_pubrel_error_packetid_not_found(_) ->
     {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} = emqx_session:pubrel(1, session()).
 
 t_pubcomp(_) ->
-    Inflight = emqx_inflight:insert(1, {pubrel, ts(millisecond)}, emqx_inflight:new()),
+    Now = ts(millisecond),
+    Inflight = emqx_inflight:insert(1, {{pubrel_await, Now}, Now}, emqx_inflight:new()),
     Session = session(#{inflight => Inflight}),
     {ok, Session1} = emqx_session:pubcomp(clientinfo(), 1, Session),
     ?assertEqual(0, emqx_session:info(inflight_cnt, Session1)).
@@ -262,7 +265,7 @@ t_deliver_qos0(_) ->
 t_deliver_qos1(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
     {ok, Session} = emqx_session:subscribe(
-                       clientinfo(), <<"t1">>, subopts(#{qos => ?QOS_1}), session()),
+                      clientinfo(), <<"t1">>, subopts(#{qos => ?QOS_1}), session()),
     Delivers = [delivery(?QOS_1, T) || T <- [<<"t1">>, <<"t2">>]],
     {ok, [{1, Msg1}, {2, Msg2}], Session1} = emqx_session:deliver(clientinfo(), Delivers, Session),
     ?assertEqual(2, emqx_session:info(inflight_cnt, Session1)),
@@ -375,7 +378,7 @@ mqueue(Opts) ->
 session() -> session(#{}).
 session(InitFields) when is_map(InitFields) ->
     maps:fold(fun(Field, Value, Session) ->
-                      emqx_session:set_field(Field, Value, Session)
+                  emqx_session:set_field(Field, Value, Session)
               end,
               emqx_session:init(#{zone => channel}, #{receive_maximum => 0}),
               InitFields).
@@ -398,4 +401,3 @@ ts(second) ->
     erlang:system_time(second);
 ts(millisecond) ->
     erlang:system_time(millisecond).
-
