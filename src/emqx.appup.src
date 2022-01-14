@@ -6,6 +6,10 @@
     , {load_module,emqx_metrics,brutal_purge,soft_purge,[]}
     , {load_module,emqx_session,brutal_purge,soft_purge,[]}
     , {load_module,emqx_alarm,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_slow_subs,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_slow_subs_api,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_mod_sup,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_session,brutal_purge,soft_purge,[]}
     ]},
    {<<".*">>,[]}],
   [{"4.4.0",
@@ -14,6 +18,10 @@
     , {load_module,emqx_metrics,brutal_purge,soft_purge,[]}
     , {load_module,emqx_session,brutal_purge,soft_purge,[]}
     , {load_module,emqx_alarm,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_slow_subs,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_slow_subs_api,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_mod_sup,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_session,brutal_purge,soft_purge,[]}
     ]},
    {<<".*">>,[]}]
 }.
