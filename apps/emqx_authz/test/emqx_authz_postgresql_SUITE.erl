@@ -167,8 +167,9 @@ t_pgsql_error(_Config) ->
                    listener => {tcp, default}
                   },
 
-    {error, _} = setup_config(
-      #{<<"query">> => <<"SOME INVALID STATEMENT">>}),
+    ok = setup_config(
+      #{<<"query">> => <<"SELECT permission, action, topic "
+                         "FROM acl WHERE clientid = ${username}">>}),
 
     ok = emqx_authz_test_lib:test_samples(
            ClientInfo,
