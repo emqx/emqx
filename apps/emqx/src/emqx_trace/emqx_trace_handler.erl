@@ -120,24 +120,27 @@ running() ->
     lists:foldl(fun filter_traces/2, [], emqx_logger:get_log_handlers(started)).
 
 -spec filter_clientid(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
-filter_clientid(#{meta := #{clientid := ClientId}} = Log, {ClientId, _Name}) -> Log;
+filter_clientid(#{meta := Meta = #{clientid := ClientId}} = Log, {MatchId, _Name}) ->
+    filter_ret(ClientId =:= MatchId andalso is_trace(Meta), Log);
 filter_clientid(_Log, _ExpectId) -> stop.
 
 -spec filter_topic(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
-filter_topic(#{meta := #{topic := Topic}} = Log, {TopicFilter, _Name}) ->
-    case emqx_topic:match(Topic, TopicFilter) of
-        true -> Log;
-        false -> stop
-    end;
+filter_topic(#{meta := Meta = #{topic := Topic}} = Log, {TopicFilter, _Name}) ->
+    filter_ret(is_trace(Meta) andalso emqx_topic:match(Topic, TopicFilter), Log);
 filter_topic(_Log, _ExpectId) -> stop.
 
 -spec filter_ip_address(logger:log_event(), {string(), atom()}) -> logger:log_event() | stop.
-filter_ip_address(#{meta := #{peername := Peername}} = Log, {IP, _Name}) ->
-    case lists:prefix(IP, Peername) of
-        true -> Log;
-        false -> stop
-    end;
+filter_ip_address(#{meta := Meta = #{peername := Peername}} = Log, {IP, _Name}) ->
+    filter_ret(is_trace(Meta) andalso lists:prefix(IP, Peername), Log);
 filter_ip_address(_Log, _ExpectId) -> stop.
+
+-compile({inline, [is_trace/1, filter_ret/2]}).
+%% TRUE when is_trace is missing.
+is_trace(#{is_trace := false}) -> false;
+is_trace(_) -> true.
+
+filter_ret(true, Log) -> Log;
+filter_ret(false, _Log) -> stop.
 
 filters(#{type := clientid, filter := Filter, name := Name}) ->
     [{clientid, {fun ?MODULE:filter_clientid/2, {Filter, Name}}}];

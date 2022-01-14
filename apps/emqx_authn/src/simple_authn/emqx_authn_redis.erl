@@ -125,6 +125,7 @@ authenticate(#{password := Password} = Credential,
                password_hash_algorithm := Algorithm}) ->
     NKey = binary_to_list(iolist_to_binary(replace_placeholders(Key, Credential))),
     case emqx_resource:query(ResourceId, {cmd, [Command, NKey | Fields]}) of
+        {ok, []} -> ignore;
         {ok, Values} ->
             case merge(Fields, Values) of
                 #{<<"password_hash">> := _} = Selected ->
@@ -137,12 +138,18 @@ authenticate(#{password := Password} = Credential,
                     end;
                 _ ->
                     ?SLOG(error, #{msg => "cannot_find_password_hash_field",
+                                   cmd => Command,
+                                   keys => NKey,
+                                   fields => Fields,
                                    resource => ResourceId}),
                     ignore
             end;
         {error, Reason} ->
             ?SLOG(error, #{msg => "redis_query_failed",
                            resource => ResourceId,
+                           cmd => Command,
+                           keys => NKey,
+                           fields => Fields,
                            reason => Reason}),
             ignore
     end.

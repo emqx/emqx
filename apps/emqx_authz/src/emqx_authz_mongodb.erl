@@ -67,6 +67,8 @@ authorize(Client, PubSub, Topic,
         {error, Reason} ->
             ?SLOG(error, #{msg => "query_mongo_error",
                            reason => Reason,
+                           collection => Collection,
+                           selector => RenderedSelector,
                            resource_id => ResourceID}),
             nomatch;
         [] -> nomatch;

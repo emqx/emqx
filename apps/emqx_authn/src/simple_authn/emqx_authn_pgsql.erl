@@ -119,6 +119,7 @@ authenticate(#{password := Password} = Credential,
         {error, Reason} ->
             ?SLOG(error, #{msg => "postgresql_query_failed",
                            resource => ResourceId,
+                           params => Params,
                            reason => Reason}),
             ignore
     end.

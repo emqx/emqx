@@ -63,6 +63,7 @@ authorize(Client, PubSub, Topic,
         {error, Reason} ->
             ?SLOG(error, #{ msg => "query_redis_error"
                           , reason => Reason
+                          , cmd => NCMD
                           , resource_id => ResourceID}),
             nomatch
     end.
