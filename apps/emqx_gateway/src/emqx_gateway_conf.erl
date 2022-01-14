@@ -93,6 +93,7 @@ load_gateway(GwName, Conf) ->
 %% @doc convert listener array to map
 unconvert_listeners(Ls) when is_list(Ls) ->
     lists:foldl(fun(Lis, Acc) ->
+        %% FIXME: params apperence guard?
         {[Type, Name], Lis1} = maps_key_take([<<"type">>, <<"name">>], Lis),
         NLis1 = maps:without([<<"id">>], Lis1),
         emqx_map_lib:deep_merge(Acc, #{Type => #{Name => NLis1}})

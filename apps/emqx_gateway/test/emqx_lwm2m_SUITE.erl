@@ -19,6 +19,11 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-import(emqx_gateway_test_utils,
+        [ request/2
+        , request/3
+        ]).
+
 -define(PORT, 5783).
 
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
@@ -66,9 +71,9 @@ all() ->
     , {group, test_grp_4_discover}
     , {group, test_grp_5_write_attr}
     , {group, test_grp_6_observe}
-
       %% {group, test_grp_8_object_19}
     , {group, test_grp_9_psm_queue_mode}
+    , {group, test_grp_10_rest_api}
     ].
 
 suite() -> [{timetrap, {seconds, 90}}].
@@ -147,21 +152,29 @@ groups() ->
       [
        case90_psm_mode,
        case90_queue_mode
+      ]},
+     {test_grp_10_rest_api, [RepeatOpt],
+      [
+       case100_clients_api,
+       case100_subscription_api
       ]}
     ].
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([emqx_conf]),
+    %% load application first for minirest api searching
+    application:load(emqx_gateway),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
 
 end_per_suite(Config) ->
     timer:sleep(300),
     {ok, _} = emqx_conf:remove([<<"gateway">>,<<"lwm2m">>], #{}),
-    emqx_common_test_helpers:stop_apps([emqx_conf]),
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]),
     Config.
 
 init_per_testcase(_AllTestCase, Config) ->
     ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
+
     {ok, _} = application:ensure_all_started(emqx_gateway),
     {ok, ClientUdpSock} = gen_udp:open(0, [binary, {active, false}]),
 
@@ -1886,6 +1899,68 @@ server_cache_mode(Config, RegOption) ->
     verify_read_response_1(1, UdpSock),
     verify_read_response_1(2, UdpSock),
     verify_read_response_1(3, UdpSock).
+
+case100_clients_api(Config) ->
+    Epn = "urn:oma:lwm2m:oma:3",
+    MsgId1 = 15,
+    UdpSock = ?config(sock, Config),
+    ObjectList = <<"</1>, </2>, </3/0>, </4>, </5>">>,
+    RespTopic = list_to_binary("lwm2m/"++Epn++"/up/resp"),
+    std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+
+    %% list
+    {200, #{data := [Client1]}} = request(get, "/gateway/lwm2m/clients"),
+    %% searching
+    {200, #{data := [Client2]}} =
+        request(get, "/gateway/lwm2m/clients",
+                [{<<"endpoint_name">>, list_to_binary(Epn)}]),
+    {200, #{data := [Client3]}} =
+        request(get, "/gateway/lwm2m/clients",
+                [{<<"like_endpoint_name">>, list_to_binary(Epn)},
+                 {<<"gte_lifetime">>, <<"1">>}
+                ]),
+    %% lookup
+    ClientId = maps:get(clientid, Client1),
+    {200, Client4} =
+        request(get, "/gateway/lwm2m/clients/" ++ binary_to_list(ClientId)),
+    %% assert
+    Client1 = Client2 = Client3 = Client4,
+    %% kickout
+    {204, _} =
+        request(delete, "/gateway/lwm2m/clients/" ++ binary_to_list(ClientId)),
+    {200, #{data := []}} = request(get, "/gateway/lwm2m/clients").
+
+case100_subscription_api(Config) ->
+    Epn = "urn:oma:lwm2m:oma:3",
+    MsgId1 = 15,
+    UdpSock = ?config(sock, Config),
+    ObjectList = <<"</1>, </2>, </3/0>, </4>, </5>">>,
+    RespTopic = list_to_binary("lwm2m/"++Epn++"/up/resp"),
+    std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+
+    {200, #{data := [Client1]}} = request(get, "/gateway/lwm2m/clients"),
+    ClientId = maps:get(clientid, Client1),
+    Path = "/gateway/lwm2m/clients/" ++
+            binary_to_list(ClientId) ++
+            "/subscriptions",
+
+    %% list
+    {200, [InitSub]} = request(get, Path),
+    ?assertEqual(
+       <<"lwm2m/", (list_to_binary(Epn))/binary, "/dn/#">>,
+       maps:get(topic, InitSub)),
+
+    %% create
+    SubReq = #{ topic => <<"tx">>
+              , qos => 1
+              , nl => 0
+              , rap => 0
+              , rh => 0
+              },
+    {201, _} = request(post, Path, SubReq),
+    {200, _} = request(get, Path),
+    {204, _} = request(delete, Path ++ "/tx"),
+    {200, [InitSub]} = request(get, Path).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Internal Functions

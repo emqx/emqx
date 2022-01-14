@@ -41,6 +41,7 @@ registered_gateway() ->
 %%--------------------------------------------------------------------
 %% Gateway APIs
 
+%% @doc List the load gateways
 -spec list() -> [gateway()].
 list() ->
     emqx_gateway_sup:list_gateway_insta().
@@ -65,6 +66,8 @@ lookup(Name) ->
 
 -spec update(gateway_name(), emqx_config:config()) -> ok | {error, any()}.
 %% @doc This function only supports full configuration updates
+%%
+%% Note: If the `enable` option is missing, it will be set to true by default
 update(Name, Config) ->
     emqx_gateway_sup:update_gateway(Name, Config).
 

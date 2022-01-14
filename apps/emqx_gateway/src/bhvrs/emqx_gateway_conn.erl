@@ -649,7 +649,7 @@ parse_incoming(Data, Packets,
                           , reason => Reason
                           , stacktrace => Stk
                           }),
-            {[{frame_error, Reason}|Packets], State}
+            {[{frame_error, Reason} | Packets], State}
     end.
 
 next_incoming_msgs([Packet]) ->
@@ -720,20 +720,29 @@ serialize_and_inc_stats_fun(#state{
                                channel = Channel}) ->
     Ctx = ChannMod:info(ctx, Channel),
     fun(Packet) ->
-        case FrameMod:serialize_pkt(Packet, Serialize) of
-            <<>> ->
+        try
+            Data = FrameMod:serialize_pkt(Packet, Serialize),
+            ?SLOG(debug, #{ msg => "SEND_packet"
+                          %% XXX: optimize it, less cpu comsuption?
+                          , packet => FrameMod:format(Packet)
+                          }),
+            ok = inc_outgoing_stats(Ctx, FrameMod, Packet),
+            Data
+        catch
+            _ : too_large ->
                 ?SLOG(warning, #{ msg => "packet_too_large_discarded"
                                 , packet => FrameMod:format(Packet)
                                 }),
                  ok = emqx_gateway_ctx:metrics_inc(Ctx, 'delivery.dropped.too_large'),
                  ok = emqx_gateway_ctx:metrics_inc(Ctx, 'delivery.dropped'),
                  <<>>;
-            Data ->
-                ?SLOG(debug, #{ msg => "SEND_packet"
-                              , packet => FrameMod:format(Packet)
-                              }),
-                ok = inc_outgoing_stats(Ctx, FrameMod, Packet),
-                Data
+            _ : Reason ->
+                ?SLOG(warning, #{ msg => "packet_serialize_failure"
+                                , reason => Reason
+                                , packet => FrameMod:format(Packet)
+                                }),
+                 ok = emqx_gateway_ctx:metrics_inc(Ctx, 'delivery.dropped'),
+                 <<>>
         end
     end.
 

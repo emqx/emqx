@@ -29,6 +29,23 @@
 gateway {}
 ">>).
 
+%% The config with json format for mqtt-sn gateway
+-define(CONF_MQTTSN, "
+{\"idle_timeout\": \"30s\",
+ \"enable_stats\": true,
+ \"mountpoint\": \"mqttsn/\",
+ \"gateway_id\": 1,
+ \"broadcast\": true,
+ \"enable_qos3\": true,
+ \"predefined\": [{\"id\": 1001, \"topic\": \"pred/a\"}],
+ \"listeners\":
+    [{\"type\": \"udp\",
+      \"name\": \"ct\",
+      \"bind\": \"1884\"
+    }]
+}
+").
+
 %%--------------------------------------------------------------------
 %% Setup
 %%--------------------------------------------------------------------
@@ -107,34 +124,144 @@ t_gateway_list(_) ->
       "Gateway(name=lwm2m, status=unloaded)\n"
       "Gateway(name=mqttsn, status=unloaded)\n"
       "Gateway(name=stomp, status=unloaded)\n"
-      , acc_print()).
+      , acc_print()),
 
-t_gateway_load(_) ->
-    ok.
+    emqx_gateway_cli:gateway(["load", "mqttsn", ?CONF_MQTTSN]),
+    ?assertEqual("ok\n", acc_print()),
 
-t_gateway_unload(_) ->
-    ok.
+    emqx_gateway_cli:gateway(["list"]),
+    %% TODO: assert it.
+    _ = acc_print(),
 
-t_gateway_start(_) ->
-    ok.
+    emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()).
 
-t_gateway_stop(_) ->
-    ok.
+t_gateway_load_unload_lookup(_) ->
+    emqx_gateway_cli:gateway(["lookup", "mqttsn"]),
+    ?assertEqual("undefined\n", acc_print()),
+
+    emqx_gateway_cli:gateway(["load", "mqttsn", ?CONF_MQTTSN]),
+    ?assertEqual("ok\n", acc_print()),
+
+    %% TODO: bad config name, format???
+
+    emqx_gateway_cli:gateway(["lookup", "mqttsn"]),
+    %% TODO: assert it. for example:
+    %% name: mqttsn
+    %% status: running
+    %% created_at: 2022-01-05T14:40:20.039+08:00
+    %% started_at: 2022-01-05T14:42:37.894+08:00
+    %% config: #{broadcast => false,enable => true,enable_qos3 => true,
+    %%           enable_stats => true,gateway_id => 1,idle_timeout => 30000,
+    %%           mountpoint => <<>>,predefined => []}
+    _ = acc_print(),
+
+    emqx_gateway_cli:gateway(["load", "mqttsn", "{}"]),
+    ?assertEqual(
+        "Error: The mqttsn gateway already loaded\n"
+        , acc_print()),
+
+    emqx_gateway_cli:gateway(["load", "bad-gw-name", "{}"]),
+    %% TODO: assert it. for example:
+    %% Error: Illegal gateway name
+    _ = acc_print(),
+
+    emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()),
+    %% Always return ok, even the gateway has unloaded
+    emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()),
+
+    emqx_gateway_cli:gateway(["lookup", "mqttsn"]),
+    ?assertEqual("undefined\n", acc_print()).
+
+t_gateway_start_stop(_) ->
+    emqx_gateway_cli:gateway(["load", "mqttsn", ?CONF_MQTTSN]),
+    ?assertEqual("ok\n", acc_print()),
+
+    emqx_gateway_cli:gateway(["stop", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()),
+    %% dupliacted stop gateway, return ok
+    emqx_gateway_cli:gateway(["stop", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()),
+
+    emqx_gateway_cli:gateway(["start", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()),
+    %% dupliacted start gateway, return ok
+    emqx_gateway_cli:gateway(["start", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()),
+
+    emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()).
 
 t_gateway_clients_usage(_) ->
-    ok.
+    ?assertEqual(
+       ["gateway-clients list   <Name>            "
+            "# List all clients for a gateway\n",
+        "gateway-clients lookup <Name> <ClientId> "
+            "# Lookup the Client Info for specified client\n",
+        "gateway-clients kick   <Name> <ClientId> "
+            "# Kick out a client\n"],
+       emqx_gateway_cli:'gateway-clients'(usage)
+     ).
 
-t_gateway_clients_list(_) ->
-    ok.
+t_gateway_clients(_) ->
+    emqx_gateway_cli:gateway(["load", "mqttsn", ?CONF_MQTTSN]),
+    ?assertEqual("ok\n", acc_print()),
 
-t_gateway_clients_lookup(_) ->
-    ok.
+    Socket = sn_client_connect(<<"client1">>),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["list", "mqttsn"]),
+    ClientDesc1 = acc_print(),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["lookup", "mqttsn", "client1"]),
+    ClientDesc2 = acc_print(),
+    ?assertEqual(ClientDesc1, ClientDesc2),
+
+    sn_client_disconnect(Socket),
+    timer:sleep(500),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["lookup", "mqttsn", "bad-client"]),
+    ?assertEqual("Not Found.\n", acc_print()),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["lookup", "bad-gw", "bad-client"]),
+    ?assertEqual("Bad Gateway Name.\n", acc_print()),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["list", "mqttsn"]),
+    %% no print for empty client list
+
+    _ = emqx_gateway_cli:'gateway-clients'(["list", "bad-gw"]),
+    ?assertEqual("Bad Gateway Name.\n", acc_print()),
+
+    emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()).
 
 t_gateway_clients_kick(_) ->
-    ok.
+    emqx_gateway_cli:gateway(["load", "mqttsn", ?CONF_MQTTSN]),
+    ?assertEqual("ok\n", acc_print()),
+
+    Socket = sn_client_connect(<<"client1">>),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["list", "mqttsn"]),
+    _ = acc_print(),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["kick", "mqttsn", "bad-client"]),
+    ?assertEqual("Not Found.\n", acc_print()),
+
+    _ = emqx_gateway_cli:'gateway-clients'(["kick", "mqttsn", "client1"]),
+    ?assertEqual("ok\n", acc_print()),
+
+    sn_client_disconnect(Socket),
+
+    emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+    ?assertEqual("ok\n", acc_print()).
 
 t_gateway_metrcis_usage(_) ->
-    ok.
+    ?assertEqual(
+       [ "gateway-metrics <Name> "
+            "# List all metrics for a gateway\n"],
+       emqx_gateway_cli:'gateway-metrics'(usage)
+     ).
 
 t_gateway_metrcis(_) ->
     ok.
@@ -148,3 +275,14 @@ acc_print(Acc) ->
     after 200 ->
         Acc
     end.
+
+sn_client_connect(ClientId) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    _ = emqx_sn_protocol_SUITE:send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, 16#05, 0>>,
+                 emqx_sn_protocol_SUITE:receive_response(Socket)),
+    Socket.
+
+sn_client_disconnect(Socket) ->
+    _ = emqx_sn_protocol_SUITE:send_disconnect_msg(Socket, undefined),
+    gen_udp:close(Socket), ok.

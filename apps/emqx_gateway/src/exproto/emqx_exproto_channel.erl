@@ -451,7 +451,7 @@ do_subscribe(TopicFilter, SubOpts, Channel =
                       subscriptions = Subs}) ->
     %% Mountpoint first
     NTopicFilter = emqx_mountpoint:mount(Mountpoint, TopicFilter),
-    NSubOpts = maps:merge(?DEFAULT_SUBOPTS, SubOpts),
+    NSubOpts = maps:merge(emqx_gateway_utils:default_subopts(), SubOpts),
     SubId = maps:get(clientid, ClientInfo, undefined),
     %% XXX: is_new?
     IsNew = not maps:is_key(NTopicFilter, Subs),

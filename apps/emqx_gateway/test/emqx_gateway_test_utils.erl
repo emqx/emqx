@@ -117,6 +117,8 @@ req(Path, Qs) ->
 req(Path, Qs, Body) ->
     {url(Path, Qs), auth([]), "application/json", emqx_json:encode(Body)}.
 
+url(Path, []) ->
+    lists:concat([?http_api_host, Path]);
 url(Path, Qs) ->
     lists:concat([?http_api_host, Path, "?", binary_to_list(cow_qs:qs(Qs))]).
 

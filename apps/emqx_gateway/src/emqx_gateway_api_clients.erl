@@ -73,7 +73,7 @@ paths() ->
     , {<<"ip_address">>, ip}
     , {<<"conn_state">>, atom}
     , {<<"clean_start">>, atom}
-    , {<<"proto_ver">>, integer}
+    , {<<"proto_ver">>, binary}
     , {<<"like_clientid">>, binary}
     , {<<"like_username">>, binary}
     , {<<"gte_created_at">>, timestamp}
@@ -83,15 +83,16 @@ paths() ->
     %% special keys for lwm2m protocol
     , {<<"endpoint_name">>, binary}
     , {<<"like_endpoint_name">>, binary}
-    , {<<"gte_lifetime">>, timestamp}
-    , {<<"lte_lifetime">>, timestamp}
+    , {<<"gte_lifetime">>, integer}
+    , {<<"lte_lifetime">>, integer}
     ]).
 
 -define(QUERY_FUN, {?MODULE, query}).
 
 clients(get, #{ bindings := #{name := Name0}
-              , query_string := Params
+              , query_string := Params0
               }) ->
+    Params = emqx_mgmt_api:ensure_timestamp_format(Params0, time_keys()),
     with_gateway(Name0, fun(GwName, _) ->
         TabName = emqx_gateway_cm:tabname(info, GwName),
         case maps:get(<<"node">>, Params, undefined) of
@@ -147,10 +148,6 @@ subscriptions(get, #{ bindings := #{name := Name0,
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
     with_gateway(Name0, fun(GwName, _) ->
         case emqx_gateway_http:list_client_subscriptions(GwName, ClientId) of
-            {error, nosupport} ->
-                return_http_error(405, <<"Not support to list subscriptions">>);
-            {error, noimpl} ->
-                return_http_error(501, <<"Not implemented now">>);
             {error, Reason} ->
                 return_http_error(500, Reason);
             {ok, Subs} ->
@@ -171,14 +168,6 @@ subscriptions(post, #{ bindings := #{name := Name0,
             {Topic, SubOpts} ->
                 case emqx_gateway_http:client_subscribe(
                        GwName, ClientId, Topic, SubOpts) of
-                    {error, nosupport} ->
-                        return_http_error(
-                          405,
-                          <<"Not support to add a subscription">>);
-                    {error, noimpl} ->
-                        return_http_error(
-                          501,
-                          <<"Not implemented now">>);
                     {error, Reason} ->
                         return_http_error(404, Reason);
                     {ok, {NTopic, NSubOpts}}->
@@ -220,6 +209,16 @@ extra_sub_props(Props) ->
       fun(_, V) -> V =/= undefined end,
       #{subid => maps:get(<<"subid">>, Props, undefined)}
      ).
+
+%%--------------------------------------------------------------------
+%% QueryString data-fomrat convert
+%%  (try rfc3339 to timestamp or keep timestamp)
+
+time_keys() ->
+    [ <<"gte_created_at">>
+    , <<"lte_created_at">>
+    , <<"gte_connected_at">>
+    , <<"lte_connected_at">>].
 
 %%--------------------------------------------------------------------
 %% query funcs
@@ -264,10 +263,8 @@ ms(clientid, X) ->
     #{clientinfo => #{clientid => X}};
 ms(username, X) ->
     #{clientinfo => #{username => X}};
-ms(zone, X) ->
-    #{clientinfo => #{zone => X}};
 ms(ip_address, X) ->
-    #{clientinfo => #{peername => {X, '_'}}};
+    #{clientinfo => #{peerhost => X}};
 ms(conn_state, X) ->
     #{conn_state => X};
 ms(clean_start, X) ->
@@ -616,9 +613,6 @@ roots() ->
     , subscription
     ].
 
-fields(test) ->
-    [{key, mk(binary(), #{ desc => <<"Desc">>})}];
-
 fields(stomp_client) ->
     common_client_props();
 fields(mqttsn_client) ->
@@ -707,10 +701,6 @@ common_client_props() ->
     %, {will_msg,
     %   mk(binary(),
     %      #{ desc => <<"Client will message">>})}
-    %, {zone,
-    %   mk(binary(),
-    %      #{ desc => <<"Indicate the configuration group used by the "
-    %                   "client">>})}
     , {keepalive,
        mk(integer(),
           #{ desc => <<"keepalive time, with the unit of second">>})}

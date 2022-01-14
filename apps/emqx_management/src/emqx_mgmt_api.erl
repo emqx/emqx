@@ -35,6 +35,15 @@
 
 -export([do_query/6]).
 
+-export([ ensure_timestamp_format/2
+        ]).
+
+-export([ unix_ts_to_rfc3339_bin/1
+        , unix_ts_to_rfc3339_bin/2
+        , time_string_to_unix_ts_int/1
+        , time_string_to_unix_ts_int/2
+        ]).
+
 paginate(Tables, Params, {Module, FormatFun}) ->
     Qh = query_handle(Tables),
     Count = count(Tables),
@@ -401,6 +410,7 @@ to_integer(B) when is_binary(B) ->
 to_timestamp(I) when is_integer(I) ->
     I;
 to_timestamp(B) when is_binary(B) ->
+
     binary_to_integer(B).
 
 aton(B) when is_binary(B) ->
@@ -411,6 +421,41 @@ to_ip_port(IPAddress) ->
     {ok, IP} = inet:parse_address(IP0),
     Port = list_to_integer(Port0),
     {IP, Port}.
+
+%%--------------------------------------------------------------------
+%% time format funcs
+
+ensure_timestamp_format(Qs, TimeKeys)
+  when is_map(Qs);
+       is_list(TimeKeys) ->
+    Fun = fun (Key, NQs) ->
+        case NQs of
+            %% TimeString likes "2021-01-01T00:00:00.000+08:00" (in rfc3339)
+            %% or "1609430400000" (in millisecond)
+            #{Key := TimeString} ->
+                NQs#{Key => time_string_to_unix_ts_int(TimeString)};
+            #{} -> NQs
+        end
+    end,
+    lists:foldl(Fun, Qs, TimeKeys).
+
+unix_ts_to_rfc3339_bin(TimeStamp) ->
+    unix_ts_to_rfc3339_bin(TimeStamp, millisecond).
+
+unix_ts_to_rfc3339_bin(TimeStamp, Unit) when is_integer(TimeStamp) ->
+    list_to_binary(calendar:system_time_to_rfc3339(TimeStamp, [{unit, Unit}])).
+
+time_string_to_unix_ts_int(DateTime) ->
+    time_string_to_unix_ts_int(DateTime, millisecond).
+
+time_string_to_unix_ts_int(DateTime, Unit) when is_binary(DateTime) ->
+    try binary_to_integer(DateTime) of
+        TimeStamp when is_integer(TimeStamp) -> TimeStamp
+    catch
+        error:badarg ->
+            calendar:rfc3339_to_system_time(
+              binary_to_list(DateTime), [{unit, Unit}])
+    end.
 
 %%--------------------------------------------------------------------
 %% EUnits

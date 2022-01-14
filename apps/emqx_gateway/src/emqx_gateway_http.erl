@@ -62,12 +62,15 @@
         , with_listener_authn/3
         , checks/2
         , reason2resp/1
+        , reason2msg/1
         ]).
 
 -type gateway_summary() ::
         #{ name := binary()
          , status := running | stopped | unloaded
+         , created_at => binary()
          , started_at => binary()
+         , stopped_at => binary()
          , max_connections => integer()
          , current_connections => integer()
          , listeners => []
@@ -75,7 +78,6 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 -elvis([{elvis_style, no_nested_try_catch, disable}]).
-
 
 -define(DEFAULT_CALL_TIMEOUT, 15000).
 
@@ -317,57 +319,13 @@ with_channel(GwName, ClientId, Fun) ->
 %%--------------------------------------------------------------------
 
 -spec reason2resp({atom(), map()} | any()) -> binary() | any().
-reason2resp({badconf, #{key := Key, value := Value, reason := Reason}}) ->
-    fmt400err("Bad config value '~s' for '~s', reason: ~s",
-              [Value, Key, Reason]);
-reason2resp({badres, #{resource := gateway,
-                       gateway := GwName,
-                       reason := not_found}}) ->
-    fmt400err("The ~s gateway is unloaded", [GwName]);
-
-reason2resp({badres, #{resource := gateway,
-                       gateway := GwName,
-                       reason := already_exist}}) ->
-    fmt400err("The ~s gateway has loaded", [GwName]);
-
-reason2resp({badres, #{resource := listener,
-                       listener := {GwName, LType, LName},
-                       reason := not_found}}) ->
-    fmt400err("Listener ~s not found",
-              [listener_id(GwName, LType, LName)]);
-
-reason2resp({badres, #{resource := listener,
-                       listener := {GwName, LType, LName},
-                       reason := already_exist}}) ->
-    fmt400err("The listener ~s of ~s already exist",
-              [listener_id(GwName, LType, LName), GwName]);
-
-reason2resp({badres, #{resource := authn,
-                       gateway := GwName,
-                       reason := not_found}}) ->
-    fmt400err("The authentication not found on ~s", [GwName]);
-
-reason2resp({badres, #{resource := authn,
-                       gateway := GwName,
-                       reason := already_exist}}) ->
-    fmt400err("The authentication already exist on ~s", [GwName]);
-
-reason2resp({badres, #{resource := listener_authn,
-                       listener := {GwName, LType, LName},
-                       reason := not_found}}) ->
-    fmt400err("The authentication not found on ~s",
-              [listener_id(GwName, LType, LName)]);
-
-reason2resp({badres, #{resource := listener_authn,
-                       listener := {GwName, LType, LName},
-                       reason := already_exist}}) ->
-    fmt400err("The authentication already exist on ~s",
-              [listener_id(GwName, LType, LName)]);
-
-reason2resp(R) -> return_http_error(500, R).
-
-fmt400err(Fmt, Args) ->
-    return_http_error(400, io_lib:format(Fmt, Args)).
+reason2resp(R) ->
+    case reason2msg(R) of
+        error ->
+            return_http_error(500, R);
+        Msg ->
+            return_http_error(400, Msg)
+    end.
 
 -spec return_http_error(integer(), any()) -> {integer(), binary()}.
 return_http_error(Code, Msg) ->
@@ -377,12 +335,63 @@ return_http_error(Code, Msg) ->
               })
     }.
 
+-spec reason2msg({atom(), map()} | any()) -> error | string().
+reason2msg({badconf, #{key := Key, value := Value, reason := Reason}}) ->
+    fmtstr("Bad config value '~s' for '~s', reason: ~s", [Value, Key, Reason]);
+reason2msg({badres, #{resource := gateway,
+                      gateway := GwName,
+                      reason := not_found}}) ->
+    fmtstr("The ~s gateway is unloaded", [GwName]);
+
+reason2msg({badres, #{resource := gateway,
+                      gateway := GwName,
+                      reason := already_exist}}) ->
+    fmtstr("The ~s gateway already loaded", [GwName]);
+
+reason2msg({badres, #{resource := listener,
+                      listener := {GwName, LType, LName},
+                      reason := not_found}}) ->
+    fmtstr("Listener ~s not found", [listener_id(GwName, LType, LName)]);
+
+reason2msg({badres, #{resource := listener,
+                      listener := {GwName, LType, LName},
+                      reason := already_exist}}) ->
+    fmtstr("The listener ~s of ~s already exist",
+           [listener_id(GwName, LType, LName), GwName]);
+
+reason2msg({badres, #{resource := authn,
+                      gateway := GwName,
+                      reason := not_found}}) ->
+    fmtstr("The authentication not found on ~s", [GwName]);
+
+reason2msg({badres, #{resource := authn,
+                      gateway := GwName,
+                      reason := already_exist}}) ->
+    fmtstr("The authentication already exist on ~s", [GwName]);
+
+reason2msg({badres, #{resource := listener_authn,
+                      listener := {GwName, LType, LName},
+                      reason := not_found}}) ->
+    fmtstr("The authentication not found on ~s",
+           [listener_id(GwName, LType, LName)]);
+
+reason2msg({badres, #{resource := listener_authn,
+                      listener := {GwName, LType, LName},
+                      reason := already_exist}}) ->
+    fmtstr("The authentication already exist on ~s",
+           [listener_id(GwName, LType, LName)]);
+reason2msg(_) ->
+    error.
+
 codestr(400) -> 'BAD_REQUEST';
 codestr(401) -> 'NOT_SUPPORTED_NOW';
 codestr(404) -> 'RESOURCE_NOT_FOUND';
 codestr(405) -> 'METHOD_NOT_ALLOWED';
 codestr(500) -> 'UNKNOW_ERROR';
 codestr(501) -> 'NOT_IMPLEMENTED'.
+
+fmtstr(Fmt, Args) ->
+    lists:flatten(io_lib:format(Fmt, Args)).
 
 -spec with_authn(binary(), function()) -> any().
 with_authn(GwName0, Fun) ->

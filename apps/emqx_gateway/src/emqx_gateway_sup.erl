@@ -59,7 +59,8 @@ load_gateway(Gateway = #{name := GwName}) ->
 unload_gateway(GwName) ->
     case lists:keyfind(GwName, 1, supervisor:which_children(?MODULE)) of
         false -> {error, not_found};
-        _ ->
+        {_Id, Pid, _Type, _Mods} ->
+            _ = emqx_gateway_gw_sup:remove_insta(Pid, GwName),
             _ = supervisor:terminate_child(?MODULE, GwName),
             _ = supervisor:delete_child(?MODULE, GwName),
             ok

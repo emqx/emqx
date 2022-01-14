@@ -14,10 +14,15 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module (emqx_sn_protocol_SUITE).
+-module(emqx_sn_protocol_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
+
+-import(emqx_gateway_test_utils,
+        [ request/2
+        , request/3
+        ]).
 
 -include("src/mqttsn/include/emqx_sn.hrl").
 
@@ -26,7 +31,6 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
-
 
 -define(HOST, {127,0,0,1}).
 -define(PORT, 1884).
@@ -85,12 +89,12 @@ all() ->
 
 init_per_suite(Config) ->
     ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_common_test_helpers:start_apps([emqx_gateway]),
+    emqx_mgmt_api_test_util:init_suite([emqx_gateway]),
     Config.
 
 end_per_suite(_) ->
     {ok, _} = emqx:remove_config([gateway, mqttsn]),
-    emqx_common_test_helpers:stop_apps([emqx_gateway]).
+    emqx_mgmt_api_test_util:end_suite([emqx_gateway]).
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -643,7 +647,6 @@ t_publish_qos0_case05(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
-
 
 t_publish_qos0_case06(_) ->
     Dup = 0,
@@ -1760,6 +1763,72 @@ t_broadcast_test1(_) ->
     send_searchgw_msg(Socket),
     ?assertEqual(<<3, ?SN_GWINFO, 1>>, receive_response(Socket)),
     timer:sleep(600),
+    gen_udp:close(Socket).
+
+t_socket_passvice(_) ->
+    %% TODO: test this gateway enter the passvie event
+    ok.
+
+t_clients_api(_) ->
+    TsNow = emqx_gateway_utils:unix_ts_to_rfc3339(
+              erlang:system_time(millisecond)),
+    ClientId = <<"client_id_test1">>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+    %% list
+    {200, #{data := [Client1]}} = request(get, "/gateway/mqttsn/clients"),
+    #{clientid := ClientId} = Client1,
+    %% searching
+    {200, #{data := [Client2]}} =
+        request(get, "/gateway/mqttsn/clients", [{<<"clientid">>, ClientId}]),
+    {200, #{data := [Client3]}} =
+        request(get, "/gateway/mqttsn/clients",
+                [{<<"like_clientid">>, <<"test1">>},
+                 {<<"proto_ver">>, <<"1.2">>},
+                 {<<"ip_address">>, <<"127.0.0.1">>},
+                 {<<"conn_state">>, <<"connected">>},
+                 {<<"clean_start">>, <<"true">>},
+                 {<<"gte_connected_at">>, TsNow}
+                ]),
+    %% lookup
+    {200, Client4} =
+        request(get, "/gateway/mqttsn/clients/client_id_test1"),
+    %% assert
+    Client1 = Client2 = Client3 = Client4,
+    %% kickout
+    {204, _} =
+        request(delete, "/gateway/mqttsn/clients/client_id_test1"),
+    {200, #{data := []}} = request(get, "/gateway/mqttsn/clients"),
+
+    send_disconnect_msg(Socket, undefined),
+    gen_udp:close(Socket).
+
+t_clients_subscription_api(_) ->
+    ClientId = <<"client_id_test1">>,
+    Path = "/gateway/mqttsn/clients/client_id_test1/subscriptions",
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+    %% list
+    {200, []} = request(get, Path),
+    %% create
+    SubReq = #{ topic => <<"tx">>
+              , qos => 1
+              , nl => 0
+              , rap => 0
+              , rh => 0
+              },
+    {201, SubsResp} = request(post, Path, SubReq),
+
+    {200, [SubsResp]} = request(get, Path),
+
+    {204, _} = request(delete, Path ++ "/tx"),
+
+    {200, []} = request(get, Path),
+
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
 %%--------------------------------------------------------------------

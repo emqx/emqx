@@ -20,7 +20,6 @@
 
 -include_lib("emqx_gateway/include/emqx_gateway.hrl").
 
-
 %% APIs
 -export([start_link/1]).
 
@@ -29,6 +28,8 @@
         , dec/2
         , dec/3
         ]).
+
+-export([lookup/1]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -66,6 +67,16 @@ dec(GwName, Name) ->
 -spec dec(gateway_name(), atom(), non_neg_integer()) -> ok.
 dec(GwName, Name, Oct) ->
     inc(GwName, Name, -Oct).
+
+-spec lookup(gateway_name())
+    -> undefined
+     | [{Name :: atom(), integer()}].
+lookup(GwName) ->
+    Tab = emqx_gateway_metrics:tabname(GwName),
+    case ets:info(Tab) of
+        undefined -> undefined;
+        _ -> lists:sort(ets:tab2list(Tab))
+    end.
 
 tabname(GwName) ->
     list_to_atom(lists:concat([emqx_gateway_, GwName, '_metrics'])).

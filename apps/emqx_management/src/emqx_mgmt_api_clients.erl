@@ -44,14 +44,6 @@
 %% for batch operation
 -export([do_subscribe/3]).
 
-%% for test suite
--export([ unix_ts_to_rfc3339_bin/1
-        , unix_ts_to_rfc3339_bin/2
-        , time_string_to_unix_ts_int/1
-        , time_string_to_unix_ts_int/2
-        ]).
-
-
 -define(CLIENT_QS_SCHEMA, {emqx_channel_info,
     [ {<<"node">>, atom}
     , {<<"username">>, binary}
@@ -463,7 +455,7 @@ keepalive_api() ->
 %%%==============================================================================================
 %% parameters trans
 clients(get, #{query_string := Qs}) ->
-    list(generate_qs(Qs)).
+    list(emqx_mgmt_api:ensure_timestamp_format(Qs, time_keys())).
 
 client(get, #{bindings := Bindings}) ->
     lookup(Bindings);
@@ -625,25 +617,14 @@ do_unsubscribe(ClientID, Topic) ->
     end.
 
 %%--------------------------------------------------------------------
-%% QueryString Generation (try rfc3339 to timestamp or keep timestamp)
+%% QueryString data-fomrat convert
+%%  (try rfc3339 to timestamp or keep timestamp)
 
 time_keys() ->
     [ <<"gte_created_at">>
     , <<"lte_created_at">>
     , <<"gte_connected_at">>
     , <<"lte_connected_at">>].
-
-generate_qs(Qs) ->
-    Fun =
-        fun (Key, NQs) ->
-                case NQs of
-                    %% TimeString likes "2021-01-01T00:00:00.000+08:00" (in rfc3339)
-                    %% or "1609430400000" (in millisecond)
-                    #{Key := TimeString} -> NQs#{Key => time_string_to_unix_ts_int(TimeString)};
-                    #{}                  -> NQs
-                end
-        end,
-    lists:foldl(Fun, Qs, time_keys()).
 
 %%--------------------------------------------------------------------
 %% Query Functions
@@ -778,8 +759,11 @@ take_maps_from_inner(Key, Value, Current) ->
 
 result_format_time_fun(Key, NClientInfoMap) ->
     case NClientInfoMap of
-        #{Key := TimeStamp} -> NClientInfoMap#{Key => unix_ts_to_rfc3339_bin(TimeStamp)};
-        #{}                 -> NClientInfoMap
+        #{Key := TimeStamp} ->
+            NClientInfoMap#{
+              Key => emqx_mgmt_api:unix_ts_to_rfc3339_bin(TimeStamp)};
+        #{} ->
+            NClientInfoMap
     end.
 
 -spec(peername_dispart(emqx_types:peername()) -> {binary(), inet:port_number()}).
@@ -795,22 +779,3 @@ format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
        updated_time => Timestamp
      }.
 
-%%--------------------------------------------------------------------
-%% time format funcs
-
-unix_ts_to_rfc3339_bin(TimeStamp) ->
-    unix_ts_to_rfc3339_bin(TimeStamp, millisecond).
-
-unix_ts_to_rfc3339_bin(TimeStamp, Unit) when is_integer(TimeStamp) ->
-    list_to_binary(calendar:system_time_to_rfc3339(TimeStamp, [{unit, Unit}])).
-
-time_string_to_unix_ts_int(DateTime) ->
-    time_string_to_unix_ts_int(DateTime, millisecond).
-
-time_string_to_unix_ts_int(DateTime, Unit) when is_binary(DateTime) ->
-    try binary_to_integer(DateTime) of
-        TimeStamp when is_integer(TimeStamp) -> TimeStamp
-    catch
-        error:badarg ->
-            calendar:rfc3339_to_system_time(binary_to_list(DateTime), [{unit, Unit}])
-    end.

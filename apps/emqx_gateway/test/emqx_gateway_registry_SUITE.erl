@@ -58,6 +58,12 @@ t_load_unload(_) ->
     {error, already_existed} = emqx_gateway_registry:reg(test, [{cbkmod, ?MODULE}]),
 
     ok = emqx_gateway_registry:unreg(test),
+    ok = emqx_gateway_registry:unreg(test),
     undefined = emqx_gateway_registry:lookup(test),
     OldCnt = length(emqx_gateway_registry:list()),
     ok.
+
+t_handle_unexpected_msg(_) ->
+    _ = emqx_gateway_registry ! unexpected_info,
+    ok = gen_server:cast(emqx_gateway_registry, unexpected_cast),
+    ok = gen_server:call(emqx_gateway_registry, unexpected_call).

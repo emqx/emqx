@@ -129,7 +129,7 @@ t_query_clients_with_time(_) ->
     NowTimeStampInt = erlang:system_time(millisecond),
     %% Do not uri_encode `=` to `%3D`
     Rfc3339String   = emqx_http_lib:uri_encode(binary:bin_to_list(
-        emqx_mgmt_api_clients:unix_ts_to_rfc3339_bin(NowTimeStampInt))),
+        emqx_mgmt_api:unix_ts_to_rfc3339_bin(NowTimeStampInt))),
     TimeStampString = emqx_http_lib:uri_encode(integer_to_list(NowTimeStampInt)),
 
     LteKeys         = ["lte_created_at=", "lte_connected_at="],
@@ -147,10 +147,10 @@ t_query_clients_with_time(_) ->
                        || {ok, Response} <- RequestResults],
     {LteResponseDecodeds, GteResponseDecodeds} = lists:split(4, DecodedResults),
     %% EachData :: list()
-    [?assert( emqx_mgmt_api_clients:time_string_to_unix_ts_int(CreatedAt) < NowTimeStampInt)
+    [?assert( emqx_mgmt_api:time_string_to_unix_ts_int(CreatedAt) < NowTimeStampInt)
      || #{<<"data">> := EachData} <- LteResponseDecodeds,
         #{<<"created_at">> := CreatedAt}     <- EachData],
-    [?assert(emqx_mgmt_api_clients:time_string_to_unix_ts_int(ConnectedAt) < NowTimeStampInt)
+    [?assert(emqx_mgmt_api:time_string_to_unix_ts_int(ConnectedAt) < NowTimeStampInt)
      || #{<<"data">> := EachData} <- LteResponseDecodeds,
         #{<<"connected_at">> := ConnectedAt} <- EachData],
     [?assertEqual(EachData, [])

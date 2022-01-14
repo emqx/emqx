@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc The Gateway Connection-Manager
+%% @doc The Gateway Channel Manager
 %%
 %% For a certain type of protocol, this is a single instance of the manager.
 %% It means that no matter how many instances of the stomp gateway are created,
@@ -25,7 +25,6 @@
 
 -include("include/emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
-
 
 %% APIs
 -export([start_link/1]).
@@ -74,6 +73,8 @@
 -type option() :: {gwname, gateway_name()}.
 -type options() :: list(option()).
 
+-define(T_KICK, 5000).
+-define(T_GET_INFO, 5000).
 -define(T_TAKEOVER, 15000).
 -define(DEFAULT_BATCH_SIZE, 10000).
 
@@ -94,9 +95,9 @@ procname(GwName) ->
         ConnTab :: atom(),
         ChannInfoTab :: atom()}.
 cmtabs(GwName) ->
-    { tabname(chan, GwName)   %% Client Tabname; Record: {ClientId, Pid}
-    , tabname(conn, GwName)   %% Client ConnMod; Recrod: {{ClientId, Pid}, ConnMod}
-    , tabname(info, GwName)   %% ClientInfo Tabname; Record: {{ClientId, Pid}, ClientInfo, ClientStats}
+    { tabname(chan, GwName)   %% Record: {ClientId, Pid}
+    , tabname(conn, GwName)   %% Recrod: {{ClientId, Pid}, ConnMod}
+    , tabname(info, GwName)   %% Record: {{ClientId, Pid}, Info, Stats}
     }.
 
 tabname(chan, GwName) ->
@@ -134,7 +135,6 @@ unregister_channel(GwName, ClientId) when is_binary(ClientId) ->
 insert_channel_info(GwName, ClientId, Info, Stats) ->
     Chan = {ClientId, self()},
     true = ets:insert(tabname(info, GwName), {Chan, Info, Stats}),
-    %%?tp(debug, insert_channel_info, #{client_id => ClientId}),
     ok.
 
 %% @doc Get info of a channel.
@@ -207,7 +207,8 @@ set_chan_stats(GwName, ClientId, Stats) ->
                      emqx_types:clientid(),
                      pid(),
                      emqx_types:stats()) -> boolean().
-set_chan_stats(GwName, ClientId, ChanPid, Stats)  when node(ChanPid) == node() ->
+set_chan_stats(GwName, ClientId, ChanPid, Stats)
+  when node(ChanPid) == node() ->
     Chan = {ClientId, self()},
     try ets:update_element(tabname(info, GwName), Chan, {3, Stats})
     catch
@@ -232,7 +233,7 @@ connection_closed(GwName, ClientId) ->
     -> {ok, #{session := Session,
               present := boolean(),
               pendings => list()
-          }}
+             }}
      | {error, any()}.
 
 open_session(GwName, CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
@@ -256,7 +257,7 @@ open_session(GwName, true = _CleanStart, ClientInfo, ConnInfo, CreateSessionFun,
 
 open_session(_Type, false = _CleanStart,
              _ClientInfo, _ConnInfo, _CreateSessionFun, _SessionMod) ->
-    %% TODO:
+    %% TODO: The session takeover logic will be implemented on 0.9?
     {error, not_supported_now}.
 
 %% @private
@@ -305,17 +306,12 @@ do_discard_session(GwName, ClientId, Pid) ->
         discard_session(GwName, ClientId, Pid)
     catch
         _ : noproc -> % emqx_ws_connection: call
-            %?tp(debug, "session_already_gone", #{pid => Pid}),
             ok;
         _ : {noproc, _} -> % emqx_connection: gen_server:call
-            %?tp(debug, "session_already_gone", #{pid => Pid}),
             ok;
         _ : {{shutdown, _}, _} ->
-            %?tp(debug, "session_already_shutdown", #{pid => Pid}),
             ok;
         _ : _Error : _St ->
-            %?tp(error, "failed_to_discard_session",
-            %    #{pid => Pid, reason => Error, stacktrace=>St})
             ok
     end.
 
@@ -464,7 +460,9 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason},
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{registry = Registry, locker = Locker}) ->
+    _ = gen_server:stop(Registry),
+    _ = ekka_locker:stop(Locker),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
