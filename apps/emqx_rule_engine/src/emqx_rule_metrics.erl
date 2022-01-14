@@ -328,9 +328,9 @@ handle_info(_Info, State) ->
 
 code_change({down, _Vsn}, State = #state{metric_ids = MIDs}, [Vsn]) ->
     case string:tokens(Vsn, ".") of 
-        ["4", "3", SVal] ->
+        ["4", "4", SVal] ->
             {Val, []} = string:to_integer(SVal),
-            case Val  =< 7 of
+            case Val == 0 of
                 true ->
                     [begin
                         Passed = get_rules_passed(Id),
@@ -356,9 +356,9 @@ code_change({down, _Vsn}, State = #state{metric_ids = MIDs}, [Vsn]) ->
 
 code_change(_Vsn, State = #state{metric_ids = MIDs}, [Vsn]) ->
     case string:tokens(Vsn, ".") of
-        ["4", "3", SVal] ->
+        ["4", "4", SVal] ->
             {Val, []} = string:to_integer(SVal),
-            case Val =< 7 of
+            case Val == 0 of
                 true ->
                     [begin
                         Matched = get_rules_matched(Id),
