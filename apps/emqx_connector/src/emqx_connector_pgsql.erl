@@ -17,6 +17,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("epgsql/include/epgsql.hrl").
 
 -export([roots/0, fields/1]).
 
@@ -33,7 +34,7 @@
 -export([connect/1]).
 
 -export([ query/3
-        , prepared_query/4
+        , prepared_query/3
         ]).
 
 -export([do_health_check/1]).
@@ -44,11 +45,16 @@ roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
+    [{named_queries, fun named_queries/1}] ++
     emqx_connector_schema_lib:relational_db_fields() ++
     emqx_connector_schema_lib:ssl_fields().
 
 on_jsonify(#{server := Server}= Config) ->
     Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}.
+
+named_queries(type) -> map();
+named_queries(nullable) -> true;
+named_queries(_) -> undefined.
 
 %% ===================================================================
 on_start(InstId, #{server := {Host, Port},
@@ -57,7 +63,7 @@ on_start(InstId, #{server := {Host, Port},
                    password := Password,
                    auto_reconnect := AutoReconn,
                    pool_size := PoolSize,
-                   ssl := SSL } = Config) ->
+                   ssl := SSL} = Config) ->
     ?SLOG(info, #{msg => "starting_postgresql_connector",
                   connector => InstId, config => Config}),
     SslOpts = case maps:get(enable, SSL) of
@@ -74,7 +80,8 @@ on_start(InstId, #{server := {Host, Port},
                {password, Password},
                {database, DB},
                {auto_reconnect, reconn_interval(AutoReconn)},
-               {pool_size, PoolSize}],
+               {pool_size, PoolSize},
+               {named_queries, maps:to_list(maps:get(named_queries, Config, #{}))}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts),
     {ok, #{poolname => PoolName}}.
@@ -84,20 +91,17 @@ on_stop(InstId, #{poolname := PoolName}) ->
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
-on_query(InstId, QueryParams, AfterQuery, #{poolname := PoolName} = State) ->
-    {Command, Args} = case QueryParams of
-                          {query, SQL} -> {query, [SQL, []]};
-                          {query, SQL, Params} -> {query, [SQL, Params]};
-                          {prepared_query, Name, SQL} -> {prepared_query, [Name, SQL, []]};
-                          {prepared_query, Name, SQL, Params} -> {prepared_query, [Name, SQL, Params]}
-                      end,
-    ?TRACE("QUERY", "postgresql_connector_received",
-        #{connector => InstId, command => Command, args => Args, state => State}),
-    case Result = ecpool:pick_and_do(PoolName, {?MODULE, Command, Args}, no_handover) of
+on_query(InstId, {Type, NameOrSQL}, AfterQuery, #{poolname := _PoolName} = State) ->
+    on_query(InstId, {Type, NameOrSQL, []}, AfterQuery, State);
+
+on_query(InstId, {Type, NameOrSQL, Params}, AfterQuery, #{poolname := PoolName} = State) ->
+    ?SLOG(debug, #{msg => "postgresql connector received sql query",
+        connector => InstId, sql => NameOrSQL, state => State}),
+    case Result = ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Params]}, no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "postgresql_connector_do_sql_query_failed",
-                connector => InstId, sql => SQL, reason => Reason}),
+                msg => "postgresql connector do sql query failed",
+                connector => InstId, sql => NameOrSQL, reason => Reason}),
             emqx_resource:query_failed(AfterQuery);
         _ ->
             emqx_resource:query_success(AfterQuery)
@@ -118,13 +122,32 @@ connect(Opts) ->
     Host     = proplists:get_value(host, Opts),
     Username = proplists:get_value(username, Opts),
     Password = proplists:get_value(password, Opts),
-    epgsql:connect(Host, Username, Password, conn_opts(Opts)).
+    NamedQueries = proplists:get_value(named_queries, Opts),
+    case epgsql:connect(Host, Username, Password, conn_opts(Opts)) of
+        {ok, Conn} ->
+            case parse(Conn, NamedQueries) of
+                ok -> {ok, Conn};
+                {error, Reason} -> {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 query(Conn, SQL, Params) ->
     epgsql:equery(Conn, SQL, Params).
 
-prepared_query(Conn, Name, SQL, Params) ->
-    epgsql:prepared_query2(Conn, Name, SQL, Params).
+prepared_query(Conn, Name, Params) ->
+    epgsql:prepared_query2(Conn, Name, Params).
+
+parse(_Conn, []) ->
+    ok;
+parse(Conn, [{Name, Query} | More]) ->
+    case epgsql:parse2(Conn, Name, Query, []) of
+        {ok, _Statement} ->
+            parse(Conn, More);
+        Other ->
+            Other
+    end.
 
 conn_opts(Opts) ->
     conn_opts(Opts, []).
