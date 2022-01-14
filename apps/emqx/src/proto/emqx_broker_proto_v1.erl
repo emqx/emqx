@@ -24,6 +24,7 @@
         , forward_async/3
         , client_subscriptions/2
 
+        , lookup_client/2
         , kickout_client/2
         ]).
 
@@ -51,3 +52,8 @@ client_subscriptions(Node, ClientId) ->
 -spec kickout_client(node(), emqx_types:clientid()) -> ok | {badrpc, _}.
 kickout_client(Node, ClientId) ->
     rpc:call(Node, emqx_cm, kick_session, [ClientId]).
+
+-spec lookup_client(node(), {clientid, emqx_types:clientid()} | {username, emqx_types:username()}) ->
+          [emqx_cm:channel_info()] | {badrpc, _}.
+lookup_client(Node, Key) ->
+    rpc:call(Node, emqx_cm, lookup_client, [Key]).

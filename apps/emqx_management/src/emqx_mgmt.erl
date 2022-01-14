@@ -121,6 +121,12 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 
+-export_type([listener_manage_op/0]).
+
+-type listener_manage_op() :: start_listener
+                            | stop_listener
+                            | restart_listener.
+
 %% TODO: remove these function after all api use minirest version 1.X
 return() ->
     ok.
@@ -241,24 +247,11 @@ lookup_client({username, Username}, FormatFun) ->
     lists:append([lookup_client(Node, {username, Username}, FormatFun)
                   || Node <- mria_mnesia:running_nodes()]).
 
-lookup_client(Node, {clientid, ClientId}, {M,F}) when Node =:= node() ->
-    lists:append(lists:map(
-      fun(Key) ->
-        lists:map(fun M:F/1, ets:lookup(emqx_channel_info, Key))
-      end, ets:lookup(emqx_channel, ClientId)));
-
-lookup_client(Node, {clientid, ClientId}, FormatFun) ->
-    rpc_call(Node, lookup_client, [Node, {clientid, ClientId}, FormatFun]);
-
-lookup_client(Node, {username, Username}, {M,F}) when Node =:= node() ->
-    MatchSpec = [{ {'_', #{clientinfo => #{username => '$1'}}, '_'}
-                 , [{'=:=','$1', Username}]
-                 , ['$_']
-                 }],
-    lists:map(fun M:F/1, ets:select(emqx_channel_info, MatchSpec));
-
-lookup_client(Node, {username, Username}, FormatFun) ->
-    rpc_call(Node, lookup_client, [Node, {username, Username}, FormatFun]).
+lookup_client(Node, Key, {M, F}) ->
+    case wrap_rpc(emqx_broker_proto_v1:lookup_client(Node, Key)) of
+        {error, Err} -> {error, Err};
+        L            -> lists:map(fun M:F/1, L)
+    end.
 
 kickout_client({ClientID, FormatFun}) ->
     case lookup_client({clientid, ClientID}, FormatFun) of
@@ -464,10 +457,7 @@ listener_id_filter(Id, Listeners) ->
     Filter = fun(#{id := Id0}) -> Id0 =:= Id end,
     lists:filter(Filter, Listeners).
 
-
--spec manage_listener( Operation :: start_listener
-                                  | stop_listener
-                                  | restart_listener
+-spec manage_listener( listener_manage_op()
                      , Param :: map()) ->
           ok | {error, Reason :: term()}.
 manage_listener(Operation, #{id := ID, node := Node}) when Node =:= node()->

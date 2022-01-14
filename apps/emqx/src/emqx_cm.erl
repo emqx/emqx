@@ -56,6 +56,8 @@
 
 -export([ lookup_channels/1
         , lookup_channels/2
+
+        , lookup_client/1
         ]).
 
 %% Test/debug interface
@@ -80,7 +82,15 @@
         , get_connected_client_count/0
         ]).
 
+-export_type([ channel_info/0
+             ]).
+
 -type(chan_pid() :: pid()).
+
+-type(channel_info() :: { _Chan :: {emqx_types:clientid(), pid()}
+                        , _Info :: emqx_types:infos()
+                        , _Stats :: emqx_types:stats()
+                        }).
 
 %% Tables for channel management.
 -define(CHAN_TAB, emqx_channel).
@@ -501,6 +511,18 @@ lookup_channels(global, ClientId) ->
 
 lookup_channels(local, ClientId) ->
     [ChanPid || {_, ChanPid} <- ets:lookup(?CHAN_TAB, ClientId)].
+
+-spec lookup_client({clientid, emqx_types:clientid()} | {username, emqx_types:username()}) ->
+          [channel_info()].
+lookup_client({username, Username}) ->
+    MatchSpec = [{ {'_', #{clientinfo => #{username => '$1'}}, '_'}
+                 , [{'=:=','$1', Username}]
+                 , ['$_']
+                 }],
+    ets:select(emqx_channel_info, MatchSpec);
+lookup_client({clientid, ClientId}) ->
+    [Rec || Key <- ets:lookup(emqx_channel, ClientId)
+          , Rec <- ets:lookup(emqx_channel_info, Key)].
 
 %% @private
 rpc_call(Node, Fun, Args, Timeout) ->
