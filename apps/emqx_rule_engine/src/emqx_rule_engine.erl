@@ -50,6 +50,9 @@
         , clear_action/3
         ]).
 
+-export([ restore_action_metrics/2
+        ]).
+
 -type(rule() :: #rule{}).
 -type(action() :: #action{}).
 -type(resource() :: #resource{}).
@@ -491,7 +494,7 @@ may_update_rule_params(Rule, Params = #{on_action_failed := OnFailed}) ->
 may_update_rule_params(Rule = #rule{actions = OldActions}, Params = #{actions := Actions}) ->
     %% prepare new actions before removing old ones
     NewActions = prepare_actions(Actions, maps:get(enabled, Params, true)),
-    ok = restore_action_metrics(OldActions, NewActions),
+    _ = ?CLUSTER_CALL(restore_action_metrics, [OldActions, NewActions]),
     _ = ?CLUSTER_CALL(clear_actions, [OldActions]),
     may_update_rule_params(Rule#rule{actions = NewActions}, maps:remove(actions, Params));
 may_update_rule_params(Rule, _Params) -> %% ignore all the unsupported params

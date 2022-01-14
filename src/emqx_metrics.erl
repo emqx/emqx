@@ -146,7 +146,7 @@
          %% PubSub Metrics
          {counter, 'messages.publish'},       % Messages Publish
          {counter, 'messages.dropped'},       % Messages dropped due to no subscribers
-         {counter, 'messages.dropped.expired'},  % QoS2 Messages expired
+         {counter, 'messages.dropped.await_pubrel_timeout'},  % QoS2 await PUBREL timeout
          {counter, 'messages.dropped.no_subscribers'},  % Messages dropped
          {counter, 'messages.forward'},       % Messages forward
          {counter, 'messages.retained'},      % Messages retained
@@ -542,7 +542,8 @@ reserved_idx('messages.qos2.received')       -> 106;
 reserved_idx('messages.qos2.sent')           -> 107;
 reserved_idx('messages.publish')             -> 108;
 reserved_idx('messages.dropped')             -> 109;
-reserved_idx('messages.dropped.expired')     -> 110;
+reserved_idx('messages.dropped.expired')     -> 110; %% To be removed in 5.0
+reserved_idx('messages.dropped.await_pubrel_timeout') -> 110;
 reserved_idx('messages.dropped.no_subscribers') -> 111;
 reserved_idx('messages.forward')             -> 112;
 reserved_idx('messages.retained')            -> 113;
