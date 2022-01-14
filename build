@@ -139,7 +139,6 @@ make_tgz() {
       ELIXIR_MAKE_TAR=yes make_elixir_rel
 
       local relpath="_build/prod"
-      tarball="${relpath}/${PROFILE}-${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
       target="${pkgpath}/${PROFILE}-${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
     else
       # build the tarball again to ensure relup is included
@@ -147,10 +146,10 @@ make_tgz() {
       make_rel
 
       local relpath="_build/${PROFILE}/rel/emqx"
-      tarball="${relpath}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
       target="${pkgpath}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
     fi
 
+    tarball="${relpath}/emqx-${PKG_VSN}.tar.gz"
     tard="/tmp/emqx_untar_${PKG_VSN}"
     rm -rf "${tard}"
     mkdir -p "${tard}/emqx"

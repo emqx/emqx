@@ -235,10 +235,10 @@ $1-elixirpkg: $1-pkg-elixir
 endef
 $(foreach pt,$(REL_PROFILES),$(eval $(call gen-elixirpkg-target,$(pt))))
 
-.PHONY: $(REL_PROFILES:%=%-elixir-zip)
-define gen-elixir-zip-target
-$1-elixir-zip: $(ELIXIR_COMMON_DEPS) mix-deps-get
-	@env IS_ELIXIR=yes $(BUILD) $1 zip
+.PHONY: $(REL_PROFILES:%=%-elixir-tgz)
+define gen-elixir-tgz-target
+$1-elixir-tgz: $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
+	@env IS_ELIXIR=yes $(BUILD) $1 tgz
 endef
-ALL_ELIXIR_ZIPS = $(REL_PROFILES)
-$(foreach zt,$(ALL_ELIXIR_ZIPS),$(eval $(call gen-elixir-zip-target,$(zt))))
+ALL_ELIXIR_TGZS = $(REL_PROFILES)
+$(foreach tt,$(ALL_ELIXIR_TGZS),$(eval $(call gen-elixir-tgz-target,$(tt))))

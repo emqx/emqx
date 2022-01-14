@@ -397,10 +397,10 @@ jobs:
       working-directory: source
       if: ${{ matrix.build_elixir == 'with_elixir' }}
       run: |
-        ## we currently only build zips for elixir
+        ## we currently only build tgzs for elixir
         ./scripts/buildx.sh \
           --profile "${PROFILE}" \
-          --pkgtype "zip" \
+          --pkgtype "tgz" \
           --arch "${ARCH}" \
           --otp "${OTP}" \
           --elixir "${ELIXIR}" \

@@ -84,8 +84,8 @@ jobs:
         .ci/build_packages/tests.sh "$EMQX_PKG_NAME" pkg amd64
     - name: build and test zip package (Elixir)
       run: |
-        make ${EMQX_NAME}-elixir-zip
-        .ci/build_packages/tests.sh "$EMQX_PKG_NAME" zip amd64
+        make ${EMQX_NAME}-elixir-tgz
+        .ci/build_packages/tests.sh "$EMQX_PKG_NAME" tgz amd64
     - name: build and test deb/rpm packages (Elixir)
       run: |
         make ${EMQX_NAME}-elixirpkg

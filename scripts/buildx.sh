@@ -100,7 +100,7 @@ case "$PKGTYPE" in
     true
     ;;
   *)
-    echo "Bad --pkgtype option, should be zip or pkg"
+    echo "Bad --pkgtype option, should be tgz or pkg"
     exit 1
     ;;
 esac
@@ -112,9 +112,10 @@ PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh "$PROFILE")}"
 if [ "$WITH_ELIXIR" = "yes" ]
 then
   PKG_NAME="${PROFILE}-${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
-  PROFILE="${PROFILE}-elixir"
+  MAKE_TARGET="${PROFILE}-elixir-${PKGTYPE}"
 else
   PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
+  MAKE_TARGET="${PROFILE}-${PKGTYPE}"
 fi
 
 docker info
@@ -125,4 +126,4 @@ docker run -i --rm \
     --platform="linux/$ARCH" \
     -e EMQX_NAME="$PROFILE" \
     "$BUILDER" \
-    bash -euc "make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PKG_NAME $PKGTYPE $ARCH"
+    bash -euc "make ${MAKE_TARGET} && .ci/build_packages/tests.sh $PKG_NAME $PKGTYPE $ARCH"

@@ -13,7 +13,7 @@ case "${2:-}" in
     true
     ;;
   *)
-    echo "Usage $0 <PACKAGE_NAME> zip|pkg"
+    echo "Usage $0 <PACKAGE_NAME> tgz|pkg"
     exit 1
     ;;
 esac
