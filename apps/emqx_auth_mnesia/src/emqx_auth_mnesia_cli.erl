@@ -63,7 +63,12 @@ force_add_user(Login, Password) ->
         password = encrypted_data(Password),
         created_at = erlang:system_time(millisecond)
     },
-    ret(mnesia:transaction(fun insert_or_update_user/2, [Password, User])).
+    case ret(mnesia:transaction(fun insert_or_update_user/2, [Password, User])) of
+        {ok, override} ->
+            ?LOG(warning, "[Mnesia] (~p)'s password has be updated.", [Login]),
+            ok;
+        Other -> Other
+    end.
 
 insert_or_update_user(NewPwd, User = #emqx_user{login = Login}) ->
     case mnesia:read(?TABLE, Login) of
@@ -72,9 +77,8 @@ insert_or_update_user(NewPwd, User = #emqx_user{login = Login}) ->
             case emqx_auth_mnesia:match_password(NewPwd, hash_type(), [Pwd])  of
                 true -> ok;
                 false ->
-                    Res = mnesia:write(User),
-                    ?LOG(warning, "[Mnesia] (~p)'s password has be updated.", [Login]),
-                    Res
+                    ok = mnesia:write(User),
+                    {ok, override}
             end
     end.
 
@@ -128,7 +132,7 @@ comparing({?TABLE, _, _, CreatedAt1},
           {?TABLE, _, _, CreatedAt2}) ->
     CreatedAt1 >= CreatedAt2.
 
-ret({atomic, ok})     -> ok;
+ret({atomic, Res}) -> Res;
 ret({aborted, Error}) -> {error, Error}.
 
 encrypted_data(Password) ->
