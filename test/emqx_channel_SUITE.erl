@@ -80,15 +80,16 @@ t_chan_info(_) ->
     ?assertEqual(clientinfo(), ClientInfo).
 
 t_chan_caps(_) ->
-     #{max_clientid_len := 65535,
-       max_qos_allowed := 2,
-       max_topic_alias := 65535,
-       max_topic_levels := 128,
-       retain_available := true,
-       shared_subscription := true,
-       subscription_identifiers := true,
-       wildcard_subscription := true
-      } = emqx_channel:caps(channel()).
+     ?assertMatch(#{
+        max_clientid_len := 65535,
+        max_qos_allowed := 2,
+        max_topic_alias := 65535,
+        max_topic_levels := Level,
+        retain_available := true,
+        shared_subscription := true,
+        subscription_identifiers := true,
+        wildcard_subscription := true
+      } when is_integer(Level), emqx_channel:caps(channel())).
 
 %%--------------------------------------------------------------------
 %% Test cases for channel handle_in
@@ -216,14 +217,14 @@ t_handle_in_qos2_publish_with_error_return(_) ->
 t_handle_in_puback_ok(_) ->
     Msg = emqx_message:make(<<"t">>, <<"payload">>),
     ok = meck:expect(emqx_session, puback,
-                     fun(_PacketId, Session) -> {ok, Msg, Session} end),
+                     fun(_, _PacketId, Session) -> {ok, Msg, Session} end),
     Channel = channel(#{conn_state => connected}),
     {ok, _NChannel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), Channel).
     % ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, NChannel)).
 
 t_handle_in_puback_id_in_use(_) ->
     ok = meck:expect(emqx_session, puback,
-                     fun(_, _Session) ->
+                     fun(_, _, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_IN_USE}
                      end),
     {ok, _Channel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), channel()).
@@ -231,7 +232,7 @@ t_handle_in_puback_id_in_use(_) ->
 
 t_handle_in_puback_id_not_found(_) ->
     ok = meck:expect(emqx_session, puback,
-                     fun(_, _Session) ->
+                     fun(_, _, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
                      end),
     {ok, _Channel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), channel()).
@@ -305,13 +306,13 @@ t_handle_in_pubrel_not_found_error(_) ->
         emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubcomp_ok(_) ->
-    ok = meck:expect(emqx_session, pubcomp, fun(_, Session) -> {ok, Session} end),
+    ok = meck:expect(emqx_session, pubcomp, fun(_, _, Session) -> {ok, Session} end),
     {ok, _Channel} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), channel()).
     % ?assertEqual(#{pubcomp_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
 t_handle_in_pubcomp_not_found_error(_) ->
     ok = meck:expect(emqx_session, pubcomp,
-                     fun(_PacketId, _Session) ->
+                     fun(_, _PacketId, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
                      end),
     Channel = channel(#{conn_state => connected}),
@@ -633,7 +634,7 @@ t_handle_timeout_keepalive(_) ->
 
 t_handle_timeout_retry_delivery(_) ->
     TRef = make_ref(),
-    ok = meck:expect(emqx_session, retry, fun(Session) -> {ok, Session} end),
+    ok = meck:expect(emqx_session, retry, fun(_, Session) -> {ok, Session} end),
     Channel = emqx_channel:set_field(timers, #{retry_timer => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(TRef, retry_delivery, Channel).
 
