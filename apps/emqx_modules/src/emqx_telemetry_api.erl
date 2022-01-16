@@ -71,13 +71,13 @@ schema("/telemetry/data") ->
      }.
 
 status_schema(Desc) ->
-    mk(ref(?MODULE, status), #{desc => Desc}).
+    mk(ref(?MODULE, status), #{in => body, desc => Desc}).
 
 fields(status) ->
     [ { enable
       , mk( boolean()
           , #{ desc => <<"Telemetry status">>
-             , default => false
+             , default => true
              , example => false
              })
       }
