@@ -15,36 +15,36 @@
 %%--------------------------------------------------------------------
 -module(emqx_resource_health_check).
 
--export([ start_link/2
-        , create_checker/2
+-export([ start_link/3
+        , create_checker/3
         , delete_checker/1
         ]).
 
--export([health_check/2]).
+-export([health_check/3]).
 
 -define(SUP, emqx_resource_health_check_sup).
 -define(ID(NAME), {resource_health_check, NAME}).
 
-child_spec(Name, Sleep) ->
+child_spec(Name, Sleep, Timeout) ->
     #{id => ?ID(Name),
-      start => {?MODULE, start_link, [Name, Sleep]},
+      start => {?MODULE, start_link, [Name, Sleep, Timeout]},
       restart => transient,
       shutdown => 5000, type => worker, modules => [?MODULE]}.
 
-start_link(Name, Sleep) ->
-    Pid = proc_lib:spawn_link(?MODULE, health_check, [Name, Sleep]),
+start_link(Name, Sleep, Timeout) ->
+    Pid = proc_lib:spawn_link(?MODULE, health_check, [Name, Sleep, Timeout]),
     {ok, Pid}.
 
-create_checker(Name, Sleep) ->
-    create_checker(Name, Sleep, false).
+create_checker(Name, Sleep, Timeout) ->
+    create_checker(Name, Sleep, Timeout, false).
 
-create_checker(Name, Sleep, Retry) ->
-    case supervisor:start_child(?SUP, child_spec(Name, Sleep)) of
+create_checker(Name, Sleep, Timeout, Retry) ->
+    case supervisor:start_child(?SUP, child_spec(Name, Sleep, Timeout)) of
         {ok, _} -> ok;
         {error, already_present} -> ok;
         {error, {already_started, _}} when Retry == false ->
             ok = delete_checker(Name),
-            create_checker(Name, Sleep, true);
+            create_checker(Name, Sleep, Timeout, true);
         Error -> Error
     end.
 
@@ -54,13 +54,17 @@ delete_checker(Name) ->
         Error -> Error
 	end.
 
-health_check(Name, SleepTime) ->
-    case emqx_resource:health_check(Name) of
-        ok ->
-            emqx_alarm:deactivate(Name);
-        {error, _} ->
-            emqx_alarm:activate(Name, #{name => Name},
-                <<Name/binary, " health check failed">>)
+health_check(Name, SleepTime, Timeout) ->
+    try
+        case emqx_resource:health_check(Name, Timeout) of
+            ok ->
+                emqx_alarm:deactivate(Name);
+            {error, _} ->
+                emqx_alarm:activate(Name, #{name => Name},
+                    <<Name/binary, " health check failed">>)
+        end
+    catch 
+        _ -> emqx_alarm:deactivate(Name)
     end,
     timer:sleep(SleepTime),
-    health_check(Name, SleepTime).
+    health_check(Name, SleepTime, Timeout).

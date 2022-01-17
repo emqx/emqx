@@ -109,13 +109,13 @@ t_healthy(_) ->
 
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
 
-    ok = emqx_resource:health_check(?ID),
+    ok = emqx_resource:health_check(?ID, 10000),
 
     [#{status := started}] = emqx_resource:list_instances_verbose(),
 
     erlang:exit(Pid, shutdown),
 
-    {error, dead} = emqx_resource:health_check(?ID),
+    {error, dead} = emqx_resource:health_check(?ID, 10000),
 
     [#{status := stopped}] = emqx_resource:list_instances_verbose(),
 

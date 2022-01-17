@@ -59,7 +59,7 @@
 %% They also save the state after the call finished (except query/2,3).
 -export([ restart/1  %% restart the instance.
         , restart/2
-        , health_check/1 %% verify if the resource is working normally
+        , health_check/2 %% verify if the resource is working normally
         , stop/1   %% stop the instance
         , query/2  %% query the instance
         , query/3  %% query the instance with after_query()
@@ -227,9 +227,9 @@ restart(InstId, Opts) ->
 stop(InstId) ->
     call_instance(InstId, {stop, InstId}).
 
--spec health_check(instance_id()) -> ok | {error, Reason :: term()}.
-health_check(InstId) ->
-    call_instance(InstId, {health_check, InstId}).
+-spec health_check(instance_id(), integer()) -> ok | {error, Reason :: term()}.
+health_check(InstId, Timeout) ->
+    call_instance(InstId, {health_check, InstId}, Timeout).
 
 -spec get_instance(instance_id()) -> {ok, resource_data()} | {error, Reason :: term()}.
 get_instance(InstId) ->
@@ -358,6 +358,9 @@ inc_metrics_funcs(InstId) ->
 
 call_instance(InstId, Query) ->
     emqx_resource_instance:hash_call(InstId, Query).
+
+call_instance(InstId, Query, Timeout) ->
+    emqx_resource_instance:hash_call(InstId, Query, Timeout).
 
 safe_apply(Func, Args) ->
     ?SAFE_CALL(erlang:apply(Func, Args)).
