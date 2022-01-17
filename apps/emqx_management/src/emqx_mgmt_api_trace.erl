@@ -261,7 +261,7 @@ trace(get, _Params) ->
     end;
 trace(post, #{body := Param}) ->
     case emqx_trace:create(Param) of
-        ok -> {200};
+        {ok, Trace0} -> {200, format_trace(Trace0)};
         {error, {already_existed, Name}} ->
             {400, #{
                 code => 'ALREADY_EXISTED',
@@ -280,11 +280,27 @@ trace(post, #{body := Param}) ->
     end;
 trace(delete, _Param) ->
     ok = emqx_trace:clear(),
-    {200}.
+    {204}.
+
+format_trace(Trace0) ->
+    [
+        #{start_at := Start, end_at := End,
+            enable := Enable, type := Type, filter := Filter} = Trace1
+    ] = emqx_trace:format([Trace0]),
+    Now = erlang:system_time(second),
+    LogSize = lists:foldl(fun(Node, Acc) -> Acc#{Node => 0} end, #{},
+        mria_mnesia:running_nodes()),
+    Trace2 = maps:without([enable, filter], Trace1),
+    Trace2#{log_size => LogSize
+        , Type => iolist_to_binary(Filter)
+        , start_at => list_to_binary(calendar:system_time_to_rfc3339(Start))
+        , end_at => list_to_binary(calendar:system_time_to_rfc3339(End))
+        , status => status(Enable, Start, End, Now)
+    }.
 
 delete_trace(delete, #{bindings := #{name := Name}}) ->
     case emqx_trace:delete(Name) of
-        ok -> {200};
+        ok -> {204};
         {error, not_found} -> ?NOT_FOUND(Name)
     end.
 

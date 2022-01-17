@@ -490,7 +490,7 @@ trace_cluster_on(Name, Type, Filter, DurationS0) ->
              , end_at => list_to_binary(calendar:system_time_to_rfc3339(Now + DurationS))
              },
     case emqx_trace:create(Trace) of
-        ok ->
+        {ok, _} ->
             emqx_ctl:print("cluster_trace ~p ~s ~s successfully~n", [Type, Filter, Name]);
         {error, Error} ->
             emqx_ctl:print("[error] cluster_trace ~s ~s=~s ~p~n",
