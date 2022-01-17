@@ -571,8 +571,9 @@ await(PacketId, Msg, Session = #session{inflight = Inflight}) ->
 %% Retry Delivery
 %%--------------------------------------------------------------------
 
--spec(retry(emqx_types:clientinfo(), session()) ->
-    {ok, session()} | {ok, replies(), timeout(), session()}).
+-spec(retry(emqx_types:clientinfo(), session())
+    -> {ok, session()}
+     | {ok, replies(), timeout(), session()}).
 retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = RetryInterval}) ->
     case emqx_inflight:is_empty(Inflight) of
         true  -> {ok, Session};

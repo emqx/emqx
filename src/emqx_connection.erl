@@ -123,7 +123,6 @@
                     , 'recv_msg.qos2'
                     , 'recv_msg.dropped'
                     , 'recv_msg.dropped.expired'
-
                     , send_pkt
                     , send_msg
                     , 'send_msg.qos0'
