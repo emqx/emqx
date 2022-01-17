@@ -427,8 +427,8 @@ dequeue(ClientInfo, Cnt, Msgs, Q) ->
         {{value, Msg}, Q1} ->
             case emqx_message:is_expired(Msg) of
                 true ->
-                    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, expired]),
                     ok = inc_delivery_expired_cnt(),
+                    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, expired]),
                     dequeue(ClientInfo, Cnt, Msgs, Q1);
                 false -> dequeue(ClientInfo, acc_cnt(Msg, Cnt), [Msg | Msgs], Q1)
             end
@@ -503,11 +503,14 @@ log_dropped(ClientInfo, Msg = #message{qos = QoS}, #session{mqueue = Q}) ->
             ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, qos0_msg]),
             ok = emqx_metrics:inc('delivery.dropped'),
             ok = emqx_metrics:inc('delivery.dropped.qos0_msg'),
+            ok = inc_pd('send_msg.dropped'),
             ?LOG(warning, "Dropped qos0 msg: ~s", [emqx_message:format(Msg)]);
         false ->
             ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, queue_full]),
             ok = emqx_metrics:inc('delivery.dropped'),
             ok = emqx_metrics:inc('delivery.dropped.queue_full'),
+            ok = inc_pd('send_msg.dropped'),
+            ok = inc_pd('send_msg.dropped.queue_full'),
             ?LOG(warning, "Dropped msg due to mqueue is full: ~s",
                  [emqx_message:format(Msg)])
     end.
@@ -568,7 +571,9 @@ await(PacketId, Msg, Session = #session{inflight = Inflight}) ->
 %% Retry Delivery
 %%--------------------------------------------------------------------
 
--spec(retry(emqx_types:clientinfo(), session()) -> {ok, session()} | {ok, replies(), timeout(), session()}).
+-spec(retry(emqx_types:clientinfo(), session())
+    -> {ok, session()}
+     | {ok, replies(), timeout(), session()}).
 retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = RetryInterval}) ->
     case emqx_inflight:is_empty(Inflight) of
         true  -> {ok, Session};
@@ -680,12 +685,22 @@ inc_delivery_expired_cnt() ->
     inc_delivery_expired_cnt(1).
 
 inc_delivery_expired_cnt(N) ->
+    ok = inc_pd('send_msg.dropped', N),
+    ok = inc_pd('send_msg.dropped.expired', N),
     ok = emqx_metrics:inc('delivery.dropped', N),
     emqx_metrics:inc('delivery.dropped.expired', N).
 
 inc_await_pubrel_timeout(N) ->
+    ok = inc_pd('recv_msg.dropped', N),
+    ok = inc_pd('recv_msg.dropped.expired', N),
     ok = emqx_metrics:inc('messages.dropped', N),
     emqx_metrics:inc('messages.dropped.await_pubrel_timeout', N).
+
+inc_pd(Key) ->
+    inc_pd(Key, 1).
+inc_pd(Key, Inc) ->
+    _ = emqx_pd:inc_counter(Key, Inc),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Next Packet Id

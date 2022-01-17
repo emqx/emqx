@@ -108,9 +108,38 @@
 -type(state() :: #state{}).
 
 -define(ACTIVE_N, 100).
--define(INFO_KEYS, [socktype, peername, sockname, sockstate, active_n]).
--define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
--define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
+
+-define(INFO_KEYS, [ socktype
+                   , peername
+                   , sockname
+                   , sockstate
+                   , active_n
+                   ]).
+
+-define(CONN_STATS, [ recv_pkt
+                    , recv_msg
+                    , 'recv_msg.qos0'
+                    , 'recv_msg.qos1'
+                    , 'recv_msg.qos2'
+                    , 'recv_msg.dropped'
+                    , 'recv_msg.dropped.expired'
+                    , send_pkt
+                    , send_msg
+                    , 'send_msg.qos0'
+                    , 'send_msg.qos1'
+                    , 'send_msg.qos2'
+                    , 'send_msg.dropped'
+                    , 'send_msg.dropped.expired'
+                    , 'send_msg.dropped.queue_full'
+                    , 'send_msg.dropped.too_large'
+                    ]).
+
+-define(SOCK_STATS, [ recv_oct
+                    , recv_cnt
+                    , send_oct
+                    , send_cnt
+                    , send_pend
+                    ]).
 
 -define(ENABLED(X), (X =/= undefined)).
 
@@ -146,7 +175,7 @@ start_link(Transport, Socket, Options) ->
 %%--------------------------------------------------------------------
 
 %% @doc Get infos of the connection/channel.
--spec(info(pid()|state()) -> emqx_types:infos()).
+-spec(info(pid() | state()) -> emqx_types:infos()).
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
 info(State = #state{channel = Channel}) ->
@@ -175,7 +204,7 @@ info(limiter, #state{limiter = Limiter}) ->
     maybe_apply(fun emqx_limiter:info/1, Limiter).
 
 %% @doc Get stats of the connection/channel.
--spec(stats(pid()|state()) -> emqx_types:stats()).
+-spec(stats(pid() | state()) -> emqx_types:stats()).
 stats(CPid) when is_pid(CPid) ->
     call(CPid, stats);
 stats(#state{transport = Transport,
@@ -359,7 +388,7 @@ cancel_stats_timer(State) -> State.
 
 process_msg([], State) ->
     {ok, State};
-process_msg([Msg|More], State) ->
+process_msg([Msg | More], State) ->
     try
         case handle_msg(Msg, State) of
             ok ->
@@ -453,7 +482,7 @@ handle_msg({Passive, _Sock}, State)
 
 handle_msg(Deliver = {deliver, _Topic, _Msg},
            #state{active_n = ActiveN} = State) ->
-    Delivers = [Deliver|emqx_misc:drain_deliver(ActiveN)],
+    Delivers = [Deliver | emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 
 %% Something sent
@@ -627,7 +656,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             {Packets, State#state{parse_state = NParseState}};
         {ok, Packet, Rest, NParseState} ->
             NState = State#state{parse_state = NParseState},
-            parse_incoming(Rest, [Packet|Packets], NState)
+            parse_incoming(Rest, [Packet | Packets], NState)
     catch
         error:proxy_protocol_config_disabled:_Stk ->
             ?LOG(error,
@@ -691,6 +720,7 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
                          [emqx_packet:format(Packet)]),
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
                     ok = emqx_metrics:inc('delivery.dropped'),
+                    ok = inc_outgoing_stats({error, message_too_large}),
                     <<>>;
             Data -> ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
                     ok = inc_outgoing_stats(Packet),
@@ -835,17 +865,31 @@ inc_incoming_stats(Packet = ?PACKET(Type)) ->
     emqx_metrics:inc_recv(Packet).
 
 -compile({inline, [inc_outgoing_stats/1]}).
+inc_outgoing_stats({error, message_too_large}) ->
+    inc_counter('send_msg.dropped', 1),
+    inc_counter('send_msg.dropped.too_large', 1);
 inc_outgoing_stats(Packet = ?PACKET(Type)) ->
     inc_counter(send_pkt, 1),
     case Type =:= ?PUBLISH of
         true ->
             inc_counter(send_msg, 1),
-            inc_counter(outgoing_pubs, 1);
+            inc_counter(outgoing_pubs, 1),
+            inc_qos_stats(send_msg, Packet);
         false ->
             ok
     end,
     emqx_metrics:inc_sent(Packet).
 
+inc_qos_stats(Type, #mqtt_packet{header = #mqtt_packet_header{qos = QoS}}) ->
+    inc_counter(inc_qos_stats_key(Type, QoS), 1).
+
+inc_qos_stats_key(send_msg, ?QOS_0) -> 'send_msg.qos0';
+inc_qos_stats_key(send_msg, ?QOS_1) -> 'send_msg.qos1';
+inc_qos_stats_key(send_msg, ?QOS_2) -> 'send_msg.qos2';
+
+inc_qos_stats_key(recv_msg, ?QOS_0) -> 'recv_msg.qos0';
+inc_qos_stats_key(recv_msg, ?QOS_1) -> 'recv_msg.qos1';
+inc_qos_stats_key(recv_msg, ?QOS_2) -> 'recv_msg.qos2'.
 %%--------------------------------------------------------------------
 %% Helper functions
 
