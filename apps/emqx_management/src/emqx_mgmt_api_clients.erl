@@ -313,8 +313,14 @@ format_channel_info({_Key, Info, Stats0}) ->
                              inflight, max_inflight, awaiting_rel,
                              max_awaiting_rel, mqueue_len, mqueue_dropped,
                              max_mqueue, heap_size, reductions, mailbox_len,
-                             recv_cnt, recv_msg, recv_oct, recv_pkt, send_cnt,
-                             send_msg, send_oct, send_pkt], NStats),
+                             recv_cnt,
+                             recv_msg, 'recv_msg.qos0', 'recv_msg.qos1', 'recv_msg.qos2',
+                            'recv_msg.dropped', 'recv_msg.dropped.expired',
+                             recv_oct, recv_pkt, send_cnt,
+                             send_msg, 'send_msg.qos0', 'send_msg.qos1', 'send_msg.qos2',
+                            'send_msg.dropped', 'send_msg.dropped.expired',
+                            'send_msg.dropped.queue_full', 'send_msg.dropped.too_large',
+                             send_oct, send_pkt], NStats),
                  maps:with([clientid, username, mountpoint, is_bridge, zone], ClientInfo),
                  maps:with([clean_start, keepalive, expiry_interval, proto_name,
                             proto_ver, peername, connected_at, disconnected_at], ConnInfo),
@@ -373,7 +379,7 @@ match_fun(Ms, Fuzzy) ->
 
 run_fuzzy_match(_, []) ->
     true;
-run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr}|Fuzzy]) ->
+run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} | Fuzzy]) ->
     Val = case maps:get(Key, ClientInfo, undefined) of
               undefined -> <<>>;
               V -> V
