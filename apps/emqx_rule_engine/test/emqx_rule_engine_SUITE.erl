@@ -87,6 +87,7 @@ groups() ->
        t_sqlparse_array_range_1,
        t_sqlparse_array_range_2,
        t_sqlparse_true_false,
+       t_sqlparse_undefined_variable,
        t_sqlparse_new_map
       ]},
      {events, [],
@@ -1218,6 +1219,35 @@ t_sqlparse_true_false(_Config) ->
                    <<"x">> := #{<<"y">> := false},
                    <<"c">> := [true]
                    }, Res00).
+
+t_sqlparse_undefined_variable(_Config) ->
+    %% undefined == undefined
+    Sql00 = "select "
+            "a, b "
+            "from \"t/#\" "
+            "where a = b"
+            ,
+    {ok, Res00} = emqx_rule_sqltester:test(
+                    #{sql => Sql00, context => #{payload => <<"">>, topic => <<"t/a">>}}),
+    ?assertMatch(#{}, Res00),
+    ?assertEqual(0, map_size(Res00)),
+    %% undefined compare to non-undefined variables should return false
+    Sql01 = "select "
+            "a, b "
+            "from \"t/#\" "
+            "where a > b"
+            ,
+    {error, nomatch} = emqx_rule_sqltester:test(
+                    #{sql => Sql01,
+                      context => #{payload => <<"{\"b\":1}">>, topic => <<"t/a">>}}),
+    Sql02 = "select "
+            "a < b as c "
+            "from \"t/#\" "
+            ,
+    {ok, Res02} = emqx_rule_sqltester:test(
+                    #{sql => Sql02,
+                      context => #{payload => <<"{\"b\":1}">>, topic => <<"t/a">>}}),
+    ?assertMatch(#{<<"c">> := false}, Res02).
 
 t_sqlparse_new_map(_Config) ->
     %% construct a range without 'as'

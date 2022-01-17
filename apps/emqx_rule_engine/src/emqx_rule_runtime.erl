@@ -218,6 +218,11 @@ match_conditions({Op, L, R}, Data) when ?is_comp(Op) ->
 match_conditions({}, _Data) ->
     true.
 
+%% compare to an undefined variable
+compare(Op, undefined, undefined) ->
+    do_compare(Op, undefined, undefined);
+compare(_Op, L, R) when L == undefined; R == undefined ->
+    false;
 %% comparing numbers against strings
 compare(Op, L, R) when is_number(L), is_binary(R) ->
     do_compare(Op, L, number(R));
