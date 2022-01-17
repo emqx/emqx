@@ -24,7 +24,7 @@
 
 -logger_header("[SLOW Subs]").
 
--export([ start_link/1, on_publish_completed/3, enable/0
+-export([ start_link/1, on_delivery_completed/3, enable/0
         , disable/0, clear_history/0, init_tab/0
         ]).
 
@@ -81,18 +81,18 @@
 start_link(Env) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Env], []).
 
-on_publish_completed(#message{timestamp = Ts}, #{session_birth_time := BirthTime}, _Cfg)
+on_delivery_completed(#message{timestamp = Ts}, #{session_birth_time := BirthTime}, _Cfg)
   when Ts =< BirthTime ->
     ok;
 
-on_publish_completed(Msg, Env, Cfg) ->
-    on_publish_completed(Msg, Env, erlang:system_time(millisecond), Cfg).
+on_delivery_completed(Msg, Env, Cfg) ->
+    on_delivery_completed(Msg, Env, erlang:system_time(millisecond), Cfg).
 
-on_publish_completed(#message{topic = Topic} = Msg,
-                     #{clientid := ClientId},
-                     Now, #{threshold := Threshold,
-                            stats_type := StatsType,
-                            max_size := MaxSize}) ->
+on_delivery_completed(#message{topic = Topic} = Msg,
+                      #{clientid := ClientId},
+                      Now, #{threshold := Threshold,
+                             stats_type := StatsType,
+                             max_size := MaxSize}) ->
     TimeSpan = calc_timespan(StatsType, Msg, Now),
     case TimeSpan =< Threshold of
         true -> ok;
@@ -190,8 +190,8 @@ load(Cfg) ->
     MaxSize = get_value(top_k_num, Cfg),
     StatsType = get_value(stats_type, Cfg),
     Threshold = get_value(threshold, Cfg),
-    _ = emqx:hook('message.publish_completed',
-                  fun ?MODULE:on_publish_completed/3,
+    _ = emqx:hook('delivery.completed',
+                  fun ?MODULE:on_delivery_completed/3,
                   [#{max_size => MaxSize,
                      stats_type => StatsType,
                      threshold => Threshold
@@ -199,7 +199,7 @@ load(Cfg) ->
     ok.
 
 unload() ->
-    emqx:unhook('message.publish_completed', fun ?MODULE:on_publish_completed/3 ),
+    emqx:unhook('delivery.completed', fun ?MODULE:on_delivery_completed/3 ),
     do_clear_history().
 
 do_clear(Cfg, Logs) ->

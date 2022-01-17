@@ -335,7 +335,7 @@ is_awaiting_full(#session{awaiting_rel = AwaitingRel,
 puback(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
-            on_publish_completed(Msg, Session),
+            on_delivery_completed(Msg, Session),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             return_with(Msg, dequeue(ClientInfo, Session#session{inflight = Inflight1}));
         {value, _Other} ->
@@ -393,7 +393,7 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
 pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Pubrel, Msg}} when is_record(Pubrel, pubrel_await) ->
-            on_publish_completed(Msg, Session),
+            on_delivery_completed(Msg, Session),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             dequeue(ClientInfo, Session#session{inflight = Inflight1});
         {value, _Other} ->
@@ -460,7 +460,7 @@ do_deliver(ClientInfo, [Msg | More], Acc, Session) ->
     end.
 
 deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, Session) ->
-    on_publish_completed(Msg, Session),
+    on_delivery_completed(Msg, Session),
     {ok, [{undefined, maybe_ack(Msg)}], Session};
 
 deliver_msg(ClientInfo, Msg = #message{qos = QoS}, Session =
@@ -712,9 +712,9 @@ next_pkt_id(Session = #session{next_pkt_id = Id}) ->
 %%--------------------------------------------------------------------
 %% Message Latency Stats
 %%--------------------------------------------------------------------
-on_publish_completed(Msg,
-                     #session{clientid = ClientId, created_at = CreateAt}) ->
-    emqx:run_hook('message.publish_completed',
+on_delivery_completed(Msg,
+                      #session{clientid = ClientId, created_at = CreateAt}) ->
+    emqx:run_hook('delivery.completed',
                   [Msg, #{ session_birth_time => CreateAt
                          , clientid => ClientId
                          }]).
