@@ -241,7 +241,7 @@ handle_call({update_config, {delete, ToDelete}, _}, _From, State) ->
                      orders := maps:remove(ToDelete, Orders)
                     },
 
-    emqx_exhook_metrics:delete_server(ToDelete),
+    emqx_exhook_metrics:on_server_deleted(ToDelete),
 
     {reply, ok, State3};
 

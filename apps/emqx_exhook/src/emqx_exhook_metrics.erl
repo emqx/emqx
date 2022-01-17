@@ -21,18 +21,17 @@
 %% API
 -export([ init/0, succeed/2, failed/2
         , update/1, new_metrics_info/0, servers_metrics/0
-        , delete_server/1, server_metrics/1, hooks_metrics/1
-        , metrics_aggregate/1, metrics_aggregate_by_key/2, hooks_metrics_aggregate/1
+        , on_server_deleted/1, server_metrics/1, hooks_metrics/1
+        , metrics_aggregate/1, metrics_aggregate_by_key/2
         , metrics_aggregate_by/2
         ]).
 
--record(metrics, {
-                  index :: index()
-                 ,succeed = 0 :: non_neg_integer()
-                 ,failed = 0 :: non_neg_integer()
-                 ,rate = 0 :: non_neg_integer()
-                 ,max_rate = 0 :: non_neg_integer()
-                 ,window_rate :: integer()
+-record(metrics, { index :: index()
+                 , succeed = 0 :: non_neg_integer()
+                 , failed = 0 :: non_neg_integer()
+                 , rate = 0 :: non_neg_integer()
+                 , max_rate = 0 :: non_neg_integer()
+                 , window_rate :: integer()
                  }).
 
 -type server_name() :: emqx_exhook_mgr:server_name().
@@ -69,7 +68,7 @@ new_metric_info() ->
       max_rate => 0
      }.
 
--spec succeed(server_name(), hookpoint()) -> integer().
+-spec succeed(server_name(), hookpoint()) -> ok.
 succeed(Server, Hook) ->
     inc(Server, Hook, #metrics.succeed,
         #metrics{index = {Server, Hook}
@@ -77,7 +76,7 @@ succeed(Server, Hook) ->
                 ,succeed = 1
                 }).
 
--spec failed(server_name(), hookpoint()) -> integer().
+-spec failed(server_name(), hookpoint()) -> ok.
 failed(Server, Hook) ->
     inc(Server, Hook, #metrics.failed,
         #metrics{index = {Server, Hook}
@@ -104,8 +103,8 @@ update(Interval) ->
 
     ets:foldl(Fun, true, ?HOOKS_METRICS).
 
--spec delete_server(server_name()) -> true.
-delete_server(Name) ->
+-spec on_server_deleted(server_name()) -> true.
+on_server_deleted(Name) ->
     ets:match_delete(?HOOKS_METRICS,
                      {metrics, {Name, '_'}, '_', '_', '_', '_', '_'}).
 
@@ -185,30 +184,17 @@ metrics_aggregate_by_key(Key, MetricsL) ->
     metrics_aggregate_by(fun(X) -> maps:get(Key, X, new_metrics_info()) end,
                          MetricsL).
 
--spec hooks_metrics_aggregate(list(hooks_metrics())) -> hooks_metrics().
-hooks_metrics_aggregate([]) ->
-    #{};
-
-hooks_metrics_aggregate([H | _] = MapL) ->
-    Hooks = maps:keys(H),
-
-    Fold = fun(Hook, Acc) ->
-                   Metrics = metrics_aggregate_by_key(Hook, MapL),
-                   Acc#{Hook => Metrics}
-           end,
-
-    lists:foldl(Fold, #{}, Hooks).
-
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
--spec inc(server_name(), hookpoint(), pos_integer(), #metrics{}) -> integer().
+-spec inc(server_name(), hookpoint(), pos_integer(), #metrics{}) -> ok.
 inc(Server, Hook, Pos, Default) ->
     Index = {Server, Hook},
-    ets:update_counter(?HOOKS_METRICS,
-                       Index,
-                       [{#metrics.window_rate, 1}, {Pos, 1}],
-                       Default).
+    _ = ets:update_counter(?HOOKS_METRICS,
+                           Index,
+                           [{#metrics.window_rate, 1}, {Pos, 1}],
+                           Default),
+    ok.
 
 -spec new_metrics_info() -> metrics_info().
 new_metrics_info() ->
@@ -231,7 +217,8 @@ metrics_add(#{succeed := S1, failed := F1, rate := R1, max_rate := M1}
         , max_rate := M1 + M2
         }.
 
--spec metrics_aggregate_by(fun((any()) -> metrics_info()), list(metrics_info())) -> metrics_info().
+-spec metrics_aggregate_by(fun((X) -> metrics_info()), list(X)) -> metrics_info()
+              when X :: any().
 metrics_aggregate_by(_, []) ->
     new_metric_info();
 

@@ -32,6 +32,14 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BAD_RPC, 'BAD_RPC').
 
+-type rpc_result() :: {error, any()}
+                    | any().
+
+-dialyzer([{nowarn_function, [ fill_cluster_server_info/5
+                             , nodes_server_info/5
+                             , fill_server_hooks_info/4
+                             ]}]).
+
 %%--------------------------------------------------------------------
 %% schema
 %%--------------------------------------------------------------------
@@ -144,7 +152,7 @@ fields(node_metrics) ->
 
 fields(node_status) ->
     [ {node, mk(string(), #{})}
-    , {status, mk(enum([running, waiting, stopped, not_found, error]), #{})}
+    , {status, mk(enum([running, waiting, stopped, error]), #{})}
     ];
 
 fields(hook_info) ->
@@ -387,6 +395,7 @@ call_cluster(Module, Fun, Args) ->
     Nodes = mria_mnesia:running_nodes(),
     [{Node, rpc_call(Node, Module, Fun, Args)} || Node <- Nodes].
 
+-spec rpc_call(node(), atom(), atom(), list()) -> rpc_result().
 rpc_call(Node, Module, Fun, Args) when Node =:= node() ->
     erlang:apply(Module, Fun, Args);
 
