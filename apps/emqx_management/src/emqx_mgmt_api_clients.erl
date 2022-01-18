@@ -579,9 +579,6 @@ unsubscribe(#{clientid := ClientID, topic := Topic}) ->
     case do_unsubscribe(ClientID, Topic) of
         {error, channel_not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
-        {error, Reason} ->
-            Message = list_to_binary(io_lib:format("~p", [Reason])),
-            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
         {unsubscribe, [{Topic, #{}}]} ->
             {200}
     end.
@@ -608,6 +605,8 @@ do_subscribe(ClientID, Topic0, Qos) ->
             end
     end.
 
+-spec do_unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
+          {unsubscribe, _} | {error, channel_not_found}.
 do_unsubscribe(ClientID, Topic) ->
     case emqx_mgmt:unsubscribe(ClientID, Topic) of
         {error, Reason} ->

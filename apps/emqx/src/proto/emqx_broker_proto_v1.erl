@@ -22,10 +22,15 @@
 
         , forward/3
         , forward_async/3
-        , client_subscriptions/2
+        , list_client_subscriptions/2
+        , list_subscriptions_via_topic/2
 
         , lookup_client/2
         , kickout_client/2
+
+        , start_listener/2
+        , stop_listener/2
+        , restart_listener/2
         ]).
 
 -include("bpapi.hrl").
@@ -43,12 +48,6 @@ forward(Node, Topic, Delivery = #delivery{}) when is_binary(Topic) ->
 forward_async(Node, Topic, Delivery = #delivery{}) when is_binary(Topic) ->
     emqx_rpc:cast(Topic, Node, emqx_broker, dispatch, [Topic, Delivery]).
 
--spec client_subscriptions(node(), emqx_types:clientid()) ->
-                [{emqx_types:topic(), emqx_types:subopts()}]
-              | emqx_rpc:badrpc().
-client_subscriptions(Node, ClientId) ->
-    rpc:call(Node, emqx_broker, subscriptions, [ClientId]).
-
 -spec kickout_client(node(), emqx_types:clientid()) -> ok | {badrpc, _}.
 kickout_client(Node, ClientId) ->
     rpc:call(Node, emqx_cm, kick_session, [ClientId]).
@@ -57,3 +56,25 @@ kickout_client(Node, ClientId) ->
           [emqx_cm:channel_info()] | {badrpc, _}.
 lookup_client(Node, Key) ->
     rpc:call(Node, emqx_cm, lookup_client, [Key]).
+
+-spec list_client_subscriptions(node(), emqx_types:clientid()) ->
+                [{emqx_types:topic(), emqx_types:subopts()}]
+              | emqx_rpc:badrpc().
+list_client_subscriptions(Node, ClientId) ->
+    rpc:call(Node, emqx_broker, subscriptions, [ClientId]).
+
+-spec list_subscriptions_via_topic(node(), emqx_types:topic()) -> [emqx_types:subopts()].
+list_subscriptions_via_topic(Node, Topic) ->
+    rpc:call(Node, emqx_broker, subscriptions_via_topic, [Topic]).
+
+-spec start_listener(node(), atom()) -> ok | {error, _} | {badrpc, _}.
+start_listener(Node, Id) ->
+    rpc:call(Node, emqx_listeners, start_listener, [Id]).
+
+-spec stop_listener(node(), atom()) -> ok | {error, _} | {badrpc, _}.
+stop_listener(Node, Id) ->
+    rpc:call(Node, emqx_listeners, stop_listener, [Id]).
+
+-spec restart_listener(node(), atom()) -> ok | {error, _} | {badrpc, _}.
+restart_listener(Node, Id) ->
+    rpc:call(Node, emqx_listeners, restart_listener, [Id]).

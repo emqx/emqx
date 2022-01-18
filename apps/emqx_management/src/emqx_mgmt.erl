@@ -59,7 +59,7 @@
         ]).
 
 %% Internal funcs
--export([call_client/3]).
+-export([do_call_client/2]).
 
 %% Subscriptions
 -export([ list_subscriptions/1
@@ -90,8 +90,10 @@
         , list_listeners_by_id/1
         , get_listener/2
         , manage_listener/2
+        , do_update_listener/2
         , update_listener/2
         , update_listener/3
+        , do_remove_listener/1
         , remove_listener/1
         , remove_listener/2
         ]).
@@ -120,12 +122,6 @@
 -define(APP, emqx_management).
 
 -elvis([{elvis_style, god_modules, disable}]).
-
--export_type([listener_manage_op/0]).
-
--type listener_manage_op() :: start_listener
-                            | stop_listener
-                            | restart_listener.
 
 %% TODO: remove these function after all api use minirest version 1.X
 return() ->
@@ -280,7 +276,7 @@ list_client_subscriptions(ClientId) ->
     end.
 
 client_subscriptions(Node, ClientId) ->
-    {Node, wrap_rpc(emqx_broker_proto_v1:client_subscriptions(Node, ClientId))}.
+    {Node, wrap_rpc(emqx_broker_proto_v1:list_client_subscriptions(Node, ClientId))}.
 
 clean_authz_cache(ClientId) ->
     Results = [clean_authz_cache(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
@@ -305,7 +301,7 @@ set_ratelimit_policy(ClientId, Policy) ->
 set_quota_policy(ClientId, Policy) ->
     call_client(ClientId, {quota, Policy}).
 
-set_keepalive(ClientId, Interval)when Interval >= 0 andalso Interval =< 65535 ->
+set_keepalive(ClientId, Interval) when Interval >= 0 andalso Interval =< 65535 ->
     call_client(ClientId, {keepalive, Interval});
 set_keepalive(_ClientId, _Interval) ->
     {error, <<"mqtt3.1.1 specification: keepalive must between 0~65535">>}.
@@ -322,7 +318,8 @@ call_client(ClientId, Req) ->
     end.
 
 %% @private
-call_client(Node, ClientId, Req) when Node =:= node() ->
+-spec do_call_client(emqx_types:clientid(), term()) -> term().
+do_call_client(ClientId, Req) ->
     case emqx_cm:lookup_channels(ClientId) of
         [] -> {error, not_found};
         Pids when is_list(Pids) ->
@@ -332,9 +329,11 @@ call_client(Node, ClientId, Req) when Node =:= node() ->
                     erlang:apply(ConnMod, call, [Pid, Req]);
                 undefined -> {error, not_found}
             end
-    end;
+    end.
+
+%% @private
 call_client(Node, ClientId, Req) ->
-    rpc_call(Node, call_client, [Node, ClientId, Req]).
+    wrap_rpc(emqx_management_proto_v1:call_client(Node, ClientId, Req)).
 
 %%--------------------------------------------------------------------
 %% Subscriptions
@@ -354,26 +353,17 @@ list_subscriptions_via_topic(Topic, FormatFun) ->
     lists:append([list_subscriptions_via_topic(Node, Topic, FormatFun)
                   || Node <- mria_mnesia:running_nodes()]).
 
-
-list_subscriptions_via_topic(Node, Topic, {M,F}) when Node =:= node() ->
-    MatchSpec = [{{{'_', '$1'}, '_'}, [{'=:=','$1', Topic}], ['$_']}],
-    erlang:apply(M, F, [ets:select(emqx_suboption, MatchSpec)]);
-
-list_subscriptions_via_topic(Node, Topic, FormatFun) ->
-    rpc_call(Node, list_subscriptions_via_topic, [Node, Topic, FormatFun]).
+list_subscriptions_via_topic(Node, Topic, _FormatFun = {M, F}) ->
+    case wrap_rpc(emqx_broker_proto_v1:list_subscriptions_via_topic(Node, Topic)) of
+        {error, Reason} -> {error, Reason};
+        Result          -> M:F(Result)
+    end.
 
 lookup_subscriptions(ClientId) ->
     lists:append([lookup_subscriptions(Node, ClientId) || Node <- mria_mnesia:running_nodes()]).
 
-lookup_subscriptions(Node, ClientId) when Node =:= node() ->
-    case ets:lookup(emqx_subid, ClientId) of
-        [] -> [];
-        [{_, Pid}] ->
-            ets:match_object(emqx_suboption, {{Pid, '_'}, '_'})
-    end;
-
 lookup_subscriptions(Node, ClientId) ->
-    rpc_call(Node, lookup_subscriptions, [Node, ClientId]).
+    wrap_rpc(emqx_broker_proto_v1:list_client_subscriptions(Node, ClientId)).
 
 %%--------------------------------------------------------------------
 %% Routes
@@ -390,7 +380,7 @@ subscribe(ClientId, TopicTables) ->
     subscribe(mria_mnesia:running_nodes(), ClientId, TopicTables).
 
 subscribe([Node | Nodes], ClientId, TopicTables) ->
-    case rpc_call(Node, do_subscribe, [ClientId, TopicTables]) of
+    case wrap_rpc(emqx_management_proto_v1:subscribe(Node, ClientId, TopicTables)) of
         {error, _} -> subscribe(Nodes, ClientId, TopicTables);
         Re -> Re
     end;
@@ -398,6 +388,8 @@ subscribe([Node | Nodes], ClientId, TopicTables) ->
 subscribe([], _ClientId, _TopicTables) ->
     {error, channel_not_found}.
 
+-spec do_subscribe(emqx_types:clientid(), emqx_types:topic_filters()) ->
+          {subscribe, _} | {error, atom()}.
 do_subscribe(ClientId, TopicTables) ->
     case ets:lookup(emqx_channel, ClientId) of
         [] -> {error, channel_not_found};
@@ -410,18 +402,23 @@ publish(Msg) ->
     emqx_metrics:inc_msg(Msg),
     emqx:publish(Msg).
 
+-spec unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
+          {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe(ClientId, Topic) ->
     unsubscribe(mria_mnesia:running_nodes(), ClientId, Topic).
 
+-spec unsubscribe([node()], emqx_types:clientid(), emqx_types:topic()) ->
+          {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe([Node | Nodes], ClientId, Topic) ->
-    case rpc_call(Node, do_unsubscribe, [ClientId, Topic]) of
+    case wrap_rpc(emqx_management_proto_v1:unsubscribe(Node, ClientId, Topic)) of
         {error, _} -> unsubscribe(Nodes, ClientId, Topic);
         Re -> Re
     end;
-
 unsubscribe([], _ClientId, _Topic) ->
     {error, channel_not_found}.
 
+-spec do_unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
+          {unsubscribe, _} | {error, _}.
 do_unsubscribe(ClientId, Topic) ->
     case ets:lookup(emqx_channel, ClientId) of
         [] -> {error, channel_not_found};
@@ -457,44 +454,51 @@ listener_id_filter(Id, Listeners) ->
     Filter = fun(#{id := Id0}) -> Id0 =:= Id end,
     lists:filter(Filter, Listeners).
 
--spec manage_listener( listener_manage_op()
-                     , Param :: map()) ->
-          ok | {error, Reason :: term()}.
-manage_listener(Operation, #{id := ID, node := Node}) when Node =:= node()->
-    erlang:apply(emqx_listeners, Operation, [ID]);
-manage_listener(Operation, Param = #{node := Node}) ->
-    rpc_call(Node, manage_listener, [Operation, Param]).
+-spec manage_listener( start_listener | stop_listener | restart_listener
+                     , #{id := atom(), node := node()}
+                     ) -> ok | {error, Reason :: term()}.
+manage_listener(start_listener, #{id := ID, node := Node}) ->
+    wrap_rpc(emqx_broker_proto_v1:start_listener(Node, ID));
+manage_listener(stop_listener, #{id := ID, node := Node}) ->
+    wrap_rpc(emqx_broker_proto_v1:stop_listener(Node, ID));
+manage_listener(restart_listener, #{id := ID, node := Node}) ->
+    wrap_rpc(emqx_broker_proto_v1:restart_listener(Node, ID)).
 
-update_listener(Id, Config) ->
-    [update_listener(Node, Id, Config) || Node <- mria_mnesia:running_nodes()].
-
-update_listener(Node, Id, Config) when Node =:= node() ->
+-spec do_update_listener(string(), emqx_config:update_request()) ->
+          map() | {error, _}.
+do_update_listener(Id, Config) ->
     case emqx_listeners:parse_listener_id(Id) of
         {error, {invalid_listener_id, Id}} ->
             {error, {invalid_listener_id, Id}};
         {Type, Name} ->
             case emqx:update_config([listeners, Type, Name], Config, #{}) of
                 {ok, #{raw_config := RawConf}} ->
-                    RawConf#{node => Node, id => Id, running => true};
+                    RawConf#{node => node(), id => Id, running => true};
                 {error, Reason} ->
                     {error, Reason}
             end
-    end;
+    end.
+
+update_listener(Id, Config) ->
+    [update_listener(Node, Id, Config) || Node <- mria_mnesia:running_nodes()].
+
 update_listener(Node, Id, Config) ->
-    rpc_call(Node, update_listener, [Node, Id, Config]).
+    wrap_rpc(emqx_management_proto_v1:update_listener(Node, Id, Config)).
 
 remove_listener(Id) ->
     [remove_listener(Node, Id) || Node <- mria_mnesia:running_nodes()].
 
-remove_listener(Node, Id) when Node =:= node() ->
+-spec do_remove_listener(string()) -> ok.
+do_remove_listener(Id) ->
     {Type, Name} = emqx_listeners:parse_listener_id(Id),
     case emqx:remove_config([listeners, Type, Name], #{}) of
         {ok, _} -> ok;
         {error, Reason} ->
             error(Reason)
-    end;
+    end.
+
 remove_listener(Node, Id) ->
-    rpc_call(Node, remove_listener, [Node, Id]).
+    wrap_rpc(emqx_management_proto_v1:remove_listener(Node, Id)).
 
 %%--------------------------------------------------------------------
 %% Get Alarms
@@ -503,23 +507,17 @@ remove_listener(Node, Id) ->
 get_alarms(Type) ->
     [{Node, get_alarms(Node, Type)} || Node <- mria_mnesia:running_nodes()].
 
-get_alarms(Node, Type) when Node =:= node() ->
-    add_duration_field(emqx_alarm:get_alarms(Type));
 get_alarms(Node, Type) ->
-    rpc_call(Node, get_alarms, [Node, Type]).
+    add_duration_field(wrap_rpc(emqx_proto_v1:get_alarms(Node, Type))).
 
-deactivate(Node, Name) when Node =:= node() ->
-    emqx_alarm:deactivate(Name);
 deactivate(Node, Name) ->
-    rpc_call(Node, deactivate, [Node, Name]).
+    wrap_rpc(emqx_proto_v1:deactivate_alarm(Node, Name)).
 
 delete_all_deactivated_alarms() ->
     [delete_all_deactivated_alarms(Node) || Node <- mria_mnesia:running_nodes()].
 
-delete_all_deactivated_alarms(Node) when Node =:= node() ->
-    emqx_alarm:delete_all_deactivated_alarms();
 delete_all_deactivated_alarms(Node) ->
-    rpc_call(Node, delete_deactivated_alarms, [Node]).
+    wrap_rpc(emqx_proto_v1:delete_all_deactivated_alarms(Node)).
 
 add_duration_field(Alarms) ->
     Now = erlang:system_time(microsecond),
@@ -561,12 +559,6 @@ item(route, {Topic, Node}) ->
 %%--------------------------------------------------------------------
 %% Internal Functions.
 %%--------------------------------------------------------------------
-
-rpc_call(Node, Fun, Args) ->
-    case rpc:call(Node, ?MODULE, Fun, Args) of
-        {badrpc, Reason} -> {error, Reason};
-        Res -> Res
-    end.
 
 wrap_rpc({badrpc, Reason}) ->
     {error, Reason};

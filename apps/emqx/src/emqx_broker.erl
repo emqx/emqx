@@ -44,6 +44,7 @@
 
 %% PubSub Infos
 -export([ subscriptions/1
+        , subscriptions_via_topic/1
         , subscribers/1
         , subscribed/2
         ]).
@@ -358,6 +359,11 @@ subscriptions(SubId) ->
             subscriptions(SubPid);
         undefined -> []
     end.
+
+-spec(subscriptions_via_topic(emqx_types:topic()) -> [emqx_types:subopts()]).
+subscriptions_via_topic(Topic) ->
+    MatchSpec = [{{{'_', '$1'}, '_'}, [{'=:=', '$1', Topic}], ['$_']}],
+    ets:select(?SUBOPTION, MatchSpec).
 
 -spec(subscribed(pid() | emqx_types:subid(), emqx_types:topic()) -> boolean()).
 subscribed(SubPid, Topic) when is_pid(SubPid) ->
