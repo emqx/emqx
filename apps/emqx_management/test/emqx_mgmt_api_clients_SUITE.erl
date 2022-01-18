@@ -89,7 +89,7 @@ t_clients(_) ->
     {ok, _} =  emqx_mgmt_api_test_util:request_api(post, SubscribePath,
         "", AuthHeader, SubscribeBody),
     timer:sleep(100),
-    [{{_, AfterSubTopic}, #{qos := AfterSubQos}}] = emqx_mgmt:lookup_subscriptions(ClientId1),
+    [{AfterSubTopic, #{qos := AfterSubQos}}] = emqx_mgmt:lookup_subscriptions(ClientId1),
     ?assertEqual(AfterSubTopic, Topic),
     ?assertEqual(AfterSubQos, Qos),
 

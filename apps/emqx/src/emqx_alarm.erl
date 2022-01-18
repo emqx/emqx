@@ -104,6 +104,7 @@ activate(Name, Details) ->
 activate(Name, Details, Message) ->
     gen_server:call(?MODULE, {activate_alarm, Name, Details, Message}).
 
+-spec deactivate(binary() | atom()) -> ok | {error, not_found}.
 deactivate(Name) ->
     deactivate(Name, no_details, <<"">>).
 
@@ -113,12 +114,14 @@ deactivate(Name, Details) ->
 deactivate(Name, Details, Message) ->
     gen_server:call(?MODULE, {deactivate_alarm, Name, Details, Message}).
 
+-spec delete_all_deactivated_alarms() -> ok.
 delete_all_deactivated_alarms() ->
     gen_server:call(?MODULE, delete_all_deactivated_alarms).
 
 get_alarms() ->
     get_alarms(all).
 
+-spec get_alarms(all | activated | deactivated) -> [map()].
 get_alarms(all) ->
     gen_server:call(?MODULE, {get_alarms, all});
 
