@@ -504,8 +504,9 @@ jobs:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
     - uses: docker/build-push-action@v2
+      if: ${{ matrix.build_elixir == 'no_elixir' }}
       with:
-        push: ${{ github.event_name == 'release' && !github.event.release.prerelease && matrix.build_elixir == 'no_elixir' }}
+        push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
         pull: true
         no-cache: true
         platforms: linux/amd64,linux/arm64
@@ -519,9 +520,9 @@ jobs:
         context: source
     - name: build docker image with elixir
       uses: docker/build-push-action@v2
-      if: ${{ matrix.profile == 'emqx' }}
+      if: ${{ matrix.profile == 'emqx' && matrix.build_elixir == 'with_elixir' }}
       with:
-        push: ${{ github.event_name == 'release' && !github.event.release.prerelease && matrix.build_elixir == 'with_elixir' }}
+        push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
         pull: true
         no-cache: true
         platforms: linux/amd64,linux/arm64
