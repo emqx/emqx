@@ -329,7 +329,8 @@ unsubscribe(ClientInfo, TopicFilter, UnSubOpts,
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
             ok = emqx_persistent_session:remove_subscription(TopicFilter, SessionID, IsPS),
-            ok = emqx_hooks:run('session.unsubscribed', [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]),
+            ok = emqx_hooks:run('session.unsubscribed',
+                     [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]),
             {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}};
         error ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
@@ -541,11 +542,14 @@ log_dropped(Msg = #message{qos = QoS, topic = Topic}, #session{mqueue = Q}) ->
     case (QoS == ?QOS_0) andalso (not StoreQos0) of
         true  ->
             ok = emqx_metrics:inc('delivery.dropped.qos0_msg'),
+            ok = inc_pd('send_msg.dropped'),
             ?SLOG(warning, #{msg => "dropped_qos0_msg",
                              queue => QueueInfo,
                              payload => Payload}, #{topic => Topic});
         false ->
             ok = emqx_metrics:inc('delivery.dropped.queue_full'),
+            ok = inc_pd('send_msg.dropped'),
+            ok = inc_pd('send_msg.dropped.queue_full'),
             ?SLOG(warning, #{msg => "dropped_msg_due_to_mqueue_is_full",
                              queue => QueueInfo,
                              payload => Payload}, #{topic => Topic})
@@ -723,12 +727,22 @@ run_hook(Name, Args) ->
 inc_expired_cnt(K) -> inc_expired_cnt(K, 1).
 
 inc_expired_cnt(delivery, N) ->
+    ok = inc_pd('send_msg.dropped', N),
+    ok = inc_pd('send_msg.dropped.expired', N),
     ok = emqx_metrics:inc('delivery.dropped', N),
     emqx_metrics:inc('delivery.dropped.expired', N);
 
 inc_expired_cnt(message, N) ->
+    ok = inc_pd('recv_msg.dropped', N),
+    ok = inc_pd('recv_msg.dropped.expired', N),
     ok = emqx_metrics:inc('messages.dropped', N),
     emqx_metrics:inc('messages.dropped.expired', N).
+
+inc_pd(Key) ->
+    inc_pd(Key, 1).
+inc_pd(Key, Inc) ->
+    _ = emqx_pd:inc_counter(Key, Inc),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Next Packet Id
