@@ -55,7 +55,7 @@ schema(("/exhooks")) ->
       'operationId' => exhooks,
       get => #{tags => ?TAGS,
                description => <<"List all servers">>,
-               responses => #{200 => mk(array(ref(list_server_info)), #{})}
+               responses => #{200 => mk(array(ref(detail_server_info)), #{})}
               },
       post => #{tags => ?TAGS,
                 description => <<"Add a servers">>,
@@ -88,7 +88,8 @@ schema("/exhooks/:name") ->
                   description => <<"Delete the server">>,
                   parameters => params_server_name_in_path(),
                   responses => #{204 => <<>>,
-                                 500 => error_codes([?BAD_RPC], <<"Bad RPC">>)                                }
+                                 500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
+                                }
                  }
      };
 
@@ -124,13 +125,6 @@ fields(move_req) ->
                               })}
     ];
 
-fields(list_server_info) ->
-    [ {metrics, mk(ref(metrics), #{})}
-    , {node_metrics, mk(array(ref(node_metrics)), #{})}
-    , {node_status, mk(array(ref(node_status)), #{})}
-    , {hooks, mk(array(ref(hook_info)), #{})}
-    ] ++ emqx_exhook_schema:server_config();
-
 fields(detail_server_info) ->
     [ {metrics, mk(ref(metrics), #{})}
     , {node_metrics, mk(array(ref(node_metrics)), #{})}
@@ -139,8 +133,9 @@ fields(detail_server_info) ->
     ] ++ emqx_exhook_schema:server_config();
 
 fields(list_hook_info) ->
-    [ {name, mk(binary(), #{})}
-    , {params, mk(map(name, binary()), #{})}
+    [ {name, mk(binary(), #{desc => <<"The hook's name">>})}
+    , {params, mk(map(name, binary()),
+                  #{desc => <<"The parameters used when the hook is registered">>})}
     , {metrics, mk(ref(metrics), #{})}
     , {node_metrics, mk(array(ref(node_metrics)), #{})}
     ];
@@ -156,8 +151,9 @@ fields(node_status) ->
     ];
 
 fields(hook_info) ->
-    [ {name, mk(binary(), #{})}
-    , {params, mk(map(name, binary()), #{})}
+    [ {name, mk(binary(), #{desc => <<"The hook's name">>})}
+    , {params, mk(map(name, binary()),
+                  #{desc => <<"The parameters used when the hook is registered">>})}
     ];
 
 fields(metrics) ->
