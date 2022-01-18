@@ -85,7 +85,7 @@ database(_) -> undefined.
 
 pool_size(type) -> integer();
 pool_size(default) -> 8;
-pool_size(validator) -> [?MIN(1), ?MAX(64)];
+pool_size(validator) -> [?MIN(1)];
 pool_size(_) -> undefined.
 
 username(type) -> binary();
