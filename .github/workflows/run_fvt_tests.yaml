@@ -44,6 +44,12 @@ jobs:
         cluster_db_backend:
           - mnesia
           - rlog
+        os:
+          - alpine3.14
+        otp:
+          - 24.1.5-3
+        arch:
+          - amd64
         exclude:
           - profile: emqx-edge
             cluster_db_backend: rlog
@@ -54,10 +60,29 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
+
+    - name: Get deps git refs for cache
+      id: deps-refs
+      run: |
+        cd source
+        make ensure-rebar3
+        sudo cp rebar3 /usr/local/bin/rebar3
+        scripts/get-dep-refs.sh
+    - name: load rocksdb cache
+      uses: actions/cache@v2
+      with:
+        path: source/_build/default/lib/rocksdb/
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
+    - name: load quicer cache
+      uses: actions/cache@v2
+      with:
+        path: source/_build/default/lib/quicer/
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-3:24.1.5-3-alpine3.14
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-${{ matrix.os }}
       run: |
         make ${{ matrix.profile }}-docker
     - name: run emqx
@@ -90,6 +115,12 @@ jobs:
       matrix:
         profile:
         - emqx
+        os:
+          - alpine3.14
+        otp:
+          - 24.1.5-3
+        arch:
+          - amd64
       # - emqx-enterprise # TODO test enterprise
 
     steps:
@@ -99,10 +130,29 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
+
+    - name: Get deps git refs for cache
+      id: deps-refs
+      run: |
+        cd source
+        make ensure-rebar3
+        sudo cp rebar3 /usr/local/bin/rebar3
+        scripts/get-dep-refs.sh
+    - name: load rocksdb cache
+      uses: actions/cache@v2
+      with:
+        path: source/_build/default/lib/rocksdb/
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
+    - name: load quicer cache
+      uses: actions/cache@v2
+      with:
+        path: source/_build/default/lib/quicer/
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-3:24.1.5-3-alpine3.14
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-${{ matrix.os }}
       run: |
         make ${{ matrix.profile }}-docker
         echo "TARGET=emqx/${{ matrix.profile }}" >> $GITHUB_ENV

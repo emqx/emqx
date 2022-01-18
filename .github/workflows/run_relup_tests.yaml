@@ -18,11 +18,15 @@ jobs:
         profile:
           - emqx
           - emqx-enterprise
-        otp_vsn:
+        otp:
           - 24.1.5-3
+        os:
+          - ubuntu20.04
+        arch:
+          - amd64
 
     runs-on: ubuntu-20.04
-    container: "ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp_vsn }}-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-${{ matrix.os }}"
 
     defaults:
       run:
@@ -62,7 +66,7 @@ jobs:
         set -e -x -u
         cd emqx
         export PROFILE=${{ matrix.profile }}
-        export OTP_VSN=${{ matrix.otp_vsn }}
+        export OTP_VSN=${{ matrix.otp }}
         echo "PROFILE=$PROFILE" >> $GITHUB_ENV
         echo "OTP_VSN=$OTP_VSN" >> $GITHUB_ENV
         if [ $PROFILE = "emqx" ];then
@@ -85,8 +89,26 @@ jobs:
         cd emqx/_upgrade_base
         old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
         for old_vsn in ${old_vsns[@]}; do
-          wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$old_vsn/$PROFILE-${old_vsn#[e|v]}-otp${OTP_VSN}-ubuntu20.04-amd64.tar.gz
+          wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$old_vsn/$PROFILE-${old_vsn#[e|v]}-otp${OTP_VSN}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
         done
+
+    - name: Get deps git refs for cache
+      id: deps-refs
+      run: |
+        cd emqx
+        scripts/get-dep-refs.sh
+
+    - name: load rocksdb cache
+      uses: actions/cache@v2
+      with:
+        path: emqx/_build/default/lib/rocksdb/
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
+    - name: load quicer cache
+      uses: actions/cache@v2
+      with:
+        path: emqx/_build/default/lib/quicer/
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+
     - name: build emqx
       run: make -C emqx ${PROFILE}-tgz
     - name: build emqtt-bench
