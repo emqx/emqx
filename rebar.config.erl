@@ -326,8 +326,8 @@ relx_overlay(ReleaseType, Edition) ->
     , {mkdir, "data/configs"}
     , {mkdir, "data/patches"}
     , {mkdir, "data/scripts"}
-    , {template, "data/emqx_vars", "releases/emqx_vars"}
-    , {template, "data/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
+    , {template, "rel/emqx_vars", "releases/emqx_vars"}
+    , {template, "rel/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
     , {copy, "bin/emqx", "bin/emqx"}
     , {copy, "bin/emqx_ctl", "bin/emqx_ctl"}
     , {copy, "bin/node_dump", "bin/node_dump"}

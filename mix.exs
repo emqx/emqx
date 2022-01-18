@@ -279,7 +279,7 @@ defmodule EMQXUmbrella.MixProject do
     )
 
     vars_rendered =
-      File.read!("data/emqx_vars")
+      File.read!("rel/emqx_vars")
       |> from_rebar_to_eex_template()
       |> EEx.eval_string(assigns)
 
@@ -338,7 +338,7 @@ defmodule EMQXUmbrella.MixProject do
     end
 
     built_on_rendered =
-      File.read!("data/BUILT_ON")
+      File.read!("rel/BUILT_ON")
       |> from_rebar_to_eex_template()
       |> EEx.eval_string(assigns)
 
