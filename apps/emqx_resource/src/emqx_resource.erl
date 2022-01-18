@@ -232,7 +232,7 @@ stop(InstId) ->
 health_check(InstId, Timeout) ->
     try call_instance(InstId, {health_check, InstId}, Timeout)
     catch 
-         _ -> set_health_check_status_stoped(InstId),
+         _ -> _ = set_health_check_status_stoped(InstId),
               {error, {health_check, timeout}}
     end.
 
