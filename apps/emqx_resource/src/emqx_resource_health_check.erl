@@ -55,17 +55,15 @@ delete_checker(Name) ->
 	end.
 
 health_check(Name, SleepTime, Timeout) ->
-    try
-        case emqx_resource:health_check(Name, Timeout) of
-            ok ->
-                emqx_alarm:deactivate(Name);
-            {error, _} ->
-                emqx_alarm:activate(Name, #{name => Name},
-                    <<Name/binary, " health check failed">>)
-        end
-    catch 
-        _ -> emqx_resource:set_health_check_status_stoped(Name),
-             emqx_alarm:deactivate(Name)
+    case emqx_resource:health_check(Name, Timeout) of
+        ok ->
+            emqx_alarm:deactivate(Name);
+        {error, {health_check, timeout}} ->
+            emqx_alarm:activate(Name, #{name => Name},
+            <<Name/binary, " health check timeout">>);
+        {error, _} ->
+            emqx_alarm:activate(Name, #{name => Name},
+                <<Name/binary, " health check failed">>)
     end,
     timer:sleep(SleepTime),
     health_check(Name, SleepTime, Timeout).

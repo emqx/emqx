@@ -59,8 +59,8 @@
 %% They also save the state after the call finished (except query/2,3).
 -export([ restart/1  %% restart the instance.
         , restart/2
-        , health_check/2 %% verify if the resource is working normally
-        , set_health_check_status_stoped/1 %% set the resource state stoped
+        , health_check/1 %% verify if the resource is working normally
+        , health_check/2 %% verify if the resource is working normally with timeout
         , stop/1   %% stop the instance
         , query/2  %% query the instance
         , query/3  %% query the instance with after_query()
@@ -228,9 +228,17 @@ restart(InstId, Opts) ->
 stop(InstId) ->
     call_instance(InstId, {stop, InstId}).
 
--spec health_check(instance_id(), integer()) -> ok | {error, Reason :: term()}.
+-spec health_check(instance_id(), timeout()) -> ok | {error, Reason :: term()}.
 health_check(InstId, Timeout) ->
-    call_instance(InstId, {health_check, InstId}, Timeout).
+    try call_instance(InstId, {health_check, InstId}, Timeout)
+    catch 
+         _ -> set_health_check_status_stoped(InstId),
+              {error, {health_check, timeout}}
+    end.
+
+-spec health_check(instance_id()) -> ok | {error, Reason :: term()}.
+health_check(InstId) ->
+    call_instance(InstId, {health_check, InstId}, infinity).
 
 -spec set_health_check_status_stoped(instance_id()) -> ok | {error, Reason :: term()}.
 set_health_check_status_stoped(InstId) ->
