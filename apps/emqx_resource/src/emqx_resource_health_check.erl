@@ -64,7 +64,8 @@ health_check(Name, SleepTime, Timeout) ->
                     <<Name/binary, " health check failed">>)
         end
     catch 
-        _ -> emqx_alarm:deactivate(Name)
+        _ -> emqx_resource:set_health_check_status_stoped(Name),
+             emqx_alarm:deactivate(Name)
     end,
     timer:sleep(SleepTime),
     health_check(Name, SleepTime, Timeout).

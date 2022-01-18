@@ -60,6 +60,7 @@
 -export([ restart/1  %% restart the instance.
         , restart/2
         , health_check/2 %% verify if the resource is working normally
+        , set_health_check_status_stoped/1 %% set the resource state stoped
         , stop/1   %% stop the instance
         , query/2  %% query the instance
         , query/3  %% query the instance with after_query()
@@ -230,6 +231,15 @@ stop(InstId) ->
 -spec health_check(instance_id(), integer()) -> ok | {error, Reason :: term()}.
 health_check(InstId, Timeout) ->
     call_instance(InstId, {health_check, InstId}, Timeout).
+
+-spec set_health_check_status_stoped(instance_id()) -> ok | {error, Reason :: term()}.
+set_health_check_status_stoped(InstId) ->
+    case emqx_resource_instance:lookup(InstId) of
+        {ok, #{id := InstId} = Data} ->
+            logger:error("health check for ~p failed: timeout", [InstId]),
+            ets:insert(emqx_resource_instance, {InstId, Data#{status => stopped}});
+        Error -> {error, Error}
+    end.
 
 -spec get_instance(instance_id()) -> {ok, resource_data()} | {error, Reason :: term()}.
 get_instance(InstId) ->
