@@ -30,6 +30,7 @@
 -export_type([ badrpc/0
              , call_result/0
              , cast_result/0
+             , multicall_result/1
              , multicall_result/0
              , erpc/1
              , erpc_multicall/1
@@ -48,7 +49,9 @@
 
 -type cast_result() :: true.
 
--type multicall_result() :: {_Results :: [term()], _BadNodes :: [node()]}.
+-type multicall_result(Result) :: {[Result], _BadNodes :: [node()]}.
+
+-type multicall_result() :: multicall_result(term()).
 
 -type erpc(Ret) :: {ok, Ret}
                  | {throw, _Err}
