@@ -1928,6 +1928,7 @@ case100_clients_api(Config) ->
     %% kickout
     {204, _} =
         request(delete, "/gateway/lwm2m/clients/" ++ binary_to_list(ClientId)),
+    timer:sleep(100),
     {200, #{data := []}} = request(get, "/gateway/lwm2m/clients").
 
 case100_subscription_api(Config) ->

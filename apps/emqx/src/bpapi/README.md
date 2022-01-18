@@ -96,9 +96,9 @@ The following limitations apply to these modules:
 1. Once the minor EMQX release stated in `introduced_in()` callback of
    a module reaches GA, the module is frozen. No changes are allowed
    there, except for adding `deprecated_since()` callback.
-2. After the _next_ minor release after the one deprecating the
-   module reaches GA, the module can be removed.
-3. Old versions of the protocol can be dropped in the next major
+2. If the backplane API was deprecated in a release `maj.min.0`, then
+   it can be removed in release `maj.min+1.0`.
+3. Old versions of the protocols can be dropped in the next major
    release.
 
 This way we ensure each minor EMQX release is backward-compatible with

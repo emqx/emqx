@@ -38,7 +38,7 @@
 -export([validate_name/1]).
 
 %% for rpc
--export([read_trace_file/3
+-export([ read_trace_file/3
         , get_trace_size/0
         ]).
 
@@ -241,7 +241,7 @@ trace(get, _Params) ->
             List = lists:sort(fun(#{start_at := A}, #{start_at := B}) -> A > B end,
                 emqx_trace:format(List0)),
             Nodes = mria_mnesia:running_nodes(),
-            TraceSize = cluster_call(?MODULE, get_trace_size, [], 30000),
+            TraceSize = wrap_rpc(emqx_mgmt_trace_proto_v1:get_trace_size(Nodes)),
             AllFileSize = lists:foldl(fun(F, Acc) -> maps:merge(Acc, F) end, #{}, TraceSize),
             Now = erlang:system_time(second),
             Traces =
@@ -333,13 +333,12 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
                 end, [], TraceFiles).
 
 collect_trace_file(TraceLog) ->
-    cluster_call(emqx_trace, trace_file, [TraceLog], 60000).
-
-cluster_call(Mod, Fun, Args, Timeout) ->
     Nodes = mria_mnesia:running_nodes(),
-    {GoodRes, BadNodes} = rpc:multicall(Nodes, Mod, Fun, Args, Timeout),
+    wrap_rpc(emqx_mgmt_trace_proto_v1:trace_file(Nodes, TraceLog)).
+
+wrap_rpc({GoodRes, BadNodes}) ->
     BadNodes =/= [] andalso
-        ?SLOG(error, #{msg => "rpc_call_failed", bad_nodes => BadNodes, mfa => {Mod, Fun, Args}}),
+        ?SLOG(error, #{msg => "rpc_call_failed", bad_nodes => BadNodes}),
     GoodRes.
 
 stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
@@ -348,7 +347,7 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
     Bytes = maps:get(<<"bytes">>, Query, 1000),
     case to_node(Node0) of
         {ok, Node} ->
-            case rpc:call(Node, ?MODULE, read_trace_file, [Name, Position, Bytes]) of
+            case emqx_mgmt_trace_proto_v1:read_trace_file(Node, Name, Position, Bytes) of
                 {ok, Bin} ->
                     Meta = #{<<"position">> => Position + byte_size(Bin), <<"bytes">> => Bytes},
                     {200, #{meta => Meta, items => Bin}};
@@ -368,6 +367,7 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
         {error, not_found} -> {400, #{code => 'NODE_ERROR', message => <<"Node not found">>}}
     end.
 
+-spec get_trace_size() -> #{{node(), file:name_all()} => non_neg_integer()}.
 get_trace_size() ->
     TraceDir = emqx_trace:trace_dir(),
     Node = node(),
@@ -381,6 +381,12 @@ get_trace_size() ->
     end.
 
 %% this is an rpc call for stream_log_file/2
+-spec read_trace_file( binary()
+                     , non_neg_integer()
+                     , non_neg_integer()
+                     ) -> {ok, binary()}
+                        | {error, _}
+                        | {eof, non_neg_integer()}.
 read_trace_file(Name, Position, Limit) ->
     case emqx_trace:get_trace_filename(Name) of
         {error, _} = Error -> Error;

@@ -69,7 +69,8 @@ update(KeyPath, UpdateReq, Opts) ->
 update(Node, KeyPath, UpdateReq, Opts) ->
     rpc:call(Node, emqx, update_config, [KeyPath, UpdateReq, Opts], 5000).
 
--spec remove_config(update_config_key_path(), emqx_config:update_opts()) -> _.
+-spec remove_config(update_config_key_path(), emqx_config:update_opts()) ->
+          emqx_cluster_rpc:multicall_result().
 remove_config(KeyPath, Opts) ->
     emqx_cluster_rpc:multicall(emqx, remove_config, [KeyPath, Opts]).
 

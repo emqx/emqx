@@ -204,7 +204,7 @@ get_trace_filename(Name) ->
         end end,
     transaction(Tran).
 
--spec trace_file(File :: list()) ->
+-spec trace_file(File :: file:filename_all()) ->
     {ok, Node :: list(), Binary :: binary()} |
     {error, Node :: list(), Reason :: term()}.
 trace_file(File) ->

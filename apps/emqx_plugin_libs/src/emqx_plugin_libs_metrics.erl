@@ -55,7 +55,7 @@
 -define(SAMPLING, 1).
 -endif.
 
--export_type([metrics/0]).
+-export_type([metrics/0, handler_name/0, metric_id/0]).
 
 -type rate() :: #{
     current => float(),

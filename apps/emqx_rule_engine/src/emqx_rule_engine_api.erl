@@ -322,7 +322,7 @@ get_rule_metrics(Id) ->
          , node => Node
          }
     end,
-    [Format(Node, rpc:call(Node, emqx_plugin_libs_metrics, get_metrics, [rule_metrics, Id]))
+    [Format(Node, emqx_plugin_libs_proto_v1:get_metrics(Node, rule_metrics, Id))
      || Node <- mria_mnesia:running_nodes()].
 
 aggregate_metrics(AllMetrics) ->
@@ -350,4 +350,3 @@ filter_out_request_body(Conf) ->
     ExtraConfs = [<<"id">>, <<"status">>, <<"node_status">>, <<"node_metrics">>,
         <<"metrics">>, <<"node">>],
     maps:without(ExtraConfs, Conf).
-
