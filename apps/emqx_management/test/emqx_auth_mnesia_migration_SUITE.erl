@@ -39,13 +39,13 @@ cases() ->
     [t_import].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_management, emqx_dashboard, emqx_auth_mnesia]),
+    emqx_ct_helpers:start_apps([emqx_management, emqx_auth_mnesia]),
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_modules, emqx_management, emqx_dashboard, emqx_auth_mnesia]),
+    emqx_ct_helpers:stop_apps([emqx_modules, emqx_management, emqx_auth_mnesia]),
     ekka_mnesia:ensure_stopped().
 
 init_per_testcase(_, Config) ->
@@ -167,7 +167,7 @@ t_export_import(_Config) ->
 
     ?assertEqual([], emqx_acl_mnesia_db:all_acls()),
 
-    emqx_mgmt_data_backup:import_acl_mnesia(emqx_json:decode(AclData, [return_maps]), "4.3"),
+    emqx_mgmt_data_backup:import_acl_mnesia(emqx_json:decode(AclData, [return_maps])),
     timer:sleep(100),
 
     ?assertMatch([
