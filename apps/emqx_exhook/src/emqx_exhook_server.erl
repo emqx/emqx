@@ -19,8 +19,6 @@
 -include("emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-
--define(CNTER, emqx_exhook_counter).
 -define(PB_CLIENT_MOD, emqx_exhook_v_1_hook_provider_client).
 
 %% Load/Unload
@@ -33,7 +31,7 @@
 
 %% Infos
 -export([ name/1
-        , hookpoints/1
+        , hooks/1
         , format/1
         , failed_action/1
         ]).
@@ -72,7 +70,7 @@
                    | 'message.acked'
                    | 'message.dropped'.
 
--export_type([server/0]).
+-export_type([server/0, hookpoint/0]).
 
 -dialyzer({nowarn_function, [inc_metrics/2]}).
 
@@ -215,20 +213,20 @@ ensure_hooks(HookSpecs) ->
                 ?SLOG(error, #{msg => "skipped_unknown_hookpoint", hookpoint => Hookpoint});
             {Hookpoint, {M, F, A}} ->
                 emqx_hooks:put(Hookpoint, {M, F, A}),
-                ets:update_counter(?CNTER, Hookpoint, {2, 1}, {Hookpoint, 0})
+                ets:update_counter(?HOOKS_REF_COUNTER, Hookpoint, {2, 1}, {Hookpoint, 0})
         end
     end, maps:keys(HookSpecs)).
 
 may_unload_hooks(HookSpecs) ->
     lists:foreach(fun(Hookpoint) ->
-        case ets:update_counter(?CNTER, Hookpoint, {2, -1}, {Hookpoint, 0}) of
+        case ets:update_counter(?HOOKS_REF_COUNTER, Hookpoint, {2, -1}, {Hookpoint, 0}) of
             Cnt when Cnt =< 0 ->
                 case lists:keyfind(Hookpoint, 1, ?ENABLED_HOOKS) of
                     {Hookpoint, {M, F, _A}} ->
                         emqx_hooks:del(Hookpoint, {M, F});
                     _ -> ok
                 end,
-                ets:delete(?CNTER, Hookpoint);
+                ets:delete(?HOOKS_REF_COUNTER, Hookpoint);
             _ -> ok
         end
     end, maps:keys(HookSpecs)).
@@ -244,8 +242,13 @@ format(#{name := Name, hookspec := Hooks}) ->
 name(#{name := Name}) ->
     Name.
 
-hookpoints(#{hookspec := Hooks}) ->
-    maps:keys(Hooks).
+hooks(#{hookspec := Hooks}) ->
+    FoldFun = fun(Hook, Params, Acc) ->
+                      [#{ name => Hook
+                        , params => Params
+                        } | Acc]
+              end,
+    maps:fold(FoldFun, [], Hooks).
 
 -spec call(hookpoint(), map(), server()) -> ignore
               | {ok, Resp :: term()}

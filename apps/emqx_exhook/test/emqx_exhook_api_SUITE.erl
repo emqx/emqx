@@ -37,7 +37,7 @@ exhook {
 ">>).
 
 all() ->
-    [t_list, t_get, t_add, t_move_1, t_move_2, t_delete, t_update].
+    [t_list, t_get, t_add, t_move_1, t_move_2, t_delete, t_hooks, t_update].
 
 init_per_suite(Config) ->
     application:load(emqx_conf),
@@ -94,7 +94,11 @@ t_list(_) ->
     [Svr] = List,
 
     ?assertMatch(#{name := <<"default">>,
-                   status := <<"running">>}, Svr).
+                   metrics := _,
+                   node_metrics := _,
+                   node_status := _,
+                   hooks := _
+                  }, Svr).
 
 t_get(_) ->
     {ok, Data} = request_api(get, api_path(["exhooks", "default"]), "",
@@ -103,7 +107,11 @@ t_get(_) ->
     Svr = decode_json(Data),
 
     ?assertMatch(#{name := <<"default">>,
-                   status := <<"running">>}, Svr).
+                   metrics := _,
+                   node_metrics := _,
+                   node_status := _,
+                   hooks := _
+                  }, Svr).
 
 t_add(Cfg) ->
     Template = proplists:get_value(template, Cfg),
@@ -116,7 +124,10 @@ t_add(Cfg) ->
     Svr = decode_json(Data),
 
     ?assertMatch(#{name := <<"test1">>,
-                   status := <<"running">>}, Svr),
+                   metrics := _,
+                   node_metrics := _,
+                   node_status := _,
+                   hooks := _}, Svr),
 
     ?assertMatch([<<"default">>, <<"test1">>], emqx_exhook_mgr:running()).
 
@@ -142,6 +153,18 @@ t_delete(_) ->
 
     ?assertMatch({ok, <<>>}, Result),
     ?assertMatch([<<"default">>], emqx_exhook_mgr:running()).
+
+t_hooks(_Cfg) ->
+    {ok, Data} = request_api(get, api_path(["exhooks", "default", "hooks"]), "",
+                             auth_header_()),
+
+    [Hook1 | _] = decode_json(Data),
+
+    ?assertMatch(#{name := _,
+                   params := _,
+                   metrics := _,
+                   node_metrics := _
+                  }, Hook1).
 
 t_update(Cfg) ->
     Template = proplists:get_value(template, Cfg),
