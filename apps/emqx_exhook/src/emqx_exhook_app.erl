@@ -31,7 +31,6 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_exhook_sup:start_link(),
-    emqx_ctl:register_command(exhook, {emqx_exhook_cli, cli}, []),
     {ok, Sup}.
 
 prep_stop(State) ->
