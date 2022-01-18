@@ -38,7 +38,7 @@ jobs:
       uses: actions/cache@v2
       with:
         path: _build/default/lib/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-$${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
     - name: run
       run: |
         make ensure-rebar3
