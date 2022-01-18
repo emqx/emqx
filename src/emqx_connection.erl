@@ -858,6 +858,7 @@ inc_incoming_stats(Packet = ?PACKET(Type)) ->
     case Type =:= ?PUBLISH of
         true ->
             inc_counter(recv_msg, 1),
+            inc_qos_stats(recv_msg, Packet),
             inc_counter(incoming_pubs, 1);
         false ->
             ok
