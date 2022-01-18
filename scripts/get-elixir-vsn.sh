@@ -2,4 +2,7 @@
 
 set -euo pipefail
 
-elixir -e "System.version() |> IO.puts()"
+if command -v elixir &>/dev/null
+then
+  elixir -e "System.version() |> IO.puts()"
+fi
