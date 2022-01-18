@@ -82,10 +82,10 @@ jobs:
       run: |
         make ${EMQX_NAME}-pkg
         .ci/build_packages/tests.sh "$EMQX_PKG_NAME" pkg amd64
-    - name: build and test zip package (Elixir)
+    - name: build and test tgz package (Elixir)
       run: |
         make ${EMQX_NAME}-elixir-tgz
-        .ci/build_packages/tests.sh "$EMQX_PKG_NAME" tgz amd64
+        .ci/build_packages/tests.sh "$EMQX_ELIXIRPKG_NAME" tgz amd64
     - name: build and test deb/rpm packages (Elixir)
       run: |
         make ${EMQX_NAME}-elixirpkg
