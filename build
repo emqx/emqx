@@ -65,18 +65,18 @@ make_relup() {
     if [ -d "$releases_dir" ]; then
         while read -r zip; do
             local base_vsn
-            base_vsn="$(echo "$zip" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-f]{8})?")"
+            base_vsn="$(echo "$zip" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-f]{8})?" | head -1)"
             if [ ! -d "$releases_dir/$base_vsn" ]; then
                 local tmp_dir
                 tmp_dir="$(mktemp -d -t emqx.XXXXXXX)"
                 unzip -q "$zip" "emqx/releases/*" -d "$tmp_dir"
                 unzip -q "$zip" "emqx/lib/*" -d "$tmp_dir"
-                cp -r -n "$tmp_dir/emqx/releases"/* "$releases_dir"
-                cp -r -n "$tmp_dir/emqx/lib"/* "$lib_dir"
+                cp -r -n "$tmp_dir/emqx/releases"/* "$releases_dir" || true
+                cp -r -n "$tmp_dir/emqx/lib"/* "$lib_dir" || true
                 rm -rf "$tmp_dir"
             fi
             releases+=( "$base_vsn" )
-        done < <(find _upgrade_base -maxdepth 1 -name "*$PROFILE-otp${OTP_VSN}-$SYSTEM*-$ARCH.zip" -type f)
+        done < <(find _upgrade_base -maxdepth 1 -name "${PROFILE}-*-otp${OTP_VSN}-${SYSTEM}-${ARCH}.zip" -type f)
     fi
     if [ ${#releases[@]} -eq 0 ]; then
         log "No upgrade base found, relup ignored"
