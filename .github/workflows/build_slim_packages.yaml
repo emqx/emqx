@@ -67,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        erl_otp:
+        otp:
         - 24.1.5-3
         macos:
         - macos-11
@@ -96,8 +96,8 @@ jobs:
     - uses: actions/cache@v2
       id: cache
       with:
-        path: ~/.kerl
-        key: otp-${{ matrix.erl_otp }}-${{ matrix.macos }}
+        path: ~/.kerl/${{ matrix.otp }}
+        key: otp-install-${{ matrix.otp }}-${{ matrix.macos }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
@@ -106,11 +106,11 @@ jobs:
         OTP_GITHUB_URL: https://github.com/emqx/otp
       run: |
         kerl update releases
-        kerl build ${{ matrix.erl_otp }}
-        kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
+        kerl build ${{ matrix.otp }}
+        kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
     - name: build
       run: |
-        . $HOME/.kerl/${{ matrix.erl_otp }}/activate
+        . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
         make ${EMQX_NAME}-zip
