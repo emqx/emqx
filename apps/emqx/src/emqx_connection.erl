@@ -1038,7 +1038,12 @@ inc_outgoing_stats(Packet = ?PACKET(Type)) ->
     emqx_metrics:inc_sent(Packet).
 
 inc_qos_stats(Type, Packet) ->
-    inc_counter(inc_qos_stats_key(Type, emqx_packet:qos(Packet)), 1).
+    case inc_qos_stats_key(Type, emqx_packet:qos(Packet)) of
+        undefined ->
+            ignore;
+        Key ->
+            inc_counter(Key, 1)
+    end.
 
 inc_qos_stats_key(send_msg, ?QOS_0) -> 'send_msg.qos0';
 inc_qos_stats_key(send_msg, ?QOS_1) -> 'send_msg.qos1';
@@ -1046,7 +1051,9 @@ inc_qos_stats_key(send_msg, ?QOS_2) -> 'send_msg.qos2';
 
 inc_qos_stats_key(recv_msg, ?QOS_0) -> 'recv_msg.qos0';
 inc_qos_stats_key(recv_msg, ?QOS_1) -> 'recv_msg.qos1';
-inc_qos_stats_key(recv_msg, ?QOS_2) -> 'recv_msg.qos2'.
+inc_qos_stats_key(recv_msg, ?QOS_2) -> 'recv_msg.qos2';
+%% for bad qos
+inc_qos_stats_key(_, _) -> undefined.
 
 %%--------------------------------------------------------------------
 %% Helper functions
