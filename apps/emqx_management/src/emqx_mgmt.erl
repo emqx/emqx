@@ -243,7 +243,7 @@ lookup_client({username, Username}, FormatFun) ->
                   || Node <- mria_mnesia:running_nodes()]).
 
 lookup_client(Node, Key, {M, F}) ->
-    case wrap_rpc(emqx_broker_proto_v1:lookup_client(Node, Key)) of
+    case wrap_rpc(emqx_cm_proto_v1:lookup_client(Node, Key)) of
         {error, Err} -> {error, Err};
         L            -> lists:map(fun({Chan, Info0, Stats}) ->
                                           Info = Info0#{node => Node},
@@ -262,7 +262,7 @@ kickout_client({ClientID, FormatFun}) ->
     end.
 
 kickout_client(Node, ClientId) ->
-    wrap_rpc(emqx_broker_proto_v1:kickout_client(Node, ClientId)).
+    wrap_rpc(emqx_cm_proto_v1:kickout_client(Node, ClientId)).
 
 list_authz_cache(ClientId) ->
     call_client(ClientId, list_authz_cache).
