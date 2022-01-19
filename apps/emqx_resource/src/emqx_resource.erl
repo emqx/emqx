@@ -60,6 +60,7 @@
 -export([ restart/1  %% restart the instance.
         , restart/2
         , health_check/1 %% verify if the resource is working normally
+        , set_resource_status_stoped/1 %% set resource status to stoped
         , stop/1   %% stop the instance
         , query/2  %% query the instance
         , query/3  %% query the instance with after_query()
@@ -230,6 +231,9 @@ stop(InstId) ->
 -spec health_check(instance_id()) -> ok | {error, Reason :: term()}.
 health_check(InstId) ->
     call_instance(InstId, {health_check, InstId}).
+
+set_resource_status_stoped(InstId) ->
+    call_instance(InstId, {set_resource_status_stoped, InstId}).
 
 -spec get_instance(instance_id()) -> {ok, resource_data()} | {error, Reason :: term()}.
 get_instance(InstId) ->

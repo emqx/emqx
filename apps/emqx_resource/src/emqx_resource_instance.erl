@@ -120,6 +120,9 @@ handle_call({stop, InstId}, _From, State) ->
 handle_call({health_check, InstId}, _From, State) ->
     {reply, do_health_check(InstId), State};
 
+handle_call({set_resource_status_stoped, InstId}, _From, State) ->
+    {reply, do_set_resource_status_stoped(InstId), State};
+
 handle_call(Req, _From, State) ->
     logger:error("Received unexpected call: ~p", [Req]),
     {reply, ignored, State}.
@@ -274,6 +277,14 @@ do_health_check(#{id := InstId, mod := Mod, state := ResourceState0} = Data) ->
             ets:insert(emqx_resource_instance,
                 {InstId, Data#{status => stopped, state => ResourceState1}}),
             {error, Reason}
+    end.
+
+do_set_resource_status_stoped(InstId) ->
+    case emqx_resource_instance:lookup(InstId) of
+        {ok, #{id := InstId} = Data} ->
+            logger:error("health check for ~p failed: timeout", [InstId]),
+            ets:insert(emqx_resource_instance, {InstId, Data#{status => stopped}});
+        Error -> {error, Error}
     end.
 
 %%------------------------------------------------------------------------------
