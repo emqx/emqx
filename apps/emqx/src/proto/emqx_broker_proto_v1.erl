@@ -25,9 +25,6 @@
         , list_client_subscriptions/2
         , list_subscriptions_via_topic/2
 
-        , lookup_client/2
-        , kickout_client/2
-
         , start_listener/2
         , stop_listener/2
         , restart_listener/2
@@ -47,15 +44,6 @@ forward(Node, Topic, Delivery = #delivery{}) when is_binary(Topic) ->
 -spec forward_async(node(), emqx_types:topic(), emqx_types:delivery()) -> true.
 forward_async(Node, Topic, Delivery = #delivery{}) when is_binary(Topic) ->
     emqx_rpc:cast(Topic, Node, emqx_broker, dispatch, [Topic, Delivery]).
-
--spec kickout_client(node(), emqx_types:clientid()) -> ok | {badrpc, _}.
-kickout_client(Node, ClientId) ->
-    rpc:call(Node, emqx_cm, kick_session, [ClientId]).
-
--spec lookup_client(node(), {clientid, emqx_types:clientid()} | {username, emqx_types:username()}) ->
-          [emqx_cm:channel_info()] | {badrpc, _}.
-lookup_client(Node, Key) ->
-    rpc:call(Node, emqx_cm, lookup_client, [Key]).
 
 -spec list_client_subscriptions(node(), emqx_types:clientid()) ->
                 [{emqx_types:topic(), emqx_types:subopts()}]
