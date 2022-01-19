@@ -235,7 +235,6 @@ nodes_info_count(PropList) ->
 %%--------------------------------------------------------------------
 
 lookup_client({clientid, ClientId}, FormatFun) ->
-
     lists:append([lookup_client(Node, {clientid, ClientId}, FormatFun)
                   || Node <- mria_mnesia:running_nodes()]);
 
@@ -246,7 +245,11 @@ lookup_client({username, Username}, FormatFun) ->
 lookup_client(Node, Key, {M, F}) ->
     case wrap_rpc(emqx_broker_proto_v1:lookup_client(Node, Key)) of
         {error, Err} -> {error, Err};
-        L            -> lists:map(fun M:F/1, L)
+        L            -> lists:map(fun({Chan, Info0, Stats}) ->
+                                          Info = Info0#{node => Node},
+                                          M:F({Chan, Info, Stats})
+                                  end,
+                                  L)
     end.
 
 kickout_client({ClientID, FormatFun}) ->
