@@ -645,7 +645,7 @@ t_data(_) ->
         request_api(post, api_path(["data","import"]), [], auth_header_(),
             #{<<"filename">> => Filename})),
     application:stop(emqx_rule_engine),
-    application:stop(emqx_dahboard),
+    application:stop(emqx_dashboard),
     ok.
 
 t_data_import_content(_) ->
