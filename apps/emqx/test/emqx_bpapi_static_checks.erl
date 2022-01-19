@@ -51,7 +51,7 @@
 %% List of known functions also known to do RPC:
 -define(RPC_FUNCTIONS, "emqx_cluster_rpc:multicall/3, emqx_cluster_rpc:multicall/5").
 %% List of functions in the RPC backend modules that we can ignore:
--define(IGNORED_RPC_CALLS, "gen_rpc:nodes/0, emqx_rpc:unwrap_erpc/1").
+-define(IGNORED_RPC_CALLS, "gen_rpc:nodes/0, emqx_rpc:unwrap_erpc/1, rpc:pmap/3"). % TODO: handle pmap
 %% List of business-layer functions that are exempt from the checks:
 -define(EXEMPTIONS, "emqx_mgmt_api:do_query/6"  % Reason: legacy code. A fun and a QC query are
                                                 % passed in the args, it's futile to try to statically
