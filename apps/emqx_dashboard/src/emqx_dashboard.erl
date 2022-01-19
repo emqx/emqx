@@ -76,12 +76,15 @@ stop_listeners() ->
 %%--------------------------------------------------------------------
 %% internal
 
+%% confine apps to emqx_dashboard only for demo
 apps() ->
-    [App || {App, _, _} <- application:loaded_applications(),
-        case re:run(atom_to_list(App), "^emqx") of
-            {match,[{0,4}]} -> true;
-            _ -> false
-        end].
+    [emqx_dashboard].
+% apps() ->
+%     [App || {App, _, _} <- application:loaded_applications(),
+%         case re:run(atom_to_list(App), "^emqx") of
+%             {match,[{0,4}]} -> true;
+%             _ -> false
+%         end].
 
 listeners() ->
     [begin

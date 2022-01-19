@@ -11,11 +11,7 @@
 -import(emqx_mgmt_util, [schema/2]).
 -export([api_spec/0]).
 
--export([ monitor/2
-        , counters/2
-        , monitor_nodes/2
-        , monitor_nodes_counters/2
-        , current_counters/2
+-export([ handle_paths/3
         ]).
 
 -export([ sampling/1
@@ -54,7 +50,7 @@ monitor_api() ->
             ],
             responses => #{
                 <<"200">> => schema(counters_schema(), <<"Monitor count data">>)}}},
-    {"/monitor", Metadata, monitor}.
+    {"/monitor", Metadata, handle_paths}.
 
 monitor_nodes_api() ->
     Metadata = #{
@@ -63,7 +59,7 @@ monitor_nodes_api() ->
             parameters => [path_param_node()],
             responses => #{
                 <<"200">> => schema(counters_schema(), <<"Monitor count data in node">>)}}},
-    {"/monitor/nodes/:node", Metadata, monitor_nodes}.
+    {"/monitor/nodes/:node", Metadata, handle_paths}.
 
 monitor_nodes_counters_api() ->
     Metadata = #{
@@ -75,7 +71,7 @@ monitor_nodes_counters_api() ->
             ],
             responses => #{
                 <<"200">> => schema(counter_schema(), <<"Monitor single count data in node">>)}}},
-    {"/monitor/nodes/:node/counters/:counter", Metadata, monitor_nodes_counters}.
+    {"/monitor/nodes/:node/counters/:counter", Metadata, handle_paths}.
 
 monitor_counters_api() ->
     Metadata = #{
@@ -87,14 +83,14 @@ monitor_counters_api() ->
             responses => #{
                 <<"200">> =>
                     schema(counter_schema(), <<"Monitor single count data">>)}}},
-    {"/monitor/counters/:counter", Metadata, counters}.
+    {"/monitor/counters/:counter", Metadata, handle_paths}.
 monitor_current_api() ->
     Metadata = #{
         get => #{
             description => <<"Current monitor data">>,
             responses => #{
                 <<"200">> => schema(current_counters_schema(), <<"Current monitor data">>)}}},
-    {"/monitor/current", Metadata, current_counters}.
+    {"/monitor/current", Metadata, handle_paths}.
 
 path_param_node() ->
     #{
@@ -150,20 +146,20 @@ counter_schema() ->
                     type => integer}}}}.
 %%%==============================================================================================
 %% parameters trans
-monitor(get, #{query_string := Qs}) ->
+handle_paths("/monitor", get, #{query_string := Qs}) ->
     Aggregate = maps:get(<<"aggregate">>, Qs, <<"false">>),
-    {200, list_collect(Aggregate)}.
+    {200, list_collect(Aggregate)};
 
-monitor_nodes(get, #{bindings := #{node := Node}}) ->
-    lookup([{<<"node">>, Node}]).
+handle_paths("/monitor/nodes/:node", get, #{bindings := #{node := Node}}) ->
+    lookup([{<<"node">>, Node}]);
 
-monitor_nodes_counters(get, #{bindings := #{node := Node, counter := Counter}}) ->
-    lookup([{<<"node">>, Node}, {<<"counter">>, Counter}]).
+handle_paths("/monitor/nodes/:node/counters/:counter", get, #{bindings := #{node := Node, counter := Counter}}) ->
+    lookup([{<<"node">>, Node}, {<<"counter">>, Counter}]);
 
-counters(get, #{bindings := #{counter := Counter}}) ->
-    lookup([{<<"counter">>, Counter}]).
+handle_paths("/monitor/counters/:counter", get, #{bindings := #{counter := Counter}}) ->
+    lookup([{<<"counter">>, Counter}]);
 
-current_counters(get, _Params) ->
+handle_paths("/monitor/current", get, _Params) ->
     Data = [get_collect(Node) || Node <- mria_mnesia:running_nodes()],
     Nodes = length(mria_mnesia:running_nodes()),
     {Received, Sent, Sub, Conn} = format_current_metrics(Data),

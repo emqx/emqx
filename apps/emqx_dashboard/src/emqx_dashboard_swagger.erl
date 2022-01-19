@@ -4,7 +4,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 %% API
--export([spec/1, spec/2]).
+-export([spec/2, spec/3]).
 -export([namespace/0, fields/1]).
 -export([schema_with_example/2, schema_with_examples/2]).
 -export([error_codes/1, error_codes/2]).
@@ -17,6 +17,7 @@
         ]).
 -endif.
 
+-type methods() :: [get | post | put | head | delete | patch | options | trace].
 -define(METHODS, [get, post, put, head, delete, patch, options, trace]).
 
 -define(DEFAULT_FIELDS, [example, allowReserved, style, format,
@@ -55,19 +56,20 @@
 %%------------------------------------------------------------------------------
 
 %% @equiv spec(Module, #{check_schema => false})
--spec(spec(module()) -> {list(api_spec_entry()), list(api_spec_component())}).
-spec(Module) -> spec(Module, #{check_schema => false}).
+-spec(spec(module(), [{string(), methods()}]) ->
+    {list(api_spec_entry()), list(api_spec_component())}).
+spec(Module, PathMethods) -> spec(Module, PathMethods, #{check_schema => false}).
 
--spec(spec(module(), spec_opts()) -> {list(api_spec_entry()), list(api_spec_component())}).
-spec(Module, Options) ->
-    Paths = apply(Module, paths, []),
+-spec(spec(module(), [{string(), methods()}], spec_opts()) ->
+    {list(api_spec_entry()), list(api_spec_component())}).
+spec(Module, PathMethods, Options) ->
     {ApiSpec, AllRefs} =
-        lists:foldl(fun(Path, {AllAcc, AllRefsAcc}) ->
-            {OperationId, Specs, Refs} = parse_spec_ref(Module, Path),
+        lists:foldl(fun({Path, Methods}, {AllAcc, AllRefsAcc}) ->
+            {Specs, Refs} = parse_spec_ref(Module, {Path, Methods}),
             CheckSchema = support_check_schema(Options),
-            {[{filename:join("/", Path), Specs, OperationId, CheckSchema} | AllAcc],
+            {[{filename:join("/", Path), Specs, handle_paths, CheckSchema} | AllAcc],
                     Refs ++ AllRefsAcc}
-                    end, {[], []}, Paths),
+        end, {[], []}, PathMethods),
     {ApiSpec, components(lists:usort(AllRefs))}.
 
 -spec(namespace() -> hocon_schema:name()).
@@ -117,7 +119,7 @@ filter_check_request(Request, RequestMeta) ->
     translate_req(Request, RequestMeta, fun check_only/3).
 
 translate_req(Request, #{module := Module, path := Path, method := Method}, CheckFun) ->
-    #{Method := Spec} = apply(Module, schema, [Path]),
+    Spec = apply(Module, paths, [Path, Method]),
     try
         Params = maps:get(parameters, Spec, []),
         Body = maps:get('requestBody', Spec, []),
@@ -146,21 +148,22 @@ support_check_schema(#{check_schema := Filter}) when is_function(Filter, 2) ->
 support_check_schema(_) ->
     #{filter => undefined}.
 
-parse_spec_ref(Module, Path) ->
+parse_spec_ref(Module, {Path, Methods}) ->
     Schema =
-        try
-            erlang:apply(Module, schema, [Path])
-        catch error: Reason -> %% better error message
-            throw({error, #{mfa => {Module, schema, [Path]}, reason => Reason}})
-        end,
+        lists:foldl(fun(Method, Acc) ->
+            try Acc#{Method => erlang:apply(Module, paths, [Path, Method])}
+            catch
+                error: Reason -> %% better error message
+                    throw({error, #{mfa => {Module, paths, [Path, Method]}, reason => Reason}})
+            end
+        end, #{}, Methods),
     {Specs, Refs} = maps:fold(fun(Method, Meta, {Acc, RefsAcc}) ->
-        (not lists:member(Method, ?METHODS))
-            andalso throw({error, #{module => Module, path => Path, method => Method}}),
-        {Spec, SubRefs} = meta_to_spec(Meta, Module),
-        {Acc#{Method => Spec}, SubRefs ++ RefsAcc}
-                              end, {#{}, []},
-        maps:without(['operationId'], Schema)),
-    {maps:get('operationId', Schema), Specs, Refs}.
+            (not lists:member(Method, ?METHODS)) andalso
+                throw({error, #{module => Module, path => Path, method => Method}}),
+            {Spec, SubRefs} = meta_to_spec(Meta, Module),
+            {Acc#{Method => Spec}, SubRefs ++ RefsAcc}
+        end, {#{}, []}, Schema),
+    {Specs, Refs}.
 
 check_parameters(Request, Spec, Module) ->
     #{bindings := Bindings, query_string := QueryStr} = Request,

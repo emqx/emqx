@@ -22,8 +22,10 @@
 -include_lib("typerefl/include/types.hrl").
 -import(hoconsc, [mk/2, ref/2, array/1, enum/1]).
 
--export([api_spec/0, fields/1, paths/0, schema/1, namespace/0]).
--export([login/2, logout/2, users/2, user/2, change_pwd/2]).
+%% hocon schema callbacks
+-export([fields/1, namespace/0]).
+%% emqx_dashboard callbacks
+-export([api_spec/0, paths/2, handle_paths/3]).
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 -define(ERROR_USERNAME_OR_PWD, 'ERROR_USERNAME_OR_PWD').
@@ -32,146 +34,6 @@
 
 
 namespace() -> "dashboard".
-
-api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
-
-paths() ->
-    [ "/login"
-    , "/logout"
-    , "/users"
-    , "/users/:username"
-    , "/users/:username/change_pwd"].
-
-schema("/login") ->
-    #{
-        'operationId' => login,
-        post => #{
-            tags => [<<"dashboard">>],
-            description => <<"Dashboard Auth">>,
-            summary => <<"Dashboard Auth">>,
-            'requestBody' => [
-                {username, mk(binary(),
-                    #{desc => <<"The User for which to create the token.">>,
-                        'maxLength' => 100, example => <<"admin">>})},
-                {password, mk(binary(),
-                    #{desc => "password", example => "public"})}
-            ],
-            responses => #{
-                200 => [
-                    {token, mk(string(), #{desc => <<"JWT Token">>})},
-                    {license, [{edition,
-                        mk(enum([community, enterprise]), #{desc => <<"license">>,
-                            example => "community"})}]},
-                    {version, mk(string(), #{desc => <<"version">>, example => <<"5.0.0">>})}
-                ],
-                401 => [
-                    {code, mk(string(), #{example => 'ERROR_USERNAME_OR_PWD'})},
-                    {message, mk(string(), #{example => "Unauthorized"})}
-                ]
-            },
-            security => []
-        }};
-schema("/logout") ->
-    #{
-        'operationId' => logout,
-        post => #{
-            tags => [<<"dashboard">>],
-            description => <<"Dashboard User logout">>,
-            'requestBody' => [
-                {username, mk(binary(),
-                    #{desc => <<"The User for which to create the token.">>,
-                        'maxLength' => 100, example => <<"admin">>})}
-            ],
-            responses => #{
-                204 => <<"Dashboard logout successfully">>
-            }
-        }
-    };
-schema("/users") ->
-    #{
-        'operationId' => users,
-        get => #{
-            tags => [<<"dashboard">>],
-            description => <<"Get dashboard users list">>,
-            responses => #{
-                200 => mk( array(ref(?MODULE, user))
-                         , #{desc => "User lists"})
-            }
-        },
-        post => #{
-            tags => [<<"dashboard">>],
-            description => <<"Create dashboard users">>,
-            'requestBody' => fields(user_password),
-            responses => #{
-                200 => mk( ref(?MODULE, user)
-                         , #{desc => <<"Create User successfully">>}),
-                400 => [{code, mk(string(), #{example => 'CREATE_FAIL'})},
-                    {message, mk(string(), #{example => "Create user failed"})}
-                ]
-            }
-        }
-    };
-
-schema("/users/:username") ->
-    #{
-        'operationId' => user,
-        put => #{
-            tags => [<<"dashboard">>],
-            description => <<"Update dashboard users">>,
-            parameters => [{username, mk(binary(),
-                #{in => path, example => <<"admin">>})}],
-            'requestBody' => [
-                { description
-                , mk(binary(),
-                    #{desc => <<"User description">>, example => <<"administrator">>})}
-            ],
-            responses => #{
-                200 => mk( ref(?MODULE, user)
-                         , #{desc => <<"Update User successfully">>}),
-                400 => [
-                    {code, mk(string(), #{example => 'UPDATE_FAIL'})},
-                    {message, mk(string(), #{example => "Update Failed unknown"})}
-                ],
-                404 => emqx_dashboard_swagger:error_codes(['USER_NOT_FOUND'], <<"User Not Found">>)
-            }
-        },
-        delete => #{
-            tags => [<<"dashboard">>],
-            description => <<"Delete dashboard users">>,
-            parameters => [{username, mk(binary(),
-                #{in => path, example => <<"admin">>})}],
-            responses => #{
-                204 => <<"Delete User successfully">>,
-                400 => [
-                    {code, mk(string(), #{example => 'CANNOT_DELETE_ADMIN'})},
-                    {message, mk(string(), #{example => "CANNOT DELETE ADMIN"})}
-                ],
-                404 => emqx_dashboard_swagger:error_codes(['USER_NOT_FOUND'], <<"User Not Found">>)
-            }
-        }
-    };
-schema("/users/:username/change_pwd") ->
-    #{
-        'operationId' => change_pwd,
-        put => #{
-            tags => [<<"dashboard">>],
-            description => <<"Update dashboard users password">>,
-            parameters => [{username, mk(binary(),
-                #{in => path, required => true, example => <<"admin">>})}],
-            'requestBody' => [
-                {old_pwd, mk(binary(), #{required => true})},
-                {new_pwd, mk(binary(), #{required => true})}
-            ],
-            responses => #{
-                204 => <<"Update user password successfully">>,
-                400 => [
-                    {code, mk(string(), #{example => 'UPDATE_FAIL'})},
-                    {message, mk(string(), #{example => "Failed Reason"})}
-                ]
-            }
-        }
-    }.
 
 fields(user) ->
     [
@@ -185,7 +47,140 @@ fields(user) ->
 fields(user_password) ->
     fields(user) ++ [{password, mk(binary(), #{desc => "Password", example => <<"public">>})}].
 
-login(post, #{body := Params}) ->
+api_spec() ->
+    Paths = [ {"/login", [get]}
+            , {"/logout", [post]}
+            , {"/users", [get, post]}
+            , {"/users/:username", [put, delete]}
+            , {"/users/:username/change_pwd", [put]}
+            ],
+    Opts = #{check_schema => true, translate_body => true},
+    emqx_dashboard_swagger:spec(?MODULE, Paths, Opts).
+
+paths("/login", get) ->
+    #{
+        tags => [<<"dashboard">>],
+        description => <<"Dashboard Auth">>,
+        summary => <<"Dashboard Auth">>,
+        'requestBody' => [
+            {username, mk(binary(),
+                #{desc => <<"The User for which to create the token.">>,
+                    'maxLength' => 100, example => <<"admin">>})},
+            {password, mk(binary(),
+                #{desc => "password", example => "public"})}
+        ],
+        responses => #{
+            200 => [
+                {token, mk(string(), #{desc => <<"JWT Token">>})},
+                {license, [{edition,
+                    mk(enum([community, enterprise]), #{desc => <<"license">>,
+                        example => "community"})}]},
+                {version, mk(string(), #{desc => <<"version">>, example => <<"5.0.0">>})}
+            ],
+            401 => [
+                {code, mk(string(), #{example => 'ERROR_USERNAME_OR_PWD'})},
+                {message, mk(string(), #{example => "Unauthorized"})}
+            ]
+        },
+        security => []
+    };
+
+paths("/logout", post) ->
+    #{
+        tags => [<<"dashboard">>],
+        description => <<"Dashboard User logout">>,
+        'requestBody' => [
+            {username, mk(binary(),
+                #{desc => <<"The User for which to create the token.">>,
+                    'maxLength' => 100, example => <<"admin">>})}
+        ],
+        responses => #{
+            204 => <<"Dashboard logout successfully">>
+        }
+    };
+
+paths("/users", get) ->
+    #{
+        tags => [<<"dashboard">>],
+        description => <<"Get dashboard users list">>,
+        responses => #{
+            200 => mk( array(ref(?MODULE, user))
+                        , #{desc => "User lists"})
+        }
+    };
+
+paths("/users", post) ->
+    #{
+        tags => [<<"dashboard">>],
+        description => <<"Create dashboard users">>,
+        'requestBody' => fields(user_password),
+        responses => #{
+            200 => mk( ref(?MODULE, user)
+                        , #{desc => <<"Create User successfully">>}),
+            400 => [{code, mk(string(), #{example => 'CREATE_FAIL'})},
+                {message, mk(string(), #{example => "Create user failed"})}
+            ]
+        }
+    };
+
+paths("/users/:username", put) ->
+    #{
+        tags => [<<"dashboard">>],
+        description => <<"Update dashboard users">>,
+        parameters => [{username, mk(binary(),
+            #{in => path, example => <<"admin">>})}],
+        'requestBody' => [
+            { description
+            , mk(binary(),
+                #{desc => <<"User description">>, example => <<"administrator">>})}
+        ],
+        responses => #{
+            200 => mk( ref(?MODULE, user)
+                        , #{desc => <<"Update User successfully">>}),
+            400 => [
+                {code, mk(string(), #{example => 'UPDATE_FAIL'})},
+                {message, mk(string(), #{example => "Update Failed unknown"})}
+            ],
+            404 => emqx_dashboard_swagger:error_codes(['USER_NOT_FOUND'], <<"User Not Found">>)
+        }
+    };
+
+paths("/users/:username", delete) ->
+    #{
+        tags => [<<"dashboard">>],
+        description => <<"Delete dashboard users">>,
+        parameters => [{username, mk(binary(),
+            #{in => path, example => <<"admin">>})}],
+        responses => #{
+            204 => <<"Delete User successfully">>,
+            400 => [
+                {code, mk(string(), #{example => 'CANNOT_DELETE_ADMIN'})},
+                {message, mk(string(), #{example => "CANNOT DELETE ADMIN"})}
+            ],
+            404 => emqx_dashboard_swagger:error_codes(['USER_NOT_FOUND'], <<"User Not Found">>)
+        }
+    };
+
+paths("/users/:username/change_pwd", put) ->
+    #{
+        tags => [<<"dashboard">>],
+        description => <<"Update dashboard users password">>,
+        parameters => [{username, mk(binary(),
+            #{in => path, required => true, example => <<"admin">>})}],
+        'requestBody' => [
+            {old_pwd, mk(binary(), #{required => true})},
+            {new_pwd, mk(binary(), #{required => true})}
+        ],
+        responses => #{
+            204 => <<"Update user password successfully">>,
+            400 => [
+                {code, mk(string(), #{example => 'UPDATE_FAIL'})},
+                {message, mk(string(), #{example => "Failed Reason"})}
+            ]
+        }
+    }.
+
+handle_paths("/login", post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
     case emqx_dashboard_admin:sign_token(Username, Password) of
@@ -197,21 +192,21 @@ login(post, #{body := Params}) ->
                    }};
         {error, _} ->
             {401, #{code => ?ERROR_USERNAME_OR_PWD, message => <<"Auth filed">>}}
-    end.
+    end;
 
-logout(_, #{body := #{<<"username">> := Username},
-    headers := #{<<"authorization">> := <<"Bearer ", Token/binary>>}}) ->
+handle_paths("/logout", _, #{body := #{<<"username">> := Username},
+        headers := #{<<"authorization">> := <<"Bearer ", Token/binary>>}}) ->
     case emqx_dashboard_admin:destroy_token_by_username(Username, Token) of
         ok ->
             204;
         _R ->
             {401, 'BAD_TOKEN_OR_USERNAME', <<"Ensure your token & username">>}
-    end.
+    end;
 
-users(get, _Request) ->
+handle_paths("/users", get, _Request) ->
     {200, emqx_dashboard_admin:all_users()};
 
-users(post, #{body := Params}) ->
+handle_paths("/users", post, #{body := Params}) ->
     Desc = maps:get(<<"description">>, Params),
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
@@ -226,9 +221,9 @@ users(post, #{body := Params}) ->
                 {error, Reason} ->
                     {400, #{code => <<"CREATE_USER_FAIL">>, message => Reason}}
             end
-    end.
+    end;
 
-user(put, #{bindings := #{username := Username}, body := Params}) ->
+handle_paths("/users/:username", put, #{bindings := #{username := Username}, body := Params}) ->
     Desc = maps:get(<<"description">>, Params),
     case emqx_dashboard_admin:update_user(Username, Desc) of
         {ok, Result} ->
@@ -237,7 +232,7 @@ user(put, #{bindings := #{username := Username}, body := Params}) ->
             {404, ?USER_NOT_FOUND_BODY}
     end;
 
-user(delete, #{bindings := #{username := Username}}) ->
+handle_paths("/users/:username", delete, #{bindings := #{username := Username}}) ->
     case Username == <<"admin">> of
         true ->
             {400, #{code => <<"ACTION_NOT_ALLOWED">>,
@@ -249,9 +244,10 @@ user(delete, #{bindings := #{username := Username}}) ->
                 {ok, _} ->
                     {204}
             end
-    end.
+    end;
 
-change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->
+handle_paths("/users/:username/change_pwd", put, #{bindings := #{username := Username},
+                                                   body := Params}) ->
     OldPwd = maps:get(<<"old_pwd">>, Params),
     NewPwd = maps:get(<<"new_pwd">>, Params),
     case emqx_dashboard_admin:change_password(Username, OldPwd, NewPwd) of
