@@ -222,8 +222,10 @@ emqx_description(cloud, ee) -> "EMQ X Enterprise Edition";
 emqx_description(cloud, ce) -> "EMQ X Community Edition";
 emqx_description(edge, ce)  -> "EMQ X Edge Edition".
 
-overlay_vars(RelType, PkgType, _Edition) ->
-    overlay_vars_rel(RelType) ++ overlay_vars_pkg(PkgType).
+overlay_vars(RelType, PkgType, Edition) ->
+    overlay_vars_rel(RelType)
+    ++ overlay_vars_pkg(PkgType)
+    ++ overlay_vars_edition(Edition).
 
 %% vars per release type, cloud or edge
 overlay_vars_rel(RelType) ->
@@ -233,6 +235,15 @@ overlay_vars_rel(RelType) ->
              end,
 
     [ {vm_args_file, VmArgs}
+    ].
+
+overlay_vars_edition(ce) ->
+    [ {emqx_schema_mod, emqx_conf_schema}
+    , {emqx_machine_boot_apps, emqx_machine_boot_app_list(ce)}
+    ];
+overlay_vars_edition(ee) ->
+    [ {emqx_schema_mod, emqx_enterprise_conf_schema}
+    , {emqx_machine_boot_apps, emqx_machine_boot_app_list(ee)}
     ].
 
 %% vars per packaging type, bin(zip/tar.gz/docker) or pkg(rpm/deb)
@@ -316,10 +327,7 @@ relx_apps(ReleaseType, Edition) ->
     %++ [emqx_license || is_enterprise(Edition)]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)
-       %% NOTE: applications below are only loaded after node start/restart
-       %% TODO: Add loaded/unloaded state to plugin apps
-       %%       then we can always start plugin apps
-    ++ [{N, load} || N <- relx_plugin_apps(ReleaseType, Edition)].
+    ++ relx_additional_apps(ReleaseType, Edition).
 
 relx_apps_per_rel(cloud) ->
     [ xmerl
@@ -335,19 +343,49 @@ is_app(Name) ->
         _ -> false
     end.
 
-relx_plugin_apps(ReleaseType, Edition) ->
+relx_additional_apps(ReleaseType, Edition) ->
     relx_plugin_apps_per_rel(ReleaseType)
-    ++ relx_plugin_apps_enterprise(Edition).
+    ++ relx_apps_per_edition(Edition).
 
 relx_plugin_apps_per_rel(cloud) ->
     [];
 relx_plugin_apps_per_rel(edge) ->
     [].
 
-relx_plugin_apps_enterprise(ee) ->
-    [list_to_atom(A) || A <- filelib:wildcard("*", "lib-ee"),
-                        filelib:is_dir(filename:join(["lib-ee", A]))];
-relx_plugin_apps_enterprise(ce) -> [].
+relx_apps_per_edition(ee) ->
+    [ emqx_license
+    , {emqx_enterprise_conf, load}
+    ];
+
+relx_apps_per_edition(ce) -> [].
+
+emqx_machine_boot_apps(ce) ->
+    [ emqx_prometheus
+    , emqx_modules
+    , emqx_dashboard
+    , emqx_connector
+    , emqx_gateway
+    , emqx_statsd
+    , emqx_resource
+    , emqx_rule_engine
+    , emqx_bridge
+    , emqx_plugin_libs
+    , emqx_management
+    , emqx_retainer
+    , emqx_exhook
+    , emqx_authn
+    , emqx_authz
+    , emqx_plugin
+    ];
+
+emqx_machine_boot_apps(ee) ->
+    emqx_machine_boot_apps(ce) ++
+    [].
+
+emqx_machine_boot_app_list(Edition) ->
+    string:join(
+      [atom_to_list(AppName) || AppName <- emqx_machine_boot_apps(Edition)],
+      ", ").
 
 relx_overlay(ReleaseType, Edition) ->
     [ {mkdir, "log/"}
@@ -374,34 +412,38 @@ relx_overlay(ReleaseType, Edition) ->
     , {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
     ] ++ etc_overlay(ReleaseType, Edition).
 
-etc_overlay(ReleaseType, _Edition) ->
-    Templates = emqx_etc_overlay(ReleaseType),
+etc_overlay(ReleaseType, Edition) ->
+    Templates = emqx_etc_overlay(ReleaseType, Edition),
     [ {mkdir, "etc/"}
     , {copy, "{{base_dir}}/lib/emqx/etc/certs","etc/"}
     ] ++
     lists:map(
       fun({From, To}) -> {template, From, To};
          (FromTo)     -> {template, FromTo, FromTo}
-      end, Templates)
-    ++ extra_overlay(ReleaseType).
+      end, Templates).
 
-extra_overlay(cloud) ->
-    [
-    ];
-extra_overlay(edge) ->
-    [].
-emqx_etc_overlay(cloud) ->
-    emqx_etc_overlay_common() ++
+emqx_etc_overlay(ReleaseType, Edition) ->
+    emqx_etc_overlay_per_rel(ReleaseType)
+    ++ emqx_etc_overlay_per_edition(Edition)
+    ++ emqx_etc_overlay_common().
+
+emqx_etc_overlay_per_rel(cloud) ->
     [ {"{{base_dir}}/lib/emqx/etc/emqx_cloud/vm.args","etc/vm.args"}
     ];
-emqx_etc_overlay(edge) ->
-    emqx_etc_overlay_common() ++
+emqx_etc_overlay_per_rel(edge) ->
     [ {"{{base_dir}}/lib/emqx/etc/emqx_edge/vm.args","etc/vm.args"}
     ].
 
 emqx_etc_overlay_common() ->
+    [ {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"}
+    ].
+
+emqx_etc_overlay_per_edition(ce) ->
     [ {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
-    , {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"}
+    ];
+emqx_etc_overlay_per_edition(ee) ->
+    [ {"{{base_dir}}/lib/emqx_conf/etc/emqx_enterprise.conf.all", "etc/emqx_enterprise.conf"}
+    , {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
     ].
 
 get_vsn(Profile) ->

@@ -1,0 +1,17 @@
+.eunit
+deps
+*.o
+*.beam
+*.plt
+erl_crash.dump
+ebin
+rel/example_project
+.concrete/DEV_MODE
+.rebar
+.DS_Store
+.erlang.mk/
+emqx_license.d
+erlang.mk
+_build/
+rebar.lock
+rebar3.crashdump

@@ -32,12 +32,17 @@ end_per_suite(_Config) ->
           "If this test suite failed, and you are unsure why, read this:~n"
           "https://github.com/emqx/emqx/blob/master/apps/emqx/src/bpapi/README.md", []).
 
+check_if_versions_consistent(OldData, NewData) ->
+    %% OldData can contain a wider list of BPAPI versions
+    %% than the release being checked.
+    [] =:= NewData -- OldData.
+
 t_run_check(_) ->
     try
         {ok, OldData} = file:consult(emqx_bpapi_static_checks:versions_file()),
         ?assert(emqx_bpapi_static_checks:run()),
         {ok, NewData} = file:consult(emqx_bpapi_static_checks:versions_file()),
-        OldData =:= NewData orelse
+        check_if_versions_consistent(OldData, NewData) orelse
             begin
                 logger:critical(
                       "BPAPI versions were changed, but not committed to the repo.\n"
