@@ -495,7 +495,7 @@ is_new_acl_data(#{<<"action">> := _, <<"access">> := _,
 is_new_acl_data(_) -> false.
 
 is_old_acl_data(#{<<"login">> := _, <<"topic">> := _,
-    <<"allow">> := Allow, <<"action">> := _}) -> is_boolean(Allow);
+    <<"allow">> := Allow, <<"action">> := _}) -> is_boolean(any_to_atom(Allow));
 is_old_acl_data(_) -> false.
 
 do_import_acl_mnesia_by_old_data(Acls) ->
