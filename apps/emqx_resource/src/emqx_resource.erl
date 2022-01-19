@@ -146,7 +146,7 @@ create(InstId, ResourceType, Config) ->
 -spec create(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create(InstId, ResourceType, Config, Opts) ->
-    cluster_call(create_local, [InstId, ResourceType, Config, Opts]).
+    wrap_rpc(emqx_resource_proto_v1:create(InstId, ResourceType, Config, Opts)).
 
 -spec create_local(instance_id(), resource_type(), resource_config()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
@@ -161,7 +161,7 @@ create_local(InstId, ResourceType, Config, Opts) ->
 -spec create_dry_run(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run(ResourceType, Config) ->
-    cluster_call(create_dry_run_local, [ResourceType, Config]).
+    wrap_rpc(emqx_resource_proto_v1:create_dry_run(ResourceType, Config)).
 
 -spec create_dry_run_local(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
@@ -171,7 +171,7 @@ create_dry_run_local(ResourceType, Config) ->
 -spec recreate(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate(InstId, ResourceType, Config, Opts) ->
-    cluster_call(recreate_local, [InstId, ResourceType, Config, Opts]).
+    wrap_rpc(emqx_resource_proto_v1:recreate(InstId, ResourceType, Config, Opts)).
 
 -spec recreate_local(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
@@ -180,7 +180,7 @@ recreate_local(InstId, ResourceType, Config, Opts) ->
 
 -spec remove(instance_id()) -> ok | {error, Reason :: term()}.
 remove(InstId) ->
-    cluster_call(remove_local, [InstId]).
+    wrap_rpc(emqx_resource_proto_v1:remove(InstId)).
 
 -spec remove_local(instance_id()) -> ok | {error, Reason :: term()}.
 remove_local(InstId) ->
@@ -362,8 +362,8 @@ call_instance(InstId, Query) ->
 safe_apply(Func, Args) ->
     ?SAFE_CALL(erlang:apply(Func, Args)).
 
-cluster_call(Func, Args) ->
-    case emqx_cluster_rpc:multicall(?MODULE, Func, Args) of
+wrap_rpc(Ret) ->
+    case Ret of
         {ok, _TxnId, Result} -> Result;
         Failed -> Failed
     end.

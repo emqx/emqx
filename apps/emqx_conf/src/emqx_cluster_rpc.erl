@@ -29,7 +29,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          handle_continue/2, code_change/3]).
 
--export_type([txn_id/0, succeed_num/0, multicall_return/0]).
+-export_type([txn_id/0, succeed_num/0, multicall_return/1, multicall_return/0]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -48,9 +48,11 @@
 
 -type succeed_num() :: pos_integer() | all.
 
--type multicall_return() :: {ok, txn_id(), _Result}
-                          | {error, term()}
-                          | {retry, txn_id(), _Result, node()}.
+-type multicall_return(Result) :: {ok, txn_id(), Result}
+                                | {error, term()}
+                                | {retry, txn_id(), Result, node()}.
+
+-type multicall_return() :: multicall_return(_).
 
 %%%===================================================================
 %%% API
