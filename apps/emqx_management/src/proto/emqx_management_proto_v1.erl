@@ -32,6 +32,8 @@
         , unsubscribe/3
 
         , call_client/3
+
+        , get_full_config/1
         ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -77,3 +79,7 @@ unsubscribe(Node, ClientId, Topic) ->
 -spec call_client(node(), emqx_types:clientid(), term()) -> term().
 call_client(Node, ClientId, Req) ->
     rpc:call(Node, emqx_mgmt, do_call_client, [ClientId, Req]).
+
+-spec get_full_config(node()) -> map() | list() | {badrpc, _}.
+get_full_config(Node) ->
+    rpc:call(Node, emqx_mgmt_api_configs, get_full_config, []).
