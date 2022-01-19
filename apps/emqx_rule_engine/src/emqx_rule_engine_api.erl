@@ -211,20 +211,32 @@ test_rule_sql(Params) ->
     end.
 
 do_create_rule(Params) ->
-    case emqx_rule_engine:create_rule(parse_rule_params(Params)) of
-        {ok, Rule} -> return({ok, record_to_map(Rule)});
-        {error, {action_not_found, ActionName}} ->
-            return({error, 400, ?ERR_NO_ACTION(ActionName)});
+    case parse_rule_params(Params) of
+        {ok, ParsedParams} ->
+            case emqx_rule_engine:create_rule(ParsedParams) of
+                {ok, Rule} -> return({ok, record_to_map(Rule)});
+                {error, {action_not_found, ActionName}} ->
+                    return({error, 400, ?ERR_NO_ACTION(ActionName)});
+                {error, Reason} ->
+                    ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
+                    return({error, 400, ?ERR_BADARGS(Reason)})
+            end;
         {error, Reason} ->
             ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
 update_rule(#{id := Id}, Params) ->
-    case emqx_rule_engine:update_rule(parse_rule_params(Params, #{id => Id})) of
-        {ok, Rule} -> return({ok, record_to_map(Rule)});
-        {error, {not_found, RuleId}} ->
-            return({error, 400, ?ERR_NO_RULE(RuleId)});
+    case parse_rule_params(Params, #{id => Id}) of
+        {ok, ParsedParams} ->
+            case emqx_rule_engine:update_rule(ParsedParams) of
+                {ok, Rule} -> return({ok, record_to_map(Rule)});
+                {error, {not_found, RuleId}} ->
+                    return({error, 400, ?ERR_NO_RULE(RuleId)});
+                {error, Reason} ->
+                    ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
+                    return({error, 400, ?ERR_BADARGS(Reason)})
+            end;
         {error, Reason} ->
             ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
@@ -481,7 +493,9 @@ printable_actions(Actions) ->
 parse_rule_params(Params) ->
     parse_rule_params(Params, #{description => <<"">>}).
 parse_rule_params([], Rule) ->
-    Rule;
+    {ok, Rule};
+parse_rule_params([{<<"id">>, <<>>} | _], _) ->
+    {error, {empty_string_not_allowed, id}};
 parse_rule_params([{<<"id">>, Id} | Params], Rule) ->
     parse_rule_params(Params, Rule#{id => Id});
 parse_rule_params([{<<"rawsql">>, RawSQL} | Params], Rule) ->
@@ -516,6 +530,8 @@ parse_resource_params(Params) ->
     parse_resource_params(Params, #{config => #{}, description => <<"">>}).
 parse_resource_params([], Res) ->
     {ok, Res};
+parse_resource_params([{<<"id">>, <<>>} | _], _Res) ->
+    {error, {empty_string_not_allowed, id}};
 parse_resource_params([{<<"id">>, Id} | Params], Res) ->
     parse_resource_params(Params, Res#{id => Id});
 parse_resource_params([{<<"type">>, ResourceType} | Params], Res) ->
