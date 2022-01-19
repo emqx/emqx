@@ -25,6 +25,8 @@
         , cast/5
         , multicall/4
         , multicall/5
+
+        , unwrap_erpc/1
         ]).
 
 -export_type([ badrpc/0
@@ -106,3 +108,15 @@ filter_result(Delivery) ->
 
 max_client_num() ->
     emqx:get_config([rpc, tcp_client_num], ?DefaultClientNum).
+
+-spec unwrap_erpc(emqx_rpc:erpc(A)) -> A | {error, _Err}.
+unwrap_erpc({ok, A}) ->
+    A;
+unwrap_erpc({throw, A}) ->
+    {error, A};
+unwrap_erpc({error, {exception, Err, _Stack}}) ->
+    {error, Err};
+unwrap_erpc({error, {exit, Err}}) ->
+    {error, Err};
+unwrap_erpc({error, {erpc, Err}}) ->
+    {error, Err}.

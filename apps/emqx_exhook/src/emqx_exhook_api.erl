@@ -32,9 +32,6 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BAD_RPC, 'BAD_RPC').
 
--type rpc_result() :: {error, any()}
-                    | any().
-
 -dialyzer([{nowarn_function, [ fill_cluster_server_info/5
                              , nodes_server_info/5
                              , fill_server_hooks_info/4
@@ -285,7 +282,7 @@ get_nodes_server_info(Name) ->
 %% GET /exhooks
 %%--------------------------------------------------------------------
 nodes_all_server_info(ConfL) ->
-    AllInfos = call_cluster(emqx_exhook_mgr, all_servers_info, []),
+    AllInfos = call_cluster(fun(Nodes) -> emqx_exhook_proto_v1:all_servers_info(Nodes) end),
     Default = emqx_exhook_metrics:new_metrics_info(),
     node_all_server_info(ConfL, AllInfos, Default, []).
 
@@ -324,7 +321,7 @@ fill_cluster_server_info([], StatusL, MetricsL, ServerName, _) ->
 %% GET /exhooks/{name}
 %%--------------------------------------------------------------------
 nodes_server_info(Name) ->
-    InfoL = call_cluster(emqx_exhook_mgr, server_info, [Name]),
+    InfoL = call_cluster(fun(Nodes) -> emqx_exhook_proto_v1:server_info(Nodes, Name) end),
     Default = emqx_exhook_metrics:new_metrics_info(),
     nodes_server_info(InfoL, Name, Default, [], []).
 
@@ -359,7 +356,7 @@ get_nodes_server_hooks_info(Name) ->
     case emqx_exhook_mgr:hooks(Name) of
         [] -> [];
         Hooks ->
-            AllInfos = call_cluster(emqx_exhook_mgr, server_hooks_metrics, [Name]),
+            AllInfos = call_cluster(fun(Nodes) -> emqx_exhook_proto_v1:server_hooks_metrics(Nodes, Name) end),
             Default = emqx_exhook_metrics:new_metrics_info(),
             get_nodes_server_hooks_info(Hooks, AllInfos, Default, [])
     end.
@@ -387,16 +384,10 @@ fill_server_hooks_info([], _Name, _Default, MetricsL) ->
 %%--------------------------------------------------------------------
 %% cluster call
 %%--------------------------------------------------------------------
-call_cluster(Module, Fun, Args) ->
+
+-spec call_cluster(fun(([node()]) -> emqx_rpc:erpc_multicall(A))) ->
+          [{node(), A | {error, _Err}}].
+call_cluster(Fun) ->
     Nodes = mria_mnesia:running_nodes(),
-    [{Node, rpc_call(Node, Module, Fun, Args)} || Node <- Nodes].
-
--spec rpc_call(node(), atom(), atom(), list()) -> rpc_result().
-rpc_call(Node, Module, Fun, Args) when Node =:= node() ->
-    erlang:apply(Module, Fun, Args);
-
-rpc_call(Node, Module, Fun, Args) ->
-    case rpc:call(Node, Module, Fun, Args) of
-        {badrpc, Reason} -> {error, Reason};
-        Res -> Res
-    end.
+    Ret = Fun(Nodes),
+    lists:zip(Nodes, lists:map(fun emqx_rpc:unwrap_erpc/1, Ret)).
