@@ -15,6 +15,8 @@ PROFILE="$1"
 VSN="$2"
 OLD_VSN="$3"
 PACKAGE_PATH="$4"
+FROM_OTP_VSN="${5:-24.1.5-3}"
+TO_OTP_VSN="${6:-24.1.5-3}"
 
 TEMPDIR=$(mktemp -d)
 trap '{ rm -rf -- "$TEMPDIR"; }' EXIT
@@ -37,4 +39,6 @@ exec docker run \
         --var ONE_MORE_EMQX_PATH="/relup_test/one_more_emqx" \
         --var VSN="$VSN" \
         --var OLD_VSN="$OLD_VSN" \
+        --var FROM_OTP_VSN="$FROM_OTP_VSN" \
+        --var TO_OTP_VSN="$TO_OTP_VSN" \
         relup.lux

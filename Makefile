@@ -3,12 +3,14 @@ REBAR_VERSION = 3.14.3-emqx-8
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
-export EMQX_DEFAULT_BUILDER = emqx/build-env:erl23.2.7.2-emqx-3-alpine
-export EMQX_DEFAULT_RUNNER = alpine:3.12
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-alpine3.14
+export EMQX_DEFAULT_RUNNER = alpine:3.14
+export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 export EMQX_DESC ?= EMQ X
 export EMQX_CE_DASHBOARD_VERSION ?= v4.3.3
 export DOCKERFILE := deploy/docker/Dockerfile
+export DOCKERFILE_TESTING := deploy/docker/Dockerfile.testing
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
 endif
@@ -96,6 +98,7 @@ $(PROFILES:%=clean-%):
 
 .PHONY: clean-all
 clean-all:
+	@rm -f rebar.lock
 	@rm -rf _build
 
 .PHONY: deps-all
@@ -159,6 +162,18 @@ $1-docker: $(COMMON_DEPS)
 endef
 ALL_ZIPS = $(REL_PROFILES)
 $(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target,$(zt))))
+
+## emqx-docker-testing
+## emqx-ee-docker-testing
+## is to directly copy a unzipped zip-package to a
+## base image such as ubuntu20.04. Mostly for testing
+.PHONY: $(REL_PROFILES:%=%-docker-testing)
+define gen-docker-target-testing
+$1-docker-testing: $(COMMON_DEPS)
+	@$(BUILD) $1 docker-testing
+endef
+ALL_ZIPS = $(REL_PROFILES)
+$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target-testing,$(zt))))
 
 .PHONY: run
 run: $(PROFILE) quickrun

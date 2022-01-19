@@ -28,12 +28,20 @@ if [[ -z "$EMQX_NAME" ]]; then
 fi
 
 if [[ -z "$EMQX_HOST" ]]; then
-    if [[ "$EMQX_CLUSTER__K8S__ADDRESS_TYPE" == "dns" ]] && [[ -n "$EMQX_CLUSTER__K8S__NAMESPACE" ]]; then
-        EMQX_CLUSTER__K8S__SUFFIX=${EMQX_CLUSTER__K8S__SUFFIX:-"pod.cluster.local"}
-        EMQX_HOST="${LOCAL_IP//./-}.$EMQX_CLUSTER__K8S__NAMESPACE.$EMQX_CLUSTER__K8S__SUFFIX"
-    elif [[ "$EMQX_CLUSTER__K8S__ADDRESS_TYPE" == 'hostname' ]] && [[ -n "$EMQX_CLUSTER__K8S__NAMESPACE" ]]; then
-        EMQX_CLUSTER__K8S__SUFFIX=${EMQX_CLUSTER__K8S__SUFFIX:-'svc.cluster.local'}
-        EMQX_HOST=$(grep -h "^$LOCAL_IP" /etc/hosts | grep -o "$(hostname).*.$EMQX_CLUSTER__K8S__NAMESPACE.$EMQX_CLUSTER__K8S__SUFFIX")
+    if [[ "$EMQX_CLUSTER__DISCOVERY" == "dns" ]] && \
+        [[ "$EMQX_CLUSTER__DNS__TYPE" == "srv" ]] && \
+        grep -q "$(hostname).$EMQX_CLUSTER__DNS__NAME" /etc/hosts; then
+            EMQX_HOST="$(hostname).$EMQX_CLUSTER__DNS__NAME"
+    elif [[ "$EMQX_CLUSTER__DISCOVERY" == "k8s" ]] && \
+        [[ "$EMQX_CLUSTER__K8S__ADDRESS_TYPE" == "dns" ]] && \
+        [[ -n "$EMQX_CLUSTER__K8S__NAMESPACE" ]]; then
+            EMQX_CLUSTER__K8S__SUFFIX=${EMQX_CLUSTER__K8S__SUFFIX:-"pod.cluster.local"}
+            EMQX_HOST="${LOCAL_IP//./-}.$EMQX_CLUSTER__K8S__NAMESPACE.$EMQX_CLUSTER__K8S__SUFFIX"
+    elif [[ "$EMQX_CLUSTER__DISCOVERY" == "k8s" ]] && \
+        [[ "$EMQX_CLUSTER__K8S__ADDRESS_TYPE" == 'hostname' ]] && \
+        [[ -n "$EMQX_CLUSTER__K8S__NAMESPACE" ]]; then
+            EMQX_CLUSTER__K8S__SUFFIX=${EMQX_CLUSTER__K8S__SUFFIX:-'svc.cluster.local'}
+            EMQX_HOST=$(grep -h "^$LOCAL_IP" /etc/hosts | grep -o "$(hostname).*.$EMQX_CLUSTER__K8S__NAMESPACE.$EMQX_CLUSTER__K8S__SUFFIX")
     else
         EMQX_HOST="$LOCAL_IP"
     fi
