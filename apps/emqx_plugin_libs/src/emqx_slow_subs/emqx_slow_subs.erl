@@ -24,7 +24,7 @@
 
 -logger_header("[SLOW Subs]").
 
--export([ start_link/1, on_delivery_completed/3, enable/0
+-export([ start_link/1, on_delivery_completed/4, enable/0
         , disable/0, clear_history/0, init_tab/0
         ]).
 
@@ -52,7 +52,7 @@
                     | internal      %% timespan from message in to deliver
                     | response.     %% timespan from delivery to client response
 
--type stats_update_args() :: #{ clientid := emqx_types:clientid()}.
+-type stats_update_args() :: #{session_birth_time := pos_integer()}.
 
 -type stats_update_env() :: #{ threshold := non_neg_integer()
                              , stats_type := stats_type()
@@ -81,18 +81,20 @@
 start_link(Env) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Env], []).
 
-on_delivery_completed(#message{timestamp = Ts}, #{session_birth_time := BirthTime}, _Cfg)
+on_delivery_completed(_ClientInfo, #message{timestamp = Ts}, #{session_birth_time := BirthTime}, _Cfg)
   when Ts =< BirthTime ->
     ok;
 
-on_delivery_completed(Msg, Env, Cfg) ->
-    on_delivery_completed(Msg, Env, erlang:system_time(millisecond), Cfg).
+on_delivery_completed(ClientInfo, Msg, Env, Cfg) ->
+    on_delivery_completed(ClientInfo, Msg, Env, erlang:system_time(millisecond), Cfg).
 
-on_delivery_completed(#message{topic = Topic} = Msg,
-                      #{clientid := ClientId},
-                      Now, #{threshold := Threshold,
-                             stats_type := StatsType,
-                             max_size := MaxSize}) ->
+on_delivery_completed(#{clientid := ClientId},
+                      #message{topic = Topic} = Msg,
+                      _Env,
+                      Now,
+                      #{threshold := Threshold,
+                        stats_type := StatsType,
+                        max_size := MaxSize}) ->
     TimeSpan = calc_timespan(StatsType, Msg, Now),
     case TimeSpan =< Threshold of
         true -> ok;
@@ -191,7 +193,7 @@ load(Cfg) ->
     StatsType = get_value(stats_type, Cfg),
     Threshold = get_value(threshold, Cfg),
     _ = emqx:hook('delivery.completed',
-                  fun ?MODULE:on_delivery_completed/3,
+                  fun ?MODULE:on_delivery_completed/4,
                   [#{max_size => MaxSize,
                      stats_type => StatsType,
                      threshold => Threshold
@@ -199,7 +201,7 @@ load(Cfg) ->
     ok.
 
 unload() ->
-    emqx:unhook('delivery.completed', fun ?MODULE:on_delivery_completed/3 ),
+    emqx:unhook('delivery.completed', fun ?MODULE:on_delivery_completed/4 ),
     do_clear_history().
 
 do_clear(Cfg, Logs) ->
@@ -266,7 +268,7 @@ find_last_update_value(Id) ->
             0
     end.
 
--spec update_topk(non_neg_integer(), non_neg_integer(), non_neg_integer(), integer()) -> true.
+-spec update_topk(pos_integer(), non_neg_integer(), non_neg_integer(), id()) -> true.
 update_topk(Now, LastUpdateValue, TimeSpan, Id) ->
     %% update record
     ets:insert(?TOPK_TAB, #top_k{index = ?TOPK_INDEX(TimeSpan, Id),

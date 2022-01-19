@@ -335,7 +335,7 @@ is_awaiting_full(#session{awaiting_rel = AwaitingRel,
 puback(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
-            on_delivery_completed(Msg, Session),
+            on_delivery_completed(ClientInfo, Msg, Session),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             return_with(Msg, dequeue(ClientInfo, Session#session{inflight = Inflight1}));
         {value, _Other} ->
@@ -393,7 +393,7 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
 pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Pubrel, Msg}} when is_record(Pubrel, pubrel_await) ->
-            on_delivery_completed(Msg, Session),
+            on_delivery_completed(ClientInfo, Msg, Session),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             dequeue(ClientInfo, Session#session{inflight = Inflight1});
         {value, _Other} ->
@@ -459,8 +459,8 @@ do_deliver(ClientInfo, [Msg | More], Acc, Session) ->
             do_deliver(ClientInfo, More, [Publish | Acc], Session1)
     end.
 
-deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, Session) ->
-    on_delivery_completed(Msg, Session),
+deliver_msg(ClientInfo, Msg = #message{qos = ?QOS_0}, Session) ->
+    on_delivery_completed(ClientInfo, Msg, Session),
     {ok, [{undefined, maybe_ack(Msg)}], Session};
 
 deliver_msg(ClientInfo, Msg = #message{qos = QoS}, Session =
@@ -712,16 +712,16 @@ next_pkt_id(Session = #session{next_pkt_id = Id}) ->
 %%--------------------------------------------------------------------
 %% Message Latency Stats
 %%--------------------------------------------------------------------
-on_delivery_completed(Msg,
-                      #session{clientid = ClientId,
-                               created_at = CreateAt}) when is_record(Msg, message) ->
+on_delivery_completed(ClientInfo,
+                      Msg,
+                      #session{created_at = CreateAt}) when is_record(Msg, message) ->
     emqx:run_hook('delivery.completed',
-                  [Msg, #{ session_birth_time => CreateAt
-                         , clientid => ClientId
-                         }]);
+                  [ClientInfo, Msg, #{session_birth_time => CreateAt}]);
 
-%% in 4.4.0, timestamp are stored in pubrel_await, not message
-on_delivery_completed(_Ts, _Session) ->
+%% Hot upgrade compatibility clause.
+%% In the 4.4.0, timestamp are stored in pubrel_await, not a message record.
+%% This clause should be kept in all 4.4.x versions.
+on_delivery_completed(_ClientInfo, _Ts, _Session) ->
     ok.
 
 mark_begin_deliver(Msg) ->
