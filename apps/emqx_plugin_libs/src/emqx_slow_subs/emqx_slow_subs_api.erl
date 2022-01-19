@@ -93,6 +93,6 @@ rpc_call(Node, M, F, A, _ErrorR, _T) when Node =:= node() ->
 
 rpc_call(Node, M, F, A, ErrorR, T) ->
     case rpc:call(Node, M, F, A, T) of
-                          {badrpc, _} -> ErrorR;
-                          Res -> Res
+        {badrpc, _} -> ErrorR;
+        Res -> Res
     end.
