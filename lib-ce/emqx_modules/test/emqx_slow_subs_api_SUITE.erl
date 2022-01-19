@@ -39,6 +39,8 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
+    ok = meck:new([emqx_modules], [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_modules, find_module, fun(_) -> [{true, true}] end),
     emqx_ct_helpers:boot_modules(all),
     application:load(emqx_plugin_libs),
     emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_dashboard]),
@@ -46,6 +48,7 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     emqx_ct_helpers:stop_apps([emqx_management]),
+    ok = meck:unload(emqx_modules),
     Config.
 
 init_per_testcase(_, Config) ->
