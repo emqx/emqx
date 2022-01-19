@@ -69,7 +69,7 @@ stop_child(ChildId) ->
 
 init([]) ->
     ok = emqx_tables:new(emqx_modules, [set, public, {write_concurrency, true}]),
-    emqx_slow_subs:init_topk_tab(),
+    emqx_slow_subs:init_tab(),
     {ok, {{one_for_one, 10, 100}, []}}.
 
 %%--------------------------------------------------------------------

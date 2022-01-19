@@ -53,47 +53,39 @@ t_log_and_pub(_) ->
     %% Sub topic first
     Subs = [{<<"/test1/+">>, ?QOS_1}, {<<"/test2/+">>, ?QOS_2}],
     Clients = start_client(Subs),
-    emqx:subscribe("$SYS/brokers/+/slow_subs"),
-    timer:sleep(1000),
-    Now = ?NOW,
-    %% publish
-
-    lists:foreach(fun(I) ->
-                      Topic = list_to_binary(io_lib:format("/test1/~p", [I])),
-                      Msg = emqx_message:make(undefined, ?QOS_1, Topic, <<"Hello">>),
-                      emqx:publish(Msg#message{timestamp = Now - 500})
-                  end,
-                  lists:seq(1, 10)),
-
-    lists:foreach(fun(I) ->
-                      Topic = list_to_binary(io_lib:format("/test2/~p", [I])),
-                      Msg = emqx_message:make(undefined, ?QOS_2, Topic, <<"Hello">>),
-                      emqx:publish(Msg#message{timestamp = Now - 500})
-                  end,
-                  lists:seq(1, 10)),
-
-    timer:sleep(1000),
-    Size = ets:info(?TOPK_TAB, size),
-    %% some time record maybe delete due to it expired
-    ?assert(Size =< 6 andalso Size >= 4),
-
     timer:sleep(1500),
-    Recs = try_receive([]),
-    RecSum = lists:sum(Recs),
-    ?assert(RecSum >= 5),
-    ?assert(lists:all(fun(E) -> E =< 3 end, Recs)),
+    Now = ?NOW,
+
+    %% publish
+    lists:foreach(fun(I) ->
+                          Topic = list_to_binary(io_lib:format("/test1/~p", [I])),
+                          Msg = emqx_message:make(undefined, ?QOS_1, Topic, <<"Hello">>),
+                          emqx:publish(Msg#message{timestamp = Now - 500})
+                  end,
+                  lists:seq(1, 10)),
+
+    lists:foreach(fun(I) ->
+                          Topic = list_to_binary(io_lib:format("/test2/~p", [I])),
+                          Msg = emqx_message:make(undefined, ?QOS_2, Topic, <<"Hello">>),
+                          emqx:publish(Msg#message{timestamp = Now - 500})
+                  end,
+                  lists:seq(1, 10)),
 
     timer:sleep(2000),
+    Size = ets:info(?TOPK_TAB, size),
+    %% some time record maybe delete due to it expired
+    ?assert(Size =< 6 andalso Size >= 4,
+            unicode:characters_to_binary(io_lib:format("size is :~p~n", [Size]))),
+
+    timer:sleep(3000),
     ?assert(ets:info(?TOPK_TAB, size) =:= 0),
     [Client ! stop || Client <- Clients],
     ok.
 base_conf() ->
-    [ {threshold, 500}
+    [ {threshold, 300}
     , {top_k_num, 5}
     , {expire_interval, timer:seconds(3)}
-    , {notice_interval, 1500}
-    , {notice_qos, 0}
-    , {notice_batch_size, 3}
+    , {stats_type, whole}
     ].
 
 start_client(Subs) ->

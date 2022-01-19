@@ -68,31 +68,28 @@ base_conf() ->
 t_get_history(_) ->
     Now = ?NOW,
     Each = fun(I) ->
-               ClientId = erlang:list_to_binary(io_lib:format("test_~p", [I])),
-               ets:insert(?TOPK_TAB, #top_k{index = ?INDEX(I, ClientId),
-                                            type = average,
-                                            last_update_time = Now})
+                   ClientId = erlang:list_to_binary(io_lib:format("test_~p", [I])),
+                   Topic = erlang:list_to_binary(io_lib:format("topic/~p", [I])),
+                   ets:insert(?TOPK_TAB, #top_k{index = ?TOPK_INDEX(I, ?ID(ClientId, Topic)),
+                                                last_update_time = Now})
            end,
 
     lists:foreach(Each, lists:seq(1, 5)),
 
-    {ok, Data} = request_api(get, api_path(["slow_subscriptions"]), "_page=1&_limit=10",
+    {ok, Data} = request_api(get, api_path(["slow_subscriptions"]), "",
                              auth_header_()),
-    #{meta := Meta, data := [First | _]} = decode(Data),
-
-    RMeta = #{page => 1, limit => 10, count => 5},
-    ?assertEqual(RMeta, Meta),
+    #{data := [First | _]} = decode(Data),
 
     RFirst = #{clientid => <<"test_5">>,
-               latency => 5,
-               type => <<"average">>,
+               topic => <<"topic/5">>,
+               timespan => 5,
+               node => erlang:atom_to_binary(node()),
                last_update_time => Now},
 
     ?assertEqual(RFirst, First).
 
 t_clear(_) ->
-    ets:insert(?TOPK_TAB, #top_k{index = ?INDEX(1, <<"test">>),
-                                 type = average,
+    ets:insert(?TOPK_TAB, #top_k{index = ?TOPK_INDEX(1, ?ID(<<"test">>, <<"test">>)),
                                  last_update_time = ?NOW}),
 
     {ok, _} = request_api(delete, api_path(["slow_subscriptions"]), [],

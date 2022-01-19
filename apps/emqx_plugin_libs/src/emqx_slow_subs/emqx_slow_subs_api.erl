@@ -30,9 +30,12 @@
 
 -export([ clear_history/2
         , get_history/2
+        , get_history/0
         ]).
 
--include("include/emqx_slow_subs.hrl").
+-include_lib("emqx_plugin_libs/include/emqx_slow_subs.hrl").
+
+-define(DEFAULT_RPC_TIMEOUT, timer:seconds(5)).
 
 -import(minirest, [return/1]).
 
@@ -41,17 +44,55 @@
 %%--------------------------------------------------------------------
 
 clear_history(_Bindings, _Params) ->
-    ok = emqx_slow_subs:clear_history(),
+    Nodes = ekka_mnesia:running_nodes(),
+    _ = [rpc_call(Node, emqx_slow_subs, clear_history, [], ok, ?DEFAULT_RPC_TIMEOUT)
+         || Node <- Nodes],
     return(ok).
 
-get_history(_Bindings, Params) ->
-    RowFun = fun(#top_k{index = ?INDEX(Latency, ClientId),
-                        type = Type,
-                        last_update_time = Ts}) ->
-                 [{clientid, ClientId},
-                  {latency, Latency},
-                  {type, Type},
-                  {last_update_time, Ts}]
-             end,
-    Return = emqx_mgmt_api:paginate({?TOPK_TAB, [{traverse, last_prev}]}, Params, RowFun),
-    return({ok, Return}).
+get_history(_Bindings, _Params) ->
+    Nodes = ekka_mnesia:running_nodes(),
+      Fun = fun(Node, Acc) ->
+                    NodeRankL = rpc_call(Node,
+                                         ?MODULE,
+                                         ?FUNCTION_NAME,
+                                         [],
+                                         [],
+                                         ?DEFAULT_RPC_TIMEOUT),
+                    NodeRankL ++ Acc
+            end,
+
+    RankL = lists:foldl(Fun, [], Nodes),
+
+    SortFun = fun(#{timespan := A}, #{timespan := B}) ->
+                      A > B
+              end,
+
+    SortedL = lists:sort(SortFun, RankL),
+    SortedL2 = lists:sublist(SortedL, ?MAX_SIZE),
+
+    return({ok, SortedL2}).
+
+get_history() ->
+    Node = node(),
+    RankL = ets:tab2list(?TOPK_TAB),
+    ConvFun = fun(#top_k{index = ?TOPK_INDEX(TimeSpan, ?ID(ClientId, Topic)),
+                         last_update_time = LastUpdateTime
+                        }) ->
+                      #{ clientid => ClientId
+                       , node => Node
+                       , topic => Topic
+                       , timespan => TimeSpan
+                       , last_update_time => LastUpdateTime
+                       }
+           end,
+
+    lists:map(ConvFun, RankL).
+
+rpc_call(Node, M, F, A, _ErrorR, _T) when Node =:= node() ->
+    erlang:apply(M, F, A);
+
+rpc_call(Node, M, F, A, ErrorR, T) ->
+    case rpc:call(Node, M, F, A, T) of
+                          {badrpc, _} -> ErrorR;
+                          Res -> Res
+    end.

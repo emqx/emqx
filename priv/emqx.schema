@@ -1008,6 +1008,7 @@ end}.
 ]}.
 
 %% @doc the number of smaples for calculate the average latency of delivery
+%% @deprecated This is a obsoleted configuration, kept here only for compatibility
 {mapping, "zone.$name.latency_samples", "emqx.zones", [
   {default, 10},
   {datatype, integer}
@@ -2230,26 +2231,35 @@ end}.
 ]}.
 
 {mapping, "module.slow_subs.expire_interval", "emqx.modules", [
-  {default, "5m"},
+  {default, "300s"},
   {datatype, {duration, ms}}
 ]}.
 
 {mapping, "module.slow_subs.top_k_num", "emqx.modules", [
-  {default, 500},
-  {datatype, integer}
+  {default, 10},
+  {datatype, integer},
+  {validators, ["range:0-1000"]}
 ]}.
 
+{mapping, "module.slow_subs.stats_type", "emqx.modules", [
+  {default, whole},
+  {datatype, {enum, [whole, internal, response]}}
+]}.
+
+%% @deprecated This is a obsoleted configuration, kept here only for compatibility
 {mapping, "module.slow_subs.notice_interval", "emqx.modules", [
   {default, "0s"},
   {datatype, {duration, ms}}
 ]}.
 
+%% @deprecated This is a obsoleted configuration, kept here only for compatibility
 {mapping, "module.slow_subs.notice_qos", "emqx.modules", [
   {default, 0},
   {datatype, integer},
   {validators, ["range:0-1"]}
 ]}.
 
+%% @deprecated This is a obsoleted configuration, kept here only for compatibility
 {mapping, "module.slow_subs.notice_batch_size", "emqx.modules", [
   {default, 500},
   {datatype, integer}
