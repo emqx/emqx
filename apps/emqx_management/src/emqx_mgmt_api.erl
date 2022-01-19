@@ -197,12 +197,15 @@ do_cluster_query([Node | Tail] = Nodes, Tab, Qs, QueryFun, Continuation,
 %% Do Query (or rpc query)
 %%--------------------------------------------------------------------
 
-%% @private
+%% @private This function is exempt from BPAPI
 do_query(Node, Tab, Qs, {M,F}, Continuation, Limit) when Node =:= node() ->
     erlang:apply(M, F, [Tab, Qs, Continuation, Limit]);
 do_query(Node, Tab, Qs, QueryFun, Continuation, Limit) ->
-    rpc_call(Node, ?MODULE, do_query,
-             [Node, Tab, Qs, QueryFun, Continuation, Limit], 50000).
+    case rpc:call(Node, ?MODULE, do_query,
+                  [Node, Tab, Qs, QueryFun, Continuation, Limit], 50000) of
+        {badrpc, _} = R -> {error, R};
+        Ret -> Ret
+    end.
 
 sub_query_result(Len, Rows, Limit, Results, Meta) ->
     {Flag, NMeta} = judge_page_with_counting(Len, Meta),
@@ -218,13 +221,6 @@ sub_query_result(Len, Rows, Limit, Results, Meta) ->
                 lists:sublist(lists:append(Results, Rows), 1, Limit)
         end,
     {NMeta, NResults}.
-
-%% @private
-rpc_call(Node, M, F, A, T) ->
-    case rpc:call(Node, M, F, A, T) of
-        {badrpc, _} = R -> {error, R};
-        Res -> Res
-    end.
 
 %%--------------------------------------------------------------------
 %% Table Select
