@@ -123,9 +123,37 @@
 -type cache() :: #cache{}.
 
 -define(ACTIVE_N, 100).
--define(INFO_KEYS, [socktype, peername, sockname, sockstate]).
--define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
--define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
+
+-define(INFO_KEYS,  [ socktype
+                    , peername
+                    , sockname
+                    , sockstate
+                    ]).
+
+-define(CONN_STATS, [ recv_pkt
+                    , recv_msg
+                    , 'recv_msg.qos0'
+                    , 'recv_msg.qos1'
+                    , 'recv_msg.qos2'
+                    , 'recv_msg.dropped'
+                    , 'recv_msg.dropped.expired'
+                    , send_pkt
+                    , send_msg
+                    , 'send_msg.qos0'
+                    , 'send_msg.qos1'
+                    , 'send_msg.qos2'
+                    , 'send_msg.dropped'
+                    , 'send_msg.dropped.expired'
+                    , 'send_msg.dropped.queue_full'
+                    , 'send_msg.dropped.too_large'
+                    ]).
+
+-define(SOCK_STATS, [ recv_oct
+                    , recv_cnt
+                    , send_oct
+                    , send_cnt
+                    , send_pend
+                    ]).
 
 -define(ENABLED(X), (X =/= undefined)).
 
@@ -758,6 +786,7 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
                     }),
                     ok = emqx_metrics:inc('delivery.dropped.too_large'),
                     ok = emqx_metrics:inc('delivery.dropped'),
+                    ok = inc_outgoing_stats({error, message_too_large}),
                     <<>>;
             Data ->
                     ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
@@ -985,6 +1014,7 @@ inc_incoming_stats(Packet = ?PACKET(Type)) ->
     case Type =:= ?PUBLISH of
         true ->
             inc_counter(recv_msg, 1),
+            inc_qos_stats(recv_msg, Packet),
             inc_counter(incoming_pubs, 1);
         false ->
             ok
@@ -992,16 +1022,38 @@ inc_incoming_stats(Packet = ?PACKET(Type)) ->
     emqx_metrics:inc_recv(Packet).
 
 -compile({inline, [inc_outgoing_stats/1]}).
+inc_outgoing_stats({error, message_too_large}) ->
+    inc_counter('send_msg.dropped', 1),
+    inc_counter('send_msg.dropped.too_large', 1);
 inc_outgoing_stats(Packet = ?PACKET(Type)) ->
     inc_counter(send_pkt, 1),
     case Type =:= ?PUBLISH of
         true ->
             inc_counter(send_msg, 1),
-            inc_counter(outgoing_pubs, 1);
+            inc_counter(outgoing_pubs, 1),
+            inc_qos_stats(send_msg, Packet);
         false ->
             ok
     end,
     emqx_metrics:inc_sent(Packet).
+
+inc_qos_stats(Type, Packet) ->
+    case inc_qos_stats_key(Type, emqx_packet:qos(Packet)) of
+        undefined ->
+            ignore;
+        Key ->
+            inc_counter(Key, 1)
+    end.
+
+inc_qos_stats_key(send_msg, ?QOS_0) -> 'send_msg.qos0';
+inc_qos_stats_key(send_msg, ?QOS_1) -> 'send_msg.qos1';
+inc_qos_stats_key(send_msg, ?QOS_2) -> 'send_msg.qos2';
+
+inc_qos_stats_key(recv_msg, ?QOS_0) -> 'recv_msg.qos0';
+inc_qos_stats_key(recv_msg, ?QOS_1) -> 'recv_msg.qos1';
+inc_qos_stats_key(recv_msg, ?QOS_2) -> 'recv_msg.qos2';
+%% for bad qos
+inc_qos_stats_key(_, _) -> undefined.
 
 %%--------------------------------------------------------------------
 %% Helper functions
