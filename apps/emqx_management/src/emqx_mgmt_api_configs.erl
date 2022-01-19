@@ -158,12 +158,12 @@ configs(get, Params, _Req) ->
     case
         lists:member(Node, mria_mnesia:running_nodes())
         andalso
-        rpc:call(Node, ?MODULE, get_full_config, [])
+        emqx_management_proto_v1:get_full_config(Node)
     of
         false ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
             {500, #{code => 'BAD_NODE', message => Message}};
-        {error, {badrpc, R}} ->
+        {badrpc, R} ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason ~p", [Node, R])),
             {500, #{code => 'BAD_NODE', message => Message}};
         Res ->
