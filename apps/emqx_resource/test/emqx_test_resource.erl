@@ -55,6 +55,9 @@ on_stop(_InstId, #{pid := Pid}) ->
 
 on_query(_InstId, get_state, AfterQuery, State) ->
     emqx_resource:query_success(AfterQuery),
+    State;
+on_query(_InstId, get_state_failed, AfterQuery, State) ->
+    emqx_resource:query_failed(AfterQuery),
     State.
 
 on_health_check(_InstId, State = #{pid := Pid}) ->
