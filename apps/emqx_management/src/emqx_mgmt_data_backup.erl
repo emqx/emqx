@@ -733,6 +733,8 @@ is_version_supported2("4.1") ->
     true;
 is_version_supported2("4.3") ->
     true;
+is_version_supported2("4.4") ->
+    true;
 is_version_supported2(Version) ->
     case re:run(Version, "^4.[02].\\d+$", [{capture, none}]) of
         match ->
