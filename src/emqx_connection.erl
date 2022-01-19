@@ -858,6 +858,7 @@ inc_incoming_stats(Packet = ?PACKET(Type)) ->
     case Type =:= ?PUBLISH of
         true ->
             inc_counter(recv_msg, 1),
+            inc_qos_stats(recv_msg, Packet),
             inc_counter(incoming_pubs, 1);
         false ->
             ok
@@ -880,8 +881,9 @@ inc_outgoing_stats(Packet = ?PACKET(Type)) ->
     end,
     emqx_metrics:inc_sent(Packet).
 
-inc_qos_stats(Type, #mqtt_packet{header = #mqtt_packet_header{qos = QoS}}) ->
-    inc_counter(inc_qos_stats_key(Type, QoS), 1).
+inc_qos_stats(Type, #mqtt_packet{header = #mqtt_packet_header{qos = QoS}}) when ?IS_QOS(QoS) ->
+    inc_counter(inc_qos_stats_key(Type, QoS), 1);
+inc_qos_stats(_, _) -> ok.
 
 inc_qos_stats_key(send_msg, ?QOS_0) -> 'send_msg.qos0';
 inc_qos_stats_key(send_msg, ?QOS_1) -> 'send_msg.qos1';
