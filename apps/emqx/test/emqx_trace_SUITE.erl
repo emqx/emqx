@@ -62,7 +62,7 @@ t_base_create_delete(_Config) ->
         end_at => End
     },
     AnotherTrace = Trace#{name => <<"anotherTrace">>},
-    ok = emqx_trace:create(Trace),
+    {ok, _} = emqx_trace:create(Trace),
     ?assertEqual({error, {already_existed, Name}}, emqx_trace:create(Trace)),
     ?assertEqual({error, {duplicate_condition, Name}}, emqx_trace:create(AnotherTrace)),
     [TraceRec] = emqx_trace:list(),
@@ -95,13 +95,13 @@ t_create_size_max(_Config) ->
         Name = list_to_binary("name" ++ integer_to_list(Seq)),
         Trace = [{name, Name}, {type, topic},
             {topic, list_to_binary("/x/y/" ++ integer_to_list(Seq))}],
-        ok = emqx_trace:create(Trace)
+        {ok, _} = emqx_trace:create(Trace)
               end, lists:seq(1, 30)),
     Trace31 = [{<<"name">>, <<"name31">>},
         {<<"type">>, topic}, {<<"topic">>, <<"/x/y/31">>}],
     {error, _} = emqx_trace:create(Trace31),
     ok = emqx_trace:delete(<<"name30">>),
-    ok = emqx_trace:create(Trace31),
+    {ok, _} = emqx_trace:create(Trace31),
     ?assertEqual(30, erlang:length(emqx_trace:list())),
     ok.
 
@@ -145,7 +145,7 @@ t_create_failed(_Config) ->
 
 t_create_default(_Config) ->
     {error, "name required"} = emqx_trace:create([]),
-    ok = emqx_trace:create([{<<"name">>, <<"test-name">>},
+    {ok, _} = emqx_trace:create([{<<"name">>, <<"test-name">>},
         {<<"type">>, clientid}, {<<"clientid">>, <<"good">>}]),
     [#emqx_trace{name = <<"test-name">>}] = emqx_trace:list(),
     ok = emqx_trace:clear(),
@@ -166,7 +166,7 @@ t_create_default(_Config) ->
         {<<"end_at">>, to_rfc3339(Now + 3)}
     ],
     {error, "failed by start_at >= end_at"} = emqx_trace:create(Trace2),
-    ok = emqx_trace:create([{<<"name">>, <<"test-name">>},
+    {ok, _} = emqx_trace:create([{<<"name">>, <<"test-name">>},
         {<<"type">>, topic}, {<<"topic">>, <<"/x/y/z">>}]),
     [#emqx_trace{start_at = Start, end_at = End}] = emqx_trace:list(),
     ?assertEqual(10 * 60, End - Start),
@@ -182,7 +182,7 @@ t_create_with_extra_fields(_Config) ->
         {<<"clientid">>, <<"dev001">>},
         {<<"ip_address">>, <<"127.0.0.1">>}
     ],
-    ok = emqx_trace:create(Trace),
+    {ok, _} = emqx_trace:create(Trace),
     ?assertMatch([#emqx_trace{name = <<"test-name">>, filter = <<"/x/y/z">>, type = topic}],
         emqx_trace:list()),
     ok.
@@ -191,7 +191,7 @@ t_update_enable(_Config) ->
     Name = <<"test-name">>,
     Now = erlang:system_time(second),
     End = list_to_binary(calendar:system_time_to_rfc3339(Now + 2)),
-    ok = emqx_trace:create([{<<"name">>, Name}, {<<"type">>, topic},
+    {ok, _} = emqx_trace:create([{<<"name">>, Name}, {<<"type">>, topic},
         {<<"topic">>, <<"/x/y/z">>}, {<<"end_at">>, End}]),
     [#emqx_trace{enable = Enable}] = emqx_trace:list(),
     ?assertEqual(Enable, true),
@@ -219,8 +219,8 @@ t_load_state(_Config) ->
     Finished = [{<<"name">>, <<"Finished">>}, {<<"type">>, topic},
         {<<"topic">>, <<"/x/y/3">>}, {<<"start_at">>, to_rfc3339(Now - 5)},
         {<<"end_at">>, to_rfc3339(Now)}],
-    ok = emqx_trace:create(Running),
-    ok = emqx_trace:create(Waiting),
+    {ok, _} = emqx_trace:create(Running),
+    {ok, _} = emqx_trace:create(Waiting),
     {error, "end_at time has already passed"} = emqx_trace:create(Finished),
     Traces = emqx_trace:format(emqx_trace:list()),
     ?assertEqual(2, erlang:length(Traces)),
@@ -241,7 +241,7 @@ t_client_event(_Config) ->
     Now = erlang:system_time(second),
     Start = to_rfc3339(Now),
     Name = <<"test_client_id_event">>,
-    ok = emqx_trace:create([{<<"name">>, Name},
+    {ok, _} = emqx_trace:create([{<<"name">>, Name},
         {<<"type">>, clientid}, {<<"clientid">>, ClientId}, {<<"start_at">>, Start}]),
     ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
@@ -250,7 +250,7 @@ t_client_event(_Config) ->
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"1">>, [{qos, 0}]),
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"2">>, [{qos, 0}]),
     ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
-    ok = emqx_trace:create([{<<"name">>, <<"test_topic">>},
+    {ok, _} = emqx_trace:create([{<<"name">>, <<"test_topic">>},
         {<<"type">>, topic}, {<<"topic">>, <<"/test">>}, {<<"start_at">>, Start}]),
     ok = emqx_trace_handler_SUITE:filesync(<<"test_topic">>, topic),
     {ok, Bin} = file:read_file(emqx_trace:log_file(Name, Now)),
@@ -279,7 +279,7 @@ t_get_log_filename(_Config) ->
         {<<"start_at">>, list_to_binary(Start)},
         {<<"end_at">>, list_to_binary(End)}
     ],
-    ok = emqx_trace:create(Trace),
+    {ok, _} = emqx_trace:create(Trace),
     ?assertEqual({error, not_found}, emqx_trace:get_trace_filename(<<"test">>)),
     ?assertEqual(ok, element(1, emqx_trace:get_trace_filename(Name))),
     ct:sleep(3000),
