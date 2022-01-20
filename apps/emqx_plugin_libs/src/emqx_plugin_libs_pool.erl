@@ -37,7 +37,7 @@ start_pool(Name, Mod, Options) ->
         {error, Reason} ->
             ?SLOG(error, #{msg => "start_ecpool_error", pool_name => Name,
                            reason => Reason}),
-            error({start_pool_failed, Name})
+            error({start_pool_failed, Name, Reason})
     end.
 
 stop_pool(Name) ->
@@ -49,7 +49,7 @@ stop_pool(Name) ->
         {error, Reason} ->
             ?SLOG(error, #{msg => "stop_ecpool_failed", pool_name => Name,
                            reason => Reason}),
-            error({stop_pool_failed, Name})
+            error({stop_pool_failed, Name, Reason})
     end.
 
 health_check(PoolName, CheckFunc, State) when is_function(CheckFunc) ->
