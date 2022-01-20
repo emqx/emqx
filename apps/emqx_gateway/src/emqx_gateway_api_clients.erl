@@ -304,10 +304,11 @@ run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _},
 %% format funcs
 
 format_channel_info({_, Infos, Stats} = R) ->
+    Node = maps:get(node, Infos, node()),
     ClientInfo = maps:get(clientinfo, Infos, #{}),
     ConnInfo = maps:get(conninfo, Infos, #{}),
     SessInfo = maps:get(session, Infos, #{}),
-    FetchX = [ {node, ClientInfo, node()}
+    FetchX = [ {node, ClientInfo, Node}
              , {clientid, ClientInfo}
              , {username, ClientInfo}
              , {proto_name, ConnInfo}

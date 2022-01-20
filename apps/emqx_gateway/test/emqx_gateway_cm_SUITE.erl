@@ -125,7 +125,7 @@ t_get_set_chan_info_stats(_) ->
       #{clientinfo => clientinfo(), conninfo => conninfo()}, []),
 
     %% Info: get/set
-    NInfo = #{newinfo => true},
+    NInfo = #{newinfo => true, node => node()},
     emqx_gateway_cm:set_chan_info(?GWNAME, ?CLIENTID, NInfo),
     ?assertEqual(
        NInfo,

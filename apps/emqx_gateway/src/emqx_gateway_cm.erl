@@ -36,6 +36,7 @@
         , register_channel/4
         , unregister_channel/2
         , insert_channel_info/4
+        , lookup_by_clientid/2
         , set_chan_info/3
         , set_chan_info/4
         , get_chan_info/2
@@ -64,7 +65,8 @@
         ]).
 
 %% RPC targets
--export([ do_get_chan_info/3
+-export([ do_lookup_by_clientid/2
+        , do_get_chan_info/3
         , do_set_chan_info/4
         , do_get_chan_stats/3
         , do_set_chan_stats/4
@@ -159,11 +161,19 @@ get_chan_info(GwName, ClientId) ->
             get_chan_info(GwName, ClientId, ChanPid)
         end).
 
+-spec do_lookup_by_clientid(gateway_name(), emqx_types:clientid()) ->
+          [pid()].
+do_lookup_by_clientid(GwName, ClientId) ->
+    ChanTab = emqx_gateway_cm:tabname(chan, GwName),
+    [Pid || {_, Pid} <- ets:lookup(ChanTab, ClientId)].
+
 -spec do_get_chan_info(gateway_name(), emqx_types:clientid(), pid())
       -> emqx_types:infos() | undefined.
 do_get_chan_info(GwName, ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
-    try ets:lookup_element(tabname(info, GwName), Chan, 2)
+    try
+        Info = ets:lookup_element(tabname(info, GwName), Chan, 2),
+        Info#{node => node()}
     catch
         error:badarg -> undefined
     end.
@@ -172,6 +182,13 @@ do_get_chan_info(GwName, ClientId, ChanPid) ->
       -> emqx_types:infos() | undefined.
 get_chan_info(GwName, ClientId, ChanPid) ->
     wrap_rpc(emqx_gateway_cm_proto_v1:get_chan_info(GwName, ClientId, ChanPid)).
+
+-spec lookup_by_clientid(gateway_name(), emqx_types:clientid()) ->
+          [pid()].
+lookup_by_clientid(GwName, ClientId) ->
+    Nodes = mria_mnesia:running_nodes(),
+    Pids = emqx_gateway_cm_proto_v1:lookup_by_clientid(Nodes, GwName, ClientId),
+    lists:append([Pid || {ok, Pid} <- Pids]).
 
 %% @doc Update infos of the channel.
 -spec set_chan_info(gateway_name(),
