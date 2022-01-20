@@ -232,7 +232,7 @@ set_chan_stats(GwName, ClientId, Stats) ->
                         pid(),
                         emqx_types:stats()) -> boolean().
 do_set_chan_stats(GwName, ClientId, ChanPid, Stats) ->
-    Chan = {ClientId, self()},
+    Chan = {ClientId, ChanPid},
     try ets:update_element(tabname(info, GwName), Chan, {3, Stats})
     catch
         error:badarg -> false
