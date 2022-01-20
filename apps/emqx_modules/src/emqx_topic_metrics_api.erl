@@ -45,6 +45,7 @@
 -define(BAD_TOPIC, 'BAD_TOPIC').
 -define(BAD_RPC, 'BAD_RPC').
 -define(BAD_REQUEST, 'BAD_REQUEST').
+
 -define(API_TAG_MQTT, [<<"mqtt">>]).
 
 
