@@ -1799,6 +1799,7 @@ t_clients_api(_) ->
     %% kickout
     {204, _} =
         request(delete, "/gateway/mqttsn/clients/client_id_test1"),
+    timer:sleep(100),
     {200, #{data := []}} = request(get, "/gateway/mqttsn/clients"),
 
     send_disconnect_msg(Socket, undefined),
