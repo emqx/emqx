@@ -20,36 +20,61 @@
 
 -include("emqx_statsd.hrl").
 
--import(emqx_mgmt_util, [ schema/1
-                        , bad_request/0]).
+-include_lib("typerefl/include/types.hrl").
 
--export([api_spec/0]).
+-import(hoconsc, [mk/2, ref/2]).
 
--export([ statsd/2
+-export([statsd/2]).
+
+-export([ api_spec/0
+        , paths/0
+        , schema/1
         ]).
 
+-define(API_TAG_STATSD, [<<"statsd">>]).
+-define(SCHEMA_MODULE, emqx_statsd_schema).
+
+-define(INTERNAL_ERROR, 'INTERNAL_ERROR').
+
+
 api_spec() ->
-    {statsd_api(), []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-conf_schema() ->
-    emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([statsd])).
+paths() ->
+    ["/statsd"].
 
-statsd_api() ->
-    Metadata = #{
-        get => #{
-            description => <<"Get statsd info">>,
-            responses => #{<<"200">> => schema(conf_schema())}
-        },
-        put => #{
-            description => <<"Update Statsd">>,
-            'requestBody' => schema(conf_schema()),
-            responses => #{
-                <<"200">> => schema(conf_schema()),
-                <<"400">> => bad_request()
+schema("/statsd") ->
+    #{ 'operationId' => statsd
+     , get =>
+           #{ description => <<"Get statsd config">>
+            , tags => ?API_TAG_STATSD
+            , responses =>
+                  #{200 => statsd_config_schema()}
             }
-        }
-    },
-    [{"/statsd", Metadata, statsd}].
+     , put =>
+           #{ description => <<"Set statsd config">>
+            , tags => ?API_TAG_STATSD
+            , 'requestBody' => statsd_config_schema()
+            , responses =>
+                  #{200 => statsd_config_schema()}
+            }
+     }.
+
+%%--------------------------------------------------------------------
+%% Helper funcs
+%%--------------------------------------------------------------------
+
+statsd_config_schema() ->
+    emqx_dashboard_swagger:schema_with_example(
+      ref(?SCHEMA_MODULE, "statsd"),
+      statsd_example()).
+
+statsd_example() ->
+    #{ enable => true
+     , flush_time_interval => "32s"
+     , sample_time_interval => "32s"
+     , server => "127.0.0.1:8125"
+     }.
 
 statsd(get, _Params) ->
     {200, emqx:get_raw_config([<<"statsd">>], #{})};
@@ -60,5 +85,5 @@ statsd(put, #{body := Body}) ->
             {200, NewConfig};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("Update config failed ~p", [Reason])),
-            {500, 'INTERNAL_ERROR', Message}
+            {500, ?INTERNAL_ERROR, Message}
     end.
