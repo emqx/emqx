@@ -473,7 +473,7 @@ keepalive_api() ->
                 ],
             responses => #{
                 <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
-                <<"400">> => emqx_mgmt_util:error_schema(<<"">>, 'PARAMS_ERROR'),
+                <<"400">> => emqx_mgmt_util:error_schema(<<"">>, ['PARAMS_ERROR']),
                 <<"200">> => emqx_mgmt_util:schema(<<"ok">>)}}},
     {"/clients/:clientid/keepalive", Metadata, set_keepalive}.
 %%%==============================================================================================
