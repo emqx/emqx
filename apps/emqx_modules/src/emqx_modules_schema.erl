@@ -43,10 +43,16 @@ fields("delayed") ->
     ];
 
 fields("rewrite") ->
-    [ {action, sc(hoconsc:enum([subscribe, publish, all]), #{desc => "Action", example => publish})}
-    , {source_topic, sc(binary(), #{desc => "Origin Topic", example => "x/#"})}
-    , {dest_topic, sc(binary(), #{desc => "Destination Topic", example => "z/y/$1"})}
-    , {re, fun regular_expression/1 }
+    [ { action
+      , sc( hoconsc:enum([subscribe, publish, all])
+          , #{desc => <<"Action">>, example => publish})}
+    , { source_topic
+      , sc( binary()
+          , #{desc => <<"Origin Topic">>, example => "x/#"})}
+    , { dest_topic
+      , sc( binary()
+          , #{desc => <<"Destination Topic">>, example => "z/y/$1"})}
+    , { re, fun regular_expression/1 }
     ];
 
 
