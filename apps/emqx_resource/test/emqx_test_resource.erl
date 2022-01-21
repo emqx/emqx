@@ -31,16 +31,23 @@
 %% callbacks for emqx_resource config schema
 -export([roots/0]).
 
-roots() -> [{"name", fun name/1}].
+roots() -> [{name, fun name/1},
+            {register, fun register/1}].
 
-name(type) -> binary();
+name(type) -> atom();
 name(nullable) -> false;
 name(_) -> undefined.
 
-on_start(InstId, #{name := Name}) ->
+register(type) -> boolean();
+register(nullable) -> false;
+register(default) -> false;
+register(_) -> undefined.
+
+on_start(InstId, #{name := Name} = Opts) ->
+    Register = maps:get(register, Opts, false),
     {ok, #{name => Name,
            id => InstId,
-           pid => spawn_dummy_process()}}.
+           pid => spawn_dummy_process(Name, Register)}}.
 
 on_stop(_InstId, #{pid := Pid}) ->
     erlang:exit(Pid, shutdown),
@@ -59,9 +66,13 @@ on_health_check(_InstId, State = #{pid := Pid}) ->
 on_config_merge(OldConfig, NewConfig, _Params) ->
     maps:merge(OldConfig, NewConfig).
 
-spawn_dummy_process() ->
+spawn_dummy_process(Name, Register) ->
     spawn(
       fun() ->
+              true = case Register of
+                         true -> register(Name, self());
+                         _ -> true
+                     end,
               Ref = make_ref(),
               receive
                   Ref -> ok
