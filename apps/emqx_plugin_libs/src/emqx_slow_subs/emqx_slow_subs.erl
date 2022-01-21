@@ -46,7 +46,7 @@
 
 -type message() :: #message{}.
 
--import(proplists, [get_value/2]).
+-import(proplists, [get_value/2, get_value/3]).
 
 -type stats_type() :: whole         %% whole = internal + response
                     | internal      %% timespan from message in to deliver
@@ -190,7 +190,7 @@ expire_tick(_) ->
 
 load(Cfg) ->
     MaxSize = get_value(top_k_num, Cfg),
-    StatsType = get_value(stats_type, Cfg),
+    StatsType = get_value(stats_type, Cfg, whole),
     Threshold = get_value(threshold, Cfg),
     _ = emqx:hook('delivery.completed',
                   fun ?MODULE:on_delivery_completed/4,
