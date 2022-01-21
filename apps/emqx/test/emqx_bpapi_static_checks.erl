@@ -70,15 +70,20 @@
 
 -spec run() -> boolean().
 run() ->
-    dump(), %% TODO: check return value
-    Dumps = filelib:wildcard(dumps_dir() ++ "/*.bpapi"),
-    case Dumps of
-        [] ->
-            ?ERROR("No BPAPI dumps are found in ~s, abort", [dumps_dir()]),
-            false;
-        _ ->
-            ?NOTICE("Running API compatibility checks for ~p", [Dumps]),
-            check_compat(Dumps)
+    case dump() of
+        true ->
+            Dumps = filelib:wildcard(dumps_dir() ++ "/*.bpapi"),
+            case Dumps of
+                [] ->
+                    ?ERROR("No BPAPI dumps are found in ~s, abort", [dumps_dir()]),
+                    false;
+                _ ->
+                    ?NOTICE("Running API compatibility checks for ~p", [Dumps]),
+                    check_compat(Dumps)
+            end;
+        false ->
+            ?CRITICAL("Backplane API violations found on the current branch."),
+            false
     end.
 
 -spec check_compat([file:filename()]) -> boolean().
