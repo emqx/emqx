@@ -19,6 +19,7 @@
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
+-include("emqx_modules.hrl").
 
 -import( hoconsc
        , [ mk/2
@@ -45,9 +46,6 @@
 -define(BAD_TOPIC, 'BAD_TOPIC').
 -define(BAD_RPC, 'BAD_RPC').
 -define(BAD_REQUEST, 'BAD_REQUEST').
-
--define(API_TAG_MQTT, [<<"mqtt">>]).
-
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
