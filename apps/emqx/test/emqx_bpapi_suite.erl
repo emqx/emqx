@@ -19,6 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx/include/logger.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
@@ -28,7 +29,8 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    ok.
+    ?NOTICE("If this test suite failed, and you are unsure why, read this:~n"
+            "https://github.com/emqx/emqx/blob/master/apps/emqx/src/bpapi/README.md", []).
 
 t_run_check(_) ->
     ?assertMatch(true, emqx_bpapi_static_checks:run()).
