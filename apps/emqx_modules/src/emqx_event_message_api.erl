@@ -17,37 +17,41 @@
 
 -behaviour(minirest_api).
 
--export([api_spec/0]).
+-import(hoconsc, [mk/2, ref/2]).
+-include("emqx_modules.hrl").
+
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        ]).
 
 -export([event_message/2]).
 
--import(emqx_mgmt_util, [ schema/1
-                        ]).
-
 api_spec() ->
-    {[event_message_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-conf_schema() ->
-    emqx_mgmt_api_configs:gen_schema(emqx:get_config([event_message])).
+paths() ->
+    ["/mqtt/event_message"].
 
-event_message_api() ->
-    Path = "/mqtt/event_message",
-    Metadata = #{
-        get => #{
-            description => <<"Event Message">>,
-            responses => #{
-                <<"200">> => schema(conf_schema())
+schema("/mqtt/event_message") ->
+    #{ 'operationId' => event_message
+     , get =>
+           #{ description => <<"Event Message">>
+            , tags => ?API_TAG_MQTT
+            , responses =>
+                  #{200 => status_schema(<<"Get Event Message config successfully">>)}
             }
-        },
-        put => #{
-            description => <<"Update Event Message">>,
-            'requestBody' => schema(conf_schema()),
-            responses => #{
-                <<"200">> => schema(conf_schema())
+     , put =>
+           #{ description => <<"Update Event Message">>
+            , tags => ?API_TAG_MQTT
+            , 'requestBody' => status_schema(<<"Update Event Message config">>)
+            , responses =>
+                  #{200 => status_schema(<<"Update Event Message config successfully">>)}
             }
-        }
-    },
-    {Path, Metadata, event_message}.
+     }.
+
+status_schema(Desc) ->
+    mk(ref(?API_SCHEMA_MODULE, "event_message"), #{in => body, desc => Desc}).
 
 event_message(get, _Params) ->
     {200, emqx_event_message:list()};

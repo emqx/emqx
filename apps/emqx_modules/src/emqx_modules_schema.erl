@@ -51,13 +51,27 @@ fields("rewrite") ->
 
 
 fields("event_message") ->
-    [ {"$event/client_connected", sc(boolean(), #{default => false})}
-    , {"$event/client_disconnected", sc(boolean(), #{default => false})}
-    , {"$event/client_subscribed", sc(boolean(), #{default => false})}
-    , {"$event/client_unsubscribed", sc(boolean(), #{default => false})}
-    , {"$event/message_delivered", sc(boolean(), #{default => false})}
-    , {"$event/message_acked", sc(boolean(), #{default => false})}
-    , {"$event/message_dropped", sc(boolean(), #{default => false})}
+    [ { '$event/client_connected'
+      , sc( boolean()
+          , #{desc => <<"Client connected to EMQ X event">>, default => false})}
+    , { '$event/client_disconnected'
+      , sc(boolean()
+          , #{desc => <<"Client disconnected to EMQ X event">>, default => false})}
+    , { '$event/client_subscribed'
+      , sc( boolean()
+          , #{desc => <<"Client subscribe topic event">>, default => false})}
+    , { '$event/client_unsubscribed'
+      , sc( boolean()
+          , #{desc => <<"Client unsubscribe topic event">>, default => false})}
+    , { '$event/message_delivered'
+      , sc( boolean()
+          , #{desc => <<"Message delivered event">>, default => false})}
+    , { '$event/message_acked'
+      , sc( boolean()
+          , #{desc => <<"Message acked event">>, default => false})}
+    , { '$event/message_dropped'
+      , sc( boolean()
+          , #{desc => <<"Message dropped event">>, default => false})}
     ];
 
 fields("topic_metrics") ->

@@ -21,3 +21,4 @@
 -define(REPORT_INTERVAR, 604800).
 
 -define(API_TAG_MQTT, [<<"mqtt">>]).
+-define(API_SCHEMA_MODULE, emqx_modules_schema).
