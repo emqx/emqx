@@ -46,7 +46,6 @@ start(_StartType, _StartArgs) ->
         ok = emqx:hook('client.authenticate', fun emqx_auth_pgsql:check/3, [AuthEnv])
     end),
     if_enabled(acl_query, fun(AclQuery) ->
-        ok = emqx_acl_pgsql:register_metrics(),
         ok = emqx:hook('client.check_acl', fun emqx_acl_pgsql:check_acl/5, [#{acl_query => AclQuery, pool => ?APP}])
     end),
     {ok, Sup}.

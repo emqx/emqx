@@ -3,9 +3,16 @@
  [ {"4.3.0",
     [ {load_module, emqx_acl_ldap, brutal_purge, soft_purge, []}
     , {load_module, emqx_auth_ldap_cli, brutal_purge, soft_purge, []}
+    , {load_module, emqx_auth_ldap_app, brutal_purge, soft_purge, []}
     ]},
    {"4.3.1",
     [ {load_module, emqx_auth_ldap_cli, brutal_purge, soft_purge, []}
+    , {load_module, emqx_acl_ldap, brutal_purge, soft_purge, []}
+    , {load_module, emqx_auth_ldap_app, brutal_purge, soft_purge, []}
+    ]},
+   {"4.3.2",
+    [ {load_module, emqx_acl_ldap, brutal_purge, soft_purge, []}
+    , {load_module, emqx_auth_ldap_app, brutal_purge, soft_purge, []}
     ]},
    {<<".*">>, []}
  ],
@@ -13,9 +20,16 @@
    {"4.3.0",
     [ {load_module, emqx_acl_ldap, brutal_purge, soft_purge, []}
     , {load_module, emqx_auth_ldap_cli, brutal_purge, soft_purge, []}
+    , {load_module, emqx_auth_ldap_app, brutal_purge, soft_purge, []}
     ]},
    {"4.3.1",
     [ {load_module, emqx_auth_ldap_cli, brutal_purge, soft_purge, []}
+    , {load_module, emqx_acl_ldap, brutal_purge, soft_purge, []}
+    , {load_module, emqx_auth_ldap_app, brutal_purge, soft_purge, []}
+    ]},
+   {"4.3.2",
+    [ {load_module, emqx_acl_ldap, brutal_purge, soft_purge, []}
+    , {load_module, emqx_auth_ldap_app, brutal_purge, soft_purge, []}
     ]},
    {<<".*">>, []}
  ]

@@ -130,7 +130,6 @@ load_hooks() ->
     case application:get_env(?APP, acl_req) of
         undefined -> ok;
         {ok, ACLReq} ->
-            ok = emqx_acl_http:register_metrics(),
             PoolOpts2 = proplists:get_value(pool_opts, ACLReq),
             PoolName2 = proplists:get_value(pool_name, ACLReq),
             {ok, _} = ehttpc_sup:start_pool(PoolName2, PoolOpts2),

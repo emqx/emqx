@@ -64,5 +64,4 @@ load_auth_hook() ->
 
 load_acl_hook() ->
     ok = emqx_acl_mnesia:init(),
-    ok = emqx_acl_mnesia:register_metrics(),
     emqx:hook('client.check_acl', fun emqx_acl_mnesia:check_acl/5, [#{}]).

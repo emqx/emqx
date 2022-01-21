@@ -22,20 +22,15 @@
 -include_lib("eldap/include/eldap.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([ register_metrics/0
-        , check_acl/5
+-export([ check_acl/5
         , description/0
         ]).
 
--spec(register_metrics() -> ok).
-register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1, ?ACL_METRICS).
-
 check_acl(ClientInfo, PubSub, Topic, NoMatchAction, State) ->
     case do_check_acl(ClientInfo, PubSub, Topic, NoMatchAction, State) of
-        ok -> emqx_metrics:inc(?ACL_METRICS(ignore)), ok;
-        {stop, allow} -> emqx_metrics:inc(?ACL_METRICS(allow)), {stop, allow};
-        {stop, deny} -> emqx_metrics:inc(?ACL_METRICS(deny)), {stop, deny}
+        ok -> ok;
+        {stop, allow} -> {stop, allow};
+        {stop, deny} -> {stop, deny}
     end.
 
 do_check_acl(#{username := <<$$, _/binary>>}, _PubSub, _Topic, _NoMatchAction, _State) ->
