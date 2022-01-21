@@ -163,6 +163,21 @@ t_error_server_info(_) ->
     not_found = emqx_exhook_mgr:server_info(<<"not_exists">>),
     ok.
 
+t_metrics(_) ->
+    ok = emqx_exhook_metrics:succeed(<<"default">>, 'client.connect'),
+    ok = emqx_exhook_metrics:failed(<<"default">>, 'client.connect'),
+    true = emqx_exhook_metrics:update(1000),
+    timer:sleep(100),
+    SvrMetrics = emqx_exhook_metrics:server_metrics(<<"default">>),
+    ?assertMatch(#{succeed := _, failed := _, rate := _, max_rate := _}, SvrMetrics),
+
+    SvrsMetrics = emqx_exhook_metrics:servers_metrics(),
+    ?assertMatch(#{<<"default">> := #{succeed := _}}, SvrsMetrics),
+
+    HooksMetrics = emqx_exhook_metrics:hooks_metrics(<<"default">>),
+    ?assertMatch(#{'client.connect' := #{succeed := _}}, HooksMetrics),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Utils
 %%--------------------------------------------------------------------
