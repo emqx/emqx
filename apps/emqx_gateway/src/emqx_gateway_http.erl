@@ -47,9 +47,7 @@
 
 %% Mgmt APIs - clients
 -export([ lookup_client/3
-        , lookup_client/4
         , kickout_client/2
-        , kickout_client/3
         , list_client_subscriptions/2
         , client_subscribe/4
         , client_unsubscribe/3
@@ -231,40 +229,27 @@ confexp({error, Reason}) -> error(Reason).
 %%--------------------------------------------------------------------
 
 -spec lookup_client(gateway_name(),
-                    emqx_types:clientid(), {atom(), atom()}) -> list().
-lookup_client(GwName, ClientId, FormatFun) ->
-    lists:append([lookup_client(Node, GwName, {clientid, ClientId}, FormatFun)
-                  || Node <- mria_mnesia:running_nodes()]).
-
-lookup_client(Node, GwName, {clientid, ClientId}, {M,F}) when Node =:= node() ->
-    ChanTab = emqx_gateway_cm:tabname(chan, GwName),
-    InfoTab = emqx_gateway_cm:tabname(info, GwName),
-
-    lists:append(lists:map(
-      fun(Key) ->
-        lists:map(fun M:F/1, ets:lookup(InfoTab, Key))
-      end, ets:lookup(ChanTab, ClientId)));
-
-lookup_client(Node, GwName, {clientid, ClientId}, FormatFun) ->
-    rpc_call(Node, lookup_client,
-             [Node, GwName, {clientid, ClientId}, FormatFun]).
+                    emqx_types:clientid(), {module(), atom()}) -> list().
+lookup_client(GwName, ClientId, {M, F}) ->
+    [begin
+         Info = emqx_gateway_cm:get_chan_info(GwName, ClientId, Pid),
+         Stats = emqx_gateway_cm:get_chan_stats(GwName, ClientId, Pid),
+         M:F({{ClientId, Pid}, Info, Stats})
+     end
+     || Pid <- emqx_gateway_cm:lookup_by_clientid(GwName, ClientId)].
 
 -spec kickout_client(gateway_name(), emqx_types:clientid())
     -> {error, any()}
      | ok.
 kickout_client(GwName, ClientId) ->
-    Results = [kickout_client(Node, GwName, ClientId)
-               || Node <- mria_mnesia:running_nodes()],
-    case lists:any(fun(Item) -> Item =:= ok end, Results) of
-        true  -> ok;
-        false -> lists:last(Results)
+    Results = [emqx_gateway_cm:kick_session(GwName, ClientId, Pid)
+               || Pid <- emqx_gateway_cm:lookup_by_clientid(GwName, ClientId)],
+    IsOk = lists:any(fun(Item) -> Item =:= ok end, Results),
+    case {IsOk, Results} of
+        {true , _ } -> ok;
+        {_    , []} -> {error, not_found};
+        {false, _ } -> lists:last(Results)
     end.
-
-kickout_client(Node, GwName, ClientId) when Node =:= node() ->
-    emqx_gateway_cm:kick_session(GwName, ClientId);
-
-kickout_client(Node, GwName, ClientId) ->
-    rpc_call(Node, kickout_client, [Node, GwName, ClientId]).
 
 -spec list_client_subscriptions(gateway_name(), emqx_types:clientid())
     -> {error, any()}
@@ -459,9 +444,3 @@ to_list(B) when is_binary(B) ->
 
 %%--------------------------------------------------------------------
 %% Internal funcs
-
-rpc_call(Node, Fun, Args) ->
-    case rpc:call(Node, ?MODULE, Fun, Args) of
-        {badrpc, Reason} -> {error, Reason};
-        Res -> Res
-    end.
