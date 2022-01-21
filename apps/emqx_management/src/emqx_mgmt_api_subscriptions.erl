@@ -91,12 +91,14 @@ list(#{node := Node} = Bindings, Params) ->
 add_meta(Params, List) ->
     Page = emqx_mgmt_api:page(Params),
     Limit = emqx_mgmt_api:limit(Params),
-    Data = lists:sublist(List, (Page - 1) * Limit + 1, Limit),
+    Count = erlang:length(List),
+    Start = (Page - 1) * Limit + 1,
+    Data = lists:sublist(List, Start, Limit),
     #{meta => #{
         page => Page,
         limit => Limit,
-        hasnext => erlang:length(Data) >= Limit,
-        count => erlang:length(List)
+        hasnext => Start + Limit - 1 < Count,
+        count => Count
     },
         data => Data,
         code => 0
