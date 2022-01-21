@@ -20,7 +20,6 @@
 
 %% ACL Callbacks
 -export([ init/0
-        , register_metrics/0
         , check_acl/5
         , description/0
        ]).
@@ -28,10 +27,6 @@
 init() ->
     ok = emqx_acl_mnesia_db:create_table(),
     ok = emqx_acl_mnesia_db:create_table2().
-
--spec(register_metrics() -> ok).
-register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1, ?ACL_METRICS).
 
 check_acl(ClientInfo = #{ clientid := Clientid }, PubSub, Topic, _NoMatchAction, _Params) ->
     Username = maps:get(username, ClientInfo, undefined),
@@ -48,13 +43,10 @@ check_acl(ClientInfo = #{ clientid := Clientid }, PubSub, Topic, _NoMatchAction,
 
     case match(ClientInfo, PubSub, Topic, Acls) of
         allow ->
-            emqx_metrics:inc(?ACL_METRICS(allow)),
             {stop, allow};
         deny ->
-            emqx_metrics:inc(?ACL_METRICS(deny)),
             {stop, deny};
         _ ->
-            emqx_metrics:inc(?ACL_METRICS(ignore)),
             ok
     end.
 

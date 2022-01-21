@@ -65,8 +65,11 @@
         , code_change/3
         ]).
 
-%% BACKW: v4.3.0
--export([ upgrade_retained_delayed_counter_type/0
+%% BACKW
+-export([%% v4.3.0
+         upgrade_retained_delayed_counter_type/0,
+         %% e4.4.0, e4.3.0-e4.3.6, v4.3.0-v4.3.11
+         assign_acl_stats_from_ets_to_counter/0
         ]).
 
 -export_type([metric_idx/0]).
@@ -186,6 +189,12 @@
          {counter, 'session.discarded'},
          {counter, 'session.terminated'}
         ]).
+%% Statistic metrics for ACL checking
+-define(STASTS_ACL_METRICS,
+        [ {counter, 'client.acl.allow'},
+          {counter, 'client.acl.deny'},
+          {counter, 'client.acl.cache_hit'}
+        ]).
 
 -record(state, {next_idx = 1}).
 
@@ -203,6 +212,21 @@ stop() -> gen_server:stop(?SERVER).
 upgrade_retained_delayed_counter_type() ->
     Ks = ['messages.retained', 'messages.delayed'],
     gen_server:call(?SERVER, {set_type_to_counter, Ks}, infinity).
+
+%% BACKW: %% e4.4.0, e4.3.0-e4.3.6, v4.3.0-v4.3.11
+assign_acl_stats_from_ets_to_counter() ->
+    CRef = persistent_term:get(?MODULE),
+    Names = ['client.acl.allow', 'client.acl.deny', 'client.acl.cache_hit'],
+    lists:foreach(fun(Name) ->
+        Val = case emqx_metrics:val(Name) of
+            undefined -> 0;
+            Val0 -> Val0
+        end,
+        Idx = reserved_idx(Name),
+        Metric = #metric{name = Name, type = counter, idx = Idx},
+        ok = gen_server:call(?SERVER, {set, Metric}),
+        ok = counters:put(CRef, Idx, Val)
+    end, Names).
 
 %%--------------------------------------------------------------------
 %% Metrics API
@@ -433,7 +457,8 @@ init([]) ->
                             ?MESSAGE_METRICS,
                             ?DELIVERY_METRICS,
                             ?CLIENT_METRICS,
-                            ?SESSION_METRICS
+                            ?SESSION_METRICS,
+                            ?STASTS_ACL_METRICS
                            ]),
     % Store reserved indices
     ok = lists:foreach(fun({Type, Name}) ->
@@ -464,6 +489,10 @@ handle_call({set_type_to_counter, Keys}, _From, State) ->
       fun(K) ->
         ets:update_element(?TAB, K, {#metric.type, counter})
       end, Keys),
+    {reply, ok, State};
+
+handle_call({set, Metric}, _From, State) ->
+    true = ets:insert(?TAB, Metric),
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
@@ -574,6 +603,10 @@ reserved_idx('session.resumed')              -> 221;
 reserved_idx('session.takeovered')           -> 222;
 reserved_idx('session.discarded')            -> 223;
 reserved_idx('session.terminated')           -> 224;
+%% Stats metrics
+reserved_idx('client.acl.allow')             -> 300;
+reserved_idx('client.acl.deny')              -> 301;
+reserved_idx('client.acl.cache_hit')         -> 302;
 
 reserved_idx(_)                              -> undefined.
 

@@ -38,26 +38,12 @@
 -type(acl_rules() :: #{publish   => [emqx_access_rule:rule()],
                        subscribe => [emqx_access_rule:rule()]}).
 
--record(acl_metrics, {
-    allow = 'client.acl.allow',
-    deny = 'client.acl.deny',
-    ignore = 'client.acl.ignore'
-    }).
-
--define(METRICS(Type), tl(tuple_to_list(#Type{}))).
--define(METRICS(Type, K), #Type{}#Type.K).
-
--define(ACL_METRICS, ?METRICS(acl_metrics)).
--define(ACL_METRICS(K), ?METRICS(acl_metrics, K)).
-
-
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
 load(Env) ->
     Rules = rules_from_file(proplists:get_value(acl_file, Env)),
-    register_metrics(),
     emqx_hooks:add('client.check_acl', {?MODULE, check_acl, [Rules]},  -1).
 
 unload(_Env) ->
@@ -82,15 +68,9 @@ description() ->
       -> {ok, allow} | {ok, deny} | ok).
 check_acl(Client, PubSub, Topic, _AclResult, Rules) ->
     case match(Client, Topic, lookup(PubSub, Rules)) of
-        {matched, allow} ->
-            emqx_metrics:inc(?ACL_METRICS(allow)),
-            {ok, allow};
-        {matched, deny}  ->
-            emqx_metrics:inc(?ACL_METRICS(deny)),
-            {ok, deny};
-        nomatch          ->
-            emqx_metrics:inc(?ACL_METRICS(ignore)),
-            ok
+        {matched, allow} -> {ok, allow};
+        {matched, deny}  -> {ok, deny};
+        nomatch          -> ok
     end.
 
 %%--------------------------------------------------------------------
@@ -127,9 +107,6 @@ rules_from_file(AclFile) ->
             #{}
     end.
 
-register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1, ?ACL_METRICS).
-
 filter(_PubSub, {allow, all}) ->
     true;
 filter(_PubSub, {deny, all}) ->
@@ -142,3 +119,4 @@ filter(subscribe, {_AllowDeny, _Who, subscribe, _Topics}) ->
     true;
 filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
     false.
+
