@@ -28,7 +28,19 @@ exhook {
   servers = [
     { name = default,
       url = \"http://127.0.0.1:9000\"
-    }]
+    },
+    { name = enable,
+      enable = false,
+      url = \"http://127.0.0.1:9000\"
+    },
+    { name = error,
+      url = \"http://127.0.0.1:9001\"
+    },
+    { name = not_reconnect,
+      auto_reconnect = false,
+      url = \"http://127.0.0.1:9001\"
+    }
+  ]
 }
 ">>).
 
@@ -103,6 +115,53 @@ t_access_failed_if_no_server_running(_) ->
     ?assertMatch({stop, Message},
                  emqx_exhook_handler:on_message_publish(Message)),
     emqx_exhook_mgr:enable(<<"default">>).
+
+t_lookup(_) ->
+    Result = emqx_exhook_mgr:lookup(<<"default">>),
+    ?assertMatch(#{name := <<"default">>, status := _}, Result),
+    not_found = emqx_exhook_mgr:lookup(<<"not_found">>).
+
+t_list(_) ->
+    [H | _] = emqx_exhook_mgr:list(),
+    ?assertMatch(#{name := _,
+                   status := _,
+                   hooks := _}, H).
+
+t_unexpected(_) ->
+    ok = gen_server:cast(emqx_exhook_mgr, unexpected),
+    unexpected = erlang:send(erlang:whereis(emqx_exhook_mgr), unexpected),
+    Result = gen_server:call(emqx_exhook_mgr, unexpected),
+    ?assertEqual(Result, ok).
+
+t_timer(_) ->
+    Pid = erlang:whereis(emqx_exhook_mgr),
+    refresh_tick = erlang:send(Pid, refresh_tick),
+    _ = erlang:send(Pid, {timeout, undefined, {reload, <<"default">>}}),
+    _ = erlang:send(Pid, {timeout, undefined, {reload, <<"not_found">>}}),
+    _ = erlang:send(Pid, {timeout, undefined, {reload, <<"error">>}}),
+    ok.
+
+t_error_update_conf(_) ->
+    Path = [exhook, servers],
+    Name = <<"error_update">>,
+    ErrorCfg = #{<<"name">> => Name},
+    {error, _} = emqx_exhook_mgr:update_config(Path, {update, Name, ErrorCfg}),
+    {error, _} = emqx_exhook_mgr:update_config(Path, {move, Name, top, <<>>}),
+    {error, _} = emqx_exhook_mgr:update_config(Path, {enable, Name, true}),
+
+    ErrorAnd = #{<<"name">> => Name, <<"url">> => <<"http://127.0.0.1:9001">>},
+    {ok, _} = emqx_exhook_mgr:update_config(Path, {add, ErrorAnd}),
+
+    DisableAnd = #{<<"name">> => Name, <<"url">> => <<"http://127.0.0.1:9001">>, <<"enable">> => false},
+    {ok, _} = emqx_exhook_mgr:update_config(Path, {add, DisableAnd}),
+
+    {ok, _} = emqx_exhook_mgr:update_config(Path, {delete, <<"error">>}),
+    {ok, _} = emqx_exhook_mgr:update_config(Path, {delete, <<"delete_not_exists">>}),
+    ok.
+
+t_error_server_info(_) ->
+    not_found = emqx_exhook_mgr:server_info(<<"not_exists">>),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Utils

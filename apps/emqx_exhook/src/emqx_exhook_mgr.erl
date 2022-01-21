@@ -149,8 +149,8 @@ pre_config_update(_, {add, Conf}, OldConf) ->
 
 pre_config_update(_, {update, Name, Conf}, OldConf) ->
     case replace_conf(Name, fun(_) -> Conf end, OldConf) of
-                    not_found -> {error, not_found};
-                    NewConf -> {ok, NewConf}
+        not_found -> {error, not_found};
+        NewConf -> {ok, NewConf}
     end;
 
 pre_config_update(_, {delete, ToDelete}, OldConf) ->
@@ -433,7 +433,7 @@ ensure_reload_timer(none, Waiting, Stopped, TimerRef) ->
 ensure_reload_timer({Name, #{auto_reconnect := Intv}, Iter},
                     Waiting,
                     Stopped,
-                    TimerRef) ->
+                    TimerRef) when is_integer(Intv) ->
     Next = maps:next(Iter),
     case maps:is_key(Name, TimerRef) of
         true ->
