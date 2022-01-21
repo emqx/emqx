@@ -13,24 +13,16 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-ifndef(EMQX_BPAPI_HRL).
+-define(EMQX_BPAPI_HRL, true).
 
--module(emqx_bpapi_suite).
+-define(TAB, bpapi).
 
--compile(export_all).
--compile(nowarn_export_all).
+-define(multicall, multicall).
 
--include_lib("emqx/include/logger.hrl").
--include_lib("common_test/include/ct.hrl").
--include_lib("stdlib/include/assert.hrl").
+-record(?TAB,
+        { key     :: {node() | ?multicall, emqx_bpapi:api()}
+        , version :: emqx_bpapi:api_version()
+        }).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
-
-init_per_suite(Config) ->
-    Config.
-
-end_per_suite(_Config) ->
-    ?NOTICE("If this test suite failed, and you are unsure why, read this:~n"
-            "https://github.com/emqx/emqx/blob/master/apps/emqx/src/bpapi/README.md", []).
-
-t_run_check(_) ->
-    ?assertMatch(true, emqx_bpapi_static_checks:run()).
+-endif.

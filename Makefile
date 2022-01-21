@@ -57,7 +57,7 @@ ct: $(REBAR) conf-segs
 
 .PHONY: static_checks
 static_checks:
-	@$(REBAR) as check do xref, dialyzer, ct --suite apps/emqx/test/emqx_bpapi_suite --readable false
+	@$(REBAR) as check do xref, dialyzer, ct --suite apps/emqx/test/emqx_static_checks --readable false
 
 APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
 

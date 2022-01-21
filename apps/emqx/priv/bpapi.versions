@@ -1,0 +1,17 @@
+{emqx,1}.
+{emqx_bridge,1}.
+{emqx_broker,1}.
+{emqx_cm,1}.
+{emqx_conf,1}.
+{emqx_dashboard,1}.
+{emqx_exhook,1}.
+{emqx_gateway_cm,1}.
+{emqx_management,1}.
+{emqx_mgmt_trace,1}.
+{emqx_persistent_session,1}.
+{emqx_plugin_libs,1}.
+{emqx_prometheus,1}.
+{emqx_resource,1}.
+{emqx_statsd,1}.
+{emqx_telemetry,1}.
+{emqx_topic_metrics,1}.

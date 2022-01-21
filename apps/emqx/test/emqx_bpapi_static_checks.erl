@@ -16,7 +16,7 @@
 
 -module(emqx_bpapi_static_checks).
 
--export([run/0, dump/1, dump/0, check_compat/1]).
+-export([run/0, dump/1, dump/0, check_compat/1, versions_file/0]).
 
 -include_lib("emqx/include/logger.hrl").
 
@@ -206,6 +206,7 @@ dump(Opts) ->
     DialyzerDump = collect_signatures(PLT, APIDump),
     [Release|_] = string:split(emqx_app:get_release(), "-"),
     dump_api(#{api => APIDump, signatures => DialyzerDump, release => Release}),
+    dump_versions(APIDump),
     xref:stop(?XREF),
     erase(bpapi_ok).
 
@@ -253,6 +254,18 @@ dump_api(Term = #{api := _, signatures := _, release := Release}) ->
     Filename = filename:join(dumps_dir(), Release ++ ".bpapi"),
     ok = filelib:ensure_dir(Filename),
     file:write_file(Filename, io_lib:format("~0p.", [Term])).
+
+-spec dump_versions(api_dump()) -> ok.
+dump_versions(APIs) ->
+    Filename = versions_file(),
+    ?NOTICE("Dumping API versions to ~p", [Filename]),
+    ok = filelib:ensure_dir(Filename),
+    {ok, FD} = file:open(Filename, [write]),
+    lists:foreach(fun(API) ->
+                          ok = io:format(FD, "~p.~n", [API])
+                  end,
+                  lists:sort(maps:keys(APIs))),
+    file:close(FD).
 
 -spec collect_bpapis([mfa()]) -> api_dump().
 collect_bpapis(L) ->
@@ -311,7 +324,10 @@ setnok() ->
     put(bpapi_ok, false).
 
 dumps_dir() ->
-    filename:join(project_root_dir(), "apps/emqx/test/emqx_bpapi_suite_data").
+    filename:join(project_root_dir(), "apps/emqx/test/emqx_static_checks_data").
 
 project_root_dir() ->
     string:trim(os:cmd("git rev-parse --show-toplevel")).
+
+versions_file() ->
+    filename:join(project_root_dir(), "apps/emqx/priv/bpapi.versions").

@@ -164,6 +164,7 @@ set_special_confs(_) ->
     ok.
 
 end_per_suite(_Config) ->
+    emqx_common_test_helpers:ensure_mnesia_stopped(),
     ok.
 
 end_per_group(gc_tests, Config) ->
@@ -1130,4 +1131,3 @@ split([H], L1, L2) ->
     {[H|L1], L2};
 split([H1, H2|Left], L1, L2) ->
     split(Left, [H1|L1], [H2|L2]).
-
