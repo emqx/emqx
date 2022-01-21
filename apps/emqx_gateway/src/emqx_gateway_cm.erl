@@ -187,8 +187,12 @@ get_chan_info(GwName, ClientId, ChanPid) ->
           [pid()].
 lookup_by_clientid(GwName, ClientId) ->
     Nodes = mria_mnesia:running_nodes(),
-    Pids = emqx_gateway_cm_proto_v1:lookup_by_clientid(Nodes, GwName, ClientId),
-    lists:append([Pid || {ok, Pid} <- Pids]).
+    case emqx_gateway_cm_proto_v1:lookup_by_clientid(Nodes, GwName, ClientId) of
+        {Pids, []} ->
+            lists:append(Pids);
+        {_, _BadNodes} ->
+            error(badrpc)
+    end.
 
 %% @doc Update infos of the channel.
 -spec set_chan_info(gateway_name(),

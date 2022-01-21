@@ -244,9 +244,11 @@ lookup_client(GwName, ClientId, {M, F}) ->
 kickout_client(GwName, ClientId) ->
     Results = [emqx_gateway_cm:kick_session(GwName, ClientId, Pid)
                || Pid <- emqx_gateway_cm:lookup_by_clientid(GwName, ClientId)],
-    case Results =:= [] orelse lists:any(fun(Item) -> Item =:= ok end, Results) of
-        true  -> ok;
-        false -> lists:last(Results)
+    IsOk = lists:any(fun(Item) -> Item =:= ok end, Results),
+    case {IsOk, Results} of
+        {true , _ } -> ok;
+        {_    , []} -> {error, not_found};
+        {false, _ } -> lists:last(Results)
     end.
 
 -spec list_client_subscriptions(gateway_name(), emqx_types:clientid())

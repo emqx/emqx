@@ -38,7 +38,7 @@ introduced_in() ->
 -spec lookup_by_clientid([node()], emqx_gateway_cm:gateway_name(), emqx_types:clientid()) ->
           emqx_rpc:multicall_return([pid()]).
 lookup_by_clientid(Nodes, GwName, ClientId) ->
-    erpc:multicall(Nodes, emqx_gateway_cm, do_lookup_by_clientid, [GwName, ClientId]).
+    rpc:multicall(Nodes, emqx_gateway_cm, do_lookup_by_clientid, [GwName, ClientId]).
 
 -spec get_chan_info(emqx_gateway_cm:gateway_name(), emqx_types:clientid(), pid())
       -> emqx_types:infos() | undefined | {badrpc, _}.
