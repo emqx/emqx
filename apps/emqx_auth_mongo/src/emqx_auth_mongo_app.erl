@@ -55,7 +55,6 @@ reg_authmod(AuthQuery) ->
                    [#{authquery => AuthQuery, superquery => SuperQuery, pool => ?APP}]).
 
 reg_aclmod(AclQuery) ->
-    emqx_acl_mongo:register_metrics(),
     ok = emqx:hook('client.check_acl', fun emqx_acl_mongo:check_acl/5, [#{aclquery => AclQuery, pool => ?APP}]).
 
 %%--------------------------------------------------------------------

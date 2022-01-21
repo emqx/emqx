@@ -38,10 +38,12 @@ t_load_unload(_) ->
     ?assertEqual({error,already_exists}, emqx_mod_acl_internal:load([])).
 
 t_check_acl(_) ->
+    emqx_mod_acl_internal:load([]),
     Rules=#{publish => [{allow,all}], subscribe => [{deny, all}]},
     ?assertEqual({ok, allow}, emqx_mod_acl_internal:check_acl(clientinfo(), publish,  <<"t">>, [], Rules)),
     ?assertEqual({ok, deny}, emqx_mod_acl_internal:check_acl(clientinfo(), subscribe,  <<"t">>, [], Rules)),
-    ?assertEqual(ok, emqx_mod_acl_internal:check_acl(clientinfo(), connect,  <<"t">>, [], Rules)).
+    ?assertEqual(ok, emqx_mod_acl_internal:check_acl(clientinfo(), connect,  <<"t">>, [], Rules)),
+    emqx_mod_acl_internal:unload([]).
 
 t_reload_acl(_) ->
     ?assertEqual(ok, emqx_mod_acl_internal:reload([])).

@@ -60,7 +60,6 @@ load_auth_hook(AuthQuery) ->
     emqx:hook('client.authenticate', fun emqx_auth_mysql:check/3, [Params]).
 
 load_acl_hook(AclQuery) ->
-    ok = emqx_acl_mysql:register_metrics(),
     emqx:hook('client.check_acl', fun emqx_acl_mysql:check_acl/5, [#{acl_query => AclQuery, pool =>?APP}]).
 
 %%--------------------------------------------------------------------

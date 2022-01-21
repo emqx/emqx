@@ -52,7 +52,8 @@ prop_client_connect() ->
                       username => maybe(maps:get(username, ConnInfo)),
                       ipaddress => peer2addr(maps:get(peername, ConnInfo)),
                       keepalive => maps:get(keepalive, ConnInfo),
-                      proto_ver => maps:get(proto_ver, ConnInfo)
+                      proto_ver => maps:get(proto_ver, ConnInfo),
+                      connected_at => maps:get(connected_at, ConnInfo)
                      }),
            true
        end).
@@ -71,6 +72,7 @@ prop_client_connack() ->
                        ipaddress => peer2addr(maps:get(peername, ConnInfo)),
                        keepalive => maps:get(keepalive, ConnInfo),
                        proto_ver => maps:get(proto_ver, ConnInfo),
+                       connected_at => maps:get(connected_at, ConnInfo),
                        conn_ack => Rc
                        }),
             true
@@ -106,6 +108,7 @@ prop_client_disconnected() ->
                        node => stringfy(node()),
                        clientid => maps:get(clientid, ClientInfo),
                        username => maybe(maps:get(username, ClientInfo)),
+                       connected_at => maps:get(connected_at, ConnInfo),
                        disconnected_at => maps:get(disconnected_at, ConnInfo),
                        reason => stringfy(Reason)
                       }),
