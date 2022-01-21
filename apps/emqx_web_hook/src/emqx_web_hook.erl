@@ -93,6 +93,7 @@ on_client_connect(ConnInfo = #{clientid := ClientId, username := Username, peern
               , ipaddress => iolist_to_binary(ntoa(Peerhost))
               , keepalive => maps:get(keepalive, ConnInfo)
               , proto_ver => maps:get(proto_ver, ConnInfo)
+              , connected_at => maps:get(connected_at, ConnInfo)
               },
     send_http_request(ClientId, Params).
 
@@ -109,6 +110,7 @@ on_client_connack(ConnInfo = #{clientid := ClientId, username := Username, peern
               , ipaddress => iolist_to_binary(ntoa(Peerhost))
               , keepalive => maps:get(keepalive, ConnInfo)
               , proto_ver => maps:get(proto_ver, ConnInfo)
+              , connected_at => maps:get(connected_at, ConnInfo)
               , conn_ack => Rc
               },
     send_http_request(ClientId, Params).
@@ -143,6 +145,7 @@ on_client_disconnected(#{clientid := ClientId, username := Username}, Reason, Co
               , clientid => ClientId
               , username => maybe(Username)
               , reason => stringfy(maybe(Reason))
+              , connected_at => maps:get(connected_at, ConnInfo)
               , disconnected_at => maps:get(disconnected_at, ConnInfo, erlang:system_time(millisecond))
               },
     send_http_request(ClientId, Params).
