@@ -23,6 +23,7 @@
 %% Auth APIs
 -export([ add_user/2
         , force_add_user/2
+        , add_default_user/3
         , update_user/2
         , remove_user/1
         , lookup_user/1
@@ -57,6 +58,39 @@ insert_user(User = #emqx_user{login = Login}) ->
         [_|_] -> mnesia:abort(existed)
     end.
 
+-spec(add_default_user(clientid | username, tuple(), binary()) -> ok | {error, any()}).
+add_default_user(Type, Key, Password) ->
+    Login = {Type, Key},
+    case add_user(Login, Password) of
+        ok -> ok;
+        {error, existed} ->
+            NewPwd = encrypted_data(Password),
+            [#emqx_user{password = OldPwd}] = emqx_auth_mnesia_cli:lookup_user(Login),
+            HashType = emqx_auth_mnesia:hash_type(),
+            case emqx_auth_mnesia:match_password(NewPwd, HashType, [OldPwd])  of
+                true -> ok;
+                false ->
+                    %% We can't force add default,
+                    %% otherwise passwords that have been updated via HTTP API will be reset after reboot.
+                    TypeCtl =
+                        case Type of
+                            clientid -> clientid;
+                            username -> user
+                        end,
+                    ?LOG(warning,
+                        "[Auth Mnesia] auth.client.x.~p=~s's password in the emqx_auth_mnesia.conf\n"
+                        "does not match the password in the database(mnesia).\n"
+                        "1. If you have already changed the password via the HTTP API, this warning has no effect.\n"
+                        "You can remove the warning from emqx_auth_mnesia.conf to resolve the warning.\n"
+                        "2. If you just want to update the password by manually changing the configuration file,\n"
+                        "you need to delete the old user and password using `emqx_ctl ~p delete ~s` first\n"
+                        "the new password in emqx_auth_mnesia.conf can take effect after reboot.",
+                        [Type, Key, TypeCtl, Key]),
+                    ok
+            end;
+        Error -> Error
+    end.
+
 force_add_user(Login, Password) ->
     User = #emqx_user{
         login = Login,
@@ -74,7 +108,7 @@ insert_or_update_user(NewPwd, User = #emqx_user{login = Login}) ->
     case mnesia:read(?TABLE, Login) of
         []    -> mnesia:write(User);
         [#emqx_user{password = Pwd}] ->
-            case emqx_auth_mnesia:match_password(NewPwd, hash_type(), [Pwd])  of
+            case emqx_auth_mnesia:match_password(NewPwd, emqx_auth_mnesia:hash_type(), [Pwd])  of
                 true -> ok;
                 false ->
                     ok = mnesia:write(User),
@@ -136,7 +170,7 @@ ret({atomic, Res}) -> Res;
 ret({aborted, Error}) -> {error, Error}.
 
 encrypted_data(Password) ->
-    HashType = hash_type(),
+    HashType = emqx_auth_mnesia:hash_type(),
     SaltBin = salt(),
     <<SaltBin/binary, (hash(Password, SaltBin, HashType))/binary>>.
 
@@ -219,5 +253,3 @@ auth_username_cli(_) ->
                     {"user add <Username> <Password>", "Add username auth rule"},
                     {"user update <Username> <NewPassword>", "Update username auth rule"},
                     {"user delete <Username>", "Delete username auth rule"}]).
-hash_type() ->
-    application:get_env(emqx_auth_mnesia, password_hash, sha256).
