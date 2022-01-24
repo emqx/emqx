@@ -20,7 +20,7 @@
         , delete_checker/1
         ]).
 
--export([ health_check/2
+-export([ start_health_check/2
         , health_check_timeout_checker/3
         ]).
 
@@ -34,8 +34,7 @@ child_spec(Name, Sleep) ->
       shutdown => 5000, type => worker, modules => [?MODULE]}.
 
 start_link(Name, Sleep) ->
-    Pid = proc_lib:spawn_link(?MODULE, health_check, [Name, Sleep]),
-    _ = proc_lib:spawn_link(?MODULE, health_check_timeout_checker, [Pid, Name, Sleep]),
+    Pid = proc_lib:spawn_link(?MODULE, start_health_check, [Name, Sleep]),
     {ok, Pid}.
 
 create_checker(Name, Sleep) ->
@@ -57,9 +56,14 @@ delete_checker(Name) ->
         Error -> Error
 	end.
 
-health_check(Name, SleepTime) ->
+start_health_check(Name, Sleep) ->
+    Pid = self(),
+    _ = proc_lib:spawn_link(?MODULE, health_check_timeout_checker, [Pid, Name, Sleep]),
+    health_check(Name).
+
+health_check(Name) ->
     receive
-        {Pid, start_health_check}  ->
+        {Pid, begin_health_check}  ->
             case emqx_resource:health_check(Name) of
                 ok ->
                     emqx_alarm:deactivate(Name);
@@ -69,11 +73,11 @@ health_check(Name, SleepTime) ->
             end,
             Pid ! health_check_finish
     end,
-    health_check(Name, SleepTime).
+    health_check(Name).
 
 health_check_timeout_checker(Pid, Name, SleepTime) ->
     SelfPid = self(),
-    Pid ! {SelfPid, start_health_check},
+    Pid ! {SelfPid, begin_health_check},
     receive
         health_check_finish -> timer:sleep(SleepTime)
     after 10000 ->
