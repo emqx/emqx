@@ -262,7 +262,7 @@ try_insert_to_topk(MaxSize, Now, LastUpdateValue, TimeSpan, Id) ->
 -spec find_last_update_value(id()) -> non_neg_integer().
 find_last_update_value(Id) ->
     case ets:next(?INDEX_TAB,  ?INDEX(0, Id)) of
-        #index_tab{index = ?INDEX(LastUpdateValue, Id)} ->
+        ?INDEX(LastUpdateValue, Id) ->
             LastUpdateValue;
         _ ->
             0
