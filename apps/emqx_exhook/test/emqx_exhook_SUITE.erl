@@ -178,6 +178,60 @@ t_metrics(_) ->
     ?assertMatch(#{'client.connect' := #{succeed := _}}, HooksMetrics),
     ok.
 
+t_handler(_) ->
+    %% connect
+    {ok, C} = emqtt:start_link([{host, "localhost"},
+                                {port, 1883},
+                                {username, <<"gooduser">>},
+                                {clientid, <<"exhook_gooduser">>}]),
+    {ok, _} = emqtt:connect(C),
+
+    %% pub/sub
+    {ok, _, _} = emqtt:subscribe(C, <<"/exhook">>, qos0),
+    timer:sleep(100),
+    ok = emqtt:publish(C, <<"/exhook">>, <<>>, qos0),
+    ok = emqtt:publish(C, <<"/ignore">>, <<>>, qos0),
+    timer:sleep(100),
+    {ok, _, _} = emqtt:unsubscribe(C, <<"/exhook">>),
+
+    %% sys pub/sub
+    ok = emqtt:publish(C, <<"$SYS">>, <<>>, qos0),
+    {ok, _, _} = emqtt:subscribe(C, <<"$SYS/systest">>, qos1),
+    timer:sleep(100),
+    {ok, _} = emqtt:publish(C, <<"$SYS/systest">>, <<>>, qos1),
+    ok = emqtt:publish(C, <<"$SYS/ignore">>, <<>>, qos0),
+    timer:sleep(100),
+    {ok, _, _} = emqtt:unsubscribe(C, <<"$SYS/systest">>),
+
+    %% ack
+    {ok, _, _} = emqtt:subscribe(C, <<"/exhook1">>, qos1),
+    timer:sleep(100),
+    {ok, _} = emqtt:publish(C, <<"/exhook1">>, <<>>, qos1),
+    timer:sleep(100),
+    emqtt:stop(C),
+    timer:sleep(100),
+    ok.
+
+t_simulated_handler(_) ->
+    ClientInfo = #{clientid => <<"user-id-1">>,
+                   username => <<"usera">>,
+                   peerhost => {127,0,0,1},
+                   sockport => 1883,
+                   protocol => mqtt,
+                   mountpoint => undefined
+                  },
+    %% resume/takeover
+    ok = emqx_exhook_handler:on_session_resumed(ClientInfo, undefined),
+    ok = emqx_exhook_handler:on_session_discarded(ClientInfo, undefined),
+    ok = emqx_exhook_handler:on_session_takenover(ClientInfo, undefined),
+    ok.
+
+t_misc_test(_) ->
+    "5.0.0" = emqx_exhook_proto_v1:introduced_in(),
+    <<"test">> = emqx_exhook_server:name(#{name => <<"test">>}),
+    _ = emqx_exhook_server:format(#{name => <<"test">>, hookspec => #{}}),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Utils
 %%--------------------------------------------------------------------
