@@ -392,7 +392,7 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
        | {error, emqx_types:reason_code()}).
 pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {Pubrel, Msg}} when is_record(Pubrel, pubrel_await) ->
+        {value, {#pubrel_await{message = Msg}, _Ts}} ->
             on_delivery_completed(ClientInfo, Msg, Session),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             dequeue(ClientInfo, Session#session{inflight = Inflight1});
