@@ -42,6 +42,8 @@
                      ]
         }).
 
+-define(IS_TRUE(Val), ((Val =:= true) or (Val =:= <<"true">>))).
+
 -export([ get_raw_sources/0
         , get_raw_source/1
         ]).
@@ -462,8 +464,7 @@ read_certs(#{<<"ssl">> := SSL} = Source) ->
     end;
 read_certs(Source) -> Source.
 
-maybe_write_certs(#{<<"ssl">> := #{<<"enable">> := True} = SSL} = Source)
-  when (True =:= true) or (True =:= <<"true">>) ->
+maybe_write_certs(#{<<"ssl">> := #{<<"enable">> := True} = SSL} = Source) when ?IS_TRUE(True) ->
     Type = maps:get(<<"type">>, Source),
     {ok, Return} = emqx_tls_lib:ensure_ssl_files(filename:join(["authz", Type]), SSL),
     maps:put(<<"ssl">>, Return, Source);

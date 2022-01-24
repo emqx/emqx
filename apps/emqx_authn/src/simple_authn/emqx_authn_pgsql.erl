@@ -74,7 +74,7 @@ create(_AuthenticatorID, Config) ->
 create(#{query := Query0,
          password_hash_algorithm := Algorithm} = Config) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
-    {Query, PlaceHolders} = parse_query(Query0),
+    {Query, PlaceHolders} = emqx_authn_utils:parse_sql(Query0, '$n'),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     State = #{placeholders => PlaceHolders,
               password_hash_algorithm => Algorithm,
@@ -103,7 +103,7 @@ authenticate(#{password := Password} = Credential,
              #{placeholders := PlaceHolders,
                resource_id := ResourceId,
                password_hash_algorithm := Algorithm}) ->
-    Params = emqx_authn_utils:replace_placeholders(PlaceHolders, Credential),
+    Params = emqx_authn_utils:render_sql_params(PlaceHolders, Credential),
     case emqx_resource:query(ResourceId, {prepared_query, ResourceId, Params}) of
         {ok, _Columns, []} -> ignore;
         {ok, Columns, [Row | _]} ->
@@ -127,20 +127,3 @@ authenticate(#{password := Password} = Credential,
 destroy(#{resource_id := ResourceId}) ->
     _ = emqx_resource:remove_local(ResourceId),
     ok.
-
-%%------------------------------------------------------------------------------
-%% Internal functions
-%%------------------------------------------------------------------------------
-
-parse_query(Query) ->
-    case re:run(Query, ?RE_PLACEHOLDER, [global, {capture, all, binary}]) of
-        {match, Captured} ->
-            PlaceHolders = [PlaceHolder || [PlaceHolder] <- Captured],
-            Replacements = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(Captured))],
-            NQuery = lists:foldl(fun({PlaceHolder, Replacement}, Query0) ->
-                                     re:replace(Query0, "\\" ++ PlaceHolder, Replacement, [{return, binary}])
-                                 end, Query, lists:zip(PlaceHolders, Replacements)),
-            {NQuery, PlaceHolders};
-        nomatch ->
-            {Query, []}
-    end.

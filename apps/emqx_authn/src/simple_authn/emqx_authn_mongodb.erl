@@ -97,7 +97,7 @@ create(_AuthenticatorID, Config) ->
     create(Config).
 
 create(#{selector := Selector} = Config) ->
-    NSelector = parse_selector(Selector),
+    SelectorTemplate = emqx_authn_utils:parse_deep(Selector),
     State = maps:with(
               [collection,
                password_hash_field,
@@ -110,7 +110,7 @@ create(#{selector := Selector} = Config) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     NState = State#{
-               selector => NSelector,
+               selector_template => SelectorTemplate,
                resource_id => ResourceId},
     case emqx_resource:create_local(ResourceId, emqx_connector_mongo, Config) of
         {ok, already_created} ->
@@ -134,17 +134,16 @@ authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(#{password := Password} = Credential,
              #{collection := Collection,
-               selector := Selector0,
+               selector_template := SelectorTemplate,
                resource_id := ResourceId} = State) ->
-    Selector1 = replace_placeholders(Selector0, Credential),
-    Selector2 = normalize_selector(Selector1),
-    case emqx_resource:query(ResourceId, {find_one, Collection, Selector2, #{}}) of
+    Selector = emqx_authn_utils:render_deep(SelectorTemplate, Credential),
+    case emqx_resource:query(ResourceId, {find_one, Collection, Selector, #{}}) of
         undefined -> ignore;
         {error, Reason} ->
             ?SLOG(error, #{msg => "mongodb_query_failed",
                            resource => ResourceId,
                            collection => Collection,
-                           selector => Selector2,
+                           selector => Selector,
                            reason => Reason}),
             ignore;
         Doc ->
@@ -155,7 +154,7 @@ authenticate(#{password := Password} = Credential,
                     ?SLOG(error, #{msg => "cannot_find_password_hash_field",
                                    resource => ResourceId,
                                    collection => Collection,
-                                   selector => Selector2,
+                                   selector => Selector,
                                    password_hash_field => PasswordHashField}),
                     ignore;
                 {error, Reason} ->
@@ -170,31 +169,6 @@ destroy(#{resource_id := ResourceId}) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
-
-parse_selector(Selector) ->
-    NSelector = emqx_json:encode(Selector),
-    Tokens = re:split(NSelector, "(" ++ ?RE_PLACEHOLDER ++ ")", [{return, binary}, group, trim]),
-    parse_selector(Tokens, []).
-
-parse_selector([], Acc) ->
-    lists:reverse(Acc);
-parse_selector([[Constant, Placeholder] | Tokens], Acc) ->
-    parse_selector(Tokens, [{placeholder, Placeholder}, {constant, Constant} | Acc]);
-parse_selector([[Constant] | Tokens], Acc) ->
-    parse_selector(Tokens, [{constant, Constant} | Acc]).
-
-replace_placeholders(Selector, Credential) ->
-    lists:map(fun({constant, Constant}) ->
-                  Constant;
-                 ({placeholder, Placeholder}) ->
-                  case emqx_authn_utils:replace_placeholder(Placeholder, Credential) of
-                      undefined -> error({cannot_get_variable, Placeholder});
-                      Value -> Value
-                  end
-              end, Selector).
-
-normalize_selector(Selector) ->
-    emqx_json:decode(iolist_to_binary(Selector), [return_maps]).
 
 check_password(undefined, _Selected, _State) ->
     {error, bad_username_or_password};

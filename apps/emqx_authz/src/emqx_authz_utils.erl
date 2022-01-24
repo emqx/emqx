@@ -22,6 +22,10 @@
         , make_resource_id/1
         , create_resource/2
         , update_config/2
+        , parse_deep/2
+        , parse_sql/3
+        , render_deep/2
+        , render_sql_params/2
         ]).
 
 -define(RESOURCE_GROUP, <<"emqx_authz">>).
@@ -51,9 +55,55 @@ update_config(Path, ConfigRequest) ->
     emqx_conf:update(Path, ConfigRequest, #{rawconf_with_defaults => true,
                                             override_to => cluster}).
 
+parse_deep(Template, PlaceHolders) ->
+    emqx_placeholder:preproc_tmpl_deep(Template, #{placeholders => PlaceHolders}).
+
+parse_sql(Template, ReplaceWith, PlaceHolders) ->
+    emqx_placeholder:preproc_sql(
+      Template,
+      #{replace_with => ReplaceWith,
+        placeholders => PlaceHolders}).
+
+render_deep(Template, Values) ->
+    emqx_placeholder:proc_tmpl_deep(
+      Template,
+      client_vars(Values),
+      #{return => full_binary, var_trans => fun handle_var/2}).
+
+render_sql_params(ParamList, Values) ->
+    emqx_placeholder:proc_tmpl(
+      ParamList,
+      client_vars(Values),
+      #{return => rawlist, var_trans => fun handle_sql_var/2}).
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+client_vars(ClientInfo) ->
+    maps:from_list(
+     lists:map(
+       fun convert_client_var/1,
+       maps:to_list(ClientInfo))).
+
+convert_client_var({cn, CN}) -> {cert_common_name, CN};
+convert_client_var({dn, DN}) -> {cert_subject, DN};
+convert_client_var({protocol, Proto}) -> {proto_name, Proto};
+convert_client_var(Other) -> Other.
+
+handle_var({var, _Name}, undefined) ->
+    "undefined";
+handle_var({var, <<"peerhost">>}, IpAddr) ->
+    inet_parse:ntoa(IpAddr);
+handle_var(_Name, Value) ->
+    emqx_placeholder:bin(Value).
+
+handle_sql_var({var, _Name}, undefined) ->
+    "undefined";
+handle_sql_var({var, <<"peerhost">>}, IpAddr) ->
+    inet_parse:ntoa(IpAddr);
+handle_sql_var(_Name, Value) ->
+    emqx_placeholder:sql_data(Value).
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> list_to_binary(L);

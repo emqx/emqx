@@ -120,10 +120,10 @@ update(Config, State) ->
 authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(#{password := Password} = Credential,
-             #{cmd := {Command, Key, Fields},
+             #{cmd := {Command, KeyTemplate, Fields},
                resource_id := ResourceId,
                password_hash_algorithm := Algorithm}) ->
-    NKey = binary_to_list(iolist_to_binary(replace_placeholders(Key, Credential))),
+    NKey = emqx_authn_utils:render_str(KeyTemplate, Credential),
     case emqx_resource:query(ResourceId, {cmd, [Command, NKey | Fields]}) of
         {ok, []} -> ignore;
         {ok, Values} ->
@@ -168,8 +168,8 @@ parse_cmd(Cmd) ->
         [Command, Key, Field | Fields] when Command =:= "HGET" orelse Command =:= "HMGET" ->
             NFields = [Field | Fields],
             check_fields(NFields),
-            NKey = parse_key(Key),
-            {Command, NKey, NFields};
+            KeyTemplate = emqx_authn_utils:parse_str(list_to_binary(Key)),
+            {Command, KeyTemplate, NFields};
         _ ->
             error({unsupported_cmd, Cmd})
     end.
@@ -184,27 +184,6 @@ check_fields(Fields) ->
         {true, _} -> error({unsupported_fields, UnknownFields});
         {false, _} -> error(missing_password_hash)
     end.
-
-parse_key(Key) ->
-    Tokens = re:split(Key, "(" ++ ?RE_PLACEHOLDER ++ ")", [{return, binary}, group, trim]),
-    parse_key(Tokens, []).
-
-parse_key([], Acc) ->
-    lists:reverse(Acc);
-parse_key([[Constant, Placeholder] | Tokens], Acc) ->
-    parse_key(Tokens, [{placeholder, Placeholder}, {constant, Constant} | Acc]);
-parse_key([[Constant] | Tokens], Acc) ->
-    parse_key(Tokens, [{constant, Constant} | Acc]).
-
-replace_placeholders(Key, Credential) ->
-    lists:map(fun({constant, Constant}) ->
-                  Constant;
-                 ({placeholder, Placeholder}) ->
-                  case emqx_authn_utils:replace_placeholder(Placeholder, Credential) of
-                      undefined -> error({cannot_get_variable, Placeholder});
-                      Value -> Value
-                  end
-              end, Key).
 
 merge(Fields, Value) when not is_list(Value) ->
     merge(Fields, [Value]);

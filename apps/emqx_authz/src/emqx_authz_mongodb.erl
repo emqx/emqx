@@ -36,13 +36,20 @@
 -compile(nowarn_export_all).
 -endif.
 
+-define(PLACEHOLDERS, [?PH_USERNAME,
+                       ?PH_CLIENTID,
+                       ?PH_PEERHOST]).
+
 description() ->
     "AuthZ with MongoDB".
 
-init(Source) ->
+init(#{selector := Selector} = Source) ->
     case emqx_authz_utils:create_resource(emqx_connector_mongo, Source) of
         {error, Reason} -> error({load_config_error, Reason});
-        {ok, Id} -> Source#{annotations => #{id => Id}}
+        {ok, Id} -> Source#{annotations => #{id => Id},
+                            selector_template => emqx_authz_utils:parse_deep(
+                                                  Selector,
+                                                  ?PLACEHOLDERS)}
     end.
 
 dry_run(Source) ->
@@ -53,10 +60,10 @@ destroy(#{annotations := #{id := Id}}) ->
 
 authorize(Client, PubSub, Topic,
             #{collection := Collection,
-              selector := Selector,
+              selector_template := SelectorTemplate,
               annotations := #{id := ResourceID}
              }) ->
-    RenderedSelector = replvar(Selector, Client),
+    RenderedSelector = emqx_authz_utils:render_deep(SelectorTemplate, Client),
     Result = try
                  emqx_resource:query(ResourceID, {find, Collection, RenderedSelector, #{}})
              catch
@@ -87,33 +94,3 @@ do_authorize(Client, PubSub, Topic, [Rule | Tail]) ->
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Tail)
     end.
-
-replvar(Selector, #{clientid := Clientid,
-                    username := Username,
-                    peerhost := IpAddress
-                   }) ->
-    Fun = fun
-              InFun(K, V, AccIn) when is_map(V) ->
-                  maps:put(K, maps:fold(InFun, AccIn, V), AccIn);
-              InFun(K, V, AccIn) when is_list(V) ->
-                  maps:put(K, [ begin
-                                    [{K1, V1}] = maps:to_list(M),
-                                    InFun(K1, V1, AccIn)
-                                end || M <- V],
-                           AccIn);
-              InFun(K, V, AccIn) when is_binary(V) ->
-                  V1 = re:replace( V,  emqx_authz:ph_to_re(?PH_S_CLIENTID)
-                                 , bin(Clientid), [global, {return, binary}]),
-                  V2 = re:replace( V1, emqx_authz:ph_to_re(?PH_S_USERNAME)
-                                 , bin(Username), [global, {return, binary}]),
-                  V3 = re:replace( V2, emqx_authz:ph_to_re(?PH_S_PEERHOST)
-                                 , inet_parse:ntoa(IpAddress), [global, {return, binary}]),
-                  maps:put(K, V3, AccIn);
-              InFun(K, V, AccIn) -> maps:put(K, V, AccIn)
-          end,
-    maps:fold(Fun, #{}, Selector).
-
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(B) when is_binary(B) -> B;
-bin(L) when is_list(L) -> list_to_binary(L);
-bin(X) -> X.

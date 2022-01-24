@@ -19,8 +19,12 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
 -export([ check_password_from_selected_map/3
-        , replace_placeholders/2
-        , replace_placeholder/2
+        , parse_deep/1
+        , parse_str/1
+        , parse_sql/2
+        , render_deep/2
+        , render_str/2
+        , render_sql_params/2
         , is_superuser/1
         , bin/1
         , ensure_apps_started/1
@@ -29,6 +33,13 @@
         ]).
 
 -define(RESOURCE_GROUP, <<"emqx_authn">>).
+
+-define(AUTHN_PLACEHOLDERS, [?PH_USERNAME,
+                             ?PH_CLIENTID,
+                             ?PH_PASSWORD,
+                             ?PH_PEERHOST,
+                             ?PH_CERT_SUBJECT,
+                             ?PH_CERT_CN_NAME]).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -45,33 +56,35 @@ check_password_from_selected_map(
             {error, bad_username_or_password}
     end.
 
-replace_placeholders(PlaceHolders, Data) ->
-    replace_placeholders(PlaceHolders, Data, []).
+parse_deep(Template) ->
+    emqx_placeholder:preproc_tmpl_deep(Template, #{placeholders => ?AUTHN_PLACEHOLDERS}).
 
-replace_placeholders([], _Credential, Acc) ->
-    lists:reverse(Acc);
-replace_placeholders([Placeholder | More], Credential, Acc) ->
-    case replace_placeholder(Placeholder, Credential) of
-        undefined ->
-            error({cannot_get_variable, Placeholder});
-        V ->
-            replace_placeholders(More, Credential, [convert_to_sql_param(V) | Acc])
-    end.
+parse_str(Template) ->
+    emqx_placeholder:preproc_tmpl(Template, #{placeholders => ?AUTHN_PLACEHOLDERS}).
 
-replace_placeholder(?PH_USERNAME, Credential) ->
-    maps:get(username, Credential, undefined);
-replace_placeholder(?PH_CLIENTID, Credential) ->
-    maps:get(clientid, Credential, undefined);
-replace_placeholder(?PH_PASSWORD, Credential) ->
-    maps:get(password, Credential, undefined);
-replace_placeholder(?PH_PEERHOST, Credential) ->
-    maps:get(peerhost, Credential, undefined);
-replace_placeholder(?PH_CERT_SUBJECT, Credential) ->
-    maps:get(dn, Credential, undefined);
-replace_placeholder(?PH_CERT_CN_NAME, Credential) ->
-    maps:get(cn, Credential, undefined);
-replace_placeholder(Constant, _) ->
-    Constant.
+parse_sql(Template, ReplaceWith) ->
+    emqx_placeholder:preproc_sql(
+      Template,
+      #{replace_with => ReplaceWith,
+        placeholders => ?AUTHN_PLACEHOLDERS}).
+
+render_deep(Template, Credential) ->
+    emqx_placeholder:proc_tmpl_deep(
+      Template,
+      Credential,
+      #{return => full_binary, var_trans => fun handle_var/2}).
+
+render_str(Template, Credential) ->
+    emqx_placeholder:proc_tmpl(
+      Template,
+      Credential,
+      #{return => full_binary, var_trans => fun handle_var/2}).
+
+render_sql_params(ParamList, Credential) ->
+    emqx_placeholder:proc_tmpl(
+      ParamList,
+      Credential,
+      #{return => rawlist, var_trans => fun handle_sql_var/2}).
 
 is_superuser(#{<<"is_superuser">> := <<"">>}) ->
     #{is_superuser => false};
@@ -113,7 +126,12 @@ make_resource_id(Name) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-convert_to_sql_param(undefined) ->
-    null;
-convert_to_sql_param(V) ->
-    bin(V).
+handle_var({var, Name}, undefined) ->
+    error({cannot_get_variable, Name});
+handle_var(_, Value) ->
+    emqx_placeholder:bin(Value).
+
+handle_sql_var({var, Name}, undefined) ->
+    error({cannot_get_variable, Name});
+handle_sql_var(_, Value) ->
+    emqx_placeholder:sql_data(Value).

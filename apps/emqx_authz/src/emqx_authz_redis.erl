@@ -36,13 +36,22 @@
 -compile(nowarn_export_all).
 -endif.
 
+-define(PLACEHOLDERS, [?PH_CERT_CN_NAME,
+                       ?PH_CERT_SUBJECT,
+                       ?PH_PEERHOST,
+                       ?PH_CLIENTID,
+                       ?PH_USERNAME]).
+
 description() ->
     "AuthZ with Redis".
 
-init(Source) ->
+init(#{cmd := CmdStr} = Source) ->
+    Cmd = tokens(CmdStr),
+    CmdTemplate = emqx_authz_utils:parse_deep(Cmd, ?PLACEHOLDERS),
     case emqx_authz_utils:create_resource(emqx_connector_redis, Source) of
         {error, Reason} -> error({load_config_error, Reason});
-        {ok, Id} -> Source#{annotations => #{id => Id}}
+        {ok, Id} -> Source#{annotations => #{id => Id},
+                            cmd_template => CmdTemplate}
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -52,18 +61,18 @@ dry_run(Source) ->
     emqx_resource:create_dry_run_local(emqx_connector_redis, Source).
 
 authorize(Client, PubSub, Topic,
-            #{cmd := CMD,
+            #{cmd_template := CmdTemplate,
               annotations := #{id := ResourceID}
              }) ->
-    NCMD = string:tokens(replvar(CMD, Client), " "),
-    case emqx_resource:query(ResourceID, {cmd, NCMD}) of
+    Cmd = emqx_authz_utils:render_deep(CmdTemplate, Client),
+    case emqx_resource:query(ResourceID, {cmd, Cmd}) of
         {ok, []} -> nomatch;
         {ok, Rows} ->
             do_authorize(Client, PubSub, Topic, Rows);
         {error, Reason} ->
             ?SLOG(error, #{ msg => "query_redis_error"
                           , reason => Reason
-                          , cmd => NCMD
+                          , cmd => Cmd
                           , resource_id => ResourceID}),
             nomatch
     end.
@@ -79,22 +88,6 @@ do_authorize(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
         nomatch -> do_authorize(Client, PubSub, Topic, Tail)
     end.
 
-replvar(Cmd, Client = #{cn := CN}) ->
-    replvar(repl(Cmd, ?PH_S_CERT_CN_NAME, CN), maps:remove(cn, Client));
-replvar(Cmd, Client = #{dn := DN}) ->
-    replvar(repl(Cmd, ?PH_S_CERT_SUBJECT, DN), maps:remove(dn, Client));
-replvar(Cmd, Client = #{peerhost := IpAddr}) ->
-    replvar(repl(Cmd, ?PH_S_PEERHOST, inet_parse:ntoa(IpAddr)), maps:remove(peerhost, Client));
-replvar(Cmd, Client = #{clientid := ClientId}) ->
-    replvar(repl(Cmd, ?PH_S_CLIENTID, ClientId), maps:remove(clientid, Client));
-replvar(Cmd, Client = #{username := Username}) ->
-    replvar(repl(Cmd, ?PH_S_USERNAME, Username), maps:remove(username, Client));
-replvar(Cmd, _) ->
-    Cmd.
-
-repl(S, _VarPH, undefined) ->
-    S;
-repl(S, VarPH, Val) ->
-    NVal   = re:replace(Val, "&", "\\\\&", [global, {return, list}]),
-    NVarPH = emqx_authz:ph_to_re(VarPH),
-    re:replace(S, NVarPH, NVal, [{return, list}]).
+tokens(Query) ->
+    Tokens = binary:split(Query, <<" ">>, [global]),
+    [Token || Token <- Tokens, size(Token) > 0].

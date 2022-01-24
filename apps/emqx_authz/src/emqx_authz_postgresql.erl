@@ -36,11 +36,20 @@
 -compile(nowarn_export_all).
 -endif.
 
+-define(PLACEHOLDERS, [?PH_USERNAME,
+                       ?PH_CLIENTID,
+                       ?PH_PEERHOST,
+                       ?PH_CERT_CN_NAME,
+                       ?PH_CERT_SUBJECT]).
+
 description() ->
     "AuthZ with Postgresql".
 
 init(#{query := SQL0} = Source) ->
-    {SQL, PlaceHolders} = parse_query(SQL0),
+    {SQL, PlaceHolders} = emqx_authz_utils:parse_sql(
+                            SQL0,
+                            '$n',
+                            ?PLACEHOLDERS),
     ResourceID = emqx_authz_utils:make_resource_id(emqx_connector_pgsql),
     case emqx_resource:create_local(
             ResourceID,
@@ -60,27 +69,12 @@ destroy(#{annotations := #{id := Id}}) ->
 dry_run(Source) ->
     emqx_resource:create_dry_run_local(emqx_connector_pgsql, Source).
 
-parse_query(Sql) ->
-    case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
-        {match, Captured} ->
-            PlaceHolders = [PlaceHolder || [PlaceHolder] <- Captured],
-            Replacements = ["$" ++ integer_to_list(I) || I <- lists:seq(1, length(PlaceHolders))],
-            NSql = lists:foldl(
-                     fun({PlaceHolder, Replacement}, S) ->
-                             re:replace(
-                               S, emqx_authz:ph_to_re(PlaceHolder), Replacement, [{return, list}])
-                     end, Sql, lists:zip(PlaceHolders, Replacements)),
-            {NSql, PlaceHolders};
-        nomatch ->
-            {Sql, []}
-    end.
-
 authorize(Client, PubSub, Topic,
             #{annotations := #{id := ResourceID,
                                placeholders := Placeholders
                               }
              }) ->
-    RenderedParams = replvar(Placeholders, Client),
+    RenderedParams = emqx_authz_utils:render_sql_params(Placeholders, Client),
     case emqx_resource:query(ResourceID, {prepared_query, ResourceID, RenderedParams}) of
         {ok, _Columns, []} -> nomatch;
         {ok, Columns, Rows} ->
@@ -115,30 +109,3 @@ index(Key, N, TupleList) when is_integer(N) ->
 index(_Tuple, [], _Index) -> {error, not_found};
 index(Tuple, [Tuple | _TupleList], Index) -> Index;
 index(Tuple, [_ | TupleList], Index) -> index(Tuple, TupleList, Index + 1).
-
-replvar(Params, ClientInfo) ->
-    replvar(Params, ClientInfo, []).
-
-replvar([], _ClientInfo, Acc) ->
-    lists:reverse(Acc);
-
-replvar([?PH_S_USERNAME | Params], ClientInfo, Acc) ->
-    replvar(Params, ClientInfo, [safe_get(username, ClientInfo) | Acc]);
-replvar([?PH_S_CLIENTID | Params], ClientInfo = #{clientid := ClientId}, Acc) ->
-    replvar(Params, ClientInfo, [ClientId | Acc]);
-replvar([?PH_S_PEERHOST | Params], ClientInfo = #{peerhost := IpAddr}, Acc) ->
-    replvar(Params, ClientInfo, [inet_parse:ntoa(IpAddr) | Acc]);
-replvar([?PH_S_CERT_CN_NAME | Params], ClientInfo, Acc) ->
-    replvar(Params, ClientInfo, [safe_get(cn, ClientInfo) | Acc]);
-replvar([?PH_S_CERT_SUBJECT | Params], ClientInfo, Acc) ->
-    replvar(Params, ClientInfo, [safe_get(dn, ClientInfo) | Acc]);
-replvar([Param | Params], ClientInfo, Acc) ->
-    replvar(Params, ClientInfo, [Param | Acc]).
-
-safe_get(K, ClientInfo) ->
-    bin(maps:get(K, ClientInfo, "undefined")).
-
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(B) when is_binary(B) -> B;
-bin(L) when is_list(L) -> list_to_binary(L);
-bin(X) -> X.
