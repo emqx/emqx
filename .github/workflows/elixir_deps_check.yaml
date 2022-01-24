@@ -7,7 +7,7 @@ on: [pull_request]
 jobs:
   elixir_deps_check:
     runs-on: ubuntu-20.04
-    container: ghcr.io/emqx/emqx-builder/5.0-4:1.13.1-24.1.5-3-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/5.0-5:1.13.2-24.1.5-4-ubuntu20.04
 
     steps:
       - name: Checkout

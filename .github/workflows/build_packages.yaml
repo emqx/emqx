@@ -19,7 +19,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.0-4:1.13.1-24.1.5-3-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-5:1.13.2-24.1.5-4-ubuntu20.04"
 
     outputs:
       ce_old_vsns: ${{ steps.find_old_versons.outputs.ce_old_vsns }}
@@ -130,7 +130,7 @@ jobs:
           - emqx
           - emqx-enterprise
         otp:
-          - 24.1.5-3
+          - 24.1.5-4
         macos:
           - macos-11
           - macos-10.15
@@ -236,9 +236,9 @@ jobs:
           - emqx
           - emqx-enterprise
         otp:
-          - 24.1.5-3 # we test with OTP 23, but only build package on OTP 24 versions
+          - 24.1.5-4 # we test with OTP 23, but only build package on OTP 24 versions
         elixir:
-          - 1.13.1
+          - 1.13.2
         # used to split elixir packages into a separate job, since the
         # entire job may take a lot of time, especially on arm64
         # emulation.
@@ -277,14 +277,14 @@ jobs:
           profile: emqx-enterprise
         include:
           - profile: emqx
-            otp: 24.1.5-3
-            elixir: 1.13.1
+            otp: 24.1.5-4
+            elixir: 1.13.2
             arch: amd64
             build_elixir: with_elixir
             os: ubuntu20.04
           - profile: emqx
-            otp: 24.1.5-3
-            elixir: 1.13.1
+            otp: 24.1.5-4
+            elixir: 1.13.2
             arch: amd64
             build_elixir: with_elixir
             os: centos8
@@ -376,7 +376,7 @@ jobs:
           --otp "${OTP}" \
           --elixir "${ELIXIR}" \
           --system "${SYSTEM}" \
-          --builder "ghcr.io/emqx/emqx-builder/5.0-4:${ELIXIR}-${OTP}-${SYSTEM}"
+          --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
         ## the pkg build is incremental on the tgz build
         ./scripts/buildx.sh \
           --profile "${PROFILE}" \
@@ -385,7 +385,7 @@ jobs:
           --otp "${OTP}" \
           --elixir "${ELIXIR}" \
           --system "${SYSTEM}" \
-          --builder "ghcr.io/emqx/emqx-builder/5.0-4:${ELIXIR}-${OTP}-${SYSTEM}"
+          --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
 
     - name: build emqx packages (Elixir)
       env:
@@ -406,7 +406,7 @@ jobs:
           --elixir "${ELIXIR}" \
           --system "${SYSTEM}" \
           --with-elixir \
-          --builder "ghcr.io/emqx/emqx-builder/5.0-4:${ELIXIR}-${OTP}-${SYSTEM}"
+          --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
 
     - name: create sha256
       env:
@@ -440,9 +440,9 @@ jobs:
         # NOTE: for docker, only support latest otp and elixir
         # versions, not a matrix
         otp:
-          - 24.1.5-3 # update to latest
+          - 24.1.5-4 # update to latest
         elixir:
-          - 1.13.1 # update to latest
+          - 1.13.2 # update to latest
         arch:
           - amd64
           - arm64
@@ -450,8 +450,8 @@ jobs:
           - no_elixir
         include:
           - profile: emqx
-            otp: 24.1.5-3
-            elixir: 1.13.1
+            otp: 24.1.5-4
+            elixir: 1.13.2
             arch: amd64
             build_elixir: with_elixir
 
@@ -513,7 +513,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-4:${{ matrix.elixir }}-${{ matrix.otp }}-alpine3.14
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-alpine3.14
           RUN_FROM=alpine:3.14
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
@@ -529,7 +529,7 @@ jobs:
         tags: ${{ steps.meta-elixir.outputs.tags }}
         labels: ${{ steps.meta-elixir.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-4:${{ matrix.elixir }}-${{ matrix.otp }}-alpine3.14
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-alpine3.14
           RUN_FROM=alpine:3.14
           EMQX_NAME=emqx-elixir
         file: source/deploy/docker/Dockerfile
@@ -579,7 +579,7 @@ jobs:
           - emqx
           - emqx-enterprise
         otp:
-          - 24.1.5-3
+          - 24.1.5-4
 
     steps:
     - uses: actions/checkout@v2

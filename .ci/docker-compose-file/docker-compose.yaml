@@ -3,7 +3,7 @@ version: '3.9'
 services:
   erlang23:
     container_name: erlang23
-    image: ghcr.io/emqx/emqx-builder/5.0-4:1.13.1-23.3.4.9-3-ubuntu20.04
+    image: ghcr.io/emqx/emqx-builder/5.0-5:1.13.2-23.3.4.9-4-ubuntu20.04
     env_file:
       - conf.env
     environment:
@@ -23,7 +23,7 @@ services:
 
   erlang24:
     container_name: erlang24
-    image: ghcr.io/emqx/emqx-builder/5.0-4:1.13.1-24.1.5-3-ubuntu20.04
+    image: ghcr.io/emqx/emqx-builder/5.0-5:1.13.2-24.1.5-4-ubuntu20.04
     env_file:
       - conf.env
     environment:

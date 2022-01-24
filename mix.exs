@@ -24,13 +24,6 @@ defmodule EMQXUmbrella.MixProject do
       Defaults to `community`.
   """
 
-  # Temporary hack while 1.13.2 is not released
-  System.version()
-  |> Version.parse!()
-  |> Version.compare(Version.parse!("1.13.2"))
-  |> Kernel.==(:lt)
-  |> if(do: Code.require_file("lib/mix/release.exs"))
-
   def project() do
     [
       app: :emqx_mix,
@@ -425,7 +418,7 @@ defmodule EMQXUmbrella.MixProject do
   # The `:tar` built-in step in Mix Release does not currently add the
   # `etc` directory into the resulting tarball.  The workaround is to
   # add those to the `:overlays` key before running `:tar`.
-  # See: https://hexdocs.pm/mix/1.13.1/Mix.Release.html#__struct__/0
+  # See: https://hexdocs.pm/mix/1.13.2/Mix.Release.html#__struct__/0
   defp prepare_tar_overlays(release) do
     Map.update!(release, :overlays, &["etc", "data" | &1])
   end
