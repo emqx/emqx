@@ -20,48 +20,56 @@
 
 -include("emqx_prometheus.hrl").
 
--import(emqx_mgmt_util, [ schema/1]).
+-import(hoconsc, [ref/2]).
 
--export([api_spec/0]).
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        ]).
 
 -export([ prometheus/2
         , stats/2
         ]).
 
+-define(API_TAG_PROMETHEUS, [<<"premetheus">>]).
+-define(SCHEMA_MODULE, emqx_prometheus_schema).
+
+
 api_spec() ->
-    {[prometheus_api(), prometheus_data_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-conf_schema() ->
-    emqx_mgmt_api_configs:gen_schema(emqx:get_raw_config([prometheus])).
+paths() ->
+    [ "/prometheus"
+    , "/prometheus/stats"
+    ].
 
-prometheus_api() ->
-    Metadata = #{
-        get => #{
-            description => <<"Get Prometheus info">>,
-            responses => #{<<"200">> => schema(conf_schema())}
-        },
-        put => #{
-            description => <<"Update Prometheus">>,
-            'requestBody' => schema(conf_schema()),
-            responses => #{<<"200">> => schema(conf_schema())}
-        }
-    },
-    {"/prometheus", Metadata, prometheus}.
-
-prometheus_data_api() ->
-    Metadata = #{
-        get => #{
-            description => <<"Get Prometheus Data">>,
-            responses => #{<<"200">> =>
-                #{content =>
-                #{
-                    'application/json' => #{schema => #{type => object}},
-                    'text/plain' => #{schema => #{type => string}}
-                }}
+schema("/prometheus") ->
+    #{ 'operationId' => prometheus
+     , get =>
+           #{ description => <<"Get Prometheus config info">>
+            , tags => ?API_TAG_PROMETHEUS
+            , responses =>
+                  #{200 => prometheus_config_schema()}
             }
-        }
-    },
-    {"/prometheus/stats", Metadata, stats}.
+     , put =>
+           #{ description => <<"Update Prometheus config">>
+            , 'requestBody' => prometheus_config_schema()
+            , responses =>
+                  #{200 => prometheus_config_schema()}
+            }
+     };
+schema("/prometheus/stats") ->
+    #{ 'operationId' => stats
+     , get =>
+           #{ description => <<"Get Prometheus Data">>
+            , responses =>
+                  #{200 => prometheus_data_schema()}
+            }
+     }.
+
+%%--------------------------------------------------------------------
+%% API Handler funcs
+%%--------------------------------------------------------------------
 
 prometheus(get, _Params) ->
     {200, emqx:get_raw_config([<<"prometheus">>], #{})};
@@ -83,6 +91,35 @@ stats(get, #{headers := Headers}) ->
         end,
     Data = emqx_prometheus:collect(Type),
     case Type of
-        <<"json">> -> {200, Data};
-        <<"prometheus">> -> {200, #{<<"content-type">> => <<"text/plain">>}, Data}
+        <<"json">> ->
+            {200, Data};
+        <<"prometheus">> ->
+            {200, #{<<"content-type">> => <<"text/plain">>}, Data}
     end.
+
+%%--------------------------------------------------------------------
+%% Internal funcs
+%%--------------------------------------------------------------------
+
+prometheus_config_schema() ->
+    emqx_dashboard_swagger:schema_with_example(
+      ref(?SCHEMA_MODULE, "prometheus"),
+      prometheus_config_example()).
+
+prometheus_config_example() ->
+    #{ enable => true
+     , interval => "15s"
+     , push_gateway_server => <<"http://127.0.0.1:9091">>
+     }.
+
+prometheus_data_schema() ->
+    #{ description => <<"Get Prometheus Data">>
+     , content =>
+           #{ 'application/json' =>
+                  #{ schema => #{type => object}
+                   , description => <<"Prometheus Data in json">>}
+            , 'text/plain' =>
+                  #{ schema => #{type => string}
+                   , description => <<"Prometheus Data in text/plain">>}
+            }
+     }.

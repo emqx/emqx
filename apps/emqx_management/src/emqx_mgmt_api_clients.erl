@@ -473,7 +473,7 @@ keepalive_api() ->
                 ],
             responses => #{
                 <<"404">> => emqx_mgmt_util:error_schema(<<"Client id not found">>),
-                <<"400">> => emqx_mgmt_util:error_schema(<<"">>, 'PARAMS_ERROR'),
+                <<"400">> => emqx_mgmt_util:error_schema(<<"">>, ['PARAMS_ERROR']),
                 <<"200">> => emqx_mgmt_util:schema(<<"ok">>)}}},
     {"/clients/:clientid/keepalive", Metadata, set_keepalive}.
 %%%==============================================================================================
@@ -732,13 +732,17 @@ run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} |
 %% format funcs
 
 format_channel_info({_, ClientInfo, ClientStats}) ->
+    Node = case ClientInfo of
+               #{node := N} -> N;
+               _            -> node()
+           end,
     StatsMap = maps:without([memory, next_pkt_id, total_heap_size],
         maps:from_list(ClientStats)),
     ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo),
     {IpAddress, Port} = peername_dispart(maps:get(peername, ClientInfoMap0)),
     Connected      = maps:get(conn_state, ClientInfoMap0) =:= connected,
     ClientInfoMap1 = maps:merge(StatsMap, ClientInfoMap0),
-    ClientInfoMap2 = maps:put(node, node(), ClientInfoMap1),
+    ClientInfoMap2 = maps:put(node, Node, ClientInfoMap1),
     ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
     ClientInfoMap4 = maps:put(port, Port, ClientInfoMap3),
     ClientInfoMap  = maps:put(connected, Connected, ClientInfoMap4),
@@ -801,4 +805,3 @@ format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
        result => AuthzResult,
        updated_time => Timestamp
      }.
-

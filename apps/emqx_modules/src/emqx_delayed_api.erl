@@ -19,6 +19,7 @@
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
+-include("emqx_modules.hrl").
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 
@@ -62,7 +63,7 @@ schema("/mqtt/delayed") ->
     #{
         'operationId' => status,
         get => #{
-            tags => [<<"mqtt">>],
+            tags => ?API_TAG_MQTT,
             description => <<"Get delayed status">>,
             summary => <<"Get delayed status">>,
             responses => #{
@@ -70,7 +71,7 @@ schema("/mqtt/delayed") ->
             }
         },
         put => #{
-            tags => [<<"mqtt">>],
+            tags => ?API_TAG_MQTT,
             description => <<"Enable or disable delayed, set max delayed messages">>,
             'requestBody' => ref(emqx_modules_schema, "delayed"),
             responses => #{
@@ -85,7 +86,7 @@ schema("/mqtt/delayed") ->
 schema("/mqtt/delayed/messages/:msgid") ->
     #{'operationId' => delayed_message,
         get => #{
-            tags => [<<"mqtt">>],
+            tags => ?API_TAG_MQTT,
             description => <<"Get delayed message">>,
             parameters => [{msgid, mk(binary(), #{in => path, desc => <<"delay message ID">>})}],
             responses => #{
@@ -97,7 +98,7 @@ schema("/mqtt/delayed/messages/:msgid") ->
             }
         },
         delete => #{
-            tags => [<<"mqtt">>],
+            tags => ?API_TAG_MQTT,
             description => <<"Delete delayed message">>,
             parameters => [{msgid, mk(binary(), #{in => path, desc => <<"delay message ID">>})}],
             responses => #{
@@ -113,7 +114,7 @@ schema("/mqtt/delayed/messages") ->
     #{
         'operationId' => delayed_messages,
         get => #{
-            tags => [<<"mqtt">>],
+            tags => ?API_TAG_MQTT,
             description => <<"List delayed messages">>,
             parameters => [ref(emqx_dashboard_swagger, page), ref(emqx_dashboard_swagger, limit)],
             responses => #{

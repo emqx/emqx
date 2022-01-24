@@ -145,7 +145,7 @@ list(Enable) ->
     ets:match_object(?TRACE, #?TRACE{enable = Enable, _ = '_'}).
 
 -spec create([{Key :: binary(), Value :: binary()}] | #{atom() => binary()}) ->
-    ok | {error, {duplicate_condition, iodata()} | {already_existed, iodata()} | iodata()}.
+{ok, #?TRACE{}} | {error, {duplicate_condition, iodata()} | {already_existed, iodata()} | iodata()}.
 create(Trace) ->
     case mnesia:table_info(?TRACE, size) < ?MAX_SIZE of
         true ->
@@ -291,7 +291,9 @@ insert_new_trace(Trace) ->
                 #?TRACE{start_at = StartAt, type = Type, filter = Filter} = Trace,
                 Match = #?TRACE{_ = '_', start_at = StartAt, type = Type, filter = Filter},
                 case mnesia:match_object(?TRACE, Match, read) of
-                    [] -> mnesia:write(?TRACE, Trace, write);
+                    [] ->
+                        ok = mnesia:write(?TRACE, Trace, write),
+                        {ok, Trace};
                     [#?TRACE{name = Name}] -> mnesia:abort({duplicate_condition, Name})
                 end;
             [#?TRACE{name = Name}] -> mnesia:abort({already_existed, Name})

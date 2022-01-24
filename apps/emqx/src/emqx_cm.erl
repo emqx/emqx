@@ -80,9 +80,15 @@
         , mark_channel_connected/1
         , mark_channel_disconnected/1
         , get_connected_client_count/0
+
+        , do_kick_session/3
+        , do_get_chan_stats/2
+        , do_get_chan_info/2
+        , do_get_chann_conn_mod/2
         ]).
 
 -export_type([ channel_info/0
+             , chan_pid/0
              ]).
 
 -type(chan_pid() :: pid()).
@@ -91,6 +97,8 @@
                         , _Info :: emqx_types:infos()
                         , _Stats :: emqx_types:stats()
                         }).
+
+-include("emqx_cm.hrl").
 
 %% Tables for channel management.
 -define(CHAN_TAB, emqx_channel).
@@ -110,10 +118,6 @@
 
 %% Server name
 -define(CM, ?MODULE).
-
--define(T_KICK, 5_000).
--define(T_GET_INFO, 5_000).
--define(T_TAKEOVER, 15_000).
 
 %% linting overrides
 -elvis([ {elvis_style, invalid_dynamic_call, #{ignore => [emqx_cm]}}
@@ -181,16 +185,19 @@ connection_closed(ClientId, ChanPid) ->
 get_chan_info(ClientId) ->
     with_channel(ClientId, fun(ChanPid) -> get_chan_info(ClientId, ChanPid) end).
 
--spec(get_chan_info(emqx_types:clientid(), chan_pid())
+-spec(do_get_chan_info(emqx_types:clientid(), chan_pid())
       -> maybe(emqx_types:infos())).
-get_chan_info(ClientId, ChanPid) when node(ChanPid) == node() ->
+do_get_chan_info(ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
     try ets:lookup_element(?CHAN_INFO_TAB, Chan, 2)
     catch
         error:badarg -> undefined
-    end;
+    end.
+
+-spec(get_chan_info(emqx_types:clientid(), chan_pid())
+      -> maybe(emqx_types:infos())).
 get_chan_info(ClientId, ChanPid) ->
-    rpc_call(node(ChanPid), get_chan_info, [ClientId, ChanPid], ?T_GET_INFO).
+    wrap_rpc(emqx_cm_proto_v1:get_chan_info(ClientId, ChanPid)).
 
 %% @doc Update infos of the channel.
 -spec(set_chan_info(emqx_types:clientid(), emqx_types:attrs()) -> boolean()).
@@ -206,16 +213,19 @@ set_chan_info(ClientId, Info) when is_binary(ClientId) ->
 get_chan_stats(ClientId) ->
     with_channel(ClientId, fun(ChanPid) -> get_chan_stats(ClientId, ChanPid) end).
 
--spec(get_chan_stats(emqx_types:clientid(), chan_pid())
+-spec(do_get_chan_stats(emqx_types:clientid(), chan_pid())
       -> maybe(emqx_types:stats())).
-get_chan_stats(ClientId, ChanPid) when node(ChanPid) == node() ->
+do_get_chan_stats(ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
     try ets:lookup_element(?CHAN_INFO_TAB, Chan, 3)
     catch
         error:badarg -> undefined
-    end;
+    end.
+
+-spec(get_chan_stats(emqx_types:clientid(), chan_pid())
+      -> maybe(emqx_types:stats())).
 get_chan_stats(ClientId, ChanPid) ->
-    rpc_call(node(ChanPid), get_chan_stats, [ClientId, ChanPid], ?T_GET_INFO).
+    wrap_rpc(emqx_cm_proto_v1:get_chan_stats(ClientId, ChanPid)).
 
 %% @doc Set channel's stats.
 -spec(set_chan_stats(emqx_types:clientid(), emqx_types:stats()) -> boolean()).
@@ -368,7 +378,7 @@ do_takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
             {living, ConnMod, ChanPid, Session}
     end;
 do_takeover_session(ClientId, ChanPid) ->
-    rpc_call(node(ChanPid), takeover_session, [ClientId, ChanPid], ?T_TAKEOVER).
+    wrap_rpc(emqx_cm_proto_v1:takeover_session(ClientId, ChanPid)).
 
 %% @doc Discard all the sessions identified by the ClientId.
 -spec(discard_session(emqx_types:clientid()) -> ok).
@@ -422,24 +432,20 @@ discard_session(ClientId, ChanPid) ->
 kick_session(ClientId, ChanPid) ->
     kick_session(kick, ClientId, ChanPid).
 
-%% @private This function is shared for session 'kick' and 'discard' (as the first arg Action).
-kick_session(Action, ClientId, ChanPid) when node(ChanPid) == node() ->
+-spec do_kick_session(kick | discard, emqx_types:clientid(), chan_pid()) -> ok.
+do_kick_session(Action, ClientId, ChanPid) ->
     case get_chann_conn_mod(ClientId, ChanPid) of
         undefined ->
             %% already deregistered
             ok;
         ConnMod when is_atom(ConnMod) ->
             ok = kick_or_kill(Action, ConnMod, ChanPid)
-    end;
+    end.
+
+%% @private This function is shared for session 'kick' and 'discard' (as the first arg Action).
 kick_session(Action, ClientId, ChanPid) ->
-    %% call remote node on the old APIs because we do not know if they have upgraded
-    %% to have kick_session/3
-    Function = case Action of
-                   discard -> discard_session;
-                   kick -> kick_session
-               end,
     try
-        rpc_call(node(ChanPid), Function, [ClientId, ChanPid], ?T_KICK)
+        wrap_rpc(emqx_cm_proto_v1:kick_session(Action, ClientId, ChanPid))
     catch
         Error : Reason ->
             %% This should mostly be RPC failures.
@@ -525,8 +531,8 @@ lookup_client({clientid, ClientId}) ->
           , Rec <- ets:lookup(emqx_channel_info, Key)].
 
 %% @private
-rpc_call(Node, Fun, Args, Timeout) ->
-    case rpc:call(Node, ?MODULE, Fun, Args, 2 * Timeout) of
+wrap_rpc(Result) ->
+    case Result of
         {badrpc, Reason} ->
             %% since emqx app 4.3.10, the 'kick' and 'discard' calls handler
             %% should catch all exceptions and always return 'ok'.
@@ -599,14 +605,17 @@ update_stats({Tab, Stat, MaxStat}) ->
         Size -> emqx_stats:setstat(Stat, MaxStat, Size)
     end.
 
-get_chann_conn_mod(ClientId, ChanPid) when node(ChanPid) == node() ->
+-spec do_get_chann_conn_mod(emqx_types:clientid(), chan_pid()) ->
+          module() | undefined.
+do_get_chann_conn_mod(ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
     try [ConnMod] = ets:lookup_element(?CHAN_CONN_TAB, Chan, 2), ConnMod
     catch
         error:badarg -> undefined
-    end;
+    end.
+
 get_chann_conn_mod(ClientId, ChanPid) ->
-    rpc_call(node(ChanPid), get_chann_conn_mod, [ClientId, ChanPid], ?T_GET_INFO).
+    wrap_rpc(emqx_cm_proto_v1:get_chann_conn_mod(ClientId, ChanPid)).
 
 mark_channel_connected(ChanPid) ->
     ?tp(emqx_cm_connected_client_count_inc, #{}),

@@ -125,7 +125,7 @@ t_get_set_chan_info_stats(_) ->
       #{clientinfo => clientinfo(), conninfo => conninfo()}, []),
 
     %% Info: get/set
-    NInfo = #{newinfo => true},
+    NInfo = #{newinfo => true, node => node()},
     emqx_gateway_cm:set_chan_info(?GWNAME, ?CLIENTID, NInfo),
     ?assertEqual(
        NInfo,
@@ -200,6 +200,7 @@ t_kick_session(_) ->
         100 ->
             ?assert(false, "waiting kick msg timeout")
     end,
+    ?assertMatch({error, not_found}, emqx_gateway_http:kickout_client(?GWNAME, <<"i-dont-exist">>)),
     meck:unload(emqx_gateway_cm_registry).
 
 t_unexpected_handle(Conf) ->

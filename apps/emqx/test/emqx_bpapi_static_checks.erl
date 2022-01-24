@@ -49,9 +49,18 @@
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
 %% List of known functions also known to do RPC:
--define(RPC_FUNCTIONS, "emqx_cluster_rpc:multicall/3, emqx_cluster_rpc:multicall/5").
+-define(RPC_FUNCTIONS, "emqx_cluster_rpc:multicall/3, emqx_cluster_rpc:multicall/5, "
+                       "emqx_plugin_libs_rule:cluster_call/3").
 %% List of functions in the RPC backend modules that we can ignore:
--define(IGNORED_RPC_CALLS, "gen_rpc:nodes/0").
+-define(IGNORED_RPC_CALLS, "gen_rpc:nodes/0, emqx_rpc:unwrap_erpc/1, rpc:pmap/3"). % TODO: handle pmap
+%% List of business-layer functions that are exempt from the checks:
+-define(EXEMPTIONS,
+        "emqx_mgmt_api:do_query/6,"             % Reason: legacy code. A fun and a QC query are
+                                                % passed in the args, it's futile to try to statically
+                                                % check it
+        "emqx_plugin_libs_rule:cluster_call/3"  % Reason: some sort of external plugin API that we
+                                                % don't want to break?
+       ).
 
 -define(XREF, myxref).
 
@@ -61,15 +70,20 @@
 
 -spec run() -> boolean().
 run() ->
-    dump(), %% TODO: check return value
-    Dumps = filelib:wildcard(dumps_dir() ++ "/*.bpapi"),
-    case Dumps of
-        [] ->
-            ?ERROR("No BPAPI dumps are found in ~s, abort", [dumps_dir()]),
-            false;
-        _ ->
-            ?NOTICE("Running API compatibility checks for ~p", [Dumps]),
-            check_compat(Dumps)
+    case dump() of
+        true ->
+            Dumps = filelib:wildcard(dumps_dir() ++ "/*.bpapi"),
+            case Dumps of
+                [] ->
+                    ?ERROR("No BPAPI dumps are found in ~s, abort", [dumps_dir()]),
+                    false;
+                _ ->
+                    ?NOTICE("Running API compatibility checks for ~p", [Dumps]),
+                    check_compat(Dumps)
+            end;
+        false ->
+            ?CRITICAL("Backplane API violations found on the current branch."),
+            false
     end.
 
 -spec check_compat([file:filename()]) -> boolean().
@@ -207,8 +221,8 @@ prepare(#{reldir := RelDir, plt := PLT}) ->
     dialyzer_plt:from_file(PLT).
 
 find_remote_calls(_Opts) ->
-    Query = "XC | (A - [" ?IGNORED_APPS "]:App - [" ?IGNORED_MODULES "] : Mod)
-               || (([" ?RPC_MODULES "] : Mod + [" ?RPC_FUNCTIONS "]) - " ?IGNORED_RPC_CALLS ")",
+    Query = "XC | (A - [" ?IGNORED_APPS "]:App - [" ?IGNORED_MODULES "]:Mod - [" ?EXEMPTIONS "])
+               || (([" ?RPC_MODULES "] : Mod + [" ?RPC_FUNCTIONS "]) - [" ?IGNORED_RPC_CALLS "])",
     {ok, Calls} = xref:q(?XREF, Query),
     ?INFO("Calls to RPC modules ~p", [Calls]),
     {Callers, _Callees} = lists:unzip(Calls),

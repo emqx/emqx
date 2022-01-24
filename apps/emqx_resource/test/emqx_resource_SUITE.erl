@@ -18,7 +18,6 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -61,12 +60,12 @@ t_create_remove(_) ->
     {error, _} = emqx_resource:check_and_create_local(
                    ?ID,
                    ?TEST_RESOURCE,
-                   #{unknown => <<"test_resource">>}),
+                   #{unknown => test_resource}),
 
     {ok, _} = emqx_resource:create_local(
                 ?ID,
                 ?TEST_RESOURCE,
-                #{name => <<"test_resource">>}),
+                #{name => test_resource}),
 
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
 
@@ -81,7 +80,7 @@ t_query(_) ->
     {ok, _} = emqx_resource:create_local(
                 ?ID,
                 ?TEST_RESOURCE,
-                #{name => <<"test_resource">>}),
+                #{name => test_resource}),
 
     Pid = self(),
     Success = fun() -> Pid ! success end,
@@ -112,13 +111,19 @@ t_healthy(_) ->
 
     ok = emqx_resource:health_check(?ID),
 
-    [#{status := started}] = emqx_resource:list_instances_verbose(),
+    ?assertMatch(
+        [#{status := started}],
+        emqx_resource:list_instances_verbose()),
 
     erlang:exit(Pid, shutdown),
 
-    {error, dead} = emqx_resource:health_check(?ID),
+    ?assertEqual(
+        {error, dead},
+        emqx_resource:health_check(?ID)),
 
-    [#{status := stopped}] = emqx_resource:list_instances_verbose(),
+    ?assertMatch(
+        [#{status := stopped}],
+        emqx_resource:list_instances_verbose()),
 
     ok = emqx_resource:remove_local(?ID).
 
@@ -126,12 +131,12 @@ t_stop_start(_) ->
     {error, _} = emqx_resource:check_and_create_local(
                    ?ID,
                    ?TEST_RESOURCE,
-                   #{unknown => <<"test_resource">>}),
+                   #{unknown => test_resource}),
 
     {ok, _} = emqx_resource:create_local(
                 ?ID,
                 ?TEST_RESOURCE,
-                #{name => <<"test_resource">>}),
+                #{name => test_resource}),
 
     #{pid := Pid0} = emqx_resource:query(?ID, get_state),
 
@@ -161,10 +166,23 @@ t_list_filter(_) ->
                 #{name => grouped_a}),
 
     [Id1] = emqx_resource:list_group_instances(<<"default">>),
-    {ok, #{config := #{name := a}}} = emqx_resource:get_instance(Id1),
+    ?assertMatch(
+        {ok, #{config := #{name := a}}},
+        emqx_resource:get_instance(Id1)),
 
     [Id2] = emqx_resource:list_group_instances(<<"group">>),
-    {ok, #{config := #{name := grouped_a}}} = emqx_resource:get_instance(Id2).
+    ?assertMatch(
+        {ok, #{config := #{name := grouped_a}}},
+        emqx_resource:get_instance(Id2)).
+
+t_create_dry_run_local(_) ->
+    ?assertEqual(
+       ok,
+       emqx_resource:create_dry_run_local(
+         ?TEST_RESOURCE,
+         #{name => test_resource, register => true})),
+
+    ?assertEqual(undefined, whereis(test_resource)).
 
 %%------------------------------------------------------------------------------
 %% Helpers

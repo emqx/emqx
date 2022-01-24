@@ -69,7 +69,7 @@ t_http_test(_Config) ->
     ],
 
     {ok, Create} = request_api(post, api_path("trace"), Header, Trace),
-    ?assertEqual(<<>>, Create),
+    ?assertMatch(#{<<"name">> := Name}, json(Create)),
 
     {ok, List} = request_api(get, api_path("trace"), Header),
     [Data] = json(List),
@@ -107,7 +107,7 @@ t_http_test(_Config) ->
 
     %% clear
     {ok, Create1} = request_api(post, api_path("trace"), Header, Trace),
-    ?assertEqual(<<>>, Create1),
+    ?assertMatch(#{<<"name">> := Name}, json(Create1)),
 
     {ok, Clear} = request_api(delete, api_path("trace"), Header),
     ?assertEqual(<<>>, Clear),
@@ -141,7 +141,7 @@ create_trace(Name, ClientId, Start) ->
     ?check_trace(
         #{timetrap => 900},
         begin
-            ok = emqx_trace:create([{<<"name">>, Name},
+            {ok, _} = emqx_trace:create([{<<"name">>, Name},
                 {<<"type">>, clientid}, {<<"clientid">>, ClientId}, {<<"start_at">>, Start}]),
             ?block_until(#{?snk_kind := update_trace_done})
         end,
@@ -206,7 +206,7 @@ do_request_api(Method, Request) ->
         {error, {shutdown, server_closed}} ->
             {error, server_closed};
         {ok, {{"HTTP/1.1", Code, _}, _Headers, Return}}
-            when Code =:= 200 orelse Code =:= 201 ->
+            when Code =:= 200 orelse Code =:= 201 orelse Code =:= 204 ->
             {ok, Return};
         {ok, {Reason, _Header, Body}} ->
             {error, Reason, Body}

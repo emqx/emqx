@@ -283,6 +283,7 @@ flush_emqx_pool() ->
 t_discard_session_race(_) ->
     ClientId = rand_client_id(),
     ?check_trace(
+       #{timetrap => 60000},
        begin
          #{conninfo := ConnInfo0} = ?ChanInfo,
          ConnInfo = ConnInfo0#{conn_mod := emqx_ws_connection},
@@ -290,12 +291,9 @@ t_discard_session_race(_) ->
          ok = emqx_cm:register_channel(ClientId, Pid, ConnInfo),
          Pid ! stop,
          receive {'DOWN', Ref, process, Pid, normal} -> ok end,
-         ok = emqx_cm:discard_session(ClientId),
-         {ok, _} = ?block_until(#{?snk_kind := "session_already_gone", pid := Pid}, 1000)
+         ?assertMatch(ok, emqx_cm:discard_session(ClientId))
        end,
-       fun(_, _) ->
-               true
-       end).
+       []).
 
 t_takeover_session(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,

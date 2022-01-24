@@ -1,5 +1,5 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2021-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%-------------------------------------------------------------------
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -13,12 +13,11 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-ifndef(EMQX_CM_HRL).
+-define(EMQX_CM_HRL, true).
 
-%% The destination URL for the telemetry data report
--define(TELEMETRY_URL, "https://telemetry.emqx.io/api/telemetry").
+-define(T_KICK, 5_000).
+-define(T_GET_INFO, 5_000).
+-define(T_TAKEOVER, 15_000).
 
-%% Interval for reporting telemetry data, Default: 7d
--define(REPORT_INTERVAR, 604800).
-
--define(API_TAG_MQTT, [<<"mqtt">>]).
--define(API_SCHEMA_MODULE, emqx_modules_schema).
+-endif.

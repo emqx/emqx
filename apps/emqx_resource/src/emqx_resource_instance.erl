@@ -192,7 +192,11 @@ do_create_dry_run(ResourceType, Config) ->
     case emqx_resource:call_start(InstId, ResourceType, Config) of
         {ok, ResourceState} ->
             case emqx_resource:call_health_check(InstId, ResourceType, ResourceState) of
-                {ok, _} -> ok;
+                {ok, _} ->
+                    case emqx_resource:call_stop(InstId, ResourceType, ResourceState) of
+                        {error, _} = Error -> Error;
+                        _ -> ok
+                    end;
                 {error, Reason, _} -> {error, Reason}
             end;
         {error, Reason} ->
