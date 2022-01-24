@@ -30,6 +30,10 @@
 
 -export([do_query/5]).
 
+-export([ page/1
+        , limit/1
+        ]).
+
 paginate(Tables, Params, RowFun) ->
     Qh = query_handle(Tables),
     Count = count(Tables),

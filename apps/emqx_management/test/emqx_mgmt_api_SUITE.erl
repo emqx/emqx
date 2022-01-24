@@ -604,6 +604,8 @@ t_routes_and_subscriptions(_) ->
     [Subscription] = get(<<"data">>, Result3),
     ?assertEqual(Topic, maps:get(<<"topic">>, Subscription)),
     ?assertEqual(ClientId, maps:get(<<"clientid">>, Subscription)),
+    ?assertMatch(#{<<"page">> := 1, <<"limit">> := 10000, <<"hasnext">> := false, <<"count">> := 1},
+        get(<<"meta">>, Result3)),
 
     {ok, Result3} = request_api(get,
         api_path(["nodes", atom_to_list(node()), "subscriptions"]), auth_header_()),
@@ -616,6 +618,61 @@ t_routes_and_subscriptions(_) ->
                                , auth_header_()),
 
     ok = emqtt:disconnect(C1).
+
+t_subscription_topic(_Config) ->
+    ClientId = <<"myclient">>,
+    Topic = <<"topic">>,
+    Query = "topic=" ++ binary_to_list(Topic),
+    {ok, NonSubscription} = request_api(get, api_path(["subscriptions"]), Query, auth_header_()),
+    ?assertEqual([], get(<<"data">>, NonSubscription)),
+    ?assertMatch(#{<<"page">> := 1, <<"limit">> := 10000, <<"hasnext">> := false, <<"count">> := 0},
+        get(<<"meta">>, NonSubscription)),
+    {ok, NonSubscription1} = request_api(get, api_path(["nodes", atom_to_list(node()), "subscriptions"]),
+        Query, auth_header_()),
+    ?assertEqual([], get(<<"data">>, NonSubscription1)),
+    ?assertMatch(#{<<"page">> := 1, <<"limit">> := 10000, <<"hasnext">> := false, <<"count">> := 0},
+        get(<<"meta">>, NonSubscription)),
+
+    Conn =
+        [begin
+             {ok, C1} = emqtt:start_link(#{clean_start => true, proto_ver => ?MQTT_PROTO_V5,
+                 clientid => <<ClientId/binary, (integer_to_binary(I))/binary>>}),
+             {ok, _} = emqtt:connect(C1),
+             {ok, _, [2]} = emqtt:subscribe(C1, Topic, qos2),
+             C1
+         end|| I <- lists:seq(1,10)],
+
+    {ok, Result3} = request_api(get, api_path(["subscriptions"]), Query, auth_header_()),
+    [Subscription | Subscriptions] = get(<<"data">>, Result3),
+    ?assertEqual(Topic, maps:get(<<"topic">>, Subscription)),
+    ?assertEqual(9, erlang:length(Subscriptions)),
+    ?assertMatch(#{<<"page">> := 1, <<"limit">> := 10000, <<"hasnext">> := false, <<"count">> := 10},
+        get(<<"meta">>, Result3)),
+
+    {ok, Result3} = request_api(get, api_path(["nodes", atom_to_list(node()), "subscriptions"]), Query, auth_header_()),
+
+    ?assertMatch(#{<<"page">> := 1, <<"limit">> := 10000, <<"hasnext">> := false, <<"count">> := 10},
+        get(<<"meta">>, Result3)),
+
+    Query1 = Query ++ "&_page=1&_limit=5",
+    {ok, Result4} = request_api(get, api_path(["subscriptions"]), Query1, auth_header_()),
+    ?assertMatch(#{<<"page">> := 1, <<"limit">> := 5, <<"hasnext">> := true, <<"count">> := 10},
+        get(<<"meta">>, Result4)),
+    ?assertEqual(5, erlang:length(get(<<"data">>, Result4))),
+
+    Query2 = Query ++ "&_page=2&_limit=5",
+    {ok, Result5} = request_api(get, api_path(["subscriptions"]), Query2, auth_header_()),
+    ?assertMatch(#{<<"page">> := 2, <<"limit">> := 5, <<"hasnext">> := false, <<"count">> := 10},
+        get(<<"meta">>, Result5)),
+    ?assertEqual(5, erlang:length(get(<<"data">>, Result4))),
+
+    Query3 = Query ++ "&_page=3&_limit=3",
+    {ok, Result6} = request_api(get, api_path(["subscriptions"]), Query3, auth_header_()),
+    ?assertMatch(#{<<"page">> := 3, <<"limit">> := 3, <<"hasnext">> := true, <<"count">> := 10},
+        get(<<"meta">>, Result6)),
+
+    [ok = emqtt:disconnect(C1) ||C1 <- Conn],
+    ok.
 
 t_stats(_) ->
     {ok, _} = request_api(get, api_path(["stats"]), auth_header_()),

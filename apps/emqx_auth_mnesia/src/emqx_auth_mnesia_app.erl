@@ -57,12 +57,9 @@ load_auth_hook() ->
     UsernameList = application:get_env(?APP, username_list, []),
     ok = emqx_auth_mnesia:init(#{clientid_list => ClientidList, username_list => UsernameList}),
     ok = emqx_auth_mnesia:register_metrics(),
-    Params = #{
-            hash_type => application:get_env(emqx_auth_mnesia, password_hash, sha256)
-            },
+    Params = #{hash_type => emqx_auth_mnesia:hash_type()},
     emqx:hook('client.authenticate', fun emqx_auth_mnesia:check/3, [Params]).
 
 load_acl_hook() ->
     ok = emqx_acl_mnesia:init(),
-    ok = emqx_acl_mnesia:register_metrics(),
     emqx:hook('client.check_acl', fun emqx_acl_mnesia:check_acl/5, [#{}]).

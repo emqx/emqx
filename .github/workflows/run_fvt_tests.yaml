@@ -341,7 +341,7 @@ jobs:
             shell: bash
         steps:
         - uses: actions/download-artifact@v2
-          name: Dowload built emqx and test scenario
+          name: Download built emqx and test scenario
           with:
             name: emqx_built
             path: emqx_built

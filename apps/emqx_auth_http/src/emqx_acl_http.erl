@@ -29,26 +29,17 @@
         ]).
 
 %% ACL callbacks
--export([ register_metrics/0
-        , check_acl/5
+-export([ check_acl/5
         , description/0
         ]).
-
--spec(register_metrics() -> ok).
-register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1, ?ACL_METRICS).
 
 %%--------------------------------------------------------------------
 %% ACL callbacks
 %%--------------------------------------------------------------------
 
-check_acl(ClientInfo, PubSub, Topic, AclResult, Params) ->
-    return_with(fun inc_metrics/1,
-                do_check_acl(ClientInfo, PubSub, Topic, AclResult, Params)).
-
-do_check_acl(#{username := <<$$, _/binary>>}, _PubSub, _Topic, _AclResult, _Params) ->
+check_acl(#{username := <<$$, _/binary>>}, _PubSub, _Topic, _AclResult, _Params) ->
     ok;
-do_check_acl(ClientInfo, PubSub, Topic, _AclResult, #{acl := ACLParams = #{path := Path}}) ->
+check_acl(ClientInfo, PubSub, Topic, _AclResult, #{acl := ACLParams = #{path := Path}}) ->
     ClientInfo1 = ClientInfo#{access => access(PubSub), topic => Topic},
     case check_acl_request(ACLParams, ClientInfo1) of
         {ok, 200, <<"ignore">>} -> ok;
@@ -64,16 +55,6 @@ description() -> "ACL with HTTP API".
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-inc_metrics(ok) ->
-    emqx_metrics:inc(?ACL_METRICS(ignore));
-inc_metrics({stop, allow}) ->
-    emqx_metrics:inc(?ACL_METRICS(allow));
-inc_metrics({stop, deny}) ->
-    emqx_metrics:inc(?ACL_METRICS(deny)).
-
-return_with(Fun, Result) ->
-    Fun(Result), Result.
 
 check_acl_request(#{pool_name := PoolName,
                     path := Path,

@@ -45,10 +45,11 @@ authenticate(ClientInfo = #{zone := Zone}) ->
 -spec(check_acl(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
       -> allow | deny).
 check_acl(ClientInfo, PubSub, Topic) ->
-    case emqx_acl_cache:is_enabled() of
+    Result = case emqx_acl_cache:is_enabled() of
         true  -> check_acl_cache(ClientInfo, PubSub, Topic);
         false -> do_check_acl(ClientInfo, PubSub, Topic)
-    end.
+    end,
+    inc_acl_metrics(Result), Result.
 
 check_acl_cache(ClientInfo, PubSub, Topic) ->
     case emqx_acl_cache:get_acl_cache(PubSub, Topic) of
@@ -56,7 +57,9 @@ check_acl_cache(ClientInfo, PubSub, Topic) ->
             AclResult = do_check_acl(ClientInfo, PubSub, Topic),
             emqx_acl_cache:put_acl_cache(PubSub, Topic, AclResult),
             AclResult;
-        AclResult -> AclResult
+        AclResult ->
+            inc_acl_metrics(cache_hit),
+            AclResult
     end.
 
 do_check_acl(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
@@ -75,6 +78,14 @@ default_auth_result(Zone) ->
 -compile({inline, [run_hooks/3]}).
 run_hooks(Name, Args, Acc) ->
     ok = emqx_metrics:inc(Name), emqx_hooks:run_fold(Name, Args, Acc).
+
+-compile({inline, [inc_acl_metrics/1]}).
+inc_acl_metrics(allow) ->
+    emqx_metrics:inc('client.acl.allow');
+inc_acl_metrics(deny) ->
+    emqx_metrics:inc('client.acl.deny');
+inc_acl_metrics(cache_hit) ->
+    emqx_metrics:inc('client.acl.cache_hit').
 
 -compile({inline, [return_auth_result/1]}).
 return_auth_result(Result = #{auth_result := success}) ->

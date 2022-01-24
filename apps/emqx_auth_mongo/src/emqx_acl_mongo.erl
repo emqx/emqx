@@ -21,17 +21,12 @@
 -include_lib("emqx/include/logger.hrl").
 
 %% ACL callbacks
--export([ register_metrics/0
-        , check_acl/5
+-export([ check_acl/5
         , description/0
         ]).
--spec(register_metrics() -> ok).
-register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1, ?ACL_METRICS).
 
 check_acl(#{username := <<$$, _/binary>>}, _PubSub, _Topic, _AclResult, _State) ->
     ok;
-
 check_acl(ClientInfo, PubSub, Topic, _AclResult, Env = #{aclquery := AclQuery}) ->
     #aclquery{collection = Coll, selector = SelectorList} = AclQuery,
     Pool = maps:get(pool, Env, ?APP),
@@ -43,19 +38,15 @@ check_acl(ClientInfo, PubSub, Topic, _AclResult, Env = #{aclquery := AclQuery}) 
         [] -> ok;
         Rows ->
             try match(ClientInfo, Topic, topics(PubSub, Rows)) of
-                matched -> emqx_metrics:inc(?ACL_METRICS(allow)),
-                           {stop, allow};
-                nomatch -> emqx_metrics:inc(?ACL_METRICS(deny)),
-                           {stop, deny}
+                matched -> {stop, allow};
+                nomatch -> {stop, deny}
             catch
                 _Err:Reason->
                     ?LOG(error, "[MongoDB] Check mongo ~p ACL failed, got ACL config: ~p, error: :~p",
                                 [PubSub, Rows, Reason]),
-                    emqx_metrics:inc(?ACL_METRICS(ignore)),
                     ignore
             end
     end.
-
 
 match(_ClientInfo, _Topic, []) ->
     nomatch;
