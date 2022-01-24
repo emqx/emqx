@@ -104,8 +104,9 @@ t_healthy(_) ->
     {ok, _} = emqx_resource:create_local(
                 ?ID,
                 ?TEST_RESOURCE,
-                #{name => test_resource}),
-
+                #{name => <<"test_resource">>}, #{async_create => true}),
+    timer:sleep(300),
+    emqx_resource_health_check:create_checker(?ID, 15000),
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
 
     ok = emqx_resource:health_check(?ID),
