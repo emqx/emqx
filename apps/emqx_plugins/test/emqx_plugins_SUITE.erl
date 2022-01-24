@@ -115,8 +115,8 @@ t_demo_install_start_stop_uninstall(Config) ->
     ok = emqx_plugins:ensure_installed(NameVsn),
     %% idempotent
     ok = emqx_plugins:ensure_installed(NameVsn),
-    {ok, Info} = emqx_plugins:read_plugin(NameVsn),
-    ?assertEqual([Info], emqx_plugins:list()),
+    {ok, Info} = emqx_plugins:describe(NameVsn),
+    ?assertEqual([maps:without([readme], Info)], emqx_plugins:list()),
     %% start
     ok = emqx_plugins:ensure_started(NameVsn),
     ok = assert_app_running(emqx_plugin_template, true),
@@ -157,6 +157,39 @@ write_info_file(Config, NameVsn, Content) ->
     InfoFile = filename:join([WorkDir, NameVsn, "release.json"]),
     ok = filelib:ensure_dir(InfoFile),
     ok = file:write_file(InfoFile, Content).
+
+t_position({init, Config}) ->
+    Package = build_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_position({'end', _Config}) -> ok;
+t_position(Config) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ok = emqx_plugins:ensure_enabled(NameVsn),
+    FakeInfo = "name=position, rel_vsn=\"2\", rel_apps=[\"position-9\"],"
+    "description=\"desc fake position app\"",
+    PosApp2 = <<"position-2">>,
+    ok = write_info_file(Config, PosApp2, FakeInfo),
+    %% fake a disabled plugin in config
+    ok = emqx_plugins:ensure_state(PosApp2, {before, NameVsn}, false),
+    ListFun = fun() ->
+        lists:map(fun(
+            #{<<"name">> := Name, <<"rel_vsn">> := Vsn}) ->
+            <<Name/binary, "-", Vsn/binary>>
+                  end, emqx_plugins:list())
+              end,
+    ?assertEqual([PosApp2, list_to_binary(NameVsn)], ListFun()),
+    emqx_plugins:ensure_enabled(PosApp2, {behind, NameVsn}),
+    ?assertEqual([list_to_binary(NameVsn), PosApp2], ListFun()),
+
+    ok = emqx_plugins:ensure_stopped(),
+    ok = emqx_plugins:ensure_disabled(NameVsn),
+    ok = emqx_plugins:ensure_disabled(PosApp2),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:ensure_uninstalled(PosApp2),
+    ?assertEqual([], emqx_plugins:list()),
+    ok.
 
 t_start_restart_and_stop({init, Config}) ->
     #{package := Package} = build_demo_plugin_package(),
@@ -283,12 +316,12 @@ t_bad_info_json(Config) ->
     ?assertMatch({error, #{error := "bad_info_file",
                            return := {parse_error, _}
                           }},
-                 emqx_plugins:read_plugin(NameVsn)),
+                 emqx_plugins:describe(NameVsn)),
     ok = write_info_file(Config, NameVsn, "{\"bad\": \"obj\"}"),
     ?assertMatch({error, #{error := "bad_info_file_content",
                            mandatory_fields := _
                           }},
-                 emqx_plugins:read_plugin(NameVsn)),
+                 emqx_plugins:describe(NameVsn)),
     ?assertEqual([], emqx_plugins:list()),
     emqx_plugins:purge(NameVsn),
     ok.

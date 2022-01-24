@@ -199,7 +199,7 @@ fields(position) ->
         #{
             desc => """
              Enable auto-boot at position in the boot list, where Position could be
-             'top', 'bottom', or 'before:other-vsn' to specify a relative position.
+             'top', 'bottom', or 'before:other-vsn', 'after:other-vsn' to specify a relative position.
             """,
             nullable => true
         })}];
@@ -227,6 +227,10 @@ move_request_body() ->
             move_to_before => #{
                 summary => <<"move plugin before other plugins">>,
                 value => #{position => <<"before:emqx_plugin_demo-5.1-rc.2">>}
+            },
+            move_to_after => #{
+                summary => <<"move plugin after other plugins">>,
+                value => #{position => <<"after:emqx_plugin_demo-5.1-rc.2">>}
             }
         }).
 
@@ -354,7 +358,9 @@ return(_, {error, Reason}) ->
 parse_position(#{<<"position">> := <<"top">>}, _) -> front;
 parse_position(#{<<"position">> := <<"bottom">>}, _) -> rear;
 parse_position(#{<<"position">> := <<"before:", Name/binary>>}, Name) -> {error, <<"Can't before:self">>};
+parse_position(#{<<"position">> := <<"after:", Name/binary>>}, Name) -> {error, <<"Can't after:self">>};
 parse_position(#{<<"position">> := <<"before:", Before/binary>>}, _Name) -> {before, binary_to_list(Before)};
+parse_position(#{<<"position">> := <<"after:", After/binary>>}, _Name) -> {behind, binary_to_list(After)};
 parse_position(Position, _) -> {error, iolist_to_binary(io_lib:format("~p", [Position]))}.
 
 format_plugins(List) ->

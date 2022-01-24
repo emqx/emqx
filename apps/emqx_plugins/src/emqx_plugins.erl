@@ -59,7 +59,7 @@
 
 -type name_vsn() :: binary() | string(). %% "my_plugin-0.1.0"
 -type plugin() :: map(). %% the parse result of the JSON info file
--type position() :: no_move | front | rear | {before, name_vsn()}.
+-type position() :: no_move | front | rear | {before, name_vsn()} | {behind, name_vsn()}.
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -170,7 +170,7 @@ add_new_configured(Configured, front, Item) ->
     [Item | Configured];
 add_new_configured(Configured, rear, Item) ->
     Configured ++ [Item];
-add_new_configured(Configured, {before, NameVsn}, Item) ->
+add_new_configured(Configured, {Action, NameVsn}, Item) ->
     SplitFun = fun(#{name_vsn := Nv}) -> bin(Nv) =/= bin(NameVsn) end,
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
     Rear =:= [] andalso
@@ -178,7 +178,13 @@ add_new_configured(Configured, {before, NameVsn}, Item) ->
                 hint => "maybe_install_and_configure",
                 name_vsn => NameVsn
                }),
-    Front ++ [Item | Rear].
+    case Action of
+        before -> Front ++ [Item | Rear];
+        behind ->
+            [Anchor | Rear0] = Rear,
+            Front ++ [Anchor, Item | Rear0]
+    end.
+
 
 %% @doc Delete the package file.
 -spec delete_package(name_vsn()) -> ok.
