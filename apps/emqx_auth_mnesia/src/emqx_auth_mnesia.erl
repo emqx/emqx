@@ -32,26 +32,31 @@
         , description/0
         ]).
 
--export([match_password/3]).
+-export([ match_password/3
+        , hash_type/0
+        ]).
 
 init(#{clientid_list := ClientidList, username_list := UsernameList}) ->
     ok = ekka_mnesia:create_table(?TABLE, [
             {disc_copies, [node()]},
             {attributes, record_info(fields, emqx_user)},
             {storage_properties, [{ets, [{read_concurrency, true}]}]}]),
-    _ = [ add_default_user({{clientid, iolist_to_binary(Clientid)}, iolist_to_binary(Password)})
-      || {Clientid, Password} <- ClientidList],
-    _ = [ add_default_user({{username, iolist_to_binary(Username)}, iolist_to_binary(Password)})
-      || {Username, Password} <- UsernameList],
-    ok = ekka_mnesia:copy_table(?TABLE, disc_copies).
+    lists:foreach(fun({Clientid, Password}) ->
+    emqx_auth_mnesia_cli:add_default_user(clientid, iolist_to_binary(Clientid), iolist_to_binary(Password))
+    end, ClientidList),
 
-%% @private
-add_default_user({Login, Password}) when is_tuple(Login) ->
-    emqx_auth_mnesia_cli:force_add_user(Login, Password).
+    lists:foreach(fun({Username, Password}) ->
+    emqx_auth_mnesia_cli:add_default_user(username, iolist_to_binary(Username), iolist_to_binary(Password))
+    end, UsernameList),
+
+    ok = ekka_mnesia:copy_table(?TABLE, disc_copies).
 
 -spec(register_metrics() -> ok).
 register_metrics() ->
     lists:foreach(fun emqx_metrics:ensure/1, ?AUTH_METRICS).
+
+hash_type() ->
+    application:get_env(emqx_auth_mnesia, password_hash, sha256).
 
 check(ClientInfo = #{ clientid := Clientid
                     , password := NPassword

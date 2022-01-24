@@ -98,8 +98,7 @@ add_meta(Params, List) ->
         page => Page,
         limit => Limit,
         hasnext => Start + Limit - 1 < Count,
-        count => Count
-    },
+        count => Count},
         data => Data,
         code => 0
     }.
