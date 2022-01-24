@@ -116,7 +116,9 @@ Visiting [EMQ X FAQ](https://docs.emqx.io/en/broker/latest/faq/faq.html) to get 
 
 ### Questions
 
-[GitHub Discussions](https://github.com/emqx/emqx/discussions) is where you can ask questions, and share ideas.
+- [GitHub Discussions](https://github.com/emqx/emqx/discussions) is where you can ask questions, and share ideas.
+- [Slack](https://slack-invite.emqx.io/) is where you can ask and discuss questions or contact our teams directly.
+- [Discord](https://discord.gg/xYGf3fQnES) is where you can get help and upcoming events related to IoT technologies.
 
 ### Proposals
 
