@@ -194,15 +194,9 @@ exhooks(get, _) ->
     {200, Infos};
 
 exhooks(post, #{body := Body}) ->
-    case emqx_exhook_mgr:update_config([exhook, servers], {add, Body}) of
-        {ok, _} ->
-            #{<<"name">> := Name} = Body,
-            get_nodes_server_info(Name);
-        {error, Error} ->
-            {500, #{code => <<"BAD_RPC">>,
-                    message => Error
-                   }}
-    end.
+    {ok, _} = emqx_exhook_mgr:update_config([exhook, servers], {add, Body}),
+    #{<<"name">> := Name} = Body,
+    get_nodes_server_info(Name).
 
 action_with_name(get, #{bindings := #{name := Name}}) ->
     get_nodes_server_info(Name);

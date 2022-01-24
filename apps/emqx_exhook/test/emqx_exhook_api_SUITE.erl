@@ -37,7 +37,9 @@ exhook {
 ">>).
 
 all() ->
-    [t_list, t_get, t_add, t_move_1, t_move_2, t_delete, t_hooks, t_update].
+    [ t_list, t_get, t_add, t_move_top, t_move_bottom
+    , t_move_before, t_move_after, t_delete, t_hooks, t_update
+    ].
 
 init_per_suite(Config) ->
     application:load(emqx_conf),
@@ -131,7 +133,15 @@ t_add(Cfg) ->
 
     ?assertMatch([<<"default">>, <<"test1">>], emqx_exhook_mgr:running()).
 
-t_move_1(_) ->
+t_move_top(_) ->
+    Result = request_api(post, api_path(["exhooks", "default", "move"]), "",
+                         auth_header_(),
+                         #{position => top, related => <<>>}),
+
+    ?assertMatch({ok, <<>>}, Result),
+    ?assertMatch([<<"default">>, <<"test1">>], emqx_exhook_mgr:running()).
+
+t_move_bottom(_) ->
     Result = request_api(post, api_path(["exhooks", "default", "move"]), "",
                          auth_header_(),
                          #{position => bottom, related => <<>>}),
@@ -139,13 +149,21 @@ t_move_1(_) ->
     ?assertMatch({ok, <<>>}, Result),
     ?assertMatch([<<"test1">>, <<"default">>], emqx_exhook_mgr:running()).
 
-t_move_2(_) ->
+t_move_before(_) ->
     Result = request_api(post, api_path(["exhooks", "default", "move"]), "",
                          auth_header_(),
                          #{position => before, related => <<"test1">>}),
 
     ?assertMatch({ok, <<>>}, Result),
     ?assertMatch([<<"default">>, <<"test1">>], emqx_exhook_mgr:running()).
+
+t_move_after(_) ->
+    Result = request_api(post, api_path(["exhooks", "default", "move"]), "",
+                         auth_header_(),
+                         #{position => 'after', related => <<"test1">>}),
+
+    ?assertMatch({ok, <<>>}, Result),
+    ?assertMatch([<<"test1">>, <<"default">>], emqx_exhook_mgr:running()).
 
 t_delete(_) ->
     Result = request_api(delete, api_path(["exhooks", "test1"]), "",

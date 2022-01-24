@@ -110,8 +110,8 @@ on_server_deleted(Name) ->
 
 -spec server_metrics(server_name()) -> metrics_info().
 server_metrics(SvrName) ->
-    Hooks = ets:match(?HOOKS_METRICS,
-                      {metrics, {SvrName, '_'}, '_', '_', '_', '_', '_'}),
+    Hooks = ets:match_object(?HOOKS_METRICS,
+                             {metrics, {SvrName, '_'}, '_', '_', '_', '_', '_'}),
 
     Fold = fun(#metrics{succeed = Succeed,
                         failed = Failed,
@@ -155,8 +155,8 @@ servers_metrics() ->
 
 -spec hooks_metrics(server_name()) -> hooks_metrics().
 hooks_metrics(SvrName) ->
-    Hooks = ets:match(?HOOKS_METRICS,
-                      {metrics, {SvrName, '_'}, '_', '_', '_', '_', '_'}),
+    Hooks = ets:match_object(?HOOKS_METRICS,
+                             {metrics, {SvrName, '_'}, '_', '_', '_', '_', '_'}),
 
     Fold = fun(#metrics{index = ?INDEX(_, HookPoint),
                         succeed = Succeed,
