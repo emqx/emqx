@@ -17,6 +17,7 @@
 
 -behaviour(minirest_api).
 -include_lib("typerefl/include/types.hrl").
+-include("emqx_modules.hrl").
 
 -export([api_spec/0, paths/0, schema/1]).
 
@@ -42,7 +43,7 @@ schema("/mqtt/topic_rewrite") ->
     #{
         operationId => topic_rewrite,
         get => #{
-            tags => [mqtt],
+            tags => ?API_TAG_MQTT,
             description => <<"List rewrite topic.">>,
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
@@ -51,6 +52,7 @@ schema("/mqtt/topic_rewrite") ->
         },
         put => #{
             description => <<"Update rewrite topic">>,
+            tags => ?API_TAG_MQTT,
             requestBody => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),#{}),
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
