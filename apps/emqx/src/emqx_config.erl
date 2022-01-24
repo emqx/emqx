@@ -271,11 +271,16 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     end;
 init_load(SchemaMod, RawConf) when is_map(RawConf) ->
     ok = save_schema_mod_and_names(SchemaMod),
-    %% check configs agains the schema, with environment variables applied on top
-    {_AppEnvs, CheckedConf} =
-        check_config(SchemaMod, RawConf, #{apply_override_envs => true}),
-    %% fill default values for raw config
+    %% Merge environment varialbe overrides on top
     RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
+    ClusterOverrides = read_override_conf(#{override_to => cluster}),
+    LocalOverrides = read_override_conf(#{override_to => local}),
+    Overrides = hocon:deep_merge(ClusterOverrides, LocalOverrides),
+    %% TODO: log overrides
+    RawConfWithOverrides = hocon:deep_merge(RawConfWithEnvs, Overrides),
+    %% check configs against the schema
+    {_AppEnvs, CheckedConf} =
+        check_config(SchemaMod, RawConfWithOverrides , #{}),
     RootNames = get_root_names(),
     ok = save_to_config_map(maps:with(get_atom_root_names(), CheckedConf),
                             maps:with(RootNames, RawConfWithEnvs)).
@@ -284,8 +289,7 @@ include_dirs() ->
     [filename:join(emqx:data_dir(), "configs")].
 
 merge_envs(SchemaMod, RawConf) ->
-    Opts = #{logger => fun(_, _) -> ok end, %% everything should have been logged already when check_config
-             nullable => true, %% TODO: evil, remove, nullable should be declared in schema
+    Opts = #{nullable => true, %% TODO: evil, remove, nullable should be declared in schema
              format => map,
              apply_override_envs => true
             },
