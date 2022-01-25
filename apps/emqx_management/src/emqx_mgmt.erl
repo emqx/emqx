@@ -269,10 +269,14 @@ list_authz_cache(ClientId) ->
 
 list_client_subscriptions(ClientId) ->
     Results = [client_subscriptions(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
-    Expected = lists:filter(fun({error, _}) -> false;
-                               ([]) -> false;
-                               (_) -> true
-                            end, Results),
+    Filter =
+        fun
+            ({error, _}) ->
+                false;
+            ({_Node, List}) ->
+                erlang:is_list(List) andalso 0 < erlang:length(List)
+        end,
+    Expected = lists:filter(Filter, Results),
     case Expected of
         [] -> [];
         [Result | _] -> Result
