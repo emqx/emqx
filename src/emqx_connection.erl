@@ -122,7 +122,7 @@
                     , 'recv_msg.qos1'
                     , 'recv_msg.qos2'
                     , 'recv_msg.dropped'
-                    , 'recv_msg.dropped.expired'
+                    , 'recv_msg.dropped.await_pubrel_timeout'
                     , send_pkt
                     , send_msg
                     , 'send_msg.qos0'
