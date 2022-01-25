@@ -22,7 +22,8 @@ jobs:
     container: "ghcr.io/emqx/emqx-builder/5.0-3:24.1.5-3-ubuntu20.04"
 
     outputs:
-      old_vsns: ${{ steps.find_old_versons.outputs.old_vsns }}
+      ce_old_vsns: ${{ steps.find_old_versons.outputs.ce_old_vsns }}
+      ee_old_vsns: ${{ steps.find_old_versons.outputs.ee_old_vsns }}
 
     steps:
       - uses: actions/checkout@v2
@@ -35,10 +36,14 @@ jobs:
         shell: bash
         working-directory: source
         run: |
-          vsn="$(./pkg-vsn.sh)"
-          pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
-          old_vsns="$(git tag -l "v$pre_vsn.[0-9]" | xargs echo -n | sed "s/v$vsn//")"
-          echo "::set-output name=old_vsns::$old_vsns"
+          ce_vsn="$(./pkg-vsn.sh community)"
+          ee_vsn="$(./pkg-vsn.sh enterprise)"
+          ce_pre_vsn="$(echo $ce_vsn | grep -oE '^[0-9]+.[0-9]')"
+          ee_pre_vsn="$(echo $ee_vsn | grep -oE '^[0-9]+.[0-9]')"
+          ce_old_vsns="$(git tag -l "v$ce_pre_vsn.[0-9]" | xargs echo -n | sed "s/v$ce_vsn//")"
+          ee_old_vsns="$(git tag -l "e$ee_pre_vsn.[0-9]" | xargs echo -n | sed "s/v$ee_vsn//")"
+          echo "::set-output name=ce_old_vsns::$ce_old_vsns"
+          echo "::set-output name=ee_old_vsns::$ee_old_vsns"
       - name: get_all_deps
         run: |
           make -C source deps-all
@@ -301,16 +306,20 @@ jobs:
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
-        OLD_VSNS: ${{ needs.prepare.outputs.old_vsns }}
+        CE_OLD_VSNS: ${{ needs.prepare.outputs.ce_old_vsns }}
+        EE_OLD_VSNS: ${{ needs.prepare.outputs.ee_old_vsns }}
       working-directory: source
       run: |
         set -e -x -u
         if [ $PROFILE = 'emqx' ]; then
             s3dir='emqx-ce'
+            OLD_VSNS="$CE_OLD_VSNS"
         elif [ $PROFILE = 'emqx-enterprise' ]; then
             s3dir='emqx-ee'
+            OLD_VSNS="$EE_OLD_VSNS"
         elif [ $PROFILE = 'emqx-edge' ]; then
             s3dir='emqx-edge'
+            OLD_VSNS="$CE_OLD_VSNS"
         else
             echo "unknown profile $PROFILE"
             exit 1
