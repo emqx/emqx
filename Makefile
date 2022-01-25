@@ -1,5 +1,4 @@
 $(shell $(CURDIR)/scripts/git-hooks-init.sh)
-REBAR_VERSION = 3.14.3-emqx-8
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
@@ -31,7 +30,7 @@ all: $(REBAR) $(PROFILES)
 .PHONY: ensure-rebar3
 ensure-rebar3:
 	@$(SCRIPTS)/fail-on-old-otp-version.escript
-	@$(SCRIPTS)/ensure-rebar3.sh $(REBAR_VERSION)
+	@$(SCRIPTS)/ensure-rebar3.sh
 
 $(REBAR): ensure-rebar3
 
