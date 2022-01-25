@@ -118,9 +118,7 @@ spec:
       {{- end }}
       containers:
         - name: emqx
-          {{- if .Values.image.image }}
-          image: "{{ .Values.image.image }}"
-          {{- else if .Values.image.tag }}
+          {{- if .Values.image.tag }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           {{- else -}}}}
           image: "{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"

@@ -159,6 +159,9 @@ tolerations: []
 affinity: {}
 
 ingress:
+  ## Ingress shared annotations
+  annotations: {}
+
   ## ingress for EMQX Dashboard
   dashboard:
     enabled: false

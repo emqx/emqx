@@ -14,9 +14,14 @@ metadata:
     helm.sh/chart: {{ include "emqx.chart" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-  {{- if .Values.ingress.wss.annotations }}
+  {{- if or .Values.ingress.annotations .Values.ingress.wss.annotations }}
   annotations:
+  {{- if .Values.ingress.annotations }}
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+  {{- end }}
+  {{- if .Values.ingress.wss.annotations }}
     {{- toYaml .Values.ingress.wss.annotations | nindent 4 }}
+  {{- end }}
   {{- end }}
 spec:
 {{- if and .Values.ingress.wss.ingressClassName (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion) }}
