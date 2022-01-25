@@ -25,8 +25,7 @@ deps(Config) ->
     lists:keystore(deps, 1, Config, {deps, OldDeps ++ MoreDeps}).
 
 overrides() ->
-    [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
-            , {erl_opts, [{compile_info, [{emqx_vsn, get_vsn()}]}]}
+    [ {add, [ {extra_src_dirs, [{"etc", [{recursive, true}]}]}
             ]}
     ] ++ snabbkaffe_overrides().
 
@@ -99,75 +98,87 @@ test_deps() ->
     , {proper, "1.4.0"}
     ].
 
-common_compile_opts() ->
+common_compile_opts(Vsn) ->
     [ debug_info % alwyas include debug_info
-    , {compile_info, [{emqx_vsn, get_vsn()}]}
+    , {compile_info, [{emqx_vsn, Vsn}]}
     ] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
 
-prod_compile_opts() ->
+prod_compile_opts(Vsn) ->
     [ compressed
     , deterministic
     , warnings_as_errors
-    | common_compile_opts()
+    | common_compile_opts(Vsn)
     ].
 
 prod_overrides() ->
     [{add, [ {erl_opts, [deterministic]}]}].
 
 profiles() ->
-    Vsn = get_vsn(),
+    profiles_ce() ++ profiles_ee() ++ profiles_dev().
+
+profiles_ce() ->
+    Vsn = get_vsn(emqx),
     [ {'emqx',
-       [ {erl_opts, prod_compile_opts()}
+       [ {erl_opts, prod_compile_opts(Vsn)}
        , {relx, relx(Vsn, cloud, bin, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
        , {post_hooks, [{compile, "bash build emqx doc"}]}
        ]}
     , {'emqx-pkg',
-       [ {erl_opts, prod_compile_opts()}
+       [ {erl_opts, prod_compile_opts(Vsn)}
        , {relx, relx(Vsn, cloud, pkg, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
        , {post_hooks, [{compile, "bash build emqx-pkg doc"}]}
        ]}
-    , {'emqx-enterprise',
-       [ {erl_opts, prod_compile_opts()}
-       , {relx, relx(Vsn, cloud, bin, ee)}
-       , {overrides, prod_overrides()}
-       , {project_app_dirs, project_app_dirs(ee)}
-       , {post_hooks, [{compile, "bash build emqx-enterprise doc"}]}
-       ]}
-    , {'emqx-enterprise-pkg',
-       [ {erl_opts, prod_compile_opts()}
-       , {relx, relx(Vsn, cloud, pkg, ee)}
-       , {overrides, prod_overrides()}
-       , {project_app_dirs, project_app_dirs(ee)}
-       , {post_hooks, [{compile, "bash build emqx-enterprise-pkg doc"}]}
-       ]}
     , {'emqx-edge',
-       [ {erl_opts, prod_compile_opts()}
+       [ {erl_opts, prod_compile_opts(Vsn)}
        , {relx, relx(Vsn, edge, bin, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
        , {post_hooks, [{compile, "bash build emqx-edge doc"}]}
        ]}
     , {'emqx-edge-pkg',
-       [ {erl_opts, prod_compile_opts()}
+       [ {erl_opts, prod_compile_opts(Vsn)}
        , {relx, relx(Vsn, edge, pkg, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
        , {post_hooks, [{compile, "bash build emqx-edge-pkg doc"}]}
        ]}
-    , {check,
-       [ {erl_opts, common_compile_opts()}
-       , {project_app_dirs, project_app_dirs(ce)}
+    ].
+
+profiles_ee() ->
+    Vsn = get_vsn('emqx-enterprise'),
+    [ {'emqx-enterprise',
+       [ {erl_opts, prod_compile_opts(Vsn)}
+       , {relx, relx(Vsn, cloud, bin, ee)}
+       , {overrides, prod_overrides()}
+       , {project_app_dirs, project_app_dirs(ee)}
+       , {post_hooks, [{compile, "bash build emqx-enterprise doc"}]}
+       ]}
+    , {'emqx-enterprise-pkg',
+       [ {erl_opts, prod_compile_opts(Vsn)}
+       , {relx, relx(Vsn, cloud, pkg, ee)}
+       , {overrides, prod_overrides()}
+       , {project_app_dirs, project_app_dirs(ee)}
+       , {post_hooks, [{compile, "bash build emqx-enterprise-pkg doc"}]}
+       ]}
+    ].
+
+%% EE has more files than CE, always test/check with EE options.
+profiles_dev() ->
+    Vsn = get_vsn('emqx-enterprise'),
+    [ {check,
+       [ {erl_opts, common_compile_opts(Vsn)}
+       , {project_app_dirs, project_app_dirs(ee)}
        ]}
     , {test,
        [ {deps, test_deps()}
-       , {erl_opts, common_compile_opts() ++ erl_opts_i(ce) }
+       , {erl_opts, common_compile_opts(Vsn) ++ erl_opts_i()}
        , {extra_src_dirs, [{"test", [{recursive, true}]}]}
-       , {project_app_dirs, project_app_dirs(ce)}
+       , {project_app_dirs, project_app_dirs(ee)}
        ]}
     ].
 
@@ -373,11 +384,11 @@ emqx_etc_overlay_common() ->
     , {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"}
     ].
 
-get_vsn() ->
+get_vsn(Profile) ->
     %% to make it compatible to Linux and Windows,
     %% we must use bash to execute the bash file
     %% because "./" will not be recognized as an internal or external command
-    PkgVsn = os:cmd("bash pkg-vsn.sh"),
+    PkgVsn = os:cmd("bash pkg-vsn.sh " ++ atom_to_list(Profile)),
     re:replace(PkgVsn, "\n", "", [{return ,list}]).
 
 maybe_dump(Config) ->
@@ -399,14 +410,10 @@ provide_bcrypt_dep() ->
 provide_bcrypt_release(ReleaseType) ->
     provide_bcrypt_dep() andalso ReleaseType =:= cloud.
 
-erl_opts_i(Edition) ->
+erl_opts_i() ->
     [{i, "apps"}] ++
     [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["apps", "*", "include"]))] ++
-    case is_enterprise(Edition) of
-        true ->
-            [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["lib-ee", "*", "include"]))];
-        false -> []
-    end.
+    [{i, Dir}  || Dir <- filelib:wildcard(filename:join(["lib-ee", "*", "include"]))].
 
 dialyzer(Config) ->
     {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),

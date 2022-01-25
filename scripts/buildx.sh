@@ -70,7 +70,7 @@ fi
 
 cd "${SRC_DIR:-.}"
 
-PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
+PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh $PROFILE)}"
 OTP_VSN_SYSTEM=$(echo "$BUILDER" | cut -d ':' -f2)
 PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN_SYSTEM}-${ARCH}"
 

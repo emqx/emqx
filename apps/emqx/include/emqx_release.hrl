@@ -17,7 +17,7 @@
 %% NOTE: this is the release version which is not always the same
 %% as the emqx app version defined in emqx.app.src
 %% App (plugin) versions are bumped independently.
-%% e.g. EMQX_RELEASE being 4.3.1 does no always imply emqx app
+%% e.g. EMQX_RELEASE_CE being 4.3.1 does no always imply emqx app
 %% should be 4.3.1, as it might be the case that only one of the
 %% plugins had a bug to fix. So for a hot beam upgrade, only the app
 %% with beam files changed needs an upgrade.
@@ -28,4 +28,8 @@
 %% (Major.Minor.Patch), and extra info can be added after a final
 %% hyphen.
 
--define(EMQX_RELEASE, "5.0.0-beta.3").
+%% Community edition
+-define(EMQX_RELEASE_CE, "5.0.0-beta.3").
+
+%% Enterprise edition
+-define(EMQX_RELEASE_EE, "5.0.0-alpha.1").
