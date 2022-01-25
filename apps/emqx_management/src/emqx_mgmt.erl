@@ -276,8 +276,7 @@ list_client_subscriptions(ClientId) ->
             ({_Node, List}) ->
                 erlang:is_list(List) andalso 0 < erlang:length(List)
         end,
-    Expected = lists:filter(Filter, Results),
-    case Expected of
+    case lists:filter(Filter, Results) of
         [] -> [];
         [Result | _] -> Result
     end.
