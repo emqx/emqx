@@ -29,9 +29,9 @@ $ helm del my-emqx
 ```
 
 # Configuration
-The following sections describe the configurable parameters of the EMQx chart and their default values.
+The following sections describe the configurable parameters of the chart and their default values.
 ## K8s-specific
-The following table lists the configurable K8s parameters of the EMQx chart and their default values.
+The following table lists the configurable K8s parameters of the [EMQx](https://www.emqx.io/) chart and their default values.
 Parameter  | Description | Default Value
 ---        |  ---        | ---
 `replicaCount` | It is recommended to have odd number of nodes in a cluster, otherwise the emqx cluster cannot be automatically healed in case of net-split. | `3`
@@ -88,19 +88,19 @@ Parameter  | Description | Default Value
 `ingress.wss.annotations` | Ingress annotations for EMQX WSS |	`{}`
 
 ## EMQx-specific
-The following table lists the configurable EMQx parameters of the EMQx chart and their default values.
+The following table lists the configurable [EMQx](https://www.emqx.io/)-specific parameters of the chart and their default values.
 Parameter  | Description | Default Value
 ---        |  ---        | ---            
-`emqxConfig` | Emqx configuration item, see the [documentation](https://hub.docker.com/r/emqx/emqx) | `nil`  
+`emqxConfig` | Map of [configuration](https://www.emqx.io/docs/en/latest/configuration/configuration.html) items expressed as [environment variables](https://www.emqx.io/docs/en/v4.3/configuration/environment-variable.html) (prefix can be omitted) or using the configuration files [namespaced dotted notation](https://www.emqx.io/docs/en/latest/configuration/configuration.html) | `nil`  
 `emqxLicenseSecretName` | Name of the secret that holds the license information | `nil`
-`emqxAclConfig` | EMQx ACL configuration | `{allow, {user, "dashboard"}, subscribe, ["$SYS/#"]}. {allow, {ipaddr, "127.0.0.1"}, pubsub, ["$SYS/#", "#"]}. {deny, all, subscribe, ["$SYS/#", {eq, "#"}]}. {allow, all}.`
-`emqxLoadedModules` | Modules to load on start | `{emqx_mod_acl_internal, true}. {emqx_mod_presence, true}. {emqx_mod_delayed, false}. {emqx_mod_rewrite, false}. {emqx_mod_subscription, false}. {emqx_mod_topic_metrics, false}.`
-`emqxLoadedPlugins` | Plugins to load on start | `{emqx_management, true}. {emqx_recon, true}. {emqx_retainer, true}. {emqx_dashboard, true}. {emqx_telemetry, true}. {emqx_rule_engine, true}. {emqx_bridge_mqtt, false}.`
+`emqxAclConfig` | ACL configuration | `{allow, {user, "dashboard"}, subscribe, ["$SYS/#"]}. {allow, {ipaddr, "127.0.0.1"}, pubsub, ["$SYS/#", "#"]}. {deny, all, subscribe, ["$SYS/#", {eq, "#"}]}. {allow, all}.`
+`emqxLoadedModules` | Modules to load on startup | `{emqx_mod_acl_internal, true}. {emqx_mod_presence, true}. {emqx_mod_delayed, false}. {emqx_mod_rewrite, false}. {emqx_mod_subscription, false}. {emqx_mod_topic_metrics, false}.`
+`emqxLoadedPlugins` | Plugins to load on startup | `{emqx_management, true}. {emqx_recon, true}. {emqx_retainer, true}. {emqx_dashboard, true}. {emqx_telemetry, true}. {emqx_rule_engine, true}. {emqx_bridge_mqtt, false}.`
 
 # Examples
 This section provides some examples for the configuration of common scenarios.
 ## Enable Websockets SSL via [nginx-ingress community controller](https://kubernetes.github.io/ingress-nginx/)
-The following settings describe a working scenario for acessing EMQx Websockets with SSL termination at the [nginx-ingress community controller](https://kubernetes.github.io/ingress-nginx/).
+The following settings describe a working scenario for acessing [EMQx](https://www.emqx.io/) Websockets with SSL termination at the [nginx-ingress community controller](https://kubernetes.github.io/ingress-nginx/).
 ```yaml
 ingress:
   wss:
