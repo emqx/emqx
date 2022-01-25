@@ -140,6 +140,16 @@ t_query(_) ->
 
     ok = emqx_resource:remove_local(?ID).
 
+t_healthy_timeout(_) ->
+    {ok, _} = emqx_resource:create_local(
+                ?ID,
+                ?TEST_RESOURCE,
+                #{name => <<"test_resource">>},
+                #{async_create => true, health_check_timeout => 200}),
+    timer:sleep(500),
+
+    ok = emqx_resource:remove_local(?ID).
+
 t_healthy(_) ->
     {ok, _} = emqx_resource:create_local(
                 ?ID,

@@ -61,6 +61,7 @@ on_query(_InstId, get_state_failed, AfterQuery, State) ->
     State.
 
 on_health_check(_InstId, State = #{pid := Pid}) ->
+    timer:sleep(300),
     case is_process_alive(Pid) of
         true -> {ok, State};
         false -> {error, dead, State}
