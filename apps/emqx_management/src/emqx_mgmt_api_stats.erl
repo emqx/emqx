@@ -17,82 +17,137 @@
 
 -behaviour(minirest_api).
 
--export([api_spec/0]).
+-include_lib("typerefl/include/types.hrl").
+
+-import( hoconsc
+       , [ mk/2
+         , ref/1
+         , ref/2
+         , array/1]).
+
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        , fields/1
+        ]).
 
 -export([list/2]).
 
 api_spec() ->
-    {[stats_api()], stats_schema()}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-stats_schema() ->
-    Stats = #{
-        type => array,
-        items => #{
-            type => object,
-            properties => emqx_mgmt_util:properties([{'node', string} | properties()])
-        }
-    },
-    Stat = #{
-        type => object,
-        properties => emqx_mgmt_util:properties(properties())
-    },
-    StatsInfo =#{
-        oneOf => [ minirest:ref(stats)
-                 , minirest:ref(stat)
-                 ]
-    },
-    [#{stats => Stats, stat => Stat, stats_info => StatsInfo}].
+paths() ->
+    ["/stats"].
 
-properties() ->
-    [
-        {'channels.count',             integer, <<"sessions.count">>},
-        {'channels.max',               integer, <<"session.max">>},
-        {'connections.count',          integer, <<"Number of current connections">>},
-        {'connections.max',            integer, <<"Historical maximum number of connections">>},
-        {'retained.count',             integer, <<"Number of currently retained messages">>},
-        {'retained.max',               integer, <<"Historical maximum number of retained messages">>},
-        {'routes.count',               integer, <<"Number of current routes">>},
-        {'routes.max',                 integer, <<"Historical maximum number of routes">>},
-        {'sessions.count',             integer, <<"Number of current sessions">>},
-        {'sessions.max',               integer, <<"Historical maximum number of sessions">>},
-        {'suboptions.count',           integer, <<"subscriptions.count">>},
-        {'suboptions.max',             integer, <<"subscriptions.max">>},
-        {'subscribers.count',          integer, <<"Number of current subscribers">>},
-        {'subscribers.max',            integer, <<"Historical maximum number of subscribers">>},
-        {'subscriptions.count',        integer, <<"Number of current subscriptions, including shared subscriptions">>},
-        {'subscriptions.max',          integer, <<"Historical maximum number of subscriptions">>},
-        {'subscriptions.shared.count', integer, <<"Number of current shared subscriptions">>},
-        {'subscriptions.shared.max',   integer, <<"Historical maximum number of shared subscriptions">>},
-        {'topics.count',               integer, <<"Number of current topics">>},
-        {'topics.max',                 integer, <<"Historical maximum number of topics">>}
-    ].
+schema("/stats") ->
+    #{ 'operationId' => list
+     , get =>
+           #{ description => <<"EMQ X stats">>
+            , tags => [<<"stats">>]
+            , parameters => [ref(aggregate)]
+            , responses =>
+                  #{ 200 => mk( hoconsc:union([ ref(?MODULE, base_data)
+                                              , array(ref(?MODULE, aggergate_data))
+                                              ])
+                              , #{ desc => <<"List stats ok">> })
+                   }
+            }
+     }.
 
-stats_api() ->
-    Metadata = #{
-        get => #{
-            description => <<"EMQ X stats">>,
-            parameters => [#{
-                name => aggregate,
-                in => query,
-                schema => #{type => boolean}
-            }],
-            responses => #{
-                <<"200">> => #{
-                    description => <<"List stats ok">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"stats_info">>)
-                        }
-                    }
-                }
-            }}},
-    {"/stats", Metadata, list}.
+fields(aggregate) ->
+    [ { aggregate
+      , mk( boolean()
+          , #{ desc => <<"Calculation aggregate for all nodes">>
+             , in => query
+             , nullable => true
+             , example => false})}
+    ];
+fields(base_data) ->
+    [ { 'channels.count'
+      , mk( integer(), #{ desc => <<"sessions.count">>
+                        , example => 0})}
+    , { 'channels.max'
+      , mk( integer(), #{ desc => <<"session.max">>
+                        , example => 0})}
+    , { 'connections.count'
+      , mk( integer(), #{ desc => <<"Number of current connections">>
+                        , example => 0})}
+    , { 'connections.max'
+      , mk( integer(), #{ desc => <<"Historical maximum number of connections">>
+                        , example => 0})}
+    , { 'delayed.count'
+      , mk( integer(), #{ desc => <<"Number of delayed messages">>
+                        , example => 0})}
+    , { 'delayed.max'
+      , mk( integer(), #{ desc => <<"Historical maximum number of delayed messages">>
+                        , example => 0})}
+    , { 'live_connections.count'
+      , mk( integer(), #{ desc => <<"Number of current live connections">>
+                        , example => 0})}
+    , { 'live_connections.max'
+      , mk( integer(), #{ desc => <<"Historical maximum number of live connections">>
+                        , example => 0})}
+    , { 'retained.count'
+      , mk( integer(), #{ desc => <<"Number of currently retained messages">>
+                        , example => 0})}
+    , { 'retained.max'
+      , mk( integer(), #{ desc => <<"Historical maximum number of retained messages">>
+                        , example => 0})}
+    , { 'routes.count'
+      , mk( integer(), #{ desc => <<"Number of current routes">>
+                        , example => 0})}
+    , { 'routes.max'
+      , mk( integer(), #{ desc => <<"Historical maximum number of routes">>
+                        , example => 0})}
+    , { 'sessions.count'
+      , mk( integer(), #{ desc => <<"Number of current sessions">>
+                        , example => 0})}
+    , { 'sessions.max'
+      , mk( integer(), #{ desc => <<"Historical maximum number of sessions">>
+                        , example => 0})}
+    , { 'suboptions.count'
+      , mk( integer(), #{ desc => <<"subscriptions.count">>
+                        , example => 0})}
+    , { 'suboptions.max'
+      , mk( integer(), #{ desc => <<"subscriptions.max">>
+                        , example => 0})}
+    , { 'subscribers.count'
+      , mk( integer(), #{ desc => <<"Number of current subscribers">>
+                        , example => 0})}
+    , { 'subscribers.max'
+      , mk( integer(), #{ desc => <<"Historical maximum number of subscribers">>
+                        , example => 0})}
+    , { 'subscriptions.count'
+      , mk( integer(), #{ desc => <<"Number of current subscriptions, including shared subscriptions">>
+                        , example => 0})}
+    , { 'subscriptions.max'
+      , mk( integer(), #{ desc => <<"Historical maximum number of subscriptions">>
+                        , example => 0})}
+    , { 'subscriptions.shared.count'
+      , mk( integer(), #{ desc => <<"Number of current shared subscriptions">>
+                        , example => 0})}
+    , { 'subscriptions.shared.max'
+      , mk( integer(), #{ desc => <<"Historical maximum number of shared subscriptions">>
+                        , example => 0})}
+    , { 'topics.count'
+      , mk( integer(), #{ desc => <<"Number of current topics">>
+                        , example => 0})}
+    , { 'topics.max'
+      , mk( integer(), #{ desc => <<"Historical maximum number of topics">>
+                        , example => 0})}
+    ];
+fields(aggergate_data) ->
+    [ { node
+      , mk( string(), #{ desc => <<"Node name">>
+                       , example => <<"emqx@127.0.0.1">>})}
+    ] ++ fields(base_data).
+
 
 %%%==============================================================================================
 %% api apply
 list(get, #{query_string := Qs}) ->
     case maps:get(<<"aggregate">>, Qs, undefined) of
-        <<"true">> ->
+        true ->
             {200, emqx_mgmt:get_stats()};
         _ ->
             Data = [maps:from_list(emqx_mgmt:get_stats(Node) ++ [{node, Node}]) ||
