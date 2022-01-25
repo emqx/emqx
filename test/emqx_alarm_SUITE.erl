@@ -109,4 +109,3 @@ get_alarm(Name, [_Alarm | More]) ->
     get_alarm(Name, More);
 get_alarm(_Name, []) ->
     {error, not_found}.
-

@@ -165,6 +165,8 @@ init([Opts]) ->
     Actions = proplists:get_value(actions, Opts),
     SizeLimit = proplists:get_value(size_limit, Opts),
     ValidityPeriod = timer:seconds(proplists:get_value(validity_period, Opts)),
+    ok = emqx_alarm_handler:load(),
+    process_flag(trap_exit, true),
     {ok, ensure_delete_timer(#state{actions = Actions,
                                     size_limit = SizeLimit,
                                     validity_period = ValidityPeriod})}.
@@ -234,6 +236,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    _ = emqx_alarm_handler:unload(),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

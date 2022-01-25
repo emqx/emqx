@@ -228,7 +228,6 @@ shutdown() ->
 
 shutdown(Reason) ->
     ?LOG(critical, "emqx shutdown for ~s", [Reason]),
-    _ = emqx_alarm_handler:unload(),
     _ = emqx_plugins:unload(),
     lists:foreach(fun application:stop/1
                  , lists:reverse(default_started_applications())
@@ -254,4 +253,3 @@ reload_config(ConfFile) ->
     lists:foreach(fun({App, Vals}) ->
                       [application:set_env(App, Par, Val) || {Par, Val} <- Vals]
                   end, Conf).
-
