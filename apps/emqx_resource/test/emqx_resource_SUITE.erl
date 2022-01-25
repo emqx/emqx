@@ -35,12 +35,12 @@ init_per_testcase(_, Config) ->
 
 init_per_suite(Config) ->
     code:ensure_loaded(?TEST_RESOURCE),
-    ok = emqx_common_test_helpers:start_apps([]),
+    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
     {ok, _} = application:ensure_all_started(emqx_resource),
     Config.
 
 end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_resource]).
+    ok = emqx_common_test_helpers:stop_apps([emqx_resource, emqx_conf]).
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -62,14 +62,52 @@ t_create_remove(_) ->
                    ?TEST_RESOURCE,
                    #{unknown => test_resource}),
 
+    {ok, _} = emqx_resource:create(
+                ?ID,
+                ?TEST_RESOURCE,
+                #{name => test_resource}),
+
+    emqx_resource:recreate(
+                ?ID,
+                ?TEST_RESOURCE,
+                #{name => test_resource},
+                #{}),
+    #{pid := Pid} = emqx_resource:query(?ID, get_state),
+
+    ?assert(is_process_alive(Pid)),
+
+    ok = emqx_resource:remove(?ID),
+    {error, _} = emqx_resource:remove(?ID),
+
+    ?assertNot(is_process_alive(Pid)).
+
+t_create_remove_local(_) ->
+    {error, _} = emqx_resource:check_and_create_local(
+                   ?ID,
+                   ?TEST_RESOURCE,
+                   #{unknown => test_resource}),
+
     {ok, _} = emqx_resource:create_local(
                 ?ID,
                 ?TEST_RESOURCE,
                 #{name => test_resource}),
 
+    emqx_resource:recreate_local(
+                ?ID,
+                ?TEST_RESOURCE,
+                #{name => test_resource},
+                #{}),
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
 
     ?assert(is_process_alive(Pid)),
+
+    emqx_resource:set_resource_status_stoped(?ID),
+
+    emqx_resource:recreate_local(
+            ?ID,
+            ?TEST_RESOURCE,
+            #{name => test_resource},
+            #{}),
 
     ok = emqx_resource:remove_local(?ID),
     {error, _} = emqx_resource:remove_local(?ID),
@@ -88,6 +126,8 @@ t_query(_) ->
 
     #{pid := _} = emqx_resource:query(?ID, get_state),
     #{pid := _} = emqx_resource:query(?ID, get_state, {[{Success, []}], [{Failure, []}]}),
+    #{pid := _} = emqx_resource:query(?ID, get_state, undefined),
+    #{pid := _} = emqx_resource:query(?ID, get_state_failed, undefined),
 
     receive
         Message -> ?assertEqual(success, Message)
@@ -100,14 +140,28 @@ t_query(_) ->
 
     ok = emqx_resource:remove_local(?ID).
 
+t_healthy_timeout(_) ->
+    {ok, _} = emqx_resource:create_local(
+                ?ID,
+                ?TEST_RESOURCE,
+                #{name => <<"test_resource">>},
+                #{async_create => true, health_check_timeout => 200}),
+    timer:sleep(500),
+
+    ok = emqx_resource:remove_local(?ID).
+
 t_healthy(_) ->
     {ok, _} = emqx_resource:create_local(
                 ?ID,
                 ?TEST_RESOURCE,
-                #{name => <<"test_resource">>}, #{async_create => true}),
-    timer:sleep(300),
-    emqx_resource_health_check:create_checker(?ID, 15000),
+                #{name => <<"test_resource">>},
+                #{async_create => true}),
+    timer:sleep(400),
+
+    emqx_resource_health_check:create_checker(?ID, 15000, 10000),
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
+    timer:sleep(300),
+    emqx_resource:set_resource_status_stoped(?ID),
 
     ok = emqx_resource:health_check(?ID),
 
@@ -128,15 +182,55 @@ t_healthy(_) ->
     ok = emqx_resource:remove_local(?ID).
 
 t_stop_start(_) ->
+    {error, _} = emqx_resource:check_and_create(
+                   ?ID,
+                   ?TEST_RESOURCE,
+                   #{unknown => test_resource}),
+
+    {ok, _} = emqx_resource:check_and_create(
+                ?ID,
+                ?TEST_RESOURCE,
+                #{<<"name">> => <<"test_resource">>}),
+
+    {ok, _} = emqx_resource:check_and_recreate(
+                ?ID,
+                ?TEST_RESOURCE,
+                #{<<"name">> => <<"test_resource">>},
+                #{}),
+
+    #{pid := Pid0} = emqx_resource:query(?ID, get_state),
+
+    ?assert(is_process_alive(Pid0)),
+
+    ok = emqx_resource:stop(?ID),
+
+    ?assertNot(is_process_alive(Pid0)),
+
+    ?assertMatch({error, {emqx_resource, #{reason := stopped}}},
+        emqx_resource:query(?ID, get_state)),
+
+    ok = emqx_resource:restart(?ID),
+
+    #{pid := Pid1} = emqx_resource:query(?ID, get_state),
+
+    ?assert(is_process_alive(Pid1)).
+
+t_stop_start_local(_) ->
     {error, _} = emqx_resource:check_and_create_local(
                    ?ID,
                    ?TEST_RESOURCE,
                    #{unknown => test_resource}),
 
-    {ok, _} = emqx_resource:create_local(
+    {ok, _} = emqx_resource:check_and_create_local(
                 ?ID,
                 ?TEST_RESOURCE,
-                #{name => test_resource}),
+                #{<<"name">> => <<"test_resource">>}),
+
+    {ok, _} = emqx_resource:check_and_recreate_local(
+                ?ID,
+                ?TEST_RESOURCE,
+                #{<<"name">> => <<"test_resource">>},
+                #{}),
 
     #{pid := Pid0} = emqx_resource:query(?ID, get_state),
 
@@ -183,6 +277,25 @@ t_create_dry_run_local(_) ->
          #{name => test_resource, register => true})),
 
     ?assertEqual(undefined, whereis(test_resource)).
+
+t_create_dry_run_local_failed(_) -> 
+    {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
+                       #{cteate_error => true}),
+    ?assertEqual(error, Res),
+
+    {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
+                       #{name => test_resource, health_check_error => true}),
+    ?assertEqual(error, Res),
+
+    {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
+                       #{name => test_resource, stop_error => true}),
+    ?assertEqual(error, Res).
+
+t_test_func(_) ->
+    ?assertEqual(ok, erlang:apply(emqx_resource_validator:not_empty("not_empty"), [<<"someval">>])),
+    ?assertEqual(ok, erlang:apply(emqx_resource_validator:min(int, 3), [4])),
+    ?assertEqual(ok, erlang:apply(emqx_resource_validator:max(array, 10), [[a,b,c,d]])),
+    ?assertEqual(ok, erlang:apply(emqx_resource_validator:max(string, 10), ["less10"])).
 
 %%------------------------------------------------------------------------------
 %% Helpers

@@ -18,8 +18,6 @@
 
 -export([ min/2
         , max/2
-        , equals/2
-        , enum/1
         , not_empty/1
         ]).
 
@@ -28,15 +26,6 @@ max(Type, Max) ->
 
 min(Type, Min) ->
     limit(Type, '>=', Min).
-
-equals(Type, Expected) ->
-    limit(Type, '==', Expected).
-
-enum(Items) ->
-    fun(Value) ->
-        return(lists:member(Value, Items),
-            err_limit({enum, {is_member_of, Items}, {got, Value}}))
-    end.
 
 not_empty(ErrMsg) ->
     fun(<<>>) -> {error, ErrMsg};
