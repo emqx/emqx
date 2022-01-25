@@ -104,7 +104,7 @@ The following settings describe a working scenario for acessing [EMQx](https://w
 ```yaml
 ingress:
   wss:
-    enabled: false
+    enabled: true
     # ingressClassName: nginx
     annotations:
       nginx.ingress.kubernetes.io/backend-protocol: "http"
