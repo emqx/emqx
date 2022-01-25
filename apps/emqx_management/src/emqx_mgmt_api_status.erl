@@ -17,22 +17,40 @@
 %% API
 -behaviour(minirest_api).
 
--export([api_spec/0]).
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        ]).
 
 -export([running_status/2]).
 
 api_spec() ->
-    {[status_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-status_api() ->
-    Path = "/status",
-    Metadata = #{
-        get => #{
-            security => [],
-            responses => #{<<"200">> => #{description => <<"running">>}}
-        }
-    },
-    {Path, Metadata, running_status}.
+paths() ->
+    ["/status"].
+
+schema("/status") ->
+    #{ 'operationId' => running_status
+     , get =>
+           #{ description => <<"Node running status">>
+            , security => []
+            , responses =>
+                  #{200 =>
+                        #{ desc => <<"Node is running">>
+                         , content =>
+                              #{ 'text/plain' =>
+                                     #{ schema => #{type => string}
+                                      , example => <<"Node emqx@127.0.0.1 is started\nemqx is running">>}
+                               }
+                         }
+                   }
+            }
+     }.
+
+%%--------------------------------------------------------------------
+%% API Handler funcs
+%%--------------------------------------------------------------------
 
 running_status(get, _Params) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
@@ -44,5 +62,3 @@ running_status(get, _Params) ->
     Status = io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), InternalStatus, AppStatus]),
     Body = list_to_binary(Status),
     {200, #{<<"content-type">> => <<"text/plain">>}, Body}.
-
-
