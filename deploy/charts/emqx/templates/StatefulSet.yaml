@@ -1,3 +1,8 @@
+{{ $configData := printf "%s\n%s\n%s\n%s"
+  (include (print $.Template.BasePath "/configmap.env.yaml") .)
+  (include (print $.Template.BasePath "/configmap.acl.yaml") .)
+  (include (print $.Template.BasePath "/configmap.loadedPlugins.yaml") .)
+  (include (print $.Template.BasePath "/configmap.loadedModules.yaml") .) }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -50,28 +55,34 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
       {{- if .Values.recreatePods }}
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
+        checksum/config: {{ $configData | sha256sum | quote }}
       {{- end }}
     spec:
       volumes:
+      {{- if .Values.emqxLoadedPlugins }}
       - name: emqx-loaded-plugins
         configMap:
           name: {{ include "emqx.fullname" . }}-loaded-plugins
           items:
           - key: loaded_plugins
             path: loaded_plugins
+      {{- end }}
+      {{- if .Values.emqxLoadedPlugins }}
       - name: emqx-loaded-modules
         configMap:
           name: {{ include "emqx.fullname" . }}-loaded-modules
           items:
           - key: loaded_modules
             path: loaded_modules
+      {{- end }}
+      {{- if .Values.emqxAclConfig }}
       - name: emqx-acl
         configMap:
           name: {{ include "emqx.fullname" . }}-acl
           items:
           - key: acl.conf
             path: acl.conf
+      {{- end }}
       {{- if not .Values.persistence.enabled }}
       - name: emqx-data
         emptyDir: {}
@@ -168,16 +179,22 @@ spec:
           volumeMounts:
           - name: emqx-data
             mountPath: "/opt/emqx/data"
+          {{- if .Values.emqxAclConfig }}
           - name: emqx-acl
             mountPath: "/opt/emqx/etc/acl.conf"
             subPath: "acl.conf"
+          {{- end }}
+          {{- if .Values.emqxLoadedPlugins }}
           - name: emqx-loaded-plugins
             mountPath: "/opt/emqx/data/loaded_plugins"
             subPath: "loaded_plugins"
+          {{- end }}
+          {{- if .Values.emqxLoadedModules }}
           - name: emqx-loaded-modules
             mountPath: "/opt/emqx/data/loaded_modules"
             subPath: "loaded_modules"
-          {{ if .Values.emqxLicenseSecretName  }}
+          {{- end }}
+          {{- if .Values.emqxLicenseSecretName  }}
           - name: emqx-license
             mountPath: "/opt/emqx/etc/emqx.lic"
             subPath: "emqx.lic"
