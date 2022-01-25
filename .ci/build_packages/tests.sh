@@ -202,7 +202,7 @@ EOF
 }
 
 relup_test(){
-    TARGET_VERSION="$("$CODE_PATH"/pkg-vsn.sh)"
+    TARGET_VERSION="$("$CODE_PATH"/pkg-vsn.sh "${EMQX_NAME}")"
     if [ -d "${RELUP_PACKAGE_PATH}" ];then
         cd "${RELUP_PACKAGE_PATH}"
 

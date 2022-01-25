@@ -156,7 +156,7 @@ jobs:
       run: |
         make ${{ matrix.profile }}-docker
         echo "TARGET=emqx/${{ matrix.profile }}" >> $GITHUB_ENV
-        echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
+        echo "EMQX_TAG=$(./pkg-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
     - run: minikube start
     - name: run emqx on chart
       timeout-minutes: 5

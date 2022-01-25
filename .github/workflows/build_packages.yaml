@@ -38,12 +38,12 @@ jobs:
         run: |
           ce_vsn="$(./pkg-vsn.sh community)"
           ee_vsn="$(./pkg-vsn.sh enterprise)"
-          ce_pre_vsn="$(echo $ce_vsn | grep -oE '^[0-9]+.[0-9]')"
-          ee_pre_vsn="$(echo $ee_vsn | grep -oE '^[0-9]+.[0-9]')"
-          ce_old_vsns="$(git tag -l "v$ce_pre_vsn.[0-9]" | xargs echo -n | sed "s/v$ce_vsn//")"
-          ee_old_vsns="$(git tag -l "e$ee_pre_vsn.[0-9]" | xargs echo -n | sed "s/v$ee_vsn//")"
-          echo "::set-output name=ce_old_vsns::$ce_old_vsns"
-          echo "::set-output name=ee_old_vsns::$ee_old_vsns"
+          ce_base_vsn_prefix="$(echo $ce_vsn | grep -oE '^[0-9]+\.[0-9]+')"
+          ee_base_vsn_prefix="$(echo $ee_vsn | grep -oE '^[0-9]+\.[0-9]+')"
+          ce_old_vsns="$(git tag -l | grep -E "v${ce_base_vsn_prefix}\.[0-9]+$" | grep -v "v${ee_vsn}" | xargs)"
+          ee_old_vsns="$(git tag -l | grep -E "e${ee_base_vsn_prefix}\.[0-9]+$" | grep -v "e${ee_vsn}" | xargs)"
+          echo "::set-output name=ce_old_vsns::${ce_old_vsns}"
+          echo "::set-output name=ee_old_vsns::${ee_old_vsns}"
       - name: get_all_deps
         run: |
           make -C source deps-all
