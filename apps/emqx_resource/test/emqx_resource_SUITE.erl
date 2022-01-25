@@ -148,7 +148,7 @@ t_healthy(_) ->
                 #{async_create => true}),
     timer:sleep(300),
 
-    emqx_resource_health_check:create_checker(?ID, 15000),
+    emqx_resource_health_check:create_checker(?ID, 15000, 10000),
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
     timer:sleep(300),
     emqx_resource:set_resource_status_stoped(?ID),

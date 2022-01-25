@@ -249,7 +249,8 @@ start_and_check(InstId, ResourceType, Config, Opts, Data) ->
             case maps:get(async_create, Opts, false) of
                 false -> do_health_check(Data2);
                 true -> emqx_resource_health_check:create_checker(InstId,
-                            maps:get(health_check_interval, Opts, 15000))
+                            maps:get(health_check_interval, Opts, 15000),
+                            maps:get(health_check_timeout, Opts, 10000))
             end;
         {error, Reason} ->
             ets:insert(emqx_resource_instance, {InstId, Data#{status => stopped}}),
