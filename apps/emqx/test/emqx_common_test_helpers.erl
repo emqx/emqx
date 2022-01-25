@@ -48,6 +48,7 @@
         , not_wait_mqtt_payload/1
         , render_config_file/2
         , read_schema_configs/2
+        , load_config/2
         ]).
 
 -define( CERTS_PATH(CertName), filename:join( [ "etc", "certs", CertName ]) ).
@@ -428,3 +429,7 @@ copy_certs(emqx_conf, Dest0) ->
     os:cmd( ["cp -rf ", From, "/certs ", Dest, "/"]),
     ok;
 copy_certs(_, _) -> ok.
+
+load_config(SchemaModule, Config) ->
+    ok = emqx_config:delete_override_conf_files(),
+    ok = emqx_config:init_load(SchemaModule, Config).
