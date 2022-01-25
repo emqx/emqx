@@ -687,7 +687,7 @@ inc_delivery_expired_cnt(N) ->
 
 inc_await_pubrel_timeout(N) ->
     ok = inc_pd('recv_msg.dropped', N),
-    ok = inc_pd('recv_msg.dropped.expired', N),
+    ok = inc_pd('recv_msg.dropped.await_pubrel_timeout', N),
     ok = emqx_metrics:inc('messages.dropped', N),
     emqx_metrics:inc('messages.dropped.await_pubrel_timeout', N).
 
