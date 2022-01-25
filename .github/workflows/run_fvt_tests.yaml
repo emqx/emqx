@@ -74,13 +74,17 @@ jobs:
     - name: load rocksdb cache
       uses: actions/cache@v2
       with:
-        path: source/_build/default/lib/rocksdb/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
+        path: |
+          source/_build/default/lib/rocksdb/
+          source/deps/rocksdb/
+        key: ${{ matrix.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
     - name: load quicer cache
       uses: actions/cache@v2
       with:
-        path: source/_build/default/lib/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+        path: |
+          source/_build/default/lib/quicer/
+          source/deps/quicer/
+        key: ${{ matrix.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
     - name: make docker image
       working-directory: source
