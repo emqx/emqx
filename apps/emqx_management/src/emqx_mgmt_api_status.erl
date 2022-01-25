@@ -37,7 +37,7 @@ schema("/status") ->
             , security => []
             , responses =>
                   #{200 =>
-                        #{ desc => <<"Node is running">>
+                        #{ description => <<"Node is running">>
                          , content =>
                               #{ 'text/plain' =>
                                      #{ schema => #{type => string}

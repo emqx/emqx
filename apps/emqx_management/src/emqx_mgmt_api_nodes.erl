@@ -100,6 +100,7 @@ node_metrics_api() ->
             parameters => parameters(),
             responses => #{
                 <<"400">> => error_schema(<<"Node error">>, ['SOURCE_ERROR']),
+                %% TODO: Node Metrics Schema
                 <<"200">> => schema(metrics, <<"Get EMQ X Node Metrics">>)}}},
     {"/nodes/:node_name/metrics", Metadata, node_metrics}.
 
@@ -110,6 +111,7 @@ node_stats_api() ->
             parameters => parameters(),
             responses => #{
                 <<"400">> => error_schema(<<"Node error">>, ['SOURCE_ERROR']),
+                %% TODO: Node Stats Schema
                 <<"200">> => schema(stat, <<"Get EMQ X Node Stats">>)}}},
     {"/nodes/:node_name/stats", Metadata, node_stats}.
 
