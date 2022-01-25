@@ -33,13 +33,13 @@ jobs:
         working-directory: source
         run: |
           vsn="$(./pkg-vsn.sh)"
-          pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
+          base_vsn_prefix="$(echo $vsn | grep -oE '^[0-9]+\.[0-9]+')"
           if make emqx-ee --dry-run > /dev/null 2>&1; then
-            old_vsns="$(git tag -l "e$pre_vsn.[0-9]" | xargs echo -n | sed "s/e$vsn//")"
+            old_vsns="$(git tag -l | grep -E "^e${base_vsn_prefix}\.[0-9]+$" | grep -v "e${vsn}" | xargs)"
             echo "::set-output name=old_vsns::$old_vsns"
             echo "::set-output name=profiles::[\"emqx-ee\"]"
           else
-            old_vsns="$(git tag -l "v$pre_vsn.[0-9]" | xargs echo -n | sed "s/v$vsn//")"
+            old_vsns="$(git tag -l | grep -E "^v${base_vsn_prefix}\.[0-9]+$" | grep -v "v${vsn}" | xargs)"
             echo "::set-output name=old_vsns::$old_vsns"
             echo "::set-output name=profiles::[\"emqx\", \"emqx-edge\"]"
           fi

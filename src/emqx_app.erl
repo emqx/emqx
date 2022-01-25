@@ -50,7 +50,6 @@ start(_Type, _Args) ->
     _ = emqx_plugins:load(),
     _ = start_ce_modules(),
     register(emqx, self()),
-    ok = emqx_alarm_handler:load(),
     print_vsn(),
     {ok, Sup}.
 
