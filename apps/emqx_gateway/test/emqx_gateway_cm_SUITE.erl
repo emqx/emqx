@@ -34,7 +34,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
     emqx_config:erase(gateway),
-    emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
+    emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_common_test_helpers:start_apps([]),
 
     ok = meck:new(emqx_gateway_metrics, [passthrough, no_history, no_link]),

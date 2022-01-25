@@ -29,7 +29,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
-    emqx_config:init_load(emqx_modules_schema, <<"gateway {}">>),
+    emqx_common_test_helpers:load_config(emqx_modules_schema, <<"gateway {}">>),
     emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
     Conf.
 

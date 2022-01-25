@@ -58,7 +58,7 @@ init_per_suite(Config) ->
 
     application:load(emqx_dashboard),
     application:load(?APP),
-    ok = emqx_config:init_load(emqx_auto_subscribe_schema,
+    ok = emqx_common_test_helpers:load_config(emqx_auto_subscribe_schema,
         <<"auto_subscribe {
             topics = [
                 {

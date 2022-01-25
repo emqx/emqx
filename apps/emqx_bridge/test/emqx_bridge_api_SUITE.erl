@@ -64,7 +64,7 @@ init_per_suite(Config) ->
     _ = application:stop(emqx_resource),
     _ = application:stop(emqx_connector),
     ok = emqx_common_test_helpers:start_apps([emqx_bridge, emqx_dashboard]),
-    ok = emqx_config:init_load(emqx_bridge_schema, ?CONF_DEFAULT),
+    ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, ?CONF_DEFAULT),
     Config.
 
 end_per_suite(_Config) ->

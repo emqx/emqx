@@ -96,7 +96,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_config:init_load(emqx_limiter_schema, ?BASE_CONF),
+    ok = emqx_common_test_helpers:load_config(emqx_limiter_schema, ?BASE_CONF),
     emqx_common_test_helpers:start_apps([?APP]),
     Config.
 
@@ -107,7 +107,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 base_conf() ->
-    emqx_config:init_load(emqx_limiter_schema, ?BASE_CONF).
+    emqx_common_test_helpers:load_config(emqx_limiter_schema, ?BASE_CONF).
 
 %%--------------------------------------------------------------------
 %% Test Cases Bucket Level

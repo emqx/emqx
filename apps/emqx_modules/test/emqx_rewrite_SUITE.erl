@@ -112,7 +112,7 @@ t_rewrite_re_error(_Config) ->
     ok.
 
 t_list(_Config) ->
-    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE),
     Expect = [
         #{<<"action">> => <<"publish">>,
             <<"dest_topic">> => <<"z/y/$1">>,
@@ -130,7 +130,7 @@ t_list(_Config) ->
     ok.
 
 t_update(_Config) ->
-    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE),
     Init = emqx_rewrite:list(),
     Rules = [#{
         <<"source_topic">> => <<"test/#">>,
@@ -144,7 +144,7 @@ t_update(_Config) ->
     ok.
 
 t_update_disable(_Config) ->
-    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE),
     ?assertEqual(ok, emqx_rewrite:update([])),
     timer:sleep(150),
 
@@ -159,7 +159,7 @@ t_update_disable(_Config) ->
     ok.
 
 t_update_re_failed(_Config) ->
-    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE),
     Rules = [#{
         <<"source_topic">> => <<"test/#">>,
         <<"re">> => <<"*^test/*">>,
@@ -188,7 +188,7 @@ receive_publish(Timeout) ->
     end.
 
 init() ->
-    ok = emqx_config:init_load(emqx_modules_schema, ?REWRITE),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE),
     ok = emqx_rewrite:enable(),
     {ok, C} = emqtt:start_link([{clientid, <<"rewrite_client">>}]),
     {ok, _} = emqtt:connect(C),
