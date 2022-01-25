@@ -156,7 +156,7 @@ t_healthy(_) ->
                 ?TEST_RESOURCE,
                 #{name => <<"test_resource">>},
                 #{async_create => true}),
-    timer:sleep(300),
+    timer:sleep(400),
 
     emqx_resource_health_check:create_checker(?ID, 15000, 10000),
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
@@ -277,6 +277,19 @@ t_create_dry_run_local(_) ->
          #{name => test_resource, register => true})),
 
     ?assertEqual(undefined, whereis(test_resource)).
+
+t_create_dry_run_local_failed(_) -> 
+    {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
+                       #{cteate_error => true}),
+    ?assertEqual(error, Res),
+
+    {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
+                       #{name => test_resource, health_check_error => true}),
+    ?assertEqual(error, Res),
+
+    {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
+                       #{name => test_resource, stop_error => true}),
+    ?assertEqual(error, Res).
 
 t_test_func(_) ->
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:not_empty("not_empty"), [<<"someval">>])),

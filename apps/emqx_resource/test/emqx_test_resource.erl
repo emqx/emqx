@@ -43,12 +43,28 @@ register(nullable) -> false;
 register(default) -> false;
 register(_) -> undefined.
 
+on_start(_InstId, #{create_error := true}) ->
+    error("some error");
+on_start(InstId, #{name := Name, stop_error := true} = Opts) ->
+    Register = maps:get(register, Opts, false),
+    {ok, #{name => Name,
+           id => InstId,
+           stop_error => true,
+           pid => spawn_dummy_process(Name, Register)}};
+on_start(InstId, #{name := Name, health_check_error := true} = Opts) ->
+    Register = maps:get(register, Opts, false),
+    {ok, #{name => Name,
+           id => InstId,
+           health_check_error => true,
+           pid => spawn_dummy_process(Name, Register)}};
 on_start(InstId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
     {ok, #{name => Name,
            id => InstId,
            pid => spawn_dummy_process(Name, Register)}}.
 
+on_stop(_InstId, #{stop_error := true}) ->
+    {error, stop_error};
 on_stop(_InstId, #{pid := Pid}) ->
     erlang:exit(Pid, shutdown),
     ok.
@@ -60,6 +76,8 @@ on_query(_InstId, get_state_failed, AfterQuery, State) ->
     emqx_resource:query_failed(AfterQuery),
     State.
 
+on_health_check(_InstId, State = #{health_check_error := true}) ->
+    {error, dead, State};
 on_health_check(_InstId, State = #{pid := Pid}) ->
     timer:sleep(300),
     case is_process_alive(Pid) of
