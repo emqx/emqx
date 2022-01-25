@@ -22,6 +22,26 @@ recreatePods: false
 # To redeploy a chart with existing PVC(s), the value must be set to Parallel to avoid deadlock
 podManagementPolicy: Parallel
 
+## Aditional container env vars
+##
+extraEnv: []
+
+## Aditional container env from vars
+##
+extraEnvFrom: []
+
+## Additional container executable args
+##
+extraArgs: []
+
+## Additional container volumes (eg. for mounting certs from secrets)
+##
+extraVolumes: []
+
+## Additional container volume mounts (eg. for mounting certs from secrets)
+##
+extraVolumeMounts: []
+
 persistence:
   enabled: false
   size: 20Mi

@@ -39,7 +39,6 @@ Parameter  | Description | Default Value
 `image.repository` | EMQ X Image repository | `emqx/emqx`
 `image.pullPolicy`  | The image pull policy  | `IfNotPresent`
 `image.pullSecrets `  | The image pull secrets (does not add image pull secrets to deployed pods)  |``[]``
-`envFromSecret` | The name pull a secret in the same kubernetes namespace which contains values that will be added to the environment | `nil`
 `recreatePods` | Forces the recreation of pods during upgrades, which can be useful to always apply the most recent configuration. | `false`
 `persistence.enabled` | Enable EMQX persistence using PVC | `false`
 `persistence.storageClass` | Storage class of backing PVC (uses alpha storage class annotation) | `nil`
@@ -86,6 +85,11 @@ Parameter  | Description | Default Value
 `ingress.wss.hosts` | Ingress hosts for EMQX WSS |    `wss.emqx.local`
 `ingress.wss.tls` | Ingress tls for EMQX WSS |	`[]`
 `ingress.wss.annotations` | Ingress annotations for EMQX WSS |	`{}`
+`extraEnv` | Aditional container env vars | `[]`
+`extraEnvFrom` | Aditional container env from vars (eg. [config map](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/), [secrets](https://kubernetes.io/docs/concepts/configuration/secret/) | `[]`
+`extraArgs` | Additional container executable arguments | `[]`
+`extraVolumes` | Additional container volumes (eg. for mounting certs from secrets) | `[]`
+`extraVolumeMounts` | Additional container volume mounts (eg. for mounting certs from secrets) | `[]`
 
 ## EMQx-specific
 The following table lists the configurable [EMQx](https://www.emqx.io/)-specific parameters of the chart and their default values.
