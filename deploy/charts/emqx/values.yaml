@@ -187,6 +187,29 @@ ingress:
     - api.emqx.local
     tls: []
 
+  ## ingress for EMQX Mgmt API
+  wss:
+    enabled: false
+    # ingressClassName: nginx
+    annotations: {}
+      # Sample annotations for nginx-ingress community controller
+      # nginx.ingress.kubernetes.io/rewrite-target: /mqtt$1 # Use to rewrite backend path if needed
+      # nginx.ingress.kubernetes.io/backend-protocol: "http"
+      # nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+      # nginx.ingress.kubernetes.io/enable-real-ip: "true"
+      # nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+      # nginx.ingress.kubernetes.io/proxy-connect-timeout: "120"
+      # nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+      # nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      # nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+      # nginx.ingress.kubernetes.io/use-proxy-protocol: "false"
+      # nginx.ingress.kubernetes.io/proxy-protocol-header-timeout: "5s"
+    path: /mqtt
+    # path: /wss(\/.*)?
+    hosts:
+    - wss.emqx.local
+    tls: []
+
 podSecurityContext:
   enabled: true
   fsGroup: 1000
