@@ -58,7 +58,7 @@ insert_user(User = #emqx_user{login = Login}) ->
         [_|_] -> mnesia:abort(existed)
     end.
 
--spec(add_default_user(clientid | username, tuple(), binary()) -> ok | {error, any()}).
+-spec(add_default_user(clientid | username, binary(), binary()) -> ok | {error, any()}).
 add_default_user(Type, Key, Password) ->
     Login = {Type, Key},
     case add_user(Login, Password) of
