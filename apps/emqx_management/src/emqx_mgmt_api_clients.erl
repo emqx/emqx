@@ -513,11 +513,21 @@ subscribe_batch(post, #{bindings := #{clientid := ClientID}, body := TopicInfos}
     subscribe_batch(#{clientid => ClientID, topics => Topics}).
 
 subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
-    {Node, Subs0} = emqx_mgmt:list_client_subscriptions(ClientID),
-    Subs = lists:map(fun({Topic, SubOpts}) ->
-        #{node => Node, clientid => ClientID, topic => Topic, qos => maps:get(qos, SubOpts)}
-    end, Subs0),
-    {200, Subs}.
+    case emqx_mgmt:list_client_subscriptions(ClientID) of
+        [] ->
+            {200, []};
+        {Node, Subs} ->
+            Formatter =
+                fun({Topic, SubOpts}) ->
+                    #{
+                        node => Node,
+                        clientid => ClientID,
+                        topic => Topic,
+                        qos => maps:get(qos, SubOpts)
+                    }
+                end,
+        {200, lists:map(Formatter, Subs)}
+    end.
 
 set_keepalive(put, #{bindings := #{clientid := ClientID}, query_string := Query}) ->
     case maps:find(<<"interval">>, Query) of
