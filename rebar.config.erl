@@ -151,15 +151,16 @@ profiles_ce() ->
 
 profiles_ee() ->
     Vsn = get_vsn('emqx-enterprise'),
+    EE = {d, 'EMQX_ENTERPRISE'},
     [ {'emqx-enterprise',
-       [ {erl_opts, prod_compile_opts(Vsn)}
+       [ {erl_opts, [EE | prod_compile_opts(Vsn)]}
        , {relx, relx(Vsn, cloud, bin, ee)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ee)}
        , {post_hooks, [{compile, "bash build emqx-enterprise doc"}]}
        ]}
     , {'emqx-enterprise-pkg',
-       [ {erl_opts, prod_compile_opts(Vsn)}
+       [ {erl_opts, [EE | prod_compile_opts(Vsn)]}
        , {relx, relx(Vsn, cloud, pkg, ee)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ee)}
@@ -170,13 +171,14 @@ profiles_ee() ->
 %% EE has more files than CE, always test/check with EE options.
 profiles_dev() ->
     Vsn = get_vsn('emqx-enterprise'),
+    EE = {d, 'EMQX_ENTERPRISE'},
     [ {check,
-       [ {erl_opts, common_compile_opts(Vsn)}
+       [ {erl_opts, [EE | common_compile_opts(Vsn)]}
        , {project_app_dirs, project_app_dirs(ee)}
        ]}
     , {test,
        [ {deps, test_deps()}
-       , {erl_opts, common_compile_opts(Vsn) ++ erl_opts_i()}
+       , {erl_opts, [EE | common_compile_opts(Vsn) ++ erl_opts_i()]}
        , {extra_src_dirs, [{"test", [{recursive, true}]}]}
        , {project_app_dirs, project_app_dirs(ee)}
        ]}

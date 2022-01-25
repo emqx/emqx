@@ -85,8 +85,8 @@ version() ->
             Vsn
     end.
 
-build_vsn() ->
-    case edition() of
-        ee -> ?EMQX_RELEASE_EE;
-        _ -> ?EMQX_RELEASE_CE
-    end.
+-ifdef(EMQX_ENTERPRISE).
+build_vsn() -> ?EMQX_RELEASE_EE.
+-else.
+build_vsn() -> ?EMQX_RELEASE_CE.
+-endif.
