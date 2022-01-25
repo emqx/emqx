@@ -35,7 +35,8 @@ The following table lists the configurable K8s parameters of the EMQx chart and 
 Parameter  | Description | Default Value
 ---        |  ---        | ---
 `replicaCount` | It is recommended to have odd number of nodes in a cluster, otherwise the emqx cluster cannot be automatically healed in case of net-split. | `3`
-`image.repository` | EMQ X Image name | `emqx/emqx`
+`image.tag` | EMQ X Image tag (defaults to `.Chart.AppVersion`) | `nil`
+`image.repository` | EMQ X Image repository | `emqx/emqx`
 `image.pullPolicy`  | The image pull policy  | `IfNotPresent`
 `image.pullSecrets `  | The image pull secrets (does not add image pull secrets to deployed pods)  |``[]``
 `envFromSecret` | The name pull a secret in the same kubernetes namespace which contains values that will be added to the environment | `nil`
