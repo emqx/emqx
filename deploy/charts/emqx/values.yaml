@@ -29,6 +29,26 @@ recreatePods: false
 # To redeploy a chart with existing PVC(s), the value must be set to Parallel to avoid deadlock
 podManagementPolicy: Parallel
 
+## Aditional container env vars
+##
+extraEnv: []
+
+## Aditional container env from vars
+##
+extraEnvFrom: []
+
+## Additional container executable args
+##
+extraArgs: []
+
+## Additional container volumes (eg. for mounting certs from secrets)
+##
+extraVolumes: []
+
+## Additional container volume mounts (eg. for mounting certs from secrets)
+##
+extraVolumeMounts: []
+
 persistence:
   enabled: false
   size: 20Mi
@@ -66,10 +86,17 @@ emqxConfig:
   ## if EMQX_CLUSTER__K8S__ADDRESS_TYPE eq dns
   # EMQX_CLUSTER__K8S__SUFFIX: "pod.cluster.local"
 
-## EMQX Enterprise Edition requires manual creation of a Secret containing the licensed content. Write the name of Secret to the value of "emqxLicneseSecretName"
+## EMQX Enterprise Edition requires manual creation of a Secret containing the licensed content. Write the name of Secret to the value of "emqxLicenseSecretName"
 ## Example:
 ##   kubectl create secret generic emqx-license-secret-name --from-file=/path/to/emqx.lic
-emqxLicneseSecretName:
+emqxLicenseSecretName:
+
+emqxAclConfig: |
+  {allow, {user, "dashboard"}, subscribe, ["$SYS/#"]}. {allow, {ipaddr, "127.0.0.1"}, pubsub, ["$SYS/#", "#"]}. {deny, all, subscribe, ["$SYS/#", {eq, "#"}]}. {allow, all}.
+emqxLoadedModules: |
+  {emqx_mod_acl_internal, true}. {emqx_mod_presence, true}. {emqx_mod_delayed, false}. {emqx_mod_rewrite, false}. {emqx_mod_subscription, false}. {emqx_mod_topic_metrics, false}.
+emqxLoadedPlugins: |
+  {emqx_management, true}. {emqx_recon, true}. {emqx_retainer, true}. {emqx_dashboard, true}. {emqx_telemetry, true}. {emqx_rule_engine, true}. {emqx_bridge_mqtt, false}.
 
 service:
   ## Service type

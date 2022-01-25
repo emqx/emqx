@@ -54,6 +54,24 @@ spec:
       {{- end }}
     spec:
       volumes:
+      - name: emqx-loaded-plugins
+        configMap:
+          name: {{ include "emqx.fullname" . }}-loaded-plugins
+          items:
+          - key: loaded_plugins
+            path: loaded_plugins
+      - name: emqx-loaded-modules
+        configMap:
+          name: {{ include "emqx.fullname" . }}-loaded-modules
+          items:
+          - key: loaded_modules
+            path: loaded_modules
+      - name: emqx-acl
+        configMap:
+          name: {{ include "emqx.fullname" . }}-acl
+          items:
+          - key: acl.conf
+            path: acl.conf
       {{- if not .Values.persistence.enabled }}
       - name: emqx-data
         emptyDir: {}
@@ -64,10 +82,14 @@ spec:
           claimName: {{ tpl . $ }}
         {{- end }}
       {{- end }}
-      {{- if .Values.emqxLicneseSecretName  }}
+      {{- if .Values.extraVolumes }}
+{{ toYaml .Values.extraVolumes | indent 6 }}
+      {{- end }}
+
+      {{- if .Values.emqxLicenseSecretName  }}
       - name: emqx-license
         secret:
-          secretName: {{ .Values.emqxLicneseSecretName }}
+          secretName: {{ .Values.emqxLicenseSecretName }}
       {{- end }}
       serviceAccountName:  {{ include "emqx.fullname" . }}
       {{- if .Values.podSecurityContext.enabled }}
@@ -85,7 +107,13 @@ spec:
       {{- end }}
       containers:
         - name: emqx
+          {{- if .Values.image.image }}
+          image: "{{ .Values.image.image }}"
+          {{- else if .Values.image.tag }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          {{- else -}}}}
           image: "{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"
+          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- if .Values.containerSecurityContext.enabled }}
           securityContext: {{- omit .Values.containerSecurityContext "enabled" | toYaml | nindent 12 }}
@@ -118,6 +146,9 @@ spec:
             - secretRef:
                 name: {{ .Values.envFromSecret }}
          {{- end }}
+         {{- if .Values.extraEnvFrom }}
+{{ toYaml .Values.extraEnvFrom | indent 12 }}
+         {{- end }}
           env:
           - name: EMQX_NAME
             value: {{ .Release.Name }}
@@ -129,21 +160,42 @@ spec:
             value: {{ include "emqx.fullname" . }}-headless
           - name: EMQX_CLUSTER__K8S__NAMESPACE
             value: {{ .Release.Namespace }}
+          {{- if .Values.extraEnv }}
+{{ toYaml .Values.extraEnv | indent 10 }}
+          {{- end }}
           resources:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:
           - name: emqx-data
             mountPath: "/opt/emqx/data"
-          {{ if .Values.emqxLicneseSecretName  }}
+          - name: emqx-acl
+            mountPath: "/opt/emqx/etc/acl.conf"
+            subPath: "acl.conf"
+          - name: emqx-loaded-plugins
+            mountPath: "/opt/emqx/data/loaded_plugins"
+            subPath: "loaded_plugins"
+          - name: emqx-loaded-modules
+            mountPath: "/opt/emqx/data/loaded_modules"
+            subPath: "loaded_modules"
+          {{ if .Values.emqxLicenseSecretName  }}
           - name: emqx-license
             mountPath: "/opt/emqx/etc/emqx.lic"
             subPath: "emqx.lic"
             readOnly: true
-          {{ end }}
+          {{- end -}}
+          {{- if and .Values.extraVolumes .Values.extraVolumeMounts }}
+{{ toYaml .Values.extraVolumeMounts | indent 10 }}
+          {{- end }}
+          {{- if .Values.extraArgs -}}
+          args:
+{{ toYaml .Values.extraArgs | indent 10 }}
+          {{- end }}
           readinessProbe:
             httpGet:
-              path: /api/v5/status
-              port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
+              # path: /api/v5/status
+              # port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
+              path: /status
+              port: {{ .Values.emqxConfig.EMQX_MANAGEMENT__LISTENER__HTTP | default 8081 }}
             initialDelaySeconds: 5
             periodSeconds: 5
     {{- with .Values.nodeSelector }}
