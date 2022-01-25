@@ -1,0 +1,15 @@
+{{ if .Values.emqxLoadedModules }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "emqx.fullname" . }}-loaded-modules
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "emqx.name" . }}
+    helm.sh/chart: {{ include "emqx.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  "loaded_modules": |
+    {{ .Values.emqxLoadedModules }}
+{{ end }}
