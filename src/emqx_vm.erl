@@ -64,6 +64,7 @@
                           sl_alloc,
                           ll_alloc,
                           fix_alloc,
+                          literal_alloc,
                           std_alloc
                          ]).
 
@@ -484,4 +485,3 @@ compat_windows(Fun) ->
                 _Error -> 0
             end
     end.
-
