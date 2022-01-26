@@ -91,11 +91,11 @@ is_running(Node) ->
     rpc:call(Node, emqx, is_running, []).
 ```
 
-The following limitations apply to these modules:
+## Backplane module life cycle
 
 1. Once the minor EMQX release stated in `introduced_in()` callback of
-   a module reaches GA, the module is frozen. No changes are allowed
-   there, except for adding `deprecated_since()` callback.
+   a module reaches GA, the module is frozen. Only very specific
+   changes are allowed in these modules, see next chapter.
 2. If the backplane API was deprecated in a release `maj.min.0`, then
    it can be removed in release `maj.min+1.0`.
 3. Old versions of the protocols can be dropped in the next major
@@ -104,6 +104,41 @@ The following limitations apply to these modules:
 This way we ensure each minor EMQX release is backward-compatible with
 the previous one.
 
+## Changes to BPAPI modules after GA
+
+Once the backplane API module is frozen, only certain types of changes
+can be made there.
+
+- Adding or removing functions is _forbidden_
+- Changing the RPC target function is _forbidden_
+- Renaming the function parameters should be safe in theory, but
+  currently the static check will complain when it happens
+- Renaming the types of the function parameters and the return type is
+  _allowed_
+- Changing the structure of the function parameters' types is
+  _forbidden_
+
+To clarify the last statement: BPAPI static checks only verify the
+structure of the type, so the following definitions are considered
+equivalent, and replacing one with another is perfectly fine:
+
+```erlang
+-type foo() :: inet:ip6_address().
+
+-type foo() :: {0..65535, 0..65535, 0..65535, 0..65535, 0..65535, 0..65535, 0..65535, 0..65535}.
+```
+
 # Protocol version negotiation
 
-TODO
+`emqx_bpapi` module provides APIs that business applications can use
+to negotiate protocol version:
+
+`emqx_bpapi:supported_version(Node, ProtocolId)` returns maximum
+protocol version supported by the remote node
+`Node`. `emqx_bpapi:supported_version(ProtocolId)` returns maximum
+protocol version that is supported by all nodes in the cluster. It can
+be useful when the protocol involves multicalls or multicasts.
+
+The business logic can assume that the supported protocol version is
+not going to change on the remote node, while it is running. So it is
+free to cache it for the duration of the session.
