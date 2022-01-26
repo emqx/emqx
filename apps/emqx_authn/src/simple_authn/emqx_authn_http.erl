@@ -126,12 +126,14 @@ create(#{method := Method,
     {BsaeUrlWithPath, Query} = parse_fullpath(RawURL),
     URIMap = parse_url(BsaeUrlWithPath),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
-    State = #{method          => Method,
-              path            => maps:get(path, URIMap),
-              base_query      => cow_qs:parse_qs(to_bin(Query)),
-              headers         => maps:to_list(Headers),
-              body            => maps:to_list(Body),
-              request_timeout => RequestTimeout,
+    State = #{method                    => Method,
+              path                      => maps:get(path, URIMap),
+              base_query_template       => emqx_authn_utils:parse_deep(
+                                             cow_qs:parse_qs(to_bin(Query))),
+              headers                   => maps:to_list(Headers),
+              body_template             => emqx_authn_utils:parse_deep(
+                                             maps:to_list(Body)),
+              request_timeout           => RequestTimeout,
               resource_id => ResourceId},
     case emqx_resource:create_local(ResourceId,
                                     emqx_connector_http,
@@ -259,11 +261,11 @@ parse_url(URL) ->
 
 generate_request(Credential, #{method := Method,
                                path := Path,
-                               base_query := BaseQuery,
+                               base_query_template := BaseQueryTemplate,
                                headers := Headers,
-                               body := Body0}) ->
-    Body = replace_placeholders(Body0, Credential),
-    NBaseQuery = replace_placeholders(BaseQuery, Credential),
+                               body_template := BodyTemplate}) ->
+    Body = emqx_authn_utils:render_deep(BodyTemplate, Credential),
+    NBaseQuery = emqx_authn_utils:render_deep(BaseQueryTemplate, Credential),
     case Method of
         get ->
             NPath = append_query(Path, NBaseQuery ++ Body),
@@ -273,19 +275,6 @@ generate_request(Credential, #{method := Method,
             ContentType = proplists:get_value(<<"content-type">>, Headers),
             NBody = serialize_body(ContentType, Body),
             {NPath, Headers, NBody}
-    end.
-
-replace_placeholders(KVs, Credential) ->
-    replace_placeholders(KVs, Credential, []).
-
-replace_placeholders([], _Credential, Acc) ->
-    lists:reverse(Acc);
-replace_placeholders([{K, V0} | More], Credential, Acc) ->
-    case emqx_authn_utils:replace_placeholder(V0, Credential) of
-        undefined ->
-            error({cannot_get_variable, V0});
-        V ->
-            replace_placeholders(More, Credential, [{K, to_bin(V)} | Acc])
     end.
 
 append_query(Path, []) ->

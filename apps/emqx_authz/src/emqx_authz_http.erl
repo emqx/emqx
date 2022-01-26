@@ -37,6 +37,14 @@
 -compile(nowarn_export_all).
 -endif.
 
+-define(PLACEHOLDERS, [?PH_USERNAME,
+                       ?PH_CLIENTID,
+                       ?PH_PEERHOST,
+                       ?PH_PROTONAME,
+                       ?PH_MOUNTPOINT,
+                       ?PH_TOPIC,
+                       ?PH_ACTION]).
+
 description() ->
     "AuthZ with http".
 
@@ -87,12 +95,16 @@ parse_config(#{ url := URL
               } = Conf) ->
     {BaseURLWithPath, Query} = parse_fullpath(URL),
     BaseURLMap = parse_url(BaseURLWithPath),
-    Conf#{ method          => Method
-         , base_url        => maps:remove(query, BaseURLMap)
-         , base_query      => cow_qs:parse_qs(bin(Query))
-         , body            => maps:get(body, Conf, #{})
-         , headers         => Headers
-         , request_timeout => ReqTimeout
+    Conf#{ method               => Method
+         , base_url             => maps:remove(query, BaseURLMap)
+         , base_query_template  => emqx_authz_utils:parse_deep(
+                                     cow_qs:parse_qs(bin(Query)),
+                                     ?PLACEHOLDERS)
+         , body_template        => emqx_authz_utils:parse_deep(
+                                     maps:to_list(maps:get(body, Conf, #{})),
+                                     ?PLACEHOLDERS)
+         , headers              => Headers
+         , request_timeout      => ReqTimeout
          }.
 
 parse_fullpath(RawURL) ->
@@ -115,12 +127,13 @@ generate_request( PubSub
                 , Client
                 , #{ method := Method
                    , base_url := #{path := Path}
-                   , base_query := BaseQuery
+                   , base_query_template := BaseQueryTemplate
                    , headers := Headers
-                   , body := Body0
+                   , body_template := BodyTemplate
                    }) ->
-    Body = replace_placeholders(maps:to_list(Body0), PubSub, Topic, Client),
-    NBaseQuery = replace_placeholders(BaseQuery, PubSub, Topic, Client),
+    Values = client_vars(Client, PubSub, Topic),
+    Body = emqx_authz_utils:render_deep(BodyTemplate, Values),
+    NBaseQuery = emqx_authz_utils:render_deep(BaseQueryTemplate, Values),
     case Method of
         get  ->
             NPath = append_query(Path, NBaseQuery ++ Body),
@@ -159,36 +172,11 @@ serialize_body(<<"application/json">>, Body) ->
 serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
     query_string(Body).
 
-replace_placeholders(KVs, PubSub, Topic, Client) ->
-    replace_placeholders(KVs, PubSub, Topic, Client, []).
-
-replace_placeholders([], _PubSub, _Topic, _Client, Acc) ->
-    lists:reverse(Acc);
-replace_placeholders([{K, V0} | More], PubSub, Topic, Client, Acc) ->
-    case replace_placeholder(V0, PubSub, Topic, Client) of
-        undefined ->
-            error({cannot_get_variable, V0});
-        V ->
-            replace_placeholders(More, PubSub, Topic, Client, [{bin(K), bin(V)} | Acc])
-    end.
-
-replace_placeholder(?PH_USERNAME, _PubSub, _Topic, Client) ->
-    bin(maps:get(username, Client, undefined));
-replace_placeholder(?PH_CLIENTID, _PubSub, _Topic, Client) ->
-    bin(maps:get(clientid, Client, undefined));
-replace_placeholder(?PH_HOST,     _PubSub, _Topic, Client) ->
-    inet_parse:ntoa(maps:get(peerhost, Client, undefined));
-replace_placeholder(?PH_PROTONAME, _PubSub, _Topic, Client) ->
-    bin(maps:get(protocol, Client, undefined));
-replace_placeholder(?PH_MOUNTPOINT, _PubSub, _Topic, Client) ->
-    bin(maps:get(mountpoint, Client, undefined));
-replace_placeholder(?PH_TOPIC, _PubSub, Topic, _Client) ->
-    bin(emqx_http_lib:uri_encode(Topic));
-replace_placeholder(?PH_ACTION, PubSub, _Topic, _Client) ->
-    bin(PubSub);
-
-replace_placeholder(Constant, _, _, _) ->
-    Constant.
+client_vars(Client, PubSub, Topic) ->
+    Client#{
+      action => PubSub,
+      topic => Topic
+     }.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B;

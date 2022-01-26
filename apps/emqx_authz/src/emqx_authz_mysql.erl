@@ -36,6 +36,12 @@
 -compile(nowarn_export_all).
 -endif.
 
+-define(PLACEHOLDERS, [?PH_USERNAME,
+                       ?PH_CLIENTID,
+                       ?PH_PEERHOST,
+                       ?PH_CERT_CN_NAME,
+                       ?PH_CERT_SUBJECT]).
+
 description() ->
     "AuthZ with Mysql".
 
@@ -44,7 +50,10 @@ init(#{query := SQL} = Source) ->
         {error, Reason} -> error({load_config_error, Reason});
         {ok, Id} -> Source#{annotations =>
                             #{id => Id,
-                              query => parse_query(SQL)}}
+                              query => emqx_authz_utils:parse_sql(
+                                         SQL,
+                                         '?',
+                                         ?PLACEHOLDERS)}}
     end.
 
 dry_run(Source) ->
@@ -58,7 +67,7 @@ authorize(Client, PubSub, Topic,
                                query := {Query, Params}
                               }
              }) ->
-    RenderParams = replvar(Params, Client),
+    RenderParams = emqx_authz_utils:render_sql_params(Params, Client),
     case emqx_resource:query(ResourceID, {sql, Query, RenderParams}) of
         {ok, _Columns, []} -> nomatch;
         {ok, Columns, Rows} ->
@@ -72,14 +81,6 @@ authorize(Client, PubSub, Topic,
             nomatch
     end.
 
-parse_query(Sql) ->
-    case re:run(Sql, ?RE_PLACEHOLDER, [global, {capture, all, list}]) of
-        {match, Variables} ->
-            Params = [Var || [Var] <- Variables],
-            {re:replace(Sql, ?RE_PLACEHOLDER, "?", [global, {return, list}]), Params};
-        nomatch ->
-            {Sql, []}
-    end.
 
 do_authorize(_Client, _PubSub, _Topic, _Columns, []) ->
     nomatch;
@@ -102,30 +103,3 @@ index(Elem, List) ->
 index(_Elem, [], _Index) -> {error, not_found};
 index(Elem, [ Elem | _List], Index) -> Index;
 index(Elem, [ _ | List], Index) -> index(Elem, List, Index + 1).
-
-replvar(Params, ClientInfo) ->
-    replvar(Params, ClientInfo, []).
-
-replvar([], _ClientInfo, Acc) ->
-    lists:reverse(Acc);
-
-replvar([?PH_S_USERNAME | Params], ClientInfo, Acc) ->
-    replvar(Params, ClientInfo, [safe_get(username, ClientInfo) | Acc]);
-replvar([?PH_S_CLIENTID | Params], ClientInfo = #{clientid := _ClientId}, Acc) ->
-    replvar(Params, ClientInfo, [safe_get(clientid, ClientInfo) | Acc]);
-replvar([?PH_S_PEERHOST | Params], ClientInfo = #{peerhost := IpAddr}, Acc) ->
-    replvar(Params, ClientInfo, [inet_parse:ntoa(IpAddr) | Acc]);
-replvar([?PH_S_CERT_CN_NAME | Params], ClientInfo, Acc) ->
-    replvar(Params, ClientInfo, [safe_get(cn, ClientInfo) | Acc]);
-replvar([?PH_S_CERT_SUBJECT | Params], ClientInfo, Acc) ->
-    replvar(Params, ClientInfo, [safe_get(dn, ClientInfo) | Acc]);
-replvar([Param | Params], ClientInfo, Acc) ->
-    replvar(Params, ClientInfo, [Param | Acc]).
-
-safe_get(K, ClientInfo) ->
-    bin(maps:get(K, ClientInfo, "undefined")).
-
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(B) when is_binary(B) -> B;
-bin(L) when is_list(L) -> list_to_binary(L);
-bin(X) -> X.

@@ -159,7 +159,7 @@ t_query_params(_Config) ->
            #{<<"url">> => <<"http://127.0.0.1:33333/authz/users/?"
                             "username=${username}&"
                             "clientid=${clientid}&"
-                            "peerhost=${host}&"
+                            "peerhost=${peerhost}&"
                             "proto_name=${proto_name}&"
                             "mountpoint=${mountpoint}&"
                             "topic=${topic}&"
@@ -204,7 +204,7 @@ t_json_body(_Config) ->
            #{<<"method">> => <<"post">>,
              <<"body">> => #{<<"username">> => <<"${username}">>,
                              <<"CLIENT">> => <<"${clientid}">>,
-                             <<"peerhost">> => <<"${host}">>,
+                             <<"peerhost">> => <<"${peerhost}">>,
                              <<"proto_name">> => <<"${proto_name}">>,
                              <<"mountpoint">> => <<"${mountpoint}">>,
                              <<"topic">> => <<"${topic}">>,
@@ -250,7 +250,7 @@ t_form_body(_Config) ->
            #{<<"method">> => <<"post">>,
              <<"body">> => #{<<"username">> => <<"${username}">>,
                              <<"clientid">> => <<"${clientid}">>,
-                             <<"peerhost">> => <<"${host}">>,
+                             <<"peerhost">> => <<"${peerhost}">>,
                              <<"proto_name">> => <<"${proto_name}">>,
                              <<"mountpoint">> => <<"${mountpoint}">>,
                              <<"topic">> => <<"${topic}">>,

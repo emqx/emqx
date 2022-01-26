@@ -86,7 +86,7 @@ t_topic_rules(_Config) ->
 
 
 t_lookups(_Config) ->
-    ClientInfo = #{clientid => <<"clientid">>,
+    ClientInfo = #{clientid => <<"client id">>,
                    cn => <<"cn">>,
                    dn => <<"dn">>,
                    username => <<"username">>,
@@ -95,7 +95,7 @@ t_lookups(_Config) ->
                    listener => {tcp, default}
                   },
 
-    ByClientid = #{<<"mqtt_user:clientid">> =>
+    ByClientid = #{<<"mqtt_user:client id">> =>
                    #{<<"a">> => <<"all">>}},
 
     ok = setup_sample(ByClientid),

@@ -31,7 +31,7 @@
 -define(PATH, [authentication]).
 
 all() ->
-    [{group, require_seeds}, t_create_invalid, t_parse_query].
+    [{group, require_seeds}, t_create_invalid].
 
 groups() ->
     [{require_seeds, [], [t_create, t_authenticate, t_update, t_destroy, t_is_superuser]}].
@@ -251,18 +251,6 @@ test_is_superuser({Field, Value, ExpectedValue}) ->
     ?assertEqual(
        {ok, #{is_superuser => ExpectedValue}},
        emqx_access_control:authenticate(Credentials)).
-
-
-t_parse_query(_) ->
-    Query1 = ?PH_USERNAME,
-    ?assertEqual({<<"$1">>, [?PH_USERNAME]}, emqx_authn_pgsql:parse_query(Query1)),
-
-    Query2 = <<?PH_USERNAME/binary, ", ", ?PH_CLIENTID/binary>>,
-    ?assertEqual({<<"$1, $2">>, [?PH_USERNAME, ?PH_CLIENTID]},
-        emqx_authn_pgsql:parse_query(Query2)),
-
-    Query3 = <<"nomatch">>,
-    ?assertEqual({<<"nomatch">>, []}, emqx_authn_pgsql:parse_query(Query3)).
 
 %%------------------------------------------------------------------------------
 %% Helpers
