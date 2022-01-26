@@ -303,8 +303,11 @@ handle_cast(Req, Channel) ->
 
 -spec(handle_info(Info :: term(), channel())
       -> ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}).
+handle_info({subscribe, _AutoSubs}, Channel) ->
+    {ok, Channel};
+
 handle_info(Info, Channel) ->
-    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
+    ?SLOG(warning, #{msg => "unexpected_info", info => Info}),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
