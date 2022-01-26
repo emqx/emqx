@@ -1107,7 +1107,7 @@ base_listener() ->
 %% utils
 -spec(conf_get(string() | [string()], hocon:config()) -> term()).
 conf_get(Key, Conf) ->
-    V = hocon_schema:get_value(Key, Conf),
+    V = hocon_maps:get(Key, Conf),
     case is_binary(V) of
         true ->
             binary_to_list(V);
@@ -1116,7 +1116,7 @@ conf_get(Key, Conf) ->
     end.
 
 conf_get(Key, Conf, Default) ->
-    V = hocon_schema:get_value(Key, Conf, Default),
+    V = hocon_maps:get(Key, Conf, Default),
     case is_binary(V) of
         true ->
             binary_to_list(V);

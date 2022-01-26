@@ -297,14 +297,14 @@ call_jsonify(Mod, Config) ->
 check_config(ResourceType, RawConfig) when is_binary(RawConfig) ->
     case hocon:binary(RawConfig, #{format => richmap}) of
         {ok, MapConfig} ->
-            case ?SAFE_CALL(hocon_schema:check(ResourceType, MapConfig, ?HOCON_CHECK_OPTS)) of
+            case ?SAFE_CALL(hocon_tconf:check(ResourceType, MapConfig, ?HOCON_CHECK_OPTS)) of
                 {error, Reason} -> {error, Reason};
-                Config -> {ok, hocon_schema:richmap_to_map(Config)}
+                Config -> {ok, hocon_maps:ensure_plain(Config)}
             end;
         Error -> Error
     end;
 check_config(ResourceType, RawConfigTerm) ->
-    case ?SAFE_CALL(hocon_schema:check_plain(ResourceType, RawConfigTerm, ?HOCON_CHECK_OPTS)) of
+    case ?SAFE_CALL(hocon_tconf:check_plain(ResourceType, RawConfigTerm, ?HOCON_CHECK_OPTS)) of
         {error, Reason} -> {error, Reason};
         Config -> {ok, Config}
     end.

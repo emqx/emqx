@@ -81,15 +81,15 @@ validate(Schema, Data0) ->
                  , keyfile => <<"keyfile">>
                  },
     #{ssl_opts := Checked} =
-        hocon_schema:check_plain(Sc, #{<<"ssl_opts">> => Data},
-                                 #{atom_key => true}),
+        hocon_tconf:check_plain(Sc, #{<<"ssl_opts">> => Data},
+                                #{atom_key => true}),
     Checked.
 
 ciperhs_schema_test() ->
     Sc = emqx_schema:ciphers_schema(undefined),
     WSc = #{roots => [{ciphers, Sc}]},
     ?assertThrow({_, [{validation_error, _}]},
-                 hocon_schema:check_plain(WSc, #{<<"ciphers">> => <<"foo,bar">>})).
+                 hocon_tconf:check_plain(WSc, #{<<"ciphers">> => <<"foo,bar">>})).
 
 bad_tls_version_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),

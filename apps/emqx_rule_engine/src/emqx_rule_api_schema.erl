@@ -15,7 +15,7 @@
 -spec check_params(map(), tag()) -> {ok, map()} | {error, term()}.
 check_params(Params, Tag) ->
     BTag = atom_to_binary(Tag),
-    try hocon_schema:check_plain(?MODULE, #{BTag => Params},
+    try hocon_tconf:check_plain(?MODULE, #{BTag => Params},
             #{atom_key => true, nullable => true}, [BTag]) of
         #{Tag := Checked} -> {ok, Checked}
     catch

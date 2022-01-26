@@ -155,8 +155,8 @@ do_check_config(Type, Config, Module) ->
                 fun(C) ->
                         Key = list_to_binary(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME),
                         AtomKey = list_to_atom(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME),
-                        R = hocon_schema:check_plain(Module, #{Key => C},
-                                                     #{atom_key => true}),
+                        R = hocon_tconf:check_plain(Module, #{Key => C},
+                                                    #{atom_key => true}),
                         maps:get(AtomKey, R)
                 end
         end,

@@ -62,7 +62,7 @@ t_check_schema(_Config) ->
         }
     },
 
-    hocon_schema:check_plain(emqx_authn_mnesia, ?CONF(ConfigOk)),
+    hocon_tconf:check_plain(emqx_authn_mnesia, ?CONF(ConfigOk)),
 
     ConfigNotOk = #{
         <<"mechanism">> => <<"password-based">>,
@@ -76,7 +76,7 @@ t_check_schema(_Config) ->
     ?assertException(
         throw,
         {emqx_authn_mnesia, _},
-        hocon_schema:check_plain(emqx_authn_mnesia, ?CONF(ConfigNotOk))).
+        hocon_tconf:check_plain(emqx_authn_mnesia, ?CONF(ConfigNotOk))).
 
 t_create(_) ->
     Config0 = config(),

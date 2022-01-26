@@ -757,10 +757,10 @@ sort_log_levels(Levels) ->
 %% utils
 -spec(conf_get(string() | [string()], hocon:config()) -> term()).
 conf_get(Key, Conf) ->
-    ensure_list(hocon_schema:get_value(Key, Conf)).
+    ensure_list(hocon_maps:get(Key, Conf)).
 
 conf_get(Key, Conf, Default) ->
-    ensure_list(hocon_schema:get_value(Key, Conf, Default)).
+    ensure_list(hocon_maps:get(Key, Conf, Default)).
 
 filter(Opts) ->
     [{K, V} || {K, V} <- Opts, V =/= undefined].
