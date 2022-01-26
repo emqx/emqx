@@ -67,7 +67,8 @@ t_alarm(_) ->
     ok = emqx_alarm:deactivate(unknown_alarm),
     {error, not_found} = emqx_alarm:deactivate(unknown_alarm),
     ?assertEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(activated))),
-    ?assertNotEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))),
+    ?assertNotEqual({error, not_found},
+        get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))),
 
     emqx_alarm:delete_all_deactivated_alarms(),
     ?assertEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))).
@@ -78,7 +79,8 @@ t_deactivate_all_alarms(_) ->
     ?assertNotEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(activated))),
 
     emqx_alarm:deactivate_all_alarms(),
-    ?assertNotEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))),
+    ?assertNotEqual({error, not_found},
+        get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))),
 
     emqx_alarm:delete_all_deactivated_alarms(),
     ?assertEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))).
