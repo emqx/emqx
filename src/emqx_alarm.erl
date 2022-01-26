@@ -56,9 +56,9 @@
           name :: binary() | atom(),
 
           details :: map() | list(),
-    
+
           message :: binary(),
-    
+
           activate_at :: integer()
         }).
 
@@ -68,9 +68,9 @@
           name :: binary() | atom(),
 
           details :: map() | list(),
-    
+
           message :: binary(),
-    
+
           deactivate_at :: integer() | infinity
         }).
 
@@ -165,6 +165,8 @@ init([Opts]) ->
     Actions = proplists:get_value(actions, Opts),
     SizeLimit = proplists:get_value(size_limit, Opts),
     ValidityPeriod = timer:seconds(proplists:get_value(validity_period, Opts)),
+    emqx_alarm_handler:load(),
+    process_flag(trap_exit, true),
     {ok, ensure_delete_timer(#state{actions = Actions,
                                     size_limit = SizeLimit,
                                     validity_period = ValidityPeriod})}.
@@ -228,6 +230,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    emqx_alarm_handler:unload(),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

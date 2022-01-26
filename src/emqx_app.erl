@@ -38,13 +38,11 @@ start(_Type, _Args) ->
     ok = emqx_plugins:init(),
     emqx_plugins:load(),
     register(emqx, self()),
-    emqx_alarm_handler:load(),
     print_vsn(),
     {ok, Sup}.
 
 -spec(stop(State :: term()) -> term()).
 stop(_State) ->
-    emqx_alarm_handler:unload(),
     emqx_boot:is_enabled(listeners)
       andalso emqx_listeners:stop().
 
@@ -68,4 +66,3 @@ start_autocluster() ->
     ekka:callback(prepare, fun emqx:shutdown/1),
     ekka:callback(reboot,  fun emqx:reboot/0),
     ekka:autocluster(?APP).
-
