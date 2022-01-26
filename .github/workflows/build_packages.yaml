@@ -113,6 +113,8 @@ jobs:
         make ensure-rebar3
         copy rebar3 "${{ steps.install_erlang.outputs.erlpath }}\bin"
         ls "${{ steps.install_erlang.outputs.erlpath }}\bin"
+        head -2 rebar3
+        which rebar3
         rebar3 --help
         make ${{ matrix.profile }}
         mkdir -p _packages/${{ matrix.profile }}
