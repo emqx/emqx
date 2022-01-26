@@ -77,8 +77,10 @@ on_start(InstId, #{servers := Servers0,
             {auto_reconnect, reconn_interval(AutoReconn)},
             {servers, Servers}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ SslOpts),
-    {ok, #{poolname => PoolName}}.
+    case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ SslOpts) of
+        ok              -> {ok, #{poolname => PoolName}};
+        {error, Reason} -> {error, Reason}
+    end.
 
 on_stop(InstId, #{poolname := PoolName}) ->
     ?SLOG(info, #{msg => "stopping_ldap_connector",

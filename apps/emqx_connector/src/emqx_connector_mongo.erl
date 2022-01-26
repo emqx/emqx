@@ -130,8 +130,10 @@ on_start(InstId, Config = #{mongo_type := Type,
             {options, init_topology_options(maps:to_list(Topology), [])},
             {worker_options, init_worker_options(maps:to_list(NConfig), SslOpts)}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    ok = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts),
-    {ok, #{poolname => PoolName, type => Type}}.
+    case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts) of
+        ok              -> {ok, #{poolname => PoolName, type => Type}};
+        {error, Reason} -> {error, Reason}
+    end.
 
 on_stop(InstId, #{poolname := PoolName}) ->
     ?SLOG(info, #{msg => "stopping_mongodb_connector",
