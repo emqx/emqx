@@ -40,8 +40,8 @@ jobs:
           ee_vsn="$(./pkg-vsn.sh enterprise)"
           ce_base_vsn_prefix="$(echo $ce_vsn | grep -oE '^[0-9]+\.[0-9]+')"
           ee_base_vsn_prefix="$(echo $ee_vsn | grep -oE '^[0-9]+\.[0-9]+')"
-          ce_old_vsns="$(git tag -l | grep -E "v${ce_base_vsn_prefix}\.[0-9]+$" | grep -v "v${ee_vsn}" | xargs)"
-          ee_old_vsns="$(git tag -l | grep -E "e${ee_base_vsn_prefix}\.[0-9]+$" | grep -v "e${ee_vsn}" | xargs)"
+          ce_old_vsns="$(git tag -l | grep -E "v${ce_base_vsn_prefix}\.[0-9]+$" | grep -v "v${ee_vsn}" | xargs || true)"
+          ee_old_vsns="$(git tag -l | grep -E "e${ee_base_vsn_prefix}\.[0-9]+$" | grep -v "e${ee_vsn}" | xargs || true)"
           echo "::set-output name=ce_old_vsns::${ce_old_vsns}"
           echo "::set-output name=ee_old_vsns::${ee_old_vsns}"
       - name: get_all_deps
