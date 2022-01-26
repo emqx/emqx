@@ -155,7 +155,8 @@ roots(medium) ->
 roots(low) ->
     [ {"force_gc",
        sc(ref("force_gc"),
-          #{})}
+          #{ desc => "Force the MQTT connection process GC after this number of messages or bytes passed through."
+          })}
    , {"conn_congestion",
        sc(ref("conn_congestion"),
           #{})}
@@ -288,131 +289,185 @@ fields("cache") ->
 fields("mqtt") ->
     [ {"idle_timeout",
        sc(hoconsc:union([infinity, duration()]),
-          #{ default => "15s"
+          #{ default => "15s",
+             desc =>
+"""How long time the MQTT connection will be disconnected if the
+TCP connection is established but MQTT CONNECT has not been received."""
            })}
     , {"max_packet_size",
        sc(bytesize(),
-          #{ default => "1MB"
+          #{ default => "1MB",
+             desc => "Maximum MQTT packet size allowed."
            })}
     , {"max_clientid_len",
        sc(range(23, 65535),
-          #{ default => 65535
+          #{ default => 65535,
+             desc => "Maximum length of MQTT clientId allowed."
            })}
     , {"max_topic_levels",
        sc(range(1, 65535),
-          #{ default => 65535
+          #{ default => 65535,
+             desc => "Maximum topic levels allowed."
            })}
     , {"max_qos_allowed",
        sc(range(0, 2),
-          #{ default => 2
+          #{ default => 2,
+             desc => "Maximum QoS allowed."
            })}
     , {"max_topic_alias",
        sc(range(0, 65535),
-          #{ default => 65535
+          #{ default => 65535,
+             desc => "Maximum Topic Alias, 0 means no topic alias supported."
           })}
     , {"retain_available",
        sc(boolean(),
-          #{ default => true
+          #{ default => true,
+             desc => "Supports MQTT retained messages."
            })}
     , {"wildcard_subscription",
        sc(boolean(),
-          #{ default => true
+          #{ default => true,
+             desc => "Supports MQTT Wildcard Subscriptions."
            })}
     , {"shared_subscription",
        sc(boolean(),
-          #{ default => true
+          #{ default => true,
+             desc => "Supports MQTT Shared Subscriptions"
            })}
     , {"ignore_loop_deliver",
        sc(boolean(),
-          #{ default => false
+          #{ default => false,
+             desc => "Ignore loop delivery of messages for mqtt v3.1.1"
            })}
     , {"strict_mode",
        sc(boolean(),
-          #{default => false
+          #{default => false,
+            desc => "Parse the MQTT frame in strict mode"
            })
       }
     , {"response_information",
        sc(string(),
-          #{default => ""
+          #{default => "",
+            desc =>
+"""Specify the response information returned to the client
+This feature is disabled if is set to \"\"."""
            })
       }
     , {"server_keepalive",
        sc(hoconsc:union([integer(), disabled]),
-          #{ default => disabled
+          #{ default => disabled,
+             desc => "Server Keep Alive of MQTT 5.0"
            })
       }
     , {"keepalive_backoff",
        sc(float(),
-          #{default => 0.75
+          #{default => 0.75,
+            desc =>
+"""The backoff for MQTT keepalive timeout. The broker will kick a connection out
+until 'Keepalive * backoff * 2' timeout.
+There is one exception:
+If the client connects successfully and then does not send any more packets,
+it will be kicked out until 'Keepalive * backoff * 3'."""
            })
       }
     , {"max_subscriptions",
        sc(hoconsc:union([range(1, inf), infinity]),
-          #{ default => infinity
+          #{ default => infinity,
+             desc => "Maximum number of subscriptions allowed."
            })
       }
     , {"upgrade_qos",
        sc(boolean(),
-          #{ default => false
+          #{ default => false,
+             desc => "Force to upgrade QoS according to subscription."
            })
       }
     , {"max_inflight",
        sc(range(1, 65535),
-          #{ default => 32
+          #{ default => 32,
+             desc => "Maximum size of the Inflight Window storing QoS1/2 messages delivered but unacked."
            })
       }
     , {"retry_interval",
        sc(duration(),
-          #{default => "30s"
+          #{ default => "30s",
+             desc => "Retry interval for QoS1/2 message delivering."
            })
       }
     , {"max_awaiting_rel",
        sc(hoconsc:union([integer(), infinity]),
-          #{ default => 100
+          #{ default => 100,
+             desc => "Maximum QoS2 packets (Client -> Broker) awaiting PUBREL."
            })
       }
     , {"await_rel_timeout",
        sc(duration(),
-          #{ default => "300s"
+          #{ default => "300s",
+             desc => "The QoS2 messages (Client -> Broker) will be dropped if awaiting PUBREL timeout."
            })
       }
     , {"session_expiry_interval",
        sc(duration(),
-          #{ default => "2h"
+          #{ default => "2h",
+             desc => "Default session expiry interval for MQTT V3.1.1 connections."
            })
       }
     , {"max_mqueue_len",
        sc(hoconsc:union([range(0, inf), infinity]),
-          #{ default => 1000
+          #{ default => 1000,
+             desc =>
+"""Maximum queue length. Enqueued messages when persistent client disconnected,
+or inflight window is full."""
            })
       }
     , {"mqueue_priorities",
        sc(hoconsc:union([map(), disabled]),
-          #{ default => disabled
+          #{ default => disabled,
+             desc =>
+"""Topic priorities.<br>
+There's no priority table by default, hence all messages are treated equal.<br>
+Priority number [1-255]<br>
+
+**NOTE**: comma and equal signs are not allowed for priority topic names<br>
+**NOTE**: Messages for topics not in the priority table are treated as
+either highest or lowest priority depending on the configured value for mqtt.mqueue_default_priority
+<br><br>
+**Examples**:
+To configure \"topic/1\" > \"topic/2\":
+mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}"""
            })
       }
     , {"mqueue_default_priority",
        sc(hoconsc:enum([highest, lowest]),
-          #{ default => lowest
+          #{ default => lowest,
+             desc => "Default to highest priority for topics not matching priority table"
            })
       }
     , {"mqueue_store_qos0",
        sc(boolean(),
-          #{ default => true
+          #{ default => true,
+             desc => "Support enqueue QoS0 messages."
            })
       }
     , {"use_username_as_clientid",
        sc(boolean(),
-          #{ default => false
+          #{ default => false,
+             desc => "use username replace client id"
            })
       }
     , {"peer_cert_as_username",
        sc(hoconsc:enum([disabled, cn, dn, crt, pem, md5]),
-          #{ default => disabled
+          #{ default => disabled,
+             desc =>
+"""Use the CN, DN or CRT field from the client certificate as a username.
+Only works for SSL connection."""
            })}
     , {"peer_cert_as_clientid",
        sc(hoconsc:enum([disabled, cn, dn, crt, pem, md5]),
-          #{ default => disabled
+          #{ default => disabled,
+             desc =>
+"""Use the CN, DN or CRT field from the client certificate as a clientid.
+Only works for SSL connection."""
            })}
     ];
 
@@ -529,14 +584,16 @@ fields("force_gc") ->
     [ {"enable",
        sc(boolean(),
           #{ default => true
-           })}
+            })}
     , {"count",
        sc(range(0, inf),
-          #{ default => 16000
+          #{ default => 16000,
+             desc =>  "GC the process after how many messages received"
            })}
     , {"bytes",
        sc(bytesize(),
-          #{ default => "16MB"
+          #{ default => "16MB",
+             desc => "GC the process after how much bytes passed through"
            })}
     ];
 
