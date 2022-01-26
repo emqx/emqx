@@ -53,7 +53,7 @@ gateway.coap
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
+    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_gateway]),
     Config.
 

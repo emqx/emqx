@@ -34,7 +34,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Cfg) ->
-    ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
+    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_common_test_helpers:start_apps([emqx_gateway]),
     Cfg.
 

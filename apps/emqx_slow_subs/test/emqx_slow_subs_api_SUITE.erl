@@ -57,7 +57,7 @@ init_per_suite(Config) ->
     meck:expect(emqx_alarm, activate, 3, ok),
     meck:expect(emqx_alarm, deactivate, 3, ok),
 
-    ok = emqx_config:init_load(emqx_slow_subs_schema, ?CONF_DEFAULT),
+    ok = emqx_common_test_helpers:load_config(emqx_slow_subs_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_slow_subs]),
     {ok, _} = application:ensure_all_started(emqx_authn),
     Config.

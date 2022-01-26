@@ -21,9 +21,7 @@ main(_) ->
                                    false -> Acc
                                end
                        end, BaseConf, Cfgs),
-    ClusterInc = "include \"cluster-override.conf\"\n",
-    LocalInc = "include \"local-override.conf\"\n",
-    ok = file:write_file("apps/emqx_conf/etc/emqx.conf.all", [Conf, ClusterInc, LocalInc]).
+    ok = file:write_file("apps/emqx_conf/etc/emqx.conf.all", Conf).
 
 get_all_cfgs(Root) ->
     Apps = filelib:wildcard("*", Root) -- ["emqx_machine", "emqx_conf"],

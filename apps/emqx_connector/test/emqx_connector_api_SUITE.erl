@@ -97,9 +97,9 @@ init_per_suite(Config) ->
     _ = application:stop(emqx_connector),
     ok = emqx_common_test_helpers:start_apps([emqx_rule_engine, emqx_connector,
         emqx_bridge, emqx_dashboard]),
-    ok = emqx_config:init_load(emqx_connector_schema, <<"connectors: {}">>),
-    ok = emqx_config:init_load(emqx_rule_engine_schema, <<"rule_engine {rules {}}">>),
-    ok = emqx_config:init_load(emqx_bridge_schema, ?BRIDGE_CONF_DEFAULT),
+    ok = emqx_common_test_helpers:load_config(emqx_connector_schema, <<"connectors: {}">>),
+    ok = emqx_common_test_helpers:load_config(emqx_rule_engine_schema, <<"rule_engine {rules {}}">>),
+    ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, ?BRIDGE_CONF_DEFAULT),
     Config.
 
 end_per_suite(_Config) ->

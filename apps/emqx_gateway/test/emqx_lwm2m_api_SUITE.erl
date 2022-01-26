@@ -69,7 +69,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
+    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     application:load(emqx_gateway),
     emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
@@ -81,7 +81,7 @@ end_per_suite(Config) ->
     Config.
 
 init_per_testcase(_AllTestCase, Config) ->
-    ok = emqx_config:init_load(emqx_gateway_schema, ?CONF_DEFAULT),
+    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     {ok, _} = application:ensure_all_started(emqx_gateway),
     {ok, ClientUdpSock} = gen_udp:open(0, [binary, {active, false}]),
 

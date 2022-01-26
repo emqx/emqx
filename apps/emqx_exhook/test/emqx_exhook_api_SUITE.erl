@@ -50,7 +50,7 @@ init_per_suite(Config) ->
     meck:expect(emqx_alarm, deactivate, 3, ok),
 
     _ = emqx_exhook_demo_svr:start(),
-    ok = emqx_config:init_load(emqx_exhook_schema, ?CONF_DEFAULT),
+    ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_exhook]),
     [Conf] = emqx:get_config([exhook, servers]),
     [{template, Conf} | Config].

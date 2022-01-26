@@ -59,7 +59,7 @@ init_per_suite(Cfg) ->
     meck:expect(emqx_alarm, deactivate, 3, ok),
 
     _ = emqx_exhook_demo_svr:start(),
-    ok = emqx_config:init_load(emqx_exhook_schema, ?CONF_DEFAULT),
+    ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, ?CONF_DEFAULT),
     emqx_common_test_helpers:start_apps([emqx_exhook]),
     Cfg.
 

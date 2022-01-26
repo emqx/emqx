@@ -21,6 +21,7 @@
 -export([ init_load/1
         , init_load/2
         , read_override_conf/1
+        , delete_override_conf_files/0
         , check_config/2
         , fill_defaults/1
         , fill_defaults/2
@@ -252,40 +253,49 @@ init_load(SchemaMod) ->
 %% in the rear of the list overrides prior values.
 -spec init_load(module(), [string()] | binary() | hocon:config()) -> ok.
 init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
-    IncDir = include_dirs(),
-    ParseOptions = #{format => map, include_dirs => IncDir},
-    Parser = case is_binary(Conf) of
-              true -> fun hocon:binary/2;
-              false -> fun hocon:files/2
-             end,
-    case Parser(Conf, ParseOptions) of
-        {ok, RawRichConf} ->
-            init_load(SchemaMod, RawRichConf);
+    init_load(SchemaMod, parse_hocon(Conf));
+init_load(SchemaMod, RawConf) when is_map(RawConf) ->
+    ok = save_schema_mod_and_names(SchemaMod),
+    %% Merge environment varialbe overrides on top
+    RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
+    ClusterOverrides = read_override_conf(#{override_to => cluster}),
+    LocalOverrides = read_override_conf(#{override_to => local}),
+    Overrides = hocon:deep_merge(ClusterOverrides, LocalOverrides),
+    RawConfWithOverrides = hocon:deep_merge(RawConfWithEnvs, Overrides),
+    %% check configs against the schema
+    {_AppEnvs, CheckedConf} =
+        check_config(SchemaMod, RawConfWithOverrides , #{}),
+    RootNames = get_root_names(),
+    ok = save_to_config_map(maps:with(get_atom_root_names(), CheckedConf),
+                            maps:with(RootNames, RawConfWithEnvs)).
+
+parse_hocon(Conf) ->
+    IncDirs = include_dirs(),
+    case do_parse_hocon(Conf, IncDirs) of
+        {ok, HoconMap} ->
+            HoconMap;
         {error, Reason} ->
             ?SLOG(error, #{msg => "failed_to_load_hocon_conf",
                            reason => Reason,
                            pwd => file:get_cwd(),
-                           include_dirs => IncDir
+                           include_dirs => IncDirs,
+                           config_file => Conf
                           }),
             error(failed_to_load_hocon_conf)
-    end;
-init_load(SchemaMod, RawConf) when is_map(RawConf) ->
-    ok = save_schema_mod_and_names(SchemaMod),
-    %% check configs agains the schema, with environment variables applied on top
-    {_AppEnvs, CheckedConf} =
-        check_config(SchemaMod, RawConf, #{apply_override_envs => true}),
-    %% fill default values for raw config
-    RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
-    RootNames = get_root_names(),
-    ok = save_to_config_map(maps:with(get_atom_root_names(), CheckedConf),
-                            maps:with(RootNames, RawConfWithEnvs)).
+    end.
+
+do_parse_hocon(Conf, IncDirs) ->
+    Opts = #{format => map, include_dirs => IncDirs},
+    case is_binary(Conf) of
+        true -> hocon:binary(Conf, Opts);
+        false -> hocon:files(Conf, Opts)
+    end.
 
 include_dirs() ->
     [filename:join(emqx:data_dir(), "configs")].
 
 merge_envs(SchemaMod, RawConf) ->
-    Opts = #{logger => fun(_, _) -> ok end, %% everything should have been logged already when check_config
-             nullable => true, %% TODO: evil, remove, nullable should be declared in schema
+    Opts = #{nullable => true, %% TODO: evil, remove, nullable should be declared in schema
              format => map,
              apply_override_envs => true
             },
@@ -323,6 +333,23 @@ fill_defaults(SchemaMod, RawConf) ->
     hocon_schema:check_plain(SchemaMod, RawConf,
         #{nullable => true, only_fill_defaults => true},
         root_names_from_conf(RawConf)).
+
+
+%% @doc Only for test cleanups.
+%% Delete override config files.
+-spec delete_override_conf_files() -> ok.
+delete_override_conf_files() ->
+    F1 = override_conf_file(#{override_to => local}),
+    F2 = override_conf_file(#{override_to => cluster}),
+    ok = ensure_file_deleted(F1),
+    ok = ensure_file_deleted(F2).
+
+ensure_file_deleted(F) ->
+    case file:delete(F) of
+        ok -> ok;
+        {error, enoent} -> ok;
+        {error, Reason} -> error({F, Reason})
+    end.
 
 -spec read_override_conf(map()) -> raw_config().
 read_override_conf(#{} = Opts) ->

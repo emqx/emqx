@@ -42,7 +42,7 @@ retainer {
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_config:init_load(emqx_retainer_schema, ?BASE_CONF),
+    ok = emqx_common_test_helpers:load_config(emqx_retainer_schema, ?BASE_CONF),
     %% Meck emqtt
     ok = meck:new(emqtt, [non_strict, passthrough, no_history, no_link]),
     %% Start Apps

@@ -40,7 +40,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_config:init_load(emqx_slow_subs_schema, ?BASE_CONF),
+    ok = emqx_common_test_helpers:load_config(emqx_slow_subs_schema, ?BASE_CONF),
     emqx_common_test_helpers:start_apps([emqx_slow_subs]),
     Config.
 
