@@ -266,9 +266,12 @@ parse(<<?VERSION:2, Type:2, TKL:4, Class:3, Code:5, MsgId:16, Token:TKL/binary, 
 
 get_option_val(uri_query, V) ->
     KVList = lists:foldl(fun(E, Acc) ->
-                                 [Key, Val] = re:split(E, "="),
-                                 [{Key, Val} | Acc]
-
+                                 case re:split(E, "=") of
+                                     [Key, Val] ->
+                                         [{Key, Val} | Acc];
+                                     _ ->
+                                         Acc
+                                 end
                          end,
                          [],
                          V),
