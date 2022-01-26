@@ -57,28 +57,44 @@ fields("rewrite") ->
 
 
 fields("event_message") ->
-    [ { '$event/client_connected'
-      , sc( boolean()
-          , #{desc => <<"Client connected to EMQ X event">>, default => false})}
-    , { '$event/client_disconnected'
-      , sc(boolean()
-          , #{desc => <<"Client disconnected to EMQ X event">>, default => false})}
-    , { '$event/client_subscribed'
-      , sc( boolean()
-          , #{desc => <<"Client subscribe topic event">>, default => false})}
-    , { '$event/client_unsubscribed'
-      , sc( boolean()
-          , #{desc => <<"Client unsubscribe topic event">>, default => false})}
-    , { '$event/message_delivered'
-      , sc( boolean()
-          , #{desc => <<"Message delivered event">>, default => false})}
-    , { '$event/message_acked'
-      , sc( boolean()
-          , #{desc => <<"Message acked event">>, default => false})}
-    , { '$event/message_dropped'
-      , sc( boolean()
-          , #{desc => <<"Message dropped event">>, default => false})}
-    ];
+    Fields =
+        [ { client_connected
+        , sc( boolean()
+            , #{desc => <<"Enable/disable client_connected event messages">>,
+                default => false})}
+        , { client_disconnected
+        , sc(boolean()
+            , #{desc => <<"Enable/disable client_disconnected event messages">>,
+                default => false})}
+        , { client_subscribed
+        , sc( boolean()
+            , #{desc => <<"Enable/disable client_subscribed event messages">>,
+                default => false})}
+        , { client_unsubscribed
+        , sc( boolean()
+            , #{desc => <<"Enable/disable client_unsubscribed event messages">>,
+                default => false})}
+        , { message_delivered
+        , sc( boolean()
+            , #{desc => <<"Enable/disable message_delivered event messages">>,
+                default => false})}
+        , { message_acked
+        , sc( boolean()
+            , #{desc => <<"Enable/disable message_acked event messages">>,
+                default => false})}
+        , { message_dropped
+        , sc( boolean()
+            , #{desc => <<"Enable/disable message_dropped event messages">>,
+                default => false})}
+        ],
+    #{fields => Fields,
+      desc => """
+Enable/Disable system event messages.
+The messages are plublished to '$event' prefixed topics.
+For example, if `client_disconnected` is set to `true`,
+a message is published to `$event/client_connected` topic
+whenver a client is connected.
+"""};
 
 fields("topic_metrics") ->
     [{topic, sc(binary(), #{})}].

@@ -58,19 +58,19 @@ enable() ->
     lists:foreach(fun({_Topic, false}) -> ok;
                      ({Topic, true}) ->
         case Topic of
-            '$event/client_connected' ->
+            client_connected ->
                 emqx_hooks:put('client.connected', {?MODULE, on_client_connected, []});
-            '$event/client_disconnected' ->
+            client_disconnected ->
                 emqx_hooks:put('client.disconnected', {?MODULE, on_client_disconnected, []});
-            '$event/client_subscribed' ->
+            client_subscribed ->
                 emqx_hooks:put('session.subscribed', {?MODULE, on_client_subscribed, []});
-            '$event/client_unsubscribed' ->
+            client_unsubscribed ->
                 emqx_hooks:put('session.unsubscribed', {?MODULE, on_client_unsubscribed, []});
-            '$event/message_delivered' ->
+            message_delivered ->
                 emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []});
-            '$event/message_acked' ->
+            message_acked ->
                 emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []});
-            '$event/message_dropped' ->
+            message_dropped ->
                 emqx_hooks:put('message.dropped', {?MODULE, on_message_dropped, []});
             _ ->
                 ok
@@ -81,19 +81,19 @@ disable() ->
     lists:foreach(fun({_Topic, false}) -> ok;
                      ({Topic, true}) ->
         case Topic of
-            '$event/client_connected' ->
+            client_connected ->
                 emqx_hooks:del('client.connected', {?MODULE, on_client_connected});
-            '$event/client_disconnected' ->
+            client_disconnected ->
                 emqx_hooks:del('client.disconnected', {?MODULE, on_client_disconnected});
-            '$event/client_subscribed' ->
+            client_subscribed ->
                 emqx_hooks:del('session.subscribed', {?MODULE, on_client_subscribed});
-            '$event/client_unsubscribed' ->
+            client_unsubscribed ->
                 emqx_hooks:del('session.unsubscribed', {?MODULE, on_client_unsubscribed});
-            '$event/message_delivered' ->
+            message_delivered ->
                 emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered});
-            '$event/message_acked' ->
+            message_acked ->
                 emqx_hooks:del('message.acked', {?MODULE, on_message_acked});
-            '$event/message_dropped' ->
+            message_dropped ->
                 emqx_hooks:del('message.dropped', {?MODULE, on_message_dropped});
             _ ->
                 ok
