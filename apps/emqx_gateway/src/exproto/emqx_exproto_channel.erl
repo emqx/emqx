@@ -245,7 +245,8 @@ handle_timeout(_TRef, force_close, Channel = #channel{closed_reason = Reason}) -
     {shutdown, {error, {force_close, Reason}}, Channel};
 
 handle_timeout(_TRef, Msg, Channel) ->
-    ?WARN("Unexpected timeout: ~p", [Msg]),
+    ?SLOG(warning, #{msg => "unexpected_timeout_signal",
+                     signal => Msg}),
     {ok, Channel}.
 
 -spec handle_call(Req :: any(), From :: any(), channel())

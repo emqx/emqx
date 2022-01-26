@@ -105,7 +105,10 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
                 _ -> ok
             catch
                 _:Reason:Stacktrace ->
-                    ?ERROR("CMD Error:~0p, Stacktrace:~0p", [Reason, Stacktrace]),
+                    ?SLOG(error, #{msg => "ctl_command_crashed",
+                                   stacktrace => Stacktrace,
+                                   reason => Reason
+                                  }),
                     {error, Reason}
             end;
         [] ->
