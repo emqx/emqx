@@ -520,9 +520,10 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp pkg_vsn() do
+    %{edition_type: edition_type} = read_inputs()
     basedir = Path.dirname(__ENV__.file)
     script = Path.join(basedir, "pkg-vsn.sh")
-    {str_vsn, 0} = System.cmd(script, [])
+    {str_vsn, 0} = System.cmd(script, [Atom.to_string(edition_type)])
 
     String.trim(str_vsn)
   end

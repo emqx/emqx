@@ -90,7 +90,7 @@ jobs:
       working-directory: source
       run: |
         set -x
-        IMAGE=emqx/${{ matrix.profile }}:$(./pkg-vsn.sh)
+        IMAGE=emqx/${{ matrix.profile }}:$(./pkg-vsn.sh ${{ matrix.profile }})
         ./.ci/docker-compose-file/scripts/run-emqx.sh $IMAGE ${{ matrix.cluster_db_backend }}
     - name: make paho tests
       run: |
@@ -156,7 +156,7 @@ jobs:
       run: |
         make ${{ matrix.profile }}-docker
         echo "TARGET=emqx/${{ matrix.profile }}" >> $GITHUB_ENV
-        echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
+        echo "EMQX_TAG=$(./pkg-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
     - run: minikube start
     - name: run emqx on chart
       timeout-minutes: 5

@@ -47,7 +47,7 @@ jobs:
       run: |
         echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
         echo "CODE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
-        echo "EMQX_PKG_NAME=${{ matrix.profile }}-$(./pkg-vsn.sh)-otp${{ matrix.otp }}-${{ matrix.os }}-amd64" >> $GITHUB_ENV
+        echo "EMQX_PKG_NAME=${{ matrix.profile }}-$(./pkg-vsn.sh ${{ matrix.profile }})-otp${{ matrix.otp }}-${{ matrix.os }}-amd64" >> $GITHUB_ENV
     - name: Get deps git refs for cache
       id: deps-refs
       run: |

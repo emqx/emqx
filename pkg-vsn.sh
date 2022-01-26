@@ -6,12 +6,23 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "$0")"
 
+case "${1:-}" in
+    *enterprise*)
+        RELEASE_EDITION="EMQX_RELEASE_EE"
+        GIT_TAG_PREFIX="e"
+        ;;
+    *)
+        RELEASE_EDITION="EMQX_RELEASE_CE"
+        GIT_TAG_PREFIX="v"
+        ;;
+esac
+
 ## emqx_release.hrl is the single source of truth for release version
-RELEASE="$(grep -E "define.+EMQX_RELEASE" apps/emqx/include/emqx_release.hrl | cut -d '"' -f2)"
+RELEASE="$(grep -E "define.+${RELEASE_EDITION}" apps/emqx/include/emqx_release.hrl | cut -d '"' -f2)"
 
 git_exact_vsn() {
     local tag
-    tag="$(git describe --tags --match "[e|v]*" --exact 2>/dev/null)"
+    tag="$(git describe --tags --match "${GIT_TAG_PREFIX}*" --exact 2>/dev/null)"
     echo "${tag//^[v|e]/}"
 }
 

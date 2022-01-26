@@ -27,9 +27,12 @@ jobs:
       id: build_docker
       if: endsWith(github.repository, 'emqx')
       run: |
-        make emqx-docker
-        echo "::set-output name=version::$(./pkg-vsn.sh)"
-        docker save -o emqx.tar emqx/emqx:$(./pkg-vsn.sh)
+        ## TODO: make profile a matrix dimension
+        PROFILE='emqx'
+        make "${PROFILE}-docker"
+        VSN="$(./pkg-vsn.sh $PROFILE)"
+        echo "::set-output name=version::${VSN}"
+        docker save -o emqx.tar emqx/emqx:${VSN}
     - uses: actions/upload-artifact@v2
       with:
         name: emqx.tar

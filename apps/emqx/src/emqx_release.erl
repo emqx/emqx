@@ -70,10 +70,10 @@ edition(Desc) ->
 %% @doc Return the release version.
 version() ->
     case lists:keyfind(emqx_vsn, 1, ?MODULE:module_info(compile)) of
-        false ->    %% For TEST build or depedency build.
-            ?EMQX_RELEASE;
+        false -> %% For TEST build or depedency build.
+            build_vsn();
         {_, Vsn} -> %% For emqx release build
-            VsnStr = ?EMQX_RELEASE,
+            VsnStr = build_vsn(),
             case string:str(Vsn, VsnStr) of
                 1 -> ok;
                 _ ->
@@ -84,3 +84,9 @@ version() ->
             end,
             Vsn
     end.
+
+-ifdef(EMQX_ENTERPRISE).
+build_vsn() -> ?EMQX_RELEASE_EE.
+-else.
+build_vsn() -> ?EMQX_RELEASE_CE.
+-endif.
