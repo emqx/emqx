@@ -17,6 +17,7 @@
 -module(emqx_stomp_SUITE).
 
 -include_lib("emqx_stomp/include/emqx_stomp.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -323,6 +324,40 @@ t_ack(_) ->
                                                   headers = [{<<"receipt-id">>, <<"12345">>}],
                                                   body    = _}, _} = parse(Data4)
                     end).
+
+t_1000_msg_send(_) ->
+    with_connection(fun(Sock) ->
+        gen_tcp:send(Sock, serialize(<<"CONNECT">>,
+                                     [{<<"accept-version">>, ?STOMP_VER},
+                                      {<<"host">>, <<"127.0.0.1:61613">>},
+                                      {<<"login">>, <<"guest">>},
+                                      {<<"passcode">>, <<"guest">>},
+                                      {<<"heart-beat">>, <<"0,0">>}])),
+        {ok, Data} = gen_tcp:recv(Sock, 0),
+        {ok, #stomp_frame{command = <<"CONNECTED">>,
+                          headers = _,
+                          body    = _}, _} = parse(Data),
+
+        Topic = <<"/queue/foo">>,
+        SendFun = fun() ->
+            gen_tcp:send(Sock, serialize(<<"SEND">>,
+                                        [{<<"destination">>, Topic}],
+                                        <<"msgtest">>))
+        end,
+
+        RecvFun = fun() ->
+            receive
+                {deliver, Topic, _Msg}->
+                    ok
+            after 100 ->
+                      ?assert(false, "waiting message timeout")
+            end
+        end,
+
+        emqx:subscribe(Topic),
+        lists:foreach(fun(_) -> SendFun() end, lists:seq(1, 1000)),
+        lists:foreach(fun(_) -> RecvFun() end, lists:seq(1, 1000))
+    end).
 
 with_connection(DoFun) ->
     {ok, Sock} = gen_tcp:connect({127, 0, 0, 1},
