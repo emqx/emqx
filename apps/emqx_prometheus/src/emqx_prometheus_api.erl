@@ -116,10 +116,8 @@ prometheus_data_schema() ->
     #{ description => <<"Get Prometheus Data">>
      , content =>
            #{ 'application/json' =>
-                  #{ schema => #{type => object}
-                   , description => <<"Prometheus Data in json">>}
+                  #{schema => #{type => object}}
             , 'text/plain' =>
-                  #{ schema => #{type => string}
-                   , description => <<"Prometheus Data in text/plain">>}
+                  #{schema => #{type => string}}
             }
      }.
