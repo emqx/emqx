@@ -37,8 +37,10 @@ end_per_suite(_Config) ->
     ok.
 
 t_max_supported_version(_Config) ->
-    ?assertMatch(3, emqx_bpapi:supported_version('i-dont-exist2@localhost', api2)),
-    ?assertMatch(2, emqx_bpapi:supported_version(api2)).
+    ?assertMatch(3, emqx_bpapi:supported_version('fake-node2@localhost', api2)),
+    ?assertMatch(2, emqx_bpapi:supported_version(api2)),
+    ?assertError(_, emqx_bpapi:supported_version('fake-node2@localhost', nonexistent_api)),
+    ?assertError(_, emqx_bpapi:supported_version(nonexistent_api)).
 
 t_announce(Config) ->
     meck:new(emqx_bpapi, [passthrough, no_history]),
@@ -52,11 +54,11 @@ t_announce(Config) ->
     ?assertMatch(2, emqx_bpapi:supported_version(api1)).
 
 fake_records() ->
-    [ #?TAB{key = {'i-dont-exist@localhost', api1}, version = 2}
-    , #?TAB{key = {'i-dont-exist2@localhost', api1}, version = 2}
+    [ #?TAB{key = {'fake-node@localhost', api1}, version = 2}
+    , #?TAB{key = {'fake-node2@localhost', api1}, version = 2}
     , #?TAB{key = {?multicall, api1}, version = 2}
 
-    , #?TAB{key = {'i-dont-exist@localhost', api2}, version = 2}
-    , #?TAB{key = {'i-dont-exist2@localhost', api2}, version = 3}
+    , #?TAB{key = {'fake-node@localhost', api2}, version = 2}
+    , #?TAB{key = {'fake-node2@localhost', api2}, version = 3}
     , #?TAB{key = {?multicall, api2}, version = 2}
     ].

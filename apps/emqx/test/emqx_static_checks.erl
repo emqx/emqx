@@ -33,13 +33,19 @@ end_per_suite(_Config) ->
             "https://github.com/emqx/emqx/blob/master/apps/emqx/src/bpapi/README.md", []).
 
 t_run_check(_) ->
-    {ok, OldData} = file:consult(emqx_bpapi_static_checks:versions_file()),
-    ?assert(emqx_bpapi_static_checks:run()),
-    {ok, NewData} = file:consult(emqx_bpapi_static_checks:versions_file()),
-    OldData =:= NewData orelse
-        begin
-            ?CRITICAL("BPAPI versions were changed, but not committed to the repo.\n"
-                      "Run 'make && make static_checks' and then add the changed "
-                      "'bpapi.versions' files to the commit.", []),
-            error(version_mismatch)
-        end.
+    try
+        {ok, OldData} = file:consult(emqx_bpapi_static_checks:versions_file()),
+        ?assert(emqx_bpapi_static_checks:run()),
+        {ok, NewData} = file:consult(emqx_bpapi_static_checks:versions_file()),
+        OldData =:= NewData orelse
+            begin
+                ?CRITICAL("BPAPI versions were changed, but not committed to the repo.\n"
+                          "Run 'make && make static_checks' and then add the changed "
+                          "'bpapi.versions' files to the commit.", []),
+                error(version_mismatch)
+            end
+    catch
+        EC:Err:Stack ->
+            ?CRITICAL("Test suite failed: ~p:~p~nStack:~p", [EC, Err, Stack]),
+            error(tc_failed)
+    end.
