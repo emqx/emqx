@@ -39,7 +39,7 @@
 -spec(init(Interval :: non_neg_integer()) -> keepalive()).
 init(Interval) when Interval > 0 ->
     #keepalive{interval = Interval,
-               statval  = 0,
+               statval  = emqx_pd:get_counter(incoming_bytes),
                repeat   = 0}.
 
 %% @doc Get Info of the keepalive.

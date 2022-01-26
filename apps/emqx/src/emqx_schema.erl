@@ -364,10 +364,7 @@ This feature is disabled if is set to \"\"."""
           #{default => 0.75,
             desc =>
 """The backoff for MQTT keepalive timeout. The broker will kick a connection out
-until 'Keepalive * backoff * 2' timeout.
-There is one exception:
-If the client connects successfully and then does not send any more packets,
-it will be kicked out until 'Keepalive * backoff * 3'."""
+until 'Keepalive * backoff * 2' timeout."""
            })
       }
     , {"max_subscriptions",
