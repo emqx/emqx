@@ -89,7 +89,7 @@ project_app_dirs() ->
 
 plugins(HasElixir) ->
     [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {tag, "2.0.0"}}}
-    , {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0"}}}
+    , {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.4"}}}
       %% emqx main project does not require port-compiler
       %% pin at root level for deterministic
     , {pc, {git, "https://github.com/emqx/port_compiler.git", {tag, "v1.11.1"}}}
@@ -106,7 +106,7 @@ test_plugins() ->
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.9"}}}
+    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.11"}}}
     , meck
     ].
 

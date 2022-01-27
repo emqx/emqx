@@ -47,6 +47,12 @@ t_restart_listeners(_) ->
     ok = emqx_listeners:restart(),
     ok = emqx_listeners:stop().
 
+t_wss_conn(_) ->
+    ok = emqx_listeners:start(),
+    {ok, Socket} = ssl:connect({127, 0, 0, 1}, 8084, [{verify, verify_none}], 1000),
+    ok = ssl:close(Socket),
+    ok = emqx_listeners:stop().
+
 render_config_file() ->
     Path = local_path(["..", "..", "..", "..", "etc", "emqx.conf"]),
     {ok, Temp} = file:read_file(Path),
@@ -91,4 +97,3 @@ get_base_dir(Module) ->
 
 get_base_dir() ->
     get_base_dir(?MODULE).
-    
