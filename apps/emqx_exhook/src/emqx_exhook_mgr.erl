@@ -331,8 +331,10 @@ handle_info({timeout, _Ref, {reload, Name}}, State) ->
         {error, not_found} ->
             {noreply, NState};
         {error, Reason} ->
-            ?LOG(warning, "Failed to reload exhook callback server \"~ts\", "
-                 "Reason: ~0p", [Name, Reason]),
+            ?SLOG(warning,
+                  #{msg => "failed_to_reload_exhook_callback_server",
+                    reason => Reason,
+                    name => Name}),
             {noreply, ensure_reload_timer(NState)}
     end;
 
@@ -382,8 +384,8 @@ do_load_server(Name, State = #{orders := Orders}) ->
                     {ok, ServerState} ->
                         save(Name, ServerState),
                         update_order(Orders),
-                        ?LOG(info, "Load exhook callback server "
-                             "\"~ts\" successfully!", [Name]),
+                        ?SLOG(info, #{msg => "load_exhook_callback_server_ok",
+                                      name => Name}),
                     {ok, State3#{running := maps:put(Name, Options, Running)}};
                 {error, Reason} ->
                     {{error, Reason}, State};

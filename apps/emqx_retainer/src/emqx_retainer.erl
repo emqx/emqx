@@ -60,6 +60,7 @@
 
 -define(DEF_MAX_PAYLOAD_SIZE, (1024 * 1024)).
 -define(DEF_EXPIRY_INTERVAL, 0).
+-define(MAX_PAYLOAD_SIZE_CONFIG_PATH, [retainer, max_payload_size]).
 
 -define(CAST(Msg), gen_server:cast(?MODULE, Msg)).
 
@@ -293,9 +294,9 @@ new_state() ->
 new_context(Id) ->
     #{context_id => Id}.
 
-is_too_big(Size) ->
-    Limit = emqx_conf:get([retainer, max_payload_size], ?DEF_MAX_PAYLOAD_SIZE),
-    Limit > 0 andalso (Size > Limit).
+
+payload_size_limit() ->
+    emqx_conf:get(?MAX_PAYLOAD_SIZE_CONFIG_PATH, ?DEF_MAX_PAYLOAD_SIZE).
 
 %% @private
 dispatch(Context, Topic) ->
@@ -309,13 +310,17 @@ delete_message(Context, Topic) ->
 
 -spec store_retained(context(), message()) -> ok.
 store_retained(Context, #message{topic = Topic, payload = Payload} = Msg) ->
-    case is_too_big(erlang:byte_size(Payload)) of
-        false ->
-            Mod = get_backend_module(),
-            Mod:store_retained(Context, Msg);
+    Size = iolist_size(Payload),
+    case payload_size_limit() of
+        Limit when Limit > 0 andalso Limit < Size ->
+            ?SLOG(error, #{msg => "retain_failed_for_payload_size_exceeded_limit",
+                           topic => Topic,
+                           config => emqx_hocon:format_path(?MAX_PAYLOAD_SIZE_CONFIG_PATH),
+                           size => Size,
+                           limit => Limit});
         _ ->
-            ?ERROR("Cannot retain message(topic=~ts, payload_size=~p) for payload is too big!",
-                   [Topic, iolist_size(Payload)])
+            Mod = get_backend_module(),
+            Mod:store_retained(Context, Msg)
     end.
 
 -spec clean(context()) -> ok.

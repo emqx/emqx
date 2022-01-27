@@ -62,3 +62,4 @@ erlang_ls.config
 .envrc
 # elixir
 mix.lock
+apps/emqx/test/emqx_static_checks_data/

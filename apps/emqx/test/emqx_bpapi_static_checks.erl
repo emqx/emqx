@@ -18,8 +18,6 @@
 
 -export([run/0, dump/1, dump/0, check_compat/1, versions_file/0]).
 
--include_lib("emqx/include/logger.hrl").
-
 %% Using an undocumented API here :(
 -include_lib("dialyzer/src/dialyzer.hrl").
 
@@ -75,14 +73,14 @@ run() ->
             Dumps = filelib:wildcard(dumps_dir() ++ "/*.bpapi"),
             case Dumps of
                 [] ->
-                    ?ERROR("No BPAPI dumps are found in ~s, abort", [dumps_dir()]),
+                    logger:error("No BPAPI dumps are found in ~s, abort", [dumps_dir()]),
                     false;
                 _ ->
-                    ?NOTICE("Running API compatibility checks for ~p", [Dumps]),
+                    logger:notice("Running API compatibility checks for ~p", [Dumps]),
                     check_compat(Dumps)
             end;
         false ->
-            ?CRITICAL("Backplane API violations found on the current branch."),
+            logger:critical("Backplane API violations found on the current branch.", []),
             false
     end.
 
@@ -116,12 +114,12 @@ check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api 
                           ok;
                       undefined ->
                           setnok(),
-                          ?ERROR("API ~p v~p was removed in release ~p without being deprecated.",
-                                 [API, Version, Rel2]);
+                          logger:error("API ~p v~p was removed in release ~p without being deprecated.",
+                                       [API, Version, Rel2]);
                       _Val ->
                           setnok(),
-                          ?ERROR("API ~p v~p was changed between ~p and ~p. Backplane API should be immutable.",
-                                 [API, Version, Rel1, Rel2])
+                          logger:error("API ~p v~p was changed between ~p and ~p. Backplane API should be immutable.",
+                                       [API, Version, Rel1, Rel2])
                   end
           end,
           APIs1),
@@ -145,7 +143,8 @@ typecheck_apis( #{release := CallerRelease, api := CallerAPIs, signatures := Cal
                                   ok;
                               TypeErrors ->
                                   setnok(),
-                                  [?ERROR("Incompatible RPC call: "
+                                  [logger:error(
+                                         "Incompatible RPC call: "
                                           "type of the parameter ~p of RPC call ~s on release ~p "
                                           "is not a subtype of the target function ~s on release ~p.~n"
                                           "Caller type: ~s~nCallee type: ~s~n",
@@ -211,21 +210,21 @@ dump(Opts) ->
     erase(bpapi_ok).
 
 prepare(#{reldir := RelDir, plt := PLT}) ->
-    ?INFO("Starting xref...", []),
+    logger:info("Starting xref...", []),
     xref:start(?XREF),
     filelib:wildcard(RelDir ++ "/*/ebin/") =:= [] andalso
         error("No applications found in the release directory. Wrong directory?"),
     xref:set_default(?XREF, [{warnings, false}]),
     xref:add_release(?XREF, RelDir),
     %% Now to the dialyzer stuff:
-    ?INFO("Loading PLT...", []),
+    logger:info("Loading PLT...", []),
     dialyzer_plt:from_file(PLT).
 
 find_remote_calls(_Opts) ->
     Query = "XC | (A - [" ?IGNORED_APPS "]:App - [" ?IGNORED_MODULES "]:Mod - [" ?EXEMPTIONS "])
                || (([" ?RPC_MODULES "] : Mod + [" ?RPC_FUNCTIONS "]) - [" ?IGNORED_RPC_CALLS "])",
     {ok, Calls} = xref:q(?XREF, Query),
-    ?INFO("Calls to RPC modules ~p", [Calls]),
+    logger:info("Calls to RPC modules ~p", [Calls]),
     {Callers, _Callees} = lists:unzip(Calls),
     Callers.
 
@@ -235,10 +234,9 @@ warn_nonbpapi_rpcs([]) ->
 warn_nonbpapi_rpcs(L) ->
     setnok(),
     lists:foreach(fun({M, F, A}) ->
-                          ?ERROR("~p:~p/~p does a remote call outside of a dedicated "
-                                 "backplane API module. "
-                                 "It may break during rolling cluster upgrade",
-                                 [M, F, A])
+                          logger:error("~p:~p/~p does a remote call outside of a dedicated "
+                                       "backplane API module. "
+                                       "It may break during rolling cluster upgrade", [M, F, A])
                   end,
                   L).
 
@@ -258,7 +256,7 @@ dump_api(Term = #{api := _, signatures := _, release := Release}) ->
 -spec dump_versions(api_dump()) -> ok.
 dump_versions(APIs) ->
     Filename = versions_file(),
-    ?NOTICE("Dumping API versions to ~p", [Filename]),
+    logger:notice("Dumping API versions to ~p", [Filename]),
     ok = filelib:ensure_dir(Filename),
     {ok, FD} = file:open(Filename, [write]),
     lists:foreach(fun(API) ->
@@ -308,8 +306,9 @@ enrich({From0, To0}, {Acc0, PLT}) ->
             {Acc, PLT};
         {{value, _}, none} ->
             setnok(),
-            ?CRITICAL("Backplane API function ~s calls a missing remote function ~s",
-                      [format_call(From0), format_call(To0)]),
+            logger:critical(
+                  "Backplane API function ~s calls a missing remote function ~s",
+                  [format_call(From0), format_call(To0)]),
             error(missing_target)
      end.
 
