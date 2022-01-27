@@ -157,7 +157,7 @@ roots(low) ->
        sc(ref("force_gc"),
           #{ desc =>
 """Force the MQTT connection process garbage collection after
-this number of messages or bytes passed through."""
+this number of messages or bytes have passed through."""
           })}
    , {"conn_congestion",
        sc(ref("conn_congestion"),
@@ -334,17 +334,17 @@ message within this interval."""
     , {"shared_subscription",
        sc(boolean(),
           #{ default => true,
-             desc => "Support MQTT Shared Subscriptions"
+             desc => "Support MQTT Shared Subscriptions."
            })}
     , {"ignore_loop_deliver",
        sc(boolean(),
           #{ default => false,
-             desc => "Ignore loop delivery of messages for mqtt v3.1.1"
+             desc => "Ignore loop delivery of messages for mqtt v3.1.1."
            })}
     , {"strict_mode",
        sc(boolean(),
           #{default => false,
-            desc => "Parse the MQTT frame in strict mode"
+            desc => "Parse the MQTT frame in strict mode."
            })
       }
     , {"response_information",
@@ -358,7 +358,10 @@ This feature is disabled if is set to \"\"."""
     , {"server_keepalive",
        sc(hoconsc:union([integer(), disabled]),
           #{ default => disabled,
-             desc => "Server Keep Alive of MQTT 5.0"
+             desc =>
+"""Server Keep Alive of MQTT 5.0.
+If the Server returns a Server Keep Alive on the CONNACK packet,
+the Client MUST use that value instead of the value it sent as the Keep Alive."""
            })
       }
     , {"keepalive_backoff",
@@ -378,7 +381,7 @@ after idling for 'Keepalive * backoff * 2'."""
     , {"upgrade_qos",
        sc(boolean(),
           #{ default => false,
-             desc => "Force to upgrade QoS according to subscription."
+             desc => "Force upgrade of QoS level according to subscription."
            })
       }
     , {"max_inflight",
@@ -427,9 +430,9 @@ or inflight window is full."""
 There's no priority table by default, hence all messages are treated equal.<br>
 Priority number [1-255]<br>
 
-**NOTE**: Comma and equal signs are not allowed for priority topic names<br>
+**NOTE**: Comma and equal signs are not allowed for priority topic names.<br>
 **NOTE**: Messages for topics not in the priority table are treated as
-either highest or lowest priority depending on the configured value for mqtt.mqueue_default_priority
+either highest or lowest priority depending on the configured value for mqtt.mqueue_default_priority.
 <br><br>
 **Examples**:
 To configure \"topic/1\" > \"topic/2\":
@@ -439,7 +442,7 @@ mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}"""
     , {"mqueue_default_priority",
        sc(hoconsc:enum([highest, lowest]),
           #{ default => lowest,
-             desc => "Default to highest priority for topics not matching priority table"
+             desc => "Default to highest priority for topics not matching priority table."
            })
       }
     , {"mqueue_store_qos0",
@@ -451,7 +454,7 @@ mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}"""
     , {"use_username_as_clientid",
        sc(boolean(),
           #{ default => false,
-             desc => "Replace client id with the username"
+             desc => "Replace client id with the username."
            })
       }
     , {"peer_cert_as_username",
@@ -587,12 +590,12 @@ fields("force_gc") ->
     , {"count",
        sc(range(0, inf),
           #{ default => 16000,
-             desc =>  "GC the process after this many received messages"
+             desc =>  "GC the process after this many received messages."
            })}
     , {"bytes",
        sc(bytesize(),
           #{ default => "16MB",
-             desc => "GC the process after how much bytes passed through"
+             desc => "GC the process after specified number of bytes have passed through."
            })}
     ];
 

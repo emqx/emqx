@@ -1670,7 +1670,8 @@ ensure_keepalive_timer(0, Channel) -> Channel;
 ensure_keepalive_timer(disabled, Channel) -> Channel;
 ensure_keepalive_timer(Interval, Channel = #channel{clientinfo = #{zone := Zone}}) ->
     Backoff = get_mqtt_conf(Zone, keepalive_backoff),
-    Keepalive = emqx_keepalive:init(round(timer:seconds(Interval) * Backoff)),
+    RecvOct = emqx_pd:get_counter(incoming_bytes),
+    Keepalive = emqx_keepalive:init(RecvOct, round(timer:seconds(Interval) * Backoff)),
     ensure_timer(alive_timer, Channel#channel{keepalive = Keepalive}).
 
 clear_keepalive(Channel = #channel{timers = Timers}) ->

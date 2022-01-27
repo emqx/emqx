@@ -17,6 +17,7 @@
 -module(emqx_keepalive).
 
 -export([ init/1
+        , init/2
         , info/1
         , info/2
         , check/2
@@ -37,9 +38,13 @@
 
 %% @doc Init keepalive.
 -spec(init(Interval :: non_neg_integer()) -> keepalive()).
-init(Interval) when Interval > 0 ->
+init(Interval) -> init(0, Interval).
+
+%% @doc Init keepalive.
+-spec(init(StatVal :: non_neg_integer(), Interval :: non_neg_integer()) -> keepalive()).
+init(StatVal, Interval) when Interval > 0 ->
     #keepalive{interval = Interval,
-               statval  = emqx_pd:get_counter(incoming_bytes),
+               statval  = StatVal,
                repeat   = 0}.
 
 %% @doc Get Info of the keepalive.
