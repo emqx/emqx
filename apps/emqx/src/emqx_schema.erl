@@ -155,7 +155,9 @@ roots(medium) ->
 roots(low) ->
     [ {"force_gc",
        sc(ref("force_gc"),
-          #{ desc => "Force the MQTT connection process GC after this number of messages or bytes passed through."
+          #{ desc =>
+"""Force the MQTT connection process garbage collection after
+this number of messages or bytes passed through."""
           })}
    , {"conn_congestion",
        sc(ref("conn_congestion"),
@@ -291,8 +293,8 @@ fields("mqtt") ->
        sc(hoconsc:union([infinity, duration()]),
           #{ default => "15s",
              desc =>
-"""How long time the MQTT connection will be disconnected if the
-TCP connection is established but MQTT CONNECT has not been received."""
+"""Close TCP connections from the clients that have not sent MQTT CONNECT
+message within this interval."""
            })}
     , {"max_packet_size",
        sc(bytesize(),
@@ -302,7 +304,7 @@ TCP connection is established but MQTT CONNECT has not been received."""
     , {"max_clientid_len",
        sc(range(23, 65535),
           #{ default => 65535,
-             desc => "Maximum length of MQTT clientId allowed."
+             desc => "Maximum allowed length of MQTT clientId."
            })}
     , {"max_topic_levels",
        sc(range(1, 65535),
@@ -322,17 +324,17 @@ TCP connection is established but MQTT CONNECT has not been received."""
     , {"retain_available",
        sc(boolean(),
           #{ default => true,
-             desc => "Supports MQTT retained messages."
+             desc => "Support MQTT retained messages."
            })}
     , {"wildcard_subscription",
        sc(boolean(),
           #{ default => true,
-             desc => "Supports MQTT Wildcard Subscriptions."
+             desc => "Support MQTT Wildcard Subscriptions."
            })}
     , {"shared_subscription",
        sc(boolean(),
           #{ default => true,
-             desc => "Supports MQTT Shared Subscriptions"
+             desc => "Support MQTT Shared Subscriptions"
            })}
     , {"ignore_loop_deliver",
        sc(boolean(),
@@ -363,8 +365,8 @@ This feature is disabled if is set to \"\"."""
        sc(float(),
           #{default => 0.75,
             desc =>
-"""The backoff for MQTT keepalive timeout. The broker will kick a connection out
-until 'Keepalive * backoff * 2' timeout."""
+"""The backoff for MQTT keepalive timeout. The broker will close the connection
+after idling for 'Keepalive * backoff * 2'."""
            })
       }
     , {"max_subscriptions",
@@ -425,7 +427,7 @@ or inflight window is full."""
 There's no priority table by default, hence all messages are treated equal.<br>
 Priority number [1-255]<br>
 
-**NOTE**: comma and equal signs are not allowed for priority topic names<br>
+**NOTE**: Comma and equal signs are not allowed for priority topic names<br>
 **NOTE**: Messages for topics not in the priority table are treated as
 either highest or lowest priority depending on the configured value for mqtt.mqueue_default_priority
 <br><br>
@@ -449,7 +451,7 @@ mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}"""
     , {"use_username_as_clientid",
        sc(boolean(),
           #{ default => false,
-             desc => "use username replace client id"
+             desc => "Replace client id with the username"
            })
       }
     , {"peer_cert_as_username",
@@ -457,14 +459,14 @@ mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}"""
           #{ default => disabled,
              desc =>
 """Use the CN, DN or CRT field from the client certificate as a username.
-Only works for SSL connection."""
+Only works for the TLS connection."""
            })}
     , {"peer_cert_as_clientid",
        sc(hoconsc:enum([disabled, cn, dn, crt, pem, md5]),
           #{ default => disabled,
              desc =>
 """Use the CN, DN or CRT field from the client certificate as a clientid.
-Only works for SSL connection."""
+Only works for the TLS connection."""
            })}
     ];
 
@@ -585,7 +587,7 @@ fields("force_gc") ->
     , {"count",
        sc(range(0, inf),
           #{ default => 16000,
-             desc =>  "GC the process after how many messages received"
+             desc =>  "GC the process after this many received messages"
            })}
     , {"bytes",
        sc(bytesize(),
@@ -1068,7 +1070,7 @@ fields("alarm") ->
              example => [log, publish],
              desc =>
              """The actions triggered when the alarm is activated.<\br>
-Currently supports two actions, 'log' and 'publish'.
+Currently support two actions, 'log' and 'publish'.
 'log' is to write the alarm to log (console or file).
 'publish' is to publish the alarm as an MQTT message to the system topics:
 <code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/activate</code> and
