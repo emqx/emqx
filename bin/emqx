@@ -306,6 +306,39 @@ bootstrapd() {
     fi
 }
 
+# check if a PID is down
+is_down() {
+    PID="$1"
+    if ps -p "$PID" >/dev/null; then
+        # still around
+        # shellcheck disable=SC2009 # this grep pattern is not a part of the progra names
+        if ps -p "$PID" | grep -q 'defunct'; then
+            return 0
+        fi
+        return 1
+    fi
+    # it's gone
+    return 0
+}
+
+wait_for() {
+    local WAIT_TIME
+    local CMD
+    WAIT_TIME="$1"
+    shift
+    CMD="$*"
+    while true; do
+        if $CMD >/dev/null 2>&1; then
+            return 0
+        fi
+        if [ "$WAIT_TIME" -le 0 ]; then
+            return 1
+        fi
+        WAIT_TIME=$((WAIT_TIME - 1))
+        sleep 1
+    done
+}
+
 # Use $CWD/etc/sys.config if exists
 if [ -z "$RELX_CONFIG_PATH" ]; then
     if [ -f "$RUNNER_ETC_DIR/sys.config" ]; then
@@ -487,9 +520,18 @@ case "$1" in
         if ! relx_nodetool "stop"; then
             exit 1
         fi
-        while kill -s 0 "$PID" 2>/dev/null; do
-            sleep 1
-        done
+        WAIT_TIME="${EMQX_WAIT_FOR_STOP:-120}"
+        if ! wait_for "$WAIT_TIME" 'is_down' "$PID"; then
+            msg="dangling after ${WAIT_TIME} seconds"
+            # also log to syslog
+            logger -t "${REL_NAME}[${PID}]" "STOP: $msg"
+            # log to user console
+            echoerr "Stop failed, $msg"
+            echo "ERROR: $PID is still around"
+            ps -p "$PID"
+            exit 1
+        fi
+        logger -t "${REL_NAME}[${PID}]" "STOP: OK"
         ;;
 
     restart|reboot)
