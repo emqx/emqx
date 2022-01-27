@@ -233,7 +233,7 @@ t_subscribe_case03(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
-%% In this case We use predefined topic name to register and subcribe,
+%% In this case We use predefined topic name to register and subscribe,
 %% and expect to receive the corresponding predefined topic id but not a new
 %% generated topic id from broker. We design this case to illustrate
 %% emqx_sn_gateway's compatibility of dealing with predefined and normal

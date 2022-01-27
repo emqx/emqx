@@ -51,12 +51,12 @@
           clientinfo   :: emqx_types:clientinfo(),
           %% Session
           session      :: emqx_lwm2m_session:session() | undefined,
-          %% Channl State
+          %% Channel State
           %% TODO: is there need
           conn_state   :: conn_state(),
           %% Timer
           timers       :: #{atom() => disable | undefined | reference()},
-          %% FIXME: don't store anonymouse func
+          %% FIXME: don't store anonymous func
           with_context :: function()
          }).
 
@@ -215,7 +215,7 @@ handle_call({subscribe, Topic, SubOpts}, _From,
 
     _ = run_hooks(Ctx, 'session.subscribed',
                   [ClientInfo, MountedTopic, NSubOpts]),
-    %% modifty session state
+    %% modify session state
     Subs = emqx_lwm2m_session:info(subscriptions, Session),
     NSubs = maps:put(MountedTopic, NSubOpts, Subs),
     NSession = emqx_lwm2m_session:set_subscriptions(NSubs, Session),
@@ -231,7 +231,7 @@ handle_call({unsubscribe, Topic}, _From,
     ok = emqx_broker:unsubscribe(MountedTopic),
     _ = run_hooks(Ctx, 'session.unsubscribe',
                   [ClientInfo, MountedTopic, #{}]),
-    %% modifty session state
+    %% modify session state
     Subs = emqx_lwm2m_session:info(subscriptions, Session),
     NSubs = maps:remove(MountedTopic, Subs),
     NSession = emqx_lwm2m_session:set_subscriptions(NSubs, Session),

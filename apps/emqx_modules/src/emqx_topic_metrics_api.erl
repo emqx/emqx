@@ -111,7 +111,7 @@ schema("/mqtt/topic_metrics/:topic") ->
 fields(reset) ->
     [ {topic
       , mk( binary()
-          , #{ desc => <<"Topic Name. If this paramter is not present, all created topic metrics will be reseted">>
+          , #{ desc => <<"Topic Name. If this parameter is not present, all created topic metrics will be reset">>
              , example => <<"testtopic/1">>
              , nullable => true})}
     , {action
@@ -135,7 +135,7 @@ fields(topic_metrics) ->
              , example => <<"2022-01-14T21:48:47+08:00">>})},
       { reset_time
       , mk( emqx_schema:rfc3339_system_time()
-          , #{ desc => <<"Topic Metrics reset date time, in rfc3339. Nullable if never reseted">>
+          , #{ desc => <<"Topic Metrics reset date time, in rfc3339. Nullable if never reset">>
              , nullable => true
              , example => <<"2022-01-14T21:48:47+08:00">>})},
       { metrics

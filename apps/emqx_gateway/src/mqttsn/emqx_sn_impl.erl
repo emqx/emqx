@@ -89,7 +89,7 @@ on_gateway_load(_Gateway = #{ name := GwName,
             {ok, ListenerPids, _GwState = #{ctx => Ctx}};
         {error, {Reason, Listener}} ->
             throw({badconf, #{ key => listeners
-                             , vallue => Listener
+                             , value => Listener
                              , reason => Reason
                              }})
     end.

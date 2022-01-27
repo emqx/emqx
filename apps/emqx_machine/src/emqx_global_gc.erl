@@ -79,7 +79,7 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%--------------------------------------------------------------------
-%% Internel function
+%% Internal function
 %%--------------------------------------------------------------------
 
 ensure_timer(State) ->

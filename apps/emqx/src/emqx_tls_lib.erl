@@ -310,7 +310,7 @@ is_valid_string(Binary) when is_binary(Binary) ->
         _Otherwise -> false
     end.
 
-%% Check if it is a valid PEM formated key.
+%% Check if it is a valid PEM formatted key.
 is_pem(MaybePem) ->
     try public_key:pem_decode(MaybePem) =/= []
     catch _ : _ -> false

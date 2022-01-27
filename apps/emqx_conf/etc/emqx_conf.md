@@ -58,7 +58,7 @@ There are 4 complex data types in EMQ X's HOCON config:
 
 1. Struct: Named using an unquoted string, followed by a pre-defined list of fields,
    fields can not start with a number, and are only allowed to use
-   lowercase letters and underscores as word separater.
+   lowercase letters and underscores as word separator.
 1. Map: Map is like Struct, however the fields are not pre-defined.
    1-based index number can also be used as map keys for an alternative
    representation of an Array.
@@ -67,7 +67,7 @@ There are 4 complex data types in EMQ X's HOCON config:
 
 ### Primitive Data Types
 
-Complex types define data 'boxes' wich may contain other complex data
+Complex types define data 'boxes' which may contain other complex data
 or primitive values.
 There are quite some different primitive types, to name a fiew:
 
@@ -82,7 +82,7 @@ There are quite some different primitive types, to name a fiew:
 * ...
 
 The primitive types are mostly self-describing, some are built-in, such
-as `atom()`, some are defiend in EMQ X modules, such as `emqx_schema:duration()`.
+as `atom()`, some are defined in EMQ X modules, such as `emqx_schema:duration()`.
 
 ### Config Paths
 
@@ -133,14 +133,14 @@ because the field name is `enable`, not `enabled`.
 
 ### Config overlay rules
 
-HOCON objects are overlayed, in general:
+HOCON objects are overlaid, in general:
 
 - Within one file, objects defined 'later' recursively override objects defined 'earlier'
 - When layered, 'later' (hihger lalyer) objects override objects defined 'earlier' (lower layer)
 
 Below are more detailed rules.
 
-#### Struct Fileds
+#### Struct Fields
 
 Later config values overwrites earlier values.
 For example, in below config, the last line `debug` overwrites `errro` for
@@ -171,7 +171,7 @@ zone {
 }
 
 ## The maximum packet size can be defined as above,
-## then overriden as below
+## then overridden as below
 
 zone.zone1.mqtt.max_packet_size = 10M
 ```

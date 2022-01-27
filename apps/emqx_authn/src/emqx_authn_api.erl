@@ -974,7 +974,7 @@ authenticator_examples() ->
             }
         },
         'password-based:http' => #{
-            summary => <<"Password-based authentication througth external HTTP API">>,
+            summary => <<"Password-based authentication through external HTTP API">>,
             value => #{
                 mechanism => <<"password-based">>,
                 backend => <<"http">>,

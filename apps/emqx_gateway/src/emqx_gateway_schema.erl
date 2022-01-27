@@ -186,7 +186,7 @@ received on an observed topic.
 The type of delivered coap message can be set to:<br>
 1. non: Non-confirmable;<br>
 2. con: Confirmable;<br>
-3. qos: Mapping from QoS type of recevied message, QoS0 -> non, QoS1,2 -> con"
+3. qos: Mapping from QoS type of received message, QoS0 -> non, QoS1,2 -> con"
            })}
     , {subscribe_qos,
        sc(hoconsc:union([qos0, qos1, qos2, coap]),
@@ -222,7 +222,7 @@ fields(lwm2m) ->
        sc(binary(),
           #{ default =>"etc/lwm2m_xml"
            , nullable => false
-           , desc => "The Directory for LwM2M Resource defination"
+           , desc => "The Directory for LwM2M Resource definition"
            })}
     , {lifetime_min,
        sc(duration(),

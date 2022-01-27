@@ -133,7 +133,7 @@ The server manages the client through the ClientId. If the ClientId is wrong, EM
     -   clientid := client uid
     -   token
 
-    Resonse:
+    Response:
 
     -   2.01 "Deleted" when success
     -   4.00 "Bad Request" when error
@@ -303,7 +303,7 @@ CoAP gateway uses some options in query string to conversion between MQTT CoAP.
 
 2.  Session
 
-    Manager the "Transport Manager" "Observe Resouces Manger" and next message id
+    Manager the "Transport Manager" "Observe Resources Manager" and next message id
 
 3.  Transport Mnager
 

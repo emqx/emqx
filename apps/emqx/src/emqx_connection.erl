@@ -880,7 +880,7 @@ handle_cast(Req, State) ->
 -type check_succ_handler() ::
         fun((any(), list(any()), state()) -> _).
 
-%% check limiters, if successed call WhenOk with Data and Msgs
+%% check limiters, if succeeded call WhenOk with Data and Msgs
 %% Data is the data to be processed
 %% Msgs include the next msg which after Data processed
 -spec check_limiter(list({pos_integer(), limiter_type()}),

@@ -5,7 +5,7 @@ BUILT := $(SRCDIR)/BUILT
 dash := -
 none :=
 space := $(none) $(none)
-## RPM does not allow '-' in version nubmer and release string, replace with '_'
+## RPM does not allow '-' in version number and release string, replace with '_'
 RPM_VSN := $(subst -,_,$(PKG_VSN))
 RPM_REL := otp$(subst -,_,$(OTP_VSN))
 

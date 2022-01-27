@@ -96,7 +96,7 @@ purge_test() ->
             ?assertEqual(ok, emqx_plugins:purge("a-1")),
             %% assert the dir is gone
             ?assertMatch({error, enoent}, file:read_file_info(Dir)),
-            %% wite a file for the dir path
+            %% write a file for the dir path
             ok = file:write_file(Dir, "a"),
             ?assertEqual(ok, emqx_plugins:purge("a-1"))
         end).

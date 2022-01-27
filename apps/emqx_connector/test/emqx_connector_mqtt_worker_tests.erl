@@ -128,7 +128,7 @@ manual_start_stop_test() ->
         Config0 = make_config(Ref, TestPid, {ok, #{client_pid =>  TestPid}}),
         Config = Config0#{start_type := manual},
         {ok, Pid} = emqx_connector_mqtt_worker:start_link(Config#{name => BridgeName}),
-        %% call ensure_started again should yeld the same result
+        %% call ensure_started again should yield the same result
         ok = emqx_connector_mqtt_worker:ensure_started(BridgeName),
         emqx_connector_mqtt_worker:ensure_stopped(BridgeName),
         emqx_metrics:stop(),

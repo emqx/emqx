@@ -40,7 +40,7 @@ describe(NameVsn, LogFun) ->
         {ok, Plugin} ->
             LogFun("~ts~n", [to_json(Plugin)]);
         {error, Reason} ->
-            %% this should not happend unless the package is manually installed
+            %% this should not happen unless the package is manually installed
             %% corrupted packages installed from emqx_plugins:ensure_installed
             %% should not leave behind corrupted files
             ?SLOG(error, #{msg => "failed_to_describe_plugin",

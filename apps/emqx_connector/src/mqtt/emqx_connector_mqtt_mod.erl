@@ -148,7 +148,7 @@ send(#{client_pid := ClientPid} = Conn, [Msg | Rest], PktIds) ->
         {ok, PktId} ->
             send(Conn, Rest, [PktId | PktIds]);
         {error, Reason} ->
-            %% NOTE: There is no partial sucess of a batch and recover from the middle
+            %% NOTE: There is no partial success of a batch and recover from the middle
             %% only to retry all messages in one batch
             {error, Reason}
     end.

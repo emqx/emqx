@@ -94,7 +94,7 @@ load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) 
         {ok, _ChannPoolPid} ->
             case do_init(Name, ReqOpts) of
                 {ok, HookSpecs} ->
-                    %% Reigster metrics
+                    %% Register metrics
                     Prefix = lists:flatten(io_lib:format("exhook.~ts.", [Name])),
                     ensure_metrics(Prefix, HookSpecs),
                     %% Ensure hooks

@@ -36,7 +36,7 @@ check_apps() {
             exit 1
         fi
         if [ -z "${old_app_version:-}" ]; then
-            echo "skiped checking new app ${app}"
+            echo "skipped checking new app ${app}"
         elif [ "$old_app_version" = "$now_app_version" ]; then
             lines="$(git diff --name-only "$latest_release"...HEAD \
                         -- "$app_path/src" \
@@ -61,7 +61,7 @@ _main() {
     if echo "${latest_release}" |grep -oE '[0-9]+.[0-9]+.[0-9]+' > /dev/null 2>&1; then
         check_apps
     else
-        echo "skiped unstable tag: ${latest_release}"
+        echo "skipped unstable tag: ${latest_release}"
     fi
 }
 

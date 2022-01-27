@@ -25,7 +25,7 @@ mqtt.sn.advertise_duration = 900
 ## Value: Number
 mqtt.sn.gateway_id = 1
 
-## To control whether write statistics data into ETS table for dashbord to read.
+## To control whether write statistics data into ETS table for dashboard to read.
 ##
 ## Value: on | off
 mqtt.sn.enable_stats = off
@@ -61,7 +61,7 @@ mqtt.sn.password = abc
 - mqtt.sn.gateway_id
   * Gateway id in ADVERTISE message.
 - mqtt.sn.enable_stats
-  * To control whether write statistics data into ETS table for dashbord to read.
+  * To control whether write statistics data into ETS table for dashboard to read.
 - mqtt.sn.enable_qos3
   * To control whether accept and process the received publish message with qos=-1.
 - mqtt.sn.predefined.topic.N

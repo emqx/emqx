@@ -150,7 +150,7 @@ encode_value(Value) when is_integer(Value) ->
 encode_value(Value) when is_float(Value) ->
     <<Value:32/float>>;
 encode_value(Value) ->
-    error(io_lib:format("unsupport format ~p", [Value])).
+    error(io_lib:format("unsupported format ~p", [Value])).
 
 
 

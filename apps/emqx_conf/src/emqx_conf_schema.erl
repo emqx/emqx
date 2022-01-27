@@ -328,7 +328,7 @@ Select the backend for the embedded database.<br/>
 <strong>Important!</strong> This setting should be the same on all nodes in the cluster.<br/>
 <strong>Important!</strong> Changing this setting in the runtime is not allowed.<br/>
 <code>mnesia</code> is the default backend, that offers decent performance in small clusters.<br/>
-<code>rlog</code> is a new experimantal backend that is suitable for very large clusters.
+<code>rlog</code> is a new experimental backend that is suitable for very large clusters.
 """
            })}
     , {"role",
@@ -836,7 +836,7 @@ emqx_schema_high_prio_roots() ->
              sc(hoconsc:ref("authorization"),
              #{ desc => """
 Authorization a.k.a ACL.<br>
-In EMQ X, MQTT client access control is extremly flexible.<br>
+In EMQ X, MQTT client access control is extremely flexible.<br>
 An out of the box set of authorization data sources are supported.
 For example,<br>
 'file' source is to support concise and yet generic ACL rules in a file;<br>

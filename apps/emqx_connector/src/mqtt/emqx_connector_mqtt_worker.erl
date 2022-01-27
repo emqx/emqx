@@ -45,7 +45,7 @@
 %%
 %% (0): auto or manual start
 %% (1): retry timeout
-%% (2): successfuly connected to remote node/cluster
+%% (2): successfully connected to remote node/cluster
 %% (3): received {disconnected, Reason} OR
 %%      failed to send to remote node/cluster.
 %%
@@ -53,7 +53,7 @@
 %% local topics, and the underlying `emqx_bridge_connect' may subscribe to
 %% multiple remote topics, however, worker/connections are not designed
 %% to support automatic load-balancing, i.e. in case it can not keep up
-%% with the amount of messages comming in, administrator should split and
+%% with the amount of messages coming in, administrator should split and
 %% balance topics between worker/connections manually.
 %%
 %% NOTES:

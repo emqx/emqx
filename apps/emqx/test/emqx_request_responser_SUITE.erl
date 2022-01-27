@@ -49,9 +49,9 @@ request_response_per_qos(QoS) ->
                      I = b2i(ReqBin),
                      i2b(I * I)
               end,
-    {ok, Responser} = emqx_request_handler:start_link(ReqTopic, QoS, Square,
+    {ok, Responder} = emqx_request_handler:start_link(ReqTopic, QoS, Square,
                                                       [{proto_ver, v5},
-                                                       {clientid, <<"responser">>}
+                                                       {clientid, <<"responder">>}
                                                       ]),
     ok = emqx_request_sender:send(Requester, ReqTopic, RspTopic, <<"corr-1">>, <<"2">>, QoS),
     receive
@@ -64,7 +64,7 @@ request_response_per_qos(QoS) ->
             erlang:error(timeout)
     end,
     ok = emqx_request_sender:stop(Requester),
-    ok = emqx_request_handler:stop(Responser).
+    ok = emqx_request_handler:stop(Responder).
 
 b2i(B) -> binary_to_integer(B).
 i2b(I) -> integer_to_binary(I).

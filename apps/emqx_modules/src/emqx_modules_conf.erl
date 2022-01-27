@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc The emqx-modules configration interoperable interfaces
+%% @doc The emqx-modules configuration interoperable interfaces
 -module(emqx_modules_conf).
 
 -behaviour(emqx_config_handler).

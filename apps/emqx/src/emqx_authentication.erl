@@ -120,7 +120,7 @@
                        atom() => term()}.
 
 %% @doc check_config takes raw config from config file,
-%% parse and validate it, and reutrn parsed result.
+%% parse and validate it, and return parsed result.
 -callback check_config(config()) -> config().
 
 -callback create(AuthenticatorID, Config)

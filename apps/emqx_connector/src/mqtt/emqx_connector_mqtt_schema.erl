@@ -48,7 +48,7 @@ The mode of the MQTT Bridge. Can be one of 'cluster_singleton' or 'cluster_share
 In 'cluster_singleton' node, all messages toward the remote broker go through the same
 MQTT connection.<br>
 - cluster_shareload: create an MQTT connection on each node in the emqx cluster.<br>
-In 'cluster_shareload' mode, the incomming load from the remote broker is shared by
+In 'cluster_shareload' mode, the incoming load from the remote broker is shared by
 using shared subscription.<br>
 Note that the 'clientid' is suffixed by the node name, this is to avoid
 clientid conflicts between different nodes. And we can only use shared subscription

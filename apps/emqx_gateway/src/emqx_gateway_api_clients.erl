@@ -423,7 +423,7 @@ schema("/gateway/:name/clients") ->
 schema("/gateway/:name/clients/:clientid") ->
     #{ 'operationId' => clients_insta
      , get =>
-        #{ description => <<"Get the gateway client infomation">>
+        #{ description => <<"Get the gateway client information">>
          , parameters => params_client_insta()
          , responses =>
             ?STANDARD_RESP(#{200 => schema_client()})

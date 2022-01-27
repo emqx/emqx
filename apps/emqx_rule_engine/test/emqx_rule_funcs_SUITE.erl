@@ -81,7 +81,7 @@ t_payload(_) ->
     ?assertEqual(c, apply_func(payload, [<<"a.b.c">>], Input#{payload => NestedMap})).
 
 %%------------------------------------------------------------------------------
-%% Data Type Convertion Funcs
+%% Data Type Conversion Funcs
 %%------------------------------------------------------------------------------
 t_str(_) ->
     ?assertEqual(<<"abc">>, emqx_rule_funcs:str("abc")),

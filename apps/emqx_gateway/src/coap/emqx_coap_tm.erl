@@ -66,7 +66,7 @@
           outgoing => coap_message(),
           timeouts => list(ttimeout()),
           has_sub  => undefined | sub_register(),
-          transport => emqx_coap_transport:transprot()}.
+          transport => emqx_coap_transport:transport()}.
 
 -define(TOKEN_ID(T), {token, T}).
 

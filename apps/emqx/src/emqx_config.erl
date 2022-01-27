@@ -112,9 +112,9 @@
     post_config_update => #{module() => any()}
 }.
 
-%% raw_config() is the config that is NOT parsed and tranlated by hocon schema
+%% raw_config() is the config that is NOT parsed and translated by hocon schema
 -type raw_config() :: #{binary() => term()} | list() | undefined.
-%% config() is the config that is parsed and tranlated by hocon schema
+%% config() is the config that is parsed and translated by hocon schema
 -type config() :: #{atom() => term()} | list() | undefined.
 -type app_envs() :: [proplists:property()].
 

@@ -418,7 +418,7 @@ load_plugin_app(AppName, AppVsn, Ebin, RunningApps) ->
         {_, Vsn} ->
             case bin(Vsn) =:= bin(AppVsn) of
                 true ->
-                    %% already started on the exact versio
+                    %% already started on the exact version
                     ok;
                 false ->
                     %% running but a different version

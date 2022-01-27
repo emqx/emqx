@@ -111,7 +111,7 @@ gateway(_) ->
       [ {"gateway list",
            "List all gateway"}
       , {"gateway lookup <Name>",
-           "Lookup a gateway detailed informations"}
+           "Lookup a gateway detailed information"}
       , {"gateway load   <Name> <JsonConf>",
            "Load a gateway with config"}
       , {"gateway unload <Name>",

@@ -223,7 +223,7 @@ detailed_gateway_info(State) ->
 %% There are two layer authentication configs
 %%       stomp.authn
 %%           /                   \
-%%   listeners.tcp.defautl.authn  *.ssl.default.authn
+%%   listeners.tcp.default.authn  *.ssl.default.authn
 %%
 
 init_authn(GwName, Config) ->

@@ -261,7 +261,7 @@ maybe_assign_clientid(_Packet, ClientInfo) ->
 
 fix_mountpoint(_Packet, #{mountpoint := undefined}) -> ok;
 fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
-    %% TODO: Enrich the varibale replacement????
+    %% TODO: Enrich the variable replacement????
     %%       i.e: ${ClientInfo.auth_result.productKey}
     Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
     {ok, ClientInfo#{mountpoint := Mountpoint1}}.
@@ -357,7 +357,7 @@ handle_in(?SN_SEARCHGW_MSG(_Radius),
     {ok, {outgoing, ?SN_GWINFO_MSG(GwId, <<>>)}, Channel};
 
 handle_in(?SN_ADVERTISE_MSG(_GwId, _Radius), Channel) ->
-    % ingore
+    % ignore
     shutdown(normal, Channel);
 
 handle_in(?SN_PUBLISH_MSG(#mqtt_sn_flags{qos = ?QOS_NEG1,

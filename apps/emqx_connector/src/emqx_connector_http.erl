@@ -91,7 +91,7 @@ For example: http://localhost:9901/
     , {pool_type,
         sc(pool_type(),
            #{ default => random
-            , desc => "The type of the pool. Canbe one of random, hash"
+            , desc => "The type of the pool. Can be one of random, hash"
             })}
     , {pool_size,
         sc(non_neg_integer(),
@@ -216,12 +216,12 @@ on_query(InstId, {KeyOrNum, Method, Request, Timeout}, AfterQuery,
         {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
             emqx_resource:query_success(AfterQuery);
         {ok, StatusCode, _} ->
-            ?SLOG(error, #{msg => "http connector do reqeust, received error response",
+            ?SLOG(error, #{msg => "http connector do request, received error response",
                            request => NRequest, connector => InstId,
                            status_code => StatusCode}),
             emqx_resource:query_failed(AfterQuery);
         {ok, StatusCode, _, _} ->
-            ?SLOG(error, #{msg => "http connector do reqeust, received error response",
+            ?SLOG(error, #{msg => "http connector do request, received error response",
                            request => NRequest, connector => InstId,
                            status_code => StatusCode}),
             emqx_resource:query_failed(AfterQuery)

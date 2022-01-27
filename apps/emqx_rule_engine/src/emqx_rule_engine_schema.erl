@@ -87,7 +87,7 @@ fields("builtin_output_republish") ->
 The arguments of the built-in 'republish' output.<br>
 We can use variables in the args.<br>
 
-The variables are selected by the rule. For exmaple, if the rule SQL is defined as following:
+The variables are selected by the rule. For example, if the rule SQL is defined as following:
 <code>
     SELECT clientid, qos, payload FROM \"t/1\"
 </code>

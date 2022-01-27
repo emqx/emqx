@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-## This script takes the first argument as docker iamge name,
+## This script takes the first argument as docker image name,
 ## starts two containers running with the built code mount
 ## into docker containers.
 ##

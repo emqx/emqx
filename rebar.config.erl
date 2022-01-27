@@ -99,7 +99,7 @@ test_deps() ->
     ].
 
 common_compile_opts(Vsn) ->
-    [ debug_info % alwyas include debug_info
+    [ debug_info % always include debug_info
     , {compile_info, [{emqx_vsn, Vsn}]}
     ] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].

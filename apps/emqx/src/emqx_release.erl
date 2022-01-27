@@ -70,7 +70,7 @@ edition(Desc) ->
 %% @doc Return the release version.
 version() ->
     case lists:keyfind(emqx_vsn, 1, ?MODULE:module_info(compile)) of
-        false -> %% For TEST build or depedency build.
+        false -> %% For TEST build or dependency build.
             build_vsn();
         {_, Vsn} -> %% For emqx release build
             VsnStr = build_vsn(),

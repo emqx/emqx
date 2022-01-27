@@ -9,7 +9,7 @@ gateway.stomp {
   idle_timeout = 30s
 
   ## To control whether write statistics data into ETS table
-  ## for dashbord to read.
+  ## for dashboard to read.
   enable_stats = true
 
   ## When publishing or subscribing, prefix all topics with a mountpoint string.
@@ -93,7 +93,7 @@ gateway.coap {
   idle_timeout = 30s
 
   ## To control whether write statistics data into ETS table
-  ## for dashbord to read.
+  ## for dashboard to read.
   enable_stats = true
 
   ## When publishing or subscribing, prefix all topics with a mountpoint string.
@@ -112,7 +112,7 @@ gateway.coap {
   ## The type of delivered coap message can be set to:
   ##  - non: Non-confirmable
   ##  - con: Confirmable
-  ##  - qos: Mapping from QoS type of the recevied message.
+  ##  - qos: Mapping from QoS type of the received message.
   ##         QoS0 -> non,  QoS1,2 -> con.
   ##
   ## Enum: non | con | qos
@@ -184,7 +184,7 @@ gateway.mqttsn {
   idle_timeout = 30s
 
   ## To control whether write statistics data into ETS table
-  ## for dashbord to read.
+  ## for dashboard to read.
   enable_stats = true
 
   ## When publishing or subscribing, prefix all topics with a mountpoint string.
@@ -252,7 +252,7 @@ gateway.lwm2m {
   idle_timeout = 30s
 
   ## To control whether write statistics data into ETS table
-  ## for dashbord to read.
+  ## for dashboard to read.
   enable_stats = true
 
   ## When publishing or subscribing, prefix all topics with a mountpoint string.
@@ -313,7 +313,7 @@ gateway.exproto {
   idle_timeout = 30s
 
   ## To control whether write statistics data into ETS table
-  ## for dashbord to read.
+  ## for dashboard to read.
   enable_stats = true
 
   ## When publishing or subscribing, prefix all topics with a mountpoint string.

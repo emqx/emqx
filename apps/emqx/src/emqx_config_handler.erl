@@ -70,7 +70,7 @@ stop() ->
 -spec update_config(module(), emqx_config:config_key_path(), emqx_config:update_args()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
-    %% force covert the path to a list of atoms, as there maybe some wildcard names/ids in the path
+    %% force convert the path to a list of atoms, as there maybe some wildcard names/ids in the path
     AtomKeyPath = [atom(Key) || Key <- ConfKeyPath],
     gen_server:call(?MODULE, {change_config, SchemaModule, AtomKeyPath, UpdateArgs}, infinity).
 

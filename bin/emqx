@@ -258,7 +258,7 @@ check_user() {
         for ARG in "$@"; do
             CMD="${CMD} \"$ARG\""
         done
-        # This will drop priviledges into the runner user
+        # This will drop privileges into the runner user
         # It exec's in a new shell and the current shell will exit
         exec su - "$RUNNER_USER" -c "$CMD"
     fi
@@ -367,7 +367,7 @@ relx_start_command() {
 generate_config() {
     local name_type="$1"
     local node_name="$2"
-    ## Delete the *.siz files first or it cann't start after
+    ## Delete the *.siz files first or it can't start after
     ## changing the config 'log.rotation.size'
     rm -rf "${RUNNER_LOG_DIR}"/*.siz
 
@@ -380,7 +380,7 @@ generate_config() {
     local NOW_TIME
     NOW_TIME="$(call_hocon now_time)"
 
-    ## ths command populates two files: app.<time>.config and vm.<time>.args
+    ## this command populates two files: app.<time>.config and vm.<time>.args
     ## NOTE: the generate command merges environment variables to the base config (emqx.conf),
     ## but does not include the cluster-override.conf and local-override.conf
     ## meaning, certain overrides will not be mapped to app.<time>.config file
@@ -413,7 +413,7 @@ generate_config() {
         ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
         ## use the key to look up in vm.args file for the value
         TMP_ARG_VALUE=$(grep "^$ARG_KEY" "$TMP_ARG_FILE" || true | awk '{print $NF}')
-        ## compare generated (to override) value to original (to be overriden) value
+        ## compare generated (to override) value to original (to be overridden) value
         if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
             ## if they are different
             if [ -n "$TMP_ARG_VALUE" ]; then
@@ -499,7 +499,7 @@ latest_vm_args() {
     if [ -f "$vm_args_file" ]; then
         echo "$vm_args_file"
     else
-        echoerr "ERRRO: node not initialized?"
+        echoerr "ERROR: node not initialized?"
         echoerr "Generated config file vm.*.args is not found for command '$COMMAND'"
         echoerr "in config dir: $CONFIGS_DIR"
         echoerr "In case the file has been deleted while the node is running,"

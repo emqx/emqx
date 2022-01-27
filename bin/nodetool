@@ -68,7 +68,7 @@ do(Args) ->
         ["getpid"] ->
             io:format("~p\n", [list_to_integer(rpc:call(TargetNode, os, getpid, []))]);
         ["ping"] ->
-            %% If we got this far, the node already responsed to a ping, so just dump
+            %% If we got this far, the node already responded to a ping, so just dump
             %% a "pong"
             io:format("pong\n");
         ["stop"] ->
