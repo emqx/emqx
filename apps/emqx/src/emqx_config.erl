@@ -236,7 +236,7 @@ get_raw(KeyPath, Default) -> do_get(?RAW_CONF, KeyPath, Default).
 put_raw(Config) ->
     maps:fold(fun(RootName, RootV, _) ->
             ?MODULE:put_raw([RootName], RootV)
-        end, ok, hocon_schema:get_value([], Config)).
+        end, ok, hocon_maps:ensure_plain(Config)).
 
 -spec put_raw(emqx_map_lib:config_key_path(), term()) -> ok.
 put_raw(KeyPath, Config) -> do_put(?RAW_CONF, KeyPath, Config).
@@ -299,7 +299,7 @@ merge_envs(SchemaMod, RawConf) ->
              format => map,
              apply_override_envs => true
             },
-    hocon_schema:merge_env_overrides(SchemaMod, RawConf, all, Opts).
+    hocon_tconf:merge_env_overrides(SchemaMod, RawConf, all, Opts).
 
 -spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().
@@ -313,7 +313,7 @@ check_config(SchemaMod, RawConf, Opts0) ->
              },
     Opts = maps:merge(Opts0, Opts1),
     {AppEnvs, CheckedConf} =
-        hocon_schema:map_translate(SchemaMod, RawConf, Opts),
+        hocon_tconf:map_translate(SchemaMod, RawConf, Opts),
     {AppEnvs, emqx_map_lib:unsafe_atom_key_map(CheckedConf)}.
 
 -spec fill_defaults(raw_config()) -> map().
@@ -330,7 +330,7 @@ fill_defaults(RawConf) ->
 
 -spec fill_defaults(module(), raw_config()) -> map().
 fill_defaults(SchemaMod, RawConf) ->
-    hocon_schema:check_plain(SchemaMod, RawConf,
+    hocon_tconf:check_plain(SchemaMod, RawConf,
         #{nullable => true, only_fill_defaults => true},
         root_names_from_conf(RawConf)).
 

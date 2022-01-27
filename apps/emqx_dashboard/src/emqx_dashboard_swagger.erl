@@ -147,10 +147,10 @@ translate_req(Request, #{module := Module, path := Path, method := Method}, Chec
     end.
 
 check_and_translate(Schema, Map, Opts) ->
-    hocon_schema:check_plain(Schema, Map, Opts).
+    hocon_tconf:check_plain(Schema, Map, Opts).
 
 check_only(Schema, Map, Opts) ->
-    _ = hocon_schema:check_plain(Schema, Map, Opts),
+    _ = hocon_tconf:check_plain(Schema, Map, Opts),
     Map.
 
 support_check_schema(#{check_schema := true, translate_body := true}) ->
@@ -199,12 +199,12 @@ check_parameter([{Name, Type} | Spec], Bindings, QueryStr, Module, BindingsAcc, 
     case hocon_schema:field_schema(Type, in) of
         path ->
             Option = #{atom_key => true},
-            NewBindings = hocon_schema:check_plain(Schema, Bindings, Option),
+            NewBindings = hocon_tconf:check_plain(Schema, Bindings, Option),
             NewBindingsAcc = maps:merge(BindingsAcc, NewBindings),
             check_parameter(Spec, Bindings, QueryStr, Module, NewBindingsAcc, QueryStrAcc);
         query ->
             Option = #{},
-            NewQueryStr = hocon_schema:check_plain(Schema, QueryStr, Option),
+            NewQueryStr = hocon_tconf:check_plain(Schema, QueryStr, Option),
             NewQueryStrAcc = maps:merge(QueryStrAcc, NewQueryStr),
             check_parameter(Spec, Bindings, QueryStr, Module,BindingsAcc, NewQueryStrAcc)
     end.

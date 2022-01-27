@@ -211,9 +211,9 @@ check_ssl_opts(Conf)
   when Conf =:= #{} ->
     true;
 check_ssl_opts(Conf) ->
-    case emqx_authz_http:parse_url(hocon_schema:get_value("config.url", Conf)) of
+    case emqx_authz_http:parse_url(hocon_maps:get("config.url", Conf)) of
         #{scheme := https} ->
-            case hocon_schema:get_value("config.ssl.enable", Conf) of
+            case hocon_maps:get("config.ssl.enable", Conf) of
                 true -> ok;
                 false -> false
             end;
@@ -225,8 +225,8 @@ check_headers(Conf)
     when Conf =:= #{} ->
     true;
 check_headers(Conf) ->
-    Method = to_bin(hocon_schema:get_value("config.method", Conf)),
-    Headers = hocon_schema:get_value("config.headers", Conf),
+    Method = to_bin(hocon_maps:get("config.method", Conf)),
+    Headers = hocon_maps:get("config.headers", Conf),
     Method =:= <<"post">> orelse (not lists:member(<<"content-type">>, Headers)).
 
 union_array(Item) when is_list(Item) ->

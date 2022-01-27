@@ -320,7 +320,7 @@ do_authorize(Client, PubSub, Topic,
 check_sources(RawSources) ->
     Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
     Conf = #{<<"sources">> => RawSources},
-    #{sources := Sources} = hocon_schema:check_plain(Schema, Conf, #{atom_key => true}),
+    #{sources := Sources} = hocon_tconf:check_plain(Schema, Conf, #{atom_key => true}),
     Sources.
 
 take(Type) -> take(Type, lookup()).

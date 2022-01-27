@@ -59,8 +59,8 @@ do_check_config(#{<<"mechanism">> := Mec} = Config, Opts) ->
         false ->
             throw({unknown_handler, Key});
         {_, ProviderModule} ->
-            hocon_schema:check_plain(ProviderModule, #{?CONF_NS_BINARY => Config},
-                                     Opts#{atom_key => true})
+            hocon_tconf:check_plain(ProviderModule, #{?CONF_NS_BINARY => Config},
+                                    Opts#{atom_key => true})
     end.
 
 atom(Bin) ->

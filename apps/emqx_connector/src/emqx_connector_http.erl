@@ -313,8 +313,8 @@ check_ssl_opts(Conf) ->
     check_ssl_opts("base_url", Conf).
 
 check_ssl_opts(URLFrom, Conf) ->
-    #{scheme := Scheme} = hocon_schema:get_value(URLFrom, Conf),
-    SSL= hocon_schema:get_value("ssl", Conf),
+    #{scheme := Scheme} = hocon_maps:get(URLFrom, Conf),
+    SSL= hocon_maps:get("ssl", Conf),
     case {Scheme, maps:get(enable, SSL, false)} of
         {http, false} -> true;
         {https, true} -> true;

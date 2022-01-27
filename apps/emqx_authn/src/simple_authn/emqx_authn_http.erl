@@ -332,4 +332,4 @@ to_bin(L) when is_list(L) ->
     list_to_binary(L).
 
 get_conf_val(Name, Conf) ->
-    hocon_schema:get_value(?CONF_NS ++ "." ++ Name, Conf).
+    hocon_maps:get(?CONF_NS ++ "." ++ Name, Conf).

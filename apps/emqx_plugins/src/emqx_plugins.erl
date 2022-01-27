@@ -322,7 +322,7 @@ do_read_plugin({file, InfoFile}) ->
     [_, NameVsn | _] = lists:reverse(filename:split(InfoFile)),
     case hocon:load(InfoFile, #{format => richmap}) of
         {ok, RichMap} ->
-            Info = check_plugin(hocon_util:richmap_to_map(RichMap), NameVsn, InfoFile),
+            Info = check_plugin(hocon_maps:ensure_plain(RichMap), NameVsn, InfoFile),
             maps:merge(Info, plugin_status(NameVsn));
         {error, Reason} ->
             throw(#{error => "bad_info_file",

@@ -415,7 +415,7 @@ get_raw_sources() ->
     Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
     Conf = #{<<"sources">> => RawSources},
     Options = #{only_fill_defaults => true},
-    #{<<"sources">> := Sources} = hocon_schema:check_plain(Schema, Conf, Options),
+    #{<<"sources">> := Sources} = hocon_tconf:check_plain(Schema, Conf, Options),
     merge_default_headers(Sources).
 
 merge_default_headers(Sources) ->

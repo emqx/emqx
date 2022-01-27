@@ -138,7 +138,7 @@ mustache_vars() ->
 generate_config() ->
     ConfFile = render_config_file(),
     {ok, Conf} = hocon:load(ConfFile, #{format => richmap}),
-    hocon_schema:generate(emqx_schema, Conf).
+    hocon_tconf:generate(emqx_schema, Conf).
 
 set_app_env({App, Lists}) ->
     lists:foreach(fun({authz_file, _Var}) ->

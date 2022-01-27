@@ -295,18 +295,20 @@ call_jsonify(Mod, Config) ->
 -spec check_config(resource_type(), raw_resource_config()) ->
     {ok, resource_config()} | {error, term()}.
 check_config(ResourceType, RawConfig) when is_binary(RawConfig) ->
-    case hocon:binary(RawConfig, #{format => richmap}) of
+    case hocon:binary(RawConfig, #{format => map}) of
         {ok, MapConfig} ->
-            case ?SAFE_CALL(hocon_schema:check(ResourceType, MapConfig, ?HOCON_CHECK_OPTS)) of
-                {error, Reason} -> {error, Reason};
-                Config -> {ok, hocon_schema:richmap_to_map(Config)}
-            end;
-        Error -> Error
+            check_config(ResourceType, MapConfig);
+        {error, Reason} ->
+            {error, Reason}
     end;
 check_config(ResourceType, RawConfigTerm) ->
-    case ?SAFE_CALL(hocon_schema:check_plain(ResourceType, RawConfigTerm, ?HOCON_CHECK_OPTS)) of
-        {error, Reason} -> {error, Reason};
-        Config -> {ok, Config}
+    %% hocon_tconf map and check APIs throw exception on bad configs
+    try hocon_tconf:check_plain(ResourceType, RawConfigTerm, ?HOCON_CHECK_OPTS) of
+        Config ->
+            {ok, Config}
+    catch
+        throw : Reason ->
+            {error, Reason}
     end.
 
 -spec check_and_create(instance_id(), resource_type(), raw_resource_config()) ->

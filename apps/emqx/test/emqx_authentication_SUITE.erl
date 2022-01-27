@@ -59,8 +59,8 @@ enable(_) -> undefined.
 
 check_config(C) ->
     #{config := R} =
-        hocon_schema:check_plain(?MODULE, #{<<"config">> => C},
-                                 #{atom_key => true}),
+        hocon_tconf:check_plain(?MODULE, #{<<"config">> => C},
+                                #{atom_key => true}),
     R.
 
 create(_AuthenticatorID, _Config) ->

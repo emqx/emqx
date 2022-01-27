@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 
 -define(SAFE_CALL(_EXP_),
-        ?SAFE_CALL(_EXP_, _ = do_nothing)).
+        ?SAFE_CALL(_EXP_, ok)).
 
 -define(SAFE_CALL(_EXP_, _EXP_ON_FAIL_),
         fun() ->
