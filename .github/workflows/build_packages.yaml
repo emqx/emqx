@@ -588,6 +588,7 @@ jobs:
         docker push public.ecr.aws/emqx/emqx:${version#v}
 
   docker-push-multi-arch-manifest:
+    # note, we only run on amd64
     if: github.event_name == 'release'
     needs: docker
     runs-on: ubuntu-latest
@@ -614,6 +615,16 @@ jobs:
           - 24.1.5-3 # update to latest
 
     steps:
+      - uses: actions/download-artifact@v2
+        if: matrix.arch == 'amd64'
+        with:
+          name: source
+          path: .
+
+      - name: unzip source code
+        if:  matrix.arch == 'amd64'
+        run: unzip -q source.zip
+
       - uses: docker/login-action@v1
         if: matrix.arch == 'amd64'
         with:
@@ -638,32 +649,11 @@ jobs:
             org.opencontainers.image.otp.version=${{ matrix.otp }}
 
       - name: update manifest for multiarch image
-        # we only run on amd64
         if: matrix.arch == 'amd64'
         run: |
-          set -xeu
-          img_amd64="${{ steps.meta.outputs.tags }}"
-          img_arm64=$(echo ${img_amd64} | sed 's/-amd64$/-arm64/g')
-          img_march=${img_amd64%-amd64}
-          docker pull "$img_amd64"
-          docker pull --platform linux/arm64 "$img_arm64"
-          img_amd64_digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$img_amd64")
-          img_arm64_digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$img_arm64")
-          echo "sha256 of amd64 is $img_amd64_digest"
-          echo "sha256 of arm64 is $img_arm64_digest"
-          docker manifest create "${img_march}" \
-            --amend "$img_amd64_digest" \
-            --amend "$img_arm64_digest"
-          docker manifest push "${img_march}"
+          IsPushLatest=${{ github.event_name == 'release' && !github.event.release.prerelease }};
+          scripts/docker-create-push-manifest "${{ steps.meta.outputs.tags }}" "$IsPushLatest"
 
-          # PUSH latest if it is a release build
-          if ${{ github.event_name == 'release' && !github.event.release.prerelease }}; then
-            img_latest="${{ github.repository_owner }}/${{ matrix.profile }}:latest"
-            docker manifest create "${img_latest}" \
-              --amend "$img_amd64_digest" \
-              --amend "$img_arm64_digest"
-            docker manifest push "${img_latest}"
-          fi
 
   delete-artifact:
     runs-on: ubuntu-20.04
