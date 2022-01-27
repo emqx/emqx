@@ -199,7 +199,7 @@ read_schema_configs(Schema, ConfigFile) ->
 
 generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
     {ok, Conf0} = hocon:load(ConfigFile, #{format => richmap}),
-    hocon_schema:generate(SchemaModule, Conf0).
+    hocon_tconf:generate(SchemaModule, Conf0).
 
 -spec(stop_apps(list()) -> ok).
 stop_apps(Apps) ->
