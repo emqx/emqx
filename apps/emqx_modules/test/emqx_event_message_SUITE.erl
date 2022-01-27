@@ -24,14 +24,14 @@
 
 -define(EVENT_MESSAGE, <<"""
 event_message: {
-    \"$event/client_connected\": true
-    \"$event/client_disconnected\": true
-    \"$event/client_subscribed\": true
-    \"$event/client_unsubscribed\": true
-    \"$event/message_delivered\": true
-    \"$event/message_acked\": true
-    \"$event/message_dropped\": true
-  }""">>).
+    client_connected: true
+    client_disconnected: true
+    client_subscribed: true
+    client_unsubscribed: true
+    message_delivered: true
+    message_acked: true
+    message_dropped: true
+}""">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
