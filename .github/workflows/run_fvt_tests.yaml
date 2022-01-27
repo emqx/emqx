@@ -14,7 +14,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/5.0-3:24.1.5-3-alpine3.14
+    container: ghcr.io/emqx/emqx-builder/5.0-5:1.13.2-24.1.5-4-alpine3.14
 
     steps:
       - uses: actions/checkout@v2
@@ -41,13 +41,16 @@ jobs:
           - emqx
           - emqx-edge
           - emqx-enterprise
+          - emqx-elixir
         cluster_db_backend:
           - mnesia
           - rlog
         os:
           - alpine3.14
         otp:
-          - 24.1.5-3
+          - 24.1.5-4
+        elixir:
+          - 1.13.2
         arch:
           - amd64
         exclude:
@@ -71,18 +74,22 @@ jobs:
     - name: load rocksdb cache
       uses: actions/cache@v2
       with:
-        path: source/_build/default/lib/rocksdb/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
+        path: |
+          source/_build/default/lib/rocksdb/
+          source/deps/rocksdb/
+        key: ${{ matrix.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
     - name: load quicer cache
       uses: actions/cache@v2
       with:
-        path: source/_build/default/lib/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+        path: |
+          source/_build/default/lib/quicer/
+          source/deps/quicer/
+        key: ${{ matrix.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-${{ matrix.os }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
       run: |
         make ${{ matrix.profile }}-docker
     - name: run emqx
@@ -91,6 +98,10 @@ jobs:
       run: |
         set -x
         IMAGE=emqx/${{ matrix.profile }}:$(./pkg-vsn.sh ${{ matrix.profile }})
+        if [[ "${{ matrix.profile }}" = *-elixir ]]
+        then
+          export IS_ELIXIR=yes
+        fi
         ./.ci/docker-compose-file/scripts/run-emqx.sh $IMAGE ${{ matrix.cluster_db_backend }}
     - name: make paho tests
       run: |
@@ -118,7 +129,9 @@ jobs:
         os:
           - alpine3.14
         otp:
-          - 24.1.5-3
+          - 24.1.5-4
+        elixir:
+          - 1.13.2
         arch:
           - amd64
       # - emqx-enterprise # TODO test enterprise
@@ -152,7 +165,7 @@ jobs:
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-${{ matrix.os }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
       run: |
         make ${{ matrix.profile }}-docker
         echo "TARGET=emqx/${{ matrix.profile }}" >> $GITHUB_ENV

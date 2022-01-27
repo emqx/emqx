@@ -8,13 +8,19 @@ if [ -z "${1:-}" ]; then
     exit 1
 fi
 
-if [ "${2:-}" != 'tgz' ] && [ "${2:-}" != 'pkg' ]; then
+case "${2:-}" in
+  tgz|pkg)
+    true
+    ;;
+  *)
     echo "Usage $0 <PACKAGE_NAME> tgz|pkg"
     exit 1
-fi
+    ;;
+esac
 
 PACKAGE_NAME="${1}"
 PACKAGE_TYPE="${2}"
+ARCH="${3}"
 
 export DEBUG=1
 export CODE_PATH=${CODE_PATH:-"/emqx"}
@@ -43,17 +49,20 @@ if ! [ -f "$PACKAGE_FILE" ]; then
     exit 1
 fi
 
-case "$(uname -m)" in
+if [ -z "$ARCH" ]
+then
+  case "$(uname -m)" in
     x86_64)
-        ARCH='amd64'
-        ;;
+      ARCH='amd64'
+      ;;
     aarch64)
-        ARCH='arm64'
-        ;;
+      ARCH='arm64'
+      ;;
     arm*)
-        ARCH=arm
-        ;;
-esac
+      ARCH=arm
+      ;;
+  esac
+fi
 export ARCH
 
 emqx_prepare(){

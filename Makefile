@@ -3,9 +3,10 @@ REBAR_VERSION = 3.16.1-emqx-1
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
-export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/4.4-2:23.3.4.9-3-alpine3.14
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-5:1.13.2-24.1.5-4-alpine3.14
 export EMQX_DEFAULT_RUNNER = alpine:3.14
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
+export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
 export EMQX_DASHBOARD_VERSION ?= v0.18.0
 export DOCKERFILE := deploy/docker/Dockerfile
 export DOCKERFILE_TESTING := deploy/docker/Dockerfile.testing
@@ -35,6 +36,22 @@ all: $(REBAR) $(PROFILES)
 ensure-rebar3:
 	@$(SCRIPTS)/fail-on-old-otp-version.escript
 	@$(SCRIPTS)/ensure-rebar3.sh $(REBAR_VERSION)
+
+.PHONY: ensure-hex
+ensure-hex:
+	@mix local.hex --if-missing --force
+
+.PHONY: ensure-mix-rebar3
+ensure-mix-rebar3: $(REBAR)
+	@mix local.rebar rebar3 $(CURDIR)/rebar3 --if-missing --force
+
+.PHONY: ensure-mix-rebar
+ensure-mix-rebar: $(REBAR)
+	@mix local.rebar --if-missing --force
+
+.PHONY: mix-deps-get
+mix-deps-get: $(ELIXIR_COMMON_DEPS)
+	@mix deps.get
 
 $(REBAR): ensure-rebar3
 
@@ -95,7 +112,7 @@ coveralls: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
 
 .PHONY: $(REL_PROFILES)
-$(REL_PROFILES:%=%): $(REBAR) get-dashboard conf-segs
+$(REL_PROFILES:%=%): $(COMMON_DEPS)
 	@$(REBAR) as $(@) do release
 
 ## Not calling rebar3 clean because
@@ -139,6 +156,7 @@ dialyzer: $(REBAR)
 	@$(REBAR) as check dialyzer
 
 COMMON_DEPS := $(REBAR) get-dashboard conf-segs
+ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
 
 ## rel target is to create release package without relup
 .PHONY: $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel)
@@ -179,13 +197,13 @@ quickrun:
 	./_build/$(PROFILE)/rel/emqx/bin/emqx console
 
 ## docker target is to create docker instructions
-.PHONY: $(REL_PROFILES:%=%-docker)
+.PHONY: $(REL_PROFILES:%=%-docker) $(REL_PROFILES:%=%-elixir-docker)
 define gen-docker-target
 $1-docker: $(COMMON_DEPS)
 	@$(BUILD) $1 docker
 endef
-ALL_TGZS = $(REL_PROFILES)
-$(foreach zt,$(ALL_TGZS),$(eval $(call gen-docker-target,$(zt))))
+ALL_DOCKERS = $(REL_PROFILES) $(REL_PROFILES:%=%-elixir)
+$(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
 
 ## emqx-docker-testing
 ## emqx-enterprise-docker-testing
@@ -201,3 +219,26 @@ $(foreach zt,$(ALL_TGZS),$(eval $(call gen-docker-target-testing,$(zt))))
 
 conf-segs:
 	@scripts/merge-config.escript
+
+## elixir target is to create release packages using Elixir's Mix
+.PHONY: $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir)
+$(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir): $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
+	@$(BUILD) $(subst -elixir,,$(@)) elixir
+
+.PHONY: $(REL_PROFILES:%=%-elixirpkg)
+define gen-elixirpkg-target
+# the Elixir places the tar in a different path than Rebar3
+$1-elixirpkg: $1-pkg-elixir
+	@env TAR_PKG_DIR=_build/prod \
+	     IS_ELIXIR=yes \
+	     $(BUILD) $1 pkg
+endef
+$(foreach pt,$(REL_PROFILES),$(eval $(call gen-elixirpkg-target,$(pt))))
+
+.PHONY: $(REL_PROFILES:%=%-elixir-tgz)
+define gen-elixir-tgz-target
+$1-elixir-tgz: $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
+	@env IS_ELIXIR=yes $(BUILD) $1 tgz
+endef
+ALL_ELIXIR_TGZS = $(REL_PROFILES)
+$(foreach tt,$(ALL_ELIXIR_TGZS),$(eval $(call gen-elixir-tgz-target,$(tt))))

@@ -24,13 +24,6 @@ defmodule EMQXUmbrella.MixProject do
       Defaults to `community`.
   """
 
-  # Temporary hack while 1.13.2 is not released
-  System.version()
-  |> Version.parse!()
-  |> Version.compare(Version.parse!("1.13.2"))
-  |> Kernel.==(:lt)
-  |> if(do: Code.require_file("lib/mix/release.exs"))
-
   def project() do
     [
       app: :emqx_mix,
@@ -124,7 +117,7 @@ defmodule EMQXUmbrella.MixProject do
 
         steps =
           if System.get_env("ELIXIR_MAKE_TAR") == "yes" do
-            base_steps ++ [:tar]
+            base_steps ++ [&prepare_tar_overlays/1, :tar]
           else
             base_steps
           end
@@ -154,7 +147,6 @@ defmodule EMQXUmbrella.MixProject do
 
   def applications(release_type) do
     [
-      logger: :permanent,
       crypto: :permanent,
       public_key: :permanent,
       asn1: :permanent,
@@ -234,15 +226,29 @@ defmodule EMQXUmbrella.MixProject do
     }
   end
 
+  #############################################################################
+  #  Custom Steps
+  #############################################################################
+
   defp copy_files(release, release_type, package_type, edition_type) do
     overwrite? = Keyword.get(release.options, :overwrite, false)
 
     bin = Path.join(release.path, "bin")
     etc = Path.join(release.path, "etc")
+    log = Path.join(release.path, "log")
 
     Mix.Generator.create_directory(bin)
     Mix.Generator.create_directory(etc)
+    Mix.Generator.create_directory(log)
     Mix.Generator.create_directory(Path.join(etc, "certs"))
+
+    Enum.each(
+      ["mnesia", "configs", "patches", "scripts"],
+      fn dir ->
+        path = Path.join([release.path, "data", dir])
+        Mix.Generator.create_directory(path)
+      end
+    )
 
     Mix.Generator.copy_file(
       "apps/emqx_authz/etc/acl.conf",
@@ -409,6 +415,18 @@ defmodule EMQXUmbrella.MixProject do
     release
   end
 
+  # The `:tar` built-in step in Mix Release does not currently add the
+  # `etc` directory into the resulting tarball.  The workaround is to
+  # add those to the `:overlays` key before running `:tar`.
+  # See: https://hexdocs.pm/mix/1.13.2/Mix.Release.html#__struct__/0
+  defp prepare_tar_overlays(release) do
+    Map.update!(release, :overlays, &["etc", "data" | &1])
+  end
+
+  #############################################################################
+  #  Helper functions
+  #############################################################################
+
   defp template_vars(release, release_type, :bin = _package_type, edition_type) do
     [
       platform_bin_dir: "bin",
@@ -454,7 +472,7 @@ defmodule EMQXUmbrella.MixProject do
       # FIXME: this is empty in `make emqx` ???
       erl_opts: "",
       emqx_description: emqx_description(release_type, edition_type),
-      built_on: built_on(),
+      built_on_arch: built_on(),
       is_elixir: "yes"
     ]
   end

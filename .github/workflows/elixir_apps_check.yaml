@@ -7,7 +7,7 @@ on: [pull_request]
 jobs:
   elixir_apps_check:
     runs-on: ubuntu-20.04
-    container: hexpm/elixir:1.13.1-erlang-24.2-alpine-3.15.0
+    container: hexpm/elixir:1.13.2-erlang-24.2-alpine-3.15.0
 
     strategy:
       fail-fast: false

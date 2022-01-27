@@ -19,7 +19,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.0-3:24.1.5-3-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-5:1.13.2-24.1.5-4-ubuntu20.04"
 
     outputs:
       ce_old_vsns: ${{ steps.find_old_versons.outputs.ce_old_vsns }}
@@ -130,7 +130,7 @@ jobs:
           - emqx
           - emqx-enterprise
         otp:
-          - 24.1.5-3
+          - 24.1.5-4
         macos:
           - macos-11
           - macos-10.15
@@ -236,7 +236,18 @@ jobs:
           - emqx
           - emqx-enterprise
         otp:
-          - 24.1.5-3 # we test with OTP 23, but only build package on OTP 24 versions
+          - 24.1.5-4 # we test with OTP 23, but only build package on OTP 24 versions
+        elixir:
+          - 1.13.2
+        # used to split elixir packages into a separate job, since the
+        # entire job may take a lot of time, especially on arm64
+        # emulation.
+        # we only want to build ubuntu and centos with elixir for the
+        # time being, so it's easier to just include those with
+        # `with_elixir` set.
+        build_elixir:
+          # - with_elixir
+          - no_elixir
         arch:
           - amd64
           - arm64
@@ -264,6 +275,19 @@ jobs:
           profile: emqx-enterprise
         - os: raspbian10
           profile: emqx-enterprise
+        include:
+          - profile: emqx
+            otp: 24.1.5-4
+            elixir: 1.13.2
+            arch: amd64
+            build_elixir: with_elixir
+            os: ubuntu20.04
+          - profile: emqx
+            otp: 24.1.5-4
+            elixir: 1.13.2
+            arch: amd64
+            build_elixir: with_elixir
+            os: centos8
 
     defaults:
       run:
@@ -289,12 +313,16 @@ jobs:
     - name: load rocksdb cache
       uses: actions/cache@v2
       with:
-        path: source/_build/default/lib/rocksdb/
+        path: |
+          source/_build/default/lib/rocksdb/
+          source/deps/rocksdb/
         key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
     - name: load quicer cache
       uses: actions/cache@v2
       with:
-        path: source/_build/default/lib/quicer/
+        path: |
+          source/_build/default/lib/quicer/
+          source/deps/quicer/
         key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
     - name: download old emqx tgz packages
       env:
@@ -334,22 +362,51 @@ jobs:
     - name: build emqx packages
       env:
         OTP: ${{ matrix.otp }}
+        ELIXIR: ${{ matrix.elixir }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
+      if: ${{ matrix.build_elixir == 'no_elixir' }}
       working-directory: source
       run: |
         ./scripts/buildx.sh \
           --profile "${PROFILE}" \
           --pkgtype "tgz" \
           --arch "${ARCH}" \
-          --builder "ghcr.io/emqx/emqx-builder/5.0-3:${OTP}-${SYSTEM}"
+          --otp "${OTP}" \
+          --elixir "${ELIXIR}" \
+          --system "${SYSTEM}" \
+          --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
         ## the pkg build is incremental on the tgz build
         ./scripts/buildx.sh \
           --profile "${PROFILE}" \
           --pkgtype "pkg" \
           --arch "${ARCH}" \
-          --builder "ghcr.io/emqx/emqx-builder/5.0-3:${OTP}-${SYSTEM}"
+          --otp "${OTP}" \
+          --elixir "${ELIXIR}" \
+          --system "${SYSTEM}" \
+          --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
+
+    - name: build emqx packages (Elixir)
+      env:
+        OTP: ${{ matrix.otp }}
+        ELIXIR: ${{ matrix.elixir }}
+        PROFILE: ${{ matrix.profile }}
+        ARCH: ${{ matrix.arch }}
+        SYSTEM: ${{ matrix.os }}
+      working-directory: source
+      if: ${{ matrix.build_elixir == 'with_elixir' }}
+      run: |
+        ## we currently only build tgzs for elixir
+        ./scripts/buildx.sh \
+          --profile "${PROFILE}" \
+          --pkgtype "tgz" \
+          --arch "${ARCH}" \
+          --otp "${OTP}" \
+          --elixir "${ELIXIR}" \
+          --system "${SYSTEM}" \
+          --with-elixir \
+          --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
 
     - name: create sha256
       env:
@@ -380,9 +437,23 @@ jobs:
           - emqx-edge
           - emqx
           - emqx-enterprise
-        # NOTE: for docker, only support latest otp version, not a matrix
+        # NOTE: for docker, only support latest otp and elixir
+        # versions, not a matrix
         otp:
-          - 24.1.5-3 # update to latest
+          - 24.1.5-4 # update to latest
+        elixir:
+          - 1.13.2 # update to latest
+        arch:
+          - amd64
+          - arm64
+        build_elixir:
+          - no_elixir
+        include:
+          - profile: emqx
+            otp: 24.1.5-4
+            elixir: 1.13.2
+            arch: amd64
+            build_elixir: with_elixir
 
     steps:
     - uses: actions/download-artifact@v2
@@ -398,6 +469,7 @@ jobs:
         platforms: all
     - uses: docker/metadata-action@v3
       id: meta
+      if: ${{ matrix.build_elixir == 'no_elixir' }}
       with:
         images: ${{ github.repository_owner }}/${{ matrix.profile }}
         flavor: |
@@ -409,12 +481,30 @@ jobs:
           type=semver,pattern={{version}}
         labels:
           org.opencontainers.image.otp.version=${{ matrix.otp }}
+    - name: docker metadata for elixir image
+      uses: docker/metadata-action@v3
+      if: ${{ matrix.build_elixir == 'with_elixir' }}
+      id: meta-elixir
+      with:
+        images: ${{ github.repository_owner }}/${{ matrix.profile }}
+        flavor: |
+          latest=${{ !github.event.release.prerelease }}
+          suffix=-elixir
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=ref,event=tag
+          type=semver,pattern={{version}}
+        labels: |
+          org.opencontainers.image.otp.version=${{ matrix.otp }}
+          org.opencontainers.image.elixir.version=${{ matrix.elixir }}
     - uses: docker/login-action@v1
       if: github.event_name == 'release'
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
     - uses: docker/build-push-action@v2
+      if: ${{ matrix.build_elixir == 'no_elixir' }}
       with:
         push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
         pull: true
@@ -423,9 +513,25 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-3:${{ matrix.otp }}-alpine3.14
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-alpine3.14
           RUN_FROM=alpine:3.14
           EMQX_NAME=${{ matrix.profile }}
+        file: source/deploy/docker/Dockerfile
+        context: source
+    - name: build docker image with elixir
+      uses: docker/build-push-action@v2
+      if: ${{ matrix.profile == 'emqx' && matrix.build_elixir == 'with_elixir' }}
+      with:
+        push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
+        pull: true
+        no-cache: true
+        platforms: linux/amd64,linux/arm64
+        tags: ${{ steps.meta-elixir.outputs.tags }}
+        labels: ${{ steps.meta-elixir.outputs.labels }}
+        build-args: |
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-alpine3.14
+          RUN_FROM=alpine:3.14
+          EMQX_NAME=emqx-elixir
         file: source/deploy/docker/Dockerfile
         context: source
     - uses: aws-actions/configure-aws-credentials@v1
@@ -435,9 +541,17 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
     - name: Push image to aws ecr
-      if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx'
+      if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx' && matrix.build_elixir == 'no_elixir'
       run: |
         version=${GITHUB_REF##*/}
+        docker pull emqx/emqx:${version#v}
+        docker tag emqx/emqx:${version#v} public.ecr.aws/emqx/emqx:${version#v}
+        aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+        docker push public.ecr.aws/emqx/emqx:${version#v}
+    - name: Push image to aws ecr (elixir)
+      if: github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx' && matrix.build_elixir == 'with_elixir'
+      run: |
+        version=${GITHUB_REF##*/}-elixir
         docker pull emqx/emqx:${version#v}
         docker tag emqx/emqx:${version#v} public.ecr.aws/emqx/emqx:${version#v}
         aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
@@ -465,7 +579,7 @@ jobs:
           - emqx
           - emqx-enterprise
         otp:
-          - 24.1.5-3
+          - 24.1.5-4
 
     steps:
     - uses: actions/checkout@v2
