@@ -42,11 +42,11 @@ init(#{clientid_list := ClientidList, username_list := UsernameList}) ->
             {attributes, record_info(fields, emqx_user)},
             {storage_properties, [{ets, [{read_concurrency, true}]}]}]),
     lists:foreach(fun({Clientid, Password}) ->
-    emqx_auth_mnesia_cli:add_default_user(clientid, iolist_to_binary(Clientid), iolist_to_binary(Password))
+        emqx_auth_mnesia_cli:add_default_user(clientid, iolist_to_binary(Clientid), iolist_to_binary(Password))
     end, ClientidList),
 
     lists:foreach(fun({Username, Password}) ->
-    emqx_auth_mnesia_cli:add_default_user(username, iolist_to_binary(Username), iolist_to_binary(Password))
+        emqx_auth_mnesia_cli:add_default_user(username, iolist_to_binary(Username), iolist_to_binary(Password))
     end, UsernameList),
 
     ok = ekka_mnesia:copy_table(?TABLE, disc_copies).
