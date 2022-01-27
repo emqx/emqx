@@ -25,17 +25,17 @@ C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build
 
 Depending on your visual studio version and OS, the paths may differ.
 The first path is for rebar3 port compiler to find `cl.exe` and `link.exe`
-The second path is for Powershell or CMD to setup environment variables.
+The second path is for CMD to setup environment variables.
 
 ### Erlang/OTP
 
 Install Erlang/OTP 23.2 from https://www.erlang.org/downloads
 You may need to edit the `Path` environment variable to allow running
-Erlang commands such as `erl` from powershell.
+Erlang commands such as `erl` from CMD.
 
-To validate Erlang installation in CMD or powershell:
+To validate Erlang installation in CMD :
 
-* Start (or restart) CMD or powershell
+* Start (or restart) CMD
 
 * Execute `erl` command to enter Erlang shell
 
@@ -63,7 +63,7 @@ Cygwin is what we tested with.
   to `Path` list.
 
 * Validate installation.
-  Start (restart) CMD or powershell console and execute `which bash`, it should
+  Start (restart) CMD console and execute `which bash`, it should
   print out `/usr/bin/bash`
 
 ### Other tools
@@ -88,7 +88,7 @@ scoop install git curl make jq zip unzip
 
 * Clone the repo: `git clone https://github.com/emqx/emqx.git`
 
-* Start CMD or Powershell
+* Start CMD
 
 * Execute `vcvarsall.bat x86_amd64` to load environment variables
 

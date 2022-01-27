@@ -112,7 +112,7 @@ handle_info({timeout, Timer, check},
                       process_low_watermark := ProcLowWatermark}) ->
     ProcessCount = erlang:system_info(process_count),
     case ProcessCount / erlang:system_info(process_limit) * 100 of
-        Percent when Percent >= ProcHighWatermark ->
+        Percent when Percent > ProcHighWatermark ->
             emqx_alarm:activate(too_many_processes, #{usage => Percent,
                                                       high_watermark => ProcHighWatermark,
                                                       low_watermark => ProcLowWatermark});

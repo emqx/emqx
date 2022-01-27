@@ -78,14 +78,14 @@ add_default_user(Type, Key, Password) ->
                             username -> user
                         end,
                     ?LOG(warning,
-                        "[Auth Mnesia] auth.client.x.~p=~s's password in the emqx_auth_mnesia.conf\n"
+                        "[Auth Mnesia] auth.client.x.~p=~s password in the emqx_auth_mnesia.conf\n"
                         "does not match the password in the database(mnesia).\n"
                         "1. If you have already changed the password via the HTTP API, this warning has no effect.\n"
-                        "You can remove the warning from emqx_auth_mnesia.conf to resolve the warning.\n"
+                        "You can remove the `auth.client.x.~p=~s` from emqx_auth_mnesia.conf to resolve this warning.\n"
                         "2. If you just want to update the password by manually changing the configuration file,\n"
                         "you need to delete the old user and password using `emqx_ctl ~p delete ~s` first\n"
                         "the new password in emqx_auth_mnesia.conf can take effect after reboot.",
-                        [Type, Key, TypeCtl, Key]),
+                        [Type, Key, Type, Key, TypeCtl, Key]),
                     ok
             end;
         Error -> Error

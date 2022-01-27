@@ -93,7 +93,6 @@ on_client_connect(ConnInfo = #{clientid := ClientId, username := Username, peern
               , ipaddress => iolist_to_binary(ntoa(Peerhost))
               , keepalive => maps:get(keepalive, ConnInfo)
               , proto_ver => maps:get(proto_ver, ConnInfo)
-              , connected_at => maps:get(connected_at, ConnInfo)
               },
     send_http_request(ClientId, Params).
 

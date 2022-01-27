@@ -52,8 +52,7 @@ prop_client_connect() ->
                       username => maybe(maps:get(username, ConnInfo)),
                       ipaddress => peer2addr(maps:get(peername, ConnInfo)),
                       keepalive => maps:get(keepalive, ConnInfo),
-                      proto_ver => maps:get(proto_ver, ConnInfo),
-                      connected_at => maps:get(connected_at, ConnInfo)
+                      proto_ver => maps:get(proto_ver, ConnInfo)
                      }),
            true
        end).
