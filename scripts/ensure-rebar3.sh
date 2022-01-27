@@ -25,6 +25,7 @@ version() {
     head -n 2 ./rebar3 | tail -n 1 | tr ' ' '\n' | grep -E '^.+-emqx-.+'
 }
 
+echo "OTP_VSN: ${OTP_VSN}"
 if version_gte "${OTP_VSN}" "24.0"; then
     ## rebar3 tag 3.18.0-emqx-1 is compiled using otp24.1.5.
     ## we have to use an otp24-compiled rebar3 because the defination of record #application{}
@@ -33,6 +34,7 @@ if version_gte "${OTP_VSN}" "24.0"; then
 fi
 
 if [ -f 'rebar3' ] && [ "$(version)" = "$VERSION" ]; then
+    echo "rebar3 ${VERSION} already exists"
     exit 0
 fi
 
