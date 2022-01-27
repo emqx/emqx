@@ -387,7 +387,7 @@ after idling for 'Keepalive * backoff * 2'."""
     , {"max_inflight",
        sc(range(1, 65535),
           #{ default => 32,
-             desc => "Maximum size of the Inflight Window storing QoS1/2 messages delivered but unacked."
+             desc => "Maximum size of the Inflight Window storing QoS1/2 messages delivered but un-acked."
            })
       }
     , {"retry_interval",
@@ -550,7 +550,7 @@ fields("overload_protection") ->
            })}
     , {"backoff_delay",
        sc(range(0, inf),
-          #{ desc => "Some unimporant tasks could be delayed"
+          #{ desc => "Some unimportant tasks could be delayed "
                      "for execution, here set the delays in ms"
            , default => 1
            })}
@@ -904,7 +904,7 @@ fields("broker") ->
            })}
     , {"perf",
        sc(ref("broker_perf"),
-          #{ desc => "Broker performance tuning pamaters"
+          #{ desc => "Broker performance tuning parameters"
            })
       }
     ];
@@ -1032,35 +1032,35 @@ in the VM exceeds this value"
     , {"db_hostname",
        sc(string(),
          #{ mapping => "system_monitor.db_hostname"
-          , desc => "Hostname of the postgres database that collects the data points"
+          , desc => "Hostname of the PostgreSQL database that collects the data points"
           })
       }
     , {"db_port",
        sc(integer(),
          #{ mapping => "system_monitor.db_port"
           , default => 5432
-          , desc => "Port of the postgres database that collects the data points"
+          , desc => "Port of the PostgreSQL database that collects the data points"
           })
       }
     , {"db_username",
        sc(string(),
          #{ mapping => "system_monitor.db_username"
           , default => "system_monitor"
-          , desc    => "EMQX user name in the postgres database"
+          , desc    => "EMQX user name in the PostgreSQL database"
           })
       }
     , {"db_password",
        sc(binary(),
          #{ mapping => "system_monitor.db_password"
           , default => "system_monitor_password"
-          , desc    => "EMQX user password in the postgres database"
+          , desc    => "EMQX user password in the PostgreSQL database"
           })
       }
     , {"db_name",
        sc(string(),
          #{ mapping => "system_monitor.db_name"
           , default => "postgres"
-          , desc    => "Postgres database name"
+          , desc    => "PostgreSQL database name"
           })
       }
     ];
@@ -1111,7 +1111,7 @@ fields("trace") ->
         default => text,
         desc => """
 Determine the format of the payload format in the trace file.<br>
-`text`: Text-based protocol or plain text protocol. It is recommended when payload is json encode.<br>
+`text`: Text-based protocol or plain text protocol. It is recommended when payload is JSON encoded.<br>
 `hex`: Binary hexadecimal encode. It is recommended when payload is a custom binary protocol.<br>
 `hidden`: payload is obfuscated as `******`
         """
@@ -1264,7 +1264,7 @@ keyfile is password-protected."""
           #{ default => default_tls_vsns(maps:get(versions, Defaults, tls_all_available))
            , desc =>
 """All TLS/DTLS versions to be supported.<br>
-NOTE: PSK ciphers are suppresed by 'tlsv1.3' version config<br>
+NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config<br>
 In case PSK cipher suites are intended, make sure to configured
 <code>['tlsv1.2', 'tlsv1.1']</code> here.
 """
@@ -1361,7 +1361,7 @@ client_ssl_opts_schema(Defaults) ->
             , desc =>
 """Specify the host name to be used in TLS Server Name Indication extension.<br>
 For instance, when connecting to \"server.example.net\", the genuine server
-which accedpts the connection and performs TLS handshake may differ from the
+which accepts the connection and performs TLS handshake may differ from the
 host the TLS client initially connects to, e.g. when connecting to an IP address
 or when the host has multiple resolvable DNS records <br>
 If not specified, it will default to the host name string which is used
@@ -1405,7 +1405,7 @@ Selecting a good cipher suite is critical for the
 application's data security, confidentiality and performance.
 
 The names should be in OpenSSL string format (not RFC format).
-All default values and examples proveded by EMQ X config
+All default values and examples provided by EMQ X config
 documentation are all in OpenSSL format.<br>
 
 NOTE: Certain cipher suites are only compatible with
@@ -1415,7 +1415,7 @@ For instance, if only 'tlsv1.3' is given in the <code>versions</code>,
 configuring cipher suites for other versions will have no effect.
 <br>
 
-NOTE: PSK ciphers are suppresed by 'tlsv1.3' version config<br>
+NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config<br>
 If PSK cipher suites are intended, 'tlsv1.3' should be disabled from <code>versions</code>.<br>
 PSK cipher suites: <code>\"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,
 RSA-PSK-AES128-GCM-SHA256,RSA-PSK-AES128-CBC-SHA256,
@@ -1469,7 +1469,7 @@ ref(Module, Field) -> hoconsc:ref(Module, Field).
 
 mk_duration(Desc, OverrideMeta) ->
     DefaultMeta = #{desc => Desc ++ " Time span. A text string with number followed by time units:
-                    `ms` for milli-seconds,
+                    `ms` for milliseconds,
                     `s` for seconds,
                     `m` for minutes,
                     `h` for hours;

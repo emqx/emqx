@@ -43,7 +43,7 @@
                        ?PH_CERT_SUBJECT]).
 
 description() ->
-    "AuthZ with Postgresql".
+    "AuthZ with PostgreSQL".
 
 init(#{query := SQL0} = Source) ->
     {SQL, PlaceHolders} = emqx_authz_utils:parse_sql(

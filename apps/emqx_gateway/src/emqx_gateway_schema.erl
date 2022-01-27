@@ -164,7 +164,7 @@ fields(coap) ->
        sc(duration(),
           #{ default => <<"30s">>
            , desc =>
-"The gateway server required minimum hearbeat interval.<br>
+"The gateway server required minimum heartbeat interval.<br>
 When connection mode is enabled, this parameter is used to set the minimum
 heartbeat interval for the connection to be alive."
            })}
@@ -377,7 +377,7 @@ fields(udp_tcp_listeners) ->
     ];
 
 fields(tcp_listener) ->
-    [ %% some special confs for tcp listener
+    [ %% some special configs for tcp listener
       {acceptors, sc(integer(), #{default => 16})}
     ] ++
     tcp_opts() ++
@@ -394,7 +394,7 @@ fields(ssl_listener) ->
 
 fields(udp_listener) ->
     [
-     %% some special confs for udp listener
+     %% some special configs for udp listener
     ] ++
     udp_opts() ++
     common_listener_opts();

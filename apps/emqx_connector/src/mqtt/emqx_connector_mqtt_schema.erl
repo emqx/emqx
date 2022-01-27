@@ -130,7 +130,7 @@ Template with variables is allowed."""
     , {hookpoint,
         sc(binary(),
            #{ desc => """
-The hookpoint will be triggered when there's any message received from the remote broker.
+The hook point will be triggered when there's any message received from the remote broker.
 """
             })}
     ] ++ common_inout_confs();

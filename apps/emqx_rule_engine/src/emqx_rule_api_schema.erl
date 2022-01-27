@@ -87,7 +87,7 @@ fields("metrics") ->
     , {"sql.matched.rate", sc(float(), #{desc => "The rate of matched, times/second"})}
     , {"sql.matched.rate.max", sc(float(), #{desc => "The max rate of matched, times/second"})}
     , {"sql.matched.rate.last5m", sc(float(),
-        #{desc => "The average rate of matched in last 5 mins, times/second"})}
+        #{desc => "The average rate of matched in last 5 minutes, times/second"})}
     , {"sql.passed", sc(integer(), #{desc => "How much times the SQL is passed"})}
     , {"sql.failed", sc(integer(), #{desc => "How much times the SQL is failed"})}
     , {"sql.failed.exception", sc(integer(), #{

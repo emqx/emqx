@@ -112,7 +112,7 @@ And a the `EMQX_` prefix is used as the namespace.
 
 For example `node.name` can be represented as `EMQX_NODE__NAME`
 
-Environment variable values are parsed as hocon values, this allows users
+Environment variable values are parsed as HOCON values, this allows users
 to even set complex values from environment variables.
 
 For example, this environment variable sets an array value.
