@@ -186,6 +186,7 @@ profiles_dev() ->
 
 %% RelType: cloud (full size) | edge (slim size)
 %% PkgType: bin | pkg
+%% Edition: ce (community) | ee (enterprise)
 relx(Vsn, RelType, PkgType, Edition) ->
     [ {include_src,false}
     , {include_erts, true}

@@ -8,23 +8,32 @@ defmodule EMQXUmbrella.MixProject do
   procedures, one cannot simply use `iex -S mix`.  Instead, it's
   recommendd to build and use the release.
 
+  ## Profiles
+
+  To control the profile and edition to build, we case split on the
+  MIX_ENV value.
+
+  The following profiles are valid:
+
+    * `emqx`
+    * `emqx-edge`
+    * `emqx-enterprise`
+    * `emqx-pkg`
+    * `emqx-edge-pkg`
+    * `emqx-enterprise-pkg`
+    * `dev` -> same as `emqx`, for convenience
+
   ## Release Environment Variables
 
   The release build is controlled by a few environment variables.
 
     * `ELIXIR_MAKE_TAR` - If set to `yes`, will produce a `.tar.gz`
       tarball along with the release.
-    * `EMQX_RELEASE_TYPE` - Must be one of `cloud | edge`.  Controls a
-      few dependencies and the `vm.args` to be used.  Defaults to
-      `cloud`.
-    * `EMQX_PACKAGE_TYPE` - Must be one of `bin | pkg`.  Controls
-      whether the build is intended for direct usage or for packaging.
-      Defaults to `bin`.
-    * `EMQX_EDITION_TYPE` - Must be one of `community | enterprise`.
-      Defaults to `community`.
   """
 
   def project() do
+    check_profile!()
+
     [
       app: :emqx_mix,
       version: pkg_vsn(),
@@ -105,7 +114,7 @@ defmodule EMQXUmbrella.MixProject do
           release_type: release_type,
           package_type: package_type,
           edition_type: edition_type
-        } = read_inputs()
+        } = check_profile!()
 
         base_steps = [
           :assemble,
@@ -197,27 +206,58 @@ defmodule EMQXUmbrella.MixProject do
       )
   end
 
-  defp read_inputs() do
-    release_type =
-      read_enum_env_var(
-        "EMQX_RELEASE_TYPE",
-        [:cloud, :edge],
-        :cloud
-      )
+  def check_profile!() do
+    valid_envs = [
+      :dev,
+      :emqx,
+      :"emqx-pkg",
+      :"emqx-enterprise",
+      :"emqx-enterprise-pkg",
+      :"emqx-edge",
+      :"emqx-edge-pkg"
+    ]
 
-    package_type =
-      read_enum_env_var(
-        "EMQX_PACKAGE_TYPE",
-        [:bin, :pkg],
-        :bin
-      )
+    if Mix.env() not in valid_envs do
+      formatted_envs =
+        valid_envs
+        |> Enum.map(&"  * #{&1}")
+        |> Enum.join("\n")
 
-    edition_type =
-      read_enum_env_var(
-        "EMQX_EDITION_TYPE",
-        [:community, :enterprise],
-        :community
-      )
+      Mix.raise("""
+      Invalid env #{Mix.env()}.  Valid options are:
+      #{formatted_envs}
+      """)
+    end
+
+    {
+      release_type,
+      package_type,
+      edition_type
+    } =
+      case Mix.env() do
+        :dev ->
+          {:cloud, :bin, :community}
+
+        :emqx ->
+          {:cloud, :bin, :community}
+
+        :"emqx-edge" ->
+          {:edge, :bin, :community}
+
+        :"emqx-enterprise" ->
+          {:cloud, :bin, :enterprise}
+
+        :"emqx-pkg" ->
+          {:cloud, :pkg, :community}
+
+        :"emqx-edge-pkg" ->
+          {:edge, :pkg, :community}
+
+        :"emqx-enterprise-pkg" ->
+          {:cloud, :pkg, :enterprise}
+      end
+
+    normalize_env!()
 
     %{
       release_type: release_type,
@@ -477,28 +517,6 @@ defmodule EMQXUmbrella.MixProject do
     ]
   end
 
-  defp read_enum_env_var(env_var, allowed_values, default_value) do
-    case System.fetch_env(env_var) do
-      :error ->
-        default_value
-
-      {:ok, raw_value} ->
-        value =
-          raw_value
-          |> String.downcase()
-          |> String.to_atom()
-
-        if value not in allowed_values do
-          Mix.raise("""
-          Invalid value #{raw_value} for variable #{env_var}.
-          Allowed values are: #{inspect(allowed_values)}
-          """)
-        end
-
-        value
-    end
-  end
-
   defp emqx_description(release_type, edition_type) do
     case {release_type, edition_type} do
       {:cloud, :enterprise} ->
@@ -538,7 +556,7 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp pkg_vsn() do
-    %{edition_type: edition_type} = read_inputs()
+    %{edition_type: edition_type} = check_profile!()
     basedir = Path.dirname(__ENV__.file)
     script = Path.join(basedir, "pkg-vsn.sh")
     {str_vsn, 0} = System.cmd(script, [Atom.to_string(edition_type)])
@@ -595,6 +613,19 @@ defmodule EMQXUmbrella.MixProject do
       end
 
     to_string(8 * size)
+  end
+
+  defp normalize_env!() do
+    env =
+      case Mix.env() do
+        :dev ->
+          :emqx
+
+        env ->
+          env
+      end
+
+    Mix.env(env)
   end
 
   # As from Erlang/OTP 17, the OTP release number corresponds to the

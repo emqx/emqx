@@ -23,12 +23,12 @@ jobs:
         run: make emqx-elixir
       - name: start release
         run: |
-          cd _build/prod/rel/emqx
+          cd _build/emqx/rel/emqx
           bin/emqx start
       - name: check if started
         run: |
           sleep 10
           nc -zv localhost 1883
-          cd _build/prod/rel/emqx
+          cd _build/emqx/rel/emqx
           bin/emqx ping
           bin/emqx ctl status
