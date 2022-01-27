@@ -39,4 +39,3 @@ t_check(_) ->
     ?assertEqual(1, emqx_keepalive:info(statval, Keepalive2)),
     ?assertEqual(1, emqx_keepalive:info(repeat, Keepalive2)),
     ?assertEqual({error, timeout}, emqx_keepalive:check(1, Keepalive2)).
-
