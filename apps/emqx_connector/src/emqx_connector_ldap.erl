@@ -135,7 +135,7 @@ connect(Opts) ->
     {ok, LDAP}.
 
 ldap_fields() ->
-    [ {servers, fun emqx_connector_schema_lib:servers/1}
+    [ {servers, fun servers/1}
     , {port, fun port/1}
     , {pool_size, fun emqx_connector_schema_lib:pool_size/1}
     , {bind_dn, fun bind_dn/1}
@@ -143,6 +143,11 @@ ldap_fields() ->
     , {timeout, fun duration/1}
     , {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].
+
+servers(type) -> list();
+servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
+servers(converter) -> fun to_servers_raw/1;
+servers(_) -> undefined.
 
 bind_dn(type) -> binary();
 bind_dn(default) -> 0;
@@ -154,3 +159,20 @@ port(_) -> undefined.
 
 duration(type) -> emqx_schema:duration_ms();
 duration(_) -> undefined.
+
+to_servers_raw(Servers) ->
+    {ok, lists:map( fun(Server) ->
+                        case string:tokens(Server, ": ") of
+                            [Ip] ->
+                                [{host, Ip}];
+                            [Ip, Port] ->
+                                [{host, Ip}, {port, list_to_integer(Port)}]
+                        end
+                    end, string:tokens(str(Servers), ", "))}.
+
+str(A) when is_atom(A) ->
+    atom_to_list(A);
+str(B) when is_binary(B) ->
+    binary_to_list(B);
+str(S) when is_list(S) ->
+    S.

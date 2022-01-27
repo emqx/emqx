@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_pgsql).
 
+-include("emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("epgsql/include/epgsql.hrl").
@@ -38,19 +39,32 @@
 
 -export([do_health_check/1]).
 
+-define( PGSQL_HOST_OPTIONS
+       , #{ host_type => inet_addr
+          , default_port => ?PGSQL_DEFAULT_PORT}).
+
+
 %%=====================================================================
 
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
-    [{named_queries, fun named_queries/1}] ++
+    [ {named_queries, fun named_queries/1}
+    , {server, fun server/1}] ++
     emqx_connector_schema_lib:relational_db_fields() ++
     emqx_connector_schema_lib:ssl_fields().
 
 named_queries(type) -> map();
 named_queries(nullable) -> true;
 named_queries(_) -> undefined.
+
+server(type) -> emqx_schema:ip_port();
+server(nullable) -> false;
+server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
+server(converter) -> fun to_server/1;
+server(desc) -> ?SERVER_DESC("PostgreSQL", integer_to_list(?PGSQL_DEFAULT_PORT));
+server(_) -> undefined.
 
 %% ===================================================================
 on_start(InstId, #{server := {Host, Port},
@@ -163,3 +177,11 @@ conn_opts([Opt = {ssl_opts, _} | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]);
 conn_opts([_Opt | Opts], Acc) ->
     conn_opts(Opts, Acc).
+
+%% ===================================================================
+%% typereflt funcs
+
+-spec to_server(string())
+      -> {inet:ip_address() | inet:hostname(), pos_integer()}.
+to_server(Str) ->
+    emqx_connector_schema_lib:parse_server(Str, ?PGSQL_HOST_OPTIONS).

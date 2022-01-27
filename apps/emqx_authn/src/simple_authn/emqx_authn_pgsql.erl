@@ -54,9 +54,9 @@ fields(?CONF_NS) ->
     , {backend, emqx_authn_schema:backend(postgresql)}
     , {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     , {query, fun query/1}
-    ] ++ emqx_authn_schema:common_fields()
-    ++ emqx_connector_schema_lib:relational_db_fields()
-    ++ emqx_connector_schema_lib:ssl_fields().
+    ] ++
+    emqx_authn_schema:common_fields() ++
+    proplists:delete(named_queries, emqx_connector_pgsql:fields(config)).
 
 query(type) -> string();
 query(_) -> undefined.

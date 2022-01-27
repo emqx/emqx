@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_mysql).
 
+-include("emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -33,14 +34,27 @@
 
 -export([do_health_check/1]).
 
+-define( MYSQL_HOST_OPTIONS
+       , #{ host_type => inet_addr
+          , default_port => ?MYSQL_DEFAULT_PORT}).
+
 %%=====================================================================
 %% Hocon schema
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
+    [ {server, fun server/1}
+    ] ++
     emqx_connector_schema_lib:relational_db_fields() ++
     emqx_connector_schema_lib:ssl_fields().
+
+server(type) -> emqx_schema:ip_port();
+server(nullable) -> false;
+server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
+server(converter) -> fun to_server/1;
+server(desc) -> ?SERVER_DESC("MySQL", integer_to_list(?MYSQL_DEFAULT_PORT));
+server(_) -> undefined.
 
 %% ===================================================================
 on_start(InstId, #{server := {Host, Port},
@@ -106,3 +120,8 @@ reconn_interval(false) -> false.
 
 connect(Options) ->
     mysql:start_link(Options).
+
+-spec to_server(string())
+      -> {inet:ip_address() | inet:hostname(), pos_integer()}.
+to_server(Str) ->
+    emqx_connector_schema_lib:parse_server(Str, ?MYSQL_HOST_OPTIONS).

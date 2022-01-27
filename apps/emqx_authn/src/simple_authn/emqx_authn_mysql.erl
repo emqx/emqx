@@ -50,8 +50,7 @@ fields(?CONF_NS) ->
     , {query, fun query/1}
     , {query_timeout, fun query_timeout/1}
     ] ++ emqx_authn_schema:common_fields()
-    ++ emqx_connector_schema_lib:relational_db_fields()
-    ++ emqx_connector_schema_lib:ssl_fields().
+    ++ emqx_connector_mysql:fields(config).
 
 query(type) -> string();
 query(_) -> undefined.

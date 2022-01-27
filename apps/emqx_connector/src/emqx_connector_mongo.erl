@@ -20,10 +20,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--type server() :: emqx_schema:ip_port().
--reflect_type([server/0]).
--typerefl_from_string({server/0, emqx_connector_schema_lib, to_ip_port}).
-
 -behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
@@ -42,13 +38,18 @@
 
 -define(HEALTH_CHECK_TIMEOUT, 10000).
 
+%% mongo servers don't need parse
+-define( MONGO_HOST_OPTIONS
+       , #{ host_type => hostname
+          , default_port => ?MONGO_DEFAULT_PORT}).
+
 %%=====================================================================
 roots() ->
     [ {config, #{type => hoconsc:union(
-                          [ hoconsc:ref(?MODULE, single)
-                          , hoconsc:ref(?MODULE, rs)
-                          , hoconsc:ref(?MODULE, sharded)
-                          ])}}
+                           [ hoconsc:ref(?MODULE, single)
+                           , hoconsc:ref(?MODULE, rs)
+                           , hoconsc:ref(?MODULE, sharded)
+                           ])}}
     ].
 
 fields(single) ->
@@ -284,11 +285,18 @@ init_worker_options([_ | R], Acc) ->
     init_worker_options(R, Acc);
 init_worker_options([], Acc) -> Acc.
 
-server(type) -> binary();
+%% ===================================================================
+%% Schema funcs
+
+server(type) -> emqx_schema:ip_port();
+server(nullable) -> false;
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
+server(converter) -> fun to_server_raw/1;
+server(desc) -> ?SERVER_DESC("MongoDB", integer_to_list(?MONGO_DEFAULT_PORT));
 server(_) -> undefined.
 
 servers(type) -> binary();
+servers(nullable) -> false;
 servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
 servers(_) -> undefined.
 
@@ -311,6 +319,9 @@ replica_set_name(_) -> undefined.
 srv_record(type) -> boolean();
 srv_record(default) -> false;
 srv_record(_) -> undefined.
+
+%% ===================================================================
+%% Internal funcs
 
 parse_servers(Type, Servers) when is_binary(Servers) ->
     parse_servers(Type, binary_to_list(Servers));
@@ -395,3 +406,11 @@ take_and_convert([Field | More], Options, Acc) ->
         false ->
             take_and_convert(More, Options, Acc)
     end.
+
+%% ===================================================================
+%% typereflt funcs
+
+-spec to_server_raw(string())
+      -> {string(), pos_integer()}.
+to_server_raw(Server) ->
+    emqx_connector_schema_lib:parse_server(Server, ?MONGO_HOST_OPTIONS).
