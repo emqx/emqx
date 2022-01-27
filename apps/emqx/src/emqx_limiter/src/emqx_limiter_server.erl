@@ -338,11 +338,11 @@ longitudinal(#{id := Id,
         end,
 
     case lists:min([ShouldAlloc, Flow, Capacity]) of
-        Avaiable when Avaiable > 0 ->
+        Available when Available > 0 ->
             %% XXX if capacity is infinity, and flow always > 0, the value in
             %% counter will be overflow at some point in the future, do we need
             %% to deal with this situation???
-            {Inc, Node2} = emqx_limiter_correction:add(Avaiable, Node),
+            {Inc, Node2} = emqx_limiter_correction:add(Available, Node),
             counters:add(Counter, Index, Inc),
 
             {Inc,

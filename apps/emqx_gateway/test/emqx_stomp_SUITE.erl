@@ -451,7 +451,7 @@ t_rest_clienit_info(_) ->
 %% TODO: Mountpoint, AuthChain, Authorization + Mountpoint, ClientInfoOverride,
 %%       Listeners, Metrics, Stats, ClientInfo
 %%
-%% TODO: Start/Stop, List Instace
+%% TODO: Start/Stop, List Instance
 %%
 %% TODO: RateLimit, OOM,
 

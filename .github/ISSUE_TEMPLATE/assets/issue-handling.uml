@@ -42,7 +42,7 @@ closed --> [*]
 
 accepted -down--> assigned: priority review
 
-accepted --> needs_information: need more information\n to proceeed
+accepted --> needs_information: need more information\n to proceed
 needs_information --> accepted:  updates
 assigned --> InProgress: In sprint run\n or\n start to work on
 InProgress --> closed: issue is solved

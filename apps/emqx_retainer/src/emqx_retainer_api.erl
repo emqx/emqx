@@ -92,7 +92,7 @@ with_topic_api() ->
             description => <<"delete matching messages">>,
             parameters => parameters(),
             responses => #{
-                <<"204">> => schema(<<"Successed">>),
+                <<"204">> => schema(<<"Succeeded">>),
                 <<"405">> => schema(<<"NotAllowed">>)
             }
         }

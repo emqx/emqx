@@ -169,7 +169,7 @@ call(ConnStr, Req) ->
                           , reason => {Class, Reason}
                           , stacktrace => Stk
                           }),
-            {error, ?RESP_UNKNOWN, <<"Unkwown crashs">>}
+            {error, ?RESP_UNKNOWN, <<"Unknown crashes">>}
     end.
 
 %%--------------------------------------------------------------------

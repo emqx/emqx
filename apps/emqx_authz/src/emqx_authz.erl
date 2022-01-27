@@ -362,7 +362,7 @@ type(postgresql) -> postgresql;
 type(<<"postgresql">>) -> postgresql;
 type('built-in-database') -> 'built-in-database';
 type(<<"built-in-database">>) -> 'built-in-database';
-%% should never happend if the input is type-checked by hocon schema
+%% should never happen if the input is type-checked by hocon schema
 type(Unknown) -> error({unknown_authz_source_type, Unknown}).
 
 %% @doc where the acl.conf file is stored.

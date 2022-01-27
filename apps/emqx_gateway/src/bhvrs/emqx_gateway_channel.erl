@@ -25,7 +25,7 @@
 %%--------------------------------------------------------------------
 %% Info & Stats
 
-%% @doc Get the channel detailed infomation.
+%% @doc Get the channel detailed information.
 -callback info(channel()) -> emqx_types:infos().
 
 -callback info(Key :: atom() | [atom()], channel()) -> any().

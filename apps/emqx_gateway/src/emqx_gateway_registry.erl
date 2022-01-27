@@ -75,7 +75,7 @@ reg(Name, RgOpts) ->
 
 -spec unreg(gateway_name()) -> ok | {error, any()}.
 unreg(Name) ->
-    %% TODO: Checking ALL INSTACE HAS STOPPED
+    %% TODO: Checking ALL INSTANCE HAS STOPPED
     call({unreg, Name}).
 
 %% TODO:

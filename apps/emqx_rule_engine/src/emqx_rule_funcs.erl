@@ -89,7 +89,7 @@
         , subbits/6
         ]).
 
-%% Data Type Convertion
+%% Data Type Conversion
 -export([ str/1
         , str_utf8/1
         , bool/1
@@ -150,7 +150,7 @@
         , map_put/3
         ]).
 
-%% For backword compatibility
+%% For backward compatibility
 -export([ mget/2
         , mget/3
         , mput/3
@@ -503,7 +503,7 @@ do_get_subbits(Bits, Sz, Len, <<"bits">>, <<"signed">>, <<"little">>) ->
                       <<SubBits:Sz/bits-signed-little-unit:1>>).
 
 %%------------------------------------------------------------------------------
-%% Data Type Convertion Funcs
+%% Data Type Conversion Funcs
 %%------------------------------------------------------------------------------
 
 str(Data) ->

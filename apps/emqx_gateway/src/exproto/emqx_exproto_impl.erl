@@ -137,7 +137,7 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
             console_print("Start ~ts gRPC server on ~p successfully.~n",
                           [GwName, ListenOn]);
         {error, Reason} ->
-            ?ELOG("Falied to start ~ts gRPC server on ~p, reason: ~p",
+            ?ELOG("Failed to start ~ts gRPC server on ~p, reason: ~p",
                   [GwName, ListenOn, Reason])
     end.
 

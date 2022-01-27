@@ -244,7 +244,7 @@ handle_call({subscribe, Topic, SubOpts}, _From,
 
     _ = run_hooks(Ctx, 'session.subscribed',
                   [ClientInfo, MountedTopic, NSubOpts]),
-    %% modifty session state
+    %% modify session state
     SubReq = {Topic, Token},
     TempMsg = #coap_message{type = non},
     %% FIXME: The subopts is not used for emqx_coap_session
@@ -264,7 +264,7 @@ handle_call({unsubscribe, Topic}, _From,
     _ = run_hooks(Ctx, 'session.unsubscribe',
                   [ClientInfo, MountedTopic, #{}]),
 
-    %% modifty session state
+    %% modify session state
     UnSubReq = Topic,
     TempMsg = #coap_message{type = non},
     Result  = emqx_coap_session:process_subscribe(

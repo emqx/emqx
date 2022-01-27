@@ -60,7 +60,7 @@
 -export([ restart/1  %% restart the instance.
         , restart/2
         , health_check/1 %% verify if the resource is working normally
-        , set_resource_status_stoped/1 %% set resource status to stoped
+        , set_resource_status_stoped/1 %% set resource status to stopped
         , stop/1   %% stop the instance
         , query/2  %% query the instance
         , query/3  %% query the instance with after_query()

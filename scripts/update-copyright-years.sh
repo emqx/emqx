@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-## run this script onece a year
+## run this script once a year
 
 set -euo pipefail
 

@@ -120,7 +120,7 @@ handle_call({import, SrcFile}, _From, State) ->
 
 handle_call(Req, _From, State) ->
     ?SLOG(info, #{msg => "unexpected_call_discarded", req => Req}),
-    {reply, {error, unexecpted}, State}.
+    {reply, {error, unexpected}, State}.
 
 handle_cast(Req, State) ->
     ?SLOG(info, #{msg => "unexpected_cast_discarded", req => Req}),

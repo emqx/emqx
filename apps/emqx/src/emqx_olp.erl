@@ -53,7 +53,7 @@ is_overloaded() ->
 %% @doc Backoff with a delay if the system is overloaded, for tasks that could be deferred.
 %%      returns `false' if backoff didn't happen, the system is cool.
 %%      returns `ok' if backoff is triggered and get unblocked when the system is cool.
-%%      returns `timeout' if backoff is trigged but get unblocked due to timeout as configured.
+%%      returns `timeout' if backoff is triggered but get unblocked due to timeout as configured.
 -spec backoff(Zone :: atom()) -> ok | false | timeout.
 backoff(Zone) ->
   case emqx_config:get_zone_conf(Zone, [?overload_protection]) of
@@ -96,12 +96,12 @@ backoff_new_conn(Zone) ->
 status() ->
   is_overloaded().
 
-%% @doc turn off backgroud runq check.
+%% @doc turn off background runq check.
 -spec disable() -> ok | {error, timeout}.
 disable() ->
   load_ctl:stop_runq_flagman(5000).
 
-%% @doc turn on backgroud runq check.
+%% @doc turn on background runq check.
 -spec enable() -> {ok, pid()} | {error, running | restarting | disabled}.
 enable() ->
  case load_ctl:restart_runq_flagman() of

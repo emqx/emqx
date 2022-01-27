@@ -1986,7 +1986,7 @@ verify_read_response_1(CmdId, UdpSock) ->
     Request = test_recv_coap_request(UdpSock),
     ?LOGT("LwM2M client got ~p", [Request]),
 
-    %% device replies the commond
+    %% device replies the command
     test_send_coap_response(
       UdpSock,
       "127.0.0.1",

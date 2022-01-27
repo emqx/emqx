@@ -76,7 +76,7 @@ ordered to form a chain of access controls.<br>
 When authorizing a publish or subscribe action, the configured
 sources are checked in order. When checking an ACL source,
 in case the client (identified by username or client ID) is not found,
-it moves on to the next source. And it stops immediatly
+it moves on to the next source. And it stops immediately
 once an 'allow' or 'deny' decision is returned.<br>
 
 If the client is not found in any of the sources,

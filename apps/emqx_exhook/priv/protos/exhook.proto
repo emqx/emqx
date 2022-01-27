@@ -236,10 +236,10 @@ message EmptySuccess { }
 
 message ValuedResponse {
 
-  // The responsed value type
-  //  - contiune: Use the responsed value and execute the next hook
-  //  - ignore: Ignore the responsed value
-  //  - stop_and_return: Use the responsed value and stop the chain executing
+  // The responded value type
+  //  - contiune: Use the responded value and execute the next hook
+  //  - ignore: Ignore the responded value
+  //  - stop_and_return: Use the responded value and stop the chain executing
   enum ResponsedType {
 
     CONTINUE = 0;

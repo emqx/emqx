@@ -100,7 +100,7 @@ fields("metrics") ->
         })}
     , {"outputs.total", sc(integer(), #{
             desc => "How much times the outputs are called by the rule. "
-                    "This value may serveral times of 'sql.matched', depending on the "
+                    "This value may several times of 'sql.matched', depending on the "
                     "number of the outputs of the rule."
         })}
     , {"outputs.success", sc(integer(), #{

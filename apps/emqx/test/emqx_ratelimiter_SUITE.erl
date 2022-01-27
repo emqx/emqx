@@ -563,7 +563,7 @@ client_try_check(Need, #client{counter = Counter,
 
 %% XXX not a god test, because client's rate maybe bigger than global rate
 %% so if client' rate = infinity
-%% client's divisible should be true or capacity must be bigger than number of each comsume
+%% client's divisible should be true or capacity must be bigger than number of each consume
 client_random_val(infinity) ->
     1000;
 

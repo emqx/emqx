@@ -111,7 +111,7 @@ on_stats_update(#{clientid := ClientId,
         [_] ->
             %% if Latency > minimum value, we should update it
             %% if Latency < minimum value, maybe it can replace the minimum value
-            %% so alwyas update at here
+            %% so always update at here
             %% do we need check if Latency == minimum ???
             ets:insert(?TOPK_TAB,
                        #top_k{index = Index, type = Type, last_update_time = Ts}),

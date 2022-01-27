@@ -1,6 +1,6 @@
 # emqx-exproto
 
-The `emqx_exproto` extremly enhance the extensibility for EMQ X. It allow using an others programming language to **replace the protocol handling layer in EMQ X Broker**.
+The `emqx_exproto` extremely enhance the extensibility for EMQ X. It allow using an others programming language to **replace the protocol handling layer in EMQ X Broker**.
 
 ## Feature
 

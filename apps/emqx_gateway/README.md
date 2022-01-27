@@ -4,7 +4,7 @@
 
 ## Concept
 
-    EMQ X Gateway Managment
+    EMQ X Gateway Management
      - Gateway-Registry (or Gateway Type)
         - *Load
         - *UnLoad
@@ -317,7 +317,7 @@ emqx_ctl gateway-banned
 emqx_ctl gateway-metrics [<GatewayId>]
 ```
 
-#### Mangement by HTTP-API/Dashboard/
+#### Management by HTTP-API/Dashboard/
 
 #### How to integrate a protocol to your platform
 

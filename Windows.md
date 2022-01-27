@@ -6,7 +6,7 @@ NOTE: The instructions and examples are based on Windows 10.
 
 ### Visual studio for C/C++ compile and link
 
-EMQ X includes Erlang NIF (Native Implmented Function) components, implemented
+EMQ X includes Erlang NIF (Native Implemented Function) components, implemented
 in C/C++. To compile and link C/C++ libraries, the easiest way is perhaps to
 install Visual Studio.
 
@@ -58,7 +58,7 @@ environment in Windows, there are quite a few options.
 Cygwin is what we tested with.
 
 * Add `cygwin\bin` dir to `Path` environment variable
-  To do so, search for Edit environment variable in control pannel and
+  To do so, search for Edit environment variable in control panel and
   add `C:\tools\cygwin\bin` (depending on the location where it was installed)
   to `Path` list.
 
@@ -107,8 +107,8 @@ scoop install git curl make cmake jq zip unzip
   variables are not set. Make sure `vcvarsall.bat x86_amd64` is executed prior to the `make` command
 
 * `link: extra operand 'some.obj'`
-  This is likely due ot the usage of GNU `lnik.exe` but not the one from Visual Studio.
-  Exeucte `link.exe --version` to inspect which one is in use. The one installed from
+  This is likely due to the usage of GNU `lnik.exe` but not the one from Visual Studio.
+  Execute `link.exe --version` to inspect which one is in use. The one installed from
   Visual Studio should print out `Microsoft (R) Incremental Linker`.
   To fix it, Visual Studio's bin paths should be ordered prior to Cygwin's (or similar installation's)
   bin paths in `Path` environment variable.

@@ -481,7 +481,7 @@ typename_to_spec(Name, Mod) ->
     Spec2 = typerefl_array(Spec1, Name, Mod),
     Spec3 = integer(Spec2, Name),
     Spec3 =:= nomatch andalso
-                 throw({error, #{msg => <<"Unsupport Type">>, type => Name, module => Mod}}),
+                 throw({error, #{msg => <<"Unsupported Type">>, type => Name, module => Mod}}),
              Spec3.
 
 range(Name) ->

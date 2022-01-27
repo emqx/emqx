@@ -160,7 +160,7 @@ t_handle_process_down(Conf) ->
 
     _ = Pid ! {'DOWN', mref, process, self(), normal},
 
-    timer:sleep(200), %% wait the asycn clear task
+    timer:sleep(200), %% wait the async clear task
     ?assertEqual(
        [],
        ets:tab2list(emqx_gateway_cm:tabname(chan, ?GWNAME))),

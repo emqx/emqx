@@ -263,7 +263,7 @@ parse_heartbeat(#stomp_frame{headers = Headers}, ClientInfo) ->
 
 fix_mountpoint(_Packet, #{mountpoint := undefined}) -> ok;
 fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
-    %% TODO: Enrich the varibale replacement????
+    %% TODO: Enrich the variable replacement????
     %%       i.e: ${ClientInfo.auth_result.productKey}
     Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
     {ok, ClientInfo#{mountpoint := Mountpoint1}}.
@@ -492,7 +492,7 @@ handle_in(?PACKET(?CMD_COMMIT, Headers), Channel) ->
                 maybe_outgoing_receipt(receipt_id(Headers), Outgoings, Chann1);
             {error, Reason, Chann1} ->
                 %% FIXME: atomic for transaction ??
-                ErrMsg = io_lib:format("Execute transaction ~ts falied: ~0p",
+                ErrMsg = io_lib:format("Execute transaction ~ts failed: ~0p",
                                        [TxId, Reason]
                                       ),
                 handle_out(error, {receipt_id(Headers), ErrMsg}, Chann1)

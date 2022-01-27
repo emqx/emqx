@@ -136,7 +136,7 @@ delete(Topic, Trie) when is_binary(Topic) ->
         false -> ok
     end.
 
-%% @doc Find trie nodes that matchs the topic name.
+%% @doc Find trie nodes that matches the topic name.
 -spec(match(emqx_types:topic()) -> list(emqx_types:topic())).
 match(Topic) when is_binary(Topic) ->
     match(Topic, ?TRIE).

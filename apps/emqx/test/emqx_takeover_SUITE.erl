@@ -27,7 +27,7 @@
 -define(CNT, 100).
 
 %%--------------------------------------------------------------------
-%% Inital funcs
+%% Initial funcs
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 

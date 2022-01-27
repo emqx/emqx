@@ -61,7 +61,7 @@ default_password(nullable) -> false;
 default_password(sensitive) -> true;
 default_password(desc) -> """
 The initial default password for dashboard 'admin' user.
-For safty, it should be changed as soon as possible.""";
+For safety, it should be changed as soon as possible.""";
 default_password(_) -> undefined.
 
 cors(type) -> boolean();

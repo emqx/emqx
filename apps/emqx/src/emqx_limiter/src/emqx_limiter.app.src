@@ -1,6 +1,6 @@
 %% -*- mode: erlang -*-
 {application, emqx_limiter,
- [{description, "EMQ X Hierachical Limiter"},
+ [{description, "EMQ X Hierarchical Limiter"},
   {vsn, "1.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_limiter_sup]},

@@ -107,7 +107,7 @@ and can not be deleted."""
        sc(ref("mqtt"),
          #{ desc =>
 """Global MQTT configuration.<br>
-The configs here work as default values which can be overriden
+The configs here work as default values which can be overridden
 in <code>zone</code> configs"""
           })}
     , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
@@ -1045,7 +1045,7 @@ when deactivated, but after the retention time.
 
 fields("latency_stats") ->
     [ {"samples", sc(integer(), #{default => 10,
-                                  desc => "the number of smaples for calculate the average latency of delivery"})}
+                                  desc => "the number of samples for calculate the average latency of delivery"})}
     ];
 fields("trace") ->
     [ {"payload_encode", sc(hoconsc:enum([hex, text, hidden]), #{

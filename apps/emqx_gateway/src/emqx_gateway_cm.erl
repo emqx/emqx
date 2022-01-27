@@ -111,7 +111,7 @@ procname(GwName) ->
         ChannInfoTab :: atom()}.
 cmtabs(GwName) ->
     { tabname(chan, GwName)   %% Record: {ClientId, Pid}
-    , tabname(conn, GwName)   %% Recrod: {{ClientId, Pid}, ConnMod}
+    , tabname(conn, GwName)   %% Record: {{ClientId, Pid}, ConnMod}
     , tabname(info, GwName)   %% Record: {{ClientId, Pid}, Info, Stats}
     }.
 

@@ -45,7 +45,7 @@
 
 -record(channel, {chid, pid}).
 
-%% @doc Start the global channel registry for the gived gateway name.
+%% @doc Start the global channel registry for the given gateway name.
 -spec(start_link(gateway_name()) -> gen_server:startlink_ret()).
 start_link(Name) ->
     gen_server:start_link(?MODULE, [Name], []).

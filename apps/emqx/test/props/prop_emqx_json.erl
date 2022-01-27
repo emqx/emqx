@@ -68,7 +68,7 @@ prop_object_map_to_map() ->
                 true
             end).
 
-%% The duplicated key will be overriden
+%% The duplicated key will be overridden
 prop_object_proplist_to_map() ->
     ?FORALL(T0, json_object(),
            begin

@@ -53,7 +53,7 @@
 -define(SN_RC_CONGESTION,       16#01).
 -define(SN_RC_INVALID_TOPIC_ID, 16#02).
 -define(SN_RC_NOT_SUPPORTED,    16#03).
-%% Custome Reason code by emqx
+%% Custom Reason code by emqx
 -define(SN_RC_NOT_AUTHORIZE,    16#04).
 -define(SN_RC_FAILED_SESSION,   16#05).
 -define(SN_EXCEED_LIMITATION,   16#06).

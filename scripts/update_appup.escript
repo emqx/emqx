@@ -26,7 +26,7 @@ Usage:
 Options:
 
   --check           Don't update the appfile, just check that they are complete
-  --repo            Upsteam git repo URL
+  --repo            Upstream git repo URL
   --remote          Get upstream repo URL from the specified git remote
   --skip-build      Don't rebuild the releases. May produce wrong results
   --make-command    A command used to assemble the release

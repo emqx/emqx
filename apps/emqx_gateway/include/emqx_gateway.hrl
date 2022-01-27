@@ -19,7 +19,7 @@
 
 -type gateway_name() :: atom().
 
-%% @doc The Gateway defination
+%% @doc The Gateway definition
 -type gateway() ::
         #{ name    := gateway_name()
          %% Description

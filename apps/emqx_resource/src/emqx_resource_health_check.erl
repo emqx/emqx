@@ -82,7 +82,7 @@ health_check_timeout_checker(Pid, Name, SleepTime, Timeout) ->
         health_check_finish -> timer:sleep(SleepTime)
     after Timeout ->
         emqx_alarm:activate(Name, #{name => Name},
-                        <<Name/binary, " health check timout">>),
+                        <<Name/binary, " health check timeout">>),
         emqx_resource:set_resource_status_stoped(Name),
         receive
             health_check_finish -> timer:sleep(SleepTime)

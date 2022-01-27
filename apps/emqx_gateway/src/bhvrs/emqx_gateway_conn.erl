@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc The behavior abstrat for TCP based gateway conn
+%% @doc The behavior abstract for TCP based gateway conn
 -module(emqx_gateway_conn).
 
 -include_lib("emqx/include/types.hrl").
@@ -837,7 +837,7 @@ activate_socket(State = #state{sockstate = blocked}) ->
 activate_socket(State = #state{socket   = Socket,
                                active_n = N}) ->
     %% FIXME: Works on dtls/udp ???
-    %%        How to hanlde buffer?
+    %%        How to handle buffer?
     case esockd_setopts(Socket, [{active, N}]) of
         ok -> {ok, State#state{sockstate = running}};
         Error -> Error

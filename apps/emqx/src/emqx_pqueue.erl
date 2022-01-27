@@ -33,7 +33,7 @@
 %% When the queue contains items with non-zero priorities, it is
 %% represented as a sorted kv list with the inverted Priority as the
 %% key and an ordinary queue as the value. Here again we use our own
-%% ordinary queue implemention for efficiency, often making recursive
+%% ordinary queue implementation for efficiency, often making recursive
 %% calls into the same function knowing that ordinary queues represent
 %% a base case.
 

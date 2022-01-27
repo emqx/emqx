@@ -114,7 +114,7 @@ t_start_stop_log_handler2(_) ->
     %% stop a no exists handler returns {not_started, Id}
     ?assertMatch({error, {not_started, invalid_handler_id}},
                  ?LOGGER:stop_log_handler(invalid_handler_id)),
-    %% stop a handler that is already stopped retuns {not_started, Id}
+    %% stop a handler that is already stopped returns {not_started, Id}
     ok = ?LOGGER:stop_log_handler(default),
     ?assertMatch({error, {not_started, default}},
                  ?LOGGER:stop_log_handler(default)).

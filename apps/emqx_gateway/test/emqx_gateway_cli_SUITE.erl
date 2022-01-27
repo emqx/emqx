@@ -108,7 +108,7 @@ t_gateway_registry_list(_) ->
 t_gateway_usage(_) ->
     ?assertEqual(
        ["gateway list                     # List all gateway\n",
-        "gateway lookup <Name>            # Lookup a gateway detailed informations\n",
+        "gateway lookup <Name>            # Lookup a gateway detailed information\n",
         "gateway load   <Name> <JsonConf> # Load a gateway with config\n",
         "gateway unload <Name>            # Unload the gateway\n",
         "gateway stop   <Name>            # Stop the gateway\n",
@@ -181,13 +181,13 @@ t_gateway_start_stop(_) ->
 
     emqx_gateway_cli:gateway(["stop", "mqttsn"]),
     ?assertEqual("ok\n", acc_print()),
-    %% dupliacted stop gateway, return ok
+    %% duplicated stop gateway, return ok
     emqx_gateway_cli:gateway(["stop", "mqttsn"]),
     ?assertEqual("ok\n", acc_print()),
 
     emqx_gateway_cli:gateway(["start", "mqttsn"]),
     ?assertEqual("ok\n", acc_print()),
-    %% dupliacted start gateway, return ok
+    %% duplicated start gateway, return ok
     emqx_gateway_cli:gateway(["start", "mqttsn"]),
     ?assertEqual("ok\n", acc_print()),
 

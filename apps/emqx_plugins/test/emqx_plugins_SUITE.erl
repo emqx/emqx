@@ -118,7 +118,7 @@ t_demo_install_start_stop_uninstall(Config) ->
     ?assertEqual([], emqx_plugins:list()),
     ok.
 
-%% help funtion to create a info file.
+%% help function to create a info file.
 %% The file is in JSON format when built
 %% but since we are using hocon:load to load it
 %% ad-hoc test files can be in hocon format
