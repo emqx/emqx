@@ -60,7 +60,8 @@ properties() ->
         {version, string, <<"EMQ X Broker version">>},
         {sys_path, string, <<"EMQ X system file location">>},
         {log_path, string, <<"EMQ X log file location">>},
-        {config_path, string, <<"EMQ X config file location">>}
+        {config_path, string, <<"EMQ X config file location">>},
+        {role, string, <<"Node role">>}
     ]).
 
 parameters() ->

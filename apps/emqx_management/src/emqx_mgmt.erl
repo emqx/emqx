@@ -134,8 +134,8 @@ return(_Response) ->
 %%--------------------------------------------------------------------
 
 list_nodes() ->
-    Running = mnesia:system_info(running_db_nodes),
-    Stopped = mnesia:system_info(db_nodes) -- Running,
+    Running = mria_mnesia:cluster_nodes(running),
+    Stopped = mria_mnesia:cluster_nodes(stopped),
     DownNodes = lists:map(fun stopped_node_info/1, Stopped),
     [{Node, node_info(Node)} || Node <- Running] ++ DownNodes.
 
@@ -157,7 +157,8 @@ node_info() ->
           connections       => ets:info(emqx_channel, size),
           node_status       => 'Running',
           uptime            => proplists:get_value(uptime, BrokerInfo),
-          version           => iolist_to_binary(proplists:get_value(version, BrokerInfo))
+          version           => iolist_to_binary(proplists:get_value(version, BrokerInfo)),
+          role              => mria_rlog:role()
          }.
 
 node_info(Node) ->
