@@ -25,8 +25,18 @@ namespace() -> <<"dashboard">>.
 roots() -> ["dashboard"].
 
 fields("dashboard") ->
-    [ {listeners, hoconsc:array(hoconsc:union([hoconsc:ref(?MODULE, "http"),
-                                               hoconsc:ref(?MODULE, "https")]))}
+    [ {listeners,
+        sc(hoconsc:array(hoconsc:union([hoconsc:ref(?MODULE, "http"),
+            hoconsc:ref(?MODULE, "https")])),
+            #{ desc =>
+"""HTTP(s) listeners identified by their protocol type,
+is used to serve dashboard UI and restful HTTP API.<br>
+Listeners must have a unique combination of port number and IP address.<br>
+For example, an HTTP listener can listen on all configured IP addresses
+on a given port for a machine by specifying the IP address 0.0.0.0.<br>
+Alternatively, the HTTP listener can specify a unique IP address for each listener,
+but use the same port.
+"""   })}
     , {default_username, fun default_username/1}
     , {default_password, fun default_password/1}
     , {sample_interval, sc(emqx_schema:duration_s(), #{default => "10s"})}
@@ -35,11 +45,23 @@ fields("dashboard") ->
     ];
 
 fields("http") ->
-    [ {"protocol", hoconsc:enum([http, https])}
-    , {"port", hoconsc:mk(integer(), #{default => 18083})}
-    , {"num_acceptors", sc(integer(), #{default => 4})}
+    [ {"protocol", sc(
+        hoconsc:enum([http, https]),
+        #{ desc => "HTTP/HTTPS protocol."
+         , nullable => false
+         , default => http})}
+    , {"bind", fun bind/1}
+    , {"num_acceptors", sc(
+        integer(),
+        #{ default => 4
+         , desc => "Socket acceptor pool for TCP protocols."
+         })}
     , {"max_connections", sc(integer(), #{default => 512})}
-    , {"backlog", sc(integer(), #{default => 1024})}
+    , {"backlog", sc(
+        integer(),
+        #{ default => 1024
+         , desc => "Defines the maximum length that the queue of pending connections can grow to."
+        })}
     , {"send_timeout", sc(emqx_schema:duration(), #{default => "5s"})}
     , {"inet6", sc(boolean(), #{default => false})}
     , {"ipv6_v6only", sc(boolean(), #{default => false})}
@@ -49,6 +71,12 @@ fields("https") ->
     fields("http") ++
     proplists:delete("fail_if_no_peer_cert",
                      emqx_schema:server_ssl_opts_schema(#{}, true)).
+
+bind(type) -> hoconsc:union([non_neg_integer(), emqx_schema:ip_port()]);
+bind(default) -> 18083;
+bind(nullable) -> false;
+bind(desc) -> "Port without IP(18083) or port with specified IP(127.0.0.1:18083).";
+bind(_) -> undefined.
 
 default_username(type) -> string();
 default_username(default) -> "admin";
@@ -67,6 +95,10 @@ default_password(_) -> undefined.
 cors(type) -> boolean();
 cors(default) -> false;
 cors(nullable) -> true;
+cors(desc) ->
+"""Support Cross-Origin Resource Sharing (CORS).
+Allows a server to indicate any origins (domain, scheme, or port) other than
+its own from which a browser should permit loading resources.""";
 cors(_) -> undefined.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).

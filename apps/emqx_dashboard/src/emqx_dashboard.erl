@@ -61,15 +61,26 @@ start_listeners() ->
         dispatch => Dispatch,
         middlewares => [cowboy_router, ?EMQX_MIDDLE, cowboy_handler]
     },
-    [begin
-        Minirest = maps:put(protocol, Protocol, BaseMinirest),
-        {ok, _} = minirest:start(Name, RanchOptions, Minirest),
-        ?ULOG("Start listener ~ts on ~p successfully.~n", [Name, Port])
-    end || {Name, Protocol, Port, RanchOptions} <- listeners()].
+    Res =
+        lists:foldl(fun({Name, Protocol, Port, RanchOptions}, Acc) ->
+            Minirest = BaseMinirest#{protocol => Protocol},
+            case minirest:start(Name, RanchOptions, Minirest) of
+                {ok, _} ->
+                    ?ULOG("Start listener ~ts on ~p successfully.~n", [Name, Port]),
+                    Acc;
+                {error, _Reason} ->
+                    %% Don't record the reason because minirest already does(too much logs noise).
+                    [Name | Acc]
+            end
+                    end, [], listeners()),
+    case Res of
+        [] -> ok;
+        _ -> {error, Res}
+    end.
 
 stop_listeners() ->
     [begin
-        ok = minirest:stop(Name),
+        _ = minirest:stop(Name),
         ?ULOG("Stop listener ~ts on ~p successfully.~n", [Name, Port])
     end || {Name, _, Port, _} <- listeners()].
 
@@ -85,12 +96,19 @@ apps() ->
 
 listeners() ->
     [begin
-        Protocol = maps:get(protocol, ListenerOptions, http),
-        Port = maps:get(port, ListenerOptions, 18083),
-        Name = listener_name(Protocol, Port),
-        RanchOptions = ranch_opts(maps:without([protocol], ListenerOptions)),
+        Protocol = maps:get(protocol, ListenerOption0, http),
+        {ListenerOption, Port} = ip_port(ListenerOption0),
+        Name = listener_name(Protocol, ListenerOption),
+        RanchOptions = ranch_opts(maps:without([protocol], ListenerOption)),
         {Name, Protocol, Port, RanchOptions}
-    end || ListenerOptions <- emqx_conf:get([dashboard, listeners], [])].
+    end || ListenerOption0 <- emqx_conf:get([dashboard, listeners], [])].
+
+ip_port(Opts) -> ip_port(maps:take(bind, Opts), Opts).
+
+ip_port(error, Opts)  -> {Opts#{port => 18083}, 18083};
+ip_port({Port, Opts}, _) when is_integer(Port) -> {Opts#{port => Port}, Port};
+ip_port({{IP, Port}, Opts}, _) -> {Opts#{port => Port, ip => IP}, Port}.
+
 
 ranch_opts(RanchOptions) ->
     Keys = [ {ack_timeout, handshake_timeout}
@@ -119,8 +137,16 @@ key_only(K , true , S)  -> [K | S];
 key_only(_K, false, S)  -> S;
 key_only(K , V    , S)  -> [{K, V} | S].
 
-listener_name(Protocol, Port) ->
-    Name = "dashboard:" ++ atom_to_list(Protocol) ++ ":" ++ integer_to_list(Port),
+listener_name(Protocol, #{port := Port, ip := IP}) ->
+    Name = "dashboard:"
+        ++ atom_to_list(Protocol) ++ ":"
+        ++ inet:ntoa(IP) ++ ":"
+        ++ integer_to_list(Port),
+    list_to_atom(Name);
+listener_name(Protocol, #{port := Port}) ->
+    Name = "dashboard:"
+        ++ atom_to_list(Protocol) ++ ":"
+        ++ integer_to_list(Port),
     list_to_atom(Name).
 
 authorize(Req) ->
