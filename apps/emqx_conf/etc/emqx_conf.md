@@ -9,12 +9,15 @@ From bottom up:
 
 1. Immutable base: `emqx.conf` + `EMQX_` prfixed environment variables.<br>
    Changes in this layer require a full node restart to take effect.
-1. Cluster override: The path of which is configured by `cluster_override_conf_file`.<br>
-   Overrides made from management APIs (or dashboard) for all nodes in the cluster.
-1. Local override: The path of which is configured by `local_override_conf_file`.<br>
-   Special overrides applied to local node.
+1. Cluster overrides: `${data_dir}/cluster-override.conf`
+1. Local node overrides: `${data_dir}/configs/local-override.conf`
 
-For detailed override rules, see [Config overlay rules](#config-overlay-rules).
+Where `${data_dir}` is configurable from `node.data_dir`.
+
+The `*-override.conf` files are overwritten at runtime when changes
+are made from dashboard UI, management HTTP API, or CLI.
+
+For detailed override rules, see [Config Overlay Rules](#config-overlay-rules).
 
 ## Syntax
 
@@ -131,7 +134,7 @@ because the field name is `enable`, not `enabled`.
 
 <strong>NOTE:</strong> Unknown root keys are however silently discarded.
 
-### Config overlay rules
+### Config Overlay Rules
 
 HOCON objects are overlaid, in general:
 
