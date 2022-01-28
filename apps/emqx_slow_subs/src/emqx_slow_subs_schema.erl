@@ -26,7 +26,7 @@ fields("slow_subs") ->
        sc(emqx_schema:duration_ms(),
           "0s",
           "The interval for pushing statistics table records to the system topic. "
-          "publish topk list to $SYS/brokers/${node}/slow_subs per notice_interval. "
+          "publish top-k list to $SYS/brokers/${node}/slow_subs per notice_interval. "
           "publish is disabled if set to 0s."
          )}
     , {notice_qos,

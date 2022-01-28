@@ -107,7 +107,7 @@ The MQTT message will be translated to an LwM2M DISCOVER command and sent to the
       - "execute": LwM2M Execute
       - "create": LwM2M Create
       - "delete": LwM2M Delete
-    - {?Data}: Json Object, its value depends on the {?MsgType}:
+    - {?Data}: JSON Object, its value depends on the {?MsgType}:
       - **If {?MsgType} = "read" or "discover"**:
         ```json
         {
@@ -212,7 +212,7 @@ The MQTT message will be translated to an LwM2M DISCOVER command and sent to the
     - "create": LwM2M Create
     - "delete": LwM2M Delete
     - **"ack"**: [CoAP Empty ACK](https://tools.ietf.org/html/rfc7252#section-5.2.2)
-  - {?Data}: Json Object, its value depends on {?MsgType}:
+  - {?Data}: JSON Object, its value depends on {?MsgType}:
     - **If {?MsgType} = "write", "write-attr", "execute", "create", "delete", or "read"(when response without content)**:
       ```json
       {

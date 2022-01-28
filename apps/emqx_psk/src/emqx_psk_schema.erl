@@ -49,7 +49,7 @@ fields() ->
     ].
 
 enable(type) -> boolean();
-enable(desc) -> <<"Whether to enable tls psk support">>;
+enable(desc) -> <<"Whether to enable TLS PSK support">>;
 enable(default) -> false;
 enable(_) -> undefined.
 
@@ -58,7 +58,8 @@ init_file(desc) ->
     <<"If init_file is specified, emqx will import PSKs from the file ",
       "into the built-in database at startup for use by the runtime. ",
       "The file has to be structured line-by-line, each line must be in ",
-      "the format of 'PSKIdentity:SharedSecret' for example: mydevice1:c2VjcmV0">>;
+      "the format of 'PSKIdentity:SharedSecret' for example: ",
+      "<code>mydevice1:c2VjcmV0</code>">>;
 init_file(nullable) -> true;
 init_file(_) -> undefined.
 

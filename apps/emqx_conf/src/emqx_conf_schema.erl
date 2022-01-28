@@ -74,7 +74,7 @@ roots() ->
     [ {"node",
        sc(hoconsc:ref("node"),
           #{ desc => "Node name, cookie, config & data directories "
-                     "and the Eralng virtual machine (beam) boot parameters."
+                     "and the Erlang virtual machine (BEAM) boot parameters."
            })}
     , {"cluster",
        sc(hoconsc:ref("cluster"),
@@ -840,9 +840,9 @@ In EMQ X, MQTT client access control is extremely flexible.<br>
 An out of the box set of authorization data sources are supported.
 For example,<br>
 'file' source is to support concise and yet generic ACL rules in a file;<br>
-'built-in-database' source can be used to store per-client customisable rule sets,
+'built-in-database' source can be used to store per-client customizable rule sets,
 natively in the EMQ X node;<br>
 'http' source to make EMQ X call an external HTTP API to make the decision;<br>
-'postgresql' etc. to look up clients or rules from external databases;<br>
+'PostgreSQL' etc. to look up clients or rules from external databases;<br>
 """ })},
     lists:keyreplace("authorization", 1, Roots, Authz).

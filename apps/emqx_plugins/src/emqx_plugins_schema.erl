@@ -51,7 +51,7 @@ state_fields() ->
     [ {name_vsn,
        hoconsc:mk(string(),
                   #{ desc => "The {name}-{version} of the plugin.<br>"
-                             "It should match the plugin application name-vsn as the "
+                             "It should match the plugin application name-version as the "
                              "for the plugin release package name<br>"
                              "For example: my_plugin-0.1.0."
                    , nullable => false

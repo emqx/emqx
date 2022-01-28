@@ -7,7 +7,7 @@ and a superset of JSON.
 EMQ X configuration consists of 3 layers.
 From bottom up:
 
-1. Immutable base: `emqx.conf` + `EMQX_` prfixed environment variables.<br>
+1. Immutable base: `emqx.conf` + `EMQX_` prefixed environment variables.<br>
    Changes in this layer require a full node restart to take effect.
 1. Cluster override: The path of which is configured by `cluster_override_conf_file`.<br>
    Overrides made from management APIs (or dashboard) for all nodes in the cluster.
@@ -18,7 +18,7 @@ For detailed override rules, see [Config overlay rules](#config-overlay-rules).
 
 ## Syntax
 
-In config file the values can be notated as JSON like ojbects, such as
+In config file the values can be notated as JSON like objects, such as
 ```
 node {
     name = "emqx@127.0.0.1"
@@ -36,7 +36,7 @@ node.cookie="mysecret"
 This flat format is almost backward compatible with EMQ X's config file format
 in 4.x series (the so called 'cuttlefish' format).
 
-It is 'almost' compabile because the often HOCON requires strings to be quoted,
+It is 'almost' compatible because the often HOCON requires strings to be quoted,
 while cuttlefish treats all characters to the right of the `=` mark as the value.
 
 e.g. cuttlefish: `node.name = emqx@127.0.0.1`, HOCON: `node.name = "emqx@127.0.0.1"`
@@ -44,11 +44,11 @@ e.g. cuttlefish: `node.name = emqx@127.0.0.1`, HOCON: `node.name = "emqx@127.0.0
 Strings without special characters in them can be unquoted in HOCON too,
 e.g. `foo`, `foo_bar`, `foo_bar_1`:
 
-For more HOCON syntax, pelase refer to the [specification](https://github.com/lightbend/config/blob/main/HOCON.md)
+For more HOCON syntax, please refer to the [specification](https://github.com/lightbend/config/blob/main/HOCON.md)
 
 ## Schema
 
-To make the HOCON objects type-safe, EMQ X introduded a schema for it.
+To make the HOCON objects type-safe, EMQ X introduced a schema for it.
 The schema defines data types, and data fields' names and metadata for config value validation
 and more. In fact, this config document itself is generated from schema metadata.
 
@@ -56,10 +56,10 @@ and more. In fact, this config document itself is generated from schema metadata
 
 There are 4 complex data types in EMQ X's HOCON config:
 
-1. Struct: Named using an unquoted string, followed by a pre-defined list of fields,
+1. Struct: Named using an unquoted string, followed by a predefined list of fields,
    fields can not start with a number, and are only allowed to use
    lowercase letters and underscores as word separator.
-1. Map: Map is like Struct, however the fields are not pre-defined.
+1. Map: Map is like Struct, however the fields are not predefined.
    1-based index number can also be used as map keys for an alternative
    representation of an Array.
 1. Union: `MemberType1 | MemberType2 | ...`
@@ -69,7 +69,7 @@ There are 4 complex data types in EMQ X's HOCON config:
 
 Complex types define data 'boxes' which may contain other complex data
 or primitive values.
-There are quite some different primitive types, to name a fiew:
+There are quite some different primitive types, to name a few:
 
 * `atom()`
 * `boolean()`
@@ -101,7 +101,7 @@ zone.zone1.max_packet_size="10M"
 authentication.1.enable=true
 ```
 
-### Environment varialbes
+### Environment variables
 
 Environment variables can be used to define or override config values.
 
@@ -112,7 +112,7 @@ And a the `EMQX_` prefix is used as the namespace.
 
 For example `node.name` can be represented as `EMQX_NODE__NAME`
 
-Environment varialbe values are parsed as hocon values, this allows users
+Environment variable values are parsed as HOCON values, this allows users
 to even set complex values from environment variables.
 
 For example, this environment variable sets an array value.
@@ -136,14 +136,14 @@ because the field name is `enable`, not `enabled`.
 HOCON objects are overlaid, in general:
 
 - Within one file, objects defined 'later' recursively override objects defined 'earlier'
-- When layered, 'later' (hihger lalyer) objects override objects defined 'earlier' (lower layer)
+- When layered, 'later' (higher layer) objects override objects defined 'earlier' (lower layer)
 
 Below are more detailed rules.
 
 #### Struct Fields
 
 Later config values overwrites earlier values.
-For example, in below config, the last line `debug` overwrites `errro` for
+For example, in below config, the last line `debug` overwrites `error` for
 console log handler's `level` config, but leaving `enable` unchanged.
 ```
 log {
@@ -161,7 +161,7 @@ log.console_handler.level=debug
 #### Map Values
 
 Maps are like structs, only the files are user-defined rather than
-the config schema. For instance, `zone1` in the exampele below.
+the config schema. For instance, `zone1` in the example below.
 
 ```
 zone {

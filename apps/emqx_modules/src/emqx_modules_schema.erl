@@ -90,10 +90,10 @@ fields("event_message") ->
     #{fields => Fields,
       desc => """
 Enable/Disable system event messages.
-The messages are plublished to '$event' prefixed topics.
+The messages are published to '$event' prefixed topics.
 For example, if `client_disconnected` is set to `true`,
 a message is published to `$event/client_connected` topic
-whenver a client is connected.
+whenever a client is connected.
 """};
 
 fields("topic_metrics") ->

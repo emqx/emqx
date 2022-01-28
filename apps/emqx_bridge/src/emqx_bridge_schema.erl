@@ -98,7 +98,7 @@ fields("metrics") ->
     , {"rate", mk(float(), #{desc => "The rate of matched, times/second"})}
     , {"rate_max", mk(float(), #{desc => "The max rate of matched, times/second"})}
     , {"rate_last5m", mk(float(),
-        #{desc => "The average rate of matched in last 5 mins, times/second"})}
+        #{desc => "The average rate of matched in the last 5 minutes, times/second"})}
     ];
 
 fields("node_metrics") ->
@@ -113,7 +113,7 @@ fields("status") ->
     , {"rate", mk(float(), #{desc => "The rate of matched, times/second"})}
     , {"rate_max", mk(float(), #{desc => "The max rate of matched, times/second"})}
     , {"rate_last5m", mk(float(),
-        #{desc => "The average rate of matched in last 5 mins, times/second"})}
+        #{desc => "The average rate of matched in the last 5 minutes, times/second"})}
     ];
 
 fields("node_status") ->

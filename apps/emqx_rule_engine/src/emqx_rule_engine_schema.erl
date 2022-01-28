@@ -101,7 +101,7 @@ Then there are 3 variables available: <code>clientid</code>, <code>qos</code> an
     }
 </code>
 When the rule is triggered by an MQTT message with payload = \"hello\", qos = 1,
-clientid = \"steve\", the rule will republish a new MQTT message to topic \"t/steve\",
+clientid = \"Steve\", the rule will republish a new MQTT message to topic \"t/Steve\",
 payload = \"msg: hello\", and qos = 1.
 """
          , default => #{}

@@ -2,7 +2,7 @@
 
 ## Configure
 
-File: etc/pulgins/authz.conf
+File: etc/plugins/authz.conf
 
 ```json
 authz:{
@@ -72,7 +72,7 @@ authz:{
 
 ## Database Management
 
-#### Mysql
+#### MySQL
 
 Create Example Table
 
@@ -133,7 +133,7 @@ HSET mqtt_authz:emqx '$SYS/#' subscribe
 
 A rule of Redis AuthZ defines `publish`, `subscribe`, or `all `information. All lists in the rule are **allow** lists.
 
-#### Mongo
+#### MongoDB
 
 Create Example BSON documents
 ```sql
