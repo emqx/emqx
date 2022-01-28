@@ -187,7 +187,7 @@ relup_test(){
                 fi
                 ./emqx/bin/emqx_ctl status
                 ./emqx/bin/emqx versions
-                cp "${PACKAGE_PATH}/${EMQX_NAME}-${TARGET_VERSION}-*-${ARCH}".zip ./emqx/releases
+                cp "${PACKAGE_PATH}/${EMQX_NAME}-${TARGET_VERSION}"-*-"${ARCH}".zip ./emqx/releases
                 ./emqx/bin/emqx install "${TARGET_VERSION}"
                 [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${TARGET_VERSION}" ] || exit 1
                 ./emqx/bin/emqx_ctl status
