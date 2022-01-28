@@ -2388,12 +2388,20 @@ end}.
 ]}.
 
 {translation, "emqx.os_mon", fun(Conf) ->
-    [{cpu_check_interval, cuttlefish:conf_get("os_mon.cpu_check_interval", Conf)},
-     {cpu_high_watermark, cuttlefish:conf_get("os_mon.cpu_high_watermark", Conf) * 100},
-     {cpu_low_watermark, cuttlefish:conf_get("os_mon.cpu_low_watermark", Conf) * 100},
-     {mem_check_interval, cuttlefish:conf_get("os_mon.mem_check_interval", Conf)},
-     {sysmem_high_watermark, cuttlefish:conf_get("os_mon.sysmem_high_watermark", Conf) * 100},
-     {procmem_high_watermark, cuttlefish:conf_get("os_mon.procmem_high_watermark", Conf) * 100}]
+   CpuHw = cuttlefish:conf_get("os_mon.cpu_high_watermark", Conf) * 100,
+   CpuLw = cuttlefish:conf_get("os_mon.cpu_low_watermark", Conf) * 100,
+   case CpuHw > CpuLw of
+     true ->
+      [{cpu_check_interval, cuttlefish:conf_get("os_mon.cpu_check_interval", Conf)},
+       {cpu_high_watermark, CpuHw},
+       {cpu_low_watermark, CpuLw},
+       {mem_check_interval, cuttlefish:conf_get("os_mon.mem_check_interval", Conf)},
+       {sysmem_high_watermark, cuttlefish:conf_get("os_mon.sysmem_high_watermark", Conf) * 100},
+       {procmem_high_watermark, cuttlefish:conf_get("os_mon.procmem_high_watermark", Conf) * 100}];
+      false ->
+         Msg = io_lib:format("high(~w)_must_greater_than_low(~w)", [CpuHw, CpuLw]),
+         error(lists:flatten(Msg))
+      end
 end}.
 
 %%--------------------------------------------------------------------
@@ -2415,9 +2423,17 @@ end}.
 ]}.
 
 {translation, "emqx.vm_mon", fun(Conf) ->
-    [{check_interval, cuttlefish:conf_get("vm_mon.check_interval", Conf)},
-     {process_high_watermark, cuttlefish:conf_get("vm_mon.process_high_watermark", Conf) * 100},
-     {process_low_watermark, cuttlefish:conf_get("vm_mon.process_low_watermark", Conf) * 100}]
+   Hw = cuttlefish:conf_get("vm_mon.process_high_watermark", Conf) * 100,
+   Lw = cuttlefish:conf_get("vm_mon.process_low_watermark", Conf) * 100,
+   case Hw > Lw of
+     true ->
+       [{check_interval, cuttlefish:conf_get("vm_mon.check_interval", Conf)},
+        {process_high_watermark, Hw},
+        {process_low_watermark, Lw}];
+     false ->
+        Msg = io_lib:format("high(~w)_must_greater_than_low(~w)", [Hw, Lw]),
+        error(lists:flatten(Msg))
+      end
 end}.
 
 %%--------------------------------------------------------------------
