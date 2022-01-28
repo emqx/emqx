@@ -6,6 +6,8 @@ concurrency:
 
 on:
   push:
+    branch:
+      - master
     tags:
       - v*
       - e*
