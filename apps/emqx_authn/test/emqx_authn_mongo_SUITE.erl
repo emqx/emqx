@@ -19,13 +19,13 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_connector.hrl").
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 
 -define(MONGO_HOST, "mongo").
--define(MONGO_PORT, 27017).
 -define(MONGO_CLIENT, 'emqx_authn_mongo_SUITE_client').
 
 -define(PATH, [authentication]).
@@ -47,7 +47,7 @@ end_per_testcase(_TestCase, _Config) ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
             ok = start_apps([emqx_resource, emqx_connector]),
@@ -386,16 +386,13 @@ drop_seeds() ->
     ok.
 
 mongo_server() ->
-    iolist_to_binary(
-      io_lib:format(
-        "~s:~b",
-        [?MONGO_HOST, ?MONGO_PORT])).
+    iolist_to_binary(io_lib:format("~s",[?MONGO_HOST])).
 
 mongo_config() ->
     [
      {database, <<"mqtt">>},
      {host, ?MONGO_HOST},
-     {port, ?MONGO_PORT},
+     {port, ?MONGO_DEFAULT_PORT},
      {register, ?MONGO_CLIENT}
     ].
 

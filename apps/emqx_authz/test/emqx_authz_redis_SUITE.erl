@@ -19,13 +19,12 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_connector.hrl").
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
-
 -define(REDIS_HOST, "redis").
--define(REDIS_PORT, 6379).
 -define(REDIS_RESOURCE, <<"emqx_authz_redis_SUITE">>).
 
 all() ->
@@ -35,7 +34,7 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?REDIS_HOST, ?REDIS_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?REDIS_HOST, ?REDIS_DEFAULT_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps(
                    [emqx_conf, emqx_authz],
@@ -219,10 +218,7 @@ raw_redis_authz_config() ->
     }.
 
 redis_server() ->
-    iolist_to_binary(
-      io_lib:format(
-        "~s:~b",
-        [?REDIS_HOST, ?REDIS_PORT])).
+    iolist_to_binary(io_lib:format("~s",[?REDIS_HOST])).
 
 q(Command) ->
     emqx_resource:query(
@@ -235,7 +231,7 @@ redis_config() ->
       pool_size => 8,
       redis_type => single,
       password => "public",
-      server => {?REDIS_HOST, ?REDIS_PORT},
+      server => {?REDIS_HOST, ?REDIS_DEFAULT_PORT},
       ssl => #{enable => false}
      }.
 

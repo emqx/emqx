@@ -18,13 +18,12 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_connector.hrl").
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
-
 -define(PGSQL_HOST, "pgsql").
--define(PGSQL_PORT, 5432).
 -define(PGSQL_RESOURCE, <<"emqx_authz_pgsql_SUITE">>).
 
 all() ->
@@ -34,7 +33,7 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_DEFAULT_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps(
                    [emqx_conf, emqx_authz],
@@ -278,10 +277,7 @@ setup_config(SpecialParams) ->
       SpecialParams).
 
 pgsql_server() ->
-    iolist_to_binary(
-      io_lib:format(
-        "~s:~b",
-        [?PGSQL_HOST, ?PGSQL_PORT])).
+    iolist_to_binary(io_lib:format("~s",[?PGSQL_HOST])).
 
 pgsql_config() ->
     #{auto_reconnect => true,
@@ -289,7 +285,7 @@ pgsql_config() ->
       username => <<"root">>,
       password => <<"public">>,
       pool_size => 8,
-      server => {?PGSQL_HOST, ?PGSQL_PORT},
+      server => {?PGSQL_HOST, ?PGSQL_DEFAULT_PORT},
       ssl => #{enable => false}
      }.
 

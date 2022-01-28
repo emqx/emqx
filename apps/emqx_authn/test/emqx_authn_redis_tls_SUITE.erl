@@ -19,12 +19,13 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_connector.hrl").
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 -define(REDIS_HOST, "redis-tls").
--define(REDIS_PORT, 6380).
+-define(REDIS_TLS_PORT, 6380).
 
 -define(PATH, [authentication]).
 
@@ -44,7 +45,7 @@ init_per_testcase(_, Config) ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    case emqx_common_test_helpers:is_tcp_server_available(?REDIS_HOST, ?REDIS_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?REDIS_HOST, ?REDIS_TLS_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
             ok = start_apps([emqx_resource, emqx_connector]),
@@ -127,10 +128,7 @@ raw_redis_auth_config(SpecificSSLOpts) ->
      }.
 
 redis_server() ->
-    iolist_to_binary(
-      io_lib:format(
-        "~s:~b",
-        [?REDIS_HOST, ?REDIS_PORT])).
+    iolist_to_binary(io_lib:format("~s:~b",[?REDIS_HOST, ?REDIS_TLS_PORT])).
 
 start_apps(Apps) ->
     lists:foreach(fun application:ensure_all_started/1, Apps).

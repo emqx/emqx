@@ -19,12 +19,12 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_connector.hrl").
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 -define(MYSQL_HOST, "mysql-tls").
--define(MYSQL_PORT, 3306).
 
 -define(PATH, [authentication]).
 
@@ -44,7 +44,7 @@ init_per_testcase(_, Config) ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_DEFAULT_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
             ok = start_apps([emqx_resource, emqx_connector]),
@@ -132,10 +132,7 @@ raw_mysql_auth_config(SpecificSSLOpts) ->
      }.
 
 mysql_server() ->
-    iolist_to_binary(
-      io_lib:format(
-        "~s:~b",
-        [?MYSQL_HOST, ?MYSQL_PORT])).
+    iolist_to_binary(io_lib:format("~s",[?MYSQL_HOST])).
 
 start_apps(Apps) ->
     lists:foreach(fun application:ensure_all_started/1, Apps).

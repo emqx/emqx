@@ -18,13 +18,12 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_connector.hrl").
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
-
 -define(MYSQL_HOST, "mysql").
--define(MYSQL_PORT, 3306).
 -define(MYSQL_RESOURCE, <<"emqx_authz_mysql_SUITE">>).
 
 all() ->
@@ -34,7 +33,7 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_DEFAULT_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps(
                    [emqx_conf, emqx_authz],
@@ -274,10 +273,7 @@ setup_config(SpecialParams) ->
       SpecialParams).
 
 mysql_server() ->
-    iolist_to_binary(
-      io_lib:format(
-        "~s:~b",
-        [?MYSQL_HOST, ?MYSQL_PORT])).
+    iolist_to_binary(io_lib:format("~s",[?MYSQL_HOST])).
 
 mysql_config() ->
     #{auto_reconnect => true,
@@ -285,7 +281,7 @@ mysql_config() ->
       username => <<"root">>,
       password => <<"public">>,
       pool_size => 8,
-      server => {?MYSQL_HOST, ?MYSQL_PORT},
+      server => {?MYSQL_HOST, ?MYSQL_DEFAULT_PORT},
       ssl => #{enable => false}
      }.
 

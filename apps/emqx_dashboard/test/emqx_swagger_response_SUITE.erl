@@ -361,7 +361,7 @@ schema("/ref/complicated_type") ->
             200 => [
                 {no_neg_integer, hoconsc:mk(non_neg_integer(), #{})},
                 {url, hoconsc:mk(emqx_connector_http:url(), #{})},
-                {server, hoconsc:mk(emqx_connector_redis:server(), #{})},
+                {server, hoconsc:mk(emqx_schema:ip_port(), #{})},
                 {connect_timeout, hoconsc:mk(emqx_connector_http:connect_timeout(), #{})},
                 {pool_type, hoconsc:mk(emqx_connector_http:pool_type(), #{})},
                 {timeout, hoconsc:mk(timeout(), #{})},
