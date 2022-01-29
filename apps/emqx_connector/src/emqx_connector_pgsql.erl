@@ -83,8 +83,10 @@ on_start(InstId, #{server := {Host, Port},
                {pool_size, PoolSize},
                {named_queries, maps:to_list(maps:get(named_queries, Config, #{}))}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts),
-    {ok, #{poolname => PoolName}}.
+    case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
+        ok              -> {ok, #{poolname => PoolName}};
+        {error, Reason} -> {error, Reason}
+    end.
 
 on_stop(InstId, #{poolname := PoolName}) ->
     ?SLOG(info, #{msg => "stopping postgresql connector",

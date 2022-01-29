@@ -30,14 +30,15 @@ pool_name(ID) when is_binary(ID) ->
 start_pool(Name, Mod, Options) ->
     case ecpool:start_sup_pool(Name, Mod, Options) of
         {ok, _} ->
-            ?SLOG(info, #{msg => "start_ecpool_ok", pool_name => Name});
+            ?SLOG(info, #{msg => "start_ecpool_ok", pool_name => Name}),
+            ok;
         {error, {already_started, _Pid}} ->
             stop_pool(Name),
             start_pool(Name, Mod, Options);
         {error, Reason} ->
             ?SLOG(error, #{msg => "start_ecpool_error", pool_name => Name,
                            reason => Reason}),
-            error({start_pool_failed, Name, Reason})
+            {error, {start_pool_failed, Name, Reason}}
     end.
 
 stop_pool(Name) ->

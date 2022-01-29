@@ -117,14 +117,16 @@ on_start(InstId, #{redis_type := Type,
     case Type of
         cluster ->
             case eredis_cluster:start_pool(PoolName, Opts ++ [{options, Options}]) of
-                {ok, _} -> ok;
-                {ok, _, _} -> ok;
-                {error, Reason} -> error(connect_redis_cluster_failed, Reason)
+                {ok, _}         -> {ok, #{poolname => PoolName, type => Type}};
+                {ok, _, _}      -> {ok, #{poolname => PoolName, type => Type}};
+                {error, Reason} -> {error, Reason}
             end;
         _ ->
-            _ = emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ [{options, Options}])
-    end,
-    {ok, #{poolname => PoolName, type => Type}}.
+            case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ [{options, Options}]) of
+                ok              -> {ok, #{poolname => PoolName, type => Type}};
+                {error, Reason} -> {error, Reason}
+            end
+    end.
 
 on_stop(InstId, #{poolname := PoolName}) ->
     ?SLOG(info, #{msg => "stopping_redis_connector",
