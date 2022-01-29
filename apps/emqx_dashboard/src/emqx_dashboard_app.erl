@@ -27,10 +27,13 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_dashboard_sup:start_link(),
     ok = mria_rlog:wait_for_shards([?DASHBOARD_SHARD], infinity),
-    _ = emqx_dashboard:start_listeners(),
-    emqx_dashboard_cli:load(),
-    {ok, _Result} = emqx_dashboard_admin:add_default_user(),
-    {ok, Sup}.
+    case emqx_dashboard:start_listeners() of
+        ok ->
+            emqx_dashboard_cli:load(),
+            {ok, _Result} = emqx_dashboard_admin:add_default_user(),
+            {ok, Sup};
+        {error, Reason} -> {error, Reason}
+    end.
 
 stop(_State) ->
     emqx_dashboard_cli:unload(),
