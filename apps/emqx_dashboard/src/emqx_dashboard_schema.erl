@@ -29,8 +29,8 @@ fields("dashboard") ->
         sc(hoconsc:array(hoconsc:union([hoconsc:ref(?MODULE, "http"),
             hoconsc:ref(?MODULE, "https")])),
             #{ desc =>
-"""HTTP(s) listeners identified by their protocol type,
-is used to serve dashboard UI and restful HTTP API.<br>
+"""HTTP(s) listeners are identified by their protocol type and are
+used to serve dashboard UI and restful HTTP API.<br>
 Listeners must have a unique combination of port number and IP address.<br>
 For example, an HTTP listener can listen on all configured IP addresses
 on a given port for a machine by specifying the IP address 0.0.0.0.<br>

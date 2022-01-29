@@ -80,9 +80,13 @@ start_listeners() ->
 
 stop_listeners() ->
     [begin
-        _ = minirest:stop(Name),
-        ?ULOG("Stop listener ~ts on ~p successfully.~n", [Name, Port])
-    end || {Name, _, Port, _} <- listeners()].
+        case minirest:stop(Name) of
+            ok ->
+                ?ULOG("Stop listener ~ts on ~p successfully.~n", [Name, Port]);
+            {error, not_found} ->
+                ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, port => Port})
+        end
+     end || {Name, _, Port, _} <- listeners()].
 
 %%--------------------------------------------------------------------
 %% internal
