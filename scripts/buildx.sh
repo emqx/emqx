@@ -118,12 +118,25 @@ else
   MAKE_TARGET="${PROFILE}-${PKGTYPE}"
 fi
 
-docker info
-docker run --rm --privileged tonistiigi/binfmt:latest --install "${ARCH}"
-docker run -i --rm \
-    -v "$(pwd)":/emqx \
-    --workdir /emqx \
-    --platform="linux/$ARCH" \
-    -e EMQX_NAME="$PROFILE" \
-    "$BUILDER" \
-    bash -euc "make ${MAKE_TARGET} && .ci/build_packages/tests.sh $PKG_NAME $PKGTYPE $ARCH"
+CMD_RUN="export EMQX_NAME=\"$PROFILE\"; make ${MAKE_TARGET} && .ci/build_packages/tests.sh $PKG_NAME $PKGTYPE $ARCH"
+
+if docker info; then
+   docker run --rm --privileged tonistiigi/binfmt:latest --install "${ARCH}"
+   docker run -i --rm \
+   -v "$(pwd)":/emqx \
+   --workdir /emqx \
+   --platform="linux/$ARCH" \
+   "$BUILDER" \
+   bash -euc "$CMD_RUN"
+elif [[ $(uname -m) = "x86_64" && "$ARCH" = "amd64" ]]; then
+    eval "$CMD_RUN"
+elif [[ $(uname -m) = "aarch64" && "$ARCH" = "arm64" ]]; then
+    eval "$CMD_RUN"
+elif [[ $(uname -m) = "arm64" && "$ARCH" = "arm64" ]]; then
+    eval "$CMD_RUN"
+elif [[ $(uname -m) = "armv7l" && "$ARCH" = "arm64" ]]; then
+    eval "$CMD_RUN"
+else
+  echo "Error: Docker not available on unsupported platform"
+  exit 1;
+fi
