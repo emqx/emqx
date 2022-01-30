@@ -105,7 +105,8 @@ case "$PKGTYPE" in
     ;;
 esac
 
-cd "${SRC_DIR:-.}"
+export CODE_PATH="${SRC_DIR:-$PWD}"
+cd "${CODE_PATH}"
 
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh "$PROFILE")}"
 
