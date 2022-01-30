@@ -294,15 +294,17 @@ jobs:
           - profile: emqx
             otp: 24.1.5-4
             elixir: 1.13.2
-            arch: amd64
             build_elixir: with_elixir
+            arch: amd64
             os: ubuntu20.04
+            build_machine: ubuntu-20.04
           - profile: emqx
             otp: 24.1.5-4
             elixir: 1.13.2
-            arch: amd64
             build_elixir: with_elixir
+            arch: amd64
             os: centos8
+            build_machine: ubuntu-20.04
 
     defaults:
       run:
@@ -466,11 +468,13 @@ jobs:
         - arch: amd64
           build_machine: aws-arm64
         include:
-          - profile: emqx
+          - os: alpine3.14
+            profile: emqx
             otp: 24.1.5-4
             elixir: 1.13.2
             arch: amd64
             build_elixir: with_elixir
+            build_machine: ubuntu-20.04
 
     steps:
     - uses: AutoModality/action-clean@v1
@@ -518,7 +522,7 @@ jobs:
       with:
         images: ${{ github.repository_owner }}/${{ matrix.profile }}
         flavor: |
-          latest=${{ !github.event.release.prerelease }}
+          latest=${{ github.event_name == 'release' && !github.event.release.prerelease }}
           suffix=-elixir
         tags: |
           type=ref,event=branch
@@ -566,7 +570,7 @@ jobs:
         push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
         pull: true
         no-cache: true
-        platforms: linux/amd64,linux/arm64
+        platforms: linux/${{ matrix.arch }}
         tags: ${{ steps.meta-elixir.outputs.tags }}
         labels: ${{ steps.meta-elixir.outputs.labels }}
         build-args: |
