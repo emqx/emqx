@@ -20,7 +20,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_conf/include/emqx_conf.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
--include_lib("emqx_slow_subs/include/emqx_slow_subs.hrl").
 
 %% API
 -export([lock/0, unlock/0]).

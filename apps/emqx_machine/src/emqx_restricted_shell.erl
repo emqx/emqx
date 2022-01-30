@@ -17,6 +17,7 @@
 -module(emqx_restricted_shell).
 
 -export([local_allowed/3, non_local_allowed/3]).
+-export([set_prompt_func/0, prompt_func/1]).
 -export([lock/0, unlock/0, is_locked/0]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -37,6 +38,17 @@ is_locked() ->
 
 lock() -> application:set_env(?APP, ?IS_LOCKED, true).
 unlock() -> application:set_env(?APP, ?IS_LOCKED, false).
+
+set_prompt_func() ->
+    shell:prompt_func({?MODULE, prompt_func}).
+
+prompt_func(PropList) ->
+    Line = proplists:get_value(history, PropList, 1),
+    Version = emqx_release:version(),
+    case is_alive() of
+        true  -> io_lib:format(<<"~ts(~s)~w> ">>, [Version, node(), Line]);
+        false -> io_lib:format(<<"~ts ~w> ">>, [Version, Line])
+    end.
 
 local_allowed(MF, Args, State) ->
     IsAllowed = is_allowed(MF, ?LOCAL_NOT_ALLOWED),

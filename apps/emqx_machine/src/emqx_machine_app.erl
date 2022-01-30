@@ -24,6 +24,7 @@
 
 start(_Type, _Args) ->
     ok = emqx_machine:start(),
+    emqx_restricted_shell:set_prompt_func(),
     emqx_machine_sup:start_link().
 
 stop(_State) ->
