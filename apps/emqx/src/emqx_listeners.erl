@@ -48,6 +48,8 @@
 
 -export([post_config_update/5]).
 
+-export([format_addr/1]).
+
 -define(CONF_KEY_PATH, [listeners]).
 -define(TYPES_STRING, ["tcp","ssl","ws","wss","quic"]).
 

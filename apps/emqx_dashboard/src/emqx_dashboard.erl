@@ -62,11 +62,11 @@ start_listeners() ->
         middlewares => [cowboy_router, ?EMQX_MIDDLE, cowboy_handler]
     },
     Res =
-        lists:foldl(fun({Name, Protocol, Port, RanchOptions}, Acc) ->
+        lists:foldl(fun({Name, Protocol, Bind, RanchOptions}, Acc) ->
             Minirest = BaseMinirest#{protocol => Protocol},
             case minirest:start(Name, RanchOptions, Minirest) of
                 {ok, _} ->
-                    ?ULOG("Start listener ~ts on ~p successfully.~n", [Name, Port]),
+                    ?ULOG("Listener ~ts on ~ts started.~n", [Name, emqx_listeners:format_addr(Bind)]),
                     Acc;
                 {error, _Reason} ->
                     %% Don't record the reason because minirest already does(too much logs noise).
@@ -82,7 +82,7 @@ stop_listeners() ->
     [begin
         case minirest:stop(Name) of
             ok ->
-                ?ULOG("Stop listener ~ts on ~p successfully.~n", [Name, Port]);
+                ?ULOG("Listener ~ts on ~ts stopped.~n", [Name, emqx_listeners:format_addr(Port)]);
             {error, not_found} ->
                 ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, port => Port})
         end
@@ -101,17 +101,17 @@ apps() ->
 listeners() ->
     [begin
         Protocol = maps:get(protocol, ListenerOption0, http),
-        {ListenerOption, Port} = ip_port(ListenerOption0),
+        {ListenerOption, Bind} = ip_port(ListenerOption0),
         Name = listener_name(Protocol, ListenerOption),
         RanchOptions = ranch_opts(maps:without([protocol], ListenerOption)),
-        {Name, Protocol, Port, RanchOptions}
+        {Name, Protocol, Bind, RanchOptions}
     end || ListenerOption0 <- emqx_conf:get([dashboard, listeners], [])].
 
 ip_port(Opts) -> ip_port(maps:take(bind, Opts), Opts).
 
 ip_port(error, Opts)  -> {Opts#{port => 18083}, 18083};
 ip_port({Port, Opts}, _) when is_integer(Port) -> {Opts#{port => Port}, Port};
-ip_port({{IP, Port}, Opts}, _) -> {Opts#{port => Port, ip => IP}, Port}.
+ip_port({{IP, Port}, Opts}, _) -> {Opts#{port => Port, ip => IP}, {IP, Port}}.
 
 
 ranch_opts(RanchOptions) ->
