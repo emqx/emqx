@@ -90,7 +90,7 @@ roots() ->
     , {"rpc",
        sc(hoconsc:ref("rpc"),
           #{ desc => "EMQ X uses a library called <code>gen_rpc</code> for "
-                     "inter-broker RPCs.<br>Most of the time the default config "
+                     "inter-broker communication.<br/>Most of the time the default config "
                      "should work, but in case you need to do performance "
                      "fine-turning or experiment a bit, this is where to look."
            })}
@@ -325,8 +325,6 @@ fields("db") ->
            , default => mnesia
            , desc => """
 Select the backend for the embedded database.<br/>
-<strong>Important!</strong> This setting should be the same on all nodes in the cluster.<br/>
-<strong>Important!</strong> Changing this setting in the runtime is not allowed.<br/>
 <code>mnesia</code> is the default backend, that offers decent performance in small clusters.<br/>
 <code>rlog</code> is a new experimental backend that is suitable for very large clusters.
 """
@@ -399,75 +397,130 @@ fields("rpc") ->
     [ {"mode",
        sc(hoconsc:enum([sync, async]),
           #{ default => async
+           , desc => "In <code>sync</code> mode the sending side waits for the ack from the "
+                     "receiving side."
+           })}
+    , {"driver",
+       sc(hoconsc:enum([tcp, ssl]),
+          #{ mapping => "gen_rpc.driver"
+           , default => tcp
+           , desc => "Transport protocol used for inter-broker communication"
            })}
     , {"async_batch_size",
        sc(integer(),
           #{ mapping => "gen_rpc.max_batch_size"
            , default => 256
+           , desc => "The maximum number of batch messages sent in asynchronous mode. "
+                     "Note that this configuration does not work in synchronous mode."
            })}
     , {"port_discovery",
        sc(hoconsc:enum([manual, stateless]),
           #{ mapping => "gen_rpc.port_discovery"
            , default => stateless
+           , desc => "<code>manual</code>: discover ports by <code>tcp_server_port</code>.<br/>"
+                     "<code>stateless</code>: discover ports in a stateless manner, using the following algorithm. "
+                     "If node name is <code>emqxN@127.0.0.1</code>, where the N is an integer, "
+                     "then the listening port will be 5370 + N."
            })}
     , {"tcp_server_port",
        sc(integer(),
           #{ mapping => "gen_rpc.tcp_server_port"
            , default => 5369
+           , desc => "Listening port used by RPC local service.<br/> "
+                     "Note that this config only takes effect when rpc.port_discovery is set to manual."
+           })}
+    , {"ssl_server_port",
+       sc(integer(),
+          #{ mapping => "gen_rpc.ssl_server_port"
+           , default => 5369
+           , desc => "Listening port used by RPC local service.<br/> "
+                     "Note that this config only takes effect when rpc.port_discovery "
+                     "is set to manual and <code>driver</code> is set to <code>ssl</code>."
            })}
     , {"tcp_client_num",
        sc(range(1, 256),
           #{ default => 1
+           , desc => "Set the maximum number of RPC communication channels initiated by this node "
+                     "to each remote node."
            })}
     , {"connect_timeout",
        sc(emqx_schema:duration(),
-          #{ mapping => "gen_rpc.connect_timeout",
-             default => "5s"
+          #{ mapping => "gen_rpc.connect_timeout"
+           , default => "5s"
+           , desc => "Timeout for establishing an RPC connection."
+           })}
+    , {"certfile",
+       sc(file(),
+          #{ mapping => "gen_rpc.certfile"
+           , desc => "Path to TLS certificate file used to validate identity of the cluster nodes. "
+                     "Note that this config only takes effect when <code>rpc.driver</code> "
+                     "is set to <code>ssl</code>."
+           })}
+    , {"keyfile",
+       sc(file(),
+          #{ mapping => "gen_rpc.keyfile"
+           , desc => "Path to the private key file for the <code>rpc.certfile</code>."
+           })}
+    , {"cacertfile",
+       sc(file(),
+          #{ mapping => "gen_rpc.cacertfile"
+           , desc => "Path to certification authority TLS certificate file used to validate "
+                     "<code>rpc.certfile</code>."
            })}
     , {"send_timeout",
        sc(emqx_schema:duration(),
           #{ mapping => "gen_rpc.send_timeout"
            , default => "5s"
+           , desc => "Timeout for sending the RPC request."
            })}
     , {"authentication_timeout",
        sc(emqx_schema:duration(),
           #{ mapping=> "gen_rpc.authentication_timeout"
            , default => "5s"
+           , desc => "Timeout for the remote node authentication."
            })}
     , {"call_receive_timeout",
        sc(emqx_schema:duration(),
           #{ mapping => "gen_rpc.call_receive_timeout"
            , default => "15s"
+           , desc => "Timeout for the reply to a synchronous RPC."
            })}
     , {"socket_keepalive_idle",
        sc(emqx_schema:duration_s(),
           #{ mapping => "gen_rpc.socket_keepalive_idle"
            , default => "7200s"
+           , desc => "How long the connections between the brokers should remain open after the last message is sent."
            })}
     , {"socket_keepalive_interval",
        sc(emqx_schema:duration_s(),
-          #{ mapping => "gen_rpc.socket_keepalive_interval",
-             default => "75s"
+          #{ mapping => "gen_rpc.socket_keepalive_interval"
+           , default => "75s"
+           , desc => "The interval between keepalive messages."
            })}
     , {"socket_keepalive_count",
        sc(integer(),
           #{ mapping => "gen_rpc.socket_keepalive_count"
            , default => 9
+           , desc => "How many times the keepalive probe message can fail to receive a reply "
+                     "until the RPC connection is considered lost."
            })}
     , {"socket_sndbuf",
        sc(emqx_schema:bytesize(),
           #{ mapping => "gen_rpc.socket_sndbuf"
            , default => "1MB"
+           , desc => "TCP tuning parameters. TCP sending buffer size."
            })}
     , {"socket_recbuf",
        sc(emqx_schema:bytesize(),
           #{ mapping => "gen_rpc.socket_recbuf"
            , default => "1MB"
+           , desc => "TCP tuning parameters. TCP receiving buffer size."
            })}
     , {"socket_buffer",
        sc(emqx_schema:bytesize(),
           #{ mapping => "gen_rpc.socket_buffer"
            , default => "1MB"
+           , desc => "TCP tuning parameters. Socket buffer size in user mode."
            })}
     ];
 
@@ -642,6 +695,8 @@ log_handler_common_confs() ->
     [ {"level",
        sc(log_level(),
           #{ default => warning
+           , desc => "Global log level. This includes the primary log level "
+                     "and all log handlers."
            })}
     , {"time_offset",
        sc(string(),
@@ -650,14 +705,20 @@ log_handler_common_confs() ->
     , {"chars_limit",
        sc(hoconsc:union([unlimited, range(1, inf)]),
           #{ default => unlimited
+           , desc => "Set the maximum length of a single log message. "
+                     "If this length is exceeded, the log message will be truncated."
            })}
     , {"formatter",
        sc(hoconsc:enum([text, json]),
           #{ default => text
+           , desc => "Choose log format. <code>text</code> for free text, and "
+                     "<code>json</code> for structured logging."
            })}
     , {"single_line",
        sc(boolean(),
           #{ default => true
+           , desc => "Print logs in a single line if set to true. "
+                     "Otherwise, log messages may span multiple lines."
            })}
     , {"sync_mode_qlen",
        sc(integer(),
@@ -684,6 +745,8 @@ log_handler_common_confs() ->
     , {"max_depth",
        sc(hoconsc:union([unlimited, integer()]),
           #{ default => 100
+           , desc => "Maximum depth for Erlang term log formatting "
+                     "and Erlang process message queue inspection."
            })}
     ].
 
