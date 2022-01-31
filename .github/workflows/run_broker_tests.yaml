@@ -3,7 +3,7 @@ name: Broker tests
 on:
   push:
     branch:
-      - *
+      - '*'
     tags:
       - v*
   pull_request:
