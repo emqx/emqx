@@ -491,12 +491,16 @@ jobs:
     - name: load rocksdb cache
       uses: actions/cache@v2
       with:
-        path: source/_build/default/lib/rocksdb/
+        path: |
+          source/_build/default/lib/rocksdb/
+          source/deps/rocksdb//
         key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_ROCKSDB_REF }}
     - name: load quicer cache
       uses: actions/cache@v2
       with:
-        path: source/_build/default/lib/quicer/
+        path: |
+          source/_build/default/lib/quicer/
+          source/deps/quicer/
         key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_QUICER_REF }}
 
     # NOTE, Pls make sure this is identical as the one in job 'docker-push-multi-arch-manifest'
