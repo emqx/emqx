@@ -1,6 +1,6 @@
 name: Check Rebar Dependencies
 
-on: [pull_request]
+on: [pull_request, push]
 
 jobs:
   check_deps_integrity:

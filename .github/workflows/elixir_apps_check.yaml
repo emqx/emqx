@@ -2,7 +2,7 @@
 
 name: Check Elixir Release Applications
 
-on: [pull_request]
+on: [pull_request, push]
 
 jobs:
   elixir_apps_check:
