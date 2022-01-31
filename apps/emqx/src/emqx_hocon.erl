@@ -17,12 +17,39 @@
 %% @doc HOCON schema help module
 -module(emqx_hocon).
 
--export([format_path/1]).
+-export([ format_path/1
+        , check/2
+        ]).
 
+%% @doc Format hocon config field path to dot-separated string in iolist format.
+-spec format_path([atom() | string() | binary()]) -> iolist().
 format_path([]) -> "";
 format_path([Name]) -> iol(Name);
 format_path([Name | Rest]) ->
     [iol(Name) , "." | format_path(Rest)].
+
+%% @doc Plain check the input config.
+%% The input can either be `richmap' or plain `map'.
+%% Always return plain map with atom keys.
+-spec check(module(), hocon:config() | iodata()) ->
+        {ok, hocon:config()} | {error, any()}.
+check(SchemaModule, Conf) when is_map(Conf) ->
+    %% TODO: remove nullable
+    %% fields should state nullable or not in their schema
+    Opts = #{atom_key => true, nullable => true},
+    try
+        {ok, hocon_tconf:check_plain(SchemaModule, Conf, Opts)}
+    catch
+        throw : Reason ->
+            {error, Reason}
+    end;
+check(SchemaModule, HoconText) ->
+    case hocon:binary(HoconText, #{format => map}) of
+        {ok, MapConfig} ->
+            check(SchemaModule, MapConfig);
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 %% Ensure iolist()
 iol(B) when is_binary(B) -> B;

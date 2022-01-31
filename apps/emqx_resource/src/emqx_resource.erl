@@ -82,7 +82,6 @@
         , list_group_instances/1
         ]).
 
--define(HOCON_CHECK_OPTS, #{atom_key => true, nullable => true}).
 -define(DEFAULT_RESOURCE_GROUP, <<"default">>).
 
 -optional_callbacks([ on_query/4
@@ -294,22 +293,8 @@ call_jsonify(Mod, Config) ->
 
 -spec check_config(resource_type(), raw_resource_config()) ->
     {ok, resource_config()} | {error, term()}.
-check_config(ResourceType, RawConfig) when is_binary(RawConfig) ->
-    case hocon:binary(RawConfig, #{format => map}) of
-        {ok, MapConfig} ->
-            check_config(ResourceType, MapConfig);
-        {error, Reason} ->
-            {error, Reason}
-    end;
-check_config(ResourceType, RawConfigTerm) ->
-    %% hocon_tconf map and check APIs throw exception on bad configs
-    try hocon_tconf:check_plain(ResourceType, RawConfigTerm, ?HOCON_CHECK_OPTS) of
-        Config ->
-            {ok, Config}
-    catch
-        throw : Reason ->
-            {error, Reason}
-    end.
+check_config(ResourceType, Conf) ->
+    emqx_hocon:check(ResourceType, Conf).
 
 -spec check_and_create(instance_id(), resource_type(), raw_resource_config()) ->
     {ok, resource_data() | 'already_created'} | {error, term()}.
