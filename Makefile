@@ -34,7 +34,6 @@ all: $(REBAR) $(PROFILES)
 
 .PHONY: ensure-rebar3
 ensure-rebar3:
-	@$(SCRIPTS)/fail-on-old-otp-version.escript
 	@$(SCRIPTS)/ensure-rebar3.sh $(REBAR_VERSION)
 
 .PHONY: ensure-hex
