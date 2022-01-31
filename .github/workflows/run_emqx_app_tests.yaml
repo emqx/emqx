@@ -3,7 +3,7 @@ name: Check emqx app standalone
 on:
   push:
     branch:
-      - *
+      - '*'
     tags:
       - v*
       - e*
