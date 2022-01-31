@@ -69,9 +69,8 @@ make_doc() {
     libs_dir2="$("$FIND" "_build/$PROFILE/lib/" -maxdepth 2 -name ebin -type d)"
     # shellcheck disable=SC2086
     erl -noshell -pa $libs_dir1 $libs_dir2 -eval \
-        "F = filename:join(['_build', '${PROFILE}', lib, emqx_dashboard, priv, www, static, 'config.md']), \
-         io:format(\"===< Generating: ~s~n\", [F]),
-         ok = emqx_conf:gen_doc(F), \
+        "Dir = filename:join(['_build', '${PROFILE}', lib, emqx_dashboard, priv, www, static]), \
+         ok = emqx_conf:dump_schema(Dir), \
          halt(0)."
 }
 
