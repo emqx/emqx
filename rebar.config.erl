@@ -3,6 +3,7 @@
 -export([do/2]).
 
 do(Dir, CONFIG) ->
+    ok = assert_otp(),
     case iolist_to_binary(Dir) of
         <<".">> ->
             C1 = deps(CONFIG),
@@ -10,6 +11,22 @@ do(Dir, CONFIG) ->
             maybe_dump(Config ++ [{overrides, overrides()}] ++ coveralls() ++ config());
         _ ->
             CONFIG
+    end.
+
+assert_otp() ->
+    Oldest = 23,
+    Latest = 24,
+    OtpRelease = list_to_integer(erlang:system_info(otp_release)),
+    case OtpRelease < Oldest orelse OtpRelease > Latest of
+        true ->
+            io:format(standard_error, "ERROR: Erlang/OTP version ~p found. min=~p, recommended=~p~n",
+                      [OtpRelease, Oldest, Latest]),
+            halt(1);
+        false when OtpRelease =/= Latest ->
+            io:format("WARNING: Erlang/OTP version ~p found, recommended==~p~n",
+                      [OtpRelease, Latest]);
+        false ->
+            ok
     end.
 
 bcrypt() ->
