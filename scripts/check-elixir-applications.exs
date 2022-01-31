@@ -1,23 +1,26 @@
 #!/usr/bin/env elixir
 
 defmodule CheckElixirApplications do
+  alias EMQXUmbrella.MixProject
+
   @default_applications [:kernel, :stdlib, :sasl]
 
   def main() do
     {:ok, _} = Application.ensure_all_started(:mix)
-    inputs = read_inputs()
+
+    File.cwd!()
+    |> Path.join("mix.exs")
+    |> Code.compile_file()
+
+    inputs = MixProject.check_profile!()
+    profile = Mix.env()
     # produce `rebar.config.rendered` to consult
-    profile = profile_of(inputs)
 
     File.cwd!()
     |> Path.join("rebar3")
     |> System.cmd(["as", to_string(profile)],
       env: [{"DEBUG", "1"}]
     )
-
-    File.cwd!()
-    |> Path.join("mix.exs")
-    |> Code.compile_file()
 
     mix_apps = mix_applications(inputs.release_type)
     rebar_apps = rebar_applications(profile)
@@ -91,83 +94,6 @@ defmodule CheckElixirApplications do
       # Elixir already includes those implicitly
       app in @default_applications
     end)
-  end
-
-  defp profile_of(%{
-         release_type: release_type,
-         package_type: package_type,
-         edition_type: edition_type
-       }) do
-    case {release_type, package_type, edition_type} do
-      {:cloud, :bin, :community} ->
-        :emqx
-
-      {:cloud, :pkg, :community} ->
-        :"emqx-pkg"
-
-      {:cloud, :bin, :enterprise} ->
-        :"emqx-enterprise"
-
-      {:cloud, :pkg, :enterprise} ->
-        :"emqx-enterprise-pkg"
-
-      {:edge, :bin, :community} ->
-        :"emqx-edge"
-
-      {:edge, :pkg, :community} ->
-        :"emqx-edge-pkg"
-    end
-  end
-
-  defp read_inputs() do
-    release_type =
-      read_enum_env_var(
-        "EMQX_RELEASE_TYPE",
-        [:cloud, :edge],
-        :cloud
-      )
-
-    package_type =
-      read_enum_env_var(
-        "EMQX_PACKAGE_TYPE",
-        [:bin, :pkg],
-        :bin
-      )
-
-    edition_type =
-      read_enum_env_var(
-        "EMQX_EDITION_TYPE",
-        [:community, :enterprise],
-        :community
-      )
-
-    %{
-      release_type: release_type,
-      package_type: package_type,
-      edition_type: edition_type
-    }
-  end
-
-  defp read_enum_env_var(env_var, allowed_values, default_value) do
-    case System.fetch_env(env_var) do
-      :error ->
-        default_value
-
-      {:ok, raw_value} ->
-        value =
-          raw_value
-          |> String.downcase()
-          |> String.to_atom()
-
-        if value not in allowed_values do
-          Mix.raise("""
-          Invalid value #{raw_value} for variable #{env_var}.
-          Allowed values are: #{inspect(allowed_values)}
-          """)
-        end
-
-        value
-    end
   end
 
   defp diff_apps(mix_apps, rebar_apps) do

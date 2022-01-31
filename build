@@ -86,7 +86,7 @@ make_rel() {
 
 make_elixir_rel() {
   export_release_vars "$PROFILE"
-  env MIX_ENV=prod mix release --overwrite
+  mix release --overwrite
 }
 
 ## extract previous version .tar.gz files to _build/$PROFILE/rel/emqx before making relup
@@ -138,7 +138,7 @@ make_tgz() {
       # ensure tarball exists
       ELIXIR_MAKE_TAR=yes make_elixir_rel
 
-      local relpath="_build/prod"
+      local relpath="_build/${PROFILE}"
       target="${pkgpath}/${PROFILE}-${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
     else
       # build the tarball again to ensure relup is included
@@ -170,12 +170,18 @@ make_tgz() {
 make_docker() {
     EMQX_BUILDER="${EMQX_BUILDER:-${EMQX_DEFAULT_BUILDER}}"
     EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"
+
+    if [[ "$PROFILE" = *-elixir ]]
+    then
+      PKG_VSN="$PKG_VSN-elixir"
+    fi
+
     set -x
     docker build --no-cache --pull \
        --build-arg BUILD_FROM="${EMQX_BUILDER}" \
        --build-arg RUN_FROM="${EMQX_RUNNER}" \
        --build-arg EMQX_NAME="$PROFILE" \
-       --tag "emqx/$PROFILE:${PKG_VSN}" \
+       --tag "emqx/${PROFILE%%-elixir}:${PKG_VSN}" \
        -f "${DOCKERFILE}" .
 }
 
@@ -227,46 +233,17 @@ make_docker_testing() {
 export_release_vars() {
   local profile="$1"
   case "$profile" in
-    emqx)
-      export EMQX_RLEASE_TYPE=cloud \
-             EMQX_PACKAGE_TYPE=bin \
-             EMQX_EDITION_TYPE=community \
-             ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-no}
+    emqx|emqx-edge|emqx-enterprise)
+      export ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-no}
       ;;
-    emqx-edge)
-      export EMQX_RLEASE_TYPE=edge \
-             EMQX_PACKAGE_TYPE=bin \
-             EMQX_EDITION_TYPE=community \
-             ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-no}
-      ;;
-    emqx-enterprise)
-      export EMQX_RLEASE_TYPE=cloud \
-             EMQX_PACKAGE_TYPE=bin \
-             EMQX_EDITION_TYPE=enterprise \
-             ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-no}
-      ;;
-    emqx-pkg)
-      export EMQX_RLEASE_TYPE=cloud \
-             EMQX_PACKAGE_TYPE=pkg \
-             EMQX_EDITION_TYPE=community \
-             ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-yes}
-      ;;
-    emqx-edge-pkg)
-      export EMQX_RLEASE_TYPE=edge \
-             EMQX_PACKAGE_TYPE=pkg \
-             EMQX_EDITION_TYPE=community \
-             ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-yes}
-      ;;
-    emqx-enterprise-pkg)
-      export EMQX_RLEASE_TYPE=cloud \
-             EMQX_PACKAGE_TYPE=pkg \
-             EMQX_EDITION_TYPE=enterprise \
-             ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-yes}
+    emqx-pkg|emqx-edge-pkg|emqx-enterprise-pkg)
+      export ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-yes}
       ;;
     *)
       echo Invalid profile "$profile"
       exit 1
   esac
+  export MIX_ENV="$profile"
 }
 
 log "building artifact=$ARTIFACT for profile=$PROFILE"

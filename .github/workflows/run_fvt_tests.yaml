@@ -99,10 +99,13 @@ jobs:
       working-directory: source
       run: |
         set -x
-        IMAGE=emqx/${{ matrix.profile }}:$(./pkg-vsn.sh ${{ matrix.profile }})
         if [[ "${{ matrix.profile }}" = *-elixir ]]
         then
           export IS_ELIXIR=yes
+          PROFILE=$(echo ${{ matrix.profile }} | sed -e "s/-elixir//g")
+          IMAGE=emqx/$PROFILE:$(./pkg-vsn.sh ${{ matrix.profile }})-elixir
+        else
+          IMAGE=emqx/${{ matrix.profile }}:$(./pkg-vsn.sh ${{ matrix.profile }})
         fi
         ./.ci/docker-compose-file/scripts/run-emqx.sh $IMAGE ${{ matrix.cluster_db_backend }}
     - name: make paho tests

@@ -22,16 +22,13 @@ COPY . /emqx
 
 ARG EMQX_NAME=emqx
 
-RUN if [[ "$EMQX_NAME" = *-elixir ]]; then \
-      export EMQX_LIB_PATH="_build/prod/lib"; \
-      export EMQX_REL_PATH="/emqx/_build/prod/rel/emqx"; \
-    else \
-      export EMQX_LIB_PATH="_build/$EMQX_NAME/lib"; \
-      export EMQX_REL_PATH="/emqx/_build/$EMQX_NAME/rel/emqx"; \
-    fi \
+RUN export PROFILE="$EMQX_NAME" \
+    && export EMQX_NAME=${EMQX_NAME%%-elixir} \
+    && export EMQX_LIB_PATH="_build/$EMQX_NAME/lib" \
+    && export EMQX_REL_PATH="/emqx/_build/$EMQX_NAME/rel/emqx" \
     && cd /emqx \
     && rm -rf $EMQX_LIB_PATH \
-    && make $EMQX_NAME \
+    && make $PROFILE \
     && mkdir -p /emqx-rel \
     && mv $EMQX_REL_PATH /emqx-rel
 
