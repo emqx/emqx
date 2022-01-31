@@ -111,6 +111,9 @@ cover: $(REBAR)
 coveralls: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
 
+COMMON_DEPS := $(REBAR) get-dashboard conf-segs
+ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
+
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(COMMON_DEPS)
 	@$(REBAR) as $(@) do release
@@ -143,7 +146,7 @@ deps-all: $(REBAR) $(PROFILES:%=deps-%)
 ## share downloads between CI steps and/or copied into containers
 ## which may not have the right credentials
 .PHONY: $(PROFILES:%=deps-%)
-$(PROFILES:%=deps-%): $(REBAR) get-dashboard
+$(PROFILES:%=deps-%): $(COMMON_DEPS)
 	@$(REBAR) as $(@:deps-%=%) get-deps
 	@rm -f rebar.lock
 
@@ -154,9 +157,6 @@ xref: $(REBAR)
 .PHONY: dialyzer
 dialyzer: $(REBAR)
 	@$(REBAR) as check dialyzer
-
-COMMON_DEPS := $(REBAR) get-dashboard conf-segs
-ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
 
 ## rel target is to create release package without relup
 .PHONY: $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel)
@@ -217,6 +217,7 @@ endef
 ALL_TGZS = $(REL_PROFILES)
 $(foreach zt,$(ALL_TGZS),$(eval $(call gen-docker-target-testing,$(zt))))
 
+.PHONY:
 conf-segs:
 	@scripts/merge-config.escript
 
