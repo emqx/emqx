@@ -463,10 +463,10 @@ jobs:
           - aws-arm64
           - ubuntu-20.04
         exclude:
-        - arch: arm64
-          build_machine: ubuntu-20.04
-        - arch: amd64
-          build_machine: aws-arm64
+          - arch: arm64
+            build_machine: ubuntu-20.04
+          - arch: amd64
+            build_machine: aws-arm64
         include:
           - os: alpine3.14
             profile: emqx
@@ -503,39 +503,39 @@ jobs:
           source/deps/quicer/
         key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_QUICER_REF }}
 
+    - name: prepare for docker-action-parms
+      id: pre-meta
+      run: |
+        img=$(echo ${{ matrix.os }} | sed 's#\([0-9.]\+\)$#:\1#g')
+        emqx_name=${{ matrix.profile }}
+        img_suffix=${{ matrix.arch }}
+        img_labels="org.opencontainers.image.otp.version=${{ matrix.otp }}"
+
+        if [ ${{ matrix.build_elixir }} = "with_elixir" ]; then
+          emqx_name="emqx-elixir"
+          img_suffix="elixir-{{ matrix.arch }}"
+          img_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}\n${img_labels}"
+        fi
+        echo "::set-output name=img::${img}"
+        echo "::set-output name=emqx_name::${emqx_name}"
+        echo "::set-output name=img_suffix::${img_suffix}"
+        echo "::set-output name=img_labels::${img_labels}"
+
     # NOTE, Pls make sure this is identical as the one in job 'docker-push-multi-arch-manifest'
     - uses: docker/metadata-action@v3
       id: meta
-      if: ${{ matrix.build_elixir == 'no_elixir' }}
       with:
         images: ${{ github.repository_owner }}/${{ matrix.profile }}
         flavor: |
           latest=${{ github.event_name == 'release' && !github.event.release.prerelease }}
-          suffix=-${{ matrix.arch }}
+          suffix=-${{ steps.pre-meta.outputs.img_suffix }}
         tags: |
           type=ref,event=branch
           type=ref,event=pr
           type=ref,event=tag
           type=semver,pattern={{version}}
         labels:
-          org.opencontainers.image.otp.version=${{ matrix.otp }}
-    - name: docker metadata for elixir image
-      uses: docker/metadata-action@v3
-      if: ${{ matrix.build_elixir == 'with_elixir' }}
-      id: meta-elixir
-      with:
-        images: ${{ github.repository_owner }}/${{ matrix.profile }}
-        flavor: |
-          latest=${{ github.event_name == 'release' && !github.event.release.prerelease }}
-          suffix=-elixir
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=ref,event=tag
-          type=semver,pattern={{version}}
-        labels: |
-          org.opencontainers.image.otp.version=${{ matrix.otp }}
-          org.opencontainers.image.elixir.version=${{ matrix.elixir }}
+          ${{ steps.pre-meta.outputs.img_labels }}
     - uses: docker/login-action@v1
       if: >
         ${{ (github.event_name == 'release' && !github.event.release.prerelease)
@@ -544,14 +544,7 @@ jobs:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-    - name: export os image from matrix.os
-      id: os-img
-      run: |
-        img=$(echo ${{ matrix.os }} | sed 's#\([0-9.]\+\)$#:\1#g')
-        echo "::set-output name=img::${img}"
-
     - uses: docker/build-push-action@v2
-      if: ${{ matrix.build_elixir == 'no_elixir' }}
       with:
         push: >
           ${{ (github.event_name == 'release' && !github.event.release.prerelease)
@@ -563,24 +556,8 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
           BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
-          RUN_FROM=${{ steps.os-img.outputs.img }}
-          EMQX_NAME=${{ matrix.profile }}
-        file: source/deploy/docker/Dockerfile
-        context: source
-    - name: build docker image with elixir
-      uses: docker/build-push-action@v2
-      if: ${{ matrix.profile == 'emqx' && matrix.build_elixir == 'with_elixir' }}
-      with:
-        push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
-        pull: true
-        no-cache: true
-        platforms: linux/${{ matrix.arch }}
-        tags: ${{ steps.meta-elixir.outputs.tags }}
-        labels: ${{ steps.meta-elixir.outputs.labels }}
-        build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
-          RUN_FROM=${{ steps.os-img.outputs.img }}
-          EMQX_NAME=emqx-elixir
+          RUN_FROM=${{ steps.pre-meta.outputs.img }}
+          EMQX_NAME=${{ steps.pre-meta.outputs.emqx_name }}
         file: source/deploy/docker/Dockerfile
         context: source
     - uses: aws-actions/configure-aws-credentials@v1
@@ -622,20 +599,33 @@ jobs:
           - emqx-edge
           - emqx
           - emqx-enterprise
+        # NOTE: for docker, only support latest otp version, not a matrix
+        otp:
+          - 24.1.5-4 # update to latest
+          #
+        elixir:
+          - 1.13.2 # update to latest
         arch:
           - amd64
           - arm64
+        build_elixir:
+          - no_elixir
         build_machine:
           - aws-arm64
           - ubuntu-20.04
         exclude:
-        - arch: arm64
-          build_machine: ubuntu-20.04
-        - arch: amd64
-          build_machine: aws-arm64
-        # NOTE: for docker, only support latest otp version, not a matrix
-        otp:
-          - 24.1.5-3 # update to latest
+          - arch: arm64
+            build_machine: ubuntu-20.04
+          - arch: amd64
+            build_machine: aws-arm64
+        include:
+          - os: alpine3.14
+            profile: emqx
+            otp: 24.1.5-4
+            elixir: 1.13.2
+            arch: amd64
+            build_elixir: with_elixir
+            build_machine: ubuntu-20.04
 
     steps:
       - uses: actions/download-artifact@v2
@@ -654,6 +644,24 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
+      - name: prepare for docker-action-parms
+        id: pre-meta
+        run: |
+          img=$(echo ${{ matrix.os }} | sed 's#\([0-9.]\+\)$#:\1#g')
+          emqx_name=${{ matrix.profile }}
+          img_suffix=${{ matrix.arch }}
+          img_labels="org.opencontainers.image.otp.version=${{ matrix.otp }}"
+
+          if [ ${{ matrix.build_elixir }} = "with_elixir" ]; then
+            emqx_name="emqx-elixir"
+            img_suffix="elixir-{{ matrix.arch }}"
+            img_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}\n$img_labels"
+          fi
+          echo "::set-output name=img::${img}"
+          echo "::set-output name=emqx_name::${emqx_name}"
+          echo "::set-output name=img_suffix::${img_suffix}"
+          echo "::set-output name=img_labels::${img_labels}"
+
       # NOTE, Pls make sure this is identical as the one in job 'docker'
       - uses: docker/metadata-action@v3
         if: matrix.arch == 'amd64'
@@ -662,14 +670,14 @@ jobs:
           images: ${{ github.repository_owner }}/${{ matrix.profile }}
           flavor: |
             latest=false
-            suffix=-${{ matrix.arch }}
+            suffix=-${{ steps.pre-meta.outputs.img_suffix }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
             type=semver,pattern={{version}}
           labels:
-            org.opencontainers.image.otp.version=${{ matrix.otp }}
+            ${{ steps.pre-meta.outputs.img_labels }}
 
       - name: update manifest for multiarch image
         if: matrix.arch == 'amd64'
