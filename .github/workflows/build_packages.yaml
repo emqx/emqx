@@ -264,7 +264,6 @@ jobs:
           - debian10
           - debian9
           # - opensuse
-          - centos8
           - centos7
           - raspbian10
           # - raspbian9
@@ -303,7 +302,7 @@ jobs:
             elixir: 1.13.2
             build_elixir: with_elixir
             arch: amd64
-            os: centos8
+            os: centos7
             build_machine: ubuntu-20.04
 
     defaults:
