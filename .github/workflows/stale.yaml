@@ -21,7 +21,7 @@ jobs:
         with:
           days-before-stale: 7
           days-before-close: 7
-          exempt-issue-labels: 'internal,BUG,help wanted,#triage/accepted,#needs-triage,Feature'
+          exempt-issue-labels: 'internal,BUG,help wanted,#triage/accepted,#needs-triage,Feature,Enhancement'
           stale-issue-label: "#triage/stale"
           stale-issue-message: >-
             This issue has been automatically marked as stale because it has not had
