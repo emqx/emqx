@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 ## This script prints Linux distro name and its version number
-## e.g. macos, centos8, ubuntu20.04
+## e.g. macos, centos7, ubuntu20.04
 
 set -euo pipefail
 
