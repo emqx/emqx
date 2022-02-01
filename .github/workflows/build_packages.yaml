@@ -8,8 +8,8 @@ on:
   schedule:
     - cron:  '0 */6 * * *'
   push:
-    branch:
-      - 'ci/*'
+    branches:
+      - 'ci/**'
   release:
     types:
       - published

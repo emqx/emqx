@@ -2,8 +2,8 @@ name: Broker tests
 
 on:
   push:
-    branch:
-      - '*'
+    branches:
+      - '**'
     tags:
       - v*
   pull_request:
