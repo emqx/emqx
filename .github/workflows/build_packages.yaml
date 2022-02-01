@@ -7,6 +7,9 @@ concurrency:
 on:
   schedule:
     - cron:  '0 */6 * * *'
+  push:
+    branch:
+      - 'ci/*'
   release:
     types:
       - published
@@ -24,6 +27,8 @@ jobs:
     outputs:
       ce_old_vsns: ${{ steps.find_old_versons.outputs.ce_old_vsns }}
       ee_old_vsns: ${{ steps.find_old_versons.outputs.ee_old_vsns }}
+      DEP_ROCKSDB_REF: ${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
+      DEP_QUICER_REF: ${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
     steps:
       - uses: actions/checkout@v2
@@ -31,6 +36,14 @@ jobs:
           ref: ${{ github.event.inputs.which_branch }}
           path: source
           fetch-depth: 0
+
+      - name: Get deps git refs for cache
+        id: deps-refs
+        working-directory: source
+        run: |
+          bash -x scripts/get-dep-refs.sh
+          make clean-all
+
       - name: find old versions
         id: find_old_versons
         shell: bash
@@ -131,12 +144,12 @@ jobs:
           - emqx-enterprise
         otp:
           - 24.1.5-4
-        macos:
+        os:
           - macos-11
           - macos-10.15
         exclude:
           - profile: emqx-edge
-    runs-on: ${{ matrix.macos }}
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/download-artifact@v2
       with:
@@ -154,7 +167,7 @@ jobs:
       id: cache
       with:
         path: ~/.kerl/${{ matrix.otp }}
-        key: otp-install-${{ matrix.otp }}-${{ matrix.macos }}
+        key: otp-install-${{ matrix.otp }}-${{ matrix.os }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
@@ -166,24 +179,16 @@ jobs:
         kerl build ${{ matrix.otp }}
         kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
 
-    - name: Get deps git refs for cache
-      id: deps-refs
-      run: |
-        cd source
-        . $HOME/.kerl/${{ matrix.otp }}/activate
-        make ensure-rebar3
-        sudo cp rebar3 /usr/local/bin/rebar3
-        scripts/get-dep-refs.sh
     - name: load rocksdb cache
       uses: actions/cache@v2
       with:
         path: source/_build/default/lib/rocksdb/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_ROCKSDB_REF }}
     - name: load quicer cache
       uses: actions/cache@v2
       with:
         path: source/_build/default/lib/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_QUICER_REF }}
 
     - name: build
       working-directory: source
@@ -224,9 +229,10 @@ jobs:
         path: source/_packages/${{ matrix.profile }}/.
 
   linux:
-    runs-on: ubuntu-20.04
-
     needs: prepare
+    runs-on: ${{ matrix.build_machine }}
+    container:
+      image: "ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     strategy:
       fail-fast: false
@@ -262,11 +268,20 @@ jobs:
           - centos7
           - raspbian10
           # - raspbian9
+        build_machine:
+          - aws-arm64
+          - ubuntu-20.04
         exclude:
+        - arch: arm64
+          build_machine: ubuntu-20.04
+        - arch: amd64
+          build_machine: aws-arm64
         - os: raspbian9
           arch: amd64
         - os: raspbian10
           arch: amd64
+        - os: raspbian10 # we only have arm32 image
+          arch: arm64
         - os: raspbian9
           profile: emqx
         - os: raspbian10
@@ -279,51 +294,45 @@ jobs:
           - profile: emqx
             otp: 24.1.5-4
             elixir: 1.13.2
-            arch: amd64
             build_elixir: with_elixir
+            arch: amd64
             os: ubuntu20.04
+            build_machine: ubuntu-20.04
           - profile: emqx
             otp: 24.1.5-4
             elixir: 1.13.2
-            arch: amd64
             build_elixir: with_elixir
+            arch: amd64
             os: centos8
+            build_machine: ubuntu-20.04
 
     defaults:
       run:
         shell: bash
 
     steps:
-    - uses: docker/setup-buildx-action@v1
-    - uses: docker/setup-qemu-action@v1
-      with:
-        image: tonistiigi/binfmt:latest
-        platforms: all
+    - uses: AutoModality/action-clean@v1
+      if: matrix.build_machine == 'aws-arm64'
     - uses: actions/download-artifact@v2
       with:
         name: source
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - name: Get deps git refs for cache
-      id: deps-refs
-      run: |
-        cd source
-        scripts/get-dep-refs.sh
     - name: load rocksdb cache
       uses: actions/cache@v2
       with:
         path: |
           source/_build/default/lib/rocksdb/
           source/deps/rocksdb/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_ROCKSDB_REF }}
     - name: load quicer cache
       uses: actions/cache@v2
       with:
         path: |
           source/_build/default/lib/quicer/
           source/deps/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_QUICER_REF }}
     - name: download old emqx tgz packages
       env:
         OTP_VSN: ${{ matrix.otp }}
@@ -350,7 +359,11 @@ jobs:
         fi
         mkdir -p _upgrade_base
         cd _upgrade_base
-        old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
+        old_vsns=$(echo "$OLD_VSNS" | tr ' ' ' ')
+
+        # workaround for bash empty array expanding issue in different bash versions
+        if [ -n "$old_vsns" ]; then
+        old_vsns=($old_vsns)
         for tag in ${old_vsns[@]}; do
           package_name="${PROFILE}-${tag#[e|v]}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
           if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$s3dir/$tag/$package_name.tar.gz) | grep -oE "^[23]+")" ]; then
@@ -359,7 +372,10 @@ jobs:
             echo "$(cat $package_name.tar.gz.sha256) $package_name.tar.gz" | sha256sum -c || exit 1
           fi
         done
+        fi
+
     - name: build emqx packages
+      working-directory: source
       env:
         OTP: ${{ matrix.otp }}
         ELIXIR: ${{ matrix.elixir }}
@@ -367,26 +383,19 @@ jobs:
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
       if: ${{ matrix.build_elixir == 'no_elixir' }}
-      working-directory: source
       run: |
-        ./scripts/buildx.sh \
-          --profile "${PROFILE}" \
-          --pkgtype "tgz" \
-          --arch "${ARCH}" \
-          --otp "${OTP}" \
-          --elixir "${ELIXIR}" \
-          --system "${SYSTEM}" \
-          --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
-        ## the pkg build is incremental on the tgz build
-        ./scripts/buildx.sh \
-          --profile "${PROFILE}" \
-          --pkgtype "pkg" \
-          --arch "${ARCH}" \
-          --otp "${OTP}" \
-          --elixir "${ELIXIR}" \
-          --system "${SYSTEM}" \
-          --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
-
+        set -eu
+        for PKGTYPE in tgz pkg;
+        do
+          ./scripts/buildx.sh \
+            --profile "${PROFILE}" \
+            --pkgtype "${PKGTYPE}" \
+            --arch "${ARCH}" \
+            --otp "${OTP}" \
+            --elixir "${ELIXIR}" \
+            --system "${SYSTEM}" \
+            --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
+        done
     - name: build emqx packages (Elixir)
       env:
         OTP: ${{ matrix.otp }}
@@ -416,7 +425,7 @@ jobs:
         if [ -d _packages/$PROFILE ]; then
           cd _packages/$PROFILE
             for var in $(ls emqx-* ); do
-              sudo bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
+              bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
             done
           cd -
         fi
@@ -427,12 +436,14 @@ jobs:
         path: source/_packages/${{ matrix.profile }}/.
 
   docker:
-    runs-on: ubuntu-20.04
+    runs-on: ${{ matrix.build_machine }}
     needs: prepare
 
     strategy:
       fail-fast: false
       matrix:
+        os:
+          - alpine3.14
         profile: # all editions for docker
           - emqx-edge
           - emqx
@@ -448,90 +459,105 @@ jobs:
           - arm64
         build_elixir:
           - no_elixir
+        build_machine:
+          - aws-arm64
+          - ubuntu-20.04
+        exclude:
+          - arch: arm64
+            build_machine: ubuntu-20.04
+          - arch: amd64
+            build_machine: aws-arm64
         include:
-          - profile: emqx
+          - os: alpine3.14
+            profile: emqx
             otp: 24.1.5-4
             elixir: 1.13.2
             arch: amd64
             build_elixir: with_elixir
+            build_machine: ubuntu-20.04
 
     steps:
+    - uses: AutoModality/action-clean@v1
+      if: matrix.build_machine == 'aws-arm64'
     - uses: actions/download-artifact@v2
       with:
         name: source
         path: .
     - name: unzip source code
       run: unzip -q source.zip
+
     - uses: docker/setup-buildx-action@v1
-    - uses: docker/setup-qemu-action@v1
+
+    - name: load rocksdb cache
+      uses: actions/cache@v2
       with:
-        image: tonistiigi/binfmt:latest
-        platforms: all
+        path: |
+          source/_build/default/lib/rocksdb/
+          source/deps/rocksdb//
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_ROCKSDB_REF }}
+    - name: load quicer cache
+      uses: actions/cache@v2
+      with:
+        path: |
+          source/_build/default/lib/quicer/
+          source/deps/quicer/
+        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_QUICER_REF }}
+
+    - name: prepare for docker-action-parms
+      id: pre-meta
+      run: |
+        img=$(echo ${{ matrix.os }} | sed 's#\([0-9.]\+\)$#:\1#g')
+        emqx_name=${{ matrix.profile }}
+        img_suffix=${{ matrix.arch }}
+        img_labels="org.opencontainers.image.otp.version=${{ matrix.otp }}"
+
+        if [ ${{ matrix.build_elixir }} = "with_elixir" ]; then
+          emqx_name="emqx-elixir"
+          img_suffix="elixir-{{ matrix.arch }}"
+          img_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}\n${img_labels}"
+        fi
+        echo "::set-output name=img::${img}"
+        echo "::set-output name=emqx_name::${emqx_name}"
+        echo "::set-output name=img_suffix::${img_suffix}"
+        echo "::set-output name=img_labels::${img_labels}"
+
+    # NOTE, Pls make sure this is identical as the one in job 'docker-push-multi-arch-manifest'
     - uses: docker/metadata-action@v3
       id: meta
-      if: ${{ matrix.build_elixir == 'no_elixir' }}
       with:
         images: ${{ github.repository_owner }}/${{ matrix.profile }}
         flavor: |
-          latest=${{ !github.event.release.prerelease }}
+          latest=${{ github.event_name == 'release' && !github.event.release.prerelease }}
+          suffix=-${{ steps.pre-meta.outputs.img_suffix }}
         tags: |
           type=ref,event=branch
           type=ref,event=pr
           type=ref,event=tag
           type=semver,pattern={{version}}
         labels:
-          org.opencontainers.image.otp.version=${{ matrix.otp }}
-    - name: docker metadata for elixir image
-      uses: docker/metadata-action@v3
-      if: ${{ matrix.build_elixir == 'with_elixir' }}
-      id: meta-elixir
-      with:
-        images: ${{ github.repository_owner }}/${{ matrix.profile }}
-        flavor: |
-          latest=${{ !github.event.release.prerelease }}
-          suffix=-elixir
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=ref,event=tag
-          type=semver,pattern={{version}}
-        labels: |
-          org.opencontainers.image.otp.version=${{ matrix.otp }}
-          org.opencontainers.image.elixir.version=${{ matrix.elixir }}
+          ${{ steps.pre-meta.outputs.img_labels }}
     - uses: docker/login-action@v1
-      if: github.event_name == 'release'
+      if: >
+        ${{ (github.event_name == 'release' && !github.event.release.prerelease)
+        || (github.event.repository.owner != 'emqx' && startsWith(github.ref_name, 'ci/')) }}
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
     - uses: docker/build-push-action@v2
-      if: ${{ matrix.build_elixir == 'no_elixir' }}
       with:
-        push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
+        push: >
+          ${{ (github.event_name == 'release' && !github.event.release.prerelease)
+          || (github.event.repository.owner != 'emqx' && startsWith(github.ref_name, 'ci/')) }}
         pull: true
         no-cache: true
-        platforms: linux/amd64,linux/arm64
+        platforms: linux/${{ matrix.arch }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-alpine3.14
-          RUN_FROM=alpine:3.14
-          EMQX_NAME=${{ matrix.profile }}
-        file: source/deploy/docker/Dockerfile
-        context: source
-    - name: build docker image with elixir
-      uses: docker/build-push-action@v2
-      if: ${{ matrix.profile == 'emqx' && matrix.build_elixir == 'with_elixir' }}
-      with:
-        push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
-        pull: true
-        no-cache: true
-        platforms: linux/amd64,linux/arm64
-        tags: ${{ steps.meta-elixir.outputs.tags }}
-        labels: ${{ steps.meta-elixir.outputs.labels }}
-        build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-alpine3.14
-          RUN_FROM=alpine:3.14
-          EMQX_NAME=emqx-elixir
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+          RUN_FROM=${{ steps.pre-meta.outputs.img }}
+          EMQX_NAME=${{ steps.pre-meta.outputs.emqx_name }}
         file: source/deploy/docker/Dockerfile
         context: source
     - uses: aws-actions/configure-aws-credentials@v1
@@ -556,6 +582,109 @@ jobs:
         docker tag emqx/emqx:${version#v} public.ecr.aws/emqx/emqx:${version#v}
         aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
         docker push public.ecr.aws/emqx/emqx:${version#v}
+
+  docker-push-multi-arch-manifest:
+    # note, we only run on amd64
+    if: >
+      (github.event_name == 'release' && !github.event.release.prerelease)
+      || (github.event.repository.owner != 'emqx' && startsWith(github.ref_name, 'ci/'))
+    needs:
+      - prepare
+      - docker
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: # all editions for docker
+          - emqx-edge
+          - emqx
+          - emqx-enterprise
+        # NOTE: for docker, only support latest otp version, not a matrix
+        otp:
+          - 24.1.5-4 # update to latest
+          #
+        elixir:
+          - 1.13.2 # update to latest
+        arch:
+          - amd64
+          - arm64
+        build_elixir:
+          - no_elixir
+        build_machine:
+          - aws-arm64
+          - ubuntu-20.04
+        exclude:
+          - arch: arm64
+            build_machine: ubuntu-20.04
+          - arch: amd64
+            build_machine: aws-arm64
+        include:
+          - os: alpine3.14
+            profile: emqx
+            otp: 24.1.5-4
+            elixir: 1.13.2
+            arch: amd64
+            build_elixir: with_elixir
+            build_machine: ubuntu-20.04
+
+    steps:
+      - uses: actions/download-artifact@v2
+        if: matrix.arch == 'amd64'
+        with:
+          name: source
+          path: .
+
+      - name: unzip source code
+        if:  matrix.arch == 'amd64'
+        run: unzip -q source.zip
+
+      - uses: docker/login-action@v1
+        if: matrix.arch == 'amd64'
+        with:
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: prepare for docker-action-parms
+        id: pre-meta
+        run: |
+          img=$(echo ${{ matrix.os }} | sed 's#\([0-9.]\+\)$#:\1#g')
+          emqx_name=${{ matrix.profile }}
+          img_suffix=${{ matrix.arch }}
+          img_labels="org.opencontainers.image.otp.version=${{ matrix.otp }}"
+
+          if [ ${{ matrix.build_elixir }} = "with_elixir" ]; then
+            emqx_name="emqx-elixir"
+            img_suffix="elixir-{{ matrix.arch }}"
+            img_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}\n$img_labels"
+          fi
+          echo "::set-output name=img::${img}"
+          echo "::set-output name=emqx_name::${emqx_name}"
+          echo "::set-output name=img_suffix::${img_suffix}"
+          echo "::set-output name=img_labels::${img_labels}"
+
+      # NOTE, Pls make sure this is identical as the one in job 'docker'
+      - uses: docker/metadata-action@v3
+        if: matrix.arch == 'amd64'
+        id: meta
+        with:
+          images: ${{ github.repository_owner }}/${{ matrix.profile }}
+          flavor: |
+            latest=false
+            suffix=-${{ steps.pre-meta.outputs.img_suffix }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+          labels:
+            ${{ steps.pre-meta.outputs.img_labels }}
+
+      - name: update manifest for multiarch image
+        if: matrix.arch == 'amd64'
+        working-directory: source
+        run: |
+          IsPushLatest=${{ github.event_name == 'release' && !github.event.release.prerelease }};
+          scripts/docker-create-push-manifests.sh "${{ steps.meta.outputs.tags }}" "$IsPushLatest"
 
   delete-artifact:
     runs-on: ubuntu-20.04
