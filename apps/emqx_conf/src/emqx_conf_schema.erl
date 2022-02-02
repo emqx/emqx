@@ -459,13 +459,15 @@ fields("rpc") ->
     , {"keyfile",
        sc(file(),
           #{ mapping => "gen_rpc.keyfile"
-           , desc => "Path to the private key file for the <code>rpc.certfile</code>."
+           , desc => "Path to the private key file for the <code>rpc.certfile</code>.<br/>"
+                     "Note: contents of this file are secret, so it's necessary to set permissions to 600."
            })}
     , {"cacertfile",
        sc(file(),
           #{ mapping => "gen_rpc.cacertfile"
            , desc => "Path to certification authority TLS certificate file used to validate "
-                     "<code>rpc.certfile</code>."
+                     "<code>rpc.certfile</code>.<br/>"
+                     "Note: certificates of all nodes in the cluster must be signed by the same CA."
            })}
     , {"send_timeout",
        sc(emqx_schema:duration(),
@@ -603,7 +605,7 @@ fields("authorization") ->
     emqx_schema:fields("authorization") ++
     emqx_authz_schema:fields("authorization").
 
-translations() -> ["ekka", "kernel", "emqx"].
+translations() -> ["ekka", "kernel", "emqx", "gen_rpc"].
 
 translation("ekka") ->
     [ {"cluster_discovery", fun tr_cluster_discovery/1}];
@@ -614,7 +616,13 @@ translation("emqx") ->
     [ {"config_files", fun tr_config_files/1}
     , {"cluster_override_conf_file", fun tr_cluster_override_conf_file/1}
     , {"local_override_conf_file", fun tr_local_override_conf_file/1}
+    ];
+translation("gen_rpc") ->
+    [ {"default_client_driver", fun tr_default_config_driver/1}
     ].
+
+tr_default_config_driver(Conf) ->
+    conf_get("rpc.driver", Conf).
 
 tr_config_files(Conf) ->
     case conf_get("emqx.config_files", Conf) of
