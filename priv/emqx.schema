@@ -373,6 +373,11 @@ end}.
 , {datatype, {enum, [tcp, ssl]}}
 ]}.
 
+{mapping, "rpc.default_client_driver", "gen_rpc.default_client_driver",
+[ {default, tcp}
+, {datatype, {enum, [tcp, ssl]}}
+]}.
+
 {mapping, "rpc.tcp_server_port", "gen_rpc.tcp_server_port", [
   {default, 5369},
   {datatype, integer}
