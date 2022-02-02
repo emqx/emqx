@@ -381,40 +381,32 @@ jobs:
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
-      if: ${{ matrix.build_elixir == 'no_elixir' }}
       run: |
         set -eu
-        for PKGTYPE in tgz pkg;
+        # Align path for CMake caches
+        if [ ! "$PWD" = "/emqx" ]; then
+          ln -s $PWD /emqx
+          cd /emqx
+        fi
+        echo "pwd is $PWD"
+        PkgTypes="tgz pkg"
+        WithElixir=""
+        if [ ${{ matrix.build_elixir }} = "with_elixir" ]; then
+          PkgTypes="tgz"
+          # set Elixir build flag
+          WithElixir="--with-elixir"
+        fi
+        for PKGTYPE in ${PkgTypes};
         do
           ./scripts/buildx.sh \
             --profile "${PROFILE}" \
             --pkgtype "${PKGTYPE}" \
             --arch "${ARCH}" \
             --otp "${OTP}" \
-            --elixir "${ELIXIR}" \
+            --elixir "${ELIXIR}" "$WithElixir" \
             --system "${SYSTEM}" \
             --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
         done
-    - name: build emqx packages (Elixir)
-      env:
-        OTP: ${{ matrix.otp }}
-        ELIXIR: ${{ matrix.elixir }}
-        PROFILE: ${{ matrix.profile }}
-        ARCH: ${{ matrix.arch }}
-        SYSTEM: ${{ matrix.os }}
-      working-directory: source
-      if: ${{ matrix.build_elixir == 'with_elixir' }}
-      run: |
-        ## we currently only build tgzs for elixir
-        ./scripts/buildx.sh \
-          --profile "${PROFILE}" \
-          --pkgtype "tgz" \
-          --arch "${ARCH}" \
-          --otp "${OTP}" \
-          --elixir "${ELIXIR}" \
-          --system "${SYSTEM}" \
-          --with-elixir \
-          --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
 
     - name: create sha256
       env:
@@ -512,7 +504,7 @@ jobs:
 
         if [ ${{ matrix.build_elixir }} = "with_elixir" ]; then
           emqx_name="emqx-elixir"
-          img_suffix="elixir-{{ matrix.arch }}"
+          img_suffix="elixir-${{ matrix.arch }}"
           img_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}\n${img_labels}"
         fi
         echo "::set-output name=img::${img}"
@@ -653,7 +645,7 @@ jobs:
 
           if [ ${{ matrix.build_elixir }} = "with_elixir" ]; then
             emqx_name="emqx-elixir"
-            img_suffix="elixir-{{ matrix.arch }}"
+            img_suffix="elixir-${{ matrix.arch }}"
             img_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}\n$img_labels"
           fi
           echo "::set-output name=img::${img}"
