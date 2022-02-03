@@ -240,6 +240,11 @@ export_release_vars() {
       exit 1
   esac
   export MIX_ENV="$profile"
+  # At this time, Mix provides no easy way to pass `erl_opts' to
+  # dependencies.  The workaround is to set this variable before
+  # compiling the project, so that `emqx_release.erl' picks up
+  # `emqx_vsn' as if it was compiled by rebar3.
+  export ERL_COMPILER_OPTIONS="[{compile_info,[{emqx_vsn,\"${PKG_VSN}\"}]}]"
 }
 
 log "building artifact=$ARTIFACT for profile=$PROFILE"
