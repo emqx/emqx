@@ -228,5 +228,17 @@ jobs:
         echo "$HOME/.local/bin" >> $GITHUB_PATH
     - name: run paho test
       run: |
+        port_connected () {
+          local server="$1"
+          local port="$2"
+          echo > /dev/tcp/${server}/${port} 2>/dev/null
+        }
+
         kubectl port-forward service/emqx 1883:1883 > /dev/null &
+
+        while ! port_connected localhost 1883; do
+          echo server not listening yet...
+          sleep 10
+        done
+
         pytest -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host "127.0.0.1"
