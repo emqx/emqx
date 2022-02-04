@@ -140,6 +140,9 @@ usage() {
     eval)
         echo "Evaluate an Erlang or Elxir expression in the EMQ X node"
         ;;
+    eval-erl)
+        echo "Evaluate an Erlang expression in the EMQ X node, even on Elixir node"
+        ;;
     versions)
         echo "List installed EMQ X versions and their status"
         ;;
@@ -200,7 +203,7 @@ usage() {
         echo "  Up/Down-grade: upgrade | downgrade | install | uninstall"
         echo "  Install info:  ertspath | root_dir | versions | root_dir"
         echo "  Runtime info:  pid | ping | versions"
-        echo "  Advanced:      console_clean | escript | rpc | rpcterms | eval"
+        echo "  Advanced:      console_clean | escript | rpc | rpcterms | eval | eval-erl"
         echo ''
         echo "Execute '$REL_NAME COMMAND help' for more information"
     ;;
@@ -874,6 +877,12 @@ case "${COMMAND}" in
         else
           relx_nodetool "eval" "$@"
         fi
+        ;;
+    eval-erl)
+        assert_node_alive
+
+        shift
+        relx_nodetool "eval" "$@"
         ;;
     *)
         usage "$COMMAND"

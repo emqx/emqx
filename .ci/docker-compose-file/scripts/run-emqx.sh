@@ -20,14 +20,8 @@ fi
 
 is_node_up() {
   local node="$1"
-  if [ "${IS_ELIXIR:-no}" = "yes" ]
-  then
-    docker exec -i "$node" \
-           bash -c "emqx eval \"[:\\\"emqx@node1.emqx.io\\\", :\\\"emqx@node2.emqx.io\\\"] = :ekka_cluster.info()[:running_nodes]\""
-  else
-    docker exec -i "$node" \
-           bash -c "emqx eval \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1
-  fi
+  docker exec -i "$node" \
+         bash -c "emqx eval-erl \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1
 }
 
 is_node_listening() {
