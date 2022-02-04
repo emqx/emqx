@@ -51,24 +51,27 @@ suite() ->
 	[{timetrap,{seconds,60}}].
 
 init_per_suite(Config) ->
-    ok = emqx_config:put([emqx_dashboard], #{
-        default_username => <<"admin">>,
-        default_password => <<"public">>,
-        listeners => [#{
-            protocol => http,
-            port => 18083
-        }]
-    }),
     _ = application:load(emqx_conf),
     %% some testcases (may from other app) already get emqx_connector started
     _ = application:stop(emqx_resource),
     _ = application:stop(emqx_connector),
-    ok = emqx_common_test_helpers:start_apps([emqx_bridge, emqx_dashboard]),
+    ok = emqx_common_test_helpers:start_apps([emqx_bridge, emqx_dashboard], fun set_special_configs/1),
     ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, ?CONF_DEFAULT),
     Config.
 
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_dashboard]),
+    ok.
+
+set_special_configs(emqx_dashboard) ->
+    Listeners = [#{protocol => http, port => 18083}],
+    Config = #{listeners => Listeners,
+               default_username => <<"bridge_admin">>,
+               default_password => <<"public">>
+              },
+    emqx_config:put([dashboard], Config),
+    ok;
+set_special_configs(_) ->
     ok.
 
 init_per_testcase(_, Config) ->
@@ -315,7 +318,7 @@ uri(Parts) when is_list(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION | NParts]).
 
 auth_header_() ->
-    Username = <<"admin">>,
+    Username = <<"bridge_admin">>,
     Password = <<"public">>,
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.

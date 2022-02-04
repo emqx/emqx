@@ -58,14 +58,6 @@ all() ->
     %% emqx_common_test_helpers:all(?MODULE).
     [t_cli, t_lookup_by_username_jwt, t_clean_expired_jwt, t_rest_api].
 
-init_suite() ->
-    init_suite([]).
-
-init_suite(Apps) ->
-    mria:start(),
-    application:load(emqx_management),
-    emqx_common_test_helpers:start_apps(Apps ++ [emqx_dashboard], fun set_special_configs/1).
-
 end_suite() ->
     end_suite([]).
 
