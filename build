@@ -224,6 +224,12 @@ make_docker_testing() {
        -f "${DOCKERFILE_TESTING}" .
 }
 
+function join {
+  local IFS="$1"
+  shift
+  echo "$*"
+}
+
 # used to control the Elixir Mix Release output
 # see docstring in `mix.exs`
 export_release_vars() {
@@ -240,6 +246,22 @@ export_release_vars() {
       exit 1
   esac
   export MIX_ENV="$profile"
+
+  local erl_opts=()
+
+  if [[ "$profile" = *enterprise* ]]
+  then
+    erl_opts+=( "{d,'EMQX_ENTERPRISE'}" )
+  fi
+
+  # At this time, Mix provides no easy way to pass `erl_opts' to
+  # dependencies.  The workaround is to set this variable before
+  # compiling the project, so that `emqx_release.erl' picks up
+  # `emqx_vsn' as if it was compiled by rebar3.
+  erl_opts+=( "{compile_info,[{emqx_vsn,\"${PKG_VSN}\"}]}" )
+
+  ERL_COMPILER_OPTIONS="[$(join , "${erl_opts[@]}")]"
+  export ERL_COMPILER_OPTIONS
 }
 
 log "building artifact=$ARTIFACT for profile=$PROFILE"
