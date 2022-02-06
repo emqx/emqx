@@ -1024,7 +1024,7 @@ fields("sysmon_top") ->
     , {"max_procs",
        sc(non_neg_integer(),
          #{ mapping => "system_monitor.top_max_procs"
-          , default => 3000000
+          , default => 1_000_000
           , desc => "Stop collecting data when the number of processes
 in the VM exceeds this value"
           })
