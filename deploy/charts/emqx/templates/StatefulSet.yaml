@@ -1,3 +1,12 @@
+{{ $configData := printf "%s\n%s\n%s\n%s"
+  (include (print $.Template.BasePath "/configmap.env.yaml") .)
+  (include (print $.Template.BasePath "/configmap.acl.yaml") .)
+  (include (print $.Template.BasePath "/configmap.loadedPlugins.yaml") .)
+  (include (print $.Template.BasePath "/configmap.loadedModules.yaml") .) }}
+  ## Compatible with previous misspellings
+{{ $licenseSecretName := coalesce .Values.emqxLicenseSecretName .Values.emqxLicneseSecretName }}
+{{ $image := printf "%s:%s" .Values.image.repository (default .Values.image.tag .Chart.AppVersion) }}
+
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -50,28 +59,34 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
       {{- if .Values.recreatePods }}
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
+        checksum/config: {{ $configData | sha256sum | quote }}
       {{- end }}
     spec:
       volumes:
+      {{- if .Values.emqxLoadedPlugins }}
       - name: emqx-loaded-plugins
         configMap:
           name: {{ include "emqx.fullname" . }}-loaded-plugins
           items:
           - key: loaded_plugins
             path: loaded_plugins
+      {{- end }}
+      {{- if .Values.emqxLoadedModules }}
       - name: emqx-loaded-modules
         configMap:
           name: {{ include "emqx.fullname" . }}-loaded-modules
           items:
           - key: loaded_modules
             path: loaded_modules
+      {{- end }}
+      {{- if .Values.emqxAclConfig }}
       - name: emqx-acl
         configMap:
           name: {{ include "emqx.fullname" . }}-acl
           items:
           - key: acl.conf
             path: acl.conf
+      {{- end }}
       {{- if not .Values.persistence.enabled }}
       - name: emqx-data
         emptyDir: {}
@@ -82,15 +97,13 @@ spec:
           claimName: {{ tpl . $ }}
         {{- end }}
       {{- end }}
-      {{- if .Values.emqxLicenseSecretName  }}
+      {{- if .Values.extraVolumes }}
+{{ toYaml .Values.extraVolumes | indent 6 }}
+      {{- end }}
+      {{- if $licenseSecretName }}
       - name: emqx-license
         secret:
-          secretName: {{ .Values.emqxLicenseSecretName }}
-      ## Compatible with previous misspellings
-      {{- else if .Values.emqxLicneseSecretName }}
-      - name: emqx-license
-        secret:
-          secretName: {{ .Values.emqxLicneseSecretName }}
+          secretName: {{ $licenseSecretName }}
       {{- end }}
       serviceAccountName:  {{ include "emqx.fullname" . }}
       {{- if .Values.podSecurityContext.enabled }}
@@ -108,7 +121,7 @@ spec:
       {{- end }}
       containers:
         - name: emqx
-          image: "{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"
+          image: {{ $image }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- if .Values.containerSecurityContext.enabled }}
           securityContext: {{- omit .Values.containerSecurityContext "enabled" | toYaml | nindent 12 }}
@@ -137,8 +150,11 @@ spec:
           - name: ekka
             containerPort: 4370
           envFrom:
-            - configMapRef:
-                name: {{ include "emqx.fullname" . }}-env
+          - configMapRef:
+              name: {{ include "emqx.fullname" . }}-env
+          {{- if .Values.extraEnvFrom }}
+{{ toYaml .Values.extraEnvFrom | indent 10 }}
+          {{- end }}
           env:
           - name: EMQX_NAME
             value: {{ .Release.Name }}
@@ -150,32 +166,41 @@ spec:
             value: {{ include "emqx.fullname" . }}-headless
           - name: EMQX_CLUSTER__K8S__NAMESPACE
             value: {{ .Release.Namespace }}
+          {{- if .Values.extraEnv }}
+{{ toYaml .Values.extraEnv | indent 10 }}
+          {{- end }}
           resources:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:
           - name: emqx-data
             mountPath: "/opt/emqx/data"
+          {{- if .Values.emqxAclConfig }}
           - name: emqx-acl
             mountPath: "/opt/emqx/etc/acl.conf"
             subPath: "acl.conf"
+          {{- end }}
+          {{- if .Values.emqxLoadedPlugins }}
           - name: emqx-loaded-plugins
             mountPath: "/opt/emqx/data/loaded_plugins"
             subPath: "loaded_plugins"
+          {{- end }}
+          {{- if .Values.emqxLoadedModules }}
           - name: emqx-loaded-modules
             mountPath: "/opt/emqx/data/loaded_modules"
             subPath: "loaded_modules"
-          {{ if .Values.emqxLicenseSecretName  }}
-          - name: emqx-license
-            mountPath: "/opt/emqx/etc/emqx.lic"
-            subPath: "emqx.lic"
-            readOnly: true
-          ## Compatible with previous misspellings
-          {{ else if .Values.emqxLicneseSecretName  }}
+          {{- end }}
+          {{- if $licenseSecretName }}
           - name: emqx-license
             mountPath: "/opt/emqx/etc/emqx.lic"
             subPath: "emqx.lic"
             readOnly: true
           {{ end }}
+          {{- if and .Values.extraVolumes .Values.extraVolumeMounts }}
+{{ toYaml .Values.extraVolumeMounts | indent 10 }}
+          {{- end }}
+          {{- if .Values.extraArgs }}
+          args: {{ toYaml .Values.extraArgs | nindent 10 }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /status
