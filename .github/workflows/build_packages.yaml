@@ -453,14 +453,7 @@ jobs:
         build_machine:
           - aws-arm64
           - ubuntu-20.04
-        registry:
-          - 'docker.io'
-          - 'public.ecr.aws'
         exclude:
-          - profile: emqx-edge
-            registry: 'public.ecr.aws'
-          - profile: emqx-ee
-            registry: 'public.ecr.aws'
           - arch: arm64
             build_machine: ubuntu-20.04
           - arch: amd64
@@ -501,18 +494,7 @@ jobs:
           source/deps/quicer/
         key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_QUICER_REF }}
 
-    - uses: aws-actions/configure-aws-credentials@v1
-      if: matrix.repository == 'public.ecr.aws'
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-    - name: Docker login for aws ecr
-      if: matrix.repository == 'public.ecr.aws'
-      run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
-
     - uses: docker/login-action@v1
-      if: matrix.repository == 'docker.io'
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
@@ -539,7 +521,7 @@ jobs:
     - uses: docker/metadata-action@v3
       id: meta
       with:
-        images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
+        images: ${{ github.repository_owner }}/${{ matrix.profile }}
         flavor: |
           latest=${{ github.event_name == 'release' && !github.event.release.prerelease }}
           suffix=-${{ steps.pre-meta.outputs.img_suffix }}
@@ -567,6 +549,22 @@ jobs:
           EMQX_NAME=${{ steps.pre-meta.outputs.emqx_name }}
         file: source/deploy/docker/Dockerfile
         context: source
+
+    - uses: aws-actions/configure-aws-credentials@v1
+      if: matrix.profile == 'emqx'
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+    - name: Docker push to aws ecr
+      if: matrix.profile == 'emqx'
+      run: |
+        aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+        for tag in $(echo ${{ steps.meta.outputs.json }} | jq  -c '.tags[]'); do
+          docker pull "$tag"
+          docker tag "$tag" "public.ecr.aws/$tag"
+          docker push "public.ecr.aws/$tag"
+        done
 
   docker-push-multi-arch-manifest:
     # note, we only run on amd64
@@ -598,14 +596,7 @@ jobs:
         build_machine:
           - aws-arm64
           - ubuntu-20.04
-        registry:
-          - 'docker.io'
-          - 'public.ecr.aws'
         exclude:
-          - profile: emqx-edge
-            registry: 'public.ecr.aws'
-          - profile: emqx-ee
-            registry: 'public.ecr.aws'
           - arch: arm64
             build_machine: ubuntu-20.04
           - arch: amd64
@@ -630,21 +621,11 @@ jobs:
         if:  matrix.arch == 'amd64'
         run: unzip -q source.zip
 
-    - uses: aws-actions/configure-aws-credentials@v1
-      if: matrix.repository == 'public.ecr.aws' && matrix.arch == 'amd64'
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-    - name: Docker login for aws ecr
-      if: matrix.repository == 'public.ecr.aws' && matrix.arch == 'amd64'
-      run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
-
-    - uses: docker/login-action@v1
-      if: matrix.repository == 'docker.io' && matrix.arch == 'amd64'
-      with:
-        username: ${{ secrets.DOCKER_HUB_USER }}
-        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+      - uses: docker/login-action@v1
+        if: matrix.arch == 'amd64'
+        with:
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: prepare for docker-action-parms
         id: pre-meta
@@ -669,7 +650,7 @@ jobs:
         if: matrix.arch == 'amd64'
         id: meta
         with:
-          images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
+          images: ${{ github.repository_owner }}/${{ matrix.profile }}
           flavor: |
             latest=false
             suffix=-${{ steps.pre-meta.outputs.img_suffix }}
@@ -687,6 +668,19 @@ jobs:
         run: |
           IsPushLatest=${{ github.event_name == 'release' && !github.event.release.prerelease }};
           scripts/docker-create-push-manifests.sh "${{ steps.meta.outputs.tags }}" "$IsPushLatest"
+
+      - uses: aws-actions/configure-aws-credentials@v1
+        if: matrix.profile == 'emqx' && matrix.arch == 'amd64'
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+      - name: Docker push to aws ecr
+        if: matrix.profile == 'emqx' && matrix.arch == 'amd64'
+        run: |
+          aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+          IsPushLatest=${{ github.event_name == 'release' && !github.event.release.prerelease }};
+          scripts/docker-create-push-manifests.sh "public.ecr.aws/${{ steps.meta.outputs.tags }}" "$IsPushLatest"
 
   delete-artifact:
     runs-on: ubuntu-20.04
