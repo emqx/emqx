@@ -19,6 +19,9 @@
 -export([ start/0
         , graceful_shutdown/0
         , is_ready/0
+
+        , node_status/0
+        , update_vips/0
         ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -57,6 +60,9 @@ print_otp_version_warning() ->
 -endif. % OTP_RELEASE > 22
 
 start_sysmon() ->
+    _ = application:load(system_monitor),
+    application:set_env(system_monitor, node_status_fun, {?MODULE, node_status}),
+    application:set_env(system_monitor, status_checks, [{?MODULE, update_vips, false, 10}]),
     case application:get_env(system_monitor, db_hostname) of
         undefined ->
             %% If there is no sink for the events, there is no reason
@@ -67,3 +73,11 @@ start_sysmon() ->
             _ = application:ensure_all_started(system_monitor, temporary),
             ok
     end.
+
+node_status() ->
+    emqx_json:encode(#{ backend => mria_rlog:backend()
+                      , role    => mria_rlog:role()
+                      }).
+
+update_vips() ->
+    system_monitor:add_vip(mria_status:shards_up()).
