@@ -100,6 +100,7 @@ record(ClientId, ChanPid) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    mria_config:set_dirty_shard(?CM_SHARD, true),
     ok = mria:create_table(?TAB, [
                 {type, bag},
                 {rlog_shard, ?CM_SHARD},
