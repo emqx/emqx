@@ -417,6 +417,14 @@ defmodule EMQXUmbrella.MixProject do
       File.chmod!(Path.join(bin, name), 0o755)
     end
 
+    Mix.Generator.copy_file(
+      "bin/node_dump",
+      Path.join(bin, "node_dump"),
+      force: overwrite?
+    )
+
+    File.chmod!(Path.join(bin, "node_dump"), 0o755)
+
     render_template(
       "rel/BUILT_ON",
       assigns,
@@ -505,7 +513,16 @@ defmodule EMQXUmbrella.MixProject do
   # add those to the `:overlays` key before running `:tar`.
   # See: https://hexdocs.pm/mix/1.13.2/Mix.Release.html#__struct__/0
   defp prepare_tar_overlays(release) do
-    Map.update!(release, :overlays, &["etc", "data" | &1])
+    Map.update!(
+      release,
+      :overlays,
+      &[
+        "etc",
+        "data",
+        "bin/node_dump"
+        | &1
+      ]
+    )
   end
 
   #############################################################################

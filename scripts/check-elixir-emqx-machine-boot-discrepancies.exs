@@ -27,18 +27,20 @@ defmodule CheckElixirEMQXMachineBootDiscrepancies do
     if Enum.any?(mix_missing) do
       IO.puts(
         "For profile=#{profile}, edition=#{inputs.edition_type} " <>
-        "rebar.config.erl has the following emqx_machine_boot_apps " <>
-        "that are missing in mix.exs:"
+          "rebar.config.erl has the following emqx_machine_boot_apps " <>
+          "that are missing in mix.exs:"
       )
+
       IO.inspect(mix_missing, syntax_colors: [atom: :red])
     end
 
     if Enum.any?(rebar_missing) do
       IO.puts(
         "For profile=#{profile}, edition=#{inputs.edition_type} " <>
-        "mix.exs has the following emqx_machine_boot_apps " <>
-        "that are missing in rebar3.config.erl:"
+          "mix.exs has the following emqx_machine_boot_apps " <>
+          "that are missing in rebar3.config.erl:"
       )
+
       IO.inspect(rebar_missing, syntax_colors: [atom: :red])
     end
 
