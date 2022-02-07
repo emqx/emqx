@@ -70,20 +70,36 @@
             func   => stream_log_file,
             descr  => "download trace's log"}).
 
+-define(NOT_STARTED, {error, module_not_loaded}).
 list_trace(Path, Params) ->
-    return(emqx_trace_api:list_trace(Path, Params)).
+    case is_started() of
+        true -> return(emqx_trace_api:list_trace(Path, Params));
+        false -> return(?NOT_STARTED)
+    end.
 
 create_trace(Path, Params) ->
-    return(emqx_trace_api:create_trace(Path, Params)).
+    case is_started() of
+        true -> return(emqx_trace_api:create_trace(Path, Params));
+        false -> return(?NOT_STARTED)
+    end.
 
 delete_trace(Path, Params) ->
-    return(emqx_trace_api:delete_trace(Path, Params)).
+    case is_started() of
+        true -> return(emqx_trace_api:delete_trace(Path, Params));
+        false -> return(?NOT_STARTED)
+    end.
 
 clear_traces(Path, Params) ->
-    return(emqx_trace_api:clear_traces(Path, Params)).
+    case is_started() of
+        true -> return(emqx_trace_api:clear_traces(Path, Params));
+        false -> return(?NOT_STARTED)
+    end.
 
 disable_trace(#{name := Name}, Params) ->
-    return(emqx_trace_api:update_trace(#{name => Name, operation => disable}, Params)).
+    case is_started() of
+        true -> return(emqx_trace_api:update_trace(#{name => Name, operation => disable}, Params));
+        false -> return(?NOT_STARTED)
+    end.
 
 download_zip_log(Path, Params) ->
     case emqx_trace_api:download_zip_log(Path, Params) of
@@ -96,3 +112,6 @@ stream_log_file(Path, Params) ->
         {ok, File} -> return({ok, File});
         {error, Reason} -> return({error, 'NOT_FOUND', Reason})
     end.
+
+is_started() ->
+    undefined =/= erlang:whereis(emqx_trace).
