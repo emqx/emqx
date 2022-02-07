@@ -73,6 +73,7 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
+    mria_config:set_dirty_shard(?ROUTE_SHARD, true),
     ok = mria:create_table(?ROUTE_TAB, [
                 {type, bag},
                 {rlog_shard, ?ROUTE_SHARD},
