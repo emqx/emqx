@@ -30,8 +30,8 @@
 -define(RED_BG, "\e[48;2;184;0;0m").
 -define(RESET, "\e[0m").
 
--define(LOCAL_NOT_ALLOWED, [halt, q]).
--define(NON_LOCAL_NOT_ALLOWED, [{erlang, halt}, {c, q}, {init, stop}, {init, restart}, {init, reboot}]).
+-define(LOCAL_PROHIBITED, [halt, q]).
+-define(REMOTE_PROHIBITED, [{erlang, halt}, {c, q}, {init, stop}, {init, restart}, {init, reboot}]).
 
 is_locked() ->
     {ok, false} =/= application:get_env(?APP, ?IS_LOCKED).
@@ -51,20 +51,24 @@ prompt_func(PropList) ->
     end.
 
 local_allowed(MF, Args, State) ->
-    IsAllowed = is_allowed(MF, ?LOCAL_NOT_ALLOWED),
-    log(IsAllowed, MF, Args),
-    {IsAllowed, State}.
+    Allowed = check_allowed(MF, ?LOCAL_PROHIBITED),
+    log(Allowed, MF, Args),
+    {is_allowed(Allowed), State}.
 
 non_local_allowed(MF, Args, State) ->
-    IsAllowed = is_allowed(MF, ?NON_LOCAL_NOT_ALLOWED),
-    log(IsAllowed, MF, Args),
-    {IsAllowed, State}.
+    Allow = check_allowed(MF, ?REMOTE_PROHIBITED),
+    log(Allow, MF, Args),
+    {is_allowed(Allow), State}.
 
-is_allowed(MF, NotAllowed) ->
-    case lists:member(MF, NotAllowed) of
-        true -> not is_locked();
-        false -> true
+check_allowed(MF, NotAllowed) ->
+    case {lists:member(MF, NotAllowed), is_locked()} of
+        {true, false} -> exempted;
+        {true, true} -> prohibited;
+        {false, _} -> ignore
     end.
+
+is_allowed(prohibited) -> false;
+is_allowed(_) -> true.
 
 limit_warning(MF, Args) ->
     max_heap_size_warning(MF, Args),
@@ -96,10 +100,13 @@ max_heap_size_warning(MF, Args) ->
                 max_heap_size => ?MAX_HEAP_SIZE})
     end.
 
-log(true, MF, Args) -> limit_warning(MF, Args);
-log(false, MF, Args) ->
-    warning("DANGEROUS FUNCTION: DO NOT ALLOWED IN SHELL!!!!!", []),
-    ?SLOG(error, #{msg => "execute_function_in_shell_not_allowed", function => MF, args => Args}).
+log(prohibited, MF, Args) ->
+    warning("DANGEROUS FUNCTION: FORBIDDEN IN SHELL!!!!!", []),
+    ?SLOG(error, #{msg => "execute_function_in_shell_prohibited", function => MF, args => Args});
+log(exempted, MF, Args) ->
+    limit_warning(MF, Args),
+    ?SLOG(error, #{msg => "execute_dangerous_function_in_shell_exempted", function => MF, args => Args});
+log(ignore, MF, Args) -> limit_warning(MF, Args).
 
 warning(Format, Args) ->
     io:format(?RED_BG ++ Format ++ ?RESET ++ "~n", Args).

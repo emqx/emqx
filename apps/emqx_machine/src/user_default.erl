@@ -15,11 +15,14 @@
 %%--------------------------------------------------------------------
 -module(user_default).
 
+%% INCLUDE BEGIN
+%% Import all the record definitions from the header file into the erlang shell.
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_conf/include/emqx_conf.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+%% INCLUDE END
 
 %% API
 -export([lock/0, unlock/0]).
