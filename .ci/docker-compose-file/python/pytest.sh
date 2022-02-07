@@ -10,7 +10,7 @@ LB="haproxy"
 
 apk update && apk add git curl
 git clone -b develop-4.0 https://github.com/emqx/paho.mqtt.testing.git /paho.mqtt.testing
-pip install pytest
+pip install pytest==6.2.5
 
 pytest -v /paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host "$LB"
 RESULT=$?
