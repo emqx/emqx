@@ -54,7 +54,7 @@ defmodule EMQXUmbrella.MixProject do
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.0", override: true},
-      {:mria, github: "emqx/mria", tag: "0.1.5", override: true},
+      {:mria, github: "emqx/mria", tag: "0.2.0", override: true},
       {:ekka, github: "emqx/ekka", tag: "0.11.3", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.0", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.2.11", override: true},
@@ -67,7 +67,7 @@ defmodule EMQXUmbrella.MixProject do
       {:system_monitor, github: "k32/system_monitor", tag: "3.0.0"},
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
-      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.16.0", override: true},
+      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.18.0", override: true},
       {:hocon, github: "emqx/hocon", tag: "0.24.0", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.4.1", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
