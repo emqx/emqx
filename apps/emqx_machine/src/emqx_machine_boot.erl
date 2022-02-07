@@ -26,6 +26,9 @@
 -export([sorted_reboot_apps/1]).
 -endif.
 
+%% these apps are always (re)started by emqx_machine
+-define(BASIC_REBOOT_APPS, [gproc, esockd, ranch, cowboy, emqx]).
+
 post_boot() ->
     ok = ensure_apps_started(),
     ok = print_vsn(),
@@ -80,29 +83,12 @@ start_one_app(App) ->
 %% list of app names which should be rebooted when:
 %% 1. due to static config change
 %% 2. after join a cluster
+
+%% the list of (re)started apps depends on release type/edition
+%% and is configured in rebar.config.erl/mix.exs
 reboot_apps() ->
-    [ gproc
-    , esockd
-    , ranch
-    , cowboy
-    , emqx
-    , emqx_prometheus
-    , emqx_modules
-    , emqx_dashboard
-    , emqx_connector
-    , emqx_gateway
-    , emqx_statsd
-    , emqx_resource
-    , emqx_rule_engine
-    , emqx_bridge
-    , emqx_plugin_libs
-    , emqx_management
-    , emqx_retainer
-    , emqx_exhook
-    , emqx_authn
-    , emqx_authz
-    , emqx_plugins
-    ].
+    {ok, Apps} = application:get_env(emqx_machine, applications),
+    ?BASIC_REBOOT_APPS ++ Apps.
 
 sorted_reboot_apps() ->
     Apps = [{App, app_deps(App)} || App <- reboot_apps()],

@@ -17,11 +17,11 @@ ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 export RUNNER_ROOT_DIR
 export RUNNER_ETC_DIR
 export REL_VSN
+export SCHEMA_MOD
 
 RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
 REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
-SCHEMA_MOD=emqx_conf_schema
 
 WHOAMI=$(whoami)
 
@@ -389,7 +389,7 @@ generate_config() {
     ## meaning, certain overrides will not be mapped to app.<time>.config file
     ## disable SC2086 to allow EMQX_LICENSE_CONF_OPTION to split
     # shellcheck disable=SC2086
-    call_hocon -v -t "$NOW_TIME" -I "$CONFIGS_DIR/" -s $SCHEMA_MOD -c "$RUNNER_ETC_DIR"/emqx.conf $EMQX_LICENSE_CONF_OPTION -d "$RUNNER_DATA_DIR"/configs generate
+    call_hocon -v -t "$NOW_TIME" -I "$CONFIGS_DIR/" -s "$SCHEMA_MOD" -c "$RUNNER_ETC_DIR"/emqx.conf $EMQX_LICENSE_CONF_OPTION -d "$RUNNER_DATA_DIR"/configs generate
 
     ## filenames are per-hocon convention
     local CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
@@ -539,7 +539,7 @@ NAME="${EMQX_NODE__NAME:-}"
 if [ -z "$NAME" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         # for boot commands, inspect emqx.conf for node name
-        NAME="$(call_hocon -s $SCHEMA_MOD -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
+        NAME="$(call_hocon -s "$SCHEMA_MOD" -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
     else
         vm_args_file="$(latest_vm_args 'EMQX_NODE__NAME')"
         NAME="$(grep -E '^-s?name' "${vm_args_file}" | awk '{print $2}')"
@@ -570,7 +570,7 @@ fi
 COOKIE="${EMQX_NODE__COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE="$(call_hocon -s $SCHEMA_MOD -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
+        COOKIE="$(call_hocon -s "$SCHEMA_MOD" -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
     else
         vm_args_file="$(latest_vm_args 'EMQX_NODE__COOKIE')"
         COOKIE="$(grep -E '^-setcookie' "${vm_args_file}" | awk '{print $2}')"

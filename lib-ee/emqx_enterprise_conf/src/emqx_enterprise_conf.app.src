@@ -1,0 +1,14 @@
+{application, emqx_enterprise_conf,
+ [{description, "EMQ X Enterprise configuration schema"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {applications,
+   [kernel,
+    stdlib
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.

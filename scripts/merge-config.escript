@@ -12,16 +12,29 @@
 
 main(_) ->
     {ok, BaseConf} = file:read_file("apps/emqx_conf/etc/emqx_conf.conf"),
+
     Cfgs = get_all_cfgs("apps/"),
-    Conf = lists:foldl(fun(CfgFile, Acc) ->
-                               case filelib:is_regular(CfgFile) of
-                                   true ->
-                                       {ok, Bin1} = file:read_file(CfgFile),
-                                       [Acc, io_lib:nl(), Bin1];
-                                   false -> Acc
-                               end
-                       end, BaseConf, Cfgs),
-    ok = file:write_file("apps/emqx_conf/etc/emqx.conf.all", Conf).
+    Conf = [merge(BaseConf, Cfgs),
+            io_lib:nl(),
+            "include emqx_enterprise.conf",
+            io_lib:nl()],
+    ok = file:write_file("apps/emqx_conf/etc/emqx.conf.all", Conf),
+
+    EnterpriseCfgs = get_all_cfgs("lib-ee/"),
+    EnterpriseConf = merge("", EnterpriseCfgs),
+
+    ok = file:write_file("apps/emqx_conf/etc/emqx_enterprise.conf.all", EnterpriseConf).
+
+merge(BaseConf, Cfgs) ->
+    lists:foldl(
+      fun(CfgFile, Acc) ->
+              case filelib:is_regular(CfgFile) of
+                  true ->
+                      {ok, Bin1} = file:read_file(CfgFile),
+                      [Acc, io_lib:nl(), Bin1];
+                  false -> Acc
+              end
+      end, BaseConf, Cfgs).
 
 get_all_cfgs(Root) ->
     Apps = filelib:wildcard("*", Root) -- ["emqx_machine", "emqx_conf"],

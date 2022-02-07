@@ -306,6 +306,11 @@ a crash dump
           #{ mapping => "emqx_machine.backtrace_depth"
            , default => 23
            })}
+    , {"applications",
+       sc(emqx_schema:comma_separated_atoms(),
+          #{ mapping => "emqx_machine.applications"
+           , default => []
+           })}
     , {"etc_dir",
        sc(string(),
           #{ desc => "`etc` dir for the node"

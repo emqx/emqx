@@ -36,6 +36,9 @@ collect_deps([File | Files], Acc) ->
     collect_deps(Files, do_collect_deps(Deps, File, Acc)).
 
 do_collect_deps([], _File, Acc) -> Acc;
+%% ignore relative app dependencies
+do_collect_deps([{_Name, {path, _Path}} | Deps], File, Acc) ->
+    do_collect_deps(Deps, File, Acc);
 do_collect_deps([{Name, Ref} | Deps], File, Acc) ->
     Refs = maps:get(Name, Acc, []),
     do_collect_deps(Deps, File, Acc#{Name => [{Ref, File} | Refs]}).
