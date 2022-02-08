@@ -129,6 +129,7 @@ do_update({key, Content}, _Conf) when is_binary(Content); is_list(Content) ->
         {ok, _License} ->
             #{<<"key">> => Content};
         {error, Reason} ->
+            ?SLOG(error, #{msg => "failed_to_parse_license", reason => Reason}),
             error(Reason)
     end.
 
