@@ -139,7 +139,7 @@ help() ->
 
 -spec(print(io:format()) -> ok).
 print(Msg) ->
-    io:format("~ts", [format(Msg)]).
+    io:format("~ts", [format(Msg, [])]).
 
 -spec(print(io:format(), [term()]) -> ok).
 print(Format, Args) ->
@@ -243,4 +243,3 @@ zip_cmd([X | Xs], [Y | Ys]) -> [{X, Y} | zip_cmd(Xs, Ys)];
 zip_cmd([X | Xs], []) -> [{X, ""} | zip_cmd(Xs, [])];
 zip_cmd([], [Y | Ys]) -> [{"", Y} | zip_cmd([], Ys)];
 zip_cmd([], []) -> [].
-
