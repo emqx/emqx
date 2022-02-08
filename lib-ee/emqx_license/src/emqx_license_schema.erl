@@ -19,9 +19,13 @@ roots() -> [{license, hoconsc:union(
                          hoconsc:ref(?MODULE, file_license)])}].
 
 fields(key_license) ->
-    [ {key, string()}
+    [ {key, #{type => string(),
+              sensitive => true, %% so it's not logged
+              desc => "Configure the license as a string"
+             }}
     ];
-
 fields(file_license) ->
-    [ {file, string()}
+    [ {file, #{type => string(),
+               desc => "Path to the license file"
+              }}
     ].
