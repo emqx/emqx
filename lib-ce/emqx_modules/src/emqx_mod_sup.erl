@@ -23,18 +23,22 @@
 -export([ start_link/0
         , start_child/1
         , start_child/2
+        , start_child/3
         , stop_child/1
         ]).
 
 -export([init/1]).
 
 %% Helper macro for declaring children of supervisor
--define(CHILD(Mod, Type), #{id => Mod,
-                            start => {Mod, start_link, []},
-                            restart => permanent,
-                            shutdown => 5000,
-                            type => Type,
-                            modules => [Mod]}).
+-define(CHILD(Mod, Type, Args),
+        #{id => Mod,
+          start => {Mod, start_link, Args},
+          restart => permanent,
+          shutdown => 5000,
+          type => Type,
+          modules => [Mod]}).
+
+-define(CHILD(MOD, Type), ?CHILD(MOD, Type, [])).
 
 -spec(start_link() -> startlink_ret()).
 start_link() ->
@@ -47,6 +51,10 @@ start_child(ChildSpec) when is_map(ChildSpec) ->
 -spec start_child(atom(), atom()) -> ok.
 start_child(Mod, Type) when is_atom(Mod) andalso is_atom(Type) ->
     assert_started(supervisor:start_child(?MODULE, ?CHILD(Mod, Type))).
+
+-spec start_child(atom(), atom(), list(any())) -> ok.
+start_child(Mod, Type, Args) when is_atom(Mod) andalso is_atom(Type) ->
+    assert_started(supervisor:start_child(?MODULE, ?CHILD(Mod, Type, Args))).
 
 -spec(stop_child(any()) -> ok | {error, term()}).
 stop_child(ChildId) ->
@@ -61,6 +69,7 @@ stop_child(ChildId) ->
 
 init([]) ->
     ok = emqx_tables:new(emqx_modules, [set, public, {write_concurrency, true}]),
+    emqx_slow_subs:init_tab(),
     {ok, {{one_for_one, 10, 100}, []}}.
 
 %%--------------------------------------------------------------------
@@ -69,6 +78,5 @@ init([]) ->
 
 assert_started({ok, _Pid}) -> ok;
 assert_started({ok, _Pid, _Info}) -> ok;
-assert_started({error, {already_tarted, _Pid}}) -> ok;
+assert_started({error, {already_started, _Pid}}) -> ok;
 assert_started({error, Reason}) -> erlang:error(Reason).
-

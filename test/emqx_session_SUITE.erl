@@ -180,7 +180,8 @@ t_puback_with_dequeue(_) ->
     ?assertEqual(<<"t2">>, emqx_message:topic(Msg3)).
 
 t_puback_error_packet_id_in_use(_) ->
-    Inflight = emqx_inflight:insert(1, {pubrel, ts(millisecond)}, emqx_inflight:new()),
+    Now = ts(millisecond),
+    Inflight = emqx_inflight:insert(1, {{pubrel_await, Now}, Now}, emqx_inflight:new()),
     {error, ?RC_PACKET_IDENTIFIER_IN_USE} =
         emqx_session:puback(clientinfo(), 1, session(#{inflight => Inflight})).
 
@@ -191,11 +192,13 @@ t_pubrec(_) ->
     Msg = emqx_message:make(test, ?QOS_2, <<"t">>, <<>>),
     Inflight = emqx_inflight:insert(2, {Msg, ts(millisecond)}, emqx_inflight:new()),
     Session = session(#{inflight => Inflight}),
-    {ok, Msg, Session1} = emqx_session:pubrec(2, Session),
-    ?assertMatch([{pubrel, _}], emqx_inflight:values(emqx_session:info(inflight, Session1))).
+    {ok, MsgWithTime, Session1} = emqx_session:pubrec(2, Session),
+    ?assertEqual(Msg, emqx_message:remove_header(deliver_begin_at, MsgWithTime)),
+    ?assertMatch([{{pubrel_await, _}, _}], emqx_inflight:values(emqx_session:info(inflight, Session1))).
 
 t_pubrec_packet_id_in_use_error(_) ->
-    Inflight = emqx_inflight:insert(1, {pubrel, ts(millisecond)}, emqx_inflight:new()),
+    Now = ts(millisecond),
+    Inflight = emqx_inflight:insert(1, {{pubrel_await, Now}, Now}, emqx_inflight:new()),
     {error, ?RC_PACKET_IDENTIFIER_IN_USE} =
         emqx_session:pubrec(1, session(#{inflight => Inflight})).
 
@@ -211,7 +214,8 @@ t_pubrel_error_packetid_not_found(_) ->
     {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} = emqx_session:pubrel(1, session()).
 
 t_pubcomp(_) ->
-    Inflight = emqx_inflight:insert(1, {pubrel, ts(millisecond)}, emqx_inflight:new()),
+    Now = ts(millisecond),
+    Inflight = emqx_inflight:insert(1, {{pubrel_await, undefined}, Now}, emqx_inflight:new()),
     Session = session(#{inflight => Inflight}),
     {ok, Session1} = emqx_session:pubcomp(clientinfo(), 1, Session),
     ?assertEqual(0, emqx_session:info(inflight_cnt, Session1)).
@@ -262,15 +266,19 @@ t_deliver_qos0(_) ->
 t_deliver_qos1(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
     {ok, Session} = emqx_session:subscribe(
-                       clientinfo(), <<"t1">>, subopts(#{qos => ?QOS_1}), session()),
+                      clientinfo(), <<"t1">>, subopts(#{qos => ?QOS_1}), session()),
     Delivers = [delivery(?QOS_1, T) || T <- [<<"t1">>, <<"t2">>]],
     {ok, [{1, Msg1}, {2, Msg2}], Session1} = emqx_session:deliver(clientinfo(), Delivers, Session),
     ?assertEqual(2, emqx_session:info(inflight_cnt, Session1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t2">>, emqx_message:topic(Msg2)),
-    {ok, Msg1, Session2} = emqx_session:puback(clientinfo(), 1, Session1),
+
+    {ok, Msg1WithTime, Session2} = emqx_session:puback(clientinfo(), 1, Session1),
+    ?assertEqual(Msg1, emqx_message:remove_header(deliver_begin_at, Msg1WithTime)),
     ?assertEqual(1, emqx_session:info(inflight_cnt, Session2)),
-    {ok, Msg2, Session3} = emqx_session:puback(clientinfo(), 2, Session2),
+
+    {ok, Msg2WithTime, Session3} = emqx_session:puback(clientinfo(), 2, Session2),
+    ?assertEqual(Msg2, emqx_message:remove_header(deliver_begin_at, Msg2WithTime)),
     ?assertEqual(0, emqx_session:info(inflight_cnt, Session3)).
 
 t_deliver_qos2(_) ->
@@ -314,7 +322,11 @@ t_retry(_) ->
     {ok, Pubs, Session1} = emqx_session:deliver(clientinfo(), Delivers, Session),
     ok = timer:sleep(200),
     Msgs1 = [{I, emqx_message:set_flag(dup, Msg)} || {I, Msg} <- Pubs],
-    {ok, Msgs1, 100, Session2} = emqx_session:retry(clientinfo(), Session1),
+    {ok, Msgs1WithTime, 100, Session2} = emqx_session:retry(clientinfo(), Session1),
+    ?assertEqual(Msgs1,
+                 lists:map(fun({Id, M}) ->
+                                   {Id, emqx_message:remove_header(deliver_begin_at, M)}
+                           end, Msgs1WithTime)),
     ?assertEqual(2, emqx_session:info(inflight_cnt, Session2)).
 
 %%--------------------------------------------------------------------
@@ -338,7 +350,10 @@ t_replay(_) ->
     Session2 = emqx_session:enqueue(clientinfo(), Msg, Session1),
     Pubs1 = [{I, emqx_message:set_flag(dup, M)} || {I, M} <- Pubs],
     {ok, ReplayPubs, Session3} = emqx_session:replay(clientinfo(), Session2),
-    ?assertEqual(Pubs1 ++ [{3, Msg}], ReplayPubs),
+    ?assertEqual(Pubs1 ++ [{3, Msg}],
+                 lists:map(fun({Id, M}) ->
+                                   {Id, emqx_message:remove_header(deliver_begin_at, M)}
+                           end, ReplayPubs)),
     ?assertEqual(3, emqx_session:info(inflight_cnt, Session3)).
 
 t_expire_awaiting_rel(_) ->
@@ -375,7 +390,7 @@ mqueue(Opts) ->
 session() -> session(#{}).
 session(InitFields) when is_map(InitFields) ->
     maps:fold(fun(Field, Value, Session) ->
-                      emqx_session:set_field(Field, Value, Session)
+                  emqx_session:set_field(Field, Value, Session)
               end,
               emqx_session:init(#{zone => channel}, #{receive_maximum => 0}),
               InitFields).
@@ -398,4 +413,3 @@ ts(second) ->
     erlang:system_time(second);
 ts(millisecond) ->
     erlang:system_time(millisecond).
-

@@ -237,10 +237,12 @@ import_resource(#{<<"id">> := Id,
                                        config => Config,
                                        created_at => NCreatedAt,
                                        description => Desc}).
+
 import_resources_and_rules(Resources, Rules, FromVersion)
   when FromVersion =:= "4.0" orelse
        FromVersion =:= "4.1" orelse
-       FromVersion =:= "4.2" ->
+       FromVersion =:= "4.2" orelse
+       FromVersion =:= "4.3" ->
     Configs = lists:foldl(fun compatible_version/2 , [], Resources),
     lists:foreach(fun(#{<<"actions">> := Actions} = Rule) ->
                       NActions = apply_new_config(Actions, Configs),
@@ -305,6 +307,17 @@ compatible_version(#{<<"id">> := ID,
     {ok, _Resource} = import_resource(Resource#{<<"config">> := Cfg}),
     NHeaders = maps:put(<<"content-type">>, ContentType, covert_empty_headers(Headers)),
     [{ID, #{headers => NHeaders, method => Method}} | Acc];
+
+compatible_version(#{<<"id">> := ID,
+                     <<"type">> := Type,
+                     <<"config">> := Config} = Resource, Acc)
+    when Type =:= <<"backend_mongo_single">>
+    orelse Type =:= <<"backend_mongo_sharded">>
+    orelse Type =:= <<"backend_mongo_rs">> ->
+    NewConfig = maps:merge(#{<<"srv_record">> => false}, Config),
+    {ok, _Resource} = import_resource(Resource#{<<"config">> := NewConfig}),
+    [{ID, NewConfig} | Acc];
+
 % normal version
 compatible_version(Resource, Acc) ->
     {ok, _Resource} = import_resource(Resource),
@@ -527,16 +540,39 @@ import_modules(Modules) ->
         undefined ->
             ok;
         _ ->
-           lists:foreach(fun(#{<<"id">> := Id,
-                               <<"type">> := Type,
-                               <<"config">> := Config,
-                               <<"enabled">> := Enabled,
-                               <<"created_at">> := CreatedAt,
-                               <<"description">> := Description}) ->
-                            _ = emqx_modules:import_module({Id, any_to_atom(Type), Config, Enabled, CreatedAt, Description})
-                         end, Modules)
+            NModules = migrate_modules(Modules),
+            lists:foreach(fun(#{<<"id">> := Id,
+                                <<"type">> := Type,
+                                <<"config">> := Config,
+                                <<"enabled">> := Enabled,
+                                <<"created_at">> := CreatedAt,
+                                <<"description">> := Description}) ->
+                              _ = emqx_modules:import_module({Id, any_to_atom(Type), Config, Enabled, CreatedAt, Description})
+                          end, NModules)
     end.
 
+migrate_modules(Modules) ->
+    migrate_modules(Modules, []).
+
+migrate_modules([], Acc) ->
+    lists:reverse(Acc);
+migrate_modules([#{<<"type">> := <<"mongo_authentication">>,
+                   <<"config">> := Config} = Module | More], Acc) ->
+    WMode = case maps:get(<<"w_mode">>, Config, <<"unsafe">>) of
+                <<"undef">> -> <<"unsafe">>;
+                Other -> Other
+            end,
+    RMode = case maps:get(<<"r_mode">>, Config, <<"master">>) of
+                <<"undef">> -> <<"master">>;
+                <<"slave-ok">> -> <<"slave_ok">>;
+                Other0 -> Other0
+            end,
+    NConfig = Config#{<<"srv_record">> => false,
+                      <<"w_mode">> => WMode,
+                      <<"r_mode">> => RMode},
+    migrate_modules(More, [Module#{<<"config">> => NConfig} | Acc]);
+migrate_modules([Module | More], Acc) ->
+    migrate_modules(More, [Module | Acc]).
 
 import_schemas(Schemas) ->
     case ets:info(emqx_schema) of
@@ -696,6 +732,8 @@ is_version_supported(Data, Version) ->
 is_version_supported2("4.1") ->
     true;
 is_version_supported2("4.3") ->
+    true;
+is_version_supported2("4.4") ->
     true;
 is_version_supported2(Version) ->
     case re:run(Version, "^4.[02].\\d+$", [{capture, none}]) of
