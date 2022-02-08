@@ -73,7 +73,7 @@ admins(_) ->
           {"cluster_call status", "status"},
           {"cluster_call skip [node]", "increase one commit on specific node"},
           {"cluster_call tnxid <TnxId>", "get detailed about TnxId"},
-          {"cluster_call  fast_forward [node] [tnx_id]", "fast forwards to tnx_id" }
+          {"cluster_call fast_forward [node] [tnx_id]", "fast forwards to tnx_id" }
       ]).
 
 status() ->
