@@ -153,6 +153,12 @@ t_check_expired(_Config) ->
        {stop, {error, ?RC_QUOTA_EXCEEDED}},
        emqx_license:check(#{}, #{})).
 
+t_check_not_loaded(_Config) ->
+    ok = emqx_license_checker:purge(),
+    ?assertEqual(
+       {stop, {error, ?RC_QUOTA_EXCEEDED}},
+       emqx_license:check(#{}, #{})).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
