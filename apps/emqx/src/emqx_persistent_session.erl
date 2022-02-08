@@ -266,14 +266,14 @@ resume(ClientInfo = #{clientid := ClientID}, ConnInfo, Session) ->
     %% 1. Get pending messages from DB.
     ?tp(ps_initial_pendings, #{sid => SessionID}),
     Pendings1 = pending(SessionID),
-    Pendings2 = emqx_session:ignore_local(Pendings1, ClientID, Session),
+    Pendings2 = emqx_session:ignore_local(ClientInfo, Pendings1, ClientID, Session),
     ?tp(ps_got_initial_pendings, #{ sid => SessionID
                                   , msgs => Pendings1}),
 
     %% 2. Enqueue messages to mimic that the process was alive
     %%    when the messages were delivered.
     ?tp(ps_persist_pendings, #{sid => SessionID}),
-    Session1 = emqx_session:enqueue(Pendings2, Session),
+    Session1 = emqx_session:enqueue(ClientInfo, Pendings2, Session),
     Session2 = persist(ClientInfo, ConnInfo, Session1),
     mark_as_delivered(SessionID, Pendings2),
     ?tp(ps_persist_pendings_msgs, #{ msgs => Pendings2
@@ -294,7 +294,7 @@ resume(ClientInfo = #{clientid := ClientID}, ConnInfo, Session) ->
     ?tp(ps_marker_pendings, #{sid => SessionID}),
     MarkerIDs = [Marker || {_, Marker} <- NodeMarkers],
     Pendings3 = pending(SessionID, MarkerIDs),
-    Pendings4 = emqx_session:ignore_local(Pendings3, ClientID, Session),
+    Pendings4 = emqx_session:ignore_local(ClientInfo, Pendings3, ClientID, Session),
     ?tp(ps_marker_pendings_msgs, #{ sid => SessionID
                                   , msgs => Pendings4}),
 
