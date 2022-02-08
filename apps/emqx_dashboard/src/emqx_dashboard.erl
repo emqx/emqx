@@ -66,7 +66,7 @@ start_listeners() ->
             Minirest = BaseMinirest#{protocol => Protocol},
             case minirest:start(Name, RanchOptions, Minirest) of
                 {ok, _} ->
-                    ?ULOG("Start listener ~ts on ~p successfully.~n", [Name, emqx_listeners:format_addr(Bind)]),
+                    ?ULOG("Start listener ~ts on ~ts successfully.~n", [Name, emqx_listeners:format_addr(Bind)]),
                     Acc;
                 {error, _Reason} ->
                     %% Don't record the reason because minirest already does(too much logs noise).
@@ -82,7 +82,7 @@ stop_listeners() ->
     [begin
         case minirest:stop(Name) of
             ok ->
-                ?ULOG("Stop listener ~ts on ~p successfully.~n", [Name, emqx_listeners:format_addr(Port)]);
+                ?ULOG("Stop listener ~ts on ~ts successfully.~n", [Name, emqx_listeners:format_addr(Port)]);
             {error, not_found} ->
                 ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, port => Port})
         end
