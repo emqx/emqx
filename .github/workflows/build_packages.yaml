@@ -557,7 +557,9 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
     - name: Docker push to aws ecr
-      if: matrix.profile == 'emqx'
+      if: >
+        ${{ (github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx')
+        || (github.event.repository.owner != 'emqx' && startsWith(github.ref_name, 'ci/')) }}
       run: |
         aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
         for tag in $(echo ${{ steps.meta.outputs.json }} | jq  -c '.tags[]'); do
