@@ -403,7 +403,7 @@ emqx_collect(emqx_messages_dropped, Metrics) ->
     counter_metric(?C('messages.dropped', Metrics));
 
 emqx_collect(emqx_messages_dropped_expired, Metrics) ->
-    counter_metric(?C('messages.dropped.expired', Metrics));
+    counter_metric(?C('messages.dropped.await_pubrel_timeout', Metrics));
 
 emqx_collect(emqx_messages_dropped_no_subscribers, Metrics) ->
     counter_metric(?C('messages.dropped.no_subscribers', Metrics));
