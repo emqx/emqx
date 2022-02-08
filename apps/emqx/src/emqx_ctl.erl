@@ -42,8 +42,7 @@
         ]).
 
 %% Exports mainly for test cases
--export([ format/1
-        , format/2
+-export([ format/2
         , format_usage/1
         , format_usage/2
         ]).
@@ -152,10 +151,6 @@ usage(UsageList) ->
 -spec(usage(cmd_params(), cmd_descr()) -> ok).
 usage(CmdParams, Desc) ->
     io:format(format_usage(CmdParams, Desc)).
-
--spec(format(io:format()) -> string()).
-format(Msg) ->
-    lists:flatten(io_lib:format("~ts", [Msg])).
 
 -spec(format(io:format(), [term()]) -> string()).
 format(Format, Args) ->
