@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% @doc EMQ X License Management CLI.
 %%--------------------------------------------------------------------
@@ -35,4 +35,5 @@
 
 -define(EXPIRED_DAY, -90).
 
+-define(ERR_EXPIRED, expired).
 -endif.

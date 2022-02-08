@@ -15,6 +15,7 @@
          start_link/2,
          update/1,
          dump/0,
+         purge/0,
          limits/0]).
 
 %% gen_server callbacks
@@ -23,11 +24,13 @@
          handle_cast/2,
          handle_info/2]).
 
+-define(LICENSE_TAB, emqx_license).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
 
--type limits() :: #{max_connections := non_neg_integer()}.
+-type limits() :: #{max_connections := non_neg_integer() | ?ERR_EXPIRED}.
 
 -spec start_link(emqx_license_parser:license()) -> {ok, pid()}.
 start_link(LicenseFetcher) ->
@@ -39,20 +42,26 @@ start_link(LicenseFetcher, CheckInterval) ->
 
 -spec update(emqx_license_parser:license()) -> ok.
 update(License) ->
-    gen_server:call(?MODULE, {update, License}).
+    gen_server:call(?MODULE, {update, License}, infinity).
 
 -spec dump() -> [{atom(), term()}].
 dump() ->
-    gen_server:call(?MODULE, dump).
+    gen_server:call(?MODULE, dump, infinity).
 
--spec limits() -> limits().
+-spec limits() -> {ok, limits()} | {error, any()}.
 limits() ->
-    try ets:lookup(?MODULE, limits) of
-        [{limits, Limits}] -> Limits;
-        _ -> default_limits()
+    try ets:lookup(?LICENSE_TAB, limits) of
+        [{limits, Limits}] -> {ok, Limits};
+        _ -> {error, no_license}
     catch
-        error:badarg -> default_limits()
+        error : badarg ->
+            {error, no_license}
     end.
+
+%% @doc Force purge the license table.
+-spec purge() -> ok.
+purge() ->
+    gen_server:call(?MODULE, purge, infinity).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -61,7 +70,7 @@ limits() ->
 init([LicenseFetcher, CheckInterval]) ->
     case LicenseFetcher() of
         {ok, License} ->
-            _ = ets:new(?MODULE, [set, protected, named_table]),
+            ?LICENSE_TAB = ets:new(?LICENSE_TAB, [set, protected, named_table]),
             #{} = check_license(License),
             State = ensure_timer(#{check_license_interval => CheckInterval,
                                    license => License}),
@@ -72,10 +81,11 @@ init([LicenseFetcher, CheckInterval]) ->
 
 handle_call({update, License}, _From, State) ->
     {reply, check_license(License), State#{license => License}};
-
 handle_call(dump, _From, #{license := License} = State) ->
     {reply, emqx_license_parser:dump(License), State};
-
+handle_call(purge, _From, State) ->
+    _ = ets:delete_all_objects(?LICENSE_TAB),
+    {reply, ok, State};
 handle_call(_Req, _From, State) ->
     {reply, unknown, State}.
 
@@ -116,9 +126,7 @@ warn_evaluation(_License, _NeedRestrict) -> false.
 warn_expiry(_License, NeedRestrict) -> NeedRestrict.
 
 limits(License, false) -> #{max_connections => emqx_license_parser:max_connections(License)};
-limits(_License, true) -> #{max_connections => 0}.
-
-default_limits() -> #{max_connections => 0}.
+limits(_License, true) -> #{max_connections => ?ERR_EXPIRED}.
 
 days_left(License) ->
     DateEnd = emqx_license_parser:expiry_date(License),
@@ -138,4 +146,4 @@ small_customer_overexpired(?SMALL_CUSTOMER, DaysLeft)
 small_customer_overexpired(_CType, _DaysLeft) -> false.
 
 apply_limits(Limits) ->
-    ets:insert(?MODULE, {limits, Limits}).
+    ets:insert(?LICENSE_TAB, {limits, Limits}).
