@@ -365,7 +365,7 @@ merge_default(Options) ->
     end.
 
 format_addr(Port) when is_integer(Port) ->
-    io_lib:format("0.0.0.0:~w", [Port]);
+    io_lib:format(":~w", [Port]);
 format_addr({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~ts:~w", [Addr, Port]);
 format_addr({Addr, Port}) when is_tuple(Addr) ->
