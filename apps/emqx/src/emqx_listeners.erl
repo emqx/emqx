@@ -48,6 +48,8 @@
 
 -export([post_config_update/5]).
 
+-export([format_addr/1]).
+
 -define(CONF_KEY_PATH, [listeners]).
 -define(TYPES_STRING, ["tcp","ssl","ws","wss","quic"]).
 
@@ -363,7 +365,12 @@ merge_default(Options) ->
     end.
 
 format_addr(Port) when is_integer(Port) ->
-    io_lib:format("0.0.0.0:~w", [Port]);
+    io_lib:format(":~w", [Port]);
+%% Print only the port number when bound on all interfaces
+format_addr({{0, 0, 0, 0}, Port}) ->
+    format_addr(Port);
+format_addr({{0, 0, 0, 0, 0, 0, 0, 0}, Port}) ->
+    format_addr(Port);
 format_addr({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~ts:~w", [Addr, Port]);
 format_addr({Addr, Port}) when is_tuple(Addr) ->

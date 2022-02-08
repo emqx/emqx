@@ -13,19 +13,19 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-module(user_default).
 
--module(emqx_machine_app).
+%% INCLUDE BEGIN
+%% Import all the record definitions from the header file into the erlang shell.
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx_conf/include/emqx_conf.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+%% INCLUDE END
 
--export([ start/2
-        , stop/1
-        ]).
+%% API
+-export([lock/0, unlock/0]).
 
--behaviour(application).
-
-start(_Type, _Args) ->
-    ok = emqx_machine:start(),
-    _ = emqx_restricted_shell:set_prompt_func(),
-    emqx_machine_sup:start_link().
-
-stop(_State) ->
-    ok.
+lock() -> emqx_restricted_shell:lock().
+unlock() -> emqx_restricted_shell:unlock().
