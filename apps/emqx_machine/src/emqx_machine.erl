@@ -64,13 +64,13 @@ start_sysmon() ->
     application:set_env(system_monitor, node_status_fun, {?MODULE, node_status}),
     application:set_env(system_monitor, status_checks, [{?MODULE, update_vips, false, 10}]),
     case application:get_env(system_monitor, db_hostname) of
-        undefined ->
-            %% If there is no sink for the events, there is no reason
-            %% to run system_monitor_top, ignore it:
-            ok;
-        _ ->
+        {ok, [_|_]}  ->
             application:set_env(system_monitor, callback_mod, system_monitor_pg),
             _ = application:ensure_all_started(system_monitor, temporary),
+            ok;
+        _ ->
+            %% If there is no sink for the events, there is no reason
+            %% to run system_monitor_top, ignore start
             ok
     end.
 

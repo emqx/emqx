@@ -1033,6 +1033,7 @@ in the VM exceeds this value"
        sc(string(),
          #{ mapping => "system_monitor.db_hostname"
           , desc => "Hostname of the PostgreSQL database that collects the data points"
+          , default => ""
           })
       }
     , {"db_port",
