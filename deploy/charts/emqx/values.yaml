@@ -22,6 +22,26 @@ recreatePods: false
 # To redeploy a chart with existing PVC(s), the value must be set to Parallel to avoid deadlock
 podManagementPolicy: Parallel
 
+## Aditional container env vars
+##
+extraEnv: []
+
+## Aditional container env from vars
+##
+extraEnvFrom: []
+
+## Additional container executable args
+##
+extraArgs: []
+
+## Additional container volumes (eg. for mounting certs from secrets)
+##
+extraVolumes: []
+
+## Additional container volume mounts (eg. for mounting certs from secrets)
+##
+extraVolumeMounts: []
+
 persistence:
   enabled: false
   size: 20Mi
@@ -42,13 +62,13 @@ resources: {}
   #   cpu: 500m
   #   memory: 512Mi
 
-# Containers that run before the creation of EMQX containers. They can contain utilities or setup scripts.
+# Containers that run before the creation of EMQ X containers. They can contain utilities or setup scripts.
 initContainers: {}
   # - name: mysql-probe
   #   image: alpine
   #   command: ["sh", "-c", "for i in $(seq 1 300); do nc -zvw1 mysql 3306 && exit 0 || sleep 3; done; exit 1"]
 
-## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
+## EMQ X configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
 emqxConfig:
   EMQX_NAME:  "{{ .Release.Name }}"
 
@@ -114,7 +134,7 @@ emqxLoadedModules: >
   {emqx_mod_subscription, false}.
   {emqx_mod_topic_metrics, false}.
 
-## EMQX Enterprise Edition requires manual creation of a Secret containing the licensed content. Write the name of Secret to the value of "emqxLicenseSecretName"
+## EMQ X Enterprise Edition requires manual creation of a Secret containing the licensed content. Write the name of Secret to the value of "emqxLicenseSecretName"
 ## Example:
 ##   kubectl create secret generic emqx-license-secret-name --from-file=/path/to/emqx.lic
 emqxLicenseSecretName:
@@ -180,7 +200,10 @@ tolerations: []
 affinity: {}
 
 ingress:
-  ## ingress for EMQX Dashboard
+  ## Ingress shared annotations
+  annotations: {}
+
+  ## ingress for EMQ X Dashboard
   dashboard:
     enabled: false
     annotations: {}
@@ -191,7 +214,7 @@ ingress:
     - dashboard.emqx.local
     tls: []
 
-  ## ingress for EMQX Mgmt API
+  ## ingress for EMQ X Mgmt API
   mgmt:
     enabled: false
     annotations: {}
@@ -200,6 +223,29 @@ ingress:
     path: /
     hosts:
     - api.emqx.local
+    tls: []
+
+  ## ingress for EMQ X Mgmt API
+  wss:
+    enabled: false
+    # ingressClassName: nginx
+    annotations: {}
+      # Sample annotations for nginx-ingress community controller
+      # nginx.ingress.kubernetes.io/rewrite-target: /mqtt$1 # Use to rewrite backend path if needed
+      # nginx.ingress.kubernetes.io/backend-protocol: "http"
+      # nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+      # nginx.ingress.kubernetes.io/enable-real-ip: "true"
+      # nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+      # nginx.ingress.kubernetes.io/proxy-connect-timeout: "120"
+      # nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+      # nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      # nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+      # nginx.ingress.kubernetes.io/use-proxy-protocol: "false"
+      # nginx.ingress.kubernetes.io/proxy-protocol-header-timeout: "5s"
+    path: /mqtt
+    # path: /wss(\/.*)?
+    hosts:
+    - wss.emqx.local
     tls: []
 
 podSecurityContext:
