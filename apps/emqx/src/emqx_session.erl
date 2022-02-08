@@ -454,7 +454,7 @@ dequeue(ClientInfo, Session = #session{inflight = Inflight, mqueue = Q}) ->
         true  -> {ok, Session};
         false ->
             {Msgs, Q1} = dequeue(ClientInfo, batch_n(Inflight), [], Q),
-            deliver(Msgs, [], Session#session{mqueue = Q1})
+            do_deliver(ClientInfo, Msgs, [], Session#session{mqueue = Q1})
     end.
 
 dequeue(_ClientInfo, 0, Msgs, Q) ->
