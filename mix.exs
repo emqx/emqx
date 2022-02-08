@@ -176,7 +176,7 @@ defmodule EMQXUmbrella.MixProject do
       emqx_plugin_libs: :load,
       esasl: :load,
       observer_cli: :permanent,
-      system_monitor: :permanent,
+      system_monitor: :load,
       emqx_http_lib: :permanent,
       emqx_resource: :permanent,
       emqx_connector: :permanent,

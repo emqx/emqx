@@ -302,7 +302,7 @@ relx_apps(ReleaseType, Edition) ->
     , {emqx_plugin_libs, load}
     , {esasl, load}
     , observer_cli
-    , system_monitor
+    , {system_monitor, load} % started by emqx_machine
     , emqx_http_lib
     , emqx_resource
     , emqx_connector
