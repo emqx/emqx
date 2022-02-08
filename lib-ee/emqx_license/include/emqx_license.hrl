@@ -35,4 +35,5 @@
 
 -define(EXPIRED_DAY, -90).
 
+-define(ERR_EXPIRED, expired).
 -endif.

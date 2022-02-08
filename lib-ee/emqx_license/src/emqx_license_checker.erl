@@ -27,7 +27,7 @@
 %% API
 %%------------------------------------------------------------------------------
 
--type limits() :: #{max_connections := non_neg_integer()}.
+-type limits() :: #{max_connections := non_neg_integer() | ?ERR_EXPIRED}.
 
 -spec start_link(emqx_license_parser:license()) -> {ok, pid()}.
 start_link(LicenseFetcher) ->
@@ -45,13 +45,14 @@ update(License) ->
 dump() ->
     gen_server:call(?MODULE, dump).
 
--spec limits() -> limits().
+-spec limits() -> {ok, limits()} | {error, any()}.
 limits() ->
     try ets:lookup(?MODULE, limits) of
-        [{limits, Limits}] -> Limits;
-        _ -> default_limits()
+        [{limits, Limits}] -> {ok, Limits};
+        _ -> {error, no_license}
     catch
-        error:badarg -> default_limits()
+        error : badarg ->
+            {error, no_license}
     end.
 
 %%------------------------------------------------------------------------------
@@ -116,9 +117,7 @@ warn_evaluation(_License, _NeedRestrict) -> false.
 warn_expiry(_License, NeedRestrict) -> NeedRestrict.
 
 limits(License, false) -> #{max_connections => emqx_license_parser:max_connections(License)};
-limits(_License, true) -> #{max_connections => 0}.
-
-default_limits() -> #{max_connections => 0}.
+limits(_License, true) -> #{max_connections => ?ERR_EXPIRED}.
 
 days_left(License) ->
     DateEnd = emqx_license_parser:expiry_date(License),

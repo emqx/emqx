@@ -3,6 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_license).
 
+-include("emqx_license.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -67,19 +68,22 @@ update_key(Value) when is_binary(Value); is_list(Value) ->
 %%------------------------------------------------------------------------------
 
 check(_ConnInfo, AckProps) ->
-    #{max_connections := MaxClients} = emqx_license_checker:limits(),
-    case MaxClients of
-        0 ->
-            ?SLOG(error, #{msg => "Connection rejected due to the license expiration"}),
+    case emqx_license_checker:limits() of
+        {ok, #{max_connections := ?ERR_EXPIRED}} ->
+            ?SLOG(error, #{msg => "connection_rejected_due_to_license_expired"}),
             {stop, {error, ?RC_QUOTA_EXCEEDED}};
-        _ ->
+        {ok, #{max_connections := MaxClients}} ->
             case check_max_clients_exceeded(MaxClients) of
                 true ->
-                    ?SLOG(error, #{msg => "Connection rejected due to max clients limitation"}),
+                    ?SLOG(error, #{msg => "connection_rejected_due_to_license_limit_reached"}),
                     {stop, {error, ?RC_QUOTA_EXCEEDED}};
                 false ->
                     {ok, AckProps}
-            end
+            end;
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "connection_rejected_due_to_license_not_loaded",
+                           reason => Reason}),
+            {stop, {error, ?RC_QUOTA_EXCEEDED}}
     end.
 
 %%------------------------------------------------------------------------------
