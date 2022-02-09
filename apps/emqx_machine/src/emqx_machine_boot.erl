@@ -44,7 +44,7 @@ print_vsn() ->
 
 
 start_autocluster() ->
-    ekka:callback(stop,  fun emqx_machine_boot:stop_apps/0),
+    ekka:callback(stop, fun emqx_machine_boot:stop_apps/0),
     ekka:callback(start, fun emqx_machine_boot:ensure_apps_started/0),
     _ = ekka:autocluster(emqx), %% returns 'ok' or a pid or 'any()' as in spec
     ok.

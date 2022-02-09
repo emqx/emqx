@@ -166,8 +166,8 @@ schedulers() ->
     erlang:system_info(schedulers).
 
 loads() ->
-    [{load1,  ftos(avg1()/256)},
-     {load5,  ftos(avg5()/256)},
+    [{load1, ftos(avg1()/256)},
+     {load5, ftos(avg5()/256)},
      {load15, ftos(avg15()/256)}
     ].
 

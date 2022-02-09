@@ -106,15 +106,15 @@ and the new rules will override all rules from the old config file.
               }}
     ];
 fields(http_get) ->
-    [ {method,  #{type => get, default => post}}
+    [ {method, #{type => get, default => post}}
     , {headers, fun headers_no_content_type/1}
     ] ++ http_common_fields();
 fields(http_post) ->
-    [ {method,  #{type => post, default => post}}
+    [ {method, #{type => post, default => post}}
     , {headers, fun headers/1}
     ] ++ http_common_fields();
 fields(mnesia) ->
-    [ {type,   #{type => 'built-in-database'}}
+    [ {type, #{type => 'built-in-database'}}
     , {enable, #{type => boolean(),
                  default => true}}
     ];
@@ -144,11 +144,11 @@ fields(redis_cluster) ->
     [ {cmd, query()} ].
 
 http_common_fields() ->
-    [ {type,            #{type => http}}
-    , {enable,          #{type => boolean(), default => true}}
-    , {url,             fun url/1}
+    [ {type, #{type => http}}
+    , {enable, #{type => boolean(), default => true}}
+    , {url, fun url/1}
     , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
-    , {body,            #{type => map(), nullable => true}}
+    , {body, #{type => map(), nullable => true}}
     ] ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
 
 mongo_common_fields() ->

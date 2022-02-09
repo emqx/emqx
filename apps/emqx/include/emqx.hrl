@@ -46,7 +46,7 @@
 -define(SYSTOP, <<"$SYS/">>).
 
 %% Queue topic
--define(QUEUE,  <<"$queue/">>).
+-define(QUEUE, <<"$queue/">>).
 
 %%--------------------------------------------------------------------
 %% alarms

@@ -33,7 +33,7 @@ admins(["status"]) -> status();
 admins(["skip"]) ->
     status(),
     Nodes = mria_mnesia:running_nodes(),
-    lists:foreach(fun emqx_cluster_rpc:skip_failed_commit/1,  Nodes),
+    lists:foreach(fun emqx_cluster_rpc:skip_failed_commit/1, Nodes),
     status();
 
 admins(["skip", Node0]) ->
@@ -70,7 +70,7 @@ admins(["fast_forward", Node0, ToTnxId]) ->
 admins(_) ->
     emqx_ctl:usage(
       [
-          {"cluster_call status",  "status"},
+          {"cluster_call status", "status"},
           {"cluster_call skip [node]", "increase one commit on specific node"},
           {"cluster_call tnxid <TnxId>", "get detailed about TnxId"},
           {"cluster_call  fast_forward [node] [tnx_id]", "fast forwards to tnx_id" }

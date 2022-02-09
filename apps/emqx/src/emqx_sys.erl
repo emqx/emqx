@@ -110,9 +110,9 @@ sys_heatbeat_interval() ->
 %% @doc Get sys info
 -spec(info() -> list(tuple())).
 info() ->
-    [{version,  version()},
+    [{version, version()},
      {sysdescr, sysdescr()},
-     {uptime,   uptime()},
+     {uptime, uptime()},
      {datetime, datetime()}].
 
 %%------------------------------------------------------------------------------

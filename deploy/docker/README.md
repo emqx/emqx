@@ -10,7 +10,7 @@
 
 + **Supported architectures**
 
-  `amd64`, `arm64v8`,  `arm32v7`, `i386`, `s390x`
+  `amd64`, `arm64v8`, `arm32v7`, `i386`, `s390x`
 
 
 + **Supported Docker versions**:
@@ -21,7 +21,7 @@
 
 [EMQ X  MQTT broker](https://emqx.io/products/broker) is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
 
-Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1,  as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket and STOMP. The 3.0 release of the *EMQ X* broker can scaled to 10+ million concurrent MQTT connections on one cluster.
+Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1, as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket and STOMP. The 3.0 release of the *EMQ X* broker can scaled to 10+ million concurrent MQTT connections on one cluster.
 
 # How to use this image
 

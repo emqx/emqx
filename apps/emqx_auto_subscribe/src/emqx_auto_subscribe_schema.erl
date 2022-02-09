@@ -36,10 +36,10 @@ fields("topic") ->
     [ {topic, sc(binary(), #{})}
     , {qos, sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2)]),
         #{default => 0})}
-    , {rh,  sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2)]),
+    , {rh, sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2)]),
         #{default => 0})}
     , {rap, sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1)]), #{default => 0})}
-    , {nl,  sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1)]), #{default => 0})}
+    , {nl, sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1)]), #{default => 0})}
     ].
 
 %%--------------------------------------------------------------------

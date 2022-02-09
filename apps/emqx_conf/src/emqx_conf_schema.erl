@@ -263,8 +263,8 @@ fields("node") ->
            })}
     , {"global_gc_interval",
        sc(emqx_schema:duration(),
-         #{  mapping => "emqx_machine.global_gc_interval"
-          ,  default => "15m"
+         #{ mapping => "emqx_machine.global_gc_interval"
+          , default => "15m"
           })}
     , {"crash_dump_file",
        sc(file(),
@@ -386,15 +386,15 @@ fields("cluster_call") ->
           })}
     , {"max_history",
        sc(range(1, 500),
-          #{  desc => "Retain the maximum number of completed transactions (for queries)."
-           ,  default => 100
+          #{ desc => "Retain the maximum number of completed transactions (for queries)."
+           , default => 100
            })}
     , {"cleanup_interval",
        sc(emqx_schema:duration(),
-          #{  desc =>
+          #{ desc =>
 "Time interval to clear completed but stale transactions.
 Ensure that the number of completed transactions is less than the max_history."
-           ,  default => "5m"
+           , default => "5m"
            })}
     ];
 

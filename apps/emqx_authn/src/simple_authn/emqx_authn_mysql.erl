@@ -47,8 +47,8 @@ fields(?CONF_NS) ->
     [ {mechanism, emqx_authn_schema:mechanism('password-based')}
     , {backend, emqx_authn_schema:backend(mysql)}
     , {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
-    , {query,                   fun query/1}
-    , {query_timeout,           fun query_timeout/1}
+    , {query, fun query/1}
+    , {query_timeout, fun query_timeout/1}
     ] ++ emqx_authn_schema:common_fields()
     ++ emqx_connector_schema_lib:relational_db_fields()
     ++ emqx_connector_schema_lib:ssl_fields().

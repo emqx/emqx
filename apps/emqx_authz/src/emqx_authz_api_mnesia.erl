@@ -222,24 +222,36 @@ schema("/authorization/sources/built-in-database/purge-all") ->
     }.
 
 fields(rule_item) ->
-    [ {topic,      hoconsc:mk( string()
-                             , #{ required => true
-                                , desc => <<"Rule on specific topic">>
-                                , example => <<"test/topic/1">>})}
-    , {permission, hoconsc:mk( hoconsc:enum([allow, deny])
-                             , #{desc => <<"Permission">>, required => true, example => allow})}
-    , {action,     hoconsc:mk( hoconsc:enum([publish, subscribe, all])
-                             , #{ required => true, example => publish
-                                , desc => <<"Authorized action">> })} ];
+    [ {topic, hoconsc:mk(string(),
+        #{ required => true
+         , desc => <<"Rule on specific topic">>
+         , example => <<"test/topic/1">>
+         })}
+    , {permission, hoconsc:mk(hoconsc:enum([allow, deny]),
+        #{ desc => <<"Permission">>
+         , required => true
+         , example => allow
+         })}
+    , {action, hoconsc:mk(hoconsc:enum([publish, subscribe, all]),
+        #{ required => true
+         , example => publish
+         , desc => <<"Authorized action">>
+         })}
+    ];
 fields(clientid) ->
-    [ {clientid, hoconsc:mk( binary()
-                           , #{ in => path, required => true
-                              , desc => <<"ClientID">>, example => <<"client1">>})}
+    [ {clientid, hoconsc:mk(binary(),
+        #{ in => path
+         , required => true
+         , desc => <<"ClientID">>
+         , example => <<"client1">>
+         })}
     ];
 fields(username) ->
-    [ {username, hoconsc:mk( binary()
-                           , #{ in => path, required => true
-                              , desc => <<"Username">>, example => <<"user1">>})}
+    [ {username, hoconsc:mk(binary(),
+        #{ in => path
+         , required => true
+         , desc => <<"Username">>
+         , example => <<"user1">>})}
     ];
 fields(rules_for_username) ->
     [ {rules, hoconsc:mk(hoconsc:array(hoconsc:ref(rule_item)), #{})}
@@ -400,7 +412,7 @@ rules_example({ExampleName, ExampleType}) ->
         case ExampleName of
             username -> {<<"Username">>, ?USERNAME_RULES_EXAMPLE};
             clientid -> {<<"ClientID">>, ?CLIENTID_RULES_EXAMPLE};
-            all      -> {<<"All">>,      ?ALL_RULES_EXAMPLE}
+            all      -> {<<"All">>, ?ALL_RULES_EXAMPLE}
         end,
     Value =
         case ExampleType of

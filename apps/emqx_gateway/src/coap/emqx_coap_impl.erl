@@ -63,7 +63,7 @@ on_gateway_load(_Gateway = #{name := GwName,
     case start_listeners(
            Listeners, GwName, Ctx, ModCfg) of
         {ok, ListenerPids} ->
-            {ok, ListenerPids,  #{ctx => Ctx}};
+            {ok, ListenerPids, #{ctx => Ctx}};
         {error, {Reason, Listener}} ->
             throw({badconf, #{ key => listeners
                              , vallue => Listener
