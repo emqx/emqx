@@ -538,7 +538,7 @@ t_rules_cli(_Config) ->
     ?assertMatch({match, _}, re:run(RUpdate, "updated")),
 
     RDelete = emqx_rule_engine_cli:rules(["delete", RuleId]),
-    ?assertEqual("ok~n", RDelete),
+    ?assertEqual("ok\n", RDelete),
     %ct:pal("RDelete : ~p", [RDelete]),
     %ct:pal("table action params after deleted: ~p", [ets:tab2list(emqx_action_instance_params)]),
 
@@ -578,7 +578,7 @@ t_resources_cli(_Config) ->
     %ct:pal("RShow : ~p", [RShow]),
 
     RDelete = emqx_rule_engine_cli:resources(["delete", ResId]),
-    ?assertEqual("ok~n", RDelete),
+    ?assertEqual("ok\n", RDelete),
 
     RShow2 = emqx_rule_engine_cli:resources(["show", ResId]),
     ?assertMatch({match, _}, re:run(RShow2, "Cannot found")),
@@ -1387,7 +1387,7 @@ t_metrics1(_Config) ->
     ?assertEqual(0, emqx_rule_metrics:get_rules_passed(RuleId)),
     ?assertEqual(0, emqx_rule_metrics:get_rules_failed(RuleId)),
     ?assertEqual(0, emqx_rule_metrics:get_rules_exception(RuleId)),
-    ?assertEqual(0, emqx_rule_metrics:get_rules_no_result(RuleId)),   
+    ?assertEqual(0, emqx_rule_metrics:get_rules_no_result(RuleId)),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqtt:connect(Client),
     ct:sleep(200),
@@ -2711,7 +2711,7 @@ set_special_configs(_App) ->
 mock_print() ->
     catch meck:unload(emqx_ctl),
     meck:new(emqx_ctl, [non_strict, passthrough]),
-    meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg) end),
+    meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg, []) end),
     meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),
     meck:expect(emqx_ctl, usage, fun(Usages) -> emqx_ctl:format_usage(Usages) end),
     meck:expect(emqx_ctl, usage, fun(Cmd, Descr) -> emqx_ctl:format_usage(Cmd, Descr) end).
@@ -2763,4 +2763,3 @@ t_clear_resource(_) ->
 
 t_clear_action(_) ->
     error('TODO').
-
