@@ -45,15 +45,6 @@ setup_config(BaseConfig, SpecialParams) ->
       {error, Reason} -> {error, Reason}
     end.
 
-is_tcp_server_available(Host, Port) ->
-    case gen_tcp:connect(Host, Port, [], ?DEFAULT_CHECK_AVAIL_TIMEOUT) of
-        {ok, Socket} ->
-            gen_tcp:close(Socket),
-            true;
-        {error, _} ->
-            false
-    end.
-
 test_samples(ClientInfo, Samples) ->
     lists:foreach(
       fun({Expected, Action, Topic}) ->

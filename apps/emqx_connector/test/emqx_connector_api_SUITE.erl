@@ -21,6 +21,7 @@
 -include("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include("emqx_dashboard/include/emqx_dashboard.hrl").
 
 %% output functions
 -export([ inspect/3
