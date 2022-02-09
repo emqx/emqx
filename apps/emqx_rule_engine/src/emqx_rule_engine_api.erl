@@ -199,21 +199,25 @@ param_path_id() ->
     {200, format_rule_resp(Records)};
 
 '/rules'(post, #{body := Params0}) ->
-    Id = maps:get(<<"id">>, Params0, list_to_binary(emqx_misc:gen_id(8))),
-    Params = filter_out_request_body(Params0),
-    ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
-    case emqx_rule_engine:get_rule(Id) of
-        {ok, _Rule} ->
-            {400, #{code => 'BAD_ARGS', message => <<"rule id already exists">>}};
-        not_found ->
-            case emqx_conf:update(ConfPath, Params, #{}) of
-                {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
-                    [Rule] = get_one_rule(AllRules, Id),
-                    {201, format_rule_resp(Rule)};
-                {error, Reason} ->
-                    ?SLOG(error, #{msg => "create_rule_failed",
-                                   id => Id, reason => Reason}),
-                    {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
+    case maps:get(<<"id">>, Params0, list_to_binary(emqx_misc:gen_id(8))) of
+        <<>> ->
+            {400, #{code => 'BAD_ARGS', message => <<"empty rule id is not allowed">>}};
+        Id ->
+            Params = filter_out_request_body(Params0),
+            ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
+            case emqx_rule_engine:get_rule(Id) of
+                {ok, _Rule} ->
+                    {400, #{code => 'BAD_ARGS', message => <<"rule id already exists">>}};
+                not_found ->
+                    case emqx_conf:update(ConfPath, Params, #{}) of
+                        {ok, #{post_config_update := #{emqx_rule_engine := AllRules}}} ->
+                            [Rule] = get_one_rule(AllRules, Id),
+                            {201, format_rule_resp(Rule)};
+                        {error, Reason} ->
+                            ?SLOG(error, #{msg => "create_rule_failed",
+                                        id => Id, reason => Reason}),
+                            {400, #{code => 'BAD_ARGS', message => ?ERR_BADARGS(Reason)}}
+                    end
             end
     end.
 
