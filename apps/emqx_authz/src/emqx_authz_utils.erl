@@ -49,7 +49,7 @@ cleanup_resources() ->
 
 make_resource_id(Name) ->
     NameBin = bin(Name),
-    emqx_resource:generate_id(?RESOURCE_GROUP, NameBin).
+    emqx_resource:generate_id(NameBin).
 
 update_config(Path, ConfigRequest) ->
     emqx_conf:update(Path, ConfigRequest, #{rawconf_with_defaults => true,

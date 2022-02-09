@@ -51,8 +51,9 @@ init(#{query := SQL0} = Source) ->
                             '$n',
                             ?PLACEHOLDERS),
     ResourceID = emqx_authz_utils:make_resource_id(emqx_connector_pgsql),
-    case emqx_resource:create_local(
+    case emqx_resource:create_local_with_group(
             ResourceID,
+             <<"emqx_authz">>,
             emqx_connector_pgsql,
             Source#{named_queries => #{ResourceID => SQL}}) of
         {ok, _} ->

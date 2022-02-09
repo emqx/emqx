@@ -26,6 +26,7 @@
 -export([ lookup/1
         , get_metrics/1
         , list_all/0
+        , list_group/1
         ]).
 
 -export([ hash_call/2
@@ -65,8 +66,15 @@ hash_call(InstId, Request, Timeout) ->
 lookup(InstId) ->
     case ets:lookup(emqx_resource_instance, InstId) of
         [] -> {error, not_found};
-        [{_, Data}] ->
+        [{_, _, Data}] ->
             {ok, Data#{id => InstId, metrics => get_metrics(InstId)}}
+    end.
+
+lookup_with_group(InstId) ->
+    case ets:lookup(emqx_resource_instance, InstId) of
+        [] -> {error, not_found};
+        [{_, Group, Data}] ->
+            {ok, Group, Data#{id => InstId, metrics => get_metrics(InstId)}}
     end.
 
 make_test_id() ->
@@ -83,10 +91,15 @@ force_lookup(InstId) ->
 -spec list_all() -> [resource_data()].
 list_all() ->
     try
-        [Data#{id => Id} || {Id, Data} <- ets:tab2list(emqx_resource_instance)]
+        [Data#{id => Id} || {Id, _, Data} <- ets:tab2list(emqx_resource_instance)]
     catch
         error:badarg -> []
     end.
+
+-spec list_group(resource_group()) -> [instance_id()].
+list_group(Group) -> 
+    List = ets:match(emqx_resource_instance, {'$1', Group, '_'}),
+    lists:map(fun([A|_]) -> A end, List).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -99,14 +112,14 @@ init({Pool, Id}) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #state{worker_pool = Pool, worker_id = Id}}.
 
-handle_call({create, InstId, ResourceType, Config, Opts}, _From, State) ->
-    {reply, do_create(InstId, ResourceType, Config, Opts), State};
+handle_call({create, InstId, Group, ResourceType, Config, Opts}, _From, State) ->
+    {reply, do_create(InstId, Group, ResourceType, Config, Opts), State};
 
 handle_call({create_dry_run, ResourceType, Config}, _From, State) ->
     {reply, do_create_dry_run(ResourceType, Config), State};
 
-handle_call({recreate, InstId, ResourceType, Config, Opts}, _From, State) ->
-    {reply, do_recreate(InstId, ResourceType, Config, Opts), State};
+handle_call({recreate, InstId, Group, ResourceType, Config, Opts}, _From, State) ->
+    {reply, do_recreate(InstId, Group, ResourceType, Config, Opts), State};
 
 handle_call({remove, InstId}, _From, State) ->
     {reply, do_remove(InstId), State};
@@ -142,42 +155,42 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 %% suppress the race condition check, as these functions are protected in gproc workers
--dialyzer({nowarn_function, [ do_recreate/4
-                            , do_create/4
+-dialyzer({nowarn_function, [ do_recreate/5
+                            , do_create/5
                             , do_restart/2
-                            , do_start/4
+                            , do_start/5
                             , do_stop/1
                             , do_health_check/1
-                            , start_and_check/5
+                            , start_and_check/6
                             ]}).
 
-do_recreate(InstId, ResourceType, NewConfig, Opts) ->
+do_recreate(InstId, Group, ResourceType, NewConfig, Opts) ->
     case lookup(InstId) of
         {ok, #{mod := ResourceType, status := started} = Data} ->
             %% If this resource is in use (status='started'), we should make sure
             %% the new config is OK before removing the old one.
             case do_create_dry_run(ResourceType, NewConfig) of
                 ok ->
-                    do_remove(Data, false),
-                    do_create(InstId, ResourceType, NewConfig, Opts);
+                    do_remove(Group, Data, false),
+                    do_create(InstId, Group, ResourceType, NewConfig, Opts);
                 Error ->
                     Error
             end;
         {ok, #{mod := ResourceType, status := _} = Data} ->
-            do_remove(Data, false),
-            do_create(InstId, ResourceType, NewConfig, Opts);
+            do_remove(Group, Data, false),
+            do_create(InstId, Group, ResourceType, NewConfig, Opts);
         {ok, #{mod := Mod}} when Mod =/= ResourceType ->
             {error, updating_to_incorrect_resource_type};
         {error, not_found} ->
             {error, not_found}
     end.
 
-do_create(InstId, ResourceType, Config, Opts) ->
+do_create(InstId, Group, ResourceType, Config, Opts) ->
     case lookup(InstId) of
         {ok, _} ->
             {ok, already_created};
         {error, not_found} ->
-            case do_start(InstId, ResourceType, Config, Opts) of
+            case do_start(InstId, Group, ResourceType, Config, Opts) of
                 ok ->
                     ok = emqx_plugin_libs_metrics:create_metrics(resource_metrics, InstId,
                             [matched, success, failed, exception], [matched]),
@@ -207,9 +220,9 @@ do_remove(Instance) ->
     do_remove(Instance, true).
 
 do_remove(InstId, ClearMetrics) when is_binary(InstId) ->
-    do_with_instance_data(InstId, fun do_remove/2, [ClearMetrics]);
-do_remove(#{id := InstId} = Data, ClearMetrics) ->
-    _ = do_stop(Data),
+    do_with_instance_data(InstId, fun do_remove/3, [ClearMetrics]).
+do_remove(Group, #{id := InstId} = Data, ClearMetrics) ->
+    _ = do_stop(Group, Data),
     ets:delete(emqx_resource_instance, InstId),
     case ClearMetrics of
         true -> ok = emqx_plugin_libs_metrics:clear_metrics(resource_metrics, InstId);
@@ -218,43 +231,43 @@ do_remove(#{id := InstId} = Data, ClearMetrics) ->
     ok.
 
 do_restart(InstId, Opts) ->
-    case lookup(InstId) of
-        {ok, #{mod := ResourceType, config := Config} = Data} ->
-            ok = do_stop(Data),
-            do_start(InstId, ResourceType, Config, Opts);
+    case lookup_with_group(InstId) of
+        {ok, Group, #{mod := ResourceType, config := Config} = Data} ->
+            ok = do_stop(Group, Data),
+            do_start(InstId, Group, ResourceType, Config, Opts);
         Error ->
             Error
     end.
 
-do_start(InstId, ResourceType, Config, Opts) when is_binary(InstId) ->
+do_start(InstId, Group, ResourceType, Config, Opts) when is_binary(InstId) ->
     InitData = #{id => InstId, mod => ResourceType, config => Config,
                  status => starting, state => undefined},
     %% The `emqx_resource:call_start/3` need the instance exist beforehand
-    ets:insert(emqx_resource_instance, {InstId, InitData}),
+    ets:insert(emqx_resource_instance, {InstId, Group, InitData}),
     case maps:get(async_create, Opts, false) of
         false ->
-            start_and_check(InstId, ResourceType, Config, Opts, InitData);
+            start_and_check(InstId, Group, ResourceType, Config, Opts, InitData);
         true ->
             spawn(fun() ->
-                    start_and_check(InstId, ResourceType, Config, Opts, InitData)
+                    start_and_check(InstId, Group, ResourceType, Config, Opts, InitData)
                 end),
             ok
     end.
 
-start_and_check(InstId, ResourceType, Config, Opts, Data) ->
+start_and_check(InstId, Group, ResourceType, Config, Opts, Data) ->
     case emqx_resource:call_start(InstId, ResourceType, Config) of
         {ok, ResourceState} ->
             Data2 = Data#{state => ResourceState},
-            ets:insert(emqx_resource_instance, {InstId, Data2}),
+            ets:insert(emqx_resource_instance, {InstId, Group, Data2}),
             case maps:get(async_create, Opts, false) of
-                false -> case do_health_check(Data2) of
+                false -> case do_health_check(Group, Data2) of
                             ok -> create_default_checker(InstId, Opts);
                             {error, Reason} -> {error, Reason}
                          end;
                 true -> create_default_checker(InstId, Opts)
             end;
         {error, Reason} ->
-            ets:insert(emqx_resource_instance, {InstId, Data#{status => stopped}}),
+            ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => stopped}}),
             {error, Reason}
     end.
 
@@ -264,37 +277,37 @@ create_default_checker(InstId, Opts) ->
         maps:get(health_check_timeout, Opts, 10000)).
 
 do_stop(InstId) when is_binary(InstId) ->
-    do_with_instance_data(InstId, fun do_stop/1, []);
-do_stop(#{state := undefined}) ->
+    do_with_instance_data(InstId, fun do_stop/2, []).
+do_stop(_Group, #{state := undefined}) ->
     ok;
-do_stop(#{id := InstId, mod := Mod, state := ResourceState} = Data) ->
+do_stop(Group, #{id := InstId, mod := Mod, state := ResourceState} = Data) ->
     _ = emqx_resource:call_stop(InstId, Mod, ResourceState),
     _ = emqx_resource_health_check:delete_checker(InstId),
-    ets:insert(emqx_resource_instance, {InstId, Data#{status => stopped}}),
+    ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => stopped}}),
     ok.
 
 do_health_check(InstId) when is_binary(InstId) ->
-    do_with_instance_data(InstId, fun do_health_check/1, []);
-do_health_check(#{state := undefined}) ->
+    do_with_instance_data(InstId, fun do_health_check/2, []).
+do_health_check(_Group, #{state := undefined}) ->
     {error, resource_not_initialized};
-do_health_check(#{id := InstId, mod := Mod, state := ResourceState0} = Data) ->
+do_health_check(Group, #{id := InstId, mod := Mod, state := ResourceState0} = Data) ->
     case emqx_resource:call_health_check(InstId, Mod, ResourceState0) of
         {ok, ResourceState1} ->
             ets:insert(emqx_resource_instance,
-                {InstId, Data#{status => started, state => ResourceState1}}),
+                {InstId, Group, Data#{status => started, state => ResourceState1}}),
             ok;
         {error, Reason, ResourceState1} ->
             logger:error("health check for ~p failed: ~p", [InstId, Reason]),
             ets:insert(emqx_resource_instance,
-                {InstId, Data#{status => stopped, state => ResourceState1}}),
+                {InstId, Group, Data#{status => stopped, state => ResourceState1}}),
             {error, Reason}
     end.
 
 do_set_resource_status_stoped(InstId) ->
-    case emqx_resource_instance:lookup(InstId) of
-        {ok, #{id := InstId} = Data} ->
+    case lookup_with_group(InstId) of
+        {ok, Group, #{id := InstId} = Data} ->
             logger:error("health check for ~p failed: timeout", [InstId]),
-            ets:insert(emqx_resource_instance, {InstId, Data#{status => stopped}});
+            ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => stopped}});
         Error -> {error, Error}
     end.
 
@@ -303,8 +316,8 @@ do_set_resource_status_stoped(InstId) ->
 %%------------------------------------------------------------------------------
 
 do_with_instance_data(InstId, Do, Args) ->
-    case lookup(InstId) of
-        {ok, Data} -> erlang:apply(Do, [Data | Args]);
+    case lookup_with_group(InstId) of
+        {ok, Group, Data} -> erlang:apply(Do, [Group, Data | Args]);
         Error -> Error
     end.
 

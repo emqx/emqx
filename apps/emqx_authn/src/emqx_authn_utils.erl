@@ -120,7 +120,7 @@ cleanup_resources() ->
 
 make_resource_id(Name) ->
     NameBin = bin(Name),
-    emqx_resource:generate_id(?RESOURCE_GROUP, NameBin).
+    emqx_resource:generate_id(NameBin).
 
 %%------------------------------------------------------------------------------
 %% Internal functions

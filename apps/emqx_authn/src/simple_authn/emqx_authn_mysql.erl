@@ -82,7 +82,7 @@ create(#{password_hash_algorithm := Algorithm,
               placeholders => PlaceHolders,
               query_timeout => QueryTimeout,
               resource_id => ResourceId},
-    case emqx_resource:create_local(ResourceId, emqx_connector_mysql, Config) of
+    case emqx_resource:create_local_with_group(ResourceId,  <<"emqx_authn">>, emqx_connector_mysql, Config) of
         {ok, already_created} ->
             {ok, State};
         {ok, _} ->

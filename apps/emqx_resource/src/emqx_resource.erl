@@ -45,12 +45,16 @@
 %% todo: replicate operations
 -export([ create/3 %% store the config and start the instance
         , create/4
+        , create/5
         , create_local/3
         , create_local/4
+        , create_local_with_group/4
+        , create_local/5
         , create_dry_run/2 %% run start/2, health_check/2 and stop/1 sequentially
         , create_dry_run_local/2
         , recreate/4 %% this will do create_dry_run, stop the old instance and start a new one
         , recreate_local/4
+        , recreate_local/5
         , remove/1 %% remove the config and stop the instance
         , remove_local/1
         ]).
@@ -78,7 +82,6 @@
         , get_instance/1 %% return the data of the instance
         , list_instances_by_type/1 %% return all the instances of the same resource type
         , generate_id/1
-        , generate_id/2
         , list_group_instances/1
         ]).
 
@@ -148,15 +151,30 @@ create(InstId, ResourceType, Config) ->
 create(InstId, ResourceType, Config, Opts) ->
     wrap_rpc(emqx_resource_proto_v1:create(InstId, ResourceType, Config, Opts)).
 
+-spec create(instance_id(), resource_group(), resource_type(), resource_config(), create_opts()) ->
+    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
+create(InstId, Group, ResourceType, Config, Opts) ->
+    wrap_rpc(emqx_resource_proto_v1:create(InstId, Group, ResourceType, Config, Opts)).
+
 -spec create_local(instance_id(), resource_type(), resource_config()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create_local(InstId, ResourceType, Config) ->
     create_local(InstId, ResourceType, Config, #{}).
 
+-spec create_local_with_group(instance_id(), resource_group(), resource_type(), resource_config()) ->
+    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
+create_local_with_group(InstId, Group, ResourceType, Config) ->
+    create_local(InstId, Group, ResourceType, Config, #{}).
+
 -spec create_local(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create_local(InstId, ResourceType, Config, Opts) ->
-    call_instance(InstId, {create, InstId, ResourceType, Config, Opts}).
+    call_instance(InstId, {create, InstId, ?DEFAULT_RESOURCE_GROUP, ResourceType, Config, Opts}).
+
+-spec create_local(instance_id(), resource_group(), resource_type(), resource_config(), create_opts()) ->
+    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
+create_local(InstId, Group, ResourceType, Config, Opts) ->
+    call_instance(InstId, {create, InstId, Group, ResourceType, Config, Opts}).
 
 -spec create_dry_run(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
@@ -176,7 +194,12 @@ recreate(InstId, ResourceType, Config, Opts) ->
 -spec recreate_local(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate_local(InstId, ResourceType, Config, Opts) ->
-    call_instance(InstId, {recreate, InstId, ResourceType, Config, Opts}).
+    call_instance(InstId, {recreate, InstId, ?DEFAULT_RESOURCE_GROUP, ResourceType, Config, Opts}).
+
+-spec recreate_local(instance_id(), resource_group(), resource_type(), resource_config(), create_opts()) ->
+    {ok, resource_data()} | {error, Reason :: term()}.
+recreate_local(InstId, Group, ResourceType, Config, Opts) ->
+    call_instance(InstId, {recreate, InstId, Group, ResourceType, Config, Opts}).
 
 -spec remove(instance_id()) -> ok | {error, Reason :: term()}.
 remove(InstId) ->
@@ -254,21 +277,11 @@ list_instances_by_type(ResourceType) ->
 
 -spec generate_id(term()) -> instance_id().
 generate_id(Name) when is_binary(Name) ->
-    generate_id(?DEFAULT_RESOURCE_GROUP, Name).
-
--spec generate_id(resource_group(), binary()) -> instance_id().
-generate_id(Group, Name) when is_binary(Group) and is_binary(Name) ->
     Id = integer_to_binary(erlang:unique_integer([positive])),
-    <<Group/binary, "/", Name/binary, ":", Id/binary>>.
+    <<Name/binary, ":", Id/binary>>.
 
 -spec list_group_instances(resource_group()) -> [instance_id()].
-list_group_instances(Group) ->
-    filter_instances(fun(Id, _) ->
-                             case binary:split(Id, <<"/">>) of
-                                 [Group | _] -> true;
-                                 _ -> false
-                             end
-                     end).
+list_group_instances(Group) -> emqx_resource_instance:list_group(Group).
 
 -spec call_start(instance_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
