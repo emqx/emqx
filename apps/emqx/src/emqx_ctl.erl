@@ -42,8 +42,7 @@
         ]).
 
 %% Exports mainly for test cases
--export([ format/1
-        , format/2
+-export([ format/2
         , format_usage/1
         , format_usage/2
         ]).
@@ -139,7 +138,7 @@ help() ->
 
 -spec(print(io:format()) -> ok).
 print(Msg) ->
-    io:format("~ts", [format(Msg)]).
+    io:format("~ts", [format(Msg, [])]).
 
 -spec(print(io:format(), [term()]) -> ok).
 print(Format, Args) ->
@@ -152,10 +151,6 @@ usage(UsageList) ->
 -spec(usage(cmd_params(), cmd_descr()) -> ok).
 usage(CmdParams, Desc) ->
     io:format(format_usage(CmdParams, Desc)).
-
--spec(format(io:format()) -> string()).
-format(Msg) ->
-    lists:flatten(io_lib:format("~ts", [Msg])).
 
 -spec(format(io:format(), [term()]) -> string()).
 format(Format, Args) ->
@@ -243,4 +238,3 @@ zip_cmd([X | Xs], [Y | Ys]) -> [{X, Y} | zip_cmd(Xs, Ys)];
 zip_cmd([X | Xs], []) -> [{X, ""} | zip_cmd(Xs, [])];
 zip_cmd([], [Y | Ys]) -> [{"", Y} | zip_cmd([], Ys)];
 zip_cmd([], []) -> [].
-

@@ -69,7 +69,7 @@ init_per_testcase(_, Conf) ->
                      fun(L) -> emqx_ctl:format_usage(L) end),
     ok = meck:expect(emqx_ctl, print,
                      fun(Fmt) ->
-                        Self ! {fmt, emqx_ctl:format(Fmt)}
+                        Self ! {fmt, emqx_ctl:format(Fmt, [])}
                      end),
     ok = meck:expect(emqx_ctl, print,
                      fun(Fmt, Args) ->
