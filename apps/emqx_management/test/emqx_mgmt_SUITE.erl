@@ -304,7 +304,8 @@ t_listeners_cmd_new(_) ->
       ),
     ?assertEqual(
        emqx_mgmt_cli:listeners(["restart", "bad:listener:identifier"]),
-       "Failed to restart bad:listener:identifier listener: {no_such_listener,\"bad:listener:identifier\"}\n"
+       "Failed to restart bad:listener:identifier listener:"
+       " {no_such_listener,\"bad:listener:identifier\"}\n"
       ),
     unmock_print().
 

@@ -47,7 +47,9 @@ groups() ->
     ]}].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_auth_mnesia], fun set_special_configs/1),
+    emqx_ct_helpers:start_apps( [emqx_modules, emqx_management, emqx_auth_mnesia]
+                              , fun set_special_configs/1
+                              ),
     supervisor:terminate_child(emqx_auth_mnesia_sup, emqx_acl_mnesia_migrator),
     create_default_app(),
     Config.
@@ -151,7 +153,9 @@ run_acl_tests() ->
     timer:sleep(100),
     deny  = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
     allow = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
-    ok = emqx_acl_mnesia_db:add_acl({clientid, <<"test_clientid">>}, <<"topic/mix">>, pubsub, allow),
+    ok = emqx_acl_mnesia_db:add_acl( {clientid, <<"test_clientid">>}
+                                   , <<"topic/mix">>, pubsub, allow
+                                   ),
     timer:sleep(100),
     allow = emqx_access_control:check_acl(User1, subscribe,   <<"topic/mix">>),
     allow = emqx_access_control:check_acl(User1, publish,     <<"topic/mix">>),
@@ -411,8 +415,12 @@ t_rest_api(_Config) ->
 
 create_conflicting_records() ->
     Records = [
-        #?ACL_TABLE{filter = {{clientid,<<"client6">>}, <<"t">>}, action = pubsub, access = deny, created_at = 0},
-        #?ACL_TABLE{filter = {{clientid,<<"client5">>}, <<"t">>}, action = pubsub, access = deny, created_at = 1},
+        #?ACL_TABLE{ filter = {{clientid,<<"client6">>}, <<"t">>}
+                   , action = pubsub, access = deny, created_at = 0
+                   },
+        #?ACL_TABLE{ filter = {{clientid,<<"client5">>}, <<"t">>}
+                   , action = pubsub, access = deny, created_at = 1
+                   },
         #?ACL_TABLE2{who = {clientid,<<"client5">>}, rules = [{allow, sub, <<"t">>, 2}]}
     ],
     mnesia:transaction(fun() -> lists:foreach(fun mnesia:write/1, Records) end).

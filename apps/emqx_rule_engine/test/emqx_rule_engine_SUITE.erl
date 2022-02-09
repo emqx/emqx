@@ -187,7 +187,8 @@ end_per_group(_Groupname, _Config) ->
 init_per_testcase(t_events, Config) ->
     ok = emqx_rule_engine:load_providers(),
     init_events_counters(),
-    ok = emqx_rule_registry:register_resource_types([make_simple_resource_type(simple_resource_type)]),
+    ok = emqx_rule_registry:register_resource_types(
+           [make_simple_resource_type(simple_resource_type)]),
     ok = emqx_rule_registry:add_action(
             #action{name = 'hook-metrics-action', app = ?APP,
                     module = ?MODULE, on_create = hook_metrics_action,
@@ -206,7 +207,10 @@ init_per_testcase(t_events, Config) ->
                     #{id => <<"rule:t_events">>,
                       rawsql => SQL,
                       actions => [#{id => <<"action:inspect">>, name => 'inspect', args => #{}},
-                                  #{id => <<"action:hook-metrics-action">>, name => 'hook-metrics-action', args => #{}}],
+                                  #{ id => <<"action:hook-metrics-action">>
+                                   , name => 'hook-metrics-action'
+                                   , args => #{}
+                                   }],
                       description => <<"Debug rule">>}),
     ?assertMatch(#rule{id = <<"rule:t_events">>}, Rule),
     [{hook_points_rules, Rule} | Config];
@@ -439,7 +443,8 @@ t_list_actions_api(_Config) ->
     ok.
 
 t_show_action_api(_Config) ->
-    {ok, #{code := 0, data := Actions}} = emqx_rule_engine_api:show_action(#{name => 'inspect'}, []),
+    {ok, #{code := 0, data := Actions}} =
+        emqx_rule_engine_api:show_action(#{name => 'inspect'}, []),
     ?assertEqual('inspect', maps:get(name, Actions)),
     ok.
 
@@ -503,7 +508,8 @@ t_list_resource_types_api(_Config) ->
     ok.
 
 t_show_resource_type_api(_Config) ->
-    {ok, #{code := 0, data := RShow}} = emqx_rule_engine_api:show_resource_type(#{name => 'built_in'}, []),
+    {ok, #{code := 0, data := RShow}} =
+        emqx_rule_engine_api:show_resource_type(#{name => 'built_in'}, []),
     %ct:pal("RShow : ~p", [RShow]),
     ?assertEqual(built_in, maps:get(name, RShow)),
     ok.
@@ -521,7 +527,15 @@ t_rules_cli(_Config) ->
     %ct:pal("Result : ~p", [RCreate]),
     ?assertMatch({match, _}, re:run(RCreate, "created")),
 
-    RuleId = re:replace(re:replace(RCreate, "Rule\s", "", [{return, list}]), "\screated\n", "", [{return, list}]),
+    RuleId = re:replace(
+               re:replace( RCreate
+                         , "Rule\s"
+                         , ""
+                         , [{return, list}]
+                         ),
+               "\screated\n",
+               "",
+               [{return, list}]),
 
     RList = emqx_rule_engine_cli:rules(["list"]),
     ?assertMatch({match, _}, re:run(RList, RuleId)),
@@ -562,8 +576,17 @@ t_actions_cli(_Config) ->
 
 t_resources_cli(_Config) ->
     mock_print(),
-    RCreate = emqx_rule_engine_cli:resources(["create", "built_in", "{\"a\" : 1}", "-d", "test resource"]),
-    ResId = re:replace(re:replace(RCreate, "Resource\s", "", [{return, list}]), "\screated\n", "", [{return, list}]),
+    RCreate = emqx_rule_engine_cli:resources(
+                ["create", "built_in", "{\"a\" : 1}", "-d", "test resource"]),
+    ResId = re:replace(
+              re:replace( RCreate
+                        , "Resource\s"
+                        , ""
+                        , [{return, list}]
+                        ),
+              "\screated\n",
+              "",
+              [{return, list}]),
 
     RList = emqx_rule_engine_cli:resources(["list"]),
     ?assertMatch({match, _}, re:run(RList, "test resource")),
@@ -765,48 +788,121 @@ t_get_rules_ordered_by_ts(_Config) ->
 t_get_rules_for_2(_Config) ->
     Len0 = length(emqx_rule_registry:get_rules_for(<<"simple/1">>)),
     ok = emqx_rule_registry:add_rules(
-            [make_simple_rule(<<"rule-debug-1">>, <<"select * from \"simple/#\"">>, [<<"simple/#">>]),
-             make_simple_rule(<<"rule-debug-2">>, <<"select * from \"simple/+\"">>, [<<"simple/+">>]),
-             make_simple_rule(<<"rule-debug-3">>, <<"select * from \"simple/+/1\"">>, [<<"simple/+/1">>]),
-             make_simple_rule(<<"rule-debug-4">>, <<"select * from \"simple/1\"">>, [<<"simple/1">>]),
-             make_simple_rule(<<"rule-debug-5">>, <<"select * from \"simple/2,simple/+,simple/3\"">>, [<<"simple/2">>,<<"simple/+">>, <<"simple/3">>]),
-             make_simple_rule(<<"rule-debug-6">>, <<"select * from \"simple/2,simple/3,simple/4\"">>, [<<"simple/2">>,<<"simple/3">>, <<"simple/4">>])
+            [make_simple_rule(
+               <<"rule-debug-1">>,
+               <<"select * from \"simple/#\"">>,
+               [<<"simple/#">>]),
+             make_simple_rule(
+               <<"rule-debug-2">>,
+               <<"select * from \"simple/+\"">>,
+               [<<"simple/+">>]),
+             make_simple_rule(
+               <<"rule-debug-3">>,
+               <<"select * from \"simple/+/1\"">>,
+               [<<"simple/+/1">>]),
+             make_simple_rule(
+               <<"rule-debug-4">>,
+               <<"select * from \"simple/1\"">>,
+               [<<"simple/1">>]),
+             make_simple_rule(
+               <<"rule-debug-5">>,
+               <<"select * from \"simple/2,simple/+,simple/3\"">>,
+               [<<"simple/2">>,<<"simple/+">>, <<"simple/3">>]),
+             make_simple_rule(
+               <<"rule-debug-6">>,
+               <<"select * from \"simple/2,simple/3,simple/4\"">>,
+               [<<"simple/2">>,<<"simple/3">>, <<"simple/4">>])
              ]),
     ?assertEqual(Len0+4, length(emqx_rule_registry:get_rules_for(<<"simple/1">>))),
-    ok = emqx_rule_registry:remove_rules([<<"rule-debug-1">>, <<"rule-debug-2">>,<<"rule-debug-3">>, <<"rule-debug-4">>,<<"rule-debug-5">>, <<"rule-debug-6">>]),
+    ok = emqx_rule_registry:remove_rules(
+           [ <<"rule-debug-1">>
+           , <<"rule-debug-2">>
+           , <<"rule-debug-3">>
+           , <<"rule-debug-4">>
+           , <<"rule-debug-5">>
+           , <<"rule-debug-6">>
+           ]),
     ok.
 
 t_get_rules_with_same_event(_Config) ->
     PubT = <<"simple/1">>,
     PubN = length(emqx_rule_registry:get_rules_with_same_event(PubT)),
     ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/client_connected">>)),
-    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/client_disconnected">>)),
-    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/session_subscribed">>)),
-    ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/session_unsubscribed">>)),
+    ?assertEqual(
+       [],
+       emqx_rule_registry:get_rules_with_same_event(<<"$events/client_disconnected">>)),
+    ?assertEqual(
+       [],
+       emqx_rule_registry:get_rules_with_same_event(<<"$events/session_subscribed">>)),
+    ?assertEqual(
+       [],
+       emqx_rule_registry:get_rules_with_same_event(<<"$events/session_unsubscribed">>)),
     ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/message_delivered">>)),
     ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/message_acked">>)),
     ?assertEqual([], emqx_rule_registry:get_rules_with_same_event(<<"$events/message_dropped">>)),
     ok = emqx_rule_registry:add_rules(
             [make_simple_rule(<<"r1">>, <<"select * from \"simple/#\"">>, [<<"simple/#">>]),
              make_simple_rule(<<"r2">>, <<"select * from \"abc/+\"">>, [<<"abc/+">>]),
-             make_simple_rule(<<"r3">>, <<"select * from \"$events/client_connected\"">>, [<<"$events/client_connected">>]),
-             make_simple_rule(<<"r4">>, <<"select * from \"$events/client_disconnected\"">>, [<<"$events/client_disconnected">>]),
-             make_simple_rule(<<"r5">>, <<"select * from \"$events/session_subscribed\"">>, [<<"$events/session_subscribed">>]),
-             make_simple_rule(<<"r6">>, <<"select * from \"$events/session_unsubscribed\"">>, [<<"$events/session_unsubscribed">>]),
-             make_simple_rule(<<"r7">>, <<"select * from \"$events/message_delivered\"">>, [<<"$events/message_delivered">>]),
-             make_simple_rule(<<"r8">>, <<"select * from \"$events/message_acked\"">>, [<<"$events/message_acked">>]),
-             make_simple_rule(<<"r9">>, <<"select * from \"$events/message_dropped\"">>, [<<"$events/message_dropped">>]),
-             make_simple_rule(<<"r10">>, <<"select * from \"t/1, $events/session_subscribed, $events/client_connected\"">>, [<<"t/1">>, <<"$events/session_subscribed">>, <<"$events/client_connected">>])
+             make_simple_rule(
+               <<"r3">>,
+               <<"select * from \"$events/client_connected\"">>,
+               [<<"$events/client_connected">>]),
+             make_simple_rule(
+               <<"r4">>,
+               <<"select * from \"$events/client_disconnected\"">>,
+               [<<"$events/client_disconnected">>]),
+             make_simple_rule(
+               <<"r5">>,
+               <<"select * from \"$events/session_subscribed\"">>,
+               [<<"$events/session_subscribed">>]),
+             make_simple_rule(
+               <<"r6">>,
+               <<"select * from \"$events/session_unsubscribed\"">>,
+               [<<"$events/session_unsubscribed">>]),
+             make_simple_rule(
+               <<"r7">>,
+               <<"select * from \"$events/message_delivered\"">>,
+               [<<"$events/message_delivered">>]),
+             make_simple_rule(
+               <<"r8">>,
+               <<"select * from \"$events/message_acked\"">>,
+               [<<"$events/message_acked">>]),
+             make_simple_rule(
+               <<"r9">>,
+               <<"select * from \"$events/message_dropped\"">>,
+               [<<"$events/message_dropped">>]),
+             make_simple_rule(
+               <<"r10">>,
+               <<"select * from \"t/1, $events/session_subscribed,"
+                 " $events/client_connected\"">>,
+               [<<"t/1">>, <<"$events/session_subscribed">>, <<"$events/client_connected">>])
              ]),
     ?assertEqual(PubN + 3, length(emqx_rule_registry:get_rules_with_same_event(PubT))),
-    ?assertEqual(2, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/client_connected">>))),
-    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/client_disconnected">>))),
-    ?assertEqual(2, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/session_subscribed">>))),
-    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/session_unsubscribed">>))),
-    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/message_delivered">>))),
-    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/message_acked">>))),
-    ?assertEqual(1, length(emqx_rule_registry:get_rules_with_same_event(<<"$events/message_dropped">>))),
-    ok = emqx_rule_registry:remove_rules([<<"r1">>, <<"r2">>,<<"r3">>, <<"r4">>,<<"r5">>, <<"r6">>, <<"r7">>, <<"r8">>, <<"r9">>, <<"r10">>]),
+    ?assertEqual(
+       2,
+       length(emqx_rule_registry:get_rules_with_same_event(<<"$events/client_connected">>))),
+    ?assertEqual(
+       1,
+       length(emqx_rule_registry:get_rules_with_same_event(<<"$events/client_disconnected">>))),
+    ?assertEqual(
+       2,
+       length(emqx_rule_registry:get_rules_with_same_event(<<"$events/session_subscribed">>))),
+    ?assertEqual(
+       1,
+       length(emqx_rule_registry:get_rules_with_same_event(<<"$events/session_unsubscribed">>))),
+    ?assertEqual(
+       1,
+       length(emqx_rule_registry:get_rules_with_same_event(<<"$events/message_delivered">>))),
+    ?assertEqual(
+       1,
+       length(emqx_rule_registry:get_rules_with_same_event(<<"$events/message_acked">>))),
+    ?assertEqual(
+       1,
+       length(emqx_rule_registry:get_rules_with_same_event(<<"$events/message_dropped">>))),
+    ok = emqx_rule_registry:remove_rules(
+           [<<"r1">>, <<"r2">>,<<"r3">>,
+            <<"r4">>,<<"r5">>, <<"r6">>,
+            <<"r7">>, <<"r8">>, <<"r9">>, <<"r10">>]),
     ok.
 
 t_add_get_remove_action(_Config) ->
@@ -882,7 +978,11 @@ register_resource_types() ->
     emqx_rule_registry:register_resource_types([ResType1,ResType2]),
     ok.
 get_resource_type() ->
-    ?assertMatch({ok, #resource_type{name = <<"resource-type-debug-1">>}}, emqx_rule_registry:find_resource_type(<<"resource-type-debug-1">>)),
+    ?assertMatch( { ok
+                  , #resource_type{name = <<"resource-type-debug-1">>}
+                  }
+                , emqx_rule_registry:find_resource_type(<<"resource-type-debug-1">>)
+                ),
     ok.
 get_resource_types() ->
     ResTypes = emqx_rule_registry:get_resource_types(),
@@ -947,11 +1047,18 @@ client_disconnected(Client, Client2) ->
     verify_event('client.disconnected'),
     ok.
 session_subscribed(Client2) ->
-    {ok, _, _} = emqtt:subscribe(Client2, #{'User-Property' => {<<"topic_name">>, <<"t1">>}}, <<"t1">>, 1),
+    {ok, _, _} = emqtt:subscribe( Client2
+                                , #{'User-Property' => {<<"topic_name">>, <<"t1">>}}
+                                , <<"t1">>
+                                , 1
+                                ),
     verify_event('session.subscribed'),
     ok.
 session_unsubscribed(Client2) ->
-    {ok, _, _} = emqtt:unsubscribe(Client2, #{'User-Property' => {<<"topic_name">>, <<"t1">>}}, <<"t1">>),
+    {ok, _, _} = emqtt:unsubscribe( Client2
+                                  , #{'User-Property' => {<<"topic_name">>, <<"t1">>}}
+                                  , <<"t1">>
+                                  ),
     verify_event('session.unsubscribed'),
     ok.
 
@@ -977,7 +1084,10 @@ t_mfa_action(_Config) ->
     {ok, #rule{id = Id}} = emqx_rule_engine:create_rule(
                     #{id => <<"rule:t_mfa_action">>,
                       rawsql => SQL,
-                      actions => [#{id => <<"action:mfa-test">>, name => 'mfa-action', args => #{}}],
+                      actions => [#{ id => <<"action:mfa-test">>
+                                   , name => 'mfa-action'
+                                   , args => #{}
+                                   }],
                       description => <<"Debug rule">>}),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqtt:connect(Client),
@@ -1676,12 +1786,18 @@ t_sqlparse_foreach_1(_Config) ->
     Sql3 = "foreach payload.sensors "
           "from \"t/#\" ",
     ?assertMatch({ok,[#{item := #{<<"cmd">> := <<"1">>}, clientid := <<"c_a">>},
-                       #{item := #{<<"cmd">> := <<"2">>, <<"name">> := <<"ct">>}, clientid := <<"c_a">>}]},
+                       #{item := #{ <<"cmd">> := <<"2">>
+                                  , <<"name">> := <<"ct">>
+                                  }
+                        , clientid := <<"c_a">>}]},
                  emqx_rule_sqltester:test(
                     #{<<"rawsql">> => Sql3,
-                      <<"ctx">> => #{
-                          <<"payload">> => <<"{\"sensors\": [{\"cmd\":\"1\"}, {\"cmd\":\"2\",\"name\":\"ct\"}]}">>, <<"clientid">> => <<"c_a">>,
-                          <<"topic">> => <<"t/a">>}})),
+                      <<"ctx">> =>
+                          #{ <<"payload">> => <<"{\"sensors\": [{\"cmd\":\"1\"}, "
+                                                "{\"cmd\":\"2\",\"name\":\"ct\"}]}">>
+                           , <<"clientid">> => <<"c_a">>
+                           , <<"topic">> => <<"t/a">>
+                           }})),
     Sql4 = "foreach payload.sensors "
           "from \"t/#\" ",
     {ok,[#{metadata := #{rule_id := TRuleId}},
@@ -1766,12 +1882,17 @@ t_sqlparse_foreach_4(_Config) ->
                         #{<<"payload">> =>
                             <<"{\"sensors\": [{\"cmd\":\"1\"}, {\"cmd\":\"2\"}]}">>,
                           <<"topic">> => <<"t/a">>}})),
-    ?assertMatch({ok,[#{<<"msg_type">> := <<"1">>, <<"name">> := <<"n1">>}, #{<<"msg_type">> := <<"2">>}]},
+    ?assertMatch({ ok
+                 , [ #{<<"msg_type">> := <<"1">>, <<"name">> := <<"n1">>}
+                   , #{<<"msg_type">> := <<"2">>}
+                   ]
+                 },
                  emqx_rule_sqltester:test(
                     #{<<"rawsql">> => Sql,
                       <<"ctx">> =>
                         #{<<"payload">> =>
-                            <<"{\"sensors\": [{\"cmd\":\"1\", \"name\":\"n1\"}, {\"cmd\":\"2\"}, {\"name\":\"n3\"}]}">>,
+                            <<"{\"sensors\": [{\"cmd\":\"1\", \"name\":\"n1\"}, "
+                              "{\"cmd\":\"2\"}, {\"name\":\"n3\"}]}">>,
                           <<"topic">> => <<"t/a">>}})),
     ?assertMatch({ok,[]},
                  emqx_rule_sqltester:test(
@@ -1828,8 +1949,13 @@ t_sqlparse_foreach_7(_Config) ->
           "incase is_not_null(info.cmd) "
           "from \"t/#\" "
           "where s.page = '2' ",
-    Payload  = <<"{\"sensors\": {\"page\": 2, \"collection\": {\"info\":[{\"name\":\"cmd1\", \"cmd\":\"1\"}, {\"cmd\":\"2\"}]} } }">>,
-    ?assertMatch({ok,[#{<<"name">> := <<"cmd1">>, <<"msg_type">> := <<"1">>}, #{<<"msg_type">> := <<"2">>}]},
+    Payload  = <<"{\"sensors\": {\"page\": 2, \"collection\": "
+                 "{\"info\":[{\"name\":\"cmd1\", \"cmd\":\"1\"}, {\"cmd\":\"2\"}]} } }">>,
+    ?assertMatch({ ok
+                 , [ #{<<"name">> := <<"cmd1">>, <<"msg_type">> := <<"1">>}
+                   , #{<<"msg_type">> := <<"2">>}
+                   ]
+                 },
                  emqx_rule_sqltester:test(
                     #{<<"rawsql">> => Sql,
                       <<"ctx">> =>
@@ -1854,7 +1980,8 @@ t_sqlparse_foreach_8(_Config) ->
           "incase is_map(info) "
           "from \"t/#\" "
           "where s.page = '2' ",
-    Payload  = <<"{\"sensors\": {\"page\": 2, \"collection\": {\"info\":[\"haha\", {\"name\":\"cmd1\", \"cmd\":\"1\"}]} } }">>,
+    Payload  = <<"{\"sensors\": {\"page\": 2, \"collection\": "
+                 "{\"info\":[\"haha\", {\"name\":\"cmd1\", \"cmd\":\"1\"}]} } }">>,
     ?assertMatch({ok,[#{<<"name">> := <<"cmd1">>, <<"msg_type">> := <<"1">>}]},
                  emqx_rule_sqltester:test(
                     #{<<"rawsql">> => Sql,
@@ -1862,10 +1989,11 @@ t_sqlparse_foreach_8(_Config) ->
                         #{<<"payload">> => Payload,
                           <<"topic">> => <<"t/a">>}})),
 
-    Sql3 = "foreach json_decode(payload) as p, p.sensors as s, s.collection as c, sublist(2,1,c.info) as info "
-          "do info.cmd as msg_type, info.name as name "
-          "from \"t/#\" "
-          "where s.page = '2' ",
+    Sql3 = "foreach json_decode(payload) as p, p.sensors as s,"
+           " s.collection as c, sublist(2,1,c.info) as info "
+           "do info.cmd as msg_type, info.name as name "
+           "from \"t/#\" "
+           "where s.page = '2' ",
     [?assertMatch({ok,[#{<<"name">> := <<"cmd1">>, <<"msg_type">> := <<"1">>}]},
                  emqx_rule_sqltester:test(
                     #{<<"rawsql">> => SqlN,
@@ -1992,10 +2120,12 @@ t_sqlparse_array_index_1(_Config) ->
     Sql3 = "select "
            "  payload.x[2].y "
            "from \"t/#\" ",
-    ?assertMatch({ok, #{<<"payload">> := #{<<"x">> := [#{<<"y">> := 3}]}}}, emqx_rule_sqltester:test(
+    ?assertMatch( {ok, #{<<"payload">> := #{<<"x">> := [#{<<"y">> := 3}]}}}
+                , emqx_rule_sqltester:test(
                     #{<<"rawsql">> => Sql3,
                       <<"ctx">> => #{<<"payload">> => #{<<"x">> => [1,#{y => 3},4]},
-                                     <<"topic">> => <<"t/a">>}})),
+                                     <<"topic">> => <<"t/a">>}})
+                ),
 
     %% index get with 'as'
     Sql4 = "select "
@@ -2228,10 +2358,12 @@ t_sqlparse_new_map(_Config) ->
 t_sqlparse_payload_as(_Config) ->
     %% https://github.com/emqx/emqx/issues/3866
     Sql00 = "SELECT "
-            " payload, map_get('engineWorkTime', payload.params, -1) as payload.params.engineWorkTime, "
+            " payload, map_get('engineWorkTime', payload.params, -1) "
+            "as payload.params.engineWorkTime, "
             " map_get('hydOilTem', payload.params, -1) as payload.params.hydOilTem "
             "FROM \"t/#\" ",
-    Payload1 = <<"{ \"msgId\": 1002, \"params\": { \"convertTemp\": 20, \"engineSpeed\": 42, \"hydOilTem\": 30 } }">>,
+    Payload1 = <<"{ \"msgId\": 1002, \"params\": "
+                 "{ \"convertTemp\": 20, \"engineSpeed\": 42, \"hydOilTem\": 30 } }">>,
     {ok, Res01} = emqx_rule_sqltester:test(
                     #{<<"rawsql">> => Sql00,
                       <<"ctx">> => #{<<"payload">> => Payload1,
