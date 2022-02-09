@@ -31,7 +31,6 @@
         , on_stop/2
         , on_query/4
         , on_health_check/2
-        , on_jsonify/1
         ]).
 
 %% ecpool callback
@@ -96,9 +95,6 @@ mongo_fields() ->
                    nullable => true}}
     ] ++
     emqx_connector_schema_lib:ssl_fields().
-
-on_jsonify(Config) ->
-    Config.
 
 %% ===================================================================
 
