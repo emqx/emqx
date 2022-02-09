@@ -365,7 +365,7 @@ handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
 
 handle_in(?PUBACK_PACKET(PacketId, _ReasonCode, Properties), Channel
           = #channel{clientinfo = ClientInfo, session = Session}) ->
-    case emqx_session:puback(PacketId, Session) of
+    case emqx_session:puback(ClientInfo, PacketId, Session) of
         {ok, Msg, NSession} ->
             ok = after_message_acked(ClientInfo, Msg, Properties),
             {ok, set_session(NSession, Channel)};
@@ -384,7 +384,7 @@ handle_in(?PUBACK_PACKET(PacketId, _ReasonCode, Properties), Channel
 
 handle_in(?PUBREC_PACKET(PacketId, _ReasonCode, Properties), Channel
           = #channel{clientinfo = ClientInfo, session = Session}) ->
-    case emqx_session:pubrec(PacketId, Session) of
+    case emqx_session:pubrec(ClientInfo, PacketId, Session) of
         {ok, Msg, NSession} ->
             ok = after_message_acked(ClientInfo, Msg, Properties),
             NChannel = set_session(NSession, Channel),
@@ -399,8 +399,9 @@ handle_in(?PUBREC_PACKET(PacketId, _ReasonCode, Properties), Channel
             handle_out(pubrel, {PacketId, RC}, Channel)
     end;
 
-handle_in(?PUBREL_PACKET(PacketId, _ReasonCode), Channel = #channel{session = Session}) ->
-    case emqx_session:pubrel(PacketId, Session) of
+handle_in(?PUBREL_PACKET(PacketId, _ReasonCode), Channel = #channel{clientinfo = ClientInfo,
+        session = Session}) ->
+    case emqx_session:pubrel(ClientInfo, PacketId, Session) of
         {ok, NSession} ->
             NChannel = set_session(NSession, Channel),
             handle_out(pubcomp, {PacketId, ?RC_SUCCESS}, NChannel);
@@ -410,8 +411,9 @@ handle_in(?PUBREL_PACKET(PacketId, _ReasonCode), Channel = #channel{session = Se
             handle_out(pubcomp, {PacketId, RC}, Channel)
     end;
 
-handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{session = Session}) ->
-    case emqx_session:pubcomp(PacketId, Session) of
+handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{
+        clientinfo = ClientInfo, session = Session}) ->
+    case emqx_session:pubcomp(ClientInfo, PacketId, Session) of
         {ok, NSession} ->
             {ok, set_session(NSession, Channel)};
         {ok, Publishes, NSession} ->
@@ -617,8 +619,8 @@ do_publish(PacketId, Msg = #message{qos = ?QOS_1}, Channel) ->
     handle_out(puback, {PacketId, RC}, NChannel);
 
 do_publish(PacketId, Msg = #message{qos = ?QOS_2},
-           Channel = #channel{session = Session}) ->
-    case emqx_session:publish(PacketId, Msg, Session) of
+           Channel = #channel{clientinfo = ClientInfo, session = Session}) ->
+    case emqx_session:publish(ClientInfo, PacketId, Msg, Session) of
         {ok, PubRes, NSession} ->
             RC = puback_reason_code(PubRes),
             NChannel0 = set_session(NSession, Channel),
@@ -779,22 +781,22 @@ maybe_update_expiry_interval(_Properties, Channel) -> Channel.
 handle_deliver(Delivers, Channel = #channel{takeover = true,
                                             pendings = Pendings,
                                             session = Session,
-                                            clientinfo = #{clientid := ClientId}}) ->
+                                            clientinfo = #{clientid := ClientId} = ClientInfo}) ->
     %% NOTE: Order is important here. While the takeover is in
     %% progress, the session cannot enqueue messages, since it already
     %% passed on the queue to the new connection in the session state.
     NPendings = lists:append(
                   Pendings,
-                  emqx_session:ignore_local(maybe_nack(Delivers), ClientId, Session)),
+                  emqx_session:ignore_local(ClientInfo, maybe_nack(Delivers), ClientId, Session)),
     {ok, Channel#channel{pendings = NPendings}};
 
 handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
                                             takeover   = false,
                                             session    = Session,
-                                            clientinfo = #{clientid := ClientId}}) ->
+                                            clientinfo = #{clientid := ClientId} = ClientInfo}) ->
     Delivers1 = maybe_nack(Delivers),
-    Delivers2 = emqx_session:ignore_local(Delivers1, ClientId, Session),
-    NSession = emqx_session:enqueue(Delivers2, Session),
+    Delivers2 = emqx_session:ignore_local(ClientInfo, Delivers1, ClientId, Session),
+    NSession = emqx_session:enqueue(ClientInfo, Delivers2, Session),
     NChannel = set_session(NSession, Channel),
     %% We consider queued/dropped messages as delivered since they are now in the session state.
     maybe_mark_as_delivered(Session, Delivers),
@@ -802,9 +804,10 @@ handle_deliver(Delivers, Channel = #channel{conn_state = disconnected,
 
 handle_deliver(Delivers, Channel = #channel{session = Session,
                                             takeover   = false,
-                                            clientinfo = #{clientid := ClientId}
+                                            clientinfo = #{clientid := ClientId} = ClientInfo
                                            }) ->
-    case emqx_session:deliver(emqx_session:ignore_local(Delivers, ClientId, Session), Session) of
+    case emqx_session:deliver(ClientInfo,
+            emqx_session:ignore_local(ClientInfo, Delivers, ClientId, Session), Session) of
         {ok, Publishes, NSession} ->
             NChannel = set_session(NSession, Channel),
             maybe_mark_as_delivered(NSession, Delivers),
@@ -1111,8 +1114,8 @@ handle_timeout(_TRef, retry_delivery,
                Channel = #channel{conn_state = disconnected}) ->
     {ok, Channel};
 handle_timeout(_TRef, retry_delivery,
-               Channel = #channel{session = Session}) ->
-    case emqx_session:retry(Session) of
+               Channel = #channel{session = Session, clientinfo = ClientInfo}) ->
+    case emqx_session:retry(ClientInfo, Session) of
         {ok, NSession} ->
             {ok, clean_timer(retry_timer, set_session(NSession, Channel))};
         {ok, Publishes, Timeout, NSession} ->
@@ -1124,8 +1127,8 @@ handle_timeout(_TRef, expire_awaiting_rel,
                Channel = #channel{conn_state = disconnected}) ->
     {ok, Channel};
 handle_timeout(_TRef, expire_awaiting_rel,
-               Channel = #channel{session = Session}) ->
-    case emqx_session:expire(awaiting_rel, Session) of
+               Channel = #channel{session = Session, clientinfo = ClientInfo}) ->
+    case emqx_session:expire(ClientInfo, awaiting_rel, Session) of
         {ok, NSession} ->
             {ok, clean_timer(await_timer, set_session(NSession, Channel))};
         {ok, Timeout, NSession} ->
@@ -1690,11 +1693,11 @@ maybe_resume_session(#channel{resuming = false}) ->
 maybe_resume_session(#channel{session  = Session,
                               resuming = true,
                               pendings = Pendings,
-                              clientinfo = #{clientid := ClientId}}) ->
-    {ok, Publishes, Session1} = emqx_session:replay(Session),
+                              clientinfo = #{clientid := ClientId} = ClientInfo}) ->
+    {ok, Publishes, Session1} = emqx_session:replay(ClientInfo, Session),
     %% We consider queued/dropped messages as delivered since they are now in the session state.
     emqx_persistent_session:mark_as_delivered(ClientId, Pendings),
-    case emqx_session:deliver(Pendings, Session1) of
+    case emqx_session:deliver(ClientInfo, Pendings, Session1) of
         {ok, Session2} ->
             {ok, Publishes, Session2};
         {ok, More, Session2} ->

@@ -115,6 +115,56 @@ listeners_conf() ->
       ws => #{default => listener_mqtt_ws_conf()}
     }.
 
+limiter_conf() ->
+    #{bytes_in =>
+        #{bucket =>
+                #{default =>
+                    #{aggregated =>
+                            #{capacity => infinity,initial => 0,rate => infinity},
+                        per_client =>
+                            #{capacity => infinity,divisible => false,
+                            failure_strategy => force,initial => 0,low_water_mark => 0,
+                            max_retry_time => 5000,rate => infinity},
+                        zone => default}},
+            global => #{burst => 0,rate => infinity},
+            zone => #{default => #{burst => 0,rate => infinity}}},
+      connection =>
+        #{bucket =>
+                #{default =>
+                    #{aggregated =>
+                            #{capacity => infinity,initial => 0,rate => infinity},
+                        per_client =>
+                            #{capacity => infinity,divisible => false,
+                            failure_strategy => force,initial => 0,low_water_mark => 0,
+                            max_retry_time => 5000,rate => infinity},
+                        zone => default}},
+            global => #{burst => 0,rate => infinity},
+            zone => #{default => #{burst => 0,rate => infinity}}},
+      message_in =>
+        #{bucket =>
+                #{default =>
+                    #{aggregated =>
+                            #{capacity => infinity,initial => 0,rate => infinity},
+                        per_client =>
+                            #{capacity => infinity,divisible => false,
+                            failure_strategy => force,initial => 0,low_water_mark => 0,
+                            max_retry_time => 5000,rate => infinity},
+                        zone => default}},
+            global => #{burst => 0,rate => infinity},
+            zone => #{default => #{burst => 0,rate => infinity}}},
+      message_routing =>
+        #{bucket =>
+                #{default =>
+                    #{aggregated =>
+                            #{capacity => infinity,initial => 0,rate => infinity},
+                        per_client =>
+                            #{capacity => infinity,divisible => false,
+                            failure_strategy => force,initial => 0,low_water_mark => 0,
+                            max_retry_time => 5000,rate => infinity},
+                        zone => default}},
+            global => #{burst => 0,rate => infinity},
+            zone => #{default => #{burst => 0,rate => infinity}}}}.
+
 stats_conf() ->
     #{enable => true}.
 
@@ -130,11 +180,11 @@ basic_conf() ->
       stats => stats_conf(),
       listeners => listeners_conf(),
       zones => zone_conf(),
-      limiter => emqx:get_config([limiter])
+      limiter => limiter_conf()
     }.
 
 set_test_listener_confs() ->
-    Conf = emqx_config:get([]),
+    Conf = emqx_config:get([], #{}),
     emqx_config:put(basic_conf()),
     Conf.
 
@@ -180,10 +230,10 @@ end_per_suite(_Config) ->
                 ]).
 
 init_per_testcase(TestCase, Config) ->
-    NewConf = set_test_listener_confs(),
+    OldConf = set_test_listener_confs(),
     emqx_common_test_helpers:start_apps([]),
-    modify_limiter(TestCase, NewConf),
-    [{config, NewConf}|Config].
+    modify_limiter(TestCase, OldConf),
+    [{config, OldConf}|Config].
 
 end_per_testcase(_TestCase, Config) ->
     emqx_config:put(?config(config, Config)),
@@ -232,15 +282,16 @@ t_chan_info(_) ->
     ?assertEqual(clientinfo(), ClientInfo).
 
 t_chan_caps(_) ->
-     #{max_clientid_len := 65535,
+    ?assertMatch(#{
+       max_clientid_len := 65535,
        max_qos_allowed := 2,
        max_topic_alias := 65535,
-       max_topic_levels := 128,
+       max_topic_levels := Level,
        retain_available := true,
        shared_subscription := true,
        subscription_identifiers := true,
        wildcard_subscription := true
-      } = emqx_channel:caps(channel()).
+    } when is_integer(Level), emqx_channel:caps(channel())).
 
 %%--------------------------------------------------------------------
 %% Test cases for channel handle_in
@@ -377,14 +428,14 @@ t_handle_in_qos2_publish_with_error_return(_) ->
 t_handle_in_puback_ok(_) ->
     Msg = emqx_message:make(<<"t">>, <<"payload">>),
     ok = meck:expect(emqx_session, puback,
-                     fun(_PacketId, Session) -> {ok, Msg, Session} end),
+                     fun(_, _PacketId, Session) -> {ok, Msg, Session} end),
     Channel = channel(#{conn_state => connected}),
     {ok, _NChannel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), Channel).
     % ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, NChannel)).
 
 t_handle_in_puback_id_in_use(_) ->
     ok = meck:expect(emqx_session, puback,
-                     fun(_, _Session) ->
+                     fun(_, _, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_IN_USE}
                      end),
     {ok, _Channel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), channel()).
@@ -392,7 +443,7 @@ t_handle_in_puback_id_in_use(_) ->
 
 t_handle_in_puback_id_not_found(_) ->
     ok = meck:expect(emqx_session, puback,
-                     fun(_, _Session) ->
+                     fun(_, _, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
                      end),
     {ok, _Channel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), channel()).
@@ -430,14 +481,14 @@ t_override_client_receive_maximum(_) ->
 
 t_handle_in_pubrec_ok(_) ->
     Msg = emqx_message:make(test,?QOS_2, <<"t">>, <<"payload">>),
-    ok = meck:expect(emqx_session, pubrec, fun(_, Session) -> {ok, Msg, Session} end),
+    ok = meck:expect(emqx_session, pubrec, fun(_, _, Session) -> {ok, Msg, Session} end),
     Channel = channel(#{conn_state => connected}),
     {ok, ?PUBREL_PACKET(1, ?RC_SUCCESS), _Channel1} =
         emqx_channel:handle_in(?PUBREC_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_pubrec_id_in_use(_) ->
     ok = meck:expect(emqx_session, pubrec,
-                     fun(_, _Session) ->
+                     fun(_, _, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_IN_USE}
                      end),
     {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE), _Channel} =
@@ -445,34 +496,34 @@ t_handle_in_pubrec_id_in_use(_) ->
 
 t_handle_in_pubrec_id_not_found(_) ->
     ok = meck:expect(emqx_session, pubrec,
-                     fun(_, _Session) ->
+                     fun(_, _, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
                      end),
     {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND), _Channel} =
         emqx_channel:handle_in(?PUBREC_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubrel_ok(_) ->
-    ok = meck:expect(emqx_session, pubrel, fun(_, Session) -> {ok, Session} end),
+    ok = meck:expect(emqx_session, pubrel, fun(_, _, Session) -> {ok, Session} end),
     Channel = channel(#{conn_state => connected}),
     {ok, ?PUBCOMP_PACKET(1, ?RC_SUCCESS), _Channel1} =
         emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_pubrel_not_found_error(_) ->
     ok = meck:expect(emqx_session, pubrel,
-                     fun(_PacketId, _Session) ->
+                     fun(_, _PacketId, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
                      end),
     {ok, ?PUBCOMP_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND), _Channel} =
         emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubcomp_ok(_) ->
-    ok = meck:expect(emqx_session, pubcomp, fun(_, Session) -> {ok, Session} end),
+    ok = meck:expect(emqx_session, pubcomp, fun(_, _, Session) -> {ok, Session} end),
     {ok, _Channel} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), channel()).
     % ?assertEqual(#{pubcomp_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
 t_handle_in_pubcomp_not_found_error(_) ->
     ok = meck:expect(emqx_session, pubcomp,
-                     fun(_PacketId, _Session) ->
+                     fun(_, _PacketId, _Session) ->
                              {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
                      end),
     Channel = channel(#{conn_state => connected}),
@@ -795,13 +846,13 @@ t_handle_timeout_keepalive(_) ->
 
 t_handle_timeout_retry_delivery(_) ->
     TRef = make_ref(),
-    ok = meck:expect(emqx_session, retry, fun(Session) -> {ok, Session} end),
+    ok = meck:expect(emqx_session, retry, fun(_, Session) -> {ok, Session} end),
     Channel = emqx_channel:set_field(timers, #{retry_timer => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(TRef, retry_delivery, Channel).
 
 t_handle_timeout_expire_awaiting_rel(_) ->
     TRef = make_ref(),
-    ok = meck:expect(emqx_session, expire, fun(_, Session) -> {ok, Session} end),
+    ok = meck:expect(emqx_session, expire, fun(_, _, Session) -> {ok, Session} end),
     Channel = emqx_channel:set_field(timers, #{await_timer => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(TRef, expire_awaiting_rel, Channel).
 

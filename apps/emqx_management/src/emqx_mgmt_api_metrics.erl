@@ -69,7 +69,7 @@ properties() ->
         {'messages.delayed',                integer, <<"Number of delay- published messages stored by EMQ X Broker">>},
         {'messages.delivered',              integer, <<"Number of messages forwarded to the subscription process internally by EMQ X Broker">>},
         {'messages.dropped',                integer, <<"Total number of messages dropped by EMQ X Broker before forwarding to the subscription process">>},
-        {'messages.dropped.expired',        integer, <<"Number of messages dropped due to message expiration when receiving">>},
+        {'messages.dropped.await_pubrel_timeout', integer, <<"Number of messages dropped due to waiting PUBREL timeout">>},
         {'messages.dropped.no_subscribers', integer, <<"Number of messages dropped due to no subscribers">>},
         {'messages.forward',                integer, <<"Number of messages forwarded to other nodes">>},
         {'messages.publish',                integer, <<"Number of messages published in addition to system messages">>},
