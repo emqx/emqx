@@ -133,6 +133,7 @@ init_tab() ->
 %%--------------------------------------------------------------------
 
 init([Conf]) ->
+    erlang:process_flag(trap_exit, true),
     expire_tick(Conf),
     load(Conf),
     {ok, #{config => Conf,
@@ -201,7 +202,7 @@ load(Cfg) ->
     ok.
 
 unload() ->
-    emqx:unhook('delivery.completed', fun ?MODULE:on_delivery_completed/4 ),
+    emqx:unhook('delivery.completed', fun ?MODULE:on_delivery_completed/4),
     do_clear_history().
 
 do_clear(Cfg, Logs) ->
