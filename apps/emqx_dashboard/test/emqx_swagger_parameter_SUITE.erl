@@ -40,7 +40,9 @@ t_in_query(_Config) ->
     Expect =
         [#{description => <<"results per page (max 100)">>,
             example => 1, in => query, name => per_page,
-            schema => #{example => 1, maximum => 100, minimum => 1, type => integer}}],
+            schema => #{example => 1, maximum => 100, minimum => 1, type => integer}},
+            #{description => <<"QOS">>, in => query, name => qos,
+                schema => #{enum => [0, 1, 2], example => 0, type => string}}],
     validate("/test/in/query", Expect),
     ok.
 
@@ -148,8 +150,8 @@ t_in_path_trans(_Config) ->
 t_in_query_trans(_Config) ->
     Path = "/test/in/query",
     Expect = {ok, #{bindings => #{},body => #{},
-        query_string => #{<<"per_page">> => 100}}},
-    ?assertEqual(Expect, trans_parameters(Path, #{}, #{<<"per_page">> => 100})),
+        query_string => #{<<"per_page">> => 100, <<"qos">> => 1}}},
+    ?assertEqual(Expect, trans_parameters(Path, #{}, #{<<"per_page">> => 100, <<"qos">> => 1})),
     ok.
 
 t_ref_trans(_Config) ->
@@ -286,7 +288,8 @@ schema("/test/in/query") ->
             parameters => [
                 {per_page,
                     mk(range(1, 100),
-                        #{in => query, desc => <<"results per page (max 100)">>, example => 1})}
+                        #{in => query, desc => <<"results per page (max 100)">>, example => 1})},
+                {qos, mk(emqx_schema:qos(), #{in => query, desc => <<"QOS">>})}
             ],
             responses => #{200 => <<"ok">>}
         }
