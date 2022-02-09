@@ -31,7 +31,7 @@
 -define(CONNECTR_NAME, <<"test_connector">>).
 -define(BRIDGE_NAME_INGRESS, <<"ingress_test_bridge">>).
 -define(BRIDGE_NAME_EGRESS, <<"egress_test_bridge">>).
--define(MQTT_CONNECOTR(Username),
+-define(MQTT_CONNECTOR(Username),
 #{
     <<"server">> => <<"127.0.0.1:1883">>,
     <<"username">> => Username,
@@ -39,8 +39,8 @@
     <<"proto_ver">> => <<"v4">>,
     <<"ssl">> => #{<<"enable">> => false}
 }).
--define(MQTT_CONNECOTR2(Server),
-    ?MQTT_CONNECOTR(<<"user1">>)#{<<"server">> => Server}).
+-define(MQTT_CONNECTOR2(Server),
+    ?MQTT_CONNECTOR(<<"user1">>)#{<<"server">> => Server}).
 
 -define(MQTT_BRIDGE_INGRESS(ID),
 #{
@@ -83,20 +83,12 @@ suite() ->
 	[{timetrap,{seconds,30}}].
 
 init_per_suite(Config) ->
-    ok = emqx_config:put([emqx_dashboard], #{
-        default_username => <<"admin">>,
-        default_password => <<"public">>,
-        listeners => [#{
-            protocol => http,
-            port => 18083
-        }]
-    }),
     _ = application:load(emqx_conf),
     %% some testcases (may from other app) already get emqx_connector started
     _ = application:stop(emqx_resource),
     _ = application:stop(emqx_connector),
     ok = emqx_common_test_helpers:start_apps([emqx_rule_engine, emqx_connector,
-        emqx_bridge, emqx_dashboard]),
+        emqx_bridge, emqx_dashboard], fun set_special_configs/1),
     ok = emqx_common_test_helpers:load_config(emqx_connector_schema, <<"connectors: {}">>),
     ok = emqx_common_test_helpers:load_config(emqx_rule_engine_schema, <<"rule_engine {rules {}}">>),
     ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, ?BRIDGE_CONF_DEFAULT),
@@ -104,6 +96,17 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_rule_engine, emqx_connector, emqx_bridge, emqx_dashboard]),
+    ok.
+
+set_special_configs(emqx_dashboard) ->
+    Listeners = [#{protocol => http, port => 18083}],
+    Config = #{listeners => Listeners,
+               default_username => <<"connector_admin">>,
+               default_password => <<"public">>
+              },
+    emqx_config:put([dashboard], Config),
+    ok;
+set_special_configs(_) ->
     ok.
 
 init_per_testcase(_, Config) ->
@@ -139,7 +142,7 @@ t_mqtt_crud_apis(_) ->
     %% POST /connectors/ will create a connector
     User1 = <<"user1">>,
     {ok, 201, Connector} = request(post, uri(["connectors"]),
-        ?MQTT_CONNECOTR(User1)#{ <<"type">> => ?CONNECTR_TYPE
+        ?MQTT_CONNECTOR(User1)#{ <<"type">> => ?CONNECTR_TYPE
                                , <<"name">> => ?CONNECTR_NAME
                                }),
 
@@ -156,7 +159,7 @@ t_mqtt_crud_apis(_) ->
     %% update the request-path of the connector
     User2 = <<"user2">>,
     {ok, 200, Connector2} = request(put, uri(["connectors", ConnctorID]),
-                                 ?MQTT_CONNECOTR(User2)),
+                                 ?MQTT_CONNECTOR(User2)),
     ?assertMatch(#{ <<"id">> := ConnctorID
                   , <<"server">> := <<"127.0.0.1:1883">>
                   , <<"username">> := User2
@@ -195,7 +198,7 @@ t_mqtt_crud_apis(_) ->
 
     %% update a deleted connector returns an error
     {ok, 404, ErrMsg2} = request(put, uri(["connectors", ConnctorID]),
-                                 ?MQTT_CONNECOTR(User2)),
+                                 ?MQTT_CONNECTOR(User2)),
     ?assertMatch(
         #{ <<"code">> := _
          , <<"message">> := <<"connector not found">>
@@ -206,7 +209,7 @@ t_mqtt_conn_bridge_ingress(_) ->
     %% then we add a mqtt connector, using POST
     User1 = <<"user1">>,
     {ok, 201, Connector} = request(post, uri(["connectors"]),
-        ?MQTT_CONNECOTR(User1)#{ <<"type">> => ?CONNECTR_TYPE
+        ?MQTT_CONNECTOR(User1)#{ <<"type">> => ?CONNECTR_TYPE
                                , <<"name">> => ?CONNECTR_NAME
                                }),
 
@@ -274,7 +277,7 @@ t_mqtt_conn_bridge_egress(_) ->
     %% then we add a mqtt connector, using POST
     User1 = <<"user1">>,
     {ok, 201, Connector} = request(post, uri(["connectors"]),
-        ?MQTT_CONNECOTR(User1)#{ <<"type">> => ?CONNECTR_TYPE
+        ?MQTT_CONNECTOR(User1)#{ <<"type">> => ?CONNECTR_TYPE
                                , <<"name">> => ?CONNECTR_NAME
                                }),
 
@@ -347,7 +350,7 @@ t_mqtt_conn_bridge_egress(_) ->
 t_mqtt_conn_update(_) ->
     %% then we add a mqtt connector, using POST
     {ok, 201, Connector} = request(post, uri(["connectors"]),
-                            ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)
+                            ?MQTT_CONNECTOR2(<<"127.0.0.1:1883">>)
                                 #{ <<"type">> => ?CONNECTR_TYPE
                                  , <<"name">> => ?CONNECTR_NAME
                                  }),
@@ -374,10 +377,10 @@ t_mqtt_conn_update(_) ->
     %% then we try to update 'server' of the connector, to an unavailable IP address
     %% the update should fail because of 'unreachable' or 'connrefused'
     {ok, 400, _ErrorMsg} = request(put, uri(["connectors", ConnctorID]),
-                                 ?MQTT_CONNECOTR2(<<"127.0.0.1:2603">>)),
+                                 ?MQTT_CONNECTOR2(<<"127.0.0.1:2603">>)),
     %% we fix the 'server' parameter to a normal one, it should work
     {ok, 200, _} = request(put, uri(["connectors", ConnctorID]),
-                                 ?MQTT_CONNECOTR2(<<"127.0.0.1 : 1883">>)),
+                                 ?MQTT_CONNECTOR2(<<"127.0.0.1 : 1883">>)),
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
@@ -390,7 +393,7 @@ t_mqtt_conn_update2(_) ->
     %% then we add a mqtt connector, using POST
     %% but this connector is point to a unreachable server "2603"
     {ok, 201, Connector} = request(post, uri(["connectors"]),
-                            ?MQTT_CONNECOTR2(<<"127.0.0.1:2603">>)
+                            ?MQTT_CONNECTOR2(<<"127.0.0.1:2603">>)
                                 #{ <<"type">> => ?CONNECTR_TYPE
                                  , <<"name">> => ?CONNECTR_NAME
                                  }),
@@ -416,10 +419,10 @@ t_mqtt_conn_update2(_) ->
     %% The update should success: we don't check the connectivity of the new config
     %% if the resource is now disconnected.
     {ok, 200, _} = request(put, uri(["connectors", ConnctorID]),
-                                 ?MQTT_CONNECOTR2(<<"127.0.0.1:2604">>)),
+                                 ?MQTT_CONNECTOR2(<<"127.0.0.1:2604">>)),
     %% we fix the 'server' parameter to a normal one, it should work
     {ok, 200, _} = request(put, uri(["connectors", ConnctorID]),
-                                 ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)),
+                                 ?MQTT_CONNECTOR2(<<"127.0.0.1:1883">>)),
     wait_for_resource_ready(BridgeIDEgress, 5),
     {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
     ?assertMatch(#{ <<"id">> := BridgeIDEgress
@@ -436,7 +439,7 @@ t_mqtt_conn_update2(_) ->
 t_mqtt_conn_update3(_) ->
     %% we add a mqtt connector, using POST
     {ok, 201, Connector} = request(post, uri(["connectors"]),
-                            ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)
+                            ?MQTT_CONNECTOR2(<<"127.0.0.1:1883">>)
                                 #{ <<"type">> => ?CONNECTR_TYPE
                                  , <<"name">> => ?CONNECTR_NAME
                                  }),
@@ -465,19 +468,19 @@ t_mqtt_conn_testing(_) ->
     %% APIs for testing the connectivity
     %% then we add a mqtt connector, using POST
     {ok, 200, <<>>} = request(post, uri(["connectors_test"]),
-        ?MQTT_CONNECOTR2(<<"127.0.0.1:1883">>)#{
+        ?MQTT_CONNECTOR2(<<"127.0.0.1:1883">>)#{
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_EGRESS
         }),
     {ok, 400, _} = request(post, uri(["connectors_test"]),
-        ?MQTT_CONNECOTR2(<<"127.0.0.1:2883">>)#{
+        ?MQTT_CONNECTOR2(<<"127.0.0.1:2883">>)#{
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_EGRESS
         }).
 
 t_ingress_mqtt_bridge_with_rules(_) ->
     {ok, 201, Connector} = request(post, uri(["connectors"]),
-        ?MQTT_CONNECOTR(<<"user1">>)#{ <<"type">> => ?CONNECTR_TYPE
+        ?MQTT_CONNECTOR(<<"user1">>)#{ <<"type">> => ?CONNECTR_TYPE
                                , <<"name">> => ?CONNECTR_NAME
                                }),
     #{ <<"id">> := ConnctorID } = jsx:decode(Connector),
@@ -558,7 +561,7 @@ t_ingress_mqtt_bridge_with_rules(_) ->
 
 t_egress_mqtt_bridge_with_rules(_) ->
     {ok, 201, Connector} = request(post, uri(["connectors"]),
-        ?MQTT_CONNECOTR(<<"user1">>)#{ <<"type">> => ?CONNECTR_TYPE
+        ?MQTT_CONNECTOR(<<"user1">>)#{ <<"type">> => ?CONNECTR_TYPE
                                , <<"name">> => ?CONNECTR_NAME
                                }),
     #{ <<"id">> := ConnctorID } = jsx:decode(Connector),
@@ -681,7 +684,7 @@ uri(Parts) when is_list(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION | NParts]).
 
 auth_header_() ->
-    Username = <<"admin">>,
+    Username = <<"connector_admin">>,
     Password = <<"public">>,
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
