@@ -126,19 +126,19 @@ t_unsubscribe(_) ->
 t_publish_qos0(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Msg = emqx_message:make(clientid, ?QOS_0, <<"t">>, <<"payload">>),
-    {ok, [], Session} = emqx_session:publish(clientinfo(),  1, Msg, Session = session()),
-    {ok, [], Session} = emqx_session:publish(clientinfo(),  undefined, Msg, Session).
+    {ok, [], Session} = emqx_session:publish(clientinfo(), 1, Msg, Session = session()),
+    {ok, [], Session} = emqx_session:publish(clientinfo(), undefined, Msg, Session).
 
 t_publish_qos1(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Msg = emqx_message:make(clientid, ?QOS_1, <<"t">>, <<"payload">>),
-    {ok, [], Session} = emqx_session:publish(clientinfo(),  1, Msg, Session = session()),
-    {ok, [], Session} = emqx_session:publish(clientinfo(),  2, Msg, Session).
+    {ok, [], Session} = emqx_session:publish(clientinfo(), 1, Msg, Session = session()),
+    {ok, [], Session} = emqx_session:publish(clientinfo(), 2, Msg, Session).
 
 t_publish_qos2(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Msg = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload">>),
-    {ok, [], Session} = emqx_session:publish(clientinfo(),  1, Msg, session()),
+    {ok, [], Session} = emqx_session:publish(clientinfo(), 1, Msg, session()),
     ?assertEqual(1, emqx_session:info(awaiting_rel_cnt, Session)),
     {ok, Session1} = emqx_session:pubrel(clientinfo(), 1, Session),
     ?assertEqual(0, emqx_session:info(awaiting_rel_cnt, Session1)),
@@ -150,10 +150,10 @@ t_publish_qos2_with_error_return(_) ->
                         awaiting_rel => #{1 => ts(millisecond)}
                        }),
     Msg = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload">>),
-    {error, ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:publish(clientinfo(),  1, Msg, Session),
-    {ok, [], Session1} = emqx_session:publish(clientinfo(),  2, Msg, Session),
+    {error, ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:publish(clientinfo(), 1, Msg, Session),
+    {ok, [], Session1} = emqx_session:publish(clientinfo(), 2, Msg, Session),
     ?assertEqual(2, emqx_session:info(awaiting_rel_cnt, Session1)),
-    {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED} = emqx_session:publish(clientinfo(),  3, Msg, Session1).
+    {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED} = emqx_session:publish(clientinfo(), 3, Msg, Session1).
 
 t_is_awaiting_full_false(_) ->
     Session = session(#{max_awaiting_rel => infinity}),

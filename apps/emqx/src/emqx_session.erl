@@ -147,27 +147,29 @@
 
 -type(replies() :: list(publish() | pubrel())).
 
--define(INFO_KEYS, [id,
-                    is_persistent,
-                    subscriptions,
-                    upgrade_qos,
-                    retry_interval,
-                    await_rel_timeout,
-                    created_at
-                   ]).
+-define(INFO_KEYS,
+    [ id
+    , is_persistent
+    , subscriptions
+    , upgrade_qos
+    , retry_interval
+    , await_rel_timeout
+    , created_at
+    ]).
 
--define(STATS_KEYS, [subscriptions_cnt,
-                     subscriptions_max,
-                     inflight_cnt,
-                     inflight_max,
-                     mqueue_len,
-                     mqueue_max,
-                     mqueue_dropped,
-                     next_pkt_id,
-                     awaiting_rel_cnt,
-                     awaiting_rel_max,
-                     latency_stats
-                    ]).
+-define(STATS_KEYS,
+    [ subscriptions_cnt
+    , subscriptions_max
+    , inflight_cnt
+    , inflight_max
+    , mqueue_len
+    , mqueue_max
+    , mqueue_dropped
+    , next_pkt_id
+    , awaiting_rel_cnt
+    , awaiting_rel_max
+    , latency_stats
+    ]).
 
 -define(DEFAULT_BATCH_N, 1000).
 
@@ -730,8 +732,8 @@ inc_delivery_expired_cnt(N) ->
     emqx_metrics:inc('delivery.dropped.expired', N).
 
 inc_await_pubrel_timeout(N) ->
-    ok = inc_pd('send_msg.dropped', N),
-    ok = inc_pd('send_msg.dropped.await_pubrel_timeout', N),
+    ok = inc_pd('recv_msg.dropped', N),
+    ok = inc_pd('recv_msg.dropped.await_pubrel_timeout', N),
     ok = emqx_metrics:inc('messages.dropped', N),
     emqx_metrics:inc('messages.dropped.await_pubrel_timeout', N).
 
