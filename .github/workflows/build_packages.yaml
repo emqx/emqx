@@ -240,17 +240,12 @@ jobs:
           - ubuntu16.04
           - debian10
           - debian9
-          # - opensuse
-          - centos8
+          - rockylinux8
           - centos7
-          - centos6
           - raspbian10
-          # - raspbian9
         exclude:
         - package: pkg
           otp: 23.3.4.9-3
-        - os: centos6
-          arch: arm64
         - os: raspbian9
           arch: amd64
         - os: raspbian10
@@ -298,12 +293,18 @@ jobs:
         if [ ! -z "$(echo $SYSTEM | grep -oE 'raspbian')" ]; then
             export ARCH="arm"
         fi
-
+        if [ "$SYSTEM" = 'centos7' ]; then
+          DISTRO='rhel7'
+        elif [ "$SYSTEM" = 'rockylinux8' ]; then
+          DISTRO='rhel8'
+        else
+          DISTRO=${SYSTEM}
+        fi
         mkdir -p _upgrade_base
         cd _upgrade_base
         old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
         for tag in ${old_vsns[@]}; do
-          package_name="${PROFILE}-${tag#[e|v]}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
+          package_name="${PROFILE}-${tag#[e|v]}-otp${OTP_VSN}-${DISTRO}-${ARCH}"
           if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.zip) | grep -oE "^[23]+")" ]; then
             wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.zip
             wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$package_name.zip.sha256

@@ -69,9 +69,11 @@ fi
 
 cd "${SRC_DIR:-.}"
 
+set -x
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
-OTP_VSN_SYSTEM=$(echo "$BUILDER" | cut -d ':' -f2)
-PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN_SYSTEM}-${ARCH}"
+OTP_VSN="$(docker run -v $(pwd):/src --rm "$BUILDER" bash /src/scripts/get-otp-vsn.sh)"
+DISTRO="$(docker run -v $(pwd):/src --rm "$BUILDER" bash /src/scripts/get-distro.sh)"
+PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${DISTRO}-${ARCH}"
 
 docker info
 docker run --rm --privileged tonistiigi/binfmt:latest --install ${ARCH}

@@ -150,7 +150,7 @@ make_docker() {
 ## Name               Default                         Example
 ## ---------------------------------------------------------------------
 ## EMQX_BASE_IMAGE    current os                      centos:7
-## EMQX_ZIP_PACKAGE   _packages/<current-zip-target>  /tmp/emqx-4.4.0-otp24.1.5-3-centos7-amd64.zip
+## EMQX_ZIP_PACKAGE   _packages/<current-zip-target>  /tmp/emqx-4.4.0-otp24.1.5-3-rhel7-amd64.zip
 ## EMQX_IMAGE_TAG     emqx/emqx:<current-vns-rel>     emqx/emqx:testing-tag
 ##
 make_docker_testing() {
@@ -159,8 +159,8 @@ make_docker_testing() {
             ubuntu20*)
                 EMQX_BASE_IMAGE="ubuntu:20.04"
                 ;;
-            centos8)
-                EMQX_BASE_IMAGE="centos:8"
+            rhel8)
+                EMQX_BASE_IMAGE="rockylinux:8"
                 ;;
             *)
                 echo "Unsupported testing base image for $SYSTEM"
