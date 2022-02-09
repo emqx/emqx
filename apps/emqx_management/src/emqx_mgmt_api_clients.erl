@@ -233,7 +233,7 @@ schema("/clients/:clientid/subscribe") ->
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, subscribe)),
             responses => #{
-                % 200 => hoconsc:ref(emqx_mgmt_api_subscriptions, subscription),
+                200 => hoconsc:ref(emqx_mgmt_api_subscriptions, subscription),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['CLIENTID_NOT_FOUND'], <<"Client id not found">>)
             }
@@ -369,7 +369,7 @@ fields(keepalive) ->
 fields(subscribe) ->
     [
         {topic, hoconsc:mk(binary(), #{desc => <<"Access type">>})},
-        {qos, hoconsc:mk(integer(), #{desc => <<"Update time">>})}
+        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>})}
     ];
 
 fields(unsubscribe) ->

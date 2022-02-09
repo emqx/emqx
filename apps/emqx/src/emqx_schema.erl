@@ -38,7 +38,7 @@
 -type ip_port() :: tuple().
 -type cipher() :: map().
 -type rfc3339_system_time() :: integer().
--type qos():: integer().
+-type qos() :: integer().
 
 -typerefl_from_string({qos/0, emqx_schema, to_qos}).
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).

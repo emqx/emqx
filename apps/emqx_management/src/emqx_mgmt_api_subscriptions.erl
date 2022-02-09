@@ -65,7 +65,7 @@ fields(subscription) ->
         {node, hoconsc:mk(binary(), #{desc => <<"Access type">>})},
         {topic, hoconsc:mk(binary(), #{desc => <<"Topic name">>})},
         {clientid, hoconsc:mk(binary(), #{desc => <<"Client identifier">>})},
-        {qos, hoconsc:mk(hoconsc:enum([?QOS_0, ?QOS_1, ?QOS_2]), #{desc => <<"QoS">>})}
+        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>})}
     ].
 
 parameters() ->
@@ -86,11 +86,10 @@ parameters() ->
             desc => <<"Client ID">>})
         },
         {
-            qos, hoconsc:mk(hoconsc:union(
-            [typerefl:integer(0), typerefl:integer(1), typerefl:integer(2)]), #{
+            qos, hoconsc:mk(emqx_schema:qos(), #{
             in => query,
             nullable => true,
-            desc => "QoS"})
+            desc => <<"QoS">>})
         },
         {
             topic, hoconsc:mk(binary(), #{
