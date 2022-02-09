@@ -61,7 +61,7 @@ handle_info({timeout, _Timer, check}, State) ->
     ProcLowWatermark = emqx:get_config([sysmon, vm, process_low_watermark]),
     ProcessCount = erlang:system_info(process_count),
     case ProcessCount / erlang:system_info(process_limit) of
-        Percent when Percent >= ProcHighWatermark ->
+        Percent when Percent > ProcHighWatermark ->
             Usage = io_lib:format("~p%", [Percent*100]),
             Message = [Usage, " process usage"],
             emqx_alarm:activate(too_many_processes,
