@@ -10,7 +10,7 @@
 
 + **Supported architectures**
 
-  `amd64`, `arm64v8`, `arm32v7`, `i386`, `s390x`
+  `amd64`, `arm64v8`
 
 
 + **Supported Docker versions**:
