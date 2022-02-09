@@ -40,9 +40,7 @@ slow_subs
  enable = true
  top_k_num = 5,
  expire_interval = 60000
- notice_interval = 0
- notice_qos = 0
- notice_batch_size = 3
+ stats_type = whole
 }""">>).
 
 
@@ -92,8 +90,7 @@ t_get_history(_) ->
     Now = ?NOW,
     Each = fun(I) ->
                    ClientId = erlang:list_to_binary(io_lib:format("test_~p", [I])),
-                   ets:insert(?TOPK_TAB, #top_k{index = ?INDEX(I, ClientId),
-                                                type = average,
+                   ets:insert(?TOPK_TAB, #top_k{index = ?TOPK_INDEX(1, ?ID(ClientId, <<"topic">>)),
                                                 last_update_time = Now})
            end,
 
@@ -101,18 +98,16 @@ t_get_history(_) ->
 
     {ok, Data} = request_api(get, api_path(["slow_subscriptions"]), "_page=1&_limit=10",
                              auth_header_()),
-    #{<<"data">> := [First | _]} = emqx_json:decode(Data, [return_maps]),
+    [First | _] = emqx_json:decode(Data, [return_maps]),
 
-    RFirst = #{<<"clientid">> => <<"test_5">>,
-               <<"latency">> => 5,
-               <<"type">> => <<"average">>,
-               <<"last_update_time">> => Now},
-
-    ?assertEqual(RFirst, First).
+    ?assertMatch(#{<<"clientid">> := <<"test_5">>,
+                   <<"topic">> := <<"topic">>,
+                   <<"last_update_time">> := Now,
+                   <<"node">> := _,
+                   <<"timespan">> := _}, First).
 
 t_clear(_) ->
-    ets:insert(?TOPK_TAB, #top_k{index = ?INDEX(1, <<"test">>),
-                                 type = average,
+    ets:insert(?TOPK_TAB, #top_k{index = ?TOPK_INDEX(1, ?ID(<<"clientid">>, <<"topic">>)),
                                  last_update_time = ?NOW}),
 
     {ok, _} = request_api(delete, api_path(["slow_subscriptions"]), [],
@@ -122,7 +117,7 @@ t_clear(_) ->
 
 t_settting(_) ->
     Conf = emqx:get_config([slow_subs]),
-    Conf2 = Conf#{threshold => 1000},
+    Conf2 = Conf#{stats_type => internal},
     {ok, Data} = request_api(put,
                              api_path(["slow_subscriptions", "settings"]),
                              [],
@@ -131,22 +126,19 @@ t_settting(_) ->
 
     Return = decode_json(Data),
 
-    ?assertEqual(Conf2, Return),
+    ?assertEqual(Conf2#{stats_type := <<"internal">>}, Return),
 
     {ok, GetData} = request_api(get,
                                 api_path(["slow_subscriptions", "settings"]),
                                 [],
                                 auth_header_()
-                            ),
+                               ),
 
     timer:sleep(1000),
 
     GetReturn = decode_json(GetData),
 
-    ?assertEqual(Conf2, GetReturn),
-
-    ?assertEqual(1000,
-                 emqx_message_latency_stats:get_threshold()).
+    ?assertEqual(Conf2#{stats_type := <<"internal">>}, GetReturn).
 
 decode_json(Data) ->
     BinJosn = emqx_json:decode(Data, [return_maps]),

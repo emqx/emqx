@@ -322,8 +322,7 @@ get_session_confs(#{zone := Zone, clientid := ClientId}, #{receive_maximum := Ma
       %% TODO: Add conf for allowing/disallowing persistent sessions.
       %% Note that the connection info is already enriched to have
       %% default config values for session expiry.
-      is_persistent => EI > 0,
-      latency_stats => emqx_config:get_zone_conf(Zone, [latency_stats])
+      is_persistent => EI > 0
      }.
 
 mqueue_confs(Zone) ->

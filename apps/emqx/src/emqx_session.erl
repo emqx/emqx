@@ -183,7 +183,6 @@
                     , mqueue => emqx_mqueue:options()
                     , is_persistent => boolean()
                     , clientid => emqx_types:clientid()
-                    , latency_stats => emqx_message_latency_stats:create_options()
                     }.
 
 %%--------------------------------------------------------------------
@@ -211,8 +210,7 @@ init(Opts) ->
        awaiting_rel      = #{},
        max_awaiting_rel  = maps:get(max_awaiting_rel, Opts, 100),
        await_rel_timeout = maps:get(await_rel_timeout, Opts, 300000),
-       created_at        = erlang:system_time(millisecond),
-       latency_stats     = emqx_message_latency_stats:new(maps:get(latency_stats, Opts, #{}))
+       created_at        = erlang:system_time(millisecond)
       }.
 
 %%--------------------------------------------------------------------
@@ -268,9 +266,7 @@ info(awaiting_rel_max, #session{max_awaiting_rel = Max}) ->
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout;
 info(created_at, #session{created_at = CreatedAt}) ->
-    CreatedAt;
-info(latency_stats, #session{latency_stats = Stats}) ->
-    emqx_message_latency_stats:latency(Stats).
+    CreatedAt.
 
 %% @doc Get stats of the session.
 -spec(stats(session()) -> emqx_types:stats()).

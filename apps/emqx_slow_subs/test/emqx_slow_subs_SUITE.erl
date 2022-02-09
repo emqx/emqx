@@ -31,10 +31,8 @@ slow_subs {
     enable = true
 	top_k_num = 5,
     expire_interval = 3000
-    notice_interval = 1500
-    notice_qos = 0
-    notice_batch_size = 3
-}""">>).
+    stats_type = whole
+    }""">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -60,7 +58,6 @@ t_log_and_pub(_) ->
     %% Sub topic first
     Subs = [{<<"/test1/+">>, ?QOS_1}, {<<"/test2/+">>, ?QOS_2}],
     Clients = start_client(Subs),
-    emqx:subscribe("$SYS/brokers/+/slow_subs"),
     timer:sleep(1000),
     Now = ?NOW,
     %% publish
@@ -82,15 +79,9 @@ t_log_and_pub(_) ->
     timer:sleep(1000),
     Size = ets:info(?TOPK_TAB, size),
     %% some time record maybe delete due to it expired
-    ?assert(Size =< 6 andalso Size >= 4),
+    ?assert(Size =< 6 andalso Size > 3),
 
-    timer:sleep(1500),
-    Recs = try_receive([]),
-    RecSum = lists:sum(Recs),
-    ?assert(RecSum >= 5),
-    ?assert(lists:all(fun(E) -> E =< 3 end, Recs)),
-
-    timer:sleep(3000),
+    timer:sleep(4000),
     ?assert(ets:info(?TOPK_TAB, size) =:= 0),
     [Client ! stop || Client <- Clients],
     ok.
@@ -112,13 +103,4 @@ client(I, Subs) ->
     receive
         stop ->
             ok
-    end.
-
-try_receive(Acc) ->
-    receive
-        {deliver, _, #message{payload = Payload}} ->
-            #{<<"logs">> := Logs} =  emqx_json:decode(Payload, [return_maps]),
-            try_receive([length(Logs) | Acc])
-    after 500 ->
-            Acc
     end.

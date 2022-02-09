@@ -26,7 +26,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    emqx_slow_subs:init_topk_tab(),
+    emqx_slow_subs:init_tab(),
     {ok, {{one_for_one, 10, 3600},
           [#{id       => st_statistics,
              start    => {emqx_slow_subs, start_link, []},

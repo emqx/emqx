@@ -22,7 +22,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_slow_subs/include/emqx_slow_subs.hrl").
 
--export([ start_link/0, on_delivery_completed/4, update_settings/1
+-export([ start_link/0, on_delivery_completed/3, update_settings/1
         , clear_history/0, init_tab/0, post_config_update/5
         ]).
 
@@ -77,17 +77,15 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-on_delivery_completed(_ClientInfo,
-                      #message{timestamp = Ts},
-                      #{session_birth_time := BirthTime}, _Cfg)  when Ts =< BirthTime ->
+on_delivery_completed(#message{timestamp = Ts},
+                      #{session_birth_time := BirthTime}, _Cfg) when Ts =< BirthTime ->
     ok;
 
-on_delivery_completed(ClientInfo, Msg, Env, Cfg) ->
-    on_delivery_completed(ClientInfo, Msg, Env, erlang:system_time(millisecond), Cfg).
+on_delivery_completed(Msg, Env, Cfg) ->
+    on_delivery_completed(Msg, Env, erlang:system_time(millisecond), Cfg).
 
-on_delivery_completed(#{clientid := ClientId},
-                      #message{topic = Topic} = Msg,
-                      _Env,
+on_delivery_completed(#message{topic = Topic} = Msg,
+                      #{clientid := ClientId},
                       Now,
                       #{threshold := Threshold,
                         stats_type := StatsType,
