@@ -147,7 +147,7 @@ fields("cluster") ->
 
 fields(cluster_static) ->
     [ {"seeds",
-      sc(hoconsc:array(string()),
+      sc(hoconsc:array(atom()),
          #{ default => []
           })}
     ];
@@ -855,7 +855,7 @@ map(Name, Type) -> hoconsc:map(Name, Type).
 ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 options(static, Conf) ->
-    [{seeds, [to_atom(S) || S <- conf_get("cluster.static.seeds", Conf, [])]}];
+    [{seeds, conf_get("cluster.static.seeds", Conf, [])}];
 options(mcast, Conf) ->
     {ok, Addr} = inet:parse_address(conf_get("cluster.mcast.addr", Conf)),
     {ok, Iface} = inet:parse_address(conf_get("cluster.mcast.iface", Conf)),
