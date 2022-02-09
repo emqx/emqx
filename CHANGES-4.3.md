@@ -17,6 +17,10 @@ File format:
 * Fix updating `emqx_auth_mnesia.conf` password and restarting the new password does not take effect [#6717]
 * Fix import data crash when emqx_auth_mnesia's record is not empty [#6717]
 * Fix `os_mon.sysmem_high_watermark` may not alert after reboot.
+* Enhancement: Log client status before killing it for holding the lock for too long.
+  [emqx-6959](https://github.com/emqx/emqx/pull/6959)
+  [ekka-144](https://github.com/emqx/ekka/pull/144)
+  [ekka-146](https://github.com/emqx/ekka/pull/146)
 
 ## v4.3.11
 
