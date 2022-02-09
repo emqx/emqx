@@ -198,10 +198,10 @@ t_short_board(_) ->
                           per_client := Cli2}
           end,
     Case = fun() ->
-                   Counter = counters:new(1, [write_concurrency]),
+                   Counter = counters:new(1, []),
                    start_client(default, ?NOW + 2000, Counter, 20),
                    timer:sleep(2100),
-                   check_average_rate(Counter, 2, 100, 20)
+                   check_average_rate(Counter, 2, 100)
            end,
     with_bucket(default, Fun, Case).
 
@@ -270,10 +270,10 @@ t_limit_zone_with_unlimit_bucket(_) ->
              end,
 
     Case = fun() ->
-               C1 = counters:new(1, [write_concurrency]),
+               C1 = counters:new(1, []),
                start_client(b1, ?NOW + 2000, C1, 20),
                timer:sleep(2100),
-               check_average_rate(C1, 2, 600, 1000)
+               check_average_rate(C1, 2, 600)
            end,
 
     with_zone(default, ZoneMod, [{b1, Bucket}], Case).
@@ -304,13 +304,13 @@ t_burst_and_fairness(_) ->
              end,
 
     Case = fun() ->
-                   C1 = counters:new(1, [write_concurrency]),
-                   C2 = counters:new(1, [write_concurrency]),
+                   C1 = counters:new(1, []),
+                   C2 = counters:new(1, []),
                    start_client(b1, ?NOW + 2000, C1, 20),
                    start_client(b2, ?NOW + 2000, C2, 30),
                    timer:sleep(2100),
-                   check_average_rate(C1, 2, 330, 25),
-                   check_average_rate(C2, 2, 330, 25)
+                   check_average_rate(C1, 2, 330),
+                   check_average_rate(C2, 2, 330)
            end,
 
     with_global(GlobalMod,
@@ -338,10 +338,10 @@ t_limit_global_with_unlimit_other(_) ->
              end,
 
     Case = fun() ->
-               C1 = counters:new(1, [write_concurrency]),
+               C1 = counters:new(1, []),
                start_client(b1, ?NOW + 2000, C1, 20),
                timer:sleep(2100),
-               check_average_rate(C1, 2, 600, 100)
+               check_average_rate(C1, 2, 600)
            end,
 
     with_global(GlobalMod,
@@ -378,13 +378,13 @@ t_multi_zones(_) ->
              end,
 
     Case = fun() ->
-               C1 = counters:new(1, [write_concurrency]),
-               C2 = counters:new(1, [write_concurrency]),
+               C1 = counters:new(1, []),
+               C2 = counters:new(1, []),
                start_client(b1, ?NOW + 2000, C1, 25),
                start_client(b2, ?NOW + 2000, C2, 20),
                timer:sleep(2100),
-               check_average_rate(C1, 2, 300, 25),
-               check_average_rate(C2, 2, 300, 25)
+               check_average_rate(C1, 2, 300),
+               check_average_rate(C2, 2, 300)
            end,
 
     with_global(GlobalMod,
@@ -425,13 +425,13 @@ t_multi_zones_with_divisible(_) ->
              end,
 
     Case = fun() ->
-               C1 = counters:new(1, [write_concurrency]),
-               C2 = counters:new(1, [write_concurrency]),
+               C1 = counters:new(1, []),
+               C2 = counters:new(1, []),
                start_client(b1, ?NOW + 2000, C1, 25),
                start_client(b2, ?NOW + 2000, C2, 20),
                timer:sleep(2100),
-               check_average_rate(C1, 2, 300, 120),
-               check_average_rate(C2, 2, 300, 120)
+               check_average_rate(C1, 2, 300),
+               check_average_rate(C2, 2, 300)
            end,
 
     with_global(GlobalMod,
@@ -468,13 +468,13 @@ t_zone_hunger_and_fair(_) ->
              end,
 
     Case = fun() ->
-               C1 = counters:new(1, [write_concurrency]),
-               C2 = counters:new(1, [write_concurrency]),
+               C1 = counters:new(1, []),
+               C2 = counters:new(1, []),
                start_client(b1, ?NOW + 2000, C1, 20),
                start_client(b2, ?NOW + 2000, C2, 20),
                timer:sleep(2100),
-               check_average_rate(C1, 2, 550, 25),
-               check_average_rate(C2, 2, 50, 25)
+               check_average_rate(C1, 2, 550),
+               check_average_rate(C2, 2, 50)
            end,
 
     with_global(GlobalMod,
@@ -625,16 +625,25 @@ with_config(Path, Modifier, Case) ->
 connect(Name) ->
     emqx_limiter_server:connect(message_routing, Name).
 
-check_average_rate(Counter, Second, Rate, Margin) ->
+check_average_rate(Counter, Second, Rate) ->
     Cost = counters:get(Counter, 1),
     PerSec = Cost / Second,
-    ?LOGT(">>>> Cost:~p PerSec:~p Rate:~p ~n", [Cost, PerSec, Rate]),
-    ?assert(in_range(PerSec, Rate - Margin, Rate + Margin)).
+    ?LOGT("Cost:~p PerSec:~p Rate:~p ~n", [Cost, PerSec, Rate]),
+    ?assert(in_range(PerSec, Rate)).
 
 print_average_rate(Counter, Second) ->
     Cost = counters:get(Counter, 1),
     PerSec = Cost / Second,
-    ct:pal(">>>> Cost:~p PerSec:~p ~n", [Cost, PerSec]).
+    ct:pal("Cost:~p PerSec:~p ~n", [Cost, PerSec]).
+
+in_range(Val, Expected) when Val < Expected * 0.6 ->
+    ct:pal("Val:~p smaller than min bound", [Val]),
+    false;
+in_range(Val, Expected) when Val > Expected * 1.8 ->
+    ct:pal("Val:~p bigger than max bound", [Val]),
+    false;
+in_range(_, _) ->
+    true.
 
 in_range(Val, Min, _Max) when Val < Min ->
     ct:pal("Val:~p smaller than min bound:~p~n", [Val, Min]),
