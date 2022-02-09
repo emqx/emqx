@@ -146,60 +146,78 @@ fields(topic_metrics) ->
     ];
 
 fields(metrics) ->
-    [ { 'messages.dropped.count'
-      , mk( integer(), #{ desc => <<"Message dropped count">>
-                        , example => 0})},
-      { 'messages.dropped.rate'
-      , mk( number(), #{ desc => <<"Message dropped rate in 5s">>
-                        , example => 0})},
-      { 'messages.in.count'
-      , mk( integer(), #{ desc => <<"Message received count">>
-                        , example => 0})},
-      { 'messages.in.rate'
-      , mk( number(), #{ desc => <<"Message received rate in 5s">>
-                        , example => 0})},
-      { 'messages.out.count'
-      , mk( integer(), #{ desc => <<"Message sent count">>
-                        , example => 0})},
-      { 'messages.out.rate'
-      , mk( number(), #{ desc => <<"Message sent rate in 5s">>
-                        , example => 0})},
-      { 'messages.qos0.in.count'
-      , mk( integer(), #{ desc => <<"Message with QoS 0 received count">>
-                        , example => 0})},
-      { 'messages.qos0.in.rate'
-      , mk( number(), #{ desc => <<"Message with QoS 0 received rate in 5s">>
-                        , example => 0})},
-      { 'messages.qos0.out.count'
-      , mk( integer(), #{ desc => <<"Message with QoS 0 sent count">>
-                        , example => 0})},
-      { 'messages.qos0.out.rate'
-      , mk( number(), #{ desc => <<"Message with QoS 0 sent rate in 5s">>
-                        , example => 0})},
-      { 'messages.qos1.in.count'
-      , mk( integer(), #{ desc => <<"Message with QoS 1 received count">>
-                        , example => 0})},
-      { 'messages.qos1.in.rate'
-      , mk( number(), #{ desc => <<"Message with QoS 1 received rate in 5s">>
-                        , example => 0})},
-      { 'messages.qos1.out.count'
-      , mk( integer(), #{ desc => <<"Message with QoS 1 sent count">>
-                        , example => 0})},
-      { 'messages.qos1.out.rate'
-      , mk( number(), #{ desc => <<"Message with QoS 1 sent rate in 5s">>
-                        , example => 0})},
-      { 'messages.qos2.in.count'
-      , mk( integer(), #{ desc => <<"Message with QoS 2 sent count">>
-                        , example => 0})},
-      { 'messages.qos2.in.rate'
-      , mk( number(), #{ desc => <<"Message with QoS 2 received rate in 5s">>
-                        , example => 0})},
-      { 'messages.qos2.out.count'
-      , mk( integer(), #{ desc => <<"Message with QoS 2 sent count">>
-                        , example => 0})},
-      { 'messages.qos2.out.rate'
-      , mk( number(), #{ desc => <<"Message with QoS 2 sent rate in 5s">>
-                        , example => 0})}
+    [ {'messages.dropped.count', mk(integer(),
+        #{ desc => <<"Message dropped count">>
+         , example => 0
+         })}
+    , {'messages.dropped.rate', mk(number(),
+        #{ desc => <<"Message dropped rate in 5s">>
+         , example => 0
+         })}
+    , {'messages.in.count', mk(integer(),
+        #{ desc => <<"Message received count">>
+         , example => 0
+         })}
+    , {'messages.in.rate', mk(number(),
+        #{ desc => <<"Message received rate in 5s">>
+         , example => 0
+         })}
+    , {'messages.out.count', mk(integer(),
+        #{ desc => <<"Message sent count">>
+         , example => 0
+         })}
+    , {'messages.out.rate', mk(number(),
+        #{ desc => <<"Message sent rate in 5s">>
+         , example => 0
+         })}
+    , {'messages.qos0.in.count', mk(integer(),
+        #{ desc => <<"Message with QoS 0 received count">>
+         , example => 0
+         })}
+    , {'messages.qos0.in.rate', mk(number(),
+        #{ desc => <<"Message with QoS 0 received rate in 5s">>
+         , example => 0
+         })}
+    , {'messages.qos0.out.count', mk(integer(),
+        #{ desc => <<"Message with QoS 0 sent count">>
+         , example => 0
+         })}
+    , {'messages.qos0.out.rate', mk(number(),
+        #{ desc => <<"Message with QoS 0 sent rate in 5s">>
+         , example => 0
+         })}
+    , {'messages.qos1.in.count', mk(integer(),
+        #{ desc => <<"Message with QoS 1 received count">>
+         , example => 0
+         })}
+    , {'messages.qos1.in.rate', mk(number(),
+        #{ desc => <<"Message with QoS 1 received rate in 5s">>
+         , example => 0
+         })}
+    , {'messages.qos1.out.count', mk(integer(),
+        #{ desc => <<"Message with QoS 1 sent count">>
+         , example => 0
+         })}
+    , {'messages.qos1.out.rate', mk(number(),
+        #{ desc => <<"Message with QoS 1 sent rate in 5s">>
+         , example => 0
+         })}
+    , {'messages.qos2.in.count', mk(integer(),
+        #{ desc => <<"Message with QoS 2 sent count">>
+         , example => 0
+         })}
+    , {'messages.qos2.in.rate', mk(number(),
+        #{ desc => <<"Message with QoS 2 received rate in 5s">>
+         , example => 0
+         })}
+    , {'messages.qos2.out.count', mk(integer(),
+        #{ desc => <<"Message with QoS 2 sent count">>
+         , example => 0
+         })}
+    , {'messages.qos2.out.rate', mk(number(),
+        #{ desc => <<"Message with QoS 2 sent rate in 5s">>
+         , example => 0
+         })}
     ].
 
 topic(In) ->
