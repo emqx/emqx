@@ -9,7 +9,7 @@
 
 -record(cluster_rpc_mfa, {
     tnx_id :: pos_integer(),
-    mfa :: mfa(),
+    mfa :: {module(), atom(), [any()]},
     created_at :: calendar:datetime(),
     initiator :: node()
 }).
