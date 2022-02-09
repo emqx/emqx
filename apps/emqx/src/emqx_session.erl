@@ -134,10 +134,12 @@
           latency_stats :: emqx_message_latency_stats:stats()
          }).
 
-%% in the previous code, we will replace the message record with the pubrel atom
-%% in the pubrec function, this will lose the creation time of the message,
-%% but now we need this time to calculate latency, so now pubrel atom is changed to this record
--record(pubrel_await, {timestamp :: non_neg_integer()}).
+
+-type inflight_data_phase() :: wait_ack | wait_comp.
+
+-record(inflight_data, { phase :: inflight_data_phase()
+                       , message :: emqx_types:message()
+                       , timestamp :: non_neg_integer()}).
 
 -type(session() :: #session{}).
 
@@ -168,7 +170,6 @@
     , next_pkt_id
     , awaiting_rel_cnt
     , awaiting_rel_max
-    , latency_stats
     ]).
 
 -define(DEFAULT_BATCH_N, 1000).
@@ -380,11 +381,11 @@ is_awaiting_full(#session{awaiting_rel = AwaitingRel,
        | {error, emqx_types:reason_code()}).
 puback(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {Msg, _Ts}} when is_record(Msg, message) ->
+        {value, #inflight_data{phase = wait_ack, message = Msg}} ->
+            on_delivery_completed(Msg, Session),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            Session2 = update_latency(Msg, Session),
-            return_with(Msg, dequeue(ClientInfo, Session2#session{inflight = Inflight1}));
-        {value, {_Pubrel, _Ts}} ->
+            return_with(Msg, dequeue(ClientInfo, Session#session{inflight = Inflight1}));
+        {value, _} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
@@ -404,11 +405,11 @@ return_with(Msg, {ok, Publishes, Session}) ->
        | {error, emqx_types:reason_code()}).
 pubrec(_ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {Msg, _Ts}} when is_record(Msg, message) ->
-            Update = with_ts(#pubrel_await{timestamp = Msg#message.timestamp}),
+        {value, #inflight_data{phase = wait_ack, message = Msg} = Data} ->
+            Update = Data#inflight_data{phase = wait_comp},
             Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
             {ok, Msg, Session#session{inflight = Inflight1}};
-        {value, {_Pubrel, _Ts}} ->
+        {value, _} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
@@ -437,10 +438,10 @@ pubrel(_ClientInfo, PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
        | {error, emqx_types:reason_code()}).
 pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {Pubrel, _Ts}} when is_record(Pubrel, pubrel_await) ->
-            Session2 = update_latency(Pubrel, Session),
+        {value, #inflight_data{phase = wait_comp, message = Msg}} ->
+            on_delivery_completed(Msg, Session),
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            dequeue(ClientInfo, Session2#session{inflight = Inflight1});
+            dequeue(ClientInfo, Session#session{inflight = Inflight1});
         {value, _Other} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
@@ -504,6 +505,7 @@ do_deliver(ClientInfo, [Msg | More], Acc, Session) ->
     end.
 
 deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, Session) ->
+    on_delivery_completed(Msg, Session),        %
     {ok, [{undefined, maybe_ack(Msg)}], Session};
 
 deliver_msg(ClientInfo, Msg = #message{qos = QoS}, Session =
@@ -518,7 +520,8 @@ deliver_msg(ClientInfo, Msg = #message{qos = QoS}, Session =
             {ok, Session1};
         false ->
             Publish = {PacketId, maybe_ack(Msg)},
-            Session1 = await(PacketId, Msg, Session),
+            Msg2 = mark_begin_deliver(Msg),
+            Session1 = await(PacketId, Msg2, Session),
             {ok, [Publish], next_pkt_id(Session1)}
     end.
 
@@ -621,29 +624,29 @@ retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = Retry
         true  -> {ok, Session};
         false ->
             Now = erlang:system_time(millisecond),
-            Session2 = check_expire_latency(Now, RetryInterval, Session),
-            retry_delivery(emqx_inflight:to_list(sort_fun(), Inflight), [], Now,
-                           Session2, ClientInfo)
+            retry_delivery(emqx_inflight:to_list(fun sort_fun/2, Inflight),
+                           [], Now, Session, ClientInfo)
     end.
 
 retry_delivery([], Acc, _Now, Session = #session{retry_interval = Interval}, _ClientInfo) ->
     {ok, lists:reverse(Acc), Interval, Session};
 
-retry_delivery([{PacketId, {Msg, Ts}}|More], Acc, Now, Session =
-               #session{retry_interval = Interval, inflight = Inflight}, ClientInfo) ->
+retry_delivery([{PacketId, #inflight_data{timestamp = Ts} = Data} | More],
+               Acc, Now, Session = #session{retry_interval = Interval, inflight = Inflight}, ClientInfo) ->
     case (Age = age(Now, Ts)) >= Interval of
         true ->
-            {Acc1, Inflight1} = do_retry_delivery(PacketId, Msg, Now, Acc, Inflight, ClientInfo),
+            {Acc1, Inflight1} = do_retry_delivery(PacketId, Data, Now, Acc, Inflight, ClientInfo),
             retry_delivery(More, Acc1, Now, Session#session{inflight = Inflight1}, ClientInfo);
         false ->
             {ok, lists:reverse(Acc), Interval - max(0, Age), Session}
     end.
 
-do_retry_delivery(PacketId, pubrel, Now, Acc, Inflight, _) ->
-    Inflight1 = emqx_inflight:update(PacketId, {pubrel, Now}, Inflight),
-    {[{pubrel, PacketId}|Acc], Inflight1};
+do_retry_delivery(PacketId, Data, Now, Acc, Inflight, _) ->
+        Update = Data#inflight_data{timestamp = Now},
+    Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
+    {[{pubrel, PacketId} | Acc], Inflight1};
 
-do_retry_delivery(PacketId, #message{} = Msg, Now, Acc, Inflight, ClientInfo) ->
+do_retry_delivery(PacketId, #inflight_data{phase = wait_ack, message = Msg} = Data, Now, Acc, Inflight, ClientInfo) ->
     case emqx_message:is_expired(Msg) of
         true ->
             ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, expired]),
@@ -651,8 +654,9 @@ do_retry_delivery(PacketId, #message{} = Msg, Now, Acc, Inflight, ClientInfo) ->
             {Acc, emqx_inflight:delete(PacketId, Inflight)};
         false ->
             Msg1 = emqx_message:set_flag(dup, true, Msg),
-            Inflight1 = emqx_inflight:update(PacketId, {Msg1, Now}, Inflight),
-            {[{PacketId, Msg1}|Acc], Inflight1}
+            Update = Data#inflight_data{message = Msg1, timestamp = Now},
+            Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
+            {[{PacketId, Msg1} | Acc], Inflight1}
     end.
 
 %%--------------------------------------------------------------------
@@ -697,9 +701,9 @@ resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = 
 
 -spec(replay(emqx_types:clientinfo(), session()) -> {ok, replies(), session()}).
 replay(ClientInfo, Session = #session{inflight = Inflight}) ->
-    Pubs = lists:map(fun({PacketId, {Pubrel, _Ts}}) when is_record(Pubrel, pubrel_await) ->
+    Pubs = lists:map(fun({PacketId, #inflight_data{phase = wait_comp}}) ->
                              {pubrel, PacketId};
-                        ({PacketId, {Msg, _Ts}}) ->
+                        ({PacketId, #inflight_data{message = Msg}}) ->
                              {PacketId, emqx_message:set_flag(dup, true, Msg)}
                      end, emqx_inflight:to_list(Inflight)),
     case dequeue(ClientInfo, Session) of
@@ -755,37 +759,23 @@ next_pkt_id(Session = #session{next_pkt_id = Id}) ->
 %%--------------------------------------------------------------------
 %% Message Latency Stats
 %%--------------------------------------------------------------------
-update_latency(Msg,
-               #session{clientid = ClientId,
-                        latency_stats = Stats,
-                        created_at = CreateAt} = S) ->
-    case get_birth_timestamp(Msg, CreateAt) of
-        0 -> S;
-        Ts ->
-            Latency = erlang:system_time(millisecond) - Ts,
-            Stats2 = emqx_message_latency_stats:update(ClientId, Latency, Stats),
-            S#session{latency_stats = Stats2}
-    end.
+on_delivery_completed(Msg,
+                      #session{created_at = CreateAt, clientid = ClientId}) ->
+    emqx:run_hook('delivery.completed',
+                  [Msg,
+                   #{session_birth_time => CreateAt, clientid => ClientId}]).
 
-check_expire_latency(Now, Interval,
-                     #session{clientid = ClientId, latency_stats = Stats} = S) ->
-    Stats2 = emqx_message_latency_stats:check_expire(ClientId, Now, Interval, Stats),
-    S#session{latency_stats = Stats2}.
-
-get_birth_timestamp(#message{timestamp = Ts}, CreateAt) when CreateAt =< Ts ->
-    Ts;
-
-get_birth_timestamp(#pubrel_await{timestamp = Ts}, CreateAt) when CreateAt =< Ts ->
-    Ts;
-
-get_birth_timestamp(_, _) ->
-    0.
+mark_begin_deliver(Msg) ->
+    emqx_message:set_header(deliver_begin_at, erlang:system_time(second), Msg).
 
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
-sort_fun() ->
-    fun({_, {_, Ts1}}, {_, {_, Ts2}}) -> Ts1 =< Ts2 end.
+
+-compile({inline, [sort_fun/2, batch_n/1, with_ts/1, age/2]}).
+
+sort_fun(A, B) ->
+    A#inflight_data.timestamp =< B#inflight_data.timestamp.
 
 batch_n(Inflight) ->
     case emqx_inflight:max_size(Inflight) of
@@ -794,7 +784,9 @@ batch_n(Inflight) ->
     end.
 
 with_ts(Msg) ->
-    {Msg, erlang:system_time(millisecond)}.
+    #inflight_data{phase = wait_ack,
+                   message = Msg,
+                   timestamp = erlang:system_time(millisecond)}.
 
 age(Now, Ts) -> Now - Ts.
 
