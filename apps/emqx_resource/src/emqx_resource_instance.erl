@@ -247,15 +247,21 @@ start_and_check(InstId, ResourceType, Config, Opts, Data) ->
             Data2 = Data#{state => ResourceState},
             ets:insert(emqx_resource_instance, {InstId, Data2}),
             case maps:get(async_create, Opts, false) of
-                false -> do_health_check(Data2);
-                true -> emqx_resource_health_check:create_checker(InstId,
-                            maps:get(health_check_interval, Opts, 15000),
-                            maps:get(health_check_timeout, Opts, 10000))
+                false -> case do_health_check(Data2) of
+                            ok -> create_default_checker(InstId, Opts);
+                            {error, Reason} -> {error, Reason}
+                         end;
+                true -> create_default_checker(InstId, Opts)
             end;
         {error, Reason} ->
             ets:insert(emqx_resource_instance, {InstId, Data#{status => stopped}}),
             {error, Reason}
     end.
+
+create_default_checker(InstId, Opts) ->
+    emqx_resource_health_check:create_checker(InstId,
+        maps:get(health_check_interval, Opts, 15000),
+        maps:get(health_check_timeout, Opts, 10000)).
 
 do_stop(InstId) when is_binary(InstId) ->
     do_with_instance_data(InstId, fun do_stop/1, []);
