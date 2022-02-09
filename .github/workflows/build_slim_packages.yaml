@@ -25,7 +25,7 @@ jobs:
         - 24.1.5-3
         os:
         - ubuntu20.04
-        - centos7
+        - rockylinux8
 
     container: ghcr.io/emqx/emqx-builder/4.4-4:${{ matrix.erl_otp }}-${{ matrix.os }}
 
@@ -53,7 +53,8 @@ jobs:
     - name: packages test
       run: |
         PKG_VSN="$(./pkg-vsn.sh)"
-        PKG_NAME="${EMQX_NAME}-${PKG_VSN}-otp${{ matrix.erl_otp }}-${{ matrix.os  }}-amd64"
+        DISTRO="$(./scripts/get-distro.sh)"
+        PKG_NAME="${EMQX_NAME}-${PKG_VSN}-otp${{ matrix.erl_otp }}-${DISTRO}-amd64"
         export CODE_PATH="$GITHUB_WORKSPACE"
         .ci/build_packages/tests.sh "$PKG_NAME" zip
         .ci/build_packages/tests.sh "$PKG_NAME" pkg
