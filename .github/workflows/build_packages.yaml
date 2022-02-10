@@ -362,7 +362,7 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-    - name: Push image to aws ecr
+    - name: Docker login to aws ecr
       if: matrix.repository == 'public.ecr.aws'
       run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
     - uses: docker/login-action@v1
@@ -491,13 +491,6 @@ jobs:
              -X POST \
              -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.version }}\" }" \
              ${{ secrets.EMQX_IO_RELEASE_API }}
-    - name: push docker image to aws ecr
-      if: github.event_name == 'release' && matrix.profile == 'emqx'
-      run: |
-        set -e -x -u
-        aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
-        docker tag emqx/emqx:${version#v} public.ecr.aws/emqx/emqx:${version#v}
-        docker push public.ecr.aws/emqx/emqx:${version#v}
     - name: update repo.emqx.io
       if: github.event_name == 'release' && endsWith(github.repository, 'enterprise') && matrix.profile == 'emqx-ee'
       run: |
