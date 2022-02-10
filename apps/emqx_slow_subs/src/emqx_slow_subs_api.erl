@@ -90,24 +90,15 @@ conf_schema() ->
     hoconsc:mk(Ref, #{}).
 
 slow_subs(delete, _) ->
-    Nodes = mria_mnesia:running_nodes(),
-    _ = [rpc_call(Node, emqx_slow_subs, clear_history, [], ok, ?DEFAULT_RPC_TIMEOUT)
-         || Node <- Nodes],
+    _ = rpc_call(fun(Nodes) -> emqx_slow_subs_proto_v1:clear_history(Nodes) end),
     {204};
 
 slow_subs(get, _) ->
-    Nodes = mria_mnesia:running_nodes(),
-    Fun = fun(Node, Acc) ->
-                  NodeRankL = rpc_call(Node,
-                                       ?MODULE,
-                                       get_history,
-                                       [],
-                                       [],
-                                       ?DEFAULT_RPC_TIMEOUT),
-                  NodeRankL ++ Acc
+    NodeRankL = rpc_call(fun(Nodes) -> emqx_slow_subs_proto_v1:get_history(Nodes) end),
+    Fun = fun({ok, L}, Acc) -> L ++ Acc;
+             (_, Acc) -> Acc
           end,
-
-    RankL = lists:foldl(Fun, [], Nodes),
+    RankL = lists:foldl(Fun, [], NodeRankL),
 
     SortFun = fun(#{timespan := A}, #{timespan := B}) ->
                       A > B
@@ -141,11 +132,6 @@ settings(put, #{body := Body}) ->
     _ = emqx_slow_subs:update_settings(Body),
     {200, emqx:get_raw_config([slow_subs], #{})}.
 
-rpc_call(Node, M, F, A, _ErrorR, _T) when Node =:= node() ->
-    erlang:apply(M, F, A);
-
-rpc_call(Node, M, F, A, ErrorR, T) ->
-    case rpc:call(Node, M, F, A, T) of
-        {badrpc, _} -> ErrorR;
-        Res -> Res
-    end.
+rpc_call(Fun) ->
+    Nodes = mria_mnesia:running_nodes(),
+    Fun(Nodes).

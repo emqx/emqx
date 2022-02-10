@@ -337,30 +337,6 @@ normal_topic_filter() ->
              end
          end).
 
-%% Type defined emqx_message_lantency_stats.erl - stats()
-latency_stats() ->
-    Keys = [{threshold, number()},
-            {ema, exp_moving_average()},
-            {last_update_time, non_neg_integer()},
-            {last_access_time, non_neg_integer()},
-            {last_insert_value, non_neg_integer()}
-           ],
-    ?LET({Ks, M}, {Keys, map(limited_atom(), limited_any_term())},
-         begin
-             maps:merge(maps:from_list(Ks), M)
-         end).
-
-%% Type defined emqx_moving_average.erl - ema()
-exp_moving_average() ->
-    Keys = [{type, exponential},
-            {average, number()},
-            {coefficient, float()}
-           ],
-    ?LET({Ks, M}, {Keys, map(limited_atom(), limited_any_term())},
-         begin
-             maps:merge(maps:from_list(Ks), M)
-         end).
-
 %%--------------------------------------------------------------------
 %% Basic Types
 %%--------------------------------------------------------------------
