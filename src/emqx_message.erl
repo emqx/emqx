@@ -342,7 +342,8 @@ format(#message{id = Id,
                 flags = Flags,
                 headers = Headers}) ->
     io_lib:format("Message(Id=~s, QoS=~w, Topic=~s, From=~p, Flags=~s, Headers=~s)",
-                  [Id, QoS, Topic, From, format(flags, Flags), format(headers, Headers)]).
+                  [emqx_guid:to_hexstr(Id), QoS, Topic, From, format(flags, Flags),
+                   format(headers, Headers)]).
 
 format(flags, Flags) ->
     io_lib:format("~p", [[Flag || {Flag, true} <- maps:to_list(Flags)]]);
