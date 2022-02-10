@@ -158,9 +158,9 @@ t_clients_cmd(_) ->
     timer:sleep(300),
     emqx_mgmt_cli:clients(["list"]),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:clients(["show", "client12"]), "client12")),
-    ?assertEqual("ok~n", emqx_mgmt_cli:clients(["kick", "client12"])),
+    ?assertEqual("ok\n", emqx_mgmt_cli:clients(["kick", "client12"])),
     timer:sleep(500),
-    ?assertEqual("ok~n", emqx_mgmt_cli:clients(["kick", "client12"])),
+    ?assertEqual("ok\n", emqx_mgmt_cli:clients(["kick", "client12"])),
     receive
         {'EXIT', T, _} ->
             ok
@@ -272,8 +272,8 @@ t_subscriptions_cmd(_) ->
     timer:sleep(300),
     [?assertMatch({match, _} , re:run(Result, "b/b/c"))
      || Result <- emqx_mgmt_cli:subscriptions(["show", <<"client">>])],
-    ?assertEqual(emqx_mgmt_cli:subscriptions(["add", "client", "b/b/c", "0"]), "ok~n"),
-    ?assertEqual(emqx_mgmt_cli:subscriptions(["del", "client", "b/b/c"]), "ok~n"),
+    ?assertEqual(emqx_mgmt_cli:subscriptions(["add", "client", "b/b/c", "0"]), "ok\n"),
+    ?assertEqual(emqx_mgmt_cli:subscriptions(["del", "client", "b/b/c"]), "ok\n"),
     unmock_print().
 
 t_listeners_cmd_old(_) ->
@@ -304,7 +304,8 @@ t_listeners_cmd_new(_) ->
       ),
     ?assertEqual(
        emqx_mgmt_cli:listeners(["restart", "bad:listener:identifier"]),
-       "Failed to restart bad:listener:identifier listener: {no_such_listener,\"bad:listener:identifier\"}\n"
+       "Failed to restart bad:listener:identifier listener:"
+       " {no_such_listener,\"bad:listener:identifier\"}\n"
       ),
     unmock_print().
 
@@ -325,7 +326,7 @@ t_plugins_cmd(_) ->
       ),
     ?assertEqual(
        emqx_mgmt_cli:plugins(["unload", "emqx_management"]),
-       "Plugin emqx_management can not be unloaded.~n"
+       "Plugin emqx_management can not be unloaded.\n"
       ),
     unmock_print().
 
@@ -359,7 +360,7 @@ t_cli(_) ->
 mock_print() ->
     catch meck:unload(emqx_ctl),
     meck:new(emqx_ctl, [non_strict, passthrough]),
-    meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg) end),
+    meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg, []) end),
     meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),
     meck:expect(emqx_ctl, usage, fun(Usages) -> emqx_ctl:format_usage(Usages) end),
     meck:expect(emqx_ctl, usage, fun(Cmd, Descr) -> emqx_ctl:format_usage(Cmd, Descr) end).
