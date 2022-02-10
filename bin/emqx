@@ -341,17 +341,49 @@ relx_gen_id() {
     od -t x -N 4 /dev/urandom | head -n1 | awk '{print $2}'
 }
 
+call_nodetool() {
+    "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" "$@"
+}
+
 # Control a node
 relx_nodetool() {
     command="$1"; shift
     ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARG" \
-    "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" "$NAME_TYPE" "$NAME" \
+    call_nodetool "$NAME_TYPE" "$NAME" \
                                 -setcookie "$COOKIE" "$command" "$@"
 }
 
 call_hocon() {
-    "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" hocon "$@" \
+    call_nodetool hocon "$@" \
         || die "call_hocon_failed: $*" $?
+}
+
+get_config_value() {
+    path_to_value="$1"
+    call_hocon -s "$SCHEMA_MOD" -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get "$path_to_value" | tr -d \"
+}
+
+check_license() {
+    if [ "$IS_ENTERPRISE" == "no" ]; then
+        return 0
+    fi
+
+    file_license="${EMQX_LICENSE__FILE:-$(get_config_value license.file)}"
+
+    if [[ -n "$file_license" && ("$file_license" != "undefined") ]]; then
+        call_nodetool check_license_file "$file_license"
+    else
+        key_license="${EMQX_LICENSE__KEY:-$(get_config_value license.key)}"
+
+        if [[ -n "$key_license" && ("$key_license" != "undefined") ]]; then
+            call_nodetool check_license_key "$key_license"
+        else
+            echoerr "License not found."
+            echoerr "Please specify one via EMQX_LICENSE__KEY or EMQX_LICENSE__FILE variables"
+            echoerr "or via license.key|file in emqx_enterprise.conf."
+            return 1
+        fi
+    fi
 }
 
 # Run an escript in the node's environment
@@ -374,11 +406,6 @@ generate_config() {
     ## changing the config 'log.rotation.size'
     rm -rf "${RUNNER_LOG_DIR}"/*.siz
 
-    EMQX_LICENSE_CONF_OPTION=""
-    if [ "${EMQX_LICENSE_CONF:-}" != "" ]; then
-        EMQX_LICENSE_CONF_OPTION="-c ${EMQX_LICENSE_CONF}"
-    fi
-
     ## timestamp for each generation
     local NOW_TIME
     NOW_TIME="$(call_hocon now_time)"
@@ -387,9 +414,7 @@ generate_config() {
     ## NOTE: the generate command merges environment variables to the base config (emqx.conf),
     ## but does not include the cluster-override.conf and local-override.conf
     ## meaning, certain overrides will not be mapped to app.<time>.config file
-    ## disable SC2086 to allow EMQX_LICENSE_CONF_OPTION to split
-    # shellcheck disable=SC2086
-    call_hocon -v -t "$NOW_TIME" -I "$CONFIGS_DIR/" -s "$SCHEMA_MOD" -c "$RUNNER_ETC_DIR"/emqx.conf $EMQX_LICENSE_CONF_OPTION -d "$RUNNER_DATA_DIR"/configs generate
+    call_hocon -v -t "$NOW_TIME" -I "$CONFIGS_DIR/" -s "$SCHEMA_MOD" -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate
 
     ## filenames are per-hocon convention
     local CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
@@ -539,7 +564,7 @@ NAME="${EMQX_NODE__NAME:-}"
 if [ -z "$NAME" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         # for boot commands, inspect emqx.conf for node name
-        NAME="$(call_hocon -s "$SCHEMA_MOD" -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.name | tr -d \")"
+        NAME="$(get_config_value node.name)"
     else
         vm_args_file="$(latest_vm_args 'EMQX_NODE__NAME')"
         NAME="$(grep -E '^-s?name' "${vm_args_file}" | awk '{print $2}')"
@@ -570,7 +595,7 @@ fi
 COOKIE="${EMQX_NODE__COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE="$(call_hocon -s "$SCHEMA_MOD" -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie | tr -d \")"
+        COOKIE="$(get_config_value node.cookie)"
     else
         vm_args_file="$(latest_vm_args 'EMQX_NODE__COOKIE')"
         COOKIE="$(grep -E '^-setcookie' "${vm_args_file}" | awk '{print $2}')"
@@ -742,6 +767,8 @@ case "${COMMAND}" in
         #generate app.config and vm.args
         generate_config "$NAME_TYPE" "$NAME"
 
+        check_license
+
         # Setup beam-required vars
         EMU="beam"
         PROGNAME="${0#*/}"
@@ -789,6 +816,8 @@ case "${COMMAND}" in
 
         #generate app.config and vm.args
         generate_config "$NAME_TYPE" "$NAME"
+
+        check_license
 
         [ -f "$REL_DIR/$REL_NAME.boot" ] && BOOTFILE="$REL_NAME" || BOOTFILE=start
         FOREGROUNDOPTIONS="-noshell -noinput +Bd"

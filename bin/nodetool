@@ -24,6 +24,10 @@ main(Args) ->
         ["hocon" | Rest] ->
             %% forward the call to hocon_cli
             hocon_cli:main(Rest);
+        ["check_license_key", Key] ->
+            check_license(#{key => list_to_binary(Key)});
+        ["check_license_file", File] ->
+            check_license(#{file => list_to_binary(File)});
         _ ->
             do(Args)
     end.
@@ -250,6 +254,21 @@ chkconfig(File) ->
             halt(1);
         {error, Error} ->
             io:format(standard_error, ["Error reading config file: ", File, " ", file:format_error(Error), "\n"], []),
+            halt(1)
+    end.
+
+check_license(Config) ->
+    ok = application:load(emqx_license),
+    %% This checks formal license validity to ensure
+    %% that the node can successfully start with the given license.
+
+    %% However, a valid license may be expired. In this case, the node will
+    %% start but will not be able to receive connections due to connection limits.
+    %% It may receive license updates from the cluster further.
+    case emqx_license:read_license(Config) of
+        {ok, _} -> ok;
+        {error, Error} ->
+            io:format(standard_error, "Error reading license: ~p~n", [Error]),
             halt(1)
     end.
 

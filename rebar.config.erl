@@ -239,10 +239,12 @@ overlay_vars_rel(RelType) ->
 
 overlay_vars_edition(ce) ->
     [ {emqx_schema_mod, emqx_conf_schema}
+    , {is_enterprise, "no"}
     , {emqx_machine_boot_apps, emqx_machine_boot_app_list(ce)}
     ];
 overlay_vars_edition(ee) ->
     [ {emqx_schema_mod, emqx_enterprise_conf_schema}
+    , {is_enterprise, "yes"}
     , {emqx_machine_boot_apps, emqx_machine_boot_app_list(ee)}
     ].
 
@@ -324,7 +326,6 @@ relx_apps(ReleaseType, Edition) ->
     , emqx_plugins
     ]
     ++ [quicer || is_quicer_supported()]
-    %++ [emqx_license || is_enterprise(Edition)]
     ++ [bcrypt || provide_bcrypt_release(ReleaseType)]
     ++ relx_apps_per_rel(ReleaseType)
     ++ relx_additional_apps(ReleaseType, Edition).
