@@ -136,6 +136,8 @@ parse(<<>>, Parser) ->
 
 parse(Bytes, #{phase := body, length := Len, state := State}) ->
     parse(body, Bytes, State, Len);
+parse(<<?LF, Bytes/binary>>, #{phase := hdname, state := State}) ->
+    parse(body, Bytes, State, content_len(State));
 parse(Bytes, #{phase := Phase, state := State}) when Phase =/= none ->
     parse(Phase, Bytes, State);
 
