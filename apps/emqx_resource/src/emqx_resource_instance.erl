@@ -118,6 +118,9 @@ handle_call({create, InstId, Group, ResourceType, Config, Opts}, _From, State) -
 handle_call({create_dry_run, ResourceType, Config}, _From, State) ->
     {reply, do_create_dry_run(ResourceType, Config), State};
 
+handle_call({recreate, InstId, ResourceType, Config, Opts}, _From, State) ->
+    {reply, do_recreate(InstId, ResourceType, Config, Opts), State};
+
 handle_call({recreate, InstId, Group, ResourceType, Config, Opts}, _From, State) ->
     {reply, do_recreate(InstId, Group, ResourceType, Config, Opts), State};
 
@@ -156,6 +159,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% suppress the race condition check, as these functions are protected in gproc workers
 -dialyzer({nowarn_function, [ do_recreate/5
+                            , do_recreate/4
                             , do_create/5
                             , do_restart/2
                             , do_start/5
@@ -163,6 +167,27 @@ code_change(_OldVsn, State, _Extra) ->
                             , do_health_check/1
                             , start_and_check/6
                             ]}).
+
+do_recreate(InstId, ResourceType, NewConfig, Opts) ->
+    case lookup_with_group(InstId) of
+        {ok, Group, #{mod := ResourceType, status := started} = Data} ->
+            %% If this resource is in use (status='started'), we should make sure
+            %% the new config is OK before removing the old one.
+            case do_create_dry_run(ResourceType, NewConfig) of
+                ok ->
+                    do_remove(Group, Data, false),
+                    do_create(InstId, Group, ResourceType, NewConfig, Opts);
+                Error ->
+                    Error
+            end;
+        {ok, Group, #{mod := ResourceType, status := _} = Data} ->
+            do_remove(Group, Data, false),
+            do_create(InstId, Group, ResourceType, NewConfig, Opts);
+        {ok, _Group, #{mod := Mod}} when Mod =/= ResourceType ->
+            {error, updating_to_incorrect_resource_type};
+        {error, not_found} ->
+            {error, not_found}
+    end.
 
 do_recreate(InstId, Group, ResourceType, NewConfig, Opts) ->
     case lookup(InstId) of

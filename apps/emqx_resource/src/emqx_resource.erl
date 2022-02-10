@@ -194,7 +194,7 @@ recreate(InstId, ResourceType, Config, Opts) ->
 -spec recreate_local(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate_local(InstId, ResourceType, Config, Opts) ->
-    call_instance(InstId, {recreate, InstId, ?DEFAULT_RESOURCE_GROUP, ResourceType, Config, Opts}).
+    call_instance(InstId, {recreate, InstId, ResourceType, Config, Opts}).
 
 -spec recreate_local(instance_id(), resource_group(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
