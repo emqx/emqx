@@ -11,6 +11,7 @@
     , {load_module,emqx_os_mon,brutal_purge,soft_purge,[]}
     , {load_module,emqx,brutal_purge,soft_purge,[]}
     , {load_module,emqx_app,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_message,brutal_purge,soft_purge,[]}
     , {load_module,emqx_limiter,brutal_purge,soft_purge,[]}
     ]},
    {<<".*">>,[]}
@@ -26,6 +27,7 @@
     , {load_module,emqx_os_mon,brutal_purge,soft_purge,[]}
     , {load_module,emqx,brutal_purge,soft_purge,[]}
     , {load_module,emqx_app,brutal_purge,soft_purge,[]}
+    , {load_module,emqx_message,brutal_purge,soft_purge,[]}
     , {load_module,emqx_limiter,brutal_purge,soft_purge,[]}
     ]},
    {<<".*">>,[]}
