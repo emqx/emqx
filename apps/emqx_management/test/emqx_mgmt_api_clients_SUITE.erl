@@ -96,8 +96,9 @@ t_clients(_) ->
     %% post /clients/:clientid/unsubscribe
     UnSubscribePath = emqx_mgmt_api_test_util:api_path(["clients",
         binary_to_list(ClientId1), "unsubscribe"]),
+    UnSubscribeBody = #{topic => Topic},
     {ok, _} =  emqx_mgmt_api_test_util:request_api(post, UnSubscribePath,
-        "", AuthHeader, SubscribeBody),
+        "", AuthHeader, UnSubscribeBody),
     timer:sleep(100),
     ?assertEqual([], emqx_mgmt:lookup_subscriptions(Client1)),
 
@@ -165,15 +166,15 @@ t_query_clients_with_time(_) ->
 t_keepalive(_Config) ->
     Username = "user_keepalive",
     ClientId = "client_keepalive",
-    AuthHeader      = emqx_mgmt_api_test_util:auth_header_(),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "keepalive"]),
-    Query = "interval=11",
+    Body = #{interval => 11},
     {error,{"HTTP/1.1",404,"Not Found"}} =
-        emqx_mgmt_api_test_util:request_api(put, Path, Query, AuthHeader, <<"">>),
+        emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body),
     {ok, C1} = emqtt:start_link(#{username => Username, clientid => ClientId}),
     {ok, _} = emqtt:connect(C1),
-    {ok, Ok} = emqx_mgmt_api_test_util:request_api(put, Path, Query, AuthHeader, <<"">>),
-    ?assertEqual("", Ok),
+    {ok, NewClient} = emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body),
+    #{<<"keepalive">> := 11} = emqx_json:decode(NewClient, [return_maps]),
     [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
     #{conninfo := #{keepalive := Keepalive}} = emqx_connection:info(Pid),
     ?assertEqual(11, Keepalive),

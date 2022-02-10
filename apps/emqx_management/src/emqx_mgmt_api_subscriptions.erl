@@ -18,15 +18,14 @@
 
 -behaviour(minirest_api).
 
+-include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
--import(emqx_mgmt_util, [ page_schema/1
-                        , error_schema/2
-                        , properties/1
-                        , page_params/0
-                        ]).
-
--export([api_spec/0]).
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        , fields/1]).
 
 -export([subscriptions/2]).
 
@@ -46,73 +45,73 @@
 -define(format_fun, {?MODULE, format}).
 
 api_spec() ->
-    {subscriptions_api(), subscription_schema()}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-subscriptions_api() ->
-    MetaData = #{
+paths() ->
+    ["/subscriptions"].
+
+schema("/subscriptions") ->
+    #{
+        'operationId' => subscriptions,
         get => #{
             description => <<"List subscriptions">>,
             parameters => parameters(),
             responses => #{
-                <<"200">> => page_schema(subscription),
-                <<"400">> => error_schema(<<"Invalid parameters">>, ['INVALID_PARAMETER'])
-            }
-        }
-    },
-    [{"/subscriptions", MetaData, subscriptions}].
+                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscription)), #{})}}
+    }.
 
-subscription_schema() ->
-    Props = properties([
-        {node, string},
-        {topic, string},
-        {clientid, string},
-        {qos, integer, <<>>, [0,1,2]}]),
-    [#{subscription => #{type => object, properties => Props}}].
+fields(subscription) ->
+    [
+        {node, hoconsc:mk(binary(), #{desc => <<"Access type">>})},
+        {topic, hoconsc:mk(binary(), #{desc => <<"Topic name">>})},
+        {clientid, hoconsc:mk(binary(), #{desc => <<"Client identifier">>})},
+        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>})}
+    ].
 
 parameters() ->
     [
-        #{
-            name => clientid,
+        hoconsc:ref(emqx_dashboard_swagger, page),
+        hoconsc:ref(emqx_dashboard_swagger, limit),
+        {
+            node, hoconsc:mk(binary(), #{
             in => query,
-            description => <<"Client ID">>,
-            schema => #{type => string}
+            nullable => true,
+            desc => <<"Node name">>,
+            example => atom_to_list(node())})
         },
-        #{
-            name => node,
+        {
+            clientid, hoconsc:mk(binary(), #{
             in => query,
-            description => <<"Node name">>,
-            schema => #{type => string}
+            nullable => true,
+            desc => <<"Client ID">>})
         },
-        #{
-            name => qos,
+        {
+            qos, hoconsc:mk(emqx_schema:qos(), #{
             in => query,
-            description => <<"QoS">>,
-            schema => #{type => integer, enum => [0, 1, 2]}
+            nullable => true,
+            desc => <<"QoS">>})
         },
-        #{
-            name => share_group,
+        {
+            topic, hoconsc:mk(binary(), #{
             in => query,
-            description => <<"Shared subscription group name">>,
-            schema => #{type => string}
+            nullable => true,
+            desc => <<"Topic, url encoding">>})
         },
-        #{
-            name => topic,
+        {
+            match_topic, hoconsc:mk(binary(), #{
             in => query,
-            description => <<"Topic, url encoding">>,
-            schema => #{type => string}
+            nullable => true,
+            desc => <<"Match topic string, url encoding">>})
+        },
+        {
+            share_group, hoconsc:mk(binary(), #{
+            in => query,
+            nullable => true,
+            desc => <<"Shared subscription group name">>})
         }
-        #{
-            name => match_topic,
-            in => query,
-            description => <<"Match topic string, url encoding">>,
-            schema => #{type => string}
-        } | page_params()
     ].
 
 subscriptions(get, #{query_string := Params}) ->
-    list(Params).
-
-list(Params) ->
     {Tab, QuerySchema} = ?SUBS_QS_SCHEMA,
     case maps:get(<<"node">>, Params, undefined) of
         undefined ->

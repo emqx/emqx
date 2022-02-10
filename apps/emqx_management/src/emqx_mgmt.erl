@@ -389,7 +389,8 @@ subscribe(ClientId, TopicTables) ->
 subscribe([Node | Nodes], ClientId, TopicTables) ->
     case wrap_rpc(emqx_management_proto_v1:subscribe(Node, ClientId, TopicTables)) of
         {error, _} -> subscribe(Nodes, ClientId, TopicTables);
-        Re -> Re
+        {subscribe, Res} ->
+            {subscribe, Res, Node}
     end;
 
 subscribe([], _ClientId, _TopicTables) ->

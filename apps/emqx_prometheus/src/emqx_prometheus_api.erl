@@ -31,9 +31,7 @@
         , stats/2
         ]).
 
--define(API_TAG_PROMETHEUS, [<<"premetheus">>]).
 -define(SCHEMA_MODULE, emqx_prometheus_schema).
-
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -47,7 +45,6 @@ schema("/prometheus") ->
     #{ 'operationId' => prometheus
      , get =>
            #{ description => <<"Get Prometheus config info">>
-            , tags => ?API_TAG_PROMETHEUS
             , responses =>
                   #{200 => prometheus_config_schema()}
             }
