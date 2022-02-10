@@ -46,7 +46,7 @@ Important notes:
 * Clustering malfunction fixes [#6221, #6381]
   Mostly changes made in [ekka](https://github.com/emqx/ekka/pull/134)<br>
   From 0.8.1.4 to 0.8.1.6, fixes included intra-cluster RPC call timeouts,<br>
-  also fixed `ekka_locker` process crashe after killing a hanged lock owner.
+  also fixed `ekka_locker` process crashed after killing a hanged lock owner.
 
 * Improved log message when TCP proxy is in use but proxy_protocol configuration is not turned on [#6416]<br>
   "please check proxy_protocol config for specific listeners and zones" to hint a misconfiguration
@@ -100,6 +100,8 @@ Important notes:
   e.g. messages from CoAP, LwM2M, Stomp, ExProto, when translated into MQTT message<br>
   properties such as protocol name, protocol version, username (if any) peer-host<br>
   etc. are filled as MQTT message headers.
+
+* Format the message id to hex strings in the log message [#6961]
 
 ## v4.3.0~10
 
