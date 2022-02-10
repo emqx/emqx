@@ -28,7 +28,6 @@
         , on_stop/2
         , on_query/4
         , on_health_check/2
-        , on_jsonify/1
         ]).
 
 -export([do_health_check/1]).
@@ -42,9 +41,6 @@ roots() ->
 
 %% this schema has no sub-structs
 fields(_) -> [].
-
-on_jsonify(Config) ->
-    Config.
 
 %% ===================================================================
 on_start(InstId, #{servers := Servers0,

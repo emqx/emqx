@@ -70,7 +70,6 @@
 -export([ call_start/3  %% start the instance
         , call_health_check/3 %% verify if the resource is working normally
         , call_stop/3   %% stop the instance
-        , call_jsonify/2
         ]).
 
 -export([ list_instances/0 %% list all the instances, id only.
@@ -86,10 +85,7 @@
 
 -optional_callbacks([ on_query/4
                     , on_health_check/2
-                    , on_jsonify/1
                     ]).
-
--callback on_jsonify(resource_config()) -> jsx:json_term().
 
 %% when calling emqx_resource:start/1
 -callback on_start(instance_id(), resource_config()) ->
@@ -283,13 +279,6 @@ call_health_check(InstId, Mod, ResourceState) ->
 -spec call_stop(instance_id(), module(), resource_state()) -> term().
 call_stop(InstId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_stop(InstId, ResourceState)).
-
--spec call_jsonify(module(), resource_config()) -> jsx:json_term().
-call_jsonify(Mod, Config) ->
-    case erlang:function_exported(Mod, on_jsonify, 1) of
-        false -> Config;
-        true -> ?SAFE_CALL(Mod:on_jsonify(Config))
-    end.
 
 -spec check_config(resource_type(), raw_resource_config()) ->
     {ok, resource_config()} | {error, term()}.
