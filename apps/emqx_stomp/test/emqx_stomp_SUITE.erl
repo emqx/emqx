@@ -359,6 +359,35 @@ t_1000_msg_send(_) ->
         lists:foreach(fun(_) -> RecvFun() end, lists:seq(1, 1000))
     end).
 
+t_sticky_packets_truncate_after_headers(_) ->
+    with_connection(fun(Sock) ->
+        gen_tcp:send(Sock, serialize(<<"CONNECT">>,
+                                     [{<<"accept-version">>, ?STOMP_VER},
+                                      {<<"host">>, <<"127.0.0.1:61613">>},
+                                      {<<"login">>, <<"guest">>},
+                                      {<<"passcode">>, <<"guest">>},
+                                      {<<"heart-beat">>, <<"0,0">>}])),
+        {ok, Data} = gen_tcp:recv(Sock, 0),
+        {ok, #stomp_frame{command = <<"CONNECTED">>,
+                          headers = _,
+                          body    = _}, _} = parse(Data),
+
+        Topic = <<"/queue/foo">>,
+
+        emqx:subscribe(Topic),
+        gen_tcp:send(Sock, ["SEND\n",
+                            "content-length:3\n",
+                            "destination:/queue/foo\n"]),
+        timer:sleep(300),
+        gen_tcp:send(Sock, ["\nfoo",0]),
+        receive
+            {deliver, Topic, _Msg}->
+                ok
+        after 100 ->
+                  ?assert(false, "waiting message timeout")
+        end
+    end).
+
 with_connection(DoFun) ->
     {ok, Sock} = gen_tcp:connect({127, 0, 0, 1},
                                  61613,
