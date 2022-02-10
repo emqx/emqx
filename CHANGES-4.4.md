@@ -1,6 +1,8 @@
 # EMQ X 4.4 Changes
 
-## 4.4-beta.1
+## v4.4.0
+
+**NOTE**: v4.4.0 is in sync with: v4.3.12
 
 ### Important changes
 
@@ -13,6 +15,10 @@
 - MongoDB authentication supports DNS SRV and TXT Records resolution, which can seamlessly connect with MongoDB Altas
 
 - Support dynamic modification of MQTT Keep Alive to adapt to different energy consumption strategies.
+
+- Support 4.3 to 4.4 rolling upgrade of clustered nodes. See upgrade document for more dtails.
+
+- TLS for cluster backplane (RPC) connections. See clustering document for more details.
 
 ### Minor changes
 
@@ -41,21 +47,3 @@
 - HTTP client performance improvement
 
 - Add openssl-1.1 to RPM dependency
-
-### Bug fixes
-
-- Fix the issue that the client process becomes unresponsive due to the blockage of RPC calls between nodes
-
-- Fix the issue that the lock management process `ekka_locker` crashes after killing the suspended lock owner
-
-- Fix the issue that the Path parameter of WebHook action in rule engine cannot use the rule engine variable
-
-- Fix MongoDB authentication module cannot use Replica Set mode and other issues
-
-- Fix the issue of out-of-sequence message forwarding between clusters. The relevant configurable item is `rpc.tcp_client_num`
-
-- Fix the issue of incorrect calculation of memory usage
-
-- Fix MQTT bridge malfunction when remote host is unreachable (hangs the connection)
-
-- Fix the issue that HTTP headers may be duplicated
