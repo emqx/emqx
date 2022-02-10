@@ -639,7 +639,7 @@ fields(subscription) ->
        mk(integer(),
           #{ desc => <<"QoS level, enum: 0, 1, 2">>})}
     , {nl,
-       mk(integer(),     %% FIXME: why not boolean?
+       mk(integer(), %% FIXME: why not boolean?
           #{ desc => <<"No Local option, enum: 0, 1">>})}
     , {rap,
        mk(integer(),

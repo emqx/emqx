@@ -87,7 +87,7 @@
 -define(RECORD_SIZE(R), (erlang:map_size(R) - 1)).
 
 %% uplink and downlink topic configuration
--define(lwm2m_up_dm_topic,  {<<"/v1/up/dm">>, 0}).
+-define(lwm2m_up_dm_topic, {<<"/v1/up/dm">>, 0}).
 
 %% steal from emqx_session
 -define(INFO_KEYS, [id,

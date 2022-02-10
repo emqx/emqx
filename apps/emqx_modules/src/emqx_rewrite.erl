@@ -48,9 +48,9 @@ enable() ->
     register_hook(Rules).
 
 disable() ->
-    emqx_hooks:del('client.subscribe',   {?MODULE, rewrite_subscribe}),
+    emqx_hooks:del('client.subscribe', {?MODULE, rewrite_subscribe}),
     emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
-    emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}),
+    emqx_hooks:del('message.publish', {?MODULE, rewrite_publish}),
     ok.
 
 list() ->
@@ -63,9 +63,9 @@ update(Rules0) ->
 register_hook([]) -> disable();
 register_hook(Rules) ->
     {PubRules, SubRules, ErrRules} = compile(Rules),
-    emqx_hooks:put('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}),
+    emqx_hooks:put('client.subscribe', {?MODULE, rewrite_subscribe, [SubRules]}),
     emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
-    emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]}),
+    emqx_hooks:put('message.publish', {?MODULE, rewrite_publish, [PubRules]}),
     case ErrRules of
         [] -> ok;
         _ ->

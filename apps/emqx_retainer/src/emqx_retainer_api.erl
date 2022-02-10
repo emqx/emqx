@@ -131,7 +131,7 @@ config(get, _) ->
 config(put, #{body := Body}) ->
     try
         {ok, _} = emqx_retainer:update_config(Body),
-        {200,  emqx:get_raw_config([retainer])}
+        {200, emqx:get_raw_config([retainer])}
     catch _:Reason:_ ->
             {400,
              #{code => 'UPDATE_FAILED',

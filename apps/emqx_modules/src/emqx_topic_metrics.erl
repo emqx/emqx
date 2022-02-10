@@ -101,13 +101,13 @@ max_limit() ->
     ?MAX_TOPICS.
 
 enable() ->
-    emqx_hooks:put('message.publish',   {?MODULE, on_message_publish, []}),
-    emqx_hooks:put('message.dropped',   {?MODULE, on_message_dropped, []}),
+    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}),
+    emqx_hooks:put('message.dropped', {?MODULE, on_message_dropped, []}),
     emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []}).
 
 disable() ->
-    emqx_hooks:del('message.publish',   {?MODULE, on_message_publish}),
-    emqx_hooks:del('message.dropped',   {?MODULE, on_message_dropped}),
+    emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
+    emqx_hooks:del('message.dropped', {?MODULE, on_message_dropped}),
     emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered}),
     deregister_all().
 

@@ -31,7 +31,7 @@
         , compile/1
         ]).
 
--type(ipaddress() :: {ipaddr,  esockd_cidr:cidr_string()} |
+-type(ipaddress() :: {ipaddr, esockd_cidr:cidr_string()} |
                      {ipaddrs, list(esockd_cidr:cidr_string())}).
 
 -type(username() :: {username, binary()}).

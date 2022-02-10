@@ -697,7 +697,7 @@ resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = 
 
 -spec(replay(emqx_types:clientinfo(), session()) -> {ok, replies(), session()}).
 replay(ClientInfo, Session = #session{inflight = Inflight}) ->
-    Pubs = lists:map(fun({PacketId, {Pubrel,  _Ts}}) when is_record(Pubrel, pubrel_await) ->
+    Pubs = lists:map(fun({PacketId, {Pubrel, _Ts}}) when is_record(Pubrel, pubrel_await) ->
                              {pubrel, PacketId};
                         ({PacketId, {Msg, _Ts}}) ->
                              {PacketId, emqx_message:set_flag(dup, true, Msg)}

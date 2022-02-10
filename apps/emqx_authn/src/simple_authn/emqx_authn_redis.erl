@@ -58,7 +58,7 @@ fields(sentinel) ->
 common_fields() ->
     [ {mechanism, emqx_authn_schema:mechanism('password-based')}
     , {backend, emqx_authn_schema:backend(redis)}
-    , {cmd,                     fun cmd/1}
+    , {cmd, fun cmd/1}
     , {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     ] ++ emqx_authn_schema:common_fields().
 

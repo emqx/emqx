@@ -87,7 +87,7 @@
 -define(OVERLOAD_MIN_ALLOC, 0.3).  %% minimum coefficient for overloaded limiter
 
 -export_type([index/0]).
--import(emqx_limiter_decimal, [add/2, sub/2, mul/2,  put_to_counter/3]).
+-import(emqx_limiter_decimal, [add/2, sub/2, mul/2, put_to_counter/3]).
 
 -elvis([{elvis_style, no_if_expression, disable}]).
 

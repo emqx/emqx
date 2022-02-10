@@ -42,9 +42,9 @@ to which is configurable by the <code>init_file</code> field.
      }.
 
 fields() ->
-    [ {enable,     fun enable/1}
-    , {init_file,  fun init_file/1}
-    , {separator,  fun separator/1}
+    [ {enable, fun enable/1}
+    , {init_file, fun init_file/1}
+    , {separator, fun separator/1}
     , {chunk_size, fun chunk_size/1}
     ].
 

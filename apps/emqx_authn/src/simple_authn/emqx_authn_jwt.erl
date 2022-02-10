@@ -48,35 +48,34 @@ roots() ->
     ].
 
 fields('hmac-based') ->
-    [ {use_jwks,              {enum, [false]}}
-    , {algorithm,             {enum, ['hmac-based']}}
-    , {secret,                fun secret/1}
+    [ {use_jwks, {enum, [false]}}
+    , {algorithm, {enum, ['hmac-based']}}
+    , {secret, fun secret/1}
     , {secret_base64_encoded, fun secret_base64_encoded/1}
     ] ++ common_fields();
 
 fields('public-key') ->
-    [ {use_jwks,              {enum, [false]}}
-    , {algorithm,             {enum, ['public-key']}}
-    , {certificate,           fun certificate/1}
+    [ {use_jwks, {enum, [false]}}
+    , {algorithm, {enum, ['public-key']}}
+    , {certificate, fun certificate/1}
     ] ++ common_fields();
 
 fields('jwks') ->
-    [ {use_jwks,              {enum, [true]}}
-    , {endpoint,              fun endpoint/1}
-    , {refresh_interval,      fun refresh_interval/1}
-    , {ssl,                   #{type => hoconsc:union(
-                                         [ hoconsc:ref(?MODULE, ssl_enable)
-                                         , hoconsc:ref(?MODULE, ssl_disable)
-                                         ]),
-                                default => #{<<"enable">> => false}}}
+    [ {use_jwks, {enum, [true]}}
+    , {endpoint, fun endpoint/1}
+    , {refresh_interval, fun refresh_interval/1}
+    , {ssl, #{type => hoconsc:union([ hoconsc:ref(?MODULE, ssl_enable)
+                                    , hoconsc:ref(?MODULE, ssl_disable)
+                                    ]),
+              default => #{<<"enable">> => false}}}
     ] ++ common_fields();
 
 fields(ssl_enable) ->
-    [ {enable,                 #{type => true}}
-    , {cacertfile,             fun cacertfile/1}
-    , {certfile,               fun certfile/1}
-    , {keyfile,                fun keyfile/1}
-    , {verify,                 fun verify/1}
+    [ {enable, #{type => true}}
+    , {cacertfile, fun cacertfile/1}
+    , {certfile, fun certfile/1}
+    , {keyfile, fun keyfile/1}
+    , {verify, fun verify/1}
     , {server_name_indication, fun server_name_indication/1}
     ];
 
@@ -85,7 +84,7 @@ fields(ssl_disable) ->
 
 common_fields() ->
     [ {mechanism, emqx_authn_schema:mechanism('jwt')}
-    , {verify_claims,   fun verify_claims/1}
+    , {verify_claims, fun verify_claims/1}
     ] ++ emqx_authn_schema:common_fields().
 
 secret(type) -> binary();

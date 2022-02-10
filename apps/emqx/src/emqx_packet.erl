@@ -177,7 +177,7 @@ info(packet_id, #mqtt_packet_puback{packet_id = PacketId}) ->
     PacketId;
 info(reason_code, #mqtt_packet_puback{reason_code = RC}) ->
     RC;
-info(properties,  #mqtt_packet_puback{properties = Props}) ->
+info(properties, #mqtt_packet_puback{properties = Props}) ->
     Props;
 
 info(packet_id, #mqtt_packet_subscribe{packet_id = PacketId}) ->

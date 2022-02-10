@@ -58,11 +58,11 @@ fields('sharded-cluster') ->
 common_fields() ->
     [ {mechanism, emqx_authn_schema:mechanism('password-based')}
     , {backend, emqx_authn_schema:backend(mongodb)}
-    , {collection,              fun collection/1}
-    , {selector,                fun selector/1}
-    , {password_hash_field,     fun password_hash_field/1}
-    , {salt_field,              fun salt_field/1}
-    , {is_superuser_field,      fun is_superuser_field/1}
+    , {collection, fun collection/1}
+    , {selector, fun selector/1}
+    , {password_hash_field, fun password_hash_field/1}
+    , {salt_field, fun salt_field/1}
+    , {is_superuser_field, fun is_superuser_field/1}
     , {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     ] ++ emqx_authn_schema:common_fields().
 

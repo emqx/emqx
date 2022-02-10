@@ -36,7 +36,7 @@ fields("statsd") ->
     [ {enable, hoconsc:mk(boolean(), #{default => false, nullable => false})}
     , {server, fun server/1}
     , {sample_time_interval, fun duration_ms/1}
-    , {flush_time_interval,  fun duration_ms/1}
+    , {flush_time_interval, fun duration_ms/1}
     ].
 
 server(type) -> emqx_schema:ip_port();

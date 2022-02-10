@@ -78,7 +78,7 @@ is_queue({queue, R, F, L}) when is_list(R), is_list(F), is_integer(L) ->
     true;
 is_queue({pqueue, Queues}) when is_list(Queues) ->
     lists:all(fun ({infinity, Q}) -> is_queue(Q);
-                  ({P,        Q}) -> is_integer(P) andalso is_queue(Q)
+                  ({P, Q}) -> is_integer(P) andalso is_queue(Q)
               end, Queues);
 is_queue(_) ->
     false.
@@ -268,9 +268,9 @@ highest({queue, [], [], 0})     -> empty;
 highest({queue, _, _, _})       -> 0;
 highest({pqueue, [{P, _} | _]}) -> maybe_negate_priority(P).
 
-r2f([],      0) -> {queue, [], [], 0};
+r2f([], 0) -> {queue, [], [], 0};
 r2f([_] = R, 1) -> {queue, [], R, 1};
-r2f([X,Y],   2) -> {queue, [X], [Y], 2};
+r2f([X,Y], 2) -> {queue, [X], [Y], 2};
 r2f([X,Y|R], L) -> {queue, [X,Y], lists:reverse(R, []), L}.
 
 maybe_negate_priority(infinity) -> infinity;
