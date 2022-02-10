@@ -1437,7 +1437,7 @@ process_alias(Packet = #mqtt_packet{
         {ok, Topic} ->
             NPublish = Publish#mqtt_packet_publish{topic_name = Topic},
             {ok, Packet#mqtt_packet{variable = NPublish}, Channel};
-        false -> {error, ?RC_PROTOCOL_ERROR}
+        error -> {error, ?RC_PROTOCOL_ERROR}
     end;
 
 process_alias(#mqtt_packet{
@@ -1778,7 +1778,7 @@ run_hooks(Name, Args, Acc) ->
 
 -compile({inline, [find_alias/3, save_alias/4]}).
 
-find_alias(_, _, undefined) -> false;
+find_alias(_, _, undefined) -> error;
 find_alias(inbound, AliasId, _TopicAliases = #{inbound := Aliases}) ->
     maps:find(AliasId, Aliases);
 find_alias(outbound, Topic, _TopicAliases = #{outbound := Aliases}) ->
