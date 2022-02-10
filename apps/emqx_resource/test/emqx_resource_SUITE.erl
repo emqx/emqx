@@ -254,8 +254,9 @@ t_list_filter(_) ->
                 emqx_resource:generate_id(<<"a">>),
                 ?TEST_RESOURCE,
                 #{name => a}),
-    {ok, _} = emqx_resource:create_local(
-                emqx_resource:generate_id(<<"group">>, <<"a">>),
+    {ok, _} = emqx_resource:create_local_with_group(
+                emqx_resource:generate_id(<<"a">>),
+                <<"group">>,
                 ?TEST_RESOURCE,
                 #{name => grouped_a}),
 
