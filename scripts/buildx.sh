@@ -8,7 +8,7 @@
 ## i.e. will not work if docker command has to be executed with sudo
 
 ## example:
-## ./scripts/buildx.sh --profile emqx --pkgtype zip --builder ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10 --arch arm64
+## ./scripts/buildx.sh --profile emqx --pkgtype zip --builder ghcr.io/emqx/emqx-builder/4.4-5:24.1.5-3-debian10 --arch arm64
 
 set -euo pipefail
 
@@ -20,7 +20,7 @@ help() {
     echo "--arch amd64|arm64:  Target arch to build the EMQ X package for"
     echo "--src_dir <SRC_DIR>: EMQ X source ode in this dir, default to PWD"
     echo "--builder <BUILDER>: Builder image to pull"
-    echo "                     E.g. ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10"
+    echo "                     E.g. ghcr.io/emqx/emqx-builder/4.4-5:24.1.5-3-debian10"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -69,9 +69,11 @@ fi
 
 cd "${SRC_DIR:-.}"
 
+set -x
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
-OTP_VSN_SYSTEM=$(echo "$BUILDER" | cut -d ':' -f2)
-PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN_SYSTEM}-${ARCH}"
+OTP_VSN="$(docker run -v $(pwd):/src --rm "$BUILDER" bash /src/scripts/get-otp-vsn.sh)"
+DISTRO="$(docker run -v $(pwd):/src --rm "$BUILDER" bash /src/scripts/get-distro.sh)"
+PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${DISTRO}-${ARCH}"
 
 docker info
 docker run --rm --privileged tonistiigi/binfmt:latest --install ${ARCH}
