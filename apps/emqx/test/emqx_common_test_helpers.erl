@@ -49,6 +49,8 @@
         , render_config_file/2
         , read_schema_configs/2
         , load_config/2
+        , is_tcp_server_available/2
+        , is_tcp_server_available/3
         ]).
 
 -define( CERTS_PATH(CertName), filename:join( [ "etc", "certs", CertName ]) ).
@@ -111,6 +113,7 @@
                                          ] }
                             ]).
 
+-define(DEFAULT_TCP_SERVER_CHECK_AVAIL_TIMEOUT, 1000).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -433,3 +436,19 @@ copy_certs(_, _) -> ok.
 load_config(SchemaModule, Config) ->
     ok = emqx_config:delete_override_conf_files(),
     ok = emqx_config:init_load(SchemaModule, Config).
+
+-spec is_tcp_server_available(Host :: inet:socket_address() | inet:hostname(),
+                              Port :: inet:port_number()) -> boolean.
+is_tcp_server_available(Host, Port) ->
+    is_tcp_server_available(Host, Port, ?DEFAULT_TCP_SERVER_CHECK_AVAIL_TIMEOUT).
+
+-spec is_tcp_server_available(Host :: inet:socket_address() | inet:hostname(),
+                              Port :: inet:port_number(), Timeout :: integer()) -> boolean.
+is_tcp_server_available(Host, Port, Timeout) ->
+    case gen_tcp:connect(Host, Port, [], Timeout) of
+        {ok, Socket} ->
+            gen_tcp:close(Socket),
+            true;
+        {error, _} ->
+            false
+    end.

@@ -34,7 +34,7 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    case emqx_authz_test_lib:is_tcp_server_available(?MONGO_HOST, ?MONGO_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps(
                    [emqx_conf, emqx_authz],

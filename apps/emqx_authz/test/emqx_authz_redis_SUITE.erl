@@ -35,7 +35,7 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    case emqx_authn_test_lib:is_tcp_server_available(?REDIS_HOST, ?REDIS_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?REDIS_HOST, ?REDIS_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps(
                    [emqx_conf, emqx_authz],
