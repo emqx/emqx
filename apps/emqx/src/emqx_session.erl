@@ -129,9 +129,8 @@
           %% Awaiting PUBREL Timeout (Unit: millisecond)
           await_rel_timeout :: timeout(),
           %% Created at
-          created_at :: pos_integer(),
+          created_at :: pos_integer()
           %% Message deliver latency stats
-          latency_stats :: emqx_message_latency_stats:stats()
          }).
 
 
@@ -615,7 +614,7 @@ await(PacketId, Msg, Session = #session{inflight = Inflight}) ->
 
 -spec(retry(emqx_types:clientinfo(), session()) ->
     {ok, session()} | {ok, replies(), timeout(), session()}).
-retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = RetryInterval}) ->
+retry(ClientInfo, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:is_empty(Inflight) of
         true  -> {ok, Session};
         false ->
@@ -637,12 +636,8 @@ retry_delivery([{PacketId, #inflight_data{timestamp = Ts} = Data} | More],
             {ok, lists:reverse(Acc), Interval - max(0, Age), Session}
     end.
 
-do_retry_delivery(PacketId, Data, Now, Acc, Inflight, _) ->
-        Update = Data#inflight_data{timestamp = Now},
-    Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
-    {[{pubrel, PacketId} | Acc], Inflight1};
-
-do_retry_delivery(PacketId, #inflight_data{phase = wait_ack, message = Msg} = Data, Now, Acc, Inflight, ClientInfo) ->
+do_retry_delivery(PacketId, #inflight_data{phase = wait_ack, message = Msg} = Data,
+                  Now, Acc, Inflight, ClientInfo) ->
     case emqx_message:is_expired(Msg) of
         true ->
             ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, expired]),
@@ -653,7 +648,12 @@ do_retry_delivery(PacketId, #inflight_data{phase = wait_ack, message = Msg} = Da
             Update = Data#inflight_data{message = Msg1, timestamp = Now},
             Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
             {[{PacketId, Msg1} | Acc], Inflight1}
-    end.
+    end;
+
+do_retry_delivery(PacketId, Data, Now, Acc, Inflight, _) ->
+    Update = Data#inflight_data{timestamp = Now},
+    Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
+    {[{pubrel, PacketId} | Acc], Inflight1}.
 
 %%--------------------------------------------------------------------
 %% Expire Awaiting Rel
@@ -770,7 +770,7 @@ mark_begin_deliver(Msg) ->
 
 -compile({inline, [sort_fun/2, batch_n/1, with_ts/1, age/2]}).
 
-sort_fun(A, B) ->
+sort_fun({_, A}, {_, B}) ->
     A#inflight_data.timestamp =< B#inflight_data.timestamp.
 
 batch_n(Inflight) ->
