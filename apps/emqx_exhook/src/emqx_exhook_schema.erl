@@ -73,6 +73,9 @@ fields(ssl_conf) ->
     , {keyfile,
        sc(binary(),
           #{example => <<"{{ platform_etc_dir }}/certs/key.pem">>})}
+    , {verify,
+       sc(hoconsc:enum([verify_peer, verify_none]),
+          #{example => <<"verify_none">>})}
     ].
 
 %% types
