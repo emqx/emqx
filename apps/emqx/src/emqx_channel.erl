@@ -119,7 +119,33 @@
           quota_timer  => expire_quota_limit
          }).
 
--define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
+-define(CHANNEL_METRICS,
+    [ recv_pkt
+    , recv_msg
+    , 'recv_msg.qos0'
+    , 'recv_msg.qos1'
+    , 'recv_msg.qos2'
+    , 'recv_msg.dropped'
+    , 'recv_msg.dropped.await_pubrel_timeout'
+    , send_pkt
+    , send_msg
+    , 'send_msg.qos0'
+    , 'send_msg.qos1'
+    , 'send_msg.qos2'
+    , 'send_msg.dropped'
+    , 'send_msg.dropped.expired'
+    , 'send_msg.dropped.queue_full'
+    , 'send_msg.dropped.too_large'
+    ]).
+
+-define(INFO_KEYS,
+    [ conninfo
+    , conn_state
+    , clientinfo
+    , session
+    , will_msg
+    ]).
+
 -define(LIMITER_ROUTING, message_routing).
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
@@ -184,10 +210,9 @@ set_session(Session, Channel = #channel{conninfo = ConnInfo, clientinfo = Client
     Session1 = emqx_persistent_session:persist(ClientInfo, ConnInfo, Session),
     Channel#channel{session = Session1}.
 
-%% TODO: Add more stats.
 -spec(stats(channel()) -> emqx_types:stats()).
 stats(#channel{session = Session})->
-    emqx_session:stats(Session).
+    lists:append(emqx_session:stats(Session), emqx_pd:get_counters(?CHANNEL_METRICS)).
 
 -spec(caps(channel()) -> emqx_types:caps()).
 caps(#channel{clientinfo = #{zone := Zone}}) ->
