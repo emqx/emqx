@@ -179,7 +179,7 @@ schema("/clients/:clientid") ->
         delete => #{
             description => <<"Kick out client by client ID">>,
             parameters => [
-                {clientid, hoconsc:mk(boolean(), #{in => path})}],
+                {clientid, hoconsc:mk(binary(), #{in => path})}],
             responses => #{
                 204 => <<"Kick out client successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
@@ -258,9 +258,10 @@ schema("/clients/:clientid/unsubscribe") ->
 schema("/clients/:clientid/keepalive") ->
     #{
         'operationId' => set_keepalive,
-        post => #{
+        put => #{
             description => <<"Set the online client keepalive by seconds">>,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, keepalive)),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, client), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
@@ -363,7 +364,7 @@ fields(authz_cache) ->
 
 fields(keepalive) ->
     [
-        {keepalive, hoconsc:mk(integer(), #{desc => <<"keepalive time, with the unit of second">>})}
+        {interval, hoconsc:mk(integer(), #{desc => <<"Keepalive time, with the unit of second">>})}
     ];
 
 fields(subscribe) ->
@@ -435,13 +436,12 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
         {200, lists:map(Formatter, Subs)}
     end.
 
-set_keepalive(put, #{bindings := #{clientid := ClientID}, query_string := Query}) ->
-    case maps:find(<<"interval">>, Query) of
-        error -> {404, "Interval Not Found"};
-        {ok, Interval0} ->
-            Interval = binary_to_integer(Interval0),
+set_keepalive(put, #{bindings := #{clientid := ClientID}, body := Body}) ->
+    case maps:find(<<"interval">>, Body) of
+        error -> {400, 'BAD_REQUEST',"Interval Not Found"};
+        {ok, Interval} ->
             case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientID), Interval) of
-                ok -> {200};
+                ok -> lookup(#{clientid => ClientID});
                 {error, not_found} ->{404, ?CLIENT_ID_NOT_FOUND};
                 {error, Reason} -> {400, #{code => 'PARAMS_ERROR', message => Reason}}
             end
