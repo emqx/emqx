@@ -30,7 +30,6 @@ compile_commands.json
 cuttlefish
 xrefr
 *.coverdata
-etc/emqx.conf.rendered
 Mnesia.*/
 *.DS_Store
 _checkouts
@@ -63,3 +62,5 @@ erlang_ls.config
 # elixir
 mix.lock
 apps/emqx/test/emqx_static_checks_data/
+# rendered configurations
+*.conf.rendered
