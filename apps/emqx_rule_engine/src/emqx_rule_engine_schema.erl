@@ -194,7 +194,7 @@ outputs() ->
     ].
 
 qos() ->
-    hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2), binary()]).
+    hoconsc:union([emqx_schema:qos(), binary()]).
 
 validate_sql(Sql) ->
     case emqx_rule_sqlparser:parse(Sql) of

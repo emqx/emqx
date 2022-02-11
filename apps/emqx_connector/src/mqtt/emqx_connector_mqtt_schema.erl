@@ -236,7 +236,7 @@ Template with variables is allowed."""
     ].
 
 qos() ->
-    hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2), binary()]).
+    hoconsc:union([emqx_schema:qos(), binary()]).
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Field) -> hoconsc:ref(?MODULE, Field).

@@ -35,12 +35,10 @@ fields("auto_subscribe") ->
 
 fields("topic") ->
     [ {topic, sc(binary(), #{example => topic_example()})}
-    , {qos, sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2)]),
-        #{default => 0})}
-    , {rh, sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2)]),
-        #{default => 0})}
-    , {rap, sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1)]), #{default => 0})}
-    , {nl, sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1)]), #{default => 0})}
+    , {qos, sc(emqx_schema:qos(), #{default => 0})}
+    , {rh, sc(range(0,2), #{default => 0})}
+    , {rap, sc(range(0, 1), #{default => 0})}
+    , {nl, sc(range(0, 1), #{default => 0})}
     ].
 
 topic_example() ->
