@@ -90,6 +90,7 @@ get_raw_cluster_override_conf() ->
 
 -spec init(term()) -> {ok, state()}.
 init(_) ->
+    process_flag(trap_exit, true),
     {ok, #{handlers => #{?MOD => ?MODULE}}}.
 
 handle_call({add_handler, ConfKeyPath, HandlerName}, _From, State = #{handlers := Handlers}) ->
@@ -102,24 +103,8 @@ handle_call({add_handler, ConfKeyPath, HandlerName}, _From, State = #{handlers :
 
 handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
             #{handlers := Handlers} = State) ->
-    Reply = try
-        case process_update_request(ConfKeyPath, Handlers, UpdateArgs) of
-            {ok, NewRawConf, OverrideConf, Opts} ->
-                check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf,
-                    OverrideConf, UpdateArgs, Opts);
-            {error, Result} ->
-                {error, Result}
-        end
-    catch Error:Reason:ST ->
-        ?SLOG(error, #{
-            msg => "change_config_failed",
-            exception => Error,
-            reason => Reason,
-            stacktrace => ST
-        }),
-        {error, Reason}
-    end,
-    {reply, Reply, State};
+    Result = handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs),
+    {reply, Result, State};
 handle_call(get_raw_cluster_override_conf, _From, State) ->
     Reply = emqx_config:read_override_conf(#{override_to => cluster}),
     {reply, Reply, State};
@@ -163,6 +148,30 @@ deep_put_handler2(Key, KeyPath, Handlers, Mod) ->
             {ok, Handlers#{Key => SubHandlers1}};
         Error ->
             Error
+    end.
+
+handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs) ->
+    try
+        do_handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs)
+    catch
+        throw : Reason ->
+            {error, Reason};
+        Error : Reason : ST ->
+            ?SLOG(error, #{msg => "change_config_failed",
+                           exception => Error,
+                           reason => Reason,
+                           stacktrace => ST
+                          }),
+            {error, config_update_crashed}
+    end.
+
+do_handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs) ->
+    case process_update_request(ConfKeyPath, Handlers, UpdateArgs) of
+        {ok, NewRawConf, OverrideConf, Opts} ->
+            check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf,
+                                   OverrideConf, UpdateArgs, Opts);
+        {error, Result} ->
+            {error, Result}
     end.
 
 process_update_request(ConfKeyPath, _Handlers, {remove, Opts}) ->

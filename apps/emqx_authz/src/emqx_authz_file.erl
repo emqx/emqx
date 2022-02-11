@@ -41,15 +41,14 @@ init(#{path := Path} = Source) ->
     Rules = case file:consult(Path) of
                 {ok, Terms} ->
                     [emqx_authz_rule:compile(Term) || Term <- Terms];
-                {error, eacces} ->
-                    ?SLOG(alert, #{msg => "insufficient_permissions_to_read_file", path => Path}),
-                    error(eaccess);
-                {error, enoent} ->
-                    ?SLOG(alert, #{msg => "file_does_not_exist", path => Path}),
-                    error(enoent);
+                {error, Reason} when is_atom(Reason) ->
+                    ?SLOG(alert, #{msg => failed_to_read_acl_file,
+                                   path => Path,
+                                   explain => emqx_misc:explain_posix(Reason)}),
+                    throw(failed_to_read_acl_file);
                 {error, Reason} ->
-                    ?SLOG(alert, #{msg => "failed_to_read_file", path => Path, reason => Reason}),
-                    error(Reason)
+                    ?SLOG(alert, #{msg => bad_acl_file_content, path => Path, reason => Reason}),
+                    throw(bad_acl_file_content)
             end,
     Source#{annotations => #{rules => Rules}}.
 

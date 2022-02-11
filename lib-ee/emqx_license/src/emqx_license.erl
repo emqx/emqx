@@ -118,10 +118,10 @@ do_update({file, Filename}, _Conf) ->
                 {ok, _License} ->
                     #{<<"file">> => Filename};
                 {error, Reason} ->
-                    error(Reason)
+                    erlang:throw(Reason)
             end;
         {error, Reason} ->
-            error({invalid_license_file, Reason})
+            erlang:throw({invalid_license_file, Reason})
     end;
 
 do_update({key, Content}, _Conf) when is_binary(Content); is_list(Content) ->
@@ -129,7 +129,7 @@ do_update({key, Content}, _Conf) when is_binary(Content); is_list(Content) ->
         {ok, _License} ->
             #{<<"key">> => Content};
         {error, Reason} ->
-            error(Reason)
+            erlang:throw(Reason)
     end.
 
 check_max_clients_exceeded(MaxClients) ->

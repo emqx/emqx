@@ -45,8 +45,7 @@ t_parse(_Config) ->
     %% invalid version
     ?assertMatch(
        {error,
-        {unknown_format,
-         [{emqx_license_parser_v20220101,invalid_version}]}},
+        [{emqx_license_parser_v20220101,invalid_version}]},
        emqx_license_parser:parse(
          emqx_license_test_lib:make_license(
            ["220101",
@@ -63,8 +62,7 @@ t_parse(_Config) ->
     %% invalid field number
     ?assertMatch(
        {error,
-        {unknown_format,
-         [{emqx_license_parser_v20220101,invalid_field_number}]}},
+        [{emqx_license_parser_v20220101,invalid_field_number}]},
        emqx_license_parser:parse(
          emqx_license_test_lib:make_license(
            ["220111",
@@ -80,12 +78,11 @@ t_parse(_Config) ->
 
     ?assertMatch(
        {error,
-        {unknown_format,
          [{emqx_license_parser_v20220101,
            [{type,invalid_license_type},
             {customer_type,invalid_customer_type},
             {date_start,invalid_date},
-            {days,invalid_int_value}]}]}},
+            {days,invalid_int_value}]}]},
        emqx_license_parser:parse(
          emqx_license_test_lib:make_license(
            ["220111",
@@ -125,21 +122,20 @@ t_parse(_Config) ->
 
     ?assertMatch(
        {error,
-        {unknown_format,
-         [{emqx_license_parser_v20220101,invalid_signature}]}},
+         [{emqx_license_parser_v20220101,invalid_signature}]},
        emqx_license_parser:parse(
          iolist_to_binary([LicensePart, <<".">>, SignaturePart]),
          public_key_encoded())),
 
     %% totally invalid strings as license
     ?assertMatch(
-       {error, {unknown_format, _}},
+       {error, [_ | _]},
        emqx_license_parser:parse(
          <<"badlicense">>,
          public_key_encoded())),
 
     ?assertMatch(
-       {error, {unknown_format, _}},
+       {error, [_ | _]},
        emqx_license_parser:parse(
          <<"bad.license">>,
          public_key_encoded())).

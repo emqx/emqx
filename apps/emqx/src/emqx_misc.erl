@@ -48,6 +48,7 @@
         , ipv6_probe/1
         , gen_id/0
         , gen_id/1
+        , explain_posix/1
         ]).
 
 -export([ bin2hexstr_A_F/1
@@ -313,6 +314,41 @@ clamp(Val, Min, Max) ->
        Val > Max -> Max;
        true -> Val
     end.
+
+%% @doc https://www.erlang.org/doc/man/file.html#posix-error-codes
+explain_posix(eacces) -> "Permission denied";
+explain_posix(eagain) -> "Resource temporarily unavailable";
+explain_posix(ebadf) -> "Bad file number";
+explain_posix(ebusy) -> "File busy";
+explain_posix(edquot) -> "Disk quota exceeded";
+explain_posix(eexist) -> "File already exists";
+explain_posix(efault) -> "Bad address in system call argument";
+explain_posix(efbig) -> "File too large";
+explain_posix(eintr) -> "Interrupted system call";
+explain_posix(einval) -> "Invalid argument argument file/socket";
+explain_posix(eio) -> "I/O error";
+explain_posix(eisdir) -> "Illegal operation on a directory";
+explain_posix(eloop) -> "Too many levels of symbolic links";
+explain_posix(emfile) -> "Too many open files";
+explain_posix(emlink) -> "Too many links";
+explain_posix(enametoolong) -> "Filename too long";
+explain_posix(enfile) -> "File table overflow";
+explain_posix(enodev) -> "No such device";
+explain_posix(enoent) -> "No such file or directory";
+explain_posix(enomem) -> "Not enough memory";
+explain_posix(enospc) -> "No space left on device";
+explain_posix(enotblk) -> "Block device required";
+explain_posix(enotdir) -> "Not a directory";
+explain_posix(enotsup) -> "Operation not supported";
+explain_posix(enxio) -> "No such device or address";
+explain_posix(eperm) -> "Not owner";
+explain_posix(epipe) -> "Broken pipe";
+explain_posix(erofs) -> "Read-only file system";
+explain_posix(espipe) -> "Invalid seek";
+explain_posix(esrch) -> "No such process";
+explain_posix(estale) -> "Stale remote file handle";
+explain_posix(exdev) -> "Cross-domain link";
+explain_posix(NotPosix) -> NotPosix.
 
 %%------------------------------------------------------------------------------
 %% Internal Functions

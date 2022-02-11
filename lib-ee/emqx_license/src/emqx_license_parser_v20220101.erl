@@ -24,12 +24,14 @@
 %%------------------------------------------------------------------------------
 
 parse(Content, Key) ->
-    [EncodedPayload, EncodedSignature] = binary:split(Content, <<".">>),
-    Payload = base64:decode(EncodedPayload),
-    Signature = base64:decode(EncodedSignature),
-    case verify_signature(Payload, Signature, Key) of
-        true -> parse_payload(Payload);
-        false -> {error, invalid_signature}
+    case do_parse(Content) of
+        {ok, {Payload, Signature}} ->
+            case verify_signature(Payload, Signature, Key) of
+                true -> parse_payload(Payload);
+                false -> {error, invalid_signature}
+            end;
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 dump(#{type := Type,
@@ -66,6 +68,17 @@ max_connections(#{max_connections := MaxConns}) ->
 %%------------------------------------------------------------------------------
 %% Private functions
 %%------------------------------------------------------------------------------
+
+do_parse(Content) ->
+    try
+        [EncodedPayload, EncodedSignature] = binary:split(Content, <<".">>),
+        Payload = base64:decode(EncodedPayload),
+        Signature = base64:decode(EncodedSignature),
+        {ok, {Payload, Signature}}
+    catch
+        _ : _ ->
+            {error, bad_license_format}
+    end.
 
 verify_signature(Payload, Signature, Key) ->
     RSAPublicKey = public_key:der_decode('RSAPublicKey', Key),

@@ -11,7 +11,6 @@
 ## ./scripts/buildx.sh --profile emqx --pkgtype tgz --arch arm64 --builder ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10
 
 set -euo pipefail
-set -x
 
 help() {
     echo
@@ -90,6 +89,8 @@ if [ -z "${PROFILE:-}" ]    ||
     help
     exit 1
 fi
+
+set -x
 
 if [ -z "${WITH_ELIXIR:-}" ]; then
   WITH_ELIXIR=no

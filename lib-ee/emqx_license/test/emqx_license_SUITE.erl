@@ -68,7 +68,7 @@ t_update_file(_Config) ->
 
     ok = file:write_file("license_with_invalid_content.lic", <<"bad license">>),
     ?assertMatch(
-       {error, {unknown_format, _}},
+       {error, [_ | _]},
        emqx_license:update_file("license_with_invalid_content.lic")),
 
     ?assertMatch(
@@ -77,7 +77,7 @@ t_update_file(_Config) ->
 
 t_update_value(_Config) ->
     ?assertMatch(
-       {error, {unknown_format, _}},
+       {error, [_ | _]},
        emqx_license:update_key("invalid.license")),
 
     {ok, LicenseValue} = file:read_file(emqx_license_test_lib:default_license()),

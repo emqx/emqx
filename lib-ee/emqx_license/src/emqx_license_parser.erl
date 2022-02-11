@@ -98,7 +98,7 @@ max_connections(#{module := Module, data := LicenseData}) ->
 %%--------------------------------------------------------------------
 
 do_parse(_Content, _Key, [], Errors) ->
-    {error, {unknown_format, lists:reverse(Errors)}};
+    {error, lists:reverse(Errors)};
 
 do_parse(Content, Key, [Module | Modules], Errors) ->
     try Module:parse(Content, Key) of
@@ -107,7 +107,7 @@ do_parse(Content, Key, [Module | Modules], Errors) ->
         {error, Error} ->
             do_parse(Content, Key, Modules, [{Module, Error} | Errors])
     catch
-        _Class:Error:_Stk ->
+        _Class : Error ->
             do_parse(Content, Key, Modules, [{Module, Error} | Errors])
     end.
 
