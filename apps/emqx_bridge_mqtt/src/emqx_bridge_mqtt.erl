@@ -181,7 +181,7 @@ subscribe_remote_topics(ClientPid, Subscriptions) ->
 %%--------------------------------------------------------------------
 
 replvar(Options) ->
-    replvar([clientid, max_inflight], Options).
+    replvar([topic, clientid, max_inflight], Options).
 
 replvar([], Options) ->
     Options;
@@ -194,8 +194,8 @@ replvar([Key|More], Options) ->
     end.
 
 %% ${node} => node()
-feedvar(clientid, ClientId, _) ->
-    iolist_to_binary(re:replace(ClientId, "\\${node}", atom_to_list(node())));
+feedvar(Key, Value, _) when Key =:= topic; Key =:= clientid ->
+    iolist_to_binary(re:replace(Value, "\\${node}", atom_to_list(node())));
 
 feedvar(max_inflight, 0, _) ->
     infinity;
