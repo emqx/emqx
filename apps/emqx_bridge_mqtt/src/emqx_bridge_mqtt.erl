@@ -37,6 +37,11 @@
         , handle_disconnected/2
         ]).
 
+%% for testing
+-ifdef(TEST).
+-export([ replvar/1 ]).
+-endif.
+
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
@@ -176,12 +181,12 @@ subscribe_remote_topics(ClientPid, Subscriptions) ->
                           end
                   end, Subscriptions).
 
+replvar(Options) ->
+    replvar([topic, clientid, max_inflight], Options).
+
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
-
-replvar(Options) ->
-    replvar([clientid, max_inflight], Options).
 
 replvar([], Options) ->
     Options;
@@ -194,8 +199,8 @@ replvar([Key|More], Options) ->
     end.
 
 %% ${node} => node()
-feedvar(clientid, ClientId, _) ->
-    iolist_to_binary(re:replace(ClientId, "\\${node}", atom_to_list(node())));
+feedvar(Key, Value, _) when Key =:= topic; Key =:= clientid ->
+    iolist_to_binary(re:replace(Value, "\\${node}", atom_to_list(node())));
 
 feedvar(max_inflight, 0, _) ->
     infinity;

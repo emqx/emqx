@@ -45,3 +45,14 @@ send_and_ack_test() ->
     after
         meck:unload(emqtt)
     end.
+
+replvar_test() ->
+    Node = atom_to_list(node()),
+    Config = #{clientid => <<"Hey ${node}">>, topic => <<"topic ${node}">>, other => <<"other">>},
+
+    ReplacedConfig = emqx_bridge_mqtt:replvar(Config),
+
+    ExpectedConfig = #{clientid => iolist_to_binary("Hey " ++ Node),
+                       topic    => iolist_to_binary("topic " ++ Node),
+                       other    => <<"other">>},
+    ?assertEqual(ExpectedConfig, ReplacedConfig).

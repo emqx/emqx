@@ -17,6 +17,8 @@ File format:
 * CLI `emqx_ctl pem_cache clean` to force purge x509 certificate cache,
   to force an immediate reload of all certificates after the files are updated on disk.
 
+* `topic` parameter in bridge configuration can have `${node}` substitution (just like in `clientid` parameter)
+
 ### Bug fixes
 
 * Fix case where publishing to a non-existent topic alias would crash the connection [#6979]
