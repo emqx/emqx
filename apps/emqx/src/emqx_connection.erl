@@ -131,25 +131,6 @@
     , sockstate
     ]).
 
--define(CONN_STATS,
-    [ recv_pkt
-    , recv_msg
-    , 'recv_msg.qos0'
-    , 'recv_msg.qos1'
-    , 'recv_msg.qos2'
-    , 'recv_msg.dropped'
-    , 'recv_msg.dropped.await_pubrel_timeout'
-    , send_pkt
-    , send_msg
-    , 'send_msg.qos0'
-    , 'send_msg.qos1'
-    , 'send_msg.qos2'
-    , 'send_msg.dropped'
-    , 'send_msg.dropped.expired'
-    , 'send_msg.dropped.queue_full'
-    , 'send_msg.dropped.too_large'
-    ]).
-
 -define(SOCK_STATS,
     [ recv_oct
     , recv_cnt
@@ -236,10 +217,9 @@ stats(#state{transport = Transport,
                     {ok, Ss}   -> Ss;
                     {error, _} -> []
                 end,
-    ConnStats = emqx_pd:get_counters(?CONN_STATS),
     ChanStats = emqx_channel:stats(Channel),
     ProcStats = emqx_misc:proc_stats(),
-    lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
+    lists:append([SockStats, ChanStats, ProcStats]).
 
 %% @doc Set TCP keepalive socket options to override system defaults.
 %% Idle: The number of seconds a connection needs to be idle before
@@ -1030,12 +1010,12 @@ inc_outgoing_stats({error, message_too_large}) ->
     inc_counter('send_msg.dropped.too_large', 1);
 inc_outgoing_stats(Packet = ?PACKET(Type)) ->
     inc_counter(send_pkt, 1),
-    case Type =:= ?PUBLISH of
-        true ->
+    case Type of
+        ?PUBLISH ->
             inc_counter(send_msg, 1),
             inc_counter(outgoing_pubs, 1),
             inc_qos_stats(send_msg, Packet);
-        false ->
+        _ ->
             ok
     end,
     emqx_metrics:inc_sent(Packet).
