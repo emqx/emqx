@@ -145,7 +145,7 @@ relup_test(){
         find . -maxdepth 1 -name "${EMQX_NAME}-*-${ARCH}.zip" |
             while read -r pkg; do
                 packagename=$(basename "${pkg}")
-                unzip "$packagename"
+                unzip -q "$packagename"
                 ./emqx/bin/emqx start || ( tail emqx/log/emqx.log.1 && exit 1 )
                 ./emqx/bin/emqx_ctl status
                 ./emqx/bin/emqx versions
