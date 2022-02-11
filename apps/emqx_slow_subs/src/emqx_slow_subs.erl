@@ -22,8 +22,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_slow_subs/include/emqx_slow_subs.hrl").
 
--export([ start_link/0, on_stats_update/2, update_settings/1
-        , clear_history/0, init_topk_tab/0, post_config_update/5
+-export([ start_link/0, on_delivery_completed/3, update_settings/1
+        , clear_history/0, init_tab/0, post_config_update/5
         ]).
 
 %% gen_server callbacks
@@ -40,29 +40,19 @@
 -type state() :: #{ enable := boolean()
                   , last_tick_at := pos_integer()
                   , expire_timer := undefined | reference()
-                  , notice_timer := undefined | reference()
                   }.
-
--type log() :: #{ rank := pos_integer()
-                , clientid := emqx_types:clientid()
-                , latency := non_neg_integer()
-                , type := emqx_message_latency_stats:latency_type()
-                }.
-
--type window_log() :: #{ last_tick_at := pos_integer()
-                       , logs := [log()]
-                       }.
 
 -type message() :: #message{}.
 
--type stats_update_args() :: #{ clientid := emqx_types:clientid()
-                              , latency := non_neg_integer()
-                              , type := emqx_message_latency_stats:latency_type()
-                              , last_insert_value := non_neg_integer()
-                              , update_time := timer:time()
-                              }.
+-type stats_type() :: whole         %% whole = internal + response
+                    | internal      %% timespan from message in to deliver
+                    | response.     %% timespan from delivery to client response
 
--type stats_update_env() :: #{max_size := pos_integer()}.
+-type stats_update_args() :: #{session_birth_time := pos_integer()}.
+
+-type stats_update_env() :: #{ threshold := non_neg_integer()
+                             , stats_type := stats_type()
+                             , max_size := pos_integer()}.
 
 -ifdef(TEST).
 -define(EXPIRE_CHECK_INTERVAL, timer:seconds(1)).
@@ -71,7 +61,6 @@
 -endif.
 
 -define(NOW, erlang:system_time(millisecond)).
--define(NOTICE_TOPIC_NAME, "slow_subs").
 -define(DEF_CALL_TIMEOUT, timer:seconds(10)).
 
 %% erlang term order
@@ -88,37 +77,30 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-%% XXX NOTE:pay attention to the performance here
--spec on_stats_update(stats_update_args(), stats_update_env()) -> true.
-on_stats_update(#{clientid := ClientId,
-                  latency := Latency,
-                  type := Type,
-                  last_insert_value := LIV,
-                  update_time := Ts},
-                #{max_size := MaxSize}) ->
+on_delivery_completed(#message{timestamp = Ts},
+                      #{session_birth_time := BirthTime}, _Cfg) when Ts =< BirthTime ->
+    ok;
 
-    LastIndex = ?INDEX(LIV, ClientId),
-    Index = ?INDEX(Latency, ClientId),
+on_delivery_completed(Msg, Env, Cfg) ->
+    on_delivery_completed(Msg, Env, erlang:system_time(millisecond), Cfg).
 
-    %% check whether the client is in the table
-    case ets:lookup(?TOPK_TAB, LastIndex) of
-        [#top_k{index = Index}] ->
-            %% if last value == the new value, update the type and last_update_time
-            %% XXX for clients whose latency are stable for a long time, is it
-            %% possible to reduce updates?
-            ets:insert(?TOPK_TAB,
-                       #top_k{index = Index, type = Type, last_update_time = Ts});
-        [_] ->
-            %% if Latency > minimum value, we should update it
-            %% if Latency < minimum value, maybe it can replace the minimum value
-            %% so always update at here
-            %% do we need check if Latency == minimum ???
-            ets:insert(?TOPK_TAB,
-                       #top_k{index = Index, type = Type, last_update_time = Ts}),
-            ets:delete(?TOPK_TAB, LastIndex);
-        [] ->
-            %% try to insert
-            try_insert_to_topk(MaxSize, Index, Latency, Type, Ts)
+on_delivery_completed(#message{topic = Topic} = Msg,
+                      #{clientid := ClientId},
+                      Now,
+                      #{threshold := Threshold,
+                        stats_type := StatsType,
+                        max_size := MaxSize}) ->
+    TimeSpan = calc_timespan(StatsType, Msg, Now),
+    case TimeSpan =< Threshold of
+        true -> ok;
+        _ ->
+            Id = ?ID(ClientId, Topic),
+            LastUpdateValue = find_last_update_value(Id),
+            case TimeSpan =< LastUpdateValue of
+                true -> ok;
+                _ ->
+                    try_insert_to_topk(MaxSize, Now, LastUpdateValue, TimeSpan, Id)
+            end
     end.
 
 clear_history() ->
@@ -127,20 +109,19 @@ clear_history() ->
 update_settings(Conf) ->
     emqx_conf:update([slow_subs], Conf, #{override_to => cluster}).
 
-init_topk_tab() ->
-    case ets:whereis(?TOPK_TAB) of
-        undefined ->
-            ?TOPK_TAB = ets:new(?TOPK_TAB,
-                                [ ordered_set, public, named_table
-                                , {keypos, #top_k.index}, {write_concurrency, true}
-                                , {read_concurrency, true}
-                                ]);
-        _ ->
-            ?TOPK_TAB
-    end.
-
 post_config_update(_KeyPath, _UpdateReq, NewConf, _OldConf, _AppEnvs) ->
     gen_server:call(?MODULE, {update_settings, NewConf}, ?DEF_CALL_TIMEOUT).
+
+init_tab() ->
+    safe_create_tab(?TOPK_TAB, [ ordered_set, public, named_table
+                               , {keypos, #top_k.index}, {write_concurrency, true}
+                               , {read_concurrency, true}
+                               ]),
+
+    safe_create_tab(?INDEX_TAB, [ ordered_set, public, named_table
+                                , {keypos, #index_tab.index}, {write_concurrency, true}
+                                , {read_concurrency, true}
+                                ]).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -151,8 +132,7 @@ init([]) ->
 
     InitState = #{enable => false,
                   last_tick_at => 0,
-                  expire_timer => undefined,
-                  notice_timer => undefined
+                  expire_timer => undefined
                  },
 
     Enable = emqx:get_config([slow_subs, enable]),
@@ -164,7 +144,7 @@ handle_call({update_settings, #{enable := Enable} = Conf}, _From, State) ->
     {reply, ok, State2};
 
 handle_call(clear_history, _, State) ->
-    ets:delete_all_objects(?TOPK_TAB),
+    do_clear_history(),
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
@@ -180,12 +160,6 @@ handle_info(expire_tick, State) ->
     do_clear(Logs),
     State1 = start_timer(expire_timer, fun expire_tick/0, State),
     {noreply, State1};
-
-handle_info(notice_tick, State) ->
-    Logs = ets:tab2list(?TOPK_TAB),
-    do_notification(Logs, State),
-    State1 = start_timer(notice_timer, fun notice_tick/0, State),
-    {noreply, State1#{last_tick_at := ?NOW}};
 
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
@@ -204,123 +178,127 @@ code_change(_OldVsn, State, _Extra) ->
 expire_tick() ->
     erlang:send_after(?EXPIRE_CHECK_INTERVAL, self(), ?FUNCTION_NAME).
 
-notice_tick() ->
-    case emqx:get_config([slow_subs, notice_interval]) of
-        0 -> undefined;
-        Interval ->
-            erlang:send_after(Interval, self(), ?FUNCTION_NAME)
-    end.
-
--spec do_notification(list(), state()) -> ok.
-do_notification([], _) ->
-    ok;
-
-do_notification(Logs, #{last_tick_at := LastTickTime}) ->
-    start_publish(Logs, LastTickTime),
-    ok.
-
-start_publish(Logs, TickTime) ->
-    emqx_pool:async_submit({fun do_publish/3, [Logs, erlang:length(Logs), TickTime]}).
-
-do_publish([], _, _) ->
-    ok;
-
-do_publish(Logs, Rank, TickTime) ->
-    BatchSize = emqx:get_config([slow_subs, notice_batch_size]),
-    do_publish(Logs, BatchSize, Rank, TickTime, []).
-
-do_publish([Log | T], Size, Rank, TickTime, Cache) when Size > 0 ->
-    Cache2 = [convert_to_notice(Rank, Log) | Cache],
-    do_publish(T, Size - 1, Rank - 1, TickTime, Cache2);
-
-do_publish(Logs, Size, Rank, TickTime, Cache) when Size =:= 0 ->
-    publish(TickTime, Cache),
-    do_publish(Logs, Rank, TickTime);
-
-do_publish([], _, _Rank, TickTime, Cache) ->
-    publish(TickTime, Cache),
-    ok.
-
-convert_to_notice(Rank, #top_k{index = ?INDEX(Latency, ClientId),
-                               type = Type,
-                               last_update_time = Ts}) ->
-    #{rank => Rank,
-      clientid => ClientId,
-      latency => Latency,
-      type => Type,
-      timestamp => Ts}.
-
-publish(TickTime, Notices) ->
-    WindowLog = #{last_tick_at => TickTime,
-                  logs => lists:reverse(Notices)},
-    Payload = emqx_json:encode(WindowLog),
-    Msg = #message{ id = emqx_guid:gen()
-                  , qos = emqx:get_config([slow_subs, notice_qos])
-                  , from = ?MODULE
-                  , topic = emqx_topic:systop(?NOTICE_TOPIC_NAME)
-                  , payload = Payload
-                  , timestamp = ?NOW
-                  },
-    _ = emqx_broker:safe_publish(Msg),
-    ok.
-
 load(State) ->
-    MaxSizeT = emqx:get_config([slow_subs, top_k_num]),
-    MaxSize = erlang:min(MaxSizeT, ?MAX_TAB_SIZE),
-    _ = emqx:hook('message.slow_subs_stats',
-                  {?MODULE, on_stats_update, [#{max_size => MaxSize}]}
-                 ),
+    #{top_k_num := MaxSizeT,
+      stats_type := StatsType,
+      threshold := Threshold} = emqx:get_config([slow_subs]),
+    MaxSize = erlang:min(MaxSizeT, ?MAX_SIZE),
+    _ = emqx:hook('delivery.completed',
+                  {?MODULE, on_delivery_completed,
+                   [#{max_size => MaxSize,
+                      stats_type => StatsType,
+                      threshold => Threshold
+                     }]}),
 
-    State1 = start_timer(notice_timer, fun notice_tick/0, State),
-    State2 = start_timer(expire_timer, fun expire_tick/0, State1),
-    State2#{enable := true, last_tick_at => ?NOW}.
+    State1 = start_timer(expire_timer, fun expire_tick/0, State),
+    State1#{enable := true, last_tick_at => ?NOW}.
 
-
-unload(#{notice_timer := NoticeTimer, expire_timer := ExpireTimer} = State) ->
-    emqx:unhook('message.slow_subs_stats', {?MODULE, on_stats_update}),
-    State#{notice_timer := cancel_timer(NoticeTimer),
-           expire_timer := cancel_timer(ExpireTimer)
-          }.
+unload(#{expire_timer := ExpireTimer} = State) ->
+    emqx:unhook('delivery.completed', {?MODULE, on_delivery_completed}),
+    State#{expire_timer := cancel_timer(ExpireTimer)}.
 
 do_clear(Logs) ->
     Now = ?NOW,
     Interval = emqx:get_config([slow_subs, expire_interval]),
-    Each = fun(#top_k{index = Index, last_update_time = Ts}) ->
+    Each = fun(#top_k{index = ?TOPK_INDEX(TimeSpan, Id), last_update_time = Ts}) ->
                    case Now - Ts >= Interval of
                        true ->
-                           ets:delete(?TOPK_TAB, Index);
+                           delete_with_index(TimeSpan, Id);
                        _ ->
                            true
-               end
+                   end
            end,
     lists:foreach(Each, Logs).
 
-try_insert_to_topk(MaxSize, Index, Latency, Type, Ts) ->
+-spec calc_timespan(stats_type(), emqx_types:message(), non_neg_integer()) -> non_neg_integer().
+calc_timespan(whole, #message{timestamp = Ts}, Now) ->
+    Now - Ts;
+
+calc_timespan(internal, #message{timestamp = Ts} = Msg, Now) ->
+    End = emqx_message:get_header(deliver_begin_at, Msg, Now),
+    End - Ts;
+
+calc_timespan(response, Msg, Now) ->
+    Begin = emqx_message:get_header(deliver_begin_at, Msg, Now),
+    Now - Begin.
+
+%% update_topk is safe, because each process has a unique clientid
+%% insert or delete are bind to this clientid, so there is no race condition
+%%
+%% but, the delete_with_index in L249 may have a race condition
+%% because the data belong to other clientid will be deleted here
+%% (deleted the data written by other processes).
+%% so it may appear that:
+%%   when deleting a record, the other process is performing an update operation on this recrod
+%% in order to solve this race condition problem, the index table also uses the ordered_set type,
+%% so that even if the above situation occurs, it will only cause the old data to be deleted twice
+%% and the correctness of the data will not be affected
+
+try_insert_to_topk(MaxSize, Now, LastUpdateValue, TimeSpan, Id) ->
     case ets:info(?TOPK_TAB, size) of
         Size when Size < MaxSize ->
-            %% if the size is under limit, insert it directly
-            ets:insert(?TOPK_TAB,
-                       #top_k{index = Index, type = Type, last_update_time = Ts});
+            update_topk(Now, LastUpdateValue, TimeSpan, Id);
         _Size ->
-            %% find the minimum value
-            ?INDEX(Min, _) = First =
-                case ets:first(?TOPK_TAB) of
-                    ?INDEX(_, _) = I ->  I;
-                    _ -> ?INDEX(Latency - 1, <<>>)
-                end,
-
-            case Latency =< Min of
-                true -> true;
-                _ ->
-                    ets:insert(?TOPK_TAB,
-                               #top_k{index = Index, type = Type, last_update_time = Ts}),
-
-                    ets:delete(?TOPK_TAB, First)
+            case ets:first(?TOPK_TAB) of
+                '$end_of_table' ->
+                    update_topk(Now, LastUpdateValue, TimeSpan, Id);
+                ?TOPK_INDEX(_, Id) ->
+                    update_topk(Now, LastUpdateValue, TimeSpan, Id);
+                ?TOPK_INDEX(Min, MinId) ->
+                    case TimeSpan =< Min of
+                        true -> false;
+                        _ ->
+                            update_topk(Now, LastUpdateValue, TimeSpan, Id),
+                            delete_with_index(Min, MinId)
+                    end
             end
     end.
 
+
+-spec find_last_update_value(id()) -> non_neg_integer().
+find_last_update_value(Id) ->
+    case ets:next(?INDEX_TAB,  ?INDEX(0, Id)) of
+        ?INDEX(LastUpdateValue, Id) ->
+            LastUpdateValue;
+        _ ->
+            0
+    end.
+
+-spec update_topk(pos_integer(), non_neg_integer(), non_neg_integer(), id()) -> true.
+update_topk(Now, LastUpdateValue, TimeSpan, Id) ->
+    %% update record
+    ets:insert(?TOPK_TAB, #top_k{index = ?TOPK_INDEX(TimeSpan, Id),
+                                 last_update_time = Now,
+                                 extra = []
+                                }),
+
+    %% update index
+    ets:insert(?INDEX_TAB, #index_tab{index = ?INDEX(TimeSpan, Id)}),
+
+    %% delete the old record & index
+    delete_with_index(LastUpdateValue, Id).
+
+-spec delete_with_index(non_neg_integer(), id()) -> true.
+delete_with_index(0, _) ->
+    true;
+
+delete_with_index(TimeSpan, Id) ->
+    ets:delete(?INDEX_TAB, ?INDEX(TimeSpan, Id)),
+    ets:delete(?TOPK_TAB, ?TOPK_INDEX(TimeSpan, Id)).
+
+safe_create_tab(Name, Opts) ->
+    case ets:whereis(Name) of
+        undefined ->
+            Name = ets:new(Name, Opts);
+        _ ->
+            Name
+    end.
+
+do_clear_history() ->
+    ets:delete_all_objects(?INDEX_TAB),
+    ets:delete_all_objects(?TOPK_TAB).
+
 check_enable(Enable, #{enable := IsEnable} = State) ->
-    update_threshold(),
     case Enable of
         IsEnable ->
             State;
@@ -329,11 +307,6 @@ check_enable(Enable, #{enable := IsEnable} = State) ->
         _ ->
             unload(State)
     end.
-
-update_threshold() ->
-    Threshold = emqx:get_config([slow_subs, threshold]),
-    emqx_message_latency_stats:update_threshold(Threshold),
-    ok.
 
 start_timer(Name, Fun, State) ->
     _ = cancel_timer(maps:get(Name, State)),

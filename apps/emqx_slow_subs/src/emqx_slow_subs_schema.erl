@@ -22,21 +22,10 @@ fields("slow_subs") ->
        sc(integer(),
           10,
           "The maximum number of records in the slow subscription statistics record table")}
-    , {notice_interval,
-       sc(emqx_schema:duration_ms(),
-          "0s",
-          "The interval for pushing statistics table records to the system topic. "
-          "publish top-k list to $SYS/brokers/${node}/slow_subs per notice_interval. "
-          "publish is disabled if set to 0s."
-         )}
-    , {notice_qos,
-       sc(emqx_schema:qos(),
-          0,
-          "QoS of notification message in notice topic")}
-    , {notice_batch_size,
-       sc(integer(),
-          100,
-          "Maximum information number in one notification")}
+    , {stats_type,
+       sc(hoconsc:union([whole, internal, response]),
+          whole,
+          "The method to calculate the latency")}
     ].
 
 %%--------------------------------------------------------------------

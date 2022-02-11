@@ -182,9 +182,6 @@ this number of messages or bytes have passed through."""
    , {"persistent_session_store",
        sc(ref("persistent_session_store"),
           #{})}
-    , {"latency_stats",
-       sc(ref("latency_stats"),
-          #{})}
     , {"trace",
        sc(ref("trace"),
           #{desc => """
@@ -1105,10 +1102,6 @@ when deactivated, but after the retention time.
       }
     ];
 
-fields("latency_stats") ->
-    [ {"samples", sc(integer(), #{default => 10,
-                                  desc => "the number of samples for calculate the average latency of delivery"})}
-    ];
 fields("trace") ->
     [ {"payload_encode", sc(hoconsc:enum([hex, text, hidden]), #{
         default => text,

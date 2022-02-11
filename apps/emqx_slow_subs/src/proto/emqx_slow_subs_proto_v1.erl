@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,23 +14,23 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_slow_subs_sup).
+-module(emqx_slow_subs_proto_v1).
 
--behaviour(supervisor).
+-behaviour(emqx_bpapi).
 
--export([start_link/0]).
+-export([introduced_in/0]).
 
--export([init/1]).
+-export([clear_history/1, get_history/1]).
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+-include_lib("emqx/include/bpapi.hrl").
 
-init([]) ->
-    emqx_slow_subs:init_tab(),
-    {ok, {{one_for_one, 10, 3600},
-          [#{id       => st_statistics,
-             start    => {emqx_slow_subs, start_link, []},
-             restart  => permanent,
-             shutdown => 5000,
-             type     => worker,
-             modules  => [emqx_slow_subs]}]}}.
+introduced_in() ->
+    "5.0.0".
+
+-spec clear_history([node()]) -> emqx_rpc:erpc_multicall(map()).
+clear_history(Nodes) ->
+    erpc:multicall(Nodes, emqx_slow_subs, clear_history, []).
+
+-spec get_history([node()]) -> emqx_rpc:erpc_multicall(map()).
+get_history(Nodes) ->
+    erpc:multicall(Nodes, emqx_slow_subs_api, get_history, []).

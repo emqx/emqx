@@ -23,14 +23,14 @@
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
--export([slow_subs/2, encode_record/1, settings/2]).
+-export([slow_subs/2, get_history/0, settings/2]).
 
 -import(hoconsc, [mk/2, ref/1]).
 -import(emqx_mgmt_util, [bad_request/0]).
 
--define(FORMAT_FUN, {?MODULE, encode_record}).
 -define(APP, emqx_slow_subs).
 -define(APP_NAME, <<"emqx_slow_subs">>).
+-define(DEFAULT_RPC_TIMEOUT, timer:seconds(5)).
 
 namespace() -> "slow_subscribers_statistics".
 
@@ -74,12 +74,13 @@ schema("/slow_subscriptions/settings") ->
 fields(record) ->
     [ {clientid,
        mk(string(), #{desc => <<"the clientid">>})},
-      {latency,
+      {node,
+       mk(string(), #{desc => <<"the node">>})},
+      {topic,
+       mk(string(), #{desc => <<"the topic">>})},
+      {timespan,
        mk(integer(),
-          #{desc => <<"average time for message delivery or time for message expire">>})},
-      {type,
-       mk(string(),
-          #{desc => <<"type of the latency, could be average or expire">>})},
+          #{desc => <<"timespan for message transmission">>})},
       {last_update_time,
        mk(integer(), #{desc => <<"the timestamp of last update">>})}
     ].
@@ -89,24 +90,40 @@ conf_schema() ->
     hoconsc:mk(Ref, #{}).
 
 slow_subs(delete, _) ->
-    ok = emqx_slow_subs:clear_history(),
+    _ = rpc_call(fun(Nodes) -> emqx_slow_subs_proto_v1:clear_history(Nodes) end),
     {204};
 
-slow_subs(get, #{query_string := QST}) ->
-    LimitT = maps:get(<<"limit">>, QST, ?MAX_TAB_SIZE),
-    Limit = erlang:min(?MAX_TAB_SIZE, emqx_mgmt_api:b2i(LimitT)),
-    Page = maps:get(<<"page">>, QST, 1),
-    QS = QST#{<<"limit">> => Limit, <<"page">> => Page},
-    Data = emqx_mgmt_api:paginate({?TOPK_TAB, [{traverse, last_prev}]}, QS, ?FORMAT_FUN),
-    {200, Data}.
+slow_subs(get, _) ->
+    NodeRankL = rpc_call(fun(Nodes) -> emqx_slow_subs_proto_v1:get_history(Nodes) end),
+    Fun = fun({ok, L}, Acc) -> L ++ Acc;
+             (_, Acc) -> Acc
+          end,
+    RankL = lists:foldl(Fun, [], NodeRankL),
 
-encode_record(#top_k{index = ?INDEX(Latency, ClientId),
-                     type = Type,
-                     last_update_time = Ts}) ->
-    #{clientid => ClientId,
-      latency => Latency,
-      type => Type,
-      last_update_time => Ts}.
+    SortFun = fun(#{timespan := A}, #{timespan := B}) ->
+                      A > B
+              end,
+
+    SortedL = lists:sort(SortFun, RankL),
+    SortedL2 = lists:sublist(SortedL, ?MAX_SIZE),
+
+    {200, SortedL2}.
+
+get_history() ->
+    Node = node(),
+    RankL = ets:tab2list(?TOPK_TAB),
+    ConvFun = fun(#top_k{index = ?TOPK_INDEX(TimeSpan, ?ID(ClientId, Topic)),
+                         last_update_time = LastUpdateTime
+                        }) ->
+                      #{ clientid => ClientId
+                       , node => Node
+                       , topic => Topic
+                       , timespan => TimeSpan
+                       , last_update_time => LastUpdateTime
+                       }
+              end,
+
+    lists:map(ConvFun, RankL).
 
 settings(get, _) ->
     {200, emqx:get_raw_config([slow_subs], #{})};
@@ -114,3 +131,7 @@ settings(get, _) ->
 settings(put, #{body := Body}) ->
     _ = emqx_slow_subs:update_settings(Body),
     {200, emqx:get_raw_config([slow_subs], #{})}.
+
+rpc_call(Fun) ->
+    Nodes = mria_mnesia:running_nodes(),
+    Fun(Nodes).
