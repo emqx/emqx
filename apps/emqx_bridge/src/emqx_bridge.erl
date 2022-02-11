@@ -202,7 +202,7 @@ lookup(Type, Name) ->
 lookup(Type, Name, RawConf) ->
     case emqx_resource:get_instance(resource_id(Type, Name)) of
         {error, not_found} -> {error, not_found};
-        {ok, Data} -> {ok, #{id => bridge_id(Type, Name), resource_data => Data,
+        {ok, _, Data} -> {ok, #{id => bridge_id(Type, Name), resource_data => Data,
                              raw_config => RawConf}}
     end.
 
@@ -222,7 +222,8 @@ create(BridgeId, Conf) ->
 create(Type, Name, Conf) ->
     ?SLOG(info, #{msg => "create bridge", type => Type, name => Name,
         config => Conf}),
-    case emqx_resource:create_local(resource_id(Type, Name), emqx_bridge:resource_type(Type),
+    Group = maps:get(group, Conf, <<"default">>),
+    case emqx_resource:create_local(resource_id(Type, Name), Group, emqx_bridge:resource_type(Type),
             parse_confs(Type, Name, Conf), #{async_create => true}) of
         {ok, already_created} -> maybe_disable_bridge(Type, Name, Conf);
         {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
