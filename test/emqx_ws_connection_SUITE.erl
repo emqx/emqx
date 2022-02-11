@@ -169,8 +169,9 @@ t_stats(_) ->
                       end
                   end),
     Stats = ?ws_conn:call(WsPid, stats),
-    [{recv_oct, 0}, {recv_cnt, 0}, {send_oct, 0}, {send_cnt, 0},
-     {recv_pkt, 0}, {recv_msg, 0}, {send_pkt, 0}, {send_msg, 0}|_] = Stats.
+    [lists:member(V, Stats) ||
+        V <- [{recv_oct, 0}, {recv_cnt, 0}, {send_oct, 0}, {send_cnt, 0},
+              {recv_pkt, 0}, {recv_msg, 0}, {send_pkt, 0}, {send_msg, 0}]].
 
 t_call(_) ->
     Info = ?ws_conn:info(st()),

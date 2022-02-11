@@ -109,38 +109,6 @@
 
 -define(ACTIVE_N, 100).
 
--define(INFO_KEYS, [ socktype
-                   , peername
-                   , sockname
-                   , sockstate
-                   , active_n
-                   ]).
-
--define(CONN_STATS, [ recv_pkt
-                    , recv_msg
-                    , 'recv_msg.qos0'
-                    , 'recv_msg.qos1'
-                    , 'recv_msg.qos2'
-                    , 'recv_msg.dropped'
-                    , 'recv_msg.dropped.await_pubrel_timeout'
-                    , send_pkt
-                    , send_msg
-                    , 'send_msg.qos0'
-                    , 'send_msg.qos1'
-                    , 'send_msg.qos2'
-                    , 'send_msg.dropped'
-                    , 'send_msg.dropped.expired'
-                    , 'send_msg.dropped.queue_full'
-                    , 'send_msg.dropped.too_large'
-                    ]).
-
--define(SOCK_STATS, [ recv_oct
-                    , recv_cnt
-                    , send_oct
-                    , send_cnt
-                    , send_pend
-                    ]).
-
 -define(ENABLED(X), (X =/= undefined)).
 
 -define(ALARM_TCP_CONGEST(Channel),
@@ -148,12 +116,48 @@
             [emqx_channel:info(clientid, Channel),
              emqx_channel:info(username, Channel)]))).
 
--define(ALARM_CONN_INFO_KEYS, [
-    socktype, sockname, peername,
-    clientid, username, proto_name, proto_ver, connected_at
-]).
--define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
--define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
+-define(INFO_KEYS,
+    [ socktype
+    , peername
+    , sockname
+    , sockstate
+    , active_n
+    ]).
+
+-define(SOCK_STATS,
+    [ recv_oct
+    , recv_cnt
+    , send_oct
+    , send_cnt
+    , send_pend
+    ]).
+
+-define(ALARM_CONN_INFO_KEYS,
+    [ socktype
+    , sockname
+    , peername
+    , clientid
+    , username
+    , proto_name
+    , proto_ver
+    , connected_at
+    ]).
+
+-define(ALARM_SOCK_STATS_KEYS,
+    [ send_pend
+    , recv_cnt
+    , recv_oct
+    , send_cnt
+    , send_oct
+    ]).
+
+-define(ALARM_SOCK_OPTS_KEYS,
+    [ high_watermark
+    , high_msgq_watermark
+    , sndbuf
+    , recbuf
+    , buffer
+    ]).
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer({nowarn_function, [ init/4
@@ -214,10 +218,9 @@ stats(#state{transport = Transport,
                     {ok, Ss}   -> Ss;
                     {error, _} -> []
                 end,
-    ConnStats = emqx_pd:get_counters(?CONN_STATS),
     ChanStats = emqx_channel:stats(Channel),
     ProcStats = emqx_misc:proc_stats(),
-    lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
+    lists:append([SockStats, ChanStats, ProcStats]).
 
 %% @doc Set TCP keepalive socket options to override system defaults.
 %% Idle: The number of seconds a connection needs to be idle before
