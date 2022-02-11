@@ -40,13 +40,15 @@ jobs:
         SYSTEM: ${{ matrix.os }}
       run: |
         set -e -x -u
+        old_vsns="$(./scripts/relup-base-vsns.sh community | xargs)"
+
         broker=$EMQX_NAME
         if [ $EMQX_NAME = "emqx" ];then
             broker="emqx-ce"
         fi
+
         mkdir -p _upgrade_base
         cd _upgrade_base
-        old_vsns="$(./scripts/relup-base-vsns.sh community | xargs)"
         for tag in ${old_vsns[@]}; do
           if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
             wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip
@@ -119,13 +121,15 @@ jobs:
         SYSTEM: macos
       run: |
         set -e -x -u
+        old_vsns="$(./scripts/relup-base-vsns.sh community | xargs)"
+
         broker=$EMQX_NAME
         if [ $EMQX_NAME = "emqx" ];then
             broker="emqx-ce"
         fi
+
         mkdir -p _upgrade_base
         cd _upgrade_base
-        old_vsns="$(./scripts/relup-base-vsns.sh community | xargs)"
         for tag in ${old_vsns[@]}; do
           if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
             wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip
