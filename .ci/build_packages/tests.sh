@@ -145,15 +145,21 @@ relup_test(){
         find . -maxdepth 1 -name "${EMQX_NAME}-*-${ARCH}.zip" |
             while read -r pkg; do
                 packagename=$(basename "${pkg}")
-                unzip "$packagename"
+                unzip -q "$packagename"
                 ./emqx/bin/emqx start || ( tail emqx/log/emqx.log.1 && exit 1 )
                 ./emqx/bin/emqx_ctl status
                 ./emqx/bin/emqx versions
                 cp "${PACKAGE_PATH}/${EMQX_NAME}"-*-"${TARGET_VERSION}-${ARCH}".zip ./emqx/releases
                 ./emqx/bin/emqx install "${TARGET_VERSION}"
                 [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${TARGET_VERSION}" ] || exit 1
+                export EMQX_WAIT_FOR_STOP=300
                 ./emqx/bin/emqx_ctl status
-                ./emqx/bin/emqx stop
+                if ! ./emqx/bin/emqx stop; then
+                    cat emqx/log/erlang.log.1 || true
+                    cat emqx/log/emqx.log.1 || true
+                    echo "failed to stop emqx"
+                    exit 1
+                fi
                 rm -rf emqx
             done
    fi

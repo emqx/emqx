@@ -1,7 +1,7 @@
 FROM tomcat:10.0.5
 
 RUN wget https://downloads.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.zip \
-	&& unzip apache-maven-3.6.3-bin.zip \
+	&& unzip -q apache-maven-3.6.3-bin.zip \
 	&& mv apache-maven-3.6.3 /opt/apache-maven-3.6.3/ \
 	&& ln -s /opt/apache-maven-3.6.3/ /opt/maven
 ENV M2_HOME=/opt/maven

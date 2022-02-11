@@ -195,7 +195,12 @@ jobs:
           exit 1
         fi
         ./emqx/bin/emqx_ctl status
-        ./emqx/bin/emqx stop
+        if ! ./emqx/bin/emqx stop; then
+          cat emqx/log/erlang.log.1 || true
+          cat emqx/log/emqx.log.1 || true
+          echo "failed to stop emqx"
+          exit 1
+        fi
         rm -rf emqx
         openssl dgst -sha256 ./_packages/${{ matrix.profile }}/$pkg_name | awk '{print $2}'  > ./_packages/${{ matrix.profile }}/$pkg_name.sha256
     - uses: actions/upload-artifact@v1
