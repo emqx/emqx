@@ -34,6 +34,26 @@ jobs:
         else
           echo "EMQX_NAME=emqx" >> $GITHUB_ENV
         fi
+    - name: downloads old emqx zip packages
+      env:
+        ARCH: amd64
+        SYSTEM: ${{ matrix.os }}
+      run: |
+        set -e -x -u
+        broker=$EMQX_NAME
+        if [ $EMQX_NAME = "emqx" ];then
+            broker="emqx-ce"
+        fi
+        mkdir -p _upgrade_base
+        cd _upgrade_base
+        old_vsns="$(./scripts/relup-base-vsns.sh community | xargs)"
+        for tag in ${old_vsns[@]}; do
+          if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256
+            echo "$(cat $EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256) $EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip" | sha256sum -c || exit 1
+          fi
+        done
     - name: build zip packages
       run: make ${EMQX_NAME}-zip
     - name: build deb/rpm packages
@@ -93,6 +113,26 @@ jobs:
         kerl update releases
         kerl build ${{ matrix.erl_otp }}
         kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
+    - name: downloads old emqx zip packages
+      env:
+        ARCH: amd64
+        SYSTEM: macos
+      run: |
+        set -e -x -u
+        broker=$EMQX_NAME
+        if [ $EMQX_NAME = "emqx" ];then
+            broker="emqx-ce"
+        fi
+        mkdir -p _upgrade_base
+        cd _upgrade_base
+        old_vsns="$(./scripts/relup-base-vsns.sh community | xargs)"
+        for tag in ${old_vsns[@]}; do
+          if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$broker/$tag/$EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256
+            echo "$(cat $EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256) $EMQX_NAME-$SYSTEM-${tag#[e|v]}-$ARCH.zip" | sha256sum -c || exit 1
+          fi
+        done
     - name: build
       run: |
         . $HOME/.kerl/${{ matrix.erl_otp }}/activate
