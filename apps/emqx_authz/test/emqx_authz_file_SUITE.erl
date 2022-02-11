@@ -75,12 +75,12 @@ t_invalid_file(_Config) ->
     ok = file:write_file(<<"acl.conf">>, <<"{{invalid term">>),
 
     ?assertMatch(
-       {error, {1, erl_parse, _}},
+       {error, bad_acl_file_content},
        emqx_authz:update(?CMD_REPLACE, [raw_file_authz_config()])).
 
 t_nonexistent_file(_Config) ->
     ?assertEqual(
-       {error, enoent},
+       {error, failed_to_read_acl_file},
        emqx_authz:update(?CMD_REPLACE,
                          [maps:merge(raw_file_authz_config(),
                                      #{<<"path">> => <<"nonexistent.conf">>})
