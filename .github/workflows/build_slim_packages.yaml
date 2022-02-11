@@ -121,7 +121,7 @@ jobs:
         SYSTEM: macos
       run: |
         set -e -x -u
-        old_vsns="$(./scripts/relup-base-vsns.sh community | xargs)"
+        old_vsns=("$(./scripts/relup-base-vsns.sh community | xargs)")
 
         broker=$EMQX_NAME
         if [ $EMQX_NAME = "emqx" ];then
