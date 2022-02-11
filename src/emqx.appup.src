@@ -1,6 +1,7 @@
 %% -*- mode: erlang -*-
 {VSN,
-  [{"4.3.12",
+  [{"4.3.13",[{load_module,emqx_channel,brutal_purge,soft_purge,[]}]},
+   {"4.3.12",
     [{load_module,emqx_vm_mon,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]},
      {load_module,emqx_metrics,brutal_purge,soft_purge,[]},
@@ -335,7 +336,8 @@
      {load_module,emqx_message,brutal_purge,soft_purge,[]},
      {load_module,emqx_limiter,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
-  [{"4.3.12",
+  [{"4.3.13",[{load_module,emqx_channel,brutal_purge,soft_purge,[]}]},
+   {"4.3.12",
     [{load_module,emqx_vm_mon,brutal_purge,soft_purge,[]},
      {load_module,emqx_ctl,brutal_purge,soft_purge,[]},
      {load_module,emqx_channel,brutal_purge,soft_purge,[]},
