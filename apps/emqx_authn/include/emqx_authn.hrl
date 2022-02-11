@@ -35,3 +35,5 @@
 -define(CONF_NS_BINARY, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY).
 
 -endif.
+
+-define(RESOURCE_GROUP, <<"emqx_authn">>).
