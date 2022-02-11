@@ -18,6 +18,7 @@
 -behaviour(hocon_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 -export([ namespace/0
         , roots/0
@@ -33,7 +34,7 @@ fields("auto_subscribe") ->
     ];
 
 fields("topic") ->
-    [ {topic, sc(binary(), #{})}
+    [ {topic, sc(binary(), #{example => topic_example()})}
     , {qos, sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2)]),
         #{default => 0})}
     , {rh, sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2)]),
@@ -41,6 +42,12 @@ fields("topic") ->
     , {rap, sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1)]), #{default => 0})}
     , {nl, sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1)]), #{default => 0})}
     ].
+
+topic_example() ->
+    <<"/clientid/", ?PH_S_CLIENTID,
+      "/username/", ?PH_S_USERNAME,
+      "/host/", ?PH_S_HOST,
+      "/port/", ?PH_S_PORT>>.
 
 %%--------------------------------------------------------------------
 %% Internal functions
