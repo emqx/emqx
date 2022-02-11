@@ -152,6 +152,7 @@ relup_test(){
                 cp "${PACKAGE_PATH}/${EMQX_NAME}"-*-"${TARGET_VERSION}-${ARCH}".zip ./emqx/releases
                 ./emqx/bin/emqx install "${TARGET_VERSION}"
                 [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${TARGET_VERSION}" ] || exit 1
+                export EMQX_WAIT_FOR_STOP=300
                 ./emqx/bin/emqx_ctl status
                 if ! ./emqx/bin/emqx stop; then
                     cat emqx/log/erlang.log.1 || true
