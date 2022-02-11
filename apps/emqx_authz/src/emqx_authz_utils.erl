@@ -17,6 +17,7 @@
 -module(emqx_authz_utils).
 
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx_authz.hrl").
 
 -export([ cleanup_resources/0
         , make_resource_id/1
@@ -28,15 +29,13 @@
         , render_sql_params/2
         ]).
 
--define(RESOURCE_GROUP, <<"emqx_authz">>).
-
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
 
 create_resource(Module, Config) ->
     ResourceID = make_resource_id(Module),
-    case emqx_resource:create_local(ResourceID, Module, Config) of
+    case emqx_resource:create_local(ResourceID, ?RESOURCE_GROUP, Module, Config) of
         {ok, already_created} -> {ok, ResourceID};
         {ok, _} -> {ok, ResourceID};
         {error, Reason} -> {error, Reason}
@@ -49,7 +48,7 @@ cleanup_resources() ->
 
 make_resource_id(Name) ->
     NameBin = bin(Name),
-    emqx_resource:generate_id(?RESOURCE_GROUP, NameBin).
+    emqx_resource:generate_id(NameBin).
 
 update_config(Path, ConfigRequest) ->
     emqx_conf:update(Path, ConfigRequest, #{rawconf_with_defaults => true,
