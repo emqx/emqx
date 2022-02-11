@@ -40,10 +40,11 @@ authenticate(Credential) ->
 -spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
       -> allow | deny.
 authorize(ClientInfo, PubSub, Topic) ->
-    case emqx_authz_cache:is_enabled() of
+    Result = case emqx_authz_cache:is_enabled() of
         true  -> check_authorization_cache(ClientInfo, PubSub, Topic);
         false -> do_authorize(ClientInfo, PubSub, Topic)
-    end.
+    end,
+    inc_acl_metrics(Result), Result.
 
 check_authorization_cache(ClientInfo, PubSub, Topic) ->
     case emqx_authz_cache:get_authz_cache(PubSub, Topic) of
@@ -51,7 +52,9 @@ check_authorization_cache(ClientInfo, PubSub, Topic) ->
             AuthzResult = do_authorize(ClientInfo, PubSub, Topic),
             emqx_authz_cache:put_authz_cache(PubSub, Topic, AuthzResult),
             AuthzResult;
-        AuthzResult -> AuthzResult
+        AuthzResult ->
+            inc_acl_metrics(cache_hit),
+            AuthzResult
     end.
 
 do_authorize(ClientInfo, PubSub, Topic) ->
@@ -65,3 +68,11 @@ do_authorize(ClientInfo, PubSub, Topic) ->
 run_hooks(Name, Args, Acc) ->
     ok = emqx_metrics:inc(Name),
     emqx_hooks:run_fold(Name, Args, Acc).
+
+-compile({inline, [inc_acl_metrics/1]}).
+inc_acl_metrics(allow) ->
+    emqx_metrics:inc('client.acl.allow');
+inc_acl_metrics(deny) ->
+    emqx_metrics:inc('client.acl.deny');
+inc_acl_metrics(cache_hit) ->
+    emqx_metrics:inc('client.acl.cache_hit').
