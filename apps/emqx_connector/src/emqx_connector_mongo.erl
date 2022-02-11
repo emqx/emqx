@@ -40,6 +40,8 @@
 
 -export([mongo_query/5, check_worker_health/1]).
 
+-define(HEALTH_CHECK_TIMEOUT, 10000).
+
 %%=====================================================================
 roots() ->
     [ {config, #{type => hoconsc:union(
@@ -180,23 +182,42 @@ health_check(PoolName) ->
 
 %% ===================================================================
 
-%% TODO: log reasons
 check_worker_health(Worker) ->
     case ecpool_worker:client(Worker) of
         {ok, Conn} ->
             %% we don't care if this returns something or not, we just to test the connection
-            try mongo_api:find_one(Conn, <<"foo">>, #{}, #{}) of
-                {error, _Reason} ->
+            try do_test_query(Conn) of
+                {error, Reason} ->
+                    ?SLOG(warning, #{msg => "mongo_connection_health_check_error",
+                                     worker => Worker,
+                                     reason => Reason}),
                     false;
                 _ ->
                     true
             catch
-                _ : _ ->
+                Class:Error ->
+                    ?SLOG(warning, #{msg => "mongo_connection_health_check_exception",
+                                     worker => Worker,
+                                     class => Class,
+                                     error => Error}),
                     false
             end;
         _ ->
+            ?SLOG(warning, #{msg => "mongo_connection_health_check_error",
+                             worker => Worker,
+                             reason => worker_not_found}),
             false
     end.
+
+do_test_query(Conn) ->
+    mongoc:transaction_query(
+      Conn,
+      fun(Conf = #{pool := Worker}) ->
+              Query = mongoc:find_one_query(Conf, <<"foo">>, #{}, #{}, 0),
+              mc_worker_api:find_one(Worker, Query)
+      end,
+      #{},
+      ?HEALTH_CHECK_TIMEOUT).
 
 connect(Opts) ->
     Type = proplists:get_value(mongo_type, Opts, single),
@@ -204,7 +225,6 @@ connect(Opts) ->
     Options = proplists:get_value(options, Opts, []),
     WorkerOptions = proplists:get_value(worker_options, Opts, []),
     mongo_api:connect(Type, Hosts, Options, WorkerOptions).
-
 
 mongo_query(Conn, find, Collection, Selector, Projector) ->
     mongo_api:find(Conn, Collection, Selector, Projector);
