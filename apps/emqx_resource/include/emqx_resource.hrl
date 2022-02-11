@@ -43,3 +43,4 @@
 -type after_query_fun() :: {fun((...) -> ok), Args :: [term()]}.
 
 -define(TEST_ID_PREFIX, "_test_:").
+-define(DEFAULT_RESOURCE_GROUP, <<"default">>).

@@ -20,7 +20,7 @@
 
 -export([ introduced_in/0
 
-        , create/4
+        , create/5
         , create_dry_run/2
         , recreate/4
         , remove/1
@@ -32,13 +32,14 @@ introduced_in() ->
     "5.0.0".
 
 -spec create( emqx_resource:instance_id()
+            , emqx_resource:resource_group()
             , emqx_resource:resource_type()
             , emqx_resource:resource_config()
             , emqx_resource:create_opts()
             ) ->
           emqx_cluster_rpc:multicall_return(emqx_resource:resource_data()).
-create(InstId, ResourceType, Config, Opts) ->
-    emqx_cluster_rpc:multicall(emqx_resource, create_local, [InstId, ResourceType, Config, Opts]).
+create(InstId, Group, ResourceType, Config, Opts) ->
+    emqx_cluster_rpc:multicall(emqx_resource, create_local, [InstId, Group, ResourceType, Config, Opts]).
 
 -spec create_dry_run( emqx_resource:resource_type()
                     , emqx_resource:resource_config()
