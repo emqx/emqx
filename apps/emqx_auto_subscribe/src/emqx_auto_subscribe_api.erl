@@ -18,7 +18,10 @@
 
 -behaviour(minirest_api).
 
--export([api_spec/0]).
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        ]).
 
 -export([auto_subscribe/2]).
 
@@ -29,54 +32,30 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
 api_spec() ->
-    {[auto_subscribe_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE).
 
-schema() ->
-    case emqx_mgmt_api_configs:gen_schema(emqx:get_config([auto_subscribe, topics])) of
-        #{example := <<>>, type := string} ->
-            emqx_mgmt_util:schema(auto_subscribe_conf_example());
-        Example ->
-            emqx_mgmt_util:schema(Example)
-    end.
+paths() ->
+    ["/mqtt/auto_subscribe"].
 
-auto_subscribe_conf_example() ->
+schema("/mqtt/auto_subscribe") ->
     #{
-        type => array,
-        items => #{
-            type => object,
-            properties =>#{
-                topic => #{
-                    type => string,
-                    example => <<
-                        "/clientid/", ?PH_S_CLIENTID,
-                        "/username/", ?PH_S_USERNAME,
-                        "/host/", ?PH_S_HOST,
-                        "/port/", ?PH_S_PORT>>},
-                qos => #{example => 0, type => number, enum => [0, 1, 2]},
-                rh =>  #{example => 0, type => number, enum => [0, 1, 2]},
-                nl =>  #{example => 0, type => number, enum => [0, 1]},
-                rap => #{example => 0, type => number, enum => [0, 1]}
-            }
-        }
-    }.
-
-auto_subscribe_api() ->
-    Metadata = #{
+        'operationId' => auto_subscribe,
         get => #{
             description => <<"Auto subscribe list">>,
             responses => #{
-                <<"200">> => schema()}},
+                200 => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe")
+                }
+            },
         put => #{
             description => <<"Update auto subscribe topic list">>,
-            'requestBody' => schema(),
+            'requestBody' => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe"),
             responses => #{
-                <<"200">> => schema(),
-                <<"400">> => emqx_mgmt_util:error_schema(
+                200 => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe"),
+                400 => emqx_mgmt_util:error_schema(
                                 <<"Request body required">>, [?BAD_REQUEST]),
-                <<"409">> => emqx_mgmt_util:error_schema(
+                409 => emqx_mgmt_util:error_schema(
                                 <<"Auto Subscribe topics max limit">>, [?EXCEED_LIMIT])}}
-    },
-    {"/mqtt/auto_subscribe", Metadata, auto_subscribe}.
+    }.
 
 %%%==============================================================================================
 %% api apply

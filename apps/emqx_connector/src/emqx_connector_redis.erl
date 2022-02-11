@@ -43,7 +43,6 @@
         , on_stop/2
         , on_query/4
         , on_health_check/2
-        , on_jsonify/1
         ]).
 
 -export([do_health_check/1]).
@@ -84,9 +83,6 @@ fields(sentinel) ->
     ] ++
     redis_fields() ++
     emqx_connector_schema_lib:ssl_fields().
-
-on_jsonify(Config) ->
-    Config.
 
 %% ===================================================================
 on_start(InstId, #{redis_type := Type,

@@ -43,7 +43,7 @@ init_per_testcase(_TestCase, Config) ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    case emqx_authn_test_lib:is_tcp_server_available(?MONGO_HOST, ?MONGO_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
             ok = start_apps([emqx_resource, emqx_connector]),

@@ -369,13 +369,13 @@ fields(keepalive) ->
 
 fields(subscribe) ->
     [
-        {topic, hoconsc:mk(binary(), #{desc => <<"Access type">>})},
+        {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>})},
         {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>})}
     ];
 
 fields(unsubscribe) ->
     [
-        {topic, hoconsc:mk(binary(), #{desc => <<"Access type">>})}
+        {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>})}
     ];
 
 fields(meta) ->

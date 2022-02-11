@@ -28,7 +28,6 @@
         , on_stop/2
         , on_query/4
         , on_health_check/2
-        , on_jsonify/1
         ]).
 
 -export([connect/1]).
@@ -48,9 +47,6 @@ fields(config) ->
     [{named_queries, fun named_queries/1}] ++
     emqx_connector_schema_lib:relational_db_fields() ++
     emqx_connector_schema_lib:ssl_fields().
-
-on_jsonify(#{server := Server}= Config) ->
-    Config#{server => emqx_connector_schema_lib:ip_port_to_string(Server)}.
 
 named_queries(type) -> map();
 named_queries(nullable) -> true;
