@@ -207,8 +207,7 @@ fields("ctx_disconnected") ->
     ].
 
 qos() ->
-    {"qos", sc(hoconsc:union([typerefl:integer(0), typerefl:integer(1), typerefl:integer(2)]),
-        #{desc => "The Message QoS"})}.
+    {"qos", sc(emqx_schema:qos(), #{desc => "The Message QoS"})}.
 
 rule_id() ->
     {"id", sc(binary(),

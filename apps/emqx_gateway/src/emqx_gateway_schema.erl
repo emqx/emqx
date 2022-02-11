@@ -189,7 +189,7 @@ The type of delivered coap message can be set to:<br>
 3. qos: Mapping from QoS type of received message, QoS0 -> non, QoS1,2 -> con"
            })}
     , {subscribe_qos,
-       sc(hoconsc:union([qos0, qos1, qos2, coap]),
+       sc(hoconsc:enum([qos0, qos1, qos2, coap]),
           #{ default => coap
            , desc =>
 "The Default QoS Level indicator for subscribe request.<br>
@@ -202,7 +202,7 @@ The indicator can be set to:
     * qos1: If the subscribe request is confirmable"
            })}
     , {publish_qos,
-       sc(hoconsc:union([qos0, qos1, qos2, coap]),
+       sc(hoconsc:enum([qos0, qos1, qos2, coap]),
           #{ default => coap
            , desc =>
 "The Default QoS Level indicator for publish request.<br>
@@ -356,7 +356,7 @@ notifyevents via this topic, if the client reports any resource changes"
 
 fields(translator) ->
     [ {topic, sc(binary(), #{nullable => false})}
-    , {qos, sc(range(0, 2), #{default => 0})}
+    , {qos, sc(emqx_schema:qos(), #{default => 0})}
     ];
 
 fields(udp_listeners) ->

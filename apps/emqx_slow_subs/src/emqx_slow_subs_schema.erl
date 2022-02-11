@@ -30,7 +30,7 @@ fields("slow_subs") ->
           "publish is disabled if set to 0s."
          )}
     , {notice_qos,
-       sc(range(0, 2),
+       sc(emqx_schema:qos(),
           0,
           "QoS of notification message in notice topic")}
     , {notice_batch_size,
