@@ -109,8 +109,7 @@ on_client_connected(ClientInfo, ConnInfo) ->
     Payload = Payload0#{
         keepalive       => maps:get(keepalive, ConnInfo, 0),
         clean_start     => maps:get(clean_start, ConnInfo, true),
-        expiry_interval => maps:get(expiry_interval, ConnInfo, 0),
-        connected_at    => maps:get(connected_at, ConnInfo)
+        expiry_interval => maps:get(expiry_interval, ConnInfo, 0)
     },
     publish_event_msg(<<"$event/client_connected">>, Payload).
 
@@ -210,14 +209,17 @@ common_infos(
                   sockport := SockPort
                  },
   _ConnInfo = #{proto_name := ProtoName,
-                proto_ver := ProtoVer
+                proto_ver := ProtoVer,
+                connected_at := ConnectedAt
                }) ->
     #{clientid => ClientId,
       username => Username,
       ipaddress => ntoa(PeerHost),
       sockport => SockPort,
       proto_name => ProtoName,
-      proto_ver => ProtoVer
+      proto_ver => ProtoVer,
+      connected_at => ConnectedAt,
+      ts => erlang:system_time(millisecond)
      }.
 
 make_msg(Topic, Payload) ->
