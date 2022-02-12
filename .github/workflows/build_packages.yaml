@@ -202,7 +202,8 @@ jobs:
           exit 1
         fi
         rm -rf emqx
-        sha256sum ./_packages/${{ matrix.profile }}/$pkg_name | head -c64  > ./_packages/${{ matrix.profile }}/$pkg_name.sha256
+        #sha256sum ./_packages/${{ matrix.profile }}/$pkg_name | head -c64  > ./_packages/${{ matrix.profile }}/$pkg_name.sha256
+        openssl dgst -sha256 ./_packages/${{ matrix.profile }}/$pkg_name | awk '{print $2}'  > ./_packages/${{ matrix.profile }}/$pkg_name.sha256
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
