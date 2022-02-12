@@ -108,7 +108,7 @@ jobs:
         mkdir -p _packages/${{ matrix.profile }}
         Compress-Archive -Path _build/${{ matrix.profile }}/rel/emqx -DestinationPath _build/${{ matrix.profile }}/rel/$pkg_name
         mv _build/${{ matrix.profile }}/rel/$pkg_name _packages/${{ matrix.profile }}
-        Get-FileHash -Path "_packages/${{ matrix.profile }}/$pkg_name" | Format-List | grep 'Hash' | awk '{print $3}'  > _packages/${{ matrix.profile }}/$pkg_name.sha256
+        sha256sum "_packages/${{ matrix.profile }}/$pkg_name" | head -c 64 > "_packages/${{ matrix.profile }}/${pkg_name}.sha256"
     - name: run emqx
       timeout-minutes: 1
       run: |
@@ -202,7 +202,7 @@ jobs:
           exit 1
         fi
         rm -rf emqx
-        openssl dgst -sha256 ./_packages/${{ matrix.profile }}/$pkg_name | awk '{print $2}'  > ./_packages/${{ matrix.profile }}/$pkg_name.sha256
+        sha256sum ./_packages/${{ matrix.profile }}/$pkg_name | head -c64  > ./_packages/${{ matrix.profile }}/$pkg_name.sha256
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
