@@ -10,6 +10,15 @@ File format:
 - One list item per change topic
   Change log ends with a list of github PRs
 
+## v4.3.13
+
+### Enhancements
+
+* CLI `emqx_ctl pem_cache clean` to force purge x509 certificate cache,
+  to force an immediate reload of all certificates after the files are updated on disk.
+
+### Bug fixes
+
 ## v4.3.12
 ### Important changes
 
