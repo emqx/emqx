@@ -351,15 +351,18 @@ jobs:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
-        registry:
-          - 'docker.io'
         otp:
           - 24.1.5-3
-        include:
-          - profile: emqx
+        registry:
+          - 'docker.io'
+          - 'public.ecr.aws'
+        exclude:
+          # we don't have an aws ecr repo for enterprise and edge yet
+          - profile: emqx-edge
             registry: 'public.ecr.aws'
-            otp: 24.1.5-3
-
+          - profile: emqx-ee
+            registry: 'public.ecr.aws'
+        
     steps:
     - uses: actions/download-artifact@v2
       with:
