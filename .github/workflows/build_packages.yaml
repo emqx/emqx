@@ -376,16 +376,16 @@ jobs:
         image: tonistiigi/binfmt:latest
         platforms: all
     - uses: aws-actions/configure-aws-credentials@v1
-      if: matrix.repository == 'public.ecr.aws'
+      if: matrix.registry == 'public.ecr.aws'
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
     - name: Docker login for aws ecr
-      if: matrix.repository == 'public.ecr.aws'
+      if: matrix.registry == 'public.ecr.aws'
       run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
     - uses: docker/login-action@v1
-      if: matrix.repository == 'docker.io'
+      if: matrix.registry == 'docker.io'
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
