@@ -577,21 +577,11 @@ data(_) ->
 %% @doc acl Command
 
 acl(["cache-clean", "node", Node]) ->
-    case for_node(fun emqx_mgmt:clean_acl_cache_all/1, Node) of
-        ok ->
-            emqx_ctl:print("ACL cache drain started on node ~s.~n", [Node]);
-        {error, Reason} ->
-            emqx_ctl:print("ACL drain failed on node ~s: ~0p.~n", [Node, Reason])
-    end;
-
+    with_log(fun() -> for_node(fun emqx_mgmt:clean_acl_cache_all/1, Node) end,
+             "ACL cache drain start");
 acl(["cache-clean", "all"]) ->
-    case emqx_mgmt:clean_acl_cache_all() of
-        ok ->
-            emqx_ctl:print("Started ACL cache drain in all nodes~n");
-        {error, Reason} ->
-            emqx_ctl:print("ACL cache-clean failed: ~p.~n", [Reason])
-    end;
-
+    with_log(fun emqx_mgmt:clean_acl_cache_all/1,
+             "ACL cache drain start");
 acl(["cache-clean", ClientId]) ->
     emqx_mgmt:clean_acl_cache(ClientId);
 
