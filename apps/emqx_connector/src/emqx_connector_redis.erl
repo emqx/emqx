@@ -129,10 +129,13 @@ on_start(InstId, #{redis_type := Type,
             end
     end.
 
-on_stop(InstId, #{poolname := PoolName}) ->
+on_stop(InstId, #{poolname := PoolName, type := Type}) ->
     ?SLOG(info, #{msg => "stopping_redis_connector",
                   connector => InstId}),
-    emqx_plugin_libs_pool:stop_pool(PoolName).
+    case Type of
+        cluster -> eredis_cluster:stop_pool(PoolName);
+        _ -> emqx_plugin_libs_pool:stop_pool(PoolName)
+    end.
 
 on_query(InstId, {cmd, Command}, AfterCommand, #{poolname := PoolName, type := Type} = State) ->
     ?TRACE("QUERY", "redis_connector_received",
@@ -151,16 +154,30 @@ on_query(InstId, {cmd, Command}, AfterCommand, #{poolname := PoolName, type := T
     end,
     Result.
 
+extract_eredis_cluster_workers(PoolName) ->
+    lists:flatten([gen_server:call(PoolPid, get_all_workers) ||
+                             PoolPid <- eredis_cluster_monitor:get_all_pools(PoolName)]).
+
+eredis_cluster_workers_exist_and_are_connected(Workers) ->
+    length(Workers) > 0 andalso lists:all(
+        fun({_, Pid, _, _}) ->
+            eredis_cluster_pool_worker:is_connected(Pid) =:= true
+        end, Workers).
+
 on_health_check(_InstId, #{type := cluster, poolname := PoolName} = State) ->
-    Workers = lists:flatten([gen_server:call(PoolPid, get_all_workers) ||
-                             PoolPid <- eredis_cluster_monitor:get_all_pools(PoolName)]),
-    case length(Workers) > 0 andalso lists:all(
-            fun({_, Pid, _, _}) ->
-                eredis_cluster_pool_worker:is_connected(Pid) =:= true
-            end, Workers) of
-        true -> {ok, State};
-        false -> {error, health_check_failed, State}
+    case eredis_cluster:pool_exists(PoolName) of
+        true ->
+            Workers = extract_eredis_cluster_workers(PoolName),
+            case eredis_cluster_workers_exist_and_are_connected(Workers) of
+                true -> {ok, State};
+                false -> {error, health_check_failed, State}
+            end;
+
+        false ->
+            {error, health_check_failed, State}
     end;
+
+
 on_health_check(_InstId, #{poolname := PoolName} = State) ->
     emqx_plugin_libs_pool:health_check(PoolName, fun ?MODULE:do_health_check/1, State).
 
