@@ -40,11 +40,6 @@
          max_connections/1
         ]).
 
--ifdef(TEST).
--export([public_key/0
-        ]).
--endif.
-
 %%--------------------------------------------------------------------
 %% Behaviour
 %%--------------------------------------------------------------------
@@ -67,7 +62,7 @@
 
 -spec parse(string() | binary()) -> {ok, license()} | {error, term()}.
 parse(Content) ->
-    DecodedKey = base64:decode(public_key()),
+    DecodedKey = base64:decode(?PUBKEY),
     parse(Content, DecodedKey).
 
 parse(Content, Key) ->
@@ -110,5 +105,3 @@ do_parse(Content, Key, [Module | Modules], Errors) ->
         _Class : Error ->
             do_parse(Content, Key, Modules, [{Module, Error} | Errors])
     end.
-
-public_key() -> ?PUBKEY.

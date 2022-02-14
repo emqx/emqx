@@ -33,8 +33,7 @@ test_key(Filename) ->
     Path = filename:join([Dir, "data", Filename]),
     {ok, KeyData} = file:read_file(Path),
     [PemEntry] = public_key:pem_decode(KeyData),
-    Key = public_key:pem_entry_decode(PemEntry),
-    Key.
+    public_key:pem_entry_decode(PemEntry).
 
 make_license(Values) ->
     Key = private_key(),

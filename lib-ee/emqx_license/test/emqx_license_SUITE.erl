@@ -27,13 +27,10 @@ end_per_suite(_) ->
 
 init_per_testcase(Case, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
-    meck:new(emqx_license_parser, [passthrough]),
-    meck:expect(emqx_license_parser, public_key, fun public_key/0),
     set_invalid_license_file(Case),
     Config.
 
 end_per_testcase(Case, _Config) ->
-    meck:unload(emqx_license_parser),
     restore_valid_license_file(Case),
     ok.
 
