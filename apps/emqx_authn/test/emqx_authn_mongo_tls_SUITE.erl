@@ -78,8 +78,8 @@ t_create(_Config) ->
            <<"versions">> => [<<"tlsv1.2">>],
            <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]}),
        fun({ok, _}, Trace) ->
-            ?assertEqual(
-               [ok],
+            ?assertMatch(
+               [ok | _],
                ?projection(
                   status,
                   ?of_kind(emqx_connector_mongo_health_check, Trace)))
