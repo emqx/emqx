@@ -40,6 +40,7 @@
         , mgmt/1
         , data/1
         , acl/1
+        , pem_cache/1
         ]).
 
 -define(PROC_INFOKEYS, [status,
@@ -576,21 +577,11 @@ data(_) ->
 %% @doc acl Command
 
 acl(["cache-clean", "node", Node]) ->
-    case emqx_mgmt:clean_acl_cache_all(erlang:list_to_existing_atom(Node)) of
-        ok ->
-            emqx_ctl:print("ACL cache drain started on node ~s.~n", [Node]);
-        {error, Reason} ->
-            emqx_ctl:print("ACL drain failed on node ~s: ~0p.~n", [Node, Reason])
-    end;
-
+    with_log(fun() -> for_node(fun emqx_mgmt:clean_acl_cache_all/1, Node) end,
+             "ACL cache drain start");
 acl(["cache-clean", "all"]) ->
-    case emqx_mgmt:clean_acl_cache_all() of
-        ok ->
-            emqx_ctl:print("Started ACL cache drain in all nodes~n");
-        {error, Reason} ->
-            emqx_ctl:print("ACL cache-clean failed: ~p.~n", [Reason])
-    end;
-
+    with_log(fun emqx_mgmt:clean_acl_cache_all/1,
+             "ACL cache drain start");
 acl(["cache-clean", ClientId]) ->
     emqx_mgmt:clean_acl_cache(ClientId);
 
@@ -598,6 +589,15 @@ acl(_) ->
     emqx_ctl:usage([{"acl cache-clean all",             "Clears acl cache on all nodes"},
                     {"acl cache-clean node <Node>",     "Clears acl cache on given node"},
                     {"acl cache-clean <ClientId>",      "Clears acl cache for given client"}
+                   ]).
+
+pem_cache(["clean", "all"]) ->
+    with_log(fun emqx_mgmt:clean_pem_cache/0, "PEM cache clean");
+pem_cache(["clean", "node", Node]) ->
+    with_log(fun() -> for_node(fun emqx_mgmt:clean_pem_cache/1, Node) end, "PEM cache clean");
+pem_cache(_) ->
+    emqx_ctl:usage([{"pem_cache clean all",         "Clears x509 certificate cache on all nodes"},
+                    {"pem_cache clean node <Node>", "Clears x509 certificate cache on given node"}
                    ]).
 
 %%--------------------------------------------------------------------
@@ -721,3 +721,20 @@ restart_http_listener(Scheme, AppName) ->
 
 http_mod_name(emqx_management) -> emqx_mgmt_http;
 http_mod_name(Name) -> Name.
+
+for_node(Fun, Node) ->
+    try list_to_existing_atom(Node) of
+        NodeAtom ->
+            Fun(NodeAtom)
+    catch
+        error : badarg ->
+            {error, unknown_node}
+    end.
+
+with_log(Fun, Msg) ->
+    case Fun() of
+        ok ->
+            emqx_ctl:print("~s OK~n", [Msg]);
+        {error, Reason} ->
+            emqx_ctl:print("~s FAILED~n~p~n", [Msg, Reason])
+    end.
