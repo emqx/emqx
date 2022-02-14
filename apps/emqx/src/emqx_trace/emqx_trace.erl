@@ -463,19 +463,15 @@ to_trace(#{type := ip_address, ip_address := Filter} = Trace, Rec) ->
     end;
 to_trace(#{type := Type}, _Rec) -> {error, io_lib:format("required ~s field", [Type])};
 to_trace(#{start_at := StartAt} = Trace, Rec) ->
-    case to_system_second(StartAt) of
-        {ok, Sec} -> to_trace(maps:remove(start_at, Trace), Rec#?TRACE{start_at = Sec});
-        {error, Reason} -> {error, Reason}
-    end;
+    {ok, Sec} = to_system_second(StartAt),
+    to_trace(maps:remove(start_at, Trace), Rec#?TRACE{start_at = Sec});
 to_trace(#{end_at := EndAt} = Trace, Rec) ->
     Now = erlang:system_time(second),
     case to_system_second(EndAt) of
         {ok, Sec} when Sec > Now ->
             to_trace(maps:remove(end_at, Trace), Rec#?TRACE{end_at = Sec});
         {ok, _Sec} ->
-            {error, "end_at time has already passed"};
-        {error, Reason} ->
-            {error, Reason}
+            {error, "end_at time has already passed"}
     end;
 to_trace(_, Rec) -> {ok, Rec}.
 
@@ -492,14 +488,9 @@ validate_ip_address(IP) ->
         {error, Reason} -> {error, lists:flatten(io_lib:format("ip address: ~p", [Reason]))}
     end.
 
-to_system_second(At) ->
-    try
-        Sec = calendar:rfc3339_to_system_time(binary_to_list(At), [{unit, second}]),
-        Now = erlang:system_time(second),
-        {ok, erlang:max(Now, Sec)}
-    catch error: {badmatch, _} ->
-        {error, ["The rfc3339 specification not satisfied: ", At]}
-    end.
+to_system_second(Sec) ->
+    Now = erlang:system_time(second),
+    {ok, erlang:max(Now, Sec)}.
 
 zip_dir() ->
     trace_dir() ++ "zip/".

@@ -169,13 +169,13 @@ fields(trace) ->
                 nullable => true,
                 example => running
             })},
-        {start_at, hoconsc:mk(binary(),
-            #{desc => "rfc3339 timestamp",
+        {start_at, hoconsc:mk(emqx_datetime:epoch_second(),
+            #{desc => "rfc3339 timestamp or epoch second",
                 nullable => true,
                 example => <<"2021-11-04T18:17:38+08:00">>
             })},
-        {end_at, hoconsc:mk(binary(),
-            #{desc => "rfc3339 timestamp",
+        {end_at, hoconsc:mk(emqx_datetime:epoch_second(),
+            #{desc => "rfc3339 timestamp or epoch second",
                 nullable => true,
                 example => <<"2021-11-05T18:17:38+08:00">>
             })},

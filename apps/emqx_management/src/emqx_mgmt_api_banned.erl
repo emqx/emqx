@@ -113,11 +113,11 @@ fields(ban) ->
             desc => <<"Banned reason">>,
             nullable => true,
             example => <<"Too many requests">>})},
-        {at, hoconsc:mk(emqx_schema:rfc3339_system_time(), #{
+        {at, hoconsc:mk(emqx_datetime:epoch_second(), #{
             desc => <<"Create banned time, rfc3339, now if not specified">>,
             nullable => true,
             example => <<"2021-10-25T21:48:47+08:00">>})},
-        {until, hoconsc:mk(emqx_schema:rfc3339_system_time(), #{
+        {until, hoconsc:mk(emqx_datetime:epoch_second(), #{
             desc => <<"Cancel banned time, rfc3339, now + 5 minute if not specified">>,
             nullable => true,
             example => <<"2021-10-25T21:53:47+08:00">>})

@@ -91,13 +91,13 @@ fields(app) ->
             """They are useful for accessing public data anonymously,"""
             """and are used to associate API requests.""",
                 example => <<"MzAyMjk3ODMwMDk0NjIzOTUxNjcwNzQ0NzQ3MTE2NDYyMDI">>})},
-        {expired_at, hoconsc:mk(hoconsc:union([undefined, emqx_schema:rfc3339_system_time()]),
+        {expired_at, hoconsc:mk(hoconsc:union([undefined, emqx_datetime:epoch_second()]),
             #{desc => "No longer valid datetime",
                 example => <<"2021-12-05T02:01:34.186Z">>,
                 nullable => true,
                 default => undefined
             })},
-        {created_at, hoconsc:mk(emqx_schema:rfc3339_system_time(),
+        {created_at, hoconsc:mk(emqx_datetime:epoch_second(),
             #{desc => "ApiKey create datetime",
                 example => <<"2021-12-01T00:00:00.000Z">>
             })},

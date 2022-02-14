@@ -71,7 +71,7 @@
     <<"{\"code\": \"RESOURCE_NOT_FOUND\", \"reason\": \"Client id not found\"}">>).
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
     [ "/clients"
@@ -134,22 +134,22 @@ schema("/clients") ->
                     in => query,
                     nullable => true,
                     desc => <<"Client user name, fuzzy search by substring">>})},
-                {gte_created_at, hoconsc:mk(binary(), #{
+                {gte_created_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
                     in => query,
                     nullable => true,
                     desc => <<"Search client session creation time by greater",
                         " than or equal method, rfc3339 or timestamp(millisecond)">>})},
-                {lte_created_at, hoconsc:mk(binary(), #{
+                {lte_created_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
                     in => query,
                     nullable => true,
                     desc => <<"Search client session creation time by less",
                         " than or equal method, rfc3339 or timestamp(millisecond)">>})},
-                {gte_connected_at, hoconsc:mk(binary(), #{
+                {gte_connected_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
                     in => query,
                     nullable => true,
                     desc => <<"Search client connection creation time by greater"
-                        " than or equal method, rfc3339 or timestamp(millisecond)">>})},
-                {lte_connected_at, hoconsc:mk(binary(), #{
+                        " than or equal method, rfc3339 or timestamp(epoch millisecond)">>})},
+                {lte_connected_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
                     in => query,
                     nullable => true,
                     desc => <<"Search client connection creation time by less"
@@ -281,11 +281,13 @@ fields(client) ->
             <<"Indicate whether the client is using a brand new session">>})},
         {clientid, hoconsc:mk(binary(), #{desc => <<"Client identifier">>})},
         {connected, hoconsc:mk(boolean(), #{desc => <<"Whether the client is connected">>})},
-        {connected_at, hoconsc:mk(binary(), #{desc => <<"Client connection time, rfc3339">>})},
-        {created_at, hoconsc:mk(binary(), #{desc => <<"Session creation time, rfc3339">>})},
-        {disconnected_at, hoconsc:mk(binary(), #{desc =>
+        {connected_at, hoconsc:mk(emqx_datetime:epoch_millisecond(),
+            #{desc => <<"Client connection time, rfc3339 or timestamp(millisecond)">>})},
+        {created_at, hoconsc:mk(emqx_datetime:epoch_millisecond(),
+            #{desc => <<"Session creation time, rfc3339 or timestamp(millisecond)">>})},
+        {disconnected_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{desc =>
             <<"Client offline time."
-            " It's Only valid and returned when connected is false, rfc3339">>})},
+            " It's Only valid and returned when connected is false, rfc3339 or timestamp(millisecond)">>})},
         {expiry_interval, hoconsc:mk(integer(), #{desc =>
             <<"Session expiration interval, with the unit of second">>})},
         {heap_size, hoconsc:mk(integer(), #{desc =>
@@ -386,7 +388,7 @@ fields(meta) ->
 %%%==============================================================================================
 %% parameters trans
 clients(get, #{query_string := Qs}) ->
-    list_clients(emqx_mgmt_api:ensure_timestamp_format(Qs, time_keys())).
+    list_clients(Qs).
 
 client(get, #{bindings := Bindings}) ->
     lookup(Bindings);
@@ -563,16 +565,6 @@ do_unsubscribe(ClientID, Topic) ->
     end.
 
 %%--------------------------------------------------------------------
-%% QueryString data-fomrat convert
-%%  (try rfc3339 to timestamp or keep timestamp)
-
-time_keys() ->
-    [ <<"gte_created_at">>
-    , <<"lte_created_at">>
-    , <<"gte_connected_at">>
-    , <<"lte_connected_at">>].
-
-%%--------------------------------------------------------------------
 %% Query Functions
 
 query(Tab, {Qs, []}, Continuation, Limit) ->
@@ -711,7 +703,7 @@ result_format_time_fun(Key, NClientInfoMap) ->
     case NClientInfoMap of
         #{Key := TimeStamp} ->
             NClientInfoMap#{
-              Key => emqx_mgmt_api:unix_ts_to_rfc3339_bin(TimeStamp)};
+              Key => emqx_datetime:epoch_to_rfc3339(TimeStamp)};
         #{} ->
             NClientInfoMap
     end.

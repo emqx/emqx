@@ -129,12 +129,12 @@ fields(topic_metrics) ->
              , example => <<"testtopic/1">>
              , nullable => false})},
       { create_time
-      , mk( emqx_schema:rfc3339_system_time()
+      , mk( emqx_datetime:epoch_second()
           , #{ desc => <<"Topic Metrics created date time, in rfc3339">>
              , nullable => false
              , example => <<"2022-01-14T21:48:47+08:00">>})},
       { reset_time
-      , mk( emqx_schema:rfc3339_system_time()
+      , mk( emqx_datetime:epoch_second()
           , #{ desc => <<"Topic Metrics reset date time, in rfc3339. Nullable if never reset">>
              , nullable => true
              , example => <<"2022-01-14T21:48:47+08:00">>})},
