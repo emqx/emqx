@@ -163,11 +163,8 @@ this number of messages or bytes have passed through."""
    , {"conn_congestion",
        sc(ref("conn_congestion"),
           #{})}
-   , {"quota",
-       sc(ref("quota"),
-          #{})}
    , {"stats",
-       sc(ref("stats"),
+      sc(ref("stats"),
           #{})}
    , {"sysmon",
        sc(ref("sysmon"),
@@ -492,19 +489,6 @@ fields("rate_limit") ->
           #{ default => infinity
            })
        }
-    ];
-
-fields("quota") ->
-    [ {"conn_messages_routing",
-       sc(hoconsc:union([infinity, comma_separated_list()]),
-          #{ default => infinity
-           })
-       }
-    , {"overall_messages_routing",
-       sc(hoconsc:union([infinity, comma_separated_list()]),
-          #{ default => infinity
-           })
-      }
     ];
 
 fields("flapping_detect") ->

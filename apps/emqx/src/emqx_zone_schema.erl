@@ -23,7 +23,7 @@ namespace() -> zone.
 %% this shcema module is not used at root level.
 %% roots are added only for document generation.
 roots() -> ["mqtt", "stats", "flapping_detect", "force_shutdown",
-            "conn_congestion", "rate_limit", "quota", "force_gc",
+            "conn_congestion", "force_gc",
             "overload_protection"
            ].
 
