@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-latest_release=$(git describe --abbrev=0 --tags)
+## compaare to the latest release version tag:
+##   match rel-* (e.g. rel-e4.4.0), v* or e* tags
+##   but do not include alpha, beta and rc versions
+latest_release="$(git describe --abbrev=0 --tags --match 'rel-*' --match 'v*' --match 'e*' --exclude '*beta*' --exclude '*alpha*' --exclude '*rc*')"
 echo "Compare base: $latest_release"
 
 bad_app_count=0
