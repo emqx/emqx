@@ -183,6 +183,13 @@
          {counter, 'session.terminated'}
         ]).
 
+%% Statistic metrics for ACL checking
+-define(STASTS_ACL_METRICS,
+        [ {counter, 'client.acl.allow'},
+          {counter, 'client.acl.deny'},
+          {counter, 'client.acl.cache_hit'}
+        ]).
+
 %% Overload protetion counters
 -define(OLP_METRICS,
         [{counter, 'olp.delay.ok'},
@@ -439,6 +446,7 @@ init([]) ->
                             ?DELIVERY_METRICS,
                             ?CLIENT_METRICS,
                             ?SESSION_METRICS,
+                            ?STASTS_ACL_METRICS,
                             ?OLP_METRICS
                            ]),
     % Store reserved indices
@@ -584,10 +592,14 @@ reserved_idx('session.takenover')            -> 222;
 reserved_idx('session.discarded')            -> 223;
 reserved_idx('session.terminated')           -> 224;
 
-reserved_idx('olp.delay.ok')                 -> 300;
-reserved_idx('olp.delay.timeout')            -> 301;
-reserved_idx('olp.hbn')                      -> 302;
-reserved_idx('olp.gc')                       -> 303;
-reserved_idx('olp.new_conn')                 -> 304;
+reserved_idx('client.acl.allow')             -> 300;
+reserved_idx('client.acl.deny')              -> 301;
+reserved_idx('client.acl.cache_hit')         -> 302;
+
+reserved_idx('olp.delay.ok')                 -> 400;
+reserved_idx('olp.delay.timeout')            -> 401;
+reserved_idx('olp.hbn')                      -> 402;
+reserved_idx('olp.gc')                       -> 403;
+reserved_idx('olp.new_conn')                 -> 404;
 
 reserved_idx(_)                              -> undefined.
