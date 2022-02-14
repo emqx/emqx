@@ -18,12 +18,12 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 -define(MYSQL_HOST, "mysql").
--define(MYSQL_PORT, 3306).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -32,7 +32,7 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_DEFAULT_PORT) of
         true ->
             Config;
         false ->
@@ -124,7 +124,7 @@ mysql_config() ->
         username => <<"root">>,
         password => <<"public">>,
         pool_size => 8,
-        server => {?MYSQL_HOST, ?MYSQL_PORT},
+        server => {?MYSQL_HOST, ?MYSQL_DEFAULT_PORT},
         ssl => #{enable => false}
     }.
 
