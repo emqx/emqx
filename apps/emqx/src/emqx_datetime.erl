@@ -29,8 +29,8 @@
               , epoch_second/0
              ]).
 
--type epoch_second() :: integer().
--type epoch_millisecond() :: integer().
+-type epoch_second() :: non_neg_integer().
+-type epoch_millisecond() :: non_neg_integer().
 -typerefl_from_string({epoch_second/0, ?MODULE, to_epoch_second}).
 -typerefl_from_string({epoch_millisecond/0, ?MODULE, to_epoch_millisecond}).
 
@@ -56,3 +56,52 @@ epoch_to_rfc3339(TimeStamp) ->
 
 epoch_to_rfc3339(TimeStamp, Unit) when is_integer(TimeStamp) ->
     list_to_binary(calendar:system_time_to_rfc3339(TimeStamp, [{unit, Unit}])).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-compile(export_all).
+roots() -> [bar].
+
+fields(bar) ->
+    [
+        {second, ?MODULE:epoch_second()},
+        {millisecond, ?MODULE:epoch_millisecond()}
+    ].
+
+-define(FORMAT(_Sec_, _Ms_), lists:flatten(
+    io_lib:format("bar={second=~w,millisecond=~w}", [_Sec_, _Ms_]))).
+
+epoch_ok_test() ->
+    Args = [
+        {0, 0, 0, 0},
+        {1, 1, 1, 1},
+        {"2022-01-01T08:00:00+08:00", "2022-01-01T08:00:00+08:00", 1640995200, 1640995200000}
+    ],
+    lists:foreach(fun({Sec, Ms, EpochSec, EpochMs}) ->
+        check_ok(?FORMAT(Sec, Ms), EpochSec, EpochMs)
+                  end, Args),
+    ok.
+
+check_ok(Input, Sec, Ms) ->
+    {ok, Data} = hocon:binary(Input, #{}),
+    ?assertMatch(#{bar := #{second := Sec, millisecond := Ms}},
+        hocon_tconf:check_plain(?MODULE, Data, #{atom_key => true}, [bar])),
+    ok.
+
+epoch_failed_test() ->
+    Args = [
+        {-1, -1},
+        {"1s", "1s"},
+        {"2022-13-13T08:00:00+08:00", "2022-13-13T08:00:00+08:00"}],
+    lists:foreach(fun({Sec, Ms}) ->
+        check_failed(?FORMAT(Sec, Ms))
+                  end, Args),
+    ok.
+
+check_failed(Input) ->
+    {ok, Data} = hocon:binary(Input, #{}),
+    ?assertException(throw, _,
+        hocon_tconf:check_plain(?MODULE, Data, #{atom_key => true}, [bar])),
+    ok.
+
+-endif.
