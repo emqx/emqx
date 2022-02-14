@@ -11,7 +11,7 @@ if [ "$(uname -s)" = 'Darwin' ]; then
     SYSTEM="$(echo "${DIST}${VERSION_ID}" | gsed -r 's/([a-zA-Z]*)-.*/\1/g')"
 elif [ "$(uname -s)" = 'Linux' ]; then
     if grep -q -i 'rhel' /etc/*-release; then
-        DIST='rhel'
+        DIST='el'
         VERSION_ID="$(rpm --eval '%{rhel}')"
     else
         DIST="$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')"
