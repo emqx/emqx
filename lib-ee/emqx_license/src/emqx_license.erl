@@ -18,6 +18,7 @@
          check/2,
          unload/0,
          read_license/0,
+         read_license/1,
          update_file/1,
          update_key/1]).
 

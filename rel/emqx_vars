@@ -15,6 +15,7 @@ RUNNER_DATA_DIR="{{ runner_data_dir }}"
 RUNNER_USER="{{ runner_user }}"
 IS_ELIXIR="{{ is_elixir }}"
 SCHEMA_MOD="{{ emqx_schema_mod }}"
+IS_ENTERPRISE="{{ is_enterprise }}"
 
 export EMQX_DESCRIPTION='{{ emqx_description }}'
 
