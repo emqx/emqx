@@ -19,6 +19,8 @@ File format:
 
 ### Bug fixes
 
+* Fix case where publishing to a non-existent topic alias would crash the connection [#6979]
+
 ## v4.3.12
 ### Important changes
 

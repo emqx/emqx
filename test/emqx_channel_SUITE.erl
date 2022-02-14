@@ -674,6 +674,13 @@ t_process_alias(_) ->
     {ok, #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"t">>}}, _Chan} =
         emqx_channel:process_alias(#mqtt_packet{variable = Publish}, Channel).
 
+t_process_alias_inexistent_alias(_) ->
+    Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
+    Channel = channel(),
+    ?assertEqual(
+      {error, ?RC_PROTOCOL_ERROR},
+      emqx_channel:process_alias(#mqtt_packet{variable = Publish}, Channel)).
+
 t_packing_alias(_) ->
     Packet1 = #mqtt_packet{variable = #mqtt_packet_publish{
                                          topic_name = <<"x">>,
@@ -709,6 +716,20 @@ t_packing_alias(_) ->
                  emqx_channel:packing_alias(
                    #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}},
                    channel())).
+
+t_packing_alias_inexistent_alias(_) ->
+    Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
+    Channel = channel(),
+    Packet = #mqtt_packet{variable = Publish},
+    ExpectedChannel = emqx_channel:set_field(
+                        topic_aliases,
+                        #{ inbound => #{}
+                         , outbound => #{<<>> => 1}
+                         },
+                        Channel),
+    ?assertEqual(
+      {Packet, ExpectedChannel},
+      emqx_channel:packing_alias(Packet, Channel)).
 
 t_check_pub_acl(_) ->
     ok = meck:expect(emqx_zone, enable_acl, fun(_) -> true end),

@@ -1,7 +1,12 @@
 {application, emqx,
  [{id, "emqx"},
   {description, "EMQ X"},
-  {vsn, "4.3.13"}, % strict semver, bump manually!
+  %% Note: this version is not the same as the release version!  This
+  %% is simply the emqx `application' version, which is separate from
+  %% the emqx `release' version, which in turn is comprised of several
+  %% apps, one of which is this.  See `emqx_release.hrl' for more
+  %% info.
+  {vsn, "4.3.14"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
   {applications, [kernel,stdlib,gproc,gen_rpc,esockd,cowboy,sasl,os_mon]},
