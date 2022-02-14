@@ -137,14 +137,14 @@ on_stop(InstId, #{poolname := PoolName}) ->
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId,
-         {Action, Collection, Selector, Docs},
+         {Action, Collection, Selector, Projector},
          AfterQuery,
          #{poolname := PoolName} = State) ->
-    Request = {Action, Collection, Selector, Docs},
+    Request = {Action, Collection, Selector, Projector},
     ?TRACE("QUERY", "mongodb_connector_received",
         #{request => Request, connector => InstId, state => State}),
     case ecpool:pick_and_do(PoolName,
-                            {?MODULE, mongo_query, [Action, Collection, Selector, Docs]},
+                            {?MODULE, mongo_query, [Action, Collection, Selector, Projector]},
                             no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{msg => "mongodb_connector_do_query_failed",
