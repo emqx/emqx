@@ -119,7 +119,7 @@ jobs:
         mkdir -p _packages/${{ matrix.profile }}
         Compress-Archive -Path _build/${{ matrix.profile }}/rel/emqx -DestinationPath _build/${{ matrix.profile }}/rel/$pkg_name
         mv _build/${{ matrix.profile }}/rel/$pkg_name _packages/${{ matrix.profile }}
-        Get-FileHash -Path "_packages/${{ matrix.profile }}/$pkg_name" | Format-List | grep 'Hash' | awk '{print $3}'  > _packages/${{ matrix.profile }}/$pkg_name.sha256
+        sha256sum "_packages/${{ matrix.profile }}/$pkg_name" | head -c 64 > "_packages/${{ matrix.profile }}/${pkg_name}.sha256"
     - name: run emqx
       timeout-minutes: 1
       working-directory: source
@@ -207,8 +207,14 @@ jobs:
           exit 1
         fi
         ./emqx/bin/emqx_ctl status
-        ./emqx/bin/emqx stop
+        if ! ./emqx/bin/emqx stop; then
+          cat emqx/log/erlang.log.1 || true
+          cat emqx/log/emqx.log.1 || true
+          echo "failed to stop emqx"
+          exit 1
+        fi
         rm -rf emqx
+        #sha256sum $pkg_name | head -c64  > $pkg_name.sha256
         openssl dgst -sha256 $pkg_name | awk '{print $2}'  > $pkg_name.sha256
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
@@ -381,7 +387,7 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-    - name: Docker login for aws ecr
+    - name: Docker login to aws ecr
       if: matrix.registry == 'public.ecr.aws'
       run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
     - uses: docker/login-action@v1
