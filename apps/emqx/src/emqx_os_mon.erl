@@ -76,10 +76,16 @@ set_procmem_high_watermark(Float) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    Opts = emqx:get_config([sysmon, os]),
-    set_mem_check_interval(maps:get(mem_check_interval, Opts)),
-    set_sysmem_high_watermark(maps:get(sysmem_high_watermark, Opts)),
-    set_procmem_high_watermark(maps:get(procmem_high_watermark, Opts)),
+    #{
+        sysmem_high_watermark := SysHW,
+        procmem_high_watermark := PHW,
+        mem_check_interval := MCI
+    } = emqx:get_config([sysmon, os]),
+
+    set_sysmem_high_watermark(SysHW),
+    set_procmem_high_watermark(PHW),
+    set_mem_check_interval(MCI),
+    ensure_system_memory_alarm(SysHW),
     _ = start_check_timer(),
     {ok, #{}}.
 
@@ -95,7 +101,7 @@ handle_info({timeout, _Timer, check}, State) ->
     CPULowWatermark = emqx:get_config([sysmon, os, cpu_low_watermark]) * 100,
     _ = case emqx_vm:cpu_util() of %% TODO: should be improved?
         0 -> ok;
-        Busy when Busy >= CPUHighWatermark ->
+        Busy when Busy > CPUHighWatermark ->
             Usage = list_to_binary(io_lib:format("~.2f%", [Busy])),
             Message = <<Usage/binary, " cpu usage">>,
             emqx_alarm:activate(high_cpu_usage,
@@ -106,7 +112,7 @@ handle_info({timeout, _Timer, check}, State) ->
                 },
                 Message),
             start_check_timer();
-        Busy when Busy =< CPULowWatermark ->
+        Busy when Busy < CPULowWatermark ->
             Usage = list_to_binary(io_lib:format("~.2f%", [Busy])),
             Message = <<Usage/binary, " cpu usage">>,
             emqx_alarm:deactivate(high_cpu_usage,
@@ -141,4 +147,21 @@ start_check_timer() ->
     case erlang:system_info(system_architecture) of
         "x86_64-pc-linux-musl" -> ok;
         _ -> emqx_misc:start_timer(Interval, check)
+    end.
+
+%% At startup, memsup starts first and checks for memory alarms,
+%% but emqx_alarm_handler is not yet used instead of alarm_handler,
+%% so alarm_handler is used directly for notification (normally emqx_alarm_handler should be used).
+%%The internal memsup will no longer trigger events that have been alerted,
+%% and there is no exported function to remove the alerted flag,
+%% so it can only be checked again at startup.
+ensure_system_memory_alarm(HW) ->
+    case erlang:whereis(memsup) of
+        undefined -> ok;
+        _Pid ->
+            {Allocated, Total, _Worst} = memsup:get_memory_data(),
+            case Total =/= 0 andalso Allocated/Total * 100 > HW of
+                true -> emqx_alarm:activate(high_system_memory_usage, #{high_watermark => HW});
+                false -> ok
+            end
     end.

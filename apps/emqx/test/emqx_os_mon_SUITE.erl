@@ -24,20 +24,24 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_config:put([sysmon, os], #{
-        cpu_check_interval => 60000,cpu_high_watermark => 0.8,
-        cpu_low_watermark => 0.6,mem_check_interval => 60000,
-        procmem_high_watermark => 0.05,sysmem_high_watermark => 0.7}),
-    application:ensure_all_started(os_mon),
+    emqx_common_test_helpers:boot_modules(all),
+    emqx_common_test_helpers:start_apps([],
+        fun(emqx) ->
+            application:set_env(emqx, os_mon, [
+                {cpu_check_interval, 1},
+                {cpu_high_watermark, 5},
+                {cpu_low_watermark, 80},
+                {mem_check_interval, 60},
+                {sysmem_high_watermark, 70},
+                {procmem_high_watermark, 5}]);
+            (_) -> ok
+        end),
     Config.
 
 end_per_suite(_Config) ->
-    application:stop(os_mon).
+    emqx_common_test_helpers:stop_apps([]).
 
 t_api(_) ->
-    gen_event:swap_handler(alarm_handler, {emqx_alarm_handler, swap}, {alarm_handler, []}),
-    {ok, _} = emqx_os_mon:start_link(),
-
     ?assertEqual(60000, emqx_os_mon:get_mem_check_interval()),
     ?assertEqual(ok, emqx_os_mon:set_mem_check_interval(30000)),
     ?assertEqual(60000, emqx_os_mon:get_mem_check_interval()),
@@ -58,4 +62,3 @@ t_api(_) ->
     emqx_os_mon ! ignored,
     gen_server:stop(emqx_os_mon),
     ok.
-
