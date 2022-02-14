@@ -24,6 +24,7 @@
 
 -define(TEST_RESOURCE, emqx_test_resource).
 -define(ID, <<"id">>).
+-define(DEFAULT_RESOURCE_GROUP, <<"default">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
