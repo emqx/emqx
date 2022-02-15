@@ -1,7 +1,7 @@
 
 # emqx-management
 
-EMQ X Management API
+EMQX Management API
 
 ## How to Design RESTful API?
 
