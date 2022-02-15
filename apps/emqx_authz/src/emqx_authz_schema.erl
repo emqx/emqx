@@ -144,12 +144,10 @@ fields(redis_cluster) ->
     [ {cmd, query()} ].
 
 http_common_fields() ->
-    [ {type, #{type => http}}
-    , {enable, #{type => boolean(), default => true}}
-    , {url, fun url/1}
+    [ {url, fun url/1}
     , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
     , {body, #{type => map(), nullable => true}}
-    ] ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
+    ] ++ proplists:delete(base_url, connector_fields(http)).
 
 mongo_common_fields() ->
     [ {collection, #{type => atom()}}

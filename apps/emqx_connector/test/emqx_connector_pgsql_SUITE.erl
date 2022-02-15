@@ -18,12 +18,12 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 -define(PGSQL_HOST, "pgsql").
--define(PGSQL_PORT, 5432).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -32,15 +32,16 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_DEFAULT_PORT) of
         true ->
+            ok = emqx_connector_test_helpers:start_apps([ecpool, pgsql]),
             Config;
         false ->
             {skip, no_pgsql}
     end.
 
 end_per_suite(_Config) ->
-    ok.
+    ok = emqx_connector_test_helpers:stop_apps([ecpool, pgsql]).
 
 init_per_testcase(_, Config) ->
     ?assertEqual(
@@ -124,7 +125,7 @@ pgsql_config() ->
         username => <<"root">>,
         password => <<"public">>,
         pool_size => 8,
-        server => {?PGSQL_HOST, ?PGSQL_PORT},
+        server => {?PGSQL_HOST, ?PGSQL_DEFAULT_PORT},
         ssl => #{enable => false}
     }.
 
@@ -135,7 +136,7 @@ pgsql_bad_config() ->
         username => <<"bad_root">>,
         password => <<"bad_public">>,
         pool_size => 8,
-        server => {?PGSQL_HOST, ?PGSQL_PORT},
+        server => {?PGSQL_HOST, ?PGSQL_DEFAULT_PORT},
         ssl => #{enable => false}
     }.
 

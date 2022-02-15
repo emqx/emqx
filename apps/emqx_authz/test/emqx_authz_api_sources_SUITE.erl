@@ -26,7 +26,10 @@
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
--define(MONGO_SINGLE_HOST, "mongo:27017").
+-define(MONGO_SINGLE_HOST, "mongo").
+-define(MYSQL_HOST, "mysql:3306").
+-define(PGSQL_HOST, "pgsql").
+-define(REDIS_SINGLE_HOST, "redis").
 
 -define(SOURCE1, #{<<"type">> => <<"http">>,
                    <<"enable">> => true,
@@ -48,7 +51,7 @@
                   }).
 -define(SOURCE3, #{<<"type">> => <<"mysql">>,
                    <<"enable">> => true,
-                   <<"server">> => <<"mysql:3306">>,
+                   <<"server">> => <<?MYSQL_HOST>>,
                    <<"pool_size">> => 1,
                    <<"database">> => <<"mqtt">>,
                    <<"username">> => <<"xx">>,
@@ -59,7 +62,7 @@
                   }).
 -define(SOURCE4, #{<<"type">> => <<"postgresql">>,
                    <<"enable">> => true,
-                   <<"server">> => <<"pgsql:5432">>,
+                   <<"server">> => <<?PGSQL_HOST>>,
                    <<"pool_size">> => 1,
                    <<"database">> => <<"mqtt">>,
                    <<"username">> => <<"xx">>,
@@ -70,7 +73,7 @@
                   }).
 -define(SOURCE5, #{<<"type">> => <<"redis">>,
                    <<"enable">> => true,
-                   <<"servers">> => <<"redis:6379,127.0.0.1:6380">>,
+                   <<"servers">> => <<?REDIS_SINGLE_HOST, ",127.0.0.1:6380">>,
                    <<"pool_size">> => 1,
                    <<"database">> => 0,
                    <<"password">> => <<"ee">>,

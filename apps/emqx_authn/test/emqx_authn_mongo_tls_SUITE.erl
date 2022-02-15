@@ -19,6 +19,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_connector.hrl").
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -26,7 +27,6 @@
 
 
 -define(MONGO_HOST, "mongo-tls").
--define(MONGO_PORT, 27017).
 
 -define(PATH, [authentication]).
 
@@ -43,7 +43,7 @@ init_per_testcase(_TestCase, Config) ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
             ok = start_apps([emqx_resource, emqx_connector]),
@@ -78,8 +78,8 @@ t_create(_Config) ->
            <<"versions">> => [<<"tlsv1.2">>],
            <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]}),
        fun({ok, _}, Trace) ->
-            ?assertEqual(
-               [ok],
+            ?assertMatch(
+               [ok | _],
                ?projection(
                   status,
                   ?of_kind(emqx_connector_mongo_health_check, Trace)))
@@ -100,7 +100,7 @@ t_create_invalid_server_name(_Config) ->
        end).
 
 
-%% docker-compose-mongo-single-tls.yaml: 
+%% docker-compose-mongo-single-tls.yaml:
 %% --tlsDisabledProtocols TLS1_0,TLS1_1
 
 t_create_invalid_version(_Config) ->
@@ -169,15 +169,12 @@ raw_mongo_auth_config(SpecificSSLOpts) ->
       topology => #{
                     server_selection_timeout_ms => <<"10000ms">>
                    },
-      
+
       ssl => maps:merge(SSLOpts, SpecificSSLOpts)
      }.
 
 mongo_server() ->
-    iolist_to_binary(
-      io_lib:format(
-        "~s:~b",
-        [?MONGO_HOST, ?MONGO_PORT])).
+    iolist_to_binary(io_lib:format("~s",[?MONGO_HOST])).
 
 start_apps(Apps) ->
     lists:foreach(fun application:ensure_all_started/1, Apps).

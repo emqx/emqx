@@ -445,8 +445,6 @@ typename_to_spec("file()", _Mod) -> #{type => string, example => <<"/path/to/fil
 typename_to_spec("ip_port()", _Mod) -> #{type => string, example => <<"127.0.0.1:80">>};
 typename_to_spec("ip_ports()", _Mod) -> #{type => string, example => <<"127.0.0.1:80, 127.0.0.2:80">>};
 typename_to_spec("url()", _Mod) -> #{type => string, example => <<"http://127.0.0.1">>};
-typename_to_spec("server()", Mod) -> typename_to_spec("ip_port()", Mod);
-typename_to_spec("servers()", Mod) -> typename_to_spec("ip_ports()", Mod);
 typename_to_spec("connect_timeout()", Mod) -> typename_to_spec("timeout()", Mod);
 typename_to_spec("timeout()", _Mod) -> #{<<"oneOf">> => [#{type => string, example => infinity},
     #{type => integer, example => 100}], example => infinity};

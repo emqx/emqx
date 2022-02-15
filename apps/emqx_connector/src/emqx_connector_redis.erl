@@ -19,21 +19,6 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--type server() :: tuple().
-%% {"127.0.0.1", 7000}
-%% For eredis:start_link/1~7
--reflect_type([server/0]).
--typerefl_from_string({server/0, ?MODULE, to_server}).
-
--type servers() :: list().
-%% [{"127.0.0.1", 7000}, {"127.0.0.2", 7000}]
-%% For eredis_cluster
--reflect_type([servers/0]).
--typerefl_from_string({servers/0, ?MODULE, to_servers}).
-
--export([ to_server/1
-        , to_servers/1]).
-
 -export([roots/0, fields/1]).
 
 -behaviour(emqx_resource).
@@ -51,6 +36,12 @@
 
 -export([cmd/3]).
 
+%% redis host don't need parse
+-define( REDIS_HOST_OPTIONS
+       , #{ host_type => hostname
+          , default_port => ?REDIS_DEFAULT_PORT}).
+
+
 %%=====================================================================
 roots() ->
     [ {config, #{type => hoconsc:union(
@@ -62,27 +53,41 @@ roots() ->
     ].
 
 fields(single) ->
-    [ {server, #{type => server()}}
+    [ {server, fun server/1}
     , {redis_type, #{type => hoconsc:enum([single]),
                      default => single}}
     ] ++
     redis_fields() ++
     emqx_connector_schema_lib:ssl_fields();
 fields(cluster) ->
-    [ {servers, #{type => servers()}}
+    [ {servers, fun servers/1}
     , {redis_type, #{type => hoconsc:enum([cluster]),
                      default => cluster}}
     ] ++
     redis_fields() ++
     emqx_connector_schema_lib:ssl_fields();
 fields(sentinel) ->
-    [ {servers, #{type => servers()}}
+    [ {servers, fun servers/1}
     , {redis_type, #{type => hoconsc:enum([sentinel]),
                      default => sentinel}}
     , {sentinel, #{type => string()}}
     ] ++
     redis_fields() ++
     emqx_connector_schema_lib:ssl_fields().
+
+server(type) -> emqx_schema:ip_port();
+server(nullable) -> false;
+server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
+server(converter) -> fun to_server_raw/1;
+server(desc) -> ?SERVER_DESC("Redis", integer_to_list(?REDIS_DEFAULT_PORT));
+server(_) -> undefined.
+
+servers(type) -> list();
+servers(nullable) -> false;
+servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
+servers(converter) -> fun to_servers_raw/1;
+servers(desc) -> ?SERVERS_DESC ++ server(desc);
+servers(_) -> undefined.
 
 %% ===================================================================
 on_start(InstId, #{redis_type := Type,
@@ -185,24 +190,22 @@ redis_fields() ->
     , {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].
 
-to_server(Server) ->
-    try {ok, parse_server(Server)}
-    catch
-        throw : Error  ->
-            Error
-    end.
+-spec to_server_raw(string())
+      -> {string(), pos_integer()}.
+to_server_raw(Server) ->
+    emqx_connector_schema_lib:parse_server(Server, ?REDIS_HOST_OPTIONS).
 
-to_servers(Servers) ->
-    try {ok, lists:map(fun parse_server/1, string:tokens(Servers, ", "))}
-    catch
-        throw : _Reason ->
-            {error, Servers}
-    end.
+-spec to_servers_raw(string())
+      -> [{string(), pos_integer()}].
+to_servers_raw(Servers) ->
+    lists:map( fun(Server) ->
+                   emqx_connector_schema_lib:parse_server(Server, ?REDIS_HOST_OPTIONS)
+               end
+             , string:tokens(str(Servers), ", ")).
 
-parse_server(Server) ->
-    case string:tokens(Server, ": ") of
-        [Host, Port] ->
-            {Host, list_to_integer(Port)};
-        _ ->
-            throw({error, Server})
-    end.
+str(A) when is_atom(A) ->
+    atom_to_list(A);
+str(B) when is_binary(B) ->
+    binary_to_list(B);
+str(S) when is_list(S) ->
+    S.

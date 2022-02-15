@@ -19,12 +19,12 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_connector.hrl").
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 -define(PGSQL_HOST, "pgsql-tls").
--define(PGSQL_PORT, 5432).
 
 -define(PATH, [authentication]).
 
@@ -44,7 +44,7 @@ init_per_testcase(_, Config) ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    case emqx_common_test_helpers:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_DEFAULT_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
             ok = start_apps([emqx_resource, emqx_connector]),
@@ -131,14 +131,10 @@ raw_pgsql_auth_config(SpecificSSLOpts) ->
      }.
 
 pgsql_server() ->
-    iolist_to_binary(
-      io_lib:format(
-        "~s:~b",
-        [?PGSQL_HOST, ?PGSQL_PORT])).
+    iolist_to_binary(io_lib:format("~s",[?PGSQL_HOST])).
 
 start_apps(Apps) ->
     lists:foreach(fun application:ensure_all_started/1, Apps).
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
-
