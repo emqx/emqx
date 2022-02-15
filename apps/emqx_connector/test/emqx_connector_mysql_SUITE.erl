@@ -34,13 +34,14 @@ groups() ->
 init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_DEFAULT_PORT) of
         true ->
+            ok = emqx_connector_test_helpers:start_apps([ecpool, mysql]),
             Config;
         false ->
             {skip, no_mysql}
     end.
 
 end_per_suite(_Config) ->
-    ok.
+    ok = emqx_connector_test_helpers:stop_apps([ecpool, mysql]).
 
 init_per_testcase(_, Config) ->
     ?assertEqual(

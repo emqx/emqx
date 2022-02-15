@@ -34,13 +34,14 @@ groups() ->
 init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_DEFAULT_PORT) of
         true ->
+            ok = emqx_connector_test_helpers:start_apps([ecpool, pgsql]),
             Config;
         false ->
             {skip, no_pgsql}
     end.
 
 end_per_suite(_Config) ->
-    ok.
+    ok = emqx_connector_test_helpers:stop_apps([ecpool, pgsql]).
 
 init_per_testcase(_, Config) ->
     ?assertEqual(
