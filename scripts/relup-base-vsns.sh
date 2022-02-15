@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ## This script prints the relup upgrade base versions
-## for the given EMQ X edition (specified as first arg)
+## for the given EMQX edition (specified as first arg)
 ##
 ## The second argument is the current release version
 ## if not provided, it's taken from pkg-vsn.sh
