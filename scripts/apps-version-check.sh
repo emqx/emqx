@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-latest_release=$(git describe --abbrev=0 --tags)
+## compare to the latest 5.0 release version tag:
+## but do not include alpha, beta and rc versions
+latest_release="$(git describe --abbrev=0 --tags --match '[v|e]5.0*' --exclude '*beta*' --exclude '*alpha*' --exclude '*rc*' || echo 'nomatch')"
+
+if [ "$latest_release" = 'nomatch' ]; then
+    echo "No base release found, skipping app vsn checks"
+    exit 0
+fi
+
+echo "Compare base: $latest_release"
 
 bad_app_count=0
 
