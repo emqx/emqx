@@ -128,6 +128,8 @@ init_tab() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    erlang:process_flag(trap_exit, true),
+
     emqx_conf:add_handler([slow_subs], ?MODULE),
 
     InitState = #{enable => false,
