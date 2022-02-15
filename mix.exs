@@ -588,13 +588,13 @@ defmodule EMQXUmbrella.MixProject do
   defp emqx_description(release_type, edition_type) do
     case {release_type, edition_type} do
       {:cloud, :enterprise} ->
-        "EMQ X Enterprise Edition"
+        "EMQX Enterprise Edition"
 
       {:cloud, :community} ->
-        "EMQ X Community Edition"
+        "EMQX Community Edition"
 
       {:edge, :community} ->
-        "EMQ X Edge Edition"
+        "EMQX Edge Edition"
     end
   end
 

@@ -15,13 +15,13 @@ set -euo pipefail
 help() {
     echo
     echo "-h|--help:                   To display this usage information"
-    echo "--profile <PROFILE>:         EMQ X profile to build, e.g. emqx, emqx-edge"
+    echo "--profile <PROFILE>:         EMQX profile to build, e.g. emqx, emqx-edge"
     echo "--pkgtype tgz|pkg:           Specify which package to build, tgz for .tar.gz,"
     echo "                             pkg for .rpm or .deb"
     echo "--with-elixir:               Specify if the release should be built with Elixir, "
     echo "                             defaults to false."
-    echo "--arch amd64|arm64:          Target arch to build the EMQ X package for"
-    echo "--src_dir <SRC_DIR>:         EMQ X source ode in this dir, default to PWD"
+    echo "--arch amd64|arm64:          Target arch to build the EMQX package for"
+    echo "--src_dir <SRC_DIR>:         EMQX source ode in this dir, default to PWD"
     echo "--builder <BUILDER>:         Builder image to pull"
     echo "                             E.g. ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10"
     echo "--otp <OTP_VSN>:             OTP version being used in the builder"

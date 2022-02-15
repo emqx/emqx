@@ -125,7 +125,7 @@ cp_dyn_libs() {
         | sort -u)
 }
 
-## Re-pack the relx assembled .tar.gz to EMQ X's package naming scheme
+## Re-pack the relx assembled .tar.gz to EMQX's package naming scheme
 ## It assumes the .tar.gz has been built -- relies on Makefile dependency
 make_tgz() {
     local pkgpath="_packages/${PROFILE}"
@@ -186,7 +186,7 @@ make_docker() {
 
 ## This function accepts any base docker image,
 ## a emqx tgz-image, and a image tag (for the image to be built),
-## to build a docker image which runs EMQ X
+## to build a docker image which runs EMQX
 ##
 ## Export below variables to quickly build an image
 ##

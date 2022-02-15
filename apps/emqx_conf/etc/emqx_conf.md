@@ -1,10 +1,10 @@
-EMQ X configuration file is in [HOCON](https://github.com/emqx/hocon) format.
+EMQX configuration file is in [HOCON](https://github.com/emqx/hocon) format.
 HOCON, or Human-Optimized Config Object Notation is a format for human-readable data,
 and a superset of JSON.
 
 ## Layered
 
-EMQ X configuration consists of 3 layers.
+EMQX configuration consists of 3 layers.
 From bottom up:
 
 1. Immutable base: `emqx.conf` + `EMQX_` prefixed environment variables.<br>
@@ -36,7 +36,7 @@ node.name="127.0.0.1"
 node.cookie="mysecret"
 ```
 
-This flat format is almost backward compatible with EMQ X's config file format
+This flat format is almost backward compatible with EMQX's config file format
 in 4.x series (the so called 'cuttlefish' format).
 
 It is 'almost' compatible because the often HOCON requires strings to be quoted,
@@ -51,13 +51,13 @@ For more HOCON syntax, please refer to the [specification](https://github.com/li
 
 ## Schema
 
-To make the HOCON objects type-safe, EMQ X introduced a schema for it.
+To make the HOCON objects type-safe, EMQX introduced a schema for it.
 The schema defines data types, and data fields' names and metadata for config value validation
 and more. In fact, this config document itself is generated from schema metadata.
 
 ### Complex Data Types
 
-There are 4 complex data types in EMQ X's HOCON config:
+There are 4 complex data types in EMQX's HOCON config:
 
 1. Struct: Named using an unquoted string, followed by a predefined list of fields,
    fields can not start with a number, and are only allowed to use
@@ -85,11 +85,11 @@ There are quite some different primitive types, to name a few:
 * ...
 
 The primitive types are mostly self-describing, some are built-in, such
-as `atom()`, some are defined in EMQ X modules, such as `emqx_schema:duration()`.
+as `atom()`, some are defined in EMQX modules, such as `emqx_schema:duration()`.
 
 ### Config Paths
 
-If we consider the whole EMQ X config as a tree,
+If we consider the whole EMQX config as a tree,
 to reference a primitive value, we can use a dot-separated names form string for
 the path from the tree-root (always a Struct) down to the primitive values at tree-leaves.
 
@@ -181,7 +181,7 @@ zone.zone1.mqtt.max_packet_size = 10M
 
 #### Array Elements
 
-Arrays in EMQ X config have two different representations
+Arrays in EMQX config have two different representations
 
 * list, such as: `[1, 2, 3]`
 * indexed-map, such as: `{"1"=1, "2"=2, "3"=3}`
