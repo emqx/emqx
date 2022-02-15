@@ -205,7 +205,7 @@ add_collect_family(Name, Data, Callback, Type) ->
     Callback(create_schema(Name, <<"">>, Data, Type)).
 
 create_schema(Name, Help, Data, Type) ->
-  create_mf(Name, Help, Type, ?MODULE, Data).
+    create_mf(Name, Help, Type, ?MODULE, Data).
 
 %%--------------------------------------------------------------------
 %% Collector
