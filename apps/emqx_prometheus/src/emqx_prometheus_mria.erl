@@ -66,7 +66,7 @@ add_metric_family({Name, Metrics}, Callback) ->
 metrics() ->
     Metrics = case mria_rlog:role() of
                   replicant ->
-                      [lag, bootstrap_time, bootstrap_num_keys, message_queue_len];
+                      [lag, bootstrap_time, bootstrap_num_keys, message_queue_len, replayq_len];
                   core ->
                       [last_intercepted_trans, weight, replicants, server_mql]
               end,
