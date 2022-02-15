@@ -25,8 +25,6 @@ jobs:
     container: "ghcr.io/emqx/emqx-builder/5.0-5:1.13.2-24.1.5-4-ubuntu20.04"
 
     outputs:
-      ce_old_vsns: ${{ steps.find_old_versons.outputs.ce_old_vsns }}
-      ee_old_vsns: ${{ steps.find_old_versons.outputs.ee_old_vsns }}
       DEP_ROCKSDB_REF: ${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
       DEP_QUICER_REF: ${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
@@ -43,16 +41,6 @@ jobs:
         run: |
           bash -x scripts/get-dep-refs.sh
           make clean-all
-
-      - name: find old versions
-        id: find_old_versons
-        shell: bash
-        working-directory: source
-        run: |
-          ce_old_vsns="$(./scripts/relup-base-vsns.sh community  | xargs)"
-          ee_old_vsns="$(./scripts/relup-base-vsns.sh enterprise | xargs)"
-          echo "::set-output name=ce_old_vsns::${ce_old_vsns}"
-          echo "::set-output name=ee_old_vsns::${ee_old_vsns}"
       - name: get_all_deps
         run: |
           make -C source deps-all
@@ -332,47 +320,6 @@ jobs:
           source/_build/default/lib/quicer/
           source/deps/quicer/
         key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_QUICER_REF }}
-    - name: download old emqx tgz packages
-      env:
-        OTP_VSN: ${{ matrix.otp }}
-        PROFILE: ${{ matrix.profile }}
-        ARCH: ${{ matrix.arch }}
-        SYSTEM: ${{ matrix.os }}
-        CE_OLD_VSNS: ${{ needs.prepare.outputs.ce_old_vsns }}
-        EE_OLD_VSNS: ${{ needs.prepare.outputs.ee_old_vsns }}
-      working-directory: source
-      run: |
-        set -e -x -u
-        if [ $PROFILE = 'emqx' ]; then
-            s3dir='emqx-ce'
-            OLD_VSNS="$CE_OLD_VSNS"
-        elif [ $PROFILE = 'emqx-enterprise' ]; then
-            s3dir='emqx-ee'
-            OLD_VSNS="$EE_OLD_VSNS"
-        elif [ $PROFILE = 'emqx-edge' ]; then
-            s3dir='emqx-edge'
-            OLD_VSNS="$CE_OLD_VSNS"
-        else
-            echo "unknown profile $PROFILE"
-            exit 1
-        fi
-        mkdir -p _upgrade_base
-        cd _upgrade_base
-        old_vsns=$(echo "$OLD_VSNS" | tr ' ' ' ')
-
-        # workaround for bash empty array expanding issue in different bash versions
-        if [ -n "$old_vsns" ]; then
-        old_vsns=($old_vsns)
-        for tag in ${old_vsns[@]}; do
-          package_name="${PROFILE}-${tag#[e|v]}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
-          if [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://s3-us-west-2.amazonaws.com/packages.emqx/$s3dir/$tag/$package_name.tar.gz) | grep -oE "^[23]+")" ]; then
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$s3dir/$tag/$package_name.tar.gz
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$s3dir/$tag/$package_name.tar.gz.sha256
-            echo "$(cat $package_name.tar.gz.sha256) $package_name.tar.gz" | sha256sum -c || exit 1
-          fi
-        done
-        fi
-
     - name: build emqx packages
       working-directory: source
       env:
@@ -693,6 +640,7 @@ jobs:
     needs: [prepare, mac, linux, docker]
 
     strategy:
+      fail-fast: false
       matrix:
         profile:
           - emqx-edge
