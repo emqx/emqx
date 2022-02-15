@@ -61,22 +61,8 @@ fields(server) ->
     ];
 
 fields(ssl_conf) ->
-    [ {enable, sc(boolean(), #{default => true})}
-    , {cacertfile,
-       sc(binary(),
-          #{example => <<"{{ platform_etc_dir }}/certs/cacert.pem">>})
-      }
-    , {certfile,
-       sc(binary(),
-          #{example => <<"{{ platform_etc_dir }}/certs/cert.pem">>})
-      }
-    , {keyfile,
-       sc(binary(),
-          #{example => <<"{{ platform_etc_dir }}/certs/key.pem">>})}
-    , {verify,
-       sc(hoconsc:enum([verify_peer, verify_none]),
-          #{example => <<"verify_none">>})}
-    ].
+    Schema = emqx_schema:client_ssl_opts_schema(#{}),
+    lists:keydelete(user_lookup_fun, 1, Schema).
 
 %% types
 sc(Type, Meta) -> Meta#{type => Type}.
