@@ -1,4 +1,4 @@
-# EMQ X Broker
+# EMQX Broker
 
 [![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen)](https://github.com/emqx/emqx/releases)
 [![Build Status](https://travis-ci.org/emqx/emqx.svg)](https://travis-ci.org/emqx/emqx)
@@ -12,20 +12,20 @@
 
 English | [简体中文](./README-CN.md) | [日本語](./README-JP.md) | [русский](./README-RU.md)
 
-*EMQ X* broker is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
+*EMQX* broker is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
 
-Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1,  as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket and STOMP. The 3.0 release of the *EMQ X* broker can scaled to 10+ million concurrent MQTT connections on one cluster.
+Starting from 3.0 release, *EMQX* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1,  as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket and STOMP. The 3.0 release of the *EMQX* broker can scaled to 10+ million concurrent MQTT connections on one cluster.
 
-- For full list of new features, please read [EMQ X Release Notes](https://github.com/emqx/emqx/releases).
-- For more information, please visit [EMQ X homepage](https://www.emqx.io).
+- For full list of new features, please read [EMQX Release Notes](https://github.com/emqx/emqx/releases).
+- For more information, please visit [EMQX homepage](https://www.emqx.io).
 
 ## Installation
 
-The *EMQ X* broker is cross-platform, which supports Linux, Unix, macOS and Windows. It means *EMQ X* can be deployed on x86_64 architecture servers and ARM devices like Raspberry Pi.
+The *EMQX* broker is cross-platform, which supports Linux, Unix, macOS and Windows. It means *EMQX* can be deployed on x86_64 architecture servers and ARM devices like Raspberry Pi.
 
-See more details for building and running *EMQ X* on Windows in [Windows.md](./Windows.md)
+See more details for building and running *EMQX* on Windows in [Windows.md](./Windows.md)
 
-#### Installing via EMQ X Docker Image
+#### Installing via EMQX Docker Image
 
 ```
 docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
@@ -33,7 +33,7 @@ docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p
 
 #### Installing via Binary Package
 
-Get the binary package of the corresponding OS from [EMQ X Download](https://www.emqx.io/downloads) page.
+Get the binary package of the corresponding OS from [EMQX Download](https://www.emqx.io/downloads) page.
 
 - [Single Node Install](https://docs.emqx.io/en/broker/latest/getting-started/install.html)
 - [Multi Node Install](https://docs.emqx.io/en/broker/latest/advanced/cluster.html)
@@ -41,7 +41,7 @@ Get the binary package of the corresponding OS from [EMQ X Download](https://www
 
 ## Build From Source
 
-The *EMQ X* broker requires Erlang/OTP R21+ to build since 3.0 release.
+The *EMQX* broker requires Erlang/OTP R21+ to build since 3.0 release.
 
 For 4.3 and later versions.
 
@@ -110,7 +110,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 
 ### FAQ
 
-Visiting [EMQ X FAQ](https://docs.emqx.io/en/broker/latest/faq/faq.html) to get help of common problems.
+Visiting [EMQX FAQ](https://docs.emqx.io/en/broker/latest/faq/faq.html) to get help of common problems.
 
 
 ### Questions

@@ -1,6 +1,6 @@
 # emqx-prometheus
 
-EMQ X Prometheus Agent
+EMQX Prometheus Agent
 
 ## push emqx stats/metrics to prometheus PushGateway
 
@@ -48,7 +48,7 @@ json data
 ```
 
 
-## Before EMQ X v4.0.0
+## Before EMQX v4.0.0
 The prometheus data simple is:
 
 
@@ -279,5 +279,5 @@ Apache License Version 2.0
 Author
 ------
 
-EMQ X Team.
+EMQX Team.
 

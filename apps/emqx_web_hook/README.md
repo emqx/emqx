@@ -1,9 +1,9 @@
 
 # emqx-web-hook
 
-EMQ X WebHook plugin.
+EMQX WebHook plugin.
 
-Please see: [EMQ X - WebHook](https://docs.emqx.io/broker/latest/en/advanced/webhook.html)
+Please see: [EMQX - WebHook](https://docs.emqx.io/broker/latest/en/advanced/webhook.html)
 
 ## emqx_web_hook.conf
 
