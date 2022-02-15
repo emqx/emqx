@@ -25,15 +25,22 @@ private_key() ->
 public_key() ->
     test_key("pub.pem").
 
-public_key_encoded() ->
-    public_key:der_encode('RSAPublicKey', public_key()).
+public_key_pem() ->
+    test_key("pub.pem", pem).
 
 test_key(Filename) ->
+    test_key(Filename, decoded).
+
+test_key(Filename, Format) ->
     Dir = code:lib_dir(emqx_license, test),
     Path = filename:join([Dir, "data", Filename]),
     {ok, KeyData} = file:read_file(Path),
-    [PemEntry] = public_key:pem_decode(KeyData),
-    public_key:pem_entry_decode(PemEntry).
+    case Format of
+        pem -> KeyData;
+        decoded ->
+            [PemEntry] = public_key:pem_decode(KeyData),
+            public_key:pem_entry_decode(PemEntry)
+    end.
 
 make_license(Values) ->
     Key = private_key(),

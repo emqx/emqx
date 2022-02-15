@@ -164,8 +164,5 @@ mk_license(Fields) ->
     EncodedLicense = emqx_license_test_lib:make_license(Fields),
     {ok, License} = emqx_license_parser:parse(
                       EncodedLicense,
-                      emqx_license_test_lib:public_key_encoded()),
+                      emqx_license_test_lib:public_key_pem()),
     License.
-
-public_key() -> <<"MEgCQQChzN6lCUdt4sYPQmWBYA3b8Zk87Jfk+1A1zcTd+lCU0Tf
-                  vXhSHgEWz18No4lL2v1n+70CoYpc2fzfhNJitgnV9AgMBAAE=">>.
