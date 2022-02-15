@@ -1,5 +1,5 @@
 
-# LwM2M Gateway for the EMQ X Broker.
+# LwM2M Gateway for the EMQX Broker.
 
 [The LwM2M Specifications](http://www.openmobilealliance.org/release/LightweightM2M) is a Lightweight Machine to Machine protocol.
 
@@ -354,4 +354,4 @@ Apache License Version 2.0
 
 ## Author
 
-EMQ X-Men Team.
+EMQX-Men Team.

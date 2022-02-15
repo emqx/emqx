@@ -2,7 +2,7 @@
 # emqx-stomp
 
 
-The plugin adds STOMP 1.0/1.1/1.2 protocol supports to the EMQ X broker.
+The plugin adds STOMP 1.0/1.1/1.2 protocol supports to the EMQX broker.
 
 The STOMP clients could PubSub to the MQTT clients.
 
@@ -69,5 +69,5 @@ Apache License Version 2.0
 
 ## Author
 
-EMQ X Team.
+EMQX Team.
 

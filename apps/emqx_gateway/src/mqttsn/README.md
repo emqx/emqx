@@ -1,6 +1,6 @@
 # MQTT-SN Gateway
 
-EMQ X MQTT-SN Gateway.
+EMQX MQTT-SN Gateway.
 
 ## Configure Plugin
 
@@ -107,4 +107,4 @@ Apache License Version 2.0
 
 ## Author
 
-EMQ X Team.
+EMQX Team.

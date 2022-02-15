@@ -17,7 +17,7 @@
 
 # EMQX 5.0 CoAP Gateway
 
-emqx-coap is a CoAP Gateway for EMQ X Broker. It translates CoAP messages into MQTT messages and make it possible to communiate between CoAP clients and MQTT clients.
+emqx-coap is a CoAP Gateway for EMQX Broker. It translates CoAP messages into MQTT messages and make it possible to communiate between CoAP clients and MQTT clients.
 
 
 <a id="orgeddbc94"></a>
@@ -100,11 +100,11 @@ emqx-coap is a CoAP Gateway for EMQ X Broker. It translates CoAP messages into M
    Establishing a connection is optional. If the CoAP client needs to use connection-based operations, it must first establish a connection.
 At the same time, the connectionless mode and the connected mode cannot be mixed.
 In connection mode, the Publish/Subscribe/UnSubscribe sent by the client must be has Token and ClientId in query string.
-If the Token and Clientid is wrong/miss, EMQ X will reset the request.
+If the Token and Clientid is wrong/miss, EMQX will reset the request.
 The communication token is the data carried in the response payload after the client successfully establishes a connection.
 After obtaining the token, the client's subsequent request must attach "token=Token" to the Query String
 ClientId is necessary when there is a connection, and is a unique identifier defined by the client.
-The server manages the client through the ClientId. If the ClientId is wrong, EMQ X will reset the request.
+The server manages the client through the ClientId. If the ClientId is wrong, EMQX will reset the request.
 
 1.  Create a Connection
 

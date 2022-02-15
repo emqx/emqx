@@ -34,14 +34,14 @@ The following table lists the configurable parameters of the emqx chart and thei
 | Parameter  | Description | Default Value |
 | ---        |  ---        | ---           |
 | `replicaCount` | It is recommended to have odd number of nodes in a cluster, otherwise the emqx cluster cannot be automatically healed in case of net-split. |3|
-| `image.repository` | EMQ X Image name |emqx/emqx|
+| `image.repository` | EMQX Image name |emqx/emqx|
 | `image.pullPolicy`  | The image pull policy  |IfNotPresent|
 | `image.pullSecrets `  | The image pull secrets  |`[]` (does not add image pull secrets to deployed pods)|
 | `envFromSecret` | The name pull a secret in the same kubernetes namespace which contains values that will be added to the environment | nil |
 | `recreatePods` | Forces the recreation of pods during upgrades, which can be useful to always apply the most recent configuration. | false |
 | `persistence.enabled` | Enable EMQX persistence using PVC |false|
 | `persistence.storageClass` | Storage class of backing PVC |`nil` (uses alpha storage class annotation)|
-| `persistence.existingClaim` | EMQ X data Persistent Volume existing claim name, evaluated as a template |""|
+| `persistence.existingClaim` | EMQX data Persistent Volume existing claim name, evaluated as a template |""|
 | `persistence.accessMode` | PVC Access Mode for EMQX volume |ReadWriteOnce|
 | `persistence.size` | PVC Storage Request for EMQX volume |20Mi|
 | `initContainers` | Containers that run before the creation of EMQX containers. They can contain utilities or setup scripts. |`{}`|
