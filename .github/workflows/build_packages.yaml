@@ -1,6 +1,9 @@
 name: Cross build packages
 
 on:
+  push:
+    branches:
+      - 'main-v4.**'
   schedule:
     - cron:  '0 */6 * * *'
   release:
