@@ -246,7 +246,6 @@ validate_name(Name) ->
     end.
 
 %% API CallBack Begin
-
 list_plugins(get, _) ->
     Plugins = cluster_call(emqx_plugins_monitor, get_plugins, [], 15000),
     {200, format_plugins(Plugins)}.
@@ -263,7 +262,8 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
             {400, #{code => 'UNEXPECTED_ERROR',
                 message => iolist_to_binary(io_lib:format("~p", [Reason]))}}
     end;
-upload_install(post, #{}) ->
+upload_install(post, #{} = Body) ->
+    io:format("~p~n", [Body]),
     {400, #{code => 'BAD_FORM_DATA',
         message => <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>}
     }.
@@ -279,7 +279,7 @@ plugin(delete, #{bindings := #{name := Name}}) ->
     return(204, cluster_rpc(?MODULE, delete_package, [Name])).
 
 update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
-    return(200, cluster_rpc(?MODULE, ensure_action, [Name, Action])).
+    return(204, cluster_rpc(?MODULE, ensure_action, [Name, Action])).
 
 update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
     case parse_position(Body, Name) of
@@ -298,6 +298,7 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
 %% For RPC upload_install/2
 install_package(FileName, Bin) ->
     File = filename:join(emqx_plugins:install_dir(), FileName),
+    io:format("xx:~p~n", [File]),
     ok = file:write_file(File, Bin),
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
     emqx_plugins:ensure_installed(PackageName).
@@ -364,40 +365,28 @@ parse_position(#{<<"position">> := <<"after:", After/binary>>}, _Name) -> {behin
 parse_position(Position, _) -> {error, iolist_to_binary(io_lib:format("~p", [Position]))}.
 
 format_plugins(List) ->
-    StatusList = merge_running_status(List, #{}),
+    StatusMap = emqx_plugins_monitor:aggregate_status(List),
+    SortFun = fun({_N1, P1}, {_N2, P2}) -> length(P1) > length(P2) end,
+    SortList = lists:sort(SortFun, List),
+    pack_status_in_order(SortList, StatusMap).
+
+pack_status_in_order(List, StatusMap) ->
     {Plugins, _} =
-        lists:foldr(fun({_Node, Plugins}, {Acc, StatusAcc}) ->
-            format_plugins_in_order(Plugins, Acc, StatusAcc)
-                    end, {[], StatusList}, List),
-    Plugins.
+        lists:foldl(fun({_Node, PluginList}, {Acc, StatusAcc}) ->
+            pack_plugin_in_order(PluginList, Acc, StatusAcc)
+                    end, {[], StatusMap}, List),
+    lists:reverse(Plugins).
 
-format_plugins_in_order(Plugins, Acc0, StatusAcc0) ->
-    lists:foldr(fun(Plugin0, {Acc, StatusAcc}) ->
-        #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin0,
-        case maps:find({Name, Vsn}, StatusAcc) of
-            {ok, Status} ->
-                Plugin1 = maps:without([running_status, config_status], Plugin0),
-                Plugins2 = Plugin1#{running_status => Status},
-                {
-                    [Plugins2 | Acc],
-                    maps:remove({Name, Vsn}, StatusAcc)
-                };
-            error -> {Acc, StatusAcc}
-        end
-                end, {Acc0, StatusAcc0}, Plugins).
-
-merge_running_status([], Acc) -> Acc;
-merge_running_status([{Node, Plugins} | List], Acc) ->
-    NewAcc =
-        lists:foldl(fun(Plugin, SubAcc) ->
-            #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin,
-            Key = {Name, Vsn},
-            Value = #{node => Node, status => plugin_status(Plugin)},
-            SubAcc#{Key => [Value | maps:get(Key, Acc, [])]}
-                    end, Acc, Plugins),
-    merge_running_status(List, NewAcc).
-
-%% running_status: running loaded, stopped
-%% config_status: not_configured disable enable
-plugin_status(#{running_status := running}) -> running;
-plugin_status(_) -> stopped.
+pack_plugin_in_order([], Acc, StatusAcc) -> {Acc, StatusAcc};
+pack_plugin_in_order(_, Acc, StatusAcc)when map_size(StatusAcc) =:= 0 -> {Acc, StatusAcc};
+pack_plugin_in_order([Plugin0 | Plugins], Acc, StatusAcc) ->
+    #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin0,
+    case maps:find({Name, Vsn}, StatusAcc) of
+        {ok, Status} ->
+            Plugin1 = maps:without([running_status, config_status], Plugin0),
+            Plugins2 = Plugin1#{running_status => Status},
+            NewStatusAcc = maps:remove({Name, Vsn}, StatusAcc),
+            pack_plugin_in_order(Plugins, [Plugins2 | Acc], NewStatusAcc);
+        error ->
+            pack_plugin_in_order(Plugins, Acc, StatusAcc)
+    end.
