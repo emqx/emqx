@@ -43,8 +43,7 @@
         ]).
 
 %% Exports mainly for test cases
--export([ format/1
-        , format/2
+-export([ format/2
         , format_usage/1
         , format_usage/2
         ]).
@@ -57,6 +56,8 @@
         , terminate/2
         , code_change/3
         ]).
+
+-elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_ctl]}}]).
 
 -record(state, {seq = 0}).
 
@@ -137,7 +138,7 @@ help() ->
 
 -spec(print(io:format()) -> ok).
 print(Msg) ->
-    io:format("~s", [format(Msg)]).
+    io:format("~s", [format(Msg, [])]).
 
 -spec(print(io:format(), [term()]) -> ok).
 print(Format, Args) ->
@@ -150,10 +151,6 @@ usage(UsageList) ->
 -spec(usage(cmd_params(), cmd_descr()) -> ok).
 usage(CmdParams, Desc) ->
     io:format(format_usage(CmdParams, Desc)).
-
--spec(format(io:format()) -> string()).
-format(Msg) ->
-    lists:flatten(io_lib:format("~s", [Msg])).
 
 -spec(format(io:format(), [term()]) -> string()).
 format(Format, Args) ->
