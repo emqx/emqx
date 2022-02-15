@@ -22,15 +22,15 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx_slow_subs/include/emqx_slow_subs.hrl").
 
--define(TOPK_TAB, emqx_slow_subs_topk).
 -define(NOW, erlang:system_time(millisecond)).
 
 -define(BASE_CONF, <<"""
 slow_subs {
     enable = true
 	top_k_num = 5,
-    expire_interval = 3000
+    expire_interval = 5m
     stats_type = whole
     }""">>).
 
@@ -45,6 +45,11 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_slow_subs]).
 
+init_per_testcase(t_expire, Config) ->
+    Cfg = emqx_config:get([slow_subs]),
+    emqx_slow_subs:update_settings(Cfg#{expire_interval := 1500}),
+    Config;
+
 init_per_testcase(_, Config) ->
     Config.
 
@@ -54,7 +59,7 @@ end_per_testcase(_, _) ->
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
-t_log_and_pub(_) ->
+t_pub(_) ->
     %% Sub topic first
     Subs = [{<<"/test1/+">>, ?QOS_1}, {<<"/test2/+">>, ?QOS_2}],
     Clients = start_client(Subs),
@@ -78,12 +83,24 @@ t_log_and_pub(_) ->
 
     timer:sleep(1000),
     Size = ets:info(?TOPK_TAB, size),
-    %% some time record maybe delete due to it expired
-    ?assert(Size =< 6 andalso Size > 3),
+    ?assert(Size =< 6 andalso Size >= 5),
 
-    timer:sleep(4000),
-    ?assert(ets:info(?TOPK_TAB, size) =:= 0),
     [Client ! stop || Client <- Clients],
+    ok.
+
+t_expire(_) ->
+    Now = ?NOW,
+    Each = fun(I) ->
+                   ClientId = erlang:list_to_binary(io_lib:format("test_~p", [I])),
+                   ets:insert(?TOPK_TAB, #top_k{index = ?TOPK_INDEX(1, ?ID(ClientId, <<"topic">>)),
+                                                last_update_time = Now})
+           end,
+
+    lists:foreach(Each, lists:seq(1, 5)),
+
+    timer:sleep(3000),
+    Size = ets:info(?TOPK_TAB, size),
+    ?assertEqual(0, Size),
     ok.
 
 start_client(Subs) ->
