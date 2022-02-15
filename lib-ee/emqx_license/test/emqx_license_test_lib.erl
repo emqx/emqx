@@ -51,6 +51,8 @@ make_license(Values) ->
     iolist_to_binary([EncodedText, ".", EncodedSignature]).
 
 default_license() ->
-    License = make_license(?DEFAULT_LICENSE_VALUES),
+    License =
+        "MjIwMTExCjAKMTAKRm9vCmNvbnRhY3RAZm9vLmNvbQoyMDIyMDExMQoxMDAwMDAKMTAK."
+        "Iyle9eMrXSAZwJczR8MEI2dtpxLuL2OKRikTwYvFK/SgxfwZQLR7JJM2rKfkuT5eP4cxh0Y1+84hOoB7fj/MWA==",
     ok = file:write_file(?DEFAULT_LICENSE_FILE, License),
     ?DEFAULT_LICENSE_FILE.
