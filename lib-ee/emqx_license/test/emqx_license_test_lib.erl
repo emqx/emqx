@@ -51,8 +51,9 @@ make_license(Values) ->
     iolist_to_binary([EncodedText, ".", EncodedSignature]).
 
 default_license() ->
+    %% keep it the same as in etc/emqx_license.conf
     License =
-        "MjIwMTExCjAKMTAKRm9vCmNvbnRhY3RAZm9vLmNvbQoyMDIyMDExMQoxMDAwMDAKMTAK."
-        "Iyle9eMrXSAZwJczR8MEI2dtpxLuL2OKRikTwYvFK/SgxfwZQLR7JJM2rKfkuT5eP4cxh0Y1+84hOoB7fj/MWA==",
+        "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KMjAyMjAxMDEKMzY1MDAKMTAK."
+        "MEUCIFc9EUjqB3SjpRqWjqmAzI4Tg4LwhCRet9scEoxMRt8fAiEAk6vfYUiPOTzBC+3EjNF3WmLTiA3B0TN5ZNwuTKbTXJQ=",
     ok = file:write_file(?DEFAULT_LICENSE_FILE, License),
     ?DEFAULT_LICENSE_FILE.
