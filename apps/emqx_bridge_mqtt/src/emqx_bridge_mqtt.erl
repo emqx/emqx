@@ -37,6 +37,9 @@
         , handle_disconnected/2
         ]).
 
+%% for testing
+-export([ replvar/1 ]).
+
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
@@ -176,12 +179,12 @@ subscribe_remote_topics(ClientPid, Subscriptions) ->
                           end
                   end, Subscriptions).
 
+replvar(Options) ->
+    replvar([topic, clientid, max_inflight], Options).
+
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
-
-replvar(Options) ->
-    replvar([topic, clientid, max_inflight], Options).
 
 replvar([], Options) ->
     Options;
