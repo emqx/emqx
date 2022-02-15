@@ -51,7 +51,7 @@
         ]).
 
 list(#{node := Node }, Params) ->
-    case Node = node() of
+    case Node =:= node() of
         true -> list(#{}, Params);
         _ -> rpc_call(Node, list, [#{}, Params])
     end;
@@ -61,7 +61,7 @@ list(#{}, _Params) ->
     return({ok, format(Channels)}).
 
 lookup_cmd(#{ep := Ep, node := Node}, Params) ->
-    case Node = node() of
+    case Node =:= node() of
         true -> lookup_cmd(#{ep => Ep}, Params);
         _ -> rpc_call(Node, lookup_cmd, [#{ep => Ep}, Params])
     end;

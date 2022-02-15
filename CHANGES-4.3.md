@@ -20,6 +20,7 @@ File format:
 ### Bug fixes
 
 * Fix case where publishing to a non-existent topic alias would crash the connection [#6979]
+* Fix HTTP-API 500 error on querying the lwm2m client list on the another node [#7009]
 
 ## v4.3.12
 ### Important changes
