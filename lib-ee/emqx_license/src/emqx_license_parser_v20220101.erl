@@ -81,8 +81,7 @@ do_parse(Content) ->
     end.
 
 verify_signature(Payload, Signature, Key) ->
-    RSAPublicKey = public_key:der_decode('RSAPublicKey', Key),
-    public_key:verify(Payload, ?DIGEST_TYPE, Signature, RSAPublicKey).
+    public_key:verify(Payload, ?DIGEST_TYPE, Signature, Key).
 
 parse_payload(Payload) ->
     Lines = lists:map(

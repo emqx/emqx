@@ -25,16 +25,22 @@ private_key() ->
 public_key() ->
     test_key("pub.pem").
 
-public_key_encoded() ->
-    public_key:der_encode('RSAPublicKey', public_key()).
+public_key_pem() ->
+    test_key("pub.pem", pem).
 
 test_key(Filename) ->
+    test_key(Filename, decoded).
+
+test_key(Filename, Format) ->
     Dir = code:lib_dir(emqx_license, test),
     Path = filename:join([Dir, "data", Filename]),
     {ok, KeyData} = file:read_file(Path),
-    [PemEntry] = public_key:pem_decode(KeyData),
-    Key = public_key:pem_entry_decode(PemEntry),
-    Key.
+    case Format of
+        pem -> KeyData;
+        decoded ->
+            [PemEntry] = public_key:pem_decode(KeyData),
+            public_key:pem_entry_decode(PemEntry)
+    end.
 
 make_license(Values) ->
     Key = private_key(),
@@ -45,6 +51,9 @@ make_license(Values) ->
     iolist_to_binary([EncodedText, ".", EncodedSignature]).
 
 default_license() ->
-    License = make_license(?DEFAULT_LICENSE_VALUES),
+    %% keep it the same as in etc/emqx_license.conf
+    License =
+        "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KMjAyMjAxMDEKMzY1MDAKMTAK."
+        "MEUCIFc9EUjqB3SjpRqWjqmAzI4Tg4LwhCRet9scEoxMRt8fAiEAk6vfYUiPOTzBC+3EjNF3WmLTiA3B0TN5ZNwuTKbTXJQ=",
     ok = file:write_file(?DEFAULT_LICENSE_FILE, License),
     ?DEFAULT_LICENSE_FILE.

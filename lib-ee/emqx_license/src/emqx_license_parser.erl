@@ -9,8 +9,12 @@
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_license.hrl").
 
--define(PUBKEY, <<"MEgCQQChzN6lCUdt4sYPQmWBYA3b8Zk87Jfk+1A1zcTd+lCU0Tf
-                  vXhSHgEWz18No4lL2v1n+70CoYpc2fzfhNJitgnV9AgMBAAE=">>).
+-define(PUBKEY, <<"""
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEbtkdos3TZmSv+D7+X5pc0yfcjum2
+Q1DK6PCWkiQihjvjJjKFzdYzcWOgC6f4Ou3mgGAUSjdQYYnFKZ/9f5ax4g==
+-----END PUBLIC KEY-----
+""">>).
 
 -define(LICENSE_PARSE_MODULES, [emqx_license_parser_v20220101
                                ]).
@@ -40,11 +44,6 @@
          max_connections/1
         ]).
 
--ifdef(TEST).
--export([public_key/0
-        ]).
--endif.
-
 %%--------------------------------------------------------------------
 %% Behaviour
 %%--------------------------------------------------------------------
@@ -67,10 +66,11 @@
 
 -spec parse(string() | binary()) -> {ok, license()} | {error, term()}.
 parse(Content) ->
-    DecodedKey = base64:decode(public_key()),
-    parse(Content, DecodedKey).
+    parse(Content, ?PUBKEY).
 
-parse(Content, Key) ->
+parse(Content, Pem) ->
+    [PemEntry] = public_key:pem_decode(Pem),
+    Key = public_key:pem_entry_decode(PemEntry),
     do_parse(iolist_to_binary(Content), Key, ?LICENSE_PARSE_MODULES, []).
 
 -spec dump(license()) -> list({atom(), term()}).
@@ -107,8 +107,6 @@ do_parse(Content, Key, [Module | Modules], Errors) ->
         {error, Error} ->
             do_parse(Content, Key, Modules, [{Module, Error} | Errors])
     catch
-        _Class : Error ->
-            do_parse(Content, Key, Modules, [{Module, Error} | Errors])
+        _Class : Error : Stacktrace ->
+            do_parse(Content, Key, Modules, [{Module, {Error, Stacktrace}} | Errors])
     end.
-
-public_key() -> ?PUBKEY.

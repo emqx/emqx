@@ -198,7 +198,7 @@ mk_license(Fields) ->
     EncodedLicense = emqx_license_test_lib:make_license(Fields),
     {ok, License} = emqx_license_parser:parse(
                       EncodedLicense,
-                      emqx_license_test_lib:public_key_encoded()),
+                      emqx_license_test_lib:public_key_pem()),
     License.
 
 format_date({Year, Month, Day}) ->

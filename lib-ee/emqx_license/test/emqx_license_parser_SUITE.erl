@@ -40,7 +40,7 @@ set_special_configs(_) -> ok.
 %%------------------------------------------------------------------------------
 
 t_parse(_Config) ->
-    ?assertMatch({ok, _}, emqx_license_parser:parse(sample_license(), public_key_encoded())),
+    ?assertMatch({ok, _}, emqx_license_parser:parse(sample_license(), public_key_pem())),
 
     %% invalid version
     ?assertMatch(
@@ -57,7 +57,7 @@ t_parse(_Config) ->
             "100000",
             "10"
            ]),
-         public_key_encoded())),
+         public_key_pem())),
 
     %% invalid field number
     ?assertMatch(
@@ -74,7 +74,7 @@ t_parse(_Config) ->
             "100000",
             "10"
            ]),
-         public_key_encoded())),
+         public_key_pem())),
 
     ?assertMatch(
        {error,
@@ -94,7 +94,7 @@ t_parse(_Config) ->
             "-10",
             "10"
            ]),
-         public_key_encoded())),
+         public_key_pem())),
 
     %% invalid signature
     [LicensePart, _] = binary:split(
@@ -125,23 +125,23 @@ t_parse(_Config) ->
          [{emqx_license_parser_v20220101,invalid_signature}]},
        emqx_license_parser:parse(
          iolist_to_binary([LicensePart, <<".">>, SignaturePart]),
-         public_key_encoded())),
+         public_key_pem())),
 
     %% totally invalid strings as license
     ?assertMatch(
        {error, [_ | _]},
        emqx_license_parser:parse(
          <<"badlicense">>,
-         public_key_encoded())),
+         public_key_pem())),
 
     ?assertMatch(
        {error, [_ | _]},
        emqx_license_parser:parse(
          <<"bad.license">>,
-         public_key_encoded())).
+         public_key_pem())).
 
 t_dump(_Config) ->
-    {ok, License} = emqx_license_parser:parse(sample_license(), public_key_encoded()),
+    {ok, License} = emqx_license_parser:parse(sample_license(), public_key_pem()),
 
     ?assertEqual(
        [{customer,<<"Foo">>},
@@ -155,22 +155,22 @@ t_dump(_Config) ->
        emqx_license_parser:dump(License)).
 
 t_customer_type(_Config) ->
-    {ok, License} = emqx_license_parser:parse(sample_license(), public_key_encoded()),
+    {ok, License} = emqx_license_parser:parse(sample_license(), public_key_pem()),
 
     ?assertEqual(10, emqx_license_parser:customer_type(License)).
 
 t_license_type(_Config) ->
-    {ok, License} = emqx_license_parser:parse(sample_license(), public_key_encoded()),
+    {ok, License} = emqx_license_parser:parse(sample_license(), public_key_pem()),
 
     ?assertEqual(0, emqx_license_parser:license_type(License)).
 
 t_max_connections(_Config) ->
-    {ok, License} = emqx_license_parser:parse(sample_license(), public_key_encoded()),
+    {ok, License} = emqx_license_parser:parse(sample_license(), public_key_pem()),
 
     ?assertEqual(10, emqx_license_parser:max_connections(License)).
 
 t_expiry_date(_Config) ->
-    {ok, License} = emqx_license_parser:parse(sample_license(), public_key_encoded()),
+    {ok, License} = emqx_license_parser:parse(sample_license(), public_key_pem()),
 
     ?assertEqual({2295,10,27}, emqx_license_parser:expiry_date(License)).
 
@@ -178,8 +178,8 @@ t_expiry_date(_Config) ->
 %% Helpers
 %%------------------------------------------------------------------------------
 
-public_key_encoded() ->
-    emqx_license_test_lib:public_key_encoded().
+public_key_pem() ->
+    emqx_license_test_lib:public_key_pem().
 
 sample_license() ->
     emqx_license_test_lib:make_license(
