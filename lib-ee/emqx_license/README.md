@@ -1,3 +1,3 @@
 # emqx_license
 
-EMQ X 5.0 License Manager.
+EMQX 5.0 License Manager.

@@ -1,10 +1,10 @@
 # emqx_gateway
 
-***This is a very early prototype application*** for Gateway in EMQ X Broker 5.0
+***This is a very early prototype application*** for Gateway in EMQX Broker 5.0
 
 ## Concept
 
-    EMQ X Gateway Management
+    EMQX Gateway Management
      - Gateway-Registry (or Gateway Type)
         - *Load
         - *UnLoad
@@ -49,7 +49,7 @@ Gateway v1.0: "Best practices for each type of protocol"
     - MQTT-SN
     - LwM2M
 
-### Compatible with EMQ X
+### Compatible with EMQX
 
 > Why we need to compatible
 
@@ -323,7 +323,7 @@ emqx_ctl gateway-metrics [<GatewayId>]
 
 ### Develop your protocol gateway
 
-There are 3 way to create your protocol gateway for EMQ X 5.0:
+There are 3 way to create your protocol gateway for EMQX 5.0:
 
 1. Use Erlang to create a new emqx plugin to handle all of protocol packets (same as v5.0 before)
 

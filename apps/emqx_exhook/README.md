@@ -1,6 +1,6 @@
 # emqx_exhook
 
-The `emqx_exhook` extremely enhance the extensibility for EMQ X. It allow using an others programming language to mount the hooks instead of erlang.
+The `emqx_exhook` extremely enhance the extensibility for EMQX. It allow using an others programming language to mount the hooks instead of erlang.
 
 ## Feature
 
@@ -10,7 +10,7 @@ The `emqx_exhook` extremely enhance the extensibility for EMQ X. It allow using 
 ## Architecture
 
 ```
-EMQ X                                      Third-party Runtime
+EMQX                                      Third-party Runtime
 +========================+                 +========+==========+
 |    ExHook              |                 |        |          |
 |   +----------------+   |      gRPC       | gRPC   |  User's  |

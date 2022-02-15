@@ -1,4 +1,4 @@
-# Брокер EMQ X
+# Брокер EMQX
 
 [![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen&label=Release)](https://github.com/emqx/emqx/releases)
 [![Build Status](https://img.shields.io/travis/emqx/emqx?label=Build)](https://travis-ci.org/emqx/emqx)
@@ -14,20 +14,20 @@
 
 [English](./README.md) | [简体中文](./README-CN.md) | [日本語](./README-JP.md) | русский
 
-*EMQ X* — это масштабируемый, высоко доступный, распределённый MQTT брокер с полностью открытым кодом для интернета вещей, межмашинного взаимодействия и мобильных приложений, который поддерживает миллионы одновременных подключений.
+*EMQX* — это масштабируемый, высоко доступный, распределённый MQTT брокер с полностью открытым кодом для интернета вещей, межмашинного взаимодействия и мобильных приложений, который поддерживает миллионы одновременных подключений.
 
-Начиная с релиза 3.0, брокер *EMQ X* полностью поддерживает протокол MQTT версии 5.0, и обратно совместим с версиями 3.1 и 3.1.1, а также протоколами MQTT-SN, CoAP, LwM2M, WebSocket и STOMP. Начиная с релиза 3.0, брокер *EMQ X* может масштабироваться до более чем 10 миллионов одновременных MQTT соединений на один кластер.
+Начиная с релиза 3.0, брокер *EMQX* полностью поддерживает протокол MQTT версии 5.0, и обратно совместим с версиями 3.1 и 3.1.1, а также протоколами MQTT-SN, CoAP, LwM2M, WebSocket и STOMP. Начиная с релиза 3.0, брокер *EMQX* может масштабироваться до более чем 10 миллионов одновременных MQTT соединений на один кластер.
 
-- Полный список возможностей доступен по ссылке: [EMQ X Release Notes](https://github.com/emqx/emqx/releases).
-- Более подробная информация доступна на нашем сайте: [EMQ X homepage](https://www.emqx.io/).
+- Полный список возможностей доступен по ссылке: [EMQX Release Notes](https://github.com/emqx/emqx/releases).
+- Более подробная информация доступна на нашем сайте: [EMQX homepage](https://www.emqx.io/).
 
 ## Установка
 
-Брокер *EMQ X* кросплатформенный, и поддерживает Linux, Unix, macOS и Windows. Он может работать на серверах с архитектурой x86_64 и устройствах на архитектуре ARM, таких как Raspberry Pi.
+Брокер *EMQX* кросплатформенный, и поддерживает Linux, Unix, macOS и Windows. Он может работать на серверах с архитектурой x86_64 и устройствах на архитектуре ARM, таких как Raspberry Pi.
 
 Более подробная информация о запуске на Windows по ссылке: [Windows.md](./Windows.md)
 
-#### Установка EMQ X с помощью Docker-образа
+#### Установка EMQX с помощью Docker-образа
 
 ```
 docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
@@ -35,7 +35,7 @@ docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p
 
 #### Установка бинарного пакета
 
-Сборки для различных операционных систем: [Загрузить EMQ X](https://www.emqx.com/en/downloads).
+Сборки для различных операционных систем: [Загрузить EMQX](https://www.emqx.com/en/downloads).
 
 - [Установка на одном сервере](https://docs.emqx.io/en/broker/latest/getting-started/install.html)
 - [Установка на кластере](https://docs.emqx.io/en/broker/latest/advanced/cluster.html)
@@ -112,7 +112,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 
 ### FAQ
 
-Наиболее частые проблемы разобраны в [EMQ X FAQ](https://docs.emqx.io/en/broker/latest/faq/faq.html).
+Наиболее частые проблемы разобраны в [EMQX FAQ](https://docs.emqx.io/en/broker/latest/faq/faq.html).
 
 
 ### Вопросы
