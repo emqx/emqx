@@ -1,6 +1,6 @@
-# EMQ X 4.3 Changes
+# EMQX 4.3 Changes
 
-Started tracking changes in CHANGE.md since EMQ X v4.3.11
+Started tracking changes in CHANGE.md since EMQX v4.3.11
 
 NOTE: Keep prepending to the head of the file instead of the tail
 
@@ -53,9 +53,9 @@ Important notes:
 
 ### Important changes
 
-* Debian/Ubuntu package (deb) installed EMQ X now runs on systemd [#6389]<br>
+* Debian/Ubuntu package (deb) installed EMQX now runs on systemd [#6389]<br>
   This is to take advantage of systemd's supervision functionality to ensure
-  EMQ X service is restarted after crashes.
+  EMQX service is restarted after crashes.
 
 ### Minor changes
 
@@ -71,7 +71,7 @@ Important notes:
 
 * Fix session takeover race condition which may lead to message loss [#6396]
 
-* EMQ X docker images are pushed to aws public ecr in an automated CI job [#6271]<br>
+* EMQX docker images are pushed to aws public ecr in an automated CI job [#6271]<br>
   `docker pull public.ecr.aws/emqx/emqx:4.3.10`
 
 * Fix webhook URL path to allow rule-engine variable substitution [#6399]
