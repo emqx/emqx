@@ -1,5 +1,5 @@
 {application, emqx_slow_subs,
- [{description, "EMQ X Slow Subscribers Statistics"},
+ [{description, "EMQX Slow Subscribers Statistics"},
   {vsn, "1.0.0"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_slow_subs_sup]},
@@ -7,6 +7,6 @@
   {mod, {emqx_slow_subs_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {maintainers, ["EMQX Team <contact@emqx.io>"]},
   {links, []}
  ]}.

@@ -218,9 +218,9 @@ relx(Vsn, RelType, PkgType, Edition) ->
                      | overlay_vars(RelType, PkgType, Edition)]}
     ].
 
-emqx_description(cloud, ee) -> "EMQ X Enterprise Edition";
-emqx_description(cloud, ce) -> "EMQ X Community Edition";
-emqx_description(edge, ce)  -> "EMQ X Edge Edition".
+emqx_description(cloud, ee) -> "EMQX Enterprise Edition";
+emqx_description(cloud, ce) -> "EMQX Community Edition";
+emqx_description(edge, ce)  -> "EMQX Edge Edition".
 
 overlay_vars(RelType, PkgType, Edition) ->
     overlay_vars_rel(RelType)

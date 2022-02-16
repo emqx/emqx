@@ -1,6 +1,6 @@
 %% -*- mode: erlang -*-
 {application, emqx_plugins,
- [{description, "EMQ X Plugin Management"},
+ [{description, "EMQX Plugin Management"},
   {vsn, "0.1.0"},
   {modules, []},
   {mod, {emqx_plugins_app,[]}},

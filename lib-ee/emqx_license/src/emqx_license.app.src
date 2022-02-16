@@ -1,5 +1,5 @@
 {application,emqx_license,
-             [{description,"EMQ X License"},
+             [{description,"EMQX License"},
               {vsn,"5.0.0"},
               {modules,[]},
               {registered,[emqx_license_sup]},
