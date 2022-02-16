@@ -1,6 +1,6 @@
 %% -*- mode: erlang -*-
 {application, emqx_modules,
- [{description, "EMQ X Modules"},
+ [{description, "EMQX Modules"},
   {vsn, "5.0.0"},
   {modules, []},
   {applications, [kernel,stdlib,emqx]},

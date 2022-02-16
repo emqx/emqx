@@ -1,6 +1,6 @@
 %% -*- mode: erlang -*-
 {application, emqx_authn,
- [{description, "EMQ X Authentication"},
+ [{description, "EMQX Authentication"},
   {vsn, "0.1.0"},
   {modules, []},
   {registered, [emqx_authn_sup, emqx_authn_registry]},
@@ -8,6 +8,6 @@
   {mod, {emqx_authn_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {maintainers, ["EMQX Team <contact@emqx.io>"]},
   {links, [{"Homepage", "https://emqx.io/"}]}
  ]}.
