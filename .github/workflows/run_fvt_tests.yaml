@@ -239,6 +239,7 @@ jobs:
           name: Checkout
           with:
             path: emqx
+            fetch-depth: 0
         - name: Prepare credentials
           run: |
             if [ "$PROFILE" = "emqx-ee" ]; then
@@ -246,15 +247,6 @@ jobs:
               git config --global credential.helper store
               echo "${{ secrets.CI_GIT_TOKEN }}" >> emqx/scripts/git-token
             fi
-        - name: Download bases
-          run: |
-            set -e -x -u
-            mkdir -p emqx/_upgrade_base
-            cd emqx/_upgrade_base
-            old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
-            for old_vsn in ${old_vsns[@]}; do
-              wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$old_vsn/$PROFILE-ubuntu20.04-${old_vsn#[e|v]}-amd64.zip
-            done
         - name: Build emqx
           run: make -C emqx ${PROFILE}-zip
         - uses: actions/upload-artifact@v2
