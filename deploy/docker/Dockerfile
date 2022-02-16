@@ -38,7 +38,7 @@ LABEL org.label-schema.docker.dockerfile="Dockerfile" \
     org.label-schema.url="https://emqx.io" \
     org.label-schema.vcs-type="Git" \
     org.label-schema.vcs-url="https://github.com/emqx/emqx" \
-    maintainer="EMQ X Team <support@emqx.io>"
+    maintainer="EMQX Team <support@emqx.io>"
 
 ARG EMQX_NAME=emqx
 

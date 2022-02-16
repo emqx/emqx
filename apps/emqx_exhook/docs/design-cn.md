@@ -2,7 +2,7 @@
 
 ## 动机
 
-在 EMQ X Broker v4.1-v4.2 中，我们发布了 2 个插件来扩展 emqx 的编程能力：
+在 EMQX Broker v4.1-v4.2 中，我们发布了 2 个插件来扩展 emqx 的编程能力：
 
 1. `emqx-extension-hook` 提供了使用 Java, Python 向 Broker 挂载钩子的功能
 2. `emqx-exproto` 提供了使用 Java，Python 编写用户自定义协议接入插件的功能
@@ -26,7 +26,7 @@
 架构如下：
 
 ```
-  EMQ X                                    
+  EMQX
 +========================+                 +========+==========+
 |    ExHook              |                 |        |          |
 |   +----------------+   |      gRPC       | gRPC   |  User's  |
