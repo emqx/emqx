@@ -205,27 +205,37 @@ transform_header_name(Headers) ->
                       maps:put(K, V, Acc)
               end, #{}, Headers).
 
-check_ssl_opts(Conf)
-  when Conf =:= #{} ->
-    true;
 check_ssl_opts(Conf) ->
-    case emqx_authz_http:parse_url(hocon_maps:get("config.url", Conf)) of
-        #{scheme := https} ->
-            case hocon_maps:get("config.ssl.enable", Conf) of
-                true -> ok;
-                false -> false
-            end;
-        #{scheme := http} ->
-            ok
+    case hocon_maps:get("config.url", Conf) of
+        undefined -> true;
+        Url ->
+            case emqx_authz_http:parse_url(Url) of
+                #{scheme := https} ->
+                    case hocon_maps:get("config.ssl.enable", Conf) of
+                        true -> true;
+                        _ -> {error, ssl_not_enable}
+                    end;
+                #{scheme := http} -> true;
+                Bad -> {bad_scheme, Url, Bad}
+            end
     end.
 
-check_headers(Conf)
-    when Conf =:= #{} ->
-    true;
 check_headers(Conf) ->
-    Method = to_bin(hocon_maps:get("config.method", Conf)),
-    Headers = hocon_maps:get("config.headers", Conf),
-    Method =:= <<"post">> orelse (not lists:member(<<"content-type">>, Headers)).
+    case hocon_maps:get("config.method", Conf) of
+        undefined -> true;
+        Method0 ->
+            Method = to_bin(Method0),
+            Headers = hocon_maps:get("config.headers", Conf),
+            case Method of
+                <<"post">> -> true;
+                _ when Headers =:= undefined -> true;
+                _ when is_list(Headers) ->
+                    case lists:member(<<"content-type">>, Headers) of
+                        false -> true;
+                        true -> {Method0, do_not_include_content_type}
+                    end
+            end
+    end.
 
 union_array(Item) when is_list(Item) ->
     hoconsc:array(hoconsc:union(Item)).

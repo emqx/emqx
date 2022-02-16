@@ -57,6 +57,7 @@
 -export([ validate_heap_size/1
         , parse_user_lookup_fun/1
         , validate_alarm_actions/1
+        , validations/0
         ]).
 
 % workaround: prevent being recognized as unused functions
@@ -1600,6 +1601,29 @@ validate_tls_versions(Versions) ->
     case lists:filter(fun(V) -> not lists:member(V, AvailableVersions) end, Versions) of
         [] -> ok;
         Vs -> {error, {unsupported_ssl_versions, Vs}}
+    end.
+
+validations() ->
+    [{check_process_watermark, fun check_process_watermark/1}
+    ,{check_cpu_watermark, fun check_cpu_watermark/1}
+    ].
+
+%% validations from emqx_conf_schema, we must filter other *_schema by undefined.
+check_process_watermark(Conf) ->
+    check_watermark("sysmon.vm.process_low_watermark", "sysmon.vm.process_high_watermark", Conf).
+
+check_cpu_watermark(Conf) ->
+    check_watermark("sysmon.os.cpu_low_watermark", "sysmon.os.cpu_high_watermark", Conf).
+
+check_watermark(LowKey, HighKey, Conf) ->
+    case hocon_maps:get(LowKey, Conf) of
+        undefined -> true;
+        Low ->
+            High = hocon_maps:get(HighKey, Conf),
+            case Low < High of
+                true -> true;
+                false -> {bad_watermark, #{LowKey => Low, HighKey => High}}
+            end
     end.
 
 str(A) when is_atom(A) ->

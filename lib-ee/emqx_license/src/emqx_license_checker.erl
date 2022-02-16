@@ -122,8 +122,12 @@ ensure_check_expiry_timer(State) ->
     Ref = erlang:send_after(?EXPIRY_ALARM_CHECK_INTERVAL, self(), check_expiry_alarm),
     State#{expiry_alarm_timer => Ref}.
 
-cancel_timer(#{Key := Ref}, Key) when is_reference(Ref) -> erlang:cancel_timer(Ref);
-cancel_timer(_, _) -> ok.
+cancel_timer(State, Key) ->
+    Ref = maps:get(Key, State),
+    case is_reference(Ref) of
+        true -> erlang:cancel_timer(Ref);
+        false -> ok
+    end.
 
 check_license(License) ->
     DaysLeft = days_left(License),
