@@ -18,8 +18,14 @@
 
 -behaviour(minirest_api).
 
+-include_lib("typerefl/include/types.hrl").
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
+
+-import(hoconsc, [mk/1, mk/2, ref/1, ref/2, array/1, enum/1]).
+
+-define(BAD_REQUEST, 'BAD_REQUEST').
+-define(NOT_FOUND, 'NOT_FOUND').
 
 -define(EXAMPLE_REDIS,
         #{type=> redis,
@@ -44,290 +50,117 @@
 
 -define(IS_TRUE(Val), ((Val =:= true) or (Val =:= <<"true">>))).
 
+-define(API_SCHEMA_MODULE, emqx_authz_api_schema).
+
 -export([ get_raw_sources/0
         , get_raw_source/1
         ]).
 
 -export([ api_spec/0
-        , sources/2
+        , paths/0
+        , schema/1
+        ]).
+
+-export([ sources/2
         , source/2
         , move_source/2
         ]).
 
 api_spec() ->
-    {[ sources_api()
-     , source_api()
-     , move_source_api()
-     ], definitions()}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-definitions() -> emqx_authz_api_schema:definitions().
+paths() ->
+    [ "/authorization/sources"
+    , "/authorization/sources/:type"
+    , "/authorization/sources/:type/move"].
 
-sources_api() ->
-    Metadata = #{
-        get => #{
-            description => "List authorization sources",
-            responses => #{
-                <<"200">> => #{
-                    description => <<"OK">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => #{
-                                type => object,
-                                required => [sources],
-                                properties => #{sources => #{
-                                                  type => array,
-                                                  items => minirest:ref(<<"sources">>)
-                                                 }
-                                               }
-                            },
-                            examples => #{
-                                sources => #{
-                                    summary => <<"Sources">>,
-                                    value => jsx:encode(?EXAMPLE_RETURNED)
-                                }
-                            }
-                         }
-                    }
-                }
-            }
-        },
-        post => #{
-            description => "Add new source",
-            'requestBody' => #{
-                content => #{
-                    'application/json' => #{
-                        schema => minirest:ref(<<"sources">>),
-                        examples => #{
-                            redis => #{
-                                summary => <<"Redis">>,
-                                value => jsx:encode(?EXAMPLE_REDIS)
-                            },
-                            file => #{
-                                summary => <<"File">>,
-                                value => jsx:encode(?EXAMPLE_FILE)
-                            }
-                       }
-                    }
-                }
-            },
-            responses => #{
-                <<"204">> => #{description => <<"Created">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
-            }
-        },
-        put => #{
-            description => "Update all sources",
-            'requestBody' => #{
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => array,
-                            items => minirest:ref(<<"sources">>)
-                        },
-                        examples => #{
-                            redis => #{
-                                summary => <<"Redis">>,
-                                value => jsx:encode(?EXAMPLE_REDIS)
-                            },
-                            file => #{
-                                summary => <<"File">>,
-                                value => jsx:encode(?EXAMPLE_FILE)
-                            }
-                        }
-                    }
-                }
-            },
-            responses => #{
-                <<"204">> => #{description => <<"Created">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
-            }
-        }
-    },
-    {"/authorization/sources", Metadata, sources}.
+%%--------------------------------------------------------------------
+%% Schema for each URI
+%%--------------------------------------------------------------------
 
-source_api() ->
-    Metadata = #{
-        get => #{
-            description => "List authorization sources",
-            parameters => [
-                #{
-                    name => type,
-                    in => path,
-                    schema => #{
-                       type => string,
-                        enum => [ <<"file">>
-                                , <<"http">>
-                                , <<"mongodb">>
-                                , <<"mysql">>
-                                , <<"postgresql">>
-                                , <<"redis">>
-                                , <<"built-in-database">>
-                                ]
-                    },
-                    required => true
-                }
-            ],
-            responses => #{
-                <<"200">> => #{
-                    description => <<"OK">>,
-                    content => #{
-                        'application/json' => #{
-                            schema => minirest:ref(<<"sources">>),
-                            examples => #{
-                                redis => #{
-                                    summary => <<"Redis">>,
-                                    value => jsx:encode(?EXAMPLE_REDIS)
-                                },
-                                file => #{
-                                    summary => <<"File">>,
-                                    value => jsx:encode(?EXAMPLE_FILE)
-                                }
-                            }
-                         }
-                    }
-                },
-                <<"404">> => emqx_mgmt_util:bad_request(<<"Not Found">>)
+schema("/authorization/sources") ->
+    #{ 'operationId' => sources
+     , get =>
+           #{ description => <<"List all authorization sources">>
+            , responses =>
+                  #{ 200 => mk( array(hoconsc:union([ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)]))
+                              , #{desc => <<"Authorization source">>})
+                   }
             }
-        },
-        put => #{
-            description => "Update source",
-            parameters => [
-                #{
-                    name => type,
-                    in => path,
-                    schema => #{
-                       type => string,
-                        enum => [ <<"file">>
-                                , <<"http">>
-                                , <<"mongodb">>
-                                , <<"mysql">>
-                                , <<"postgresql">>
-                                , <<"redis">>
-                                , <<"built-in-database">>
-                                ]
-                    },
-                    required => true
-                }
-            ],
-            'requestBody' => #{
-                content => #{
-                    'application/json' => #{
-                        schema => minirest:ref(<<"sources">>),
-                        examples => #{
-                            redis => #{
-                                summary => <<"Redis">>,
-                                value => jsx:encode(?EXAMPLE_REDIS)
-                            },
-                            file => #{
-                                summary => <<"File">>,
-                                value => jsx:encode(?EXAMPLE_FILE)
-                            }
-                       }
-                    }
-                }
-            },
-            responses => #{
-                <<"204">> => #{description => <<"No Content">>},
-                <<"404">> => emqx_mgmt_util:bad_request(<<"Not Found">>),
-                <<"400">> => emqx_mgmt_util:bad_request()
+     , post =>
+           #{ description => <<"Add a new source">>
+            , 'requestBody' => mk( hoconsc:union([ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)])
+                                 , #{desc => <<"Source config">>})
+            , responses =>
+                  #{ 204 => <<"Authorization source created successfully">>
+                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                   }
             }
-        },
-        delete => #{
-            description => "Delete source",
-            parameters => [
-                #{
-                    name => type,
-                    in => path,
-                    schema => #{
-                       type => string,
-                        enum => [ <<"file">>
-                                , <<"http">>
-                                , <<"mongodb">>
-                                , <<"mysql">>
-                                , <<"postgresql">>
-                                , <<"redis">>
-                                , <<"built-in-database">>
-                                ]
-                    },
-                    required => true
-                }
-            ],
-            responses => #{
-                <<"204">> => #{description => <<"Deleted">>},
-                <<"400">> => emqx_mgmt_util:bad_request()
+     , put =>
+           #{ description => <<"Update all sources">>
+            , 'requestBody' => mk( array(hoconsc:union([ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)]))
+                                 , #{desc => <<"Sources">>})
+            , responses =>
+                  #{ 204 => <<"Authorization source updated successfully">>
+                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                   }
             }
-        }
-    },
-    {"/authorization/sources/:type", Metadata, source}.
+     };
+schema("/authorization/sources/:type") ->
+    #{ 'operationId' => source
+     , get =>
+           #{ description => <<"Get a authorization source">>
+            , parameters => parameters_field()
+            , responses =>
+                  #{ 200 => mk( hoconsc:union([ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)])
+                              , #{desc => <<"Authorization source">>})
+                   , 404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
+                   }
+            }
+     , put =>
+           #{ description => <<"Update source">>
+            , parameters => parameters_field()
+            , 'requestBody' => mk( hoconsc:union([ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)]))
+            , responses =>
+                  #{ 204 => <<"Authorization source updated successfully">>
+                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                   , 404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
+                   }
+            }
+     , delete =>
+           #{ description => <<"Delete source">>
+            , parameters => parameters_field()
+            , responses =>
+                  #{ 204 => <<"Deleted successfully">>
+                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                   }
+            }
+     };
+schema("/authorization/sources/:type/move") ->
+    #{ 'operationId' => move_source
+     , post =>
+           #{ description => <<"Change the order of sources">>
+            , parameters => parameters_field()
+            , 'requestBody' =>
+                  emqx_dashboard_swagger:schema_with_examples(
+                    ref(?API_SCHEMA_MODULE, position),
+                    position_example())
+            , responses =>
+                  #{ 204 => <<"No Content">>
+                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                   , 404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
+                   }
+            }
+     }.
 
-move_source_api() ->
-    Metadata = #{
-        post => #{
-            description => "Change the order of sources",
-            parameters => [
-                #{
-                    name => type,
-                    in => path,
-                    schema => #{
-                        type => string,
-                        enum => [ <<"file">>
-                                , <<"http">>
-                                , <<"mongodb">>
-                                , <<"mysql">>
-                                , <<"postgresql">>
-                                , <<"redis">>
-                                , <<"built-in-database">>
-                                ]
-                    },
-                    required => true
-                }
-            ],
-            'requestBody' => #{
-                content => #{
-                    'application/json' => #{
-                        schema => #{
-                            type => object,
-                            required => [position],
-                            properties => #{
-                                position => #{
-                                    'oneOf' => [
-                                        #{type => string,
-                                          enum => [<<"top">>, <<"bottom">>]
-                                        },
-                                        #{type => object,
-                                          required => ['after'],
-                                          properties => #{
-                                            'after' => #{
-                                              type => string
-                                             }
-                                           }
-                                        },
-                                        #{type => object,
-                                          required => ['before'],
-                                          properties => #{
-                                            'before' => #{
-                                              type => string
-                                             }
-                                           }
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            responses => #{
-                <<"204">> => #{
-                    description => <<"No Content">>
-                },
-                <<"404">> => emqx_mgmt_util:bad_request(<<"Not Found">>),
-                <<"400">> => emqx_mgmt_util:bad_request()
-            }
-        }
-    },
-    {"/authorization/sources/:type/move", Metadata, move_source}.
 
+%%--------------------------------------------------------------------
+%% Operation functions
+%%--------------------------------------------------------------------
+
+sources(Method, #{bindings := #{type := Type} = Bindings } = Req)
+  when is_atom(Type) ->
+    sources(Method, Req#{bindings => Bindings#{type => bin(Type)}});
 sources(get, _) ->
     Sources = lists:foldl(fun (#{<<"type">> := <<"file">>,
                                  <<"enable">> := Enable, <<"path">> := Path}, AccIn) ->
@@ -364,6 +197,9 @@ sources(put, #{body := Body}) when is_list(Body) ->
               end || Source <- Body],
     update_config(?CMD_REPLACE, NBody).
 
+source(Method, #{bindings := #{type := Type} = Bindings } = Req)
+  when is_atom(Type) ->
+    source(Method, Req#{bindings => Bindings#{type => bin(Type)}});
 source(get, #{bindings := #{type := Type}}) ->
     case get_raw_source(Type) of
         [] -> {404, #{message => <<"Not found ", Type/binary>>}};
@@ -390,6 +226,9 @@ source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file
                                                          <<"enable">> => Enable,
                                                          <<"path">> => Filename}) of
         {ok, _} -> {204};
+        {error, {emqx_conf_schema, _}} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => <<"BAD_SCHEMA">>}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => bin(Reason)}}
@@ -399,16 +238,26 @@ source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
 source(delete, #{bindings := #{type := Type}}) ->
     update_config({?CMD_DELETE, Type}, #{}).
 
+move_source(Method, #{bindings := #{type := Type} = Bindings } = Req)
+  when is_atom(Type) ->
+    move_source(Method, Req#{bindings => Bindings#{type => bin(Type)}});
 move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Position}}) ->
     case emqx_authz:move(Type, Position) of
         {ok, _} -> {204};
         {error, not_found_source} ->
             {404, #{code => <<"NOT_FOUND">>,
                     message => <<"source ", Type/binary, " not found">>}};
+        {error, {emqx_conf_schema, _}} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => <<"BAD_SCHEMA">>}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => bin(Reason)}}
     end.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 get_raw_sources() ->
     RawSources = emqx:get_raw_config([authorization, sources], []),
@@ -449,6 +298,10 @@ update_config(Cmd, Sources) ->
         {error, {post_config_update, emqx_authz, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => bin(Reason)}};
+        %% TODO: The `Reason` may cann't be trans to json term. (i.e. ecpool start failed)
+        {error, {emqx_conf_schema, _}} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => <<"BAD_SCHEMA">>}};
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => bin(Reason)}}
@@ -489,8 +342,21 @@ do_write_file(Filename, Bytes) ->
            error(Reason)
     end.
 
-bin(Term) ->
-   erlang:iolist_to_binary(io_lib:format("~p", [Term])).
+bin(List) when is_list(List) -> list_to_binary(List);
+bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
+bin(X) -> X.
 
 acl_conf_file() ->
     emqx_authz:acl_conf_file().
+
+parameters_field() ->
+    [ {type, mk( enum(?API_SCHEMA_MODULE:authz_sources_types(simple))
+               , #{in => path, desc => <<"Authorization type">>})
+      }
+    ].
+
+position_example() ->
+    #{<<"position">> => #{<<"before">> => <<"file">>}}.
+
+authz_sources_types(Type) ->
+    emqx_authz_api_schema:authz_sources_types(Type).
