@@ -91,7 +91,7 @@ create(#{cmd := Cmd,
         NState = State#{
                    cmd => NCmd,
                    resource_id => ResourceId},
-        case emqx_resource:create_local(ResourceId, emqx_connector_redis, Config) of
+        case emqx_resource:create_local(ResourceId, ?RESOURCE_GROUP, emqx_connector_redis, Config) of
             {ok, already_created} ->
                 {ok, NState};
             {ok, _} ->

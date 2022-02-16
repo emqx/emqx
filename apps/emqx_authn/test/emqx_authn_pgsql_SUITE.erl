@@ -60,6 +60,7 @@ init_per_suite(Config) ->
             ok = start_apps([emqx_resource, emqx_connector]),
             {ok, _} = emqx_resource:create_local(
               ?PGSQL_RESOURCE,
+              ?RESOURCE_GROUP,
               emqx_connector_pgsql,
               pgsql_config()),
             Config;

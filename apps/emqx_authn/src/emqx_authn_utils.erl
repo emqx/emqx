@@ -17,6 +17,7 @@
 -module(emqx_authn_utils).
 
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx_authn.hrl").
 
 -export([ check_password_from_selected_map/3
         , parse_deep/1
@@ -31,8 +32,6 @@
         , cleanup_resources/0
         , make_resource_id/1
         ]).
-
--define(RESOURCE_GROUP, <<"emqx_authn">>).
 
 -define(AUTHN_PLACEHOLDERS, [?PH_USERNAME,
                              ?PH_CLIENTID,
@@ -120,7 +119,7 @@ cleanup_resources() ->
 
 make_resource_id(Name) ->
     NameBin = bin(Name),
-    emqx_resource:generate_id(?RESOURCE_GROUP, NameBin).
+    emqx_resource:generate_id(NameBin).
 
 %%------------------------------------------------------------------------------
 %% Internal functions

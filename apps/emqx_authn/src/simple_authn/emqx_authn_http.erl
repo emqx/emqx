@@ -134,6 +134,7 @@ create(#{method := Method,
               request_timeout           => RequestTimeout,
               resource_id => ResourceId},
     case emqx_resource:create_local(ResourceId,
+                                    ?RESOURCE_GROUP,
                                     emqx_connector_http,
                                     Config#{base_url => maps:remove(query, URIMap),
                                             pool_type => random}) of

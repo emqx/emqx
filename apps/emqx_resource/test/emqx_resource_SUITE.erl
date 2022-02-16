@@ -20,9 +20,11 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include("emqx_resource.hrl").
 
 -define(TEST_RESOURCE, emqx_test_resource).
 -define(ID, <<"id">>).
+-define(DEFAULT_RESOURCE_GROUP, <<"default">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -59,11 +61,13 @@ t_check_config(_) ->
 t_create_remove(_) ->
     {error, _} = emqx_resource:check_and_create_local(
                    ?ID,
+                   ?DEFAULT_RESOURCE_GROUP,
                    ?TEST_RESOURCE,
                    #{unknown => test_resource}),
 
     {ok, _} = emqx_resource:create(
                 ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
                 #{name => test_resource}),
 
@@ -84,11 +88,13 @@ t_create_remove(_) ->
 t_create_remove_local(_) ->
     {error, _} = emqx_resource:check_and_create_local(
                    ?ID,
+                   ?DEFAULT_RESOURCE_GROUP,
                    ?TEST_RESOURCE,
                    #{unknown => test_resource}),
 
     {ok, _} = emqx_resource:create_local(
                 ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
                 #{name => test_resource}),
 
@@ -117,6 +123,7 @@ t_create_remove_local(_) ->
 t_query(_) ->
     {ok, _} = emqx_resource:create_local(
                 ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
                 #{name => test_resource}),
 
@@ -143,6 +150,7 @@ t_query(_) ->
 t_healthy_timeout(_) ->
     {ok, _} = emqx_resource:create_local(
                 ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
                 #{name => <<"test_resource">>},
                 #{async_create => true, health_check_timeout => 200}),
@@ -153,6 +161,7 @@ t_healthy_timeout(_) ->
 t_healthy(_) ->
     {ok, _} = emqx_resource:create_local(
                 ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
                 #{name => <<"test_resource">>},
                 #{async_create => true}),
@@ -184,11 +193,13 @@ t_healthy(_) ->
 t_stop_start(_) ->
     {error, _} = emqx_resource:check_and_create(
                    ?ID,
+                   ?DEFAULT_RESOURCE_GROUP,
                    ?TEST_RESOURCE,
                    #{unknown => test_resource}),
 
     {ok, _} = emqx_resource:check_and_create(
                 ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
                 #{<<"name">> => <<"test_resource">>}),
 
@@ -218,11 +229,13 @@ t_stop_start(_) ->
 t_stop_start_local(_) ->
     {error, _} = emqx_resource:check_and_create_local(
                    ?ID,
+                   ?DEFAULT_RESOURCE_GROUP,
                    ?TEST_RESOURCE,
                    #{unknown => test_resource}),
 
     {ok, _} = emqx_resource:check_and_create_local(
                 ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
                 #{<<"name">> => <<"test_resource">>}),
 
@@ -252,21 +265,23 @@ t_stop_start_local(_) ->
 t_list_filter(_) ->
     {ok, _} = emqx_resource:create_local(
                 emqx_resource:generate_id(<<"a">>),
+                <<"group1">>,
                 ?TEST_RESOURCE,
                 #{name => a}),
     {ok, _} = emqx_resource:create_local(
-                emqx_resource:generate_id(<<"group">>, <<"a">>),
+                emqx_resource:generate_id(<<"a">>),
+                <<"group2">>,
                 ?TEST_RESOURCE,
                 #{name => grouped_a}),
 
-    [Id1] = emqx_resource:list_group_instances(<<"default">>),
+    [Id1] = emqx_resource:list_group_instances(<<"group1">>),
     ?assertMatch(
-        {ok, #{config := #{name := a}}},
+        {ok, <<"group1">>, #{config := #{name := a}}},
         emqx_resource:get_instance(Id1)),
 
-    [Id2] = emqx_resource:list_group_instances(<<"group">>),
+    [Id2] = emqx_resource:list_group_instances(<<"group2">>),
     ?assertMatch(
-        {ok, #{config := #{name := grouped_a}}},
+        {ok, <<"group2">>, #{config := #{name := grouped_a}}},
         emqx_resource:get_instance(Id2)).
 
 t_create_dry_run_local(_) ->

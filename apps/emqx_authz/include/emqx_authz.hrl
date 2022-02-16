@@ -71,3 +71,5 @@
                                  , limit => 100
                                  , count => 1
                                  }).
+
+-define(RESOURCE_GROUP, <<"emqx_authz">>).
