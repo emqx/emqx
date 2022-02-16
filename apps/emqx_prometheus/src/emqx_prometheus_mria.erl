@@ -80,7 +80,12 @@ get_shard_metric(Metric) ->
 get_shard_metric(replicants, Shard) ->
     length(mria_status:agents(Shard));
 get_shard_metric(Metric, Shard) ->
-    maps:get(Metric, mria_status:get_shard_stats(Shard), undefined).
+    case mria_status:get_shard_stats(Shard) of
+        #{Metric := Value} when is_number(Value) ->
+            Value;
+        _ ->
+            undefined
+    end.
 
 catch_all(DataFun) ->
     try DataFun()
