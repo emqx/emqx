@@ -299,13 +299,16 @@ do_clear_history() ->
     ets:delete_all_objects(?TOPK_TAB).
 
 check_enable(Enable, #{enable := IsEnable} = State) ->
-    case Enable of
-        IsEnable ->
-            State;
-        true ->
+    case {IsEnable, Enable} of
+        {false, true} ->
             load(State);
+        {true, false} ->
+            unload(State);
+        {true, true} ->
+            S1 = unload(State),
+            load(S1);
         _ ->
-            unload(State)
+            State
     end.
 
 start_timer(Name, Fun, State) ->
