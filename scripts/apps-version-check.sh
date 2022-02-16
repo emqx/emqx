@@ -55,6 +55,15 @@ check_apps() {
                 echo "$src_file needs a vsn bump (old=$old_app_version)"
                 echo "changed: $lines"
                 bad_app_count=$(( bad_app_count + 1))
+            elif [ "$app" = 'emqx_dashboard' ]; then
+                ## emqx_dashboard is ensured to be upgraded after all other plugins
+                ## at the end of its appup instructions, there is the final instruction
+                ## {apply, {emqx_plugins, load, []}
+                ## since we don't know which plugins are stopped during the upgrade
+                ## for safty, we just force a dashboard version bump for each and every release
+                ## even if there is nothing changed in the app
+                echo "$src_file needs a vsn bump to ensure plugins loaded after upgrade"
+                bad_app_count=$(( bad_app_count + 1))
             fi
         fi
     done < <(./scripts/find-apps.sh)
