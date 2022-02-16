@@ -18,7 +18,7 @@ RELEASE="$(grep -E "define.+EMQX_RELEASE.+${EDITION}" include/emqx_release.hrl |
 git_exact_vsn() {
     local tag
     tag="$(git describe --tags --match "[e|v]*" --exact 2>/dev/null)"
-    echo "$tag" | sed 's/^[v|e]//g'
+    echo "${tag#[e|v]}"
 }
 
 GIT_EXACT_VSN="$(git_exact_vsn)"
