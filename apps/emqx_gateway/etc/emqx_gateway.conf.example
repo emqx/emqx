@@ -1,5 +1,5 @@
 ##--------------------------------------------------------------------
-## EMQ X Gateway configurations
+## EMQX Gateway configurations
 ##--------------------------------------------------------------------
 
 gateway.stomp {
@@ -135,7 +135,7 @@ gateway.coap {
 
   ## The *Default QoS Level* indicator for publish request.
   ## This option specifies the QoS level for the CoAP Client when publishing a
-  ## message to EMQ X PUB/SUB system, if the publish request is not carried `qos`
+  ## message to EMQX PUB/SUB system, if the publish request is not carried `qos`
   ## option.
   ## The indicator can be set to:
   ## - qos0, qos1, qos2: Fixed default QoS level

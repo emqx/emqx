@@ -80,42 +80,42 @@ usage() {
 
     case "$command" in
     start)
-        echo "Start EMQ X service in daemon mode"
+        echo "Start EMQX service in daemon mode"
         ;;
     stop)
-        echo "Stop the running EMQ X program"
+        echo "Stop the running EMQX program"
         ;;
     console)
-        echo "Boot up EMQ X service in an interactive Erlang or Elixir shell"
+        echo "Boot up EMQX service in an interactive Erlang or Elixir shell"
         echo "This command needs a tty"
         ;;
     console_clean)
-        echo "This command does NOT boot up the EMQ X service"
+        echo "This command does NOT boot up the EMQX service"
         echo "It only starts an interactive Erlang or Elixir console with all the"
-        echo "EMQ X code available"
+        echo "EMQX code available"
         ;;
     foreground)
-        echo "Start EMQ X in foreground mode without an interactive shell"
+        echo "Start EMQX in foreground mode without an interactive shell"
         ;;
     pid)
-        echo "Print out EMQ X process identifier"
+        echo "Print out EMQX process identifier"
         ;;
     ping)
-        echo "Check if the EMQ X node is up and running"
+        echo "Check if the EMQX node is up and running"
         echo "This command exit with 0 silently if node is running"
         ;;
     escript)
-        echo "Execute a escript using the Erlang runtime from EMQ X package installation"
+        echo "Execute a escript using the Erlang runtime from EMQX package installation"
         echo "For example $REL_NAME escript /path/to/my/escript my_arg1 my_arg2"
         ;;
     attach)
-        echo "This command is applicable when EMQ X is started in daemon"
-        echo "mode. it attaches the current shell to EMQ X's control console"
+        echo "This command is applicable when EMQX is started in daemon"
+        echo "mode. it attaches the current shell to EMQX's control console"
         echo "through a named pipe"
         echo "WARNING: try to use the safer alternative, remote_console command."
         ;;
     remote_console)
-        echo "Start a dummy Erlang or Elixir node and hidden-connect EMQ X to"
+        echo "Start a dummy Erlang or Elixir node and hidden-connect EMQX to"
         echo "with an interactive Erlang or Elixir shell"
         ;;
     ertspath)
@@ -123,28 +123,28 @@ usage() {
         ;;
     rpc)
         echo "Usge $REL_NAME rpc MODULE FUNCTION [ARGS, ...]"
-        echo "Connect to the EMQ X node and make an Erlang RPC"
+        echo "Connect to the EMQX node and make an Erlang RPC"
         echo "This command blocks for at most 60 seconds."
         echo "It exits with non-zero code in case of any RPC failure"
         echo "including connection error and runtime exception"
         ;;
     rpcterms)
         echo "Usge $REL_NAME rpcterms MODULE FUNCTION [ARGS, ...]"
-        echo "Connect to the EMQ X node and make an Erlang RPC"
+        echo "Connect to the EMQX node and make an Erlang RPC"
         echo "The result of the RPC call is pretty-printed as an "
         echo "Erlang term"
         ;;
     root_dir)
-        echo "Print EMQ X installation root dir"
+        echo "Print EMQX installation root dir"
         ;;
     eval)
-        echo "Evaluate an Erlang or Elxir expression in the EMQ X node"
+        echo "Evaluate an Erlang or Elxir expression in the EMQX node"
         ;;
     eval-erl)
-        echo "Evaluate an Erlang expression in the EMQ X node, even on Elixir node"
+        echo "Evaluate an Erlang expression in the EMQX node, even on Elixir node"
         ;;
     versions)
-        echo "List installed EMQ X versions and their status"
+        echo "List installed EMQX versions and their status"
         ;;
     unpack)
         echo "Usage: $REL_NAME unpack [VERSION]"
@@ -192,10 +192,10 @@ usage() {
         echo "Usage: $REL_NAME COMMAND [help]"
         echo ''
         echo "Commonly used COMMANDs:"
-        echo "  start:      Start EMQ X in daemon mode"
-        echo "  console:    Start EMQ X in an interactive Erlang or Elixir shell"
-        echo "  foreground: Start EMQ X in foreground mode without an interactive shell"
-        echo "  stop:       Stop the running EMQ X node"
+        echo "  start:      Start EMQX in daemon mode"
+        echo "  console:    Start EMQX in an interactive Erlang or Elixir shell"
+        echo "  foreground: Start EMQX in foreground mode without an interactive shell"
+        echo "  stop:       Stop the running EMQX node"
         echo "  ctl:        Administration commands, execute '$REL_NAME ctl help' for more details"
         echo ''
         echo "More:"
@@ -237,7 +237,7 @@ if ! check_erlang_start >/dev/null 2>&1; then
         echoerr "FATAL: Unable to start Erlang."
         echoerr "Please make sure openssl-1.1.1 (libcrypto) and libncurses are installed."
         echoerr "Also ensure it's running on the correct platform,"
-        echoerr "this EMQ X release is built for $BUILT_ON"
+        echoerr "this EMQX release is built for $BUILT_ON"
         exit 1
     fi
     echoerr "WARNING: There seem to be missing dynamic libs from the OS. Using libs from ${DYNLIBS_DIR}"

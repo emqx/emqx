@@ -1,8 +1,8 @@
-# EMQ X plugins
+# EMQX plugins
 
-Starting from EMQ X 5.0, plugins are developed in independent projects.
+Starting from EMQX 5.0, plugins are developed in independent projects.
 
-This is different from EMQ X 4.3 (and later 4.x releases) for which the plugins have to
+This is different from EMQX 4.3 (and later 4.x releases) for which the plugins have to
 be developed inside the emqx.git umbrella project.
 
 ## Erlang

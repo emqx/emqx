@@ -1,7 +1,7 @@
 apiVersion: v2
 name: emqx
 icon: https://github.com/emqx.png
-description: A Helm chart for EMQ X
+description: A Helm chart for EMQX
 # A chart can be either an 'application' or a 'library' chart.
 #
 # Application charts are a collection of templates that can be packaged into versioned archives

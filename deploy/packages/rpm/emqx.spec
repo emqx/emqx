@@ -26,7 +26,7 @@ Requires: libatomic
 %endif
 
 %description
-EMQ X, a distributed, massively scalable, highly extensible MQTT message broker.
+EMQX, a distributed, massively scalable, highly extensible MQTT message broker.
 
 %prep
 
