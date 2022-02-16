@@ -21,7 +21,7 @@
     "======================================================\n"
     "Your license has expired.\n"
     "Please visit https://emqx.com/apply-licenses/emqx or\n"
-    "contact our customer services for an updated license.\n"
+    "contact customer services.\n"
     "======================================================\n"
     ).
 
