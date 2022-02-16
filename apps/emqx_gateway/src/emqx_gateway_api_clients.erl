@@ -57,7 +57,7 @@
 %%--------------------------------------------------------------------
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
     [ "/gateway/:name/clients"
@@ -90,9 +90,8 @@ paths() ->
 -define(QUERY_FUN, {?MODULE, query}).
 
 clients(get, #{ bindings := #{name := Name0}
-              , query_string := Params0
+              , query_string := Params
               }) ->
-    Params = emqx_mgmt_api:ensure_timestamp_format(Params0, time_keys()),
     with_gateway(Name0, fun(GwName, _) ->
         TabName = emqx_gateway_cm:tabname(info, GwName),
         case maps:get(<<"node">>, Params, undefined) of
@@ -209,16 +208,6 @@ extra_sub_props(Props) ->
       fun(_, V) -> V =/= undefined end,
       #{subid => maps:get(<<"subid">>, Props, undefined)}
      ).
-
-%%--------------------------------------------------------------------
-%% QueryString data-fomrat convert
-%%  (try rfc3339 to timestamp or keep timestamp)
-
-time_keys() ->
-    [ <<"gte_created_at">>
-    , <<"lte_created_at">>
-    , <<"gte_connected_at">>
-    , <<"lte_connected_at">>].
 
 %%--------------------------------------------------------------------
 %% query funcs
@@ -508,19 +497,19 @@ params_client_searching_in_qs() ->
        mk(binary(),
           M#{desc => <<"Use sub-string to match client's username">>})}
     , {gte_created_at,
-       mk(binary(),
+       mk(emqx_datetime:epoch_millisecond(),
           M#{desc => <<"Match the session created datetime greater than "
                        "a certain value">>})}
     , {lte_created_at,
-       mk(binary(),
+       mk(emqx_datetime:epoch_millisecond(),
           M#{desc => <<"Match the session created datetime less than "
                        "a certain value">>})}
     , {gte_connected_at,
-       mk(binary(),
+       mk(emqx_datetime:epoch_millisecond(),
           M#{desc => <<"Match the client socket connected datetime greater "
                        "than a certain value">>})}
     , {lte_connected_at,
-       mk(binary(),
+       mk(emqx_datetime:epoch_millisecond(),
           M#{desc => <<"Match the client socket connected datatime less than "
                        "a certain value">>})}
     , {endpoint_name,
@@ -686,10 +675,10 @@ common_client_props() ->
           #{ desc => <<"Indicates whether the client is connected via "
                        "bridge">>})}
     , {connected_at,
-       mk(binary(),
+       mk(emqx_datetime:epoch_millisecond(),
           #{ desc => <<"Client connection time">>})}
     , {disconnected_at,
-       mk(binary(),
+       mk(emqx_datetime:epoch_millisecond(),
           #{ desc => <<"Client offline time, This field is only valid and "
                        "returned when connected is false">>})}
     , {connected,
@@ -714,7 +703,7 @@ common_client_props() ->
           #{ desc => <<"Session expiration interval, with the unit of "
                        "second">>})}
     , {created_at,
-       mk(binary(),
+       mk(emqx_datetime:epoch_millisecond(),
           #{ desc => <<"Session creation time">>})}
     , {subscriptions_cnt,
        mk(integer(),

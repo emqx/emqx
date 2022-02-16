@@ -37,7 +37,6 @@
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple().
 -type cipher() :: map().
--type rfc3339_system_time() :: integer().
 -type qos() :: integer().
 
 -typerefl_from_string({qos/0, emqx_schema, to_qos}).
@@ -52,7 +51,6 @@
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
 -typerefl_from_string({cipher/0, emqx_schema, to_erl_cipher_suite}).
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
--typerefl_from_string({rfc3339_system_time/0, emqx_schema, rfc3339_to_system_time}).
 
 -export([ validate_heap_size/1
         , parse_user_lookup_fun/1
@@ -65,8 +63,8 @@
          to_percent/1, to_comma_separated_list/1,
          to_bar_separated_list/1, to_ip_port/1,
          to_erl_cipher_suite/1, to_qos/1,
-         to_comma_separated_atoms/1,
-         rfc3339_to_system_time/1]).
+         to_comma_separated_atoms/1
+        ]).
 
 -behaviour(hocon_schema).
 
@@ -74,8 +72,8 @@
                 bytesize/0, wordsize/0, percent/0, file/0,
                 comma_separated_list/0, bar_separated_list/0, ip_port/0,
                 cipher/0, qos/0,
-                comma_separated_atoms/0,
-                rfc3339_system_time/0]).
+                comma_separated_atoms/0
+                ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
@@ -1513,13 +1511,6 @@ to_comma_separated_list(Str) ->
 
 to_comma_separated_atoms(Str) ->
     {ok, lists:map(fun to_atom/1, string:tokens(Str, ", "))}.
-
-rfc3339_to_system_time(DateTime) ->
-    try
-        {ok, calendar:rfc3339_to_system_time(DateTime, [{unit, second}])}
-    catch error: _ ->
-        {error, bad_rfc3339_timestamp}
-    end.
 
 to_bar_separated_list(Str) ->
     {ok, string:tokens(Str, "| ")}.

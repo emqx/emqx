@@ -434,8 +434,16 @@ typename_to_spec("non_neg_integer()", _Mod) -> #{type => integer, minimum => 1, 
 typename_to_spec("number()", _Mod) -> #{type => number, example => 42};
 typename_to_spec("string()", _Mod) -> #{type => string, example => <<"string-example">>};
 typename_to_spec("atom()", _Mod) -> #{type => string, example => atom};
-typename_to_spec("rfc3339_system_time()", _Mod) -> #{type => string,
-    example => <<"2021-12-05T02:01:34.186Z">>, format =>  <<"date-time">>};
+typename_to_spec("epoch_second()", _Mod) ->
+    #{<<"oneOf">> => [
+        #{type => integer, example => 1640995200, desc => <<"epoch-second">>},
+        #{type => string, example => <<"2022-01-01T00:00:00.000Z">>, format => <<"date-time">>}]
+        };
+typename_to_spec("epoch_millisecond()", _Mod) ->
+    #{<<"oneOf">> => [
+        #{type => integer, example => 1640995200000, desc => <<"epoch-millisecond">>},
+        #{type => string, example => <<"2022-01-01T00:00:00.000Z">>, format => <<"date-time">>}]
+    };
 typename_to_spec("unicode_binary()", _Mod) -> #{type => string, example => <<"unicode-binary">>};
 typename_to_spec("duration()", _Mod) -> #{type => string, example => <<"12m">>};
 typename_to_spec("duration_s()", _Mod) -> #{type => string, example => <<"1h">>};
