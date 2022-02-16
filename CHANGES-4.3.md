@@ -22,6 +22,7 @@ File format:
 * CLI `emqx_ctl pem_cache clean` to force purge x509 certificate cache,
   to force an immediate reload of all certificates after the files are updated on disk.
 * Refactor the ExProto so that anonymous clients can also be displayed on the dashboard [#6983]
+* Force shutdown of processe that cannot answer takeover event [#7026]
 
 ### Bug fixes
 
