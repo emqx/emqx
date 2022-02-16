@@ -49,18 +49,17 @@ properties() ->
         {load1, string, <<"CPU average load in 1 minute">>},
         {load5, string, <<"CPU average load in 5 minute">>},
         {load15, string, <<"CPU average load in 15 minute">>},
-        {max_fds, integer, <<"Maximum file descriptor limit for the operating system">>},
-        {memory_total, string, <<"VM allocated system memory">>},
-        {memory_used, string, <<"VM occupied system memory">>},
+        {max_fds, integer, <<"File descriptors limit">>},
+        {memory_total, string, <<"Allocated memory">>},
+        {memory_used, string, <<"Used memory">>},
         {node_status, string, <<"Node status">>},
-        {otp_release, string, <<"Erlang/OTP version used by EMQX Broker">>},
-        {process_available, integer, <<"Number of available processes">>},
-        {process_used, integer, <<"Number of used processes">>},
-        {uptime, integer, <<"EMQX Broker runtime, millisecond">>},
-        {version, string, <<"EMQX Broker version">>},
-        {sys_path, string, <<"EMQX system file location">>},
-        {log_path, string, <<"EMQX log file location">>},
-        {config_path, string, <<"EMQX config file location">>},
+        {otp_release, string, <<"Erlang/OTP version">>},
+        {process_available, integer, <<"Erlang processes limit">>},
+        {process_used, integer, <<"Running Erlang processes">>},
+        {uptime, integer, <<"System uptime, milliseconds">>},
+        {version, string, <<"Release version">>},
+        {sys_path, string, <<"Path to system files">>},
+        {log_path, string, <<"Path to log files">>},
         {role, string, <<"Node role">>}
     ]).
 
@@ -166,7 +165,6 @@ get_stats(Node) ->
 format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
     {ok, SysPathBinary} = file:get_cwd(),
     SysPath = list_to_binary(SysPathBinary),
-    ConfigPath = <<SysPath/binary, "/etc/emqx.conf">>,
     LogPath = case log_path() of
                   undefined ->
                       <<"not found">>;
@@ -177,7 +175,6 @@ format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
     Info#{ memory_total := emqx_mgmt_util:kmg(Total)
          , memory_used := emqx_mgmt_util:kmg(Used)
          , sys_path => SysPath
-         , config_path => ConfigPath
          , log_path => LogPath}.
 
 log_path() ->
