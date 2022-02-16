@@ -41,10 +41,9 @@
         , fields/1
         ]).
 
--define(ERROR_TOPIC, 'ERROR_TOPIC').
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
 -define(BAD_TOPIC, 'BAD_TOPIC').
--define(BAD_RPC, 'BAD_RPC').
+-define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
 api_spec() ->
@@ -62,7 +61,8 @@ schema("/mqtt/topic_metrics") ->
            #{ description => <<"List topic metrics">>
             , tags => ?API_TAG_MQTT
             , responses  =>
-                  #{200  => mk(array(hoconsc:ref(topic_metrics)), #{ desc => <<"List all topic metrics">>})}
+                  #{200  =>
+                    mk(array(hoconsc:ref(topic_metrics)), #{ desc => <<"List all topic metrics">>})}
             }
      , put =>
            #{ description => <<"Reset topic metrics by topic name. Or reset all Topic Metrics">>
@@ -72,7 +72,9 @@ schema("/mqtt/topic_metrics") ->
                                  reset_examples())
             , responses =>
                   #{ 204 => <<"Reset topic metrics successfully">>
-                   , 404 => emqx_dashboard_swagger:error_codes([?ERROR_TOPIC], <<"Topic not found">>)
+                   , 404 =>
+                        emqx_dashboard_swagger:error_codes(
+                            [?TOPIC_NOT_FOUND], <<"Topic not found">>)
                    }
             }
      , post =>
@@ -81,8 +83,10 @@ schema("/mqtt/topic_metrics") ->
             , 'requestBody' => [topic(body)]
             , responses =>
                   #{ 204 => <<"Create topic metrics success">>
-                   , 409 => emqx_dashboard_swagger:error_codes([?EXCEED_LIMIT], <<"Topic metrics exceeded max limit 512">>)
-                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST, ?BAD_TOPIC], <<"Topic metrics already existed or bad topic">>)
+                   , 409 => emqx_dashboard_swagger:error_codes([?EXCEED_LIMIT],
+                                <<"Topic metrics exceeded max limit 512">>)
+                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST, ?BAD_TOPIC],
+                                <<"Topic metrics already existed or bad topic">>)
                    }
             }
      };
@@ -94,7 +98,8 @@ schema("/mqtt/topic_metrics/:topic") ->
             , parameters => [topic(path)]
             , responses =>
                   #{ 200 => mk(ref(topic_metrics), #{ desc => <<"Topic metrics">> })
-                   , 404 => emqx_dashboard_swagger:error_codes([?ERROR_TOPIC], <<"Topic not found">>)
+                   , 404 => emqx_dashboard_swagger:error_codes([?TOPIC_NOT_FOUND],
+                                <<"Topic not found">>)
                    }
             }
      , delete =>
@@ -103,7 +108,8 @@ schema("/mqtt/topic_metrics/:topic") ->
             , parameters => [topic(path)]
             , responses =>
                   #{ 204 => <<"Removed topic metrics successfully">>,
-                     404 => emqx_dashboard_swagger:error_codes([?ERROR_TOPIC], <<"Topic not found">>)
+                     404 => emqx_dashboard_swagger:error_codes([?TOPIC_NOT_FOUND],
+                                <<"Topic not found">>)
                    }
             }
      }.
@@ -111,7 +117,9 @@ schema("/mqtt/topic_metrics/:topic") ->
 fields(reset) ->
     [ {topic
       , mk( binary()
-          , #{ desc => <<"Topic Name. If this parameter is not present, all created topic metrics will be reset">>
+          , #{ desc =>
+                <<"Topic Name. If this parameter is not present,"
+                  " all created topic metrics will be reset">>
              , example => <<"testtopic/1">>
              , nullable => true})}
     , {action
@@ -399,10 +407,10 @@ reason2httpresp(already_existed) ->
     {400, #{code => ?BAD_TOPIC, message => Msg}};
 reason2httpresp(topic_not_found) ->
     Msg = <<"Topic not found">>,
-    {404, #{code => ?ERROR_TOPIC, message => Msg}};
+    {404, #{code => ?TOPIC_NOT_FOUND, message => Msg}};
 reason2httpresp(not_found) ->
     Msg = <<"Topic not found">>,
-    {404, #{code => ?ERROR_TOPIC, message => Msg}}.
+    {404, #{code => ?TOPIC_NOT_FOUND, message => Msg}}.
 
 get_cluster_response(Args) ->
     case erlang:apply(?MODULE, cluster_accumulation_metrics, Args) of

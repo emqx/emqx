@@ -104,7 +104,7 @@ fields(ban) ->
         {who, hoconsc:mk(binary(), #{
             desc => <<"Client info as banned type">>,
             nullable => false,
-            example => <<"Badass坏"/utf8>>})},
+            example => <<"Banned name"/utf8>>})},
         {by, hoconsc:mk(binary(), #{
             desc => <<"Commander">>,
             nullable => true,
