@@ -123,10 +123,9 @@ ensure_check_expiry_timer(State) ->
     State#{expiry_alarm_timer => Ref}.
 
 cancel_timer(State, Key) ->
-    Ref = maps:get(Key, State),
-    _ = case is_reference(Ref) of
-            true -> erlang:cancel_timer(Ref);
-            false -> ok
+    _ = case maps:find(Key, State) of
+            {ok, Ref} when is_reference(Ref) -> erlang:cancel_timer(Ref);
+            _ -> ok
         end,
     ok.
 
