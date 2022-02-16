@@ -33,9 +33,9 @@ roots() -> [?CONF_ROOT].
 fields(?CONF_ROOT) ->
     #{fields => root_fields(),
       desc => """
-Manage EMQ X plugins.
+Manage EMQX plugins.
 <br>
-Plugins can be pre-built as a part of EMQ X package,
+Plugins can be pre-built as a part of EMQX package,
 or installed as a standalone package in a location specified by
 <code>install_dir</code> config key
 <br>
@@ -85,5 +85,5 @@ The plugin beam files and configuration files should reside in
 the sub-directory named as <code>emqx_foo_bar-0.1.0</code>.
 <br>
 NOTE: For security reasons, this directory should **NOT** be writable
-by anyone expect for <code>emqx</code> (or any user which runs EMQ X)
+by anyone expect for <code>emqx</code> (or any user which runs EMQX)
 """.

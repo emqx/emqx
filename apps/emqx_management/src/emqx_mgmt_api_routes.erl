@@ -52,7 +52,7 @@ properties() ->
 routes_api() ->
     Metadata = #{
         get => #{
-            description => <<"EMQ X routes">>,
+            description => <<"EMQX routes">>,
             parameters => [topic_param(query) , node_param()] ++ page_params(),
             responses => #{
                 <<"200">> => object_array_schema(properties(), <<"List route info">>),
@@ -65,7 +65,7 @@ routes_api() ->
 route_api() ->
     Metadata = #{
         get => #{
-            description => <<"EMQ X routes">>,
+            description => <<"EMQX routes">>,
             parameters => [topic_param(path)],
             responses => #{
                 <<"200">> =>

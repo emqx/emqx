@@ -53,14 +53,14 @@ properties() ->
         {memory_total, string, <<"VM allocated system memory">>},
         {memory_used, string, <<"VM occupied system memory">>},
         {node_status, string, <<"Node status">>},
-        {otp_release, string, <<"Erlang/OTP version used by EMQ X Broker">>},
+        {otp_release, string, <<"Erlang/OTP version used by EMQX Broker">>},
         {process_available, integer, <<"Number of available processes">>},
         {process_used, integer, <<"Number of used processes">>},
-        {uptime, integer, <<"EMQ X Broker runtime, millisecond">>},
-        {version, string, <<"EMQ X Broker version">>},
-        {sys_path, string, <<"EMQ X system file location">>},
-        {log_path, string, <<"EMQ X log file location">>},
-        {config_path, string, <<"EMQ X config file location">>},
+        {uptime, integer, <<"EMQX Broker runtime, millisecond">>},
+        {version, string, <<"EMQX Broker version">>},
+        {sys_path, string, <<"EMQX system file location">>},
+        {log_path, string, <<"EMQX log file location">>},
+        {config_path, string, <<"EMQX config file location">>},
         {role, string, <<"Node role">>}
     ]).
 
@@ -76,9 +76,9 @@ parameters() ->
 nodes_api() ->
     Metadata = #{
         get => #{
-            description => <<"List EMQ X nodes">>,
+            description => <<"List EMQX nodes">>,
             responses => #{
-                <<"200">> => object_array_schema(properties(), <<"List EMQ X Nodes">>)
+                <<"200">> => object_array_schema(properties(), <<"List EMQX Nodes">>)
             }
         }
     },
@@ -91,7 +91,7 @@ node_api() ->
             parameters => parameters(),
             responses => #{
                 <<"400">> => error_schema(<<"Node error">>, ['SOURCE_ERROR']),
-                <<"200">> => object_schema(properties(), <<"Get EMQ X Nodes info by name">>)}}},
+                <<"200">> => object_schema(properties(), <<"Get EMQX Nodes info by name">>)}}},
     {"/nodes/:node_name", Metadata, node}.
 
 node_metrics_api() ->
@@ -102,7 +102,7 @@ node_metrics_api() ->
             responses => #{
                 <<"400">> => error_schema(<<"Node error">>, ['SOURCE_ERROR']),
                 %% TODO: Node Metrics Schema
-                <<"200">> => schema(metrics, <<"Get EMQ X Node Metrics">>)}}},
+                <<"200">> => schema(metrics, <<"Get EMQX Node Metrics">>)}}},
     {"/nodes/:node_name/metrics", Metadata, node_metrics}.
 
 node_stats_api() ->
@@ -113,7 +113,7 @@ node_stats_api() ->
             responses => #{
                 <<"400">> => error_schema(<<"Node error">>, ['SOURCE_ERROR']),
                 %% TODO: Node Stats Schema
-                <<"200">> => schema(stat, <<"Get EMQ X Node Stats">>)}}},
+                <<"200">> => schema(stat, <<"Get EMQX Node Stats">>)}}},
     {"/nodes/:node_name/stats", Metadata, node_stats}.
 
 %%%==============================================================================================

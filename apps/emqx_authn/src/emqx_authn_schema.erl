@@ -48,7 +48,7 @@ config_refs(Modules) ->
 
 %% authn is a core functionality however implemented outside of emqx app
 %% in emqx_schema, 'authentication' is a map() type which is to allow
-%% EMQ X more pluggable.
+%% EMQX more pluggable.
 root_type() ->
     hoconsc:array(authenticator_type()).
 

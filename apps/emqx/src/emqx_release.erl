@@ -25,15 +25,15 @@
 
 -include("emqx_release.hrl").
 
-%% @doc Return EMQ X description.
+%% @doc Return EMQX description.
 description() ->
     case os:getenv("EMQX_DESCRIPTION") of
-        false -> "EMQ X Community Edition";
-        "" -> "EMQ X Community Edition";
+        false -> "EMQX Community Edition";
+        "" -> "EMQX Community Edition";
         Str -> string:strip(Str, both, $\n)
     end.
 
-%% @doc Return EMQ X edition info.
+%% @doc Return EMQX edition info.
 %% Read info from persistent_term at runtime.
 %% Or meck this function to run tests for another eidtion.
 -spec edition() -> ce | ee | edge.
@@ -41,7 +41,7 @@ edition() ->
     try persistent_term:get(emqx_edition)
     catch error : badarg -> get_edition() end.
 
-%% @private initiate EMQ X edition info in persistent_term.
+%% @private initiate EMQX edition info in persistent_term.
 put_edition() ->
     ok = put_edition(get_edition()).
 

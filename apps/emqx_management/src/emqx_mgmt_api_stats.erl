@@ -42,7 +42,7 @@ paths() ->
 schema("/stats") ->
     #{ 'operationId' => list
      , get =>
-           #{ description => <<"EMQ X stats">>
+           #{ description => <<"EMQX stats">>
             , tags => [<<"stats">>]
             , parameters => [ref(aggregate)]
             , responses =>

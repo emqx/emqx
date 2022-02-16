@@ -118,7 +118,7 @@ For per-listener overrides see <code>authentication</code>
 in listener configs
 <br>
 <br>
-EMQ X can be configured with:
+EMQX can be configured with:
 <br>
 <ul>
 <li><code>[]</code>: The default value, it allows *ALL* logins</li>
@@ -133,7 +133,7 @@ per the configured order, until an 'allow' or 'deny' decision can be made.
 If there is no decision after a full chain exhaustion, the login is rejected.
 """)}
     %% NOTE: authorization schema here is only to keep emqx app prue
-    %% the full schema for EMQ X node is injected in emqx_conf_schema.
+    %% the full schema for EMQX node is injected in emqx_conf_schema.
     , {"authorization",
        sc(ref("authorization"),
           #{})}
@@ -1199,7 +1199,7 @@ common_ssl_opts_schema(Defaults) ->
 """Trusted PEM format CA certificates bundle file.<br>
 The certificates in this file are used to verify the TLS peer's certificates.
 Append new certificates to the file if new CAs are to be trusted.
-There is no need to restart EMQ X to have the updated file loaded, because
+There is no need to restart EMQX to have the updated file loaded, because
 the system regularly checks if file has been updated (and reload).<br>
 NOTE: invalidating (deleting) a certificate from the file will not affect
 already established connections.
@@ -1399,7 +1399,7 @@ Selecting a good cipher suite is critical for the
 application's data security, confidentiality and performance.
 
 The names should be in OpenSSL string format (not RFC format).
-All default values and examples provided by EMQ X config
+All default values and examples provided by EMQX config
 documentation are all in OpenSSL format.<br>
 
 NOTE: Certain cipher suites are only compatible with

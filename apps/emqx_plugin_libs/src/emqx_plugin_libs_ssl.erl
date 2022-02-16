@@ -45,7 +45,7 @@
 %%
 %% For SSL files in the input Option, it can either be a file path
 %% or a map like `#{filename := FileName, file := Content}`.
-%% In case it's a map, the file is saved in EMQ X's `data_dir'
+%% In case it's a map, the file is saved in EMQX's `data_dir'
 %% (unless `SubDir' is an absolute path).
 %% NOTE: This function is now deprecated, use emqx_tls_lib:ensure_ssl_files/2 instead.
 -spec save_files_return_opts(opts_input(), atom() | string() | binary(),
@@ -60,7 +60,7 @@ save_files_return_opts(Options, SubDir, ResId) ->
 %%
 %% For SSL files in the input Option, it can either be a file path
 %% or a map like `#{filename := FileName, file := Content}`.
-%% In case it's a map, the file is saved in EMQ X's `data_dir'
+%% In case it's a map, the file is saved in EMQX's `data_dir'
 %% (unless `SubDir' is an absolute path).
 %% NOTE: This function is now deprecated, use emqx_tls_lib:ensure_ssl_files/2 instead.
 -spec save_files_return_opts(opts_input(), file:name_all()) -> opts().

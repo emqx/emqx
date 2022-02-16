@@ -85,13 +85,13 @@ fields(status) ->
 fields(telemetry) ->
     [ { emqx_version
       , mk( string()
-          , #{ desc => <<"EMQ X Version">>
+          , #{ desc => <<"EMQX Version">>
              , example => <<"5.0.0-beta.3-32d1547c">>
              })
       }
     , { license
       , mk( map()
-          , #{ desc => <<"EMQ X License">>
+          , #{ desc => <<"EMQX License">>
              , example => #{edition => <<"community">>}
              })
       }
@@ -115,50 +115,50 @@ fields(telemetry) ->
       }
     , { up_time
       , mk( integer()
-          , #{ desc => <<"EMQ X Runtime">>
+          , #{ desc => <<"EMQX Runtime">>
              , example => 20220113
              })
       }
     , { uuid
       , mk( string()
-          , #{ desc => <<"EMQ X UUID">>
+          , #{ desc => <<"EMQX UUID">>
              , example => <<"AAAAAAAA-BBBB-CCCC-2022-DDDDEEEEFFF">>
              })
       }
     , { nodes_uuid
       , mk( array(binary())
-          , #{ desc => <<"EMQ X Cluster Nodes UUID">>
+          , #{ desc => <<"EMQX Cluster Nodes UUID">>
              , example => [ <<"AAAAAAAA-BBBB-CCCC-2022-DDDDEEEEFFF">>
                           , <<"ZZZZZZZZ-CCCC-BBBB-2022-DDDDEEEEFFF">>]
              })
       }
     , { active_plugins
       , mk( array(binary())
-          , #{ desc => <<"EMQ X Active Plugins">>
+          , #{ desc => <<"EMQX Active Plugins">>
              , example => [<<"Plugin A">>, <<"Plugin B">>]
              })
       }
     , { active_modules
       , mk( array(binary())
-          , #{ desc => <<"EMQ X Active Modules">>
+          , #{ desc => <<"EMQX Active Modules">>
              , example => [<<"Module A">>, <<"Module B">>]
              })
       }
     , { num_clients
       , mk( integer()
-          , #{ desc => <<"EMQ X Current Connections">>
+          , #{ desc => <<"EMQX Current Connections">>
              , example => 20220113
              })
       }
     , { messages_received
       , mk( integer()
-          , #{ desc => <<"EMQ X Current Received Message">>
+          , #{ desc => <<"EMQX Current Received Message">>
              , example => 2022
              })
       }
     , { messages_sent
       , mk( integer()
-          , #{ desc => <<"EMQ X Current Sent Message">>
+          , #{ desc => <<"EMQX Current Sent Message">>
              , example => 2022
              })
       }

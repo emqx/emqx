@@ -207,7 +207,7 @@ The indicator can be set to:
            , desc =>
 "The Default QoS Level indicator for publish request.<br>
 This option specifies the QoS level for the CoAP Client when publishing a
-message to EMQ X PUB/SUB system, if the publish request is not carried `qos`
+message to EMQX PUB/SUB system, if the publish request is not carried `qos`
 option. The indicator can be set to:
   - qos0, qos1, qos2: Fixed default QoS level
   - coap: Dynamic QoS level by the message type of publish request
@@ -255,7 +255,7 @@ beyond this time window are temporarily stored in memory."
        sc(hoconsc:union([always, contains_object_list]),
           #{ default => "contains_object_list"
            , desc =>
-"Policy for publishing UPDATE event message to EMQ X.<br>
+"Policy for publishing UPDATE event message to EMQX.<br>
   - always: send update events as long as the UPDATE request is received.
   - contains_object_list: send update events only if the UPDATE request carries any Object List."
            })}

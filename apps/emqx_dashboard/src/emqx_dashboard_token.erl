@@ -101,7 +101,7 @@ do_sign(Username, Password) ->
         <<"alg">> => <<"HS256">>
     },
     JWT = #{
-        <<"iss">> => <<"EMQ X">>,
+        <<"iss">> => <<"EMQX">>,
         <<"exp">> => ExpTime
     },
     Signed = jose_jwt:sign(JWK, JWS, JWT),
