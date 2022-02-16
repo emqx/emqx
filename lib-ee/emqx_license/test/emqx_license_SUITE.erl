@@ -141,7 +141,7 @@ t_check_expired(_Config) ->
                  "0", %% Small customer
                  "Foo",
                  "contact@foo.com",
-                 "20210101", %% Expired long ago
+                 "20211101", %% Expired long ago
                  "10",
                  "10"]),
     #{} = emqx_license_checker:update(License),

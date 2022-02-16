@@ -96,6 +96,26 @@ t_parse(_Config) ->
            ]),
          public_key_pem())),
 
+    ?assertMatch(
+       {error,
+         [{emqx_license_parser_v20220101,
+           [{type,invalid_license_type},
+            {customer_type,invalid_customer_type},
+            {date_start,invalid_date},
+            {days,invalid_int_value}]}]},
+       emqx_license_parser:parse(
+         emqx_license_test_lib:make_license(
+           ["220111",
+            "zero",
+            "ten",
+            "Foo",
+            "contact@foo.com",
+            "2022-02-1st",
+            "-10",
+            "10"
+           ]),
+         public_key_pem())),
+
     %% invalid signature
     [LicensePart, _] = binary:split(
                          emqx_license_test_lib:make_license(
@@ -189,5 +209,5 @@ sample_license() ->
        "Foo",
        "contact@foo.com",
        "20220111",
-       "100000",
+       "100,000",
        "10"]).

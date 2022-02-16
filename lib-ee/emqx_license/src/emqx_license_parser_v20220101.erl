@@ -12,6 +12,12 @@
 -define(DIGEST_TYPE, sha256).
 -define(LICENSE_VERSION, <<"220111">>).
 
+%% This is the earliest license start date for version 220111
+%% in theory it should  be the same as ?LICENSE_VERSION (20220111),
+%% however, in order to make expiration test easier (before Mar.2022),
+%% allow it to start from Nov.2021
+-define(MIN_START_DATE, 20211101).
+
 -export([parse/2,
          dump/1,
          customer_type/1,
@@ -103,35 +109,48 @@ parse_payload(Payload) ->
     end.
 
 parse_type(TypeStr) ->
-    case string:to_integer(TypeStr) of
-        {Type, <<"">>} -> {ok, Type};
+    case parse_int(TypeStr) of
+        {ok, Type} -> {ok, Type};
         _ -> {error, invalid_license_type}
     end.
 
 parse_customer_type(CTypeStr) ->
-    case string:to_integer(CTypeStr) of
-        {CType, <<"">>} -> {ok, CType};
+    case parse_int(CTypeStr) of
+        {ok, CType} -> {ok, CType};
         _ -> {error, invalid_customer_type}
     end.
 
-parse_date_start(<<Y:4/binary, M:2/binary, D:2/binary>>) ->
-    Date = list_to_tuple([N || {N, <<>>} <- [string:to_integer(S) || S <- [Y, M, D]]]),
-    case calendar:valid_date(Date) of
-        true -> {ok, Date};
-        false -> {error, invalid_date}
-    end;
-parse_date_start(_) -> {error, invalid_date}.
+parse_date_start(DateStr) ->
+    case parse_int(DateStr) of
+        {ok, Num} when Num >= ?MIN_START_DATE ->
+            Y = Num div 1_00_00,
+            M = (Num rem 1_00_00) div 1_00,
+            D = Num rem 1_00,
+            case calendar:valid_date({Y, M, D}) of
+                true -> {ok, {Y, M, D}};
+                false -> {error, invalid_date}
+            end;
+        _ ->
+            {error, invalid_date}
+    end.
 
 parse_days(DaysStr) ->
-    case string:to_integer(DaysStr) of
-        {Days, <<"">>} when Days > 0 -> {ok, Days};
+    case parse_int(DaysStr) of
+        {ok, Days} when Days > 0 -> {ok, Days};
         _ -> {error, invalid_int_value}
     end.
 
 parse_max_connections(MaxConnStr) ->
-    case string:to_integer(MaxConnStr) of
-        {MaxConns, <<"">>} when MaxConns > 0 -> {ok, MaxConns};
-        _ -> {error, invalid_int_value}
+    case parse_int(MaxConnStr) of
+        {ok, MaxConns} when MaxConns > 0 -> {ok, MaxConns};
+        _ -> {error, invalid_connection_limit}
+    end.
+
+parse_int(Str0) ->
+    Str = iolist_to_binary(string:replace(Str0, ",", "")),
+    case string:to_integer(Str) of
+        {Num, <<"">>} -> {ok, Num};
+        _ -> error
     end.
 
 collect_fields(Fields) ->
