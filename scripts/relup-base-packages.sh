@@ -11,13 +11,13 @@ fi
 
 case $PROFILE in
     "emqx")
-        BROKER="broker"
+        DIR="broker"
         ;;
     "emqx-ee")
-        BROKER="enterprise"
+        DIR="enterprise"
         ;;
     "emqx-edge")
-        BROKER="edge"
+        DIR="edge"
         ;;
 esac
 
@@ -49,10 +49,10 @@ pushd _upgrade_base
 
 for tag in $(../scripts/relup-base-vsns.sh community | xargs echo -n); do
     if [ ! -f "$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip" ] \
-    && [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://www.emqx.com/downloads/$BROKER/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
-        wget --no-verbose https://www.emqx.com/downloads/$BROKER/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip
+    && [ ! -z "$(echo $(curl -I -m 10 -o /dev/null -s -w %{http_code} https://www.emqx.com/downloads/$DIR/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip) | grep -oE "^[23]+")" ];then
+        wget --no-verbose https://www.emqx.com/downloads/$DIR/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip
         if [ "$SYSTEM" != "centos6" ]; then
-            wget --no-verbose https://www.emqx.com/downloads/$BROKER/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256
+            wget --no-verbose https://www.emqx.com/downloads/$DIR/$tag/$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256
             ## https://askubuntu.com/questions/1202208/checking-sha256-checksum
             echo "$(cat $PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip.sha256)  $PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip" | $SHASUM -c || exit 1
         fi
