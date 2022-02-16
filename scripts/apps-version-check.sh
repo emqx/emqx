@@ -60,7 +60,7 @@ check_apps() {
                 ## at the end of its appup instructions, there is the final instruction
                 ## {apply, {emqx_plugins, load, []}
                 ## since we don't know which plugins are stopped during the upgrade
-                ## for safty, we just force a dashboard version bump for each and every release
+                ## for safety, we just force a dashboard version bump for each and every release
                 ## even if there is nothing changed in the app
                 echo "$src_file needs a vsn bump to ensure plugins loaded after upgrade"
                 bad_app_count=$(( bad_app_count + 1))
