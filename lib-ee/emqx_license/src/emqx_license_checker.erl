@@ -71,14 +71,14 @@ purge() ->
 init([LicenseFetcher, CheckInterval]) ->
     case LicenseFetcher() of
         {ok, License} ->
-            ?LICENSE_TAB = ets:new(?LICENSE_TAB, [set, protected, named_table, read_concurrency]),
+            ?LICENSE_TAB = ets:new(?LICENSE_TAB, [set, protected, named_table, {read_concurrency, true}]),
             #{} = check_license(License),
             State0 = ensure_check_license_timer(#{check_license_interval => CheckInterval,
                                    license => License}),
             State = ensure_check_expiry_timer(State0),
             {ok, State};
-        {error, _} = Error ->
-            Error
+        {error, Reason} ->
+            {stop, Reason}
     end.
 
 handle_call({update, License}, _From, State) ->
@@ -124,10 +124,11 @@ ensure_check_expiry_timer(State) ->
 
 cancel_timer(State, Key) ->
     Ref = maps:get(Key, State),
-    case is_reference(Ref) of
-        true -> erlang:cancel_timer(Ref);
-        false -> ok
-    end.
+    _ = case is_reference(Ref) of
+            true -> erlang:cancel_timer(Ref);
+            false -> ok
+        end,
+    ok.
 
 check_license(License) ->
     DaysLeft = days_left(License),
