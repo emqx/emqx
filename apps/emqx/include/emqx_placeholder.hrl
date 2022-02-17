@@ -14,8 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQ_X_PLACEHOLDER_HRL).
--define(EMQ_X_PLACEHOLDER_HRL, true).
+-ifndef(EMQX_PLACEHOLDER_HRL).
+-define(EMQX_PLACEHOLDER_HRL, true).
 
 -define(PH(Type),                   <<"${", Type/binary, "}">>  ).
 

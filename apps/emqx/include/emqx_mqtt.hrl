@@ -14,8 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQ_X_MQTT_HRL).
--define(EMQ_X_MQTT_HRL, true).
+-ifndef(EMQX_MQTT_HRL).
+-define(EMQX_MQTT_HRL, true).
 
 -define(UINT_MAX, 16#FFFFFFFF).
 

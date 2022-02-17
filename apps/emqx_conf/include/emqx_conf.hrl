@@ -1,6 +1,6 @@
 
--ifndef(EMQ_X_CONF_HRL).
--define(EMQ_X_CONF_HRL, true).
+-ifndef(EMQX_CONF_HRL).
+-define(EMQX_CONF_HRL, true).
 
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
