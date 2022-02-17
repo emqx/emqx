@@ -13,4 +13,5 @@ if [ "$1" != "emqx" ]; then
     BASEDIR="$1"
 fi
 
+# shellcheck disable=SC2038
 find "${BASEDIR}/test/props" -name "prop_*.erl" 2>/dev/null | xargs -I{} basename {} .erl | xargs | tr ' ' ','

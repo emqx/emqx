@@ -20,8 +20,8 @@ parse_semver() {
     echo "$1" | tr '.|-' ' '
 }
 
-PROFILE="${1:-}"
-[ -z "${PROFILE}" ] && usage
+EDITION="${1:-}"
+[ -z "${EDITION}" ] && usage
 
 ## Get the current release version
 ## e.g.
@@ -49,7 +49,7 @@ else
     IS_RELEASE=false
 fi
 
-case "${PROFILE}" in
+case "${EDITION}" in
     *enterprise*)
         GIT_TAG_PREFIX="e"
         ;;
