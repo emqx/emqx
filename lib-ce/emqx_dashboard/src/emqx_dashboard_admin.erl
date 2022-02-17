@@ -21,7 +21,6 @@
 -behaviour(gen_server).
 
 -include("emqx_dashboard.hrl").
--include_lib("emqx/include/logger.hrl").
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
@@ -79,6 +78,11 @@ start_link() ->
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
     Admin = #mqtt_admin{username = Username, password = hash(Password), tags = Tags},
+    return(mnesia:transaction(fun add_user_/1, [Admin])).
+
+-spec(add_user_hashed(binary(), binary(), binary()) -> ok | {error, any()}).
+add_user_hashed(Username, HashedPassword, Tags) when is_binary(Username), is_binary(HashedPassword) ->
+    Admin = #mqtt_admin{username = Username, password = HashedPassword, tags = Tags},
     return(mnesia:transaction(fun add_user_/1, [Admin])).
 
 force_add_user(Username, Password, Tags) ->
@@ -140,9 +144,9 @@ update_pwd(Username, Fun) ->
     Trans = fun() ->
                     User =
                     case lookup_user(Username) of
-                    [Admin] -> Admin;
-                    [] ->
-                           mnesia:abort(<<"Username Not Found">>)
+                        [Admin] -> Admin;
+                        [] ->
+                            mnesia:abort(<<"Username Not Found">>)
                     end,
                     mnesia:write(Fun(User))
             end,
@@ -181,7 +185,9 @@ check(Username, Password) ->
 
 init([]) ->
     %% Add default admin user
-    _ = add_default_user(binenv(default_user_username), binenv(default_user_passwd)),
+    mnesia:subscribe({table, mqtt_admin, simple}),
+    HashedPassword = hashed_default_passwd(),
+    _ = add_default_user_hashed(binenv(default_user_username), HashedPassword),
     {ok, state}.
 
 handle_call(_Req, _From, State) ->
@@ -190,6 +196,16 @@ handle_call(_Req, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_info({mnesia_table_event, {write, Admin, _}}, State) ->
+    #mqtt_admin{username=Username, password=HashedPassword} = Admin,
+    case binenv(default_user_username) of
+        Username ->
+            application:set_env(emqx_dashboard, default_user_passwd_hashed, HashedPassword);
+
+        _ ->
+            ignore
+    end,
+    {noreply, State};
 handle_info(_Msg, State) ->
     {noreply, State}.
 
@@ -216,37 +232,24 @@ salt() ->
     <<Salt:32>>.
 
 binenv(Key) ->
-    iolist_to_binary(application:get_env(emqx_dashboard, Key, "")).
+    iolist_to_binary(application:get_env(emqx_dashboard, Key, <<>>)).
 
-add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY(Password) ->
-    ignore;
+add_default_user_hashed(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY(Password) ->
+    igonre;
 
-add_default_user(Username, Password) ->
+add_default_user_hashed(Username, Password) ->
     case lookup_user(Username) of
-        [] -> add_user(Username, Password, <<"administrator">>);
-        _  ->
-            case check(Username, Password) of
-                ok ->
-                    ?LOG(warning,
-                        "[Dashboard] The initial default password for dashboard 'admin' user in emqx_dashboard.conf\n"
-                        "For safety, it should be changed as soon as possible.\n"
-                        "Please use the './bin/emqx_ctl admins' CLI to change it.\n"
-                        "Then remove `dashboard.default_user.login/password` from emqx_dashboard.conf"
-                    );
-                {error, _} ->
-                    %% We can't force add default,
-                    %% otherwise passwords that have been updated via HTTP API will be reset after reboot.
-                    ?LOG(warning,
-                        "[Dashboard] dashboard.default_user.password in the plugins/emqx_dashboard.conf\n"
-                        "does not match the password in the database(mnesia).\n"
-                        "1. If you have already changed the password via the HTTP API or `./bin/emqx_ctl admins`,"
-                        "this warning has no effect.\n"
-                        "You should remove the `dashboard.default_user.login/password` from emqx_dashboard.conf "
-                        "to resolve this warning.\n"
-                        "2. If you just want to update the password by manually changing the configuration file,\n"
-                        "you need to delete the old user and password using `emqx_ctl admins del ~s` first\n"
-                        "the new password in emqx_dashboard.conf can take effect after reboot.",
-                        [])
-            end
-    end,
-    ok.
+        [] -> add_user_hashed(Username, Password, <<"administrator">>);
+        _  -> ok
+    end.
+
+hashed_default_passwd() ->
+    case binenv(default_user_passwd_hashed) of
+        Empty0 when ?EMPTY_KEY(Empty0) ->
+            case binenv(default_user_passwd) of
+                Empty when ?EMPTY_KEY(Empty) ->
+                    undefined;
+                Password -> hash(Password)
+            end;
+        HashedPassword -> HashedPassword
+    end.
