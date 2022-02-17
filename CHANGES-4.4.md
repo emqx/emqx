@@ -12,6 +12,13 @@
   it is still recommended that you verify and confirm again before deploying to the production environment,
   at least to ensure that systemd is available in your system
 
+- Package name scheme changed comparing to 4.3.
+  4.3 format: emqx-centos8-4.3.8-amd64.zip
+  4.4 format: emqx-4.4.0-rc.1-otp24.1.5-3-el8-amd64.zip
+  * Erlang/OTP version is included in the package name,
+    providing the possibility to release EMQX on multiple Erlang/OTP versions
+  * `centos` is renamed to `el`. This is mainly due to centos8 being dead (replaced with rockylinux8)
+
 - MongoDB authentication supports DNS SRV and TXT Records resolution, which can seamlessly connect with MongoDB Altas
 
 - Support dynamic modification of MQTT Keep Alive to adapt to different energy consumption strategies.
