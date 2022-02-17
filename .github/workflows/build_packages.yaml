@@ -1,6 +1,13 @@
 name: Cross build packages
 
+concurrency:
+  group: build-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
+  push:
+    branches:
+      - 'main-v4.**'
   schedule:
     - cron:  '0 */6 * * *'
   release:
