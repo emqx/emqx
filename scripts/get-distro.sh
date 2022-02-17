@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 ## This script prints Linux distro name and its version number
-## e.g. macos, centos7, ubuntu20.04
+## e.g. macos, el8, ubuntu20.04
 
 set -euo pipefail
 
@@ -14,9 +14,9 @@ case "$UNAME" in
         SYSTEM="$(echo "${DIST}${VERSION_ID}" | gsed -r 's/([a-zA-Z]*)-.*/\1/g')"
         ;;
     Linux)
-        if grep -q -i 'centos' /etc/*-release; then
-            DIST='centos'
-            VERSION_ID="$(rpm --eval '%{centos_ver}')"
+        if grep -q -i 'rhel' /etc/*-release; then
+            DIST='el'
+            VERSION_ID="$(rpm --eval '%{rhel}')"
         else
             DIST="$(sed -n '/^ID=/p' /etc/os-release | sed -r 's/ID=(.*)/\1/g' | sed 's/"//g')"
             VERSION_ID="$(sed -n '/^VERSION_ID=/p' /etc/os-release | sed -r 's/VERSION_ID=(.*)/\1/g' | sed 's/"//g')"

@@ -227,10 +227,9 @@ jobs:
           - ubuntu16.04
           - debian10
           - debian9
-          # - opensuse
+          - rockylinux8
           - centos7
           - raspbian10
-          # - raspbian9
         build_machine:
           - aws-arm64
           - ubuntu-20.04

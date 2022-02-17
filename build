@@ -209,8 +209,8 @@ make_docker() {
 ##
 ## Name               Default                         Example
 ## ---------------------------------------------------------------------
-## EMQX_BASE_IMAGE    current os                      centos:7
-## EMQX_TGZ_packages/<current-tgz-target>  /tmp/emqx-4.4.0-otp23.3.4.9-3-centos7-amd64.tar.gz
+## EMQX_BASE_IMAGE    current os                      el:7
+## EMQX_TGZ_packages/<current-tgz-target>  /tmp/emqx-4.4.0-otp23.3.4.9-3-el7-amd64.tar.gz
 ## EMQX_IMAGE_TAG     emqx/emqx:<current-vns-rel>     emqx/emqx:testing-tag
 ##
 make_docker_testing() {

@@ -33,7 +33,7 @@ Options:
   --release-dir     Release directory
   --src-dirs        Directories where source code is found. Defaults to '{src,apps,lib-*}/**/'
   --binary-rel-url  Binary release URL pattern. %VSN% variable is substituted with the version in release tag.
-                    E.g. \"https://github.com/emqx/emqx/releases/download/v%VSN%/emqx-%VSN%-otp-24.1.5-3-centos7-amd64.tar.gz\"
+                    E.g. \"https://github.com/emqx/emqx/releases/download/v%VSN%/emqx-%VSN%-otp-24.1.5-3-el7-amd64.tar.gz\"
 ".
 
 -record(app,
