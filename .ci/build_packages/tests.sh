@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
 ## This script tests built package start/stop
-## Accept 2 args PACKAGE_NAME and PACKAGE_TYPE
+## Accept 2 args PROFILE and PACKAGE_TYPE
 
 set -x -e -u
 
 if [ -z "${1:-}" ]; then
-    echo "Usage $0 <PACKAGE_NAME> zip|pkg"
+    echo "Usage $0 <PROFILE>  e.g. emqx, emqx-edge"
     exit 1
 fi
 
@@ -15,20 +15,22 @@ if [ "${2:-}" != 'zip' ] && [ "${2:-}" != 'pkg' ]; then
     exit 1
 fi
 
-PACKAGE_NAME="${1}"
+PROFILE="${1}"
 PACKAGE_TYPE="${2}"
 
 export CODE_PATH=${CODE_PATH:-"/emqx"}
-export EMQX_NAME=${EMQX_NAME:-"emqx"}
-export PACKAGE_PATH="${CODE_PATH}/_packages/${EMQX_NAME}"
+export PACKAGE_PATH="${CODE_PATH}/_packages/${PROFILE}"
 export RELUP_PACKAGE_PATH="${CODE_PATH}/_upgrade_base"
 # export EMQX_NODE_NAME="emqx-on-$(uname -m)@127.0.0.1"
 # export EMQX_NODE_COOKIE=$(date +%s%N)
 
+PKG_VSN="$($CODE_PATH/pkg-vsn.sh)"
+OTP_VSN="$($CODE_PATH/scripts/get-otp-vsn.sh)"
+SYSTEM="$($CODE_PATH/scripts/get-distro.sh)"
+
 if [ "$PACKAGE_TYPE" = 'zip' ]; then
     PKG_SUFFIX="zip"
 else
-    SYSTEM="$($CODE_PATH/scripts/get-distro.sh)"
     case "${SYSTEM:-}" in
         ubuntu*|debian*|raspbian*)
             PKG_SUFFIX='deb'
@@ -38,15 +40,9 @@ else
             ;;
     esac
 fi
-PACKAGE_FILE_NAME="${PACKAGE_NAME}.${PKG_SUFFIX}"
 
-PACKAGE_FILE="${PACKAGE_PATH}/${PACKAGE_FILE_NAME}"
-if ! [ -f "$PACKAGE_FILE" ]; then
-    echo "$PACKAGE_FILE is not a file"
-    exit 1
-fi
-
-case "$(uname -m)" in
+ARCH="$(uname -m)"
+case "$ARCH" in
     x86_64)
         ARCH='amd64'
         ;;
@@ -58,6 +54,15 @@ case "$(uname -m)" in
         ;;
 esac
 export ARCH
+
+PACKAGE_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
+PACKAGE_FILE_NAME="${PACKAGE_NAME}.${PKG_SUFFIX}"
+
+PACKAGE_FILE="${PACKAGE_PATH}/${PACKAGE_FILE_NAME}"
+if ! [ -f "$PACKAGE_FILE" ]; then
+    echo "$PACKAGE_FILE is not a file"
+    exit 1
+fi
 
 emqx_prepare(){
     mkdir -p "${PACKAGE_PATH}"
@@ -111,14 +116,14 @@ emqx_test(){
             running_test
             echo "running ${packagename} stop"
 
-            dpkg -r "${EMQX_NAME}"
+            dpkg -r "${PROFILE}"
             if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "rc" ]
             then
                 echo "package remove error"
                 exit 1
             fi
 
-            dpkg -P "${EMQX_NAME}"
+            dpkg -P "${PROFILE}"
             if dpkg -l |grep -q emqx
             then
                 echo "package uninstall error"
@@ -127,7 +132,7 @@ emqx_test(){
         ;;
         "rpm")
             yum install -y "${PACKAGE_PATH}/${packagename}"
-            if ! rpm -q ${EMQX_NAME} | grep -q "${EMQX_NAME}"; then
+            if ! rpm -q ${PROFILE} | grep -q "${PROFILE}"; then
                 echo "package install error"
                 exit 1
             fi
@@ -136,7 +141,7 @@ emqx_test(){
             running_test
             echo "running ${packagename} stop"
 
-            rpm -e "${EMQX_NAME}"
+            rpm -e "${PROFILE}"
             if [ "$(rpm -q emqx)" != "package emqx is not installed" ];then
                 echo "package uninstall error"
                 exit 1
@@ -176,7 +181,7 @@ relup_test(){
     if [ -d "${RELUP_PACKAGE_PATH}" ];then
         cd "${RELUP_PACKAGE_PATH}"
 
-        find . -maxdepth 1 -name "${EMQX_NAME}-*-${ARCH}.zip" |
+        find . -maxdepth 1 -name "${PROFILE}-*-${ARCH}.zip" |
             while read -r pkg; do
                 packagename=$(basename "${pkg}")
                 unzip -q "$packagename"
@@ -187,7 +192,7 @@ relup_test(){
                 fi
                 ./emqx/bin/emqx_ctl status
                 ./emqx/bin/emqx versions
-                cp "${PACKAGE_PATH}/${EMQX_NAME}-${TARGET_VERSION}"-*-"${ARCH}".zip ./emqx/releases
+                cp "${PACKAGE_PATH}/${PROFILE}-${TARGET_VERSION}"-*-"${ARCH}".zip ./emqx/releases
                 ./emqx/bin/emqx install "${TARGET_VERSION}"
                 [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${TARGET_VERSION}" ] || exit 1
                 export EMQX_WAIT_FOR_STOP=300

@@ -70,17 +70,11 @@ fi
 cd "${SRC_DIR:-.}"
 
 set -x
-PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
-OTP_VSN="$(docker run -v $(pwd):/src --rm "$BUILDER" bash /src/scripts/get-otp-vsn.sh)"
-DISTRO="$(docker run -v $(pwd):/src --rm "$BUILDER" bash /src/scripts/get-distro.sh)"
-PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${DISTRO}-${ARCH}"
-
 docker info
 docker run --rm --privileged tonistiigi/binfmt:latest --install ${ARCH}
 docker run -i --rm \
     -v "$(pwd)":/emqx \
     --workdir /emqx \
     --platform="linux/$ARCH" \
-    -e EMQX_NAME="$PROFILE" \
     "$BUILDER" \
-    bash -euc "make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PKG_NAME $PKGTYPE"
+    bash -euc "make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PROFILE $PKGTYPE"

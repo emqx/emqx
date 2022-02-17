@@ -52,12 +52,9 @@ jobs:
         path: ./rebar3.crashdump
     - name: packages test
       run: |
-        PKG_VSN="$(./pkg-vsn.sh)"
-        DISTRO="$(./scripts/get-distro.sh)"
-        PKG_NAME="${EMQX_NAME}-${PKG_VSN}-otp${{ matrix.erl_otp }}-${DISTRO}-amd64"
         export CODE_PATH="$GITHUB_WORKSPACE"
-        .ci/build_packages/tests.sh "$PKG_NAME" zip
-        .ci/build_packages/tests.sh "$PKG_NAME" pkg
+        .ci/build_packages/tests.sh "${EMQX_NAME}" zip
+        .ci/build_packages/tests.sh "${EMQX_NAME}" pkg
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.os }}
