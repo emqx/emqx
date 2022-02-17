@@ -36,7 +36,7 @@
                 file/0,
                 cipher/0]).
 
--export([namespace/0, roots/0, fields/1, translations/0, translation/1]).
+-export([namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 
 %% Static apps which merge their configs into the merged emqx.conf
@@ -102,6 +102,10 @@ roots() ->
     emqx_schema:roots(medium) ++
     emqx_schema:roots(low) ++
     lists:flatmap(fun roots/1, ?MERGED_CONFIGS).
+
+validations() ->
+    hocon_schema:validations(emqx_schema) ++
+    lists:flatmap(fun hocon_schema:validations/1, ?MERGED_CONFIGS).
 
 fields("cluster") ->
     [ {"name",

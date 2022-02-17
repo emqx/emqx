@@ -60,6 +60,7 @@ handle_cast(_Msg, State) ->
 
 handle_info(update_resources, State) ->
     true = update_resources(),
+    connection_quota_early_alarm(),
     ?tp(debug, emqx_license_resources_updated, #{}),
     {noreply, ensure_timer(State)}.
 
@@ -72,6 +73,24 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Private functions
 %%------------------------------------------------------------------------------
+connection_quota_early_alarm() ->
+    connection_quota_early_alarm(emqx_license_checker:limits()).
+
+connection_quota_early_alarm({ok, #{max_connections := Max}}) when is_integer(Max) ->
+    Count = connection_count(),
+    Low = emqx_conf:get([license, connection_low_watermark], 0.75),
+    High = emqx_conf:get([license, connection_high_watermark], 0.80),
+    if
+        Count > Max * High ->
+            HighPercent = float_to_binary(High * 100, [{decimals, 0}]),
+            Message = iolist_to_binary(["License: live connection number exceeds ", HighPercent, "%"]),
+            catch emqx_alarm:activate(license_quota, #{high_watermark => HighPercent}, Message);
+        Count < Max * Low ->
+            catch emqx_alarm:deactivate(license_quota);
+        true ->
+            ok
+    end;
+connection_quota_early_alarm(_Limits) -> ok.
 
 cached_remote_connection_count() ->
     try ets:lookup(?MODULE, remote_connection_count) of
