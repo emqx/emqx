@@ -41,7 +41,7 @@
 
 %% Static apps which merge their configs into the merged emqx.conf
 %% The list can not be made a dynamic read at run-time as it is used
-%% by nodetool to generate app.<time>.config before EMQ X is started
+%% by nodetool to generate app.<time>.config before EMQX is started
 -define(MERGED_CONFIGS,
         [ emqx_bridge_schema
         , emqx_retainer_schema
@@ -78,7 +78,7 @@ roots() ->
            })}
     , {"cluster",
        sc(hoconsc:ref("cluster"),
-          #{ desc => "EMQ X nodes can form a cluster to scale up the total capacity.<br>"
+          #{ desc => "EMQX nodes can form a cluster to scale up the total capacity.<br>"
                      "Here holds the configs to instruct how individual nodes "
                      "can discover each other."
            })}
@@ -89,7 +89,7 @@ roots() ->
            })}
     , {"rpc",
        sc(hoconsc:ref("rpc"),
-          #{ desc => "EMQ X uses a library called <code>gen_rpc</code> for "
+          #{ desc => "EMQX uses a library called <code>gen_rpc</code> for "
                      "inter-broker communication.<br/>Most of the time the default config "
                      "should work, but in case you need to do performance "
                      "fine-turning or experiment a bit, this is where to look."
@@ -916,13 +916,13 @@ emqx_schema_high_prio_roots() ->
              sc(hoconsc:ref("authorization"),
              #{ desc => """
 Authorization a.k.a ACL.<br>
-In EMQ X, MQTT client access control is extremely flexible.<br>
+In EMQX, MQTT client access control is extremely flexible.<br>
 An out of the box set of authorization data sources are supported.
 For example,<br>
 'file' source is to support concise and yet generic ACL rules in a file;<br>
 'built-in-database' source can be used to store per-client customizable rule sets,
-natively in the EMQ X node;<br>
-'http' source to make EMQ X call an external HTTP API to make the decision;<br>
+natively in the EMQX node;<br>
+'http' source to make EMQX call an external HTTP API to make the decision;<br>
 'PostgreSQL' etc. to look up clients or rules from external databases;<br>
 """ })},
     lists:keyreplace("authorization", 1, Roots, Authz).

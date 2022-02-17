@@ -38,7 +38,7 @@ schema("/alarms") ->
     #{
         'operationId' => alarms,
         get => #{
-            description => <<"EMQ X alarms">>,
+            description => <<"EMQX alarms">>,
             parameters => [
                 hoconsc:ref(emqx_dashboard_swagger, page),
                 hoconsc:ref(emqx_dashboard_swagger, limit),

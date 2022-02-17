@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% The proper types extension for EMQ X
+%% The proper types extension for EMQX
 
 -module(emqx_proper_types).
 

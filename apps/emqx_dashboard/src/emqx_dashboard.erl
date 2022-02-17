@@ -40,7 +40,7 @@ start_listeners() ->
     Authorization = {?MODULE, authorize},
     GlobalSpec = #{
         openapi => "3.0.0",
-        info => #{title => "EMQ X API", version => "5.0.0"},
+        info => #{title => "EMQX API", version => "5.0.0"},
         servers => [#{url => ?BASE_PATH}],
         components => #{
             schemas => #{},

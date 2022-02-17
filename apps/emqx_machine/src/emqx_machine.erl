@@ -26,7 +26,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 
-%% @doc EMQ X boot entrypoint.
+%% @doc EMQX boot entrypoint.
 start() ->
     case os:type() of
         {win32, nt} -> ok;

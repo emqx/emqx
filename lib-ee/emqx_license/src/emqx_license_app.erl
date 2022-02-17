@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
-%% @doc EMQ X License Management Application.
+%% @doc EMQX License Management Application.
 %%--------------------------------------------------------------------
 
 -module(emqx_license_app).
