@@ -340,7 +340,7 @@ code_change({down, _Vsn}, State = #state{metric_ids = MIDs}, [Vsn]) ->
                         Exception = get_actions_exception(Id),
                         Retry = get_actions_retry(Id),
                         ok = delete_counters(Id),
-                        ok = create_counters(Id, 7),
+                        ok = create_counters(Id, max_counters_size_old()),
                         inc_rules_matched(Id, Passed),
                         inc_actions_taken(Id, Take),
                         inc_actions_success(Id, Success),
@@ -463,6 +463,9 @@ precision(Float, N) ->
 %%------------------------------------------------------------------------------
 %% Metrics Definitions
 %%------------------------------------------------------------------------------
+
+%% for code hot upgrade
+max_counters_size_old() -> 7.
 
 max_counters_size() -> 11.
 
