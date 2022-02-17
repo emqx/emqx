@@ -27,7 +27,7 @@
 
 - TLS for cluster backplane (RPC) connections. See clustering document for more details.
 
-- Support real-time trace filtering logs for the ClientID or Topic or IP via dashboard.
+- Support real-time tracing in the dashboard, with Client ID, Client IP address, and topic name based filtering.
 
 ### Minor changes
 
