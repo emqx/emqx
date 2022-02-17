@@ -25,6 +25,7 @@ File format:
 * Prohibit empty topics in strict mode
 * Make sure ehttpc delete useless pool always succeed.
 * Update mongodb driver to fix potential process leak.
+* Dashboard admin password persists after leaving/joining the cluster
 
 ## v4.3.13
 
