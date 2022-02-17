@@ -64,10 +64,10 @@ spec:
           claimName: {{ tpl . $ }}
         {{- end }}
       {{- end }}
-      {{- if .Values.emqxLicneseSecretName  }}
+      {{- if .Values.emqxLicenseSecretName  }}
       - name: emqx-license
         secret:
-          secretName: {{ .Values.emqxLicneseSecretName }}
+          secretName: {{ .Values.emqxLicenseSecretName }}
       {{- end }}
       serviceAccountName:  {{ include "emqx.fullname" . }}
       {{- if .Values.podSecurityContext.enabled }}
@@ -134,7 +134,7 @@ spec:
           volumeMounts:
           - name: emqx-data
             mountPath: "/opt/emqx/data"
-          {{ if .Values.emqxLicneseSecretName  }}
+          {{ if .Values.emqxLicenseSecretName  }}
           - name: emqx-license
             mountPath: "/opt/emqx/etc/emqx.lic"
             subPath: "emqx.lic"
