@@ -334,7 +334,7 @@ make_retry_context(Fun, Diff) ->
 -spec try_restore(retry_context(Limiter), Limiter) -> Limiter
               when Limiter :: limiter().
 try_restore(#{need := Need, diff := Diff},
-            #{tokens := Tokens, capcacity := Capacity, bucket := Bucket} = Limiter) ->
+            #{tokens := Tokens, capacity := Capacity, bucket := Bucket} = Limiter) ->
     Back = Need - Diff,
     Tokens2 = erlang:min(Capacity, Back + Tokens),
     emqx_limiter_bucket_ref:try_restore(Back, Bucket),
