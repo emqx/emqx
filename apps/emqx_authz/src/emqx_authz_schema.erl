@@ -69,11 +69,10 @@ fields("authorization") ->
 """
 Authorization data sources.<br>
 An array of authorization (ACL) data providers.
-It is designed as an array but not a hash-map so the sources can be
+It is designed as an array, not a hash-map, so the sources can be
 ordered to form a chain of access controls.<br>
 
-
-When authorizing a publish or subscribe action, the configured
+When authorizing a 'publish' or 'subscribe' action, the configured
 sources are checked in order. When checking an ACL source,
 in case the client (identified by username or client ID) is not found,
 it moves on to the next source. And it stops immediately
@@ -100,7 +99,7 @@ If the file provisioned before starting EMQX node,
 it can be placed anywhere as long as EMQX has read access to it.
 
 In case the rule-set is created from EMQX dashboard or management API,
-the file will be placed in `authz` sub directory inside EMQX's `data_dir`,
+the file will be placed in `authz` subdirectory inside EMQX's `data_dir`,
 and the new rules will override all rules from the old config file.
 """
               }}
@@ -145,7 +144,7 @@ fields(redis_cluster) ->
 
 http_common_fields() ->
     [ {url, fun url/1}
-    , {request_timeout, mk_duration("request timeout", #{default => "30s"})}
+    , {request_timeout, mk_duration("Request timeout", #{default => "30s"})}
     , {body, #{type => map(), nullable => true}}
     ] ++ proplists:delete(base_url, connector_fields(http)).
 

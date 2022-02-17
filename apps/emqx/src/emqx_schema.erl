@@ -101,7 +101,7 @@ roots(high) ->
 """A zone is a set of configs grouped by the zone <code>name</code>.<br>
 For flexible configuration mapping, the <code>name</code>
 can be set to a listener's <code>zone</code> config.<br>
-NOTE: A builtin zone named <code>default</code> is auto created
+NOTE: A built-in zone named <code>default</code> is auto created
 and can not be deleted."""
            })}
     , {"mqtt",
@@ -337,7 +337,7 @@ message within this interval."""
     , {"ignore_loop_deliver",
        sc(boolean(),
           #{ default => false,
-             desc => "Ignore loop delivery of messages for mqtt v3.1.1."
+             desc => "Ignore loop delivery of messages for MQTT v3.1.1."
            })}
     , {"strict_mode",
        sc(boolean(),
@@ -357,9 +357,9 @@ This feature is disabled if is set to \"\"."""
        sc(hoconsc:union([integer(), disabled]),
           #{ default => disabled,
              desc =>
-"""Server Keep Alive of MQTT 5.0.
-If the Server returns a Server Keep Alive on the CONNACK packet,
-the Client MUST use that value instead of the value it sent as the Keep Alive."""
+"""'Server Keep Alive' of MQTT 5.0.
+If the server returns a 'Server Keep Alive' in the CONNACK packet,
+the client MUST use that value instead of the value it sent as the 'Keep Alive'."""
            })
       }
     , {"keepalive_backoff",
@@ -430,17 +430,18 @@ Priority number [1-255]<br>
 
 **NOTE**: Comma and equal signs are not allowed for priority topic names.<br>
 **NOTE**: Messages for topics not in the priority table are treated as
-either highest or lowest priority depending on the configured value for mqtt.mqueue_default_priority.
+either highest or lowest priority depending on the configured value for
+<code>mqtt.mqueue_default_priority</code>.
 <br><br>
 **Examples**:
-To configure \"topic/1\" > \"topic/2\":
-mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}"""
+To configure <code>\"topic/1\" > \"topic/2\"</code>:<br/>
+<code>mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}</code>"""
            })
       }
     , {"mqueue_default_priority",
        sc(hoconsc:enum([highest, lowest]),
           #{ default => lowest,
-             desc => "Default to highest priority for topics not matching priority table."
+             desc => "Default to the highest priority for topics not matching priority table."
            })
       }
     , {"mqueue_store_qos0",
@@ -452,7 +453,7 @@ mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}"""
     , {"use_username_as_clientid",
        sc(boolean(),
           #{ default => false,
-             desc => "Replace client id with the username."
+             desc => "Replace client ID with the username."
            })
       }
     , {"peer_cert_as_username",
@@ -1045,7 +1046,7 @@ in the VM exceeds this value"
        sc(string(),
          #{ mapping => "system_monitor.db_username"
           , default => "system_monitor"
-          , desc    => "EMQX user name in the PostgreSQL database"
+          , desc    => "EMQX username in the PostgreSQL database"
           })
       }
     , {"db_password",
@@ -1071,10 +1072,10 @@ fields("alarm") ->
              validator => fun ?MODULE:validate_alarm_actions/1,
              example => [log, publish],
              desc =>
-             """The actions triggered when the alarm is activated.<\br>
-Currently support two actions, 'log' and 'publish'.
-'log' is to write the alarm to log (console or file).
-'publish' is to publish the alarm as an MQTT message to the system topics:
+             """The actions triggered when the alarm is activated.<br/>
+Currently, the following actions are supported: <code>log</code> and <code>publish</code>.
+<code>log</code> is to write the alarm to log (console or file).
+<code>publish</code> is to publish the alarm as an MQTT message to the system topics:
 <code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/activate</code> and
 <code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate</code>"""
            })
@@ -1216,7 +1217,7 @@ already established connections.
 The certificates in this file should be in reversed order of the certificate
 issue chain. That is, the host's certificate should be placed in the beginning
 of the file, followed by the immediate issuer certificate and so on.
-Although the root CA certificate is optional, it should placed at the end of
+Although the root CA certificate is optional, it should be placed at the end of
 the file if it is to be added.
 """
            })
@@ -1251,7 +1252,7 @@ the file if it is to be added.
            , nullable => true
            , desc =>
 """String containing the user's password. Only used if the private
-keyfile is password-protected."""
+key file is password-protected."""
            })
       }
     , {"versions",
@@ -1302,7 +1303,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
 to be used by the server if a cipher suite using Diffie Hellman
 key exchange is negotiated. If not specified, default parameters
 are used.<br>
-NOTE: The dhfile option is not supported by TLS 1.3."""
+NOTE: The <code>dhfile</code> option is not supported by TLS 1.3."""
            })
       }
     , {"fail_if_no_peer_cert",
@@ -1463,7 +1464,7 @@ ref(Field) -> hoconsc:ref(?MODULE, Field).
 ref(Module, Field) -> hoconsc:ref(Module, Field).
 
 mk_duration(Desc, OverrideMeta) ->
-    DefaultMeta = #{desc => Desc ++ " Time span. A text string with number followed by time units:
+    DefaultMeta = #{desc => Desc ++ " time span. A text string with number followed by time units:
                     `ms` for milliseconds,
                     `s` for seconds,
                     `m` for minutes,

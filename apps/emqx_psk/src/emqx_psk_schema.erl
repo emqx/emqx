@@ -58,14 +58,14 @@ init_file(desc) ->
     <<"If init_file is specified, emqx will import PSKs from the file ",
       "into the built-in database at startup for use by the runtime. ",
       "The file has to be structured line-by-line, each line must be in ",
-      "the format of 'PSKIdentity:SharedSecret' for example: ",
+      "the format of <code>PSKIdentity:SharedSecret</code>. For example: ",
       "<code>mydevice1:c2VjcmV0</code>">>;
 init_file(nullable) -> true;
 init_file(_) -> undefined.
 
 separator(type) -> binary();
 separator(desc) ->
-    <<"The separator between PSKIdentity and SharedSecret in the psk file">>;
+    <<"The separator between <code>PSKIdentity</code> and <code>SharedSecret</code> in the psk file">>;
 separator(default) -> <<":">>;
 separator(_) -> undefined.
 

@@ -317,7 +317,7 @@ a crash dump
            })}
     , {"etc_dir",
        sc(string(),
-          #{ desc => "`etc` dir for the node"
+          #{ desc => "<code>etc</code> dir for the node"
            }
          )}
     , {"cluster_call",
@@ -915,9 +915,9 @@ emqx_schema_high_prio_roots() ->
     Authz = {"authorization",
              sc(hoconsc:ref("authorization"),
              #{ desc => """
-Authorization a.k.a ACL.<br>
+Authorization a.k.a. ACL.<br>
 In EMQX, MQTT client access control is extremely flexible.<br>
-An out of the box set of authorization data sources are supported.
+An out-of-the-box set of authorization data sources are supported.
 For example,<br>
 'file' source is to support concise and yet generic ACL rules in a file;<br>
 'built-in-database' source can be used to store per-client customizable rule sets,

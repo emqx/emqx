@@ -111,7 +111,7 @@ Environment variables can be used to define or override config values.
 Due to the fact that dots (`.`) are not allowed in environment variables, dots are
 replaced with double-underscores (`__`).
 
-And a the `EMQX_` prefix is used as the namespace.
+And the `EMQX_` prefix is used as the namespace.
 
 For example `node.name` can be represented as `EMQX_NODE__NAME`
 

@@ -44,7 +44,7 @@ fields("connector") ->
             , desc => """
 The mode of the MQTT Bridge. Can be one of 'cluster_singleton' or 'cluster_shareload'<br>
 
-- cluster_singleton: create an unique MQTT connection within the emqx cluster.<br>
+- cluster_singleton: create a unique MQTT connection within the emqx cluster.<br>
 In 'cluster_singleton' node, all messages toward the remote broker go through the same
 MQTT connection.<br>
 - cluster_shareload: create an MQTT connection on each node in the emqx cluster.<br>
@@ -65,7 +65,7 @@ topic filters for 'remote_topic' of ingress connections.
            #{ default => "127.0.0.1:1883"
             , desc => "The host and port of the remote MQTT broker"
             })}
-    , {reconnect_interval, mk_duration("reconnect interval", #{default => "15s"})}
+    , {reconnect_interval, mk_duration("Reconnect interval", #{default => "15s"})}
     , {proto_ver,
         sc(hoconsc:enum([v3, v4, v5]),
            #{ default => v4
@@ -86,12 +86,12 @@ topic filters for 'remote_topic' of ingress connections.
            #{ default => true
             , desc => "The clean-start or the clean-session of the MQTT protocol"
             })}
-    , {keepalive, mk_duration("keepalive", #{default => "300s"})}
-    , {retry_interval, mk_duration("retry interval", #{default => "15s"})}
+    , {keepalive, mk_duration("Keepalive", #{default => "300s"})}
+    , {retry_interval, mk_duration("Retry interval", #{default => "15s"})}
     , {max_inflight,
         sc(integer(),
            #{ default => 32
-            , desc => "Max inflight messages (sent but ACK has not received) of the MQTT protocol"
+            , desc => "Max inflight (sent, but un-acked) messages of the MQTT protocol"
             })}
     , {replayq,
         sc(ref("replayq"),
@@ -180,7 +180,7 @@ A segment is mapping to a file in the replayq dir. If the current segment is ful
            #{ default => false
             , desc => """
 In offload mode, the disk queue is only used to offload queue tail segments.<br>
-The messages are cached in the memory first, then it write to the replayq files after the size of
+The messages are cached in the memory first, then it writes to the replayq files after the size of
 the memory cache reaches 'seg_bytes'.
 """
             })}
@@ -223,7 +223,7 @@ common_inout_confs() ->
         sc(hoconsc:union([boolean(), binary()]),
            #{ default => <<"${retain}">>
             , desc => """
-The retain flag of the MQTT message to be sent.<br>
+The 'retain' flag of the MQTT message to be sent.<br>
 Template with variables is allowed."""
             })}
     , {payload,

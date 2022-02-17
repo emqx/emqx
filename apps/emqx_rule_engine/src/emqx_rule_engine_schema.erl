@@ -52,12 +52,12 @@ Example: <code>SELECT * FROM \"test/topic\" WHERE payload.x = 1</code><br>
     , {"outputs", sc(hoconsc:array(hoconsc:union(outputs())),
         #{ desc => """
 A list of outputs of the rule.<br>
-An output can be a string that refers to the channel Id of a emqx bridge, or a object
+An output can be a string that refers to the channel ID of an EMQX bridge, or an object
 that refers to a function.<br>
 There a some built-in functions like \"republish\" and \"console\", and we also support user
 provided functions in the format: \"{module}:{function}\".<br>
-The outputs in the list is executed one by one in order.
-This means that if one of the output is executing slowly, all of the outputs comes after it will not
+The outputs in the list are executed sequentially.
+This means that if one of the output is executing slowly, all the following outputs will not
 be executed until it returns.<br>
 If one of the output crashed, all other outputs come after it will still be executed, in the
 original order.<br>
@@ -149,7 +149,7 @@ Template with variables is allowed, see description of the 'republish_args'.
     , {qos, sc(qos(),
         #{ desc => """
 The qos of the message to be re-published.
-Template with with variables is allowed, see description of the 'republish_args.<br>
+Template with variables is allowed, see description of the 'republish_args'.<br>
 Defaults to ${qos}. If variable ${qos} is not found from the selected result of the rule,
 0 is used.
 """
@@ -158,8 +158,8 @@ Defaults to ${qos}. If variable ${qos} is not found from the selected result of 
          })}
     , {retain, sc(hoconsc:union([binary(), boolean()]),
         #{ desc => """
-The retain flag of the message to be re-published.
-Template with with variables is allowed, see description of the 'republish_args.<br>
+The 'retain' flag of the message to be re-published.
+Template with variables is allowed, see description of the 'republish_args'.<br>
 Defaults to ${retain}. If variable ${retain} is not found from the selected result
 of the rule, false is used.
 """
@@ -169,7 +169,7 @@ of the rule, false is used.
     , {payload, sc(binary(),
         #{ desc => """
 The payload of the message to be re-published.
-Template with with variables is allowed, see description of the 'republish_args.<br>.
+Template with variables is allowed, see description of the 'republish_args'.<br>.
 Defaults to ${payload}. If variable ${payload} is not found from the selected result
 of the rule, then the string \"undefined\" is used.
 """

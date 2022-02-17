@@ -9,7 +9,7 @@ namespace() -> "slow_subs".
 roots() -> ["slow_subs"].
 
 fields("slow_subs") ->
-    [ {enable, sc(boolean(), false, "switch of this function")}
+    [ {enable, sc(boolean(), false, "Enable this feature")}
     , {threshold,
        sc(emqx_schema:duration_ms(),
           "500ms",

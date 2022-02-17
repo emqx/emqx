@@ -24,7 +24,7 @@
 -define(REDIS_DEFAULT_PORT, 6379).
 -define(PGSQL_DEFAULT_PORT, 5432).
 
--define(SERVERS_DESC, "A Node list for Cluster to connect to. The nodes should be splited with ',', such as: 'Node[,Node]'<br>\nFor each Node should be:<br>").
+-define(SERVERS_DESC, "A Node list for Cluster to connect to. The nodes should be split with ',', such as: 'Node[,Node]'<br>\nFor each Node should be:<br>").
 
 -define(SERVER_DESC(TYPE, DEFAULT_PORT), """
 The IPv4 or IPv6 address or host name to connect to.<br>

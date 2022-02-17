@@ -72,7 +72,7 @@ fields(limiter_opts) ->
     [ {global, sc(ref(rate_burst), #{})}
     , {zone, sc(map("zone name", ref(rate_burst)), #{})}
     , {bucket, sc(map("bucket_id", ref(bucket)),
-                  #{desc => "token bucket"})}
+                  #{desc => "Token bucket"})}
     ];
 
 fields(rate_burst) ->
@@ -81,7 +81,7 @@ fields(rate_burst) ->
     ];
 
 fields(bucket) ->
-    [ {zone, sc(atom(), #{desc => "the zone which the bucket in"})}
+    [ {zone, sc(atom(), #{desc => "The bucket's zone"})}
     , {aggregated, sc(ref(bucket_aggregated), #{})}
     , {per_client, sc(ref(client_bucket), #{})}
     ];
@@ -100,18 +100,18 @@ fields(client_bucket) ->
       %% so we need to use this value to prevent excessive consumption
       %% (e.g, consumption from an empty bucket)
     , {low_water_mark, sc(initial(),
-                          #{desc => "if the remaining tokens are lower than this value,
-the check/consume will succeed, but it will be forced to hang for a short period of time",
+                          #{desc => "If the remaining tokens are lower than this value,
+the check/consume will succeed, but it will be forced to wait for a short period of time.",
                             default => "0"})}
-    , {capacity, sc(capacity(), #{desc => "the capacity of the token bucket"})}
+    , {capacity, sc(capacity(), #{desc => "The capacity of the token bucket."})}
     , {divisible, sc(boolean(),
-                     #{desc => "is it possible to split the number of tokens requested",
+                     #{desc => "Is it possible to split the number of requested tokens?",
                        default => false})}
     , {max_retry_time, sc(emqx_schema:duration(),
-                          #{ desc => "the maximum retry time when acquire failed"
+                          #{ desc => "The maximum retry time when acquire failed."
                            , default => "5s"})}
     , {failure_strategy, sc(failure_strategy(),
-                            #{ desc => "the strategy when all retry failed"
+                            #{ desc => "The strategy when all the retries failed."
                              , default => force})}
     ].
 
