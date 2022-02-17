@@ -1,72 +1,21 @@
 #!/bin/bash
-# shellcheck disable=SC2015
-set -euo pipefail
+set -uo pipefail
 
-aspell -v > /dev/null && [ "$#" -eq 1 ] || {
-    echo "Usage:
-  $(basename "$0") check
-or
-  $(basename "$0") fix
-
-Note: this script needs aspell to run"
-    exit 1
-}
-
-action=$1
-
-dict_dir="$(git rev-parse --show-toplevel)/$(dirname "$0")/dict"
-echo "${dict_dir}"
-dict="${dict_dir}/.aspell.en"
-
-export fail=0
-
-aspellcmd() {
-    local mode
-    mode="${1}"
-    shift
-    aspell --mode "${mode}" --camel-case --add-filter html --add-html-skip code -p "$dict" "$@"
-}
-
-check() {
-    local mode file typos ntypos
-    mode="$1"
-    file="$2"
-
-    echo "!! Spellchecking ${file}"
-    typos="$(mktemp)"
-    echo "!! Typos:"
-    aspellcmd "$mode" list < "$file" |
-        sort -u |
-        tee "$typos"
-    ntypos="$(wc -l "$typos")"
-    rm "$typos"
-    [ "$ntypos" = 0 ] || export fail=1
-}
-
-fix() {
-    local mode file
-    mode=$1
-    file=$2
-
-    aspellcmd "$mode" check "$file"
-}
-
-case $action in
-    fix)
-        for i in $(git ls-tree -r --name-only HEAD | grep -E '_schema.erl$'); do
-            fix perl "$i"
-        done
-        # for i in $(git ls-tree -r --name-only HEAD | grep -E '.md$'); do
-        #     fix markdown $i
-        # done
-    ;;
-    *)
-        check markdown _build/emqx/lib/emqx_dashboard/priv/www/static/config.md
-esac
-
-
-if [ $fail -eq 1 ]; then
-    echo
-    echo "!! Bad spelling in the documentation. Run script in fix mode to resolve problems."
-    exit 1
+if [ -z "${1:-}" ]; then
+    SCHEMA="_build/emqx/lib/emqx_dashboard/priv/www/static/schema.json"
+else
+    SCHEMA="$1"
 fi
+
+docker run -d --name langtool "ghcr.io/k32/emqx-schema-validate:0.1.0"
+
+docker exec -i langtool ./emqx_schema_validate - < "${SCHEMA}"
+success="$?"
+
+docker kill langtool || true
+docker rm langtool || true
+
+echo "If this script finds a false positive (e.g. when it things that a protocol name is a typo),
+make a PR here: https://github.com/k32/emqx-schema-validate/blob/master/dict/en_spelling_additions.txt"
+
+exit "$success"
