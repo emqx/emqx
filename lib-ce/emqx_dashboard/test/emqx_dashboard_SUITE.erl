@@ -29,6 +29,8 @@
 
 -include_lib("emqx/include/emqx.hrl").
 
+-include("emqx_dashboard.hrl").
+
 -define(CONTENT_TYPE, "application/x-www-form-urlencoded").
 
 -define(HOST, "http://127.0.0.1:18083/").
@@ -40,21 +42,23 @@
 -define(OVERVIEWS, ['alarms/activated', 'alarms/deactivated', banned, brokers, stats, metrics, listeners, clients, subscriptions, routes, plugins]).
 
 all() ->
-    [{group, overview},
+    [
+     {group, overview},
      {group, admins},
      {group, rest},
      {group, cli}
      ].
 
 groups() ->
-    [{overview, [sequence], [t_overview]},
-     {admins, [sequence], [t_admins_add_delete]},
+    [
+     {overview, [sequence], [t_overview]},
+     {admins, [sequence], [t_default_password_persists_after_leaving_cluster]},
      {rest, [sequence], [t_rest_api, t_auth_exhaustive_attack]},
      {cli, [sequence], [t_cli]}
     ].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_dashboard]),
+    ok = emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_dashboard]),
     Config.
 
 end_per_suite(_Config) ->
@@ -83,6 +87,77 @@ t_admins_add_delete(_) ->
     ok = emqx_dashboard_admin:remove_user(<<"username">>),
     ?assertNotEqual(true, request_dashboard(get, api_path("brokers"),
         auth_header_("username", "pwd"))).
+
+t_admins_persist_default_password(_) ->
+    emqx_dashboard_admin:change_password(<<"admin">>, <<"new_password">>),
+    [#mqtt_admin{password=Password}] = emqx_dashboard_admin:lookup_user(<<"admin">>),
+
+    %% To ensure that state persists even if the process dies
+    exit(whereis(emqx_dashboard_admin), kill),
+
+    %% It get's restarted by the app automatically
+    [#mqtt_admin{password=PasswordAfterRestart}] = emqx_dashboard_admin:lookup_user(<<"admin">>),
+    ?assertEqual(Password, PasswordAfterRestart),
+    emqx_dashboard_admin:change_password(<<"admin">>, <<"public">>).
+
+debug(Label, Slave) ->
+    ct:print(
+      "[~p]~nusers local ~p~nusers remote: ~p~nenv local: ~p~nenv remote: ~p",
+      [
+       Label,
+       ets:tab2list(mqtt_admin),
+       rpc:call(Slave, ets, tab2list, [mqtt_admin]),
+       application:get_all_env(emqx_dashboard),
+       rpc:call(Slave, application, get_all_env, [emqx_dashboard])
+      ]).
+
+
+t_default_password_persists_after_leaving_cluster(_) ->
+    [#mqtt_admin{password=InitialPassword}] = emqx_dashboard_admin:lookup_user(<<"admin">>),
+
+    ct:print("Cluster status: ~p", [ekka_cluster:info()]),
+    ct:print("Table nodes: ~p", [mnesia:table_info(mqtt_admin, active_replicas)]),
+
+    Slave = start_slave('test1', [emqx_modules, emqx_management, emqx_dashboard]),
+
+    %% To make sure that subscription is not lost during reconnection
+    rpc:call(Slave, ekka, leave, []),
+    ct:sleep(100), %% To ensure that leave gets processed
+    rpc:call(Slave, ekka, join, [node()]),
+    ct:sleep(100), %% To ensure that join gets processed
+
+    ct:print("Cluster status: ~p", [ekka_cluster:info()]),
+    ct:print("Table nodes: ~p", [mnesia:table_info(mqtt_admin, active_replicas)]),
+
+    ct:print("Apps: ~p", [
+                          rpc:call(Slave, application, which_applications, [])
+                         ]),
+
+    debug(0, Slave),
+
+    emqx_dashboard_admin:change_password(<<"admin">>, <<"new_password">>),
+    ct:sleep(100), %% To ensure that event gets processed
+
+    debug(1, Slave),
+
+    [#mqtt_admin{password=Password}] = rpc:call(Slave, emqx_dashboard_admin, lookup_user, [<<"admin">>]),
+    ?assertNotEqual(InitialPassword, Password),
+
+    rpc:call(Slave, ekka, leave, []),
+
+    debug(2, Slave),
+
+    ?assertEqual(
+       ok,
+       rpc:call(Slave, emqx_dashboard_admin, check, [<<"admin">>, <<"new_password">>])),
+
+    ?assertMatch(
+       {error, _},
+       rpc:call(Slave, emqx_dashboard_admin, check, [<<"admin">>, <<"password">>])),
+
+    {ok, _} = stop_slave(Slave, [emqx_dashboard, emqx_management, emqx_modules]),
+
+    emqx_dashboard_admin:change_password(<<"admin">>, <<"public">>).
 
 t_rest_api(_Config) ->
     {ok, Res0} = http_get("users"),
@@ -170,3 +245,55 @@ api_path(Path) ->
 
 json(Data) ->
     {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]), Jsx.
+
+start_slave(Name, Apps) ->
+    {ok, Node} = ct_slave:start(list_to_atom(atom_to_list(Name) ++ "@" ++ host()),
+                                [{kill_if_fail, true},
+                                 {monitor_master, true},
+                                 {init_timeout, 10000},
+                                 {startup_timeout, 10000},
+                                 {erl_flags, ebin_path()}]),
+
+    pong = net_adm:ping(Node),
+    setup_node(Node, Apps),
+    Node.
+
+stop_slave(Node, Apps) ->
+    [ok = Res || Res <- rpc:call(Node, emqx_ct_helpers, stop_apps, [Apps])],
+    rpc:call(Node, ekka, leave, []),
+    ct_slave:stop(Node).
+
+host() ->
+    [_, Host] = string:tokens(atom_to_list(node()), "@"), Host.
+
+ebin_path() ->
+    string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
+
+is_lib(Path) ->
+    string:prefix(Path, code:lib_dir()) =:= nomatch.
+
+setup_node(Node, Apps) ->
+    EnvHandler =
+        fun(emqx) ->
+                application:set_env(emqx, listeners, []),
+                application:set_env(gen_rpc, port_discovery, manual),
+                mnesia:info(),
+                ok;
+           (emqx_management) ->
+                application:set_env(emqx_management, listeners, []),
+                ok;
+           (emqx_dashboard) ->
+                application:set_env(emqx_dashboard, listeners, []),
+                ok;
+           (_) ->
+                ok
+        end,
+
+    [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx | Apps]],
+    ok = rpc:call(Node, emqx_ct_helpers, start_apps, [Apps, EnvHandler]),
+
+    rpc:call(Node, ekka, join, [node()]),
+    rpc:call(Node, application, stop, [emqx_dashboard]),
+    rpc:call(Node, application, start, [emqx_dashboard]),
+
+    ok.
