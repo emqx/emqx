@@ -94,7 +94,6 @@ check(_ConnInfo, AckProps) ->
 pre_config_update(_, Cmd, Conf) ->
     {ok, do_update(Cmd, Conf)}.
 
-post_config_update(_Path, _Cmd, ignore, _Old, _AppEnvs) -> ok;
 post_config_update(_Path, _Cmd, NewConf, _Old, _AppEnvs) ->
     case read_license(NewConf) of
         {ok, License} ->
@@ -113,12 +112,12 @@ del_license_hook() ->
     _ = emqx_hooks:del('client.connect', {?MODULE, check, []}),
     ok.
 
-do_update({file, Filename}, _Conf) ->
+do_update({file, Filename}, Conf) ->
     case file:read_file(Filename) of
         {ok, Content} ->
             case emqx_license_parser:parse(Content) of
                 {ok, _License} ->
-                    #{<<"file">> => Filename};
+                    maps:remove(<<"key">>, Conf#{<<"file">> => Filename});
                 {error, Reason} ->
                     erlang:throw(Reason)
             end;
@@ -126,16 +125,16 @@ do_update({file, Filename}, _Conf) ->
             erlang:throw({invalid_license_file, Reason})
     end;
 
-do_update({key, Content}, _Conf) when is_binary(Content); is_list(Content) ->
+do_update({key, Content}, Conf) when is_binary(Content); is_list(Content) ->
     case emqx_license_parser:parse(Content) of
         {ok, _License} ->
-            #{<<"key">> => Content};
+            maps:remove(<<"file">>, Conf#{<<"key">> => Content});
         {error, Reason} ->
             erlang:throw(Reason)
     end;
 %% We don't do extra action when update license's watermark.
-do_update(_Other, _Conf) ->
-    {ok, ignore}.
+do_update(_Other, Conf) ->
+    Conf.
 
 check_max_clients_exceeded(MaxClients) ->
     emqx_license_resources:connection_count() > MaxClients * 1.1.
