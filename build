@@ -4,6 +4,9 @@
 # arg1: profile, e.g. emqx | emqx-edge | emqx-pkg | emqx-edge-pkg
 # arg2: artifact, e.g. rel | relup | tgz | pkg
 
+if [[ -n "$DEBUG" ]]; then
+    set -x
+fi
 set -euo pipefail
 
 DEBUG="${DEBUG:-0}"

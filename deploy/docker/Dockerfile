@@ -21,6 +21,7 @@ RUN apk add --no-cache \
 COPY . /emqx
 
 ARG EMQX_NAME=emqx
+ENV EMQX_RELUP=false
 
 RUN export PROFILE="$EMQX_NAME" \
     && export EMQX_NAME=${EMQX_NAME%%-elixir} \

@@ -68,36 +68,9 @@ jobs:
         repository: ${{ github.repository }}
         path: emqx
         fetch-depth: 0
-    - name: get version
-      run: |
-        set -e -x -u
-        cd emqx
-        export PROFILE=${{ matrix.profile }}
-        export OTP_VSN=${{ matrix.otp }}
-        echo "PROFILE=$PROFILE" >> $GITHUB_ENV
-        echo "OTP_VSN=$OTP_VSN" >> $GITHUB_ENV
-        if [ $PROFILE = "emqx" ];then
-            broker="emqx-ce"
-        else
-            broker="emqx-enterprise"
-        fi
-        echo "BROKER=$broker" >> $GITHUB_ENV
 
-        vsn="$(./pkg-vsn.sh $PROFILE)"
-        echo "VSN=$vsn" >> $GITHUB_ENV
-
-        pre_vsn="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
-        old_vsns="$(git tag -l "v$pre_vsn.[0-9]" | xargs echo -n | sed "s/v$vsn//")"
-        echo "OLD_VSNS=$old_vsns" >> $GITHUB_ENV
-    - name: download emqx
-      run: |
-        set -e -x -u
-        mkdir -p emqx/_upgrade_base
-        cd emqx/_upgrade_base
-        old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
-        for old_vsn in ${old_vsns[@]}; do
-          wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$old_vsn/$PROFILE-${old_vsn#[e|v]}-otp${OTP_VSN}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
-        done
+    - name: Get old vsn
+      run: echo "OLD_VSNS=$(emqx/scripts/relup-base-vsns.sh ${{ matrix.profile }} | xargs echo -n)" >> $GITHUB_ENV
 
     - name: Get deps git refs for cache
       id: deps-refs
@@ -117,6 +90,8 @@ jobs:
         key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
     - name: build emqx
+      env:
+        PROFILE: ${{ matrix.profile }}
       run: make -C emqx ${PROFILE}-tgz
     - name: build emqtt-bench
       run: make -C emqtt-bench
@@ -129,6 +104,8 @@ jobs:
         make
         make install
     - name: run relup test
+      env:
+        PROFILE: ${{ matrix.profile }}
       timeout-minutes: 20
       run: |
         set -e -x -u
