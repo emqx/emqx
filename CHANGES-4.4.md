@@ -27,6 +27,8 @@
 
 - TLS for cluster backplane (RPC) connections. See clustering document for more details.
 
+- Support real-time tracing in the dashboard, with Client ID, Client IP address, and topic name based filtering.
+
 ### Minor changes
 
 - Bumpped default boot wait time from 15 seconds to 150 seconds
