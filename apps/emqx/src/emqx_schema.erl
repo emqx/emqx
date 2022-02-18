@@ -922,15 +922,23 @@ fields("broker_perf") ->
 fields("sysmon") ->
     [ {"vm",
        sc(ref("sysmon_vm"),
-          #{})
+          #{ desc => "This part of the configuration is responsible for collecting
+ BEAM VM events, such as long garbage collection, traffic congesiton in the inter-broker
+ communication, etc."
+           })
       }
     , {"os",
        sc(ref("sysmon_os"),
-          #{})
+          #{ desc => "This part of the configuration is responsible for monitoring
+ the host OS health, such as free memory, disk space, CPU load, etc."
+           })
       }
     , {"top",
        sc(ref("sysmon_top"),
-          #{})
+          #{ desc => "This part of the configuration is responsible for monitoring
+ the Erlang processes in the VM. This information can be sent to an external
+ PostgreSQL database. This feature is inactive unless the PostgreSQL sink is configured."
+           })
       }
     ];
 
