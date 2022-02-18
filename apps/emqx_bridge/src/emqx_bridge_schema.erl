@@ -55,7 +55,8 @@ common_bridge_fields() ->
            #{ nullable => false
             , example => <<"mqtt:my_mqtt_connector">>
             , desc =>"""
-The connector Id to be used for this bridge. Connector Ids must be of format: '{type}:{name}'.<br>
+The connector ID to be used for this bridge. Connector IDs must be of format:
+<code>{type}:{name}</code>.<br>
 In config files, you can find the corresponding config entry for a connector by such path: 'connectors.{type}.{name}'.<br>
 """
             })}

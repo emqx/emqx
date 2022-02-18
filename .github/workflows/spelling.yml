@@ -1,0 +1,25 @@
+name: Spellcheck
+
+on:
+  workflow_run:
+    workflows: [Build slim packages]
+    types:
+      - completed
+
+jobs:
+  spellcheck_schema:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/download-artifact@v2
+      with:
+        name: emqx-24.1.5-4-ubuntu20.04
+        path: .
+    - name: Run spellcheck
+      run: |
+        tar zxf *.tar.gz
+        find . -name schema.json -exec scripts/spellcheck \{\} \;

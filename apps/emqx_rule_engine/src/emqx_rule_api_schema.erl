@@ -211,7 +211,7 @@ qos() ->
 
 rule_id() ->
     {"id", sc(binary(),
-        #{ desc => "The Id of the rule", nullable => false
+        #{ desc => "The ID of the rule", nullable => false
          , example => "293fb66f"
          })}.
 

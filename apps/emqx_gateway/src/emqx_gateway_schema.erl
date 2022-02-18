@@ -122,7 +122,7 @@ fields(mqttsn) ->
           #{ default => 1
            , nullable => false
            , desc =>
-"MQTT-SN Gateway Id.<br>
+"MQTT-SN Gateway ID.<br>
 When the <code>broadcast</code> option is enabled,
 the gateway will broadcast ADVERTISE message with this value"
            })}
@@ -140,22 +140,22 @@ the gateway will broadcast ADVERTISE message with this value"
 This feature is defined for very simple client implementations
 which do not support any other features except this one.<br>
 There is no connection setup nor tear down, no registration nor subscription.<br>
-The client just sends its PUBLISH messages to a GW"
+The client just sends its 'PUBLISH' messages to a GW"
            })}
     , {predefined,
        sc(hoconsc:array(ref(mqttsn_predefined)),
           #{ default => []
            , nullable => {true, recursively}
            , desc =>
-<<"The Pre-defined topic ids and topic names.<br>
-A 'pre-defined' topic id is a topic id whose mapping to a topic name
-is known in advance by both the client’s application and the gateway">>
+<<"The pre-defined topic IDs and topic names.<br>
+A 'pre-defined' topic ID is a topic ID whose mapping to a topic name
+is known in advance by both the client's application and the gateway">>
            })}
     , {listeners, sc(ref(udp_listeners))}
     ] ++ gateway_common_options();
 
 fields(mqttsn_predefined) ->
-    [ {id, sc(integer(), #{desc => "Topic Id.<br>Range: 1-65535"})}
+    [ {id, sc(integer(), #{desc => "Topic ID.<br>Range: 1-65535"})}
     , {topic, sc(binary(), #{desc => "Topic Name"})}
     ];
 
@@ -322,7 +322,7 @@ fields(lwm2m_translators) ->
           #{ desc =>
 "The topic for receiving downstream commands.<br>
 For each new LwM2M client that succeeds in going online, the gateway creates
-a the subscription relationship to receive downstream commands and send it to
+a subscription relationship to receive downstream commands and send it to
 the LwM2M client"
            , nullable => false
            })}
@@ -336,8 +336,8 @@ the LwM2M client"
        sc(ref(translator),
           #{ desc =>
 "The topic for gateway to publish the notify events from LwM2M client.<br>
-After succeed observe a resource of LwM2M client, Gateway will send the
-notifyevents via this topic, if the client reports any resource changes"
+ After succeed observe a resource of LwM2M client, Gateway will send the
+ notify events via this topic, if the client reports any resource changes"
            , nullable => false
            })}
     , {register,
@@ -425,7 +425,7 @@ authentication_schema() ->
     sc(emqx_authn_schema:authenticator_type(),
        #{ nullable => {true, recursively}
         , desc =>
-"""Default authentication configs for all of the gateway listeners.<br>
+"""Default authentication configs for all the gateway listeners.<br>
 For per-listener overrides see <code>authentication</code>
 in listener configs"""
         }).
@@ -446,7 +446,7 @@ gateway_common_options() ->
           #{ default => <<"30s">>
            , desc =>
 "The idle time of the client connection process.<br>
-it has two purposes:
+It has two purposes:
 1. A newly created client process that does not receive any client requests
    after that time will be closed directly.
 2. A running client process that does not receive any client requests after

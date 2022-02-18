@@ -643,7 +643,7 @@ fields(subscription) ->
 fields(extra_sub_props) ->
     [ {subid,
        mk(binary(),
-         #{ desc => <<"Only stomp protocol, an uniquely identity for "
+         #{ desc => <<"Only stomp protocol, a unique identity for "
                       "the subscription. range: 1-65535.">>})}
     ].
 

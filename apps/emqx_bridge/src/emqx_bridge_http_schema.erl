@@ -25,9 +25,9 @@ is not allowed.
            })}
     , {local_topic, mk(binary(),
           #{ desc =>"""
-The MQTT topic filter to be forwarded to the HTTP server. All MQTT PUBLISH messages which topic
-match the local_topic will be forwarded.<br>
-NOTE: if this bridge is used as the output of a rule (emqx rule engine), and also local_topic is configured, then both the data got from the rule and the MQTT messages that matches
+The MQTT topic filter to be forwarded to the HTTP server. All MQTT 'PUBLISH' messages with the topic
+matching the local_topic will be forwarded.<br/>
+NOTE: if this bridge is used as the output of a rule (EMQX rule engine), and also local_topic is configured, then both the data got from the rule and the MQTT messages that match
 local_topic will be forwarded.
 """
            })}
@@ -89,7 +89,7 @@ basic_config() ->
            })}
     , {direction,
         mk(egress,
-           #{ desc => "The direction of this bridge, MUST be egress"
+           #{ desc => "The direction of this bridge, MUST be 'egress'"
             , default => egress
             })}
     ]
@@ -97,7 +97,7 @@ basic_config() ->
 
 %%======================================================================================
 id_field() ->
-    {id, mk(binary(), #{desc => "The Bridge Id", example => "http:my_http_bridge"})}.
+    {id, mk(binary(), #{desc => "The Bridge ID", example => "http:my_http_bridge"})}.
 
 type_field() ->
     {type, mk(http, #{desc => "The Bridge Type"})}.

@@ -43,7 +43,7 @@ fields("get_egress") ->
 
 %%======================================================================================
 id_field() ->
-    {id, mk(binary(), #{desc => "The Bridge Id", example => "mqtt:my_mqtt_bridge"})}.
+    {id, mk(binary(), #{desc => "The bridge ID", example => "mqtt:my_mqtt_bridge"})}.
 
 type_field() ->
-    {type, mk(mqtt, #{desc => "The Bridge Type"})}.
+    {type, mk(mqtt, #{desc => "The bridge type"})}.
