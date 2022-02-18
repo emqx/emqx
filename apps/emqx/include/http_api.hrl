@@ -27,6 +27,7 @@
 -define(INVALID_PARAMETER,        'INVALID_PARAMETER').
 -define(CONFLICT,                 'CONFLICT').
 -define(NO_DEFAULT_VALUE,         'NO_DEFAULT_VALUE').
+-define(DEPENDENCY_EXISTS,        'DEPENDENCY_EXISTS').
 -define(MESSAGE_ID_SCHEMA_ERROR,  'MESSAGE_ID_SCHEMA_ERROR').
 
 %% Resource Not Found
@@ -58,6 +59,7 @@
     , {'INVALID_PARAMETER',         <<"Request parameters is not legal and exceeds the boundary value">>}
     , {'CONFLICT',                  <<"Conflicting request resources">>}
     , {'NO_DEFAULT_VALUE',          <<"Request parameters do not use default values">>}
+    , {'DEPENDENCY_EXISTS',         <<"Resource is dependent by another resource">>}
     , {'MESSAGE_ID_SCHEMA_ERROR',   <<"Message ID parsing error">>}
     , {'MESSAGE_ID_NOT_FOUND',      <<"Message ID does not exist">>}
     , {'NOT_FOUND',                 <<"Resource was not found or does not exist">>}

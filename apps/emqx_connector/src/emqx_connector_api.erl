@@ -50,10 +50,10 @@ api_spec() ->
 
 paths() -> ["/connectors_test", "/connectors", "/connectors/:id"].
 
-error_schema(Code, Message) ->
-    [ {code, mk(string(), #{example => Code})}
-    , {message, mk(string(), #{example => Message})}
-    ].
+error_schema(Codes, Message) when is_list(Message) ->
+    error_schema(Codes, list_to_binary(Message));
+error_schema(Codes, Message) when is_binary(Message) ->
+    emqx_dashboard_swagger:error_codes(Codes, Message).
 
 put_request_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
@@ -134,8 +134,8 @@ schema("/connectors_test") ->
             summary => <<"Test creating connector">>,
             requestBody => post_request_body_schema(),
             responses => #{
-                200 => <<"Test connector OK">>,
-                400 => error_schema('TEST_FAILED', "connector test failed")
+                204 => <<"Test connector OK">>,
+                400 => error_schema(['TEST_FAILED'], "connector test failed")
             }
         }
     };
@@ -160,7 +160,7 @@ schema("/connectors") ->
             requestBody => post_request_body_schema(),
             responses => #{
                 201 => get_response_body_schema(),
-                400 => error_schema('ALREADY_EXISTS', "connector already exists")
+                400 => error_schema(['ALREADY_EXISTS'], "connector already exists")
             }
         }
     };
@@ -175,7 +175,7 @@ schema("/connectors/:id") ->
             parameters => param_path_id(),
             responses => #{
                 200 => get_response_body_schema(),
-                404 => error_schema('NOT_FOUND', "Connector not found")
+                404 => error_schema(['NOT_FOUND'], "Connector not found")
             }
         },
         put => #{
@@ -186,8 +186,7 @@ schema("/connectors/:id") ->
             requestBody => put_request_body_schema(),
             responses => #{
                 200 => get_response_body_schema(),
-                400 => error_schema('UPDATE_FAIL', "Update failed"),
-                404 => error_schema('NOT_FOUND', "Connector not found")
+                404 => error_schema(['NOT_FOUND'], "Connector not found")
             }},
         delete => #{
             tags => [<<"connectors">>],
@@ -196,15 +195,17 @@ schema("/connectors/:id") ->
             parameters => param_path_id(),
             responses => #{
                 204 => <<"Delete connector successfully">>,
-                400 => error_schema('DELETE_FAIL', "Delete failed")
+                403 => error_schema(['DEPENDENCY_EXISTS'], "Cannot remove dependent connector"),
+                404 => error_schema(['NOT_FOUND'], "Delete failed, not found")
             }}
     }.
 
 '/connectors_test'(post, #{body := #{<<"type">> := ConnType} = Params}) ->
     case emqx_connector:create_dry_run(ConnType, maps:remove(<<"type">>, Params)) of
-        ok -> {200};
+        ok ->
+            {204};
         {error, Error} ->
-            {400, error_msg('BAD_ARG', Error)}
+            {400, error_msg(['TEST_FAILED'], Error)}
     end.
 
 '/connectors'(get, _Request) ->
@@ -221,14 +222,16 @@ schema("/connectors/:id") ->
                 {ok, #{raw_config := RawConf}} ->
                     Id = emqx_connector:connector_id(ConnType, ConnName),
                     {201, format_resp(Id, RawConf)};
-                {error, Error} -> {400, error_msg('BAD_ARG', Error)}
+                {error, Error} ->
+                    {400, error_msg('ALREADY_EXISTS', Error)}
             end
     end.
 
 '/connectors/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id,
         case emqx_connector:lookup(ConnType, ConnName) of
-            {ok, Conf} -> {200, format_resp(Id, Conf)};
+            {ok, Conf} ->
+                {200, format_resp(Id, Conf)};
             {error, not_found} ->
                 {404, error_msg('NOT_FOUND', <<"connector not found">>)}
         end);
@@ -241,7 +244,8 @@ schema("/connectors/:id") ->
                 case emqx_connector:update(ConnType, ConnName, Params) of
                     {ok, #{raw_config := RawConf}} ->
                         {200, format_resp(Id, RawConf)};
-                    {error, Error} -> {400, error_msg('BAD_ARG', Error)}
+                    {error, Error} ->
+                        {500, error_msg('INTERNAL_ERROR', Error)}
                 end;
             {error, not_found} ->
                 {404, error_msg('NOT_FOUND', <<"connector not found">>)}
@@ -252,12 +256,14 @@ schema("/connectors/:id") ->
         case emqx_connector:lookup(ConnType, ConnName) of
             {ok, _} ->
                 case emqx_connector:delete(ConnType, ConnName) of
-                    {ok, _} -> {204};
+                    {ok, _} ->
+                        {204};
                     {error, {post_config_update, _, {dependency_bridges_exist, BridgeID}}} ->
                         {403, error_msg('DEPENDENCY_EXISTS',
                              <<"Cannot remove the connector as it's in use by a bridge: ",
                                 BridgeID/binary>>)};
-                    {error, Error} -> {400, error_msg('BAD_ARG', Error)}
+                    {error, Error} ->
+                        {500, error_msg('INTERNAL_ERROR', Error)}
                 end;
             {error, not_found} ->
                 {404, error_msg('NOT_FOUND', <<"connector not found">>)}
