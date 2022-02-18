@@ -180,7 +180,36 @@ terminate(_Reason, _) ->
     unload(),
     ok.
 
-code_change(_OldVsn, State, _Extra) ->
+code_change({down, _Vsn}, #{config := Cfg} =  State, ["4.4.0"]) ->
+    unload(),
+
+    MaxSize = get_value(top_k_num, Cfg),
+    _ = emqx:hook('message.slow_subs_stats',
+                  {?MODULE, on_stats_update, [#{max_size => MaxSize}]}),
+
+    erlang:send_after(?EXPIRE_CHECK_INTERVAL, self(), ?FUNCTION_NAME),
+
+    {ok, State};
+
+code_change(_OldVsn, #{config := Conf} = State, ["4.4.0"]) ->
+    HookPoint = 'message.slow_subs_stats',
+    case emqx_hooks:lookup(HookPoint) of
+        [Action | _] ->
+            emqx_hooks:del(HookPoint, Action);
+        _ ->
+            ok
+    end,
+    try
+        ets:delete_all_objects(?TOPK_TAB)
+    catch _:_ ->
+            ok
+    end,
+    init_tab(),
+    expire_tick(Conf),
+    load(Conf),
+    {ok, State};
+
+code_change(_OldVsn, State, _Extras) ->
     {ok, State}.
 
 %%--------------------------------------------------------------------

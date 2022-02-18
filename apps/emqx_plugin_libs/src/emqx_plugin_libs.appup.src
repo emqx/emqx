@@ -1,13 +1,13 @@
 %% -*- mode: erlang -*-
 {VSN,
   [{"4.4.0",
-    [ {load_module,emqx_slow_subs,brutal_purge,soft_purge,[]}
+    [ {update, emqx_slow_subs, {advanced, ["4.4.0"]}}
     , {load_module,emqx_slow_subs_api,brutal_purge,soft_purge,[]}
     ]},
    {<<".*">>,[]}],
-  [{"4.4.0",
-    [ {load_module,emqx_slow_subs,brutal_purge,soft_purge,[]}
-    , {load_module,emqx_slow_subs_api,brutal_purge,soft_purge,[]}
-    ]},
-   {<<".*">>,[]}]
+ [{"4.4.0",
+   [ {update, emqx_slow_subs, {advanced, ["4.4.0"]}}
+   , {load_module,emqx_slow_subs_api,brutal_purge,soft_purge,[]}
+   ]},
+  {<<".*">>,[]}]
 }.
