@@ -29,6 +29,8 @@
 
 - Support real-time tracing in the dashboard, with Client ID, Client IP address, and topic name based filtering.
 
+- Refactor the Slow subscribers statistics module, now, the feature will rank The per clientid-topic latency measurements.
+
 ### Minor changes
 
 - Bumpped default boot wait time from 15 seconds to 150 seconds
