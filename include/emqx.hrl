@@ -14,8 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQ_X_HRL).
--define(EMQ_X_HRL, true).
+-ifndef(EMQX_HRL).
+-define(EMQX_HRL, true).
 
 %%--------------------------------------------------------------------
 %% Common

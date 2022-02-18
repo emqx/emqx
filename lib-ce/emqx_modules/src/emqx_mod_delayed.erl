@@ -87,7 +87,7 @@ unload(_Env) ->
     emqx_mod_sup:stop_child(?MODULE).
 
 description() ->
-    "EMQ X Delayed Publish Module".
+    "EMQX Delayed Publish Module".
 %%--------------------------------------------------------------------
 %% Hooks
 %%--------------------------------------------------------------------

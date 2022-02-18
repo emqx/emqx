@@ -113,7 +113,7 @@ unload(_Env) ->
     emqx_mod_sup:stop_child(?MODULE).
 
 description() ->
-    "EMQ X Topic Metrics Module".
+    "EMQX Topic Metrics Module".
 
 on_message_publish(#message{topic = Topic, qos = QoS}) ->
     case is_registered(Topic) of

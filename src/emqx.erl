@@ -20,7 +20,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[EMQ X]").
+-logger_header("[EMQX]").
 
 %% Start/Stop the application
 -export([ start/0

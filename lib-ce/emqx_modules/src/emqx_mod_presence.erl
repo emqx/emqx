@@ -46,7 +46,7 @@ unload(_Env) ->
     emqx_hooks:del('client.disconnected', {?MODULE, on_client_disconnected}).
 
 description() ->
-    "EMQ X Presence Module".
+    "EMQX Presence Module".
 %%--------------------------------------------------------------------
 %% Callbacks
 %%--------------------------------------------------------------------

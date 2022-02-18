@@ -51,7 +51,7 @@ unload(_) ->
     emqx_hooks:del('client.connected', {?MODULE, on_client_connected}).
 
 description() ->
-    "EMQ X Subscription Module".
+    "EMQX Subscription Module".
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------

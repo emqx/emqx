@@ -1,5 +1,5 @@
 %%-*- mode: erlang -*-
-%% EMQ X R4.0 config mapping
+%% EMQX R4.0 config mapping
 
 %%--------------------------------------------------------------------
 %% Cluster
