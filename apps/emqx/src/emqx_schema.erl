@@ -923,7 +923,7 @@ fields("sysmon") ->
     [ {"vm",
        sc(ref("sysmon_vm"),
           #{ desc => "This part of the configuration is responsible for collecting
- BEAM VM events, such as long garbage collection, traffic congesiton in the inter-broker
+ BEAM VM events, such as long garbage collection, traffic congestion in the inter-broker
  communication, etc."
            })
       }
