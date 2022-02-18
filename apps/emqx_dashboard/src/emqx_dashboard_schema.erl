@@ -39,6 +39,7 @@ but use the same port.
 """   })}
     , {default_username, fun default_username/1}
     , {default_password, fun default_password/1}
+    %% TODO: enum 1s, 2s, 3s, 5s, 10s, 12s, 15s, 20s, 30s, 60s
     , {sample_interval, sc(emqx_schema:duration_s(), #{default => "10s"})}
     , {token_expired_time, sc(emqx_schema:duration(), #{default => "30m"})}
     , {cors, fun cors/1}
