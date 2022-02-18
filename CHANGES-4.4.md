@@ -29,6 +29,8 @@
 
 - Support real-time tracing in the dashboard, with Client ID, Client IP address, and topic name based filtering.
 
+- Add the Slow Subscriptions module to count the time spent during the message transmission. This feature will list the Clients and Topics with higher time consumption in Dashboard
+
 ### Minor changes
 
 - Bumpped default boot wait time from 15 seconds to 150 seconds
