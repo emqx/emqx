@@ -4,7 +4,16 @@ on: [pull_request]
 
 jobs:
   build:
+    strategy:
+      matrix:
+        otp:
+          - 24.1.5-4
+        elixir:
+          - 1.13.2
+        os:
+          - ubuntu20.04
     runs-on: ubuntu-20.04
+    container: "ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir}}-${{ matrix.otp }}-${{ matrix.os }}"
     steps:
       - uses: actions/checkout@v2
         with:
@@ -15,3 +24,6 @@ jobs:
       - name: Check line-break at EOF
         run: |
           ./scripts/check-nl-at-eof.sh
+      - name: Check Elixir code formatting
+        run: |
+          mix format --check-formatted
