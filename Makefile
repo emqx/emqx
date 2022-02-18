@@ -7,7 +7,7 @@ export EMQX_DEFAULT_RUNNER = alpine:3.14
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 export EMQX_DESC ?= EMQ X
-export EMQX_CE_DASHBOARD_VERSION ?= v4.4.0-beta.1
+export EMQX_CE_DASHBOARD_VERSION ?= v4.4.0
 export DOCKERFILE := deploy/docker/Dockerfile
 export DOCKERFILE_TESTING := deploy/docker/Dockerfile.testing
 ifeq ($(OS),Windows_NT)
