@@ -83,7 +83,7 @@ try_restore(_, infinity) ->
     ok;
 try_restore(Inc, #{counter := Counter, index := Index}) ->
     case counters:get(Counter, Index) of
-        Tokens when Tokens < 0 ->
+        Tokens when Tokens =< 0 ->
             counters:add(Counter, Index, Inc);
         _ ->
             ok

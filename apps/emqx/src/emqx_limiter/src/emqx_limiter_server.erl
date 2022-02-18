@@ -33,7 +33,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3, format_status/2]).
 
--export([ start_link/1, connect/2, info/2
+-export([ start_link/1, connect/2, info/1
         , name/1, get_initial_val/1]).
 
 -type root() :: #{ rate := rate()             %% number of tokens generated per period
@@ -83,7 +83,7 @@
 -type decimal() :: emqx_limiter_decimal:decimal().
 -type index() :: pos_integer().
 
--define(CALL(Type, Msg), gen_server:call(name(Type), {?FUNCTION_NAME, Msg})).
+-define(CALL(Type), gen_server:call(name(Type), ?FUNCTION_NAME)).
 -define(OVERLOAD_MIN_ALLOC, 0.3).  %% minimum coefficient for overloaded limiter
 
 -export_type([index/0]).
@@ -123,9 +123,9 @@ connect(Type, BucketName) when is_atom(BucketName) ->
 connect(Type, Names) ->
     connect(Type, maps:get(Type, Names, default)).
 
--spec info(limiter_type(), atom()) -> term().
-info(Type, Info) ->
-    ?CALL(Type, Info).
+-spec info(limiter_type()) -> state().
+info(Type) ->
+    ?CALL(Type).
 
 -spec name(limiter_type()) -> atom().
 name(Type) ->
@@ -183,6 +183,9 @@ init([Type]) ->
           {noreply, NewState :: term(), hibernate} |
           {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
           {stop, Reason :: term(), NewState :: term()}.
+handle_call(info, _From, State) ->
+    {reply, State, State};
+
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
@@ -375,11 +378,11 @@ maybe_burst(#{buckets := Buckets,
                          index := Index,
                          zone := Zone} = maps:get(Id, Nodes),
                        case counters:get(Counter, Index) of
-                           Any when Any =< 0 ->
-                               Group = maps:get(Zone, Groups, []),
-                               maps:put(Zone, [Id | Group], Groups);
-                           _ ->
-                               Groups
+                             Any when Any =< 0 ->
+                                 Group = maps:get(Zone, Groups, []),
+                                 maps:put(Zone, [Id | Group], Groups);
+                             _ ->
+                                 Groups
                        end
                end,
 
