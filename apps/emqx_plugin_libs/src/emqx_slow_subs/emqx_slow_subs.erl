@@ -192,19 +192,23 @@ code_change({down, _Vsn}, #{config := Cfg} =  State, ["4.4.0"]) ->
     {ok, State};
 
 code_change(_OldVsn, #{config := Conf} = State, ["4.4.0"]) ->
+    %% clear old data
     HookPoint = 'message.slow_subs_stats',
-    case emqx_hooks:lookup(HookPoint) of
-        [Action | _] ->
-            emqx_hooks:del(HookPoint, Action);
-        _ ->
-            ok
-    end,
+    Callbacks = emqx_hooks:lookup(HookPoint),
+    _ = [emqx_hooks:del(HookPoint, Action) ||
+            {callback, Action, _Filter, _Priority} <- Callbacks],
     try
         ets:delete_all_objects(?TOPK_TAB)
     catch _:_ ->
             ok
     end,
+
+    %% add new table
     init_tab(),
+    [_Sup, SupPid] = erlang:get('$ancestors'),
+    ets:give_away(?INDEX_TAB, SupPid, undefined),
+
+    %% enable
     expire_tick(Conf),
     load(Conf),
     {ok, State};
