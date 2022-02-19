@@ -1,6 +1,6 @@
 # emqx_gateway
 
-***This is a very early prototype application*** for Gateway in EMQX Broker 5.0
+EMQX Gateway
 
 ## Concept
 
