@@ -739,7 +739,7 @@ common_client_props() ->
                        "packet">>})}
     , {recv_oct,
        mk(integer(),
-          #{ desc => <<"Number of bytes received by EMQX Broker">>})}
+          #{ desc => <<"Number of bytes received">>})}
     , {recv_cnt,
        mk(integer(),
           #{ desc => <<"Number of socket packets received">>})}

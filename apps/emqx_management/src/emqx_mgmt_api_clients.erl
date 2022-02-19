@@ -323,8 +323,7 @@ fields(client) ->
             <<"Number of PUBLISH QoS1 packets received">>})},
         {'recv_msg.qos2', hoconsc:mk(integer(), #{desc =>
             <<"Number of PUBLISH QoS2 packets received">>})},
-        {recv_oct, hoconsc:mk(integer(), #{desc =>
-            <<"Number of bytes received by EMQX Broker (the same below)">>})},
+        {recv_oct, hoconsc:mk(integer(), #{desc => <<"Number of bytes received">>})},
         {recv_pkt, hoconsc:mk(integer(), #{desc => <<"Number of MQTT packets received">>})},
         {reductions, hoconsc:mk(integer(), #{desc => <<"Erlang reduction">>})},
         {send_cnt, hoconsc:mk(integer(), #{desc => <<"Number of TCP packets sent">>})},

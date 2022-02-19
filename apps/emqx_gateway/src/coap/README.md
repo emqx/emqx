@@ -17,7 +17,7 @@
 
 # EMQX 5.0 CoAP Gateway
 
-emqx-coap is a CoAP Gateway for EMQX Broker. It translates CoAP messages into MQTT messages and make it possible to communiate between CoAP clients and MQTT clients.
+emqx-coap is a CoAP Gateway for EMQX. It translates CoAP messages into MQTT messages and make it possible to communiate between CoAP clients and MQTT clients.
 
 
 <a id="orgeddbc94"></a>
