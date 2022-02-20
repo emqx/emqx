@@ -365,7 +365,7 @@ start_distribution(TargetNode, NameTypeArg, Cookie) ->
 
 make_script_node(Node) ->
     [Name, Host] = string:tokens(atom_to_list(Node), "@"),
-    list_to_atom(lists:concat([Name, "_upgrader_", os:getpid(), "@", Host])).
+    list_to_atom(lists:concat(["remsh_", Name, "_upgrader_", os:getpid(), "@", Host])).
 
 %% get name type from arg
 get_name_type(NameTypeArg) ->
