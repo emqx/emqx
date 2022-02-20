@@ -52,9 +52,8 @@ jobs:
         path: ./rebar3.crashdump
     - name: packages test
       run: |
-        export CODE_PATH="$GITHUB_WORKSPACE"
-        .ci/build_packages/tests.sh "${EMQX_NAME}" zip
-        .ci/build_packages/tests.sh "${EMQX_NAME}" pkg
+        ./scripts/pkg-tests.sh "${EMQX_NAME}" zip
+        ./scripts/pkg-tests.sh "${EMQX_NAME}" pkg
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.os }}

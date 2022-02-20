@@ -77,4 +77,4 @@ docker run -i --rm \
     --workdir /emqx \
     --platform="linux/$ARCH" \
     "$BUILDER" \
-    bash -euc "make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PROFILE $PKGTYPE"
+    bash -euc "make ${PROFILE}-${PKGTYPE} && ./scripts/pkg-tests.sh $PROFILE $PKGTYPE"

@@ -18,13 +18,14 @@ fi
 PROFILE="${1}"
 PACKAGE_TYPE="${2}"
 
-export CODE_PATH=${CODE_PATH:-"/emqx"}
-export PACKAGE_PATH="${CODE_PATH}/_packages/${PROFILE}"
-export RELUP_PACKAGE_PATH="${CODE_PATH}/_upgrade_base"
+# ensure dir
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+
+export PACKAGE_PATH="_packages/${PROFILE}"
 # export EMQX_NODE_NAME="emqx-on-$(uname -m)@127.0.0.1"
 # export EMQX_NODE_COOKIE=$(date +%s%N)
 
-SYSTEM="$($CODE_PATH/scripts/get-distro.sh)"
+SYSTEM="$(./scripts/get-distro.sh)"
 
 if [ "$PACKAGE_TYPE" = 'zip' ]; then
     PKG_SUFFIX="zip"
@@ -39,8 +40,8 @@ else
     esac
 fi
 
-PACKAGE_NAME="${PROFILE}-$($CODE_PATH/scripts/pkg-full-vsn.sh)"
-OLD_PACKAGE_PATTERN="${PROFILE}-$($CODE_PATH/scripts/pkg-full-vsn.sh 'vsn_matcher')"
+PACKAGE_NAME="${PROFILE}-$(./scripts/pkg-full-vsn.sh)"
+OLD_PACKAGE_PATTERN="${PROFILE}-$(./scripts/pkg-full-vsn.sh 'vsn_matcher')"
 PACKAGE_FILE_NAME="${PACKAGE_NAME}.${PKG_SUFFIX}"
 
 PACKAGE_FILE="${PACKAGE_PATH}/${PACKAGE_FILE_NAME}"
@@ -58,23 +59,23 @@ emqx_prepare(){
 }
 
 emqx_test(){
-    cd "${PACKAGE_PATH}"
+    pushd "${PACKAGE_PATH}"
     local packagename="${PACKAGE_FILE_NAME}"
     case "$PKG_SUFFIX" in
         "zip")
-            unzip -q "${PACKAGE_PATH}/${packagename}"
+            unzip -q "${packagename}"
             export EMQX_ZONE__EXTERNAL__SERVER__KEEPALIVE=60 \
                    EMQX_MQTT__MAX_TOPIC_ALIAS=10
-            sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
+            sed -i '/emqx_telemetry/d' 'emqx/data/loaded_plugins'
 
             echo "running ${packagename} start"
-            if ! "${PACKAGE_PATH}"/emqx/bin/emqx start; then
-                cat "${PACKAGE_PATH}"/emqx/log/erlang.log.1 || true
-                cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
+            if ! ./emqx/bin/emqx start; then
+                cat emqx/log/erlang.log.1 || true
+                cat emqx/log/emqx.log.1 || true
                 exit 1
             fi
             IDLE_TIME=0
-            while ! "${PACKAGE_PATH}"/emqx/bin/emqx_ctl status | grep -qE 'Node\s.*@.*\sis\sstarted'
+            while ! /emqx/bin/emqx_ctl status | grep -qE 'Node\s.*@.*\sis\sstarted'
             do
                 if [ $IDLE_TIME -gt 10 ]
                 then
@@ -85,12 +86,12 @@ emqx_test(){
                 IDLE_TIME=$((IDLE_TIME+1))
             done
             pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
-            "${PACKAGE_PATH}"/emqx/bin/emqx stop
+            ./emqx/bin/emqx stop
             echo "running ${packagename} stop"
-            rm -rf "${PACKAGE_PATH}"/emqx
+            rm -rf ./emqx
         ;;
         "deb")
-            dpkg -i "${PACKAGE_PATH}/${packagename}"
+            dpkg -i "${packagename}"
             if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "ii" ]
             then
                 echo "package install error"
@@ -98,7 +99,7 @@ emqx_test(){
             fi
 
             echo "running ${packagename} start"
-            running_test
+            run_pytest
             echo "running ${packagename} stop"
 
             dpkg -r "${PROFILE}"
@@ -116,14 +117,14 @@ emqx_test(){
             fi
         ;;
         "rpm")
-            yum install -y "${PACKAGE_PATH}/${packagename}"
-            if ! rpm -q ${PROFILE} | grep -q "${PROFILE}"; then
+            yum install -y "${packagename}"
+            if ! rpm -q "${PROFILE}" | grep -q "${PROFILE}"; then
                 echo "package install error"
                 exit 1
             fi
 
             echo "running ${packagename} start"
-            running_test
+            run_pytest
             echo "running ${packagename} stop"
 
             rpm -e "${PROFILE}"
@@ -133,9 +134,10 @@ emqx_test(){
             fi
         ;;
     esac
+    popd
 }
 
-running_test(){
+run_pytest(){
     export EMQX_ZONE__EXTERNAL__SERVER__KEEPALIVE=60 \
            EMQX_MQTT__MAX_TOPIC_ALIAS=10
     sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
@@ -162,11 +164,11 @@ running_test(){
 }
 
 relup_test(){
-    TARGET_VERSION="$("$CODE_PATH"/pkg-vsn.sh)"
-    if [ ! -d "${RELUP_PACKAGE_PATH}" ];then
+    TARGET_VERSION="$(./pkg-vsn.sh)"
+    if [ ! -d '_upgrade_base' ];then
         return 0
     fi
-    cd "${RELUP_PACKAGE_PATH}"
+    pushd '_upgrade_base'
     while read -r pkg; do
         packagename=$(basename "${pkg}")
         unzip -q "$packagename"
@@ -190,6 +192,7 @@ relup_test(){
         fi
         rm -rf emqx
     done < <(find . -maxdepth 1 -name "${OLD_PACKAGE_PATTERN}.zip")
+    popd
 }
 
 emqx_prepare
