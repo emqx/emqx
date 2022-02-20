@@ -1,3 +1,4 @@
+build text eol=lf
 * text=auto
 *.* text eol=lf
 *.jpg -text
