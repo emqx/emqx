@@ -11,6 +11,9 @@ export EMQX_CE_DASHBOARD_VERSION ?= v4.3.5
 export DOCKERFILE := deploy/docker/Dockerfile
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
+	FIND=/usr/bin/find
+else
+	FIND=find
 endif
 
 PROFILE ?= emqx
@@ -90,8 +93,8 @@ $(PROFILES:%=clean-%):
 	@if [ -d _build/$(@:clean-%=%) ]; then \
 		rm rebar.lock \
 		rm -rf _build/$(@:clean-%=%)/rel; \
-		find _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
-		find _build/$(@:clean-%=%) -type l -delete; \
+		$(FIND) _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
+		$(FIND) _build/$(@:clean-%=%) -type l -delete; \
 	fi
 
 .PHONY: clean-all
