@@ -15,7 +15,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - uses: actions/download-artifact@v2
+    - uses: dawidd6/action-download-artifact@v2
       with:
         name:  emqx-24.1.5-4-ubuntu20.04
         workflow: build_slim_packages.yaml
