@@ -78,8 +78,7 @@ make_doc() {
 }
 
 make_rel() {
-    # shellcheck disable=SC1010
-    ./rebar3 as "$PROFILE" do tar
+    ./rebar3 as "$PROFILE" tar
     if [ "$("$FIND" "_build/$PROFILE/rel/emqx/lib/" -maxdepth 1 -name 'gpb-*' -type d)" != "" ]; then
         echo "gpb should not be included in the release"
         exit 1
@@ -132,40 +131,55 @@ cp_dyn_libs() {
 ## It assumes the .tar.gz has been built -- relies on Makefile dependency
 make_tgz() {
     local pkgpath="_packages/${PROFILE}"
-    local tarball
+    local src_tarball
+    local target_name
     local target
 
     if [ "${IS_ELIXIR:-no}" = "yes" ]
     then
-      # ensure tarball exists
+      # ensure src_tarball exists
       ELIXIR_MAKE_TAR=yes make_elixir_rel
 
       local relpath="_build/${PROFILE}"
-      target="${pkgpath}/${PROFILE}-${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
+      target_name="${PROFILE}-${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
     else
-      # build the tarball again to ensure relup is included
+      # build the src_tarball again to ensure relup is included
       # elixir does not have relup yet.
       make_rel
 
       local relpath="_build/${PROFILE}/rel/emqx"
-      target="${pkgpath}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
+      target_name="${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
     fi
+    target="${pkgpath}/${target_name}"
 
-    tarball="${relpath}/emqx-${PKG_VSN}.tar.gz"
-    tard="/tmp/emqx_untar_${PKG_VSN}"
+    src_tarball="${relpath}/emqx-${PKG_VSN}.tar.gz"
+    tard="tmp/emqx_untar_${PKG_VSN}"
     rm -rf "${tard}"
     mkdir -p "${tard}/emqx"
-
     mkdir -p "${pkgpath}"
-    if [ ! -f "$tarball" ]; then
-        log "ERROR: $tarball is not found"
+    if [ ! -f "$src_tarball" ]; then
+        log "ERROR: $src_tarball is not found"
     fi
-    tar zxf "${tarball}" -C "${tard}/emqx"
+    tar zxf "${src_tarball}" -C "${tard}/emqx"
     ## try to be portable for tar.gz packages.
     ## for DEB and RPM packages the dependencies are resoved by yum and apt
     cp_dyn_libs "${tard}/emqx"
-    (cd "${tard}" && tar -cz emqx) > "${target}"
+    ## create tar after change dir (for windows)
+    pushd "${tard}" >/dev/null
+    tar -czf "${target_name}" emqx
+    popd >/dev/null
+    mv "${tard}/${target_name}" "${target}"
+    case "$SYSTEM" in
+        macos*)
+            # sha256sum may not be available on macos
+            openssl dgst -sha256 "${target}" | cut -d ' ' -f 2  > "${target}.sha256"
+            ;;
+        *)
+            sha256sum "${target}" | head -c 64 > "${target}.sha256"
+            ;;
+    esac
     log "Tarball successfully repacked: ${target}"
+    log "Tarball sha256sum: $(cat "${target}.sha256")"
 }
 
 ## This function builds the default docker image based on alpine:3.14 (by default)
