@@ -1,5 +1,11 @@
 # EMQ X 4.4 Changes
 
+## v4.4.2
+
+### Minor changes
+
+* Windows package is built on Erlang/OTP 24
+
 ## v4.4.1
 
 This patch release is only to fix windows build which failed on v4.4.0.
