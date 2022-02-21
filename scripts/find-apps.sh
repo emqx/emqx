@@ -5,9 +5,16 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "$0")/.."
 
+if [ "$(./scripts/get-distro.sh)" = 'windows' ]; then
+    # Otherwise windows may resolve to find.exe
+    FIND="/usr/bin/find"
+else
+    FIND='find'
+fi
+
 find_app() {
     local appdir="$1"
-    find "${appdir}" -mindepth 1 -maxdepth 1 -type d
+    "$FIND" "${appdir}" -mindepth 1 -maxdepth 1 -type d
 }
 
 # append emqx application first
@@ -23,4 +30,4 @@ fi
 ## find directories in lib-extra
 find_app 'lib-extra'
 ## find symlinks in lib-extra
-find 'lib-extra' -mindepth 1 -maxdepth 1 -type l -exec test -e {} \; -print
+"$FIND" 'lib-extra' -mindepth 1 -maxdepth 1 -type l -exec test -e {} \; -print
