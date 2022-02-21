@@ -47,8 +47,6 @@
         , code_change/3
         ]).
 
--elvis([{elvis_style, state_record_and_type, disable}]).
-
 -define(BANNED_TAB, ?MODULE).
 
 %%--------------------------------------------------------------------
