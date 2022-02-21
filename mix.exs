@@ -48,7 +48,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:lc, github: "qzhuyan/lc", tag: "0.1.2"},
       {:redbug, "2.0.7"},
-      {:typerefl, github: "k32/typerefl", tag: "0.8.6", override: true},
+      {:typerefl, github: "ieQu1/typerefl", tag: "0.8.6", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.1.12"},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
@@ -64,7 +64,7 @@ defmodule EMQXUmbrella.MixProject do
       {:emqtt, github: "emqx/emqtt", tag: "1.4.3", override: true},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
       {:observer_cli, "1.7.1"},
-      {:system_monitor, github: "k32/system_monitor", tag: "3.0.2"},
+      {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.2"},
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.18.0", override: true},
