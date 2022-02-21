@@ -61,19 +61,16 @@ jobs:
 
   windows:
     runs-on: windows-2019
-
     needs: prepare
     if: endsWith(github.repository, 'emqx')
-
     strategy:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
-          - 23.2
+          - 24.2.1
         exclude:
           - profile: emqx-edge
-
     steps:
     - uses: actions/download-artifact@v2
       with:
@@ -82,9 +79,7 @@ jobs:
     - name: unzip source code
       run: Expand-Archive -Path source.zip -DestinationPath ./
     - uses: ilammy/msvc-dev-cmd@v1
-    - uses: gleam-lang/setup-erlang@v1.1.2
-      id: install_erlang
-      ## gleam-lang/setup-erlang does not yet support the installation of otp24 on windows
+    - uses: erlef/setup-beam@v1
       with:
         otp-version: ${{ matrix.otp }}
     - name: build
@@ -94,19 +89,7 @@ jobs:
         PROFILE: emqx
       working-directory: source
       run: |
-        $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
         erl -eval "erlang:display(crypto:info_lib())" -s init stop
-        ## We do not build/release bcrypt for windows package
-        Remove-Item -Recurse -Force -Path _build/default/lib/bcrypt/
-        if (Test-Path rebar.lock) {
-            Remove-Item -Force -Path rebar.lock
-        }
-        make ensure-rebar3
-        copy rebar3 "${{ steps.install_erlang.outputs.erlpath }}\bin"
-        ls "${{ steps.install_erlang.outputs.erlpath }}\bin"
-        head -2 rebar3
-        which rebar3
-        rebar3 --help
         make ${{ matrix.profile }}-zip
     - name: run emqx
       timeout-minutes: 1
@@ -114,9 +97,13 @@ jobs:
       run: |
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
         Start-Sleep -s 5
+        echo "EMQX started"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
+        echo "EMQX stopped"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
+        echo "EQMX installed"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
+        echo "EQMX uninstaled"
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
