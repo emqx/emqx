@@ -23,11 +23,17 @@
 -import(hoconsc, [mk/2, array/1, enum/1]).
 
 %% Swagger specs from hocon schema
--export([api_spec/0, paths/0, schema/1, namespace/0]).
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        , namespace/0
+        ]).
 
 %% API callbacks
--export(['/bridges'/2, '/bridges/:id'/2,
-         '/bridges/:id/operation/:operation'/2]).
+-export([ '/bridges'/2
+        , '/bridges/:id'/2
+        , '/bridges/:id/operation/:operation'/2
+        ]).
 
 -export([ lookup_from_local_node/2
         ]).
@@ -70,10 +76,12 @@ api_spec() ->
 
 paths() -> ["/bridges", "/bridges/:id", "/bridges/:id/operation/:operation"].
 
-error_schema(Code, Message) ->
-    [ {code, mk(string(), #{example => Code})}
-    , {message, mk(string(), #{example => Message})}
-    ].
+error_schema(Code, Message) when is_atom(Code) ->
+    error_schema([Code], Message);
+error_schema(Codes, Message) when is_list(Message) ->
+    error_schema(Codes, list_to_binary(Message));
+error_schema(Codes, Message) when is_list(Codes) andalso is_binary(Message) ->
+    emqx_dashboard_swagger:error_codes(Codes, Message).
 
 get_response_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(emqx_bridge_schema:get_response(),
@@ -214,7 +222,7 @@ schema("/bridges") ->
                             bridge_info_examples(post)),
             responses => #{
                 201 => get_response_body_schema(),
-                400 => error_schema('BAD_ARG', "Create bridge failed")
+                400 => error_schema('BAD_REQUEST', "Create bridge failed")
             }
         }
     };
@@ -242,7 +250,8 @@ schema("/bridges/:id") ->
                             bridge_info_examples(put)),
             responses => #{
                 200 => get_response_body_schema(),
-                400 => error_schema('BAD_ARG', "Update bridge failed")
+                404 => error_schema('NOT_FOUND', "Bridge not found"),
+                400 => error_schema('BAD_REQUEST', "Update bridge failed")
             }
         },
         delete => #{
@@ -299,8 +308,10 @@ schema("/bridges/:id/operation/:operation") ->
         case emqx_bridge:lookup(BridgeType, BridgeName) of
             {ok, _} ->
                 case ensure_bridge_created(BridgeType, BridgeName, Conf) of
-                    ok -> lookup_from_all_nodes(BridgeType, BridgeName, 200);
-                    {error, Error} -> {400, Error}
+                    ok ->
+                        lookup_from_all_nodes(BridgeType, BridgeName, 200);
+                    {error, Error} ->
+                        {400, Error}
                 end;
             {error, not_found} ->
                 {404, error_msg('NOT_FOUND',<<"bridge not found">>)}
@@ -335,7 +346,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
 '/bridges/:id/operation/:operation'(post, #{bindings :=
         #{id := Id, operation := Op}}) ->
     ?TRY_PARSE_ID(Id, case operation_to_conf_req(Op) of
-        invalid -> {404, error_msg('BAD_ARG', <<"invalid operation">>)};
+        invalid -> {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
         UpReq ->
             case emqx_conf:update(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
                     {UpReq, BridgeType, BridgeName}, #{override_to => cluster}) of
@@ -357,7 +368,7 @@ ensure_bridge_created(BridgeType, BridgeName, Conf) ->
             Conf, #{override_to => cluster}) of
         {ok, _} -> ok;
         {error, Reason} ->
-            {error, error_msg('BAD_ARG', Reason)}
+            {error, error_msg('BAD_REQUEST', Reason)}
     end.
 
 zip_bridges([BridgesFirstNode | _] = BridgesAllNodes) ->
