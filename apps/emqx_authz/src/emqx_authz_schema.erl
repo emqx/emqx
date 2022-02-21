@@ -146,7 +146,9 @@ http_common_fields() ->
     [ {url, fun url/1}
     , {request_timeout, mk_duration("Request timeout", #{default => "30s"})}
     , {body, #{type => map(), nullable => true}}
-    ] ++ proplists:delete(base_url, connector_fields(http)).
+    ] ++ maps:to_list(maps:without([ base_url
+                                   , pool_type],
+                                   maps:from_list(connector_fields(http)))).
 
 mongo_common_fields() ->
     [ {collection, #{type => atom()}}
