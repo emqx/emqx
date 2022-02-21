@@ -112,7 +112,7 @@ default_headers_no_content_type() ->
     #{ <<"accept">> => <<"application/json">>
      , <<"cache-control">> => <<"no-cache">>
      , <<"connection">> => <<"keep-alive">>
-     , <<"keep-alive">> => <<"timeout=5">>
+     , <<"keep-alive">> => <<"timeout=30, max=1000">>
      }.
 
 transform_header_name(Headers) ->
