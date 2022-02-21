@@ -423,13 +423,12 @@ aggregate_metrics(AllMetrics) ->
 format_resp(#{id := Id, raw_config := RawConf,
               resource_data := #{status := Status, metrics := Metrics}}) ->
     {Type, BridgeName} = emqx_bridge:parse_bridge_id(Id),
-    IsConnected = fun(started) -> connected; (_) -> disconnected end,
     RawConf#{
         id => Id,
         type => Type,
         name => maps:get(<<"name">>, RawConf, BridgeName),
         node => node(),
-        status => IsConnected(Status),
+        status => Status,
         metrics => format_metrics(Metrics)
     }.
 

@@ -52,7 +52,7 @@ suite() ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    %% some testcases (may from other app) already get emqx_connector started
+    %% some testcases (may from other app) already get emqx_connector connected
     _ = application:stop(emqx_resource),
     _ = application:stop(emqx_connector),
     ok = emqx_common_test_helpers:start_apps([emqx_bridge, emqx_dashboard], fun set_special_configs/1),
@@ -272,7 +272,7 @@ t_start_stop_bridges(_) ->
     ?assertMatch(#{ <<"id">> := BridgeID
                   , <<"status">> := <<"connected">>
                   }, jsx:decode(Bridge3)),
-    %% restart an already started bridge
+    %% restart an already connected bridge
     {ok, 200, <<>>} = request(post, operation_path(restart, BridgeID), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{ <<"id">> := BridgeID
@@ -331,7 +331,7 @@ wait_for_resource_ready(InstId, 0) ->
     ct:fail(wait_resource_timeout);
 wait_for_resource_ready(InstId, Retry) ->
     case emqx_bridge:lookup(InstId) of
-        {ok, #{resource_data := #{status := started}}} -> ok;
+        {ok, #{resource_data := #{status := connected}}} -> ok;
         _ ->
             timer:sleep(100),
             wait_for_resource_ready(InstId, Retry-1)
