@@ -160,7 +160,7 @@ schema("/authorization/sources/:type/move") ->
 
 sources(Method, #{bindings := #{type := Type} = Bindings } = Req)
   when is_atom(Type) ->
-    sources(Method, Req#{bindings => Bindings#{type => bin(Type)}});
+    sources(Method, Req#{bindings => Bindings#{type => atom_to_binary(Type, utf8)}});
 sources(get, _) ->
     Sources = lists:foldl(fun (#{<<"type">> := <<"file">>,
                                  <<"enable">> := Enable, <<"path">> := Path}, AccIn) ->
@@ -199,7 +199,7 @@ sources(put, #{body := Body}) when is_list(Body) ->
 
 source(Method, #{bindings := #{type := Type} = Bindings } = Req)
   when is_atom(Type) ->
-    source(Method, Req#{bindings => Bindings#{type => bin(Type)}});
+    source(Method, Req#{bindings => Bindings#{type => atom_to_binary(Type, utf8)}});
 source(get, #{bindings := #{type := Type}}) ->
     case get_raw_source(Type) of
         [] -> {404, #{message => <<"Not found ", Type/binary>>}};
@@ -240,7 +240,7 @@ source(delete, #{bindings := #{type := Type}}) ->
 
 move_source(Method, #{bindings := #{type := Type} = Bindings } = Req)
   when is_atom(Type) ->
-    move_source(Method, Req#{bindings => Bindings#{type => bin(Type)}});
+    move_source(Method, Req#{bindings => Bindings#{type => atom_to_binary(Type, utf8)}});
 move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Position}}) ->
     case emqx_authz:move(Type, Position) of
         {ok, _} -> {204};
@@ -342,9 +342,7 @@ do_write_file(Filename, Bytes) ->
            error(Reason)
     end.
 
-bin(List) when is_list(List) -> list_to_binary(List);
-bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
-bin(X) -> X.
+bin(Term) -> erlang:iolist_to_binary(io_lib:format("~p", [Term])).
 
 acl_conf_file() ->
     emqx_authz:acl_conf_file().

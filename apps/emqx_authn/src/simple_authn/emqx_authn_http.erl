@@ -63,7 +63,7 @@ common_fields() ->
     [ {mechanism, emqx_authn_schema:mechanism('password-based')}
     , {backend, emqx_authn_schema:backend(http)}
     , {url, fun url/1}
-    , {body, fun body/1}
+    , {body, map([{fuzzy, term(), binary()}])}
     , {request_timeout, fun request_timeout/1}
     ] ++ emqx_authn_schema:common_fields()
     ++ maps:to_list(maps:without([ base_url
@@ -95,10 +95,6 @@ headers_no_content_type(converter) ->
     end;
 headers_no_content_type(default) -> default_headers_no_content_type();
 headers_no_content_type(_) -> undefined.
-
-body(type) -> map();
-body(validator) -> [fun check_body/1];
-body(_) -> undefined.
 
 request_timeout(type) -> emqx_schema:duration_ms();
 request_timeout(default) -> <<"5s">>;
@@ -208,11 +204,6 @@ destroy(#{resource_id := ResourceId}) ->
 
 parse_fullpath(RawURL) ->
     cow_http:parse_fullpath(to_bin(RawURL)).
-
-check_body(Body) ->
-    lists:all(
-      fun erlang:is_binary/1,
-      maps:values(Body)).
 
 default_headers() ->
     maps:put(<<"content-type">>,

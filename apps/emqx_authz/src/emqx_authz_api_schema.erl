@@ -28,10 +28,9 @@ fields(http) ->
     authz_common_fields(http)
         ++ [ {url, fun url/1}
            , {method, #{ type => enum([get, post])
-                       , default => get
-                       , converter => fun to_bin/1}}
+                       , default => get}}
            , {headers, fun headers/1}
-           , {body, fun body/1}
+           , {body, map([{fuzzy, term(), binary()}])}
            , {request_timeout, mk_duration("Request timeout", #{default => "30s"})}]
         ++ maps:to_list(maps:without([ base_url
                                      , pool_type],
@@ -97,12 +96,7 @@ headers(converter) ->
 headers(default) -> default_headers();
 headers(_) -> undefined.
 
-body(type) -> map();
-body(validator) -> [fun check_body/1];
-body(_) -> undefined.
-
 %% headers
-
 default_headers() ->
     maps:put(<<"content-type">>,
              <<"application/json">>,
@@ -120,13 +114,6 @@ transform_header_name(Headers) ->
                   K = list_to_binary(string:to_lower(to_list(K0))),
                   maps:put(K, V, Acc)
               end, #{}, Headers).
-
-%% body
-
-check_body(Body) ->
-    lists:all(
-      fun erlang:is_binary/1,
-      maps:values(Body)).
 
 %%------------------------------------------------------------------------------
 %% MonogDB type funcs
@@ -159,7 +146,6 @@ authz_common_fields(Type) when is_atom(Type)->
     , {type, #{ type => enum([Type])
               , default => Type
               , in => body
-              , converter => fun to_bin/1
               }
       }
     ].
@@ -193,7 +179,3 @@ to_list(A) when is_atom(A) ->
     atom_to_list(A);
 to_list(B) when is_binary(B) ->
     binary_to_list(B).
-
-to_bin(List) when is_list(List) -> list_to_binary(List);
-to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
-to_bin(X) -> X.
