@@ -18,35 +18,45 @@
 
 -behaviour(minirest_api).
 
+-import(hoconsc, [mk/1, ref/2]).
+
 -export([ api_spec/0
-        , settings/2
+        , paths/0
+        , schema/1
         ]).
 
+-export([settings/2]).
+
+-define(BAD_REQUEST, 'BAD_REQUEST').
+
 api_spec() ->
-    {[settings_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-authorization_settings() ->
-    maps:remove(<<"sources">>, emqx:get_raw_config([authorization], #{})).
+paths() ->
+    ["/authorization/settings"].
 
-conf_schema() ->
-    emqx_mgmt_api_configs:gen_schema(authorization_settings()).
+%%--------------------------------------------------------------------
+%% Schema for each URI
+%%--------------------------------------------------------------------
 
-settings_api() ->
-    Metadata = #{
-        get => #{
-            description => "Get authorization settings",
-            responses => #{<<"200">> => emqx_mgmt_util:schema(conf_schema())}
-        },
-        put => #{
-            description => "Update authorization settings",
-            requestBody => emqx_mgmt_util:schema(conf_schema()),
-            responses => #{
-                <<"200">> => emqx_mgmt_util:schema(conf_schema()),
-                <<"400">> => emqx_mgmt_util:bad_request()
+schema("/authorization/settings") ->
+    #{ 'operationId' => settings
+     , get =>
+           #{ description => <<"Get authorization settings">>
+            , responses =>
+                  #{200 => ref_authz_schema()}
             }
-        }
-    },
-    {"/authorization/settings", Metadata, settings}.
+     , put =>
+           #{ description => <<"Update authorization settings">>
+            , 'requestBody' => ref_authz_schema()
+            , responses =>
+                  #{ 200 => ref_authz_schema()
+                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)}
+            }
+     }.
+
+ref_authz_schema() ->
+    proplists:delete(sources, emqx_conf_schema:fields("authorization")).
 
 settings(get, _Params) ->
     {200, authorization_settings()};
@@ -60,3 +70,6 @@ settings(put, #{body := #{<<"no_match">> := NoMatch,
     {ok, _} = emqx_authz_utils:update_config([authorization, cache], Cache),
     ok = emqx_authz_cache:drain_cache(),
     {200, authorization_settings()}.
+
+authorization_settings() ->
+    maps:remove(<<"sources">>, emqx:get_raw_config([authorization], #{})).
