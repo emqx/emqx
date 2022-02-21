@@ -1,5 +1,9 @@
 # EMQ X 4.4 Changes
 
+## v4.4.1
+
+This patch release is only to fix windows build which failed on v4.4.0.
+
 ## v4.4.0
 
 **NOTE**: v4.4.0 is in sync with: v4.3.12
