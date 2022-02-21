@@ -296,7 +296,10 @@ add_callback(C, Callbacks) ->
 add_callback(C, [], Acc) ->
     lists:reverse([C | Acc]);
 add_callback(C1 = #callback{priority = P1}, [C2 = #callback{priority = P2} | More], Acc)
-    when P1 =< P2 ->
+    when P1 < P2 ->
+    add_callback(C1, More, [C2 | Acc]);
+add_callback(C1 = #callback{priority = P1, action = MFA1}, [C2 = #callback{priority = P2, action = MFA2} | More], Acc)
+    when P1 =:= P2 andalso MFA1 >= MFA2 ->
     add_callback(C1, More, [C2 | Acc]);
 add_callback(C1, More, Acc) ->
     lists:append(lists:reverse(Acc), [C1 | More]).

@@ -19,9 +19,16 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
+
+init_per_testcase(_, Config) ->
+    Config.
+
+end_per_testcase(_) ->
+    catch emqx_hooks:stop().
 
 % t_lookup(_) ->
 %     error('TODO').
@@ -37,7 +44,30 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 % t_add(_) ->
 %     error('TODO').
-    
+
+t_add_hook_order(_) ->
+    ?assert(proper:quickcheck(add_hook_order_prop(), [{on_output, fun ct:print/2}])).
+
+add_hook_order_prop() ->
+    %% Note: order is inversed, since higher prio hooks run first:
+    Comparator = fun({Prio1, M1, F1}, {Prio2, M2, F2}) ->
+                         Prio1 > Prio2 orelse
+                             (Prio1 =:= Prio2 andalso {M1, F1} =< {M2, F2})
+                 end,
+    ?FORALL(
+       Hooks, list({range(-1, 5), atom(), atom()}),
+       try
+           {ok, _} = emqx_hooks:start_link(),
+           [emqx:hook(prop_hook, {M, F, []}, Prio) || {Prio, M, F} <- Hooks],
+           Callbacks = emqx_hooks:lookup(prop_hook),
+           Order = [{Prio, M, F} || {callback, {M, F, _}, _Filter, Prio} <- Callbacks],
+           ?assertEqual(lists:sort(Comparator, Hooks),
+                        Order),
+           true
+       after
+           emqx_hooks:stop()
+       end).
+
 t_add_put_del_hook(_) ->
     {ok, _} = emqx_hooks:start_link(),
     ok = emqx:hook(test_hook, {?MODULE, hook_fun1, []}),
@@ -84,8 +114,7 @@ t_add_put_del_hook(_) ->
     ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun9, [test]}),
     ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun10, [test]}),
     timer:sleep(200),
-    ?assertEqual([], emqx_hooks:lookup(emqx_hook)),
-    ok = emqx_hooks:stop().
+    ?assertEqual([], emqx_hooks:lookup(emqx_hook)).
 
 t_run_hooks(_) ->
     {ok, _} = emqx_hooks:start_link(),
@@ -97,7 +126,7 @@ t_run_hooks(_) ->
 
     ok = emqx:hook(foldl_hook2, {?MODULE, hook_fun9, []}),
     ok = emqx:hook(foldl_hook2, {?MODULE, hook_fun10, []}),
-    [r9] = emqx:run_fold_hook(foldl_hook2, [arg], []),
+    [r10] = emqx:run_fold_hook(foldl_hook2, [arg], []), %% Note: 10 is _less_ than 9 per lexicographic order
 
     ok = emqx:hook(foreach_hook, {?MODULE, hook_fun6, [initArg]}),
     {error, already_exists} = emqx:hook(foreach_hook, {?MODULE, hook_fun6, [initArg]}),
@@ -112,9 +141,7 @@ t_run_hooks(_) ->
     ok = emqx:hook(foldl_filter2_hook, {?MODULE, hook_fun2, []}, {?MODULE, hook_filter2, [init_arg]}),
     ok = emqx:hook(foldl_filter2_hook, {?MODULE, hook_fun2_1, []}, {?MODULE, hook_filter2_1, [init_arg]}),
     ?assertEqual(3, emqx:run_fold_hook(foldl_filter2_hook, [arg], 1)),
-    ?assertEqual(2, emqx:run_fold_hook(foldl_filter2_hook, [arg1], 1)),
-
-    ok = emqx_hooks:stop().
+    ?assertEqual(2, emqx:run_fold_hook(foldl_filter2_hook, [arg1], 1)).
 
 t_uncovered_func(_) ->
     {ok, _} = emqx_hooks:start_link(),
@@ -157,4 +184,3 @@ hook_filter2(_, _Acc, _IntArg) -> false.
 hook_filter2_1(arg, _Acc, init_arg)  -> true;
 hook_filter2_1(arg1, _Acc, init_arg) -> true;
 hook_filter2_1(_, _Acc, _IntArg)     -> false.
-
