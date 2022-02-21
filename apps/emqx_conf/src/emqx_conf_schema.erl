@@ -247,28 +247,37 @@ fields(cluster_k8s) ->
 fields("node") ->
     [ {"name",
        sc(string(),
-          #{ default => "emqx@127.0.0.1"
+          #{ default => "emqx@127.0.0.1",
+             desc => "Unique name of the EMQX node. It must follow <code>%name%@FQDN</code> or
+ <code>%name%@IP</code> format."
            })}
     , {"cookie",
        sc(string(),
           #{ mapping => "vm_args.-setcookie",
              default => "emqxsecretcookie",
-             sensitive => true
+             sensitive => true,
+             desc => "Secret cookie is a random string that should be the same on all nodes in
+ the given EMQX cluster, but unique per EMQX cluster. It is used to prevent EMQX nodes that
+ belong to different clusters from accidentally connecting to each other."
            })}
     , {"data_dir",
        sc(string(),
           #{ nullable => false,
-             mapping => "emqx.data_dir"
+             mapping => "emqx.data_dir",
+             desc => "Path to the persistent data directory. It must be unique per broker instance."
            })}
     , {"config_files",
        sc(list(string()),
           #{ mapping => "emqx.config_files"
            , default => undefined
+           , desc => "List of configuration files that are read during startup. The order is
+ significant: later configuration files override the previous ones."
            })}
     , {"global_gc_interval",
        sc(emqx_schema:duration(),
          #{ mapping => "emqx_machine.global_gc_interval"
           , default => "15m"
+          , desc => "Periodic garbage collection interval."
           })}
     , {"crash_dump_file",
        sc(file(),
@@ -279,10 +288,8 @@ fields("node") ->
        sc(emqx_schema:duration_s(),
           #{ mapping => "vm_args.-env ERL_CRASH_DUMP_SECONDS"
            , default => "30s"
-           , desc => """
-The number of seconds that the broker is allowed to spend writing
-a crash dump
-"""
+           , desc => "The number of seconds that the broker is allowed to spend writing
+a crash dump"
            })}
     , {"crash_dump_bytes",
        sc(emqx_schema:bytesize(),
@@ -294,26 +301,33 @@ a crash dump
        sc(emqx_schema:duration(),
           #{ mapping => "vm_args.-kernel net_ticktime"
            , default => "2m"
+           , desc => "This is the approximate time an EMQX node may be unresponsive until it is considered down and thereby disconnected."
            })}
     , {"dist_listen_min",
        sc(range(1024, 65535),
           #{ mapping => "kernel.inet_dist_listen_min"
            , default => 6369
+           , desc => "Lower bound for the port range where EMQX broker listens for peer connections."
            })}
     , {"dist_listen_max",
        sc(range(1024, 65535),
           #{ mapping => "kernel.inet_dist_listen_max"
            , default => 6369
+           , desc => "Upper bound for the port range where EMQX broker listens for peer connections."
            })}
     , {"backtrace_depth",
        sc(integer(),
           #{ mapping => "emqx_machine.backtrace_depth"
            , default => 23
+           , desc => "Maximum depth of the call stack printed in error messages and
+ <code>process_info</code>."
            })}
     , {"applications",
        sc(emqx_schema:comma_separated_atoms(),
           #{ mapping => "emqx_machine.applications"
            , default => []
+           , desc => "List of Erlang applications that shall be rebooted when the EMQX broker joins
+ the cluster."
            })}
     , {"etc_dir",
        sc(string(),
