@@ -146,7 +146,9 @@ http_common_fields() ->
     [ {url, fun url/1}
     , {request_timeout, mk_duration("Request timeout", #{default => "30s"})}
     , {body, #{type => map(), nullable => true}}
-    ] ++ proplists:delete(base_url, connector_fields(http)).
+    ] ++ maps:to_list(maps:without([ base_url
+                                   , pool_type],
+                                   maps:from_list(connector_fields(http)))).
 
 mongo_common_fields() ->
     [ {collection, #{type => atom()}}
@@ -195,7 +197,7 @@ default_headers_no_content_type() ->
     #{ <<"accept">> => <<"application/json">>
      , <<"cache-control">> => <<"no-cache">>
      , <<"connection">> => <<"keep-alive">>
-     , <<"keep-alive">> => <<"timeout=5">>
+     , <<"keep-alive">> => <<"timeout=30, max=1000">>
      }.
 
 transform_header_name(Headers) ->

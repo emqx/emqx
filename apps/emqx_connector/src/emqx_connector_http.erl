@@ -159,7 +159,7 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
                , {connect_timeout, ConnectTimeout}
                , {retry, MaxRetries}
                , {retry_timeout, RetryInterval}
-               , {keepalive, 5000}
+               , {keepalive, 30000}
                , {pool_type, PoolType}
                , {pool_size, PoolSize}
                , {transport, Transport}

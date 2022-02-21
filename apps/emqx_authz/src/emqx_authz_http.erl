@@ -105,6 +105,8 @@ parse_config(#{ url := URL
                                      ?PLACEHOLDERS)
          , headers              => Headers
          , request_timeout      => ReqTimeout
+           %% pool_type default value `random`
+         , pool_type            => random
          }.
 
 parse_fullpath(RawURL) ->
