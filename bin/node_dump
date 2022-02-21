@@ -56,7 +56,6 @@ done
     collect netstat -tnl
 
     collect "$RUNNER_BIN_DIR"/emqx_ctl plugins list
-    collect "$RUNNER_BIN_DIR"/emqx_ctl modules list
 
     collect "$RUNNER_BIN_DIR"/emqx_ctl vm all
     collect "$RUNNER_BIN_DIR"/emqx_ctl listeners
