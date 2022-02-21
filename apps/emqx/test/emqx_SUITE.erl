@@ -115,7 +115,7 @@ t_run_hook(_) ->
 
     ok = emqx:hook(foldl_hook2, {?MODULE, hook_fun9, []}),
     ok = emqx:hook(foldl_hook2, {?MODULE, hook_fun10, []}),
-    [r9] = emqx:run_fold_hook(foldl_hook2, [arg], []),
+    [r10] = emqx:run_fold_hook(foldl_hook2, [arg], []),
 
     ok = emqx:hook(foreach_hook, {?MODULE, hook_fun6, [initArg]}),
     {error, already_exists} = emqx:hook(foreach_hook, {?MODULE, hook_fun6, [initArg]}),
