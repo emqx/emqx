@@ -30,7 +30,7 @@ assert_otp() ->
     end.
 
 bcrypt() ->
-    {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
+    {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.0"}}}.
 
 quicer() ->
     {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.9"}}}.
