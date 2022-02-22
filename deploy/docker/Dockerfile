@@ -49,7 +49,8 @@ RUN chgrp -Rf emqx /opt/emqx && chmod -Rf g+w /opt/emqx \
 
 USER emqx
 
-VOLUME ["/opt/emqx/log", "/opt/emqx/data", "/opt/emqx/etc"]
+## NOTE: /opt/emqx/etc is removed from the VOLUME list since 4.3.13
+VOLUME ["/opt/emqx/log", "/opt/emqx/data"]
 
 # emqx will occupy these port:
 # - 1883 port for MQTT
