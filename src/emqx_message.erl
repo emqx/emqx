@@ -84,8 +84,6 @@
 
 -export([format/1]).
 
--elvis([{elvis_style, god_modules, disable}]).
-
 -spec(make(emqx_topic:topic(), emqx_types:payload()) -> emqx_types:message()).
 make(Topic, Payload) ->
     make(undefined, Topic, Payload).

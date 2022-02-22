@@ -3,9 +3,10 @@
 set -euo pipefail
 
 target_files=()
-while IFS='' read -r line; do
+while IFS='' read -r line;
+do
   target_files+=("$line");
-done < <(grep -r -l --exclude-dir=.git --exclude-dir=_build "#!/bin/" .)
+done < <(git grep -r -l '^#!/\(bin/\|usr/bin/env bash\)' .)
 
 return_code=0
 for i in "${target_files[@]}"; do

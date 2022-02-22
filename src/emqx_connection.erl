@@ -30,8 +30,6 @@
 -compile(nowarn_export_all).
 -endif.
 
--elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_connection]}}]).
-
 %% API
 -export([ start_link/3
         , stop/1

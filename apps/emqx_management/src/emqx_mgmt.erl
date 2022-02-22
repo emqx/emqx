@@ -55,6 +55,10 @@
         , set_keepalive/2
         ]).
 
+-export([ clean_pem_cache/0
+        , clean_pem_cache/1
+        ]).
+
 %% Internal funcs
 -export([call_client/3]).
 
@@ -123,8 +127,6 @@
 -define(MAX_ROW_LIMIT, 10000).
 
 -define(APP, emqx_management).
-
--elvis([{elvis_style, god_modules, disable}]).
 %%--------------------------------------------------------------------
 %% Node Info
 %%--------------------------------------------------------------------
@@ -257,15 +259,17 @@ clean_acl_cache(Node, ClientId) ->
     rpc_call(Node, clean_acl_cache, [Node, ClientId]).
 
 clean_acl_cache_all() ->
-    Results = [{Node, clean_acl_cache_all(Node)} || Node <- ekka_mnesia:running_nodes()],
-    case lists:filter(fun({_Node, Item}) -> Item =/= ok end, Results) of
+    for_nodes(fun clean_acl_cache_all/1).
+
+for_nodes(F) ->
+    Results = [{Node, F(Node)} || Node <- ekka_mnesia:running_nodes()],
+    case lists:filter(fun({_Node, Res}) -> Res =/= ok end, Results) of
         []  -> ok;
         BadNodes -> {error, BadNodes}
     end.
 
 clean_acl_cache_all(Node) when Node =:= node() ->
     emqx_acl_cache:drain_cache();
-
 clean_acl_cache_all(Node) ->
     rpc_call(Node, clean_acl_cache_all, [Node]).
 
@@ -279,6 +283,15 @@ set_keepalive(ClientId, Interval)when Interval >= 0 andalso Interval =< 65535 ->
     call_client(ClientId, {keepalive, Interval});
 set_keepalive(_ClientId, _Interval) ->
     {error, ?ERROR2, <<"mqtt3.1.1 specification: keepalive must between 0~65535">>}.
+
+clean_pem_cache() ->
+    for_nodes(fun clean_pem_cache/1).
+
+clean_pem_cache(Node) when Node =:= node() ->
+    _ = ssl_pem_cache:clear(),
+    ok;
+clean_pem_cache(Node) ->
+    rpc_call(Node, ?FUNCTION_NAME, [Node]).
 
 %% @private
 call_client(ClientId, Req) ->

@@ -1,7 +1,7 @@
 emqx_auth_ldap
 ==============
 
-EMQ X LDAP Authentication Plugin
+EMQX LDAP Authentication Plugin
 
 Build
 -----
@@ -92,5 +92,5 @@ Apache License Version 2.0
 Author
 ------
 
-EMQ X Team.
+EMQX Team.
 

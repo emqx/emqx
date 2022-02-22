@@ -1,4 +1,4 @@
-# EMQ X Broker
+# EMQX Broker
 
 [![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen)](https://github.com/emqx/emqx/releases)
 [![Build Status](https://travis-ci.org/emqx/emqx.svg)](https://travis-ci.org/emqx/emqx)
@@ -13,20 +13,20 @@
 
 [English](./README.md) | 简体中文 | [日本語](./README-JP.md) | [русский](./README-RU.md)
 
-*EMQ X* 是一款完全开源，高度可伸缩，高可用的分布式 MQTT 消息服务器，适用于 IoT、M2M 和移动应用程序，可处理千万级别的并发客户端。
+*EMQX* 是一款完全开源，高度可伸缩，高可用的分布式 MQTT 消息服务器，适用于 IoT、M2M 和移动应用程序，可处理千万级别的并发客户端。
 
-从 3.0 版本开始，*EMQ X* 完整支持 MQTT V5.0 协议规范，向下兼容 MQTT V3.1 和 V3.1.1，并支持 MQTT-SN、CoAP、LwM2M、WebSocket 和 STOMP 等通信协议。EMQ X 3.0 单集群可支持千万级别的 MQTT 并发连接。
+从 3.0 版本开始，*EMQX* 完整支持 MQTT V5.0 协议规范，向下兼容 MQTT V3.1 和 V3.1.1，并支持 MQTT-SN、CoAP、LwM2M、WebSocket 和 STOMP 等通信协议。EMQX 3.0 单集群可支持千万级别的 MQTT 并发连接。
 
-- 新功能的完整列表，请参阅 [EMQ X Release Notes](https://github.com/emqx/emqx/releases)。
-- 获取更多信息，请访问 [EMQ X 官网](https://www.emqx.cn/)。
+- 新功能的完整列表，请参阅 [EMQX Release Notes](https://github.com/emqx/emqx/releases)。
+- 获取更多信息，请访问 [EMQX 官网](https://www.emqx.cn/)。
 
 ## 安装
 
-*EMQ X* 是跨平台的，支持 Linux、Unix、macOS 以及 Windows。这意味着 *EMQ X* 可以部署在 x86_64 架构的服务器上，也可以部署在 Raspberry Pi 这样的 ARM 设备上。
+*EMQX* 是跨平台的，支持 Linux、Unix、macOS 以及 Windows。这意味着 *EMQX* 可以部署在 x86_64 架构的服务器上，也可以部署在 Raspberry Pi 这样的 ARM 设备上。
 
-Windows 上编译和运行 *EMQ X* 的详情参考：[Windows.md](./Windows.md)
+Windows 上编译和运行 *EMQX* 的详情参考：[Windows.md](./Windows.md)
 
-#### EMQ X Docker 镜像安装
+#### EMQX Docker 镜像安装
 
 ```
 docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
@@ -34,14 +34,14 @@ docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p
 
 #### 二进制软件包安装
 
-需从 [EMQ X 下载](https://www.emqx.cn/downloads) 页面获取相应操作系统的二进制软件包。
+需从 [EMQX 下载](https://www.emqx.cn/downloads) 页面获取相应操作系统的二进制软件包。
 
 - [单节点安装文档](https://docs.emqx.cn/broker/latest/getting-started/install.html)
 - [集群配置文档](https://docs.emqx.cn/broker/latest/advanced/cluster.html)
 
 ## 从源码构建
 
-3.0 版本开始，构建 *EMQ X* 需要 Erlang/OTP R21+。
+3.0 版本开始，构建 *EMQX* 需要 Erlang/OTP R21+。
 
 4.3 及以后的版本：
 
@@ -77,7 +77,7 @@ _build/emqx/rel/emqx/bin/emqx console
 ./bin/emqx stop
 ```
 
-*EMQ X* 启动，可以使用浏览器访问 http://localhost:18083 来查看 Dashboard。
+*EMQX* 启动，可以使用浏览器访问 http://localhost:18083 来查看 Dashboard。
 
 ## 测试
 
@@ -108,7 +108,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 
 ### FAQ
 
-访问 [EMQ X FAQ](https://docs.emqx.cn/broker/latest/faq/faq.html) 以获取常见问题的帮助。
+访问 [EMQX FAQ](https://docs.emqx.cn/broker/latest/faq/faq.html) 以获取常见问题的帮助。
 
 ### 问答
 
@@ -117,7 +117,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 
 ### 参与设计
 
-如果对 EMQ X 有改进建议，可以向[EIP](https://github.com/emqx/eip) 提交 PR 和 ISSUE
+如果对 EMQX 有改进建议，可以向[EIP](https://github.com/emqx/eip) 提交 PR 和 ISSUE
 
 ### 插件开发
 
