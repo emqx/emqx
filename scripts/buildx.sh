@@ -120,7 +120,7 @@ else
   MAKE_TARGET="${PROFILE}-${PKGTYPE}"
 fi
 
-CMD_RUN="export EMQX_NAME=\"$PROFILE\"; make ${MAKE_TARGET} && .ci/build_packages/tests.sh $PKG_NAME $PKGTYPE $ARCH"
+CMD_RUN="export EMQX_NAME=\"$PROFILE\"; make ${MAKE_TARGET} && ./scripts/pkg-tests.sh $PKG_NAME $PKGTYPE $ARCH"
 
 if docker info; then
    docker run --rm --privileged tonistiigi/binfmt:latest --install "${ARCH}"
