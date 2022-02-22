@@ -133,7 +133,7 @@ init(ConnInfo = #{peername := {PeerHost, _},
     Override = maps:merge(?DEFAULT_OVERRIDE,
                           maps:get(clientinfo_override, Option, #{})
                          ),
-	#channel{ ctx = Ctx
+    #channel{ ctx = Ctx
             , conninfo = ConnInfo
             , clientinfo = ClientInfo
             , clientinfo_override = Override
@@ -189,6 +189,8 @@ enrich_conninfo(_Packet,
                          , clean_start => true
                          , keepalive => 0
                          , expiry_interval => 0
+                         , conn_props => #{}
+                         , receive_maximum => 0
                          },
     {ok, Channel#channel{conninfo = NConnInfo}}.
 
