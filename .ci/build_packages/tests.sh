@@ -24,7 +24,7 @@ export RELUP_PACKAGE_PATH="${CODE_PATH}/_upgrade_base"
 # export EMQX_NODE_NAME="emqx-on-$(uname -m)@127.0.0.1"
 # export EMQX_NODE_COOKIE=$(date +%s%N)
 
-SYSTEM="$($CODE_PATH/scripts/get-distro.sh)"
+SYSTEM="$("$CODE_PATH"/scripts/get-distro.sh)"
 
 if [ "$PACKAGE_TYPE" = 'zip' ]; then
     PKG_SUFFIX="zip"
@@ -39,8 +39,8 @@ else
     esac
 fi
 
-PACKAGE_NAME="${PROFILE}-$($CODE_PATH/scripts/pkg-full-vsn.sh)"
-OLD_PACKAGE_PATTERN="${PROFILE}-$($CODE_PATH/scripts/pkg-full-vsn.sh 'vsn_matcher')"
+PACKAGE_NAME="${PROFILE}-$("$CODE_PATH"/scripts/pkg-full-vsn.sh)"
+OLD_PACKAGE_PATTERN="${PROFILE}-$("$CODE_PATH"/scripts/pkg-full-vsn.sh 'vsn_matcher')"
 PACKAGE_FILE_NAME="${PACKAGE_NAME}.${PKG_SUFFIX}"
 
 PACKAGE_FILE="${PACKAGE_PATH}/${PACKAGE_FILE_NAME}"
@@ -117,7 +117,7 @@ emqx_test(){
         ;;
         "rpm")
             yum install -y "${PACKAGE_PATH}/${packagename}"
-            if ! rpm -q ${PROFILE} | grep -q "${PROFILE}"; then
+            if ! rpm -q "${PROFILE}" | grep -q "${PROFILE}"; then
                 echo "package install error"
                 exit 1
             fi
