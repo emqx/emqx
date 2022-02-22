@@ -8,6 +8,7 @@
 :: * restart - run the stop command and start command
 :: * uninstall - uninstall the service and kill a running node
 :: * ping - check if the node is running
+:: * ctl - run management commands
 :: * console - start the Erlang release in a `werl` Windows shell
 :: * attach - connect to a running node and open an interactive console
 :: * list - display a listing of installed Erlang services
@@ -85,6 +86,7 @@
 @if "%1"=="restart" @call :stop && @goto start
 @if "%1"=="console" @goto console
 @if "%1"=="ping" @goto ping
+@if "%1"=="ctl" @goto ctl
 @if "%1"=="list" @goto list
 @if "%1"=="attach" @goto attach
 @if "%1"=="" @goto usage
@@ -173,7 +175,7 @@
 
 :: Display usage information
 :usage
-@echo usage: %~n0 ^(install^|uninstall^|start^|stop^|restart^|console^|ping^|list^|attach^)
+@echo usage: %~n0 ^(install^|uninstall^|start^|stop^|restart^|console^|ping^|ctl^|list^|attach^)
 @goto :eof
 
 :: Install the release as a Windows service
@@ -232,6 +234,12 @@ cd /d %rel_root_dir%
 :: Ping the running node
 :ping
 @%escript% %nodetool% ping %node_type% "%node_name%" -setcookie "%node_cookie%"
+@goto :eof
+
+:: ctl to execute management commands
+:ctl
+@for /f "usebackq tokens=1*" %%i in (`echo %*`) DO @ set params=%%j
+@%escript% %nodetool% %node_type% "%node_name%" -setcookie "%node_cookie%" rpc_infinity emqx_ctl run_command %params%
 @goto :eof
 
 :: List installed Erlang services
