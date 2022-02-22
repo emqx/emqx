@@ -1,4 +1,4 @@
-# EMQ X 4.4 Changes
+# EMQX 4.4 Changes
 
 ## v4.4.2
 
@@ -16,8 +16,8 @@ This patch release is only to fix windows build which failed on v4.4.0.
 
 ### Important changes
 
-- **For Debian/Ubuntu users**, Debian/Ubuntu package (deb) installed EMQ X is now started from systemd.
-  This is to use systemd's supervision functionality to ensure that EMQ X service restarts after a crash.
+- **For Debian/Ubuntu users**, Debian/Ubuntu package (deb) installed EMQX is now started from systemd.
+  This is to use systemd's supervision functionality to ensure that EMQX service restarts after a crash.
   The package installation service upgrade from init.d to systemd has been verified,
   it is still recommended that you verify and confirm again before deploying to the production environment,
   at least to ensure that systemd is available in your system
