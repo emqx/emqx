@@ -51,7 +51,7 @@ if [ "$SYSTEM" = "macos" ]; then
 fi
 
 mkdir -p _upgrade_base
-pushd _upgrade_base
+pushd _upgrade_base >/dev/null
 
 for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
     filename="$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.tar.gz"
@@ -67,4 +67,4 @@ for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
     fi
 done
 
-popd
+popd >/dev/null
