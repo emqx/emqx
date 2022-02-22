@@ -56,7 +56,10 @@ schema("/configs") ->
         }
     };
 schema("/configs_reset/:rootname") ->
-    Paths = lists:map(fun({Path, _}) -> Path end, config_list(?EXCLUDES)),
+    Paths = lists:map(
+        fun({Path, _})when is_atom(Path) -> Path;
+           ({Path, _}) when is_list(Path) -> list_to_atom(Path)
+        end, config_list(?EXCLUDES)),
     #{
         'operationId' => config_reset,
         post => #{

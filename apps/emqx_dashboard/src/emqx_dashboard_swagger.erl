@@ -425,7 +425,7 @@ hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
 
 %% todo: Find a way to fetch enum value from user_id_type().
 typename_to_spec("user_id_type()", _Mod) -> #{type => string, enum => [clientid, username]};
-typename_to_spec("term()", _Mod) -> #{type => string, example => "term"};
+typename_to_spec("term()", _Mod) -> #{type => string, example => "any"};
 typename_to_spec("boolean()", _Mod) -> #{type => boolean, example => true};
 typename_to_spec("binary()", _Mod) -> #{type => string, example => <<"binary-example">>};
 typename_to_spec("float()", _Mod) -> #{type => number, example => 3.14159};
@@ -444,7 +444,6 @@ typename_to_spec("epoch_millisecond()", _Mod) ->
         #{type => integer, example => 1640995200000, desc => <<"epoch-millisecond">>},
         #{type => string, example => <<"2022-01-01T00:00:00.000Z">>, format => <<"date-time">>}]
     };
-typename_to_spec("unicode_binary()", _Mod) -> #{type => string, example => <<"unicode-binary">>};
 typename_to_spec("duration()", _Mod) -> #{type => string, example => <<"12m">>};
 typename_to_spec("duration_s()", _Mod) -> #{type => string, example => <<"1h">>};
 typename_to_spec("duration_ms()", _Mod) -> #{type => string, example => <<"32s">>};
