@@ -11,6 +11,7 @@
 :: * ctl - run management commands
 :: * console - start the Erlang release in a `werl` Windows shell
 :: * attach - connect to a running node and open an interactive console
+:: * remote_console - same as attach
 :: * list - display a listing of installed Erlang services
 :: * usage - display available commands
 
@@ -23,7 +24,9 @@
 
 @set script=%~n0
 
+:: for remote_console
 @set EPMD_ARG=-start_epmd false -epmd_module ekka_epmd -proto_dist ekka
+:: for erl command
 @set ERL_FLAGS=%EPMD_ARG%
 
 :: Discover the release root directory from the directory
@@ -33,31 +36,31 @@
   set rel_root_dir=%%~fA
 )
 
-@set rel_dir=%rel_root_dir%\releases\%rel_vsn%
-@set RUNNER_ROOT_DIR=%rel_root_dir%
-@set RUNNER_ETC_DIR=%rel_root_dir%\etc
+@set "rel_dir=%rel_root_dir%\releases\%rel_vsn%"
+@set "RUNNER_ROOT_DIR=%rel_root_dir%"
+@set "RUNNER_ETC_DIR=%rel_root_dir%\etc"
 
-@set etc_dir=%rel_root_dir%\etc
-@set lib_dir=%rel_root_dir%\lib
-@set data_dir=%rel_root_dir%\data
-@set emqx_conf=%etc_dir%\emqx.conf
+@set "etc_dir=%rel_root_dir%\etc"
+@set "lib_dir=%rel_root_dir%\lib"
+@set "data_dir=%rel_root_dir%\data"
+@set "emqx_conf=%etc_dir%\emqx.conf"
 
 @call :find_erts_dir
 @call :find_vm_args
 @call :find_sys_config
 
-@set boot_file_name=%rel_dir%\start
-@set service_name=%rel_name%_%rel_vsn%
-@set bindir=%erts_dir%\bin
+@set "boot_file_name=%rel_dir%\start"
+@set "service_name=%rel_name%_%rel_vsn%"
+@set "bindir=%erts_dir%\bin"
 @set progname=erl.exe
-@set clean_boot_file_name=%rel_dir%\start_clean
-@set erlsrv="%bindir%\erlsrv.exe"
-@set escript="%bindir%\escript.exe"
-@set werl="%bindir%\werl.exe"
-@set erl_exe="%bindir%\erl.exe"
-@set nodetool="%rel_root_dir%\bin\nodetool"
-@set cuttlefish="%rel_root_dir%\bin\cuttlefish"
-@set node_type="-name"
+@set "clean_boot_file_name=%rel_dir%\start_clean"
+@set "erlsrv=%bindir%\erlsrv.exe"
+@set "escript=%bindir%\escript.exe"
+@set "werl=%bindir%\werl.exe"
+@set "erl_exe=%bindir%\erl.exe"
+@set "nodetool=%rel_root_dir%\bin\nodetool"
+@set "cuttlefish=%rel_root_dir%\bin\cuttlefish"
+@set node_type=-name
 @set schema_mod=emqx_conf_schema
 
 @set conf_path="%etc_dir%\emqx.conf"
@@ -65,11 +68,13 @@
 @for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %conf_path% get node.name"`) do @(
   @call :set_trim node_name %%I
 )
+@set node_name=%node_name:"=%
 
 :: Extract node cookie from emqx.conf
 @for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %conf_path% get node.cookie"`) do @(
   @call :set_trim node_cookie %%I
 )
+@set node_cookie=%node_cookie:"=%
 
 :: Write the erl.ini file to set up paths relative to this script
 @call :write_ini
@@ -89,6 +94,7 @@
 @if "%1"=="ctl" @goto ctl
 @if "%1"=="list" @goto list
 @if "%1"=="attach" @goto attach
+@if "%1"=="remote_console" @goto attach
 @if "%1"=="" @goto usage
 @echo Unknown command: "%1"
 
@@ -96,7 +102,7 @@
 
 :: Find the ERTS dir
 :find_erts_dir
-@set possible_erts_dir=%rel_root_dir%\erts-%erts_vsn%
+@set "possible_erts_dir=%rel_root_dir%\erts-%erts_vsn%"
 @if exist "%possible_erts_dir%" (
   call :set_erts_dir_from_default
 ) else (
@@ -106,8 +112,8 @@
 
 :: Set the ERTS dir from the passed in erts_vsn
 :set_erts_dir_from_default
-@set erts_dir=%possible_erts_dir%
-@set rootdir=%rel_root_dir%
+@set "erts_dir=%possible_erts_dir%"
+@set "rootdir=%rel_root_dir%"
 @goto :eof
 
 :: Set the ERTS dir from erl
@@ -117,14 +123,14 @@
 )
 @set dir_cmd="%erl%" -noshell -eval "io:format(\"~s\", [filename:nativename(code:root_dir())])." -s init stop
 @for /f %%i in ('%%dir_cmd%%') do @(
-  set erl_root=%%i
+  set erl_root=%%i"
 )
-@set erts_dir=%erl_root%\erts-%erts_vsn%
-@set rootdir=%erl_root%
+@set "erts_dir=%erl_root%\erts-%erts_vsn%"
+@set "rootdir=%erl_root%"
 @goto :eof
 
 :find_vm_args
-@set possible_vm=%etc_dir%\vm.args
+@set "possible_vm=%etc_dir%\vm.args"
 @if exist "%possible_vm%" (
   set args_file=-args_file "%possible_vm%"
 )
@@ -132,7 +138,7 @@
 
 :: Find the sys.config file
 :find_sys_config
-@set possible_sys=%etc_dir%\sys.config
+@set "possible_sys=%etc_dir%\sys.config"
 @if exist "%possible_sys%" (
   set sys_config=-config "%possible_sys%"
 )
@@ -164,7 +170,7 @@
 
 :: Write the erl.ini file
 :write_ini
-@set erl_ini=%erts_dir%\bin\erl.ini
+@set "erl_ini=%erts_dir%\bin\erl.ini"
 @set converted_bindir=%bindir:\=\\%
 @set converted_rootdir=%rootdir:\=\\%
 @echo [erlang] > "%erl_ini%"
@@ -175,7 +181,7 @@
 
 :: Display usage information
 :usage
-@echo usage: %~n0 ^(install^|uninstall^|start^|stop^|restart^|console^|ping^|ctl^|list^|attach^)
+@echo usage: %~n0 ^(install^|uninstall^|start^|stop^|restart^|console^|ping^|ctl^|list^|remote_console^|attach^)
 @goto :eof
 
 :: Install the release as a Windows service
@@ -249,9 +255,7 @@ cd /d %rel_root_dir%
 
 :: Attach to a running node
 :attach
-:: @start "%node_name% attach"
-@start "%node_name% attach" %werl% -boot "%clean_boot_file_name%" ^
-  -remsh %node_name% %node_type% console_%node_name% -setcookie %node_cookie%
+@start "remsh_%nodename%" %werl% -hidden -remsh "%node_name%" -boot "%clean_boot_file_name%" "%node_type%" "remsh_%node_name%" -setcookie "%node_cookie%"
 @goto :eof
 
 :: Trim variable
