@@ -56,16 +56,37 @@ end_per_testcase(TestCase, Config) ->
     ?MODULE:TestCase({'end', Config}).
 
 build_demo_plugin_package() ->
+    build_demo_plugin_package(
+      #{ target_path => "_build/default/emqx_plugrel"
+       , release_name => "emqx_plugin_template"
+       , git_url => "https://github.com/emqx/emqx-plugin-template.git"
+       , vsn => ?EMQX_PLUGIN_TEMPLATE_VSN
+       , workdir => "demo_src"
+       }).
+
+build_demo_plugin_package(#{ target_path := TargetPath
+                           , release_name := ReleaseName
+                           , git_url := GitUrl
+                           , vsn := PluginVsn
+                           , workdir := DemoWorkDir
+                           } = Opts) ->
     WorkDir = emqx_plugins:install_dir(),
     BuildSh = filename:join([WorkDir, "build-demo-plugin.sh"]),
-    case emqx_run_sh:do(BuildSh ++ " " ++ ?EMQX_PLUGIN_TEMPLATE_VSN,
-                        [{cd, WorkDir}]) of
+    Cmd = string:join([ BuildSh
+                      , PluginVsn
+                      , TargetPath
+                      , ReleaseName
+                      , GitUrl
+                      , DemoWorkDir
+                      ],
+                      " "),
+    case emqx_run_sh:do(Cmd, [{cd, WorkDir}]) of
         {ok, _} ->
-            Pkg = filename:join([WorkDir, "emqx_plugin_template-" ++
-                                          ?EMQX_PLUGIN_TEMPLATE_VSN ++
+            Pkg = filename:join([WorkDir, ReleaseName ++ "-" ++
+                                          PluginVsn ++
                                           ?PACKAGE_SUFFIX]),
             case filelib:is_regular(Pkg) of
-                true -> Pkg;
+                true -> Opts#{package => Pkg};
                 false -> error(#{reason => unexpected_build_result, not_found => Pkg})
             end;
         {error, {Rc, Output}} ->
@@ -78,12 +99,18 @@ bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
 
 t_demo_install_start_stop_uninstall({init, Config}) ->
-    Package = build_demo_plugin_package(),
+    Opts = #{package := Package} = build_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
-    [{name_vsn, NameVsn} | Config];
+    [ {name_vsn, NameVsn}
+    , {plugin_opts, Opts}
+    | Config
+    ];
 t_demo_install_start_stop_uninstall({'end', _Config}) -> ok;
 t_demo_install_start_stop_uninstall(Config) ->
     NameVsn = proplists:get_value(name_vsn, Config),
+    #{ release_name := ReleaseName
+     , vsn := PluginVsn
+     } = proplists:get_value(plugin_opts, Config),
     ok = emqx_plugins:ensure_installed(NameVsn),
     %% idempotent
     ok = emqx_plugins:ensure_installed(NameVsn),
@@ -111,8 +138,16 @@ t_demo_install_start_stop_uninstall(Config) ->
     ok = assert_app_running(emqx_plugin_template, false),
     ok = assert_app_running(map_sets, false),
     %% still listed after stopped
-    ?assertMatch([#{<<"name">> := <<"emqx_plugin_template">>,
-                    <<"rel_vsn">> :=  <<?EMQX_PLUGIN_TEMPLATE_VSN>>
+    ReleaseNameBin = list_to_binary(ReleaseName),
+    PluginVsnBin = list_to_binary(PluginVsn),
+    ?assertMatch([#{<<"name">> := ReleaseNameBin,
+                    <<"rel_vsn">> :=  PluginVsnBin
+                   }], emqx_plugins:list()),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ?assertEqual([], emqx_plugins:list()),
+    ok.
+    ?assertMatch([#{<<"name">> := ReleaseName,
+                    <<"rel_vsn">> :=  PluginVsn
                    }], emqx_plugins:list()),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ?assertEqual([], emqx_plugins:list()),
@@ -129,7 +164,7 @@ write_info_file(Config, NameVsn, Content) ->
     ok = file:write_file(InfoFile, Content).
 
 t_start_restart_and_stop({init, Config}) ->
-    Package = build_demo_plugin_package(),
+    #{package := Package} = build_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     [{name_vsn, NameVsn} | Config];
 t_start_restart_and_stop({'end', _Config}) -> ok;
@@ -175,7 +210,7 @@ t_start_restart_and_stop(Config) ->
     ok.
 
 t_enable_disable({init, Config}) ->
-    Package = build_demo_plugin_package(),
+    #{package := Package} = build_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     [{name_vsn, NameVsn} | Config];
 t_enable_disable({'end', Config}) ->

@@ -3,9 +3,13 @@
 set -euo pipefail
 
 vsn="${1}"
-workdir="demo_src"
-target_name="emqx_plugin_template-${vsn}.tar.gz"
-target="$workdir/_build/default/emqx_plugrel/${target_name}"
+target_path="${2}"
+release_name="${3}"
+git_url="${4}"
+workdir="${5}"
+
+target_name="${release_name}-${vsn}.tar.gz"
+target="$workdir/${target_path}/${target_name}"
 if [ -f "${target}" ]; then
     cp "$target" ./
     exit 0
@@ -14,7 +18,7 @@ fi
 # cleanup
 rm -rf "${workdir}"
 
-git clone https://github.com/emqx/emqx-plugin-template.git -b "${vsn}" ${workdir}
+git clone "${git_url}" -b "${vsn}" "${workdir}"
 make -C "$workdir" rel
 
 cp "$target" ./
