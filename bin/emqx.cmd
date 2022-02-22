@@ -32,13 +32,26 @@
   set rel_root_dir=%%~fA
 )
 
+:: hang onto the current dir so that we will reset to the proper location upon exit
+@set current_dir=%cd%
+:: cd into the root dir so that escript/werl will be able to find the ERTS using relative paths
+@echo off
+cd /d "%rel_root_dir%"
+@echo on
+
 @set rel_dir=%rel_root_dir%\releases\%rel_vsn%
 @set RUNNER_ROOT_DIR=%rel_root_dir%
 @set RUNNER_ETC_DIR=%rel_root_dir%\etc
 
 @set etc_dir=%rel_root_dir%\etc
 @set lib_dir=%rel_root_dir%\lib
-@set data_dir=%rel_root_dir%\data
+
+:: Set the data_dir based on the user's selected data dir in environment (if provided)
+@if defined EMQX_NODE__DATA_DIR (
+  set data_dir=%EMQX_NODE__DATA_DIR%
+) else (
+  @set data_dir=%rel_root_dir%\data
+)
 @set emqx_conf=%etc_dir%\emqx.conf
 
 @call :find_erts_dir
@@ -123,6 +136,12 @@
 @set rootdir=%erl_root%
 @goto :eof
 
+:exit
+@set err=%ERRORLEVEL%
+@cd %current_dir%
+@exit /b %err%
+@goto :eof
+
 :find_vm_args
 @set possible_vm=%etc_dir%\vm.args
 @if exist "%possible_vm%" (
@@ -186,7 +205,7 @@
 :: Display usage information
 :usage
 @echo usage: %~n0 ^(install^|uninstall^|start^|stop^|restart^|console^|ping^|list^|attach^)
-@goto :eof
+@goto exit
 
 :: Install the release as a Windows service
 :: or install the specified version passed as argument
@@ -205,12 +224,12 @@
   :: relup and reldown
   goto relup
 )
-@goto :eof
+@goto exit
 
 :: Uninstall the Windows service
 :uninstall
 @%erlsrv% remove %service_name%
-@goto :eof
+@goto exit
 
 :: Start the Windows service
 :start
@@ -219,18 +238,16 @@
 @call :create_mnesia_dir
 @call :generate_app_config
 @set args=-detached %sys_config% %generated_config_args% -mnesia dir '%mnesia_dir%'
-@echo off
-cd /d "%rel_root_dir%"
-@echo on
-@start "%rel_name%" %werl% -boot  "%boot_script%" -mode embedded %args%
-@goto :eof
+@title %rel_name%
+@%werl% -boot  "%boot_script%" -mode embedded %args%
+@goto exit
 
 :: Stop the Windows service
 :stop
 :: window service?
 :: @%erlsrv% stop %service_name%
 @%escript% %nodetool% %node_type% %node_name% -setcookie %node_cookie% stop
-@goto :eof
+@goto exit
 
 :: Relup and reldown
 :relup
@@ -239,39 +256,38 @@ cd /d "%rel_root_dir%"
   echo Usage: %rel_name% %1 {package base name}
   echo NOTE {package base name} MUST NOT include the .tar.gz suffix
   set ERRORLEVEL=1
-  exit /b %ERRORLEVEL%
+  goto exit
 )
 @%escript% "%rootdir%/bin/install_upgrade.escript" "%rel_name%" "%node_name%" "%node_cookie%" "%2"
-@goto :eof
+@goto exit
 
 :: Start a console
 :console
 @call :create_mnesia_dir
 @call :generate_app_config
 @set args=%sys_config% %generated_config_args% -mnesia dir '%mnesia_dir%'
-@echo off
-cd /d %rel_root_dir%
-@echo on
-@start "bin\%rel_name% console" %werl% -boot "%boot_script%" -mode embedded %args%
+@title bin\%rel_name% console
+@%werl% -boot "%boot_script%" -mode embedded %args%
 @echo emqx is started!
-@goto :eof
+@goto exit
 
 :: Ping the running node
 :ping
 @%escript% %nodetool% ping %node_type% "%node_name%" -setcookie "%node_cookie%"
-@goto :eof
+@goto exit
 
 :: List installed Erlang services
 :list
 @%erlsrv% list %service_name%
-@goto :eof
+@goto exit
 
 :: Attach to a running node
 :attach
 :: @start "%node_name% attach"
-@start "%node_name% attach" %werl% -boot "%clean_boot_script%" ^
+@title %node_name% attach
+@%werl% -boot "%clean_boot_script%" ^
   -remsh %node_name% %node_type% console_%node_name% -setcookie %node_cookie%
-@goto :eof
+@goto exit
 
 :: Trim variable
 :set_trim

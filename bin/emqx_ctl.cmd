@@ -15,6 +15,12 @@
   set rel_root_dir=%%~fA
 )
 @set rel_dir=%rel_root_dir%\releases\%rel_vsn%
+:: hang onto the current dir so that we will reset to the proper location upon exit
+@set current_dir=%cd%
+:: cd into the root dir so that escript/werl will be able to find the ERTS using relative paths
+@echo off
+cd /d "%rel_root_dir%"
+@echo on
 @set emqx_conf=%rel_root_dir%\etc\emqx.conf
 
 @call :find_erts_dir
@@ -43,7 +49,14 @@
   copy "%rel_dir%\%rel_name%.boot" "%rel_dir%\start.boot" >nul
 )
 
+:exit
+@set err=%ERRORLEVEL%
+@cd %current_dir%
+@exit /b %err%
+@goto :eof
+
 @%escript% %nodetool% %node_type% "%node_name%" -setcookie "%node_cookie%" rpc emqx_ctl run_command %args%
+goto exit
 
 :: Find the ERTS dir
 :find_erts_dir
