@@ -23,6 +23,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(EMQX_PLUGIN_TEMPLATE_VSN, "5.0-rc.1").
+-define(EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN, "0.1.0").
 -define(PACKAGE_SUFFIX, ".tar.gz").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -142,12 +143,6 @@ t_demo_install_start_stop_uninstall(Config) ->
     PluginVsnBin = list_to_binary(PluginVsn),
     ?assertMatch([#{<<"name">> := ReleaseNameBin,
                     <<"rel_vsn">> :=  PluginVsnBin
-                   }], emqx_plugins:list()),
-    ok = emqx_plugins:ensure_uninstalled(NameVsn),
-    ?assertEqual([], emqx_plugins:list()),
-    ok.
-    ?assertMatch([#{<<"name">> := ReleaseName,
-                    <<"rel_vsn">> :=  PluginVsn
                    }], emqx_plugins:list()),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ?assertEqual([], emqx_plugins:list()),
@@ -296,6 +291,66 @@ t_bad_info_json(Config) ->
                  emqx_plugins:read_plugin(NameVsn)),
     ?assertEqual([], emqx_plugins:list()),
     emqx_plugins:purge(NameVsn),
+    ok.
+
+t_elixir_plugin({init, Config}) ->
+    Opts0 =
+        #{ target_path => "_build/prod/plugrelex/elixir_plugin_template"
+         , release_name => "elixir_plugin_template"
+         , git_url => "https://github.com/emqx/emqx-elixir-plugin.git"
+         , vsn => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN
+         , workdir => "demo_src_elixir"
+         },
+    Opts = #{package := Package} = build_demo_plugin_package(Opts0),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [ {name_vsn, NameVsn}
+    , {plugin_opts, Opts}
+    | Config
+    ];
+t_elixir_plugin({'end', _Config}) -> ok;
+t_elixir_plugin(Config) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    #{ release_name := ReleaseName
+     , vsn := PluginVsn
+     } = proplists:get_value(plugin_opts, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    %% idempotent
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    {ok, Info} = emqx_plugins:read_plugin(NameVsn),
+    ?assertEqual([Info], emqx_plugins:list()),
+    %% start
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ok = assert_app_running(elixir_plugin_template, true),
+    ok = assert_app_running(hallux, true),
+    %% start (idempotent)
+    ok = emqx_plugins:ensure_started(bin(NameVsn)),
+    ok = assert_app_running(elixir_plugin_template, true),
+    ok = assert_app_running(hallux, true),
+
+    %% call an elixir function
+    1 = 'Elixir.ElixirPluginTemplate':ping(),
+    3 = 'Elixir.Kernel':'+'(1, 2),
+
+    %% running app can not be un-installed
+    ?assertMatch({error, _},
+                 emqx_plugins:ensure_uninstalled(NameVsn)),
+
+    %% stop
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ok = assert_app_running(elixir_plugin_template, false),
+    ok = assert_app_running(hallux, false),
+    %% stop (idempotent)
+    ok = emqx_plugins:ensure_stopped(bin(NameVsn)),
+    ok = assert_app_running(elixir_plugin_template, false),
+    ok = assert_app_running(hallux, false),
+    %% still listed after stopped
+    ReleaseNameBin = list_to_binary(ReleaseName),
+    PluginVsnBin = list_to_binary(PluginVsn),
+    ?assertMatch([#{<<"name">> := ReleaseNameBin,
+                    <<"rel_vsn">> :=  PluginVsnBin
+                   }], emqx_plugins:list()),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ?assertEqual([], emqx_plugins:list()),
     ok.
 
 make_tar(Cwd, NameWithVsn) ->
