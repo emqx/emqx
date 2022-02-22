@@ -36,6 +36,12 @@
   set rel_root_dir=%%~fA
 )
 
+:: If release dir has space, change dir
+@if not "%rel_root_dir%"=="%rel_root_dir: =%" (
+    @chdir /d "%rel_root_dir%"
+    @set rel_root_dir=.
+)
+
 @set "erts_dir=%rel_root_dir%\erts-%erts_vsn%"
 @set "rootdir=%rel_root_dir%"
 @set "rel_dir=%rel_root_dir%\releases\%rel_vsn%"
