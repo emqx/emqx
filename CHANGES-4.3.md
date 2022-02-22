@@ -15,7 +15,7 @@ File format:
 ### Important changes
 
 * For docker image, /opt/emqx/etc has been removed from the VOLUME list,
-  this made easier for users to rebuild image on top with changed configs.
+  this made it easier for the users to rebuild image on top with changed configs.
 
 ### Enhancements
 
