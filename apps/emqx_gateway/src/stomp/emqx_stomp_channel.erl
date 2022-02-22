@@ -777,6 +777,9 @@ handle_info(clean_authz_cache, Channel) ->
     ok = emqx_authz_cache:empty_authz_cache(),
     {ok, Channel};
 
+handle_info({subscribe, _}, Channel) ->
+    {ok, Channel};
+
 handle_info(Info, Channel) ->
     ?SLOG(error, #{ msg => "unexpected_info"
                   , info => Info

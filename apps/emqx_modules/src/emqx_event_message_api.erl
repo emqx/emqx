@@ -15,10 +15,11 @@
 %%--------------------------------------------------------------------
 -module(emqx_event_message_api).
 
+-include("emqx_modules.hrl").
+
 -behaviour(minirest_api).
 
 -import(hoconsc, [mk/2, ref/2]).
--include("emqx_modules.hrl").
 
 -export([ api_spec/0
         , paths/0

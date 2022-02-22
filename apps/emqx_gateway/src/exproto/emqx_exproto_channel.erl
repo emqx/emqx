@@ -423,6 +423,9 @@ handle_info({hreply, FunName, ok}, Channel)
 handle_info({hreply, FunName, {error, Reason}}, Channel) ->
     {shutdown, {error, {FunName, Reason}}, Channel};
 
+handle_info({subscribe, _}, Channel) ->
+    {ok, Channel};
+
 handle_info(Info, Channel) ->
     ?SLOG(warning, #{ msg => "unexpected_info"
                     , info => Info
