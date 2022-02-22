@@ -36,18 +36,21 @@
   set rel_root_dir=%%~fA
 )
 
+@set "erts_dir=%rel_root_dir%\erts-%erts_vsn%"
+@set "rootdir=%rel_root_dir%"
 @set "rel_dir=%rel_root_dir%\releases\%rel_vsn%"
 @set "RUNNER_ROOT_DIR=%rel_root_dir%"
+:: hard code etc dir
 @set "RUNNER_ETC_DIR=%rel_root_dir%\etc"
-
 @set "etc_dir=%rel_root_dir%\etc"
 @set "lib_dir=%rel_root_dir%\lib"
-@set "data_dir=%rel_root_dir%\data"
+:: allow setting data dir
+@if "%RUNNER_DATA_DIR%"=="" (
+    @set "data_dir=%rel_root_dir%\data"
+) else (
+    @set "data_dir=%RUNNER_DATA_DIR%"
+)
 @set "emqx_conf=%etc_dir%\emqx.conf"
-
-@call :find_erts_dir
-@call :find_vm_args
-@call :find_sys_config
 
 @set "boot_file_name=%rel_dir%\start"
 @set "service_name=%rel_name%_%rel_vsn%"
@@ -100,50 +103,6 @@
 
 @goto :eof
 
-:: Find the ERTS dir
-:find_erts_dir
-@set "possible_erts_dir=%rel_root_dir%\erts-%erts_vsn%"
-@if exist "%possible_erts_dir%" (
-  call :set_erts_dir_from_default
-) else (
-  call :set_erts_dir_from_erl
-)
-@goto :eof
-
-:: Set the ERTS dir from the passed in erts_vsn
-:set_erts_dir_from_default
-@set "erts_dir=%possible_erts_dir%"
-@set "rootdir=%rel_root_dir%"
-@goto :eof
-
-:: Set the ERTS dir from erl
-:set_erts_dir_from_erl
-@for /f "delims=" %%i in ('where erl') do @(
-  set erl=%%i
-)
-@set dir_cmd="%erl%" -noshell -eval "io:format(\"~s\", [filename:nativename(code:root_dir())])." -s init stop
-@for /f %%i in ('%%dir_cmd%%') do @(
-  set erl_root=%%i"
-)
-@set "erts_dir=%erl_root%\erts-%erts_vsn%"
-@set "rootdir=%erl_root%"
-@goto :eof
-
-:find_vm_args
-@set "possible_vm=%etc_dir%\vm.args"
-@if exist "%possible_vm%" (
-  set args_file=-args_file "%possible_vm%"
-)
-@goto :eof
-
-:: Find the sys.config file
-:find_sys_config
-@set "possible_sys=%etc_dir%\sys.config"
-@if exist "%possible_sys%" (
-  set sys_config=-config "%possible_sys%"
-)
-@goto :eof
-
 :create_mnesia_dir
 @set create_dir_cmd=%escript% %nodetool% mnesia_dir "%data_dir%\mnesia" %node_name%
 @for /f "delims=" %%Z in ('%%create_dir_cmd%%') do @(
@@ -160,7 +119,7 @@
 
 :generate_app_config
 @call :get_cur_time
-%escript% %nodetool% hocon -v -t %now_time% -s %schema_mod% -c "%etc_dir%\emqx.conf" -d "%data_dir%\configs" generate
+@%escript% %nodetool% hocon -v -t %now_time% -s %schema_mod% -c "%etc_dir%\emqx.conf" -d "%data_dir%\configs" generate
 @set generated_config_args=-config "%data_dir%\configs\app.%now_time%.config" -args_file "%data_dir%\configs\vm.%now_time%.args"
 :: create one new line
 @echo.>>"%data_dir%\configs\vm.%now_time%.args"
@@ -190,7 +149,7 @@
 @call :create_mnesia_dir
 @call :generate_app_config
 :: Install the service
-@set args="-boot %boot_file_name% %sys_config% %generated_config_args% -mnesia dir '%mnesia_dir%'"
+@set args="-boot %boot_file_name% %generated_config_args% -mnesia dir '%mnesia_dir%'"
 @set description=EMQX node %node_name% in %rootdir%
 @if "" == "%2" (
   %erlsrv% add %service_name% %node_type% "%node_name%" -on restart -c "%description%" ^
@@ -211,7 +170,7 @@
 :: @%erlsrv% start %service_name%
 @call :create_mnesia_dir
 @call :generate_app_config
-@set args=-detached %sys_config% %generated_config_args% -mnesia dir '%mnesia_dir%'
+@set args=-detached %generated_config_args% -mnesia dir '%mnesia_dir%'
 @echo off
 cd /d "%rel_root_dir%"
 @echo on
@@ -229,7 +188,7 @@ cd /d "%rel_root_dir%"
 :console
 @call :create_mnesia_dir
 @call :generate_app_config
-@set args=%sys_config% %generated_config_args% -mnesia dir '%mnesia_dir%'
+@set args=%generated_config_args% -mnesia dir '%mnesia_dir%'
 @echo off
 cd /d %rel_root_dir%
 @echo on
