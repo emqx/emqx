@@ -4,6 +4,9 @@
 # arg1: profile, e.g. emqx | emqx-edge | emqx-pkg | emqx-edge-pkg
 # arg2: artifact, e.g. rel | relup | zip | pkg
 
+if [[ -n "$DEBUG" ]]; then
+    set -x
+fi
 set -euo pipefail
 
 PROFILE="$1"
@@ -50,7 +53,7 @@ case "$UNAME" in
         ARCH=arm
         ;;
 esac
-# used in -pkg Makefile:s
+# used in -pkg Makefile
 export ARCH
 
 log() {

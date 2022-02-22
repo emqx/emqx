@@ -2,6 +2,7 @@ $(shell $(CURDIR)/scripts/git-hooks-init.sh)
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
+export EMQX_RELUP ?= true
 export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/4.4-5:24.1.5-3-alpine3.14
 export EMQX_DEFAULT_RUNNER = alpine:3.14
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
@@ -130,10 +131,19 @@ COMMON_DEPS := $(REBAR) get-dashboard $(CONF_SEGS)
 $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS)
 	@$(BUILD) $(subst -rel,,$(@)) rel
 
+## download relup base packages
+.PHONY: $(REL_PROFILES:%=%-relup-downloads)
+define download-relup-packages
+$1-relup-downloads:
+	@if [ "$${EMQX_RELUP}" = "true" ]; then $(CURDIR)/scripts/relup-base-packages.sh $1; fi
+endef
+ALL_ZIPS = $(REL_PROFILES)
+$(foreach zt,$(ALL_ZIPS),$(eval $(call download-relup-packages,$(zt))))
+
 ## relup target is to create relup instructions
 .PHONY: $(REL_PROFILES:%=%-relup)
 define gen-relup-target
-$1-relup: $(COMMON_DEPS)
+$1-relup: $1-relup-downloads $(COMMON_DEPS)
 	@$(BUILD) $1 relup
 endef
 ALL_ZIPS = $(REL_PROFILES)

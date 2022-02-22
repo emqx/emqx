@@ -23,6 +23,8 @@ COPY . /emqx
 ARG PKG_VSN
 ARG EMQX_NAME=emqx
 
+ENV EMQX_RELUP=false
+
 RUN cd /emqx \
     && rm -rf _build/$EMQX_NAME/lib \
     && make $EMQX_NAME

@@ -2,7 +2,7 @@
 emqx-dashboard
 ==============
 
-Dashboard for the EMQ X Broker.
+Dashboard for the EMQX Broker.
 
 REST API
 --------

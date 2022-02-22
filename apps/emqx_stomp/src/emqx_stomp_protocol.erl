@@ -108,8 +108,6 @@
                             , init/2
                             ]}).
 
--elvis([{elvis_style, dont_repeat_yourself, disable}]).
-
 -type(pstate() :: #pstate{}).
 
 %% @doc Init protocol

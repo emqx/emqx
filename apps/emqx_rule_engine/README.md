@@ -1,7 +1,7 @@
 
 # emqx-rule-engine
 
-IoT Rule Engine for EMQ X Broker.
+IoT Rule Engine for EMQX Broker.
 
 ## Concept
 

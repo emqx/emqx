@@ -1,6 +1,6 @@
-# EMQ X 4.3 Changes
+# EMQX 4.3 Changes
 
-Started tracking changes in CHANGE.md since EMQ X v4.3.11
+Started tracking changes in CHANGE.md since EMQX v4.3.11
 
 NOTE: Keep prepending to the head of the file instead of the tail
 
@@ -9,6 +9,18 @@ File format:
 - Use weight-2 heading for releases
 - One list item per change topic
   Change log ends with a list of github PRs
+
+## v4.3.13
+
+### Enhancements
+
+* CLI `emqx_ctl pem_cache clean` to force purge x509 certificate cache,
+  to force an immediate reload of all certificates after the files are updated on disk.
+
+### Bug fixes
+
+* Fix case where publishing to a non-existent topic alias would crash the connection [#6979]
+* Fix HTTP-API 500 error on querying the lwm2m client list on the another node [#7009]
 
 ## v4.3.12
 ### Important changes
@@ -41,9 +53,9 @@ Important notes:
 
 ### Important changes
 
-* Debian/Ubuntu package (deb) installed EMQ X now runs on systemd [#6389]<br>
+* Debian/Ubuntu package (deb) installed EMQX now runs on systemd [#6389]<br>
   This is to take advantage of systemd's supervision functionality to ensure
-  EMQ X service is restarted after crashes.
+  EMQX service is restarted after crashes.
 
 ### Minor changes
 
@@ -59,7 +71,7 @@ Important notes:
 
 * Fix session takeover race condition which may lead to message loss [#6396]
 
-* EMQ X docker images are pushed to aws public ecr in an automated CI job [#6271]<br>
+* EMQX docker images are pushed to aws public ecr in an automated CI job [#6271]<br>
   `docker pull public.ecr.aws/emqx/emqx:4.3.10`
 
 * Fix webhook URL path to allow rule-engine variable substitution [#6399]

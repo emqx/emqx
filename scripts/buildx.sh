@@ -71,7 +71,7 @@ cd "${SRC_DIR:-.}"
 
 set -x
 docker info
-docker run --rm --privileged tonistiigi/binfmt:latest --install ${ARCH}
+docker run --rm --privileged tonistiigi/binfmt:latest --install "${ARCH}"
 docker run -i --rm \
     -v "$(pwd)":/emqx \
     --workdir /emqx \

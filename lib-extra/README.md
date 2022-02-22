@@ -1,4 +1,4 @@
-# EMQ X Extra plugin apps
+# EMQX Extra plugin apps
 
 This directory keeps a `plugins` file which defines all the approved
 external plugins from open-source community.
@@ -20,7 +20,7 @@ e.g. For an Erlang plugin named `plugin_foo`:
 ```
 
 Note: The `-emqx_plugin(?MODULE)` attribute should be added to
-`<plugin-name>_app.erl` file to indicate that this is an EMQ X Broker plugin.
+`<plugin-name>_app.erl` file to indicate that this is an EMQX Broker plugin.
 
 For example:
 ```erlang

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ensure dir
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+
 ## This script prints the relup upgrade base versions
-## for the given EMQ X edition (specified as first arg)
+## for the given EMQX edition (specified as first arg)
 ##
 ## The second argument is the current release version
 ## if not provided, it's taken from pkg-vsn.sh
@@ -17,8 +20,8 @@ parse_semver() {
     echo "$1" | tr '.|-' ' '
 }
 
-PROFILE="${1:-}"
-[ -z "${PROFILE}" ] && usage
+EDITION="${1:-}"
+[ -z "${EDITION}" ] && usage
 
 ## Get the current release version
 ## e.g.
@@ -46,7 +49,7 @@ else
     IS_RELEASE=false
 fi
 
-case "${PROFILE}" in
+case "${EDITION}" in
     *enterprise*)
         GIT_TAG_PREFIX="e"
         ;;
