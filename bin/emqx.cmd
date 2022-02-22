@@ -44,12 +44,12 @@
 @call :find_erts_dir
 @call :find_vm_args
 @call :find_sys_config
-@call :set_boot_script_var
 
+@set boot_file_name=%rel_dir%\start
 @set service_name=%rel_name%_%rel_vsn%
 @set bindir=%erts_dir%\bin
 @set progname=erl.exe
-@set clean_boot_script=%rel_root_dir%\bin\start_clean
+@set clean_boot_file_name=%rel_root_dir%\bin\start_clean
 @set erlsrv="%bindir%\erlsrv.exe"
 @set escript="%bindir%\escript.exe"
 @set werl="%bindir%\werl.exe"
@@ -57,7 +57,7 @@
 @set nodetool="%rel_root_dir%\bin\nodetool"
 @set cuttlefish="%rel_root_dir%\bin\cuttlefish"
 @set node_type="-name"
-@set schema_mod="emqx_conf_schema"
+@set schema_mod=emqx_conf_schema
 
 @set conf_path="%etc_dir%\emqx.conf"
 :: Extract node name from emqx.conf
@@ -83,8 +83,6 @@
 @if "%1"=="start" @goto start
 @if "%1"=="stop" @goto stop
 @if "%1"=="restart" @call :stop && @goto start
-::@if "%1"=="upgrade" @goto relup
-::@if "%1"=="downgrade" @goto relup
 @if "%1"=="console" @goto console
 @if "%1"=="ping" @goto ping
 @if "%1"=="list" @goto list
@@ -143,7 +141,6 @@
 @for /f "delims=" %%Z in ('%%create_dir_cmd%%') do @(
   set mnesia_dir=%%Z
 )
-@set mnesia_dir="%mnesia_dir%"
 @goto :eof
 
 :: get the current time with hocon
@@ -161,15 +158,6 @@
 @echo.>>"%data_dir%\configs\vm.%now_time%.args"
 :: write the node type and node name in to vm args file
 @echo %node_type% %node_name%>>"%data_dir%\configs\vm.%now_time%.args"
-@goto :eof
-
-:: set boot_script variable
-:set_boot_script_var
-@if exist "%rel_dir%\%rel_name%.boot" (
-  set boot_script=%rel_dir%\%rel_name%
-) else (
-  set boot_script=%rel_dir%\start
-)
 @goto :eof
 
 :: Write the erl.ini file
@@ -194,16 +182,13 @@
 @call :create_mnesia_dir
 @call :generate_app_config
 :: Install the service
-@set args="-boot %boot_script% %sys_config% %generated_config_args% -mnesia dir '%mnesia_dir%'"
+@set args="-boot %boot_file_name% %sys_config% %generated_config_args% -mnesia dir '%mnesia_dir%'"
 @set description=EMQX node %node_name% in %rootdir%
 @if "" == "%2" (
   %erlsrv% add %service_name% %node_type% "%node_name%" -on restart -c "%description%" ^
            -i "emqx" -w "%rootdir%" -m %erl_exe% -args %args% ^
            -st "init:stop()."
   sc config emqx start=delayed-auto
-) else (
-  :: relup and reldown
-  goto relup
 )
 @goto :eof
 
@@ -222,7 +207,7 @@
 @echo off
 cd /d "%rel_root_dir%"
 @echo on
-@start "%rel_name%" %werl% -boot  "%boot_script%" -mode embedded %args%
+@start "%rel_name%" %werl%  -mode embedded -boot "%boot_file_name%" %args%
 @goto :eof
 
 :: Stop the Windows service
@@ -230,18 +215,6 @@ cd /d "%rel_root_dir%"
 :: window service?
 :: @%erlsrv% stop %service_name%
 @%escript% %nodetool% %node_type% %node_name% -setcookie %node_cookie% stop
-@goto :eof
-
-:: Relup and reldown
-:relup
-@if "" == "%2" (
-  echo Missing package argument
-  echo Usage: %rel_name% %1 {package base name}
-  echo NOTE {package base name} MUST NOT include the .tar.gz suffix
-  set ERRORLEVEL=1
-  exit /b %ERRORLEVEL%
-)
-@%escript% "%rootdir%/bin/install_upgrade.escript" "%rel_name%" "%node_name%" "%node_cookie%" "%2"
 @goto :eof
 
 :: Start a console
@@ -252,7 +225,7 @@ cd /d "%rel_root_dir%"
 @echo off
 cd /d %rel_root_dir%
 @echo on
-@start "bin\%rel_name% console" %werl% -boot "%boot_script%" -mode embedded %args%
+@start "%rel_name% console" %werl% -mode embedded -boot "%boot_file_name%" %args%
 @echo emqx is started!
 @goto :eof
 
@@ -269,7 +242,7 @@ cd /d %rel_root_dir%
 :: Attach to a running node
 :attach
 :: @start "%node_name% attach"
-@start "%node_name% attach" %werl% -boot "%clean_boot_script%" ^
+@start "%node_name% attach" %werl% -boot "%clean_boot_file_name%" ^
   -remsh %node_name% %node_type% console_%node_name% -setcookie %node_cookie%
 @goto :eof
 
