@@ -35,6 +35,11 @@
                     {self(), busy_port,
                      fmt("busy_port warning: suspid = ~p, port = ~p",
                          [self(), ?FAKE_PORT]), ?FAKE_PORT},
+                    %% for the case when the port is missing, for some
+                    %% reason.
+                    {self(), busy_port,
+                     fmt("busy_port warning: suspid = ~p, port = ~p",
+                         [self(), []]), []},
                     {self(), busy_dist_port,
                      fmt("busy_dist_port warning: suspid = ~p, port = ~p",
                          [self(), ?FAKE_PORT]), ?FAKE_PORT},

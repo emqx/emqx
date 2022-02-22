@@ -202,7 +202,12 @@ get_proc_lib_initial_call(Pid) ->
     end.
 
 portinfo(Port) ->
-    [{port, Port} | erlang:port_info(Port)].
+    PortInfo =
+        case is_port(Port) andalso erlang:port_info(Port) of
+            L when is_list(L) -> L;
+            _ -> []
+        end,
+    [{port, Port} | PortInfo].
 
 safe_publish(Event, WarnMsg) ->
     Topic = emqx_topic:systop(lists:concat(['sysmon/', Event])),
