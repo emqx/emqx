@@ -8,7 +8,7 @@
     ]},
    {"4.4.0",
     [ {load_module,emqx_vm_mon,brutal_purge,soft_purge,[]}
-     {load_module,emqx_banned,brutal_purge,soft_purge,[]},
+    , {load_module,emqx_banned,brutal_purge,soft_purge,[]}
     , {load_module,emqx_ctl,brutal_purge,soft_purge,[]}
     , {load_module,emqx_channel,brutal_purge,soft_purge,[]}
     , {load_module,emqx_connection,brutal_purge,soft_purge,[]}
