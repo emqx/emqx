@@ -138,8 +138,8 @@ fields("cluster") ->
            })}
     , {"static",
        sc(ref(cluster_static),
-          #{ desc => "Static service discovery mechanism, when all the nodes are known
- in advance."
+          #{ desc => "Service discovery via static nodes. The new node joins the cluster by connecting
+ to one of the bootstrap nodes."
            })}
     , {"mcast",
        sc(ref(cluster_mcast),
@@ -177,12 +177,12 @@ fields(cluster_mcast) ->
        sc(hoconsc:array(integer()),
           #{ default => [4369, 4370]
            , desc => "List of UDP ports used for service discovery.<br/>
-Note: probe messages are broadcasted to all the specified ports."
+Note: probe messages are broadcast to all the specified ports."
            })}
     , {"iface",
        sc(string(),
           #{ default => "0.0.0.0"
-           , desc => "IPv4 interface address."
+           , desc => "Local IP address the node discovery service needs to bind to."
            })}
     , {"ttl",
        sc(range(0, 255),
@@ -254,7 +254,7 @@ fields(cluster_k8s) ->
     , {"service_name",
        sc(string(),
           #{ default => "emqx"
-           , desc => "EMQX service name."
+           , desc => "EMQX broker service name."
            })}
     , {"address_type",
        sc(hoconsc:enum([ip, dns, hostname]),
