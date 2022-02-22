@@ -42,10 +42,15 @@ case "$ARCH" in
         ;;
 esac
 
-SHASUM="sha256sum"
-if [ "$SYSTEM" = "macos" ]; then
-    SHASUM="shasum -a 256"
-fi
+
+case "$SYSTEM" in
+    macos*)
+        SHASUM="shasum -a 256"
+        ;;
+    *)
+        SHASUM="sha256sum"
+        ;;
+esac
 
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
