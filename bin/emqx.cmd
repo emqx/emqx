@@ -50,7 +50,7 @@
 @set service_name=%rel_name%_%rel_vsn%
 @set bindir=%erts_dir%\bin
 @set progname=erl.exe
-@set clean_boot_file_name=%rel_root_dir%\bin\start_clean
+@set clean_boot_file_name=%rel_dir%\start_clean
 @set erlsrv="%bindir%\erlsrv.exe"
 @set escript="%bindir%\escript.exe"
 @set werl="%bindir%\werl.exe"
