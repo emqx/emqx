@@ -60,8 +60,12 @@ test(_) ->
 %% hook
 
 on_client_connected(ClientInfo, ConnInfo, {TopicHandler, Options}) ->
-    TopicTables = erlang:apply(TopicHandler, handle, [ClientInfo, ConnInfo, Options]),
-    self() ! {subscribe, TopicTables};
+    case erlang:apply(TopicHandler, handle, [ClientInfo, ConnInfo, Options]) of
+        [] -> ok;
+        TopicTables ->
+            _ = self() ! {subscribe, TopicTables},
+            ok
+    end;
 on_client_connected(_, _, _) ->
     ok.
 
