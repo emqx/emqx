@@ -1630,11 +1630,13 @@ enrich_connack_caps(AckProps, _Channel) -> AckProps.
 %%--------------------------------------------------------------------
 %% Enrich server keepalive
 
-enrich_server_keepalive(AckProps, #channel{clientinfo = #{zone := Zone}}) ->
+enrich_server_keepalive(AckProps, ?IS_MQTT_V5 = #channel{clientinfo = #{zone := Zone}}) ->
     case get_mqtt_conf(Zone, server_keepalive) of
         disabled -> AckProps;
         Keepalive -> AckProps#{'Server-Keep-Alive' => Keepalive}
-    end.
+    end;
+
+enrich_server_keepalive(AckProps, _Channel) -> AckProps.
 
 %%--------------------------------------------------------------------
 %% Enrich response information
@@ -1684,7 +1686,7 @@ init_alias_maximum(#mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
 init_alias_maximum(_ConnPkt, _ClientInfo) -> undefined.
 
 %%--------------------------------------------------------------------
-%% Enrich Keepalive
+%% Ensure Keepalive
 
 %% MQTT 5
 ensure_keepalive(#{'Server-Keep-Alive' := Interval}, Channel = #channel{conninfo = ConnInfo}) ->
