@@ -91,20 +91,22 @@ t_pub(_) ->
     lists:foreach(fun(I) ->
                           Topic = list_to_binary(io_lib:format("/test1/~p", [I])),
                           Msg = emqx_message:make(undefined, ?QOS_1, Topic, <<"Hello">>),
-                          emqx:publish(Msg#message{timestamp = Now - 500})
+                          emqx:publish(Msg#message{timestamp = Now - 500}),
+                          timer:sleep(100)
                   end,
                   lists:seq(1, 10)),
 
     lists:foreach(fun(I) ->
                           Topic = list_to_binary(io_lib:format("/test2/~p", [I])),
                           Msg = emqx_message:make(undefined, ?QOS_2, Topic, <<"Hello">>),
-                          emqx:publish(Msg#message{timestamp = Now - 500})
+                          emqx:publish(Msg#message{timestamp = Now - 500}),
+                          timer:sleep(100)
                   end,
                   lists:seq(1, 10)),
 
     timer:sleep(1000),
     Size = ets:info(?TOPK_TAB, size),
-    ?assert(Size =< 6 andalso Size >= 5),
+    ?assert(Size =< 10 andalso Size >= 3, io_lib:format("the size is :~p~n", [Size])),
 
     [Client ! stop || Client <- Clients],
     ok.
