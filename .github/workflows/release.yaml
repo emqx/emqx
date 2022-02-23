@@ -1,0 +1,96 @@
+name: Upload release assets
+on:
+  release:
+    types:
+      - published
+
+jobs:
+  prepare:
+    runs-on: ubuntu-20.04
+    container: emqx/build-env:erl23.2.7.2-emqx-3-ubuntu20.04
+
+    outputs:
+      profiles: ${{ steps.set_profile.outputs.profiles}}
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          path: source
+          fetch-depth: 0
+      - name: set profile
+        id: set_profile
+        shell: bash
+        run: |
+          cd source
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            echo "::set-output name=profiles::[\"emqx-ee\"]"
+          else
+            echo "::set-output name=profiles::[\"emqx\", \"emqx-edge\"]"
+          fi
+
+  upload:
+    runs-on: ubuntu-20.04
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+      - name: Get packages
+        run: |
+          if [ "${{ matrix.profile }}"  == "emqx" ];then
+              s3dir="emqx-ce"
+          else
+              s3dir=${{ matrix.profile }}
+          fi
+          aws s3 cp --recursive  s3://${{ secrets.AWS_S3_BUCKET }}/$s3dir/${{ github.ref_name }} packages
+      - uses: alexellis/upload-assets@0.2.2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          asset_paths: '["packages/*"]'
+      - name: update to emqx.io
+        run: |
+          set -e -x -u
+          curl -w %{http_code} \
+               --insecure \
+               -H "Content-Type: application/json" \
+               -H "token: ${{ secrets.EMQX_IO_TOKEN }}" \
+               -X POST \
+               -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
+               ${{ secrets.EMQX_IO_RELEASE_API }}
+      - name: update repo.emqx.io
+        if: github.event_name == 'release' && endsWith(github.repository, 'enterprise') && matrix.profile == 'emqx-ee'
+        run: |
+          curl --silent --show-error \
+            -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -X POST \
+            -d "{\"ref\":\"v1.0.3\",\"inputs\":{\"version\": \"${{ github.ref_name }}\", \"emqx_ee\": \"true\"}}" \
+            "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
+      - name: update repo.emqx.io
+        if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
+        run: |
+          curl --silent --show-error \
+            -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -X POST \
+            -d "{\"ref\":\"v1.0.3\",\"inputs\":{\"version\": \"${{ github.ref_name }}\", \"emqx_ce\": \"true\"}}" \
+            "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
+      - name: update homebrew packages
+        if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
+        run: |
+          if [ -z $(echo $version | grep -oE "(alpha|beta|rc)\.[0-9]") ]; then
+              curl --silent --show-error \
+                -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                -X POST \
+                -d "{\"ref\":\"v1.0.3\",\"inputs\":{\"version\": \"${{ github.ref_name }}\"}}" \
+                "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_homebrew.yaml/dispatches"
+          fi

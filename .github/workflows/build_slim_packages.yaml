@@ -6,10 +6,6 @@ concurrency:
 
 
 on:
-  push:
-    tags:
-      - v*
-      - e*
   pull_request:
   workflow_dispatch:
 
