@@ -92,11 +92,12 @@ stop_listeners() ->
 %% internal
 
 apps() ->
-    [App || {App, _, _} <- application:loaded_applications(),
-        case re:run(atom_to_list(App), "^emqx") of
-            {match,[{0,4}]} -> true;
-            _ -> false
-        end].
+    [emqx_dashboard].
+    % [App || {App, _, _} <- application:loaded_applications(),
+    %     case re:run(atom_to_list(App), "^emqx") of
+    %         {match,[{0,4}]} -> true;
+    %         _ -> false
+    %     end].
 
 listeners() ->
     [begin

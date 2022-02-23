@@ -16,7 +16,7 @@
 
 -module(emqx_dashboard_monitor).
 
--include_lib("stdlib/include/ms_transform.hrl").
+-include("emqx_dashboard.hrl").
 
 -behaviour(gen_server).
 
@@ -34,15 +34,15 @@
 
 -export([ mnesia/1]).
 
--export([ samples/0
-        , samples/1
-        , aggregate_samplers/0
+-export([ samplers/0
+        , samplers/1
+        , samplers/2
         ]).
 
--define(TAB, ?MODULE).
+%% for rpc
+-export([ do_samples/1]).
 
-%% 10 seconds
--define(DEFAULT_INTERVAL, 10).
+-define(TAB, ?MODULE).
 
 -ifdef(TEST).
 %% for test
@@ -70,21 +70,6 @@
     data :: map()
     }).
 
-
--define(DELTA_LIST,
-    [ received
-    , received_bytes
-    , sent
-    , sent_bytes
-    , dropped
-    ]).
-
--define(SAMPLER_LIST,
-    [ subscriptions
-    , routes
-    , connections
-    ] ++ ?DELTA_LIST).
-
 mnesia(boot) ->
     ok = mria:create_table(?TAB, [
         {type, set},
@@ -93,17 +78,26 @@ mnesia(boot) ->
         {record_name, emqx_monit},
         {attributes, record_info(fields, emqx_monit)}]).
 
-aggregate_samplers() ->
-    [#{node => Node, data => samples(Node)} || Node <- mria_mnesia:cluster_nodes(running)].
+samplers() ->
+    samplers(all).
 
-samples() ->
-    All = [samples(Node) || Node <- mria_mnesia:cluster_nodes(running)],
-    lists:foldl(fun merge_cluster_samplers/2, #{}, All).
+samplers(NodeOrCluster) ->
+    format(do_samples(NodeOrCluster)).
 
-samples(Node) when Node == node() ->
-    get_data(?DEFAULT_GET_DATA_TIME);
-samples(Node) ->
-    rpc:call(Node, ?MODULE, ?FUNCTION_NAME, [Node]).
+samplers(NodeOrCluster, 0) ->
+    samplers(NodeOrCluster);
+samplers(NodeOrCluster, Latest) ->
+    case samplers(NodeOrCluster) of
+        {badrpc, Reason} ->
+            {badrpc, Reason};
+        List when is_list(List) ->
+            case erlang:length(List) - Latest of
+                Start when Start > 0 ->
+                    lists:sublist(List, Start, Latest);
+                _ ->
+                    List
+            end
+    end.
 
 %%%===================================================================
 %%% gen_server functions
@@ -147,6 +141,43 @@ code_change(_OldVsn, State = #state{}, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+do_samples(all) ->
+    Fun =
+        fun(Node, All) ->
+            case do_samples(Node) of
+                {badrpc, Reason} ->
+                    {badrpc, {Node, Reason}};
+                NodeSamplers ->
+                    merge_cluster_samplers(NodeSamplers, All)
+            end
+        end,
+    lists:foldl(Fun, #{}, mria_mnesia:cluster_nodes(running));
+do_samples(Node) when Node == node() ->
+    get_data(?DEFAULT_GET_DATA_TIME);
+do_samples(Node) ->
+    rpc:call(Node, ?MODULE, ?FUNCTION_NAME, [Node], 5000).
+
+merge_cluster_samplers(Node, Cluster) ->
+    maps:fold(fun merge_cluster_samplers/3, Cluster, Node).
+
+merge_cluster_samplers(TS, NodeData, Cluster) ->
+    case maps:get(TS, Cluster, undefined) of
+        undefined ->
+            Cluster#{TS => NodeData};
+        ClusterData ->
+            Cluster#{TS => count_map(NodeData, ClusterData)}
+    end.
+
+format({badrpc, Reason}) ->
+    {badrpc, Reason};
+format(Data) ->
+    All = maps:fold(fun format/3, [], Data),
+    Compare = fun(#{time_stamp := T1}, #{time_stamp := T2}) -> T1 =< T2 end,
+    lists:sort(Compare, All).
+
+format(TimeStamp, Data, All) ->
+    [Data#{time_stamp => TimeStamp} | All].
+
 sample_timer() ->
     {NextTime, Remaining} = next_interval(),
     erlang:send_after(Remaining, self(), {sample, NextTime}).
@@ -160,7 +191,7 @@ clean_timer() ->
 %%  The monitor will start working at full seconds, as like 00:00:00, 00:00:10, 00:00:20 ...
 %% Ensure that the monitor data of all nodes in the cluster are aligned in time
 next_interval() ->
-    Interval = emqx_conf:get([dashboard, monitor, interval], ?DEFAULT_INTERVAL) * 1000,
+    Interval = emqx_conf:get([dashboard, monitor, interval], ?DEFAULT_SAMPLE_INTERVAL) * 1000,
     Now = erlang:system_time(millisecond),
     NextTime = ((Now div Interval) + 1) * Interval,
     Remaining = NextTime - Now,
@@ -186,7 +217,7 @@ delta(LastData, NowData) ->
             Value = maps:get(Key, NowData) - maps:get(Key, LastData),
             Data#{Key => Value}
         end,
-    lists:foldl(Fun, NowData, ?DELTA_LIST).
+    lists:foldl(Fun, NowData, ?DELTA_SAMPLER_LIST).
 
 store(MonitData) ->
     {atomic, ok} =
@@ -204,27 +235,17 @@ clean() ->
 get_data(PastTime) ->
     Now = erlang:system_time(millisecond),
     ExpiredMS = [{{'_', '$1', '_'}, [{'<', {'-', Now, '$1'}, PastTime}], ['$_']}],
-    format(ets:select(?TAB, ExpiredMS)).
+    internal_format(ets:select(?TAB, ExpiredMS)).
 
-format(List) when is_list(List) ->
+%% To make it easier to do data aggregation
+internal_format(List) when is_list(List) ->
     Fun =
         fun(Data, All) ->
-            maps:merge(format(Data), All)
+            maps:merge(internal_format(Data), All)
         end,
     lists:foldl(Fun, #{}, List);
-format(#emqx_monit{time = Time, data = Data}) ->
+internal_format(#emqx_monit{time = Time, data = Data}) ->
     #{Time => Data}.
-
-merge_cluster_samplers(Node, Cluster) ->
-    maps:fold(fun merge_cluster_samplers/3, Cluster, Node).
-
-merge_cluster_samplers(TS, NodeData, Cluster) ->
-    case maps:get(TS, Cluster, undefined) of
-        undefined ->
-            Cluster#{TS => NodeData};
-        ClusterData ->
-            Cluster#{TS => count_map(NodeData, ClusterData)}
-    end.
 
 count_map(M1, M2) ->
     Fun =

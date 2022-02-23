@@ -39,7 +39,19 @@
 
 -define(DASHBOARD_SHARD, emqx_dashboard_shard).
 
--record(mqtt_collect, {
-    timestamp :: integer(),
-    collect
-    }).
+%% 10 seconds
+-define(DEFAULT_SAMPLE_INTERVAL, 10).
+
+-define(DELTA_SAMPLER_LIST,
+    [ received
+    , received_bytes
+    , sent
+    , sent_bytes
+    , dropped
+    ]).
+
+-define(SAMPLER_LIST,
+    [ subscriptions
+    , routes
+    , connections
+    ] ++ ?DELTA_SAMPLER_LIST).

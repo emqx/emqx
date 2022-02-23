@@ -20,8 +20,7 @@
 
 -export([ introduced_in/0
 
-        , get_collect/1
-        , select_data/1
+        , samplers/1
         ]).
 
 -include("emqx_dashboard.hrl").
@@ -30,11 +29,6 @@
 introduced_in() ->
     "5.0.0".
 
--spec get_collect(node()) -> _.
-get_collect(Node) ->
-    rpc:call(Node, emqx_dashboard_collection, get_collect, []).
-
--spec select_data(node()) -> [#mqtt_collect{}]
-                           | emqx_rpc:badrpc().
-select_data(Node) ->
-    rpc:call(Node, emqx_dashboard_collection, select_data, []).
+-spec samplers(node()) -> list(map()) | emqx_rpc:badrpc().
+samplers(Node) ->
+    rpc:call(Node, emqx_dashboard_monitor, samplers, [Node]).
