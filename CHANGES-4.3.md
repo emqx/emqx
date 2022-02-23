@@ -30,6 +30,7 @@ File format:
 * Fix the ExProto connection registry is not released after the client process abnormally exits [#6983]
 * Fix Server-KeepAlive wrongly applied on MQTT v3.0/v3.1 [#7085]
 * Fix Stomp client can not trigger `$event/client_connection` message [#7096]
+* Fix system memory false alarm at boot
 
 ## v4.3.12
 ### Important changes
