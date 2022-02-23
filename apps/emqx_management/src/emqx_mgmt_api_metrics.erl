@@ -40,12 +40,10 @@
 %%--------------------------------------------------------------------
 
 api_spec() ->
-%    {[metrics_api()], [metrics_schema()]}.
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    [ "/metrics"
-    ].
+    ["/metrics"].
 
 %%--------------------------------------------------------------------
 %% http handlers
@@ -66,23 +64,22 @@ metrics(get, #{query_string := Qs}) ->
 %%--------------------------------------------------------------------
 
 schema("/metrics") ->
-    #{'operationId' => metrics,
-      get =>
-        #{ description => <<"EMQX metrics">>
-         , parameters =>
-            [{aggregate,
-              mk(boolean(),
-                 #{ in => query
-                  , nullable => true
-                  , desc => <<"">>
-                  })
-             }]
-         , responses =>
-            #{ 200 => hoconsc:union(
-                        [ref(?MODULE, aggregated_metrics),
-                         hoconsc:array(ref(?MODULE, node_metrics))])
-             }
-         }
+    #{ 'operationId' => metrics
+     , get =>
+           #{ description => <<"EMQX metrics">>
+            , parameters =>
+                  [{ aggregate
+                   , mk( boolean()
+                       , #{ in => query
+                          , nullable => true
+                          , desc => <<"Whether to aggregate all nodes Metrics">>})
+                   }]
+            , responses =>
+                  #{ 200 => hoconsc:union(
+                              [ref(?MODULE, aggregated_metrics),
+                               hoconsc:array(ref(?MODULE, node_metrics))])
+                   }
+            }
      }.
 
 roots() ->
