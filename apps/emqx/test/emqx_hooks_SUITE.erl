@@ -55,8 +55,9 @@ add_hook_order_prop() ->
                              (Prio1 =:= Prio2 andalso {M1, F1} =< {M2, F2})
                  end,
     ?FORALL(
-       Hooks, list({range(-1, 5), atom(), atom()}),
+       Hooks0, list({range(-1, 5), atom(), atom()}),
        try
+           Hooks = sets:to_list(sets:from_list(Hooks0)),
            {ok, _} = emqx_hooks:start_link(),
            [emqx:hook(prop_hook, {M, F, []}, Prio) || {Prio, M, F} <- Hooks],
            Callbacks = emqx_hooks:lookup(prop_hook),
