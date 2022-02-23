@@ -178,6 +178,16 @@ do_recreate(InstId, ResourceType, NewConfig, Opts) ->
             {error, not_found}
     end.
 
+wait_for_resource_ready(InstId, 0) ->
+    force_lookup(InstId);
+wait_for_resource_ready(InstId, Retry) ->
+    case force_lookup(InstId) of
+        #{resource_data := #{status := connected}} = Data -> Data;
+        _ ->
+            timer:sleep(100),
+            wait_for_resource_ready(InstId, Retry-1)
+    end.
+
 do_create(InstId, Group, ResourceType, Config, Opts) ->
     case lookup(InstId) of
         {ok,_, _} ->
@@ -187,7 +197,8 @@ do_create(InstId, Group, ResourceType, Config, Opts) ->
                 ok ->
                     ok = emqx_plugin_libs_metrics:create_metrics(resource_metrics, InstId,
                             [matched, success, failed, exception], [matched]),
-                    {ok, force_lookup(InstId)};
+                    WaitTime = maps:get(wait_connected, Opts, 0),
+                    {ok, wait_for_resource_ready(InstId, WaitTime div 100)};
                 Error ->
                     Error
             end
