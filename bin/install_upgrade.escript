@@ -6,6 +6,8 @@
 -define(TIMEOUT, 300000).
 -define(INFO(Fmt,Args), io:format(Fmt++"~n",Args)).
 
+-mode(compile).
+
 main([Command0, DistInfoStr | CommandArgs]) ->
     %% convert the distribution info arguments string to an erlang term
     {ok, Tokens, _} = erl_scan:string(DistInfoStr ++ "."),
@@ -210,13 +212,22 @@ find_and_link_release_package(Version, RelName) ->
             ok = filelib:ensure_dir(filename:join([filename:dirname(ReleaseLink), "dummy"])),
             %% create the symlink pointing to the full path name of the
             %% release package we found
-            case file:make_symlink(filename:absname(Filename), ReleaseLink) of
-                ok ->
-                    ok;
-                {error, eperm} -> % windows!
-                    {ok,_} = file:copy(filename:absname(Filename), ReleaseLink)
-            end,
+            make_symlink_or_copy(filename:absname(Filename), ReleaseLink),
             {Filename, ReleaseHandlerPackageLink}
+    end.
+
+make_symlink_or_copy(Filename, ReleaseLink) ->
+    case file:make_symlink(Filename, ReleaseLink) of
+        ok -> ok;
+        {error, eexist} ->
+            ?INFO("symlink ~p already exists, recreate it", [ReleaseLink]),
+            ok = file:delete(ReleaseLink),
+            make_symlink_or_copy(Filename, ReleaseLink);
+        {error, Reason} when Reason =:= eperm; Reason =:= enotsup ->
+            {ok, _} = file:copy(Filename, ReleaseLink);
+        {error, Reason} ->
+            ?INFO("create symlink ~p failed", [ReleaseLink]),
+            error({Reason, ReleaseLink})
     end.
 
 unpack_zipballs(RelNameStr, Version) ->
