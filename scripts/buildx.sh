@@ -8,7 +8,8 @@
 ## i.e. will not work if docker command has to be executed with sudo
 
 ## example:
-## ./scripts/buildx.sh --profile emqx --pkgtype tgz --arch arm64 --builder ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10
+## ./scripts/buildx.sh --profile emqx --pkgtype tgz --arch arm64 \
+##     --builder ghcr.io/emqx/emqx-builder/5.0-7:1.13.3-24.2.1-1-debian10
 
 set -euo pipefail
 
@@ -23,7 +24,7 @@ help() {
     echo "--arch amd64|arm64:          Target arch to build the EMQX package for"
     echo "--src_dir <SRC_DIR>:         EMQX source ode in this dir, default to PWD"
     echo "--builder <BUILDER>:         Builder image to pull"
-    echo "                             E.g. ghcr.io/emqx/emqx-builder/4.4-4:24.1.5-3-debian10"
+    echo "                             E.g. ghcr.io/emqx/emqx-builder/5.0-7:1.13.3=24.2.1-1-debian10"
     echo "--otp <OTP_VSN>:             OTP version being used in the builder"
     echo "--elixir <ELIXIR_VSN>:       Elixir version being used in the builder"
     echo "--system <SYSTEM>:           OS used in the builder image"
