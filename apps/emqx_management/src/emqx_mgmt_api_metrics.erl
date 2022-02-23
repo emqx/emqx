@@ -18,142 +18,253 @@
 
 -behaviour(minirest_api).
 
--export([api_spec/0]).
+-include_lib("typerefl/include/types.hrl").
 
--export([list/2]).
+-import(hoconsc, [mk/2, ref/2]).
+
+%% minirest/dashbaord_swagger behaviour callbacks
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        ]).
+
+-export([ roots/0
+        , fields/1
+        ]).
+
+%% http handlers
+-export([metrics/2]).
+
+%%--------------------------------------------------------------------
+%% minirest behaviour callbacks
+%%--------------------------------------------------------------------
 
 api_spec() ->
-    {[metrics_api()], [metrics_schema()]}.
+%    {[metrics_api()], [metrics_schema()]}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-metrics_schema() ->
-    Metric = #{
-        type => object,
-        properties => emqx_mgmt_util:properties(properties())
-    },
-    Metrics = #{
-        type => array,
-        items => #{
-            type => object,
-            properties => emqx_mgmt_util:properties([{node, string} | properties()])
-        }
-    },
-    MetricsInfo = #{
-        oneOf => [ minirest:ref(metric)
-                 , minirest:ref(metrics)
-                 ]
-    },
-    #{metric => Metric, metrics => Metrics, metrics_info => MetricsInfo}.
-
-properties() ->
-    [
-        {'actions.failure',                 integer, <<"Number of failure executions of the rule engine action">>},
-        {'actions.success',                 integer, <<"Number of successful executions of the rule engine action">>},
-        {'bytes.received',                  integer, <<"Number of bytes received ">>},
-        {'bytes.sent',                      integer, <<"Number of bytes sent on this connection">>},
-        {'client.auth.anonymous',           integer, <<"Number of clients who log in anonymously">>},
-        {'client.authenticate',             integer, <<"Number of client authentications">>},
-        {'client.check_authz',              integer, <<"Number of Authorization rule checks">>},
-        {'client.connack',                  integer, <<"Number of CONNACK packet sent">>},
-        {'client.connect',                  integer, <<"Number of client connections">>},
-        {'client.connected',                integer, <<"Number of successful client connections">>},
-        {'client.disconnected',             integer, <<"Number of client disconnects">>},
-        {'client.subscribe',                integer, <<"Number of client subscriptions">>},
-        {'client.unsubscribe',              integer, <<"Number of client unsubscriptions">>},
-        {'delivery.dropped',                integer, <<"Total number of discarded messages when sending">>},
-        {'delivery.dropped.expired',        integer, <<"Number of messages dropped due to message expiration on sending">>},
-        {'delivery.dropped.no_local',       integer, <<"Number of messages that were dropped due to the No Local subscription option when sending">>},
-        {'delivery.dropped.qos0_msg',       integer, <<"Number of messages with QoS 0 that were dropped because the message queue was full when sending">>},
-        {'delivery.dropped.queue_full',     integer, <<"Number of messages with a non-zero QoS that were dropped because the message queue was full when sending">>},
-        {'delivery.dropped.too_large',      integer, <<"The number of messages that were dropped because the length exceeded the limit when sending">>},
-        {'messages.acked',                  integer, <<"Number of received PUBACK and PUBREC packet">>},
-        {'messages.delayed',                integer, <<"Number of delay-published messages">>},
-        {'messages.delivered',              integer, <<"Number of messages forwarded to the subscription process internally">>},
-        {'messages.dropped',                integer, <<"Total number of messages dropped before forwarding to the subscription process">>},
-        {'messages.dropped.await_pubrel_timeout', integer, <<"Number of messages dropped due to waiting PUBREL timeout">>},
-        {'messages.dropped.no_subscribers', integer, <<"Number of messages dropped due to no subscribers">>},
-        {'messages.forward',                integer, <<"Number of messages forwarded to other nodes">>},
-        {'messages.publish',                integer, <<"Number of messages published in addition to system messages">>},
-        {'messages.qos0.received',          integer, <<"Number of QoS 0 messages received from clients">>},
-        {'messages.qos0.sent',              integer, <<"Number of QoS 0 messages sent to clients">>},
-        {'messages.qos1.received',          integer, <<"Number of QoS 1 messages received from clients">>},
-        {'messages.qos1.sent',              integer, <<"Number of QoS 1 messages sent to clients">>},
-        {'messages.qos2.received',          integer, <<"Number of QoS 2 messages received from clients">>},
-        {'messages.qos2.sent',              integer, <<"Number of QoS 2 messages sent to clients">>},
-        {'messages.received',               integer, <<"Number of messages received from the client, equal to the sum of messages.qos0.received\fmessages.qos1.received and messages.qos2.received">>},
-        {'messages.retained',               integer, <<"Number of retained messages">>},
-        {'messages.sent',                   integer, <<"Number of messages sent to the client, equal to the sum of messages.qos0.sent\fmessages.qos1.sent and messages.qos2.sent">>},
-        {'packets.auth.received',           integer, <<"Number of received AUTH packet">>},
-        {'packets.auth.sent',               integer, <<"Number of sent AUTH packet">>},
-        {'packets.connack.auth_error',      integer, <<"Number of received CONNECT packet with failed authentication">>},
-        {'packets.connack.error',           integer, <<"Number of received CONNECT packet with unsuccessful connections">>},
-        {'packets.connack.sent',            integer, <<"Number of sent CONNACK packet">>},
-        {'packets.connect.received',        integer, <<"Number of received CONNECT packet">>},
-        {'packets.disconnect.received',     integer, <<"Number of received DISCONNECT packet">>},
-        {'packets.disconnect.sent',         integer, <<"Number of sent DISCONNECT packet">>},
-        {'packets.pingreq.received',        integer, <<"Number of received PINGREQ packet">>},
-        {'packets.pingresp.sent',           integer, <<"Number of sent PUBRESP packet">>},
-        {'packets.puback.inuse',            integer, <<"Number of received PUBACK packet with occupied identifiers">>},
-        {'packets.puback.missed',           integer, <<"Number of received packet with identifiers.">>},
-        {'packets.puback.received',         integer, <<"Number of received PUBACK packet">>},
-        {'packets.puback.sent',             integer, <<"Number of sent PUBACK packet">>},
-        {'packets.pubcomp.inuse',           integer, <<"Number of received PUBCOMP packet with occupied identifiers">>},
-        {'packets.pubcomp.missed',          integer, <<"Number of missed PUBCOMP packet">>},
-        {'packets.pubcomp.received',        integer, <<"Number of received PUBCOMP packet">>},
-        {'packets.pubcomp.sent',            integer, <<"Number of sent PUBCOMP packet">>},
-        {'packets.publish.auth_error',      integer, <<"Number of received PUBLISH packets with failed the Authorization check">>},
-        {'packets.publish.dropped',         integer, <<"Number of messages discarded due to the receiving limit">>},
-        {'packets.publish.error',           integer, <<"Number of received PUBLISH packet that cannot be published">>},
-        {'packets.publish.inuse',           integer, <<"Number of received PUBLISH packet with occupied identifiers">>},
-        {'packets.publish.received',        integer, <<"Number of received PUBLISH packet">>},
-        {'packets.publish.sent',            integer, <<"Number of sent PUBLISH packet">>},
-        {'packets.pubrec.inuse',            integer, <<"Number of received PUBREC packet with occupied identifiers">>},
-        {'packets.pubrec.missed',           integer, <<"Number of received PUBREC packet with unknown identifiers">>},
-        {'packets.pubrec.received',         integer, <<"Number of received PUBREC packet">>},
-        {'packets.pubrec.sent',             integer, <<"Number of sent PUBREC packet">>},
-        {'packets.pubrel.missed',           integer, <<"Number of received PUBREC packet with unknown identifiers">>},
-        {'packets.pubrel.received',         integer, <<"Number of received PUBREL packet">>},
-        {'packets.pubrel.sent',             integer, <<"Number of sent PUBREL packet">>},
-        {'packets.received',                integer, <<"Number of received packet">>},
-        {'packets.sent',                    integer, <<"Number of sent packet">>},
-        {'packets.suback.sent',             integer, <<"Number of sent SUBACK packet">>},
-        {'packets.subscribe.auth_error',    integer, <<"Number of received SUBACK packet with failed Authorization check">>},
-        {'packets.subscribe.error',         integer, <<"Number of received SUBSCRIBE packet with failed subscriptions">>},
-        {'packets.subscribe.received',      integer, <<"Number of received SUBSCRIBE packet">>},
-        {'packets.unsuback.sent',           integer, <<"Number of sent UNSUBACK packet">>},
-        {'packets.unsubscribe.error',       integer, <<"Number of received UNSUBSCRIBE packet with failed unsubscriptions">>},
-        {'packets.unsubscribe.received',    integer, <<"Number of received UNSUBSCRIBE packet">>},
-        {'rules.matched',                   integer, <<"Number of rule matched">>},
-        {'session.created',                 integer, <<"Number of sessions created">>},
-        {'session.discarded',               integer, <<"Number of sessions dropped because Clean Session or Clean Start is true">>},
-        {'session.resumed',                 integer, <<"Number of sessions resumed because Clean Session or Clean Start is false">>},
-        {'session.takenover',               integer, <<"Number of sessions takenover because Clean Session or Clean Start is false">>},
-        {'session.terminated',              integer, <<"Number of terminated sessions">>}
+paths() ->
+    [ "/metrics"
     ].
 
-metrics_api() ->
-    Metadata = #{
-        get => #{
-            description => <<"EMQX metrics">>,
-            parameters => [#{
-                name => aggregate,
-                in => query,
-                schema => #{type => boolean}
-            }],
-            responses => #{
-                <<"200">> => emqx_mgmt_util:schema(metrics_info, <<"List all metrics">>)
-            }
-        }
-    },
-    {"/metrics", Metadata, list}.
+%%--------------------------------------------------------------------
+%% http handlers
 
-%%%==============================================================================================
-%% api apply
-list(get, #{query_string := Qs}) ->
-    case maps:get(<<"aggregate">>, Qs, undefined) of
-        <<"true">> ->
+metrics(get, #{query_string := Qs}) ->
+    case maps:get(<<"aggregate">>, Qs, false) of
+        true ->
             {200, emqx_mgmt:get_metrics()};
-        _ ->
-            Data = [maps:from_list(emqx_mgmt:get_metrics(Node) ++ [{node, Node}]) ||
-                        Node <- mria_mnesia:running_nodes()],
+        false ->
+            Data = [maps:from_list(
+                      emqx_mgmt:get_metrics(Node) ++ [{node, Node}])
+                    || Node <- mria_mnesia:running_nodes()],
             {200, Data}
     end.
+
+%%--------------------------------------------------------------------
+%% swagger defines
+%%--------------------------------------------------------------------
+
+schema("/metrics") ->
+    #{'operationId' => metrics,
+      get =>
+        #{ description => <<"EMQX metrics">>
+         , parameters =>
+            [{aggregate,
+              mk(boolean(),
+                 #{ in => query
+                  , nullable => true
+                  , desc => <<"">>
+                  })
+             }]
+         , responses =>
+            #{ 200 => hoconsc:union(
+                        [ref(?MODULE, aggregated_metrics),
+                         hoconsc:array(ref(?MODULE, node_metrics))])
+             }
+         }
+     }.
+
+roots() ->
+    [].
+
+fields(aggregated_metrics) ->
+    properties();
+fields(node_metrics) ->
+    [{node, mk(binary(), #{desc => <<"Node name">>})}] ++ properties().
+
+properties() ->
+    [ m('actions.failure',
+        <<"Number of failure executions of the rule engine action">>)
+    , m('actions.success',
+        <<"Number of successful executions of the rule engine action">>)
+    , m('bytes.received',
+        <<"Number of bytes received ">>)
+    , m('bytes.sent',
+        <<"Number of bytes sent on this connection">>)
+    , m('client.auth.anonymous',
+        <<"Number of clients who log in anonymously">>)
+    , m('client.authenticate',
+        <<"Number of client authentications">>)
+    , m('client.check_authz',
+        <<"Number of Authorization rule checks">>)
+    , m('client.connack',
+        <<"Number of CONNACK packet sent">>)
+    , m('client.connect',
+        <<"Number of client connections">>)
+    , m('client.connected',
+        <<"Number of successful client connections">>)
+    , m('client.disconnected',
+        <<"Number of client disconnects">>)
+    , m('client.subscribe',
+        <<"Number of client subscriptions">>)
+    , m('client.unsubscribe',
+        <<"Number of client unsubscriptions">>)
+    , m('delivery.dropped',
+        <<"Total number of discarded messages when sending">>)
+    , m('delivery.dropped.expired',
+        <<"Number of messages dropped due to message expiration on sending">>)
+    , m('delivery.dropped.no_local',
+        <<"Number of messages that were dropped due to the No Local subscription "
+          "option when sending">>)
+    , m('delivery.dropped.qos0_msg',
+        <<"Number of messages with QoS 0 that were dropped because the message "
+          "queue was full when sending">>)
+    , m('delivery.dropped.queue_full',
+        <<"Number of messages with a non-zero QoS that were dropped because the "
+          "message queue was full when sending">>)
+    , m('delivery.dropped.too_large',
+        <<"The number of messages that were dropped because the length exceeded "
+          "the limit when sending">>)
+    , m('messages.acked',
+        <<"Number of received PUBACK and PUBREC packet">>)
+    , m('messages.delayed',
+        <<"Number of delay-published messages">>)
+    , m('messages.delivered',
+        <<"Number of messages forwarded to the subscription process internally">>)
+    , m('messages.dropped',
+        <<"Total number of messages dropped before forwarding to the subscription process">>)
+    , m('messages.dropped.await_pubrel_timeout',
+        <<"Number of messages dropped due to waiting PUBREL timeout">>)
+    , m('messages.dropped.no_subscribers',
+        <<"Number of messages dropped due to no subscribers">>)
+    , m('messages.forward',
+        <<"Number of messages forwarded to other nodes">>)
+    , m('messages.publish',
+        <<"Number of messages published in addition to system messages">>)
+    , m('messages.qos0.received',
+        <<"Number of QoS 0 messages received from clients">>)
+    , m('messages.qos0.sent',
+        <<"Number of QoS 0 messages sent to clients">>)
+    , m('messages.qos1.received',
+        <<"Number of QoS 1 messages received from clients">>)
+    , m('messages.qos1.sent',
+        <<"Number of QoS 1 messages sent to clients">>)
+    , m('messages.qos2.received',
+        <<"Number of QoS 2 messages received from clients">>)
+    , m('messages.qos2.sent',
+        <<"Number of QoS 2 messages sent to clients">>)
+    , m('messages.received',
+        <<"Number of messages received from the client, equal to the sum of "
+          "messages.qos0.received\fmessages.qos1.received and messages.qos2.received">>)
+    , m('messages.retained',
+        <<"Number of retained messages">>)
+    , m('messages.sent',
+        <<"Number of messages sent to the client, equal to the sum of "
+          "messages.qos0.sent\fmessages.qos1.sent and messages.qos2.sent">>)
+    , m('packets.auth.received',
+        <<"Number of received AUTH packet">>)
+    , m('packets.auth.sent',
+        <<"Number of sent AUTH packet">>)
+    , m('packets.connack.auth_error',
+        <<"Number of received CONNECT packet with failed authentication">>)
+    , m('packets.connack.error',
+        <<"Number of received CONNECT packet with unsuccessful connections">>)
+    , m('packets.connack.sent',
+        <<"Number of sent CONNACK packet">>)
+    , m('packets.connect.received',
+        <<"Number of received CONNECT packet">>)
+    , m('packets.disconnect.received',
+        <<"Number of received DISCONNECT packet">>)
+    , m('packets.disconnect.sent',
+        <<"Number of sent DISCONNECT packet">>)
+    , m('packets.pingreq.received',
+        <<"Number of received PINGREQ packet">>)
+    , m('packets.pingresp.sent',
+        <<"Number of sent PUBRESP packet">>)
+    , m('packets.puback.inuse',
+        <<"Number of received PUBACK packet with occupied identifiers">>)
+    , m('packets.puback.missed',
+        <<"Number of received packet with identifiers.">>)
+    , m('packets.puback.received',
+        <<"Number of received PUBACK packet">>)
+    , m('packets.puback.sent',
+        <<"Number of sent PUBACK packet">>)
+    , m('packets.pubcomp.inuse',
+        <<"Number of received PUBCOMP packet with occupied identifiers">>)
+    , m('packets.pubcomp.missed',
+        <<"Number of missed PUBCOMP packet">>)
+    , m('packets.pubcomp.received',
+        <<"Number of received PUBCOMP packet">>)
+    , m('packets.pubcomp.sent',
+        <<"Number of sent PUBCOMP packet">>)
+    , m('packets.publish.auth_error',
+        <<"Number of received PUBLISH packets with failed the Authorization check">>)
+    , m('packets.publish.dropped',
+        <<"Number of messages discarded due to the receiving limit">>)
+    , m('packets.publish.error',
+        <<"Number of received PUBLISH packet that cannot be published">>)
+    , m('packets.publish.inuse',
+        <<"Number of received PUBLISH packet with occupied identifiers">>)
+    , m('packets.publish.received',
+        <<"Number of received PUBLISH packet">>)
+    , m('packets.publish.sent',
+        <<"Number of sent PUBLISH packet">>)
+    , m('packets.pubrec.inuse',
+        <<"Number of received PUBREC packet with occupied identifiers">>)
+    , m('packets.pubrec.missed',
+        <<"Number of received PUBREC packet with unknown identifiers">>)
+    , m('packets.pubrec.received',
+        <<"Number of received PUBREC packet">>)
+    , m('packets.pubrec.sent',
+        <<"Number of sent PUBREC packet">>)
+    , m('packets.pubrel.missed',
+        <<"Number of received PUBREC packet with unknown identifiers">>)
+    , m('packets.pubrel.received',
+        <<"Number of received PUBREL packet">>)
+    , m('packets.pubrel.sent',
+        <<"Number of sent PUBREL packet">>)
+    , m('packets.received',
+        <<"Number of received packet">>)
+    , m('packets.sent',
+        <<"Number of sent packet">>)
+    , m('packets.suback.sent',
+        <<"Number of sent SUBACK packet">>)
+    , m('packets.subscribe.auth_error',
+        <<"Number of received SUBACK packet with failed Authorization check">>)
+    , m('packets.subscribe.error',
+        <<"Number of received SUBSCRIBE packet with failed subscriptions">>)
+    , m('packets.subscribe.received',
+        <<"Number of received SUBSCRIBE packet">>)
+    , m('packets.unsuback.sent',
+        <<"Number of sent UNSUBACK packet">>)
+    , m('packets.unsubscribe.error',
+        <<"Number of received UNSUBSCRIBE packet with failed unsubscriptions">>)
+    , m('packets.unsubscribe.received',
+        <<"Number of received UNSUBSCRIBE packet">>)
+    , m('rules.matched',
+        <<"Number of rule matched">>)
+    , m('session.created',
+        <<"Number of sessions created">>)
+    , m('session.discarded',
+        <<"Number of sessions dropped because Clean Session or Clean Start is true">>)
+    , m('session.resumed',
+        <<"Number of sessions resumed because Clean Session or Clean Start is false">>)
+    , m('session.takenover',
+        <<"Number of sessions takenover because Clean Session or Clean Start is false">>)
+    , m('session.terminated',
+        <<"Number of terminated sessions">>)
+    ].
+
+m(K, Desc) ->
+    {K, mk(integer(), #{desc => Desc})}.
