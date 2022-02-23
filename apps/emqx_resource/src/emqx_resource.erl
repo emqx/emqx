@@ -60,7 +60,7 @@
 -export([ restart/1  %% restart the instance.
         , restart/2
         , health_check/1 %% verify if the resource is working normally
-        , set_resource_status_disconnected/1 %% set resource status to disconnected
+        , set_resource_status_connecting/1 %% set resource status to disconnected
         , stop/1   %% stop the instance
         , query/2  %% query the instance
         , query/3  %% query the instance with after_query()
@@ -225,8 +225,8 @@ stop(InstId) ->
 health_check(InstId) ->
     call_instance(InstId, {health_check, InstId}).
 
-set_resource_status_disconnected(InstId) ->
-    call_instance(InstId, {set_resource_status_disconnected, InstId}).
+set_resource_status_connecting(InstId) ->
+    call_instance(InstId, {set_resource_status_connecting, InstId}).
 
 -spec get_instance(instance_id()) -> {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
 get_instance(InstId) ->

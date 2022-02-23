@@ -107,7 +107,7 @@ t_create_remove_local(_) ->
 
     ?assert(is_process_alive(Pid)),
 
-    emqx_resource:set_resource_status_disconnected(?ID),
+    emqx_resource:set_resource_status_connecting(?ID),
 
     emqx_resource:recreate_local(
             ?ID,
@@ -170,7 +170,7 @@ t_healthy(_) ->
     emqx_resource_health_check:create_checker(?ID, 15000, 10000),
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
     timer:sleep(300),
-    emqx_resource:set_resource_status_disconnected(?ID),
+    emqx_resource:set_resource_status_connecting(?ID),
 
     ok = emqx_resource:health_check(?ID),
 
@@ -185,7 +185,7 @@ t_healthy(_) ->
         emqx_resource:health_check(?ID)),
 
     ?assertMatch(
-        [#{status := disconnected}],
+        [#{status := connecting}],
         emqx_resource:list_instances_verbose()),
 
     ok = emqx_resource:remove_local(?ID).

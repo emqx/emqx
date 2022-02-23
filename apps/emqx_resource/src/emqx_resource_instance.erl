@@ -126,8 +126,8 @@ handle_call({stop, InstId}, _From, State) ->
 handle_call({health_check, InstId}, _From, State) ->
     {reply, do_health_check(InstId), State};
 
-handle_call({set_resource_status_disconnected, InstId}, _From, State) ->
-    {reply, do_set_resource_status_disconnected(InstId), State};
+handle_call({set_resource_status_connecting, InstId}, _From, State) ->
+    {reply, do_set_resource_status_connecting(InstId), State};
 
 handle_call(Req, _From, State) ->
     logger:error("Received unexpected call: ~p", [Req]),
@@ -251,7 +251,7 @@ do_start(InstId, Group, ResourceType, Config, Opts) when is_binary(InstId) ->
 start_and_check(InstId, Group, ResourceType, Config, Opts, Data) ->
     case emqx_resource:call_start(InstId, ResourceType, Config) of
         {ok, ResourceState} ->
-            Data2 = Data#{state => ResourceState},
+            Data2 = Data#{state => ResourceState, status => connected},
             ets:insert(emqx_resource_instance, {InstId, Group, Data2}),
             case maps:get(async_create, Opts, false) of
                 false -> case do_health_check(Group, Data2) of
@@ -295,15 +295,15 @@ do_health_check(Group, #{id := InstId, mod := Mod, state := ResourceState0} = Da
         {error, Reason, ResourceState1} ->
             logger:error("health check for ~p failed: ~p", [InstId, Reason]),
             ets:insert(emqx_resource_instance,
-                {InstId, Group, Data#{status => disconnected, state => ResourceState1}}),
+                {InstId, Group, Data#{status => connecting, state => ResourceState1}}),
             {error, Reason}
     end.
 
-do_set_resource_status_disconnected(InstId) ->
+do_set_resource_status_connecting(InstId) ->
     case emqx_resource_instance:lookup(InstId) of
         {ok, Group, #{id := InstId} = Data} ->
             logger:error("health check for ~p failed: timeout", [InstId]),
-            ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => disconnected}});
+            ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => connecting}});
         Error -> {error, Error}
     end.
 
