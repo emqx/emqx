@@ -464,11 +464,11 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
     - name: upload aws s3
-        run: |
-          if [ "${{ matrix.profile }}"  == "emqx" ];then
-              s3dir="emqx-ce"
-          else
-              s3dir=${{ matrix.profile }}
-          fi
-        aws s3 cp --recursive _packages/${{ matrix.profile }} s3://${{ secrets.AWS_S3_BUCKET }}/$s3dir/${{ github.ref_name }}
-        aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_ID }} --paths "/$s3dir/${{ github.ref_name }}/*"
+      run: |
+        if [ "${{ matrix.profile }}"  == "emqx" ];then
+            s3dir="emqx-ce"
+        else
+            s3dir=${{ matrix.profile }}
+        fi
+      aws s3 cp --recursive _packages/${{ matrix.profile }} s3://${{ secrets.AWS_S3_BUCKET }}/$s3dir/${{ github.ref_name }}
+      aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_ID }} --paths "/$s3dir/${{ github.ref_name }}/*"
