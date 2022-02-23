@@ -8,9 +8,6 @@ on:
   push:
     branches:
       - master
-    tags:
-      - v*
-      - e*
   pull_request:
     # GitHub pull_request action is by default triggered when
     # opened reopened or synchronize,
