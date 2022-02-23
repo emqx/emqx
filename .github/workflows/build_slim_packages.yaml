@@ -96,6 +96,43 @@ jobs:
       with:
         name: ${{ matrix.profile}}-${{ matrix.otp }}-${{ matrix.os }}
         path: _packages/${{ matrix.profile}}/*.tar.gz
+
+  windows:
+    runs-on: windows-2019
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx
+        otp:
+          - 24.2.1
+    steps:
+    - uses: actions/checkout@v2
+    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: ${{ matrix.otp }}
+    - name: build
+      env:
+        PYTHON: python
+        DIAGNOSTIC: 1
+      run: |
+        # ensure crypto app (openssl)
+        erl -eval "erlang:display(crypto:info_lib())" -s init stop
+        make ${{ matrix.profile }}-tgz
+    - name: run emqx
+      timeout-minutes: 5
+      run: |
+        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
+        Start-Sleep -s 5
+        echo "EMQX started"
+        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
+        echo "EMQX stopped"
+        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
+        echo "EQMX installed"
+        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
+        echo "EQMX uninstaled"
+
   mac:
     strategy:
       fail-fast: false

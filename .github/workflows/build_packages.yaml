@@ -52,18 +52,14 @@ jobs:
 
   windows:
     runs-on: windows-2019
-
     needs: prepare
-
     strategy:
       fail-fast: false
       matrix:
-        profile: # only CE for windows
+        profile: # for now only CE for windows
           - emqx
         otp:
-          ## gleam-lang/setup-erlang does not yet support the installation of otp24 on windows
-          - 23.2
-
+          - 24.2.1
     steps:
     - uses: actions/download-artifact@v2
       with:
@@ -72,8 +68,7 @@ jobs:
     - name: unzip source code
       run: Expand-Archive -Path source.zip -DestinationPath ./
     - uses: ilammy/msvc-dev-cmd@v1
-    - uses: gleam-lang/setup-erlang@v1.1.2
-      id: install_erlang
+    - uses: erlef/setup-beam@v1
       with:
         otp-version: ${{ matrix.otp }}
     - name: build
@@ -82,44 +77,26 @@ jobs:
         DIAGNOSTIC: 1
       working-directory: source
       run: |
-        $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
-
-        $version = $( "${{ github.ref }}" -replace "^(.*)/(.*)/" )
-        if ($version -match "^v[0-9]+\.[0-9]+(\.[0-9]+)?") {
-          $regex = "[0-9]+\.[0-9]+(-alpha|-beta|-rc)?\.[0-9]+"
-          $pkg_name = "${{ matrix.profile }}-$([regex]::matches($version, $regex).value)-otp${{ matrix.otp }}-windows-amd64.tar.gz"
-        }
-        else {
-          $pkg_name = "${{ matrix.profile }}-$($version -replace '/')-otp${{ matrix.otp }}-windows-amd64.tar.gz"
-        }
-        ## We do not build/release bcrypt and quic for windows package
-        Remove-Item -Recurse -Force -Path _build/default/lib/bcrypt/
-        Remove-Item -Recurse -Force -Path _build/default/lib/quicer/
-        if (Test-Path rebar.lock) {
-            Remove-Item -Force -Path rebar.lock
-        }
-        make ensure-rebar3
-        copy rebar3 "${{ steps.install_erlang.outputs.erlpath }}\bin"
-        ls "${{ steps.install_erlang.outputs.erlpath }}\bin"
-        rebar3 --help
-        make ${{ matrix.profile }}
-        mkdir -p _packages/${{ matrix.profile }}
-        Compress-Archive -Path _build/${{ matrix.profile }}/rel/emqx -DestinationPath _build/${{ matrix.profile }}/rel/$pkg_name
-        mv _build/${{ matrix.profile }}/rel/$pkg_name _packages/${{ matrix.profile }}
-        Get-FileHash -Path "_packages/${{ matrix.profile }}/$pkg_name" | Format-List | grep 'Hash' | awk '{print $3}'  > _packages/${{ matrix.profile }}/$pkg_name.sha256
+        # ensure crypto app (openssl)
+        erl -eval "erlang:display(crypto:info_lib())" -s init stop
+        make ${{ matrix.profile }}-tgz
     - name: run emqx
-      timeout-minutes: 1
+      timeout-minutes: 5
       working-directory: source
       run: |
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
         Start-Sleep -s 5
+        echo "EMQX started"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
+        echo "EMQX stopped"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
+        echo "EMQX installed"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
+        echo "EMQX uninstalled"
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-windows
         path: source/_packages/${{ matrix.profile }}/.
 
   mac:
@@ -209,7 +186,6 @@ jobs:
         ./emqx/bin/emqx_ctl status
         ./emqx/bin/emqx stop
         rm -rf emqx
-        openssl dgst -sha256 $pkg_name | awk '{print $2}'  > $pkg_name.sha256
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
@@ -354,19 +330,6 @@ jobs:
             --system "${SYSTEM}" \
             --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
         done
-
-    - name: create sha256
-      env:
-        PROFILE: ${{ matrix.profile}}
-      working-directory: source
-      run: |
-        if [ -d _packages/$PROFILE ]; then
-          cd _packages/$PROFILE
-            for var in $(ls emqx-* ); do
-              bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
-            done
-          cd -
-        fi
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
@@ -655,7 +618,9 @@ jobs:
           - emqx-enterprise
         otp:
           - 24.1.5-4
-
+        include:
+          - profile: emqx
+            otp: windows # otp version on windows is rather fixed
     steps:
     - uses: actions/checkout@v2
     - name: get_version
