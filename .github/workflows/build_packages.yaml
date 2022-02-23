@@ -22,7 +22,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.0-5:1.13.2-24.1.5-4-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-7:1.13.3-24.2.1-1-ubuntu20.04"
 
     outputs:
       DEP_ROCKSDB_REF: ${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
@@ -108,7 +108,7 @@ jobs:
           - emqx
           - emqx-enterprise
         otp:
-          - 24.1.5-4
+          - 24.2.1-1
         os:
           - macos-11
           - macos-10.15
@@ -196,7 +196,7 @@ jobs:
     needs: prepare
     runs-on: ${{ matrix.build_machine }}
     container:
-      image: "ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+      image: "ghcr.io/emqx/emqx-builder/5.0-7:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     strategy:
       fail-fast: false
@@ -206,9 +206,9 @@ jobs:
           - emqx
           - emqx-enterprise
         otp:
-          - 24.1.5-4 # we test with OTP 23, but only build package on OTP 24 versions
+          - 24.2.1-1 # we test with OTP 23, but only build package on OTP 24 versions
         elixir:
-          - 1.13.2
+          - 1.13.3
         # used to split elixir packages into a separate job, since the
         # entire job may take a lot of time, especially on arm64
         # emulation.
@@ -255,15 +255,15 @@ jobs:
           profile: emqx-enterprise
         include:
           - profile: emqx
-            otp: 24.1.5-4
-            elixir: 1.13.2
+            otp: 24.2.1-1
+            elixir: 1.13.3
             build_elixir: with_elixir
             arch: amd64
             os: ubuntu20.04
             build_machine: ubuntu-20.04
           - profile: emqx
-            otp: 24.1.5-4
-            elixir: 1.13.2
+            otp: 24.2.1-1
+            elixir: 1.13.3
             build_elixir: with_elixir
             arch: amd64
             os: centos7
@@ -328,7 +328,7 @@ jobs:
             --otp "${OTP}" \
             --elixir "${ELIXIR}" "$WithElixir" \
             --system "${SYSTEM}" \
-            --builder "ghcr.io/emqx/emqx-builder/5.0-5:${ELIXIR}-${OTP}-${SYSTEM}"
+            --builder "ghcr.io/emqx/emqx-builder/5.0-7:${ELIXIR}-${OTP}-${SYSTEM}"
         done
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
@@ -352,9 +352,9 @@ jobs:
         # NOTE: for docker, only support latest otp and elixir
         # versions, not a matrix
         otp:
-          - 24.1.5-4 # update to latest
+          - 24.2.1-1 # update to latest
         elixir:
-          - 1.13.2 # update to latest
+          - 1.13.3 # update to latest
         arch:
           - amd64
           - arm64
@@ -371,8 +371,8 @@ jobs:
         include:
           - os: alpine3.14
             profile: emqx
-            otp: 24.1.5-4
-            elixir: 1.13.2
+            otp: 24.2.1-1
+            elixir: 1.13.3
             arch: amd64
             build_elixir: with_elixir
             build_machine: ubuntu-20.04
@@ -454,7 +454,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-7:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
           RUN_FROM=${{ steps.pre-meta.outputs.img }}
           EMQX_NAME=${{ steps.pre-meta.outputs.emqx_name }}
         file: source/deploy/docker/Dockerfile
@@ -496,10 +496,10 @@ jobs:
           - emqx-enterprise
         # NOTE: for docker, only support latest otp version, not a matrix
         otp:
-          - 24.1.5-4 # update to latest
+          - 24.2.1-1 # update to latest
           #
         elixir:
-          - 1.13.2 # update to latest
+          - 1.13.3 # update to latest
         arch:
           - amd64
           - arm64
@@ -516,8 +516,8 @@ jobs:
         include:
           - os: alpine3.14
             profile: emqx
-            otp: 24.1.5-4
-            elixir: 1.13.2
+            otp: 24.2.1-1
+            elixir: 1.13.3
             arch: amd64
             build_elixir: with_elixir
             build_machine: ubuntu-20.04
@@ -617,7 +617,7 @@ jobs:
           - emqx
           - emqx-enterprise
         otp:
-          - 24.1.5-4
+          - 24.2.1-1
         include:
           - profile: emqx
             otp: windows # otp version on windows is rather fixed

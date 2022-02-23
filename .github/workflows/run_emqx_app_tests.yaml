@@ -15,19 +15,19 @@ jobs:
       matrix:
         otp:
           - 23.3.4.9-4
-          - 24.1.5-4
+          - 24.2.1-1
         # no need to use more than 1 version of Elixir, since tests
         # run using only Erlang code.  This is needed just to specify
         # the base image.
         elixir:
-          - 1.13.2
+          - 1.13.3
         os:
           - ubuntu20.04
         arch:
           - amd64
 
     runs-on: ubuntu-20.04
-    container: "ghcr.io/emqx/emqx-builder/5.0-5:${{ matrix.elixir}}-${{ matrix.otp }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/5.0-7:${{ matrix.elixir}}-${{ matrix.otp }}-${{ matrix.os }}"
 
     steps:
     - uses: actions/checkout@v2
