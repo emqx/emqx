@@ -14,14 +14,14 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_htb_generic).
+-module(emqx_esockd_htb_limiter).
 
 -behaviour(esockd_generic_limiter).
 
 %% API
 -export([new_create_options/2, create/1, delete/1, consume/2]).
 
--type create_options() :: #{ module := emqx_htb_generic
+-type create_options() :: #{ module := ?MODULE
                            , type := emqx_limiter_schema:limiter_type()
                            , bucket := emqx_limiter_schema:bucket_name()
                            }.
