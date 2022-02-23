@@ -51,10 +51,10 @@ paths() ->
 %% http handlers
 
 metrics(get, #{query_string := Qs}) ->
-    case maps:get(<<"aggregate">>, Qs, undefined) of
-        <<"true">> ->
+    case maps:get(<<"aggregate">>, Qs, false) of
+        true ->
             {200, emqx_mgmt:get_metrics()};
-        _ ->
+        false ->
             Data = [maps:from_list(
                       emqx_mgmt:get_metrics(Node) ++ [{node, Node}])
                     || Node <- mria_mnesia:running_nodes()],
