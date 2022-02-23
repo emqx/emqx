@@ -33,3 +33,5 @@ The """ ++ TYPE ++ " default port " ++ DEFAULT_PORT ++ " is used if '[:Port]' is
 ).
 
 -define(THROW_ERROR(Str), erlang:throw({error, Str})).
+
+-define(CONNECTOR_RESOURCE_GROUP, <<"emqx_connector">>).
