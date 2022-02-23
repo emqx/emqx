@@ -401,12 +401,12 @@ collect_status(Bridges) ->
     [maps:with([node, status], B) || B <- Bridges].
 
 aggregate_status(AllStatus) ->
-    AllConnected = lists:all(fun (#{status := connected}) -> true;
-                                 (_) -> false
-                             end, AllStatus),
-    case AllConnected of
-        true -> connected;
-        false -> disconnected
+    Head = fun ([A|_]) -> A end,
+    HeadVal = Head(AllStatus),
+    AllRes = lists:all(fun (#{status := Val}) -> Val == HeadVal end, AllStatus),
+    case AllRes of
+        true -> HeadVal;
+        false -> inconsistent
     end.
 
 collect_metrics(Bridges) ->
