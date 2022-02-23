@@ -311,7 +311,7 @@ esockd_opts(Type, Opts0) ->
                 undefined ->
                     Opts1;
                 BucketName ->
-                    Opts1#{limiter => emqx_htb_generic:new_create_options(connection, BucketName)}
+                    Opts1#{limiter => emqx_esockd_htb_limiter:new_create_options(connection, BucketName)}
             end,
     Opts3 = Opts2#{ access_rules => esockd_access_rules(maps:get(access_rules, Opts0, []))
                   , tune_fun => {emqx_olp, backoff_new_conn, [zone(Opts0)]}
