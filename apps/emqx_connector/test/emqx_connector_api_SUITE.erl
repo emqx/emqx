@@ -377,7 +377,7 @@ t_mqtt_conn_update(_) ->
 
     %% then we try to update 'server' of the connector, to an unavailable IP address
     %% the update should fail because of 'unreachable' or 'connrefused'
-    {ok, 400, _ErrorMsg} = request(put, uri(["connectors", ConnctorID]),
+    {ok, 500, _ErrorMsg} = request(put, uri(["connectors", ConnctorID]),
                                  ?MQTT_CONNECTOR2(<<"127.0.0.1:2603">>)),
     %% we fix the 'server' parameter to a normal one, it should work
     {ok, 200, _} = request(put, uri(["connectors", ConnctorID]),
@@ -468,7 +468,7 @@ t_mqtt_conn_update3(_) ->
 t_mqtt_conn_testing(_) ->
     %% APIs for testing the connectivity
     %% then we add a mqtt connector, using POST
-    {ok, 200, <<>>} = request(post, uri(["connectors_test"]),
+    {ok, 204, <<>>} = request(post, uri(["connectors_test"]),
         ?MQTT_CONNECTOR2(<<"127.0.0.1:1883">>)#{
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_EGRESS

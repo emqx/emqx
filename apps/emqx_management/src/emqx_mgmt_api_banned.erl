@@ -67,8 +67,9 @@ schema("/banned") ->
             'requestBody' => hoconsc:mk(hoconsc:ref(ban)),
             responses => #{
                 200 => [{data, hoconsc:mk(hoconsc:array(hoconsc:ref(ban)), #{})}],
-                400 => emqx_dashboard_swagger:error_codes(['ALREADY_EXISTED'],
-                                                          <<"Banned already existed">>)
+                400 => emqx_dashboard_swagger:error_codes(
+                           ['ALREADY_EXISTED', 'BAD_REQUEST'],
+                            <<"Banned already existed, or bad args">>)
             }
         }
     };
@@ -89,8 +90,9 @@ schema("/banned/:as/:who") ->
                 ],
             responses => #{
                 204 => <<"Delete banned success">>,
-                404 => emqx_dashboard_swagger:error_codes(['RESOURCE_NOT_FOUND'],
-                                                          <<"Banned not found">>)
+                404 => emqx_dashboard_swagger:error_codes(
+                           ['NOT_FOUND'],
+                            <<"Banned not found. May be the banned time has been exceeded">>)
             }
         }
     }.
@@ -104,7 +106,7 @@ fields(ban) ->
         {who, hoconsc:mk(binary(), #{
             desc => <<"Client info as banned type">>,
             nullable => false,
-            example => <<"Badass坏"/utf8>>})},
+            example => <<"Banned name"/utf8>>})},
         {by, hoconsc:mk(binary(), #{
             desc => <<"Commander">>,
             nullable => true,
@@ -134,12 +136,12 @@ banned(get, #{query_string := Params}) ->
 banned(post, #{body := Body}) ->
     case emqx_banned:parse(Body) of
         {error, Reason} ->
-            {400, #{code => 'PARAMS_ERROR', message => list_to_binary(Reason)}};
+            {400, 'BAD_REQUEST', list_to_binary(Reason)};
         Ban ->
             case emqx_banned:create(Ban) of
                 {ok, Banned} -> {200, format(Banned)};
                 {error, {already_exist, Old}} ->
-                    {400, #{code => 'ALREADY_EXISTED', message => format(Old)}}
+                    {400, 'ALREADY_EXISTED', format(Old)}
             end
     end.
 
@@ -148,7 +150,7 @@ delete_banned(delete, #{bindings := Params}) ->
         [] ->
             #{as := As0, who := Who0} = Params,
             Message = list_to_binary(io_lib:format("~p: ~s not found", [As0, Who0])),
-            {404, #{code => 'RESOURCE_NOT_FOUND', message => Message}};
+            {404, 'NOT_FOUND', Message};
         _ ->
             ok = emqx_banned:delete(Params),
             {204}

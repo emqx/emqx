@@ -75,7 +75,14 @@ start_link() ->
     start_link(node(), ?MODULE, get_retry_ms()).
 
 start_link(Node, Name, RetryMs) ->
-    gen_server:start_link({local, Name}, ?MODULE, [Node, RetryMs], []).
+    case gen_server:start_link({local, Name}, ?MODULE, [Node, RetryMs], []) of
+        {ok, Pid} ->
+            {ok, Pid};
+        {error, {already_started, Pid}} ->
+            {ok, Pid};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 %% @doc return {ok, TnxId, MFARes} the first MFA result when all MFA run ok.
 %% return {error, MFARes} when the first MFA result is no ok or {ok, term()}.

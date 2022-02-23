@@ -127,7 +127,9 @@ parse(Params) ->
                         until  = Until
                     };
                 false ->
-                    {error, "already_expired"}
+                    ErrorReason =
+                        io_lib:format("Cannot create expired banned, ~p to ~p", [At, Until]),
+                    {error, ErrorReason}
             end
     end.
 pares_who(#{as := As, who := Who}) ->

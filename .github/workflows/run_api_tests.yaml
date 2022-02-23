@@ -74,7 +74,6 @@ jobs:
           - api_publish
           - api_user
           - api_login
-          - api_banned
           - api_alarms
           - api_nodes
           - api_topic_metrics
