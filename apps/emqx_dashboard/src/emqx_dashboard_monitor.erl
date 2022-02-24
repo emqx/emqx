@@ -40,26 +40,14 @@
         ]).
 
 %% for rpc
--export([ do_samples/1]).
+-export([ do_sample/1]).
 
 -define(TAB, ?MODULE).
-
--ifdef(TEST).
-%% for test
--define(CLEAN_EXPIRED_INTERVAL, 2 * 1000).
--define(RETENTION_TIME, 3 * 1000).
--define(DEFAULT_GET_DATA_TIME, 5* 1000).
-
--else.
 
 %% 1 hour = 60 * 60 * 1000 milliseconds
 -define(CLEAN_EXPIRED_INTERVAL, 60 * 60 * 1000).
 %% 7 days = 7 * 24 * 60 * 60 * 1000 milliseconds
 -define(RETENTION_TIME, 7 * 24 * 60 * 60 * 1000).
-%% 1 day = 60 * 60 * 1000 milliseconds
--define(DEFAULT_GET_DATA_TIME, 60 * 60 * 1000).
-
--endif.
 
 -record(state, {
     last
@@ -82,7 +70,7 @@ samplers() ->
     samplers(all).
 
 samplers(NodeOrCluster) ->
-    format(do_samples(NodeOrCluster)).
+    format(do_sample(NodeOrCluster)).
 
 samplers(NodeOrCluster, 0) ->
     samplers(NodeOrCluster);
@@ -141,10 +129,10 @@ code_change(_OldVsn, State = #state{}, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-do_samples(all) ->
+do_sample(all) ->
     Fun =
         fun(Node, All) ->
-            case do_samples(Node) of
+            case do_sample(Node) of
                 {badrpc, Reason} ->
                     {badrpc, {Node, Reason}};
                 NodeSamplers ->
@@ -152,9 +140,10 @@ do_samples(all) ->
             end
         end,
     lists:foldl(Fun, #{}, mria_mnesia:cluster_nodes(running));
-do_samples(Node) when Node == node() ->
-    get_data(?DEFAULT_GET_DATA_TIME);
-do_samples(Node) ->
+do_sample(Node) when Node == node() ->
+    ExpiredMS = [{'$1',[],['$1']}],
+    internal_format(ets:select(?TAB, ExpiredMS));
+do_sample(Node) ->
     rpc:call(Node, ?MODULE, ?FUNCTION_NAME, [Node], 5000).
 
 merge_cluster_samplers(Node, Cluster) ->
@@ -191,7 +180,7 @@ clean_timer() ->
 %%  The monitor will start working at full seconds, as like 00:00:00, 00:00:10, 00:00:20 ...
 %% Ensure that the monitor data of all nodes in the cluster are aligned in time
 next_interval() ->
-    Interval = emqx_conf:get([dashboard, monitor, interval], ?DEFAULT_SAMPLE_INTERVAL) * 1000,
+    Interval = emqx_conf:get([dashboard, sample_interval], ?DEFAULT_SAMPLE_INTERVAL) * 1000,
     Now = erlang:system_time(millisecond),
     NextTime = ((Now div Interval) + 1) * Interval,
     Remaining = NextTime - Now,
@@ -231,11 +220,6 @@ clean() ->
         true = ets:delete_object(?TAB, Data)
     end, Expired),
     ok.
-
-get_data(PastTime) ->
-    Now = erlang:system_time(millisecond),
-    ExpiredMS = [{{'_', '$1', '_'}, [{'<', {'-', Now, '$1'}, PastTime}], ['$_']}],
-    internal_format(ets:select(?TAB, ExpiredMS)).
 
 %% To make it easier to do data aggregation
 internal_format(List) when is_list(List) ->

@@ -39,8 +39,13 @@
 
 -define(DASHBOARD_SHARD, emqx_dashboard_shard).
 
-%% 10 seconds
+-ifdef(TEST).
+%% for test, 2s
+-define(DEFAULT_SAMPLE_INTERVAL, 1).
+-else.
+%% dashboard monitor do sample interval, default 10s
 -define(DEFAULT_SAMPLE_INTERVAL, 10).
+-endif.
 
 -define(DELTA_SAMPLER_LIST,
     [ received

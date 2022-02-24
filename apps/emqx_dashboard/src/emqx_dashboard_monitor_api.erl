@@ -18,15 +18,6 @@
 
 -export([ monitor/2]).
 
--define(SAMPLERS,
-    [ connection
-    , route
-    , subscriptions
-    , received
-    , sent
-    , dropped
-    ]).
-
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
@@ -41,7 +32,7 @@ schema("/monitor") ->
         get => #{
             description => <<"List monitor data.">>,
             parameters => [
-                {latest, hoconsc:mk(integer(), #{in => query, required => false, example => 1000})}
+                {latest, hoconsc:mk(integer(), #{in => query, nullable => true, example => 1000})}
             ],
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(sampler)), #{}),
@@ -56,8 +47,8 @@ schema("/monitor/nodes/:node") ->
         get => #{
             description => <<"List the monitor data on the node.">>,
             parameters => [
-                {node, hoconsc:mk(binary(), #{in => path, required => true, example => node()})},
-                {latest, hoconsc:mk(integer(), #{in => query, required => false, example => 1000})}
+                {node, hoconsc:mk(binary(), #{in => path, nullable => false, example => node()})},
+                {latest, hoconsc:mk(integer(), #{in => query, nullable => true, example => 1000})}
             ],
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(sampler)), #{}),
