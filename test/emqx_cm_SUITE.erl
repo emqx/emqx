@@ -187,67 +187,67 @@ t_open_session_race_condition(_) ->
     ok = flush_emqx_pool(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
-t_call_session_discard_normal(_) ->
-    test_call_session(discard, normal).
+t_stepdown_sessiondiscard_normal(_) ->
+    test_stepdown_session(discard, normal).
 
-t_call_session_discard_shutdown(_) ->
-    test_call_session(discard, shutdown).
+t_stepdown_sessiondiscard_shutdown(_) ->
+    test_stepdown_session(discard, shutdown).
 
-t_call_session_discard_shutdown_with_reason(_) ->
-    test_call_session(discard, {shutdown, discard}).
+t_stepdown_sessiondiscard_shutdown_with_reason(_) ->
+    test_stepdown_session(discard, {shutdown, discard}).
 
-t_call_session_discard_timeout(_) ->
-    test_call_session(discard, timeout).
+t_stepdown_sessiondiscard_timeout(_) ->
+    test_stepdown_session(discard, timeout).
 
-t_call_session_discard_noproc(_) ->
-    test_call_session(discard, noproc).
+t_stepdown_sessiondiscard_noproc(_) ->
+    test_stepdown_session(discard, noproc).
 
-t_call_session_kick_normal(_) ->
-    test_call_session(kick, normal).
+t_stepdown_sessionkick_normal(_) ->
+    test_stepdown_session(kick, normal).
 
-t_call_session_kick_shutdown(_) ->
-    test_call_session(kick, shutdown).
+t_stepdown_sessionkick_shutdown(_) ->
+    test_stepdown_session(kick, shutdown).
 
-t_call_session_kick_shutdown_with_reason(_) ->
-    test_call_session(kick, {shutdown, discard}).
+t_stepdown_sessionkick_shutdown_with_reason(_) ->
+    test_stepdown_session(kick, {shutdown, discard}).
 
-t_call_session_kick_timeout(_) ->
-    test_call_session(kick, timeout).
+t_stepdown_sessionkick_timeout(_) ->
+    test_stepdown_session(kick, timeout).
 
-t_call_session_kick_noproc(_) ->
-    test_call_session(discard, noproc).
+t_stepdown_sessionkick_noproc(_) ->
+    test_stepdown_session(discard, noproc).
 
-t_call_session_takeover_begin_normal(_) ->
-    test_call_session({takeover, 'begin'}, normal).
+t_stepdown_sessiontakeover_begin_normal(_) ->
+    test_stepdown_session({takeover, 'begin'}, normal).
 
-t_call_session_takeover_begin_shutdown(_) ->
-    test_call_session({takeover, 'begin'}, shutdown).
+t_stepdown_sessiontakeover_begin_shutdown(_) ->
+    test_stepdown_session({takeover, 'begin'}, shutdown).
 
-t_call_session_takeover_begin_shutdown_with_reason(_) ->
-    test_call_session({takeover, 'begin'}, {shutdown, discard}).
+t_stepdown_sessiontakeover_begin_shutdown_with_reason(_) ->
+    test_stepdown_session({takeover, 'begin'}, {shutdown, discard}).
 
-t_call_session_takeover_begin_timeout(_) ->
-    test_call_session({takeover, 'begin'}, timeout).
+t_stepdown_sessiontakeover_begin_timeout(_) ->
+    test_stepdown_session({takeover, 'begin'}, timeout).
 
-t_call_session_takeover_begin_noproc(_) ->
-    test_call_session({takeover, 'begin'}, noproc).
+t_stepdown_sessiontakeover_begin_noproc(_) ->
+    test_stepdown_session({takeover, 'begin'}, noproc).
 
-t_call_session_takeover_end_normal(_) ->
-    test_call_session({takeover, 'end'}, normal).
+t_stepdown_sessiontakeover_end_normal(_) ->
+    test_stepdown_session({takeover, 'end'}, normal).
 
-t_call_session_takeover_end_shutdown(_) ->
-    test_call_session({takeover, 'end'}, shutdown).
+t_stepdown_sessiontakeover_end_shutdown(_) ->
+    test_stepdown_session({takeover, 'end'}, shutdown).
 
-t_call_session_takeover_end_shutdown_with_reason(_) ->
-    test_call_session({takeover, 'end'}, {shutdown, discard}).
+t_stepdown_sessiontakeover_end_shutdown_with_reason(_) ->
+    test_stepdown_session({takeover, 'end'}, {shutdown, discard}).
 
-t_call_session_takeover_end_timeout(_) ->
-    test_call_session({takeover, 'end'}, timeout).
+t_stepdown_sessiontakeover_end_timeout(_) ->
+    test_stepdown_session({takeover, 'end'}, timeout).
 
-t_call_session_takeover_end_noproc(_) ->
-    test_call_session({takeover, 'end'}, noproc).
+t_stepdown_sessiontakeover_end_noproc(_) ->
+    test_stepdown_session({takeover, 'end'}, noproc).
 
-test_call_session(Action, Reason) ->
+test_stepdown_session(Action, Reason) ->
     ClientId = rand_client_id(),
     #{conninfo := ConnInfo} = ?ChanInfo,
     FakeSessionFun =
