@@ -385,7 +385,7 @@ end}.
 
 %% RPC SSL server port.
 {mapping, "rpc.enable_ssl", "gen_rpc.ssl_server_port", [
-  {default, "5369"},
+  {default, "false"},
   {datatype, string}
 ]}.
 
