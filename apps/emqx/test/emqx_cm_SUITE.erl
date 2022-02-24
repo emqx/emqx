@@ -370,7 +370,7 @@ t_takeover_session_process_gone(_) ->
     none = emqx_cm:takeover_session(ClientIDWs),
     meck:expect(emqx_connection, call,
                 fun(Pid, {takeover, 'begin'}, _) ->
-                        exit({'EXIT', {noproc, {gen_server,call,[Pid, takeover_session]}}});
+                        exit({noproc, {gen_server,call,[Pid, takeover_session]}});
                    (Pid, What, Args) ->
                         meck:passthrough([Pid, What, Args])
                 end),
