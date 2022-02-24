@@ -33,6 +33,7 @@ File format:
 * Fix Server-KeepAlive wrongly applied on MQTT v3.0/v3.1 [#7085]
 * Fix Stomp client can not trigger `$event/client_connection` message [#7096]
 * Fix system memory false alarm at boot
+* Fix the MQTT-SN message replay when the topic is not registered to the client [#6970]
 
 ## v4.3.12
 ### Important changes
