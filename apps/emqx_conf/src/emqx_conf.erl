@@ -17,6 +17,7 @@
 
 -compile({no_auto_import, [get/1, get/2]}).
 -include_lib("emqx/include/logger.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([add_handler/2, remove_handler/1]).
 -export([get/1, get/2, get_raw/2, get_all/1]).
@@ -124,14 +125,13 @@ reset(Node, KeyPath, Opts) ->
 %% @doc Called from build script.
 -spec dump_schema(file:name_all()) -> ok.
 dump_schema(Dir) ->
-    SchemaJsonFile = filename:join([Dir, "schema.json"]),
-    JsonMap = hocon_schema_json:gen(emqx_conf_schema),
-    IoData = jsx:encode(JsonMap, [space, {indent, 4}]),
-    io:format(user, "===< Generating: ~s~n", [SchemaJsonFile]),
-    ok = file:write_file(SchemaJsonFile, IoData),
     SchemaMarkdownFile = filename:join([Dir, "config.md"]),
     io:format(user, "===< Generating: ~s~n", [SchemaMarkdownFile ]),
-    ok = gen_doc(SchemaMarkdownFile).
+    ok = gen_doc(SchemaMarkdownFile),
+    SchemaJsonFile = filename:join([Dir, "schema.json"]),
+    io:format(user, "===< Generating: ~s~n", [SchemaJsonFile]),
+    ok = gen_hot_conf_schema(SchemaJsonFile),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -158,3 +158,159 @@ check_cluster_rpc_result(Result) ->
         {error, Error} -> %% all MFA return not ok or {ok, term()}.
             Error
     end.
+
+%% Only gen hot_conf schema, not all configuration fields.
+gen_hot_conf_schema(File) ->
+    {ApiSpec0, Components0} = emqx_dashboard_swagger:spec(emqx_mgmt_api_configs,
+        #{schema_to_spec_func => fun hocon_schema_to_spec/2}),
+    ApiSpec = lists:foldl(fun({Path, Spec, _, _}, Acc) ->
+        NewSpec = maps:fold(fun(Method, #{responses := Responses}, SubAcc) ->
+            case Responses of
+                #{<<"200">> :=
+                    #{<<"content">> := #{<<"application/json">> := #{<<"schema">> := Schema}}}} ->
+                    SubAcc#{Method => Schema};
+                _ -> SubAcc
+            end
+                            end, #{}, Spec),
+        Acc#{list_to_atom(Path) => NewSpec} end, #{}, ApiSpec0),
+    Components = lists:foldl(fun(M, Acc) -> maps:merge(M, Acc) end, #{}, Components0),
+    IoData = jsx:encode(#{
+        info => #{title => <<"EMQX Hot Conf Schema">>, version => <<"0.1.0">>},
+        paths => ApiSpec,
+        components => #{schemas => Components}
+    }, [space, {indent, 4}]),
+    file:write_file(File, IoData).
+
+-define(INIT_SCHEMA, #{fields => #{}, translations => #{},
+    validations => [], namespace => undefined}).
+
+-define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
+-define(TO_COMPONENTS_SCHEMA(_M_, _F_), iolist_to_binary([<<"#/components/schemas/">>,
+    ?TO_REF(emqx_dashboard_swagger:namespace(_M_), _F_)])).
+-define(TO_COMPONENTS_PARAM(_M_, _F_), iolist_to_binary([<<"#/components/parameters/">>,
+    ?TO_REF(emqx_dashboard_swagger:namespace(_M_), _F_)])).
+
+hocon_schema_to_spec(?R_REF(Module, StructName), _LocalModule) ->
+    {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(Module, StructName)},
+        [{Module, StructName}]};
+hocon_schema_to_spec(?REF(StructName), LocalModule) ->
+    {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(LocalModule, StructName)},
+        [{LocalModule, StructName}]};
+hocon_schema_to_spec(Type, LocalModule) when ?IS_TYPEREFL(Type) ->
+    {typename_to_spec(typerefl:name(Type), LocalModule), []};
+hocon_schema_to_spec(?ARRAY(Item), LocalModule) ->
+    {Schema, Refs} = hocon_schema_to_spec(Item, LocalModule),
+    {#{type => array, items => Schema}, Refs};
+hocon_schema_to_spec(?LAZY(Item), LocalModule) ->
+    hocon_schema_to_spec(Item, LocalModule);
+hocon_schema_to_spec(?ENUM(Items), _LocalModule) ->
+    {#{type => enum, symbols => Items}, []};
+hocon_schema_to_spec(?MAP(Name, Type), LocalModule) ->
+    {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),
+    {#{<<"type">> => object,
+        <<"properties">> => #{<<"$", (to_bin(Name))/binary>> => Schema}},
+        SubRefs};
+hocon_schema_to_spec(?UNION(Types), LocalModule) ->
+    {OneOf, Refs} = lists:foldl(fun(Type, {Acc, RefsAcc}) ->
+        {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),
+        {[Schema | Acc], SubRefs ++ RefsAcc}
+                                end, {[], []}, Types),
+    {#{<<"oneOf">> => OneOf}, Refs};
+hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
+    {#{type => enum, symbols => [Atom]}, []}.
+
+typename_to_spec("user_id_type()", _Mod) -> #{type => enum, symbols => [clientid, username]};
+typename_to_spec("term()", _Mod) -> #{type => string};
+typename_to_spec("boolean()", _Mod) -> #{type => boolean};
+typename_to_spec("binary()", _Mod) -> #{type => string};
+typename_to_spec("float()", _Mod) -> #{type => number};
+typename_to_spec("integer()", _Mod) -> #{type => integer};
+typename_to_spec("non_neg_integer()", _Mod) -> #{type => integer, minimum => 1};
+typename_to_spec("number()", _Mod) -> #{type => number};
+typename_to_spec("string()", _Mod) -> #{type => string};
+typename_to_spec("atom()", _Mod) -> #{type => string};
+
+typename_to_spec("duration()", _Mod) -> #{type => duration};
+typename_to_spec("duration_s()", _Mod) -> #{type => duration};
+typename_to_spec("duration_ms()", _Mod) -> #{type => duration};
+typename_to_spec("percent()", _Mod) -> #{type => percent};
+typename_to_spec("file()", _Mod) -> #{type => file};
+typename_to_spec("ip_port()", _Mod) -> #{type => ip_port};
+typename_to_spec("url()", _Mod) -> #{type => url};
+typename_to_spec("bytesize()", _Mod) -> #{type => byteSize};
+typename_to_spec("wordsize()", _Mod) -> #{type => byteSize};
+typename_to_spec("qos()", _Mod) -> #{type => enum, symbols => [0, 1, 2]};
+typename_to_spec("comma_separated_list()", _Mod) -> #{type => comma_separated_string};
+typename_to_spec("comma_separated_atoms()", _Mod) -> #{type => comma_separated_string};
+typename_to_spec("pool_type()", _Mod) -> #{type => enum, symbols => [random, hash]};
+typename_to_spec("log_level()", _Mod) ->
+    #{type => enum, symbols => [debug, info, notice, warning, error, critical, alert, emergency, all]};
+typename_to_spec("rate()", _Mod) -> #{type => string};
+typename_to_spec("capacity()", _Mod) -> #{type => string};
+typename_to_spec("burst_rate()", _Mod) -> #{type => string};
+typename_to_spec("failure_strategy()", _Mod) -> #{type => enum, symbols => [force, drop, throw]};
+typename_to_spec("initial()", _Mod) -> #{type => string};
+typename_to_spec(Name, Mod) ->
+    Spec = range(Name),
+    Spec1 = remote_module_type(Spec, Name, Mod),
+    Spec2 = typerefl_array(Spec1, Name, Mod),
+    Spec3 = integer(Spec2, Name),
+    default_type(Spec3).
+
+default_type(nomatch) -> #{type => string};
+default_type(Type) -> Type.
+
+range(Name) ->
+    case string:split(Name, "..") of
+        [MinStr, MaxStr] -> %% 1..10 1..inf -inf..10
+            Schema = #{type => integer},
+            Schema1 = add_integer_prop(Schema, minimum, MinStr),
+            add_integer_prop(Schema1, maximum, MaxStr);
+        _ -> nomatch
+    end.
+
+%% Module:Type
+remote_module_type(nomatch, Name, Mod) ->
+    case string:split(Name, ":") of
+        [_Module, Type] -> typename_to_spec(Type, Mod);
+        _ -> nomatch
+    end;
+remote_module_type(Spec, _Name, _Mod) -> Spec.
+
+%% [string()] or [integer()] or [xxx].
+typerefl_array(nomatch, Name, Mod) ->
+    case string:trim(Name, leading, "[") of
+        Name -> nomatch;
+        Name1 ->
+            case string:trim(Name1, trailing, "]") of
+                Name1 -> notmatch;
+                Name2 ->
+                    Schema = typename_to_spec(Name2, Mod),
+                    #{type => array, items => Schema}
+            end
+    end;
+typerefl_array(Spec, _Name, _Mod) -> Spec.
+
+%% integer(1)
+integer(nomatch, Name) ->
+    case string:to_integer(Name) of
+        {Int, []} -> #{type => enum, symbols => [Int], default => Int};
+        _ -> nomatch
+    end;
+integer(Spec, _Name) -> Spec.
+
+add_integer_prop(Schema, Key, Value) ->
+    case string:to_integer(Value) of
+        {error, no_integer} -> Schema;
+        {Int, []}when Key =:= minimum -> Schema#{Key => Int};
+        {Int, []} -> Schema#{Key => Int}
+    end.
+
+to_bin(List) when is_list(List) ->
+    case io_lib:printable_list(List) of
+        true -> unicode:characters_to_binary(List);
+        false -> List
+    end;
+to_bin(Boolean) when is_boolean(Boolean) -> Boolean;
+to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
+to_bin(X) -> X.

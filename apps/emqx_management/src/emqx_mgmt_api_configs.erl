@@ -19,7 +19,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -behaviour(minirest_api).
 
--export([api_spec/0]).
+-export([api_spec/0, namespace/0]).
 -export([paths/0, schema/1, fields/1]).
 
 -export([config/3, config_reset/3, configs/3, get_full_config/0]).
@@ -29,14 +29,30 @@
 -define(PREFIX, "/configs/").
 -define(PREFIX_RESET, "/configs_reset/").
 -define(ERR_MSG(MSG), list_to_binary(io_lib:format("~p", [MSG]))).
--define(EXCLUDES, [listeners, node, cluster, gateway, rule_engine]).
+-define(EXCLUDES, [
+    exhook,
+    gateway,
+    plugins,
+    bridges,
+    "rule_engine",
+    "authorization",
+    "authentication",
+    "rpc",
+    "db",
+    "connectors",
+    "slow_subs",
+    "psk_authentication"
+]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
 
+namespace() -> "configuration".
+
 paths() ->
     ["/configs", "/configs_reset/:rootname"] ++
     lists:map(fun({Name, _Type}) -> ?PREFIX ++ to_list(Name) end, config_list(?EXCLUDES)).
+
 
 schema("/configs") ->
     #{
@@ -189,7 +205,7 @@ conf_path_from_querystr(Req) ->
 
 config_list(Exclude) ->
     Roots = emqx_conf_schema:roots(),
-    lists:foldl(fun(Key, Acc) -> lists:delete(Key, Acc) end, Roots, Exclude).
+    lists:foldl(fun(Key, Acc) -> lists:keydelete(Key, 1, Acc) end, Roots, Exclude).
 
 to_list(L) when is_list(L) -> L;
 to_list(Atom) when is_atom(Atom) -> atom_to_list(Atom).

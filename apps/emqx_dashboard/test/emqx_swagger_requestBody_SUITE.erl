@@ -151,7 +151,7 @@ t_nest_ref(_Config) ->
 t_none_ref(_Config) ->
     Path = "/ref/none",
     ?assertThrow({error, #{mfa := {?MODULE, schema, [Path]}}},
-        emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path)),
+        emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{})),
     ok.
 
 t_sub_fields(_Config) ->
@@ -472,11 +472,11 @@ t_object_trans_error(_Config) ->
     ok.
 
 validate(Path, ExpectSpec, ExpectRefs) ->
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
+    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     ?assertEqual(ExpectSpec, Spec),
     ?assertEqual(ExpectRefs, Refs),
-    {Spec, emqx_dashboard_swagger:components(Refs)}.
+    {Spec, emqx_dashboard_swagger:components(Refs, #{})}.
 
 
 filter(ApiSpec, Path) ->
