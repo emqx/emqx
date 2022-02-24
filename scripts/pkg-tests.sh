@@ -63,88 +63,87 @@ emqx_prepare(){
 emqx_test(){
     cd "${PACKAGE_PATH}"
     local packagename="${PACKAGE_FILE_NAME}"
-        case "$PKG_SUFFIX" in
-            "tar.gz")
-                tar -zxf "${PACKAGE_PATH}/${packagename}"
-                export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60
-                export EMQX_MQTT__MAX_TOPIC_ALIAS=10
-                export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
-                export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
-                if [[ $(arch) == *arm* || $(arch) == aarch64 ]]; then
-                    export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
-                fi
-                # sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
+    case "$PKG_SUFFIX" in
+        "tar.gz")
+            tar -zxf "${PACKAGE_PATH}/${packagename}"
+            export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60
+            export EMQX_MQTT__MAX_TOPIC_ALIAS=10
+            export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
+            export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
+            if [[ $(arch) == *arm* || $(arch) == aarch64 ]]; then
+                export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
+            fi
+            # sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
-                echo "running ${packagename} start"
-                if ! "${PACKAGE_PATH}"/emqx/bin/emqx start; then
-                    cat "${PACKAGE_PATH}"/emqx/log/erlang.log.1 || true
-                    cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
-                    exit 1
-                fi
-                IDLE_TIME=0
-                while ! curl http://127.0.0.1:18083/api/v5/status >/dev/null 2>&1; do
-                    if [ $IDLE_TIME -gt 10 ]
-                    then
-                        echo "emqx running error"
-                        exit 1
-                    fi
-                    sleep 10
-                    IDLE_TIME=$((IDLE_TIME+1))
-                done
-                pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
-                if ! "${PACKAGE_PATH}"/emqx/bin/emqx stop; then
-                    cat "${PACKAGE_PATH}"/emqx/log/erlang.log.1 || true
-                    cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
-                    exit 1
-                fi
-                echo "running ${packagename} stop"
-                rm -rf "${PACKAGE_PATH}"/emqx
-            ;;
-            "deb")
-                dpkg -i "${PACKAGE_PATH}/${packagename}"
-                if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "ii" ]
+            echo "running ${packagename} start"
+            if ! "${PACKAGE_PATH}"/emqx/bin/emqx start; then
+                cat "${PACKAGE_PATH}"/emqx/log/erlang.log.1 || true
+                cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
+                exit 1
+            fi
+            IDLE_TIME=0
+            while ! curl http://127.0.0.1:18083/api/v5/status >/dev/null 2>&1; do
+                if [ $IDLE_TIME -gt 10 ]
                 then
-                    echo "package install error"
+                    echo "emqx running error"
                     exit 1
                 fi
+                sleep 10
+                IDLE_TIME=$((IDLE_TIME+1))
+            done
+            pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
+            if ! "${PACKAGE_PATH}"/emqx/bin/emqx stop; then
+                cat "${PACKAGE_PATH}"/emqx/log/erlang.log.1 || true
+                cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
+                exit 1
+            fi
+            echo "running ${packagename} stop"
+            rm -rf "${PACKAGE_PATH}"/emqx
+        ;;
+        "deb")
+            dpkg -i "${PACKAGE_PATH}/${packagename}"
+            if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "ii" ]
+            then
+                echo "package install error"
+                exit 1
+            fi
 
-                echo "running ${packagename} start"
-                run_test
-                echo "running ${packagename} stop"
+            echo "running ${packagename} start"
+            run_test
+            echo "running ${packagename} stop"
 
-                dpkg -r "${EMQX_NAME}"
-                if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "rc" ]
-                then
-                    echo "package remove error"
-                    exit 1
-                fi
+            dpkg -r "${EMQX_NAME}"
+            if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "rc" ]
+            then
+                echo "package remove error"
+                exit 1
+            fi
 
-                dpkg -P "${EMQX_NAME}"
-                if dpkg -l |grep -q emqx
-                then
-                    echo "package uninstall error"
-                    exit 1
-                fi
-            ;;
-            "rpm")
-                yum install -y "${PACKAGE_PATH}/${packagename}"
-                if ! rpm -q "${EMQX_NAME}" | grep -q "${EMQX_NAME}"; then
-                    echo "package install error"
-                    exit 1
-                fi
+            dpkg -P "${EMQX_NAME}"
+            if dpkg -l |grep -q emqx
+            then
+                echo "package uninstall error"
+                exit 1
+            fi
+        ;;
+        "rpm")
+            yum install -y "${PACKAGE_PATH}/${packagename}"
+            if ! rpm -q "${EMQX_NAME}" | grep -q "${EMQX_NAME}"; then
+                echo "package install error"
+                exit 1
+            fi
 
-                echo "running ${packagename} start"
-                run_test
-                echo "running ${packagename} stop"
+            echo "running ${packagename} start"
+            run_test
+            echo "running ${packagename} stop"
 
-                rpm -e "${EMQX_NAME}"
-                if [ "$(rpm -q emqx)" != "package emqx is not installed" ];then
-                    echo "package uninstall error"
-                    exit 1
-                fi
-            ;;
-
-        esac
+            rpm -e "${EMQX_NAME}"
+            if [ "$(rpm -q emqx)" != "package emqx is not installed" ];then
+                echo "package uninstall error"
+                exit 1
+            fi
+        ;;
+    esac
 }
 
 run_test(){
