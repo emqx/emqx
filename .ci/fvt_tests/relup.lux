@@ -20,8 +20,9 @@
     ?>
 
 [shell emqx]
+    !OLD_VSN=$(echo $OLD_VSN | sed  -r 's/[v|e]//g')
     !cd $PACKAGE_PATH
-    !unzip -q -o $PROFILE-$(echo $OLD_VSN | sed  -r 's/[v|e]//g')-otp${FROM_OTP_VSN}-ubuntu20.04-amd64.zip
+    !unzip -q -o $PROFILE-$${OLD_VSN}-otp${FROM_OTP_VSN}-ubuntu20.04-amd64.zip
     ?SH-PROMPT
 
     !cd emqx
@@ -32,6 +33,7 @@
     ?SH-PROMPT
 
 [shell emqx2]
+    !OLD_VSN=$(echo $OLD_VSN | sed  -r 's/[v|e]//g')
     !cd $PACKAGE_PATH
     !cp -f $ONE_MORE_EMQX_PATH/one_more_$(echo $PROFILE | sed 's/-/_/g').sh .
     !./one_more_$(echo $PROFILE | sed 's/-/_/g').sh emqx2
@@ -84,6 +86,27 @@
 
     !cp -f ../$PROFILE-$VSN-otp${TO_OTP_VSN}-ubuntu20.04-amd64.zip releases/
 
+    ## upgrade to the new version
+    !./bin/emqx install $VSN
+    ?Made release permanent: "$VSN"
+    ?SH-PROMPT
+
+    !./bin/emqx versions |grep permanent
+    ?(.*)$VSN
+    ?SH-PROMPT
+
+    ## downgrade to the old version
+    !./bin/emqx install $${OLD_VSN}
+    ?Made release permanent:.*
+    ?SH-PROMPT
+
+    !./bin/emqx versions |grep permanent | grep -qs "$${OLD_VSN}"
+    ?SH-PROMPT:
+    !echo ==$$?==
+    ?^==0==
+    ?SH-PROMPT:
+
+    ## again, upgrade to the new version
     !./bin/emqx install $VSN
     ?Made release permanent: "$VSN"
     ?SH-PROMPT
@@ -109,6 +132,27 @@
 
     !cp -f ../$PROFILE-$VSN-otp${TO_OTP_VSN}-ubuntu20.04-amd64.zip releases/
 
+    ## upgrade to the new version
+    !./bin/emqx install $VSN
+    ?Made release permanent: "$VSN"
+    ?SH-PROMPT
+
+    !./bin/emqx versions |grep permanent
+    ?(.*)$VSN
+    ?SH-PROMPT
+
+    ## downgrade to the old version
+    !./bin/emqx install $${OLD_VSN}
+    ?Made release permanent:.*
+    ?SH-PROMPT
+
+    !./bin/emqx versions |grep permanent | grep -qs "$${OLD_VSN}"
+    ?SH-PROMPT:
+    !echo ==$$?==
+    ?^==0==
+    ?SH-PROMPT:
+
+    ## again, upgrade to the new version
     !./bin/emqx install $VSN
     ?Made release permanent: "$VSN"
     ?SH-PROMPT
@@ -138,17 +182,20 @@
     !./bin/emqx_ctl broker metrics | grep "messages.publish"
     ???SH-PROMPT
 
+## We don't guarantee not to lose a single message!
+## So even if we received 290~300 messages, we consider it as success
 [shell bench]
     !curl --user admin:public --silent --show-error http://localhost:8081/api/v4/rules | jq -M --raw-output ".data[0].metrics[] | select(.node==\"emqx@127.0.0.1\").matched"
-    ?300
+    ?(29[0-9])|(300)
     ?SH-PROMPT
 
     !curl --user admin:public --silent --show-error http://localhost:8081/api/v4/rules | jq -M --raw-output ".data[0].actions[0].metrics[] | select(.node==\"emqx@127.0.0.1\").success"
-    ?300
+    ?(29[0-9])|(300)
     ?SH-PROMPT
 
+    ## The /counter API is provided by .ci/fvt_test/http_server
     !curl http://127.0.0.1:8080/counter
-    ???{"data":300,"code":0}
+    ?\{"data":(29[0-9])|(300),"code":0\}
     ?SH-PROMPT
 
 [shell emqx2]
