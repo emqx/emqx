@@ -169,5 +169,5 @@ some_function(Parent, _Arg2) ->
 
 dead_port() ->
     Port = erlang:open_port({spawn, "ls"}, []),
-    catch exit(Port, kill),
+    exit(Port, kill),
     Port.
