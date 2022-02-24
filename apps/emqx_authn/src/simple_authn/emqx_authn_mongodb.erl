@@ -76,11 +76,11 @@ password_hash_field(type) -> binary();
 password_hash_field(_) -> undefined.
 
 salt_field(type) -> binary();
-salt_field(nullable) -> true;
+salt_field(required) -> false;
 salt_field(_) -> undefined.
 
 is_superuser_field(type) -> binary();
-is_superuser_field(nullable) -> true;
+is_superuser_field(required) -> false;
 is_superuser_field(_) -> undefined.
 
 %%------------------------------------------------------------------------------

@@ -121,12 +121,12 @@ fields(reset) ->
                 <<"Topic Name. If this parameter is not present,"
                   " all created topic metrics will be reset">>
              , example => <<"testtopic/1">>
-             , nullable => true})}
+             , required => false})}
     , {action
       , mk( string()
           , #{ desc => <<"Action Name. Only as a \"reset\"">>
              , enum => [reset]
-             , nullable => false
+             , required => true
              , example => <<"reset">>})}
     ];
 
@@ -135,21 +135,21 @@ fields(topic_metrics) ->
       , mk( binary()
           , #{ desc => <<"Topic Name">>
              , example => <<"testtopic/1">>
-             , nullable => false})},
+             , required => true})},
       { create_time
       , mk( emqx_datetime:epoch_second()
           , #{ desc => <<"Topic Metrics created date time, in rfc3339">>
-             , nullable => false
+             , required => true
              , example => <<"2022-01-14T21:48:47+08:00">>})},
       { reset_time
       , mk( emqx_datetime:epoch_second()
           , #{ desc => <<"Topic Metrics reset date time, in rfc3339. Nullable if never reset">>
-             , nullable => true
+             , required => false
              , example => <<"2022-01-14T21:48:47+08:00">>})},
       { metrics
       , mk( ref(metrics)
           , #{ desc => <<"Topic Metrics fields">>
-             , nullable => false})
+             , required => true})
       }
     ];
 

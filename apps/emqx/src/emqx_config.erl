@@ -295,7 +295,7 @@ include_dirs() ->
     [filename:join(emqx:data_dir(), "configs")].
 
 merge_envs(SchemaMod, RawConf) ->
-    Opts = #{nullable => true, %% TODO: evil, remove, nullable should be declared in schema
+    Opts = #{required => false, %% TODO: evil, remove, required should be declared in schema
              format => map,
              apply_override_envs => true
             },
@@ -308,7 +308,7 @@ check_config(SchemaMod, RawConf) ->
 
 check_config(SchemaMod, RawConf, Opts0) ->
     Opts1 = #{return_plain => true,
-              nullable => true, %% TODO: evil, remove, nullable should be declared in schema
+              required => false, %% TODO: evil, remove, required should be declared in schema
               format => map
              },
     Opts = maps:merge(Opts0, Opts1),
@@ -331,7 +331,7 @@ fill_defaults(RawConf) ->
 -spec fill_defaults(module(), raw_config()) -> map().
 fill_defaults(SchemaMod, RawConf) ->
     hocon_tconf:check_plain(SchemaMod, RawConf,
-        #{nullable => true, only_fill_defaults => true},
+        #{required => false, only_fill_defaults => true},
         root_names_from_conf(RawConf)).
 
 

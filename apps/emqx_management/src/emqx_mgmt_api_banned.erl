@@ -101,27 +101,27 @@ fields(ban) ->
     [
         {as, hoconsc:mk(hoconsc:enum(?BANNED_TYPES), #{
             desc => <<"Banned type clientid, username, peerhost">>,
-            nullable => false,
+            required => true,
             example => username})},
         {who, hoconsc:mk(binary(), #{
             desc => <<"Client info as banned type">>,
-            nullable => false,
+            required => true,
             example => <<"Banned name"/utf8>>})},
         {by, hoconsc:mk(binary(), #{
             desc => <<"Commander">>,
-            nullable => true,
+            required => false,
             example => <<"mgmt_api">>})},
         {reason, hoconsc:mk(binary(), #{
             desc => <<"Banned reason">>,
-            nullable => true,
+            required => false,
             example => <<"Too many requests">>})},
         {at, hoconsc:mk(emqx_datetime:epoch_second(), #{
             desc => <<"Create banned time, rfc3339, now if not specified">>,
-            nullable => true,
+            required => false,
             example => <<"2021-10-25T21:48:47+08:00">>})},
         {until, hoconsc:mk(emqx_datetime:epoch_second(), #{
             desc => <<"Cancel banned time, rfc3339, now + 5 minute if not specified">>,
-            nullable => true,
+            required => false,
             example => <<"2021-10-25T21:53:47+08:00">>})
         }
     ];

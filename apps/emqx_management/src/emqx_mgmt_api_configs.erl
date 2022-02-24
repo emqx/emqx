@@ -67,7 +67,7 @@ schema("/configs") ->
                         desc =>
  <<"Node's name: If you do not fill in the fields, this node will be used by default.">>})}],
             responses => #{
-                200 => config_list([])
+                200 => config_list(?EXCLUDES)
             }
         }
     };

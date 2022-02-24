@@ -56,11 +56,11 @@ fields(config) ->
     emqx_connector_schema_lib:ssl_fields().
 
 named_queries(type) -> map();
-named_queries(nullable) -> true;
+named_queries(required) -> false;
 named_queries(_) -> undefined.
 
 server(type) -> emqx_schema:ip_port();
-server(nullable) -> false;
+server(required) -> true;
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(converter) -> fun to_server/1;
 server(desc) -> ?SERVER_DESC("PostgreSQL", integer_to_list(?PGSQL_DEFAULT_PORT));

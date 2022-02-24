@@ -93,65 +93,65 @@ schema("/clients") ->
                 hoconsc:ref(emqx_dashboard_swagger, limit),
                 {node, hoconsc:mk(binary(), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     desc => <<"Node name">>,
                     example => atom_to_list(node())})},
                 {username, hoconsc:mk(binary(), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     desc => <<"User name">>})},
                 {zone, hoconsc:mk(binary(), #{
                     in => query,
-                    nullable => true})},
+                    required => false})},
                 {ip_address, hoconsc:mk(binary(), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     desc => <<"Client's IP address">>,
                     example => <<"127.0.0.1">>})},
                 {conn_state, hoconsc:mk(hoconsc:enum([connected, idle, disconnected]), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     desc => <<"The current connection status of the client, ",
                         "the possible values are connected,idle,disconnected">>})},
                 {clean_start, hoconsc:mk(boolean(), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     description => <<"Whether the client uses a new session">>})},
                 {proto_name, hoconsc:mk(hoconsc:enum(['MQTT', 'CoAP', 'LwM2M', 'MQTT-SN']), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     description => <<"Client protocol name, ",
                         "the possible values are MQTT,CoAP,LwM2M,MQTT-SN">>})},
                 {proto_ver, hoconsc:mk(binary(), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     desc => <<"Client protocol version">>})},
                 {like_clientid, hoconsc:mk(binary(), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     desc => <<"Fuzzy search of client identifier by substring method">>})},
                 {like_username, hoconsc:mk(binary(), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     desc => <<"Client user name, fuzzy search by substring">>})},
                 {gte_created_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     desc => <<"Search client session creation time by greater",
                         " than or equal method, rfc3339 or timestamp(millisecond)">>})},
                 {lte_created_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     desc => <<"Search client session creation time by less",
                         " than or equal method, rfc3339 or timestamp(millisecond)">>})},
                 {gte_connected_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     desc => <<"Search client connection creation time by greater"
                         " than or equal method, rfc3339 or timestamp(epoch millisecond)">>})},
                 {lte_connected_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
                     in => query,
-                    nullable => true,
+                    required => false,
                     desc => <<"Search client connection creation time by less"
                         " than or equal method, rfc3339 or timestamp(millisecond)">>})}
             ],

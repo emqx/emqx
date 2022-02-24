@@ -602,31 +602,31 @@ fields("listeners") ->
     [ {"tcp",
        sc(map(name, ref("mqtt_tcp_listener")),
           #{ desc => "TCP listeners"
-           , nullable => {true, recursively}
+           , required => {false, recursively}
            })
       }
     , {"ssl",
        sc(map(name, ref("mqtt_ssl_listener")),
           #{ desc => "SSL listeners"
-           , nullable => {true, recursively}
+           , required => {false, recursively}
            })
       }
     , {"ws",
        sc(map(name, ref("mqtt_ws_listener")),
           #{ desc => "HTTP websocket listeners"
-           , nullable => {true, recursively}
+           , required => {false, recursively}
            })
       }
     , {"wss",
        sc(map(name, ref("mqtt_wss_listener")),
           #{ desc => "HTTPS websocket listeners"
-           , nullable => {true, recursively}
+           , required => {false, recursively}
            })
       }
     , {"quic",
        sc(map(name, ref("mqtt_quic_listener")),
           #{ desc => "QUIC listeners"
-           , nullable => {true, recursively}
+           , required => {false, recursively}
            })
       }
     ];
@@ -1145,7 +1145,7 @@ mqtt_listener() ->
 base_listener() ->
     [ {"bind",
        sc(hoconsc:union([ip_port(), integer()]),
-          #{ nullable => false
+          #{ required => true
            })}
     , {"acceptors",
        sc(integer(),
@@ -1204,7 +1204,7 @@ common_ssl_opts_schema(Defaults) ->
     , {"cacertfile",
        sc(string(),
           #{ default => D("cacertfile")
-           , nullable => true
+           , required => false
            , desc =>
 """Trusted PEM format CA certificates bundle file.<br>
 The certificates in this file are used to verify the TLS peer's certificates.
@@ -1219,7 +1219,7 @@ already established connections.
     , {"certfile",
        sc(string(),
           #{ default => D("certfile")
-           , nullable => true
+           , required => false
            , desc =>
 """PEM format certificates chain file.<br>
 The certificates in this file should be in reversed order of the certificate
@@ -1233,7 +1233,7 @@ the file if it is to be added.
     , {"keyfile",
        sc(string(),
           #{ default => D("keyfile")
-           , nullable => true
+           , required => false
            , desc =>
 """PEM format private key file.<br>
 """
@@ -1257,7 +1257,7 @@ the file if it is to be added.
     , {"password",
        sc(string(),
           #{ sensitive => true
-           , nullable => true
+           , required => false
            , desc =>
 """String containing the user's password. Only used if the private
 key file is password-protected."""
@@ -1305,7 +1305,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
     [ {"dhfile",
        sc(string(),
           #{ default => D("dhfile")
-           , nullable => true
+           , required => false
            , desc =>
 """Path to a file containing PEM-encoded Diffie Hellman parameters
 to be used by the server if a cipher suite using Diffie Hellman
@@ -1361,7 +1361,7 @@ client_ssl_opts_schema(Defaults) ->
     common_ssl_opts_schema(Defaults) ++
     [ { "server_name_indication",
         sc(hoconsc:union([disable, string()]),
-           #{ nullable => true
+           #{ required => false
             , desc =>
 """Specify the host name to be used in TLS Server Name Indication extension.<br>
 For instance, when connecting to \"server.example.net\", the genuine server

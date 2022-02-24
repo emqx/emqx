@@ -162,7 +162,7 @@ check_cluster_rpc_result(Result) ->
 %% Only gen hot_conf schema, not all configuration fields.
 gen_hot_conf_schema(File) ->
     {ApiSpec0, Components0} = emqx_dashboard_swagger:spec(emqx_mgmt_api_configs,
-        #{schema_to_spec_func => fun hocon_schema_to_spec/2}),
+        #{schema_converter => fun hocon_schema_to_spec/2}),
     ApiSpec = lists:foldl(fun({Path, Spec, _, _}, Acc) ->
         NewSpec = maps:fold(fun(Method, #{responses := Responses}, SubAcc) ->
             case Responses of
@@ -186,8 +186,6 @@ gen_hot_conf_schema(File) ->
 
 -define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
 -define(TO_COMPONENTS_SCHEMA(_M_, _F_), iolist_to_binary([<<"#/components/schemas/">>,
-    ?TO_REF(emqx_dashboard_swagger:namespace(_M_), _F_)])).
--define(TO_COMPONENTS_PARAM(_M_, _F_), iolist_to_binary([<<"#/components/parameters/">>,
     ?TO_REF(emqx_dashboard_swagger:namespace(_M_), _F_)])).
 
 hocon_schema_to_spec(?R_REF(Module, StructName), _LocalModule) ->
@@ -224,8 +222,8 @@ typename_to_spec("term()", _Mod) -> #{type => string};
 typename_to_spec("boolean()", _Mod) -> #{type => boolean};
 typename_to_spec("binary()", _Mod) -> #{type => string};
 typename_to_spec("float()", _Mod) -> #{type => number};
-typename_to_spec("integer()", _Mod) -> #{type => integer};
-typename_to_spec("non_neg_integer()", _Mod) -> #{type => integer, minimum => 1};
+typename_to_spec("integer()", _Mod) -> #{type => number};
+typename_to_spec("non_neg_integer()", _Mod) -> #{type => number, minimum => 1};
 typename_to_spec("number()", _Mod) -> #{type => number};
 typename_to_spec("string()", _Mod) -> #{type => string};
 typename_to_spec("atom()", _Mod) -> #{type => string};
@@ -234,7 +232,7 @@ typename_to_spec("duration()", _Mod) -> #{type => duration};
 typename_to_spec("duration_s()", _Mod) -> #{type => duration};
 typename_to_spec("duration_ms()", _Mod) -> #{type => duration};
 typename_to_spec("percent()", _Mod) -> #{type => percent};
-typename_to_spec("file()", _Mod) -> #{type => file};
+typename_to_spec("file()", _Mod) -> #{type => string};
 typename_to_spec("ip_port()", _Mod) -> #{type => ip_port};
 typename_to_spec("url()", _Mod) -> #{type => url};
 typename_to_spec("bytesize()", _Mod) -> #{type => byteSize};
@@ -263,7 +261,7 @@ default_type(Type) -> Type.
 range(Name) ->
     case string:split(Name, "..") of
         [MinStr, MaxStr] -> %% 1..10 1..inf -inf..10
-            Schema = #{type => integer},
+            Schema = #{type => number},
             Schema1 = add_integer_prop(Schema, minimum, MinStr),
             add_integer_prop(Schema1, maximum, MaxStr);
         _ -> nomatch

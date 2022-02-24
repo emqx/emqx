@@ -50,10 +50,10 @@ fields("ref3") ->
 
 default_username(type) -> string();
 default_username(default) -> "admin";
-default_username(nullable) -> false;
+default_username(required) -> true;
 default_username(_) -> undefined.
 
 default_password(type) -> string();
 default_password(default) -> "public";
-default_password(nullable) -> false;
+default_password(required) -> true;
 default_password(_) -> undefined.

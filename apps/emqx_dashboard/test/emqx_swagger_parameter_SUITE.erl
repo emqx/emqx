@@ -124,8 +124,7 @@ t_nullable(_Config) ->
     NullableFalse = [#{in => query,name => userid, required => true,
         schema => #{example => <<"binary-example">>, type => string}}],
     NullableTrue = [#{in => query,name => userid,
-        schema => #{example => <<"binary-example">>, type => string,
-            nullable => true}}],
+        schema => #{example => <<"binary-example">>, type => string}, required => false}],
     validate("/nullable/false", NullableFalse),
     validate("/nullable/true", NullableTrue),
     ok.
@@ -358,9 +357,9 @@ schema("/test/without/in") ->
 schema("/required/false") ->
     to_schema([{'userid', mk(binary(), #{in => query, required => false})}]);
 schema("/nullable/false") ->
-    to_schema([{'userid', mk(binary(), #{in => query, nullable => false})}]);
+    to_schema([{'userid', mk(binary(), #{in => query, required => true})}]);
 schema("/nullable/true") ->
-    to_schema([{'userid', mk(binary(), #{in => query, nullable => true})}]);
+    to_schema([{'userid', mk(binary(), #{in => query, required => false})}]);
 schema("/method/ok") ->
     Response = #{responses => #{200 => <<"ok">>}},
     lists:foldl(fun(Method, Acc) ->  Acc#{Method => Response} end,

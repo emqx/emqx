@@ -59,21 +59,21 @@ roots() -> [gateway].
 fields(gateway) ->
     [{stomp,
       sc(ref(stomp),
-         #{ nullable => {true, recursively}
+         #{ required => {false, recursively}
           , desc =>
 "The Stomp Gateway configuration.<br>
 This gateway supports v1.2/1.1/1.0"
           })},
      {mqttsn,
       sc(ref(mqttsn),
-         #{ nullable => {true, recursively}
+         #{ required => {false, recursively}
           , desc =>
 "The MQTT-SN Gateway configuration.<br>
 This gateway only supports the v1.2 protocol"
           })},
      {coap,
       sc(ref(coap),
-         #{ nullable => {true, recursively}
+         #{ required => {false, recursively}
           , desc =>
 "The CoAP Gateway configuration.<br>
 This gateway is implemented based on RFC-7252 and
@@ -81,14 +81,14 @@ https://core-wg.github.io/coap-pubsub/draft-ietf-core-pubsub.html"
           })},
      {lwm2m,
       sc(ref(lwm2m),
-         #{ nullable => {true, recursively}
+         #{ required => {false, recursively}
           , desc =>
 "The LwM2M Gateway configuration.<br>
 This gateway only supports the v1.0.1 protocol"
           })},
      {exproto,
       sc(ref(exproto),
-         #{ nullable => {true, recursively}
+         #{ required => {false, recursively}
           , desc => "The Extension Protocol configuration"
           })}
     ];
@@ -120,7 +120,7 @@ fields(mqttsn) ->
     [ {gateway_id,
        sc(integer(),
           #{ default => 1
-           , nullable => false
+           , required => true
            , desc =>
 "MQTT-SN Gateway ID.<br>
 When the <code>broadcast</code> option is enabled,
@@ -145,7 +145,7 @@ The client just sends its 'PUBLISH' messages to a GW"
     , {predefined,
        sc(hoconsc:array(ref(mqttsn_predefined)),
           #{ default => []
-           , nullable => {true, recursively}
+           , required => {false, recursively}
            , desc =>
 <<"The pre-defined topic IDs and topic names.<br>
 A 'pre-defined' topic ID is a topic ID whose mapping to a topic name
@@ -221,7 +221,7 @@ fields(lwm2m) ->
     [ {xml_dir,
        sc(binary(),
           #{ default =>"etc/lwm2m_xml"
-           , nullable => false
+           , required => true
            , desc => "The Directory for LwM2M Resource definition"
            })}
     , {lifetime_min,
@@ -261,7 +261,7 @@ beyond this time window are temporarily stored in memory."
            })}
     , {translators,
        sc(ref(lwm2m_translators),
-          #{ nullable => false
+          #{ required => true
            , desc => "Topic configuration for LwM2M's gateway publishing and subscription"
            })}
     , {listeners, sc(ref(udp_listeners))}
@@ -270,12 +270,12 @@ beyond this time window are temporarily stored in memory."
 fields(exproto) ->
     [ {server,
        sc(ref(exproto_grpc_server),
-          #{ nullable => false
+          #{ required => true
            , desc => "Configurations for starting the <code>ConnectionAdapter</code> service"
            })}
     , {handler,
        sc(ref(exproto_grpc_handler),
-          #{ nullable => false
+          #{ required => true
            , desc => "Configurations for request to <code>ConnectionHandler</code> service"
            })}
     , {listeners, sc(ref(udp_tcp_listeners))}
@@ -284,18 +284,18 @@ fields(exproto) ->
 fields(exproto_grpc_server) ->
     [ {bind,
        sc(hoconsc:union([ip_port(), integer()]),
-          #{nullable => false})}
+          #{required => true})}
     , {ssl,
        sc(ref(ssl_server_opts),
-          #{ nullable => {true, recursively}
+          #{ required => {false, recursively}
            })}
     ];
 
 fields(exproto_grpc_handler) ->
-    [ {address, sc(binary(), #{nullable => false})}
+    [ {address, sc(binary(), #{required => true})}
     , {ssl,
        sc(ref(ssl_client_opts),
-          #{ nullable => {true, recursively}
+          #{ required => {false, recursively}
            })}
     ];
 
@@ -324,13 +324,13 @@ fields(lwm2m_translators) ->
 For each new LwM2M client that succeeds in going online, the gateway creates
 a subscription relationship to receive downstream commands and send it to
 the LwM2M client"
-           , nullable => false
+           , required => true
            })}
     , {response,
        sc(ref(translator),
           #{ desc =>
 "The topic for gateway to publish the acknowledge events from LwM2M client"
-           , nullable => false
+           , required => true
            })}
     , {notify,
        sc(ref(translator),
@@ -338,24 +338,24 @@ the LwM2M client"
 "The topic for gateway to publish the notify events from LwM2M client.<br>
  After succeed observe a resource of LwM2M client, Gateway will send the
  notify events via this topic, if the client reports any resource changes"
-           , nullable => false
+           , required => true
            })}
     , {register,
        sc(ref(translator),
           #{ desc =>
 "The topic for gateway to publish the register events from LwM2M client.<br>"
-           , nullable => false
+           , required => true
            })}
     , {update,
        sc(ref(translator),
           #{ desc =>
 "The topic for gateway to publish the update events from LwM2M client.<br>"
-           , nullable => false
+           , required => true
            })}
     ];
 
 fields(translator) ->
-    [ {topic, sc(binary(), #{nullable => false})}
+    [ {topic, sc(binary(), #{required => true})}
     , {qos, sc(emqx_schema:qos(), #{default => 0})}
     ];
 
@@ -423,7 +423,7 @@ fields(dtls_opts) ->
 
 authentication_schema() ->
     sc(emqx_authn_schema:authenticator_type(),
-       #{ nullable => {true, recursively}
+       #{ required => {false, recursively}
         , desc =>
 """Default authentication configs for all the gateway listeners.<br>
 For per-listener overrides see <code>authentication</code>

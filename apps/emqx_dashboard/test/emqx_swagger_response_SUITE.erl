@@ -299,9 +299,9 @@ schema("/simple/bin") ->
     to_schema(<<"binary ok">>);
 schema("/object") ->
     Object = [
-        {per_page, mk(range(1, 100), #{nullable => false, desc => <<"good per page desc">>})},
+        {per_page, mk(range(1, 100), #{required => true, desc => <<"good per page desc">>})},
         {timeout, mk(hoconsc:union([infinity, emqx_schema:duration_s()]),
-            #{default => 5, nullable => false})},
+            #{default => 5, required => true})},
         {inner_ref, mk(hoconsc:ref(?MODULE, good_ref), #{})}
     ],
     to_schema(Object);
@@ -309,7 +309,7 @@ schema("/nest/object") ->
     Response = [
         {per_page, mk(range(1, 100), #{desc => <<"good per page desc">>})},
         {timeout, mk(hoconsc:union([infinity, emqx_schema:duration_s()]),
-            #{default => 5, nullable => false})},
+            #{default => 5, required => true})},
         {nest_object, [
             {good_nest_1, mk(integer(), #{})},
             {good_nest_2, mk(hoconsc:ref(?MODULE, good_ref), #{})}
@@ -425,5 +425,5 @@ enable(_) -> undefined.
 
 init_file(type) -> binary();
 init_file(desc) -> <<"test test desc">>;
-init_file(nullable) -> true;
+init_file(required) -> false;
 init_file(_) -> undefined.

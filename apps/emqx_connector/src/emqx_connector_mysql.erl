@@ -50,7 +50,7 @@ fields(config) ->
     emqx_connector_schema_lib:ssl_fields().
 
 server(type) -> emqx_schema:ip_port();
-server(nullable) -> false;
+server(required) -> true;
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(converter) -> fun to_server/1;
 server(desc) -> ?SERVER_DESC("MySQL", integer_to_list(?MYSQL_DEFAULT_PORT));

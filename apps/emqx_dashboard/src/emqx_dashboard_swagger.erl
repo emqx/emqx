@@ -56,7 +56,10 @@
 -type(filter_result() :: {ok, request()} | {400, 'BAD_REQUEST', binary()}).
 -type(filter() :: fun((request(), request_meta()) -> filter_result())).
 
--type(spec_opts() :: #{check_schema => boolean() | filter(), translate_body => boolean()}).
+-type(spec_opts() :: #{check_schema => boolean() | filter(),
+                       translate_body => boolean(),
+                       schema_converter => fun((hocon_schema:schema(), Module::atom()) -> map())
+                       }).
 
 -type(route_path() :: string() | binary()).
 -type(route_methods() :: map()).
@@ -217,7 +220,7 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
             _ -> Type0
         end,
     NewSchema = ?INIT_SCHEMA#{roots => [{root, Type}]},
-    Option = #{nullable => true},
+    Option = #{required => false},
     #{<<"root">> := NewBody} = CheckFun(NewSchema, #{<<"root">> => Body}, Option),
     NewBody;
 %% TODO not support nest object check yet, please use ref!
@@ -265,30 +268,22 @@ parameters(Params, Module) ->
                     In = hocon_schema:field_schema(Type, in),
                     In =:= undefined andalso
                         throw({error, <<"missing in:path/query field in parameters">>}),
-                    Nullable = hocon_schema:field_schema(Type, nullable),
+                    Required = hocon_schema:field_schema(Type, required),
                     Default = hocon_schema:field_schema(Type, default),
                     HoconType = hocon_schema:field_schema(Type, type),
-                    Meta = init_meta(Nullable, Default),
+                    Meta = init_meta(Default),
                     {ParamType, Refs} = hocon_schema_to_spec(HoconType, Module),
                     Spec0 = init_prop([required | ?DEFAULT_FIELDS],
                         #{schema => maps:merge(ParamType, Meta), name => Name, in => In}, Type),
-                    Spec1 = trans_required(Spec0, Nullable, In),
+                    Spec1 = trans_required(Spec0, Required, In),
                     Spec2 = trans_desc(Spec1, Type),
                     {[Spec2 | Acc], Refs ++ RefsAcc}
             end
                     end, {[], []}, Params),
     {lists:reverse(SpecList), AllRefs}.
 
-init_meta(Nullable, Default) ->
-    Init =
-        case Nullable of
-            true -> #{nullable => true};
-            _ -> #{}
-        end,
-    case Default =:= undefined of
-        true -> Init;
-        false -> Init#{default => Default}
-    end.
+init_meta(undefined) -> #{};
+init_meta(Default) -> #{default => Default}.
 
 init_prop(Keys, Init, Type) ->
     lists:foldl(fun(Key, Acc) ->
@@ -298,7 +293,7 @@ init_prop(Keys, Init, Type) ->
         end
                 end, Init, Keys).
 
-trans_required(Spec, false, _) -> Spec#{required => true};
+trans_required(Spec, true, _) -> Spec#{required => true};
 trans_required(Spec, _, path) -> Spec#{required => true};
 trans_required(Spec, _, _) -> Spec.
 
@@ -335,7 +330,7 @@ response(Status, #{content := _} = Content, {Acc, RefsAcc, Module, Options}) ->
 response(Status, ?REF(StructName), {Acc, RefsAcc, Module, Options}) ->
     response(Status, ?R_REF(Module, StructName), {Acc, RefsAcc, Module, Options});
 response(Status, ?R_REF(_Mod, _Name) = RRef, {Acc, RefsAcc, Module, Options}) ->
-    SchemaToSpec = schema_to_spec_func(Options),
+    SchemaToSpec = schema_converter(Options),
     {Spec, Refs} = SchemaToSpec(RRef, Module),
     Content = content(Spec),
     {Acc#{integer_to_binary(Status) => #{<<"content">> => Content}}, Refs ++ RefsAcc, Module, Options};
@@ -557,7 +552,7 @@ parse_object(PropList = [_ | _], Module, Options) when is_list(PropList) ->
                     HoconType = hocon_schema:field_schema(Hocon, type),
                     Init0 = init_prop([default | ?DEFAULT_FIELDS], #{}, Hocon),
                     Init = trans_desc(Init0, Hocon),
-                    SchemaToSpec = schema_to_spec_func(Options),
+                    SchemaToSpec = schema_converter(Options),
                     {Prop, Refs1} = SchemaToSpec(HoconType, Module),
                     NewRequiredAcc =
                         case is_required(Hocon) of
@@ -581,8 +576,7 @@ parse_object(Other, Module, Options) ->
             args => Other, module => Module, options => Options}}).
 
 is_required(Hocon) ->
-    hocon_schema:field_schema(Hocon, required) =:= true orelse
-        hocon_schema:field_schema(Hocon, nullable) =:= false.
+    hocon_schema:field_schema(Hocon, required) =:= true.
 
 content(ApiSpec) ->
     content(ApiSpec, undefined).
@@ -596,5 +590,5 @@ to_ref(Mod, StructName, Acc, RefsAcc) ->
     Ref = #{<<"$ref">> => ?TO_COMPONENTS_PARAM(Mod, StructName)},
     {[Ref | Acc], [{Mod, StructName, parameter} | RefsAcc]}.
 
-schema_to_spec_func(Options) ->
-    maps:get(schema_to_spec_func, Options, fun hocon_schema_to_spec/2).
+schema_converter(Options) ->
+    maps:get(schema_converter, Options, fun hocon_schema_to_spec/2).

@@ -58,7 +58,7 @@ t_http_test(_Config) ->
     ?assertEqual(
         #{
             <<"code">> => <<"BAD_REQUEST">>,
-            <<"message">> => <<"name : not_nullable">>
+            <<"message">> => <<"name : mandatory_required_field">>
         }, json(Body)),
 
     Name = <<"test-name">>,

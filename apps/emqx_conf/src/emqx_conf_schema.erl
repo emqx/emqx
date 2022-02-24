@@ -262,7 +262,7 @@ fields("node") ->
            })}
     , {"data_dir",
        sc(string(),
-          #{ nullable => false,
+          #{ required => true,
              mapping => "emqx.data_dir",
              desc => "Path to the persistent data directory. It must be unique per broker instance."
            })}

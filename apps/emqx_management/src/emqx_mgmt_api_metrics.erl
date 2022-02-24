@@ -71,7 +71,7 @@ schema("/metrics") ->
                   [{ aggregate
                    , mk( boolean()
                        , #{ in => query
-                          , nullable => true
+                          , required => false
                           , desc => <<"Whether to aggregate all nodes Metrics">>})
                    }]
             , responses =>

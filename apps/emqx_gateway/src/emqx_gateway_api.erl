@@ -219,7 +219,7 @@ params_gateway_status_in_qs() ->
     [{status,
       mk(binary(),
          #{ in => query
-          , nullable => true
+          , required => false
           , desc => <<"Gateway Status">>
           , example => <<"">>
           })}
@@ -245,11 +245,11 @@ fields(gateway_overview) ->
           #{desc => <<"The Gateway created datetime">>})}
     , {started_at,
        mk(binary(),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"The Gateway started datetime">>})}
     , {stopped_at,
        mk(binary(),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"The Gateway stopped datetime">>})}
     , {max_connections,
        mk(integer(),
@@ -260,7 +260,7 @@ fields(gateway_overview) ->
            })}
     , {listeners,
        mk(hoconsc:array(ref(gateway_listener_overview)),
-         #{ nullable => {true, recursively}
+         #{ required => {false, recursively}
           , desc => <<"The Gateway listeners overview">>})}
     ];
 fields(gateway_listener_overview) ->
@@ -295,7 +295,7 @@ fields(Listener) when Listener == tcp_listener;
                       Listener == dtls_listener ->
     [ {id,
        mk(binary(),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"Listener ID">>})}
     , {type,
        mk(hoconsc:union([tcp, ssl, udp, dtls]),
@@ -305,7 +305,7 @@ fields(Listener) when Listener == tcp_listener;
           #{ desc => <<"Listener Name">>})}
     , {running,
        mk(boolean(),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"Listener running status">>})}
     ] ++ emqx_gateway_schema:fields(Listener);
 
@@ -334,7 +334,7 @@ convert_listener_struct(Schema) ->
     {value, {listeners,
              #{type := Type}}, Schema1} = lists:keytake(listeners, 1, Schema),
     ListenerSchema = hoconsc:mk(listeners_schema(Type),
-                                #{ nullable => {true, recursively}
+                                #{ required => {false, recursively}
                                  , desc => <<"The gateway listeners">>
                                  }),
     lists:keystore(listeners, 1, Schema1, {listeners, ListenerSchema}).

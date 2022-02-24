@@ -287,13 +287,13 @@ params_userid_in_path() ->
 params_paging_in_qs() ->
     [{page, mk(integer(),
                #{ in => query
-                , nullable => true
+                , required => false
                 , desc => <<"Page Index">>
                 , example => 1
                 })},
      {limit, mk(integer(),
                 #{ in => query
-                 , nullable => true
+                 , required => false
                  , desc => <<"Page Limit">>
                  , example => 100
                  })}

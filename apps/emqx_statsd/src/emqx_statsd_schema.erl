@@ -33,19 +33,19 @@ namespace() -> "statsd".
 roots() -> ["statsd"].
 
 fields("statsd") ->
-    [ {enable, hoconsc:mk(boolean(), #{default => false, nullable => false})}
+    [ {enable, hoconsc:mk(boolean(), #{default => false, required => true})}
     , {server, fun server/1}
     , {sample_time_interval, fun duration_ms/1}
     , {flush_time_interval, fun duration_ms/1}
     ].
 
 server(type) -> emqx_schema:ip_port();
-server(nullable) -> false;
+server(required) -> true;
 server(default) -> "127.0.0.1:8125";
 server(_) -> undefined.
 
 duration_ms(type) -> emqx_schema:duration_ms();
-duration_ms(nullable) -> false;
+duration_ms(required) -> true;
 duration_ms(default) -> "10s";
 duration_ms(_) -> undefined.
 

@@ -60,7 +60,7 @@ init_file(desc) ->
       "The file has to be structured line-by-line, each line must be in ",
       "the format of <code>PSKIdentity:SharedSecret</code>. For example: ",
       "<code>mydevice1:c2VjcmV0</code>">>;
-init_file(nullable) -> true;
+init_file(required) -> false;
 init_file(_) -> undefined.
 
 separator(type) -> binary();

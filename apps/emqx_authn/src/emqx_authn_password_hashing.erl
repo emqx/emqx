@@ -81,8 +81,7 @@ salt_rounds(default) -> 10;
 salt_rounds(_) -> undefined.
 
 dk_length(type) -> integer();
-dk_length(nullable) -> true;
-dk_length(default) -> undefined;
+dk_length(required) -> false;
 dk_length(_) -> undefined.
 
 type_rw(type) ->
