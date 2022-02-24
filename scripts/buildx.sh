@@ -91,6 +91,9 @@ if [ -z "${PROFILE:-}" ]    ||
     exit 1
 fi
 
+# ensure dir
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+
 set -x
 
 if [ -z "${WITH_ELIXIR:-}" ]; then
@@ -112,16 +115,18 @@ cd "${CODE_PATH}"
 
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh "$PROFILE")}"
 
-if [ "$WITH_ELIXIR" = "yes" ]
-then
-  PKG_NAME="${PROFILE}-${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
+if [ "$WITH_ELIXIR" = "yes" ]; then
   MAKE_TARGET="${PROFILE}-elixir-${PKGTYPE}"
 else
-  PKG_NAME="${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
   MAKE_TARGET="${PROFILE}-${PKGTYPE}"
 fi
 
-CMD_RUN="export EMQX_NAME=\"$PROFILE\"; make ${MAKE_TARGET} && ./scripts/pkg-tests.sh $PKG_NAME $PKGTYPE $ARCH"
+export WITH_ELIXIR
+export ELIXIR_VSN
+export PROFILE
+PKG_NAME="${PROFILE}-$(./scripts/pkg-full-vsn.sh "$PROFILE")"
+
+CMD_RUN="export EMQX_NAME=\"$PROFILE\"; make ${MAKE_TARGET} && ./scripts/pkg-tests.sh $PKG_NAME $PKGTYPE"
 
 if docker info; then
    docker run --rm --privileged tonistiigi/binfmt:latest --install "${ARCH}"

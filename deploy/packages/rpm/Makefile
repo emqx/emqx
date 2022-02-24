@@ -16,16 +16,10 @@ endif
 
 EMQX_NAME=$(subst -pkg,,$(EMQX_BUILD))
 
-ifeq ($(IS_ELIXIR), yes)
-  ELIXIR_PKG_VSN := -elixir$(ELIXIR_VSN)
-else
-  ELIXIR_PKG_VSN :=
-endif
-
 TAR_PKG_DIR ?= _build/$(EMQX_BUILD)/rel/emqx
 TAR_PKG     := $(EMQX_REL)/$(TAR_PKG_DIR)/emqx-$(PKG_VSN).tar.gz
 SOURCE_PKG  := emqx-$(RPM_VSN)-$(RPM_REL).$(shell uname -m)
-TARGET_PKG  := $(EMQX_NAME)-$(PKG_VSN)$(ELIXIR_PKG_VSN)-otp$(OTP_VSN)-$(SYSTEM)-$(ARCH)
+TARGET_PKG  := $(EMQX_NAME)-$(shell $(EMQX_REL)/scripts/pkg-full-vsn.sh $(EMQX_NAME))
 
 SYSTEMD := $(shell if command -v systemctl >/dev/null 2>&1; then echo yes; fi)
 # Not $(PWD) as it does not work for make -C

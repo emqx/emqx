@@ -10,7 +10,6 @@ export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
 export EMQX_DASHBOARD_VERSION ?= v0.20.0
 export DOCKERFILE := deploy/docker/Dockerfile
-export DOCKERFILE_TESTING := deploy/docker/Dockerfile.testing
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
 	FIND=/usr/bin/find
@@ -213,18 +212,6 @@ $1-docker: $(COMMON_DEPS)
 endef
 ALL_DOCKERS = $(REL_PROFILES) $(REL_PROFILES:%=%-elixir)
 $(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
-
-## emqx-docker-testing
-## emqx-enterprise-docker-testing
-## is to directly copy a extracted tgz-package to a
-## base image such as ubuntu20.04. Mostly for testing
-.PHONY: $(REL_PROFILES:%=%-docker-testing)
-define gen-docker-target-testing
-$1-docker-testing: $(COMMON_DEPS)
-	@$(BUILD) $1 docker-testing
-endef
-ALL_TGZS = $(REL_PROFILES)
-$(foreach zt,$(ALL_TGZS),$(eval $(call gen-docker-target-testing,$(zt))))
 
 .PHONY:
 conf-segs:
