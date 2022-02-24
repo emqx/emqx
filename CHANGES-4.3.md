@@ -12,15 +12,24 @@ File format:
 
 ## v4.3.13
 
+### Important changes
+
+* For docker image, /opt/emqx/etc has been removed from the VOLUME list,
+  this made it easier for the users to rebuild image on top with changed configs.
+
 ### Enhancements
 
 * CLI `emqx_ctl pem_cache clean` to force purge x509 certificate cache,
   to force an immediate reload of all certificates after the files are updated on disk.
+* Refactor the ExProto so that anonymous clients can also be displayed on the dashboard [#6983]
 
 ### Bug fixes
 
 * Fix case where publishing to a non-existent topic alias would crash the connection [#6979]
 * Fix HTTP-API 500 error on querying the lwm2m client list on the another node [#7009]
+* Fix the ExProto connection registry is not released after the client process abnormally exits [#6983]
+* Fix Server-KeepAlive wrongly applied on MQTT v3.0/v3.1 [#7085]
+* Fix Stomp client can not trigger `$event/client_connection` message [#7096]
 
 ## v4.3.12
 ### Important changes
