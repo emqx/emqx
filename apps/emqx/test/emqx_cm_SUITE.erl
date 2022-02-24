@@ -190,45 +190,77 @@ t_open_session_race_condition(_) ->
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
 t_kick_session_discard_normal(_) ->
-    test_kick_session(discard, normal).
+    test_stepdown_session(discard, normal).
 
 t_kick_session_discard_shutdown(_) ->
-    test_kick_session(discard, shutdown).
+    test_stepdown_session(discard, shutdown).
 
 t_kick_session_discard_shutdown_with_reason(_) ->
-    test_kick_session(discard, {shutdown, discard}).
+    test_stepdown_session(discard, {shutdown, discard}).
 
 t_kick_session_discard_timeout(_) ->
-    test_kick_session(discard, timeout).
+    test_stepdown_session(discard, timeout).
 
 t_kick_session_discard_noproc(_) ->
-    test_kick_session(discard, noproc).
+    test_stepdown_session(discard, noproc).
 
 t_kick_session_kick_normal(_) ->
-    test_kick_session(discard, normal).
+    test_stepdown_session(kick, normal).
 
 t_kick_session_kick_shutdown(_) ->
-    test_kick_session(discard, shutdown).
+    test_stepdown_session(kick, shutdown).
 
 t_kick_session_kick_shutdown_with_reason(_) ->
-    test_kick_session(discard, {shutdown, discard}).
+    test_stepdown_session(kick, {shutdown, kicked}).
 
 t_kick_session_kick_timeout(_) ->
-    test_kick_session(discard, timeout).
+    test_stepdown_session(kick, timeout).
 
 t_kick_session_kick_noproc(_) ->
-    test_kick_session(discard, noproc).
+    test_stepdown_session(kick, noproc).
 
-test_kick_session(Action, Reason) ->
+t_stepdown_session_takeover_begin_normal(_) ->
+    test_stepdown_session({takeover, 'begin'}, normal).
+
+t_stepdown_session_takeover_begin_shutdown(_) ->
+    test_stepdown_session({takeover, 'begin'}, shutdown).
+
+t_stepdown_session_takeover_begin_shutdown_with_reason(_) ->
+    test_stepdown_session({takeover, 'begin'}, {shutdown, kicked}).
+
+t_stepdown_session_takeover_begin_timeout(_) ->
+    test_stepdown_session({takeover, 'begin'}, timeout).
+
+t_stepdown_session_takeover_begin_noproc(_) ->
+    test_stepdown_session({takeover, 'begin'}, noproc).
+
+t_stepdown_session_takeover_end_normal(_) ->
+    test_stepdown_session({takeover, 'end'}, normal).
+
+t_stepdown_session_takeover_end_shutdown(_) ->
+    test_stepdown_session({takeover, 'end'}, shutdown).
+
+t_stepdown_session_takeover_end_shutdown_with_reason(_) ->
+    test_stepdown_session({takeover, 'end'}, {shutdown, kicked}).
+
+t_stepdown_session_takeover_end_timeout(_) ->
+    test_stepdown_session({takeover, 'end'}, timeout).
+
+t_stepdown_session_takeover_end_noproc(_) ->
+    test_stepdown_session({takeover, 'end'}, noproc).
+
+test_stepdown_session(Action, Reason) ->
     ClientId = rand_client_id(),
     #{conninfo := ConnInfo} = ?ChanInfo,
     FakeSessionFun =
         fun Loop() ->
                      receive
                          {'$gen_call', From, A} when A =:= kick orelse
-                                                     A =:= discard ->
+                                                     A =:= discard orelse
+                                                     A =:= {takeover, 'begin'} orelse
+                                                     A =:= {takeover, 'end'} ->
                              case Reason of
-                                 normal ->
+                                 normal when A =:= kick orelse A =:= discard ->
                                      gen_server:reply(From, ok);
                                  timeout ->
                                      %% no response to the call
@@ -253,7 +285,8 @@ test_kick_session(Action, Reason) ->
     end,
     ok = case Action of
              kick -> emqx_cm:kick_session(ClientId);
-             discard -> emqx_cm:discard_session(ClientId)
+             discard -> emqx_cm:discard_session(ClientId);
+             {takeover, _} -> none = emqx_cm:takeover_session(ClientId), ok
          end,
     case Reason =:= timeout orelse Reason =:= noproc of
         true ->
