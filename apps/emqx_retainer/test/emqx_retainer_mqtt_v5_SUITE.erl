@@ -21,28 +21,10 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(BASE_CONF, <<"""
-retainer {
-    enable = true
-    msg_clear_interval = 0s
-    msg_expiry_interval = 0s
-    max_payload_size = 1MB
-    flow_control {
-        max_read_number = 0
-        msg_deliver_quota = 0
-        quota_release_interval = 0s
-    }
-    config {
-        type = built_in_database
-        storage_type = ram
-        max_retained_messages = 0
-        }
-  }""">>).
-
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_retainer_schema, ?BASE_CONF),
+    emqx_retainer_SUITE:base_conf(),
     %% Meck emqtt
     ok = meck:new(emqtt, [non_strict, passthrough, no_history, no_link]),
     %% Start Apps

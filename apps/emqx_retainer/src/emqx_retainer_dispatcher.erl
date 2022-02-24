@@ -14,27 +14,41 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_retainer_pool).
+-module(emqx_retainer_dispatcher).
 
 -behaviour(gen_server).
 
+-include("emqx_retainer.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 %% API
--export([start_link/2,
-         async_submit/2]).
+-export([start_link/2
+        , dispatch/2
+        , refresh_limiter/0
+        ]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3, format_status/2]).
+
+-type limiter() :: emqx_htb_limiter:limiter().
 
 -define(POOL, ?MODULE).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
-async_submit(Fun, Args) ->
-    cast({async_submit, {Fun, Args}}).
+dispatch(Context, Topic) ->
+    cast({?FUNCTION_NAME, Context, self(), Topic}).
+
+%% sometimes it is necessary to reset the client's limiter after updated the limiter's config
+%% an limiter update handler maybe added later, now this is a workaround
+refresh_limiter() ->
+    Workers = gproc_pool:active_workers(?POOL),
+    lists:foreach(fun({_, Pid}) ->
+                          gen_server:cast(Pid, ?FUNCTION_NAME)
+                  end,
+                  Workers).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -66,7 +80,9 @@ start_link(Pool, Id) ->
           ignore.
 init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    {ok, #{pool => Pool, id => Id}}.
+    Bucket = emqx:get_config([retainer, flow_control, limiter_bucket_name]),
+    Limiter = emqx_limiter_server:connect(shared, Bucket),
+    {ok, #{pool => Pool, id => Id, limiter => Limiter}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -98,12 +114,14 @@ handle_call(Req, _From, State) ->
           {noreply, NewState :: term(), Timeout :: timeout()} |
           {noreply, NewState :: term(), hibernate} |
           {stop, Reason :: term(), NewState :: term()}.
-handle_cast({async_submit, Task}, State) ->
-    try run(Task)
-    catch _:Error:Stacktrace ->
-            ?SLOG(error, #{msg => "crashed_handling_async_task", exception => Error, stacktrace => Stacktrace})
-    end,
-    {noreply, State};
+handle_cast({dispatch, Context, Pid, Topic}, #{limiter := Limiter} = State) ->
+    {ok, Limiter2} = dispatch(Context, Pid, Topic, undefined, Limiter),
+    {noreply, State#{limiter := Limiter2}};
+
+handle_cast(refresh_limiter, State) ->
+    Bucket = emqx:get_config([retainer, flow_control, limiter_bucket_name]),
+    Limiter = emqx_limiter_server:connect(shared, Bucket),
+    {noreply, State#{limiter := Limiter}};
 
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
@@ -174,9 +192,74 @@ cast(Msg) ->
 worker() ->
     gproc_pool:pick_worker(?POOL, self()).
 
-run({M, F, A}) ->
-    erlang:apply(M, F, A);
-run({F, A}) when is_function(F), is_list(A) ->
-    erlang:apply(F, A);
-run(Fun) when is_function(Fun) ->
-    Fun().
+-spec dispatch(context(), pid(), topic(), cursor(), limiter()) -> {ok, limiter()}.
+dispatch(Context, Pid, Topic, Cursor, Limiter) ->
+    Mod = emqx_retainer:get_backend_module(),
+    case Cursor =/= undefined orelse emqx_topic:wildcard(Topic) of
+        false ->
+            {ok, Result} = Mod:read_message(Context, Topic),
+            deliver(Result, Context, Pid, Topic, undefined, Limiter);
+        true  ->
+            {ok, Result, NewCursor} =  Mod:match_messages(Context, Topic, Cursor),
+            deliver(Result, Context, Pid, Topic, NewCursor, Limiter)
+    end.
+
+-spec deliver(list(emqx_types:message()), context(), pid(), topic(), cursor(), limiter()) -> {ok, limiter()}.
+deliver([], _Context, _Pid, _Topic, undefined, Limiter) ->
+    {ok, Limiter};
+
+deliver([], Context, Pid, Topic, Cursor, Limiter) ->
+    dispatch(Context, Pid, Topic, Cursor, Limiter);
+
+deliver(Result, Context, Pid, Topic, Cursor, Limiter) ->
+    case erlang:is_process_alive(Pid) of
+        false ->
+            {ok, Limiter};
+        _ ->
+            DeliverNum = emqx:get_config([retainer, flow_control, batch_deliver_number]),
+            case DeliverNum of
+                0 ->
+                    do_deliver(Result, Pid, Topic),
+                    {ok, Limiter};
+                _ ->
+                    case do_deliver(Result, DeliverNum, Pid, Topic, Limiter) of
+                        {ok, Limiter2} ->
+                            deliver([], Context, Pid, Topic, Cursor, Limiter2);
+                        {drop, Limiter2} ->
+                            {ok, Limiter2}
+                    end
+            end
+    end.
+
+do_deliver([], _DeliverNum, _Pid, _Topic, Limiter) ->
+    {ok, Limiter};
+
+do_deliver(Msgs, DeliverNum, Pid, Topic, Limiter) ->
+    {Num, ToDelivers, Msgs2} = safe_split(DeliverNum, Msgs),
+    case emqx_htb_limiter:consume(Num, Limiter) of
+        {ok, Limiter2} ->
+            do_deliver(ToDelivers, Pid, Topic),
+            do_deliver(Msgs2, DeliverNum, Pid, Topic, Limiter2);
+        {drop, _} = Drop ->
+            ?SLOG(error, #{msg => "the retainer deliver failed because the required quota could not be obtained"}),
+            Drop
+    end.
+
+do_deliver([Msg | T], Pid, Topic) ->
+    Pid ! {deliver, Topic, Msg},
+    do_deliver(T, Pid, Topic);
+
+do_deliver([], _, _) ->
+    ok.
+
+safe_split(N, List) ->
+    safe_split(N, List, 0, []).
+
+safe_split(0, List, Count, Acc) ->
+    {Count, lists:reverse(Acc), List};
+
+safe_split(_N, [], Count, Acc) ->
+    {Count, lists:reverse(Acc), []};
+
+safe_split(N, [H | T], Count, Acc) ->
+    safe_split(N - 1, T, Count + 1, [H | Acc]).

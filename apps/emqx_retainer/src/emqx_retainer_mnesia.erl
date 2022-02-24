@@ -144,17 +144,17 @@ page_read(_, Topic, Page, Limit) ->
     {ok, Rows}.
 
 match_messages(_, Topic, Cursor) ->
-    MaxReadNum = emqx:get_config([retainer, flow_control, max_read_number]),
+    BatchReadNum = emqx:get_config([retainer, flow_control, batch_read_number]),
     case Cursor of
         undefined ->
-            case MaxReadNum of
+            case BatchReadNum of
                 0 ->
                     {ok, sort_retained(match_messages(Topic)), undefined};
                 _ ->
-                    start_batch_read(Topic, MaxReadNum)
+                    start_batch_read(Topic, BatchReadNum)
             end;
         _ ->
-            batch_read_messages(Cursor, MaxReadNum)
+            batch_read_messages(Cursor, BatchReadNum)
     end.
 
 clean(_) ->
@@ -253,7 +253,7 @@ make_cursor(Topic) ->
 
 -spec is_table_full() -> boolean().
 is_table_full() ->
-    #{max_retained_messages := Limit} = emqx:get_config([retainer, config]),
+    Limit = emqx:get_config([retainer, backend, max_retained_messages]),
     Limit > 0 andalso (table_size() >= Limit).
 
 -spec table_size() -> non_neg_integer().

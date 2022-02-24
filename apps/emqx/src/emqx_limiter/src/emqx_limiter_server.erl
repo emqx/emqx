@@ -378,11 +378,11 @@ maybe_burst(#{buckets := Buckets,
                          index := Index,
                          zone := Zone} = maps:get(Id, Nodes),
                        case counters:get(Counter, Index) of
-                             Any when Any =< 0 ->
-                                 Group = maps:get(Zone, Groups, []),
-                                 maps:put(Zone, [Id | Group], Groups);
-                             _ ->
-                                 Groups
+                           Any when Any =< 0 ->
+                               Group = maps:get(Zone, Groups, []),
+                               maps:put(Zone, [Id | Group], Groups);
+                           _ ->
+                               Groups
                        end
                end,
 
@@ -451,9 +451,15 @@ dispatch_burst_to_buckets([], _, Alloced, Nodes) ->
 
 -spec init_tree(emqx_limiter_schema:limiter_type(), state()) -> state().
 init_tree(Type, State) ->
-    #{global := Global,
-      zone := Zone,
-      bucket := Bucket} = emqx:get_config([limiter, Type]),
+    case emqx:get_config([limiter, Type]) of
+        #{global := Global,
+          zone := Zone,
+          bucket := Bucket} -> ok;
+        #{bucket := Bucket} ->
+            Global = default_rate_burst_cfg(),
+            Zone = #{default => default_rate_burst_cfg()},
+            ok
+    end,
     {Factor, Root} = make_root(Global, Zone),
     State2 = State#{root := Root},
     {NodeId, State3} = make_zone(maps:to_list(Zone), Factor, 1, State2),
@@ -592,3 +598,6 @@ get_initial_val(#{initial := Initial,
        true ->
             0
     end.
+
+default_rate_burst_cfg() ->
+    #{rate => infinity, burst => 0}.

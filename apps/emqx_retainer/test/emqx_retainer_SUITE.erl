@@ -34,16 +34,16 @@ retainer {
     msg_expiry_interval = 0s
     max_payload_size = 1MB
     flow_control {
-        max_read_number = 0
-        msg_deliver_quota = 0
-        quota_release_interval = 0s
-    }
-    config {
+        batch_read_number = 0
+        batch_deliver_number = 0
+        limiter_bucket_name = retainer
+      }
+   backend {
         type = built_in_database
         storage_type = ram
         max_retained_messages = 0
-        }
-  }""">>).
+      
+}""">>).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -57,7 +57,8 @@ init_per_suite(Config) ->
     meck:expect(emqx_alarm, activate, 3, ok),
     meck:expect(emqx_alarm, deactivate, 3, ok),
 
-    ok = emqx_common_test_helpers:load_config(emqx_retainer_schema, ?BASE_CONF),
+    base_conf(),
+    emqx_ratelimiter_SUITE:base_conf(),
     emqx_common_test_helpers:start_apps([emqx_retainer]),
     Config.
 
@@ -82,6 +83,9 @@ end_per_testcase(_, Config) ->
             erlang:exit(P, kill)
     end,
     Config.
+
+base_conf() ->
+    ok = emqx_common_test_helpers:load_config(emqx_retainer_schema, ?BASE_CONF).
 
 %%--------------------------------------------------------------------
 %% Test Cases
@@ -282,10 +286,20 @@ t_stop_publish_clear_msg(_) ->
     ok = emqtt:disconnect(C1).
 
 t_flow_control(_) ->
+    #{per_client := PerClient} = RetainerCfg = emqx_config:get([limiter, shared, bucket, retainer]),
+    RetainerCfg2 = RetainerCfg#{per_client := PerClient#{rate := emqx_ratelimiter_SUITE:to_rate("1/1s"),
+                                                         capacity := 1}},
+    emqx_config:put([limiter, shared, bucket, retainer], RetainerCfg2),
+    emqx_limiter_manager:restart_server(shared),
+    timer:sleep(500),
+
+    emqx_retainer_dispatcher:refresh_limiter(),
+    timer:sleep(500),
+
     emqx_retainer:update_config(#{<<"flow_control">> =>
-                                  #{<<"max_read_number">> => 1,
-                                    <<"msg_deliver_quota">> => 1,
-                                    <<"quota_release_interval">> => <<"1s">>}}),
+                                      #{<<"batch_read_number">> => 1,
+                                        <<"batch_deliver_number">> => 1,
+                                        <<"limiter_bucket_name">> => retainer}}),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqtt:publish(
@@ -309,11 +323,19 @@ t_flow_control(_) ->
     End = erlang:system_time(millisecond),
     Diff = End - Begin,
 
-    %% msg_deliver_quota = 1 and quota_release_interval = 1, and there has three message
-    %% so total wait time is between in 1 ~ 2s(may be timer will delay, so plus 0.5s to maximum)
-    ?assert(Diff > timer:seconds(1) andalso Diff < timer:seconds(2.5)),
+    ?assert(Diff > timer:seconds(2.5) andalso Diff < timer:seconds(3.9),
+            lists:flatten(io_lib:format("Diff is :~p~n", [Diff]))),
 
-    ok = emqtt:disconnect(C1).
+    ok = emqtt:disconnect(C1),
+
+    %% recover the limiter
+    emqx_config:put([limiter, shared, bucket, retainer], RetainerCfg),
+    emqx_limiter_manager:restart_server(shared),
+    timer:sleep(500),
+
+    emqx_retainer_dispatcher:refresh_limiter(),
+    timer:sleep(500),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Helper functions
