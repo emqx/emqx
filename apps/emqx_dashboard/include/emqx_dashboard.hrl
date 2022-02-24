@@ -55,8 +55,18 @@
     , dropped
     ]).
 
--define(SAMPLER_LIST,
+-define(GAUGE_SAMPLER_LIST,
     [ subscriptions
     , routes
     , connections
-    ] ++ ?DELTA_SAMPLER_LIST).
+    ]).
+
+-define(SAMPLER_LIST, ?GAUGE_SAMPLER_LIST ++ ?DELTA_SAMPLER_LIST).
+
+-define(DELTA_SAMPLER_RATE_MAP, #{
+    received        => received_rate,
+    received_bytes  => received_bytes_rate,
+    sent            => sent_rate,
+    sent_bytes      => sent_bytes_rate,
+    dropped         => dropped_rate
+    }).

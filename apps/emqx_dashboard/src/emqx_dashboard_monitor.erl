@@ -35,12 +35,14 @@
 -export([ mnesia/1]).
 
 -export([ samplers/0
-        , samplers/1
         , samplers/2
+        , current_rate/0
+        , current_rate/1
+        , granularity_adapter/1
         ]).
 
 %% for rpc
--export([ do_sample/1]).
+-export([ do_sample/2]).
 
 -define(TAB, ?MODULE).
 
@@ -66,30 +68,53 @@ mnesia(boot) ->
         {record_name, emqx_monit},
         {attributes, record_info(fields, emqx_monit)}]).
 
+%% -------------------------------------------------------------------------------------------------
+%% API
+
 samplers() ->
-    samplers(all).
+    format(do_sample(all, infinity)).
 
-samplers(NodeOrCluster) ->
-    format(do_sample(NodeOrCluster)).
-
-samplers(NodeOrCluster, 0) ->
-    samplers(NodeOrCluster);
 samplers(NodeOrCluster, Latest) ->
-    case samplers(NodeOrCluster) of
+    Now = erlang:system_time(millisecond),
+    MatchTime = Now - (Latest * 1000),
+    case format(do_sample(NodeOrCluster, MatchTime)) of
         {badrpc, Reason} ->
             {badrpc, Reason};
         List when is_list(List) ->
-            case erlang:length(List) - Latest of
-                Start when Start > 0 ->
-                    lists:sublist(List, Start, Latest);
-                _ ->
-                    List
-            end
+            granularity_adapter(List)
     end.
 
-%%%===================================================================
-%%% gen_server functions
-%%%===================================================================
+granularity_adapter(List) when length(List) > 100 ->
+    granularity_adapter(List, []);
+granularity_adapter(List) ->
+    List.
+
+current_rate() ->
+    Fun =
+        fun(Node, Cluster) ->
+            case current_rate(Node) of
+                {ok, CurrentRate} ->
+                    merge_cluster_rate(CurrentRate, Cluster);
+                {badrpc, Reason} ->
+                    {badrpc, {Node, Reason}}
+            end
+        end,
+    lists:foldl(Fun, #{}, mria_mnesia:cluster_nodes(running)).
+
+current_rate(all) ->
+    current_rate();
+current_rate(Node) when Node == node() ->
+    do_call(current_rate);
+current_rate(Node) ->
+    case rpc:call(Node, ?MODULE, ?FUNCTION_NAME, [Node], 5000) of
+        {badrpc, Reason} ->
+            {badrpc, {Node, Reason}};
+        {ok, Rate} ->
+            {ok, Rate}
+    end.
+
+%% -------------------------------------------------------------------------------------------------
+%% gen_server functions
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -99,6 +124,11 @@ init([]) ->
     clean_timer(),
     {ok, #state{last = undefined}}.
 
+handle_call(current_rate, _From, State = #state{last = Last}) ->
+    NowTime = erlang:system_time(millisecond),
+    NowSamplers = sample(NowTime),
+    Rate = cal_rate(NowSamplers, Last),
+    {reply, {ok, Rate}, State};
 handle_call(_Request, _From, State = #state{}) ->
     {reply, ok, State}.
 
@@ -125,14 +155,16 @@ terminate(_Reason, _State = #state{}) ->
 code_change(_OldVsn, State = #state{}, _Extra) ->
     {ok, State}.
 
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
+%% -------------------------------------------------------------------------------------------------
+%% Internal functions
 
-do_sample(all) ->
+do_call(Request) ->
+    gen_server:call(?MODULE, Request, 5000).
+
+do_sample(all, MatchTime) ->
     Fun =
         fun(Node, All) ->
-            case do_sample(Node) of
+            case do_sample(Node, MatchTime) of
                 {badrpc, Reason} ->
                     {badrpc, {Node, Reason}};
                 NodeSamplers ->
@@ -140,11 +172,16 @@ do_sample(all) ->
             end
         end,
     lists:foldl(Fun, #{}, mria_mnesia:cluster_nodes(running));
-do_sample(Node) when Node == node() ->
-    ExpiredMS = [{'$1',[],['$1']}],
-    internal_format(ets:select(?TAB, ExpiredMS));
-do_sample(Node) ->
-    rpc:call(Node, ?MODULE, ?FUNCTION_NAME, [Node], 5000).
+do_sample(Node, MatchTime) when Node == node() ->
+    MS = match_spec(MatchTime),
+    internal_format(ets:select(?TAB, MS));
+do_sample(Node, MatchTime) ->
+    rpc:call(Node, ?MODULE, ?FUNCTION_NAME, [Node, MatchTime], 5000).
+
+match_spec(infinity) ->
+    [{'$1',[],['$1']}];
+match_spec(MatchTime) ->
+    [{{'_', '$1', '_'}, [{'>=', '$1', MatchTime}], ['$_']}].
 
 merge_cluster_samplers(Node, Cluster) ->
     maps:fold(fun merge_cluster_samplers/3, Cluster, Node).
@@ -157,6 +194,14 @@ merge_cluster_samplers(TS, NodeData, Cluster) ->
             Cluster#{TS => count_map(NodeData, ClusterData)}
     end.
 
+merge_cluster_rate(Node, Cluster) ->
+    Fun =
+        fun(Key, Value, NCluster) ->
+            ClusterValue = maps:get(Key, NCluster, 0),
+            NCluster#{Key => Value + ClusterValue}
+        end,
+    maps:fold(Fun, Cluster, Node).
+
 format({badrpc, Reason}) ->
     {badrpc, Reason};
 format(Data) ->
@@ -166,6 +211,38 @@ format(Data) ->
 
 format(TimeStamp, Data, All) ->
     [Data#{time_stamp => TimeStamp} | All].
+
+cal_rate( #emqx_monit{data = NowData, time = NowTime}
+        , #emqx_monit{data = LastData, time = LastTime}) ->
+    TimeDelta = NowTime - LastTime,
+    Filter = fun(Key, _) -> lists:member(Key, ?GAUGE_SAMPLER_LIST) end,
+    Gauge = maps:filter(Filter, NowData),
+    {_, _, _, Rate} =
+        lists:foldl(fun cal_rate_/2, {NowData, LastData, TimeDelta, Gauge}, ?DELTA_SAMPLER_LIST),
+    Rate.
+
+cal_rate_(Key, {Now, Last, TDelta, Res}) ->
+    NewValue = maps:get(Key, Now),
+    LastValue = maps:get(Key, Last),
+    Rate = ((NewValue - LastValue) * 1000) div TDelta,
+    RateKey = maps:get(Key, ?DELTA_SAMPLER_RATE_MAP),
+    {Now, Last, TDelta, Res#{RateKey => Rate}}.
+
+granularity_adapter([], Res) ->
+    lists:reverse(Res);
+granularity_adapter([Sampler], Res) ->
+    granularity_adapter([], [Sampler | Res]);
+granularity_adapter([Sampler1, Sampler2 | Rest], Res) ->
+    Fun =
+        fun(Key, M) ->
+            Value1 = maps:get(Key, Sampler1),
+            Value2 = maps:get(Key, Sampler2),
+            M#{Key => Value1 + Value2}
+        end,
+    granularity_adapter(Rest, [lists:foldl(Fun, Sampler2, ?DELTA_SAMPLER_LIST) | Res]).
+
+%% -------------------------------------------------------------------------------------------------
+%% timer
 
 sample_timer() ->
     {NextTime, Remaining} = next_interval(),
@@ -185,6 +262,9 @@ next_interval() ->
     NextTime = ((Now div Interval) + 1) * Interval,
     Remaining = NextTime - Now,
     {NextTime, Remaining}.
+
+%% -------------------------------------------------------------------------------------------------
+%% data
 
 sample(Time) ->
     Fun =

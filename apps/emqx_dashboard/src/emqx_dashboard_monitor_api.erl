@@ -16,7 +16,9 @@
         , fields/1
         ]).
 
--export([ monitor/2]).
+-export([ monitor/2
+        , monitor_current/2
+        ]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
@@ -24,6 +26,7 @@ api_spec() ->
 paths() ->
     [ "/monitor"
     , "/monitor/nodes/:node"
+    , "/monitor/current"
     ].
 
 schema("/monitor") ->
@@ -55,19 +58,34 @@ schema("/monitor/nodes/:node") ->
                 400 => emqx_dashboard_swagger:error_codes(['BAD_RPC'], <<"Bad RPC">>)
             }
         }
+    };
+
+schema("/monitor/current") ->
+    #{
+        'operationId' => monitor_current,
+        get => #{
+            description => <<"Current monitor data. Gauge and rate">>,
+            responses => #{
+                200 => hoconsc:mk(hoconsc:ref(sampler_current), #{})
+            }
+        }
     }.
 
 fields(sampler) ->
     Samplers =
         [{SamplerName, hoconsc:mk(integer(), #{desc => sampler_desc(SamplerName)})}
         || SamplerName <- ?SAMPLER_LIST],
-    [{time_stamp, hoconsc:mk(integer(), #{desc => <<"Timestamp">>})} | Samplers].
+    [{time_stamp, hoconsc:mk(integer(), #{desc => <<"Timestamp">>})} | Samplers];
+
+fields(sampler_current) ->
+    [{SamplerName, hoconsc:mk(integer(), #{desc => sampler_desc(SamplerName)})}
+    || SamplerName <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST].
 
 %% -------------------------------------------------------------------------------------------------
 %% API
 
 monitor(get, #{query_string := QS, bindings := Bindings}) ->
-    Latest = maps:get(<<"latest">>, QS, 0),
+    Latest = maps:get(<<"latest">>, QS, 1000),
     Node = binary_to_atom(maps:get(node, Bindings, <<"all">>)),
     case emqx_dashboard_monitor:samplers(Node, Latest) of
         {badrpc, {Node, Reason}} ->
@@ -75,6 +93,16 @@ monitor(get, #{query_string := QS, bindings := Bindings}) ->
             {400, 'BAD_RPC', Message};
         Samplers ->
             {200, Samplers}
+    end.
+
+monitor_current(get, #{query_string := QS}) ->
+    NodeOrCluster = binary_to_atom(maps:get(<<"node">>, QS, <<"all">>), utf8),
+    case emqx_dashboard_monitor:current_rate(NodeOrCluster) of
+        {ok, CurrentRate} ->
+            {200, CurrentRate};
+        {badrpc, {Node, Reason}} ->
+            Message = list_to_binary(io_lib:format("Bad node ~p, rpc failed ~p", [Node, Reason])),
+            {400, 'BAD_RPC', Message}
     end.
 
 %% -------------------------------------------------------------------------------------------------
@@ -93,8 +121,17 @@ sampler_desc(routes) ->
     " Can only represent the approximate state">>;
 sampler_desc(connections) ->
     <<"Connections at the time of sampling."
-    " Can only represent the approximate state">>.
+    " Can only represent the approximate state">>;
+
+sampler_desc(received_rate)       -> sampler_desc_format("Dropped messages ", per);
+sampler_desc(received_bytes_rate) -> sampler_desc_format("Received bytes ", per);
+sampler_desc(sent_rate)           -> sampler_desc_format("Sent messages ", per);
+sampler_desc(sent_bytes_rate)     -> sampler_desc_format("Sent bytes ", per);
+sampler_desc(dropped_rate)        -> sampler_desc_format("Dropped messages ", per).
 
 sampler_desc_format(Format) ->
+    sampler_desc_format(Format, last).
+
+sampler_desc_format(Format, Type) ->
     Interval = emqx_conf:get([dashboard, monitor, interval], ?DEFAULT_SAMPLE_INTERVAL),
-    list_to_binary(io_lib:format(Format ++ "last ~p seconds", [Interval])).
+    list_to_binary(io_lib:format(Format ++ "~p ~p seconds", [Type, Interval])).
