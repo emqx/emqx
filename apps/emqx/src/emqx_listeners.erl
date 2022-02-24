@@ -306,10 +306,13 @@ do_flatten_listeners(Type, Conf0) ->
 
 esockd_opts(Type, Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
-    Opts2 = case emqx_config:get_zone_conf(zone(Opts0), [rate_limit, max_conn_rate]) of
-        infinity -> Opts1;
-        Rate -> Opts1#{max_conn_rate => Rate}
-    end,
+    Limiter = limiter(Opts0),
+    Opts2 = case maps:get(connection, Limiter, undefined) of
+                undefined ->
+                    Opts1;
+                BucketName ->
+                    Opts1#{limiter => emqx_esockd_htb_limiter:new_create_options(connection, BucketName)}
+            end,
     Opts3 = Opts2#{ access_rules => esockd_access_rules(maps:get(access_rules, Opts0, []))
                   , tune_fun => {emqx_olp, backoff_new_conn, [zone(Opts0)]}
                   },
