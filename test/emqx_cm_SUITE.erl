@@ -187,57 +187,89 @@ t_open_session_race_condition(_) ->
     ok = flush_emqx_pool(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
-t_kick_session_discard_normal(_) ->
-    test_kick_session(discard, normal).
+t_call_session_discard_normal(_) ->
+    test_call_session(discard, normal).
 
-t_kick_session_discard_shutdown(_) ->
-    test_kick_session(discard, shutdown).
+t_call_session_discard_shutdown(_) ->
+    test_call_session(discard, shutdown).
 
-t_kick_session_discard_shutdown_with_reason(_) ->
-    test_kick_session(discard, {shutdown, discard}).
+t_call_session_discard_shutdown_with_reason(_) ->
+    test_call_session(discard, {shutdown, discard}).
 
-t_kick_session_discard_timeout(_) ->
-    test_kick_session(discard, timeout).
+t_call_session_discard_timeout(_) ->
+    test_call_session(discard, timeout).
 
-t_kick_session_discard_noproc(_) ->
-    test_kick_session(discard, noproc).
+t_call_session_discard_noproc(_) ->
+    test_call_session(discard, noproc).
 
-t_kick_session_kick_normal(_) ->
-    test_kick_session(discard, normal).
+t_call_session_kick_normal(_) ->
+    test_call_session(kick, normal).
 
-t_kick_session_kick_shutdown(_) ->
-    test_kick_session(discard, shutdown).
+t_call_session_kick_shutdown(_) ->
+    test_call_session(kick, shutdown).
 
-t_kick_session_kick_shutdown_with_reason(_) ->
-    test_kick_session(discard, {shutdown, discard}).
+t_call_session_kick_shutdown_with_reason(_) ->
+    test_call_session(kick, {shutdown, discard}).
 
-t_kick_session_kick_timeout(_) ->
-    test_kick_session(discard, timeout).
+t_call_session_kick_timeout(_) ->
+    test_call_session(kick, timeout).
 
-t_kick_session_kick_noproc(_) ->
-    test_kick_session(discard, noproc).
+t_call_session_kick_noproc(_) ->
+    test_call_session(discard, noproc).
 
-test_kick_session(Action, Reason) ->
+t_call_session_takeover_begin_normal(_) ->
+    test_call_session({takeover, 'begin'}, normal).
+
+t_call_session_takeover_begin_shutdown(_) ->
+    test_call_session({takeover, 'begin'}, shutdown).
+
+t_call_session_takeover_begin_shutdown_with_reason(_) ->
+    test_call_session({takeover, 'begin'}, {shutdown, discard}).
+
+t_call_session_takeover_begin_timeout(_) ->
+    test_call_session({takeover, 'begin'}, timeout).
+
+t_call_session_takeover_begin_noproc(_) ->
+    test_call_session({takeover, 'begin'}, noproc).
+
+t_call_session_takeover_end_normal(_) ->
+    test_call_session({takeover, 'end'}, normal).
+
+t_call_session_takeover_end_shutdown(_) ->
+    test_call_session({takeover, 'end'}, shutdown).
+
+t_call_session_takeover_end_shutdown_with_reason(_) ->
+    test_call_session({takeover, 'end'}, {shutdown, discard}).
+
+t_call_session_takeover_end_timeout(_) ->
+    test_call_session({takeover, 'end'}, timeout).
+
+t_call_session_takeover_end_noproc(_) ->
+    test_call_session({takeover, 'end'}, noproc).
+
+test_call_session(Action, Reason) ->
     ClientId = rand_client_id(),
     #{conninfo := ConnInfo} = ?ChanInfo,
     FakeSessionFun =
         fun Loop() ->
-                     receive
-                         {'$gen_call', From, A} when A =:= kick orelse
-                                                     A =:= discard ->
-                             case Reason of
-                                 normal ->
-                                     gen_server:reply(From, ok);
-                                 timeout ->
-                                     %% no response to the call
-                                     Loop();
-                                 _ ->
-                                     exit(Reason)
-                             end;
-                         Msg ->
-                             ct:pal("(~p) fake_session_discarded ~p", [Action, Msg]),
-                             Loop()
-                     end
+            receive
+                {'$gen_call', From, A} when A =:= kick orelse
+                                            A =:= discard orelse
+                                            A =:= {takeover, 'begin'} orelse
+                                            A =:= {takeover, 'end'} ->
+                    case Reason of
+                        normal when A =:= kick orelse A =:= discard ->
+                            gen_server:reply(From, ok);
+                        timeout ->
+                            %% no response to the call
+                            Loop();
+                        _ ->
+                            exit(Reason)
+                    end;
+                Msg ->
+                    ct:pal("(~p) fake_session_discarded ~p", [Action, Msg]),
+                    Loop()
+            end
         end,
     {Pid1, _} = spawn_monitor(FakeSessionFun),
     {Pid2, _} = spawn_monitor(FakeSessionFun),
@@ -249,10 +281,11 @@ test_kick_session(Action, Reason) ->
         noproc -> exit(Pid1, kill), exit(Pid2, kill);
         _ -> ok
     end,
-    ok = case Action of
-             kick -> emqx_cm:kick_session(ClientId);
-             discard -> emqx_cm:discard_session(ClientId)
-         end,
+    _ = case Action of
+            kick -> emqx_cm:kick_session(ClientId);
+            discard -> emqx_cm:discard_session(ClientId);
+            {takeover, _} -> emqx_cm:takeover_session(ClientId)
+        end,
     case Reason =:= timeout orelse Reason =:= noproc of
         true ->
             ?assertEqual(killed, ?WAIT({'DOWN', _, process, Pid1, R}, 2_000, R)),

@@ -366,6 +366,9 @@ handle_call({publish, Topic, Qos, Payload},
 handle_call(kick, Channel) ->
     {shutdown, kicked, ok, Channel};
 
+handle_call(discard, Channel) ->
+    {shutdown, discarded, ok, Channel};
+
 handle_call(Req, Channel) ->
     ?LOG(warning, "Unexpected call: ~p", [Req]),
     {reply, {error, unexpected_call}, Channel}.
