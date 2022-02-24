@@ -31,13 +31,36 @@ end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite().
 
 t_metrics_api(_) ->
-    MetricsPath = emqx_mgmt_api_test_util:api_path(["metrics?aggregate=true"]),
-    SystemMetrics = emqx_mgmt:get_metrics(),
-    {ok, MetricsResponse} = emqx_mgmt_api_test_util:request_api(get, MetricsPath),
-    Metrics = emqx_json:decode(MetricsResponse, [return_maps]),
-    ?assertEqual(erlang:length(maps:keys(SystemMetrics)), erlang:length(maps:keys(Metrics))),
+    {ok, MetricsResponse} = request_helper("metrics?aggregate=true"),
+    MetricsFromAPI = emqx_json:decode(MetricsResponse, [return_maps]),
+    AggregateMetrics = emqx_mgmt:get_metrics(),
+    match_helper(AggregateMetrics, MetricsFromAPI).
+
+t_single_node_metrics_api(_) ->
+    {ok, MetricsResponse} = request_helper("metrics"),
+    [MetricsFromAPI] = emqx_json:decode(MetricsResponse, [return_maps]),
+    LocalNodeMetrics = maps:from_list(
+                         emqx_mgmt:get_metrics(node()) ++ [{node, to_bin(node())}]),
+    match_helper(LocalNodeMetrics, MetricsFromAPI).
+
+match_helper(SystemMetrics, MetricsFromAPI) ->
+    length_equal(SystemMetrics, MetricsFromAPI),
     Fun =
-        fun(Key) ->
-            ?assertEqual(maps:get(Key, SystemMetrics), maps:get(atom_to_binary(Key, utf8), Metrics))
+        fun (Key, {SysMetrics, APIMetrics}) ->
+                Value = maps:get(Key, SysMetrics),
+                ?assertEqual(Value, maps:get(to_bin(Key), APIMetrics)),
+                {Value, {SysMetrics, APIMetrics}}
         end,
-    lists:foreach(Fun, maps:keys(SystemMetrics)).
+    lists:mapfoldl(Fun, {SystemMetrics, MetricsFromAPI}, maps:keys(SystemMetrics)).
+
+length_equal(SystemMetrics, MetricsFromAPI) ->
+    ?assertEqual(erlang:length(maps:keys(SystemMetrics)), erlang:length(maps:keys(MetricsFromAPI))).
+
+request_helper(Path) ->
+    MetricsPath = emqx_mgmt_api_test_util:api_path([Path]),
+    emqx_mgmt_api_test_util:request_api(get, MetricsPath).
+
+to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+to_bin(L) when is_list(L) -> list_to_binary(L);
+to_bin(I) when is_integer(I) -> integer_to_binary(I);
+to_bin(B) when is_binary(B) -> B.

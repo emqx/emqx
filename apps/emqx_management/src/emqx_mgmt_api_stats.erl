@@ -46,7 +46,7 @@ schema("/stats") ->
             , tags => [<<"stats">>]
             , parameters => [ref(aggregate)]
             , responses =>
-                  #{ 200 => mk( hoconsc:union([ ref(?MODULE, base_data)
+                  #{ 200 => mk( hoconsc:union([ ref(?MODULE, node_stats_data)
                                               , array(ref(?MODULE, aggergate_data))
                                               ])
                               , #{ desc => <<"List stats ok">> })
@@ -62,7 +62,7 @@ fields(aggregate) ->
              , nullable => true
              , example => false})}
     ];
-fields(base_data) ->
+fields(node_stats_data) ->
     [ { 'channels.count'
       , mk( integer(), #{ desc => <<"sessions.count">>
                         , example => 0})}
@@ -140,7 +140,7 @@ fields(aggergate_data) ->
     [ { node
       , mk( string(), #{ desc => <<"Node name">>
                        , example => <<"emqx@127.0.0.1">>})}
-    ] ++ fields(base_data).
+    ] ++ fields(node_stats_data).
 
 
 %%%==============================================================================================
