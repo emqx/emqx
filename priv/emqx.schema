@@ -385,8 +385,8 @@ end}.
 
 %% RPC SSL server port.
 {mapping, "rpc.enable_ssl", "gen_rpc.ssl_server_port", [
-  {default, 5369},
-  {datatype, integer}
+  {default, "5369"},
+  {datatype, string}
 ]}.
 
 %% RPC SSL certificates
@@ -408,6 +408,18 @@ end}.
   {datatype, integer},
   {validators, ["range:gt_0_lt_256"]}
 ]}.
+
+{translation, "gen_rpc.ssl_server_port", fun(Conf) ->
+  case cuttlefish:conf_get("rpc.enable_ssl", Conf) of
+    "false" -> false;
+    Str ->
+        try list_to_integer(Str) of
+            N -> N
+        catch
+            _ : _ -> error({not_integer_or_false, Str})
+        end
+  end
+end}.
 
 {translation, "gen_rpc.tcp_client_num", fun(Conf) ->
   case cuttlefish:conf_get("rpc.tcp_client_num", Conf) of
