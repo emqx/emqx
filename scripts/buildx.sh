@@ -16,7 +16,7 @@ set -euo pipefail
 help() {
     echo
     echo "-h|--help:                   To display this usage information"
-    echo "--profile <PROFILE>:         EMQX profile to build, e.g. emqx, emqx-edge"
+    echo "--profile <PROFILE>:         EMQX profile to build (emqx|emqx-edge|emqx-enterprise)"
     echo "--pkgtype tgz|pkg:           Specify which package to build, tgz for .tar.gz,"
     echo "                             pkg for .rpm or .deb"
     echo "--with-elixir:               Specify if the release should be built with Elixir, "
@@ -24,7 +24,7 @@ help() {
     echo "--arch amd64|arm64:          Target arch to build the EMQX package for"
     echo "--src_dir <SRC_DIR>:         EMQX source ode in this dir, default to PWD"
     echo "--builder <BUILDER>:         Builder image to pull"
-    echo "                             E.g. ghcr.io/emqx/emqx-builder/5.0-7:1.13.3=24.2.1-1-debian10"
+    echo "                             E.g. ghcr.io/emqx/emqx-builder/5.0-7:1.13.3-24.2.1-1-debian10"
     echo "--otp <OTP_VSN>:             OTP version being used in the builder"
     echo "--elixir <ELIXIR_VSN>:       Elixir version being used in the builder"
     echo "--system <SYSTEM>:           OS used in the builder image"
@@ -128,15 +128,7 @@ PKG_NAME="${PROFILE}-$(./scripts/pkg-full-vsn.sh "$PROFILE")"
 
 CMD_RUN="export EMQX_NAME=\"$PROFILE\"; make ${MAKE_TARGET} && ./scripts/pkg-tests.sh $PKG_NAME $PKGTYPE"
 
-if docker info; then
-   docker run --rm --privileged tonistiigi/binfmt:latest --install "${ARCH}"
-   docker run -i --rm \
-   -v "$(pwd)":/emqx \
-   --workdir /emqx \
-   --platform="linux/$ARCH" \
-   "$BUILDER" \
-   bash -euc "$CMD_RUN"
-elif [[ $(uname -m) = "x86_64" && "$ARCH" = "amd64" ]]; then
+if [[ $(uname -m) = "x86_64" && "$ARCH" = "amd64" ]]; then
     eval "$CMD_RUN"
 elif [[ $(uname -m) = "aarch64" && "$ARCH" = "arm64" ]]; then
     eval "$CMD_RUN"
@@ -144,6 +136,14 @@ elif [[ $(uname -m) = "arm64" && "$ARCH" = "arm64" ]]; then
     eval "$CMD_RUN"
 elif [[ $(uname -m) = "armv7l" && "$ARCH" = "arm64" ]]; then
     eval "$CMD_RUN"
+elif docker info; then
+   docker run --rm --privileged tonistiigi/binfmt:latest --install "${ARCH}"
+   docker run -i --rm \
+   -v "$(pwd)":/emqx \
+   --workdir /emqx \
+   --platform="linux/$ARCH" \
+   "$BUILDER" \
+   bash -euc "$CMD_RUN"
 else
   echo "Error: Docker not available on unsupported platform"
   exit 1;
