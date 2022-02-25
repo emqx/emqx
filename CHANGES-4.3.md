@@ -24,6 +24,8 @@ File format:
 * Refactor the ExProto so that anonymous clients can also be displayed on the dashboard [#6983]
 * Force shutdown of processe that cannot answer takeover event [#7026]
 
+* `topic` parameter in bridge configuration can have `${node}` substitution (just like in `clientid` parameter)
+
 ### Bug fixes
 
 * Fix the `{error,eexist}` error when do release upgrade again if last run failed. [#7121]
