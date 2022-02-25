@@ -16,6 +16,12 @@ File format:
 
 * For docker image, /opt/emqx/etc has been removed from the VOLUME list,
   this made it easier for the users to rebuild image on top with changed configs.
+* If `EMQX_NODE__DATA_DIR` override is in use, please note:
+  after this upgrade, the files generated at boot time will be written to this
+  override dir instead of the default dir which is:
+  - `/opt/emqx/data` for docker
+  - `/var/lib/emqx` for deb/rpm installation
+  - `$EMQX_DIR/data` if compiled from source, where `$EMQX_DIR` is the build output dir
 
 ### Enhancements
 
@@ -34,6 +40,7 @@ File format:
 * Fix Stomp client can not trigger `$event/client_connection` message [#7096]
 * Fix system memory false alarm at boot
 * Fix the MQTT-SN message replay when the topic is not registered to the client [#6970]
+* Fix `EMQX_NODE__DATA_DIR` environment variable override
 
 ## v4.3.12
 ### Important changes
