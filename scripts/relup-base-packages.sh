@@ -7,7 +7,7 @@ set -euo pipefail
 
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
-SCRIPTS="$(pwd)/scripts"
+ROOT_DIR="$(pwd)"
 
 PROFILE="${1:-emqx}"
 export PROFILE
@@ -41,10 +41,10 @@ case "$UNAME" in
         ;;
 esac
 
-BASE_VERSIONS="$("${SCRIPTS}"/relup-base-vsns.sh "$EDITION" | xargs echo -n)"
+BASE_VERSIONS="$("${ROOT_DIR}"/scripts/relup-base-vsns.sh "$EDITION" | xargs echo -n)"
 
 fullvsn() {
-    env PKG_VSN="$1" "${SCRIPTS}"/pkg-full-vsn.sh "$PROFILE"
+    env PKG_VSN="$1" "${ROOT_DIR}"/pkg-vsn.sh "$PROFILE" --long
 }
 
 mkdir -p _upgrade_base

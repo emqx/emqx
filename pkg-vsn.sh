@@ -6,7 +6,69 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "$0")"
 
-case "${1:-}" in
+help() {
+    echo
+    echo "$0 PROFILE [options]"
+    echo
+    echo "-h|--help:       To display this usage information"
+    echo "--long:          Print log vsn number. e.g. 5.0.0-otp24.2.1-1-ubuntu20.04-amd64"
+    echo "                 Otherwise short e.g. 5.0.0"
+    echo "--elixir:        Include elixir version in the long version string"
+    echo "                 e.g. 5.0.0-elixir1.13.3-otp24.2.1-1-ubuntu20.04-amd64"
+    echo "--vsn_matcher:   For --long option, replace the EMQX version with '*'"
+    echo "                 so it can be used in find commands"
+}
+
+PROFILE="${1:-}"
+if [ -z "$PROFILE" ]; then
+    echo "ERROR: missing profile"
+    help
+    exit 1
+fi
+shift
+
+while [ "$#" -gt 0 ]; do
+    case $1 in
+    -h|--help)
+        help
+        exit 0
+        ;;
+    --long)
+        LONG_VERSION='yes'
+        shift 1
+        ;;
+    --elixir)
+        shift 1
+        case ${1:-novalue} in
+            -*)
+                # another option
+                IS_ELIXIR='yes'
+                ;;
+            yes|no)
+                IS_ELIXIR="${1}"
+                shift 1
+                ;;
+            novalue)
+                IS_ELIXIR='yes'
+                ;;
+            *)
+                echo "ERROR: unknown option: --elixir $2"
+                exit 1
+                ;;
+        esac
+        ;;
+    --vsn_matcher)
+        IS_MATCHER='yes'
+        shift 1
+        ;;
+    *)
+      echo "WARN: Unknown arg (ignored): $1"
+      exit 1
+      ;;
+  esac
+done
+
+case "${PROFILE}" in
     *enterprise*)
         RELEASE_EDITION="EMQX_RELEASE_EE"
         GIT_TAG_PREFIX="e"
@@ -37,4 +99,40 @@ else
     SUFFIX="-$(git rev-parse HEAD | cut -b1-8)"
 fi
 
-echo "${RELEASE}${SUFFIX}"
+PKG_VSN="${RELEASE}${SUFFIX}"
+
+if [ "${LONG_VERSION:-}" != 'yes' ]; then
+    echo "$PKG_VSN"
+    exit 0
+fi
+
+### --long LONG_VERSION handling start
+
+if [ "${IS_MATCHER:-}" = 'yes' ]; then
+    PKG_VSN='*'
+fi
+
+OTP_VSN="${OTP_VSN:-$(./scripts/get-otp-vsn.sh)}"
+SYSTEM="$(./scripts/get-distro.sh)"
+
+UNAME="$(uname -m)"
+case "$UNAME" in
+    x86_64)
+        ARCH='amd64'
+        ;;
+    aarch64)
+        ARCH='arm64'
+        ;;
+    arm*)
+        ARCH=arm
+        ;;
+esac
+
+if [ "${IS_ELIXIR:-}" = "yes" ]; then
+    ELIXIR_VSN="${ELIXIR_VSN:-$(./scripts/get-elixir-vsn.sh)}"
+    FULL_VSN="${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
+else
+    FULL_VSN="${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}"
+fi
+
+echo "${FULL_VSN}"

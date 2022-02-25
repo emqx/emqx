@@ -222,15 +222,15 @@ conf-segs:
 $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir): $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
 	@$(BUILD) $(subst -elixir,,$(@)) elixir
 
-.PHONY: $(REL_PROFILES:%=%-elixirpkg)
-define gen-elixirpkg-target
+.PHONY: $(REL_PROFILES:%=%-elixir-pkg)
+define gen-elixir-pkg-target
 # the Elixir places the tar in a different path than Rebar3
-$1-elixirpkg: $1-pkg-elixir
+$1-elixir-pkg: $1-pkg-elixir
 	@env TAR_PKG_DIR=_build/$1-pkg \
 	     IS_ELIXIR=yes \
 	     $(BUILD) $1-pkg pkg
 endef
-$(foreach pt,$(REL_PROFILES),$(eval $(call gen-elixirpkg-target,$(pt))))
+$(foreach pt,$(REL_PROFILES),$(eval $(call gen-elixir-pkg-target,$(pt))))
 
 .PHONY: $(REL_PROFILES:%=%-elixir-tgz)
 define gen-elixir-tgz-target

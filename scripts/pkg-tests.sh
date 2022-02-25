@@ -3,31 +3,50 @@
 set -euo pipefail
 set -x
 
-if [ -z "${1:-}" ]; then
-    echo "Usage $0 <PACKAGE_NAME> tgz|pkg"
-    exit 1
-fi
+MAKE_TARGET="${1:-}"
 
-case "${2:-}" in
-  tgz|pkg)
-    true
-    ;;
-  *)
-    echo "Usage $0 <PACKAGE_NAME> tgz|pkg"
-    exit 1
-    ;;
+case "${MAKE_TARGET}" in
+    emqx-enterprise-*)
+        EMQX_NAME='emqx-enterprise'
+        ;;
+    emqx-edge-*)
+        EMQX_NAME='emqx-edge'
+        ;;
+    emqx-*)
+        EMQX_NAME='emqx'
+        ;;
+    *)
+        echo "Usage $0 <PKG_TARGET>"
+        exit 1
+        ;;
 esac
 
-PACKAGE_NAME="${1}"
-PACKAGE_TYPE="${2}"
-ARCH="${3}"
-# Needed by deploy/package/**/Makefile
-export ARCH
+case "${MAKE_TARGET}" in
+    *-tgz)
+        PACKAGE_TYPE='tgz'
+        ;;
+    *-pkg)
+        PACKAGE_TYPE='pkg'
+        ;;
+    *)
+        echo "Unknown package type ${1}"
+        exit 2
+        ;;
+esac
+
+case "${MAKE_TARGET}" in
+    *elixir*)
+        IS_ELIXIR='yes'
+        ;;
+    *)
+        IS_ELIXIR='no'
+        ;;
+esac
 
 export DEBUG=1
 export CODE_PATH=${CODE_PATH:-"/emqx"}
 export SCRIPTS="${CODE_PATH}/scripts"
-export EMQX_NAME=${EMQX_NAME:-"emqx"}
+export EMQX_NAME
 export PACKAGE_PATH="${CODE_PATH}/_packages/${EMQX_NAME}"
 export RELUP_PACKAGE_PATH="${CODE_PATH}/_upgrade_base"
 
@@ -44,6 +63,9 @@ else
             ;;
     esac
 fi
+PACKAGE_VERSION="$("$CODE_PATH"/pkg-vsn.sh "${EMQX_NAME}")"
+PACKAGE_VERSION_LONG="$("$CODE_PATH"/pkg-vsn.sh "${EMQX_NAME}" --long --elixir "${IS_ELIXIR}")"
+PACKAGE_NAME="${EMQX_NAME}-${PACKAGE_VERSION_LONG}"
 PACKAGE_FILE_NAME="${PACKAGE_NAME}.${PKG_SUFFIX}"
 
 PACKAGE_FILE="${PACKAGE_PATH}/${PACKAGE_FILE_NAME}"
@@ -197,14 +219,13 @@ EOF
 }
 
 relup_test(){
-    TARGET_VERSION="$("$CODE_PATH"/pkg-vsn.sh "${EMQX_NAME}")"
     if [ ! -d "${RELUP_PACKAGE_PATH}" ]; then
         echo "WARNING: ${RELUP_PACKAGE_PATH} is not a dir, skipped relup test!"
         return 0
     fi
     cd "${RELUP_PACKAGE_PATH}"
     local pattern
-    pattern="$("$SCRIPTS"/pkg-full-vsn.sh "${EMQX_NAME}" 'vsn_matcher')"
+    pattern="$EMQX_NAME-$("$CODE_PATH"/pkg-vsn.sh "${EMQX_NAME}" --long --vsn_matcher)"
     while read -r pkg; do
         packagename=$(basename "${pkg}")
         tar -zxf "$packagename"
@@ -216,8 +237,8 @@ relup_test(){
         ./emqx/bin/emqx_ctl status
         ./emqx/bin/emqx versions
         cp "$PACKAGE_FILE" ./emqx/releases/
-        ./emqx/bin/emqx install "${TARGET_VERSION}"
-        [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${TARGET_VERSION}" ] || exit 1
+        ./emqx/bin/emqx install "${PACKAGE_VERSION}"
+        [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${PACKAGE_VERSION}" ] || exit 1
         ./emqx/bin/emqx_ctl status
         ./emqx/bin/emqx stop
         rm -rf emqx
@@ -226,4 +247,8 @@ relup_test(){
 
 emqx_prepare
 emqx_test
-relup_test
+if [ "$IS_ELIXIR" = 'yes' ]; then
+    echo "WARNING: skipped relup test for elixir"
+else
+    relup_test
+fi

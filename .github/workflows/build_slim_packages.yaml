@@ -51,8 +51,6 @@ jobs:
       run: |
         echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
         echo "CODE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
-        echo "EMQX_PKG_NAME=${{ matrix.profile }}-$(./pkg-full-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
-        echo "EMQX_ELIXIRPKG_NAME=${{ matrix.profile }}-$(env IS_ELIXIR=yes ./pkg-full-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
     - name: Get deps git refs for cache
       id: deps-refs
       run: |
@@ -75,7 +73,7 @@ jobs:
     - name: build and test tgz package
       run: |
         make ${EMQX_NAME}-tgz
-        ./scripts/pkg-tests.sh "$EMQX_PKG_NAME" tgz amd64
+        ./scripts/pkg-tests.sh ${EMQX_NAME}-tgz
     - name: run static checks
       if: contains(matrix.os, 'ubuntu')
       run: |
@@ -83,15 +81,15 @@ jobs:
     - name: build and test deb/rpm packages
       run: |
         make ${EMQX_NAME}-pkg
-        ./scripts/pkg-tests.sh "$EMQX_PKG_NAME" pkg amd64
+        ./scripts/pkg-tests.sh ${EMQX_NAME}-pkg
     - name: build and test tgz package (Elixir)
       run: |
         make ${EMQX_NAME}-elixir-tgz
-        ./scripts/pkg-tests.sh "$EMQX_ELIXIRPKG_NAME" tgz amd64
+        ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-tgz
     - name: build and test deb/rpm packages (Elixir)
       run: |
-        make ${EMQX_NAME}-elixirpkg
-        ./scripts/pkg-tests.sh "$EMQX_ELIXIRPKG_NAME" pkg amd64
+        make ${EMQX_NAME}-elixir-pkg
+        ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-pkg
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.profile}}-${{ matrix.otp }}-${{ matrix.os }}

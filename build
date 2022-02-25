@@ -96,7 +96,7 @@ make_relup() {
     mkdir -p "${rel_dir}/lib"
     mkdir -p "${rel_dir}/releases"
     local name_pattern
-    name_pattern="${PROFILE}-$(./scripts/pkg-full-vsn.sh "$PROFILE" 'vsn_matcher')"
+    name_pattern="${PROFILE}-$(./pkg-vsn.sh "$PROFILE" --vsn_matcher)"
     local releases=()
     while read -r tgzfile ; do
         local base_vsn
@@ -143,14 +143,14 @@ make_tgz() {
       ELIXIR_MAKE_TAR=yes make_elixir_rel
 
       local relpath="_build/${PROFILE}"
-      full_vsn="$(WITH_ELIXIR=yes ./scripts/pkg-full-vsn.sh "$PROFILE")"
+      full_vsn="$(./pkg-vsn.sh "$PROFILE" --long --elixir)"
     else
       # build the src_tarball again to ensure relup is included
       # elixir does not have relup yet.
       make_rel
 
       local relpath="_build/${PROFILE}/rel/emqx"
-      full_vsn="$(WITH_ELIXIR=no ./scripts/pkg-full-vsn.sh "$PROFILE")"
+      full_vsn="$(./pkg-vsn.sh "$PROFILE" --long)"
     fi
     target_name="${PROFILE}-${full_vsn}.tar.gz"
     target="${pkgpath}/${target_name}"
