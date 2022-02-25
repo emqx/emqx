@@ -77,7 +77,6 @@ jobs:
           - api_alarms
           - api_nodes
           - api_topic_metrics
-          - api_retainer
           - api_auto_subscribe
           - api_delayed_publish
           - api_topic_rewrite
