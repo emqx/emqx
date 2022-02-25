@@ -331,7 +331,7 @@ wait_for_resource_ready(InstId, 0) ->
     ct:fail(wait_resource_timeout);
 wait_for_resource_ready(InstId, Retry) ->
     case emqx_bridge:lookup(InstId) of
-        {ok, #{resource_data := #{status := started}}} -> ok;
+        {ok, #{resource_data := #{status := connected}}} -> ok;
         _ ->
             timer:sleep(100),
             wait_for_resource_ready(InstId, Retry-1)
