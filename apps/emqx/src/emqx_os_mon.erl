@@ -159,7 +159,7 @@ ensure_system_memory_alarm(HW) ->
     case erlang:whereis(memsup) of
         undefined -> ok;
         _Pid ->
-            {Allocated, Total, _Worst} = memsup:get_memory_data(),
+            {Total, Allocated, _Worst} = memsup:get_memory_data(),
             case Total =/= 0 andalso Allocated/Total * 100 > HW of
                 true -> emqx_alarm:activate(high_system_memory_usage, #{high_watermark => HW});
                 false -> ok

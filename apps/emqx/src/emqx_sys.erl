@@ -52,10 +52,8 @@
 -import(emqx_misc, [start_timer/2]).
 
 -record(state,
-        { start_time :: erlang:timestamp()
-        , heartbeat  :: maybe(reference())
+        {heartbeat  :: maybe(reference())
         , ticker     :: maybe(reference())
-        , version    :: binary()
         , sysdescr   :: binary()
         }).
 
@@ -91,7 +89,8 @@ sysdescr() -> emqx_app:get_description().
 %% @doc Get sys uptime
 -spec(uptime() -> Milliseconds :: integer()).
 uptime() ->
-    gen_server:call(?SYS, uptime).
+    {TotalWallClock, _} = erlang:statistics(wall_clock),
+    TotalWallClock.
 
 %% @doc Get sys datetime
 -spec(datetime() -> string()).
@@ -120,18 +119,13 @@ info() ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    State = #state{start_time = erlang:timestamp(),
-                   version    = iolist_to_binary(version()),
-                   sysdescr   = iolist_to_binary(sysdescr())},
+    State = #state{sysdescr   = iolist_to_binary(sysdescr())},
     {ok, heartbeat(tick(State))}.
 
 heartbeat(State) ->
     State#state{heartbeat = start_timer(sys_heatbeat_interval(), heartbeat)}.
 tick(State) ->
     State#state{ticker = start_timer(sys_interval(), tick)}.
-
-handle_call(uptime, _From, State) ->
-    {reply, uptime(State), State};
 
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -142,13 +136,12 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, heartbeat}, State = #state{heartbeat = TRef}) ->
-    publish_any(uptime, integer_to_binary(uptime(State))),
+    publish_any(uptime, integer_to_binary(uptime())),
     publish_any(datetime, iolist_to_binary(datetime())),
     {noreply, heartbeat(State)};
 
-handle_info({timeout, TRef, tick},
-            State = #state{ticker = TRef, version = Version, sysdescr = Descr}) ->
-    publish_any(version, Version),
+handle_info({timeout, TRef, tick}, State = #state{ticker = TRef, sysdescr = Descr}) ->
+    publish_any(version, version()),
     publish_any(sysdescr, Descr),
     publish_any(brokers, mria_mnesia:running_nodes()),
     publish_any(stats, emqx_stats:getstats()),
@@ -165,9 +158,6 @@ terminate(_Reason, #state{heartbeat = TRef1, ticker = TRef2}) ->
 %%-----------------------------------------------------------------------------
 %% Internal functions
 %%-----------------------------------------------------------------------------
-
-uptime(#state{start_time = Ts}) ->
-    timer:now_diff(erlang:timestamp(), Ts) div 1000.
 
 publish_any(Name, Value) ->
     _ = publish(Name, Value),
