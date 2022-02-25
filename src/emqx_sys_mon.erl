@@ -119,7 +119,7 @@ handle_info({monitor, Port, long_schedule, Info}, State) when is_port(Port) ->
     suppress({long_schedule, Port},
              fun() ->
                  WarnMsg = io_lib:format("long_schedule warning: port = ~p, info: ~p", [Port, Info]),
-                 ?LOG(warning, "~s~n~p", [WarnMsg, erlang:port_info(Port)]),
+                 ?LOG(warning, "~s~n~p", [WarnMsg, portinfo(Port)]),
                  safe_publish(long_schedule, WarnMsg)
              end, State);
 
@@ -135,7 +135,7 @@ handle_info({monitor, SusPid, busy_port, Port}, State) ->
     suppress({busy_port, Port},
              fun() ->
                  WarnMsg = io_lib:format("busy_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
-                 ?LOG(warning, "~s~n~p~n~p", [WarnMsg, procinfo(SusPid), erlang:port_info(Port)]),
+                 ?LOG(warning, "~s~n~p~n~p", [WarnMsg, procinfo(SusPid), portinfo(Port)]),
                  safe_publish(busy_port, WarnMsg)
              end, State);
 
@@ -143,7 +143,7 @@ handle_info({monitor, SusPid, busy_dist_port, Port}, State) ->
     suppress({busy_dist_port, Port},
              fun() ->
                  WarnMsg = io_lib:format("busy_dist_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
-                 ?LOG(warning, "~s~n~p~n~p", [WarnMsg, procinfo(SusPid), erlang:port_info(Port)]),
+                 ?LOG(warning, "~s~n~p~n~p", [WarnMsg, procinfo(SusPid), portinfo(Port)]),
                  safe_publish(busy_dist_port, WarnMsg)
              end, State);
 
@@ -200,3 +200,9 @@ safe_publish(Event, WarnMsg) ->
 sysmon_msg(Topic, Payload) ->
     Msg = emqx_message:make(?SYSMON, Topic, Payload),
     emqx_message:set_flag(sys, Msg).
+
+portinfo(Port) ->
+    case is_port(Port) andalso erlang:port_info(Port) of
+        L when is_list(L) -> L;
+        _ -> []
+    end.
