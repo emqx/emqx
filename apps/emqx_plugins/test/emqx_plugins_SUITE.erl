@@ -23,6 +23,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(EMQX_PLUGIN_TEMPLATE_VSN, "5.0-rc.1").
+-define(EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN, "0.1.0").
 -define(PACKAGE_SUFFIX, ".tar.gz").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -56,16 +57,37 @@ end_per_testcase(TestCase, Config) ->
     ?MODULE:TestCase({'end', Config}).
 
 build_demo_plugin_package() ->
+    build_demo_plugin_package(
+      #{ target_path => "_build/default/emqx_plugrel"
+       , release_name => "emqx_plugin_template"
+       , git_url => "https://github.com/emqx/emqx-plugin-template.git"
+       , vsn => ?EMQX_PLUGIN_TEMPLATE_VSN
+       , workdir => "demo_src"
+       }).
+
+build_demo_plugin_package(#{ target_path := TargetPath
+                           , release_name := ReleaseName
+                           , git_url := GitUrl
+                           , vsn := PluginVsn
+                           , workdir := DemoWorkDir
+                           } = Opts) ->
     WorkDir = emqx_plugins:install_dir(),
     BuildSh = filename:join([WorkDir, "build-demo-plugin.sh"]),
-    case emqx_run_sh:do(BuildSh ++ " " ++ ?EMQX_PLUGIN_TEMPLATE_VSN,
-                        [{cd, WorkDir}]) of
+    Cmd = string:join([ BuildSh
+                      , PluginVsn
+                      , TargetPath
+                      , ReleaseName
+                      , GitUrl
+                      , DemoWorkDir
+                      ],
+                      " "),
+    case emqx_run_sh:do(Cmd, [{cd, WorkDir}]) of
         {ok, _} ->
-            Pkg = filename:join([WorkDir, "emqx_plugin_template-" ++
-                                          ?EMQX_PLUGIN_TEMPLATE_VSN ++
+            Pkg = filename:join([WorkDir, ReleaseName ++ "-" ++
+                                          PluginVsn ++
                                           ?PACKAGE_SUFFIX]),
             case filelib:is_regular(Pkg) of
-                true -> Pkg;
+                true -> Opts#{package => Pkg};
                 false -> error(#{reason => unexpected_build_result, not_found => Pkg})
             end;
         {error, {Rc, Output}} ->
@@ -78,12 +100,18 @@ bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
 
 t_demo_install_start_stop_uninstall({init, Config}) ->
-    Package = build_demo_plugin_package(),
+    Opts = #{package := Package} = build_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
-    [{name_vsn, NameVsn} | Config];
+    [ {name_vsn, NameVsn}
+    , {plugin_opts, Opts}
+    | Config
+    ];
 t_demo_install_start_stop_uninstall({'end', _Config}) -> ok;
 t_demo_install_start_stop_uninstall(Config) ->
     NameVsn = proplists:get_value(name_vsn, Config),
+    #{ release_name := ReleaseName
+     , vsn := PluginVsn
+     } = proplists:get_value(plugin_opts, Config),
     ok = emqx_plugins:ensure_installed(NameVsn),
     %% idempotent
     ok = emqx_plugins:ensure_installed(NameVsn),
@@ -111,8 +139,10 @@ t_demo_install_start_stop_uninstall(Config) ->
     ok = assert_app_running(emqx_plugin_template, false),
     ok = assert_app_running(map_sets, false),
     %% still listed after stopped
-    ?assertMatch([#{<<"name">> := <<"emqx_plugin_template">>,
-                    <<"rel_vsn">> :=  <<?EMQX_PLUGIN_TEMPLATE_VSN>>
+    ReleaseNameBin = list_to_binary(ReleaseName),
+    PluginVsnBin = list_to_binary(PluginVsn),
+    ?assertMatch([#{<<"name">> := ReleaseNameBin,
+                    <<"rel_vsn">> :=  PluginVsnBin
                    }], emqx_plugins:list()),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ?assertEqual([], emqx_plugins:list()),
@@ -129,7 +159,7 @@ write_info_file(Config, NameVsn, Content) ->
     ok = file:write_file(InfoFile, Content).
 
 t_start_restart_and_stop({init, Config}) ->
-    Package = build_demo_plugin_package(),
+    #{package := Package} = build_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     [{name_vsn, NameVsn} | Config];
 t_start_restart_and_stop({'end', _Config}) -> ok;
@@ -175,7 +205,7 @@ t_start_restart_and_stop(Config) ->
     ok.
 
 t_enable_disable({init, Config}) ->
-    Package = build_demo_plugin_package(),
+    #{package := Package} = build_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     [{name_vsn, NameVsn} | Config];
 t_enable_disable({'end', Config}) ->
@@ -261,6 +291,66 @@ t_bad_info_json(Config) ->
                  emqx_plugins:read_plugin(NameVsn)),
     ?assertEqual([], emqx_plugins:list()),
     emqx_plugins:purge(NameVsn),
+    ok.
+
+t_elixir_plugin({init, Config}) ->
+    Opts0 =
+        #{ target_path => "_build/prod/plugrelex/elixir_plugin_template"
+         , release_name => "elixir_plugin_template"
+         , git_url => "https://github.com/emqx/emqx-elixir-plugin.git"
+         , vsn => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN
+         , workdir => "demo_src_elixir"
+         },
+    Opts = #{package := Package} = build_demo_plugin_package(Opts0),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [ {name_vsn, NameVsn}
+    , {plugin_opts, Opts}
+    | Config
+    ];
+t_elixir_plugin({'end', _Config}) -> ok;
+t_elixir_plugin(Config) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    #{ release_name := ReleaseName
+     , vsn := PluginVsn
+     } = proplists:get_value(plugin_opts, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    %% idempotent
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    {ok, Info} = emqx_plugins:read_plugin(NameVsn),
+    ?assertEqual([Info], emqx_plugins:list()),
+    %% start
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ok = assert_app_running(elixir_plugin_template, true),
+    ok = assert_app_running(hallux, true),
+    %% start (idempotent)
+    ok = emqx_plugins:ensure_started(bin(NameVsn)),
+    ok = assert_app_running(elixir_plugin_template, true),
+    ok = assert_app_running(hallux, true),
+
+    %% call an elixir function
+    1 = 'Elixir.ElixirPluginTemplate':ping(),
+    3 = 'Elixir.Kernel':'+'(1, 2),
+
+    %% running app can not be un-installed
+    ?assertMatch({error, _},
+                 emqx_plugins:ensure_uninstalled(NameVsn)),
+
+    %% stop
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ok = assert_app_running(elixir_plugin_template, false),
+    ok = assert_app_running(hallux, false),
+    %% stop (idempotent)
+    ok = emqx_plugins:ensure_stopped(bin(NameVsn)),
+    ok = assert_app_running(elixir_plugin_template, false),
+    ok = assert_app_running(hallux, false),
+    %% still listed after stopped
+    ReleaseNameBin = list_to_binary(ReleaseName),
+    PluginVsnBin = list_to_binary(PluginVsn),
+    ?assertMatch([#{<<"name">> := ReleaseNameBin,
+                    <<"rel_vsn">> :=  PluginVsnBin
+                   }], emqx_plugins:list()),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ?assertEqual([], emqx_plugins:list()),
     ok.
 
 make_tar(Cwd, NameWithVsn) ->

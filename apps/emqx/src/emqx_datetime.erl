@@ -59,6 +59,7 @@ epoch_to_rfc3339(TimeStamp, Unit) when is_integer(TimeStamp) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-compile(nowarn_export_all).
 -compile(export_all).
 roots() -> [bar].
 
