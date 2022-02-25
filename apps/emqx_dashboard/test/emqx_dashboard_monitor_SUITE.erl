@@ -56,7 +56,7 @@ set_special_configs(_) ->
 t_monitor_samplers_all(_Config) ->
     timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
     Size = mnesia:table_info(emqx_dashboard_monitor,size),
-    All  = emqx_dashboard_monitor:samplers(all),
+    All  = emqx_dashboard_monitor:samplers(all, infinity),
     All2 = emqx_dashboard_monitor:samplers(),
     ?assert(erlang:length(All)  == Size),
     ?assert(erlang:length(All2) == Size),
@@ -78,53 +78,66 @@ t_monitor_sampler_format(_Config) ->
     [?assert(lists:member(SamplerName, SamplerKeys)) || SamplerName <- ?SAMPLER_LIST],
     ok.
 
-%% TODO: api test
-% t_monitor_api(_) ->
-%     timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
-%     {ok, Samplers} = request(["monitor"]),
-%     ?assert(erlang:length(Samplers) >= 2),
-%     Sample = hd(Samplers),
-%     Fun =
-%         fun(Sampler) ->
-%             Keys = [binary_to_atom(Key, utf8) || Key <- maps:keys(Sampler)],
-%             [?assert(lists:member(SamplerName, Keys)) || SamplerName<- ?SAMPLER_LIST]
-%         end,
-%     [Fun(Sampler) || Sampler <- Samplers],
-%     ok.
+t_monitor_api(_) ->
+    timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
+    {ok, Samplers} = request(["monitor"], "latest=20"),
+    ?assert(erlang:length(Samplers) >= 2),
+    Fun =
+        fun(Sampler) ->
+            Keys = [binary_to_atom(Key, utf8) || Key <- maps:keys(Sampler)],
+            [?assert(lists:member(SamplerName, Keys)) || SamplerName <- ?SAMPLER_LIST]
+        end,
+    [Fun(Sampler) || Sampler <- Samplers],
+    {ok, NodeSamplers} = request(["monitor", "nodes", node()]),
+    [Fun(NodeSampler) || NodeSampler <- NodeSamplers],
+    ok.
 
-% t_monitor_api_error(_) ->
-%     {error, _Reason} = request(["monitor_a"]),
-%     ok.
+t_monitor_current_api(_) ->
+    timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
+    {ok, Rate} = request(["monitor_current"]),
+    [?assert(maps:is_key(atom_to_binary(Key, utf8), Rate))
+        || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST],
+    {ok, NodeRate} = request(["monitor_current", "nodes", node()]),
+    [?assert(maps:is_key(atom_to_binary(Key, utf8), NodeRate))
+        || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST],
+    ok.
 
-% request(Path) ->
-%     request(Path, "").
+t_monitor_api_error(_) ->
+    {error, {400, #{<<"code">> := <<"BAD_RPC">>}}} =
+        request(["monitor", "nodes", 'emqx@127.0.0.2']),
+    {error, {400, #{<<"code">> := <<"BAD_RPC">>}}} =
+        request(["monitor_current", "nodes", 'emqx@127.0.0.2']),
+    ok.
 
-% request(Path, QS) ->
-%     Url = url(Path, QS),
-%     case do_request_api(get, {Path, auth_header_()}) of
-%         {ok, Apps} -> {ok, emqx_json:decode(Apps, [return_maps])};
-%         Error -> Error
-%     end.
+request(Path) ->
+    request(Path, "").
 
-% url(Parts, QS)->
-%     case QS of
-%         "" ->
-%             ?SERVER ++ filename:join([?BASE_PATH | Parts]);
-%         _ ->
-%             ?SERVER ++ filename:join([?BASE_PATH | Parts]) ++ "?" ++ QS
-%     end.
+request(Path, QS) ->
+    Url = url(Path, QS),
+    do_request_api(get, {Url, [auth_header_()]}).
 
-% do_request_api(Method, Request)->
-%     case httpc:request(Method, Request, [], []) of
-%         {error, socket_closed_remotely} ->
-%             {error, socket_closed_remotely};
-%         {ok, {{"HTTP/1.1", Code, _}, _, Return} }
-%             when Code >= 200 andalso Code =< 299 ->
-%             {ok, emqx_json:decode(Return)};
-%         {ok, Resp} ->
-%             {error, Resp}
-%     end.
+url(Parts, QS)->
+    case QS of
+        "" ->
+            ?SERVER ++ filename:join([?BASE_PATH | Parts]);
+        _ ->
+            ?SERVER ++ filename:join([?BASE_PATH | Parts]) ++ "?" ++ QS
+    end.
 
-% auth_header_() ->
-%     Basic = binary_to_list(base64:encode(<<"admin:public">>)),
-%     {"Authorization", "Basic " ++ Basic}.
+do_request_api(Method, Request)->
+    ct:pal("Req ~p ~p~n", [Method, Request]),
+    case httpc:request(Method, Request, [], []) of
+        {error, socket_closed_remotely} ->
+            {error, socket_closed_remotely};
+        {ok, {{"HTTP/1.1", Code, _}, _, Return} }
+            when Code >= 200 andalso Code =< 299 ->
+            {ok, emqx_json:decode(Return, [return_maps])};
+        {ok, {{"HTTP/1.1", Code, _}, _, Return} } ->
+            {error, {Code, emqx_json:decode(Return, [return_maps])}};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+auth_header_() ->
+    Basic = binary_to_list(base64:encode(<<"admin:public">>)),
+    {"Authorization", "Basic " ++ Basic}.

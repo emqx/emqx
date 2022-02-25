@@ -19,8 +19,7 @@
 -behaviour(emqx_bpapi).
 
 -export([ introduced_in/0
-
-        , samplers/1
+        , samplers/2
         ]).
 
 -include("emqx_dashboard.hrl").
@@ -29,6 +28,6 @@
 introduced_in() ->
     "5.0.0".
 
--spec samplers(node()) -> list(map()) | emqx_rpc:badrpc().
-samplers(Node) ->
-    rpc:call(Node, emqx_dashboard_monitor, samplers, [Node]).
+-spec samplers(node(), Latest:: pos_integer() | infinity) -> list(map()) | emqx_rpc:badrpc().
+samplers(Node, Latest) ->
+    rpc:call(Node, emqx_dashboard_monitor, samplers, [Node, Latest]).

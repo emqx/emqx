@@ -26,17 +26,17 @@ api_spec() ->
 paths() ->
     [ "/monitor"
     , "/monitor/nodes/:node"
-    , "/monitor/current"
+    , "/monitor_current"
+    , "/monitor_current/nodes/:node"
     ].
 
 schema("/monitor") ->
     #{
         'operationId' => monitor,
         get => #{
+            tags => [dashboard],
             description => <<"List monitor data.">>,
-            parameters => [
-                {latest, hoconsc:mk(integer(), #{in => query, nullable => true, example => 1000})}
-            ],
+            parameters => [parameter_latest()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(sampler)), #{}),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_RPC'], <<"Bad RPC">>)
@@ -48,11 +48,9 @@ schema("/monitor/nodes/:node") ->
     #{
         'operationId' => monitor,
         get => #{
+            tags => [dashboard],
             description => <<"List the monitor data on the node.">>,
-            parameters => [
-                {node, hoconsc:mk(binary(), #{in => path, nullable => false, example => node()})},
-                {latest, hoconsc:mk(integer(), #{in => query, nullable => true, example => 1000})}
-            ],
+            parameters => [parameter_node(), parameter_latest()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(sampler)), #{}),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_RPC'], <<"Bad RPC">>)
@@ -60,25 +58,58 @@ schema("/monitor/nodes/:node") ->
         }
     };
 
-schema("/monitor/current") ->
+schema("/monitor_current") ->
     #{
         'operationId' => monitor_current,
         get => #{
-            description => <<"Current monitor data. Gauge and rate">>,
+            tags => [dashboard],
+            description => <<"Current status. Gauge and rate.">>,
+            responses => #{
+                200 => hoconsc:mk(hoconsc:ref(sampler_current), #{})
+            }
+        }
+    };
+
+schema("/monitor_current/nodes/:node") ->
+    #{
+        'operationId' => monitor_current,
+        get => #{
+            tags => [dashboard],
+            description => <<"Node current status. Gauge and rate.">>,
+            parameters => [parameter_node()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(sampler_current), #{})
             }
         }
     }.
 
+parameter_latest() ->
+    Info = #{
+        in => query,
+        nullable => true,
+        example => 5 * 60,
+        description => <<"The latest N seconds data. Like 300 for 5 min.">>
+    },
+    {latest, hoconsc:mk(integer(), Info)}.
+
+parameter_node() ->
+    Info = #{
+        in => path,
+        nullable => false,
+        example => node(),
+        description => <<"EMQX node name.">>
+    },
+    {node, hoconsc:mk(binary(), Info)}.
+
+
 fields(sampler) ->
     Samplers =
-        [{SamplerName, hoconsc:mk(integer(), #{desc => sampler_desc(SamplerName)})}
+        [{SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
         || SamplerName <- ?SAMPLER_LIST],
     [{time_stamp, hoconsc:mk(integer(), #{desc => <<"Timestamp">>})} | Samplers];
 
 fields(sampler_current) ->
-    [{SamplerName, hoconsc:mk(integer(), #{desc => sampler_desc(SamplerName)})}
+    [{SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
     || SamplerName <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST].
 
 %% -------------------------------------------------------------------------------------------------
@@ -95,8 +126,8 @@ monitor(get, #{query_string := QS, bindings := Bindings}) ->
             {200, Samplers}
     end.
 
-monitor_current(get, #{query_string := QS}) ->
-    NodeOrCluster = binary_to_atom(maps:get(<<"node">>, QS, <<"all">>), utf8),
+monitor_current(get, #{bindings := Bindings}) ->
+    NodeOrCluster = binary_to_atom(maps:get(node, Bindings, <<"all">>), utf8),
     case emqx_dashboard_monitor:current_rate(NodeOrCluster) of
         {ok, CurrentRate} ->
             {200, CurrentRate};
@@ -108,30 +139,30 @@ monitor_current(get, #{query_string := QS}) ->
 %% -------------------------------------------------------------------------------------------------
 %% Internal
 
-sampler_desc(received)       -> sampler_desc_format("Received messages ");
-sampler_desc(received_bytes) -> sampler_desc_format("Received bytes ");
-sampler_desc(sent)           -> sampler_desc_format("Sent messages ");
-sampler_desc(sent_bytes)     -> sampler_desc_format("Sent bytes ");
-sampler_desc(dropped)        -> sampler_desc_format("Dropped messages ");
-sampler_desc(subscriptions) ->
+swagger_desc(received)       -> swagger_desc_format("Received messages ");
+swagger_desc(received_bytes) -> swagger_desc_format("Received bytes ");
+swagger_desc(sent)           -> swagger_desc_format("Sent messages ");
+swagger_desc(sent_bytes)     -> swagger_desc_format("Sent bytes ");
+swagger_desc(dropped)        -> swagger_desc_format("Dropped messages ");
+swagger_desc(subscriptions) ->
     <<"Subscriptions at the time of sampling."
     " Can only represent the approximate state">>;
-sampler_desc(routes) ->
+swagger_desc(routes) ->
     <<"Routes at the time of sampling."
     " Can only represent the approximate state">>;
-sampler_desc(connections) ->
+swagger_desc(connections) ->
     <<"Connections at the time of sampling."
     " Can only represent the approximate state">>;
 
-sampler_desc(received_rate)       -> sampler_desc_format("Dropped messages ", per);
-sampler_desc(received_bytes_rate) -> sampler_desc_format("Received bytes ", per);
-sampler_desc(sent_rate)           -> sampler_desc_format("Sent messages ", per);
-sampler_desc(sent_bytes_rate)     -> sampler_desc_format("Sent bytes ", per);
-sampler_desc(dropped_rate)        -> sampler_desc_format("Dropped messages ", per).
+swagger_desc(received_rate)       -> swagger_desc_format("Dropped messages ", per);
+swagger_desc(received_bytes_rate) -> swagger_desc_format("Received bytes ", per);
+swagger_desc(sent_rate)           -> swagger_desc_format("Sent messages ", per);
+swagger_desc(sent_bytes_rate)     -> swagger_desc_format("Sent bytes ", per);
+swagger_desc(dropped_rate)        -> swagger_desc_format("Dropped messages ", per).
 
-sampler_desc_format(Format) ->
-    sampler_desc_format(Format, last).
+swagger_desc_format(Format) ->
+    swagger_desc_format(Format, last).
 
-sampler_desc_format(Format, Type) ->
+swagger_desc_format(Format, Type) ->
     Interval = emqx_conf:get([dashboard, monitor, interval], ?DEFAULT_SAMPLE_INTERVAL),
     list_to_binary(io_lib:format(Format ++ "~p ~p seconds", [Type, Interval])).

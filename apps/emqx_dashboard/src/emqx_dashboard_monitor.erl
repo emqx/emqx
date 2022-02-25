@@ -51,6 +51,12 @@
 %% 7 days = 7 * 24 * 60 * 60 * 1000 milliseconds
 -define(RETENTION_TIME, 7 * 24 * 60 * 60 * 1000).
 
+-ifdef(TEST).
+-define(RPC_TIMEOUT, 50).
+-else.
+-define(RPC_TIMEOUT, 5000).
+-endif.
+
 -record(state, {
     last
     }).
@@ -75,20 +81,43 @@ samplers() ->
     format(do_sample(all, infinity)).
 
 samplers(NodeOrCluster, Latest) ->
-    Now = erlang:system_time(millisecond),
-    MatchTime = Now - (Latest * 1000),
-    case format(do_sample(NodeOrCluster, MatchTime)) of
+    Time =
+        case Latest of
+            infinity ->
+                infinity;
+            Latest when is_integer(Latest) ->
+                Now = erlang:system_time(millisecond),
+                Now - (Latest * 1000)
+        end,
+    case format(do_sample(NodeOrCluster, Time)) of
         {badrpc, Reason} ->
             {badrpc, Reason};
         List when is_list(List) ->
             granularity_adapter(List)
     end.
 
-granularity_adapter(List) when length(List) > 100 ->
+%% When the number of samples exceeds 1000, it affects the rendering speed of dashboard UI.
+%% granularity_adapter is an oversampling of the samples.
+%% Use more granular data and reduce data density.
+%%
+%% [
+%%   Data1 = #{time => T1, k1 => 1, k2 => 2},
+%%   Data2 = #{time => T2, k1 => 3, k2 => 4},
+%%   ...
+%% ]
+%% After granularity_adapter, Merge Data1 Data2
+%%
+%% [
+%%   #{time => T2, k1 => 1 + 3, k2 =>  2 + 6},
+%%   ...
+%% ]
+%%
+granularity_adapter(List) when length(List) > 1000 ->
     granularity_adapter(List, []);
 granularity_adapter(List) ->
     List.
 
+%% Get the current rate. Not the current sampler data.
 current_rate() ->
     Fun =
         fun(Node, Cluster) ->
@@ -99,14 +128,19 @@ current_rate() ->
                     {badrpc, {Node, Reason}}
             end
         end,
-    lists:foldl(Fun, #{}, mria_mnesia:cluster_nodes(running)).
+    case lists:foldl(Fun, #{}, mria_mnesia:cluster_nodes(running))of
+        {badrpc, Reason} ->
+            {badrpc, Reason};
+        Rate ->
+            {ok, Rate}
+    end.
 
 current_rate(all) ->
     current_rate();
 current_rate(Node) when Node == node() ->
     do_call(current_rate);
 current_rate(Node) ->
-    case rpc:call(Node, ?MODULE, ?FUNCTION_NAME, [Node], 5000) of
+    case rpc:call(Node, ?MODULE, ?FUNCTION_NAME, [Node], ?RPC_TIMEOUT) of
         {badrpc, Reason} ->
             {badrpc, {Node, Reason}};
         {ok, Rate} ->
@@ -161,27 +195,33 @@ code_change(_OldVsn, State = #state{}, _Extra) ->
 do_call(Request) ->
     gen_server:call(?MODULE, Request, 5000).
 
-do_sample(all, MatchTime) ->
-    Fun =
-        fun(Node, All) ->
-            case do_sample(Node, MatchTime) of
-                {badrpc, Reason} ->
-                    {badrpc, {Node, Reason}};
-                NodeSamplers ->
-                    merge_cluster_samplers(NodeSamplers, All)
-            end
-        end,
-    lists:foldl(Fun, #{}, mria_mnesia:cluster_nodes(running));
-do_sample(Node, MatchTime) when Node == node() ->
-    MS = match_spec(MatchTime),
+do_sample(all, Time) ->
+    do_sample(mria_mnesia:cluster_nodes(running), Time, #{});
+do_sample(Node, Time) when Node == node() ->
+    MS = match_spec(Time),
     internal_format(ets:select(?TAB, MS));
-do_sample(Node, MatchTime) ->
-    rpc:call(Node, ?MODULE, ?FUNCTION_NAME, [Node, MatchTime], 5000).
+do_sample(Node, Time) ->
+    case rpc:call(Node, ?MODULE, ?FUNCTION_NAME, [Node, Time], ?RPC_TIMEOUT) of
+        {badrpc, Reason} ->
+            {badrpc, {Node, Reason}};
+        Res ->
+            Res
+    end.
+
+do_sample([], _Time, Res) ->
+    Res;
+do_sample([Node | Nodes], Time, Res) ->
+    case do_sample(Node, Time) of
+        {badrpc, Reason} ->
+            {badrpc, Reason};
+        Samplers ->
+            do_sample(Nodes, Time, merge_cluster_samplers(Samplers, Res))
+    end.
 
 match_spec(infinity) ->
-    [{'$1',[],['$1']}];
-match_spec(MatchTime) ->
-    [{{'_', '$1', '_'}, [{'>=', '$1', MatchTime}], ['$_']}].
+    [{'$1', [], ['$1']}];
+match_spec(Time) ->
+    [{{'_', '$1', '_'}, [{'>=', '$1', Time}], ['$_']}].
 
 merge_cluster_samplers(Node, Cluster) ->
     maps:fold(fun merge_cluster_samplers/3, Cluster, Node).
