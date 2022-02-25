@@ -13,7 +13,7 @@ roots() -> [].
 fields("bridge") ->
     basic_config() ++
     [ {url, mk(binary(),
-          #{ nullable => false
+          #{ required => true
            , desc =>"""
 The URL of the HTTP Bridge.<br>
 Template with variables is allowed in the path, but variables cannot be used in the scheme, host,

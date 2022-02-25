@@ -52,7 +52,7 @@ common_bridge_fields() ->
            })}
     , {connector,
         mk(binary(),
-           #{ nullable => false
+           #{ required => true
             , example => <<"mqtt:my_mqtt_connector">>
             , desc =>"""
 The connector ID to be used for this bridge. Connector IDs must be of format:
@@ -75,7 +75,7 @@ metrics_status_fields() ->
 
 direction_field(Dir, Desc) ->
     {direction, mk(Dir,
-        #{ nullable => false
+        #{ required => true
          , default => egress
          , desc => "The direction of the bridge. Can be one of 'ingress' or 'egress'.<br>"
             ++ Desc

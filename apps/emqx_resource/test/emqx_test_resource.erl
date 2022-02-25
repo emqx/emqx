@@ -35,11 +35,11 @@ roots() -> [{name, fun name/1},
             {register, fun register/1}].
 
 name(type) -> atom();
-name(nullable) -> false;
+name(required) -> true;
 name(_) -> undefined.
 
 register(type) -> boolean();
-register(nullable) -> false;
+register(required) -> true;
 register(default) -> false;
 register(_) -> undefined.
 

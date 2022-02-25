@@ -91,11 +91,9 @@ mongo_fields() ->
     , {pool_size, fun emqx_connector_schema_lib:pool_size/1}
     , {username, fun emqx_connector_schema_lib:username/1}
     , {password, fun emqx_connector_schema_lib:password/1}
-    , {auth_source, #{type => binary(),
-                      nullable => true}}
+    , {auth_source, #{type => binary(), required => false}}
     , {database, fun emqx_connector_schema_lib:database/1}
-    , {topology, #{type => hoconsc:ref(?MODULE, topology),
-                   nullable => true}}
+    , {topology, #{type => hoconsc:ref(?MODULE, topology), required => false}}
     ] ++
     emqx_connector_schema_lib:ssl_fields().
 
@@ -289,14 +287,14 @@ init_worker_options([], Acc) -> Acc.
 %% Schema funcs
 
 server(type) -> emqx_schema:ip_port();
-server(nullable) -> false;
+server(required) -> true;
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(converter) -> fun to_server_raw/1;
 server(desc) -> ?SERVER_DESC("MongoDB", integer_to_list(?MONGO_DEFAULT_PORT));
 server(_) -> undefined.
 
 servers(type) -> binary();
-servers(nullable) -> false;
+servers(required) -> true;
 servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
 servers(converter) -> fun to_servers_raw/1;
 servers(desc) -> ?SERVERS_DESC ++ server(desc);
@@ -311,11 +309,11 @@ r_mode(default) -> master;
 r_mode(_) -> undefined.
 
 duration(type) -> emqx_schema:duration_ms();
-duration(nullable) -> true;
+duration(required) -> false;
 duration(_) -> undefined.
 
 replica_set_name(type) -> binary();
-replica_set_name(nullable) -> true;
+replica_set_name(required) -> false;
 replica_set_name(_) -> undefined.
 
 srv_record(type) -> boolean();

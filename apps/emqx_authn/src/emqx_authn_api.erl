@@ -116,7 +116,7 @@ fields(request_user_create) ->
 fields(request_user_update) ->
     [
         {password, binary()},
-        {is_superuser, mk(boolean(), #{default => false, nullable => true})}
+        {is_superuser, mk(boolean(), #{default => false, required => false})}
     ];
 
 fields(request_move) ->
@@ -128,7 +128,7 @@ fields(request_import_users) ->
 fields(response_user) ->
     [
         {user_id, binary()},
-        {is_superuser, mk(boolean(), #{default => false, nullable => true})}
+        {is_superuser, mk(boolean(), #{default => false, required => false})}
     ];
 
 fields(response_users) ->
@@ -379,8 +379,8 @@ schema("/authentication/:id/users") ->
             description => <<"List users in authenticator in global authentication chain">>,
             parameters => [
                 param_auth_id(),
-                {page, mk(integer(), #{in => query, desc => <<"Page Index">>, nullable => true})},
-                {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, nullable => true})}
+                {page, mk(integer(), #{in => query, desc => <<"Page Index">>, required => false})},
+                {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, required => false})}
             ],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -415,8 +415,8 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
             description => <<"List users in authenticator in listener authentication chain">>,
             parameters => [
                 param_listener_id(), param_auth_id(),
-                {page, mk(integer(), #{in => query, desc => <<"Page Index">>, nullable => true})},
-                {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, nullable => true})}
+                {page, mk(integer(), #{in => query, desc => <<"Page Index">>, required => false})},
+                {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, required => false})}
             ],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(

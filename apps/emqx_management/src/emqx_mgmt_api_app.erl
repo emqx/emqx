@@ -94,7 +94,7 @@ fields(app) ->
         {expired_at, hoconsc:mk(hoconsc:union([undefined, emqx_datetime:epoch_second()]),
             #{desc => "No longer valid datetime",
                 example => <<"2021-12-05T02:01:34.186Z">>,
-                nullable => true,
+                required => false,
                 default => undefined
             })},
         {created_at, hoconsc:mk(emqx_datetime:epoch_second(),
@@ -102,8 +102,8 @@ fields(app) ->
                 example => <<"2021-12-01T00:00:00.000Z">>
             })},
         {desc, hoconsc:mk(binary(),
-            #{example => <<"Note">>, nullable => true})},
-        {enable, hoconsc:mk(boolean(), #{desc => "Enable/Disable", nullable => true})}
+            #{example => <<"Note">>, required => false})},
+        {enable, hoconsc:mk(boolean(), #{desc => "Enable/Disable", required => false})}
     ];
 fields(name) ->
     [{name, hoconsc:mk(binary(),

@@ -57,7 +57,7 @@ topic filters for 'remote_topic' of ingress connections.
             })}
     , {name,
        sc(binary(),
-          #{ nullable => true
+          #{ required => false
            , desc => "Connector name, used as a human-readable description of the connector."
            })}
     , {server,
@@ -105,7 +105,7 @@ fields("ingress") ->
     %% the message maybe subscribed by rules, in this case 'local_topic' is not necessary
     [ {remote_topic,
         sc(binary(),
-           #{ nullable => false
+           #{ required => true
             , desc => "Receive messages from which topic of the remote broker"
             })}
     , {remote_qos,

@@ -46,7 +46,7 @@ SQL query to transform the messages.<br>
 Example: <code>SELECT * FROM \"test/topic\" WHERE payload.x = 1</code><br>
 """
          , example => "SELECT * FROM \"test/topic\" WHERE payload.x = 1"
-         , nullable => false
+         , required => true
          , validator => fun ?MODULE:validate_sql/1
          })}
     , {"outputs", sc(hoconsc:array(hoconsc:union(outputs())),
@@ -143,7 +143,7 @@ fields("republish_args") ->
 The target topic of message to be re-published.<br>
 Template with variables is allowed, see description of the 'republish_args'.
 """
-          , nullable => false
+          , required => true
           , example => <<"a/1">>
           })}
     , {qos, sc(qos(),
@@ -182,7 +182,7 @@ rule_name() ->
     {"name", sc(binary(),
         #{ desc => "The name of the rule"
          , default => ""
-         , nullable => false
+         , required => true
          , example => "foo"
          })}.
 

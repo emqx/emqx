@@ -69,7 +69,7 @@ t_error(_Config) ->
             {<<"message">>, #{description => <<"Details description of the error.">>,
                 example => <<"Error code to troubleshoot problems.">>, type => string}}]
     }}}},
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
+    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     Response = maps:get(responses, maps:get(get, Spec)),
     ?assertEqual(Error400, maps:get(<<"400">>, Response)),
@@ -197,7 +197,7 @@ t_complicated_type(_Config) ->
         {<<"fix_integer">>, #{default => 100, enum => [100], example => 100,type => integer}}
     ],
         <<"type">> => object}}}},
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
+    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     Response = maps:get(responses, maps:get(post, Spec)),
     ?assertEqual(Object, maps:get(<<"200">>, Response)),
@@ -299,9 +299,9 @@ schema("/simple/bin") ->
     to_schema(<<"binary ok">>);
 schema("/object") ->
     Object = [
-        {per_page, mk(range(1, 100), #{nullable => false, desc => <<"good per page desc">>})},
+        {per_page, mk(range(1, 100), #{required => true, desc => <<"good per page desc">>})},
         {timeout, mk(hoconsc:union([infinity, emqx_schema:duration_s()]),
-            #{default => 5, nullable => false})},
+            #{default => 5, required => true})},
         {inner_ref, mk(hoconsc:ref(?MODULE, good_ref), #{})}
     ],
     to_schema(Object);
@@ -309,7 +309,7 @@ schema("/nest/object") ->
     Response = [
         {per_page, mk(range(1, 100), #{desc => <<"good per page desc">>})},
         {timeout, mk(hoconsc:union([infinity, emqx_schema:duration_s()]),
-            #{default => 5, nullable => false})},
+            #{default => 5, required => true})},
         {nest_object, [
             {good_nest_1, mk(integer(), #{})},
             {good_nest_2, mk(hoconsc:ref(?MODULE, good_ref), #{})}
@@ -379,14 +379,14 @@ schema("/fields/sub") ->
     to_schema(hoconsc:ref(sub_fields)).
 
 validate(Path, ExpectObject, ExpectRefs) ->
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
+    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     Response = maps:get(responses, maps:get(post, Spec)),
     ?assertEqual(ExpectObject, maps:get(<<"200">>, Response)),
     ?assertEqual(ExpectObject, maps:get(<<"201">>, Response)),
     ?assertEqual(#{}, maps:without([<<"201">>, <<"200">>], Response)),
     ?assertEqual(ExpectRefs, Refs),
-    {Spec, emqx_dashboard_swagger:components(Refs)}.
+    {Spec, emqx_dashboard_swagger:components(Refs, #{})}.
 
 to_schema(Object) ->
     #{
@@ -425,5 +425,5 @@ enable(_) -> undefined.
 
 init_file(type) -> binary();
 init_file(desc) -> <<"test test desc">>;
-init_file(nullable) -> true;
+init_file(required) -> false;
 init_file(_) -> undefined.

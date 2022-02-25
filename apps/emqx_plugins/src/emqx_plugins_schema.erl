@@ -54,12 +54,12 @@ state_fields() ->
                              "It should match the plugin application name-version as the "
                              "for the plugin release package name<br>"
                              "For example: my_plugin-0.1.0."
-                   , nullable => false
+                   , required => true
                    })}
     , {enable,
        hoconsc:mk(boolean(),
                   #{ desc => "Set to 'true' to enable this plugin"
-                   , nullable => false
+                   , required => true
                    })}
     ].
 
@@ -69,14 +69,14 @@ root_fields() ->
     ].
 
 states(type) -> hoconsc:array(hoconsc:ref(state));
-states(nullable) -> true;
+states(required) -> false;
 states(default) -> [];
 states(desc) -> "An array of plugins in the desired states.<br>"
                 "The plugins are started in the defined order";
 states(_) -> undefined.
 
 install_dir(type) -> string();
-install_dir(nullable) -> true;
+install_dir(required) -> false;
 install_dir(default) -> "plugins"; %% runner's root dir
 install_dir(T) when T =/= desc -> undefined;
 install_dir(desc) -> """

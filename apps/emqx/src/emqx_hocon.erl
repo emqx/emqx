@@ -34,9 +34,9 @@ format_path([Name | Rest]) ->
 -spec check(module(), hocon:config() | iodata()) ->
         {ok, hocon:config()} | {error, any()}.
 check(SchemaModule, Conf) when is_map(Conf) ->
-    %% TODO: remove nullable
-    %% fields should state nullable or not in their schema
-    Opts = #{atom_key => true, nullable => true},
+    %% TODO: remove required
+    %% fields should state required or not in their schema
+    Opts = #{atom_key => true, required => false},
     try
         {ok, hocon_tconf:check_plain(SchemaModule, Conf, Opts)}
     catch

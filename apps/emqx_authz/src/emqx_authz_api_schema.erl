@@ -85,7 +85,7 @@ fields(position) ->
 
 url(type) -> binary();
 url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
-url(nullable) -> false;
+url(required) -> true;
 url(_) -> undefined.
 
 headers(type) -> map();

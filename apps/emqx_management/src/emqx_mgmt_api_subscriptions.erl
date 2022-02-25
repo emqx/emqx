@@ -75,38 +75,38 @@ parameters() ->
         {
             node, hoconsc:mk(binary(), #{
             in => query,
-            nullable => true,
+            required => false,
             desc => <<"Node name">>,
             example => atom_to_list(node())})
         },
         {
             clientid, hoconsc:mk(binary(), #{
             in => query,
-            nullable => true,
+            required => false,
             desc => <<"Client ID">>})
         },
         {
             qos, hoconsc:mk(emqx_schema:qos(), #{
             in => query,
-            nullable => true,
+            required => false,
             desc => <<"QoS">>})
         },
         {
             topic, hoconsc:mk(binary(), #{
             in => query,
-            nullable => true,
+            required => false,
             desc => <<"Topic, url encoding">>})
         },
         {
             match_topic, hoconsc:mk(binary(), #{
             in => query,
-            nullable => true,
+            required => false,
             desc => <<"Match topic string, url encoding">>})
         },
         {
             share_group, hoconsc:mk(binary(), #{
             in => query,
-            nullable => true,
+            required => false,
             desc => <<"Shared subscription group name">>})
         }
     ].

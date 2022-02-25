@@ -145,7 +145,7 @@ fields(redis_cluster) ->
 http_common_fields() ->
     [ {url, fun url/1}
     , {request_timeout, mk_duration("Request timeout", #{default => "30s"})}
-    , {body, #{type => map(), nullable => true}}
+    , {body, #{type => map(), required => false}}
     ] ++ maps:to_list(maps:without([ base_url
                                    , pool_type],
                                    maps:from_list(connector_fields(http)))).
@@ -181,7 +181,7 @@ headers_no_content_type(_) -> undefined.
 
 url(type) -> binary();
 url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
-url(nullable) -> false;
+url(required) -> true;
 url(_) -> undefined.
 
 %%--------------------------------------------------------------------

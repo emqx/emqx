@@ -21,21 +21,21 @@
 
 %% API
 -export([spec/1, spec/2]).
--export([namespace/0, fields/1]).
+-export([namespace/0, namespace/1, fields/1]).
 -export([schema_with_example/2, schema_with_examples/2]).
 -export([error_codes/1, error_codes/2]).
 
 -export([filter_check_request/2, filter_check_request_and_translate_body/2]).
 
 -ifdef(TEST).
--export([ parse_spec_ref/2
-        , components/1
+-export([ parse_spec_ref/3
+        , components/2
         ]).
 -endif.
 
 -define(METHODS, [get, post, put, head, delete, patch, options, trace]).
 
--define(DEFAULT_FIELDS, [example, allowReserved, style, format,
+-define(DEFAULT_FIELDS, [example, allowReserved, style, format, readOnly,
     explode, maxLength, allowEmptyValue, deprecated, minimum, maximum]).
 
 -define(INIT_SCHEMA, #{fields => #{}, translations => #{},
@@ -56,7 +56,10 @@
 -type(filter_result() :: {ok, request()} | {400, 'BAD_REQUEST', binary()}).
 -type(filter() :: fun((request(), request_meta()) -> filter_result())).
 
--type(spec_opts() :: #{check_schema => boolean() | filter(), translate_body => boolean()}).
+-type(spec_opts() :: #{check_schema => boolean() | filter(),
+                       translate_body => boolean(),
+                       schema_converter => fun((hocon_schema:schema(), Module::atom()) -> map())
+                       }).
 
 -type(route_path() :: string() | binary()).
 -type(route_methods() :: map()).
@@ -79,12 +82,12 @@ spec(Module, Options) ->
     Paths = apply(Module, paths, []),
     {ApiSpec, AllRefs} =
         lists:foldl(fun(Path, {AllAcc, AllRefsAcc}) ->
-            {OperationId, Specs, Refs} = parse_spec_ref(Module, Path),
+            {OperationId, Specs, Refs} = parse_spec_ref(Module, Path, Options),
             CheckSchema = support_check_schema(Options),
             {[{filename:join("/", Path), Specs, OperationId, CheckSchema} | AllAcc],
                     Refs ++ AllRefsAcc}
                     end, {[], []}, Paths),
-    {ApiSpec, components(lists:usort(AllRefs))}.
+    {ApiSpec, components(lists:usort(AllRefs), Options)}.
 
 -spec(namespace() -> hocon_schema:name()).
 namespace() -> "public".
@@ -162,7 +165,7 @@ support_check_schema(#{check_schema := Filter}) when is_function(Filter, 2) ->
 support_check_schema(_) ->
     #{filter => undefined}.
 
-parse_spec_ref(Module, Path) ->
+parse_spec_ref(Module, Path, Options) ->
     Schema =
         try
             erlang:apply(Module, schema, [Path])
@@ -172,7 +175,7 @@ parse_spec_ref(Module, Path) ->
     {Specs, Refs} = maps:fold(fun(Method, Meta, {Acc, RefsAcc}) ->
         (not lists:member(Method, ?METHODS))
             andalso throw({error, #{module => Module, path => Path, method => Method}}),
-        {Spec, SubRefs} = meta_to_spec(Meta, Module),
+        {Spec, SubRefs} = meta_to_spec(Meta, Module, Options),
         {Acc#{Method => Spec}, SubRefs ++ RefsAcc}
                               end, {#{}, []},
         maps:without(['operationId'], Schema)),
@@ -217,7 +220,7 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
             _ -> Type0
         end,
     NewSchema = ?INIT_SCHEMA#{roots => [{root, Type}]},
-    Option = #{nullable => true},
+    Option = #{required => false},
     #{<<"root">> := NewBody} = CheckFun(NewSchema, #{<<"root">> => Body}, Option),
     NewBody;
 %% TODO not support nest object check yet, please use ref!
@@ -239,10 +242,10 @@ check_request_body(#{body := Body}, Spec, _Module, _CheckFun, false)when is_map(
     Body.
 
 %% tags, description, summary, security, deprecated
-meta_to_spec(Meta, Module) ->
+meta_to_spec(Meta, Module, Options) ->
     {Params, Refs1} = parameters(maps:get(parameters, Meta, []), Module),
     {RequestBody, Refs2} = request_body(maps:get('requestBody', Meta, []), Module),
-    {Responses, Refs3} = responses(maps:get(responses, Meta, #{}), Module),
+    {Responses, Refs3} = responses(maps:get(responses, Meta, #{}), Module, Options),
     {
         to_spec(Meta, Params, RequestBody, Responses),
         lists:usort(Refs1 ++ Refs2 ++ Refs3)
@@ -265,30 +268,22 @@ parameters(Params, Module) ->
                     In = hocon_schema:field_schema(Type, in),
                     In =:= undefined andalso
                         throw({error, <<"missing in:path/query field in parameters">>}),
-                    Nullable = hocon_schema:field_schema(Type, nullable),
+                    Required = hocon_schema:field_schema(Type, required),
                     Default = hocon_schema:field_schema(Type, default),
                     HoconType = hocon_schema:field_schema(Type, type),
-                    Meta = init_meta(Nullable, Default),
+                    Meta = init_meta(Default),
                     {ParamType, Refs} = hocon_schema_to_spec(HoconType, Module),
                     Spec0 = init_prop([required | ?DEFAULT_FIELDS],
                         #{schema => maps:merge(ParamType, Meta), name => Name, in => In}, Type),
-                    Spec1 = trans_required(Spec0, Nullable, In),
+                    Spec1 = trans_required(Spec0, Required, In),
                     Spec2 = trans_desc(Spec1, Type),
                     {[Spec2 | Acc], Refs ++ RefsAcc}
             end
                     end, {[], []}, Params),
     {lists:reverse(SpecList), AllRefs}.
 
-init_meta(Nullable, Default) ->
-    Init =
-        case Nullable of
-            true -> #{nullable => true};
-            _ -> #{}
-        end,
-    case Default =:= undefined of
-        true -> Init;
-        false -> Init#{default => Default}
-    end.
+init_meta(undefined) -> #{};
+init_meta(Default) -> #{default => Default}.
 
 init_prop(Keys, Init, Type) ->
     lists:foldl(fun(Key, Acc) ->
@@ -298,7 +293,7 @@ init_prop(Keys, Init, Type) ->
         end
                 end, Init, Keys).
 
-trans_required(Spec, false, _) -> Spec#{required => true};
+trans_required(Spec, true, _) -> Spec#{required => true};
 trans_required(Spec, _, path) -> Spec#{required => true};
 trans_required(Spec, _, _) -> Spec.
 
@@ -317,28 +312,29 @@ request_body(Schema, Module) ->
                 HoconSchema = hocon_schema:field_schema(Schema, type),
                 SchemaExamples = hocon_schema:field_schema(Schema, examples),
                 {hocon_schema_to_spec(HoconSchema, Module), SchemaExamples};
-            false -> {parse_object(Schema, Module), undefined}
+            false -> {parse_object(Schema, Module, #{}), undefined}
         end,
     {#{<<"content">> => content(Props, Examples)},
         Refs}.
 
-responses(Responses, Module) ->
-    {Spec, Refs, _} = maps:fold(fun response/3, {#{}, [], Module}, Responses),
+responses(Responses, Module, Options) ->
+    {Spec, Refs, _, _} = maps:fold(fun response/3, {#{}, [], Module, Options}, Responses),
     {Spec, Refs}.
 
-response(Status, Bin, {Acc, RefsAcc, Module}) when is_binary(Bin) ->
-    {Acc#{integer_to_binary(Status) => #{description => Bin}}, RefsAcc, Module};
+response(Status, Bin, {Acc, RefsAcc, Module, Options}) when is_binary(Bin) ->
+    {Acc#{integer_to_binary(Status) => #{description => Bin}}, RefsAcc, Module, Options};
 %% Support swagger raw object(file download).
 %% TODO: multi type response(i.e. Support both 'application/json' and 'plain/text')
-response(Status, #{content := _} = Content, {Acc, RefsAcc, Module}) ->
-    {Acc#{integer_to_binary(Status) => Content}, RefsAcc, Module};
-response(Status, ?REF(StructName), {Acc, RefsAcc, Module}) ->
-    response(Status, ?R_REF(Module, StructName), {Acc, RefsAcc, Module});
-response(Status, ?R_REF(_Mod, _Name) = RRef, {Acc, RefsAcc, Module}) ->
-    {Spec, Refs} = hocon_schema_to_spec(RRef, Module),
+response(Status, #{content := _} = Content, {Acc, RefsAcc, Module, Options}) ->
+    {Acc#{integer_to_binary(Status) => Content}, RefsAcc, Module, Options};
+response(Status, ?REF(StructName), {Acc, RefsAcc, Module, Options}) ->
+    response(Status, ?R_REF(Module, StructName), {Acc, RefsAcc, Module, Options});
+response(Status, ?R_REF(_Mod, _Name) = RRef, {Acc, RefsAcc, Module, Options}) ->
+    SchemaToSpec = schema_converter(Options),
+    {Spec, Refs} = SchemaToSpec(RRef, Module),
     Content = content(Spec),
-    {Acc#{integer_to_binary(Status) => #{<<"content">> => Content}}, Refs ++ RefsAcc, Module};
-response(Status, Schema, {Acc, RefsAcc, Module}) ->
+    {Acc#{integer_to_binary(Status) => #{<<"content">> => Content}}, Refs ++ RefsAcc, Module, Options};
+response(Status, Schema, {Acc, RefsAcc, Module, Options}) ->
     case hoconsc:is_schema(Schema) of
         true ->
             Hocon = hocon_schema:field_schema(Schema, type),
@@ -348,33 +344,34 @@ response(Status, Schema, {Acc, RefsAcc, Module}) ->
             Content = content(Spec, Examples),
             {
                 Acc#{integer_to_binary(Status) => Init#{<<"content">> => Content}},
-                    Refs ++ RefsAcc, Module
+                    Refs ++ RefsAcc, Module, Options
             };
         false ->
-            {Props, Refs} = parse_object(Schema, Module),
-            Content = #{<<"content">> => content(Props)},
-            {Acc#{integer_to_binary(Status) => Content}, Refs ++ RefsAcc, Module}
+            {Props, Refs} = parse_object(Schema, Module, Options),
+            Init = trans_desc(#{}, Schema),
+            Content = Init#{<<"content">> => content(Props)},
+            {Acc#{integer_to_binary(Status) => Content}, Refs ++ RefsAcc, Module, Options}
     end.
 
-components(Refs) ->
+components(Refs, Options) ->
     lists:sort(maps:fold(fun(K, V, Acc) -> [#{K => V} | Acc] end, [],
-        components(Refs, #{}, []))).
+        components(Options, Refs, #{}, []))).
 
-components([], SpecAcc, []) -> SpecAcc;
-components([], SpecAcc, SubRefAcc) -> components(SubRefAcc, SpecAcc, []);
-components([{Module, Field} | Refs], SpecAcc, SubRefsAcc) ->
+components(_Options, [], SpecAcc, []) -> SpecAcc;
+components(Options, [], SpecAcc, SubRefAcc) -> components(Options, SubRefAcc, SpecAcc, []);
+components(Options, [{Module, Field} | Refs], SpecAcc, SubRefsAcc) ->
     Props = hocon_schema_fields(Module, Field),
     Namespace = namespace(Module),
-    {Object, SubRefs} = parse_object(Props, Module),
+    {Object, SubRefs} = parse_object(Props, Module, Options),
     NewSpecAcc = SpecAcc#{?TO_REF(Namespace, Field) => Object},
-    components(Refs, NewSpecAcc, SubRefs ++ SubRefsAcc);
+    components(Options, Refs, NewSpecAcc, SubRefs ++ SubRefsAcc);
 %% parameters in ref only have one value, not array
-components([{Module, Field, parameter} | Refs], SpecAcc, SubRefsAcc) ->
+components(Options, [{Module, Field, parameter} | Refs], SpecAcc, SubRefsAcc) ->
     Props = hocon_schema_fields(Module, Field),
     {[Param], SubRefs} = parameters(Props, Module),
     Namespace = namespace(Module),
     NewSpecAcc = SpecAcc#{?TO_REF(Namespace, Field) => Param},
-    components(Refs, NewSpecAcc, SubRefs ++ SubRefsAcc).
+    components(Options, Refs, NewSpecAcc, SubRefs ++ SubRefsAcc).
 
 hocon_schema_fields(Module, StructName) ->
     case apply(Module, fields, [StructName]) of
@@ -425,7 +422,7 @@ hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
 
 %% todo: Find a way to fetch enum value from user_id_type().
 typename_to_spec("user_id_type()", _Mod) -> #{type => string, enum => [clientid, username]};
-typename_to_spec("term()", _Mod) -> #{type => string, example => "term"};
+typename_to_spec("term()", _Mod) -> #{type => string, example => "any"};
 typename_to_spec("boolean()", _Mod) -> #{type => boolean, example => true};
 typename_to_spec("binary()", _Mod) -> #{type => string, example => <<"binary-example">>};
 typename_to_spec("float()", _Mod) -> #{type => number, example => 3.14159};
@@ -444,7 +441,6 @@ typename_to_spec("epoch_millisecond()", _Mod) ->
         #{type => integer, example => 1640995200000, desc => <<"epoch-millisecond">>},
         #{type => string, example => <<"2022-01-01T00:00:00.000Z">>, format => <<"date-time">>}]
     };
-typename_to_spec("unicode_binary()", _Mod) -> #{type => string, example => <<"unicode-binary">>};
 typename_to_spec("duration()", _Mod) -> #{type => string, example => <<"12m">>};
 typename_to_spec("duration_s()", _Mod) -> #{type => string, example => <<"1h">>};
 typename_to_spec("duration_ms()", _Mod) -> #{type => string, example => <<"32s">>};
@@ -547,7 +543,7 @@ to_bin(Boolean) when is_boolean(Boolean) -> Boolean;
 to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 to_bin(X) -> X.
 
-parse_object(PropList = [_ | _], Module) when is_list(PropList) ->
+parse_object(PropList = [_ | _], Module, Options) when is_list(PropList) ->
     {Props, Required, Refs} =
         lists:foldl(fun({Name, Hocon}, {Acc, RequiredAcc, RefsAcc}) ->
             NameBin = to_bin(Name),
@@ -556,7 +552,8 @@ parse_object(PropList = [_ | _], Module) when is_list(PropList) ->
                     HoconType = hocon_schema:field_schema(Hocon, type),
                     Init0 = init_prop([default | ?DEFAULT_FIELDS], #{}, Hocon),
                     Init = trans_desc(Init0, Hocon),
-                    {Prop, Refs1} = hocon_schema_to_spec(HoconType, Module),
+                    SchemaToSpec = schema_converter(Options),
+                    {Prop, Refs1} = SchemaToSpec(HoconType, Module),
                     NewRequiredAcc =
                         case is_required(Hocon) of
                             true -> [NameBin | RequiredAcc];
@@ -564,7 +561,7 @@ parse_object(PropList = [_ | _], Module) when is_list(PropList) ->
                         end,
                     {[{NameBin, maps:merge(Prop, Init)} | Acc], NewRequiredAcc, Refs1 ++ RefsAcc};
                 false ->
-                    {SubObject, SubRefs} = parse_object(Hocon, Module),
+                    {SubObject, SubRefs} = parse_object(Hocon, Module, Options),
                     {[{NameBin, SubObject} | Acc], RequiredAcc, SubRefs ++ RefsAcc}
             end
                     end, {[], [], []}, PropList),
@@ -573,14 +570,13 @@ parse_object(PropList = [_ | _], Module) when is_list(PropList) ->
         [] -> {Object, Refs};
         _ -> {maps:put(required, Required, Object), Refs}
     end;
-parse_object(Other, Module) ->
+parse_object(Other, Module, Options) ->
     erlang:throw({error,
         #{msg => <<"Object only supports not empty proplists">>,
-            args => Other, module => Module}}).
+            args => Other, module => Module, options => Options}}).
 
 is_required(Hocon) ->
-    hocon_schema:field_schema(Hocon, required) =:= true orelse
-        hocon_schema:field_schema(Hocon, nullable) =:= false.
+    hocon_schema:field_schema(Hocon, required) =:= true.
 
 content(ApiSpec) ->
     content(ApiSpec, undefined).
@@ -593,3 +589,6 @@ content(ApiSpec, Examples) when is_map(Examples) ->
 to_ref(Mod, StructName, Acc, RefsAcc) ->
     Ref = #{<<"$ref">> => ?TO_COMPONENTS_PARAM(Mod, StructName)},
     {[Ref | Acc], [{Mod, StructName, parameter} | RefsAcc]}.
+
+schema_converter(Options) ->
+    maps:get(schema_converter, Options, fun hocon_schema_to_spec/2).

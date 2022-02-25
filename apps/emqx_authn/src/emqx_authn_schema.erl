@@ -54,8 +54,8 @@ root_type() ->
 
 mechanism(Name) ->
     hoconsc:mk(hoconsc:enum([Name]),
-               #{nullable => false}).
+               #{required => true}).
 
 backend(Name) ->
     hoconsc:mk(hoconsc:enum([Name]),
-               #{nullable => false}).
+               #{required => true}).

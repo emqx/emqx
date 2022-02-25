@@ -61,7 +61,7 @@ roots() ->
 fields(config) ->
     [ {base_url,
        sc(url(),
-          #{ nullable => false
+          #{ required => true
            , validator => fun(#{query := _Query}) ->
                             {error, "There must be no query in the base_url"};
                             (_) -> ok
@@ -106,7 +106,7 @@ For example: http://localhost:9901/
     , {request, hoconsc:mk(
         ref("request"),
         #{ default => undefined
-         , nullable => true
+         , required => false
          , desc => """
 If the request is provided, the caller can send HTTP requests via
 <code>emqx_resource:query(ResourceId, {send_message, BridgeId, Message})</code>
@@ -115,13 +115,13 @@ If the request is provided, the caller can send HTTP requests via
     ] ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("request") ->
-    [ {method, hoconsc:mk(hoconsc:enum([post, put, get, delete]), #{nullable => true})}
-    , {path, hoconsc:mk(binary(), #{nullable => true})}
-    , {body, hoconsc:mk(binary(), #{nullable => true})}
-    , {headers, hoconsc:mk(map(), #{nullable => true})}
+    [ {method, hoconsc:mk(hoconsc:enum([post, put, get, delete]), #{required => false})}
+    , {path, hoconsc:mk(binary(), #{required => false})}
+    , {body, hoconsc:mk(binary(), #{required => false})}
+    , {headers, hoconsc:mk(map(), #{required => false})}
     , {request_timeout,
         sc(emqx_schema:duration_ms(),
-           #{ nullable => true
+           #{ required => false
             , desc => "The timeout when sending request to the HTTP server"
             })}
     ].

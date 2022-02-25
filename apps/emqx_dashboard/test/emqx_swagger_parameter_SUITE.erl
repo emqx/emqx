@@ -50,8 +50,8 @@ t_ref(_Config) ->
     LocalPath = "/test/in/ref/local",
     Path = "/test/in/ref",
     Expect = [#{<<"$ref">> => <<"#/components/parameters/emqx_swagger_parameter_SUITE.page">>}],
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, LocalPath),
+    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
+    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, LocalPath, #{}),
     ?assertEqual(test, OperationId),
     Params = maps:get(parameters, maps:get(post, Spec)),
     ?assertEqual(Expect, Params),
@@ -64,7 +64,7 @@ t_public_ref(_Config) ->
         #{<<"$ref">> => <<"#/components/parameters/public.page">>},
         #{<<"$ref">> => <<"#/components/parameters/public.limit">>}
         ],
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
+    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     Params = maps:get(parameters, maps:get(post, Spec)),
     ?assertEqual(Expect, Params),
@@ -80,7 +80,7 @@ t_public_ref(_Config) ->
         #{<<"public.page">> => #{description => <<"Page number of the results to fetch.">>,
             example => 1,in => query,name => page,
             schema => #{default => 1,example => 100,type => integer}}}],
-    ?assertEqual(ExpectRefs, emqx_dashboard_swagger:components(Refs)),
+    ?assertEqual(ExpectRefs, emqx_dashboard_swagger:components(Refs,#{})),
     ok.
 
 t_in_mix(_Config) ->
@@ -110,7 +110,7 @@ t_in_mix(_Config) ->
 
 t_without_in(_Config) ->
     ?assertThrow({error, <<"missing in:path/query field in parameters">>},
-        emqx_dashboard_swagger:parse_spec_ref(?MODULE, "/test/without/in")),
+        emqx_dashboard_swagger:parse_spec_ref(?MODULE, "/test/without/in", #{})),
     ok.
 
 t_require(_Config) ->
@@ -124,8 +124,7 @@ t_nullable(_Config) ->
     NullableFalse = [#{in => query,name => userid, required => true,
         schema => #{example => <<"binary-example">>, type => string}}],
     NullableTrue = [#{in => query,name => userid,
-        schema => #{example => <<"binary-example">>, type => string,
-            nullable => true}}],
+        schema => #{example => <<"binary-example">>, type => string}, required => false}],
     validate("/nullable/false", NullableFalse),
     validate("/nullable/true", NullableTrue),
     ok.
@@ -133,10 +132,10 @@ t_nullable(_Config) ->
 t_method(_Config) ->
     PathOk = "/method/ok",
     PathError = "/method/error",
-    {test, Spec, []} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, PathOk),
+    {test, Spec, []} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, PathOk, #{}),
     ?assertEqual(lists:sort(?METHODS), lists:sort(maps:keys(Spec))),
     ?assertThrow({error, #{module := ?MODULE, path := PathError, method := bar}},
-        emqx_dashboard_swagger:parse_spec_ref(?MODULE, PathError)),
+        emqx_dashboard_swagger:parse_spec_ref(?MODULE, PathError, #{})),
     ok.
 
 t_in_path_trans(_Config) ->
@@ -242,7 +241,7 @@ assert_all_filters_equal(Spec, Filter) ->
         Spec).
 
 validate(Path, ExpectParams) ->
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path),
+    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     Params = maps:get(parameters, maps:get(post, Spec)),
     ?assertEqual(ExpectParams, Params),
@@ -358,9 +357,9 @@ schema("/test/without/in") ->
 schema("/required/false") ->
     to_schema([{'userid', mk(binary(), #{in => query, required => false})}]);
 schema("/nullable/false") ->
-    to_schema([{'userid', mk(binary(), #{in => query, nullable => false})}]);
+    to_schema([{'userid', mk(binary(), #{in => query, required => true})}]);
 schema("/nullable/true") ->
-    to_schema([{'userid', mk(binary(), #{in => query, nullable => true})}]);
+    to_schema([{'userid', mk(binary(), #{in => query, required => false})}]);
 schema("/method/ok") ->
     Response = #{responses => #{200 => <<"ok">>}},
     lists:foldl(fun(Method, Acc) ->  Acc#{Method => Response} end,

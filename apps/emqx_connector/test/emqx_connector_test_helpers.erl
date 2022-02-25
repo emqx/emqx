@@ -28,9 +28,12 @@ check_fields({FieldName, FieldValue}) ->
     ?assert(is_atom(FieldName)),
     if
         is_map(FieldValue) ->
+            ct:pal("~p~n", [{FieldName, FieldValue}]),
             ?assert(
-                maps:is_key(type, FieldValue) and maps:is_key(default, FieldValue) or
-                    (maps:is_key(nullable, FieldValue) and maps:get(nullable, FieldValue, false) =:= true)
+                (maps:is_key(type, FieldValue)
+                    andalso maps:is_key(default, FieldValue))
+                    orelse ((maps:is_key(required, FieldValue)
+                    andalso maps:get(required, FieldValue) =:= false))
             );
         true ->
             ?assert(is_function(FieldValue))

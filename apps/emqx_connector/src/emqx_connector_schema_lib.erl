@@ -66,7 +66,7 @@ relational_db_fields() ->
     ].
 
 database(type) -> binary();
-database(nullable) -> false;
+database(required) -> true;
 database(validator) -> [?NOT_EMPTY("the value of the field 'database' cannot be empty")];
 database(_) -> undefined.
 
@@ -76,11 +76,11 @@ pool_size(validator) -> [?MIN(1)];
 pool_size(_) -> undefined.
 
 username(type) -> binary();
-username(nullable) -> true;
+username(required) -> false;
 username(_) -> undefined.
 
 password(type) -> binary();
-password(nullable) -> true;
+password(required) -> false;
 password(_) -> undefined.
 
 auto_reconnect(type) -> boolean();

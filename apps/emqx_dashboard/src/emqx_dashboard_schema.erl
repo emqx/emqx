@@ -48,7 +48,7 @@ fields("http") ->
     [ {"protocol", sc(
         hoconsc:enum([http, https]),
         #{ desc => "HTTP/HTTPS protocol."
-         , nullable => false
+         , required => true
          , default => http})}
     , {"bind", fun bind/1}
     , {"num_acceptors", sc(
@@ -74,18 +74,18 @@ fields("https") ->
 
 bind(type) -> hoconsc:union([non_neg_integer(), emqx_schema:ip_port()]);
 bind(default) -> 18083;
-bind(nullable) -> false;
+bind(required) -> true;
 bind(desc) -> "Port without IP(18083) or port with specified IP(127.0.0.1:18083).";
 bind(_) -> undefined.
 
 default_username(type) -> string();
 default_username(default) -> "admin";
-default_username(nullable) -> false;
+default_username(required) -> true;
 default_username(_) -> undefined.
 
 default_password(type) -> string();
 default_password(default) -> "public";
-default_password(nullable) -> false;
+default_password(required) -> true;
 default_password(sensitive) -> true;
 default_password(desc) -> """
 The initial default password for dashboard 'admin' user.
@@ -94,7 +94,7 @@ default_password(_) -> undefined.
 
 cors(type) -> boolean();
 cors(default) -> false;
-cors(nullable) -> true;
+cors(required) -> false;
 cors(desc) ->
 """Support Cross-Origin Resource Sharing (CORS).
 Allows a server to indicate any origins (domain, scheme, or port) other than

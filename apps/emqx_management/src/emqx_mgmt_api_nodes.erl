@@ -140,7 +140,7 @@ fields(node_info) ->
       , mk( emqx_schema:bytesize()
           , #{desc => <<"Used memory">>, example => "256.00M"})}
     , { node_status
-      , mk( enum(["Running", "Stopped"])
+      , mk( enum(['Running', 'Stopped'])
           , #{desc => <<"Node status">>, example => "Running"})}
     , { otp_release
       , mk( string()
@@ -164,7 +164,7 @@ fields(node_info) ->
       , mk( string()
           , #{desc => <<"Path to log files">>, example => "path/to/log | not found"})}
     , { role
-      , mk( enum(["core", "replicant"])
+      , mk( enum([core, replicant])
           , #{desc => <<"Node role">>, example => "core"})}
     ].
 

@@ -144,45 +144,45 @@ fields(trace) ->
         {name, hoconsc:mk(binary(),
             #{desc => "Unique and format by [a-zA-Z0-9-_]",
                 validator => fun ?MODULE:validate_name/1,
-                nullable => false,
+                required => true,
                 example => <<"EMQX-TRACE-1">>})},
         {type, hoconsc:mk(hoconsc:enum([clientid, topic, ip_address]),
             #{desc => """Filter type""",
-                nullable => false,
+                required => true,
                 example => <<"clientid">>})},
         {topic, hoconsc:mk(binary(),
             #{desc => """support mqtt wildcard topic.""",
-                nullable => true,
+                required => false,
                 example => <<"/dev/#">>})},
         {clientid, hoconsc:mk(binary(),
             #{desc => """mqtt clientid.""",
-                nullable => true,
+                required => false,
                 example => <<"dev-001">>})},
         %% TODO add ip_address type in emqx_schema.erl
         {ip_address, hoconsc:mk(binary(),
             #{desc => "client ip address",
-                nullable => true,
+                required => false,
                 example => <<"127.0.0.1">>
             })},
         {status, hoconsc:mk(hoconsc:enum([running, stopped, waiting]),
             #{desc => "trace status",
-                nullable => true,
+                required => false,
                 example => running
             })},
         {start_at, hoconsc:mk(emqx_datetime:epoch_second(),
             #{desc => "rfc3339 timestamp or epoch second",
-                nullable => true,
+                required => false,
                 example => <<"2021-11-04T18:17:38+08:00">>
             })},
         {end_at, hoconsc:mk(emqx_datetime:epoch_second(),
             #{desc => "rfc3339 timestamp or epoch second",
-                nullable => true,
+                required => false,
                 example => <<"2021-11-05T18:17:38+08:00">>
             })},
         {log_size, hoconsc:mk(hoconsc:array(map()),
             #{desc => "trace log size",
                 example => [#{<<"node">> => <<"emqx@127.0.0.1">>, <<"size">> => 1024}],
-                nullable => true})}
+                required => false})}
     ];
 fields(name) ->
     [{name, hoconsc:mk(binary(),
@@ -198,14 +198,14 @@ fields(node) ->
         #{
             desc => "Node name",
             in => query,
-            nullable => true
+            required => false
         })}];
 fields(bytes) ->
     [{bytes, hoconsc:mk(integer(),
         #{
             desc => "Maximum number of bytes to store in request",
             in => query,
-            nullable => true,
+            required => false,
             default => 1000
         })}];
 fields(position) ->
@@ -213,7 +213,7 @@ fields(position) ->
         #{
             desc => "Offset from the current trace position.",
             in => query,
-            nullable => true,
+            required => false,
             default => 0
         })}].
 

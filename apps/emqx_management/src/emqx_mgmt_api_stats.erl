@@ -59,7 +59,7 @@ fields(aggregate) ->
       , mk( boolean()
           , #{ desc => <<"Calculation aggregate for all nodes">>
              , in => query
-             , nullable => true
+             , required => false
              , example => false})}
     ];
 fields(node_stats_data) ->

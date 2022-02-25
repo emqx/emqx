@@ -54,8 +54,8 @@ fields("rule_info") ->
 
 %% TODO: we can delete this API if the Dashboard not denpends on it
 fields("rule_events") ->
-    ETopics = [emqx_rule_events:event_topic(E) || E <- emqx_rule_events:event_names()],
-    [ {"event", sc(hoconsc:enum(ETopics), #{desc => "The event topics", nullable => false})}
+    ETopics = [binary_to_atom(emqx_rule_events:event_topic(E)) || E <- emqx_rule_events:event_names()],
+    [ {"event", sc(hoconsc:enum(ETopics), #{desc => "The event topics", required => true})}
     , {"title", sc(binary(), #{desc => "The title", example => "some title"})}
     , {"description", sc(binary(), #{desc => "The description", example => "some desc"})}
     , {"columns", sc(map(), #{desc => "The columns"})}
@@ -75,7 +75,7 @@ fields("rule_test") ->
                                    ]),
         #{desc => "The context of the event for testing",
           default => #{}})}
-    , {"sql", sc(binary(), #{desc => "The SQL of the rule for testing", nullable => false})}
+    , {"sql", sc(binary(), #{desc => "The SQL of the rule for testing", required => true})}
     ];
 
 fields("metrics") ->
@@ -121,7 +121,7 @@ fields("node_metrics") ->
     ] ++ fields("metrics");
 
 fields("ctx_pub") ->
-    [ {"event_type", sc(message_publish, #{desc => "Event Type", nullable => false})}
+    [ {"event_type", sc(message_publish, #{desc => "Event Type", required => true})}
     , {"id", sc(binary(), #{desc => "Message ID"})}
     , {"clientid", sc(binary(), #{desc => "The Client ID"})}
     , {"username", sc(binary(), #{desc => "The User Name"})}
@@ -133,7 +133,7 @@ fields("ctx_pub") ->
     ] ++ [qos()];
 
 fields("ctx_sub") ->
-    [ {"event_type", sc(session_subscribed, #{desc => "Event Type", nullable => false})}
+    [ {"event_type", sc(session_subscribed, #{desc => "Event Type", required => true})}
     , {"clientid", sc(binary(), #{desc => "The Client ID"})}
     , {"username", sc(binary(), #{desc => "The User Name"})}
     , {"payload", sc(binary(), #{desc => "The Message Payload"})}
@@ -144,11 +144,11 @@ fields("ctx_sub") ->
     ] ++ [qos()];
 
 fields("ctx_unsub") ->
-    [{"event_type", sc(session_unsubscribed, #{desc => "Event Type", nullable => false})}] ++
+    [{"event_type", sc(session_unsubscribed, #{desc => "Event Type", required => true})}] ++
     proplists:delete("event_type", fields("ctx_sub"));
 
 fields("ctx_delivered") ->
-    [ {"event_type", sc(message_delivered, #{desc => "Event Type", nullable => false})}
+    [ {"event_type", sc(message_delivered, #{desc => "Event Type", required => true})}
     , {"id", sc(binary(), #{desc => "Message ID"})}
     , {"from_clientid", sc(binary(), #{desc => "The Client ID"})}
     , {"from_username", sc(binary(), #{desc => "The User Name"})}
@@ -162,11 +162,11 @@ fields("ctx_delivered") ->
     ] ++ [qos()];
 
 fields("ctx_acked") ->
-    [{"event_type", sc(message_acked, #{desc => "Event Type", nullable => false})}] ++
+    [{"event_type", sc(message_acked, #{desc => "Event Type", required => true})}] ++
     proplists:delete("event_type", fields("ctx_delivered"));
 
 fields("ctx_dropped") ->
-    [ {"event_type", sc(message_dropped, #{desc => "Event Type", nullable => false})}
+    [ {"event_type", sc(message_dropped, #{desc => "Event Type", required => true})}
     , {"id", sc(binary(), #{desc => "Message ID"})}
     , {"reason", sc(binary(), #{desc => "The Reason for Dropping"})}
     , {"clientid", sc(binary(), #{desc => "The Client ID"})}
@@ -179,7 +179,7 @@ fields("ctx_dropped") ->
     ] ++ [qos()];
 
 fields("ctx_connected") ->
-    [ {"event_type", sc(client_connected, #{desc => "Event Type", nullable => false})}
+    [ {"event_type", sc(client_connected, #{desc => "Event Type", required => true})}
     , {"clientid", sc(binary(), #{desc => "The Client ID"})}
     , {"username", sc(binary(), #{desc => "The User Name"})}
     , {"mountpoint", sc(binary(), #{desc => "The Mountpoint"})}
@@ -196,7 +196,7 @@ fields("ctx_connected") ->
     ];
 
 fields("ctx_disconnected") ->
-    [ {"event_type", sc(client_disconnected, #{desc => "Event Type", nullable => false})}
+    [ {"event_type", sc(client_disconnected, #{desc => "Event Type", required => true})}
     , {"clientid", sc(binary(), #{desc => "The Client ID"})}
     , {"username", sc(binary(), #{desc => "The User Name"})}
     , {"reason", sc(binary(), #{desc => "The Reason for Disconnect"})}
@@ -211,7 +211,7 @@ qos() ->
 
 rule_id() ->
     {"id", sc(binary(),
-        #{ desc => "The ID of the rule", nullable => false
+        #{ desc => "The ID of the rule", required => true
          , example => "293fb66f"
          })}.
 

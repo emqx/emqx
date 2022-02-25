@@ -76,14 +76,14 @@ fields(sentinel) ->
     emqx_connector_schema_lib:ssl_fields().
 
 server(type) -> emqx_schema:ip_port();
-server(nullable) -> false;
+server(required) -> true;
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(converter) -> fun to_server_raw/1;
 server(desc) -> ?SERVER_DESC("Redis", integer_to_list(?REDIS_DEFAULT_PORT));
 server(_) -> undefined.
 
 servers(type) -> list();
-servers(nullable) -> false;
+servers(required) -> true;
 servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
 servers(converter) -> fun to_servers_raw/1;
 servers(desc) -> ?SERVERS_DESC ++ server(desc);

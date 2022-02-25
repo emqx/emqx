@@ -434,13 +434,13 @@ params_userid_in_path() ->
 params_paging_in_qs() ->
     [{page, mk(integer(),
                #{ in => query
-                , nullable => true
+                , required => false
                 , desc => <<"Page Index">>
                 , example => 1
                 })},
      {limit, mk(integer(),
                 #{ in => query
-                 , nullable => true
+                 , required => false
                  , desc => <<"Page Limit">>
                  , example => 100
                  })}
@@ -457,22 +457,22 @@ fields(listener) ->
     common_listener_opts() ++
     [ {tcp,
        mk(ref(tcp_listener_opts),
-          #{ nullable => {true, recursively}
+          #{ required => {false, recursively}
            , desc => <<"The tcp socket options for tcp or ssl listener">>
            })}
     , {ssl,
        mk(ref(ssl_listener_opts),
-          #{ nullable => {true, recursively}
+          #{ required => {false, recursively}
            , desc => <<"The ssl socket options for ssl listener">>
            })}
     , {udp,
        mk(ref(udp_listener_opts),
-          #{ nullable => {true, recursively}
+          #{ required => {false, recursively}
            , desc => <<"The udp socket options for udp or dtls listener">>
            })}
     , {dtls,
        mk(ref(dtls_listener_opts),
-          #{ nullable => {true, recursively}
+          #{ required => {false, recursively}
            , desc => <<"The dtls socket options for dtls listener">>
            })}
     ];
@@ -529,47 +529,47 @@ lists_key_without([K | Ks], N, L) ->
 common_listener_opts() ->
     [ {enable,
        mk(boolean(),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"Whether to enable this listener">>})}
     , {id,
        mk(binary(),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"Listener Id">>})}
     , {name,
        mk(binary(),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"Listener name">>})}
     , {type,
        mk(hoconsc:enum([tcp, ssl, udp, dtls]),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"Listener type. Enum: tcp, udp, ssl, dtls">>})}
     , {running,
        mk(boolean(),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"Listener running status">>})}
     , {bind,
        mk(binary(),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"Listener bind address or port">>})}
     , {acceptors,
        mk(integer(),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"Listener acceptors number">>})}
     , {access_rules,
        mk(hoconsc:array(binary()),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"Listener Access rules for client">>})}
     , {max_conn_rate,
        mk(integer(),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"Max connection rate for the listener">>})}
     , {max_connections,
        mk(integer(),
-          #{ nullable => true
+          #{ required => false
            , desc => <<"Max connections for the listener">>})}
     , {mountpoint,
        mk(binary(),
-          #{ nullable => true
+          #{ required => false
            , desc =>
 <<"The Mounpoint for clients of the listener. "
   "The gateway-level mountpoint configuration can be overloaded "
@@ -577,7 +577,7 @@ common_listener_opts() ->
     %% FIXME:
     , {authentication,
        mk(emqx_authn_schema:authenticator_type(),
-          #{ nullable => {true, recursively}
+          #{ required => {false, recursively}
            , desc => <<"The authenticatior for this listener">>
            })}
     ] ++ emqx_gateway_schema:proxy_protocol_opts().
