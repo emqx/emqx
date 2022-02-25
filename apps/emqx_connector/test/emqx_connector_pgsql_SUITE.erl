@@ -70,7 +70,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
         ?PGSQL_RESOURCE_MOD,
         CheckedConfig
     ),
-    ?assertEqual(InitialStatus, started),
+    ?assertEqual(InitialStatus, connected),
     % Instance should match the state and status of the just started resource
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{state := State, status := InitialStatus}} = emqx_resource:get_instance(PoolName),
     ?assertEqual(ok, emqx_resource:health_check(PoolName)),
@@ -81,7 +81,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     % Resource will be listed still, but state will be changed and healthcheck will fail
     % as the worker no longer exists.
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{state := State, status := StoppedStatus}} = emqx_resource:get_instance(PoolName),
-    ?assertEqual(StoppedStatus, stopped),
+    ?assertEqual(StoppedStatus, disconnected),
     ?assertEqual({error,health_check_failed}, emqx_resource:health_check(PoolName)),
     % Resource healthcheck shortcuts things by checking ets. Go deeper by checking pool itself.
     ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
