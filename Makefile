@@ -3,14 +3,17 @@ REBAR_VERSION = 3.14.3-emqx-8
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
+export EMQX_RELUP ?= true
 export EMQX_DEFAULT_BUILDER = emqx/build-env:erl23.2.7.2-emqx-3-alpine
 export EMQX_DEFAULT_RUNNER = alpine:3.12
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
-export EMQX_DESC ?= EMQ X
 export EMQX_CE_DASHBOARD_VERSION ?= v4.3.5
 export DOCKERFILE := deploy/docker/Dockerfile
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
+	FIND=/usr/bin/find
+else
+	FIND=find
 endif
 
 PROFILE ?= emqx
@@ -90,8 +93,8 @@ $(PROFILES:%=clean-%):
 	@if [ -d _build/$(@:clean-%=%) ]; then \
 		rm rebar.lock \
 		rm -rf _build/$(@:clean-%=%)/rel; \
-		find _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
-		find _build/$(@:clean-%=%) -type l -delete; \
+		$(FIND) _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
+		$(FIND) _build/$(@:clean-%=%) -type l -delete; \
 	fi
 
 .PHONY: clean-all
@@ -125,10 +128,19 @@ COMMON_DEPS := $(REBAR) get-dashboard $(CONF_SEGS)
 $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS)
 	@$(BUILD) $(subst -rel,,$(@)) rel
 
+## download relup base packages
+.PHONY: $(REL_PROFILES:%=%-relup-downloads)
+define download-relup-packages
+$1-relup-downloads:
+	@if [ "$${EMQX_RELUP}" = "true" ]; then $(CURDIR)/scripts/relup-base-packages.sh $1; fi
+endef
+ALL_ZIPS = $(REL_PROFILES)
+$(foreach zt,$(ALL_ZIPS),$(eval $(call download-relup-packages,$(zt))))
+
 ## relup target is to create relup instructions
 .PHONY: $(REL_PROFILES:%=%-relup)
 define gen-relup-target
-$1-relup: $(COMMON_DEPS)
+$1-relup: $1-relup-downloads $(COMMON_DEPS)
 	@$(BUILD) $1 relup
 endef
 ALL_ZIPS = $(REL_PROFILES)

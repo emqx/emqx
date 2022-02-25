@@ -12,4 +12,5 @@ TESTDIR="test"
 if [ "$1" != "emqx" ]; then
     TESTDIR="$1/test"
 fi
+# shellcheck disable=SC2038
 find "${TESTDIR}" -name "*_SUITE.erl" 2>/dev/null | xargs | tr ' ' ','

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 ## EMQ docker image start script
 # Huang Rui <vowstar@gmail.com>
-# EMQ X Team <support@emqx.io>
+# EMQX Team <support@emqx.io>
 
 ## Shell setting
 if [[ -n "$DEBUG" ]]; then

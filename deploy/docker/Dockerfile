@@ -23,6 +23,8 @@ COPY . /emqx
 ARG PKG_VSN
 ARG EMQX_NAME=emqx
 
+ENV EMQX_RELUP=false
+
 RUN cd /emqx \
     && rm -rf _build/$EMQX_NAME/lib \
     && make $EMQX_NAME
@@ -38,7 +40,7 @@ LABEL org.label-schema.docker.dockerfile="Dockerfile" \
     org.label-schema.url="https://emqx.io" \
     org.label-schema.vcs-type="Git" \
     org.label-schema.vcs-url="https://github.com/emqx/emqx" \
-    maintainer="EMQ X Team <support@emqx.io>"
+    maintainer="EMQX Team <support@emqx.io>"
 
 ARG EMQX_NAME=emqx
 
@@ -58,7 +60,8 @@ RUN chgrp -Rf emqx /opt/emqx && chmod -Rf g+w /opt/emqx \
 
 USER emqx
 
-VOLUME ["/opt/emqx/log", "/opt/emqx/data", "/opt/emqx/etc"]
+## NOTE: /opt/emqx/etc is removed from the VOLUME list since 4.3.13
+VOLUME ["/opt/emqx/log", "/opt/emqx/data"]
 
 # emqx will occupy these port:
 # - 1883 port for MQTT

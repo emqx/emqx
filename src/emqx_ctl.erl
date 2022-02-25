@@ -57,8 +57,6 @@
         , code_change/3
         ]).
 
--elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_ctl]}}]).
-
 -record(state, {seq = 0}).
 
 -type(cmd() :: atom()).

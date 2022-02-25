@@ -1,4 +1,4 @@
-# EMQ X Broker
+# EMQX Broker
 
 [![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen)](https://github.com/emqx/emqx/releases)
 [![Build Status](https://travis-ci.org/emqx/emqx.svg)](https://travis-ci.org/emqx/emqx)
@@ -12,22 +12,22 @@
 
 [English](./README.md) | [简体中文](./README-CN.md) | 日本語 | [русский](./README-RU.md)
 
-*EMQ X* は、高い拡張性と可用性をもつ、分散型のMQTTブローカーです。数千万のクライアントを同時に処理するIoT、M2M、モバイルアプリケーション向けです。
+*EMQX* は、高い拡張性と可用性をもつ、分散型のMQTTブローカーです。数千万のクライアントを同時に処理するIoT、M2M、モバイルアプリケーション向けです。
 
-version 3.0 以降、*EMQ X* は MQTT V5.0 の仕様を完全にサポートしており、MQTT V3.1およびV3.1.1とも下位互換性があります。
+version 3.0 以降、*EMQX* は MQTT V5.0 の仕様を完全にサポートしており、MQTT V3.1およびV3.1.1とも下位互換性があります。
 MQTT-SN、CoAP、LwM2M、WebSocket、STOMPなどの通信プロトコルをサポートしています。 MQTTの同時接続数は1つのクラスター上で1,000万以上にまでスケールできます。
 
-- 新機能の一覧については、[EMQ Xリリースノート](https://github.com/emqx/emqx/releases)を参照してください。
-- 詳細はこちら[EMQ X公式ウェブサイト](https://www.emqx.io/)をご覧ください。
+- 新機能の一覧については、[EMQXリリースノート](https://github.com/emqx/emqx/releases)を参照してください。
+- 詳細はこちら[EMQX公式ウェブサイト](https://www.emqx.io/)をご覧ください。
 
 ## インストール
 
-*EMQ X* はクロスプラットフォームで、Linux、Unix、macOS、Windowsをサポートしています。
-そのため、x86_64アーキテクチャサーバー、またはRaspberryPiなどのARMデバイスに *EMQ X* をデプロイすることもできます。
+*EMQX* はクロスプラットフォームで、Linux、Unix、macOS、Windowsをサポートしています。
+そのため、x86_64アーキテクチャサーバー、またはRaspberryPiなどのARMデバイスに *EMQX* をデプロイすることもできます。
 
-Windows上における *EMQ X* のビルドと実行については、[Windows.md](./Windows.md)をご参照ください。
+Windows上における *EMQX* のビルドと実行については、[Windows.md](./Windows.md)をご参照ください。
 
-#### Docker イメージによる EMQ X のインストール
+#### Docker イメージによる EMQX のインストール
 
 ```
 docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
@@ -35,14 +35,14 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p
 
 #### バイナリパッケージによるインストール
 
-それぞれのOSに対応したバイナリソフトウェアパッケージは、[EMQ Xのダウンロード](https://www.emqx.io/downloads)ページから取得できます。
+それぞれのOSに対応したバイナリソフトウェアパッケージは、[EMQXのダウンロード](https://www.emqx.io/downloads)ページから取得できます。
 
 - [シングルノードインストール](https://docs.emqx.io/broker/latest/en/getting-started/installation.html)
 - [マルチノードインストール](https://docs.emqx.io/broker/latest/en/advanced/cluster.html)
 
 ## ソースからビルド
 
-version 3.0 以降の *EMQ X* をビルドするには Erlang/OTP R21+ が必要です。
+version 3.0 以降の *EMQX* をビルドするには Erlang/OTP R21+ が必要です。
 
 version 4.3 以降の場合：
 
@@ -71,7 +71,7 @@ emqx をソースコードからビルドした場合は、
 ./bin/emqx stop
 ```
 
-*EMQ X* の起動後、ブラウザで http://localhost:18083 にアクセスするとダッシュボードが表示されます。
+*EMQX* の起動後、ブラウザで http://localhost:18083 にアクセスするとダッシュボードが表示されます。
 
 ## テスト
 
@@ -102,7 +102,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_auth_jwt,emqx_auth_ldap make dialyzer
 
 ### FAQ
 
-よくある質問については、[EMQ X FAQ](https://docs.emqx.io/broker/latest/en/faq/faq.html)をご確認ください。
+よくある質問については、[EMQX FAQ](https://docs.emqx.io/broker/latest/en/faq/faq.html)をご確認ください。
 
 ### 質問する
 

@@ -1,7 +1,7 @@
 
 # emqx-coap
 
-emqx-coap is a CoAP Gateway for EMQ X Broker. It translates CoAP messages into MQTT messages and make it possible to communiate between CoAP clients and MQTT clients.
+emqx-coap is a CoAP Gateway for EMQX Broker. It translates CoAP messages into MQTT messages and make it possible to communiate between CoAP clients and MQTT clients.
 
 ### Client Usage Example
 libcoap is an excellent coap library which has a simple client tool. It is recommended to use libcoap as a coap client.
@@ -252,5 +252,5 @@ Apache License Version 2.0
 Author
 ------
 
-EMQ X Team.
+EMQX Team.
 

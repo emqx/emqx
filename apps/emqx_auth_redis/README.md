@@ -1,7 +1,7 @@
 emqx_auth_redis
 ===============
 
-EMQ X Redis Authentication/ACL Plugin
+EMQX Redis Authentication/ACL Plugin
 
 Features
 ---------
@@ -167,5 +167,5 @@ Load Plugin
 Author
 ------
 
-EMQ X Team.
+EMQX Team.
 

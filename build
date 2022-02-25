@@ -4,6 +4,9 @@
 # arg1: profile, e.g. emqx | emqx-edge | emqx-pkg | emqx-edge-pkg
 # arg2: artifact, e.g. rel | relup | zip | pkg
 
+if [[ -n "$DEBUG" ]]; then
+    set -x
+fi
 set -euo pipefail
 
 PROFILE="$1"
@@ -45,6 +48,13 @@ if [ "$(uname -s)" = 'Linux' ]; then
     esac
 fi
 
+if [ "${SYSTEM}" = 'windows' ]; then
+    # windows does not like the find
+    FIND="/usr/bin/find"
+else
+    FIND='find'
+fi
+
 log() {
     local msg="$1"
     # rebar3 prints ===>, so we print ===<
@@ -71,12 +81,12 @@ make_relup() {
                 tmp_dir="$(mktemp -d -t emqx.XXXXXXX)"
                 unzip -q "$zip" "emqx/releases/*" -d "$tmp_dir"
                 unzip -q "$zip" "emqx/lib/*" -d "$tmp_dir"
-                cp -r -n "$tmp_dir/emqx/releases"/* "$releases_dir"
-                cp -r -n "$tmp_dir/emqx/lib"/* "$lib_dir"
+                cp -r -n "$tmp_dir/emqx/releases"/* "$releases_dir" || true
+                cp -r -n "$tmp_dir/emqx/lib"/* "$lib_dir" || true
                 rm -rf "$tmp_dir"
             fi
             releases+=( "$base_vsn" )
-        done < <(find _upgrade_base -maxdepth 1 -name "*$PROFILE-$SYSTEM*-$ARCH.zip" -type f)
+        done < <("$FIND" _upgrade_base -maxdepth 1 -name "*$PROFILE-$SYSTEM*-$ARCH.zip" -type f)
     fi
     if [ ${#releases[@]} -eq 0 ]; then
         log "No upgrade base found, relup ignored"
@@ -96,7 +106,7 @@ cp_dyn_libs() {
     mkdir -p "$target_dir"
     while read -r so_file; do
         cp -L "$so_file" "$target_dir/"
-    done < <(find "$rel_dir" -type f \( -name "*.so*" -o -name "beam.smp" \) -print0 \
+    done < <("$FIND" "$rel_dir" -type f \( -name "*.so*" -o -name "beam.smp" \) -print0 \
         | xargs -0 ldd \
         | grep -E '(libcrypto)|(libtinfo)' \
         | awk '{print $3}' \

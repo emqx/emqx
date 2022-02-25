@@ -62,13 +62,13 @@ resources: {}
   #   cpu: 500m
   #   memory: 512Mi
 
-# Containers that run before the creation of EMQ X containers. They can contain utilities or setup scripts.
+# Containers that run before the creation of EMQX containers. They can contain utilities or setup scripts.
 initContainers: {}
   # - name: mysql-probe
   #   image: alpine
   #   command: ["sh", "-c", "for i in $(seq 1 300); do nc -zvw1 mysql 3306 && exit 0 || sleep 3; done; exit 1"]
 
-## EMQ X configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
+## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
 emqxConfig:
   EMQX_CLUSTER__K8S__APISERVER: "https://kubernetes.default.svc:443"
   ## The address type is used to extract host from k8s service.
@@ -119,7 +119,7 @@ emqxLoadedModules: >
   {emqx_mod_subscription, false}.
   {emqx_mod_topic_metrics, false}.
 
-## EMQ X Enterprise Edition requires manual creation of a Secret containing the licensed content. Write the name of Secret to the value of "emqxLicenseSecretName"
+## EMQX Enterprise Edition requires manual creation of a Secret containing the licensed content. Write the name of Secret to the value of "emqxLicenseSecretName"
 ## Example:
 ##   kubectl create secret generic emqx-license-secret-name --from-file=/path/to/emqx.lic
 emqxLicenseSecretName:
@@ -188,7 +188,7 @@ ingress:
   ## Ingress shared annotations
   annotations: {}
 
-  ## ingress for EMQ X Dashboard
+  ## ingress for EMQX Dashboard
   dashboard:
     enabled: false
     annotations: {}
@@ -199,7 +199,7 @@ ingress:
     - dashboard.emqx.local
     tls: []
 
-  ## ingress for EMQ X Mgmt API
+  ## ingress for EMQX Mgmt API
   mgmt:
     enabled: false
     annotations: {}
@@ -210,7 +210,7 @@ ingress:
     - api.emqx.local
     tls: []
 
-  ## ingress for EMQ X Mgmt API
+  ## ingress for EMQX Mgmt API
   wss:
     enabled: false
     # ingressClassName: nginx

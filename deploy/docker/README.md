@@ -17,11 +17,11 @@
 
   [the latest release](https://github.com/docker/docker-ce/releases/latest)
 
-# What is EMQ X
+# What is EMQX
 
-[EMQ X  MQTT broker](https://emqx.io/products/broker) is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
+[EMQX  MQTT broker](https://emqx.io/products/broker) is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
 
-Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1,  as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket and STOMP. The 3.0 release of the *EMQ X* broker can scaled to 10+ million concurrent MQTT connections on one cluster.
+Starting from 3.0 release, *EMQX* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1,  as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket and STOMP. The 3.0 release of the *EMQX* broker can scaled to 10+ million concurrent MQTT connections on one cluster.
 
 # How to use this image
 
@@ -39,7 +39,7 @@ The emqx broker runs as linux user `emqx` in the docker container.
 
 ### Configuration
 
-Use the environment variable to configure the EMQ X docker container.
+Use the environment variable to configure the EMQX docker container.
 
 By default, the environment variables with ``EMQX_`` prefix are mapped to key-value pairs in configuration files.
 
@@ -72,9 +72,9 @@ EMQX_HOST
 
 These environment variables will ignore for configuration file.
 
-#### EMQ X Configuration
+#### EMQX Configuration
 
-> NOTE: All EMQ X Configuration in [etc/emqx.conf](https://github.com/emqx/emqx/blob/main-v4.3/etc/emqx.conf) could config by environment. The following list is just an example, not a complete configuration.
+> NOTE: All EMQX Configuration in [etc/emqx.conf](https://github.com/emqx/emqx/blob/main-v4.3/etc/emqx.conf) could config by environment. The following list is just an example, not a complete configuration.
 
 | Options                    | Default            | Mapped                    | Description                           |
 | ---------------------------| ------------------ | ------------------------- | ------------------------------------- |
@@ -148,7 +148,7 @@ EMQX_LOADED_PLUGINS="emqx_auth_redis emqx_auth_mysql"
 EMQX_LOADED_PLUGINS="emqx_auth_redis | emqx_auth_mysql"
 ```
 
-#### EMQ X Plugins Configuration
+#### EMQX Plugins Configuration
 
 The environment variables which with ``EMQX_`` prefix are mapped to all emqx plugins' configuration file, ``.`` get replaced by ``__``.
 
@@ -200,7 +200,7 @@ docker run -d --name emqx -p 18083:18083 -p 1883:1883 -p 4369:4369 \
 
 ### Cluster
 
-EMQ X supports a variety of clustering methods, see our [documentation](https://docs.emqx.io/broker/latest/en/advanced/cluster.html#emqx-service-discovery) for details.
+EMQX supports a variety of clustering methods, see our [documentation](https://docs.emqx.io/broker/latest/en/advanced/cluster.html#emqx-service-discovery) for details.
 
 Let's create a static node list cluster from docker-compose.
 
@@ -256,7 +256,7 @@ Let's create a static node list cluster from docker-compose.
 
 ### Persistence
 
-If you want to persist the EMQ X docker container, you need to keep the following directories:
+If you want to persist the EMQX docker container, you need to keep the following directories:
 
 + `/opt/emqx/data`
 + `/opt/emqx/etc`
@@ -316,7 +316,7 @@ docker run -d --name emqx -p 18083:18083 -p 1883:1883 -p 4369:4369 \
 
 ```
 
-> REMEMBER: DO NOT RUN EMQ X DOCKER PRIVILEGED OR MOUNT SYSTEM PROC IN CONTAINER TO TUNE LINUX KERNEL, IT IS UNSAFE.
+> REMEMBER: DO NOT RUN EMQX DOCKER PRIVILEGED OR MOUNT SYSTEM PROC IN CONTAINER TO TUNE LINUX KERNEL, IT IS UNSAFE.
 
 ### Thanks
 

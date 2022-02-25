@@ -44,7 +44,7 @@ if ! check_eralng_start >/dev/null 2>&1; then
         echoerr "FATAL: Unable to start Erlang."
         echoerr "Please make sure openssl-1.1.1 (libcrypto) and libncurses are installed."
         echoerr "Also ensure it's running on the correct platform,"
-        echoerr "this EMQ X release is built for $BUILT_ON"
+        echoerr "this EMQX release is built for $BUILT_ON"
         exit 1
     fi
     echoerr "WARNING: There seem to be missing dynamic libs from the OS. Using libs from ${DYNLIBS_DIR}"

@@ -2,7 +2,7 @@
 emqx-recon
 ==========
 
-EMQ X Recon Debug/Optimize Plugin
+EMQX Recon Debug/Optimize Plugin
 
 emqx_recon.conf
 ----=----------
@@ -57,5 +57,5 @@ Apache License Version 2.0
 Author
 ------
 
-EMQ X Team.
+EMQX Team.
 

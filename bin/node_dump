@@ -24,7 +24,7 @@ collect() {
 }
 
 show_help() {
-    echo "Collect information about the EMQ X node
+    echo "Collect information about the EMQX node
 
 USAGE:
 

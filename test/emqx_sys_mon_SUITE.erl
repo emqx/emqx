@@ -33,6 +33,11 @@
                     {self(), busy_port,
                      concat_str("busy_port warning: suspid = ~p, port = ~p",
                                 self(), list_to_port("#Port<0.4>")), list_to_port("#Port<0.4>")},
+                    %% for the case when the port is missing, for some
+                    %% reason.
+                    {self(), busy_port,
+                     concat_str("busy_port warning: suspid = ~p, port = ~p",
+                                self(), []), []},
                     {self(), busy_dist_port,
                      concat_str("busy_dist_port warning: suspid = ~p, port = ~p",
                                 self(), list_to_port("#Port<0.4>")),list_to_port("#Port<0.4>")},
@@ -122,6 +127,16 @@ t_sys_mon(_Config) ->
               validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort)
       end, ?INPUTINFO).
 
+%% Existing port, but closed.
+t_sys_mon_dead_port(_Config) ->
+    process_flag(trap_exit, true),
+    Port = dead_port(),
+    {PidOrPort, SysMonName, ValidateInfo, InfoOrPort} =
+        {self(), busy_port,
+         concat_str("busy_port warning: suspid = ~p, port = ~p",
+                                self(), Port), Port},
+    validate_sys_mon_info(PidOrPort, SysMonName, ValidateInfo, InfoOrPort).
+
 t_sys_mon2(_Config) ->
     ?SYSMON ! {timeout, ignored, reset},
     ?SYSMON ! {ignored},
@@ -155,3 +170,8 @@ some_function(Parent, _Arg2) ->
         stop ->
             ok
     end.
+
+dead_port() ->
+    Port = erlang:open_port({spawn, "ls"}, []),
+    exit(Port, kill),
+    Port.

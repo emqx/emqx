@@ -37,8 +37,6 @@
 
 -export_type([config/0]).
 
--elvis([{elvis_style, no_nested_try_catch, #{ ignore => [emqx_logger_jsonfmt]}}]).
-
 -type config() :: #{depth       => pos_integer() | unlimited,
                     report_cb   => logger:report_cb(),
                     single_line => boolean()}.

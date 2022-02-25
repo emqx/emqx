@@ -91,8 +91,6 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
--elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_stomp_connection]}}]).
-
 -dialyzer({nowarn_function, [ ensure_stats_timer/2
                             ]}).
 

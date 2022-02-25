@@ -1,7 +1,7 @@
 
-# EMQ X Rule Engine
+# EMQX Rule Engine
 
-This is the design guide of message routing rule engine for the EMQ X Broker.
+This is the design guide of message routing rule engine for the EMQX Broker.
 
 ## Concept
 
@@ -149,7 +149,7 @@ The properties and behaviors of resources is defined by resource types. A resour
 
 ### Resource Type Provider
 
-Provider of resource type is a EMQ X Plugin.
+Provider of resource type is a EMQX Plugin.
 
 ### Resource Manager
 

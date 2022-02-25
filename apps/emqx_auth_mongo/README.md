@@ -1,7 +1,7 @@
 emqx_auth_mongo
 ===============
 
-EMQ X Authentication/ACL with MongoDB
+EMQX Authentication/ACL with MongoDB
 
 Build the Plugin
 ----------------
@@ -188,5 +188,5 @@ Apache License Version 2.0
 Author
 ------
 
-EMQ X Team.
+EMQX Team.
 

@@ -1,7 +1,7 @@
 emqx_auth_http
 ==============
 
-EMQ X HTTP Auth/ACL Plugin
+EMQX HTTP Auth/ACL Plugin
 
 Build
 -----
@@ -96,5 +96,5 @@ Apache License Version 2.0
 Author
 ------
 
-EMQ X Team.
+EMQX Team.
 

@@ -108,8 +108,6 @@
                             , init/2
                             ]}).
 
--elvis([{elvis_style, dont_repeat_yourself, disable}]).
-
 -type(pstate() :: #pstate{}).
 
 %% @doc Init protocol
@@ -154,7 +152,7 @@ default_conninfo(ConnInfo) ->
       clean_start => true,
       clientid => undefined,
       username => undefined,
-      conn_props => [],
+      conn_props => #{},
       connected => false,
       connected_at => undefined,
       keepalive => undefined,
@@ -816,4 +814,3 @@ interval(outgoing_timer, #pstate{heart_beats = HrtBt}) ->
     emqx_stomp_heartbeat:interval(outgoing, HrtBt);
 interval(clean_trans_timer, _) ->
     ?TRANS_TIMEOUT.
-

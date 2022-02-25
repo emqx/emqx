@@ -149,7 +149,7 @@ send(#{client_pid := ClientPid} = Conn, [Msg | Rest], PktIds) ->
         {ok, PktId} ->
             send(Conn, Rest, [PktId | PktIds]);
         {error, Reason} ->
-            %% NOTE: There is no partial sucess of a batch and recover from the middle
+            %% NOTE: There is no partial success of a batch and recover from the middle
             %% only to retry all messages in one batch
             {error, Reason}
     end.
@@ -159,7 +159,7 @@ handle_puback(#{packet_id := PktId, reason_code := RC}, Parent)
        RC =:= ?RC_NO_MATCHING_SUBSCRIBERS ->
     Parent ! {batch_ack, PktId}, ok;
 handle_puback(#{packet_id := PktId, reason_code := RC}, _Parent) ->
-    ?LOG(warning, "Publish ~p to remote node falied, reason_code: ~p", [PktId, RC]).
+    ?LOG(warning, "Publish ~p to remote node failed, reason_code: ~p", [PktId, RC]).
 
 handle_publish(Msg, Mountpoint) ->
     emqx_broker:publish(emqx_bridge_msg:to_broker_msg(Msg, Mountpoint)).
