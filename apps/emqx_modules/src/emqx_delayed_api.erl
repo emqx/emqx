@@ -224,20 +224,6 @@ generate_max_delayed_messages(Config) ->
 update_config_(Config) ->
     case emqx_delayed:update_config(Config) of
         {ok, #{raw_config := NewDelayed}} ->
-            case maps:get(<<"enable">>, Config, undefined) of
-                undefined ->
-                    ignore;
-                true ->
-                    emqx_delayed:enable();
-                false ->
-                    emqx_delayed:disable()
-            end,
-            case maps:get(<<"max_delayed_messages">>, Config, undefined) of
-                undefined ->
-                    ignore;
-                Max ->
-                    ok = emqx_delayed:set_max_delayed_messages(Max)
-            end,
             {200, NewDelayed};
         {error, Reason} ->
             Message = list_to_binary(
