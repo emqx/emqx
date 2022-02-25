@@ -125,12 +125,21 @@ reset(Node, KeyPath, Opts) ->
 %% @doc Called from build script.
 -spec dump_schema(file:name_all()) -> ok.
 dump_schema(Dir) ->
-    SchemaMarkdownFile = filename:join([Dir, "config.md"]),
-    io:format(user, "===< Generating: ~s~n", [SchemaMarkdownFile ]),
-    ok = gen_doc(SchemaMarkdownFile),
+    SchemaMdFile = filename:join([Dir, "config.md"]),
+    io:format(user, "===< Generating: ~s~n", [SchemaMdFile ]),
+    ok = gen_doc(SchemaMdFile),
+
+    %% for scripts/spellcheck.
     SchemaJsonFile = filename:join([Dir, "schema.json"]),
     io:format(user, "===< Generating: ~s~n", [SchemaJsonFile]),
-    ok = gen_hot_conf_schema(SchemaJsonFile),
+    JsonMap = hocon_schema_json:gen(emqx_conf_schema),
+    IoData = jsx:encode(JsonMap, [space, {indent, 4}]),
+    ok = file:write_file(SchemaJsonFile, IoData),
+
+    %% hot-update configuration schema
+    HotConfigSchemaFile = filename:join([Dir, "hot-config-schema.json"]),
+    io:format(user, "===< Generating: ~s~n", [HotConfigSchemaFile]),
+    ok = gen_hot_conf_schema(HotConfigSchemaFile),
     ok.
 
 %%--------------------------------------------------------------------
