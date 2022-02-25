@@ -21,7 +21,7 @@ An MySQL connector can be used as following:
          ssl => false,user => "root",verify => false},
    id => <<"mysql-abc">>,mod => emqx_connector_mysql,
    state => #{poolname => 'mysql-abc'},
-   status => started}]
+   status => connected}]
 (emqx@127.0.0.1)6> emqx_resource:query(<<"mysql-abc">>, {sql, <<"SELECT count(1)">>}).
 {ok,[<<"count(1)">>],[[1]]}
 ```
