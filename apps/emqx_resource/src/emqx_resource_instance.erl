@@ -249,28 +249,17 @@ do_start(InstId, Group, ResourceType, Config, Opts) when is_binary(InstId) ->
                  status => connecting, state => undefined},
     %% The `emqx_resource:call_start/3` need the instance exist beforehand
     ets:insert(emqx_resource_instance, {InstId, Group, InitData}),
-    case maps:get(async_create, Opts, false) of
-        false ->
-            start_and_check(InstId, Group, ResourceType, Config, Opts, InitData);
-        true ->
-            spawn(fun() ->
-                    start_and_check(InstId, Group, ResourceType, Config, Opts, InitData)
-                end),
-            ok
-    end.
+    spawn(fun() ->
+            start_and_check(InstId, Group, ResourceType, Config, Opts, InitData)
+        end),
+    ok.
 
 start_and_check(InstId, Group, ResourceType, Config, Opts, Data) ->
     case emqx_resource:call_start(InstId, ResourceType, Config) of
         {ok, ResourceState} ->
             Data2 = Data#{state => ResourceState, status => connected},
             ets:insert(emqx_resource_instance, {InstId, Group, Data2}),
-            case maps:get(async_create, Opts, false) of
-                false -> case do_health_check(Group, Data2) of
-                            ok -> create_default_checker(InstId, Opts);
-                            {error, Reason} -> {error, Reason}
-                         end;
-                true -> create_default_checker(InstId, Opts)
-            end;
+            create_default_checker(InstId, Opts);
         {error, Reason} ->
             ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => disconnected}}),
             {error, Reason}

@@ -153,7 +153,7 @@ t_healthy_timeout(_) ->
                 ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
                 #{name => <<"test_resource">>},
-                #{async_create => true, health_check_timeout => 200}),
+                #{health_check_timeout => 200}),
     timer:sleep(500),
 
     ok = emqx_resource:remove_local(?ID).
@@ -163,8 +163,7 @@ t_healthy(_) ->
                 ?ID,
                 ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
-                #{name => <<"test_resource">>},
-                #{async_create => true}),
+                #{name => <<"test_resource">>}),
     timer:sleep(400),
 
     emqx_resource_health_check:create_checker(?ID, 15000, 10000),

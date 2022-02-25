@@ -223,7 +223,7 @@ create(Type, Name, Conf) ->
     ?SLOG(info, #{msg => "create bridge", type => Type, name => Name,
         config => Conf}),
     case emqx_resource:create_local(resource_id(Type, Name), <<"emqx_bridge">>, emqx_bridge:resource_type(Type),
-            parse_confs(Type, Name, Conf), #{async_create => true}) of
+            parse_confs(Type, Name, Conf), #{wait_connected => 1000}) of
         {ok, already_created} -> maybe_disable_bridge(Type, Name, Conf);
         {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
         {error, Reason} -> {error, Reason}
@@ -268,8 +268,7 @@ recreate(Type, Name) ->
 
 recreate(Type, Name, Conf) ->
     emqx_resource:recreate_local(resource_id(Type, Name),
-        emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf),
-        #{async_create => true}).
+        emqx_bridge:resource_type(Type), parse_confs(Type, Name, Conf), #{wait_connected => 1000}).
 
 create_dry_run(Type, Conf) ->
     Conf0 = Conf#{<<"ingress">> => #{<<"remote_topic">> => <<"t">>}},
