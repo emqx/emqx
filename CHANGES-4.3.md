@@ -10,11 +10,6 @@ File format:
 - One list item per change topic
   Change log ends with a list of github PRs
 
-## v4.3.14
-
-### Bug fixes
-* Fix rpc get node info maybe crash when other nodes is not ready.
-
 ## v4.3.13
 
 ### Important changes
@@ -41,6 +36,7 @@ File format:
 * Fix Stomp client can not trigger `$event/client_connection` message [#7096]
 * Fix system memory false alarm at boot
 * Fix the MQTT-SN message replay when the topic is not registered to the client [#6970]
+* Fix rpc get node info maybe crash when other nodes is not ready.
 
 ## v4.3.12
 ### Important changes
