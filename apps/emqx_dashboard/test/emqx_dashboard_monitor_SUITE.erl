@@ -131,8 +131,10 @@ do_request_api(Method, Request)->
             {error, socket_closed_remotely};
         {ok, {{"HTTP/1.1", Code, _}, _, Return} }
             when Code >= 200 andalso Code =< 299 ->
+            ct:pal("Resp ~p ~p~n", [Code, Return]),
             {ok, emqx_json:decode(Return, [return_maps])};
         {ok, {{"HTTP/1.1", Code, _}, _, Return} } ->
+            ct:pal("Resp ~p ~p~n", [Code, Return]),
             {error, {Code, emqx_json:decode(Return, [return_maps])}};
         {error, Reason} ->
             {error, Reason}

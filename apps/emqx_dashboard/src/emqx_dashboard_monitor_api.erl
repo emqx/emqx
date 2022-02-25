@@ -78,7 +78,8 @@ schema("/monitor_current/nodes/:node") ->
             description => <<"Node current status. Gauge and rate.">>,
             parameters => [parameter_node()],
             responses => #{
-                200 => hoconsc:mk(hoconsc:ref(sampler_current), #{})
+                200 => hoconsc:mk(hoconsc:ref(sampler_current), #{}),
+                400 => emqx_dashboard_swagger:error_codes(['BAD_RPC'], <<"Bad RPC">>)
             }
         }
     }.
@@ -86,7 +87,7 @@ schema("/monitor_current/nodes/:node") ->
 parameter_latest() ->
     Info = #{
         in => query,
-        nullable => true,
+        required => false,
         example => 5 * 60,
         description => <<"The latest N seconds data. Like 300 for 5 min.">>
     },
@@ -95,7 +96,7 @@ parameter_latest() ->
 parameter_node() ->
     Info = #{
         in => path,
-        nullable => false,
+        required => true,
         example => node(),
         description => <<"EMQX node name.">>
     },

@@ -42,9 +42,11 @@
 -ifdef(TEST).
 %% for test
 -define(DEFAULT_SAMPLE_INTERVAL, 1).
+-define(RPC_TIMEOUT, 50).
 -else.
 %% dashboard monitor do sample interval, default 10s
 -define(DEFAULT_SAMPLE_INTERVAL, 10).
+-define(RPC_TIMEOUT, 5000).
 -endif.
 
 -define(DELTA_SAMPLER_LIST,

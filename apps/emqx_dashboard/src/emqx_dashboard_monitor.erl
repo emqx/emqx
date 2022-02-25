@@ -51,12 +51,6 @@
 %% 7 days = 7 * 24 * 60 * 60 * 1000 milliseconds
 -define(RETENTION_TIME, 7 * 24 * 60 * 60 * 1000).
 
--ifdef(TEST).
--define(RPC_TIMEOUT, 50).
--else.
--define(RPC_TIMEOUT, 5000).
--endif.
-
 -record(state, {
     last
     }).
@@ -140,7 +134,7 @@ current_rate(all) ->
 current_rate(Node) when Node == node() ->
     do_call(current_rate);
 current_rate(Node) ->
-    case rpc:call(Node, ?MODULE, ?FUNCTION_NAME, [Node], ?RPC_TIMEOUT) of
+    case emqx_dashboard_proto_v1:current_rate(Node) of
         {badrpc, Reason} ->
             {badrpc, {Node, Reason}};
         {ok, Rate} ->
@@ -201,7 +195,7 @@ do_sample(Node, Time) when Node == node() ->
     MS = match_spec(Time),
     internal_format(ets:select(?TAB, MS));
 do_sample(Node, Time) ->
-    case rpc:call(Node, ?MODULE, ?FUNCTION_NAME, [Node, Time], ?RPC_TIMEOUT) of
+    case emqx_dashboard_proto_v1:do_sample(Node, Time) of
         {badrpc, Reason} ->
             {badrpc, {Node, Reason}};
         Res ->
