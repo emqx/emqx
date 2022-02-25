@@ -37,12 +37,12 @@ retainer {
         batch_read_number = 0
         batch_deliver_number = 0
         limiter_bucket_name = retainer
-      }
+     }
    backend {
         type = built_in_database
         storage_type = ram
         max_retained_messages = 0
-      
+     }
 }""">>).
 
 %%--------------------------------------------------------------------
