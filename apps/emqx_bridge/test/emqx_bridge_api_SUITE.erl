@@ -164,7 +164,6 @@ t_http_crud_apis(_) ->
 
     BridgeID = emqx_bridge:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
     %% send an message to emqx and the message should be forwarded to the HTTP server
-    wait_for_resource_ready(BridgeID, 5),
     Body = <<"my msg">>,
     emqx:publish(emqx_message:make(<<"emqx_http/1">>, Body)),
     ?assert(
@@ -214,7 +213,6 @@ t_http_crud_apis(_) ->
                   }, jsx:decode(Bridge3Str)),
 
     %% send an message to emqx again, check the path has been changed
-    wait_for_resource_ready(BridgeID, 5),
     emqx:publish(emqx_message:make(<<"emqx_http/1">>, Body)),
     ?assert(
         receive
@@ -319,14 +317,3 @@ auth_header_() ->
 
 operation_path(Oper, BridgeID) ->
     uri(["bridges", BridgeID, "operation", Oper]).
-
-wait_for_resource_ready(InstId, 0) ->
-    ct:pal("--- bridge ~p: ~p", [InstId, emqx_bridge:lookup(InstId)]),
-    ct:fail(wait_resource_timeout);
-wait_for_resource_ready(InstId, Retry) ->
-    case emqx_bridge:lookup(InstId) of
-        {ok, #{resource_data := #{status := connected}}} -> ok;
-        _ ->
-            timer:sleep(100),
-            wait_for_resource_ready(InstId, Retry-1)
-    end.
