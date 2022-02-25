@@ -10,6 +10,11 @@ File format:
 - One list item per change topic
   Change log ends with a list of github PRs
 
+## v4.3.14
+
+### Bug fixes
+* Fix rpc get node info maybe crash when other nodes is not ready.
+
 ## v4.3.13
 
 ### Important changes
