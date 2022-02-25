@@ -51,8 +51,8 @@ jobs:
       run: |
         echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
         echo "CODE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
-        echo "EMQX_PKG_NAME=${{ matrix.profile }}-$(./pkg-vsn.sh ${{ matrix.profile }})-otp${{ matrix.otp }}-${{ matrix.os }}-amd64" >> $GITHUB_ENV
-        echo "EMQX_ELIXIRPKG_NAME=${{ matrix.profile }}-$(./pkg-vsn.sh ${{ matrix.profile }})-elixir${{ matrix.elixir }}-otp${{ matrix.otp }}-${{ matrix.os }}-amd64" >> $GITHUB_ENV
+        echo "EMQX_PKG_NAME=${{ matrix.profile }}-$(./pkg-full-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
+        echo "EMQX_ELIXIRPKG_NAME=${{ matrix.profile }}-$(env IS_ELIXIR=yes ./pkg-full-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
     - name: Get deps git refs for cache
       id: deps-refs
       run: |
