@@ -95,16 +95,14 @@ sysdescr() -> emqx_app:get_description().
 -spec(uptime() -> string()).
 uptime() ->
     {TotalWallClock, _} = erlang:statistics(wall_clock),
-    {D, {H, M, S}} = calendar:seconds_to_daystime(TotalWallClock div 1000),
-    List = [{D, " days"}, {H, " hours"}, {M, " minutes"}, {S, " seconds"}],
-    {_, Uptime} =
-        lists:foldl(fun({Time, Unit}, {NeedSkip, Acc}) ->
-            case Time =:= 0 andalso NeedSkip of
-                true -> {NeedSkip, Acc};
-                false -> {false, [[integer_to_list(Time), Unit] |Acc]}
-            end
-                    end, {true, []}, List),
-    lists:flatten(lists:join(", ", lists:reverse(Uptime))).
+    uptime(TotalWallClock div 1000).
+
+uptime(Seconds) ->
+    {D, {H, M, S}} = calendar:seconds_to_daystime(Seconds),
+    L0 = [{D, " days"}, {H, " hours"}, {M, " minutes"}, {S, " seconds"}],
+    L1 = lists:dropwhile(fun({K, _}) ->  K =:= 0 end, L0),
+    L2 = lists:map(fun({Time, Unit}) -> [integer_to_list(Time), Unit] end, L1),
+    lists:flatten(lists:join(", ", L2)).
 
 %% @doc Get sys datetime
 -spec(datetime() -> string()).
