@@ -19,9 +19,8 @@
 -behaviour(emqx_bpapi).
 
 -export([ introduced_in/0
-
-        , get_collect/1
-        , select_data/1
+        , do_sample/2
+        , current_rate/1
         ]).
 
 -include("emqx_dashboard.hrl").
@@ -30,11 +29,10 @@
 introduced_in() ->
     "5.0.0".
 
--spec get_collect(node()) -> _.
-get_collect(Node) ->
-    rpc:call(Node, emqx_dashboard_collection, get_collect, []).
+-spec do_sample(node(), Latest:: pos_integer() | infinity) -> list(map()) | emqx_rpc:badrpc().
+do_sample(Node, Latest) ->
+    rpc:call(Node, emqx_dashboard_monitor, do_sample, [Node, Latest], ?RPC_TIMEOUT).
 
--spec select_data(node()) -> [#mqtt_collect{}]
-                           | emqx_rpc:badrpc().
-select_data(Node) ->
-    rpc:call(Node, emqx_dashboard_collection, select_data, []).
+-spec current_rate(node()) -> {ok, map()} | emqx_rpc:badrpc().
+current_rate(Node) ->
+    rpc:call(Node, emqx_dashboard_monitor, current_rate, [Node], ?RPC_TIMEOUT).

@@ -39,7 +39,36 @@
 
 -define(DASHBOARD_SHARD, emqx_dashboard_shard).
 
--record(mqtt_collect, {
-    timestamp :: integer(),
-    collect
+-ifdef(TEST).
+%% for test
+-define(DEFAULT_SAMPLE_INTERVAL, 1).
+-define(RPC_TIMEOUT, 50).
+-else.
+%% dashboard monitor do sample interval, default 10s
+-define(DEFAULT_SAMPLE_INTERVAL, 10).
+-define(RPC_TIMEOUT, 5000).
+-endif.
+
+-define(DELTA_SAMPLER_LIST,
+    [ received
+    , received_bytes
+    , sent
+    , sent_bytes
+    , dropped
+    ]).
+
+-define(GAUGE_SAMPLER_LIST,
+    [ subscriptions
+    , routes
+    , connections
+    ]).
+
+-define(SAMPLER_LIST, ?GAUGE_SAMPLER_LIST ++ ?DELTA_SAMPLER_LIST).
+
+-define(DELTA_SAMPLER_RATE_MAP, #{
+    received        => received_rate,
+    received_bytes  => received_bytes_rate,
+    sent            => sent_rate,
+    sent_bytes      => sent_bytes_rate,
+    dropped         => dropped_rate
     }).
