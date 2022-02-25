@@ -402,7 +402,7 @@ collect_status(Bridges) ->
 
 aggregate_status(AllStatus) ->
     Head = fun ([A|_]) -> A end,
-    HeadVal = Head(AllStatus),
+    HeadVal = maps:get(status, Head(AllStatus), connecting),
     AllRes = lists:all(fun (#{status := Val}) -> Val == HeadVal end, AllStatus),
     case AllRes of
         true -> HeadVal;
