@@ -28,6 +28,7 @@ case $PROFILE in
 esac
 
 SYSTEM="${SYSTEM:-$(./scripts/get-distro.sh)}"
+OTP_VSN="${OTP_VSN:-$(./scripts/get-otp-vsn.sh)}"
 
 ARCH="${ARCH:-$(uname -m)}"
 case "$ARCH" in
