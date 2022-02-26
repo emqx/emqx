@@ -32,8 +32,8 @@ Options:
   --make-command    A command used to assemble the release
   --release-dir     Release directory
   --src-dirs        Directories where source code is found. Defaults to '{src,apps,lib-*}/**/'
-  --binary-rel-url  Binary release URL pattern. %TAG% variable is substituted with the release tag.
-                    E.g. \"https://github.com/emqx/emqx/releases/download/v%TAG%/emqx-centos7-%TAG%-amd64.zip\"
+  --binary-rel-url  Binary release URL pattern.
+                    E.g. https://www.emqx.com/en/downloads/broker/v4.4.1/emqx-4.4.1-otp24.1.5-3-el7-amd64.zip
 ".
 
 -record(app,
@@ -208,8 +208,8 @@ find_appup_actions(App,
     {OldUpgrade0, OldDowngrade0} = find_old_appup_actions(App, PrevVersion),
     OldUpgrade = ensure_all_patch_versions(App, CurrVersion, OldUpgrade0),
     OldDowngrade = ensure_all_patch_versions(App, CurrVersion, OldDowngrade0),
-    Upgrade = merge_update_actions(App, diff_app(App, CurrAppIdx, PrevAppIdx), OldUpgrade),
-    Downgrade = merge_update_actions(App, diff_app(App, PrevAppIdx, CurrAppIdx), OldDowngrade),
+    Upgrade = merge_update_actions(App, diff_app(up, App, CurrAppIdx, PrevAppIdx), OldUpgrade),
+    Downgrade = merge_update_actions(App, diff_app(down, App, PrevAppIdx, CurrAppIdx), OldDowngrade),
     if OldUpgrade =:= Upgrade andalso OldDowngrade =:= Downgrade ->
             %% The appup file has been already updated:
             [];
@@ -521,7 +521,7 @@ index_app(AppFile) ->
               , modules       = Modules
               }}.
 
-diff_app(App,
+diff_app(UpOrDown, App,
          #app{version = NewVersion, modules = NewModules},
          #app{version = OldVersion, modules = OldModules}) ->
     {New, Changed} =
@@ -540,13 +540,15 @@ diff_app(App,
                  ),
     Deleted = maps:keys(maps:without(maps:keys(NewModules), OldModules)),
     NChanges = length(New) + length(Changed) + length(Deleted),
-    if NewVersion =:= OldVersion andalso NChanges > 0 ->
+    case NewVersion =:= OldVersion of
+        true when NChanges =:= 0 ->
+            %% no change
+            ok;
+        true ->
             set_invalid(),
             log("ERROR: Application '~p' contains changes, but its version is not updated~n", [App]);
-       NewVersion > OldVersion ->
-            log("INFO: Application '~p' has been updated: ~p -> ~p~n", [App, OldVersion, NewVersion]),
-            ok;
-       true ->
+        false ->
+            log("INFO: Application '~p' has been updated: ~p --[~p]--> ~p~n", [App, OldVersion, UpOrDown, NewVersion]),
             ok
     end,
     {New, Changed, Deleted}.
@@ -607,12 +609,17 @@ locate(ebin_current, App, Suffix) ->
 locate(src, App, Suffix) ->
     AppStr = atom_to_list(App),
     SrcDirs = getopt(src_dirs),
-    case filelib:wildcard(SrcDirs ++ AppStr ++ Suffix) of
+    case find_app(SrcDirs ++ AppStr ++ Suffix) of
         [File] ->
             {ok, File};
         [] ->
             undefined
     end.
+
+find_app(Pattern) ->
+    %% exclude _build dir inside apps
+    lists:filter(fun(S) -> string:find(S, "/_build/") =:= nomatch end,
+                 filelib:wildcard(Pattern)).
 
 bash(Script) ->
     bash(Script, []).
