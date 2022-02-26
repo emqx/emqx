@@ -28,13 +28,6 @@ WHOAMI=$(whoami)
 # Make sure log directory exists
 mkdir -p "$RUNNER_LOG_DIR"
 
-# Make sure data directory exists
-mkdir -p "$RUNNER_DATA_DIR"
-
-# Make sure data/configs exists
-CONFIGS_DIR="$RUNNER_DATA_DIR/configs"
-mkdir -p "$CONFIGS_DIR"
-
 # hocon try to read environment variables starting with "EMQX_"
 export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
 
@@ -360,7 +353,7 @@ call_hocon() {
 
 get_config_value() {
     path_to_value="$1"
-    call_hocon -s "$SCHEMA_MOD" -I "$CONFIGS_DIR/" -c "$RUNNER_ETC_DIR"/emqx.conf get "$path_to_value" | tr -d \"
+    call_hocon -s "$SCHEMA_MOD" -c "$RUNNER_ETC_DIR"/emqx.conf get "$path_to_value" | tr -d \"
 }
 
 check_license() {
@@ -398,6 +391,15 @@ relx_start_command() {
            "$START_OPTION"
 }
 
+DATA_DIR="$(get_config_value 'node.data_dir')"
+DATA_DIR="${DATA_DIR%/}"
+if [[ $DATA_DIR != /* ]]; then
+    # relative
+    DATA_DIR="${RUNNER_ROOT_DIR}/${DATA_DIR}"
+fi
+CONFIGS_DIR="$DATA_DIR/configs"
+mkdir -p "$CONFIGS_DIR"
+
 # Function to generate app.config and vm.args
 generate_config() {
     local name_type="$1"
@@ -414,7 +416,7 @@ generate_config() {
     ## NOTE: the generate command merges environment variables to the base config (emqx.conf),
     ## but does not include the cluster-override.conf and local-override.conf
     ## meaning, certain overrides will not be mapped to app.<time>.config file
-    call_hocon -v -t "$NOW_TIME" -I "$CONFIGS_DIR/" -s "$SCHEMA_MOD" -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate
+    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" -c "$RUNNER_ETC_DIR"/emqx.conf -d "$DATA_DIR"/configs generate
 
     ## filenames are per-hocon convention
     local CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
@@ -573,7 +575,7 @@ fi
 
 # force to use 'emqx' short name
 [ -z "$NAME" ] && NAME='emqx'
-MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
+MNESIA_DATA_DIR="$DATA_DIR/mnesia/$NAME"
 
 case "$NAME" in
     *@*)
@@ -585,7 +587,7 @@ esac
 SHORT_NAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
 export ESCRIPT_NAME="$SHORT_NAME"
 
-PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
+PIPE_DIR="${PIPE_DIR:-/$DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 
 ## make EMQX_NODE_COOKIE right
 if [ -n "${EMQX_NODE_COOKIE:-}" ]; then

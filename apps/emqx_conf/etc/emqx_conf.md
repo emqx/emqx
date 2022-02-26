@@ -9,13 +9,17 @@ From bottom up:
 
 1. Immutable base: `emqx.conf` + `EMQX_` prefixed environment variables.<br>
    Changes in this layer require a full node restart to take effect.
-1. Cluster overrides: `${data_dir}/cluster-override.conf`
-1. Local node overrides: `${data_dir}/configs/local-override.conf`
+1. Cluster overrides: `$EMQX_NODE__DATA_DIR/configs/cluster-override.conf`
+1. Local node overrides: `$EMQX_NODE__DATA_DIR/configs/local-override.conf`
 
-Where `${data_dir}` is configurable from `node.data_dir`.
+When environment variable `$EMQX_NODE__DATA_DIR` is not set, config `node.data_dir`
+is used.
 
 The `*-override.conf` files are overwritten at runtime when changes
 are made from dashboard UI, management HTTP API, or CLI.
+
+**NOTE** Config values from `*-override.conf` are **not** mapped to boot configs for
+the config feilds attributed with `mapping: path.to.boot.config.key`
 
 For detailed override rules, see [Config Overlay Rules](#config-overlay-rules).
 
