@@ -129,7 +129,8 @@ prod_overrides() ->
     [{add, [ {erl_opts, [deterministic]}]}].
 
 relup_deps(Profile) ->
-    {post_hooks, [{"(linux|darwin|solaris|freebsd|netbsd|openbsd)", compile, "scripts/inject-deps.escript " ++ atom_to_list(Profile)}]}.
+    {post_hooks, [{"(linux|darwin|solaris|freebsd|netbsd|openbsd)", release,
+                        "scripts/inject-relup.escript " ++ filename:join(["_build", Profile, "rel", "emqx"])}]}.
 
 profiles() ->
     Vsn = get_vsn(),
