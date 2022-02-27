@@ -10,8 +10,18 @@ post_release_upgrade(_CurrRelVsn, _FromVsn, _) ->
 post_release_downgrade(_CurrRelVsn, _ToVsn, _) ->
     reload_components().
 
+-ifdef(EMQX_ENTERPRISE).
 reload_components() ->
-    io:format("reloading resource providers ..."),
+    io:format("reloading resource providers ...~n"),
     emqx_rule_engine:load_providers(),
-    io:format("loading plugins ..."),
+    io:format("reloading module providers ...~n"),
+    emqx_modules:load_providers(),
+    io:format("loading plugins ...~n"),
     emqx_plugins:load().
+-else.
+reload_components() ->
+    io:format("reloading resource providers ...~n"),
+    emqx_rule_engine:load_providers(),
+    io:format("loading plugins ...~n"),
+    emqx_plugins:load().
+-endif.
