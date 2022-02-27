@@ -235,18 +235,25 @@ open_session(true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
 open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     Self = self(),
     ResumeStart = fun(_) ->
-                      case takeover_session(ClientId) of
-                          {ok, ConnMod, ChanPid, Session} ->
-                              ok = emqx_session:resume(ClientInfo, Session),
-                              Pendings = ConnMod:call(ChanPid, {takeover, 'end'}, ?T_TAKEOVER),
-                              register_channel(ClientId, Self, ConnInfo),
-                              {ok, #{session  => Session,
-                                     present  => true,
-                                     pendings => Pendings}};
-                          {error, not_found} ->
+                      CreateSess =
+                          fun() ->
                               Session = create_session(ClientInfo, ConnInfo),
                               register_channel(ClientId, Self, ConnInfo),
                               {ok, #{session => Session, present => false}}
+                          end,
+                      case takeover_session(ClientId) of
+                          {ok, ConnMod, ChanPid, Session} ->
+                              ok = emqx_session:resume(ClientInfo, Session),
+                              case request_stepdown({takeover, 'end'}, ConnMod, ChanPid) of
+                                  {ok, Pendings} ->
+                                      register_channel(ClientId, Self, ConnInfo),
+                                      {ok, #{session  => Session,
+                                             present  => true,
+                                             pendings => Pendings}};
+                                  {error, _} ->
+                                      CreateSess()
+                              end;
+                          {error, _Reason} -> CreateSess()
                       end
                   end,
     emqx_cm_locker:trans(ClientId, ResumeStart).
@@ -280,9 +287,12 @@ takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
         undefined ->
             {error, not_found};
         ConnMod when is_atom(ConnMod) ->
-            %% TODO: if takeover times out, maybe kill the old?
-            Session = ConnMod:call(ChanPid, {takeover, 'begin'}, ?T_TAKEOVER),
-            {ok, ConnMod, ChanPid, Session}
+            case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid) of
+                {ok, Session} ->
+                    {ok, ConnMod, ChanPid, Session};
+                {error, Reason} ->
+                    {error, Reason}
+            end
     end;
 takeover_session(ClientId, ChanPid) ->
     rpc_call(node(ChanPid), takeover_session, [ClientId, ChanPid], ?T_TAKEOVER).
@@ -295,42 +305,63 @@ discard_session(ClientId) when is_binary(ClientId) ->
         ChanPids -> lists:foreach(fun(Pid) -> discard_session(ClientId, Pid) end, ChanPids)
     end.
 
-%% @private Kick a local stale session to force it step down.
-%% If failed to kick (e.g. timeout) force a kill.
+%% @private call a local stale session to execute an Action.
+%% If failed to response (e.g. timeout) force a kill.
 %% Keeping the stale pid around, or returning error or raise an exception
 %% benefits nobody.
--spec kick_or_kill(kick | discard, module(), pid()) -> ok.
-kick_or_kill(Action, ConnMod, Pid) ->
-    try
+-spec request_stepdown(Action, module(), pid())
+    -> ok
+     | {ok, emqx_session:session() | list(emqx_type:deliver())}
+     | {error, term()}
+  when Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'}.
+request_stepdown(Action, ConnMod, Pid) ->
+    Timeout =
+        case Action == kick orelse Action == discard of
+            true -> ?T_KICK;
+            _ -> ?T_TAKEOVER
+        end,
+    Return =
         %% this is essentailly a gen_server:call implemented in emqx_connection
         %% and emqx_ws_connection.
         %% the handle_call is implemented in emqx_channel
-        ok = apply(ConnMod, call, [Pid, Action, ?T_KICK])
-    catch
-        _ : noproc -> % emqx_ws_connection: call
-            ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action});
-        _ : {noproc, _} -> % emqx_connection: gen_server:call
-            ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action});
-        _ : {shutdown, _} ->
-            ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action});
-        _ : {{shutdown, _}, _} ->
-            ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action});
-        _ : {timeout, {gen_server, call, _}} ->
-            ?tp(warning, "session_kick_timeout",
-                #{pid => Pid,
-                  action => Action,
-                  stale_channel => stale_channel_info(Pid)
-                 }),
-            ok = force_kill(Pid);
-        _ : Error : St ->
-            ?tp(error, "session_kick_exception",
-                #{pid => Pid,
-                  action => Action,
-                  reason => Error,
-                  stacktrace => St,
-                  stale_channel => stale_channel_info(Pid)
-                 }),
-            ok = force_kill(Pid)
+        try apply(ConnMod, call, [Pid, Action, Timeout]) of
+            ok -> ok;
+            Reply -> {ok, Reply}
+        catch
+            _ : noproc -> % emqx_ws_connection: call
+                ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action}),
+                {error, noproc};
+            _ : {noproc, _} -> % emqx_connection: gen_server:call
+                ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action}),
+                {error, noproc};
+            _ : Reason = {shutdown, _} ->
+                ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action}),
+                {error, Reason};
+            _ : Reason = {{shutdown, _}, _} ->
+                ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action}),
+                {error, Reason};
+            _ : {timeout, {gen_server, call, _}} ->
+                ?tp(warning, "session_stepdown_request_timeout",
+                    #{pid => Pid,
+                      action => Action,
+                      stale_channel => stale_channel_info(Pid)
+                     }),
+                ok = force_kill(Pid),
+                {error, timeout};
+            _ : Error : St ->
+                ?tp(error, "session_stepdown_request_exception",
+                    #{pid => Pid,
+                      action => Action,
+                      reason => Error,
+                      stacktrace => St,
+                      stale_channel => stale_channel_info(Pid)
+                     }),
+                ok = force_kill(Pid),
+                {error, Error}
+        end,
+    case Action == kick orelse Action == discard of
+        true -> ok;
+        _ -> Return
     end.
 
 force_kill(Pid) ->
@@ -353,7 +384,7 @@ kick_session(Action, ClientId, ChanPid) when node(ChanPid) == node() ->
             %% already deregistered
             ok;
         ConnMod when is_atom(ConnMod) ->
-            ok = kick_or_kill(Action, ConnMod, ChanPid)
+            ok = request_stepdown(Action, ConnMod, ChanPid)
     end;
 kick_session(Action, ClientId, ChanPid) ->
     %% call remote node on the old APIs because we do not know if they have upgraded

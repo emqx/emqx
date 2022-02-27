@@ -297,6 +297,7 @@ format_channel_info({_Key, Info, Stats0}) ->
     SessCreated = maps:get(created_at, Session, maps:get(connected_at, ConnInfo)),
     Connected = case maps:get(conn_state, Info, connected) of
                     connected -> true;
+                    accepted -> true;  %% for exproto anonymous clients
                     _ -> false
                 end,
     NStats = Stats#{max_subscriptions => maps:get(subscriptions_max, Stats, 0),
