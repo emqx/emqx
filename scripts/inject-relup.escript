@@ -49,13 +49,14 @@ inject_relup_instrs(Type, CurrRelVsn, RUs) ->
 %% the instruction lists.
 append_emqx_relup_instrs(Type, CurrRelVsn, Vsn, Instrs) ->
   CallbackFun = relup_callback_func(Type),
+  Extra = #{}, %% we may need some extended args
   case lists:reverse(Instrs) of
     [{apply, {emqx_relup, CallbackFun, _}} | _] ->
       Instrs;
     RInstrs ->
       lists:reverse([ {load_object_code, {emqx, CurrRelVsn, [emqx_relup]}}
                     , {load, {emqx_relup, brutal_purge, soft_purge}}
-                    , {apply, {emqx_relup, CallbackFun, [CurrRelVsn, Vsn]}}
+                    , {apply, {emqx_relup, CallbackFun, [CurrRelVsn, Vsn, Extra]}}
                     | RInstrs])
   end.
 
