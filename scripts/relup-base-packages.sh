@@ -44,6 +44,10 @@ esac
 
 
 case "$SYSTEM" in
+    windows*)
+        echo "WARNING: skipped downloading relup base for windows because we do not support relup for windows yet."
+        exit 0
+        ;;
     macos*)
         SHASUM="shasum -a 256"
         ;;
