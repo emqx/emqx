@@ -68,7 +68,7 @@ fields(limiter) ->
     , {connection, sc(ref(limiter_opts), #{})}
     , {message_routing, sc(ref(limiter_opts), #{})}
     , {shared, sc(ref(shared_limiter_opts),
-                  #{description => <<"some functions that do not need to use global and zone scope, them can shared use this type">>})}
+                  #{description => <<"Some functions that do not need to use global and zone scope, them can shared use this type">>})}
     ];
 
 fields(limiter_opts) ->
@@ -127,13 +127,13 @@ the check/consume will succeed, but it will be forced to wait for a short period
 minimum_period() ->
     100.
 
+to_rate(Str) ->
+    to_rate(Str, true, false).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 ref(Field) -> hoconsc:ref(?MODULE, Field).
-
-to_rate(Str) ->
-    to_rate(Str, true, false).
 
 to_burst_rate(Str) ->
     to_rate(Str, false, true).
