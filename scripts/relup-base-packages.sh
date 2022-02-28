@@ -62,10 +62,11 @@ pushd _upgrade_base
 for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
     filename="$PROFILE-${tag#[e|v]}-otp$OTP_VSN-$SYSTEM-$ARCH.zip"
     url="https://www.emqx.com/downloads/$DIR/${tag#[e|v]}/$filename"
-    echo "downloading base package from ${url} ..."
     if [ ! -f "$filename" ] && curl -I -m 10 -o /dev/null -s -w "%{http_code}" "${url}" | grep -q -oE "^[23]+" ; then
+        echo "downloading base package from ${url} ..."
         curl -L -o "${filename}" "${url}"
         if [ "$SYSTEM" != "centos6" ]; then
+            echo "downloading sha256 sum from ${url}.sha256 ..."
             curl -L -o "${filename}.sha256" "${url}.sha256"
             SUMSTR=$(cat "${filename}.sha256")
             echo "got sha265sum: ${SUMSTR}"
