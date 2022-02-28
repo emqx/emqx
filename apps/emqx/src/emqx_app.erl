@@ -39,7 +39,6 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
-    ok = emqx_release:put_edition(),
     ok = maybe_load_config(),
     ok = emqx_persistent_session:init_db_backend(),
     ok = maybe_start_quicer(),

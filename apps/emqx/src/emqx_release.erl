@@ -17,55 +17,33 @@
 -module(emqx_release).
 
 -export([ edition/0
-        , put_edition/0
-        , put_edition/1
         , description/0
         , version/0
         ]).
 
 -include("emqx_release.hrl").
 
+-define(EMQX_DESCS,
+        #{ee => "EMQX Enterprise",
+          ce => "EMQX",
+          edge => "EMQX Edge"
+         }).
+
+-define(EMQX_REL_VSNS,
+        #{ee => ?EMQX_RELEASE_EE,
+          ce => ?EMQX_RELEASE_CE,
+          edge => ?EMQX_RELEASE_CE
+         }).
+
 %% @doc Return EMQX description.
 description() ->
-    case os:getenv("EMQX_DESCRIPTION") of
-        false -> "EMQX Community Edition";
-        "" -> "EMQX Community Edition";
-        Str -> string:strip(Str, both, $\n)
-    end.
+    maps:get(edition(), ?EMQX_DESCS).
 
 %% @doc Return EMQX edition info.
 %% Read info from persistent_term at runtime.
 %% Or meck this function to run tests for another eidtion.
 -spec edition() -> ce | ee | edge.
-edition() ->
-    try persistent_term:get(emqx_edition)
-    catch error : badarg -> get_edition() end.
-
-%% @private initiate EMQX edition info in persistent_term.
-put_edition() ->
-    ok = put_edition(get_edition()).
-
-%% @hidden This function is mostly for testing.
-%% Switch to another eidtion at runtime to run edition-specific tests.
--spec put_edition(ce | ee | edge) -> ok.
-put_edition(Which) ->
-    persistent_term:put(emqx_edition, Which),
-    ok.
-
--spec get_edition() -> ce | ee | edge.
-get_edition() ->
-    edition(description()).
-
-edition(Desc) ->
-    case re:run(Desc, "enterprise", [caseless]) of
-        {match, _} ->
-            ee;
-        _ ->
-            case re:run(Desc, "edge", [caseless]) of
-                {match, _} -> edge;
-                _ -> ce
-            end
-    end.
+edition() -> ?EMQX_RELEASE_EDITION.
 
 %% @doc Return the release version.
 version() ->
@@ -85,8 +63,5 @@ version() ->
             Vsn
     end.
 
--ifdef(EMQX_ENTERPRISE).
-build_vsn() -> ?EMQX_RELEASE_EE.
--else.
-build_vsn() -> ?EMQX_RELEASE_CE.
--endif.
+build_vsn() ->
+    maps:get(edition(), ?EMQX_REL_VSNS).
