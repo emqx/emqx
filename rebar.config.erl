@@ -261,7 +261,6 @@ overlay_vars_pkg(bin) ->
     , {runner_etc_dir, "$RUNNER_ROOT_DIR/etc"}
     , {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"}
     , {runner_log_dir, "$RUNNER_ROOT_DIR/log"}
-    , {runner_data_dir, "$RUNNER_ROOT_DIR/data"}
     , {runner_user, ""}
     , {is_elixir, "no"}
     ];
@@ -277,7 +276,6 @@ overlay_vars_pkg(pkg) ->
     , {runner_etc_dir, "/etc/emqx"}
     , {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"}
     , {runner_log_dir, "/var/log/emqx"}
-    , {runner_data_dir, "/var/lib/emqx"}
     , {runner_user, "emqx"}
     , {is_elixir, "no"}
     ].
