@@ -53,12 +53,18 @@ schema("/status") ->
 %%--------------------------------------------------------------------
 
 running_status(get, _Params) ->
-    {InternalStatus, _ProvidedStatus} = init:get_status(),
+    BrokerStatus =
+        case emqx:is_running() of
+            true ->
+                started;
+            false ->
+                stopped
+        end,
     AppStatus =
         case lists:keysearch(emqx, 1, application:which_applications()) of
             false         -> not_running;
             {value, _Val} -> running
         end,
-    Status = io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), InternalStatus, AppStatus]),
+    Status = io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), BrokerStatus, AppStatus]),
     Body = list_to_binary(Status),
     {200, #{<<"content-type">> => <<"text/plain">>}, Body}.
