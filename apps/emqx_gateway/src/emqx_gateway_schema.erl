@@ -294,7 +294,7 @@ fields(exproto_grpc_server) ->
 fields(exproto_grpc_handler) ->
     [ {address, sc(binary(), #{required => true})}
     , {ssl,
-       sc(ref(ssl_client_opts),
+       sc(ref(emqx_schema, ssl_client_opts),
           #{ required => {false, recursively}
            })}
     ];
@@ -306,9 +306,6 @@ fields(ssl_server_opts) ->
        , versions => tls_all_available
        , ciphers => tls_all_available
        }, true);
-
-fields(ssl_client_opts) ->
-    emqx_schema:client_ssl_opts_schema(#{});
 
 fields(clientinfo_override) ->
     [ {username, sc(binary())}
