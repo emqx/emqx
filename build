@@ -95,13 +95,15 @@ make_relup() {
     local rel_dir="_build/$PROFILE/rel/emqx"
     mkdir -p "${rel_dir}/lib"
     mkdir -p "${rel_dir}/releases"
+    local name_pattern
+    name_pattern="${PROFILE}-$(./pkg-vsn.sh "$PROFILE" --vsn_matcher)"
     local releases=()
     while read -r tgzfile ; do
         local base_vsn
         base_vsn="$(echo "$tgzfile" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9])?(-[0-9a-f]{8})?" | head -1)"
         tar -C "$rel_dir" -zxf ---keep-old-files "$tgzfile" emqx/releases emqx/lib
         releases+=( "$base_vsn" )
-    done < <("$FIND" _upgrade_base -maxdepth 1 -name "$PROFILE*${SYSTEM}-${ARCH}.tar.gz" -type f)
+    done < <("$FIND" _upgrade_base -maxdepth 1 -name "${name_pattern}.tar.gz" -type f)
     if [ ${#releases[@]} -eq 0 ]; then
         log "No upgrade base found, relup ignored"
         return 0
@@ -141,15 +143,16 @@ make_tgz() {
       ELIXIR_MAKE_TAR=yes make_elixir_rel
 
       local relpath="_build/${PROFILE}"
-      target_name="${PROFILE}-${PKG_VSN}-elixir${ELIXIR_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
+      full_vsn="$(./pkg-vsn.sh "$PROFILE" --long --elixir)"
     else
       # build the src_tarball again to ensure relup is included
       # elixir does not have relup yet.
       make_rel
 
       local relpath="_build/${PROFILE}/rel/emqx"
-      target_name="${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
+      full_vsn="$(./pkg-vsn.sh "$PROFILE" --long)"
     fi
+    target_name="${PROFILE}-${full_vsn}.tar.gz"
     target="${pkgpath}/${target_name}"
 
     src_tarball="${relpath}/emqx-${PKG_VSN}.tar.gz"
@@ -199,46 +202,6 @@ make_docker() {
        --build-arg EMQX_NAME="$PROFILE" \
        --tag "emqx/${PROFILE%%-elixir}:${PKG_VSN}" \
        -f "${DOCKERFILE}" .
-}
-
-## This function accepts any base docker image,
-## a emqx tgz-image, and a image tag (for the image to be built),
-## to build a docker image which runs EMQX
-##
-## Export below variables to quickly build an image
-##
-## Name               Default                         Example
-## ---------------------------------------------------------------------
-## EMQX_BASE_IMAGE    current os                      centos:7
-## EMQX_TGZ_packages/<current-tgz-target>  /tmp/emqx-4.4.0-otp23.3.4.9-3-centos7-amd64.tar.gz
-## EMQX_IMAGE_TAG     emqx/emqx:<current-vns-rel>     emqx/emqx:testing-tag
-##
-make_docker_testing() {
-    if [ -z "${EMQX_BASE_IMAGE:-}" ]; then
-        case "$SYSTEM" in
-            ubuntu20*)
-                EMQX_BASE_IMAGE="ubuntu:20.04"
-                ;;
-            *)
-                echo "Unsupported testing base image for $SYSTEM"
-                exit 1
-                ;;
-        esac
-    fi
-    EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-emqx/$PROFILE:${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}}"
-    local default_tgz
-    default_tgz="_packages/${PROFILE}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.tar.gz"
-    local tgz="${EMQX_TGZ_PACKAGE:-$default_tgz}"
-    if [ ! -f "$tgz" ]; then
-        log "ERROR: $tgz not built?"
-        exit 1
-    fi
-    set -x
-    docker build \
-       --build-arg BUILD_FROM="${EMQX_BASE_IMAGE}" \
-       --build-arg EMQX_TGZ_PACKAGE="${tgz}" \
-       --tag "$EMQX_IMAGE_TAG" \
-       -f "${DOCKERFILE_TESTING}" .
 }
 
 function join {
@@ -309,9 +272,6 @@ case "$ARTIFACT" in
         ;;
     docker)
         make_docker
-        ;;
-    docker-testing)
-        make_docker_testing
         ;;
     elixir)
         make_elixir_rel

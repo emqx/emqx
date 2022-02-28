@@ -227,10 +227,9 @@ jobs:
           - ubuntu16.04
           - debian10
           - debian9
-          # - opensuse
+          - rockylinux8
           - centos7
           - raspbian10
-          # - raspbian9
         build_machine:
           - aws-arm64
           - ubuntu-20.04
@@ -313,11 +312,11 @@ jobs:
         fi
         echo "pwd is $PWD"
         PkgTypes="tgz pkg"
-        WithElixir=""
+        IsElixir="no"
         if [ ${{ matrix.build_elixir }} = "with_elixir" ]; then
           PkgTypes="tgz"
           # set Elixir build flag
-          WithElixir="--with-elixir"
+          IsElixir="yes"
         fi
         for PKGTYPE in ${PkgTypes};
         do
@@ -326,7 +325,8 @@ jobs:
             --pkgtype "${PKGTYPE}" \
             --arch "${ARCH}" \
             --otp "${OTP}" \
-            --elixir "${ELIXIR}" "$WithElixir" \
+            --elixir "${IsElixir}" \
+            --elixir-vsn "${ELIXIR}" \
             --system "${SYSTEM}" \
             --builder "ghcr.io/emqx/emqx-builder/5.0-7:${ELIXIR}-${OTP}-${SYSTEM}"
         done

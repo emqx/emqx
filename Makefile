@@ -10,7 +10,6 @@ export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
 export EMQX_DASHBOARD_VERSION ?= v0.20.0
 export DOCKERFILE := deploy/docker/Dockerfile
-export DOCKERFILE_TESTING := deploy/docker/Dockerfile.testing
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
 	FIND=/usr/bin/find
@@ -214,18 +213,6 @@ endef
 ALL_DOCKERS = $(REL_PROFILES) $(REL_PROFILES:%=%-elixir)
 $(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
 
-## emqx-docker-testing
-## emqx-enterprise-docker-testing
-## is to directly copy a extracted tgz-package to a
-## base image such as ubuntu20.04. Mostly for testing
-.PHONY: $(REL_PROFILES:%=%-docker-testing)
-define gen-docker-target-testing
-$1-docker-testing: $(COMMON_DEPS)
-	@$(BUILD) $1 docker-testing
-endef
-ALL_TGZS = $(REL_PROFILES)
-$(foreach zt,$(ALL_TGZS),$(eval $(call gen-docker-target-testing,$(zt))))
-
 .PHONY:
 conf-segs:
 	@scripts/merge-config.escript
@@ -235,15 +222,15 @@ conf-segs:
 $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir): $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
 	@$(BUILD) $(subst -elixir,,$(@)) elixir
 
-.PHONY: $(REL_PROFILES:%=%-elixirpkg)
-define gen-elixirpkg-target
+.PHONY: $(REL_PROFILES:%=%-elixir-pkg)
+define gen-elixir-pkg-target
 # the Elixir places the tar in a different path than Rebar3
-$1-elixirpkg: $1-pkg-elixir
+$1-elixir-pkg: $1-pkg-elixir
 	@env TAR_PKG_DIR=_build/$1-pkg \
 	     IS_ELIXIR=yes \
 	     $(BUILD) $1-pkg pkg
 endef
-$(foreach pt,$(REL_PROFILES),$(eval $(call gen-elixirpkg-target,$(pt))))
+$(foreach pt,$(REL_PROFILES),$(eval $(call gen-elixir-pkg-target,$(pt))))
 
 .PHONY: $(REL_PROFILES:%=%-elixir-tgz)
 define gen-elixir-tgz-target

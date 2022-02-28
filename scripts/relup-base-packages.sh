@@ -7,20 +7,17 @@ set -euo pipefail
 
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+ROOT_DIR="$(pwd)"
 
-PROFILE="${1:-}"
-if [ "$PROFILE" = "" ]; then
-    PROFILE="emqx"
-fi
-
-OTP_VSN=${OTP_VSN:-$(scripts/get-otp-vsn.sh)}
+PROFILE="${1:-emqx}"
+export PROFILE
 
 case $PROFILE in
     "emqx")
         DIR='broker'
         EDITION='community'
         ;;
-    "emqx-ee")
+    "emqx-enterprise")
         DIR='enterprise'
         EDITION='enterprise'
         ;;
@@ -28,33 +25,32 @@ case $PROFILE in
         DIR='edge'
         EDITION='edge'
         ;;
-esac
-
-SYSTEM="${SYSTEM:-$(./scripts/get-distro.sh)}"
-
-ARCH="${ARCH:-$(uname -m)}"
-case "$ARCH" in
-    x86_64)
-        ARCH='amd64'
-        ;;
-    aarch64)
-        ARCH='arm64'
-        ;;
-    arm*)
-        ARCH=arm
+    *)
+        echo "Unknown profile $PROFILE"
+        exit 1
         ;;
 esac
 
-SHASUM="sha256sum"
-if [ "$SYSTEM" = "macos" ]; then
-    SHASUM="shasum -a 256"
-fi
+UNAME="$(uname -s)"
+case "$UNAME" in
+    Darwin)
+        SHASUM="shasum -a 256"
+        ;;
+    *)
+        SHASUM="sha256sum"
+        ;;
+esac
+
+BASE_VERSIONS="$("${ROOT_DIR}"/scripts/relup-base-vsns.sh "$EDITION" | xargs echo -n)"
+
+fullvsn() {
+    env PKG_VSN="$1" "${ROOT_DIR}"/pkg-vsn.sh "$PROFILE" --long
+}
 
 mkdir -p _upgrade_base
 pushd _upgrade_base >/dev/null
-
-for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
-    filename="$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.tar.gz"
+for tag in ${BASE_VERSIONS}; do
+    filename="$PROFILE-$(fullvsn "${tag#[e|v]}").tar.gz"
     url="https://www.emqx.com/downloads/$DIR/$tag/$filename"
     echo "downloading ${filename} ..."
     ## if the file does not exist (not downloaded yet)
