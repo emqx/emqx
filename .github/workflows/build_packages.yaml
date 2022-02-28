@@ -266,18 +266,6 @@ jobs:
           --pkgtype "${PACKAGE}" \
           --arch "${ARCH}" \
           --builder "ghcr.io/emqx/emqx-builder/4.4-5:${OTP}-${SYSTEM}"
-    - name: create sha256
-      working-directory: source
-      env:
-        PROFILE: ${{ matrix.profile}}
-      run: |
-        if [ -d _packages/$PROFILE ]; then
-          cd _packages/$PROFILE
-            for var in $(ls emqx-* ); do
-              sudo bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
-            done
-          cd -
-        fi
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
