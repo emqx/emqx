@@ -1,13 +1,15 @@
 -module(emqx_relup).
 
--export([ post_release_upgrade/3
-        , post_release_downgrade/3
+-export([ post_release_upgrade/2
+        , post_release_downgrade/2
         ]).
 
-post_release_upgrade(_CurrRelVsn, _FromVsn, _) ->
+%% what to do after upgraded from a old release vsn.
+post_release_upgrade(_FromRelVsn, _) ->
     reload_components().
 
-post_release_downgrade(_CurrRelVsn, _ToVsn, _) ->
+%% what to do after downgraded to a old release vsn.
+post_release_downgrade(_ToRelVsn, _) ->
     reload_components().
 
 -ifdef(EMQX_ENTERPRISE).

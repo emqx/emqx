@@ -4,88 +4,123 @@
 
 -mode(compile).
 
--define(ERROR(FORMAT, ARGS), io:format(standard_error, "[inject-relup] " ++ FORMAT ++"~n", ARGS)).
--define(INFO(FORMAT, ARGS), io:format(user, "[inject-relup] " ++ FORMAT ++"~n", ARGS)).
+-define(ERROR(FORMAT, ARGS), io:format(standard_error, "[inject-relup] " ++ FORMAT ++ "~n", ARGS)).
+-define(INFO(FORMAT, ARGS), io:format(user, "[inject-relup] " ++ FORMAT ++ "~n", ARGS)).
 
 usage() ->
-  "Usage: " ++ escript:script_name() ++ " <path-to-relup-file-or-dir>".
+    "Usage: " ++ escript:script_name() ++ " <path-to-release-dir> <release-vsn>".
 
-main([DirOrFile]) ->
-  case filelib:is_dir(DirOrFile) of
-    true -> ok = inject_dir(DirOrFile);
-    false ->
-      case filelib:is_regular(DirOrFile) of
-        true -> inject_file(DirOrFile);
+main([RelRootDir, CurrRelVsn]) ->
+    case filelib:is_dir(filename:join([RelRootDir, "releases"])) andalso
+         filelib:is_dir(filename:join([RelRootDir, "lib"])) of
+        true ->
+            EmqxAppVsns = get_emqx_app_vsns(RelRootDir),
+            ok = inject_relup_file(RelRootDir, CurrRelVsn, EmqxAppVsns);
         false ->
-          ?ERROR("not a valid file: ~p", [DirOrFile]),
-          erlang:halt(1)
-      end
-  end;
+            ?ERROR("not a valid root dir of release: ~p, for example: _build/emqx/rel/emqx",
+                [RelRootDir]),
+            erlang:halt(1)
+    end;
 main(_Args) ->
-  ?ERROR("~s", [usage()]),
-  erlang:halt(1).
+    ?ERROR("~s", [usage()]),
+    erlang:halt(1).
 
-inject_dir(Dir) ->
-  RelupFiles = filelib:wildcard(filename:join([Dir, "**", "relup"])),
-  lists:foreach(fun inject_file/1, RelupFiles).
+inject_relup_file(RelRootDir, CurrRelVsn, EmqxAppVsns) ->
+    RelupFile = filename:join([RelRootDir, "releases", CurrRelVsn, "relup"]),
+    inject_file(RelupFile, EmqxAppVsns).
 
-inject_file(File) ->
-  EmqxVsn = emqx_vsn_from_rel_file(File),
-  case file:script(File) of
-    {ok, {CurrRelVsn, UpVsnRUs, DnVsnRUs}} ->
-      ?INFO("injecting instructions to: ~p", [File]),
-      UpdatedContent = {CurrRelVsn, inject_relup_instrs(up, EmqxVsn, CurrRelVsn, UpVsnRUs),
-                          inject_relup_instrs(down, EmqxVsn, CurrRelVsn, DnVsnRUs)},
-      ok = file:write_file(File, term_to_text(UpdatedContent));
-    {ok, _BadFormat} ->
-      ?ERROR("bad formatted relup file: ~p", [File]),
-      error({bad_relup_format, File});
-    {error, Reason} ->
-      ?ERROR("read relup file ~p failed: ~p", [File, Reason]),
-      error({read_relup_error, Reason})
-  end.
+inject_file(File, EmqxAppVsns) ->
+    case file:script(File) of
+        {ok, {CurrRelVsn, UpVsnRUs, DnVsnRUs}} ->
+            ?INFO("injecting instructions to: ~p", [File]),
+            UpdatedContent = {CurrRelVsn,
+                inject_relup_instrs(up, EmqxAppVsns, CurrRelVsn, UpVsnRUs),
+                inject_relup_instrs(down, EmqxAppVsns, CurrRelVsn, DnVsnRUs)},
+            file:write_file(File, term_to_text(UpdatedContent));
+        {ok, _BadFormat} ->
+            ?ERROR("bad formatted relup file: ~p", [File]),
+            error({bad_relup_format, File});
+        {error, enoent} ->
+            ?INFO("relup file not found: ~p", [File]),
+            ok;
+        {error, Reason} ->
+            ?ERROR("read relup file ~p failed: ~p", [File, Reason]),
+            error({read_relup_error, Reason})
+    end.
 
-inject_relup_instrs(Type, EmqxVsn, CurrRelVsn, RUs) ->
-  [{Vsn, Desc, append_emqx_relup_instrs(Type, EmqxVsn, CurrRelVsn, Vsn, Instrs)}
-   || {Vsn, Desc, Instrs} <- RUs].
+inject_relup_instrs(Type, EmqxAppVsns, CurrRelVsn, RUs) ->
+    lists:map(fun
+        ({Vsn, "(relup-injected) " ++ _ = Desc, Instrs}) -> %% already injected
+            {Vsn, Desc, Instrs};
+        ({Vsn, Desc, Instrs}) ->
+            {Vsn, "(relup-injected) " ++ Desc,
+                append_emqx_relup_instrs(Type, EmqxAppVsns, CurrRelVsn, Vsn, Instrs)}
+    end, RUs).
 
 %% The `{apply, emqx_relup, post_release_upgrade, []}` will be appended to the end of
 %% the instruction lists.
-append_emqx_relup_instrs(Type, EmqxVsn, CurrRelVsn, Vsn, Instrs) ->
-  CallbackFun = relup_callback_func(Type),
-  Extra = #{}, %% we may need some extended args
-  case lists:reverse(Instrs) of
-    [{apply, {emqx_relup, CallbackFun, _}} | _] ->
-      Instrs;
-    RInstrs ->
-      Instrs2 = lists:reverse(
-          [ {apply, {emqx_relup, CallbackFun, [CurrRelVsn, Vsn, Extra]}}
-          , {load, {emqx_relup, brutal_purge, soft_purge}}
-          | RInstrs]),
-      %% we have to put 'load_object_code' before 'point_of_no_return'
-      %% so here we simply put it to the beginning
-      [{load_object_code, {emqx, EmqxVsn, [emqx_relup]}} | Instrs2]
-  end.
+append_emqx_relup_instrs(up, EmqxAppVsns, CurrRelVsn, FromRelVsn, Instrs) ->
+    {EmqxVsn, true} = maps:get(CurrRelVsn, EmqxAppVsns),
+    Extra = #{}, %% we may need some extended args
+    %% we have to put 'load_object_code' before 'point_of_no_return'
+    %% so here we simply put it to the beginning
+    Instrs0 = [ {load_object_code, {emqx, EmqxVsn, [emqx_relup]}}
+              | Instrs],
+    Instrs0 ++
+        [ {load, {emqx_relup, brutal_purge, soft_purge}}
+        , {apply, {emqx_relup, post_release_upgrade, [FromRelVsn, Extra]}}
+        ];
 
-relup_callback_func(up) -> post_release_upgrade;
-relup_callback_func(down) -> post_release_downgrade.
+append_emqx_relup_instrs(down, EmqxAppVsns, _CurrRelVsn, ToRelVsn, Instrs) ->
+    Extra = #{}, %% we may need some extended args
+    case maps:get(ToRelVsn, EmqxAppVsns) of
+        {EmqxVsn, true} ->
+            Instrs0 = [ {load_object_code, {emqx, EmqxVsn, [emqx_relup]}}
+                      | Instrs],
+            Instrs0 ++
+                [ {apply, {emqx_relup, post_release_downgrade, [ToRelVsn, Extra]}}
+                , {load, {emqx_relup, brutal_purge, soft_purge}}
+                ];
+        {_EmqxVsn, false} ->
+            Instrs ++
+                [ {apply, {emqx_relup, post_release_downgrade, [ToRelVsn, Extra]}}
+                , {remove, {emqx_relup, brutal_purge, soft_purge}}
+                ]
+    end.
 
-emqx_vsn_from_rel_file(RelupFile) ->
-  RelDir = filename:dirname(RelupFile),
-  RelFile = filename:join([RelDir, "emqx.rel"]),
-  case file:script(RelFile) of
-    {ok, {release, {_RelName, _RelVsn}, _Erts, Apps}} ->
-      case lists:keysearch(emqx, 1, Apps) of
-        {value, {emqx, EmqxVsn}} ->
-          EmqxVsn;
-        false ->
-          error({emqx_vsn_cannot_found, RelFile})
-      end;
-    {ok, _BadFormat} ->
-      ?ERROR("bad formatted .rel file: ~p", [RelFile]);
-    {error, Reason} ->
-      ?ERROR("read .rel file ~p failed: ~p", [RelFile, Reason])
-  end.
+get_emqx_app_vsns(RelRootDir) ->
+    RelFiles = filelib:wildcard(filename:join([RelRootDir, "releases", "*", "emqx.rel"])),
+    lists:foldl(fun(RelFile, AppVsns) ->
+        {ok, RelVsn, EmqxVsn} = read_emqx_vsn_from_rel_file(RelFile),
+        AppVsns#{RelVsn => {EmqxVsn, has_relup_module(RelRootDir, EmqxVsn)}}
+    end, #{}, RelFiles).
+
+read_emqx_vsn_from_rel_file(RelFile) ->
+    case file:script(RelFile) of
+        {ok, {release, {_RelName, RelVsn}, _Erts, Apps}} ->
+            case lists:keysearch(emqx, 1, Apps) of
+                {value, {emqx, EmqxVsn}} ->
+                    {ok, RelVsn, EmqxVsn};
+                false ->
+                    error({emqx_vsn_cannot_found, RelFile})
+            end;
+        {ok, _BadFormat} ->
+            ?ERROR("bad formatted .rel file: ~p", [RelFile]);
+        {error, Reason} ->
+            ?ERROR("read .rel file ~p failed: ~p", [RelFile, Reason])
+    end.
+
+has_relup_module(RelRootDir, EmqxVsn) ->
+    AppFile = filename:join([RelRootDir, "lib", "emqx-" ++ EmqxVsn, "ebin", "emqx.app"]),
+    case file:script(AppFile) of
+        {ok, {application, emqx, AppInfo}} ->
+            {value, {_, EmqxVsn}} = lists:keysearch(vsn, 1, AppInfo), %% assert
+            {value, {_, Modules}} = lists:keysearch(modules, 1, AppInfo),
+            lists:member(emqx_relup, Modules);
+        {error, Reason} ->
+            ?ERROR("read .app file ~p failed: ~p", [AppFile, Reason]),
+            error({read_app_file_error, AppFile, Reason})
+    end.
 
 term_to_text(Term) ->
-  io_lib:format("~p.", [Term]).
+    io_lib:format("~p.", [Term]).

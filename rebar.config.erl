@@ -129,7 +129,7 @@ prod_overrides() ->
     [{add, [ {erl_opts, [deterministic]}]}].
 
 relup_deps(Profile, Vsn) ->
-    InjectCmd = "scripts/inject-relup.escript " ++ filename:join(["_build", Profile, "rel", "emqx", "releases", Vsn]),
+    InjectCmd = "scripts/inject-relup.escript " ++ filename:join(["_build", Profile, "rel", "emqx"]) ++ " " ++ Vsn,
     {post_hooks,
         [ {"(linux|darwin|solaris|freebsd|netbsd|openbsd)", relup, InjectCmd}
         ]
