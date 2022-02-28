@@ -439,7 +439,8 @@ handle_msg({close, Reason}, State) ->
     ?LOG(debug, "Force to close the socket due to ~p", [Reason]),
     handle_info({sock_closed, Reason}, close_socket(State));
 
-handle_msg({event, connected}, State = #state{channel = Channel}) ->
+handle_msg({event, Event}, State = #state{channel = Channel})
+  when Event == connected; Event == accepted ->
     ClientId = emqx_exproto_channel:info(clientid, Channel),
     emqx_cm:insert_channel_info(ClientId, info(State), stats(State));
 

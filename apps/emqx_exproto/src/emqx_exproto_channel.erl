@@ -94,9 +94,6 @@
          awaiting_rel_max
         ]).
 
--define(CHANMOCK(P), {exproto_anonymous_client, P}).
--define(CHAN_CONN_TAB, emqx_channel_conn).
-
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------
@@ -155,15 +152,14 @@ init(ConnInfo = #{socktype := Socktype,
     Channel = #channel{gcli = #{channel => GRpcChann},
                        conninfo = NConnInfo,
                        clientinfo = ClientInfo,
-                       conn_state = connecting,
+                       conn_state = accepted,
                        timers = #{}
                       },
     case emqx_hooks:run_fold('client.connect', [NConnInfo], #{}) of
         {error, _Reason} ->
             throw(nopermission);
         _ ->
-            ConnMod = maps:get(conn_mod, NConnInfo),
-            true = ets:insert(?CHAN_CONN_TAB, {?CHANMOCK(self()), ConnMod}),
+            ok = register_the_anonymous_client(ClientInfo, NConnInfo),
             Req = #{conninfo =>
                     peercert(Peercert,
                              #{socktype => socktype(Socktype),
@@ -171,6 +167,22 @@ init(ConnInfo = #{socktype := Socktype,
                                sockname => address(Sockname)})},
             try_dispatch(on_socket_created, wrap(Req), Channel)
     end.
+
+register_the_anonymous_client(ClientInfo, ConnInfo) ->
+    ClientId = maps:get(clientid, ClientInfo),
+    case emqx_cm:open_session(true, ClientInfo, ConnInfo) of
+        {ok, _} ->
+            ?LOG(debug, "Registered an anonymous connection, "
+                        "temporary clientid: ~s", [ClientId]),
+            emqx_logger:set_metadata_clientid(ClientId),
+            _ = self() ! {event, accepted},
+            ok;
+        {error, Reason} ->
+            throw({register_anonymous_error, Reason})
+    end.
+
+unregister_the_anonymous_client(ClientId) ->
+    emqx_cm:unregister_channel(ClientId).
 
 %% @private
 peercert(NoSsl, ConnInfo) when NoSsl == nossl;
@@ -274,15 +286,14 @@ handle_call(close, Channel) ->
 handle_call({auth, ClientInfo, _Password}, Channel = #channel{conn_state = connected}) ->
     ?LOG(warning, "Duplicated authorized command, dropped ~p", [ClientInfo]),
     {reply, {error, ?RESP_PERMISSION_DENY, <<"Duplicated authenticate command">>}, Channel};
-handle_call({auth, ClientInfo0, Password},
+handle_call({auth, RequestedClientInfo, Password},
             Channel = #channel{conninfo = ConnInfo,
-                               clientinfo = ClientInfo}) ->
-    ClientInfo1 = enrich_clientinfo(ClientInfo0, ClientInfo),
-    NConnInfo = enrich_conninfo(ClientInfo0, ConnInfo),
+                               clientinfo = ClientInfo0}) ->
+    ClientInfo1 = enrich_clientinfo(RequestedClientInfo, ClientInfo0),
+    NConnInfo = enrich_conninfo(RequestedClientInfo, ConnInfo),
 
     Channel1 = Channel#channel{conninfo = NConnInfo,
                                clientinfo = ClientInfo1},
-
     #{clientid := ClientId, username := Username} = ClientInfo1,
 
     case emqx_access_control:authenticate(ClientInfo1#{password => Password}) of
@@ -292,9 +303,10 @@ handle_call({auth, ClientInfo0, Password},
                 emqx_metrics:inc('client.auth.anonymous'),
             NClientInfo = maps:merge(ClientInfo1, AuthResult),
             NChannel = Channel1#channel{clientinfo = NClientInfo},
-            clean_anonymous_clients(),
             case emqx_cm:open_session(true, NClientInfo, NConnInfo) of
                 {ok, _Session} ->
+                    AnonymousClientId = maps:get(clientid, ClientInfo0),
+                    unregister_the_anonymous_client(AnonymousClientId),
                     ?LOG(debug, "Client ~s (Username: '~s') authorized successfully!",
                                 [ClientId, Username]),
                     {reply, ok, [{event, connected}], ensure_connected(NChannel)};
@@ -354,6 +366,9 @@ handle_call({publish, Topic, Qos, Payload},
 handle_call(kick, Channel) ->
     {shutdown, kicked, ok, Channel};
 
+handle_call(discard, Channel) ->
+    {shutdown, discarded, ok, Channel};
+
 handle_call(Req, Channel) ->
     ?LOG(warning, "Unexpected call: ~p", [Req]),
     {reply, {error, unexpected_call}, Channel}.
@@ -406,15 +421,11 @@ handle_info(Info, Channel) ->
 
 -spec(terminate(any(), channel()) -> channel()).
 terminate(Reason, Channel) ->
-    clean_anonymous_clients(),
     Req = #{reason => stringfy(Reason)},
     try_dispatch(on_socket_closed, wrap(Req), Channel).
 
 is_anonymous(#{anonymous := true}) -> true;
 is_anonymous(_AuthResult)          -> false.
-
-clean_anonymous_clients() ->
-    ets:delete(?CHAN_CONN_TAB, ?CHANMOCK(self())).
 
 packet_to_message(Topic, Qos, Payload,
                   #channel{
@@ -608,22 +619,31 @@ default_conninfo(ConnInfo) ->
               username => undefined,
               conn_props => #{},
               connected => true,
+              proto_name => <<"exproto">>,
+              proto_ver => <<"1.0">>,
               connected_at => erlang:system_time(millisecond),
               keepalive => 0,
               receive_maximum => 0,
               expiry_interval => 0}.
 
-default_clientinfo(#{peername := {PeerHost, _},
+default_clientinfo(#{peername := {PeerHost, PeerPort},
                      sockname := {_, SockPort}}) ->
     #{zone         => external,
-      protocol     => undefined,
+      protocol     => exproto,
       peerhost     => PeerHost,
       sockport     => SockPort,
-      clientid     => undefined,
+      clientid     => anonymous_clientid(PeerHost, PeerPort),
       username     => undefined,
       is_bridge    => false,
       is_superuser => false,
       mountpoint   => undefined}.
+
+anonymous_clientid(PeerHost, PeerPort) ->
+    iolist_to_binary(
+      ["exproto-anonymous-",
+       inet:ntoa(PeerHost), "-", integer_to_list(PeerPort),
+       "-", emqx_rule_id:gen()
+      ]).
 
 stringfy(Reason) ->
     unicode:characters_to_binary((io_lib:format("~0p", [Reason]))).
