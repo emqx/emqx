@@ -231,18 +231,16 @@ fields(metrics) ->
 topic(In) ->
     case In of
         body ->
-            Desc = <<"Raw topic string">>,
-            Example = "testtopic/1";
+            Desc = <<"Raw topic string">>;
         path ->
-            Desc = <<"Notice: Topic string in url path must be encoded">>,
-            Example = "testtopic%2F1"
+            Desc = <<"Notice: Topic string in url path must be encoded">>
     end,
     { topic
     , mk( binary(),
           #{ desc => Desc
            , required => true
            , in => In
-           , example => Example
+           , example => <<"testtopic/1">>
            })
     }.
 
@@ -290,11 +288,11 @@ topic_metrics(post, #{body := #{<<"topic">> := Topic}}) ->
             reason2httpresp(Reason)
     end.
 
-operate_topic_metrics(get, #{bindings := #{topic := Topic0}}) ->
-    get_cluster_response([emqx_http_lib:uri_decode(Topic0)]);
+operate_topic_metrics(get, #{bindings := #{topic := Topic}}) ->
+    get_cluster_response([Topic]);
 
-operate_topic_metrics(delete, #{bindings := #{topic := Topic0}}) ->
-    case emqx_modules_conf:remove_topic_metrics(emqx_http_lib:uri_decode(Topic0)) of
+operate_topic_metrics(delete, #{bindings := #{topic := Topic}}) ->
+    case emqx_modules_conf:remove_topic_metrics(Topic) of
         ok -> {204};
         {error, Reason} -> reason2httpresp(Reason)
     end.
