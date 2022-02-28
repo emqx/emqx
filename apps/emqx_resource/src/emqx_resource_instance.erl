@@ -182,7 +182,7 @@ wait_for_resource_ready(InstId, 0) ->
     force_lookup(InstId);
 wait_for_resource_ready(InstId, Retry) ->
     case force_lookup(InstId) of
-        #{resource_data := #{status := connected}} = Data -> Data;
+        #{status := connected} = Data -> Data;
         _ ->
             timer:sleep(100),
             wait_for_resource_ready(InstId, Retry-1)

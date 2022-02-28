@@ -221,6 +221,8 @@ t_stop_start(_) ->
 
     ok = emqx_resource:restart(?ID),
 
+    timer:sleep(300),
+
     #{pid := Pid1} = emqx_resource:query(?ID, get_state),
 
     ?assert(is_process_alive(Pid1)).
