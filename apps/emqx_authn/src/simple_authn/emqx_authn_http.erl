@@ -133,7 +133,8 @@ create(#{method := Method,
                                     ?RESOURCE_GROUP,
                                     emqx_connector_http,
                                     Config#{base_url => maps:remove(query, URIMap),
-                                            pool_type => random}) of
+                                            pool_type => random},
+                                            #{wait_connected => 1000}) of
         {ok, already_created} ->
             {ok, State};
         {ok, _} ->
