@@ -25,7 +25,7 @@
 -export([update/3, update/4]).
 -export([remove/2, remove/3]).
 -export([reset/2, reset/3]).
--export([dump_schema/1]).
+-export([dump_schema/1, dump_schema/2]).
 
 %% for rpc
 -export([get_node_and_config/1]).
@@ -125,14 +125,17 @@ reset(Node, KeyPath, Opts) ->
 %% @doc Called from build script.
 -spec dump_schema(file:name_all()) -> ok.
 dump_schema(Dir) ->
+    dump_schema(Dir, emqx_conf_schema).
+
+dump_schema(Dir, SchemaModule) ->
     SchemaMdFile = filename:join([Dir, "config.md"]),
     io:format(user, "===< Generating: ~s~n", [SchemaMdFile ]),
-    ok = gen_doc(SchemaMdFile),
+    ok = gen_doc(SchemaMdFile, SchemaModule),
 
     %% for scripts/spellcheck.
     SchemaJsonFile = filename:join([Dir, "schema.json"]),
     io:format(user, "===< Generating: ~s~n", [SchemaJsonFile]),
-    JsonMap = hocon_schema_json:gen(emqx_conf_schema),
+    JsonMap = hocon_schema_json:gen(SchemaModule),
     IoData = jsx:encode(JsonMap, [space, {indent, 4}]),
     ok = file:write_file(SchemaJsonFile, IoData),
 
@@ -146,13 +149,13 @@ dump_schema(Dir) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
--spec gen_doc(file:name_all()) -> ok.
-gen_doc(File) ->
+-spec gen_doc(file:name_all(), module()) -> ok.
+gen_doc(File, SchemaModule) ->
     Version = emqx_release:version(),
     Title = "# EMQX " ++ Version ++ " Configuration",
     BodyFile = filename:join([code:lib_dir(emqx_conf), "etc", "emqx_conf.md"]),
     {ok, Body} = file:read_file(BodyFile),
-    Doc = hocon_schema_md:gen(emqx_conf_schema, #{title => Title, body => Body}),
+    Doc = hocon_schema_md:gen(SchemaModule, #{title => Title, body => Body}),
     file:write_file(File, Doc).
 
 check_cluster_rpc_result(Result) ->
