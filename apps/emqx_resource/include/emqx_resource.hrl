@@ -25,7 +25,7 @@
     mod := module(),
     config := resource_config(),
     state := resource_state(),
-    status := started | stopped | starting,
+    status := connected | disconnected | connecting,
     metrics := emqx_plugin_libs_metrics:metrics()
 }.
 -type resource_group() :: binary().

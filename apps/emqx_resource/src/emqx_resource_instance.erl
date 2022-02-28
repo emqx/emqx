@@ -126,8 +126,8 @@ handle_call({stop, InstId}, _From, State) ->
 handle_call({health_check, InstId}, _From, State) ->
     {reply, do_health_check(InstId), State};
 
-handle_call({set_resource_status_stoped, InstId}, _From, State) ->
-    {reply, do_set_resource_status_stoped(InstId), State};
+handle_call({set_resource_status_disconnected, InstId}, _From, State) ->
+    {reply, do_set_resource_status_disconnected(InstId), State};
 
 handle_call(Req, _From, State) ->
     logger:error("Received unexpected call: ~p", [Req]),
@@ -159,8 +159,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 do_recreate(InstId, ResourceType, NewConfig, Opts) ->
     case lookup(InstId) of
-        {ok, Group, #{mod := ResourceType, status := started} = Data} ->
-            %% If this resource is in use (status='started'), we should make sure
+        {ok, Group, #{mod := ResourceType, status := connected} = Data} ->
+            %% If this resource is in use (status='connected'), we should make sure
             %% the new config is OK before removing the old one.
             case do_create_dry_run(ResourceType, NewConfig) of
                 ok ->
@@ -235,7 +235,7 @@ do_restart(InstId, Opts) ->
 
 do_start(InstId, Group, ResourceType, Config, Opts) when is_binary(InstId) ->
     InitData = #{id => InstId, mod => ResourceType, config => Config,
-                 status => starting, state => undefined},
+                 status => connecting, state => undefined},
     %% The `emqx_resource:call_start/3` need the instance exist beforehand
     ets:insert(emqx_resource_instance, {InstId, Group, InitData}),
     case maps:get(async_create, Opts, false) of
@@ -261,7 +261,7 @@ start_and_check(InstId, Group, ResourceType, Config, Opts, Data) ->
                 true -> create_default_checker(InstId, Opts)
             end;
         {error, Reason} ->
-            ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => stopped}}),
+            ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => disconnected}}),
             {error, Reason}
     end.
 
@@ -278,7 +278,7 @@ do_stop(_Group, #{state := undefined}) ->
 do_stop(Group, #{id := InstId, mod := Mod, state := ResourceState} = Data) ->
     _ = emqx_resource:call_stop(InstId, Mod, ResourceState),
     _ = emqx_resource_health_check:delete_checker(InstId),
-    ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => stopped}}),
+    ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => disconnected}}),
     ok.
 
 do_health_check(InstId) when is_binary(InstId) ->
@@ -290,20 +290,20 @@ do_health_check(Group, #{id := InstId, mod := Mod, state := ResourceState0} = Da
     case emqx_resource:call_health_check(InstId, Mod, ResourceState0) of
         {ok, ResourceState1} ->
             ets:insert(emqx_resource_instance,
-                {InstId, Group, Data#{status => started, state => ResourceState1}}),
+                {InstId, Group, Data#{status => connected, state => ResourceState1}}),
             ok;
         {error, Reason, ResourceState1} ->
             logger:error("health check for ~p failed: ~p", [InstId, Reason]),
             ets:insert(emqx_resource_instance,
-                {InstId, Group, Data#{status => stopped, state => ResourceState1}}),
+                {InstId, Group, Data#{status => disconnected, state => ResourceState1}}),
             {error, Reason}
     end.
 
-do_set_resource_status_stoped(InstId) ->
+do_set_resource_status_disconnected(InstId) ->
     case emqx_resource_instance:lookup(InstId) of
         {ok, Group, #{id := InstId} = Data} ->
             logger:error("health check for ~p failed: timeout", [InstId]),
-            ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => stopped}});
+            ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => disconnected}});
         Error -> {error, Error}
     end.
 

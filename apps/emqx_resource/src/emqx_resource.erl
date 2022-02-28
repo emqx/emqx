@@ -60,7 +60,7 @@
 -export([ restart/1  %% restart the instance.
         , restart/2
         , health_check/1 %% verify if the resource is working normally
-        , set_resource_status_stoped/1 %% set resource status to stopped
+        , set_resource_status_disconnected/1 %% set resource status to disconnected
         , stop/1   %% stop the instance
         , query/2  %% query the instance
         , query/3  %% query the instance with after_query()
@@ -190,13 +190,13 @@ query(InstId, Request) ->
 -spec query(instance_id(), Request :: term(), after_query()) -> Result :: term().
 query(InstId, Request, AfterQuery) ->
     case get_instance(InstId) of
-        {ok, _Group, #{status := starting}} ->
-            query_error(starting, <<"cannot serve query when the resource "
-                "instance is still starting">>);
-        {ok, _Group, #{status := stopped}} ->
-            query_error(stopped, <<"cannot serve query when the resource "
-                "instance is stopped">>);
-        {ok, _Group, #{mod := Mod, state := ResourceState, status := started}} ->
+        {ok, _Group, #{status := connecting}} ->
+            query_error(connecting, <<"cannot serve query when the resource "
+                "instance is still connecting">>);
+        {ok, _Group, #{status := disconnected}} ->
+            query_error(disconnected, <<"cannot serve query when the resource "
+                "instance is disconnected">>);
+        {ok, _Group, #{mod := Mod, state := ResourceState, status := connected}} ->
             %% the resource state is readonly to Module:on_query/4
             %% and the `after_query()` functions should be thread safe
             ok = emqx_plugin_libs_metrics:inc(resource_metrics, InstId, matched),
@@ -225,8 +225,8 @@ stop(InstId) ->
 health_check(InstId) ->
     call_instance(InstId, {health_check, InstId}).
 
-set_resource_status_stoped(InstId) ->
-    call_instance(InstId, {set_resource_status_stoped, InstId}).
+set_resource_status_disconnected(InstId) ->
+    call_instance(InstId, {set_resource_status_disconnected, InstId}).
 
 -spec get_instance(instance_id()) -> {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
 get_instance(InstId) ->

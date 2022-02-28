@@ -107,7 +107,7 @@ t_create_remove_local(_) ->
 
     ?assert(is_process_alive(Pid)),
 
-    emqx_resource:set_resource_status_stoped(?ID),
+    emqx_resource:set_resource_status_disconnected(?ID),
 
     emqx_resource:recreate_local(
             ?ID,
@@ -170,12 +170,12 @@ t_healthy(_) ->
     emqx_resource_health_check:create_checker(?ID, 15000, 10000),
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
     timer:sleep(300),
-    emqx_resource:set_resource_status_stoped(?ID),
+    emqx_resource:set_resource_status_disconnected(?ID),
 
     ok = emqx_resource:health_check(?ID),
 
     ?assertMatch(
-        [#{status := started}],
+        [#{status := connected}],
         emqx_resource:list_instances_verbose()),
 
     erlang:exit(Pid, shutdown),
@@ -185,7 +185,7 @@ t_healthy(_) ->
         emqx_resource:health_check(?ID)),
 
     ?assertMatch(
-        [#{status := stopped}],
+        [#{status := disconnected}],
         emqx_resource:list_instances_verbose()),
 
     ok = emqx_resource:remove_local(?ID).
@@ -217,7 +217,7 @@ t_stop_start(_) ->
 
     ?assertNot(is_process_alive(Pid0)),
 
-    ?assertMatch({error, {emqx_resource, #{reason := stopped}}},
+    ?assertMatch({error, {emqx_resource, #{reason := disconnected}}},
         emqx_resource:query(?ID, get_state)),
 
     ok = emqx_resource:restart(?ID),
@@ -253,7 +253,7 @@ t_stop_start_local(_) ->
 
     ?assertNot(is_process_alive(Pid0)),
 
-    ?assertMatch({error, {emqx_resource, #{reason := stopped}}},
+    ?assertMatch({error, {emqx_resource, #{reason := disconnected}}},
         emqx_resource:query(?ID, get_state)),
 
     ok = emqx_resource:restart(?ID),
