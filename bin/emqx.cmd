@@ -50,12 +50,6 @@
 @set "RUNNER_ETC_DIR=%rel_root_dir%\etc"
 @set "etc_dir=%rel_root_dir%\etc"
 @set "lib_dir=%rel_root_dir%\lib"
-:: allow setting data dir
-@if "%RUNNER_DATA_DIR%"=="" (
-    @set "data_dir=%rel_root_dir%\data"
-) else (
-    @set "data_dir=%RUNNER_DATA_DIR%"
-)
 @set "emqx_conf=%etc_dir%\emqx.conf"
 
 @set "boot_file_name=%rel_dir%\start"
@@ -68,7 +62,7 @@
 @set "werl=%bindir%\werl.exe"
 @set "erl_exe=%bindir%\erl.exe"
 @set "nodetool=%rel_root_dir%\bin\nodetool"
-@set "cuttlefish=%rel_root_dir%\bin\cuttlefish"
+@set HOCON_ENV_OVERRIDE_PREFIX=EMQX_
 @set node_type=-name
 @set schema_mod=emqx_conf_schema
 
@@ -84,6 +78,26 @@
   @call :set_trim node_cookie %%I
 )
 @set node_cookie=%node_cookie:"=%
+
+:: Extract data_dir from emqx.conf
+@for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %conf_path% get node.data_dir"`) do @(
+  @call :set_trim data_dir %%I
+)
+@set data_dir=%data_dir:"=%
+:: remove trailing /
+@if %data_dir:~-1%==/ SET data_dir=%data_dir:~0,-1%
+:: remove trailing \
+@if %data_dir:~-1%==\ SET data_dir=%data_dir:~0,-1%
+
+@set abs_data_dir=%rel_root_dir%\%data_dir%
+@if exist %abs_data_dir% (
+  @set data_dir=%abs_data_dir%
+)
+
+@if not exist %data_dir%\ (
+  @echo ERROR: data_dir %data_dir% does not exist
+  @goto :eof
+)
 
 :: Write the erl.ini file to set up paths relative to this script
 @call :write_ini
