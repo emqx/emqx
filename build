@@ -70,10 +70,18 @@ make_doc() {
     local libs_dir1 libs_dir2
     libs_dir1="$("$FIND" "_build/default/lib/" -maxdepth 2 -name ebin -type d)"
     libs_dir2="$("$FIND" "_build/$PROFILE/lib/" -maxdepth 2 -name ebin -type d)"
+    case $PROFILE in
+        emqx-enterprise)
+            SCHEMA_MODULE='emqx_enterprise_conf_schema'
+            ;;
+        *)
+            SCHEMA_MODULE='emqx_conf_schema'
+            ;;
+    esac
     # shellcheck disable=SC2086
     erl -noshell -pa $libs_dir1 $libs_dir2 -eval \
         "Dir = filename:join(['_build', '${PROFILE}', lib, emqx_dashboard, priv, www, static]), \
-         ok = emqx_conf:dump_schema(Dir), \
+         ok = emqx_conf:dump_schema(Dir, $SCHEMA_MODULE), \
          halt(0)."
 }
 
@@ -229,10 +237,17 @@ export_release_vars() {
 
   local erl_opts=()
 
-  if [[ "$profile" = *enterprise* ]]
-  then
-    erl_opts+=( "{d,'EMQX_ENTERPRISE'}" )
-  fi
+  case "$profile" in
+    *enterprise*)
+      erl_opts+=( "{d, 'EMQX_RELEASE_EDITION', ee}" )
+      ;;
+    *edge*)
+      erl_opts+=( "{d, 'EMQX_RELEASE_EDITION', edge}" )
+      ;;
+    *)
+      erl_opts+=( "{d, 'EMQX_RELEASE_EDITION', ce}" )
+      ;;
+  esac
 
   # At this time, Mix provides no easy way to pass `erl_opts' to
   # dependencies.  The workaround is to set this variable before

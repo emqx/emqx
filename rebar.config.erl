@@ -115,17 +115,18 @@ test_deps() ->
     , {proper, "1.4.0"}
     ].
 
-common_compile_opts(Vsn) ->
+common_compile_opts(Edition, Vsn) ->
     [ debug_info % always include debug_info
     , {compile_info, [{emqx_vsn, Vsn}]}
+    , {d, 'EMQX_RELEASE_EDITION', Edition}
     ] ++
     [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1" ].
 
-prod_compile_opts(Vsn) ->
+prod_compile_opts(Edition, Vsn) ->
     [ compressed
     , deterministic
     , warnings_as_errors
-    | common_compile_opts(Vsn)
+    | common_compile_opts(Edition, Vsn)
     ].
 
 prod_overrides() ->
@@ -137,28 +138,28 @@ profiles() ->
 profiles_ce() ->
     Vsn = get_vsn(emqx),
     [ {'emqx',
-       [ {erl_opts, prod_compile_opts(Vsn)}
+       [ {erl_opts, prod_compile_opts(ce, Vsn)}
        , {relx, relx(Vsn, cloud, bin, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
        , {post_hooks, [{compile, "bash build emqx doc"}]}
        ]}
     , {'emqx-pkg',
-       [ {erl_opts, prod_compile_opts(Vsn)}
+       [ {erl_opts, prod_compile_opts(ce, Vsn)}
        , {relx, relx(Vsn, cloud, pkg, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
        , {post_hooks, [{compile, "bash build emqx-pkg doc"}]}
        ]}
     , {'emqx-edge',
-       [ {erl_opts, prod_compile_opts(Vsn)}
+       [ {erl_opts, prod_compile_opts(edge, Vsn)}
        , {relx, relx(Vsn, edge, bin, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
        , {post_hooks, [{compile, "bash build emqx-edge doc"}]}
        ]}
     , {'emqx-edge-pkg',
-       [ {erl_opts, prod_compile_opts(Vsn)}
+       [ {erl_opts, prod_compile_opts(edge, Vsn)}
        , {relx, relx(Vsn, edge, pkg, ce)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ce)}
@@ -168,16 +169,15 @@ profiles_ce() ->
 
 profiles_ee() ->
     Vsn = get_vsn('emqx-enterprise'),
-    EE = {d, 'EMQX_ENTERPRISE'},
     [ {'emqx-enterprise',
-       [ {erl_opts, [EE | prod_compile_opts(Vsn)]}
+       [ {erl_opts, prod_compile_opts(ee, Vsn)}
        , {relx, relx(Vsn, cloud, bin, ee)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ee)}
        , {post_hooks, [{compile, "bash build emqx-enterprise doc"}]}
        ]}
     , {'emqx-enterprise-pkg',
-       [ {erl_opts, [EE | prod_compile_opts(Vsn)]}
+       [ {erl_opts, prod_compile_opts(ee, Vsn)}
        , {relx, relx(Vsn, cloud, pkg, ee)}
        , {overrides, prod_overrides()}
        , {project_app_dirs, project_app_dirs(ee)}
@@ -188,14 +188,13 @@ profiles_ee() ->
 %% EE has more files than CE, always test/check with EE options.
 profiles_dev() ->
     Vsn = get_vsn('emqx-enterprise'),
-    EE = {d, 'EMQX_ENTERPRISE'},
     [ {check,
-       [ {erl_opts, [EE | common_compile_opts(Vsn)]}
+       [ {erl_opts, common_compile_opts(ee, Vsn)}
        , {project_app_dirs, project_app_dirs(ee)}
        ]}
     , {test,
        [ {deps, test_deps()}
-       , {erl_opts, [EE | common_compile_opts(Vsn) ++ erl_opts_i()]}
+       , {erl_opts, common_compile_opts(ee, Vsn) ++ erl_opts_i()}
        , {extra_src_dirs, [{"test", [{recursive, true}]}]}
        , {project_app_dirs, project_app_dirs(ee)}
        ]}
@@ -218,9 +217,9 @@ relx(Vsn, RelType, PkgType, Edition) ->
                      | overlay_vars(RelType, PkgType, Edition)]}
     ].
 
-emqx_description(cloud, ee) -> "EMQX Enterprise Edition";
-emqx_description(cloud, ce) -> "EMQX Community Edition";
-emqx_description(edge, ce)  -> "EMQX Edge Edition".
+emqx_description(cloud, ee) -> "EMQX Enterprise";
+emqx_description(cloud, ce) -> "EMQX";
+emqx_description(edge, ce)  -> "EMQX Edge".
 
 overlay_vars(RelType, PkgType, Edition) ->
     overlay_vars_rel(RelType)
@@ -261,7 +260,6 @@ overlay_vars_pkg(bin) ->
     , {runner_etc_dir, "$RUNNER_ROOT_DIR/etc"}
     , {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"}
     , {runner_log_dir, "$RUNNER_ROOT_DIR/log"}
-    , {runner_data_dir, "$RUNNER_ROOT_DIR/data"}
     , {runner_user, ""}
     , {is_elixir, "no"}
     ];
@@ -277,7 +275,6 @@ overlay_vars_pkg(pkg) ->
     , {runner_etc_dir, "/etc/emqx"}
     , {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"}
     , {runner_log_dir, "/var/log/emqx"}
-    , {runner_data_dir, "/var/lib/emqx"}
     , {runner_user, "emqx"}
     , {is_elixir, "no"}
     ].

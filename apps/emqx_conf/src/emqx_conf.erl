@@ -152,7 +152,7 @@ dump_schema(Dir, SchemaModule) ->
 -spec gen_doc(file:name_all(), module()) -> ok.
 gen_doc(File, SchemaModule) ->
     Version = emqx_release:version(),
-    Title = "# EMQX " ++ Version ++ " Configuration",
+    Title = "# " ++ emqx_release:description() ++ " " ++ Version ++ " Configuration",
     BodyFile = filename:join([code:lib_dir(emqx_conf), "etc", "emqx_conf.md"]),
     {ok, Body} = file:read_file(BodyFile),
     Doc = hocon_schema_md:gen(SchemaModule, #{title => Title, body => Body}),

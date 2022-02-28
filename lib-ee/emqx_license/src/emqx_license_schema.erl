@@ -15,9 +15,15 @@
 -export([roots/0, fields/1, validations/0]).
 
 roots() -> [{license,
-               hoconsc:mk(hoconsc:union([hoconsc:ref(?MODULE, key_license),
-                   hoconsc:ref(?MODULE, file_license)]),
-                   #{desc => "TODO"})}
+             hoconsc:mk(hoconsc:union([hoconsc:ref(?MODULE, key_license),
+                                       hoconsc:ref(?MODULE, file_license)]),
+                        #{desc => """EMQX Enterprise license.
+A license is either a `key` or a `file`.
+When `key` and `file` are both configured, `key` is used.
+
+EQMX by default starts with a trial license.  For a different license,
+visit https://www.emqx.com/apply-licenses/emqx to apply.
+"})}
            ].
 
 fields(key_license) ->
