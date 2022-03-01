@@ -339,7 +339,10 @@ message within this interval."""
     , {"strict_mode",
        sc(boolean(),
           #{default => false,
-            desc => "Parse the MQTT frame in strict mode."
+            desc => "Parse MQTT messages in strict mode. "
+                    "When set to true, invalid utf8 strings in for example "
+                    "client ID, topic name, etc. will cause the client to be "
+                    "disconnected"
            })
       }
     , {"response_information",
