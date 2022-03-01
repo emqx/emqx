@@ -68,7 +68,8 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
         PoolName,
         ?CONNECTOR_RESOURCE_GROUP,
         ?PGSQL_RESOURCE_MOD,
-        CheckedConfig
+        CheckedConfig,
+        #{wait_connected => 1000}
     ),
     ?assertEqual(InitialStatus, connected),
     % Instance should match the state and status of the just started resource
