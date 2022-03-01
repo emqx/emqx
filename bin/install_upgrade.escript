@@ -144,9 +144,10 @@ parse_arguments([VersionStr|Rest], Acc) ->
     parse_arguments(Rest, [{version, Version}] ++ Acc).
 
 unpack_release(RelName, TargetNode, Version) ->
+    StartScriptExists = filelib:is_dir(filename:join(["releases", Version, "start.boot"])),
     WhichReleases = which_releases(TargetNode),
     case proplists:get_value(Version, WhichReleases) of
-        undefined ->
+        Res when Res =:= undefined; (Res =:= unpacked andalso not StartScriptExists) ->
             %% not installed, so unpack tarball:
             %% look for a release package with the intended version in the following order:
             %%      releases/<relname>-<version>.tar.gz
@@ -161,10 +162,39 @@ unpack_release(RelName, TargetNode, Version) ->
                     case rpc:call(TargetNode, release_handler, unpack_release,
                                   [ReleasePackageLink], ?TIMEOUT) of
                         {ok, Vsn} -> {ok, Vsn};
+                        {error, {existing_release, Vsn}} ->
+                            %% sometimes the user may have removed the release/<vsn> dir
+                            %% for an `unpacked` release, then we need to re-unpack it from
+                            %% the .tar ball
+                            untar_for_unpacked_release(str(RelName), Vsn),
+                            {ok, Vsn};
                         {error, _} = Error -> Error
                     end
             end;
-        Other -> Other
+        Other ->
+            Other
+    end.
+
+untar_for_unpacked_release(RelName, Vsn) ->
+    {ok, Root} = file:get_cwd(),
+    RelDir = filename:join([Root, "releases"]),
+    %% untar the .tar file, so release/<vsn> will be created
+    Tar = filename:join([RelDir, Vsn, RelName ++ ".tar.gz"]),
+    extract_tar(Root, Tar),
+
+    %% create RELEASE file
+    RelFile = filename:join([RelDir, Vsn, RelName ++ ".rel"]),
+    release_handler:create_RELEASES(Root, RelFile),
+
+    %% Clean release
+    _ = file:delete(Tar),
+    _ = file:delete(RelFile).
+
+extract_tar(Cwd, Tar) ->
+    case erl_tar:extract(Tar, [keep_old_files, {cwd, Cwd}, compressed]) of
+        ok -> ok;
+        {error, {Name, Reason}} ->		% New erl_tar (R3A).
+            throw({error, {cannot_extract_file, Name, Reason}})
     end.
 
 %% 1. look for a release package tarball with the provided version in the following order:
@@ -391,3 +421,10 @@ erts_vsn() ->
     {ok, Str} = file:read_file(filename:join(["releases", "start_erl.data"])),
     [ErtsVsn, _] = string:tokens(binary_to_list(Str), " "),
     ErtsVsn.
+
+str(A) when is_atom(A) ->
+    atom_to_list(A);
+str(A) when is_binary(A) ->
+    binary_to_list(A);
+str(A) when is_list(A) ->
+    (A).
