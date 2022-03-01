@@ -54,13 +54,14 @@
 -define(SN_RC_INVALID_TOPIC_ID, 16#02).
 -define(SN_RC_NOT_SUPPORTED,    16#03).
 %% Custom Reason code by emqx
--define(SN_RC_NOT_AUTHORIZE,    16#04).
--define(SN_RC_FAILED_SESSION,   16#05).
--define(SN_EXCEED_LIMITATION,   16#06).
+-define(SN_RC2_NOT_AUTHORIZE,     16#80).
+-define(SN_RC2_FAILED_SESSION,    16#81).
+-define(SN_RC2_KEEPALIVE_TIMEOUT, 16#82).
+-define(SN_RC2_EXCEED_LIMITATION, 16#83).
 
 -define(QOS_NEG1, 3).
 
--type(mqtt_sn_return_code() :: ?SN_RC_ACCEPTED .. ?SN_EXCEED_LIMITATION).
+-type(mqtt_sn_return_code() :: ?SN_RC_ACCEPTED .. ?SN_RC2_EXCEED_LIMITATION).
 
 %%--------------------------------------------------------------------
 %% MQTT-SN Message
