@@ -17,6 +17,8 @@
      {load_module,emqx_auth_mnesia_cli,brutal_purge,soft_purge,[]},
      {load_module,emqx_acl_mnesia,brutal_purge,soft_purge,[]},
      {load_module,emqx_auth_mnesia_app,brutal_purge,soft_purge,[]}]},
+   {<<"4.3.5">>,
+    [{load_module,emqx_auth_mnesia,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
   [{<<"4.3.[0-3]">>,
     [{load_module,emqx_auth_mnesia_cli,brutal_purge,soft_purge,[]},
@@ -35,4 +37,6 @@
      {load_module,emqx_auth_mnesia_cli,brutal_purge,soft_purge,[]},
      {load_module,emqx_acl_mnesia,brutal_purge,soft_purge,[]},
      {load_module,emqx_auth_mnesia_app,brutal_purge,soft_purge,[]}]},
+   {<<"4.3.5">>,
+    [{load_module,emqx_auth_mnesia,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}]}.
