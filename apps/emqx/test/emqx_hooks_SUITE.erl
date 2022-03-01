@@ -46,7 +46,9 @@ end_per_testcase(_) ->
 %     error('TODO').
 
 t_add_hook_order(_) ->
-    ?assert(proper:quickcheck(add_hook_order_prop(), [{on_output, fun ct:print/2}])).
+    ?assert(proper:quickcheck(add_hook_order_prop(),
+                              [{on_output, fun ct:print/2},
+                               {numtests, 1000}])).
 
 add_hook_order_prop() ->
     %% Note: order is inversed, since higher prio hooks run first:
@@ -55,11 +57,10 @@ add_hook_order_prop() ->
                              (Prio1 =:= Prio2 andalso {M1, F1} =< {M2, F2})
                  end,
     ?FORALL(
-       Hooks0, list({range(-1, 5), atom(), atom()}),
+       Hooks, hooks(),
        try
-           Hooks = sets:to_list(sets:from_list(Hooks0)),
            {ok, _} = emqx_hooks:start_link(),
-           [emqx:hook(prop_hook, {M, F, []}, Prio) || {Prio, M, F} <- Hooks],
+           [ok = emqx:hook(prop_hook, {M, F, []}, Prio) || {Prio, M, F} <- Hooks],
            Callbacks = emqx_hooks:lookup(prop_hook),
            Order = [{Prio, M, F} || {callback, {M, F, _}, _Filter, Prio} <- Callbacks],
            ?assertEqual(lists:sort(Comparator, Hooks),
@@ -68,6 +69,15 @@ add_hook_order_prop() ->
        after
            emqx_hooks:stop()
        end).
+
+hooks() ->
+    ?SUCHTHAT(L0, list({range(-1, 5), atom(), atom()}),
+              begin
+                  %% Duplicate callbacks are ignored, so check that
+                  %% all callbacks are unique:
+                  L = [{M, F} || {_Prio, M, F} <- L0],
+                  length(lists:usort(L)) =:= length(L0)
+              end).
 
 t_add_put_del_hook(_) ->
     {ok, _} = emqx_hooks:start_link(),
