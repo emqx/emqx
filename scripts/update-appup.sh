@@ -58,4 +58,4 @@ PACKAGE_NAME="${PROFILE}-${SYSTEM}-${PREV_VERSION}-${ARCH}.zip"
 DOWNLOAD_URL="https://www.emqx.com/downloads/${DIR}/v${PREV_VERSION}/${PACKAGE_NAME}"
 
 # shellcheck disable=SC2086
-./scripts/update_appup.escript --binary-rel-url "$DOWNLOAD_URL" $ESCRIPT_ARGS "$PREV_VERSION"
+./scripts/update_appup.escript --make-command "make ${PROFILE}-rel" --binary-rel-url "$DOWNLOAD_URL" $ESCRIPT_ARGS "$PREV_VERSION"
