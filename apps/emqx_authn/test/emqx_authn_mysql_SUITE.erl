@@ -101,7 +101,7 @@ t_create_invalid(_Config) ->
 
     lists:foreach(
       fun(Config) ->
-              {error, _} = emqx:update_config(
+              {ok, _} = emqx:update_config(
                              ?PATH,
                              {create_authenticator, ?GLOBAL, Config}),
 

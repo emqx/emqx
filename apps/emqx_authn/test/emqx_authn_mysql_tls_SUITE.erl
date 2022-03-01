@@ -80,14 +80,14 @@ t_create_invalid(_Config) ->
 
     %% invalid server_name
     ?assertMatch(
-       {error, _},
+       {ok, _},
        create_mysql_auth_with_ssl_opts(
          #{<<"server_name_indication">> => <<"authn-server-unknown-host">>,
            <<"verify">> => <<"verify_peer">>})),
 
     %% incompatible versions
     ?assertMatch(
-       {error, _},
+       {ok, _},
        create_mysql_auth_with_ssl_opts(
          #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,
@@ -95,7 +95,7 @@ t_create_invalid(_Config) ->
 
     %% incompatible ciphers
     ?assertMatch(
-       {error, _},
+       {ok, _},
        create_mysql_auth_with_ssl_opts(
          #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,

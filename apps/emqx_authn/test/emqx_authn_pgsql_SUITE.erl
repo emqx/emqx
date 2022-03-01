@@ -62,7 +62,8 @@ init_per_suite(Config) ->
               ?PGSQL_RESOURCE,
               ?RESOURCE_GROUP,
               emqx_connector_pgsql,
-              pgsql_config()),
+              pgsql_config(),
+              #{wait_connected => 1000}),
             Config;
         false ->
             {skip, no_pgsql}
