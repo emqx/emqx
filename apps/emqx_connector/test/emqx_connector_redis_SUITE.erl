@@ -103,7 +103,7 @@ perform_lifecycle_check(PoolName, InitialConfig, RedisCommand) ->
     % Can call stop/1 again on an already stopped instance
     ?assertEqual(ok, emqx_resource:stop(PoolName)),
     % Make sure it can be restarted and the healthchecks and queries work properly
-    ?assertEqual(ok, emqx_resource:restart(PoolName)),
+    ?assertEqual(ok, emqx_resource:restart(PoolName, #{wait_connected => 1000})),
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{status := InitialStatus}} = emqx_resource:get_instance(PoolName),
     ?assertEqual(ok, emqx_resource:health_check(PoolName)),
     ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(PoolName, {cmd, RedisCommand})),
