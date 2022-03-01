@@ -59,32 +59,54 @@ inject_relup_instrs(Type, EmqxAppVsns, CurrRelVsn, RUs) ->
 
 %% The `{apply, emqx_relup, post_release_upgrade, []}` will be appended to the end of
 %% the instruction lists.
-append_emqx_relup_instrs(up, EmqxAppVsns, CurrRelVsn, FromRelVsn, Instrs) ->
+append_emqx_relup_instrs(up, EmqxAppVsns, CurrRelVsn, FromRelVsn, Instrs0) ->
     {EmqxVsn, true} = maps:get(CurrRelVsn, EmqxAppVsns),
     Extra = #{}, %% we may need some extended args
+    LoadObjEmqxMods = {load_object_code, {emqx, EmqxVsn, [emqx_relup, emqx_app]}},
+    LoadCodeEmqxRelup = {load, {emqx_relup, brutal_purge, soft_purge}},
+    LoadCodeEmqxApp = {load, {emqx_app, brutal_purge, soft_purge}},
+    ApplyEmqxRelup = {apply, {emqx_relup, post_release_upgrade, [FromRelVsn, Extra]}},
+    Instrs1 = Instrs0 -- [LoadCodeEmqxRelup, LoadCodeEmqxApp],
     %% we have to put 'load_object_code' before 'point_of_no_return'
-    %% so here we simply put it to the beginning
-    Instrs0 = [ {load_object_code, {emqx, EmqxVsn, [emqx_relup]}}
-              | Instrs],
-    Instrs0 ++
-        [ {load, {emqx_relup, brutal_purge, soft_purge}}
-        , {apply, {emqx_relup, post_release_upgrade, [FromRelVsn, Extra]}}
+    %% so here we simply put them to the beginning of the instruction list
+    Instrs2 = [ LoadObjEmqxMods
+              | Instrs1],
+    %% the `load` must be put after the 'point_of_no_return'
+    Instrs2 ++
+        [ LoadCodeEmqxRelup
+        , LoadCodeEmqxApp
+        , ApplyEmqxRelup
         ];
 
-append_emqx_relup_instrs(down, EmqxAppVsns, _CurrRelVsn, ToRelVsn, Instrs) ->
+append_emqx_relup_instrs(down, EmqxAppVsns, _CurrRelVsn, ToRelVsn, Instrs0) ->
     Extra = #{}, %% we may need some extended args
+    ApplyEmqxRelup = {apply, {emqx_relup, post_release_downgrade, [ToRelVsn, Extra]}},
     case maps:get(ToRelVsn, EmqxAppVsns) of
         {EmqxVsn, true} ->
-            Instrs0 = [ {load_object_code, {emqx, EmqxVsn, [emqx_relup]}}
-                      | Instrs],
-            Instrs0 ++
-                [ {apply, {emqx_relup, post_release_downgrade, [ToRelVsn, Extra]}}
-                , {load, {emqx_relup, brutal_purge, soft_purge}}
+            LoadObjEmqxMods = {load_object_code, {emqx, EmqxVsn, [emqx_relup, emqx_app]}},
+            LoadCodeEmqxRelup = {load, {emqx_relup, brutal_purge, soft_purge}},
+            LoadCodeEmqxApp = {load, {emqx_app, brutal_purge, soft_purge}},
+            Instrs1 = Instrs0 -- [LoadCodeEmqxRelup, LoadCodeEmqxApp, ApplyEmqxRelup],
+            Instrs2 = [ LoadObjEmqxMods
+                      | Instrs1],
+            %% NOTE: We apply emqx_relup:post_release_downgrade/2 first, and then reload
+            %%  the old vsn code of emqx_relup.
+            Instrs2 ++
+                [ LoadCodeEmqxApp
+                , ApplyEmqxRelup
+                , LoadCodeEmqxRelup
                 ];
-        {_EmqxVsn, false} ->
-            Instrs ++
-                [ {apply, {emqx_relup, post_release_downgrade, [ToRelVsn, Extra]}}
-                , {remove, {emqx_relup, brutal_purge, soft_purge}}
+        {EmqxVsn, false} ->
+            LoadObjEmqxApp = {load_object_code, {emqx, EmqxVsn, [emqx_app]}},
+            LoadCodeEmqxApp = {load, {emqx_app, brutal_purge, soft_purge}},
+            RemoveCodeEmqxRelup = {remove, {emqx_relup, brutal_purge, soft_purge}},
+            Instrs1 = Instrs0 -- [LoadCodeEmqxApp, RemoveCodeEmqxRelup, ApplyEmqxRelup],
+            Instrs2 = [ LoadObjEmqxApp
+                      | Instrs1],
+            Instrs2 ++
+                [ LoadCodeEmqxApp
+                , ApplyEmqxRelup
+                , RemoveCodeEmqxRelup
                 ]
     end.
 
