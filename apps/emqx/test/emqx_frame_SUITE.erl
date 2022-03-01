@@ -43,66 +43,68 @@ all() ->
 
 groups() ->
     [{parse, [parallel],
-      [t_parse_cont,
-       t_parse_frame_too_large,
-       t_parse_frame_malformed_variable_byte_integer
+      [ t_parse_cont
+      , t_parse_frame_too_large
+      , t_parse_frame_malformed_variable_byte_integer
+      , t_parse_malformed_utf8_string
       ]},
      {connect, [parallel],
-      [t_serialize_parse_v3_connect,
-       t_serialize_parse_v4_connect,
-       t_serialize_parse_v5_connect,
-       t_serialize_parse_connect_without_clientid,
-       t_serialize_parse_connect_with_will,
-       t_serialize_parse_bridge_connect
+      [ t_serialize_parse_v3_connect
+      , t_serialize_parse_v4_connect
+      , t_serialize_parse_v5_connect
+      , t_serialize_parse_connect_without_clientid
+      , t_serialize_parse_connect_with_will
+      , t_serialize_parse_bridge_connect
       ]},
      {connack, [parallel],
-      [t_serialize_parse_connack,
-       t_serialize_parse_connack_v5
+      [ t_serialize_parse_connack
+      , t_serialize_parse_connack_v5
       ]},
      {publish, [parallel],
-      [t_parse_sticky_frames,
-       t_serialize_parse_qos0_publish,
-       t_serialize_parse_qos1_publish,
-       t_serialize_parse_qos2_publish,
-       t_serialize_parse_publish_v5
+      [ t_parse_sticky_frames
+      , t_serialize_parse_qos0_publish
+      , t_serialize_parse_qos1_publish
+      , t_serialize_parse_qos2_publish
+      , t_serialize_parse_publish_v5
       ]},
      {puback, [parallel],
-      [t_serialize_parse_puback,
-       t_serialize_parse_puback_v3_4,
-       t_serialize_parse_puback_v5,
-       t_serialize_parse_pubrec,
-       t_serialize_parse_pubrec_v5,
-       t_serialize_parse_pubrel,
-       t_serialize_parse_pubrel_v5,
-       t_serialize_parse_pubcomp,
-       t_serialize_parse_pubcomp_v5
+      [ t_serialize_parse_puback
+      , t_serialize_parse_puback_v3_4
+      , t_serialize_parse_puback_v5
+      , t_serialize_parse_pubrec
+      , t_serialize_parse_pubrec_v5
+      , t_serialize_parse_pubrel
+      , t_serialize_parse_pubrel_v5
+      , t_serialize_parse_pubcomp
+      , t_serialize_parse_pubcomp_v5
       ]},
      {subscribe, [parallel],
-      [t_serialize_parse_subscribe,
-       t_serialize_parse_subscribe_v5
+      [ t_serialize_parse_subscribe
+      , t_serialize_parse_subscribe_v5
       ]},
      {suback, [parallel],
-      [t_serialize_parse_suback,
-       t_serialize_parse_suback_v5
+      [ t_serialize_parse_suback
+      , t_serialize_parse_suback_v5
       ]},
      {unsubscribe, [parallel],
-      [t_serialize_parse_unsubscribe,
-       t_serialize_parse_unsubscribe_v5
+      [ t_serialize_parse_unsubscribe
+      , t_serialize_parse_unsubscribe_v5
       ]},
      {unsuback, [parallel],
-      [t_serialize_parse_unsuback,
-       t_serialize_parse_unsuback_v5
+      [ t_serialize_parse_unsuback
+      , t_serialize_parse_unsuback_v5
       ]},
      {ping, [parallel],
-      [t_serialize_parse_pingreq,
-       t_serialize_parse_pingresp
+      [ t_serialize_parse_pingreq
+      , t_serialize_parse_pingresp
       ]},
      {disconnect, [parallel],
-      [t_serialize_parse_disconnect,
-       t_serialize_parse_disconnect_v5
+      [ t_serialize_parse_disconnect
+      , t_serialize_parse_disconnect_v5
       ]},
      {auth, [parallel],
-      [t_serialize_parse_auth_v5]
+      [ t_serialize_parse_auth_v5
+      ]
      }].
 
 init_per_suite(Config) ->
@@ -138,6 +140,23 @@ t_parse_frame_malformed_variable_byte_integer(_) ->
     ParseState = emqx_frame:initial_parse_state(#{}),
     ?ASSERT_FRAME_THROW(malformed_variable_byte_integer,
                         emqx_frame:parse(MalformedPayload, ParseState)).
+
+t_parse_malformed_utf8_string(_) ->
+    MalformedPacket = <<16,31,0,4,
+                        %% Specification name, should be "MQTT"
+                        %% 77,81,84,84,
+                        %% malformed 1-Byte UTF-8 in (U+0000 .. U+001F] && [U+007F])
+                        16#00,16#01,16#1F,16#7F,
+
+                        4,194,0,60,
+                        0,4,101,109,
+                        113,120,0,5,
+                        97,100,109,105,
+                        110,0,6,112,
+                        117,98,108,105,
+                        99>>,
+    ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
+    ?ASSERT_FRAME_THROW(utf8_string_invalid, emqx_frame:parse(MalformedPacket, ParseState)).
 
 t_serialize_parse_v3_connect(_) ->
     Bin = <<16,37,0,6,77,81,73,115,100,112,3,2,0,60,0,23,109,111,115,
