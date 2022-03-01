@@ -128,34 +128,23 @@ prod_compile_opts() ->
 prod_overrides() ->
     [{add, [ {erl_opts, [deterministic]}]}].
 
-relup_deps(Profile, Vsn) ->
-    InjectCmd = "scripts/inject-relup.escript " ++ filename:join(["_build", Profile, "rel", "emqx"]) ++ " " ++ Vsn,
-    {post_hooks,
-        [ {"(linux|darwin|solaris|freebsd|netbsd|openbsd)", relup, InjectCmd}
-        ]
-    }.
-
 profiles() ->
     Vsn = get_vsn(),
     [ {'emqx',          [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, bin)}
                         , {overrides, prod_overrides()}
-                        , relup_deps('emqx', Vsn)
                         ]}
     , {'emqx-pkg',      [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, pkg)}
                         , {overrides, prod_overrides()}
-                        , relup_deps('emqx-pkg', Vsn)
                         ]}
     , {'emqx-edge',     [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, bin)}
                         , {overrides, prod_overrides()}
-                        , relup_deps('emqx-edge', Vsn)
                         ]}
     , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, pkg)}
                         , {overrides, prod_overrides()}
-                        , relup_deps('emqx-edge-pkg', Vsn)
                         ]}
     , {check,           [ {erl_opts, common_compile_opts()}
                         ]}

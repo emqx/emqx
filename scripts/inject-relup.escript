@@ -8,34 +8,27 @@
 -define(INFO(FORMAT, ARGS), io:format(user, "[inject-relup] " ++ FORMAT ++ "~n", ARGS)).
 
 usage() ->
-    "Usage: " ++ escript:script_name() ++ " <path-to-release-dir> <release-vsn>".
+    "Usage: " ++ escript:script_name() ++ " <path-to-relup-file>".
 
-main([RelRootDir, CurrRelVsn]) ->
-    case filelib:is_dir(filename:join([RelRootDir, "releases"])) andalso
-         filelib:is_dir(filename:join([RelRootDir, "lib"])) of
+main([RelupFile]) ->
+    case filelib:is_regular(RelupFile) of
         true ->
-            EmqxAppVsns = get_emqx_app_vsns(RelRootDir),
-            ok = inject_relup_file(RelRootDir, CurrRelVsn, EmqxAppVsns);
+            ok = inject_relup_file(RelupFile);
         false ->
-            ?ERROR("not a valid root dir of release: ~p, for example: _build/emqx/rel/emqx",
-                [RelRootDir]),
+            ?ERROR("not a valid file: ~p", [RelupFile]),
             erlang:halt(1)
     end;
 main(_Args) ->
     ?ERROR("~s", [usage()]),
     erlang:halt(1).
 
-inject_relup_file(RelRootDir, CurrRelVsn, EmqxAppVsns) ->
-    RelupFile = filename:join([RelRootDir, "releases", CurrRelVsn, "relup"]),
-    inject_file(RelupFile, EmqxAppVsns).
-
-inject_file(File, EmqxAppVsns) ->
+inject_relup_file(File) ->
     case file:script(File) of
         {ok, {CurrRelVsn, UpVsnRUs, DnVsnRUs}} ->
             ?INFO("injecting instructions to: ~p", [File]),
             UpdatedContent = {CurrRelVsn,
-                inject_relup_instrs(up, EmqxAppVsns, CurrRelVsn, UpVsnRUs),
-                inject_relup_instrs(down, EmqxAppVsns, CurrRelVsn, DnVsnRUs)},
+                inject_relup_instrs(up, UpVsnRUs),
+                inject_relup_instrs(down, DnVsnRUs)},
             file:write_file(File, term_to_text(UpdatedContent));
         {ok, _BadFormat} ->
             ?ERROR("bad formatted relup file: ~p", [File]),
@@ -48,101 +41,77 @@ inject_file(File, EmqxAppVsns) ->
             error({read_relup_error, Reason})
     end.
 
-inject_relup_instrs(Type, EmqxAppVsns, CurrRelVsn, RUs) ->
-    lists:map(fun
-        ({Vsn, "(relup-injected) " ++ _ = Desc, Instrs}) -> %% already injected
-            {Vsn, Desc, Instrs};
-        ({Vsn, Desc, Instrs}) ->
-            {Vsn, "(relup-injected) " ++ Desc,
-                append_emqx_relup_instrs(Type, EmqxAppVsns, CurrRelVsn, Vsn, Instrs)}
+inject_relup_instrs(Type, RUs) ->
+    lists:map(fun({Vsn, Desc, Instrs}) ->
+        {Vsn, Desc, append_emqx_relup_instrs(Type, Vsn, Instrs)}
     end, RUs).
 
 %% The `{apply, emqx_relup, post_release_upgrade, []}` will be appended to the end of
 %% the instruction lists.
-append_emqx_relup_instrs(up, EmqxAppVsns, CurrRelVsn, FromRelVsn, Instrs0) ->
-    {EmqxVsn, true} = maps:get(CurrRelVsn, EmqxAppVsns),
+append_emqx_relup_instrs(up, FromRelVsn, Instrs0) ->
     Extra = #{}, %% we may need some extended args
-    LoadObjEmqxMods = {load_object_code, {emqx, EmqxVsn, [emqx_relup, emqx_app]}},
-    LoadCodeEmqxRelup = {load, {emqx_relup, brutal_purge, soft_purge}},
-    LoadCodeEmqxApp = {load, {emqx_app, brutal_purge, soft_purge}},
-    ApplyEmqxRelup = {apply, {emqx_relup, post_release_upgrade, [FromRelVsn, Extra]}},
-    Instrs1 = Instrs0 -- [LoadCodeEmqxRelup, LoadCodeEmqxApp],
-    %% we have to put 'load_object_code' before 'point_of_no_return'
-    %% so here we simply put them to the beginning of the instruction list
-    Instrs2 = [ LoadObjEmqxMods
-              | Instrs1],
-    %% the `load` must be put after the 'point_of_no_return'
-    Instrs2 ++
-        [ LoadCodeEmqxRelup
-        , LoadCodeEmqxApp
-        , ApplyEmqxRelup
+    filter_and_check_instrs(up, Instrs0) ++
+        [ {load, {emqx_app, brutal_purge, soft_purge}}
+        , {load, {emqx_relup, brutal_purge, soft_purge}}
+        , {apply, {emqx_relup, post_release_upgrade, [FromRelVsn, Extra]}}
         ];
 
-append_emqx_relup_instrs(down, EmqxAppVsns, _CurrRelVsn, ToRelVsn, Instrs0) ->
+append_emqx_relup_instrs(down, ToRelVsn, Instrs0) ->
     Extra = #{}, %% we may need some extended args
-    ApplyEmqxRelup = {apply, {emqx_relup, post_release_downgrade, [ToRelVsn, Extra]}},
-    case maps:get(ToRelVsn, EmqxAppVsns) of
-        {EmqxVsn, true} ->
-            LoadObjEmqxMods = {load_object_code, {emqx, EmqxVsn, [emqx_relup, emqx_app]}},
-            LoadCodeEmqxRelup = {load, {emqx_relup, brutal_purge, soft_purge}},
-            LoadCodeEmqxApp = {load, {emqx_app, brutal_purge, soft_purge}},
-            Instrs1 = Instrs0 -- [LoadCodeEmqxRelup, LoadCodeEmqxApp, ApplyEmqxRelup],
-            Instrs2 = [ LoadObjEmqxMods
-                      | Instrs1],
-            %% NOTE: We apply emqx_relup:post_release_downgrade/2 first, and then reload
-            %%  the old vsn code of emqx_relup.
-            Instrs2 ++
-                [ LoadCodeEmqxApp
-                , ApplyEmqxRelup
-                , LoadCodeEmqxRelup
-                ];
-        {EmqxVsn, false} ->
-            LoadObjEmqxApp = {load_object_code, {emqx, EmqxVsn, [emqx_app]}},
-            LoadCodeEmqxApp = {load, {emqx_app, brutal_purge, soft_purge}},
-            RemoveCodeEmqxRelup = {remove, {emqx_relup, brutal_purge, soft_purge}},
-            Instrs1 = Instrs0 -- [LoadCodeEmqxApp, RemoveCodeEmqxRelup, ApplyEmqxRelup],
-            Instrs2 = [ LoadObjEmqxApp
-                      | Instrs1],
-            Instrs2 ++
-                [ LoadCodeEmqxApp
-                , ApplyEmqxRelup
-                , RemoveCodeEmqxRelup
-                ]
+    %% NOTE: When downgrading, we apply emqx_relup:post_release_downgrade/2 before reloading
+    %%  or removing the emqx_relup module.
+    Instrs1 = filter_and_check_instrs(down, Instrs0) ++
+        [ {load, {emqx_app, brutal_purge, soft_purge}}
+        , {apply, {emqx_relup, post_release_downgrade, [ToRelVsn, Extra]}}
+        ],
+    %% emqx_relup does not exist before release "4.4.2"
+    LoadInsts =
+        case ToRelVsn of
+            ToRelVsn when ToRelVsn =:= "4.4.1"; ToRelVsn =:= "4.4.0" ->
+                [{remove, {emqx_relup, brutal_purge, brutal_purge}}];
+            _ ->
+                [{load, {emqx_relup, brutal_purge, soft_purge}}]
+        end,
+    Instrs1 ++ LoadInsts.
+
+filter_and_check_instrs(Type, Instrs) ->
+    case take_emqx_vsn_and_modules(Instrs) of
+        {EmqxAppVsn, EmqxMods, RemainInstrs} when EmqxAppVsn =/= not_found, EmqxMods =/= [] ->
+            assert_mandatory_modules(Type, EmqxMods),
+            [{load_object_code, {emqx, EmqxAppVsn, EmqxMods}} | RemainInstrs];
+        {_, _, _} ->
+            ?ERROR("cannot found 'load_module' instructions for app emqx", []),
+            error({instruction_not_found, load_object_code})
     end.
 
-get_emqx_app_vsns(RelRootDir) ->
-    RelFiles = filelib:wildcard(filename:join([RelRootDir, "releases", "*", "emqx.rel"])),
-    lists:foldl(fun(RelFile, AppVsns) ->
-        {ok, RelVsn, EmqxVsn} = read_emqx_vsn_from_rel_file(RelFile),
-        AppVsns#{RelVsn => {EmqxVsn, has_relup_module(RelRootDir, EmqxVsn)}}
-    end, #{}, RelFiles).
+take_emqx_vsn_and_modules(Instrs) ->
+    lists:foldl(fun
+        ({load_object_code, {emqx, AppVsn, Mods}}, {_EmqxAppVsn, EmqxMods, RemainInstrs}) ->
+            {AppVsn, EmqxMods ++ Mods, RemainInstrs};
+        ({load, {Mod, _, _}}, {EmqxAppVsn, EmqxMods, RemainInstrs})
+                when Mod =:= emqx_relup; Mod =:= emqx_app ->
+            {EmqxAppVsn, EmqxMods, RemainInstrs};
+        ({remove, {emqx_relup, _, _}}, {EmqxAppVsn, EmqxMods, RemainInstrs}) ->
+            {EmqxAppVsn, EmqxMods, RemainInstrs};
+        ({apply, {emqx_relup, _, _}}, {EmqxAppVsn, EmqxMods, RemainInstrs}) ->
+            {EmqxAppVsn, EmqxMods, RemainInstrs};
+        (Instr, {EmqxAppVsn, EmqxMods, RemainInstrs}) ->
+            {EmqxAppVsn, EmqxMods, RemainInstrs ++ [Instr]}
+    end, {not_found, [], []}, Instrs).
 
-read_emqx_vsn_from_rel_file(RelFile) ->
-    case file:script(RelFile) of
-        {ok, {release, {_RelName, RelVsn}, _Erts, Apps}} ->
-            case lists:keysearch(emqx, 1, Apps) of
-                {value, {emqx, EmqxVsn}} ->
-                    {ok, RelVsn, EmqxVsn};
-                false ->
-                    error({emqx_vsn_cannot_found, RelFile})
-            end;
-        {ok, _BadFormat} ->
-            ?ERROR("bad formatted .rel file: ~p", [RelFile]);
-        {error, Reason} ->
-            ?ERROR("read .rel file ~p failed: ~p", [RelFile, Reason])
-    end.
+assert_mandatory_modules(up, Mods) ->
+    assert(lists:member(emqx_relup, Mods) andalso lists:member(emqx_app, Mods),
+        "cannot found 'load_module' instructions for emqx_app and emqx_rel: ~p", [Mods]);
 
-has_relup_module(RelRootDir, EmqxVsn) ->
-    AppFile = filename:join([RelRootDir, "lib", "emqx-" ++ EmqxVsn, "ebin", "emqx.app"]),
-    case file:script(AppFile) of
-        {ok, {application, emqx, AppInfo}} ->
-            {value, {_, EmqxVsn}} = lists:keysearch(vsn, 1, AppInfo), %% assert
-            {value, {_, Modules}} = lists:keysearch(modules, 1, AppInfo),
-            lists:member(emqx_relup, Modules);
-        {error, Reason} ->
-            ?ERROR("read .app file ~p failed: ~p", [AppFile, Reason]),
-            error({read_app_file_error, AppFile, Reason})
-    end.
+assert_mandatory_modules(down, Mods) ->
+    assert(lists:member(emqx_app, Mods),
+        "cannot found 'load_module' instructions for emqx_app", []).
+
+assert(true, _, _) ->
+    ok;
+assert(false, Msg, Args) ->
+    ?ERROR(Msg, Args),
+    error(assert_failed).
 
 term_to_text(Term) ->
     io_lib:format("~p.", [Term]).
