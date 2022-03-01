@@ -20,19 +20,23 @@
 
 -define(MAX_AUTO_SUBSCRIBE, 20).
 
--export([load/0]).
+-export([load/0, unload/0]).                          %
 
 -export([ max_limit/0
         , list/0
         , update/1
-        , test/1
+        , post_config_update/5
         ]).
 
 %% hook callback
 -export([on_client_connected/3]).
 
 load() ->
+    emqx_conf:add_handler([auto_subscribe, topics], ?MODULE),
     update_hook().
+
+unload() ->
+    emqx_conf:remove_handler([auto_subscribe, topics]).
 
 max_limit() ->
     ?MAX_AUTO_SUBSCRIBE.
@@ -43,18 +47,9 @@ list() ->
 update(Topics) ->
     update_(Topics).
 
-test(_) ->
-%% TODO: test rule with info map
-    ok.
-
-% test(Topic) when is_map(Topic) ->
-%     test([Topic]);
-
-% test(Topics) when is_list(Topics) ->
-%     PlaceHolders = emqx_auto_subscribe_placeholder:generate(Topics),
-%     ClientInfo = #{},
-%     ConnInfo = #{},
-%     emqx_auto_subscribe_placeholder:to_topic_table([PlaceHolders], ClientInfo, ConnInfo).
+post_config_update(_KeyPath, _Req, NewTopics, _OldConf, _AppEnvs) ->
+    Config = emqx_conf:get([auto_subscribe], #{}),
+    update_hook(Config#{topics => NewTopics}).
 
 %%--------------------------------------------------------------------
 %% hook
@@ -88,7 +83,6 @@ update_(Topics) when length(Topics) =< ?MAX_AUTO_SUBSCRIBE ->
                           Topics,
                           #{rawconf_with_defaults => true, override_to => cluster}) of
         {ok, #{raw_config := NewTopics}} ->
-            ok = update_hook(),
             {ok, NewTopics};
         {error, Reason} ->
             {error, Reason}
@@ -97,6 +91,9 @@ update_(_Topics) ->
     {error, quota_exceeded}.
 
 update_hook() ->
-    {TopicHandler, Options} = emqx_auto_subscribe_handler:init(),
+    update_hook(emqx_conf:get([auto_subscribe], #{})).
+
+update_hook(Config) ->
+    {TopicHandler, Options} = emqx_auto_subscribe_handler:init(Config),
     emqx_hooks:put(?HOOK_POINT, {?MODULE, on_client_connected, [{TopicHandler, Options}]}),
     ok.

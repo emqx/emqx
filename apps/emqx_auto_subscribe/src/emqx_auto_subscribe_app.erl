@@ -26,6 +26,7 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 stop(_State) ->
+    ok = emqx_auto_subscribe:unload(),
     ok.
 
 %% internal functions
