@@ -171,9 +171,11 @@ download_prev_release(Tag, #{binary_rel_url := {ok, URL0}, clone_url := Repo}) -
     BaseDir = "/tmp/emqx-baseline-bin/",
     Dir = filename:basename(Repo, ".git") ++ [$-|Tag],
     Filename = filename:join(BaseDir, Dir),
-    Script = "echo \"Download: ${OUTFILE}\" &&
-              mkdir -p ${OUTFILE} &&
-              curl -f -L -o ${OUTFILE}.zip ${URL} &&
+    Script = "mkdir -p ${OUTFILE} &&
+              if [ ! -f \"${OUTFILE}.zip\" ]; then \
+                echo \"Download: ${OUTFILE}\" && \
+                curl -f -L -o \"${OUTFILE}.zip\" \"${URL}\"; \
+              fi &&
               unzip -q -n -d ${OUTFILE} ${OUTFILE}.zip",
     Env = [{"TAG", Tag}, {"OUTFILE", Filename}, {"URL", URL}],
     bash(Script, Env),
