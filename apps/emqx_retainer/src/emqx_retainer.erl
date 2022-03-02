@@ -156,6 +156,7 @@ stats_fun() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    erlang:process_flag(trap_exit, true),
     emqx_conf:add_handler([retainer], ?MODULE),
     State = new_state(),
     #{enable := Enable} = Cfg = emqx:get_config([retainer]),
@@ -209,6 +210,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #{clear_timer := ClearTimer}) ->
+    emqx_conf:remove_handler([retainer]),
     _ = stop_timer(ClearTimer),
     ok.
 
