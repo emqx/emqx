@@ -426,9 +426,9 @@ defmodule EMQXUmbrella.MixProject do
     File.chmod!(Path.join(bin, "node_dump"), 0o755)
 
     render_template(
-      "rel/BUILT_ON",
+      "rel/BUILD_INFO",
       assigns,
-      Path.join(release.version_path, "BUILT_ON")
+      Path.join(release.version_path, "BUILD_INFO")
     )
 
     release
@@ -550,10 +550,9 @@ defmodule EMQXUmbrella.MixProject do
       emqx_description: emqx_description(release_type, edition_type),
       emqx_schema_mod: emqx_schema_mod(edition_type),
       emqx_machine_boot_apps: emqx_machine_boot_app_list(edition_type),
-      built_on_arch: built_on(),
       is_elixir: "yes",
       is_enterprise: if(edition_type == :enterprise, do: "yes", else: "no")
-    ]
+    ] ++ build_info()
   end
 
   defp template_vars(release, release_type, :pkg = _package_type, edition_type) do
@@ -575,24 +574,23 @@ defmodule EMQXUmbrella.MixProject do
       # FIXME: this is empty in `make emqx` ???
       erl_opts: "",
       emqx_description: emqx_description(release_type, edition_type),
-      built_on_arch: built_on(),
       emqx_schema_mod: emqx_schema_mod(edition_type),
       emqx_machine_boot_apps: emqx_machine_boot_app_list(edition_type),
       is_elixir: "yes",
       is_enterprise: if(edition_type == :enterprise, do: "yes", else: "no")
-    ]
+    ] ++ build_info()
   end
 
   defp emqx_description(release_type, edition_type) do
     case {release_type, edition_type} do
       {:cloud, :enterprise} ->
-        "EMQX Enterprise Edition"
+        "EMQX Enterprise"
 
       {:cloud, :community} ->
-        "EMQX Community Edition"
+        "EMQX"
 
       {:edge, :community} ->
-        "EMQX Edge Edition"
+        "EMQX Edge"
     end
   end
 
@@ -628,9 +626,12 @@ defmodule EMQXUmbrella.MixProject do
     %{edition_type: edition_type} = check_profile!()
     basedir = Path.dirname(__ENV__.file)
     script = Path.join(basedir, "pkg-vsn.sh")
-    {str_vsn, 0} = System.cmd(script, [Atom.to_string(edition_type)])
+    os_cmd(script, [Atom.to_string(edition_type)])
+  end
 
-    String.trim(str_vsn)
+  defp os_cmd(script, args) do
+    {str, 0} = System.cmd("bash", [script | args])
+    String.trim(str)
   end
 
   defp win32?(),
@@ -663,12 +664,15 @@ defmodule EMQXUmbrella.MixProject do
     )
   end
 
-  defp built_on() do
-    system_architecture = to_string(:erlang.system_info(:system_architecture))
-    elixir_version = System.version()
-    words = wordsize()
-
-    "#{elixir_version}-#{otp_release()}-#{system_architecture}-#{words}"
+  defp build_info() do
+    [
+      build_info_arch: to_string(:erlang.system_info(:system_architecture)),
+      build_info_wordsize: wordsize(),
+      build_info_os: os_cmd("./scripts/get-distro.sh", []),
+      build_info_erlang: otp_release(),
+      build_info_elixir: System.version(),
+      build_info_relform: System.get_env("EMQX_REL_FORM", "tgz")
+    ]
   end
 
   # https://github.com/erlang/rebar3/blob/e3108ac187b88fff01eca6001a856283a3e0ec87/src/rebar_utils.erl#L142

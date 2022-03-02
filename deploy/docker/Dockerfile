@@ -27,6 +27,7 @@ RUN export PROFILE="$EMQX_NAME" \
     && export EMQX_NAME=${EMQX_NAME%%-elixir} \
     && export EMQX_LIB_PATH="_build/$EMQX_NAME/lib" \
     && export EMQX_REL_PATH="/emqx/_build/$EMQX_NAME/rel/emqx" \
+    && export EMQX_REL_FORM='docker' \
     && cd /emqx \
     && rm -rf $EMQX_LIB_PATH \
     && make $PROFILE \

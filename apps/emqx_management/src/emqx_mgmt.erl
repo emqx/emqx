@@ -146,7 +146,7 @@ node_info() ->
     Info = maps:from_list([{K, list_to_binary(V)} || {K, V} <- emqx_vm:loads()]),
     BrokerInfo = emqx_sys:info(),
     Info#{node              => node(),
-          otp_release       => iolist_to_binary(otp_rel()),
+          otp_release       => otp_rel(),
           memory_total      => proplists:get_value(allocated, Memory),
           memory_used       => proplists:get_value(used, Memory),
           process_available => erlang:system_info(process_limit),
@@ -179,7 +179,7 @@ lookup_broker(Node) ->
 
 broker_info() ->
     Info = maps:from_list([{K, iolist_to_binary(V)} || {K, V} <- emqx_sys:info()]),
-    Info#{node => node(), otp_release => iolist_to_binary(otp_rel()), node_status => 'Running'}.
+    Info#{node => node(), otp_release => otp_rel(), node_status => 'Running'}.
 
 broker_info(Node) ->
     wrap_rpc(emqx_management_proto_v1:broker_info(Node)).
@@ -574,7 +574,7 @@ wrap_rpc(Res) ->
     Res.
 
 otp_rel() ->
-    lists:concat([emqx_vm:get_otp_version(), "/", erlang:system_info(version)]).
+    iolist_to_binary([emqx_vm:get_otp_version(), "/", erlang:system_info(version)]).
 
 check_row_limit(Tables) ->
     check_row_limit(Tables, max_row_limit()).

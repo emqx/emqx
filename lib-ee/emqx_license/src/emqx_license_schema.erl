@@ -21,7 +21,7 @@ roots() -> [{license,
 A license is either a `key` or a `file`.
 When `key` and `file` are both configured, `key` is used.
 
-EQMX by default starts with a trial license.  For a different license,
+EMQX by default starts with a trial license.  For a different license,
 visit https://www.emqx.com/apply-licenses/emqx to apply.
 "})}
            ].

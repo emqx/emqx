@@ -219,7 +219,7 @@ if [ "${2:-}" = 'help' ]; then
 fi
 
 if ! check_erlang_start >/dev/null 2>&1; then
-    BUILT_ON="$(head -1 "${REL_DIR}/BUILT_ON")"
+    BUILD_INFO="$(cat "${REL_DIR}/BUILD_INFO")"
     ## failed to start, might be due to missing libs, try to be portable
     export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-$DYNLIBS_DIR}"
     if [ "$LD_LIBRARY_PATH" != "$DYNLIBS_DIR" ]; then
@@ -229,8 +229,8 @@ if ! check_erlang_start >/dev/null 2>&1; then
         ## it's hopeless
         echoerr "FATAL: Unable to start Erlang."
         echoerr "Please make sure openssl-1.1.1 (libcrypto) and libncurses are installed."
-        echoerr "Also ensure it's running on the correct platform,"
-        echoerr "this EMQX release is built for $BUILT_ON"
+        echoerr "Also ensure it's running on the correct platform:"
+        echoerr "$BUILD_INFO"
         exit 1
     fi
     echoerr "WARNING: There seem to be missing dynamic libs from the OS. Using libs from ${DYNLIBS_DIR}"
