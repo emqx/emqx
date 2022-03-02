@@ -37,17 +37,21 @@
         ]).
 
 -export([ list/0
-        , update/1]).
+        , update/1
+        , post_config_update/5
+        ]).
 
 %%--------------------------------------------------------------------
 %% Load/Unload
 %%--------------------------------------------------------------------
 
 enable() ->
+    emqx_conf:add_handler([rewrite], ?MODULE),
     Rules = emqx_conf:get([rewrite], []),
     register_hook(Rules).
 
 disable() ->
+    emqx_conf:remove_handler([rewrite]),
     emqx_hooks:del('client.subscribe', {?MODULE, rewrite_subscribe}),
     emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
     emqx_hooks:del('message.publish', {?MODULE, rewrite_publish}),
@@ -57,7 +61,10 @@ list() ->
     emqx_conf:get_raw([<<"rewrite">>], []).
 
 update(Rules0) ->
-    {ok, #{config := Rules}} = emqx_conf:update([rewrite], Rules0, #{override_to => cluster}),
+    {ok, _} = emqx_conf:update([rewrite], Rules0, #{override_to => cluster}),
+    ok.
+
+post_config_update(_KeyPath, _Config, Rules, _OldConf, _AppEnvs) ->
     register_hook(Rules).
 
 register_hook([]) -> disable();
