@@ -270,14 +270,14 @@ Path to the persistent data directory.
 Possible auto-created sub-directories are:
   - `mnesia/\<node_name>`: EMQX's built-in database directory.
     For example, `mnesia/emqx@127.0.0.1`.
-    There should be only one one such sub dirrectory.
+    There should be only one such sub directory.
     Meaning, in case the node is to be renamed (to e.g. `emqx@10.0.1.1`),
     the old dir should be deleted first.
   - `configs`: Generated configs at boot time, and cluster/local override configs.
   - `patches`: Hot-patch beam files are to be placed here.
   - `trace`: Trace log files.
 
-**NOTE**: One data dir can not be shared by two or more EMQX nodes.
+**NOTE**: One data dir cannot be shared by two or more EMQX nodes.
 """
            })}
     , {"config_files",
