@@ -1048,11 +1048,6 @@ t_delivery_takeover_and_re_register(_) ->
     _ = emqx:publish(emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"m2">>)),
     _ = emqx:publish(emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"m3">>)),
 
-    emqx_logger:set_log_level(debug),
-    dbg:tracer(),dbg:p(all,call),
-    dbg:tp(emqx_gateway_cm,x),
-    %dbg:tpl(emqx_gateway_cm, request_stepdown,x),
-
     {ok, NSocket} = gen_udp:open(0, [binary]),
     send_connect_msg(NSocket, <<"test">>, 0),
     ?assertMatch(<<_, ?SN_CONNACK, ?SN_RC_ACCEPTED>>,

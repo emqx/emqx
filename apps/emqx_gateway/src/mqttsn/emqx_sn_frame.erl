@@ -349,7 +349,7 @@ format(?SN_SUBACK_MSG(Flags, TopicId, MsgId, ReturnCode)) ->
                   [QoS, MsgId, TopicId, ReturnCode]);
 format(?SN_UNSUBSCRIBE_MSG(Flags, Msgid, Topic)) ->
     #mqtt_sn_flags{topic_id_type = TopicIdType} = Flags,
-    io_lib:format("SN_UNSUBSCRIBE(TopicIdType=~s, MsgId=~w, TopicId=~w)",
+    io_lib:format("SN_UNSUBSCRIBE(TopicIdType=~w, MsgId=~w, TopicId=~w)",
                   [TopicIdType, Msgid, Topic]);
 format(?SN_UNSUBACK_MSG(MsgId)) ->
     io_lib:format("SN_UNSUBACK(MsgId=~w)", [MsgId]);
