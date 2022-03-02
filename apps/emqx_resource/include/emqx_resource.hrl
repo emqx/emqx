@@ -32,7 +32,7 @@
 -type create_opts() :: #{
         health_check_interval => integer(),
         health_check_timeout => integer(),
-        wait_connected => integer()
+        waiting_connect_complete  => integer()
     }.
 -type after_query() :: {[OnSuccess :: after_query_fun()], [OnFailed :: after_query_fun()]} |
     undefined.

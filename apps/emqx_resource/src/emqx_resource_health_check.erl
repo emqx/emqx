@@ -54,7 +54,7 @@ delete_checker(Name) ->
     case supervisor:terminate_child(?SUP, ?ID(Name)) of
         ok -> supervisor:delete_child(?SUP, ?ID(Name));
         Error -> Error
-	end.
+        end.
 
 start_health_check(Name, Sleep, Timeout) ->
     Pid = self(),

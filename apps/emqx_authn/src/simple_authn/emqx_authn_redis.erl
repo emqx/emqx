@@ -93,7 +93,7 @@ create(#{cmd := Cmd,
                    resource_id => ResourceId},
         case emqx_resource:create_local(ResourceId, ?RESOURCE_GROUP,
                                         emqx_connector_redis, Config,
-                                        #{wait_connected => 1000}) of
+                                        #{waiting_connect_complete => 5000}) of
             {ok, already_created} ->
                 {ok, NState};
             {ok, _} ->

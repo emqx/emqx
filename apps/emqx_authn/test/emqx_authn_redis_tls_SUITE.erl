@@ -86,7 +86,7 @@ t_create_invalid(_Config) ->
 
     %% incompatible versions
     ?assertMatch(
-        {ok, _},
+        {error, _},
         create_redis_auth_with_ssl_opts(
                    #{<<"server_name_indication">> => <<"authn-server">>,
                      <<"verify">> => <<"verify_peer">>,
@@ -94,7 +94,7 @@ t_create_invalid(_Config) ->
 
     %% incompatible ciphers
     ?assertMatch(
-       {ok, _},
+       {error, _},
        create_redis_auth_with_ssl_opts(
          #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,

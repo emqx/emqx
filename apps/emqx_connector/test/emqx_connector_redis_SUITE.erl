@@ -78,24 +78,30 @@ t_sentinel_lifecycle(_Config) ->
     ).
 
 perform_lifecycle_check(PoolName, InitialConfig, RedisCommand) ->
-    {ok, #{config := CheckedConfig}} = emqx_resource:check_config(?REDIS_RESOURCE_MOD, InitialConfig),
-    {ok, #{state := #{poolname := ReturnedPoolName} = State, status := InitialStatus}} = emqx_resource:create_local(
+    {ok, #{config := CheckedConfig}} =
+        emqx_resource:check_config(?REDIS_RESOURCE_MOD, InitialConfig),
+    {ok, #{state := #{poolname := ReturnedPoolName} = State,
+           status := InitialStatus}} = emqx_resource:create_local(
         PoolName,
         ?CONNECTOR_RESOURCE_GROUP,
         ?REDIS_RESOURCE_MOD,
         CheckedConfig,
-        #{wait_connected => 1000}
+        #{waiting_connect_complete => 5000}
     ),
     ?assertEqual(InitialStatus, connected),
     % Instance should match the state and status of the just started resource
-    {ok, ?CONNECTOR_RESOURCE_GROUP, #{state := State, status := InitialStatus}} = emqx_resource:get_instance(PoolName),
+    {ok, ?CONNECTOR_RESOURCE_GROUP, #{state := State,
+                                      status := InitialStatus}}
+                                    = emqx_resource:get_instance(PoolName),
     ?assertEqual(ok, emqx_resource:health_check(PoolName)),
     % Perform query as further check that the resource is working as expected
     ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(PoolName, {cmd, RedisCommand})),
     ?assertEqual(ok, emqx_resource:stop(PoolName)),
     % Resource will be listed still, but state will be changed and healthcheck will fail
     % as the worker no longer exists.
-    {ok, ?CONNECTOR_RESOURCE_GROUP, #{state := State, status := StoppedStatus}} = emqx_resource:get_instance(PoolName),
+    {ok, ?CONNECTOR_RESOURCE_GROUP, #{state := State,
+                                      status := StoppedStatus}}
+                                    = emqx_resource:get_instance(PoolName),
     ?assertEqual(StoppedStatus, disconnected),
     ?assertEqual({error,health_check_failed}, emqx_resource:health_check(PoolName)),
     % Resource healthcheck shortcuts things by checking ets. Go deeper by checking pool itself.
@@ -103,8 +109,11 @@ perform_lifecycle_check(PoolName, InitialConfig, RedisCommand) ->
     % Can call stop/1 again on an already stopped instance
     ?assertEqual(ok, emqx_resource:stop(PoolName)),
     % Make sure it can be restarted and the healthchecks and queries work properly
-    ?assertEqual(ok, emqx_resource:restart(PoolName, #{wait_connected => 1000})),
-    {ok, ?CONNECTOR_RESOURCE_GROUP, #{status := InitialStatus}} = emqx_resource:get_instance(PoolName),
+    ?assertEqual(ok, emqx_resource:restart(PoolName)),
+    % async restart, need to wait resource
+    timer:sleep(500),
+    {ok, ?CONNECTOR_RESOURCE_GROUP, #{status := InitialStatus}}
+                                    = emqx_resource:get_instance(PoolName),
     ?assertEqual(ok, emqx_resource:health_check(PoolName)),
     ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(PoolName, {cmd, RedisCommand})),
     % Stop and remove the resource in one go.

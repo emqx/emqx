@@ -91,9 +91,9 @@ t_create_invalid_server_name(_Config) ->
        create_mongo_auth_with_ssl_opts(
          #{<<"server_name_indication">> => <<"authn-server-unknown-host">>,
            <<"verify">> => <<"verify_peer">>}),
-       fun({ok, _}, Trace) ->
-               ?assertEqual(
-                  [failed],
+       fun(_, Trace) ->
+               ?assertNotEqual(
+                  [ok],
                   ?projection(
                      status,
                      ?of_kind(emqx_connector_mongo_health_check, Trace)))
@@ -109,9 +109,9 @@ t_create_invalid_version(_Config) ->
          #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.1">>]}),
-       fun({ok, _}, Trace) ->
-               ?assertEqual(
-                  [failed],
+       fun(_, Trace) ->
+               ?assertNotEqual(
+                  [ok],
                   ?projection(
                      status,
                      ?of_kind(emqx_connector_mongo_health_check, Trace)))
@@ -128,9 +128,9 @@ t_invalid_ciphers(_Config) ->
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.2">>],
            <<"ciphers">> => [<<"DHE-RSA-AES256-GCM-SHA384">>]}),
-       fun({ok, _}, Trace) ->
-               ?assertEqual(
-                  [failed],
+       fun(_, Trace) ->
+               ?assertNotEqual(
+                  [ok],
                   ?projection(
                      status,
                      ?of_kind(emqx_connector_mongo_health_check, Trace)))
@@ -142,7 +142,9 @@ t_invalid_ciphers(_Config) ->
 
 create_mongo_auth_with_ssl_opts(SpecificSSLOpts) ->
     AuthConfig = raw_mongo_auth_config(SpecificSSLOpts),
-    emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}).
+    Res = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    timer:sleep(500),
+    Res.
 
 raw_mongo_auth_config(SpecificSSLOpts) ->
     SSLOpts = maps:merge(

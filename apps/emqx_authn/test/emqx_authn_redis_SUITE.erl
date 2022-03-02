@@ -28,6 +28,7 @@
 -define(REDIS_RESOURCE, <<"emqx_authn_redis_SUITE">>).
 
 -define(PATH, [authentication]).
+-define(ResourceID, <<"password-based:redis">>).
 
 all() ->
     [{group, require_seeds}, t_create, t_create_invalid].
@@ -61,7 +62,8 @@ init_per_suite(Config) ->
               ?REDIS_RESOURCE,
               ?RESOURCE_GROUP,
               emqx_connector_redis,
-              redis_config()),
+              redis_config(),
+              #{waiting_connect_complete => 5000}),
             Config;
         false ->
             {skip, no_redis}
@@ -91,13 +93,8 @@ t_create(_Config) ->
 
 t_create_invalid(_Config) ->
     AuthConfig = raw_redis_auth_config(),
-
     InvalidConfigs =
         [
-         maps:without([server], AuthConfig),
-         AuthConfig#{server => <<"unknownhost:3333">>},
-         AuthConfig#{password => <<"wrongpass">>},
-         AuthConfig#{database => <<"5678">>},
          AuthConfig#{
            cmd => <<"MGET password_hash:${username} salt:${username}">>},
          AuthConfig#{
@@ -105,16 +102,33 @@ t_create_invalid(_Config) ->
          AuthConfig#{
            cmd => <<"HMGET mqtt_user:${username} salt is_superuser">>}
         ],
+    lists:foreach(
+      fun(Config) ->
+              {error, _} = emqx:update_config(
+                             ?PATH,
+                             {create_authenticator, ?GLOBAL, Config}),
+
+              {ok, []} = emqx_authentication:list_authenticators(?GLOBAL)
+      end,
+      InvalidConfigs),
+
+    InvalidConfigs1 =
+        [
+         maps:without([server], AuthConfig),
+         AuthConfig#{server => <<"unknownhost:3333">>},
+         AuthConfig#{password => <<"wrongpass">>},
+         AuthConfig#{database => <<"5678">>}
+        ],
 
     lists:foreach(
       fun(Config) ->
               {ok, _} = emqx:update_config(
                              ?PATH,
                              {create_authenticator, ?GLOBAL, Config}),
-
+              emqx_authn_test_lib:delete_config(?ResourceID),
               {ok, []} = emqx_authentication:list_authenticators(?GLOBAL)
       end,
-      InvalidConfigs).
+      InvalidConfigs1).
 
 t_authenticate(_Config) ->
     ok = lists:foreach(
@@ -270,7 +284,8 @@ user_seeds() ->
       },
 
      #{data => #{
-                 password_hash => <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                 password_hash =>
+                    <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
                  salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
                  is_superuser => <<"0">>
                 },
@@ -303,7 +318,8 @@ user_seeds() ->
        result => {ok,#{is_superuser => false}}
       },
      #{data => #{
-                 password_hash => <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                 password_hash =>
+                    <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
                  salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
                  is_superuser => <<"0">>
                 },
@@ -321,7 +337,8 @@ user_seeds() ->
       },
 
      #{data => #{
-                 password_hash => <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                 password_hash =>
+                    <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
                  salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
                  is_superuser => <<"0">>
                 },
@@ -339,7 +356,8 @@ user_seeds() ->
       },
 
      #{data => #{
-                 password_hash => <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                 password_hash => 
+                    <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
                  salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
                  is_superuser => <<"0">>
                 },

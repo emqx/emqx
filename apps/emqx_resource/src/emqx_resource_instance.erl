@@ -90,9 +90,9 @@ list_all() ->
     end.
 
 -spec list_group(resource_group()) -> [instance_id()].
-list_group(Group) -> 
+list_group(Group) ->
     List = ets:match(emqx_resource_instance, {'$1', Group, '_'}),
-    lists:map(fun([A|_]) -> A end, List).
+    lists:map(fun([A | _]) -> A end, List).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -197,7 +197,7 @@ do_create(InstId, Group, ResourceType, Config, Opts) ->
                 ok ->
                     ok = emqx_plugin_libs_metrics:create_metrics(resource_metrics, InstId,
                             [matched, success, failed, exception], [matched]),
-                    WaitTime = maps:get(wait_connected, Opts, 0),
+                    WaitTime = maps:get(waiting_connect_complete , Opts, 0),
                     {ok, wait_for_resource_ready(InstId, WaitTime div 100)};
                 Error ->
                     Error

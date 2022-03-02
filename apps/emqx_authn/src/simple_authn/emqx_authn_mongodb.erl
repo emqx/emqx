@@ -116,7 +116,7 @@ create(#{selector := Selector} = Config) ->
                                     ?RESOURCE_GROUP,
                                     emqx_connector_mongo,
                                     Config,
-                                    #{wait_connected => 1000}) of
+                                    #{waiting_connect_complete => 5000}) of
         {ok, already_created} ->
             {ok, NState};
         {ok, _} ->

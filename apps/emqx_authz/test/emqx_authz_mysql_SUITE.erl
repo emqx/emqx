@@ -44,7 +44,8 @@ init_per_suite(Config) ->
               ?MYSQL_RESOURCE,
               ?RESOURCE_GROUP,
               emqx_connector_mysql,
-              mysql_config()),
+              mysql_config(),
+              #{waiting_connect_complete => 5000}),
             Config;
         false ->
             {skip, no_mysql}
@@ -179,9 +180,9 @@ t_create_invalid(_Config) ->
     BadConfig = maps:merge(
                   raw_mysql_authz_config(),
                   #{<<"server">> => <<"255.255.255.255:33333">>}),
-    {error, _} = emqx_authz:update(?CMD_REPLACE, [BadConfig]),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [BadConfig]),
 
-    [] = emqx_authz:lookup().
+    [_] = emqx_authz:lookup().
 
 t_nonbinary_values(_Config) ->
     ClientInfo = #{clientid => clientid,
