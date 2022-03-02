@@ -59,7 +59,7 @@
 
 -define(GAUGE_SAMPLER_LIST,
     [ subscriptions
-    , routes
+    , topics
     , connections
     ]).
 

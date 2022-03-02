@@ -195,26 +195,7 @@ get_metrics(Node) ->
     wrap_rpc(emqx_proto_v1:get_metrics(Node)).
 
 get_stats() ->
-    GlobalStatsKeys =
-        [ 'retained.count'
-        , 'retained.max'
-        , 'routes.count'
-        , 'routes.max'
-        , 'subscriptions.shared.count'
-        , 'subscriptions.shared.max'
-        ],
-    CountStats = nodes_info_count([
-        begin
-            Stats = get_stats(Node),
-            delete_keys(Stats, GlobalStatsKeys)
-        end || Node <- mria_mnesia:running_nodes()]),
-    GlobalStats = maps:with(GlobalStatsKeys, maps:from_list(get_stats(node()))),
-    maps:merge(CountStats, GlobalStats).
-
-delete_keys(List, []) ->
-    List;
-delete_keys(List, [Key | Keys]) ->
-    delete_keys(proplists:delete(Key, List), Keys).
+    nodes_info_count([get_stats(Node) || Node <- mria_mnesia:running_nodes()]).
 
 get_stats(Node) ->
     wrap_rpc(emqx_proto_v1:get_stats(Node)).

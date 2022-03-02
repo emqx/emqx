@@ -353,7 +353,7 @@ count_map(M1, M2) ->
     lists:foldl(Fun, #{}, ?SAMPLER_LIST).
 
 value(connections) -> emqx_stats:getstat('connections.count');
-value(routes) -> emqx_stats:getstat('routes.count');
+value(topics) -> emqx_stats:getstat('topics.count');
 value(subscriptions) -> emqx_stats:getstat('subscriptions.count');
 value(received) -> emqx_metrics:val('messages.received');
 value(received_bytes) -> emqx_metrics:val('bytes.received');
