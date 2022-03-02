@@ -18,7 +18,7 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
 export PKG_VSN
 
-SYSTEM="$(./scripts/get-distro.sh)"
+SYSTEM="${SYSTEM:-$(./scripts/get-distro.sh)}"
 
 ##
 ## Support RPM and Debian based linux systems
@@ -136,6 +136,9 @@ make_zip() {
     local tarball="${relpath}/${tarname}"
     local target_zip="${pkgpath}/${pkgname}"
     tar zxf "${tarball}" -C "${tard}/emqx"
+    if ! [[ $SYSTEM == windows* ]]; then
+        ./scripts/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
+    fi
     cp_dyn_libs "${tard}/emqx"
     pushd "${tard}" >/dev/null
     case "$SYSTEM" in

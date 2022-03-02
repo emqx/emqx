@@ -27,7 +27,7 @@ esac
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 OTP_VSN="${OTP_VSN:-$(./scripts/get-otp-vsn.sh)}"
-SYSTEM="$(./scripts/get-distro.sh)"
+SYSTEM="${SYSTEM:-$(./scripts/get-distro.sh)}"
 
 UNAME="$(uname -m)"
 case "$UNAME" in
