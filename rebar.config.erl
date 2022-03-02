@@ -212,10 +212,28 @@ relx(Vsn, RelType, PkgType, Edition) ->
     , {vm_args,false}
     , {release, {emqx, Vsn}, relx_apps(RelType, Edition)}
     , {overlay, relx_overlay(RelType, Edition)}
-    , {overlay_vars, [ {built_on_arch, rebar_utils:get_arch()}
-                     , {emqx_description, emqx_description(RelType, Edition)}
-                     | overlay_vars(RelType, PkgType, Edition)]}
+    , {overlay_vars, build_info() ++
+                     [ {emqx_description, emqx_description(RelType, Edition)}
+                     | overlay_vars(RelType, PkgType, Edition)
+                     ]}
     ].
+
+%% Make a HOCON compatible format
+build_info() ->
+    Os = os_cmd("./scripts/get-distro.sh"),
+    [ {build_info_arch, erlang:system_info(system_architecture)}
+    , {build_info_wordsize, rebar_utils:wordsize()}
+    , {build_info_os, Os}
+    , {build_info_erlang, rebar_utils:otp_release()}
+    , {build_info_elixir, none}
+    , {build_info_relform, relform()}
+    ].
+
+relform() ->
+    case os:getenv("EMQX_REL_FORM") of
+        false -> "tgz";
+        Other -> Other
+    end.
 
 emqx_description(cloud, ee) -> "EMQX Enterprise";
 emqx_description(cloud, ce) -> "EMQX";
@@ -394,7 +412,7 @@ relx_overlay(ReleaseType, Edition) ->
     , {mkdir, "data/patches"}
     , {mkdir, "data/scripts"}
     , {template, "rel/emqx_vars", "releases/emqx_vars"}
-    , {template, "rel/BUILT_ON", "releases/{{release_version}}/BUILT_ON"}
+    , {template, "rel/BUILD_INFO", "releases/{{release_version}}/BUILD_INFO"}
     , {copy, "bin/emqx", "bin/emqx"}
     , {copy, "bin/emqx_ctl", "bin/emqx_ctl"}
     , {copy, "bin/node_dump", "bin/node_dump"}
@@ -448,8 +466,11 @@ get_vsn(Profile) ->
     %% to make it compatible to Linux and Windows,
     %% we must use bash to execute the bash file
     %% because "./" will not be recognized as an internal or external command
-    PkgVsn = os:cmd("bash pkg-vsn.sh " ++ atom_to_list(Profile)),
-    re:replace(PkgVsn, "\n", "", [{return ,list}]).
+    os_cmd("pkg-vsn.sh " ++ atom_to_list(Profile)).
+
+os_cmd(Cmd) ->
+    Output = os:cmd("bash " ++ Cmd),
+    re:replace(Output, "\n", "", [{return ,list}]).
 
 maybe_dump(Config) ->
     is_debug() andalso file:write_file("rebar.config.rendered", [io_lib:format("~p.\n", [I]) || I <- Config]),

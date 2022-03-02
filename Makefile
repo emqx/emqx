@@ -10,6 +10,7 @@ export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
 export EMQX_DASHBOARD_VERSION ?= v0.21.0
 export DOCKERFILE := deploy/docker/Dockerfile
+export EMQX_REL_FORM ?= tgz
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
 	FIND=/usr/bin/find
@@ -192,7 +193,7 @@ $(foreach zt,$(ALL_TGZS),$(eval $(call gen-tgz-target,$(zt))))
 ## A pkg target depend on a regular release
 .PHONY: $(PKG_PROFILES)
 define gen-pkg-target
-$1: $1-rel
+$1:
 	@$(BUILD) $1 pkg
 endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
@@ -225,7 +226,7 @@ $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir): $(COMMON_DEPS) $(ELIXIR_C
 .PHONY: $(REL_PROFILES:%=%-elixir-pkg)
 define gen-elixir-pkg-target
 # the Elixir places the tar in a different path than Rebar3
-$1-elixir-pkg: $1-pkg-elixir
+$1-elixir-pkg:
 	@env TAR_PKG_DIR=_build/$1-pkg \
 	     IS_ELIXIR=yes \
 	     $(BUILD) $1-pkg pkg

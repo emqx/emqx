@@ -1,4 +1,3 @@
-ARCH ?= amd64
 TOPDIR := /tmp/emqx
 # Keep this short to avoid bloating beam files with long file path info
 SRCDIR := $(TOPDIR)/$(PKG_VSN)

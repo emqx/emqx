@@ -284,10 +284,17 @@ case "$ARTIFACT" in
             log "Skipped making deb/rpm package for $SYSTEM"
             exit 0
         fi
-        make -C "deploy/packages/${PKGERDIR}" clean
+        export EMQX_REL_FORM="$PKGERDIR"
+        if [ "${IS_ELIXIR:-}" = 'yes' ]; then
+            make_elixir_rel
+        else
+            make_rel
+        fi
         env EMQX_REL="$(pwd)" \
             EMQX_BUILD="${PROFILE}" \
-            SYSTEM="${SYSTEM}" \
+            make -C "deploy/packages/${PKGERDIR}" clean
+        env EMQX_REL="$(pwd)" \
+            EMQX_BUILD="${PROFILE}" \
             make -C "deploy/packages/${PKGERDIR}"
         ;;
     docker)

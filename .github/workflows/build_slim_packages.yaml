@@ -127,9 +127,9 @@ jobs:
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
         echo "EMQX stopped"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
-        echo "EQMX installed"
+        echo "EMQX installed"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
-        echo "EQMX uninstaled"
+        echo "EMQX uninstalled"
 
   mac:
     strategy:

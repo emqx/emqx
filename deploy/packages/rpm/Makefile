@@ -9,11 +9,6 @@ space := $(none) $(none)
 RPM_VSN := $(subst -,_,$(PKG_VSN))
 RPM_REL := otp$(subst -,_,$(OTP_VSN))
 
-ARCH ?= amd64
-ifeq ($(ARCH),mips64)
-ARCH:=mips64el
-endif
-
 EMQX_NAME=$(subst -pkg,,$(EMQX_BUILD))
 
 TAR_PKG_DIR ?= _build/$(EMQX_BUILD)/rel/emqx
