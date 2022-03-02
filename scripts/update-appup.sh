@@ -41,18 +41,20 @@ shift 1
 ESCRIPT_ARGS="$*"
 
 SYSTEM="${SYSTEM:-$(./scripts/get-distro.sh)}"
-ARCH="${ARCH:-$(uname -m)}"
-case "$ARCH" in
-    x86_64)
-        ARCH='amd64'
-        ;;
-    aarch64)
-        ARCH='arm64'
-        ;;
-    arm*)
-        ARCH=arm
-        ;;
-esac
+if [ -z "${ARCH:-}" ]; then
+    UNAME="$(uname -m)"
+    case "$UNAME" in
+        x86_64)
+            ARCH='amd64'
+            ;;
+        aarch64)
+            ARCH='arm64'
+            ;;
+        arm*)
+            ARCH='arm'
+            ;;
+    esac
+fi
 
 PACKAGE_NAME="${PROFILE}-${SYSTEM}-${PREV_VERSION}-${ARCH}.zip"
 DOWNLOAD_URL="https://www.emqx.com/downloads/${DIR}/v${PREV_VERSION}/${PACKAGE_NAME}"
