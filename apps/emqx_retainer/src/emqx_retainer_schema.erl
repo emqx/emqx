@@ -17,7 +17,7 @@ fields("retainer") ->
     , {flow_control, ?TYPE(hoconsc:ref(?MODULE, flow_control))}
     , {max_payload_size, sc(emqx_schema:bytesize(), "1MB")}
     , {stop_publish_clear_msg, sc(boolean(), false)}
-    , {config, config()}
+    , {backend, backend_config()}
     ];
 
 fields(mnesia_config) ->
@@ -27,9 +27,9 @@ fields(mnesia_config) ->
     ];
 
 fields(flow_control) ->
-    [ {max_read_number, sc(integer(), 0, fun is_pos_integer/1)}
-    , {msg_deliver_quota, sc(integer(), 0, fun is_pos_integer/1)}
-    , {quota_release_interval, sc(emqx_schema:duration_ms(), "0ms")}
+    [ {batch_read_number, sc(integer(), 0, fun is_pos_integer/1)}
+    , {batch_deliver_number, sc(range(0, 1000), 0)}
+    , {limiter_bucket_name, sc(atom(), retainer)}
     ].
 
 %%--------------------------------------------------------------------
@@ -45,5 +45,5 @@ sc(Type, Default, Validator) ->
 is_pos_integer(V) ->
     V >= 0.
 
-config() ->
+backend_config() ->
     #{type => hoconsc:union([hoconsc:ref(?MODULE, mnesia_config)])}.

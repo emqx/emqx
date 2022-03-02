@@ -59,7 +59,7 @@ limiter {
       aggregated.capacity = infinity
       per_client.rate = infinity
       per_client.capacity = infinity
-                   }
+    }
   }
 
   message_routing {
@@ -67,6 +67,15 @@ limiter {
     zone.default.rate = infinity
     bucket.default {
       zone = default
+      aggregated.rate = infinity
+      aggregated.capacity = infinity
+      per_client.rate = infinity
+      per_client.capacity = infinity
+    }
+  }
+
+  shared {
+    bucket.retainer {
       aggregated.rate = infinity
       aggregated.capacity = infinity
       per_client.rate = infinity
