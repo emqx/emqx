@@ -17,7 +17,7 @@
 -module(emqx_relup).
 
 %% NOTE: DO NOT remove this `-include`.
-%% We use this to forece this module to upgraded every release.
+%% We use this to force this module to be upgraded every release.
 -include("emqx_release.hrl").
 
 -export([ post_release_upgrade/2
@@ -27,13 +27,13 @@
 -define(INFO(FORMAT), io:format("[emqx_relup] " ++ FORMAT ++ "~n")).
 -define(INFO(FORMAT, ARGS), io:format("[emqx_relup] " ++ FORMAT ++ "~n", ARGS)).
 
-%% what to do after upgraded from a old release vsn.
+%% What to do after upgraded from an old release vsn.
 post_release_upgrade(FromRelVsn, _) ->
     {_, CurrRelVsn} = ?EMQX_RELEASE,
     ?INFO("emqx has been upgraded to from ~s to ~s!", [FromRelVsn, CurrRelVsn]),
     reload_components().
 
-%% what to do after downgraded to a old release vsn.
+%% What to do after downgraded to an old release vsn.
 post_release_downgrade(ToRelVsn, _) ->
     {_, CurrRelVsn} = ?EMQX_RELEASE,
     ?INFO("emqx has been downgraded to from ~s to ~s!", [CurrRelVsn, ToRelVsn]),
