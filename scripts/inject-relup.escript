@@ -46,8 +46,6 @@ inject_relup_instrs(Type, RUs) ->
         {Vsn, Desc, append_emqx_relup_instrs(Type, Vsn, Instrs)}
     end, RUs).
 
-%% The `{apply, emqx_relup, post_release_upgrade, []}` will be appended to the end of
-%% the instruction lists.
 append_emqx_relup_instrs(up, FromRelVsn, Instrs0) ->
      {{UpExtra, _}, Instrs1} = filter_and_check_instrs(up, Instrs0),
      Instrs1 ++
@@ -57,10 +55,10 @@ append_emqx_relup_instrs(up, FromRelVsn, Instrs0) ->
         ];
 
 append_emqx_relup_instrs(down, ToRelVsn, Instrs0) ->
-    {{_, DnExtra}, Instrs1} = filter_and_check_instrs(down, Instrs0)
+    {{_, DnExtra}, Instrs1} = filter_and_check_instrs(down, Instrs0),
     %% NOTE: When downgrading, we apply emqx_relup:post_release_downgrade/2 before reloading
     %%  or removing the emqx_relup module.
-    Instrs1 ++
+    Instrs2 = Instrs1 ++
         [ {load, {emqx_app, brutal_purge, soft_purge}}
         , {apply, {emqx_relup, post_release_downgrade, [ToRelVsn, DnExtra]}}
         ],
@@ -68,14 +66,24 @@ append_emqx_relup_instrs(down, ToRelVsn, Instrs0) ->
     LoadInsts =
         case ToRelVsn of
             ToRelVsn when ToRelVsn =:= "4.4.1"; ToRelVsn =:= "4.4.0" ->
-                [{remove, {emqx_relup, brutal_purge, brutal_purge}}];
+                [ {remove, {emqx_relup, brutal_purge, brutal_purge}}
+                , {purge, [emqx_relup]}
+                ];
             _ ->
                 [{load, {emqx_relup, brutal_purge, soft_purge}}]
         end,
-    Instrs1 ++ LoadInsts.
+    Instrs2 ++ LoadInsts.
 
 filter_and_check_instrs(Type, Instrs) ->
     case filter_fetch_emqx_mods_and_extra(Instrs) of
+        {_, DnExtra, _, _} when Type =:= up, DnExtra =/= undefined ->
+            ?ERROR("got '{apply,{emqx_relup,post_release_downgrade,[_,Extra]}}'"
+                   " from the upgrade instruction list, should be 'post_release_upgrade'", []),
+            error({instruction_not_found, load_object_code});
+        {UpExtra, _, _, _} when Type =:= down, UpExtra =/= undefined ->
+            ?ERROR("got '{apply,{emqx_relup,post_release_upgrade,[_,Extra]}}'"
+                   " from the downgrade instruction list, should be 'post_release_downgrade'", []),
+            error({instruction_not_found, load_object_code});
         {_, _, [], _} ->
             ?ERROR("cannot find any 'load_object_code' instructions for app emqx", []),
             error({instruction_not_found, load_object_code});
@@ -85,18 +93,20 @@ filter_and_check_instrs(Type, Instrs) ->
     end.
 
 filter_fetch_emqx_mods_and_extra(Instrs) ->
-    lists:foldl(fun do_filter_and_get/2, {UpExtra, DnExtra, [], []}, Instrs).
+    lists:foldl(fun do_filter_and_get/2, {undefined, undefined, [], []}, Instrs).
 
 %% collect modules for emqx app
 do_filter_and_get({load_object_code, {emqx, _AppVsn, Mods}} = Instr,
         {UpExtra, DnExtra, EmqxMods, RemainInstrs}) ->
     {UpExtra, DnExtra, EmqxMods ++ Mods, RemainInstrs ++ [Instr]};
-%% remove 'load' instrs
+%% remove 'load' instrs for emqx_relup and emqx_app
 do_filter_and_get({load, {Mod, _, _}}, {UpExtra, DnExtra, EmqxMods, RemainInstrs})
         when Mod =:= emqx_relup; Mod =:= emqx_app ->
     {UpExtra, DnExtra, EmqxMods, RemainInstrs};
-%% remove 'remove' instrs
+%% remove 'remove' and 'purge' instrs for emqx_relup
 do_filter_and_get({remove, {emqx_relup, _, _}}, {UpExtra, DnExtra, EmqxMods, RemainInstrs}) ->
+    {UpExtra, DnExtra, EmqxMods, RemainInstrs};
+do_filter_and_get({purge, [emqx_relup]}, {UpExtra, DnExtra, EmqxMods, RemainInstrs}) ->
     {UpExtra, DnExtra, EmqxMods, RemainInstrs};
 %% remove 'apply' instrs for upgrade, and collect the 'Extra' parameter
 do_filter_and_get({apply, {emqx_relup, post_release_upgrade, [_, UpExtra0]}},
