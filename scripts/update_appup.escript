@@ -32,8 +32,8 @@ Options:
   --make-command    A command used to assemble the release
   --release-dir     Release directory
   --src-dirs        Directories where source code is found. Defaults to '{src,apps,lib-*}/**/'
-  --binary-rel-url  Binary release URL pattern. %TAG% variable is substituted with the release tag.
-                    E.g. \"https://github.com/emqx/emqx/releases/download/v%TAG%/emqx-centos7-%TAG%-amd64.zip\"
+  --binary-rel-url  Binary release URL pattern.
+                    E.g. https://www.emqx.com/downloads/broker/v4.3.12/emqx-centos7-4.3.12-amd64.zip
 ".
 
 -record(app,
@@ -171,9 +171,10 @@ download_prev_release(Tag, #{binary_rel_url := {ok, URL0}, clone_url := Repo}) -
     BaseDir = "/tmp/emqx-baseline-bin/",
     Dir = filename:basename(Repo, ".git") ++ [$-|Tag],
     Filename = filename:join(BaseDir, Dir),
-    Script = "mkdir -p ${OUTFILE} &&
-              wget -c -O ${OUTFILE}.zip ${URL} &&
-              unzip -n -d ${OUTFILE} ${OUTFILE}.zip",
+    Script = "echo \"Download: ${OUTFILE}\" &&
+              mkdir -p ${OUTFILE} &&
+              curl -f -L -o ${OUTFILE}.zip ${URL} &&
+              unzip -q -n -d ${OUTFILE} ${OUTFILE}.zip",
     Env = [{"TAG", Tag}, {"OUTFILE", Filename}, {"URL", URL}],
     bash(Script, Env),
     {ok, Filename}.
@@ -208,8 +209,8 @@ find_appup_actions(App,
     {OldUpgrade0, OldDowngrade0} = find_old_appup_actions(App, PrevVersion),
     OldUpgrade = ensure_all_patch_versions(App, CurrVersion, OldUpgrade0),
     OldDowngrade = ensure_all_patch_versions(App, CurrVersion, OldDowngrade0),
-    Upgrade = merge_update_actions(App, diff_app(App, CurrAppIdx, PrevAppIdx), OldUpgrade),
-    Downgrade = merge_update_actions(App, diff_app(App, PrevAppIdx, CurrAppIdx), OldDowngrade),
+    Upgrade = merge_update_actions(App, diff_app(up, App, CurrAppIdx, PrevAppIdx), OldUpgrade),
+    Downgrade = merge_update_actions(App, diff_app(down, App, PrevAppIdx, CurrAppIdx), OldDowngrade),
     if OldUpgrade =:= Upgrade andalso OldDowngrade =:= Downgrade ->
             %% The appup file has been already updated:
             [];
@@ -521,7 +522,7 @@ index_app(AppFile) ->
               , modules       = Modules
               }}.
 
-diff_app(App,
+diff_app(UpOrDown, App,
          #app{version = NewVersion, modules = NewModules},
          #app{version = OldVersion, modules = OldModules}) ->
     {New, Changed} =
@@ -539,17 +540,30 @@ diff_app(App,
                  , NewModules
                  ),
     Deleted = maps:keys(maps:without(maps:keys(NewModules), OldModules)),
-    NChanges = length(New) + length(Changed) + length(Deleted),
-    if NewVersion =:= OldVersion andalso NChanges > 0 ->
-            set_invalid(),
-            log("ERROR: Application '~p' contains changes, but its version is not updated~n", [App]);
-       NewVersion > OldVersion ->
-            log("INFO: Application '~p' has been updated: ~p -> ~p~n", [App, OldVersion, NewVersion]),
+    Changes = lists:filter(fun({_T, L}) -> length(L) > 0 end,
+                           [{added, New}, {changed, Changed}, {deleted, Deleted}]),
+    case NewVersion =:= OldVersion of
+        true when Changes =:= [] ->
+            %% no change
             ok;
-       true ->
+        true ->
+            set_invalid(),
+            case UpOrDown =:= up of
+                true ->
+                    %% only log for the upgrade case because it would be the same result
+                    log("ERROR: Application '~p' contains changes, but its version is not updated. ~s",
+                        [App, format_changes(Changes)]);
+                false ->
+                    ok
+            end;
+        false ->
+            log("INFO: Application '~p' has been updated: ~p --[~p]--> ~p~n", [App, OldVersion, UpOrDown, NewVersion]),
             ok
     end,
     {New, Changed, Deleted}.
+
+format_changes(Changes) ->
+    lists:map(fun({Tag, List}) -> io_lib:format("~p: ~p~n", [Tag, List]) end, Changes).
 
 -spec hashsums(file:filename()) -> #{module() => binary()}.
 hashsums(EbinDir) ->
@@ -607,12 +621,19 @@ locate(ebin_current, App, Suffix) ->
 locate(src, App, Suffix) ->
     AppStr = atom_to_list(App),
     SrcDirs = getopt(src_dirs),
-    case filelib:wildcard(SrcDirs ++ AppStr ++ Suffix) of
+    case find_app(SrcDirs ++ AppStr ++ Suffix) of
         [File] ->
             {ok, File};
         [] ->
-            undefined
+            undefined;
+        Files ->
+            error({more_than_one_app_found, Files})
     end.
+
+find_app(Pattern) ->
+    %% exclude _build dir inside apps
+    lists:filter(fun(S) -> string:find(S, "/_build/") =:= nomatch end,
+                 filelib:wildcard(Pattern)).
 
 bash(Script) ->
     bash(Script, []).
