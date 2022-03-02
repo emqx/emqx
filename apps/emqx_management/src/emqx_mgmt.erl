@@ -71,8 +71,8 @@
         , do_list_subscriptions/0
         ]).
 
-%% Routes
--export([ lookup_routes/1
+%% Topics
+-export([ lookup_topic/1
         ]).
 
 %% PubSub
@@ -357,7 +357,7 @@ lookup_subscriptions(Node, ClientId) ->
 %% Routes
 %%--------------------------------------------------------------------
 
-lookup_routes(Topic) ->
+lookup_topic(Topic) ->
     emqx_router:lookup_routes(Topic).
 
 %%--------------------------------------------------------------------

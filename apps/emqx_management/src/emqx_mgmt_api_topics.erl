@@ -14,17 +14,17 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mgmt_api_routes).
+-module(emqx_mgmt_api_topics).
 
 -include_lib("emqx/include/emqx.hrl").
 
 %% API
 -behaviour(minirest_api).
 
--export([api_spec/0]).
+-export([ api_spec/0]).
 
--export([ routes/2
-        , route/2]).
+-export([ topics/2
+        , topic/2]).
 
 -export([query/4]).
 
@@ -41,7 +41,7 @@
                         ]).
 
 api_spec() ->
-    {[routes_api(), route_api()], []}.
+    {[topics_api(), route_api()], []}.
 
 properties() ->
     properties([
@@ -49,10 +49,10 @@ properties() ->
         {node, string}
     ]).
 
-routes_api() ->
+topics_api() ->
     Metadata = #{
         get => #{
-            description => <<"EMQX routes">>,
+            description => <<"EMQX topics">>,
             parameters => [topic_param(query) , node_param()] ++ page_params(),
             responses => #{
                 <<"200">> => object_array_schema(properties(), <<"List route info">>),
@@ -60,12 +60,12 @@ routes_api() ->
             }
         }
     },
-    {"/routes", Metadata, routes}.
+    {"/topics", Metadata, topics}.
 
 route_api() ->
     Metadata = #{
         get => #{
-            description => <<"EMQX routes">>,
+            description => <<"EMQX topics">>,
             parameters => [topic_param(path)],
             responses => #{
                 <<"200">> =>
@@ -75,14 +75,14 @@ route_api() ->
             }
         }
     },
-    {"/routes/:topic", Metadata, route}.
+    {"/topics/:topic", Metadata, route}.
 
 %%%==============================================================================================
 %% parameters trans
-routes(get, #{query_string := Qs}) ->
+topics(get, #{query_string := Qs}) ->
     list(generate_topic(Qs)).
 
-route(get, #{bindings := Bindings}) ->
+topic(get, #{bindings := Bindings}) ->
     lookup(generate_topic(Bindings)).
 
 %%%==============================================================================================
@@ -92,7 +92,7 @@ list(Params) ->
     generate_response(Response).
 
 lookup(#{topic := Topic}) ->
-    case emqx_mgmt:lookup_routes(Topic) of
+    case emqx_mgmt:lookup_topic(Topic) of
         [] ->
             {404, #{code => ?TOPIC_NOT_FOUND, message => <<"Topic not found">>}};
         [Route] ->
