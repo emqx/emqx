@@ -378,7 +378,13 @@ t_next_pakt_id(_) ->
     Session2 = emqx_session:next_pkt_id(Session1),
     ?assertEqual(2, emqx_session:info(next_pkt_id, Session2)).
 
-%%--------------------------------------------------------------------
+t_obtain_next_pkt_id(_) ->
+    Session = session(#{next_pkt_id => 16#FFFF}),
+    {16#FFFF, Session1} = emqx_session:obtain_next_pkt_id(Session),
+    ?assertEqual(1, emqx_session:info(next_pkt_id, Session1)),
+    {1, Session2} = emqx_session:obtain_next_pkt_id(Session1),
+    ?assertEqual(2, emqx_session:info(next_pkt_id, Session2)).
+
 %% Helper functions
 %%--------------------------------------------------------------------
 
