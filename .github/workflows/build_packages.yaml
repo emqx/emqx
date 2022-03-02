@@ -22,7 +22,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.0-7:1.13.3-24.2.1-1-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-8:1.13.3-24.2.1-1-ubuntu20.04"
 
     outputs:
       DEP_ROCKSDB_REF: ${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
@@ -196,7 +196,7 @@ jobs:
     needs: prepare
     runs-on: ${{ matrix.build_machine }}
     container:
-      image: "ghcr.io/emqx/emqx-builder/5.0-7:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+      image: "ghcr.io/emqx/emqx-builder/5.0-8:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     strategy:
       fail-fast: false
@@ -225,6 +225,7 @@ jobs:
           - ubuntu20.04
           - ubuntu18.04
           - ubuntu16.04
+          - debian11
           - debian10
           - debian9
           - rockylinux8
@@ -328,7 +329,7 @@ jobs:
             --elixir "${IsElixir}" \
             --elixir-vsn "${ELIXIR}" \
             --system "${SYSTEM}" \
-            --builder "ghcr.io/emqx/emqx-builder/5.0-7:${ELIXIR}-${OTP}-${SYSTEM}"
+            --builder "ghcr.io/emqx/emqx-builder/5.0-8:${ELIXIR}-${OTP}-${SYSTEM}"
         done
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
@@ -454,7 +455,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-7:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-8:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
           RUN_FROM=${{ steps.pre-meta.outputs.img }}
           EMQX_NAME=${{ steps.pre-meta.outputs.emqx_name }}
         file: source/deploy/docker/Dockerfile
