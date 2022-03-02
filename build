@@ -85,17 +85,22 @@ make_doc() {
          halt(0)."
 }
 
-make_rel() {
-    ./rebar3 as "$PROFILE" tar
+assert_no_compile_time_only_deps() {
     if [ "$("$FIND" "_build/$PROFILE/rel/emqx/lib/" -maxdepth 1 -name 'gpb-*' -type d)" != "" ]; then
         echo "gpb should not be included in the release"
         exit 1
     fi
 }
 
+make_rel() {
+    ./rebar3 as "$PROFILE" tar
+    assert_no_compile_time_only_deps
+}
+
 make_elixir_rel() {
   export_release_vars "$PROFILE"
   mix release --overwrite
+  assert_no_compile_time_only_deps
 }
 
 ## extract previous version .tar.gz files to _build/$PROFILE/rel/emqx before making relup
