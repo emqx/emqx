@@ -27,6 +27,7 @@
         , kick_session/4
         , get_chann_conn_mod/3
         , lookup_by_clientid/3
+        , takeover_session/3
         , call/4
         , call/5
         , cast/4
@@ -80,6 +81,12 @@ kick_session(GwName, Action, ClientId, ChanPid) ->
 get_chann_conn_mod(GwName, ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_gateway_cm, do_get_chann_conn_mod,
              [GwName, ClientId, ChanPid]).
+
+-spec takeover_session(emqx_gateway_cm:gateway_name(),
+                       emqx_types:clientid(),
+                       pid()) -> boolean() | {badrpc, _}.
+takeover_session(GwName, ClientId, ChanPid) ->
+    rpc:call(node(ChanPid), emqx_gateway_cm, do_takeover_session, [GwName, ClientId, ChanPid]).
 
 -spec call(emqx_gateway_cm:gateway_name(),
            emqx_types:clientid(),

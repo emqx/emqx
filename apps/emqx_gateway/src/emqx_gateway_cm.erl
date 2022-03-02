@@ -78,6 +78,7 @@
         , do_get_chan_stats/3
         , do_set_chan_stats/4
         , do_kick_session/4
+        , do_takeover_session/3
         , do_get_chann_conn_mod/3
         , do_call/4
         , do_call/5
@@ -301,7 +302,7 @@ open_session(GwName, true = _CleanStart, ClientInfo, ConnInfo, CreateSessionFun,
     Self = self(),
     ClientId = maps:get(clientid, ClientInfo),
     Fun = fun(_) ->
-                  ok = discard_session(GwName, ClientId),
+                  _ = discard_session(GwName, ClientId),
                   Session = create_session(GwName,
                                            ClientInfo,
                                            ConnInfo,
@@ -394,7 +395,7 @@ takeover_session(GwName, ClientId) ->
                             , chan_pids => ChanPids
                             }),
             lists:foreach(fun(StalePid) ->
-                                  catch discard_session(ClientId, StalePid)
+                                  catch discard_session(GwName, ClientId, StalePid)
                           end, StalePids),
             do_takeover_session(GwName, ClientId, ChanPid)
     end.
@@ -415,21 +416,20 @@ do_takeover_session(GwName, ClientId, ChanPid) ->
     wrap_rpc(emqx_gateway_cm_proto_v1:takeover_session(GwName, ClientId, ChanPid)).
 
 %% @doc Discard all the sessions identified by the ClientId.
--spec discard_session(GwName :: gateway_name(), binary()) -> ok.
+-spec discard_session(GwName :: gateway_name(), binary()) -> ok | {error, not_found}.
 discard_session(GwName, ClientId) when is_binary(ClientId) ->
     case lookup_channels(GwName, ClientId) of
-        [] -> ok;
+        [] -> {error, not_found};
         ChanPids -> lists:foreach(fun(Pid) -> discard_session(GwName, ClientId, Pid) end, ChanPids)
     end.
 
 discard_session(GwName, ClientId, ChanPid) ->
     kick_session(GwName, discard, ClientId, ChanPid).
 
--spec kick_session(gateway_name(), emqx_types:clientid()) -> ok.
-
+-spec kick_session(gateway_name(), emqx_types:clientid()) -> ok | {error, not_found}.
 kick_session(GwName, ClientId) ->
     case lookup_channels(GwName, ClientId) of
-        [] -> ok;
+        [] -> {error, not_found};
         ChanPids ->
             ChanPids > 1 andalso begin
                 ?SLOG(warning, #{ msg => "more_than_one_channel_found"
@@ -438,7 +438,7 @@ kick_session(GwName, ClientId) ->
                       #{clientid => ClientId})
             end,
             lists:foreach(fun(Pid) ->
-                kick_session(GwName, ClientId, Pid)
+                _ = kick_session(GwName, ClientId, Pid)
             end, ChanPids)
     end.
 
