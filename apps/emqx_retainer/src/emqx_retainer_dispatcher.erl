@@ -22,7 +22,7 @@
 -include_lib("emqx/include/logger.hrl").
 
 %% API
--export([start_link/2
+-export([ start_link/2
         , dispatch/2
         , refresh_limiter/0
         ]).
@@ -241,7 +241,10 @@ do_deliver(Msgs, DeliverNum, Pid, Topic, Limiter) ->
             do_deliver(ToDelivers, Pid, Topic),
             do_deliver(Msgs2, DeliverNum, Pid, Topic, Limiter2);
         {drop, _} = Drop ->
-            ?SLOG(error, #{msg => "the retainer deliver failed because the required quota could not be obtained"}),
+            ?SLOG(error, #{msg => "retained_message_dropped",
+                           reason => "reached_ratelimit",
+                           dropped_count => length(ToDelivers)
+                          }),
             Drop
     end.
 

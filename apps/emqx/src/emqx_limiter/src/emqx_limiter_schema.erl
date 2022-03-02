@@ -68,7 +68,9 @@ fields(limiter) ->
     , {connection, sc(ref(limiter_opts), #{})}
     , {message_routing, sc(ref(limiter_opts), #{})}
     , {shared, sc(ref(shared_limiter_opts),
-                  #{description => <<"Some functions that do not need to use global and zone scope, them can shared use this type">>})}
+                  #{description =>
+                        <<"Some functions that do not need to use global and zone scope,"
+                          "them can shared use this type">>})}
     ];
 
 fields(limiter_opts) ->

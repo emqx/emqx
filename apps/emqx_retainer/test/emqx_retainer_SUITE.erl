@@ -57,7 +57,7 @@ init_per_suite(Config) ->
     meck:expect(emqx_alarm, activate, 3, ok),
     meck:expect(emqx_alarm, deactivate, 3, ok),
 
-    base_conf(),
+    load_base_conf(),
     emqx_ratelimiter_SUITE:base_conf(),
     emqx_common_test_helpers:start_apps([emqx_retainer]),
     Config.
@@ -84,7 +84,7 @@ end_per_testcase(_, Config) ->
     end,
     Config.
 
-base_conf() ->
+load_base_conf() ->
     ok = emqx_common_test_helpers:load_config(emqx_retainer_schema, ?BASE_CONF).
 
 %%--------------------------------------------------------------------

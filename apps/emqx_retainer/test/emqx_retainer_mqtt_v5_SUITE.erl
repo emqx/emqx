@@ -24,7 +24,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_retainer_SUITE:base_conf(),
+    emqx_retainer_SUITE:load_base_conf(),
     %% Meck emqtt
     ok = meck:new(emqtt, [non_strict, passthrough, no_history, no_link]),
     %% Start Apps
