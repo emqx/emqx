@@ -197,7 +197,8 @@ load(State) ->
 
 unload(#{expire_timer := ExpireTimer} = State) ->
     emqx:unhook('delivery.completed', {?MODULE, on_delivery_completed}),
-    State#{expire_timer := cancel_timer(ExpireTimer)}.
+    State#{enable := false,
+           expire_timer := cancel_timer(ExpireTimer)}.
 
 do_clear(Logs) ->
     Now = ?NOW,
