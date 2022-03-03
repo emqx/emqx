@@ -40,6 +40,8 @@ PREV_VERSION="${PREV_VERSION#[e|v]}"
 shift 1
 ESCRIPT_ARGS="$*"
 
+OTP_VSN="${OTP_VSN:-$(./scripts/get-otp-vsn.sh)}"
+
 SYSTEM="${SYSTEM:-$(./scripts/get-distro.sh)}"
 if [ -z "${ARCH:-}" ]; then
     UNAME="$(uname -m)"
@@ -56,7 +58,7 @@ if [ -z "${ARCH:-}" ]; then
     esac
 fi
 
-PACKAGE_NAME="${PROFILE}-${SYSTEM}-${PREV_VERSION}-${ARCH}.zip"
+PACKAGE_NAME="${PROFILE}-${PREV_VERSION}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.zip"
 DOWNLOAD_URL="https://www.emqx.com/downloads/${DIR}/v${PREV_VERSION}/${PACKAGE_NAME}"
 
 # shellcheck disable=SC2086
