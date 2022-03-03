@@ -65,25 +65,31 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management, emqx_modules]),
     ekka_mnesia:ensure_stopped().
 
-% init_per_testcase(t_default_password_persists_after_leaving_cluster, Config) ->
-%     end_per_suite(Config),
-%     case node() of
-%         nonode@nohost ->
-%             {ok, _} = net_kernel:start(['master@127.0.0.1', longnames]);
-% 
-%         _ ->
-%             ok
-%     end,
-%     init_per_suite(Config);
-% init_per_testcase(_, Config) ->
-%     Config.
-% 
-% end_per_testcase(t_default_password_persists_after_leaving_cluster, Config) ->
-%     end_per_suite(Config),
-%     ok = net_kernel:stop(),
-%     init_per_suite(Config);
-% end_per_testcase(_, Config) ->
-%     Config.
+init_per_testcase(t_default_password_persists_after_leaving_cluster, Config) ->
+    case node() of
+        nonode@nohost ->
+            end_per_suite(Config),
+            {ok, _} = net_kernel:start(['master@127.0.0.1', longnames]),
+            init_per_suite(Config);
+
+        _ ->
+            ok
+    end;
+init_per_testcase(_, Config) ->
+    Config.
+
+end_per_testcase(t_default_password_persists_after_leaving_cluster, Config) ->
+    case node() of
+        'master@127.0.0.1' ->
+            end_per_suite(Config),
+            ok = net_kernel:stop(),
+            init_per_suite(Config);
+
+        _ ->
+            ok
+    end;
+end_per_testcase(_, Config) ->
+    Config.
 
 t_overview(_) ->
     [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)), auth_header_()))|| Overview <- ?OVERVIEWS].
@@ -273,8 +279,7 @@ setup_node(Node, Apps) ->
     [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx | Apps]],
     ok = rpc:call(Node, emqx_ct_helpers, start_apps, [Apps, EnvHandler]),
 
-    Tables = mnesia:system_info(tables),
     ok = ekka:join(Node),
-    ok = rpc:call(Node, mnesia, wait_for_tables, [Tables, 10000]),
+    ok = rpc:call(Node, mnesia, wait_for_tables, [mqtt_admin, 10000]),
 
     ok.
