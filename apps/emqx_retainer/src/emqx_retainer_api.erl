@@ -187,7 +187,7 @@ to_bin_string(Data)  ->
     list_to_binary(io_lib:format("~p", [Data])).
 
 check_backend(Type, Params, Cont) ->
-    case emqx:get_config([retainer, config, type]) of
+    case emqx:get_config([retainer, backend, type]) of
         built_in_database ->
             Cont(Type, Params);
         _ ->
