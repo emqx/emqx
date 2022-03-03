@@ -20,6 +20,7 @@
 
 -include("src/mqttsn/include/emqx_sn.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -66,6 +67,10 @@
           clientinfo_override :: map(),
           %% Connection State
           conn_state    :: conn_state(),
+          %% Inflight register message queue
+          register_inflight :: maybe(term()),
+          %% Topics list for awaiting to register to client
+          register_awaiting_queue :: list(),
           %% Timer
           timers :: #{atom() => disable | undefined | reference()},
           %%% Takeover
@@ -88,10 +93,12 @@
 -type(replies() :: reply() | [reply()]).
 
 -define(TIMER_TABLE, #{
-          alive_timer  => keepalive,
-          retry_timer  => retry_delivery,
-          await_timer  => expire_awaiting_rel,
-          asleep_timer => expire_asleep
+          alive_timer    => keepalive,
+          retry_timer    => retry_delivery,
+          await_timer    => expire_awaiting_rel,
+          expire_timer   => expire_session,
+          asleep_timer   => expire_asleep,
+          register_timer => retry_register
          }).
 
 -define(DEFAULT_OVERRIDE,
@@ -103,6 +110,9 @@
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 
 -define(NEG_QOS_CLIENT_ID, <<"NegQoS-Client">>).
+
+-define(REGISTER_TIMEOUT, 10000). % 10s
+-define(DEFAULT_SESSION_EXPIRY, 7200000). %% 2h
 
 %%--------------------------------------------------------------------
 %% Init the channel
@@ -148,6 +158,7 @@ init(ConnInfo = #{peername := {PeerHost, _},
             , clientinfo = ClientInfo
             , clientinfo_override = Override
             , conn_state = idle
+            , register_awaiting_queue = []
             , timers = #{}
             , takeover = false
             , resuming = false
@@ -195,16 +206,23 @@ stats(#channel{session = Session})->
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
 
-enrich_conninfo(?SN_CONNECT_MSG(_Flags, _ProtoId, Duration, ClientId),
+enrich_conninfo(?SN_CONNECT_MSG(Flags, _ProtoId, Duration, ClientId),
                 Channel = #channel{conninfo = ConnInfo}) ->
+    CleanStart = Flags#mqtt_sn_flags.clean_start,
     NConnInfo = ConnInfo#{ clientid => ClientId
                          , proto_name => <<"MQTT-SN">>
                          , proto_ver => <<"1.2">>
-                         , clean_start => true
+                         , clean_start => CleanStart
                          , keepalive => Duration
-                         , expiry_interval => 0
+                         , expiry_interval => expiry_interval(Flags)
                          },
     {ok, Channel#channel{conninfo = NConnInfo}}.
+
+expiry_interval(#mqtt_sn_flags{clean_start = false}) ->
+    %% TODO: make it configurable
+    ?DEFAULT_SESSION_EXPIRY;
+expiry_interval(#mqtt_sn_flags{clean_start = true}) ->
+    0.
 
 run_conn_hooks(Packet, Channel = #channel{ctx = Ctx,
                                           conninfo = ConnInfo}) ->
@@ -308,26 +326,33 @@ ensure_connected(Channel = #channel{
 
 process_connect(Channel = #channel{
                            ctx = Ctx,
-                           conninfo = ConnInfo,
+                           conninfo = ConnInfo = #{clean_start := CleanStart},
                            clientinfo = ClientInfo
                           }) ->
     SessFun = fun(_,_) -> emqx_session:init(#{max_inflight => 1}) end,
     case emqx_gateway_ctx:open_session(
            Ctx,
-           true,
+           CleanStart,
            ClientInfo,
            ConnInfo,
            SessFun
           ) of
         {ok, #{session := Session,
-               present := _Present}} ->
+               present := false}} ->
             handle_out(connack, ?SN_RC_ACCEPTED,
                        Channel#channel{session = Session});
+        {ok, #{session := Session, present := true, pendings := Pendings}} ->
+            Pendings1 = lists:usort(lists:append(Pendings, emqx_misc:drain_deliver())),
+            NChannel = Channel#channel{session  = Session,
+                                       resuming = true,
+                                       pendings = Pendings1
+                                      },
+            handle_out(connack, ?SN_RC_ACCEPTED, NChannel);
         {error, Reason} ->
             ?SLOG(error, #{ msg => "failed_to_open_session"
                           , reason => Reason
                           }),
-            handle_out(connack, ?SN_RC_FAILED_SESSION, Channel)
+            handle_out(connack, ?SN_RC2_FAILED_SESSION, Channel)
     end.
 
 %%--------------------------------------------------------------------
@@ -501,6 +526,40 @@ handle_in(?SN_REGISTER_MSG(_TopicId, MsgId, TopicName),
             {ok, {outgoing, AckPacket}, Channel}
     end;
 
+handle_in(?SN_REGACK_MSG(TopicId, MsgId, ?SN_RC_ACCEPTED),
+          Channel = #channel{register_inflight = Inflight}) ->
+    case Inflight of
+        {TopicId, _, TopicName} ->
+            ?SLOG(debug, #{ msg => "register_topic_name_to_client_succesfully"
+                          , topic_id => TopicId
+                          , topic_name => TopicName
+                          }),
+            NChannel = cancel_timer(
+                         register_timer,
+                         Channel#channel{register_inflight = undefined}),
+            send_next_register_or_replay_publish(TopicName, NChannel);
+        _ ->
+            ?SLOG(error, #{ msg => "unexpected_regack_msg"
+                          , msg_id => MsgId
+                          , topic_id => TopicId
+                          , current_inflight => Inflight
+                          }),
+            {ok, Channel}
+    end;
+
+handle_in(?SN_REGACK_MSG(_TopicId, _MsgId, Reason), Channel) ->
+    case Reason of
+        ?SN_RC_CONGESTION ->
+            %% TODO: a or b?
+            %% a. waiting for next register timer
+            %% b. re-new the re-transmit timer
+            {ok, Channel};
+        _ ->
+            %% disconnect this client, if the reason is
+            %% ?SN_RC_NOT_SUPPORTED, ?SN_RC_INVALID_TOPIC_ID, etc.
+            handle_out(disconnect, ?SN_RC_NOT_SUPPORTED, Channel)
+    end;
+
 handle_in(PubPkt = ?SN_PUBLISH_MSG(_Flags, TopicId0, MsgId, _Data), Channel) ->
     TopicId = case is_integer(TopicId0) of
                   true -> TopicId0;
@@ -560,8 +619,7 @@ handle_in(?SN_PUBACK_MSG(TopicId, MsgId, ReturnCode),
                     %% involving the predefined topic name in register to
                     %% enhance the gateway's robustness even inconsistent
                     %% with MQTT-SN channels
-                    RegPkt = ?SN_REGISTER_MSG(TopicId, MsgId, TopicName),
-                    {ok, {outgoing, RegPkt}, Channel}
+                    handle_out(register, {TopicId, MsgId, TopicName}, Channel)
             end;
         _ ->
             ?SLOG(error, #{ msg => "cannt_handle_PUBACK"
@@ -687,12 +745,17 @@ handle_in(?SN_PINGRESP_MSG(), Channel) ->
     {ok, Channel};
 
 handle_in(?SN_DISCONNECT_MSG(Duration), Channel) ->
-    AckPkt = ?SN_DISCONNECT_MSG(undefined),
     case Duration of
         undefined ->
-            shutdown(normal, AckPkt, Channel);
+            handle_out(disconnect, normal, Channel);
         _ ->
-            %% TODO: asleep mechnisa
+            %% A DISCONNECT message with a Duration field is sent by a client
+            %% when it wants to go to the “asleep” state. The receipt of this
+            %% message is also acknowledged by the gateway by means of a
+            %% DISCONNECT message (without a duration field) [5.4.21]
+            %%
+            %% TODO: asleep mechanism
+            AckPkt = ?SN_DISCONNECT_MSG(undefined),
             {ok, {outgoing, AckPkt}, asleep(Duration, Channel)}
     end;
 
@@ -728,6 +791,31 @@ after_message_acked(ClientInfo, Msg, #channel{ctx = Ctx}) ->
 
 outgoing_and_update(Pkt) ->
     [{outgoing, Pkt}, {event, update}].
+
+send_next_register_or_replay_publish(TopicName,
+                                     Channel = #channel{
+                                                  session = Session,
+                                                  register_awaiting_queue = []}) ->
+    case emqx_inflight:to_list(emqx_session:info(inflight, Session)) of
+        [] -> {ok, Channel};
+        [{PktId, {inflight_data, _, Msg, _}}] ->
+            case TopicName =:= emqx_message:topic(Msg) of
+                false ->
+                    ?SLOG(warning, #{ msg => "replay_inflight_message_failed"
+                                    , acked_topic_name => TopicName
+                                    , inflight_message => Msg
+                                    }),
+                    {ok, Channel};
+                true ->
+                    NMsg = emqx_message:set_flag(dup, true, Msg),
+                    handle_out(publish, {PktId, NMsg}, Channel)
+            end
+    end;
+send_next_register_or_replay_publish(_TopicName,
+                                     Channel = #channel{
+                                                  register_awaiting_queue = RAQueue}) ->
+    [RegisterReq | NRAQueue] = RAQueue,
+    handle_out(register, RegisterReq, Channel#channel{register_awaiting_queue = NRAQueue}).
 
 %%--------------------------------------------------------------------
 %% Handle Publish
@@ -786,7 +874,7 @@ check_pub_authz({TopicName, _Flags, _Data},
               #channel{ctx = Ctx, clientinfo = ClientInfo}) ->
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, TopicName) of
         allow -> ok;
-        deny  -> {error, ?SN_RC_NOT_AUTHORIZE}
+        deny  -> {error, ?SN_RC2_NOT_AUTHORIZE}
     end.
 
 convert_pub_to_msg({TopicName, Flags, Data},
@@ -857,7 +945,7 @@ preproc_subs_type(?SN_SUBSCRIBE_MSG_TYPE(?SN_NORMAL_TOPIC,
     %% and returns it within a SUBACK message
     case emqx_sn_registry:register_topic(Registry, ClientId, TopicName) of
         {error, too_large} ->
-            {error, ?SN_EXCEED_LIMITATION};
+            {error, ?SN_RC2_EXCEED_LIMITATION};
         {error, wildcard_topic} ->
             %% If the client subscribes to a topic name which contains a
             %% wildcard character, the returning SUBACK message will contain
@@ -904,7 +992,7 @@ check_subscribe_authz({_TopicId, TopicName, _QoS},
         allow ->
             {ok, Channel};
         _ ->
-            {error, ?SN_RC_NOT_AUTHORIZE}
+            {error, ?SN_RC2_NOT_AUTHORIZE}
     end.
 
 run_client_subs_hook({TopicId, TopicName, QoS},
@@ -920,7 +1008,7 @@ run_client_subs_hook({TopicId, TopicName, QoS},
                             , topic_name => TopicName
                             , reason => "'client.subscribe' filtered it"
                             }),
-            {error, ?SN_EXCEED_LIMITATION};
+            {error, ?SN_RC2_EXCEED_LIMITATION};
         [{NTopicName, NSubOpts}|_] ->
             {ok, {TopicId, NTopicName, NSubOpts}, Channel}
     end.
@@ -941,7 +1029,7 @@ do_subscribe({TopicId, TopicName, SubOpts},
                             , topic_name => TopicName
                             , reason => emqx_reason_codes:text(?RC_QUOTA_EXCEEDED)
                             }),
-            {error, ?SN_EXCEED_LIMITATION}
+            {error, ?SN_RC2_EXCEED_LIMITATION}
     end.
 
 %%--------------------------------------------------------------------
@@ -1020,10 +1108,11 @@ awake(Channel = #channel{session = Session, clientinfo = ClientInfo}) ->
         {ok, More, Session2} ->
             {lists:append(Publishes, More), Session2}
     end,
-    {Packets, NChannel} = do_deliver(NPublishes,
-                                     Channel#channel{session = NSession}),
-    Outgoing = [{outgoing, Packets} || length(Packets) > 0],
-    {ok, Outgoing, NChannel}.
+    {Replies, NChannel} = outgoing_deliver_and_register(
+                            do_deliver(NPublishes,
+                                       Channel#channel{session = NSession})
+                           ),
+    {ok, Replies, NChannel}.
 
 asleep(Duration, Channel = #channel{conn_state = asleep}) ->
     %% 6.14: The client can also modify its sleep duration
@@ -1065,8 +1154,10 @@ handle_out(connack, ReasonCode,
     shutdown(Reason, AckPacket, Channel);
 
 handle_out(publish, Publishes, Channel) ->
-    {Packets, NChannel} = do_deliver(Publishes, Channel),
-    {ok, {outgoing, Packets}, NChannel};
+    {Replies, NChannel} = outgoing_deliver_and_register(
+                            do_deliver(Publishes, Channel)
+                           ),
+    {ok, Replies, NChannel};
 
 handle_out(puback, {TopicId, MsgId, Rc}, Channel) ->
     {ok, {outgoing, ?SN_PUBACK_MSG(TopicId, MsgId, Rc)}, Channel};
@@ -1080,6 +1171,43 @@ handle_out(pubrel, MsgId, Channel) ->
 handle_out(pubcomp, MsgId, Channel) ->
     {ok, {outgoing, ?SN_PUBREC_MSG(?SN_PUBCOMP, MsgId)}, Channel};
 
+handle_out(register, {TopicId, MsgId, TopicName},
+           Channel = #channel{register_inflight = undefined}) ->
+    Outgoing = {outgoing, ?SN_REGISTER_MSG(TopicId, MsgId, TopicName)},
+    NChannel = Channel#channel{register_inflight = {TopicId, MsgId, TopicName}},
+    {ok, Outgoing, ensure_timer(register_timer, ?REGISTER_TIMEOUT, NChannel)};
+
+handle_out(register, {TopicId, MsgId, TopicName},
+           Channel = #channel{register_inflight = Inflight,
+                              register_awaiting_queue = RAQueue}) ->
+    case Inflight of
+        {_, _, TopicName} ->
+            ?SLOG(debug, #{ msg => "ingore_handle_out_register"
+                          , requested_register_msg =>
+                             #{ topic_id => TopicId
+                              , msg_id => MsgId
+                              , topic_name => TopicName
+                              }
+                          }),
+            {ok, Channel};
+        {InflightTopicId, InflightMsgId, InflightTopicName} ->
+            NRAQueue = RAQueue ++ [{TopicId, MsgId, TopicName}],
+            ?SLOG(debug, #{ msg => "put_register_msg_into_awaiting_queue"
+                          , inflight_register_msg =>
+                             #{ topic_id => InflightTopicId
+                              , msg_id => InflightMsgId
+                              , topic_name => InflightTopicName
+                              }
+                          , queued_register_msg =>
+                             #{ topic_id => TopicId
+                              , msg_id => MsgId
+                              , topic_name => TopicName
+                              }
+                          , register_awaiting_queue_size => length(NRAQueue)
+                          }),
+            {ok, Channel#channel{register_awaiting_queue = NRAQueue}}
+    end;
+
 handle_out(disconnect, RC, Channel) ->
     DisPkt = ?SN_DISCONNECT_MSG(undefined),
     {ok, [{outgoing, DisPkt}, {close, RC}], Channel}.
@@ -1089,17 +1217,18 @@ handle_out(disconnect, RC, Channel) ->
 %%--------------------------------------------------------------------
 
 return_connack(AckPacket, Channel) ->
-    Replies = [{event, connected}, {outgoing, AckPacket}],
+    Replies1 = [{event, connected}, {outgoing, AckPacket}],
     case maybe_resume_session(Channel) of
-        ignore -> {ok, Replies, Channel};
+        ignore -> {ok, Replies1, Channel};
         {ok, Publishes, NSession} ->
             NChannel = Channel#channel{session  = NSession,
                                        resuming = false,
                                        pendings = []
                                       },
-            {Packets, NChannel1} = do_deliver(Publishes, NChannel),
-            Outgoing = [{outgoing, Packets} || length(Packets) > 0],
-            {ok, Replies ++ Outgoing, NChannel1}
+            {Replies2, NChannel1} = outgoing_deliver_and_register(
+                                      do_deliver(Publishes, NChannel)
+                                     ),
+            {ok, Replies1 ++ Replies2, NChannel1}
     end.
 
 %%--------------------------------------------------------------------
@@ -1122,7 +1251,6 @@ maybe_resume_session(#channel{session  = Session,
 %% Deliver publish: broker -> client
 %%--------------------------------------------------------------------
 
-%% return list(emqx_types:packet())
 do_deliver({pubrel, MsgId}, Channel) ->
     {[?SN_PUBREC_MSG(?SN_PUBREL, MsgId)], Channel};
 
@@ -1153,6 +1281,18 @@ do_deliver(Publishes, Channel) when is_list(Publishes) ->
         end, {[], Channel}, Publishes),
     {lists:reverse(Packets), NChannel}.
 
+outgoing_deliver_and_register({Packets, Channel}) ->
+    {NPackets, NRegisters} =
+        lists:foldl(fun(P, {Acc0, Acc1}) ->
+            case P of
+                {register, _} ->
+                    {Acc0, [P|Acc1]};
+                _ ->
+                    {[P|Acc0], Acc1}
+            end
+         end, {[], []}, Packets),
+    {[{outgoing, lists:reverse(NPackets)}] ++ lists:reverse(NRegisters), Channel}.
+
 message_to_packet(MsgId, Message,
                   #channel{registry = Registry,
                            clientinfo = #{clientid := ClientId}}) ->
@@ -1163,17 +1303,19 @@ message_to_packet(MsgId, Message,
                    ?QOS_0 -> 0;
                    _ -> MsgId
                end,
-    {TopicIdType, NTopicId} =
-        case emqx_sn_registry:lookup_topic_id(Registry, ClientId, Topic) of
-            {predef, PredefTopicId} ->
-                {?SN_PREDEFINED_TOPIC, PredefTopicId};
-            TopicId when is_integer(TopicId) ->
-                {?SN_NORMAL_TOPIC, TopicId};
-            undefined ->
-                {?SN_SHORT_TOPIC, Topic}
-        end,
-    Flags = #mqtt_sn_flags{qos = QoS, topic_id_type = TopicIdType},
-    ?SN_PUBLISH_MSG(Flags, NTopicId, NMsgId, Payload).
+    case emqx_sn_registry:lookup_topic_id(Registry, ClientId, Topic) of
+        {predef, PredefTopicId} ->
+            Flags = #mqtt_sn_flags{qos = QoS, topic_id_type = ?SN_PREDEFINED_TOPIC},
+            ?SN_PUBLISH_MSG(Flags, PredefTopicId, NMsgId, Payload);
+        TopicId when is_integer(TopicId) ->
+            Flags = #mqtt_sn_flags{qos = QoS, topic_id_type = ?SN_NORMAL_TOPIC},
+            ?SN_PUBLISH_MSG(Flags, TopicId, NMsgId, Payload);
+        undefined when byte_size(Topic) =:= 2 ->
+            Flags = #mqtt_sn_flags{qos = QoS, topic_id_type = ?SN_SHORT_TOPIC},
+            ?SN_PUBLISH_MSG(Flags, Topic, NMsgId, Payload);
+        undefined ->
+            {register, Topic}
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle call
@@ -1196,7 +1338,7 @@ handle_call({subscribe, Topic, SubOpts}, _From, Channel) ->
                                        Topic, SubOpts}, Channel) of
                         {ok, {_, NTopicName, NSubOpts}, NChannel} ->
                             reply({ok, {NTopicName, NSubOpts}}, NChannel);
-                        {error, ?SN_EXCEED_LIMITATION} ->
+                        {error, ?SN_RC2_EXCEED_LIMITATION} ->
                             reply({error, exceed_limitation}, Channel)
                     end;
                 _ ->
@@ -1223,17 +1365,21 @@ handle_call(kick, _From, Channel) ->
 handle_call(discard, _From, Channel) ->
     shutdown_and_reply(discarded, ok, Channel);
 
-%% XXX: No Session Takeover
-%handle_call({takeover, 'begin'}, _From, Channel = #channel{session = Session}) ->
-%    reply(Session, Channel#channel{takeover = true});
-%
-%handle_call({takeover, 'end'}, _From, Channel = #channel{session  = Session,
-%                                                  pendings = Pendings}) ->
-%    ok = emqx_session:takeover(Session),
-%    %% TODO: Should not drain deliver here (side effect)
-%    Delivers = emqx_misc:drain_deliver(),
-%    AllPendings = lists:append(Delivers, Pendings),
-%    shutdown_and_reply(takenover, AllPendings, Channel);
+handle_call({takeover, 'begin'}, _From, Channel = #channel{session = Session}) ->
+    %% In MQTT-SN the meaning of a “clean session” is extended to the Will
+    %% feature, i.e. not only the subscriptions are persistent, but also the
+    %% Will topic and the Will message. [6.3]
+    %%
+    %% FIXME: We need to reply WillMsg and Session
+    reply(Session, Channel#channel{takeover = true});
+
+handle_call({takeover, 'end'}, _From, Channel = #channel{session  = Session,
+                                                  pendings = Pendings}) ->
+    ok = emqx_session:takeover(Session),
+    %% TODO: Should not drain deliver here (side effect)
+    Delivers = emqx_misc:drain_deliver(),
+    AllPendings = lists:append(Delivers, Pendings),
+    shutdown_and_reply(takenover, AllPendings, Channel);
 
 %handle_call(list_authz_cache, _From, Channel) ->
 %    {reply, emqx_authz_cache:list_authz_cache(), Channel};
@@ -1282,8 +1428,10 @@ handle_info({sock_closed, Reason},
     %emqx_zone:enable_flapping_detect(Zone)
     %    andalso emqx_flapping:detect(ClientInfo),
     NChannel = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
-    %% XXX: Session keepper detect here
-    shutdown(Reason, NChannel);
+    case maybe_shutdown(Reason, NChannel) of
+        {ok, NChannel1} -> {ok, {event, disconnected}, NChannel1};
+        Shutdown -> Shutdown
+    end;
 
 handle_info({sock_closed, Reason},
             Channel = #channel{conn_state = disconnected}) ->
@@ -1299,11 +1447,47 @@ handle_info(clean_authz_cache, Channel) ->
 handle_info({subscribe, _}, Channel) ->
    {ok, Channel};
 
+handle_info({register, TopicName},
+            Channel = #channel{
+                         registry = Registry,
+                         session = Session}) ->
+    ClientId = clientid(Channel),
+    case emqx_sn_registry:lookup_topic_id(Registry,  ClientId, TopicName) of
+        undefined ->
+            case emqx_sn_registry:register_topic(Registry, ClientId, TopicName) of
+                {error, Reason} ->
+                    ?SLOG(error, #{ msg => "register_topic_failed"
+                                  , topic_name => TopicName
+                                  , reason => Reason
+                                  }),
+                    {ok, Channel};
+                TopicId ->
+                    {MsgId, NSession} = emqx_session:obtain_next_pkt_id(Session),
+                    handle_out(
+                      register,
+                      {TopicId, MsgId, TopicName},
+                      Channel#channel{session = NSession})
+            end;
+        Registered ->
+            ?SLOG(debug, #{ msg => "ignore_register_request"
+                          , registered_as => Registered
+                          }),
+            {ok, Channel}
+    end;
+
 handle_info(Info, Channel) ->
     ?SLOG(error, #{ msg => "unexpected_info"
                   , info => Info
                   }),
     {ok, Channel}.
+
+maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
+    case maps:get(expiry_interval, ConnInfo) of
+        ?UINT_MAX -> {ok, Channel};
+        I when I > 0 ->
+            {ok, ensure_timer(expire_timer, I, Channel)};
+        _ -> shutdown(Reason, Channel)
+    end.
 
 %%--------------------------------------------------------------------
 %% Ensure disconnected
@@ -1420,7 +1604,7 @@ handle_timeout(_TRef, {keepalive, StatVal},
             NChannel = Channel#channel{keepalive = NKeepalive},
             {ok, reset_timer(alive_timer, NChannel)};
         {error, timeout} ->
-            handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
+            handle_out(disconnect, ?SN_RC2_KEEPALIVE_TIMEOUT, Channel)
     end;
 
 handle_timeout(_TRef, retry_delivery,
@@ -1436,6 +1620,7 @@ handle_timeout(_TRef, retry_delivery,
             {ok, clean_timer(retry_timer, Channel#channel{session = NSession})};
         {ok, Publishes, Timeout, NSession} ->
             NChannel = Channel#channel{session = NSession},
+            %% XXX: These replay messages should awaiting register acked?
             handle_out(publish, Publishes, reset_timer(retry_timer, Timeout, NChannel))
     end;
 
@@ -1453,6 +1638,9 @@ handle_timeout(_TRef, expire_awaiting_rel,
         {ok, Timeout, NSession} ->
             {ok, reset_timer(await_timer, Timeout, Channel#channel{session = NSession})}
     end;
+
+handle_timeout(_TRef, expire_session, Channel) ->
+    shutdown(expired, Channel);
 
 handle_timeout(_TRef, expire_asleep, Channel) ->
     shutdown(asleep_timeout, Channel);
@@ -1542,6 +1730,9 @@ interval(await_timer, #channel{session = Session}) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
+clientid(#channel{clientinfo = #{clientid := ClientId}}) ->
+    ClientId.
+
 run_hooks(Ctx, Name, Args) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
     emqx_hooks:run(Name, Args).
@@ -1563,7 +1754,8 @@ returncode_name(?SN_RC_ACCEPTED) -> accepted;
 returncode_name(?SN_RC_CONGESTION) -> rejected_congestion;
 returncode_name(?SN_RC_INVALID_TOPIC_ID) -> rejected_invaild_topic_id;
 returncode_name(?SN_RC_NOT_SUPPORTED) -> rejected_not_supported;
-returncode_name(?SN_RC_NOT_AUTHORIZE) -> rejected_not_authorize;
-returncode_name(?SN_RC_FAILED_SESSION) -> rejected_failed_open_session;
-returncode_name(?SN_EXCEED_LIMITATION) -> rejected_exceed_limitation;
+returncode_name(?SN_RC2_NOT_AUTHORIZE) -> rejected_not_authorize;
+returncode_name(?SN_RC2_FAILED_SESSION) -> rejected_failed_open_session;
+returncode_name(?SN_RC2_KEEPALIVE_TIMEOUT) -> rejected_keepalive_timeout;
+returncode_name(?SN_RC2_EXCEED_LIMITATION) -> rejected_exceed_limitation;
 returncode_name(_) -> accepted.

@@ -25,6 +25,7 @@
 
 -include("include/emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% APIs
 -export([start_link/1]).
@@ -33,6 +34,7 @@
         , open_session/6
         , kick_session/2
         , kick_session/3
+        , takeover_session/2
         , register_channel/4
         , unregister_channel/2
         , insert_channel_info/4
@@ -46,6 +48,11 @@
         , get_chan_stats/2
         , get_chan_stats/3
         , connection_closed/2
+        ]).
+
+-export([ call/3
+        , call/4
+        , cast/3
         ]).
 
 -export([ with_channel/3
@@ -70,9 +77,12 @@
         , do_set_chan_info/4
         , do_get_chan_stats/3
         , do_set_chan_stats/4
-        , do_discard_session/3
-        , do_kick_session/3
+        , do_kick_session/4
+        , do_takeover_session/3
         , do_get_chann_conn_mod/3
+        , do_call/4
+        , do_call/5
+        , do_cast/4
         ]).
 
 -export_type([ gateway_name/0
@@ -292,7 +302,7 @@ open_session(GwName, true = _CleanStart, ClientInfo, ConnInfo, CreateSessionFun,
     Self = self(),
     ClientId = maps:get(clientid, ClientInfo),
     Fun = fun(_) ->
-                  ok = discard_session(GwName, ClientId),
+                  _ = discard_session(GwName, ClientId),
                   Session = create_session(GwName,
                                            ClientInfo,
                                            ConnInfo,
@@ -304,10 +314,39 @@ open_session(GwName, true = _CleanStart, ClientInfo, ConnInfo, CreateSessionFun,
           end,
     locker_trans(GwName, ClientId, Fun);
 
-open_session(_Type, false = _CleanStart,
-             _ClientInfo, _ConnInfo, _CreateSessionFun, _SessionMod) ->
-    %% TODO: The session takeover logic will be implemented on 0.9?
-    {error, not_supported_now}.
+open_session(GwName, false = _CleanStart,
+             ClientInfo = #{clientid := ClientId},
+             ConnInfo, CreateSessionFun, SessionMod) ->
+    Self = self(),
+
+    ResumeStart =
+        fun(_) ->
+            CreateSess =
+                fun() ->
+                    Session = create_session(
+                                GwName, ClientInfo, ConnInfo,
+                                CreateSessionFun, SessionMod),
+                        register_channel(
+                          GwName, ClientId, Self, ConnInfo),
+                        {ok, #{session => Session, present => false}}
+                end,
+                case takeover_session(GwName, ClientId) of
+                    {ok, ConnMod, ChanPid, Session} ->
+                        ok = emqx_session:resume(ClientInfo, Session),
+                        case request_stepdown({takeover, 'end'}, ConnMod, ChanPid) of
+                            {ok, Pendings} ->
+                                register_channel(
+                                  GwName, ClientId, Self, ConnInfo),
+                                {ok, #{session  => Session,
+                                       present  => true,
+                                       pendings => Pendings}};
+                            {error, _} ->
+                                CreateSess()
+                        end;
+                    {error, _Reason} -> CreateSess()
+                end
+            end,
+    locker_trans(GwName, ClientId, ResumeStart).
 
 %% @private
 create_session(GwName, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
@@ -341,77 +380,166 @@ create_session(GwName, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
         throw(Reason)
     end.
 
-%% @doc Discard all the sessions identified by the ClientId.
--spec discard_session(GwName :: gateway_name(), binary()) -> ok.
-discard_session(GwName, ClientId) when is_binary(ClientId) ->
-    case lookup_channels(GwName, ClientId) of
-        [] -> ok;
-        ChanPids -> lists:foreach(fun(Pid) -> safe_discard_session(GwName, ClientId, Pid) end, ChanPids)
-    end.
-
-%% @private
-safe_discard_session(GwName, ClientId, Pid) ->
-    try
-        discard_session(GwName, ClientId, Pid)
-    catch
-        _ : noproc -> % emqx_ws_connection: call
-            ok;
-        _ : {noproc, _} -> % emqx_connection: gen_server:call
-            ok;
-        _ : {{shutdown, _}, _} ->
-            ok;
-        _ : _Error : _St ->
-            ok
-    end.
-
--spec do_discard_session(gateway_name(), emqx_types:clientid(), pid()) ->
-          _.
-do_discard_session(GwName, ClientId, ChanPid) ->
-    case get_chann_conn_mod(GwName, ClientId, ChanPid) of
-        undefined -> ok;
-        ConnMod when is_atom(ConnMod) ->
-            ConnMod:call(ChanPid, discard, ?T_TAKEOVER)
-    end.
-
-%% @private
--spec discard_session(gateway_name(), emqx_types:clientid(), pid()) ->
-          _.
-discard_session(GwName, ClientId, ChanPid) ->
-    wrap_rpc(emqx_gateway_cm_proto_v1:discard_session(GwName, ClientId, ChanPid)).
-
--spec kick_session(gateway_name(), emqx_types:clientid())
-    -> {error, any()}
-     | ok.
-kick_session(GwName, ClientId) ->
+%% @doc Try to takeover a session.
+-spec(takeover_session(gateway_name(), emqx_types:clientid())
+      -> {error, term()}
+       | {ok, atom(), pid(), emqx_session:session()}).
+takeover_session(GwName, ClientId) ->
     case lookup_channels(GwName, ClientId) of
         [] -> {error, not_found};
         [ChanPid] ->
-            kick_session(GwName, ClientId, ChanPid);
+            do_takeover_session(GwName, ClientId, ChanPid);
         ChanPids ->
             [ChanPid|StalePids] = lists:reverse(ChanPids),
-            ?SLOG(error, #{ msg => "more_than_one_channel_found"
-                          , chan_pids => ChanPids
-                          }),
+            ?SLOG(warning, #{ msg => "more_than_one_channel_found"
+                            , chan_pids => ChanPids
+                            }),
             lists:foreach(fun(StalePid) ->
-                              catch discard_session(GwName, ClientId, StalePid)
+                                  catch discard_session(GwName, ClientId, StalePid)
                           end, StalePids),
-            kick_session(GwName, ClientId, ChanPid)
+            do_takeover_session(GwName, ClientId, ChanPid)
     end.
 
--spec do_kick_session(gateway_name(), emqx_types:clientid(), pid()) ->
-          _.
-do_kick_session(GwName, ClientId, ChanPid) ->
-    case get_chan_info(GwName, ClientId, ChanPid) of
-        #{conninfo := #{conn_mod := ConnMod}} ->
-            ConnMod:call(ChanPid, kick, ?T_TAKEOVER);
+do_takeover_session(GwName, ClientId, ChanPid) when node(ChanPid) == node() ->
+    case get_chann_conn_mod(GwName, ClientId, ChanPid) of
         undefined ->
-            {error, not_found}
+            {error, not_found};
+        ConnMod when is_atom(ConnMod) ->
+            case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid) of
+                {ok, Session} ->
+                    {ok, ConnMod, ChanPid, Session};
+                {error, Reason} ->
+                    {error, Reason}
+            end
+    end;
+do_takeover_session(GwName, ClientId, ChanPid) ->
+    wrap_rpc(emqx_gateway_cm_proto_v1:takeover_session(GwName, ClientId, ChanPid)).
+
+%% @doc Discard all the sessions identified by the ClientId.
+-spec discard_session(GwName :: gateway_name(), binary()) -> ok | {error, not_found}.
+discard_session(GwName, ClientId) when is_binary(ClientId) ->
+    case lookup_channels(GwName, ClientId) of
+        [] -> {error, not_found};
+        ChanPids -> lists:foreach(fun(Pid) -> discard_session(GwName, ClientId, Pid) end, ChanPids)
     end.
 
--spec kick_session(gateway_name(), emqx_types:clientid(), pid()) ->
-          _.
+discard_session(GwName, ClientId, ChanPid) ->
+    kick_session(GwName, discard, ClientId, ChanPid).
+
+-spec kick_session(gateway_name(), emqx_types:clientid()) -> ok | {error, not_found}.
+kick_session(GwName, ClientId) ->
+    case lookup_channels(GwName, ClientId) of
+        [] -> {error, not_found};
+        ChanPids ->
+            ChanPids > 1 andalso begin
+                ?SLOG(warning, #{ msg => "more_than_one_channel_found"
+                                , chan_pids => ChanPids
+                                },
+                      #{clientid => ClientId})
+            end,
+            lists:foreach(fun(Pid) ->
+                _ = kick_session(GwName, ClientId, Pid)
+            end, ChanPids)
+    end.
+
 kick_session(GwName, ClientId, ChanPid) ->
-    wrap_rpc(emqx_gateway_cm_proto_v1:kick_session(GwName, ClientId, ChanPid)).
+    kick_session(GwName, kick, ClientId, ChanPid).
+
+%% @private This function is shared for session 'kick' and 'discard' (as the first arg Action).
+kick_session(GwName, Action, ClientId, ChanPid) ->
+    try
+        wrap_rpc(emqx_gateway_cm_proto_v1:kick_session(GwName, Action, ClientId, ChanPid))
+    catch
+        Error : Reason ->
+            %% This should mostly be RPC failures.
+            %% However, if the node is still running the old version
+            %% code (prior to emqx app 4.3.10) some of the RPC handler
+            %% exceptions may get propagated to a new version node
+            ?SLOG(error, #{ msg => "failed_to_kick_session_on_remote_node"
+                          , node => node(ChanPid)
+                          , action => Action
+                          , error => Error
+                          , reason => Reason
+                          },
+                #{clientid => ClientId})
+    end.
+
+-spec do_kick_session(gateway_name(),
+                      kick | discard,
+                      emqx_types:clientid(),
+                      pid()) -> ok.
+do_kick_session(GwName, Action, ClientId, ChanPid) ->
+    case get_chann_conn_mod(GwName, ClientId, ChanPid) of
+        undefined -> ok;
+        ConnMod when is_atom(ConnMod) ->
+            ok = request_stepdown(Action, ConnMod, ChanPid)
+    end.
+
+%% @private call a local stale session to execute an Action.
+%% If failed to response (e.g. timeout) force a kill.
+%% Keeping the stale pid around, or returning error or raise an exception
+%% benefits nobody.
+-spec request_stepdown(Action, module(), pid())
+-> ok
+   | {ok, emqx_session:session() | list(emqx_type:deliver())}
+   | {error, term()}
+     when Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'}.
+request_stepdown(Action, ConnMod, Pid) ->
+    Timeout =
+    case Action == kick orelse Action == discard of
+        true -> ?T_KICK;
+        _ -> ?T_TAKEOVER
+    end,
+    Return =
+    %% this is essentailly a gen_server:call implemented in emqx_connection
+    %% and emqx_ws_connection.
+    %% the handle_call is implemented in emqx_channel
+    try apply(ConnMod, call, [Pid, Action, Timeout]) of
+        ok -> ok;
+        Reply -> {ok, Reply}
+    catch
+        _ : noproc -> % emqx_ws_connection: call
+            ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action}),
+            {error, noproc};
+        _ : {noproc, _} -> % emqx_connection: gen_server:call
+            ok = ?tp(debug, "session_already_gone", #{pid => Pid, action => Action}),
+            {error, noproc};
+        _ : Reason = {shutdown, _} ->
+            ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action}),
+            {error, Reason};
+        _ : Reason = {{shutdown, _}, _} ->
+            ok = ?tp(debug, "session_already_shutdown", #{pid => Pid, action => Action}),
+            {error, Reason};
+        _ : {timeout, {gen_server, call, _}} ->
+            ?tp(warning, "session_stepdown_request_timeout",
+                #{pid => Pid,
+                  action => Action,
+                  stale_channel => stale_channel_info(Pid)
+                 }),
+            ok = force_kill(Pid),
+            {error, timeout};
+        _ : Error : St ->
+            ?tp(error, "session_stepdown_request_exception",
+                #{pid => Pid,
+                  action => Action,
+                  reason => Error,
+                  stacktrace => St,
+                  stale_channel => stale_channel_info(Pid)
+                 }),
+            ok = force_kill(Pid),
+            {error, Error}
+    end,
+    case Action == kick orelse Action == discard of
+        true -> ok;
+        _ -> Return
+    end.
+
+force_kill(Pid) ->
+    exit(Pid, kill),
+    ok.
+
+stale_channel_info(Pid) ->
+    process_info(Pid, [status, message_queue_len, current_stacktrace]).
 
 with_channel(GwName, ClientId, Fun) ->
     case lookup_channels(GwName, ClientId) of
@@ -437,9 +565,47 @@ do_get_chann_conn_mod(GwName, ClientId, ChanPid) ->
 get_chann_conn_mod(GwName, ClientId, ChanPid) ->
     wrap_rpc(emqx_gateway_cm_proto_v1:get_chann_conn_mod(GwName, ClientId, ChanPid)).
 
+-spec call(gateway_name(), emqx_types:clientid(), term()) -> term().
+call(GwName, ClientId, Req) ->
+    with_channel(GwName, ClientId, fun(ChanPid) ->
+                                           wrap_rpc(emqx_gateway_cm_proto_v1:call(GwName, ClientId, ChanPid, Req))
+                                   end).
+
+-spec call(gateway_name(), emqx_types:clientid(), term(), timeout()) -> term().
+call(GwName, ClientId, Req, Timeout) ->
+    with_channel(GwName, ClientId, fun(ChanPid) ->
+                                           wrap_rpc(
+                                             emqx_gateway_cm_proto_v1:call(
+                                               GwName, ClientId, ChanPid, Req, Timeout))
+                                   end).
+
+do_call(GwName, ClientId, ChanPid, Req) ->
+    case do_get_chann_conn_mod(GwName, ClientId, ChanPid) of
+        undefined -> error(noproc);
+        ConnMod -> ConnMod:call(ChanPid, Req)
+    end.
+
+do_call(GwName, ClientId, ChanPid, Req, Timeout) ->
+    case do_get_chann_conn_mod(GwName, ClientId, ChanPid) of
+        undefined -> error(noproc);
+        ConnMod -> ConnMod:call(ChanPid, Req, Timeout)
+    end.
+
+-spec cast(gateway_name(), emqx_types:clientid(), term()) -> term().
+cast(GwName, ClientId, Req) ->
+    with_channel(GwName, ClientId, fun(ChanPid) ->
+                                           wrap_rpc(emqx_gateway_cm_proto_v1:cast(GwName, ClientId, ChanPid, Req))
+                                   end).
+
+do_cast(GwName, ClientId, ChanPid, Req) ->
+    case do_get_chann_conn_mod(GwName, ClientId, ChanPid) of
+        undefined -> error(noproc);
+        ConnMod -> ConnMod:cast(ChanPid, Req)
+    end.
+
 %% Locker
 
-locker_trans(_Type, undefined, Fun) ->
+locker_trans(_GwName, undefined, Fun) ->
     Fun([]);
 locker_trans(GwName, ClientId, Fun) ->
     Locker = lockername(GwName),
@@ -530,7 +696,7 @@ code_change(_OldVsn, State, _Extra) ->
 do_unregister_channel_task(Items, GwName, CmTabs) ->
     lists:foreach(
       fun({ChanPid, ClientId}) ->
-          do_unregister_channel(GwName, {ClientId, ChanPid}, CmTabs)
+        do_unregister_channel(GwName, {ClientId, ChanPid}, CmTabs)
       end, Items).
 
 %%--------------------------------------------------------------------

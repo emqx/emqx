@@ -60,6 +60,7 @@
         , info/2
         , is_session/1
         , stats/1
+        , obtain_next_pkt_id/1
         ]).
 
 -export([ subscribe/4
@@ -746,6 +747,10 @@ inc_pd(Key, Inc) ->
 %%--------------------------------------------------------------------
 %% Next Packet Id
 %%--------------------------------------------------------------------
+
+obtain_next_pkt_id(Session) ->
+    {Session#session.next_pkt_id, next_pkt_id(Session)}.
+
 next_pkt_id(Session = #session{next_pkt_id = ?MAX_PACKET_ID}) ->
     Session#session{next_pkt_id = 1};
 

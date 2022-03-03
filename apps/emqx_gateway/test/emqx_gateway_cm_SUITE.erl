@@ -61,9 +61,10 @@ end_per_testcase(_TestCase, Conf) ->
 %%--------------------------------------------------------------------
 
 t_open_session(_) ->
-    {error, not_supported_now} = emqx_gateway_cm:open_session(
-                                 ?GWNAME, false, clientinfo(), conninfo(),
-                                 fun(_, _) -> #{} end),
+    {ok, #{present := false,
+           session := #{}}} = emqx_gateway_cm:open_session(
+                                ?GWNAME, false, clientinfo(), conninfo(),
+                                fun(_, _) -> #{} end),
 
     {ok, SessionRes} = emqx_gateway_cm:open_session(
                          ?GWNAME, true, clientinfo(), conninfo(),
@@ -189,7 +190,7 @@ t_kick_session(_) ->
 
     ok = emqx_gateway_cm:kick_session(?GWNAME, ?CLIENTID),
 
-    receive discard -> ok
+    receive kick -> ok
     after 100 -> ?assert(false, "waiting discard msg timeout")
     end,
     receive
