@@ -301,7 +301,7 @@ merge_envs(SchemaMod, RawConf) ->
             },
     hocon_tconf:merge_env_overrides(SchemaMod, RawConf, all, Opts).
 
--spec check_config(hocon_schema:shema(), raw_config()) -> {AppEnvs, CheckedConf}
+-spec check_config(hocon_schema:schema(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().
 check_config(SchemaMod, RawConf) ->
     check_config(SchemaMod, RawConf, #{}).

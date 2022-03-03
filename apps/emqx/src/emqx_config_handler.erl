@@ -333,10 +333,6 @@ bin_path(ConfKeyPath) -> [bin(Key) || Key <- ConfKeyPath].
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B.
 
-list(Atom) when is_atom(Atom) -> atom_to_list(Atom);
-list(Bin) when is_binary(Bin) -> binary_to_list(Bin);
-list(List) when is_list(List) -> List.
-
 atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8);
 atom(Str) when is_list(Str) ->
@@ -368,12 +364,8 @@ assert_callback_function(Mod) ->
     ok.
 
 schema(SchemaModule, [RootKey | _]) ->
-    Roots = SchemaModule:roots(),
-    Fields =
-        case lists:keyfind(list(RootKey), 1, Roots) of
-            false -> lists:keyfind(RootKey, 1, Roots);
-            Fields1 -> Fields1
-        end,
+    Roots = hocon_schema:roots(SchemaModule),
+    {_, Fields} = lists:keyfind(bin(RootKey), 1, Roots),
     #{roots => [root], fields => #{root => [Fields]}}.
 
 load_prev_handlers() ->
