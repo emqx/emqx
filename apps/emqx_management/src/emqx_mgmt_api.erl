@@ -397,7 +397,6 @@ to_integer(B) when is_binary(B) ->
 to_timestamp(I) when is_integer(I) ->
     I;
 to_timestamp(B) when is_binary(B) ->
-
     binary_to_integer(B).
 
 aton(B) when is_binary(B) ->

@@ -129,11 +129,11 @@ schema("/clients") ->
                 {like_clientid, hoconsc:mk(binary(), #{
                     in => query,
                     required => false,
-                    desc => <<"Fuzzy search of client identifier by substring method">>})},
+                    desc => <<"Fuzzy search `clientid` as substring">>})},
                 {like_username, hoconsc:mk(binary(), #{
                     in => query,
                     required => false,
-                    desc => <<"Client user name, fuzzy search by substring">>})},
+                    desc => <<"Fuzzy search `username` as substring">>})},
                 {gte_created_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
                     in => query,
                     required => false,
