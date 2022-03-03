@@ -18,7 +18,7 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
 export PKG_VSN
 
-SYSTEM="$(./scripts/get-distro.sh)"
+SYSTEM="${SYSTEM:-$(./scripts/get-distro.sh)}"
 
 ARCH="$(uname -m)"
 case "$ARCH" in
