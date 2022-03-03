@@ -288,7 +288,7 @@ save_configs(ConfKeyPath, AppEnvs, CheckedConf, NewRawConf, OverrideConf, Update
 %%   2. either the old or the new config is not of map type
 %% the behaviour is merging the new the config to the old config if they are maps.
 merge_to_old_config(UpdateReq, RawConf) when is_map(UpdateReq), is_map(RawConf) ->
-    {ok, emqx_map_lib:deep_merge(RawConf, UpdateReq)};
+    {ok, maps:merge(RawConf, UpdateReq)};
 merge_to_old_config(UpdateReq, _RawConf) ->
     {ok, UpdateReq}.
 

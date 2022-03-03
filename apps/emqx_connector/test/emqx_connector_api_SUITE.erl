@@ -113,8 +113,14 @@ set_special_configs(_) ->
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     %% assert we there's no connectors and no bridges at first
-    {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
-    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+    {ok, 200, Connectors} = request(get, uri(["connectors"]), []),
+    lists:foreach(fun(#{<<"id">> := ConnectorID}) ->
+        {ok, 200, <<>>} = request(delete, uri(["connectors", ConnectorID]), [])
+                  end, jsx:decode(Connectors)),
+    {ok, 200, Bridges} = request(get, uri(["bridges"]), []),
+    lists:foreach(fun(#{<<"id">> := BridgeID}) ->
+        {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), [])
+              end,  jsx:decode(Bridges)),
     Config.
 end_per_testcase(_, _Config) ->
     clear_resources(),

@@ -168,7 +168,10 @@ t_update_re_failed(_Config) ->
     }],
     Error = {badmatch,
         {error,
-            {emqx_modules_schema,
+            {#{fields =>
+            #{root => [{"rewrite",
+                {array, {ref,emqx_modules_schema,"rewrite"}}}]},
+                roots => [root]},
                 [{validation_error,
                     #{path => "rewrite.1.re",
                       reason => {<<"*^test/*">>,{"nothing to repeat",0}},
