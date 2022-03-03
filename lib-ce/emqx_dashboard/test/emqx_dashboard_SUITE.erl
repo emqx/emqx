@@ -280,6 +280,6 @@ setup_node(Node, Apps) ->
     ok = rpc:call(Node, emqx_ct_helpers, start_apps, [Apps, EnvHandler]),
 
     ok = ekka:join(Node),
-    ok = rpc:call(Node, mnesia, wait_for_tables, [mqtt_admin, 10000]),
+    %ok = rpc:call(Node, mnesia, wait_for_tables, [mqtt_admin, 10000]),
 
     ok.
