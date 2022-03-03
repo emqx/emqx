@@ -19,105 +19,102 @@
 -behaviour(minirest_api).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("typerefl/include/types.hrl").
 
--export([api_spec/0]).
+%% API
+-export([api_spec/0, paths/0, schema/1, namespace/0, fields/1]).
 
 -export([ lookup_retained_warp/2
         , with_topic_warp/2
         , config/2]).
 
--import(emqx_mgmt_api_configs, [gen_schema/1]).
--import(emqx_mgmt_util, [ object_array_schema/2
-                        , object_schema/2
-                        , schema/1
-                        , schema/2
-                        , error_schema/2
-                        , page_params/0
-                        , properties/1]).
+-import(hoconsc, [mk/2, ref/1, ref/2, array/1]).
+-import(emqx_dashboard_swagger, [error_codes/2]).
 
 -define(MAX_PAYLOAD_SIZE, 1048576). %% 1MB = 1024 x 1024
+-define(PREFIX, "/mqtt/retainer").
+-define(TAGS, [<<"retainer">>]).
+
+namespace() -> "retainer".
 
 api_spec() ->
-    {[lookup_retained_api(), with_topic_api(), config_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
+
+paths() ->
+    [?PREFIX, ?PREFIX ++ "/messages", ?PREFIX ++ "/message/:topic"].
+
+schema(?PREFIX) ->
+    #{operationId => config,
+      get => #{tags => ?TAGS,
+               description => <<"Get retainer config">>,
+               responses => #{200 => mk(conf_schema(), #{desc => "The config content"}),
+                              404 => error_codes(['NOT_FOUND'], <<"Config not found">>)
+                             }
+              },
+      put => #{tags => ?TAGS,
+               description => <<"Update retainer config">>,
+               'requestBody' => mk(conf_schema(), #{desc => "The config content"}),
+               responses => #{200 => mk(conf_schema(), #{desc => "Update configs successfully"}),
+                              404 => error_codes(['UPDATE_FAILED'], <<"Update config failed">>)
+                             }
+              }
+     };
+
+schema(?PREFIX ++ "/messages") ->
+    #{operationId => lookup_retained_warp,
+      get => #{tags => ?TAGS,
+               description => <<"List retained messages">>,
+               parameters => page_params(),
+               responses => #{200 => mk(array(ref(message_summary)), #{desc => "The result list"}),
+                              405 => error_codes(['ACTION_NOT_ALLOWED'], <<"Unsupported backend">>)
+                             }
+              }
+        };
+
+schema(?PREFIX ++ "/message/:topic") ->
+    #{operationId => with_topic_warp,
+      get => #{tags => ?TAGS,
+               description => <<"Lookup a message by a topic without wildcards">>,
+               parameters => parameters(),
+               responses => #{200 => mk(ref(message), #{desc => "Details of the message"}),
+                              404 => error_codes(['NOT_FOUND'], <<"Viewed message doesn't exist">>),
+                              405 => error_codes(['ACTION_NOT_ALLOWED'], <<"Unsupported backend">>)
+                             }
+              },
+      delete => #{tags => ?TAGS,
+                  description => <<"Delete matching messages">>,
+                  parameters => parameters(),
+                  responses => #{204 => <<>>,
+                                 405 => error_codes(['ACTION_NOT_ALLOWED'],
+                                                    <<"Unsupported backend">>)
+                                }
+                 }
+     }.
+
+page_params() ->
+    emqx_dashboard_swagger:fields(page) ++ emqx_dashboard_swagger:fields(limit).
 
 conf_schema() ->
-    gen_schema(emqx:get_raw_config([retainer])).
-
-message_props() ->
-    properties([
-        {id, string, <<"Message ID">>},
-        {topic, string, <<"MQTT Topic">>},
-        {qos, integer, <<"MQTT QoS">>, [0, 1, 2]},
-        {payload, string, <<"MQTT Payload">>},
-        {publish_at, string, <<"Publish datetime, in RFC 3339 format">>},
-        {from_clientid, string, <<"Publisher ClientId">>},
-        {from_username, string, <<"Publisher Username">>}
-    ]).
+    ref(emqx_retainer_schema, "retainer").
 
 parameters() ->
-    [#{
-        name => topic,
-        in => path,
-        required => true,
-        schema => #{type => "string"}
-    }].
+    [{topic, mk(binary(), #{in => path,
+                            required => true,
+                            desc => "The target topic"
+                           })}].
 
-lookup_retained_api() ->
-    Metadata = #{
-        get => #{
-            description => <<"List retained messages">>,
-            parameters => page_params(),
-            responses => #{
-                <<"200">> => object_array_schema(
-                    maps:without([payload], message_props()),
-                    <<"List retained messages">>),
-                <<"405">> => schema(<<"NotAllowed">>)
-            }
-        }
-    },
-    {"/mqtt/retainer/messages", Metadata, lookup_retained_warp}.
+fields(message_summary) ->
+    [ {id, mk(binary(), #{desc => <<"Message ID">>})}
+    , {topic, mk(binary(), #{desc => "The topic"})}
+    , {qos, mk(emqx_schema:qos(), #{desc => "The QoS"})}
+    , {publish_at, mk(string(), #{desc => "Publish datetime, in RFC 3339 format"})}
+    , {from_clientid, mk(binary(), #{desc => "Publisher ClientId"})}
+    , {from_username, mk(binary(), #{desc => "Publisher Username"})}
+    ];
 
-with_topic_api() ->
-    MetaData = #{
-        get => #{
-            description => <<"lookup matching messages">>,
-            parameters => parameters(),
-            responses => #{
-                <<"200">> => object_schema(message_props(), <<"List retained messages">>),
-                <<"404">> => error_schema(<<"Retained Not Exists">>, ['NOT_FOUND']),
-                <<"405">> => schema(<<"NotAllowed">>)
-            }
-        },
-        delete => #{
-            description => <<"delete matching messages">>,
-            parameters => parameters(),
-            responses => #{
-                <<"204">> => schema(<<"Succeeded">>),
-                <<"405">> => schema(<<"NotAllowed">>)
-            }
-        }
-    },
-    {"/mqtt/retainer/message/:topic", MetaData, with_topic_warp}.
-
-config_api() ->
-    MetaData = #{
-        get => #{
-            description => <<"get retainer config">>,
-            responses => #{
-                <<"200">> => schema(conf_schema(), <<"Get configs successfully">>),
-                <<"404">> => error_schema(<<"Config not found">>, ['NOT_FOUND'])
-            }
-        },
-        put => #{
-            description => <<"Update retainer config">>,
-            'requestBody' => schema(conf_schema()),
-            responses => #{
-                <<"200">> => schema(conf_schema(), <<"Update configs successfully">>),
-                <<"400">> => error_schema(<<"Update configs failed">>, ['UPDATE_FAILED'])
-            }
-        }
-    },
-    {"/mqtt/retainer", MetaData, config}.
+fields(message) ->
+    [{payload, mk(binary(), #{desc => "The payload content"})} |
+     fields(message_summary)].
 
 lookup_retained_warp(Type, Params) ->
     check_backend(Type, Params, fun lookup_retained/2).
@@ -134,7 +131,7 @@ config(put, #{body := Body}) ->
         {200, emqx:get_raw_config([retainer])}
     catch _:Reason:_ ->
             {400,
-             #{code => 'UPDATE_FAILED',
+             #{code => <<"UPDATE_FAILED">>,
                message => iolist_to_binary(io_lib:format("~p~n", [Reason]))}}
     end.
 
@@ -154,7 +151,9 @@ with_topic(get, #{bindings := Bindings}) ->
         [H | _] ->
             {200, format_detail_message(H)};
         _ ->
-            {404, #{code => 'NOT_FOUND'}}
+            {404, #{code => <<"NOT_FOUND">>,
+                    message => <<"Viewed message doesn't exist">>
+                   }}
     end;
 
 with_topic(delete, #{bindings := Bindings}) ->
@@ -193,6 +192,7 @@ check_backend(Type, Params, Cont) ->
             Cont(Type, Params);
         _ ->
             {405,
-             #{<<"content-type">> => <<"text/plain">>},
-             <<"This API only for built in database">>}
+             #{code => <<"ACTION_NOT_ALLOWED">>,
+               message => <<"This API only for built in database">>}
+            }
     end.
