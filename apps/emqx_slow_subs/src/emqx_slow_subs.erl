@@ -140,8 +140,7 @@ init([]) ->
     Enable = emqx:get_config([slow_subs, enable]),
     {ok, check_enable(Enable, InitState)}.
 
-handle_call({update_settings, #{enable := Enable} = Conf}, _From, State) ->
-    emqx_config:put([slow_subs], Conf),
+handle_call({update_settings, #{enable := Enable}}, _From, State) ->
     State2 = check_enable(Enable, State),
     {reply, ok, State2};
 
