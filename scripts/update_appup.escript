@@ -171,9 +171,11 @@ download_prev_release(Tag, #{binary_rel_url := {ok, URL0}, clone_url := Repo}) -
     BaseDir = "/tmp/emqx-baseline-bin/",
     Dir = filename:basename(Repo, ".git") ++ [$-|Tag],
     Filename = filename:join(BaseDir, Dir),
-    Script = "echo \"Download: ${OUTFILE}\" &&
-              mkdir -p ${OUTFILE} &&
-              curl -f -L -o ${OUTFILE}.zip ${URL} &&
+    Script = "mkdir -p ${OUTFILE} &&
+              if [ ! -f \"${OUTFILE}.zip\" ]; then \
+                echo \"Download: ${OUTFILE}\" && \
+                curl -f -L -o \"${OUTFILE}.zip\" \"${URL}\"; \
+              fi &&
               unzip -q -n -d ${OUTFILE} ${OUTFILE}.zip",
     Env = [{"TAG", Tag}, {"OUTFILE", Filename}, {"URL", URL}],
     bash(Script, Env),
@@ -540,19 +542,30 @@ diff_app(UpOrDown, App,
                  , NewModules
                  ),
     Deleted = maps:keys(maps:without(maps:keys(NewModules), OldModules)),
-    NChanges = length(New) + length(Changed) + length(Deleted),
+    Changes = lists:filter(fun({_T, L}) -> length(L) > 0 end,
+                           [{added, New}, {changed, Changed}, {deleted, Deleted}]),
     case NewVersion =:= OldVersion of
-        true when NChanges =:= 0 ->
+        true when Changes =:= [] ->
             %% no change
             ok;
         true ->
             set_invalid(),
-            log("ERROR: Application '~p' contains changes, but its version is not updated~n", [App]);
+            case UpOrDown =:= up of
+                true ->
+                    %% only log for the upgrade case because it would be the same result
+                    log("ERROR: Application '~p' contains changes, but its version is not updated. ~s",
+                        [App, format_changes(Changes)]);
+                false ->
+                    ok
+            end;
         false ->
             log("INFO: Application '~p' has been updated: ~p --[~p]--> ~p~n", [App, OldVersion, UpOrDown, NewVersion]),
             ok
     end,
     {New, Changed, Deleted}.
+
+format_changes(Changes) ->
+    lists:map(fun({Tag, List}) -> io_lib:format("~p: ~p~n", [Tag, List]) end, Changes).
 
 -spec hashsums(file:filename()) -> #{module() => binary()}.
 hashsums(EbinDir) ->
@@ -614,7 +627,9 @@ locate(src, App, Suffix) ->
         [File] ->
             {ok, File};
         [] ->
-            undefined
+            undefined;
+        Files ->
+            error({more_than_one_app_found, Files})
     end.
 
 find_app(Pattern) ->
