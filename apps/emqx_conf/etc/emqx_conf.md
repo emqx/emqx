@@ -19,7 +19,7 @@ The `*-override.conf` files are overwritten at runtime when changes
 are made from dashboard UI, management HTTP API, or CLI.
 
 **NOTE** Config values from `*-override.conf` are **not** mapped to boot configs for
-the config feilds attributed with `mapping: path.to.boot.config.key`
+the config fields attributed with `mapping: path.to.boot.config.key`
 
 For detailed override rules, see [Config Overlay Rules](#config-overlay-rules).
 
