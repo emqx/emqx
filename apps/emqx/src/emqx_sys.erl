@@ -175,7 +175,7 @@ terminate(_Reason, #state{heartbeat = TRef1, ticker = TRef2}) ->
     lists:foreach(fun emqx_misc:cancel_timer/1, [TRef1, TRef2]).
 
 unload_event_hooks() ->
-    lists:foreach(fun(K, _) ->
+    maps:foreach(fun(K, _) ->
         {HookPoint, Fun} = hook_and_fun(K),
         emqx_hooks:del(HookPoint, {?MODULE, Fun})
     end, sys_event_message()).
