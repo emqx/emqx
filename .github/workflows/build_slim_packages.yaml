@@ -1,10 +1,6 @@
 name: Build slim packages
 
 on:
-  push:
-    tags:
-      - v*
-      - e*
   pull_request:
   workflow_dispatch:
 
