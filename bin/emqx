@@ -49,7 +49,7 @@ if ! check_eralng_start >/dev/null 2>&1; then
     fi
     echoerr "There seem to be missing dynamic libs from the OS."
     echoerr "Using libs from ${DYNLIBS_DIR} instead."
-    echoerr "NOTE: EMQX's rpc/deb package installation is recommended!"
+    echoerr "NOTE: EMQX's rpm or deb package installation is recommended!"
 fi
 
 ## backward compatible
