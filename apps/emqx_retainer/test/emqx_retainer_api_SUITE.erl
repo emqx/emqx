@@ -22,128 +22,117 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--import(emqx_common_test_http, [ request_api/3
-                               , request_api/5
-                               , get_http_data/1
-                               , create_default_app/0
-                               , delete_default_app/0
-                               , default_auth_header/0
-                               ]).
-
--define(HOST, "http://127.0.0.1:8081/").
--define(API_VERSION, "v4").
--define(BASE_PATH, "api").
--define(CFG_URI, "/configs/retainer").
+-define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
+-import(emqx_mgmt_api_test_util, [request_api/2, request_api/5, api_path/1, auth_header_/0]).
 
 all() ->
-    %%    TODO: V5 API
-    %%    emqx_common_test_helpers:all(?MODULE).
-    [].
-
-groups() ->
-    [].
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    application:load(emqx_conf),
+    ok = ekka:start(),
+    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
+    meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
+    meck:expect(emqx_alarm, activate, 3, ok),
+    meck:expect(emqx_alarm, deactivate, 3, ok),
+
     application:stop(emqx_retainer),
-    emqx_common_test_helpers:start_apps([emqx_retainer, emqx_management], fun set_special_configs/1),
-    create_default_app(),
+    emqx_retainer_SUITE:load_base_conf(),
+    emqx_mgmt_api_test_util:init_suite([emqx_retainer]),
     Config.
 
-end_per_suite(_Config) ->
-    delete_default_app(),
-    emqx_common_test_helpers:stop_apps([emqx_management, emqx_retainer]).
+end_per_suite(Config) ->
+    ekka:stop(),
+    mria:stop(),
+    mria_mnesia:delete_schema(),
+    meck:unload(emqx_alarm),
+    emqx_mgmt_api_test_util:end_suite([emqx_slow_subs]),
+    Config.
 
 init_per_testcase(_, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(),
+    application:ensure_all_started(emqx_retainer),
+    timer:sleep(500),
     Config.
-
-set_special_configs(emqx_retainer) ->
-    emqx_retainer_SUITE:init_emqx_retainer_conf();
-set_special_configs(emqx_management) ->
-    emqx_config:put([emqx_management], #{listeners => [#{protocol => http, port => 8081}],
-                                         applications =>[#{id => "admin", secret => "public"}]}),
-    ok;
-set_special_configs(_) ->
-    ok.
 
 %%------------------------------------------------------------------------------
 %% Test Cases
 %%------------------------------------------------------------------------------
 
 t_config(_Config) ->
-    {ok, Return} = request_http_rest_lookup([?CFG_URI]),
-    NowCfg = get_http_data(Return),
-    NewCfg = NowCfg#{<<"msg_expiry_interval">> => timer:seconds(60)},
-    RetainerConf = #{<<"emqx_retainer">> => NewCfg},
+    Path = api_path(["mqtt", "retainer"]),
+    {ok, ConfJson} = request_api(get, Path),
+    ReturnConf = decode_json(ConfJson),
+    ?assertMatch(#{backend := _, enable := _, flow_control := _,
+                   max_payload_size := _, msg_clear_interval := _,
+                   msg_expiry_interval := _},
+                 ReturnConf),
 
-    {ok, _} = request_http_rest_update([?CFG_URI], RetainerConf),
-    {ok, UpdateReturn} = request_http_rest_lookup(["retainer"]),
-    ?assertEqual(NewCfg, get_http_data(UpdateReturn)),
-    ok.
+    UpdateConf = fun(Enable) ->
+                         RawConf = emqx_json:decode(ConfJson, [return_maps]),
+                         UpdateJson = RawConf#{<<"enable">> := Enable},
+                         {ok, UpdateResJson} = request_api(put,
+                                                           Path, [], auth_header_(), UpdateJson),
+                         UpdateRawConf = emqx_json:decode(UpdateResJson, [return_maps]),
+                         ?assertEqual(Enable, maps:get(<<"enable">>, UpdateRawConf))
+                 end,
 
-t_enable_disable(_Config) ->
-    Conf = switch_emqx_retainer(undefined, true),
+    UpdateConf(false),
+    UpdateConf(true).
+
+t_messages(_) ->
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+    emqx_retainer:clean(),
+    timer:sleep(500),
+
+    Each = fun(I) ->
+                   emqtt:publish(C1, <<"retained/", (I + 60)>>,
+                                 <<"retained">>,
+                                 [{qos, 0}, {retain, true}])
+           end,
+
+    lists:foreach(Each, lists:seq(1, 5)),
+
+    {ok, MsgsJson} = request_api(get, api_path(["mqtt", "retainer", "messages"])),
+    Msgs = decode_json(MsgsJson),
+    ?assert(erlang:length(Msgs) >= 5), %% maybe has $SYS messages
+
+    [First | _] = Msgs,
+    ?assertMatch(#{msgid := _, topic := _, qos := _,
+                   publish_at := _, from_clientid := _, from_username := _
+                  },
+                 First),
+
+    ok = emqtt:disconnect(C1).
+
+t_lookup_and_delete(_) ->
 
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
+    emqx_retainer:clean(),
+    timer:sleep(500),
 
-    emqtt:publish(C1, <<"retained">>, <<"this is a retained message">>, [{qos, 0}, {retain, true}]),
-    timer:sleep(100),
+    emqtt:publish(C1, <<"retained/api">>, <<"retained">>, [{qos, 0}, {retain, true}]),
 
-    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
-    ?assertEqual(1, length(receive_messages(1))),
+    API = api_path(["mqtt", "retainer", "message", "retained%2Fapi"]),
+    {ok, LookupJson} = request_api(get, API),
+    LookupResult = decode_json(LookupJson),
 
-    _ = switch_emqx_retainer(Conf, false),
+    ?assertMatch(#{msgid := _, topic := _, qos := _, payload := _,
+                   publish_at := _, from_clientid := _, from_username := _
+                  },
+                 LookupResult),
 
-    {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained">>),
-    emqtt:publish(C1, <<"retained">>, <<"this is a retained message">>, [{qos, 0}, {retain, true}]),
-    timer:sleep(100),
-    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
-    ?assertEqual(0, length(receive_messages(1))),
+    {ok, []} = request_api(delete, API),
+
+    {error, {"HTTP/1.1", 404, "Not Found"}} = request_api(get, API),
 
     ok = emqtt:disconnect(C1).
 
 %%--------------------------------------------------------------------
 %% HTTP Request
 %%--------------------------------------------------------------------
-request_http_rest_lookup(Path) ->
-    request_api(get, uri([Path]), default_auth_header()).
-
-request_http_rest_update(Path, Params) ->
-    request_api(put, uri([Path]), [], default_auth_header(), Params).
-
-uri(Parts) when is_list(Parts) ->
-    NParts = [b2l(E) || E <- Parts],
-    ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION | NParts]).
-
-%% @private
-b2l(B) when is_binary(B) ->
-    binary_to_list(B);
-b2l(L) when is_list(L) ->
-    L.
-
-receive_messages(Count) ->
-    receive_messages(Count, []).
-receive_messages(0, Msgs) ->
-    Msgs;
-receive_messages(Count, Msgs) ->
-    receive
-        {publish, Msg} ->
-            ct:log("Msg: ~p ~n", [Msg]),
-            receive_messages(Count-1, [Msg|Msgs]);
-        Other ->
-            ct:log("Other Msg: ~p~n",[Other]),
-            receive_messages(Count, Msgs)
-    after 2000 ->
-            Msgs
-    end.
-
-switch_emqx_retainer(undefined, IsEnable) ->
-    {ok, Return} = request_http_rest_lookup([?COMMON_SHARD]),
-    NowCfg = get_http_data(Return),
-    switch_emqx_retainer(NowCfg, IsEnable);
-
-switch_emqx_retainer(NowCfg, IsEnable) ->
-    NewCfg = NowCfg#{<<"enable">> => IsEnable},
-    RetainerConf = #{<<"emqx_retainer">> => NewCfg},
-    {ok, _} = request_http_rest_update([?CFG_URI], RetainerConf),
-    NewCfg.
+decode_json(Data) ->
+    BinJson = emqx_json:decode(Data, [return_maps]),
+    emqx_map_lib:unsafe_atom_key_map(BinJson).

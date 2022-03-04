@@ -25,6 +25,7 @@
 -export([ start_link/2
         , dispatch/2
         , refresh_limiter/0
+        , worker/0
         ]).
 
 %% gen_server callbacks
@@ -49,6 +50,9 @@ refresh_limiter() ->
                           gen_server:cast(Pid, ?FUNCTION_NAME)
                   end,
                   Workers).
+
+worker() ->
+    gproc_pool:pick_worker(?POOL, self()).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -79,6 +83,7 @@ start_link(Pool, Id) ->
           {stop, Reason :: term()} |
           ignore.
 init([Pool, Id]) ->
+    erlang:process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     Bucket = emqx:get_config([retainer, flow_control, limiter_bucket_name]),
     Limiter = emqx_limiter_server:connect(shared, Bucket),
@@ -187,10 +192,6 @@ format_status(_Opt, Status) ->
 %% @private
 cast(Msg) ->
     gen_server:cast(worker(), Msg).
-
-%% @private
-worker() ->
-    gproc_pool:pick_worker(?POOL, self()).
 
 -spec dispatch(context(), pid(), topic(), cursor(), limiter()) -> {ok, limiter()}.
 dispatch(Context, Pid, Topic, Cursor, Limiter) ->
