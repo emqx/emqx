@@ -362,11 +362,12 @@ fields("db") ->
     [ {"backend",
        sc(hoconsc:enum([mnesia, rlog]),
           #{ mapping => "mria.db_backend"
-           , default => mnesia
+           , default => rlog
            , desc => """
 Select the backend for the embedded database.<br/>
-<code>mnesia</code> is the default backend, that offers decent performance in small clusters.<br/>
-<code>rlog</code> is a new experimental backend that is suitable for very large clusters.
+<code>rlog</code> is the default backend, a new experimental backend
+that is suitable for very large clusters.<br/>
+<code>mnesia</code> is a backend that offers decent performance in small clusters.
 """
            })}
     , {"role",
@@ -391,7 +392,10 @@ to <code>rlog</code>.
            , desc => """
 List of core nodes that the replicant will connect to.<br/>
 Note: this parameter only takes effect when the <code>backend</code> is set
-to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.
+to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.<br/>
+This values needs to be defined for manual or static cluster discovery mechanisms.<br/>
+If an automatic cluster discovery mechanism is being used (such as <code>etcd</code>),
+there is no need to set this value.
 """
            })}
     , {"rpc_module",

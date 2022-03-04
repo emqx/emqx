@@ -5,12 +5,18 @@ set -euxo pipefail
 export _EMQX_DOCKER_IMAGE_TAG="$1"
 _EMQX_TEST_DB_BACKEND="${2:-${_EMQX_TEST_DB_BACKEND:-mnesia}}"
 
-if [ "$_EMQX_TEST_DB_BACKEND" = "rlog" ]
-then
-  CLUSTER_OVERRIDES="-f .ci/docker-compose-file/docker-compose-emqx-cluster-rlog.override.yaml"
-else
-  CLUSTER_OVERRIDES=""
-fi
+case "$_EMQX_TEST_DB_BACKEND" in
+  rlog)
+    CLUSTER_OVERRIDES=".ci/docker-compose-file/docker-compose-emqx-cluster-rlog.override.yaml"
+    ;;
+  mnesia)
+    CLUSTER_OVERRIDES=".ci/docker-compose-file/docker-compose-emqx-cluster-mnesia.override.yaml"
+    ;;
+  *)
+    echo "ERROR: Unknown DB backend: ${_EMQX_TEST_DB_BACKEND}"
+    exit 1
+    ;;
+esac
 
 {
   echo "HOCON_ENV_OVERRIDE_PREFIX=EMQX_"
@@ -39,10 +45,9 @@ is_cluster_up() {
     is_node_listening node2.emqx.io
 }
 
-# shellcheck disable=SC2086
 docker-compose \
   -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
-  $CLUSTER_OVERRIDES \
+  -f "$CLUSTER_OVERRIDES" \
   -f .ci/docker-compose-file/docker-compose-python.yaml \
   up -d
 
