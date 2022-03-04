@@ -144,8 +144,8 @@ roots(medium) ->
     [ {"broker",
        sc(ref("broker"),
          #{})}
-    , {"sys_topic",
-       sc(ref("sys_topic"),
+    , {"sys_topics",
+       sc(ref("sys_topics"),
           #{})}
     , {"rate_limit",
        sc(ref("rate_limit"),
@@ -902,7 +902,7 @@ fields("broker_perf") ->
            })}
     ];
 
-fields("sys_topic") ->
+fields("sys_topics") ->
     [ {"sys_msg_interval",
        sc(hoconsc:union([disabled, duration()]),
           #{ default => "1m"
