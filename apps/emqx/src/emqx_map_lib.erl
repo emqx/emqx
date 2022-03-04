@@ -61,8 +61,8 @@ deep_find([Key | KeyPath] = Path, Map) when is_map(Map) ->
         {ok, SubMap} -> deep_find(KeyPath, SubMap);
         error -> {not_found, Path, Map}
     end;
-deep_find(_KeyPath, Data) ->
-    {not_found, _KeyPath, Data}.
+deep_find(KeyPath, Data) ->
+    {not_found, KeyPath, Data}.
 
 -spec deep_put(config_key_path(), map(), term()) -> map().
 deep_put([], _Map, Data) ->

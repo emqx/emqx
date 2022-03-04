@@ -83,26 +83,33 @@ schema("/authorization/sources") ->
      , get =>
            #{ description => <<"List all authorization sources">>
             , responses =>
-                  #{ 200 => mk( array(hoconsc:union([ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)]))
+                  #{ 200 => mk( array(hoconsc:union(
+                      [ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)]))
                               , #{desc => <<"Authorization source">>})
                    }
             }
      , post =>
            #{ description => <<"Add a new source">>
-            , 'requestBody' => mk( hoconsc:union([ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)])
+            , 'requestBody' => mk( hoconsc:union(
+                                   [ref(?API_SCHEMA_MODULE, Type)
+                                        || Type <- authz_sources_types(detailed)])
                                  , #{desc => <<"Source config">>})
             , responses =>
                   #{ 204 => <<"Authorization source created successfully">>
-                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST],
+                                                               <<"Bad Request">>)
                    }
             }
      , put =>
            #{ description => <<"Update all sources">>
-            , 'requestBody' => mk( array(hoconsc:union([ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)]))
+            , 'requestBody' => mk( array(hoconsc:union(
+                                  [ref(?API_SCHEMA_MODULE, Type)
+                                       || Type <- authz_sources_types(detailed)]))
                                  , #{desc => <<"Sources">>})
             , responses =>
                   #{ 204 => <<"Authorization source updated successfully">>
-                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST],
+                              <<"Bad Request">>)
                    }
             }
      };
@@ -112,7 +119,9 @@ schema("/authorization/sources/:type") ->
            #{ description => <<"Get a authorization source">>
             , parameters => parameters_field()
             , responses =>
-                  #{ 200 => mk( hoconsc:union([ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)])
+                  #{ 200 => mk( hoconsc:union(
+                               [ref(?API_SCHEMA_MODULE, Type)
+                                   || Type <- authz_sources_types(detailed)])
                               , #{desc => <<"Authorization source">>})
                    , 404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
                    }
@@ -120,7 +129,8 @@ schema("/authorization/sources/:type") ->
      , put =>
            #{ description => <<"Update source">>
             , parameters => parameters_field()
-            , 'requestBody' => mk( hoconsc:union([ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)]))
+            , 'requestBody' => mk( hoconsc:union([ref(?API_SCHEMA_MODULE, Type)
+                                   || Type <- authz_sources_types(detailed)]))
             , responses =>
                   #{ 204 => <<"Authorization source updated successfully">>
                    , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)

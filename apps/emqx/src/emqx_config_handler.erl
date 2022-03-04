@@ -260,17 +260,20 @@ call_pre_config_update(#{?MOD := HandlerName}, OldRawConf, UpdateReq, ConfKeyPat
 call_pre_config_update(_Handlers, OldRawConf, UpdateReq, _ConfKeyPath) ->
     merge_to_old_config(UpdateReq, OldRawConf).
 
-call_post_config_update(#{?MOD := HandlerName}, OldConf, NewConf, AppEnvs, UpdateReq, Result, ConfKeyPath) ->
+call_post_config_update(#{?MOD := HandlerName}, OldConf, NewConf,
+    AppEnvs, UpdateReq, Result, ConfKeyPath) ->
     case erlang:function_exported(HandlerName, post_config_update, 5) of
         true ->
-            case HandlerName:post_config_update(ConfKeyPath, UpdateReq, NewConf, OldConf, AppEnvs) of
+            case HandlerName:post_config_update(ConfKeyPath, UpdateReq,
+                NewConf, OldConf, AppEnvs) of
                 ok -> {ok, Result};
                 {ok, Result1} -> {ok, Result#{HandlerName => Result1}};
                 {error, Reason} -> {error, {post_config_update, HandlerName, Reason}}
             end;
         false -> {ok, Result}
     end;
-call_post_config_update(_Handlers, _OldConf, _NewConf, _AppEnvs, _UpdateReq, Result, _ConfKeyPath) ->
+call_post_config_update(_Handlers, _OldConf, _NewConf, _AppEnvs,
+    _UpdateReq, Result, _ConfKeyPath) ->
     {ok, Result}.
 
 save_configs(ConfKeyPath, AppEnvs, CheckedConf, NewRawConf, OverrideConf, UpdateArgs, Opts) ->

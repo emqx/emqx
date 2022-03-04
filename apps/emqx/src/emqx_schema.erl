@@ -21,6 +21,7 @@
 -dialyzer(no_contracts).
 -dialyzer(no_unused).
 -dialyzer(no_fail_call).
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
 -include("emqx_authentication.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -382,7 +383,8 @@ after idling for 'Keepalive * backoff * 2'."""
     , {"max_inflight",
        sc(range(1, 65535),
           #{ default => 32,
-             desc => "Maximum size of the Inflight Window storing QoS1/2 messages delivered but un-acked."
+             desc => "Maximum size of the Inflight Window storing QoS1/2"
+                     " messages delivered but un-acked."
            })
       }
     , {"retry_interval",
@@ -400,7 +402,8 @@ after idling for 'Keepalive * backoff * 2'."""
     , {"await_rel_timeout",
        sc(duration(),
           #{ default => "300s",
-             desc => "The QoS2 messages (Client -> Broker) will be dropped if awaiting PUBREL timeout."
+             desc => "The QoS2 messages (Client -> Broker) will be dropped"
+                     " if awaiting PUBREL timeout."
            })
       }
     , {"session_expiry_interval",
@@ -1099,7 +1102,8 @@ fields("trace") ->
         default => text,
         desc => """
 Determine the format of the payload format in the trace file.<br>
-`text`: Text-based protocol or plain text protocol. It is recommended when payload is JSON encoded.<br>
+`text`: Text-based protocol or plain text protocol.
+ It is recommended when payload is JSON encoded.<br>
 `hex`: Binary hexadecimal encode. It is recommended when payload is a custom binary protocol.<br>
 `hidden`: payload is obfuscated as `******`
         """
