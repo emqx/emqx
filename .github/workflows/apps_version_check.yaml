@@ -6,7 +6,22 @@ jobs:
   check_apps_version:
     runs-on: ubuntu-20.04
 
+    strategy:
+      matrix:
+        erl_otp:
+        - 24.1.5-3
+        os:
+        - ubuntu20.04
+
+    container: ghcr.io/emqx/emqx-builder/4.4-5:${{ matrix.erl_otp }}-${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v1
       - name: Check apps version
         run: ./scripts/apps-version-check.sh
+      - name: Check relup (ce)
+        if: endsWith(github.repository, 'emqx')
+        run: ./scripts/update-appup.sh emqx --check
+      - name: Check relup (ee)
+        if: endsWith(github.repository, 'enterprise')
+        run: ./scripts/update-appup.sh emqx-ee --check

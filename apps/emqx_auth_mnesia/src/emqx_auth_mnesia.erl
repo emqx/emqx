@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -72,7 +72,8 @@ check(ClientInfo = #{ clientid := Clientid
         List ->
             case match_password(NPassword, HashType, List)  of
                 false ->
-                    ?LOG(error, "[Mnesia] Auth from mnesia failed: ~p", [ClientInfo]),
+                    Info = maps:without([password], ClientInfo),
+                    ?LOG(info, "[Mnesia] Auth from mnesia failed: ~p", [Info]),
                     emqx_metrics:inc(?AUTH_METRICS(failure)),
                     {stop, AuthResult#{anonymous => false, auth_result => password_error}};
                 _ ->
