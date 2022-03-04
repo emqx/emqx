@@ -30,7 +30,7 @@
 
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
--define(ROUTES_QS_SCHEMA, [{<<"topic">>, binary}, {<<"node">>, atom}]).
+-define(ROUTES_QSCHEMA, [{<<"topic">>, binary}, {<<"node">>, atom}]).
 
 -import(emqx_mgmt_util, [ object_schema/2
                         , object_array_schema/2
@@ -79,16 +79,17 @@ route_api() ->
 
 %%%==============================================================================================
 %% parameters trans
-routes(get, #{query_string := Qs}) ->
-    list(generate_topic(Qs)).
+routes(get, #{query_string := QString}) ->
+    list(generate_topic(QString)).
 
 route(get, #{bindings := Bindings}) ->
     lookup(generate_topic(Bindings)).
 
 %%%==============================================================================================
 %% api apply
-list(Params) ->
-    Response = emqx_mgmt_api:node_query(node(), Params, emqx_route, ?ROUTES_QS_SCHEMA, {?MODULE, query}),
+list(QString) ->
+    Response = emqx_mgmt_api:node_query(
+                 node(), QString, emqx_route, ?ROUTES_QSCHEMA, {?MODULE, query}),
     generate_response(Response).
 
 lookup(#{topic := Topic}) ->
