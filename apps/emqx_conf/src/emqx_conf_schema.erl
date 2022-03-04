@@ -72,23 +72,23 @@ roots() ->
     end,
     emqx_schema_high_prio_roots() ++
     [ {"node",
-       sc(hoconsc:ref("node"),
+       sc(ref("node"),
           #{ desc => "Node name, cookie, config & data directories "
                      "and the Erlang virtual machine (BEAM) boot parameters."
            })}
     , {"cluster",
-       sc(hoconsc:ref("cluster"),
+       sc(ref("cluster"),
           #{ desc => "EMQX nodes can form a cluster to scale up the total capacity.<br>"
                      "Here holds the configs to instruct how individual nodes "
                      "can discover each other."
            })}
     , {"log",
-       sc(hoconsc:ref("log"),
+       sc(ref("log"),
           #{ desc => "Configure logging backends (to console or to file), "
                      "and logging level for each logger backend."
            })}
     , {"rpc",
-       sc(hoconsc:ref("rpc"),
+       sc(ref("rpc"),
           #{ desc => "EMQX uses a library called <code>gen_rpc</code> for "
                      "inter-broker communication.<br/>Most of the time the default config "
                      "should work, but in case you need to do performance "
@@ -941,7 +941,7 @@ roots(Module) ->
 emqx_schema_high_prio_roots() ->
     Roots = emqx_schema:roots(high),
     Authz = {"authorization",
-             sc(hoconsc:ref("authorization"),
+             sc(hoconsc:ref(?MODULE, "authorization"),
              #{ desc => """
 Authorization a.k.a. ACL.<br>
 In EMQX, MQTT client access control is extremely flexible.<br>

@@ -35,7 +35,7 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
-roots() -> [{config, #{type => hoconsc:union([hoconsc:ref(type1), hoconsc:ref(type2)])}}].
+roots() -> [{config, #{type => hoconsc:union([hoconsc:ref(?MODULE, type1), hoconsc:ref(?MODULE, type2)])}}].
 
 fields(type1) ->
     [ {mechanism,               {enum, ['password-based']}}

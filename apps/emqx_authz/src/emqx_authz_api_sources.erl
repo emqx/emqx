@@ -22,7 +22,7 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--import(hoconsc, [mk/1, mk/2, ref/1, ref/2, array/1, enum/1]).
+-import(hoconsc, [mk/1, mk/2, ref/2, array/1, enum/1]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').

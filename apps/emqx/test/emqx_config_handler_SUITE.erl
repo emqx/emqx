@@ -101,7 +101,7 @@ t_root_key_update(_Config) ->
     ?assertEqual("81%", emqx:get_raw_config(SubKey)),
     %% remove
     ?assertEqual({error, "remove_root_is_forbidden"}, emqx:remove_config(PathKey)),
-    ?assertMatch(#{<<"os">> := _, <<"vm">> := _ }, emqx:get_raw_config(PathKey)),
+    ?assertMatch(true, is_map(emqx:get_raw_config(PathKey))),
 
     ok = emqx_config_handler:remove_handler(PathKey),
     ok.
@@ -213,8 +213,8 @@ t_get_raw_cluster_override_conf(_Config) ->
     ok.
 
 t_save_config_failed(_Config) ->
-
     ok.
+
 
 pre_config_update([sysmon], UpdateReq, RawConf) ->
     {ok, emqx_map_lib:deep_merge(RawConf, UpdateReq)};

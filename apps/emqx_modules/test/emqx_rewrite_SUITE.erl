@@ -173,7 +173,7 @@ t_update_re_failed(_Config) ->
                 {array, {ref,emqx_modules_schema,"rewrite"}}}]},
                 roots => [root]},
                 [{validation_error,
-                    #{path => "rewrite.1.re",
+                    #{path => "root.rewrite.1.re",
                       reason => {<<"*^test/*">>,{"nothing to repeat",0}},
                       value => <<"*^test/*">>}}]}}},
     ?assertError(Error, emqx_rewrite:update(Rules)),
