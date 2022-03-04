@@ -152,7 +152,7 @@ diff_maps(NewMap, OldMap) ->
 binary_string_kv(K, V, JsonableFun) ->
     case JsonableFun(K, V) of
         drop -> drop;
-        {K1, V1} -> {binary_string(K1), binary_string(V1)}
+        {K1, V1} -> {binary_string(K1), V1}
     end.
 
 binary_string([]) -> [];

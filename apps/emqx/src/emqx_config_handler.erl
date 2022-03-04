@@ -194,11 +194,8 @@ do_update_config([ConfKey | SubConfKeyPath], Handlers, OldRawConf,
     SubOldRawConf = get_sub_config(ConfKeyBin, OldRawConf),
     SubHandlers = get_sub_handlers(ConfKey, Handlers),
     case do_update_config(SubConfKeyPath, SubHandlers, SubOldRawConf, UpdateReq, ConfKeyPath) of
-        {ok, NewUpdateReq} ->
-            call_pre_config_update(Handlers, OldRawConf, #{ConfKeyBin => NewUpdateReq},
-                ConfKeyPath);
-        Error ->
-            Error
+        {ok, NewUpdateReq} -> merge_to_old_config(#{ConfKeyBin => NewUpdateReq}, OldRawConf);
+        Error -> Error
     end.
 
 check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf, OverrideConf,
@@ -287,6 +284,7 @@ save_configs(ConfKeyPath, AppEnvs, CheckedConf, NewRawConf, OverrideConf, Update
 %%   1. the old config is undefined
 %%   2. either the old or the new config is not of map type
 %% the behaviour is merging the new the config to the old config if they are maps.
+
 merge_to_old_config(UpdateReq, RawConf) when is_map(UpdateReq), is_map(RawConf) ->
     {ok, maps:merge(RawConf, UpdateReq)};
 merge_to_old_config(UpdateReq, _RawConf) ->
