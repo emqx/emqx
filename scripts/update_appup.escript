@@ -328,13 +328,18 @@ do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
     New = New0 -- AlreadyHandled,
     Changed = Changed0 -- AlreadyHandled,
     Deleted = Deleted0 -- AlreadyHandled,
-    Reloads = [{load_module, M, brutal_purge, soft_purge, []}
-               || not contains_restart_application(App, OldActions),
-                  M <- Changed ++ New],
+    Actions =
+        case contains_restart_application(App, OldActions) of
+            true ->
+                [];
+            false ->
+                [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed] ++
+                [{add_module, M} || M <- New]
+        end,
     {OldActionsWithStop, OldActionsAfterStop} =
         find_application_stop_instruction(App, OldActions),
     OldActionsWithStop ++
-        Reloads ++
+        Actions ++
         OldActionsAfterStop ++
         [{delete_module, M} || M <- Deleted] ++
         AppSpecific.
@@ -365,6 +370,8 @@ find_application_stop_instruction(Application, Actions) ->
 %% already handled
 process_old_action({purge, Modules}) ->
     Modules;
+process_old_action({add_module, Module}) ->
+    [Module];
 process_old_action({delete_module, Module}) ->
     [Module];
 process_old_action(LoadModule) when is_tuple(LoadModule) andalso
