@@ -1,0 +1,29 @@
+x-default-emqx: &default-emqx
+    env_file:
+      - conf.cluster.env
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      interval: 5s
+      timeout: 25s
+      retries: 5
+
+services:
+  emqx1:
+    <<: *default-emqx
+    container_name: node1.emqx.io
+    restart: on-failure
+    environment:
+      - "EMQX_HOST=node1.emqx.io"
+      - "EMQX_DB__BACKEND=mnesia"
+      - "EMQX_DB__ROLE=core"
+
+  emqx2:
+    <<: *default-emqx
+    container_name: node2.emqx.io
+    depends_on:
+      - emqx1
+    restart: on-failure
+    environment:
+      - "EMQX_HOST=node2.emqx.io"
+      - "EMQX_DB__BACKEND=mnesia"
+      - "EMQX_DB__ROLE=core"
