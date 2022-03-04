@@ -24,8 +24,12 @@
 
 -import(hoconsc, [mk/1, mk/2, ref/1, ref/2, array/1, enum/1]).
 
--define(FORMAT_USERNAME_FUN, {?MODULE, format_by_username}).
--define(FORMAT_CLIENTID_FUN, {?MODULE, format_by_clientid}).
+-define(QUERY_USERNAME_FUN, {?MODULE, query_username}).
+-define(QUERY_CLIENTID_FUN, {?MODULE, query_clientid}).
+
+-define(ACL_USERNAME_QSCHEMA, [{<<"like_username">>, binary}]).
+-define(ACL_CLIENTID_QSCHEMA, [{<<"like_clientid">>, binary}]).
+
 
 -export([ api_spec/0
         , paths/0
@@ -42,8 +46,11 @@
         , purge/2
         ]).
 
--export([ format_by_username/1
-        , format_by_clientid/1]).
+%% query funs
+-export([ query_username/4
+        , query_clientid/4]).
+
+-export([format_result/1]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
@@ -293,9 +300,10 @@ fields(meta) ->
 %% HTTP API
 %%--------------------------------------------------------------------
 
-users(get, #{query_string := QString}) ->
-    {Table, MatchSpec} = emqx_authz_mnesia:list_username_rules(),
-    {200, emqx_mgmt_api:paginate(Table, MatchSpec, QString, ?FORMAT_USERNAME_FUN)};
+users(get, #{query_string := QueryString}) ->
+    Response = emqx_mgmt_api:node_query(node(), QueryString,
+                                        ?ACL_TABLE, ?ACL_USERNAME_QSCHEMA, ?QUERY_USERNAME_FUN),
+    emqx_mgmt_util:generate_response(Response);
 users(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
                           emqx_authz_mnesia:store_rules({username, Username}, format_rules(Rules))
@@ -303,8 +311,9 @@ users(post, #{body := Body}) when is_list(Body) ->
     {204}.
 
 clients(get, #{query_string := QueryString}) ->
-    {Table, MatchSpec} = emqx_authz_mnesia:list_clientid_rules(),
-    {200, emqx_mgmt_api:paginate(Table, MatchSpec, QueryString, ?FORMAT_CLIENTID_FUN)};
+    Response = emqx_mgmt_api:node_query(node(), QueryString,
+                                        ?ACL_TABLE, ?ACL_CLIENTID_QSCHEMA, ?QUERY_CLIENTID_FUN),
+    emqx_mgmt_util:generate_response(Response);
 clients(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"clientid">> := Clientid, <<"rules">> := Rules}) ->
                           emqx_authz_mnesia:store_rules({clientid, Clientid}, format_rules(Rules))
@@ -379,6 +388,54 @@ purge(delete, _) ->
                    }}
     end.
 
+%%--------------------------------------------------------------------
+%% Query Functions
+
+query_username(Tab, {_QString, []}, Continuation, Limit) ->
+    Ms = emqx_authz_mnesia:list_username_rules(),
+    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit,
+                                          fun format_result/1);
+
+query_username(Tab, {_QString, FuzzyQString}, Continuation, Limit) ->
+    Ms = emqx_authz_mnesia:list_username_rules(),
+    FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
+    emqx_mgmt_api:select_table_with_count(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit,
+                                          fun format_result/1).
+
+query_clientid(Tab, {_QString, []}, Continuation, Limit) ->
+    Ms = emqx_authz_mnesia:list_clientid_rules(),
+    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit,
+                                          fun format_result/1);
+
+query_clientid(Tab, {_QString, FuzzyQString}, Continuation, Limit) ->
+    Ms = emqx_authz_mnesia:list_clientid_rules(),
+    FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
+    emqx_mgmt_api:select_table_with_count(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit,
+                                          fun format_result/1).
+
+%%--------------------------------------------------------------------
+%% Match funcs
+
+%% Fuzzy username funcs
+fuzzy_filter_fun(Fuzzy) ->
+    fun(MsRaws) when is_list(MsRaws) ->
+        lists:filter( fun(E) -> run_fuzzy_filter(E, Fuzzy) end
+                    , MsRaws)
+    end.
+
+run_fuzzy_filter(_, []) ->
+    true;
+run_fuzzy_filter( E = [{username, Username}, _Rule]
+                , [{username, like, UsernameSubStr} | Fuzzy]) ->
+    binary:match(Username, UsernameSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy);
+run_fuzzy_filter( E = [{clientid, ClientId}, _Rule]
+                , [{clientid, like, ClientIdSubStr} | Fuzzy]) ->
+    binary:match(ClientId, ClientIdSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).
+
+%%--------------------------------------------------------------------
+%% format funcs
+
+%% format rule from api
 format_rules(Rules) when is_list(Rules) ->
     lists:foldl(fun(#{<<"topic">> := Topic,
                       <<"action">> := Action,
@@ -388,14 +445,15 @@ format_rules(Rules) when is_list(Rules) ->
                    AccIn ++ [{ atom(Permission), atom(Action), Topic }]
                 end, [], Rules).
 
-format_by_username([{username, Username}, {rules, Rules}]) ->
+%% format result from mnesia tab
+format_result([{username, Username}, {rules, Rules}]) ->
     #{username => Username,
       rules => [ #{topic => Topic,
                    action => Action,
                    permission => Permission
                   } || {Permission, Action, Topic} <- Rules]
-     }.
-format_by_clientid([{clientid, Clientid}, {rules, Rules}]) ->
+     };
+format_result([{clientid, Clientid}, {rules, Rules}]) ->
     #{clientid => Clientid,
       rules => [ #{topic => Topic,
                    action => Action,

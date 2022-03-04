@@ -158,21 +158,19 @@ delete_rules({clientid, Clientid}) ->
 delete_rules(all) ->
     mria:dirty_delete(?ACL_TABLE, ?ACL_TABLE_ALL).
 
--spec(list_username_rules() -> {mria:table(), ets:match_spec()}).
+-spec(list_username_rules() -> ets:match_spec()).
 list_username_rules() ->
-    MatchSpec = ets:fun2ms(
-                  fun(#emqx_acl{who = {?ACL_TABLE_USERNAME, Username}, rules = Rules}) ->
-                          [{username, Username}, {rules, Rules}]
-                  end),
-    {?ACL_TABLE, MatchSpec}.
+    ets:fun2ms(
+      fun(#emqx_acl{who = {?ACL_TABLE_USERNAME, Username}, rules = Rules}) ->
+              [{username, Username}, {rules, Rules}]
+      end).
 
--spec(list_clientid_rules() -> {mria:table(), ets:match_spec()}).
+-spec(list_clientid_rules() -> ets:match_spec()).
 list_clientid_rules() ->
-    MatchSpec = ets:fun2ms(
-                  fun(#emqx_acl{who = {?ACL_TABLE_CLIENTID, Clientid}, rules = Rules}) ->
-                          [{clientid, Clientid}, {rules, Rules}]
-                  end),
-    {?ACL_TABLE, MatchSpec}.
+    ets:fun2ms(
+      fun(#emqx_acl{who = {?ACL_TABLE_CLIENTID, Clientid}, rules = Rules}) ->
+              [{clientid, Clientid}, {rules, Rules}]
+      end).
 
 -spec(record_count() -> non_neg_integer()).
 record_count() ->
