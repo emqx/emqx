@@ -45,9 +45,7 @@ t_fill_default_values(_) ->
         <<"route_batch_clean">> := false,
         <<"session_locking_strategy">> := quorum,
         <<"shared_dispatch_ack_enabled">> := false,
-        <<"shared_subscription_strategy">> := round_robin,
-        <<"sys_heartbeat_interval">> := <<"30s">>,
-        <<"sys_msg_interval">> := <<"1m">>}}, WithDefaults),
+        <<"shared_subscription_strategy">> := round_robin}}, WithDefaults),
     %% ensure JSON compatible
     _ = emqx_json:encode(WithDefaults),
     ok.
