@@ -432,6 +432,32 @@ t_oom_shutdown(_) ->
       end, Opts),
     ok.
 
+t_cancel_congestion_alarm(_) ->
+    Opts = #{trap_exit => false},
+    ok = meck:expect(emqx_transport, getstat,
+                     fun(_Sock, [send_pend]) ->
+                             %% simulate congestion
+                             {ok, [{send_pend, 999}]};
+                        (_Sock, Options) ->
+                             {ok, [{K, 0} || K <- Options]}
+                     end),
+    with_conn(
+      fun(Pid) ->
+              #{ channel := Channel
+               , transport := Transport
+               , socket := Socket
+               } = emqx_connection:get_state(Pid),
+              %% precondition
+              Zone = emqx_channel:info(zone, Channel),
+              true = emqx_config:get_zone_conf(Zone, [conn_congestion, enable_alarm]),
+              %% should not raise errors
+              ok = emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
+              %% should not raise errors either
+              ok = emqx_congestion:cancel_alarms(Socket, Transport, Channel),
+              ok
+      end, Opts),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
