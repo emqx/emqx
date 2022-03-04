@@ -66,7 +66,7 @@ paths() ->
     , "/gateway/:name/clients/:clientid/subscriptions/:topic"
     ].
 
--define(CLIENT_QS_SCHEMA,
+-define(CLIENT_QSCHEMA,
     [ {<<"node">>, atom}
     , {<<"clientid">>, binary}
     , {<<"username">>, binary}
@@ -90,22 +90,22 @@ paths() ->
 -define(QUERY_FUN, {?MODULE, query}).
 
 clients(get, #{ bindings := #{name := Name0}
-              , query_string := Params
+              , query_string := QString
               }) ->
     with_gateway(Name0, fun(GwName, _) ->
         TabName = emqx_gateway_cm:tabname(info, GwName),
-        case maps:get(<<"node">>, Params, undefined) of
+        case maps:get(<<"node">>, QString, undefined) of
             undefined ->
                 Response = emqx_mgmt_api:cluster_query(
-                             Params, TabName,
-                             ?CLIENT_QS_SCHEMA, ?QUERY_FUN),
+                             QString, TabName,
+                             ?CLIENT_QSCHEMA, ?QUERY_FUN),
                 emqx_mgmt_util:generate_response(Response);
             Node1 ->
                 Node = binary_to_atom(Node1, utf8),
-                ParamsWithoutNode = maps:without([<<"node">>], Params),
+                QStringWithoutNode = maps:without([<<"node">>], QString),
                 Response = emqx_mgmt_api:node_query(
-                             Node, ParamsWithoutNode,
-                             TabName, ?CLIENT_QS_SCHEMA, ?QUERY_FUN),
+                             Node, QStringWithoutNode,
+                             TabName, ?CLIENT_QSCHEMA, ?QUERY_FUN),
                 emqx_mgmt_util:generate_response(Response)
         end
     end).

@@ -28,9 +28,9 @@ namespace() -> "prometheus".
 roots() -> ["prometheus"].
 
 fields("prometheus") ->
-    [ {push_gateway_server, sc(string(), #{default => "http://127.0.0.1:9091", nullabel => false})}
-    , {interval, sc(emqx_schema:duration_ms(), #{default => "15s", nullabel => false})}
-    , {enable, sc(boolean(), #{default => false, nullabel => false})}
+    [ {push_gateway_server, sc(string(), #{default => "http://127.0.0.1:9091", required => true})}
+    , {interval, sc(emqx_schema:duration_ms(), #{default => "15s", required => true})}
+    , {enable, sc(boolean(), #{default => false, required => true})}
     ].
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).

@@ -33,16 +33,17 @@
         , format/1
         ]).
 
--define(SUBS_QS_SCHEMA, {emqx_suboption,
+-define(SUBS_QTABLE, emqx_suboption).
+
+-define(SUBS_QSCHEMA,
         [ {<<"clientid">>, binary}
         , {<<"topic">>, binary}
         , {<<"share">>, binary}
         , {<<"share_group">>, binary}
         , {<<"qos">>, integer}
-        , {<<"match_topic">>, binary}]}).
+        , {<<"match_topic">>, binary}]).
 
--define(query_fun, {?MODULE, query}).
--define(format_fun, {?MODULE, format}).
+-define(QUERY_FUN, {?MODULE, query}).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -111,16 +112,15 @@ parameters() ->
         }
     ].
 
-subscriptions(get, #{query_string := Params}) ->
-    {Tab, QuerySchema} = ?SUBS_QS_SCHEMA,
-    case maps:get(<<"node">>, Params, undefined) of
+subscriptions(get, #{query_string := QString}) ->
+    case maps:get(<<"node">>, QString, undefined) of
         undefined ->
-            Response = emqx_mgmt_api:cluster_query(Params, Tab,
-                                                   QuerySchema, ?query_fun),
+            Response = emqx_mgmt_api:cluster_query(QString, ?SUBS_QTABLE,
+                                                   ?SUBS_QSCHEMA, ?QUERY_FUN),
             emqx_mgmt_util:generate_response(Response);
         Node ->
-            Response = emqx_mgmt_api:node_query(binary_to_atom(Node, utf8), Params,
-                                                Tab, QuerySchema, ?query_fun),
+            Response = emqx_mgmt_api:node_query(binary_to_atom(Node, utf8), QString,
+                                                ?SUBS_QTABLE, ?SUBS_QSCHEMA, ?QUERY_FUN),
             emqx_mgmt_util:generate_response(Response)
     end.
 
@@ -153,12 +153,14 @@ format({_Subscriber, Topic, Options}) ->
 
 query(Tab, {Qs, []}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
-    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit, fun format/1);
+    emqx_mgmt_api:select_table_with_count( Tab, Ms
+                                         , Continuation, Limit, fun format/1);
 
 query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
     FuzzyFilterFun = fuzzy_filter_fun(Fuzzy),
-    emqx_mgmt_api:select_table_with_count(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit, fun format/1).
+    emqx_mgmt_api:select_table_with_count( Tab, {Ms, FuzzyFilterFun}
+                                         , Continuation, Limit, fun format/1).
 
 fuzzy_filter_fun(Fuzzy) ->
     fun(MsRaws) when is_list(MsRaws) ->

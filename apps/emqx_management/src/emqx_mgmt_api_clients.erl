@@ -48,21 +48,23 @@
 %% for batch operation
 -export([do_subscribe/3]).
 
--define(CLIENT_QS_SCHEMA, {emqx_channel_info,
-    [ {<<"node">>, atom}
-    , {<<"username">>, binary}
-    , {<<"zone">>, atom}
-    , {<<"ip_address">>, ip}
-    , {<<"conn_state">>, atom}
-    , {<<"clean_start">>, atom}
-    , {<<"proto_name">>, binary}
-    , {<<"proto_ver">>, integer}
-    , {<<"like_clientid">>, binary}
-    , {<<"like_username">>, binary}
-    , {<<"gte_created_at">>, timestamp}
-    , {<<"lte_created_at">>, timestamp}
-    , {<<"gte_connected_at">>, timestamp}
-    , {<<"lte_connected_at">>, timestamp}]}).
+-define(CLIENT_QTAB, emqx_channel_info).
+
+-define(CLIENT_QSCHEMA,
+        [ {<<"node">>, atom}
+        , {<<"username">>, binary}
+        , {<<"zone">>, atom}
+        , {<<"ip_address">>, ip}
+        , {<<"conn_state">>, atom}
+        , {<<"clean_start">>, atom}
+        , {<<"proto_name">>, binary}
+        , {<<"proto_ver">>, integer}
+        , {<<"like_clientid">>, binary}
+        , {<<"like_username">>, binary}
+        , {<<"gte_created_at">>, timestamp}
+        , {<<"lte_created_at">>, timestamp}
+        , {<<"gte_connected_at">>, timestamp}
+        , {<<"lte_connected_at">>, timestamp}]).
 
 -define(QUERY_FUN, {?MODULE, query}).
 -define(FORMAT_FUN, {?MODULE, format_channel_info}).
@@ -129,11 +131,11 @@ schema("/clients") ->
                 {like_clientid, hoconsc:mk(binary(), #{
                     in => query,
                     required => false,
-                    desc => <<"Fuzzy search of client identifier by substring method">>})},
+                    desc => <<"Fuzzy search `clientid` as substring">>})},
                 {like_username, hoconsc:mk(binary(), #{
                     in => query,
                     required => false,
-                    desc => <<"Client user name, fuzzy search by substring">>})},
+                    desc => <<"Fuzzy search `username` as substring">>})},
                 {gte_created_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
                     in => query,
                     required => false,
@@ -386,8 +388,8 @@ fields(meta) ->
 
 %%%==============================================================================================
 %% parameters trans
-clients(get, #{query_string := Qs}) ->
-    list_clients(Qs).
+clients(get, #{query_string := QString}) ->
+    list_clients(QString).
 
 client(get, #{bindings := Bindings}) ->
     lookup(Bindings);
@@ -451,18 +453,17 @@ set_keepalive(put, #{bindings := #{clientid := ClientID}, body := Body}) ->
 %%%==============================================================================================
 %% api apply
 
-list_clients(Params) ->
-    {Tab, QuerySchema} = ?CLIENT_QS_SCHEMA,
-    case maps:get(<<"node">>, Params, undefined) of
+list_clients(QString) ->
+    case maps:get(<<"node">>, QString, undefined) of
         undefined ->
-            Response = emqx_mgmt_api:cluster_query(Params, Tab,
-                                                   QuerySchema, ?QUERY_FUN),
+            Response = emqx_mgmt_api:cluster_query(QString, ?CLIENT_QTAB,
+                                                   ?CLIENT_QSCHEMA, ?QUERY_FUN),
             emqx_mgmt_util:generate_response(Response);
         Node1 ->
             Node = binary_to_atom(Node1, utf8),
-            ParamsWithoutNode = maps:without([<<"node">>], Params),
-            Response = emqx_mgmt_api:node_query(Node, ParamsWithoutNode,
-                                                Tab, QuerySchema, ?QUERY_FUN),
+            QStringWithoutNode = maps:without([<<"node">>], QString),
+            Response = emqx_mgmt_api:node_query(Node, QStringWithoutNode,
+                                                ?CLIENT_QTAB, ?CLIENT_QSCHEMA, ?QUERY_FUN),
             emqx_mgmt_util:generate_response(Response)
     end.
 
@@ -566,14 +567,14 @@ do_unsubscribe(ClientID, Topic) ->
 %%--------------------------------------------------------------------
 %% Query Functions
 
-query(Tab, {Qs, []}, Continuation, Limit) ->
-    Ms = qs2ms(Qs),
+query(Tab, {QString, []}, Continuation, Limit) ->
+    Ms = qs2ms(QString),
     emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit,
                                           fun format_channel_info/1);
 
-query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
-    Ms = qs2ms(Qs),
-    FuzzyFilterFun = fuzzy_filter_fun(Fuzzy),
+query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
+    Ms = qs2ms(QString),
+    FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
     emqx_mgmt_api:select_table_with_count(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit,
                                           fun format_channel_info/1).
 

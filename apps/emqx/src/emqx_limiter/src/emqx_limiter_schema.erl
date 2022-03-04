@@ -74,8 +74,8 @@ fields(limiter) ->
     ];
 
 fields(limiter_opts) ->
-    [ {global, sc(ref(rate_burst), #{nuallabe => true})}
-    , {zone, sc(map("zone name", ref(rate_burst)), #{nullable => true})}
+    [ {global, sc(ref(rate_burst), #{required => false})}
+    , {zone, sc(map("zone name", ref(rate_burst)), #{required => false})}
     , {bucket, sc(map("bucket_id", ref(bucket)),
                   #{desc => "Token bucket"})}
     ];

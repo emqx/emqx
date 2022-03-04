@@ -87,13 +87,13 @@ fields(meta) ->
         [{count, hoconsc:mk(integer(), #{example => 1})}].
 %%%==============================================================================================
 %% parameters trans
-alarms(get, #{query_string := Qs}) ->
+alarms(get, #{query_string := QString}) ->
     Table =
-        case maps:get(<<"activated">>, Qs, true) of
+        case maps:get(<<"activated">>, QString, true) of
             true -> ?ACTIVATED_ALARM;
             false -> ?DEACTIVATED_ALARM
         end,
-    Response = emqx_mgmt_api:cluster_query(Qs, Table, [], {?MODULE, query}),
+    Response = emqx_mgmt_api:cluster_query(QString, Table, [], {?MODULE, query}),
     emqx_mgmt_util:generate_response(Response);
 
 alarms(delete, _Params) ->
