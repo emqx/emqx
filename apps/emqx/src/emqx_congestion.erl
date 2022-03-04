@@ -80,14 +80,14 @@ cancel_alarm_congestion(Socket, Transport, Channel, Reason) ->
 do_alarm_congestion(Socket, Transport, Channel, Reason) ->
     ok = update_alarm_sent_at(Reason),
     AlarmDetails = tcp_congestion_alarm_details(Socket, Transport, Channel),
-    Message = io_lib:format("connection congested: ~p", [AlarmDetails]),
+    Message = io_lib:format("connection congested: ~0p", [AlarmDetails]),
     emqx_alarm:activate(?ALARM_CONN_CONGEST(Channel, Reason), AlarmDetails, Message),
     ok.
 
 do_cancel_alarm_congestion(Socket, Transport, Channel, Reason) ->
     ok = remove_alarm_sent_at(Reason),
     AlarmDetails = tcp_congestion_alarm_details(Socket, Transport, Channel),
-    Message = io_lib:format("connection congested: ~p", [AlarmDetails]),
+    Message = io_lib:format("connection congested: ~0p", [AlarmDetails]),
     emqx_alarm:deactivate(?ALARM_CONN_CONGEST(Channel, Reason), AlarmDetails, Message),
     ok.
 
