@@ -1,4 +1,8 @@
-{{ $configData := printf "%s\n%s\n%s\n%s"  (include (print $.Template.BasePath "/configmap.env.yaml") .)  (include (print $.Template.BasePath "/configmap.acl.yaml") .)   (include (print $.Template.BasePath "/configmap.loadedPlugins.yaml") .)   (include (print $.Template.BasePath "/configmap.loadedModules.yaml") .) }}
+{{ $cfgEnv := printf "%s"  (include (print $.Template.BasePath "/configmap.env.yaml") .) }}
+{{ $cfgAcl := printf "%s"  (include (print $.Template.BasePath "/configmap.acl.yaml") .) }}
+{{ $cfgPlugins := printf "%s" (include (print $.Template.BasePath "/configmap.loadedPlugins.yaml") .) }}
+{{ $cfgModules := printf "%s"  (include (print $.Template.BasePath "/configmap.loadedModules.yaml") .) }}
+{{ $configData := printf "%s\n%s\n%s\n%s" $cfgEnv $cfgAcl $cfgPlugins $cfgModules}}
   ## Compatible with previous misspellings
 {{ $licenseSecretName := coalesce .Values.emqxLicenseSecretName .Values.emqxLicneseSecretName }}
 {{ $image := printf "%s:%s" .Values.image.repository (default .Values.image.tag .Chart.AppVersion) }}
