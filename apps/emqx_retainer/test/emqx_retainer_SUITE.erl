@@ -99,6 +99,10 @@ t_store_and_clean(_) ->
       <<"this is a retained message">>,
       [{qos, 0}, {retain, true}]),
     timer:sleep(100),
+
+    {ok, List} = emqx_retainer:page_read(<<"retained">>, 1, 10),
+    ?assertEqual(1, length(List)),
+
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(1, length(receive_messages(1))),
 
@@ -108,6 +112,10 @@ t_store_and_clean(_) ->
     timer:sleep(100),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(0, length(receive_messages(1))),
+
+    ok = emqx_retainer:clean(),
+    {ok, List2} = emqx_retainer:page_read(<<"retained">>, 1, 10),
+    ?assertEqual(0, length(List2)),
 
     ok = emqtt:disconnect(C1).
 
@@ -337,6 +345,96 @@ t_flow_control(_) ->
     timer:sleep(500),
     ok.
 
+t_clear_expired(_) ->
+    ConfMod = fun(Conf) ->
+                      Conf#{<<"msg_clear_interval">> := <<"1s">>, <<"msg_expiry_interval">> := <<"3s">>}
+              end,
+
+    Case = fun() ->
+                   {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+                   {ok, _} = emqtt:connect(C1),
+
+                   lists:foreach(fun(I) ->
+                                         emqtt:publish(C1,
+                                                       <<"retained/", (I + 60):8/unsigned-integer>>,
+                                                       #{'Message-Expiry-Interval' => 3},
+                                                       <<"retained">>,
+                                                       [{qos, 0}, {retain, true}])
+                                 end,
+                                 lists:seq(1, 5)),
+                   timer:sleep(1000),
+
+                   {ok, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
+                   ?assertEqual(5, erlang:length(List)),
+
+                   timer:sleep(4500),
+
+                   {ok, List2} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
+                   ?assertEqual(0, erlang:length(List2)),
+
+                   ok = emqtt:disconnect(C1)
+           end,
+    with_conf(ConfMod, Case).
+
+t_max_payload_size(_) ->
+    ConfMod = fun(Conf) -> Conf#{<<"max_payload_size">> := 6} end,
+    Case = fun() ->
+                   emqx_retainer:clean(),
+                   timer:sleep(500),
+                   {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+                   {ok, _} = emqtt:connect(C1),
+
+                   emqtt:publish(C1,
+                                 <<"retained/1">>, #{}, <<"1234">>, [{qos, 0}, {retain, true}]),
+
+                   emqtt:publish(C1,
+                                 <<"retained/2">>, #{}, <<"1234567">>, [{qos, 0}, {retain, true}]),
+
+                   timer:sleep(500),
+                   {ok, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
+                   ?assertEqual(1, erlang:length(List)),
+
+                   ok = emqtt:disconnect(C1)
+           end,
+    with_conf(ConfMod, Case).
+
+t_page_read(_) ->
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+    ok = emqx_retainer:clean(),
+    timer:sleep(500),
+
+    Fun = fun(I) ->
+                  emqtt:publish(C1,
+                                <<"retained/", (I + 60)>>,
+                                <<"this is a retained message">>,
+                                [{qos, 0}, {retain, true}]
+                               )
+          end,
+    lists:foreach(Fun, lists:seq(1, 9)),
+    timer:sleep(200),
+
+    {ok, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 5),
+    ?assertEqual(5, length(List)),
+
+    {ok, List2} = emqx_retainer:page_read(<<"retained/+">>, 2, 5),
+    ?assertEqual(4, length(List2)),
+
+    ok = emqtt:disconnect(C1).
+
+t_only_for_coverage(_) ->
+    ?assertEqual("retainer", emqx_retainer_schema:namespace()),
+    ignored = gen_server:call(emqx_retainer, unexpected),
+    ok = gen_server:cast(emqx_retainer, unexpected),
+    unexpected = erlang:send(erlang:whereis(emqx_retainer), unexpected),
+
+    Dispatcher = emqx_retainer_dispatcher:worker(),
+    ignored = gen_server:call(Dispatcher, unexpected),
+    ok = gen_server:cast(Dispatcher, unexpected),
+    unexpected = erlang:send(Dispatcher, unexpected),
+    true = erlang:exit(Dispatcher, normal),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -355,4 +453,16 @@ receive_messages(Count, Msgs) ->
             receive_messages(Count, Msgs)
     after 2000 ->
             Msgs
+    end.
+
+with_conf(ConfMod, Case) ->
+    Conf = emqx:get_raw_config([retainer]),
+    NewConf = ConfMod(Conf),
+    emqx_retainer:update_config(NewConf),
+    try
+        Case(),
+        emqx_retainer:update_config(Conf)
+    catch Type:Error:Strace ->
+            emqx_retainer:update_config(Conf),
+            erlang:raise(Type, Error, Strace)
     end.
