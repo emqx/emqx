@@ -24,6 +24,12 @@
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
 -define(CONF_DEFAULT, <<"
+sys_topics {
+  sys_event_messages {
+    client_connected = false
+    client_disconnected = false
+  }
+}
 exhook {
   servers = [
     { name = default,
