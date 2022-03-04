@@ -54,6 +54,7 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    application:load(emqx_plugin_libs),
     emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_dashboard]),
     Config.
 
@@ -165,4 +166,3 @@ api_path(Path) ->
 
 json(Data) ->
     {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]), Jsx.
-

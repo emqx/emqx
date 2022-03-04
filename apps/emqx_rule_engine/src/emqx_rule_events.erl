@@ -504,8 +504,8 @@ columns_with_exam('message.publish') ->
     , {<<"topic">>, <<"t/a">>}
     , {<<"qos">>, 1}
     , {<<"flags">>, #{}}
-    , {<<"headers">>, undefined}
     , {<<"publish_received_at">>, erlang:system_time(millisecond)}
+    , columns_example_props(pub_props)
     , {<<"timestamp">>, erlang:system_time(millisecond)}
     , {<<"node">>, node()}
     ];
@@ -522,6 +522,7 @@ columns_with_exam('message.delivered') ->
     , {<<"qos">>, 1}
     , {<<"flags">>, #{}}
     , {<<"publish_received_at">>, erlang:system_time(millisecond)}
+    , columns_example_props(pub_props)
     , {<<"timestamp">>, erlang:system_time(millisecond)}
     , {<<"node">>, node()}
     ];
@@ -538,6 +539,8 @@ columns_with_exam('message.acked') ->
     , {<<"qos">>, 1}
     , {<<"flags">>, #{}}
     , {<<"publish_received_at">>, erlang:system_time(millisecond)}
+    , columns_example_props(pub_props)
+    , columns_example_props(puback_props)
     , {<<"timestamp">>, erlang:system_time(millisecond)}
     , {<<"node">>, node()}
     ];
@@ -553,6 +556,7 @@ columns_with_exam('message.dropped') ->
     , {<<"qos">>, 1}
     , {<<"flags">>, #{}}
     , {<<"publish_received_at">>, erlang:system_time(millisecond)}
+    , columns_example_props(pub_props)
     , {<<"timestamp">>, erlang:system_time(millisecond)}
     , {<<"node">>, node()}
     ];
@@ -587,6 +591,7 @@ columns_with_exam('client.connected') ->
     , {<<"expiry_interval">>, 3600}
     , {<<"is_bridge">>, false}
     , {<<"connected_at">>, erlang:system_time(millisecond)}
+    , columns_example_props(conn_props)
     , {<<"timestamp">>, erlang:system_time(millisecond)}
     , {<<"node">>, node()}
     ];
@@ -598,6 +603,7 @@ columns_with_exam('client.disconnected') ->
     , {<<"peername">>, <<"192.168.0.10:56431">>}
     , {<<"sockname">>, <<"0.0.0.0:1883">>}
     , {<<"disconnected_at">>, erlang:system_time(millisecond)}
+    , columns_example_props(disconn_props)
     , {<<"timestamp">>, erlang:system_time(millisecond)}
     , {<<"node">>, node()}
     ];
@@ -608,6 +614,7 @@ columns_with_exam('session.subscribed') ->
     , {<<"peerhost">>, <<"192.168.0.10">>}
     , {<<"topic">>, <<"t/a">>}
     , {<<"qos">>, 1}
+    , columns_example_props(sub_props)
     , {<<"timestamp">>, erlang:system_time(millisecond)}
     , {<<"node">>, node()}
     ];
@@ -618,9 +625,41 @@ columns_with_exam('session.unsubscribed') ->
     , {<<"peerhost">>, <<"192.168.0.10">>}
     , {<<"topic">>, <<"t/a">>}
     , {<<"qos">>, 1}
+    , columns_example_props(unsub_props)
     , {<<"timestamp">>, erlang:system_time(millisecond)}
     , {<<"node">>, node()}
     ].
+
+columns_example_props(PropType) ->
+    Props = columns_example_props_specific(PropType),
+    UserProps = #{
+        'User-Property' => #{<<"foo">> => <<"bar">>},
+        'User-Property-Pairs' => [
+            #{key => <<"foo">>}, #{value => <<"bar">>}
+        ]
+    },
+    {PropType, maps:merge(Props, UserProps)}.
+
+columns_example_props_specific(pub_props) ->
+    #{ 'Payload-Format-Indicator' => 0
+     , 'Message-Expiry-Interval' => 30
+     };
+columns_example_props_specific(puback_props) ->
+    #{ 'Reason-String' => <<"OK">>
+     };
+columns_example_props_specific(conn_props) ->
+    #{ 'Session-Expiry-Interval' => 7200
+     , 'Receive-Maximum' => 32
+     };
+columns_example_props_specific(disconn_props) ->
+    #{ 'Session-Expiry-Interval' => 7200
+     , 'Reason-String' => <<"Redirect to another server">>
+     , 'Server Reference' => <<"192.168.22.129">>
+     };
+columns_example_props_specific(sub_props) ->
+    #{};
+columns_example_props_specific(unsub_props) ->
+    #{}.
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -681,6 +720,10 @@ printable_maps(Headers) ->
                 AccIn#{K => ntoa(V0)};
             ('User-Property', V0, AccIn) when is_list(V0) ->
                 AccIn#{
+                    %% The 'User-Property' field is for the convenience of querying properties
+                    %% using the '.' syntax, e.g. "SELECT 'User-Property'.foo as foo"
+                    %% However, this does not allow duplicate property keys. To allow
+                    %% duplicate keys, we have to use the 'User-Property-Pairs' field instead.
                     'User-Property' => maps:from_list(V0),
                     'User-Property-Pairs' => [#{
                         key => Key,

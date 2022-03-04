@@ -299,20 +299,30 @@ on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
     %% some cases for testing
     case From of
         <<"baduser">> ->
-            NMsg = Msg#{qos => 0,
+            NMsg = deny(Msg#{qos => 0,
                         topic => <<"">>,
                         payload => <<"">>
-                       },
+                       }),
             {ok, #{type => 'STOP_AND_RETURN',
                    value => {message, NMsg}}, Md};
         <<"gooduser">> ->
-            NMsg = Msg#{topic => From,
-                        payload => From},
+            NMsg = allow(Msg#{topic => From,
+                              payload => From}),
             {ok, #{type => 'STOP_AND_RETURN',
                    value => {message, NMsg}}, Md};
         _ ->
             {ok, #{type => 'IGNORE'}, Md}
     end.
+
+deny(Msg) ->
+    NHeader = maps:put(<<"allow_publish">>, <<"false">>,
+                       maps:get(headers, Msg, #{})),
+    maps:put(headers, NHeader, Msg).
+
+allow(Msg) ->
+    NHeader = maps:put(<<"allow_publish">>, <<"true">>,
+                       maps:get(headers, Msg, #{})),
+    maps:put(headers, NHeader, Msg).
 
 -spec on_message_delivered(emqx_exhook_pb:message_delivered_request(), grpc:metadata())
     -> {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}

@@ -54,7 +54,8 @@ auto_reconnect() ->
 
 request_options() ->
     #{timeout => env(request_timeout, 5000),
-      request_failed_action => env(request_failed_action, deny)
+      request_failed_action => env(request_failed_action, deny),
+      pool_size => env(pool_size, erlang:system_info(schedulers))
      }.
 
 env(Key, Def) ->
@@ -67,7 +68,7 @@ env(Key, Def) ->
 -spec start_grpc_client_channel(
         string(),
         uri_string:uri_string(),
-        grpc_client:options()) -> {ok, pid()} | {error, term()}.
+        grpc_client_sup:options()) -> {ok, pid()} | {error, term()}.
 start_grpc_client_channel(Name, SvrAddr, Options) ->
     grpc_client_sup:create_channel_pool(Name, SvrAddr, Options).
 

@@ -33,7 +33,7 @@ Options:
   --release-dir     Release directory
   --src-dirs        Directories where source code is found. Defaults to '{src,apps,lib-*}/**/'
   --binary-rel-url  Binary release URL pattern.
-                    E.g. https://www.emqx.com/downloads/broker/v4.3.12/emqx-centos7-4.3.12-amd64.zip
+                    E.g. https://www.emqx.com/en/downloads/broker/v4.4.1/emqx-4.4.1-otp24.1.5-3-el7-amd64.zip
 ".
 
 -record(app,

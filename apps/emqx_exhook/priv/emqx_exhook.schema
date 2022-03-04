@@ -26,6 +26,10 @@
   end
 end}.
 
+{mapping, "exhook.pool_size", "emqx_exhook.pool_size", [
+  {datatype, integer}
+]}.
+
 {mapping, "exhook.server.$name.url", "emqx_exhook.servers", [
   {datatype, string}
 ]}.

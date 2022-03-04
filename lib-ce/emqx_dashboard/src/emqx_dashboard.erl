@@ -41,18 +41,18 @@
 start_listeners() ->
     lists:foreach(fun(Listener) -> start_listener(Listener) end, listeners()).
 
-%% Start HTTP Listener
-start_listener({Proto, Port, Options}) when Proto == http ->
-    Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
-                {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
-                {"/api/v4/[...]", minirest, http_handlers()}],
-    minirest:start_http(listener_name(Proto), ranch_opts(Port, Options), Dispatch);
 
-start_listener({Proto, Port, Options}) when Proto == https ->
+%% Start HTTP(S) Listener
+start_listener({Proto, Port, Options}) ->
     Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
                 {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
                 {"/api/v4/[...]", minirest, http_handlers()}],
-    minirest:start_https(listener_name(Proto), ranch_opts(Port, Options), Dispatch).
+    Server = listener_name(Proto),
+    RanchOpts = ranch_opts(Port, Options),
+    case Proto of
+        http -> minirest:start_http(Server, RanchOpts, Dispatch);
+        https -> minirest:start_https(Server, RanchOpts, Dispatch)
+    end.
 
 ranch_opts(Port, Options0) ->
     NumAcceptors = get_value(num_acceptors, Options0, 4),
@@ -89,7 +89,7 @@ listener_name(Proto) ->
 http_handlers() ->
     Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),
     [{"/api/v4/",
-      minirest:handler(#{apps => Plugins ++  [emqx_modules],
+      minirest:handler(#{apps => Plugins ++ [emqx_modules, emqx_plugin_libs],
                          filter => fun ?MODULE:filter/1}),
       [{authorization, fun ?MODULE:is_authorized/1}]}].
 
@@ -116,6 +116,7 @@ is_authorized(_Path, Req) ->
          _  -> false
     end.
 
+filter(#{app := emqx_plugin_libs}) -> true;
 filter(#{app := emqx_modules}) -> true;
 filter(#{app := App}) ->
     case emqx_plugins:find_plugin(App) of

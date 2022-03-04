@@ -12,8 +12,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      imgname: ${{ steps.build_docker.outputs.imgname}}
-      version: ${{ steps.build_docker.outputs.version}}
+      imgname: ${{ steps.prepare.outputs.imgname}}
+      version: ${{ steps.prepare.outputs.version}}
     steps:
     - name: download jmeter
       id: dload_jmeter
@@ -27,8 +27,8 @@ jobs:
         name: apache-jmeter.tgz
         path: /tmp/apache-jmeter.tgz
     - uses: actions/checkout@v2
-    - name: build docker
-      id: build_docker
+    - name: prepare
+      id: prepare
       run: |
         if [ -f EMQX_ENTERPRISE ]; then
           echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
@@ -36,20 +36,23 @@ jobs:
           echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
           make deps-emqx-ee
           make clean
-          make emqx-ee-docker
           echo "::set-output name=imgname::emqx-ee"
           echo "::set-output name=version::$(./pkg-vsn.sh)"
-          docker save emqx/emqx-ee:$(./pkg-vsn.sh) -o emqx.tar
         else
           make emqx-docker
           echo "::set-output name=imgname::emqx"
           echo "::set-output name=version::$(./pkg-vsn.sh)"
-          docker save emqx/emqx:$(./pkg-vsn.sh) -o emqx.tar
         fi
+    - name: build docker image
+      env:
+        OTP_VSN: 24.1.5-3
+      run: |
+        make ${{ steps.prepare.outputs.imgname }}-docker
+        docker save emqx/${{ steps.prepare.outputs.imgname }}:${{ steps.prepare.outputs.version }} -o image.tar.gz
     - uses: actions/upload-artifact@v2
       with:
-        name: emqx-docker-image
-        path: emqx.tar
+        name: image
+        path: image.tar.gz
 
   webhook:
     runs-on: ubuntu-latest
@@ -65,10 +68,11 @@ jobs:
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
       with:
-        name: emqx-docker-image
+        name: image
         path: /tmp
     - name: load docker image
-      run: docker load < /tmp/emqx.tar
+      run: |
+        docker load < /tmp/image.tar.gz
     - name: docker compose up
       timeout-minutes: 5
       env:
@@ -163,10 +167,11 @@ jobs:
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
       with:
-        name: emqx-docker-image
+        name: image
         path: /tmp
     - name: load docker image
-      run: docker load < /tmp/emqx.tar
+      run: |
+        docker load < /tmp/image.tar.gz
     - name: docker compose up
       timeout-minutes: 5
       env:
@@ -268,10 +273,11 @@ jobs:
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
       with:
-        name: emqx-docker-image
+        name: image
         path: /tmp
     - name: load docker image
-      run: docker load < /tmp/emqx.tar
+      run: |
+        docker load < /tmp/image.tar.gz
     - name: docker compose up
       timeout-minutes: 5
       env:
@@ -362,10 +368,11 @@ jobs:
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
       with:
-        name: emqx-docker-image
+        name: image
         path: /tmp
     - name: load docker image
-      run: docker load < /tmp/emqx.tar
+      run: |
+        docker load < /tmp/image.tar.gz
     - name: docker compose up
       timeout-minutes: 5
       env:

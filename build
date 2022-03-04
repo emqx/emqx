@@ -18,21 +18,7 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
 export PKG_VSN
 
-SYSTEM="$(./scripts/get-distro.sh)"
-
-ARCH="$(uname -m)"
-case "$ARCH" in
-    x86_64)
-        ARCH='amd64'
-        ;;
-    aarch64)
-        ARCH='arm64'
-        ;;
-    arm*)
-        ARCH=arm
-        ;;
-esac
-export ARCH
+SYSTEM="${SYSTEM:-$(./scripts/get-distro.sh)}"
 
 ##
 ## Support RPM and Debian based linux systems
@@ -55,6 +41,21 @@ else
     FIND='find'
 fi
 
+UNAME="$(uname -m)"
+case "$UNAME" in
+    x86_64)
+        ARCH='amd64'
+        ;;
+    aarch64)
+        ARCH='arm64'
+        ;;
+    arm*)
+        ARCH=arm
+        ;;
+esac
+# used in -pkg Makefile
+export ARCH
+
 log() {
     local msg="$1"
     # rebar3 prints ===>, so we print ===<
@@ -62,20 +63,21 @@ log() {
 }
 
 make_rel() {
-    # shellcheck disable=SC1010
-    ./rebar3 as "$PROFILE" do release,tar
+    ./rebar3 as "$PROFILE" tar
 }
 
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup
 make_relup() {
     local lib_dir="_build/$PROFILE/rel/emqx/lib"
     local releases_dir="_build/$PROFILE/rel/emqx/releases"
-    mkdir -p "$lib_dir" "$releases_dir"
+    local name_pattern
+    name_pattern="${PROFILE}-$(./scripts/pkg-full-vsn.sh 'vsn_matcher')"
+    mkdir -p "$lib_dir" "$releases_dir" '_upgrade_base'
     local releases=()
     if [ -d "$releases_dir" ]; then
         while read -r zip; do
             local base_vsn
-            base_vsn="$(echo "$zip" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-f]{8})?")"
+            base_vsn="$(echo "$zip" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-f]{8})?" | head -1)"
             if [ ! -d "$releases_dir/$base_vsn" ]; then
                 local tmp_dir
                 tmp_dir="$(mktemp -d -t emqx.XXXXXXX)"
@@ -86,7 +88,7 @@ make_relup() {
                 rm -rf "$tmp_dir"
             fi
             releases+=( "$base_vsn" )
-        done < <("$FIND" _upgrade_base -maxdepth 1 -name "*$PROFILE-$SYSTEM*-$ARCH.zip" -type f)
+        done < <("$FIND" _upgrade_base -maxdepth 1 -name "${name_pattern}.zip" -type f)
     fi
     if [ ${#releases[@]} -eq 0 ]; then
         log "No upgrade base found, relup ignored"
@@ -97,6 +99,8 @@ make_relup() {
     ./rebar3 as "$PROFILE" relup --relname emqx --relvsn "${PKG_VSN}"
 }
 
+## try to be portable for zip packages.
+## for DEB and RPM packages the dependencies are resoved by yum and apt
 cp_dyn_libs() {
     local rel_dir="$1"
     local target_dir="${rel_dir}/dynlibs"
@@ -113,29 +117,51 @@ cp_dyn_libs() {
         | sort -u)
 }
 
+
 ## make_zip turns .tar.gz into a .zip with a slightly different name.
 ## It assumes the .tar.gz has been built -- relies on Makefile dependency
 make_zip() {
     # build the tarball again to ensure relup is included
     make_rel
-
-    tard="/tmp/emqx_untar_${PKG_VSN}"
-    rm -rf "${tard}"
+    # use relative path because abs path is tricky in windows
+    tard="tmp/zip-wd-${PKG_VSN}"
+    rm -rf "${tard}/emqx"
     mkdir -p "${tard}/emqx"
     local relpath="_build/${PROFILE}/rel/emqx"
     local pkgpath="_packages/${PROFILE}"
+    local pkgname
+    pkgname="${PROFILE}-$(./scripts/pkg-full-vsn.sh).zip"
     mkdir -p "${pkgpath}"
-    local tarball="${relpath}/emqx-${PKG_VSN}.tar.gz"
-    if [ ! -f "$tarball" ]; then
-        log "ERROR: $tarball is not found"
-    fi
-    local zipball
-    zipball="${pkgpath}/${PROFILE}-${SYSTEM}-${PKG_VSN}-${ARCH}.zip"
+    local tarname="emqx-${PKG_VSN}.tar.gz"
+    local tarball="${relpath}/${tarname}"
+    local target_zip="${pkgpath}/${pkgname}"
     tar zxf "${tarball}" -C "${tard}/emqx"
-    ## try to be portable for zip packages.
-    ## for DEB and RPM packages the dependencies are resoved by yum and apt
+    if ! [[ $SYSTEM == windows* ]]; then
+        ./scripts/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
+    fi
     cp_dyn_libs "${tard}/emqx"
-    (cd "${tard}" && zip -qr - emqx) > "${zipball}"
+    pushd "${tard}" >/dev/null
+    case "$SYSTEM" in
+        windows*)
+            7z a "${pkgname}" emqx
+            ;;
+        *)
+            zip -qr "${pkgname}" emqx
+            ;;
+    esac
+    popd >/dev/null
+    mv "${tard}/${pkgname}" "${target_zip}"
+    case "$SYSTEM" in
+        macos*)
+            # sha256sum may not be available on macos
+            openssl dgst -sha256 "${target_zip}" | cut -d ' ' -f 2  > "${target_zip}.sha256"
+            ;;
+        *)
+            sha256sum "${target_zip}" | head -c 64 > "${target_zip}.sha256"
+            ;;
+    esac
+    log "Zip package successfully created: ${target_zip}"
+    log "Zip package sha256sum: $(cat "${target_zip}.sha256")"
 }
 
 ## This function builds the default docker image based on alpine:3.14 (by default)
@@ -149,6 +175,49 @@ make_docker() {
        --build-arg EMQX_NAME="$PROFILE" \
        --tag "emqx/$PROFILE:${PKG_VSN}" \
        -f "${DOCKERFILE}" .
+}
+
+## This function accepts any base docker image,
+## a emqx zip-image, and a image tag (for the image to be built),
+## to build a docker image which runs EMQ X
+##
+## Export below variables to quickly build an image
+##
+## Name               Default                         Example
+## ---------------------------------------------------------------------
+## EMQX_BASE_IMAGE    current os                      centos:7
+## EMQX_ZIP_PACKAGE   _packages/<current-zip-target>  /tmp/emqx-4.4.0-otp24.1.5-3-el7-amd64.zip
+## EMQX_IMAGE_TAG     emqx/emqx:<current-vns-rel>     emqx/emqx:testing-tag
+##
+make_docker_testing() {
+    if [ -z "${EMQX_BASE_IMAGE:-}" ]; then
+        case "$SYSTEM" in
+            ubuntu20*)
+                EMQX_BASE_IMAGE="ubuntu:20.04"
+                ;;
+            el8)
+                EMQX_BASE_IMAGE="rockylinux:8"
+                ;;
+            *)
+                echo "Unsupported testing base image for $SYSTEM"
+                exit 1
+                ;;
+        esac
+    fi
+    EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-emqx/$PROFILE:${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}}"
+    local defaultzip
+    defaultzip="_packages/${PROFILE}/${PROFILE}-$(./scripts/pkg-full-vsn.sh).zip"
+    local zip="${EMQX_ZIP_PACKAGE:-$defaultzip}"
+    if [ ! -f "$zip" ]; then
+        log "ERROR: $zip not built?"
+        exit 1
+    fi
+    set -x
+    docker build \
+       --build-arg BUILD_FROM="${EMQX_BASE_IMAGE}" \
+       --build-arg EMQX_ZIP_PACKAGE="${zip}" \
+       --tag "$EMQX_IMAGE_TAG" \
+       -f "${DOCKERFILE_TESTING}" .
 }
 
 log "building artifact=$ARTIFACT for profile=$PROFILE"
@@ -168,12 +237,14 @@ case "$ARTIFACT" in
             log "Skipped making deb/rpm package for $SYSTEM"
             exit 0
         fi
-        make -C "deploy/packages/${PKGERDIR}" clean
+        EMQX_REL="$(pwd)" make -C "deploy/packages/${PKGERDIR}" clean
         EMQX_REL="$(pwd)" EMQX_BUILD="${PROFILE}" SYSTEM="${SYSTEM}" make -C "deploy/packages/${PKGERDIR}"
         ;;
-
     docker)
         make_docker
+        ;;
+    docker-testing)
+        make_docker_testing
         ;;
     *)
         log "Unknown artifact $ARTIFACT"
