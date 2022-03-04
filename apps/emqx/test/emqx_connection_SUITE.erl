@@ -335,7 +335,8 @@ t_handle_info(_) ->
 
 t_ensure_rate_limit(_) ->
     WhenOk = fun emqx_connection:next_incoming_msgs/3,
-    {ok, [], State} = emqx_connection:check_limiter([], [], WhenOk, [], st(#{limiter => undefined})),
+    {ok, [], State} = emqx_connection:check_limiter([], [], WhenOk, [],
+                                                    st(#{limiter => undefined})),
     ?assertEqual(undefined, emqx_connection:info(limiter, State)),
 
     Limiter = init_limiter(),
@@ -344,7 +345,8 @@ t_ensure_rate_limit(_) ->
 
     ok = meck:expect(emqx_htb_limiter, check,
                      fun(_, Client) -> {pause, 3000, undefined, Client} end),
-    {ok, State2} = emqx_connection:check_limiter([{1000, bytes_in}], [], WhenOk, [], st(#{limiter => Limiter})),
+    {ok, State2} = emqx_connection:check_limiter([{1000, bytes_in}], [],
+                                                 WhenOk, [], st(#{limiter => Limiter})),
     meck:unload(emqx_htb_limiter),
     ok = meck:new(emqx_htb_limiter, [passthrough, no_history, no_link]),
     ?assertNotEqual(undefined, emqx_connection:info(limiter_timer, State2)).
@@ -550,7 +552,10 @@ channel(InitFields) ->
     maps:fold(fun(Field, Value, Channel) ->
                 emqx_channel:set_field(Field, Value, Channel)
               end,
-              emqx_channel:init(ConnInfo, #{zone => default, limiter => limiter_cfg(), listener => {tcp, default}}),
+              emqx_channel:init(ConnInfo, #{ zone => default
+                                           , limiter => limiter_cfg()
+                                           , listener => {tcp, default}
+                                           }),
               maps:merge(#{clientinfo => ClientInfo,
                            session    => Session,
                            conn_state => connected
