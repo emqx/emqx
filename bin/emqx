@@ -47,7 +47,9 @@ if ! check_eralng_start >/dev/null 2>&1; then
         echoerr "this EMQX release is built for $BUILT_ON"
         exit 1
     fi
-    echoerr "WARNING: There seem to be missing dynamic libs from the OS. Using libs from ${DYNLIBS_DIR}"
+    echoerr "There seem to be missing dynamic libs from the OS."
+    echoerr "Using libs from ${DYNLIBS_DIR} instead."
+    echoerr "NOTE: EMQX's rpm or deb package installation is recommended!"
 fi
 
 ## backward compatible
