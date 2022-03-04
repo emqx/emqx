@@ -60,9 +60,9 @@ prop_sys() ->
 
 do_setup() ->
     ok = emqx_logger:set_log_level(emergency),
-    emqx_config:put([sys_topic, sys_msg_interval], 60000),
-    emqx_config:put([sys_topic, sys_heartbeat_interval], 30000),
-    emqx_config:put([sys_topic, sys_event_messages],
+    emqx_config:put([sys_topics, sys_msg_interval], 60000),
+    emqx_config:put([sys_topics, sys_heartbeat_interval], 30000),
+    emqx_config:put([sys_topics, sys_event_messages],
                     #{client_connected => true, client_disconnected => true,
                       client_subscribed => true, client_unsubscribed => true}),
     [mock(Mod) || Mod <- ?mock_modules],

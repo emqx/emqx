@@ -107,13 +107,13 @@ datetime() ->
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
 
 sys_interval() ->
-    emqx:get_config([sys_topic, sys_msg_interval]).
+    emqx:get_config([sys_topics, sys_msg_interval]).
 
 sys_heatbeat_interval() ->
-    emqx:get_config([sys_topic, sys_heartbeat_interval]).
+    emqx:get_config([sys_topics, sys_heartbeat_interval]).
 
 sys_event_message() ->
-    emqx:get_config([sys_topic, sys_event_messages]).
+    emqx:get_config([sys_topics, sys_event_messages]).
 
 %% @doc Get sys info
 -spec(info() -> list(tuple())).
@@ -138,12 +138,12 @@ tick(State) ->
     State#state{ticker = start_timer(sys_interval(), tick)}.
 
 load_event_hooks() ->
-    maps:foreach(
-      fun(_, false) -> ok;
-         (K, true) ->
+    lists:foreach(
+      fun({_, false}) -> ok;
+         ({K, true}) ->
             {HookPoint, Fun} = hook_and_fun(K),
             emqx_hooks:put(HookPoint, {?MODULE, Fun, []})
-      end, sys_event_message()).
+      end, maps:to_list(sys_event_message())).
 
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -175,10 +175,10 @@ terminate(_Reason, #state{heartbeat = TRef1, ticker = TRef2}) ->
     lists:foreach(fun emqx_misc:cancel_timer/1, [TRef1, TRef2]).
 
 unload_event_hooks() ->
-    maps:foreach(fun(K, _) ->
+    lists:foreach(fun({K, _}) ->
         {HookPoint, Fun} = hook_and_fun(K),
         emqx_hooks:del(HookPoint, {?MODULE, Fun})
-    end, sys_event_message()).
+    end, maps:to_list(sys_event_message())).
 
 %%--------------------------------------------------------------------
 %% hook callbacks
