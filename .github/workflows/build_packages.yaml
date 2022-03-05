@@ -48,7 +48,6 @@ jobs:
         run: |
           echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
           git config --global credential.helper store
-          echo "${{ secrets.CI_GIT_TOKEN }}" >> source/scripts/git-token
           make -C source deps-all
           zip -ryq source.zip source/* source/.[^.]*
       - uses: actions/upload-artifact@v2
