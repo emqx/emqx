@@ -7,7 +7,6 @@ export EMQX_RELUP ?= true
 export EMQX_DEFAULT_BUILDER = emqx/build-env:erl23.2.7.2-emqx-3-alpine
 export EMQX_DEFAULT_RUNNER = alpine:3.12
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
-export EMQX_CE_DASHBOARD_VERSION ?= v4.3.5
 export DOCKERFILE := deploy/docker/Dockerfile
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
