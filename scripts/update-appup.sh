@@ -59,5 +59,10 @@ fi
 PACKAGE_NAME="${PROFILE}-${SYSTEM}-${PREV_VERSION}-${ARCH}.zip"
 DOWNLOAD_URL="https://www.emqx.com/downloads/${DIR}/v${PREV_VERSION}/${PACKAGE_NAME}"
 
+if [ ! -f EMQX_ENTERPRISE ]; then
+    SRC_DIRS='{src,apps,lib-ce}/**'
+else
+    SRC_DIRS='{src,apps,lib-ee}/**'
+fi
 # shellcheck disable=SC2086
-./scripts/update_appup.escript --make-command "make ${PROFILE}-rel" --binary-rel-url "$DOWNLOAD_URL" $ESCRIPT_ARGS "$PREV_VERSION"
+./scripts/update_appup.escript --make-command "make ${PROFILE}-rel" --binary-rel-url "$DOWNLOAD_URL" --release-dir "_build/${PROFILE}/rel/emqx/lib" --src-dirs "${SRC_DIRS}" $ESCRIPT_ARGS "$PREV_VERSION"
