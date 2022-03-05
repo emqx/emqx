@@ -531,6 +531,7 @@ index_app(AppFile) ->
               , modules       = Modules
               }}.
 
+diff_app(_, gpb, _, _) -> ok; %% gpb is not a runtime app
 diff_app(UpOrDown, App,
          #app{version = NewVersion, modules = NewModules},
          #app{version = OldVersion, modules = OldModules}) ->
