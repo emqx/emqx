@@ -225,15 +225,17 @@ if ! check_erlang_start >/dev/null 2>&1; then
     if [ "$LD_LIBRARY_PATH" != "$DYNLIBS_DIR" ]; then
         export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
     fi
+    deps_hint="Please make sure openssl-1.1.1 (libcrypto), libncurses and libatomic1 are installed."
     if ! check_erlang_start; then
         ## it's hopeless
         echoerr "FATAL: Unable to start Erlang."
-        echoerr "Please make sure openssl-1.1.1 (libcrypto) and libncurses are installed."
+        echoerr "$deps_hint"
         echoerr "Also ensure it's running on the correct platform:"
         echoerr "$BUILD_INFO"
         exit 1
     fi
-    echoerr "WARNING: There seem to be missing dynamic libs from the OS. Using libs from ${DYNLIBS_DIR}"
+    echoerr "Using libs from '${DYNLIBS_DIR}' due to missing from the OS."
+    echoerr "$deps_hint"
 fi
 
 ## backward compatible
