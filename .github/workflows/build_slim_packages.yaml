@@ -25,7 +25,6 @@ jobs:
         if make emqx-ee --dry-run > /dev/null 2>&1; then
           echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
           git config --global credential.helper store
-          echo "${{ secrets.CI_GIT_TOKEN }}" >> ./scripts/git-token
           echo "EMQX_NAME=emqx-ee" >> $GITHUB_ENV
         else
           echo "EMQX_NAME=emqx" >> $GITHUB_ENV
@@ -63,7 +62,6 @@ jobs:
         if make emqx-ee --dry-run > /dev/null 2>&1; then
           echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
           git config --global credential.helper store
-          echo "${{ secrets.CI_GIT_TOKEN }}" >> ./scripts/git-token
           echo "EMQX_NAME=emqx-ee" >> $GITHUB_ENV
         else
           echo "EMQX_NAME=emqx" >> $GITHUB_ENV

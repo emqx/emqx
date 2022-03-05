@@ -22,7 +22,6 @@ jobs:
             if make emqx-ee --dry-run > /dev/null 2>&1; then
               echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
               git config --global credential.helper store
-              echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
               make deps-emqx-ee
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
@@ -76,7 +75,6 @@ jobs:
             if make emqx-ee --dry-run > /dev/null 2>&1; then
               echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
               git config --global credential.helper store
-              echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
               make deps-emqx-ee
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
               make emqx-ee-docker
@@ -245,7 +243,6 @@ jobs:
             if [ "$PROFILE" = "emqx-ee" ]; then
               echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
               git config --global credential.helper store
-              echo "${{ secrets.CI_GIT_TOKEN }}" >> emqx/scripts/git-token
             fi
         - name: Build emqx
           run: make -C emqx ${PROFILE}-zip
