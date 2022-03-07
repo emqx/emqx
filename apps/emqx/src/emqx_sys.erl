@@ -112,7 +112,7 @@ sys_interval() ->
 sys_heatbeat_interval() ->
     emqx:get_config([sys_topics, sys_heartbeat_interval]).
 
-sys_event_message() ->
+sys_event_messages() ->
     emqx:get_config([sys_topics, sys_event_messages]).
 
 %% @doc Get sys info
@@ -143,7 +143,7 @@ load_event_hooks() ->
          ({K, true}) ->
             {HookPoint, Fun} = hook_and_fun(K),
             emqx_hooks:put(HookPoint, {?MODULE, Fun, []})
-      end, maps:to_list(sys_event_message())).
+      end, maps:to_list(sys_event_messages())).
 
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -178,7 +178,7 @@ unload_event_hooks() ->
     lists:foreach(fun({K, _}) ->
         {HookPoint, Fun} = hook_and_fun(K),
         emqx_hooks:del(HookPoint, {?MODULE, Fun})
-    end, maps:to_list(sys_event_message())).
+    end, maps:to_list(sys_event_messages())).
 
 %%--------------------------------------------------------------------
 %% hook callbacks
