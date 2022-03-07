@@ -24,12 +24,6 @@
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
 -define(CONF_DEFAULT, <<"
-sys_topics {
-  sys_event_messages {
-    client_connected = false
-    client_disconnected = false
-  }
-}
 exhook {
   servers = [
     { name = default,
@@ -95,12 +89,6 @@ end_per_testcase(_, Config) ->
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
-
-t_noserver_nohook(_) ->
-    emqx_exhook_mgr:disable(<<"default">>),
-    ?assertEqual([], ets:tab2list(emqx_hooks)),
-    {ok, _} = emqx_exhook_mgr:enable(<<"default">>),
-    ?assertNotEqual([], ets:tab2list(emqx_hooks)).
 
 t_access_failed_if_no_server_running(_) ->
     emqx_exhook_mgr:disable(<<"default">>),
