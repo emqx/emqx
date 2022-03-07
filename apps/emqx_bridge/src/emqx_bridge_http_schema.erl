@@ -95,12 +95,14 @@ basic_config() ->
 
 type_field() ->
     {type, mk(http,
-        #{ desc => "The Bridge Type"
+        #{ required => true
+         , desc => "The Bridge Type"
          })}.
 
 name_field() ->
     {name, mk(binary(),
-        #{ desc => "Bridge name, used as a human-readable description of the bridge."
+        #{ required => true
+         , desc => "Bridge name, used as a human-readable description of the bridge."
          })}.
 
 method() ->

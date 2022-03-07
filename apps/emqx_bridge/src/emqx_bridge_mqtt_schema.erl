@@ -44,10 +44,12 @@ fields("get_egress") ->
 %%======================================================================================
 type_field() ->
     {type, mk(mqtt,
-        #{ desc => "The bridge type."
+        #{ required => true
+         , desc => "The bridge type."
          })}.
 
 name_field() ->
     {name, mk(binary(),
-        #{ desc => "Bridge name, used as a human-readable description of the bridge."
+        #{ required => true
+         , desc => "Bridge name, used as a human-readable description of the bridge."
          })}.

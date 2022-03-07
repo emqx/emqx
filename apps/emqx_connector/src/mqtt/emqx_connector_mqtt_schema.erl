@@ -55,11 +55,6 @@ clientid conflicts between different nodes. And we can only use shared subscript
 topic filters for 'remote_topic' of ingress connections.
 """
             })}
-    , {name,
-       sc(binary(),
-          #{ required => false
-           , desc => "Connector name, used as a human-readable description of the connector."
-           })}
     , {server,
         sc(emqx_schema:ip_port(),
            #{ default => "127.0.0.1:1883"

@@ -71,7 +71,7 @@ parse_connector_id(ConnectorId) ->
 list() ->
     lists:foldl(fun({Type, NameAndConf}, Connectors) ->
             lists:foldl(fun({Name, RawConf}, Acc) ->
-                   [RawConf#{<<"id">> => connector_id(Type, Name)} | Acc]
+                   [RawConf#{<<"type">> => Type, <<"name">> => Name} | Acc]
                 end, Connectors, maps:to_list(NameAndConf))
         end, [], maps:to_list(emqx:get_raw_config(config_key_path(), #{}))).
 
@@ -80,10 +80,9 @@ lookup(Id) when is_binary(Id) ->
     lookup(Type, Name).
 
 lookup(Type, Name) ->
-    Id = connector_id(Type, Name),
     case emqx:get_raw_config(config_key_path() ++ [Type, Name], not_found) of
         not_found -> {error, not_found};
-        Conf -> {ok, Conf#{<<"id">> => Id}}
+        Conf -> {ok, Conf#{<<"type">> => Type, <<"name">> => Name}}
     end.
 
 create_dry_run(Type, Conf) ->

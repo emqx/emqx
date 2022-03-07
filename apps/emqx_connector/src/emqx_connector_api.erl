@@ -85,15 +85,7 @@ info_example(Type, Method) ->
     maps:merge(info_example_basic(Type),
                method_example(Type, Method)).
 
-method_example(Type, get) ->
-    SType = atom_to_list(Type),
-    SName = "my_" ++ SType ++ "_connector",
-    #{
-        id => bin(SType ++ ":" ++ SName),
-        type => bin(SType),
-        name => bin(SName)
-    };
-method_example(Type, post) ->
+method_example(Type, Method) when Method == get; Method == post ->
     SType = atom_to_list(Type),
     SName = "my_" ++ SType ++ "_connector",
     #{
@@ -122,7 +114,11 @@ info_example_basic(mqtt) ->
     }.
 
 param_path_id() ->
-    [{id, mk(binary(), #{in => path, example => <<"mqtt:my_mqtt_connector">>})}].
+    [{id, mk(binary(),
+        #{ in => path
+         , example => <<"mqtt:my_mqtt_connector">>
+         , desc => <<"The connector Id. Must be of format {type}:{name}">>
+         })}].
 
 schema("/connectors_test") ->
     #{
@@ -211,8 +207,7 @@ schema("/connectors/:id") ->
 '/connectors'(get, _Request) ->
     {200, [format_resp(Conn) || Conn <- emqx_connector:list()]};
 
-'/connectors'(post, #{body := #{<<"type">> := ConnType} = Params}) ->
-    ConnName = emqx_misc:gen_id(),
+'/connectors'(post, #{body := #{<<"type">> := ConnType, <<"name">> := ConnName} = Params}) ->
     case emqx_connector:lookup(ConnType, ConnName) of
         {ok, _} ->
             {400, error_msg('ALREADY_EXISTS', <<"connector already exists">>)};
@@ -220,8 +215,8 @@ schema("/connectors/:id") ->
             case emqx_connector:update(ConnType, ConnName,
                     filter_out_request_body(Params)) of
                 {ok, #{raw_config := RawConf}} ->
-                    Id = emqx_connector:connector_id(ConnType, ConnName),
-                    {201, format_resp(Id, RawConf)};
+                    {201, format_resp(RawConf#{<<"type">> => ConnType,
+                                               <<"name">> => ConnName})};
                 {error, Error} ->
                     {400, error_msg('ALREADY_EXISTS', Error)}
             end
@@ -231,7 +226,7 @@ schema("/connectors/:id") ->
     ?TRY_PARSE_ID(Id,
         case emqx_connector:lookup(ConnType, ConnName) of
             {ok, Conf} ->
-                {200, format_resp(Id, Conf)};
+                {200, format_resp(Conf)};
             {error, not_found} ->
                 {404, error_msg('NOT_FOUND', <<"connector not found">>)}
         end);
@@ -243,7 +238,8 @@ schema("/connectors/:id") ->
             {ok, _} ->
                 case emqx_connector:update(ConnType, ConnName, Params) of
                     {ok, #{raw_config := RawConf}} ->
-                        {200, format_resp(Id, RawConf)};
+                        {200, format_resp(RawConf#{<<"type">> => ConnType,
+                                                   <<"name">> => ConnName})};
                     {error, Error} ->
                         {500, error_msg('INTERNAL_ERROR', Error)}
                 end;
@@ -274,21 +270,17 @@ error_msg(Code, Msg) when is_binary(Msg) ->
 error_msg(Code, Msg) ->
     #{code => Code, message => bin(io_lib:format("~p", [Msg]))}.
 
-format_resp(#{<<"id">> := Id} = RawConf) ->
-    format_resp(Id, RawConf).
-
-format_resp(ConnId, RawConf) ->
-    NumOfBridges = length(emqx_bridge:list_bridges_by_connector(ConnId)),
-    {Type, ConnName} = emqx_connector:parse_connector_id(ConnId),
+format_resp(#{<<"type">> := ConnType, <<"name">> := ConnName} = RawConf) ->
+    NumOfBridges = length(emqx_bridge:list_bridges_by_connector(
+        emqx_connector:connector_id(ConnType, ConnName))),
     RawConf#{
-        <<"id">> => ConnId,
-        <<"type">> => Type,
-        <<"name">> => maps:get(<<"name">>, RawConf, ConnName),
+        <<"type">> => ConnType,
+        <<"name">> => ConnName,
         <<"num_of_bridges">> => NumOfBridges
     }.
 
 filter_out_request_body(Conf) ->
-    ExtraConfs = [<<"clientid">>, <<"num_of_bridges">>, <<"type">>],
+    ExtraConfs = [<<"clientid">>, <<"num_of_bridges">>, <<"type">>, <<"name">>],
     maps:without(ExtraConfs, Conf).
 
 bin(S) when is_list(S) ->
