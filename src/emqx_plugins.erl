@@ -228,26 +228,21 @@ with_loaded_file(File, SuccFun) ->
     end.
 
 filter_plugins(Names) ->
-    Filter =
-        fun
-            ({Name, true}) when is_atom(Name) ->
-                {true, Name};
-            (Name) when is_atom(Name) ->
-                {true, Name};
-            (_) ->
-                false
-        end,
-    filter_plugins(lists:filtermap(Filter, Names), []).
+    filter_plugins(Names, []).
 
 filter_plugins([], Plugins) ->
     lists:reverse(Plugins);
-filter_plugins([Name | Names], Plugins) ->
-    case lists:member(Name, Plugins) of
-        true ->
-            filter_plugins(Names, Plugins);
-        false ->
-            filter_plugins(Names, [Name | Plugins])
-    end.
+filter_plugins([{Name, Load} | Names], Plugins) ->
+    case {Load, lists:member(Name, Plugins)} of
+        {true, false} ->
+            filter_plugins(Names, [Name | Plugins]);
+        {false, true} ->
+            filter_plugins(Names, Plugins -- [Name]);
+        _ ->
+            filter_plugins(Names, Plugins)
+    end;
+filter_plugins([Name | Names], Plugins) when is_atom(Name) ->
+    filter_plugins([{Name, true} | Names], Plugins).
 
 load_plugins(Names, Persistent) ->
     Plugins = list(),
