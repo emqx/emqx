@@ -18,6 +18,7 @@
 -module(emqx_config_handler).
 
 -include("logger.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(gen_server).
 
@@ -75,7 +76,7 @@ update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
     AtomKeyPath = [atom(Key) || Key <- ConfKeyPath],
     gen_server:call(?MODULE, {change_config, SchemaModule, AtomKeyPath, UpdateArgs}, infinity).
 
--spec add_handler(emqx_config:config_key_path(), handler_name()) -> ok.
+-spec add_handler(emqx_config:config_key_path(), handler_name()) -> ok | {error, {conflict, list()}}.
 add_handler(ConfKeyPath, HandlerName) ->
     assert_callback_function(HandlerName),
     gen_server:call(?MODULE, {add_handler, ConfKeyPath, HandlerName}).
@@ -100,8 +101,10 @@ init(_) ->
     {ok, #{handlers => Handlers#{?MOD => ?MODULE}}}.
 
 handle_call({add_handler, ConfKeyPath, HandlerName}, _From, State = #{handlers := Handlers}) ->
-    {ok, NewHandlers} = deep_put_handler(ConfKeyPath, Handlers, HandlerName),
-    {reply, ok, State#{handlers => NewHandlers}};
+    case deep_put_handler(ConfKeyPath, Handlers, HandlerName) of
+        {ok, NewHandlers} -> {reply, ok, State#{handlers => NewHandlers}};
+        {error, _Reason} = Error -> {reply, Error, State}
+    end;
 
 handle_call({change_config, SchemaModule, ConfKeyPath, UpdateArgs}, _From,
             #{handlers := Handlers} = State) ->
@@ -131,12 +134,36 @@ terminate(_Reason, #{handlers := Handlers}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-deep_put_handler([], Handlers, Mod) when is_map(Handlers) ->
+deep_put_handler([], Handlers, Mod) ->
     {ok, Handlers#{?MOD => Mod}};
 deep_put_handler([Key | KeyPath], Handlers, Mod) ->
     SubHandlers = maps:get(Key, Handlers, #{}),
-    {ok, SubHandlers1} = deep_put_handler(KeyPath, SubHandlers, Mod),
-    {ok, Handlers#{Key => SubHandlers1}}.
+    case deep_put_handler(KeyPath, SubHandlers, Mod) of
+        {ok, NewSubHandlers}  ->
+            NewHandlers = Handlers#{Key => NewSubHandlers},
+            case check_handler_conflict(NewHandlers) of
+                ok -> {ok, NewHandlers};
+                {error, Reason} -> {error, Reason}
+            end;
+        {error, _Reason} = Error -> Error
+    end.
+
+%% Make sure that Specify Key and ?WKEY cannot be on the same level.
+check_handler_conflict(Handlers) ->
+    Keys = filter_top_level_handlers(Handlers),
+    case lists:member(?WKEY, Keys) of
+        true when length(Keys) =:= 1 -> ok;
+        true -> {error, {conflict, Keys}};
+        false -> ok
+    end.
+
+filter_top_level_handlers(Handlers) ->
+    maps:fold(
+        fun
+            (K,  #{?MOD := _}, Acc) -> [K | Acc];
+            (_K, #{}, Acc) -> Acc;
+            (?MOD, _, Acc) -> Acc
+        end, [], Handlers).
 
 handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs) ->
     try
@@ -366,8 +393,12 @@ assert_callback_function(Mod) ->
 
 schema(SchemaModule, [RootKey | _]) ->
     Roots = hocon_schema:roots(SchemaModule),
-    {_, Fields} = lists:keyfind(bin(RootKey), 1, Roots),
-    #{roots => [root], fields => #{root => [Fields]}}.
+    Field =
+        case lists:keyfind(bin(RootKey), 1, Roots) of
+            {_, {Ref, ?REF(Ref)}} -> {Ref, ?R_REF(SchemaModule, Ref)};
+            {_, Field0} -> Field0
+        end,
+    #{roots => [root], fields => #{root => [Field]}}.
 
 load_prev_handlers() ->
     Handlers = application:get_env(emqx, ?MODULE, #{}),

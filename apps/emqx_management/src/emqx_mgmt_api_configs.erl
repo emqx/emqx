@@ -45,14 +45,13 @@
 ]).
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 namespace() -> "configuration".
 
 paths() ->
     ["/configs", "/configs_reset/:rootname"] ++
     lists:map(fun({Name, _Type}) -> ?PREFIX ++ to_list(Name) end, config_list(?EXCLUDES)).
-
 
 schema("/configs") ->
     #{
@@ -156,7 +155,7 @@ config(put, #{body := Body}, Req) ->
     Path = conf_path(Req),
     case emqx:update_config(Path, Body, #{rawconf_with_defaults => true}) of
         {ok, #{raw_config := RawConf}} ->
-            {200, emqx_map_lib:jsonable_map(RawConf)};
+            {200, RawConf};
         {error, Reason} ->
             {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
     end.
@@ -194,8 +193,7 @@ conf_path_reset(Req) ->
     string:lexemes(Path, "/ ").
 
 get_full_config() ->
-    emqx_map_lib:jsonable_map(
-        emqx_config:fill_defaults(emqx:get_raw_config([]))).
+        emqx_config:fill_defaults(emqx:get_raw_config([])).
 
 conf_path_from_querystr(Req) ->
     case proplists:get_value(<<"conf_path">>, cowboy_req:parse_qs(Req)) of

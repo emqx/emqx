@@ -77,6 +77,23 @@ t_handler(_Config) ->
     ok = emqx_config_handler:remove_handler(Wildcard1),
     ok.
 
+t_conflict_handler(_Config) ->
+    ok = emqx_config_handler:add_handler([sysmon, '?', '?'], ?MODULE),
+    ?assertMatch({error, {conflict, _}},
+        emqx_config_handler:add_handler([sysmon, '?', cpu_check_interval], ?MODULE)),
+    ok = emqx_config_handler:remove_handler([sysmon, '?', '?']),
+
+    ok = emqx_config_handler:add_handler([sysmon, '?', cpu_check_interval], ?MODULE),
+    ?assertMatch({error, {conflict, _}},
+        emqx_config_handler:add_handler([sysmon, '?', '?'], ?MODULE)),
+    ok = emqx_config_handler:remove_handler([sysmon, '?', cpu_check_interval]),
+
+    %% override
+    ok = emqx_config_handler:add_handler([sysmon], emqx_logger),
+    ?assertMatch(#{handlers := #{sysmon := #{{mod} := emqx_logger}}},
+        emqx_config_handler:info()),
+    ok.
+
 t_root_key_update(_Config) ->
     PathKey = [sysmon],
     Opts = #{rawconf_with_defaults => true},
@@ -246,7 +263,7 @@ t_update_sub(_Config) ->
     ?assertEqual({ok,#{config => 0.81,
         post_config_update => #{?MODULE => ok},
         raw_config => <<"81%">>}},
-        emqx:update_config(SubKey, "81%", Opts#{merge => shallow})),
+        emqx:update_config(SubKey, "81%", Opts)),
     ?assertEqual(0.81, emqx:get_config(SubKey)),
     ?assertEqual("81%", emqx:get_raw_config(SubKey)),
 
