@@ -182,15 +182,22 @@ t_list_users(_) ->
       fun(U) -> {ok, _} = emqx_authn_mnesia:add_user(U, State) end,
       Users),
 
-    {ok,
-     #{data := [#{user_id := _}, #{user_id := _}],
-       meta := #{page := 1, limit := 2, count := 3}}} = emqx_authn_mnesia:list_users(
+    #{data := [#{is_superuser := false,user_id := <<"u2">>},
+               #{is_superuser := false,user_id := <<"u1">>}],
+      meta := #{page := 1, limit := 2, count := 3}} = emqx_authn_mnesia:list_users(
                                                           #{<<"page">> => 1, <<"limit">> => 2},
                                                           State),
-    {ok,
-     #{data := [#{user_id := _}],
-       meta := #{page := 2, limit := 2, count := 3}}} = emqx_authn_mnesia:list_users(
+
+    #{data := [#{is_superuser := false,user_id := <<"u3">>}],
+      meta := #{page := 2, limit := 2, count := 3}} = emqx_authn_mnesia:list_users(
                                                           #{<<"page">> => 2, <<"limit">> => 2},
+                                                          State),
+
+    #{data := [#{is_superuser := false,user_id := <<"u3">>}],
+      meta := #{page := 1, limit := 20, count := 1}} = emqx_authn_mnesia:list_users(
+                                                          #{ <<"page">> => 1
+                                                           , <<"limit">> => 20
+                                                           , <<"like_username">> => <<"3">>},
                                                           State).
 
 t_import_users(_) ->
