@@ -10,7 +10,7 @@
 %% Hocon Schema Definitions
 roots() -> [].
 
-fields("bridge") ->
+fields("config") ->
     basic_config() ++
     [ {url, mk(binary(),
           #{ required => true
@@ -68,10 +68,11 @@ How long will the HTTP request timeout.
 
 fields("post") ->
     [ type_field()
-    ] ++ fields("bridge");
+    , name_field()
+    ] ++ fields("config");
 
 fields("put") ->
-    fields("bridge");
+    fields("config");
 
 fields("get") ->
     emqx_bridge_schema:metrics_status_fields() ++ fields("post").
@@ -82,10 +83,6 @@ basic_config() ->
            #{ desc => "Enable or disable this bridge"
             , default => true
             })}
-    , {name,
-       mk(binary(),
-          #{ desc => "Bridge name, used as a human-readable description of the bridge."
-           })}
     , {direction,
         mk(egress,
            #{ desc => "The direction of this bridge, MUST be 'egress'"
@@ -97,7 +94,14 @@ basic_config() ->
 %%======================================================================================
 
 type_field() ->
-    {type, mk(http, #{desc => "The Bridge Type"})}.
+    {type, mk(http,
+        #{ desc => "The Bridge Type"
+         })}.
+
+name_field() ->
+    {name, mk(binary(),
+        #{ desc => "Bridge name, used as a human-readable description of the bridge."
+         })}.
 
 method() ->
     enum([post, put, get, delete]).

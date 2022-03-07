@@ -46,10 +46,6 @@ common_bridge_fields() ->
            #{ desc => "Enable or disable this bridge"
             , default => true
             })}
-    , {name,
-       mk(binary(),
-          #{ desc => "Bridge name, used as a human-readable description of the bridge."
-           })}
     , {connector,
         mk(binary(),
            #{ required => true
@@ -86,7 +82,7 @@ direction_field(Dir, Desc) ->
 roots() -> [bridges].
 
 fields(bridges) ->
-    [{http, mk(hoconsc:map(name, ref(emqx_bridge_http_schema, "bridge")), #{})}]
+    [{http, mk(hoconsc:map(name, ref(emqx_bridge_http_schema, "config")), #{})}]
     ++ [{T, mk(hoconsc:map(name, hoconsc:union([
             ref(schema_mod(T), "ingress"),
             ref(schema_mod(T), "egress")

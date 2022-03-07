@@ -24,9 +24,11 @@ fields("egress") ->
 
 fields("post_ingress") ->
     [ type_field()
+    , name_field()
     ] ++ proplists:delete(enable, fields("ingress"));
 fields("post_egress") ->
     [ type_field()
+    , name_field()
     ] ++ proplists:delete(enable, fields("egress"));
 
 fields("put_ingress") ->
@@ -41,4 +43,11 @@ fields("get_egress") ->
 
 %%======================================================================================
 type_field() ->
-    {type, mk(mqtt, #{desc => "The bridge type"})}.
+    {type, mk(mqtt,
+        #{ desc => "The bridge type."
+         })}.
+
+name_field() ->
+    {name, mk(binary(),
+        #{ desc => "Bridge name, used as a human-readable description of the bridge."
+         })}.

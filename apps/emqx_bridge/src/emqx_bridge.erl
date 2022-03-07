@@ -31,6 +31,7 @@
         , bridge_type/1
         , resource_id/1
         , resource_id/2
+        , bridge_id/2
         , parse_bridge_id/1
         ]).
 
@@ -202,8 +203,9 @@ lookup(Type, Name) ->
 lookup(Type, Name, RawConf) ->
     case emqx_resource:get_instance(resource_id(Type, Name)) of
         {error, not_found} -> {error, not_found};
-        {ok, _, Data} -> {ok, #{id => bridge_id(Type, Name), resource_data => Data,
-                             raw_config => RawConf}}
+        {ok, _, Data} ->
+            {ok, #{type => Type, name => Name, resource_data => Data,
+                   raw_config => RawConf}}
     end.
 
 start(Type, Name) ->

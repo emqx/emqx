@@ -264,7 +264,7 @@ trace(post, #{body := Param}) ->
         {ok, Trace0} -> {200, format_trace(Trace0)};
         {error, {already_existed, Name}} ->
             {400, #{
-                code => 'ALREADY_EXISTED',
+                code => 'ALREADY_EXISTS',
                 message => ?TO_BIN([Name, " Already Exists"])
             }};
         {error, {duplicate_condition, Name}} ->

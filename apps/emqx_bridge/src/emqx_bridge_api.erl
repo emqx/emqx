@@ -284,9 +284,8 @@ schema("/bridges/:id/operation/:operation") ->
         }
     }.
 
-'/bridges'(post, #{body := #{<<"type">> := BridgeType} = Conf0}) ->
+'/bridges'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
     Conf = filter_out_request_body(Conf0),
-    BridgeName = emqx_misc:gen_id(),
     case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, _} ->
             {400, error_msg('ALREADY_EXISTS', <<"bridge already exists">>)};
@@ -324,7 +323,7 @@ schema("/bridges/:id/operation/:operation") ->
                 #{override_to => cluster}) of
             {ok, _} -> {204};
             {error, Reason} ->
-                {500, error_msg('UNKNOWN_ERROR', Reason)}
+                {500, error_msg('INTERNAL_ERROR', Reason)}
         end).
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
@@ -335,7 +334,7 @@ lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
         {ok, [{error, not_found} | _]} ->
             {404, error_msg('NOT_FOUND', <<"not_found">>)};
         {error, ErrL} ->
-            {500, error_msg('UNKNOWN_ERROR', ErrL)}
+            {500, error_msg('INTERNAL_ERROR', ErrL)}
     end.
 
 lookup_from_local_node(BridgeType, BridgeName) ->
@@ -355,7 +354,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                 {error, {pre_config_update, _, bridge_not_found}} ->
                     {404, error_msg('NOT_FOUND', <<"bridge not found">>)};
                 {error, Reason} ->
-                    {500, error_msg('UNKNOWN_ERROR', Reason)}
+                    {500, error_msg('INTERNAL_ERROR', Reason)}
             end
     end).
 
@@ -373,17 +372,19 @@ ensure_bridge_created(BridgeType, BridgeName, Conf) ->
     end.
 
 zip_bridges([BridgesFirstNode | _] = BridgesAllNodes) ->
-    lists:foldl(fun(#{id := Id}, Acc) ->
-            Bridges = pick_bridges_by_id(Id, BridgesAllNodes),
+    lists:foldl(fun(#{type := Type, name := Name}, Acc) ->
+            Bridges = pick_bridges_by_id(Type, Name, BridgesAllNodes),
             [format_bridge_info(Bridges) | Acc]
         end, [], BridgesFirstNode).
 
-pick_bridges_by_id(Id, BridgesAllNodes) ->
+pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
     lists:foldl(fun(BridgesOneNode, Acc) ->
-            case [Bridge || Bridge = #{id := Id0} <- BridgesOneNode, Id0 == Id] of
+            case [Bridge || Bridge = #{type := Type0, name := Name0} <- BridgesOneNode,
+                    Type0 == Type, Name0 == Name] of
                 [BridgeInfo] -> [BridgeInfo | Acc];
                 [] ->
-                    ?SLOG(warning, #{msg => "bridge_inconsistent_in_cluster", bridge => Id}),
+                    ?SLOG(warning, #{msg => "bridge_inconsistent_in_cluster",
+                                     bridge => emqx_bridge:bridge_id(Type, Name)}),
                     Acc
             end
         end, [], BridgesAllNodes).
@@ -421,9 +422,8 @@ aggregate_metrics(AllMetrics) ->
                      Rate1 + Rate0, Rate5m1 + Rate5m0, RateMax1 + RateMax0)
         end, InitMetrics, AllMetrics).
 
-format_resp(#{id := Id, raw_config := RawConf,
+format_resp(#{type := Type, name := BridgeName, raw_config := RawConf,
               resource_data := #{status := Status, metrics := Metrics}}) ->
-    {Type, BridgeName} = emqx_bridge:parse_bridge_id(Id),
     IsConnected = fun(connected) -> connected; (_) -> disconnected end,
     RawConf#{
         type => Type,
@@ -448,7 +448,7 @@ is_ok(ResL) ->
     end.
 
 filter_out_request_body(Conf) ->
-    ExtraConfs = [<<"id">>, <<"type">>, <<"status">>, <<"node_status">>,
+    ExtraConfs = [<<"id">>, <<"type">>, <<"name">>, <<"status">>, <<"node_status">>,
         <<"node_metrics">>, <<"metrics">>, <<"node">>],
     maps:without(ExtraConfs, Conf).
 

@@ -152,8 +152,7 @@ t_http_crud_apis(_) ->
         ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, ?BRIDGE_NAME)),
 
     %ct:pal("---bridge: ~p", [Bridge]),
-    #{ <<"id">> := BridgeID
-     , <<"type">> := ?BRIDGE_TYPE
+    #{ <<"type">> := ?BRIDGE_TYPE
      , <<"name">> := ?BRIDGE_NAME
      , <<"status">> := _
      , <<"node_status">> := [_|_]
@@ -162,6 +161,7 @@ t_http_crud_apis(_) ->
      , <<"url">> := URL1
      } = jsx:decode(Bridge),
 
+    BridgeID = emqx_bridge:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
     %% send an message to emqx and the message should be forwarded to the HTTP server
     wait_for_resource_ready(BridgeID, 5),
     Body = <<"my msg">>,
@@ -181,8 +181,7 @@ t_http_crud_apis(_) ->
     URL2 = ?URL(Port, "path2"),
     {ok, 200, Bridge2} = request(put, uri(["bridges", BridgeID]),
                                  ?HTTP_BRIDGE(URL2, ?BRIDGE_TYPE, ?BRIDGE_NAME)),
-    ?assertMatch(#{ <<"id">> := BridgeID
-                  , <<"type">> := ?BRIDGE_TYPE
+    ?assertMatch(#{ <<"type">> := ?BRIDGE_TYPE
                   , <<"name">> := ?BRIDGE_NAME
                   , <<"status">> := _
                   , <<"node_status">> := [_|_]
@@ -193,8 +192,7 @@ t_http_crud_apis(_) ->
 
     %% list all bridges again, assert Bridge2 is in it
     {ok, 200, Bridge2Str} = request(get, uri(["bridges"]), []),
-    ?assertMatch([#{ <<"id">> := BridgeID
-                   , <<"type">> := ?BRIDGE_TYPE
+    ?assertMatch([#{ <<"type">> := ?BRIDGE_TYPE
                    , <<"name">> := ?BRIDGE_NAME
                    , <<"status">> := _
                    , <<"node_status">> := [_|_]
@@ -205,8 +203,7 @@ t_http_crud_apis(_) ->
 
     %% get the bridge by id
     {ok, 200, Bridge3Str} = request(get, uri(["bridges", BridgeID]), []),
-    ?assertMatch(#{ <<"id">> := BridgeID
-                  , <<"type">> := ?BRIDGE_TYPE
+    ?assertMatch(#{ <<"type">> := ?BRIDGE_TYPE
                   , <<"name">> := ?BRIDGE_NAME
                   , <<"status">> := _
                   , <<"node_status">> := [_|_]
@@ -251,8 +248,7 @@ t_start_stop_bridges(_) ->
     {ok, 201, Bridge} = request(post, uri(["bridges"]),
         ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, ?BRIDGE_NAME)),
     %ct:pal("the bridge ==== ~p", [Bridge]),
-    #{ <<"id">> := BridgeID
-     , <<"type">> := ?BRIDGE_TYPE
+    #{ <<"type">> := ?BRIDGE_TYPE
      , <<"name">> := ?BRIDGE_NAME
      , <<"status">> := _
      , <<"node_status">> := [_|_]
@@ -260,31 +256,28 @@ t_start_stop_bridges(_) ->
      , <<"node_metrics">> := [_|_]
      , <<"url">> := URL1
      } = jsx:decode(Bridge),
+    BridgeID = emqx_bridge:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
     %% stop it
     {ok, 200, <<>>} = request(post, operation_path(stop, BridgeID), <<"">>),
     {ok, 200, Bridge2} = request(get, uri(["bridges", BridgeID]), []),
-    ?assertMatch(#{ <<"id">> := BridgeID
-                  , <<"status">> := <<"disconnected">>
+    ?assertMatch(#{ <<"status">> := <<"disconnected">>
                   }, jsx:decode(Bridge2)),
     %% start again
     {ok, 200, <<>>} = request(post, operation_path(start, BridgeID), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
-    ?assertMatch(#{ <<"id">> := BridgeID
-                  , <<"status">> := <<"connected">>
+    ?assertMatch(#{ <<"status">> := <<"connected">>
                   }, jsx:decode(Bridge3)),
     %% restart an already started bridge
     {ok, 200, <<>>} = request(post, operation_path(restart, BridgeID), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
-    ?assertMatch(#{ <<"id">> := BridgeID
-                  , <<"status">> := <<"connected">>
+    ?assertMatch(#{ <<"status">> := <<"connected">>
                   }, jsx:decode(Bridge3)),
     %% stop it again
     {ok, 200, <<>>} = request(post, operation_path(stop, BridgeID), <<"">>),
     %% restart a stopped bridge
     {ok, 200, <<>>} = request(post, operation_path(restart, BridgeID), <<"">>),
     {ok, 200, Bridge4} = request(get, uri(["bridges", BridgeID]), []),
-    ?assertMatch(#{ <<"id">> := BridgeID
-                  , <<"status">> := <<"connected">>
+    ?assertMatch(#{ <<"status">> := <<"connected">>
                   }, jsx:decode(Bridge4)),
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
