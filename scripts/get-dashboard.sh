@@ -5,6 +5,23 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
+PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
+case "${PKG_VSN}" in
+    4.3*)
+        EMQX_CE_DASHBOARD_VERSION='v4.3.5'
+        EMQX_EE_DASHBOARD_VERSION='v4.3.15'
+        ;;
+    4.4*)
+        # keep the above 4.3 untouched, otherwise conflicts!
+        EMQX_CE_DASHBOARD_VERSION='v4.4.0'
+        EMQX_EE_DASHBOARD_VERSION='see-enterprise-repo'
+        ;;
+    *)
+        echo "Unsupported version $PKG_VSN" >&2
+        exit 1
+        ;;
+esac
+
 RELEASE_ASSET_FILE="emqx-dashboard.zip"
 
 if [ -f 'EMQX_ENTERPRISE' ]; then

@@ -33,7 +33,6 @@ jobs:
         if [ -f EMQX_ENTERPRISE ]; then
           echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
           git config --global credential.helper store
-          echo "${{ secrets.CI_GIT_TOKEN }}" >> scripts/git-token
           make deps-emqx-ee
           make clean
           echo "::set-output name=imgname::emqx-ee"
