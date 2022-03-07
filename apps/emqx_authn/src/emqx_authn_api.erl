@@ -380,7 +380,13 @@ schema("/authentication/:id/users") ->
             parameters => [
                 param_auth_id(),
                 {page, mk(integer(), #{in => query, desc => <<"Page Index">>, required => false})},
-                {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, required => false})}
+                {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, required => false})},
+                {like_username, mk(binary(), #{ in => query
+                                              , desc => <<"Fuzzy search username">>
+                                              , required => false})},
+                {like_clientid, mk(binary(), #{ in => query
+                                              , desc => <<"Fuzzy search clientid">>
+                                              , required => false})}
             ],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -638,8 +644,8 @@ listener_authenticator_import_users(post, #{bindings := #{listener_id := _, id :
 
 authenticator_users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
     add_user(?GLOBAL, AuthenticatorID, UserInfo);
-authenticator_users(get, #{bindings := #{id := AuthenticatorID}, query_string := PageParams}) ->
-    list_users(?GLOBAL, AuthenticatorID, PageParams).
+authenticator_users(get, #{bindings := #{id := AuthenticatorID}, query_string := QueryString}) ->
+    list_users(?GLOBAL, AuthenticatorID, QueryString).
 
 authenticator_user(put, #{bindings := #{id := AuthenticatorID,
                             user_id := UserID}, body := UserInfo}) ->
@@ -840,13 +846,9 @@ delete_user(ChainName, AuthenticatorID, UserID) ->
             serialize_error({user_error, Reason})
     end.
 
-list_users(ChainName, AuthenticatorID, PageParams) ->
-    case emqx_authentication:list_users(ChainName, AuthenticatorID, PageParams) of
-        {ok, Users} ->
-            {200, Users};
-        {error, Reason} ->
-            serialize_error(Reason)
-    end.
+list_users(ChainName, AuthenticatorID, QueryString) ->
+    Response = emqx_authentication:list_users(ChainName, AuthenticatorID, QueryString),
+    emqx_mgmt_util:generate_response(Response).
 
 update_config(Path, ConfigRequest) ->
     emqx_conf:update(Path, ConfigRequest, #{rawconf_with_defaults => true,
