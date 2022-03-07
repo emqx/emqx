@@ -99,7 +99,7 @@ authn(delete, #{bindings := #{name := Name0}}) ->
 users(get, #{bindings := #{name := Name0}, query_string := Qs}) ->
     with_authn(Name0, fun(_GwName, #{id := AuthId,
                                      chain_name := ChainName}) ->
-        emqx_authn_api:list_users(ChainName, AuthId, page_pramas(Qs))
+        emqx_authn_api:list_users(ChainName, AuthId, parse_qstring(Qs))
     end);
 users(post, #{bindings := #{name := Name0},
               body := Body}) ->
@@ -145,8 +145,11 @@ import_users(post, #{bindings := #{name := Name0},
 %%--------------------------------------------------------------------
 %% Utils
 
-page_pramas(Qs) ->
-    maps:with([<<"page">>, <<"limit">>], Qs).
+parse_qstring(Qs) ->
+    maps:with([ <<"page">>
+              , <<"limit">>
+              , <<"like_username">>
+              , <<"like_clientid">>], Qs).
 
 %%--------------------------------------------------------------------
 %% Swagger defines
@@ -190,7 +193,8 @@ schema("/gateway/:name/authentication/users") ->
      , get =>
          #{ description => <<"Get the users for the authentication">>
           , parameters => params_gateway_name_in_path() ++
-                          params_paging_in_qs()
+                          params_paging_in_qs() ++
+                          params_fuzzy_in_qs()
           , responses =>
               ?STANDARD_RESP(
                  #{ 200 => emqx_dashboard_swagger:schema_with_example(
@@ -297,6 +301,23 @@ params_paging_in_qs() ->
                  , desc => <<"Page Limit">>
                  , example => 100
                  })}
+    ].
+
+params_fuzzy_in_qs() ->
+    [{like_username,
+      mk(binary(),
+         #{ in => query
+          , required => false
+          , desc => <<"Fuzzy search by username">>
+          , example => <<"username">>
+          })},
+     {like_clientid,
+      mk(binary(),
+         #{ in => query
+          , required => false
+          , desc => <<"Fuzzy search by clientid">>
+          , example => <<"clientid">>
+          })}
     ].
 
 %%--------------------------------------------------------------------
