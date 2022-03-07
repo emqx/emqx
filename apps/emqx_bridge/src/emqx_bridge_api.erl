@@ -88,16 +88,18 @@ get_response_body_schema() ->
         bridge_info_examples(get)).
 
 param_path_operation() ->
-    path_param(operation, enum([start, stop, restart]), <<"start">>).
-
-param_path_id() ->
-    path_param(id, binary(), <<"http:my_http_bridge">>).
-
-path_param(Name, Type, Example) ->
-    {Name, mk(Type,
+    {operation, mk(enum([start, stop, restart]),
         #{ in => path
          , required => true
-         , example => Example
+         , example => <<"start">>
+         })}.
+
+param_path_id() ->
+    {id, mk(binary(),
+        #{ in => path
+         , required => true
+         , example => <<"http:my_http_bridge">>
+         , desc => <<"The bridge Id. Must be of format {type}:{name}">>
          })}.
 
 bridge_info_array_example(Method) ->
@@ -140,7 +142,6 @@ method_example(Type, Direction, get) ->
         _ -> "my_" ++ SDir ++ "_" ++ SType ++ "_bridge"
     end,
     #{
-        id => bin(SType ++ ":" ++ SName),
         type => bin(SType),
         name => bin(SName),
         metrics => ?METRICS(0, 0, 0, 0, 0, 0),
@@ -216,7 +217,7 @@ schema("/bridges") ->
         post => #{
             tags => [<<"bridges">>],
             summary => <<"Create Bridge">>,
-            description => <<"Create a new bridge">>,
+            description => <<"Create a new bridge by type and name">>,
             requestBody => emqx_dashboard_swagger:schema_with_examples(
                             emqx_bridge_schema:post_request(),
                             bridge_info_examples(post)),
@@ -243,7 +244,7 @@ schema("/bridges/:id") ->
         put => #{
             tags => [<<"bridges">>],
             summary => <<"Update Bridge">>,
-            description => <<"Update a bridge">>,
+            description => <<"Update a bridge by Id">>,
             parameters => [param_path_id()],
             requestBody => emqx_dashboard_swagger:schema_with_examples(
                             emqx_bridge_schema:put_request(),
@@ -257,7 +258,7 @@ schema("/bridges/:id") ->
         delete => #{
             tags => [<<"bridges">>],
             summary => <<"Delete Bridge">>,
-            description => <<"Delete a bridge">>,
+            description => <<"Delete a bridge by Id">>,
             parameters => [param_path_id()],
             responses => #{
                 204 => <<"Bridge deleted">>
@@ -271,7 +272,7 @@ schema("/bridges/:id/operation/:operation") ->
         post => #{
             tags => [<<"bridges">>],
             summary => <<"Start/Stop/Restart Bridge">>,
-            description => <<"Start/Stop/Restart bridges on a specific node">>,
+            description => <<"Start/Stop/Restart bridges on a specific node.">>,
             parameters => [
                 param_path_id(),
                 param_path_operation()
@@ -425,7 +426,6 @@ format_resp(#{id := Id, raw_config := RawConf,
     {Type, BridgeName} = emqx_bridge:parse_bridge_id(Id),
     IsConnected = fun(connected) -> connected; (_) -> disconnected end,
     RawConf#{
-        id => Id,
         type => Type,
         name => maps:get(<<"name">>, RawConf, BridgeName),
         node => node(),

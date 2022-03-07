@@ -74,8 +74,7 @@ fields("put") ->
     fields("bridge");
 
 fields("get") ->
-    [ id_field()
-    ] ++ emqx_bridge_schema:metrics_status_fields() ++ fields("post").
+    emqx_bridge_schema:metrics_status_fields() ++ fields("post").
 
 basic_config() ->
     [ {enable,
@@ -96,8 +95,6 @@ basic_config() ->
     ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
 
 %%======================================================================================
-id_field() ->
-    {id, mk(binary(), #{desc => "The Bridge ID", example => "http:my_http_bridge"})}.
 
 type_field() ->
     {type, mk(http, #{desc => "The Bridge Type"})}.

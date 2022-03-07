@@ -35,15 +35,10 @@ fields("put_egress") ->
     proplists:delete(enable, fields("egress"));
 
 fields("get_ingress") ->
-    [ id_field()
-    ] ++ emqx_bridge_schema:metrics_status_fields() ++ fields("post_ingress");
+    emqx_bridge_schema:metrics_status_fields() ++ fields("post_ingress");
 fields("get_egress") ->
-    [ id_field()
-    ] ++ emqx_bridge_schema:metrics_status_fields() ++ fields("post_egress").
+    emqx_bridge_schema:metrics_status_fields() ++ fields("post_egress").
 
 %%======================================================================================
-id_field() ->
-    {id, mk(binary(), #{desc => "The bridge ID", example => "mqtt:my_mqtt_bridge"})}.
-
 type_field() ->
     {type, mk(mqtt, #{desc => "The bridge type"})}.
