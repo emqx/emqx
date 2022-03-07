@@ -47,7 +47,7 @@
         , recreate/3
         , create_dry_run/2
         , remove/1
-        , remove/3
+        , remove/2
         , update/2
         , update/3
         , start/2
@@ -286,6 +286,10 @@ remove(BridgeId) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
     remove(BridgeType, BridgeName, #{}).
 
+remove(Type, Name) ->
+    remove(Type, Name, undefined).
+
+%% just for perform_bridge_changes/1
 remove(Type, Name, _Conf) ->
     ?SLOG(info, #{msg => "remove_bridge", type => Type, name => Name}),
     case emqx_resource:remove_local(resource_id(Type, Name)) of

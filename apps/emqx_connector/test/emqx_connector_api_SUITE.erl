@@ -124,8 +124,8 @@ clear_resources() ->
     lists:foreach(fun(#{id := Id}) ->
             ok = emqx_rule_engine:delete_rule(Id)
         end, emqx_rule_engine:get_rules()),
-    lists:foreach(fun(#{id := Id}) ->
-            ok = emqx_bridge:remove(Id)
+    lists:foreach(fun(#{type := Type, name := Name}) ->
+            ok = emqx_bridge:remove(Type, Name)
         end, emqx_bridge:list()),
     lists:foreach(fun(#{<<"id">> := Id}) ->
             ok = emqx_connector:delete(Id)
@@ -231,10 +231,11 @@ t_mqtt_conn_bridge_ingress(_) ->
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_INGRESS
         }),
-    #{ <<"id">> := BridgeIDIngress
-     , <<"type">> := <<"mqtt">>
+    #{ <<"type">> := ?CONNECTR_TYPE
+     , <<"name">> := ?BRIDGE_NAME_INGRESS
      , <<"connector">> := ConnctorID
      } = jsx:decode(Bridge),
+    BridgeIDIngress = emqx_bridge:bridge_id(?CONNECTR_TYPE, ?BRIDGE_NAME_INGRESS),
     wait_for_resource_ready(BridgeIDIngress, 5),
 
     %% we now test if the bridge works as expected
@@ -298,11 +299,11 @@ t_mqtt_conn_bridge_egress(_) ->
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_EGRESS
         }),
-    #{ <<"id">> := BridgeIDEgress
-     , <<"type">> := ?CONNECTR_TYPE
+    #{ <<"type">> := ?CONNECTR_TYPE
      , <<"name">> := ?BRIDGE_NAME_EGRESS
      , <<"connector">> := ConnctorID
      } = jsx:decode(Bridge),
+    BridgeIDEgress = emqx_bridge:bridge_id(?CONNECTR_TYPE, ?BRIDGE_NAME_EGRESS),
     wait_for_resource_ready(BridgeIDEgress, 5),
 
     %% we now test if the bridge works as expected
@@ -330,8 +331,7 @@ t_mqtt_conn_bridge_egress(_) ->
 
     %% verify the metrics of the bridge
     {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
-    ?assertMatch(#{ <<"id">> := BridgeIDEgress
-                  , <<"metrics">> := ?metrics(1, 1, 0, _, _, _)
+    ?assertMatch(#{ <<"metrics">> := ?metrics(1, 1, 0, _, _, _)
                   , <<"node_metrics">> :=
                       [#{<<"node">> := _, <<"metrics">> := ?metrics(1, 1, 0, _, _, _)}]
                   }, jsx:decode(BridgeStr)),
@@ -368,11 +368,11 @@ t_mqtt_conn_update(_) ->
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_EGRESS
         }),
-    #{ <<"id">> := BridgeIDEgress
-     , <<"type">> := <<"mqtt">>
+    #{ <<"type">> := ?CONNECTR_TYPE
      , <<"name">> := ?BRIDGE_NAME_EGRESS
      , <<"connector">> := ConnctorID
      } = jsx:decode(Bridge),
+    BridgeIDEgress = emqx_bridge:bridge_id(?CONNECTR_TYPE, ?BRIDGE_NAME_EGRESS),
     wait_for_resource_ready(BridgeIDEgress, 5),
 
     %% then we try to update 'server' of the connector, to an unavailable IP address
@@ -410,12 +410,12 @@ t_mqtt_conn_update2(_) ->
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_EGRESS
         }),
-    #{ <<"id">> := BridgeIDEgress
-     , <<"type">> := <<"mqtt">>
+    #{ <<"type">> := ?CONNECTR_TYPE
      , <<"name">> := ?BRIDGE_NAME_EGRESS
      , <<"status">> := <<"disconnected">>
      , <<"connector">> := ConnctorID
      } = jsx:decode(Bridge),
+    BridgeIDEgress = emqx_bridge:bridge_id(?CONNECTR_TYPE, ?BRIDGE_NAME_EGRESS),
     %% We try to fix the 'server' parameter, to another unavailable server..
     %% The update should success: we don't check the connectivity of the new config
     %% if the resource is now disconnected.
@@ -426,8 +426,7 @@ t_mqtt_conn_update2(_) ->
                                  ?MQTT_CONNECTOR2(<<"127.0.0.1:1883">>)),
     wait_for_resource_ready(BridgeIDEgress, 5),
     {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
-    ?assertMatch(#{ <<"id">> := BridgeIDEgress
-                  , <<"status">> := <<"connected">>
+    ?assertMatch(#{ <<"status">> := <<"connected">>
                   }, jsx:decode(BridgeStr)),
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
@@ -453,9 +452,9 @@ t_mqtt_conn_update3(_) ->
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_EGRESS
         }),
-    #{ <<"id">> := BridgeIDEgress
-     , <<"connector">> := ConnctorID
+    #{ <<"connector">> := ConnctorID
      } = jsx:decode(Bridge),
+    BridgeIDEgress = emqx_bridge:bridge_id(?CONNECTR_TYPE, ?BRIDGE_NAME_EGRESS),
     wait_for_resource_ready(BridgeIDEgress, 5),
 
     %% delete the connector should fail because it is in use by a bridge
@@ -486,12 +485,12 @@ t_ingress_mqtt_bridge_with_rules(_) ->
                                }),
     #{ <<"id">> := ConnctorID } = jsx:decode(Connector),
 
-    {ok, 201, Bridge} = request(post, uri(["bridges"]),
+    {ok, 201, _} = request(post, uri(["bridges"]),
         ?MQTT_BRIDGE_INGRESS(ConnctorID)#{
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_INGRESS
         }),
-    #{ <<"id">> := BridgeIDIngress } = jsx:decode(Bridge),
+    BridgeIDIngress = emqx_bridge:bridge_id(?CONNECTR_TYPE, ?BRIDGE_NAME_INGRESS),
 
     {ok, 201, Rule} = request(post, uri(["rules"]),
         #{<<"name">> => <<"A rule get messages from a source mqtt bridge">>,
@@ -572,7 +571,8 @@ t_egress_mqtt_bridge_with_rules(_) ->
             <<"type">> => ?CONNECTR_TYPE,
             <<"name">> => ?BRIDGE_NAME_EGRESS
         }),
-    #{ <<"id">> := BridgeIDEgress } = jsx:decode(Bridge),
+    #{ <<"type">> := ?CONNECTR_TYPE, <<"name">> := ?BRIDGE_NAME_EGRESS } = jsx:decode(Bridge),
+    BridgeIDEgress = emqx_bridge:bridge_id(?CONNECTR_TYPE, ?BRIDGE_NAME_EGRESS),
 
     {ok, 201, Rule} = request(post, uri(["rules"]),
         #{<<"name">> => <<"A rule send messages to a sink mqtt bridge">>,
@@ -647,8 +647,7 @@ t_egress_mqtt_bridge_with_rules(_) ->
 
     %% verify the metrics of the bridge
     {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
-    ?assertMatch(#{ <<"id">> := BridgeIDEgress
-                  , <<"metrics">> := ?metrics(2, 2, 0, _, _, _)
+    ?assertMatch(#{ <<"metrics">> := ?metrics(2, 2, 0, _, _, _)
                   , <<"node_metrics">> :=
                       [#{<<"node">> := _, <<"metrics">> := ?metrics(2, 2, 0, _, _, _)}]
                   }, jsx:decode(BridgeStr)),

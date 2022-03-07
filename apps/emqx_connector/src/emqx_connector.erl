@@ -40,16 +40,15 @@ config_key_path() ->
 -dialyzer([{nowarn_function, [post_config_update/5]}, error_handling]).
 post_config_update([connectors, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
     ConnId = connector_id(Type, Name),
-    try foreach_linked_bridges(ConnId, fun(#{id := BId}) ->
-            throw({dependency_bridges_exist, BId})
+    try foreach_linked_bridges(ConnId, fun(#{type := BType, name := BName}) ->
+            throw({dependency_bridges_exist, emqx_bridge:bridge_id(BType, BName)})
         end)
     catch throw:Error -> {error, Error}
     end;
 post_config_update([connectors, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
     ConnId = connector_id(Type, Name),
     foreach_linked_bridges(ConnId,
-        fun(#{id := BId}) ->
-            {BType, BName} = emqx_bridge:parse_bridge_id(BId),
+        fun(#{type := BType, name := BName}) ->
             BridgeConf = emqx:get_config([bridges, BType, BName]),
             case emqx_bridge:update(BType, BName, {BridgeConf#{connector => OldConf},
                     BridgeConf#{connector => NewConf}}) of
