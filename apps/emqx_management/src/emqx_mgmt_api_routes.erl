@@ -17,80 +17,95 @@
 -module(emqx_mgmt_api_routes).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("typerefl/include/types.hrl").
 
 %% API
 -behaviour(minirest_api).
 
--export([api_spec/0]).
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        , fields/1
+        ]).
 
 -export([ routes/2
-        , route/2]).
+        , route/2
+        ]).
 
--export([query/4]).
+-export([ query/4]).
 
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
 -define(ROUTES_QSCHEMA, [{<<"topic">>, binary}, {<<"node">>, atom}]).
 
--import(emqx_mgmt_util, [ object_schema/2
-                        , object_array_schema/2
-                        , error_schema/2
-                        , properties/1
-                        , page_params/0
-                        , generate_response/1
-                        ]).
 
 api_spec() ->
-    {[routes_api(), route_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
-properties() ->
-    properties([
-        {topic, string},
-        {node, string}
-    ]).
+paths() ->
+    ["/routes", "/routes/:topic"].
 
-routes_api() ->
-    Metadata = #{
+schema("/routes") ->
+    #{
+        'operationId' => routes,
         get => #{
-            description => <<"EMQX routes">>,
-            parameters => [topic_param(query) , node_param()] ++ page_params(),
+            description => <<"EMQX Topics List">>,
+            parameters => [
+                topic_param(query),
+                node_param(),
+                hoconsc:ref(emqx_dashboard_swagger, page),
+                hoconsc:ref(emqx_dashboard_swagger, limit)
+            ],
             responses => #{
-                <<"200">> => object_array_schema(properties(), <<"List route info">>),
-                <<"400">> => error_schema(<<"Invalid parameters">>, ['INVALID_PARAMETER'])
+                200 => [
+                    {data, hoconsc:mk(hoconsc:array(hoconsc:ref(topic)), #{})},
+                    {meta, hoconsc:mk(hoconsc:ref(meta), #{})}
+                ]
             }
         }
-    },
-    {"/routes", Metadata, routes}.
-
-route_api() ->
-    Metadata = #{
+    };
+schema("/routes/:topic") ->
+    #{
+        'operationId' => route,
         get => #{
-            description => <<"EMQX routes">>,
+            description => <<"EMQX Topic List">>,
             parameters => [topic_param(path)],
             responses => #{
-                <<"200">> =>
-                    object_schema(properties(), <<"Route info">>),
-                <<"404">> =>
-                    error_schema(<<"Topic not found">>, [?TOPIC_NOT_FOUND])
+                200 => hoconsc:mk(hoconsc:ref(topic), #{}),
+                404 =>
+                    emqx_dashboard_swagger:error_codes(['TOPIC_NOT_FOUND'],<<"Topic not found">>)
             }
         }
-    },
-    {"/routes/:topic", Metadata, route}.
+    }.
+
+fields(topic) ->
+    [
+        {topic, hoconsc:mk(binary(), #{
+            desc => <<"Topic Name">>,
+            required => true})},
+        {node, hoconsc:mk(binary(), #{
+            desc => <<"Node">>,
+            required => true})}
+    ];
+fields(meta) ->
+    emqx_dashboard_swagger:fields(page) ++
+        emqx_dashboard_swagger:fields(limit) ++
+        [{count, hoconsc:mk(integer(), #{example => 1})}].
 
 %%%==============================================================================================
 %% parameters trans
-routes(get, #{query_string := QString}) ->
-    list(generate_topic(QString)).
+routes(get, #{query_string := Qs}) ->
+    do_list(generate_topic(Qs)).
 
 route(get, #{bindings := Bindings}) ->
     lookup(generate_topic(Bindings)).
 
 %%%==============================================================================================
 %% api apply
-list(QString) ->
+do_list(Params) ->
     Response = emqx_mgmt_api:node_query(
-                 node(), QString, emqx_route, ?ROUTES_QSCHEMA, {?MODULE, query}),
-    generate_response(Response).
+        node(), Params, emqx_route, ?ROUTES_QSCHEMA, {?MODULE, query}),
+    emqx_mgmt_util:generate_response(Response).
 
 lookup(#{topic := Topic}) ->
     case emqx_mgmt:lookup_routes(Topic) of
@@ -124,19 +139,21 @@ format(#route{topic = Topic, dest = Node}) ->
     #{topic => Topic, node => Node}.
 
 topic_param(In) ->
-    #{
-        name => topic,
-        in => In,
-        required => In == path,
-        description => <<"Topic string, url encoding">>,
-        schema => #{type => string}
+    {
+        topic, hoconsc:mk(binary(), #{
+            desc => <<"Topic Name">>,
+            in => In,
+            required => (In == path),
+            example => <<"">>
+        })
     }.
 
 node_param()->
-    #{
-        name => node,
-        in => query,
-        required => false,
-        description => <<"Node">>,
-        schema => #{type => string}
+    {
+        node, hoconsc:mk(binary(), #{
+            desc => <<"Node Name">>,
+            in => query,
+            required => false,
+            example => node()
+        })
     }.
