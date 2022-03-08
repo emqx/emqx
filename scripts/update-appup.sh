@@ -72,25 +72,7 @@ if [ "${SKIP_BUILD:-}" != 'yes' ]; then
     make "${PROFILE}"
 fi
 
-OTP_VSN="${OTP_VSN:-$(./scripts/get-otp-vsn.sh)}"
-
-SYSTEM="${SYSTEM:-$(./scripts/get-distro.sh)}"
-if [ -z "${ARCH:-}" ]; then
-    UNAME="$(uname -m)"
-    case "$UNAME" in
-        x86_64)
-            ARCH='amd64'
-            ;;
-        aarch64)
-            ARCH='arm64'
-            ;;
-        arm*)
-            ARCH='arm'
-            ;;
-    esac
-fi
-
-PACKAGE_NAME="${PROFILE}-${PREV_VERSION}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.zip"
+PACKAGE_NAME="${PROFILE}-$(env PKG_VSN="$PREV_VERSION" ./scripts/pkg-full-vsn.sh).zip"
 DOWNLOAD_URL="https://www.emqx.com/downloads/${DIR}/v${PREV_VERSION}/${PACKAGE_NAME}"
 
 PREV_DIR_BASE="/tmp/emqx-appup-base"
