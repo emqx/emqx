@@ -399,12 +399,12 @@ collect_status(Bridges) ->
     [maps:with([node, status], B) || B <- Bridges].
 
 aggregate_status(AllStatus) ->
-    AllConnected = lists:all(fun (#{status := connected}) -> true;
-                                 (_) -> false
-                             end, AllStatus),
-    case AllConnected of
-        true -> connected;
-        false -> disconnected
+    Head = fun ([A | _]) -> A end,
+    HeadVal = maps:get(status, Head(AllStatus), connecting),
+    AllRes = lists:all(fun (#{status := Val}) -> Val == HeadVal end, AllStatus),
+    case AllRes of
+        true -> HeadVal;
+        false -> inconsistent
     end.
 
 collect_metrics(Bridges) ->
@@ -420,12 +420,11 @@ aggregate_metrics(AllMetrics) ->
 
 format_resp(#{type := Type, name := BridgeName, raw_config := RawConf,
               resource_data := #{status := Status, metrics := Metrics}}) ->
-    IsConnected = fun(connected) -> connected; (_) -> disconnected end,
     RawConf#{
         type => Type,
         name => maps:get(<<"name">>, RawConf, BridgeName),
         node => node(),
-        status => IsConnected(Status),
+        status => Status,
         metrics => format_metrics(Metrics)
     }.
 
