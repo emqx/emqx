@@ -37,6 +37,7 @@ File format:
 * Fix system memory false alarm at boot
 * Fix the MQTT-SN message replay when the topic is not registered to the client [#6970]
 * Fix rpc get node info maybe crash when other nodes is not ready.
+* Fix false alert level log “cannot_find_plugins” caused by duplicate plugin names in `loaded_plugins` files.
 
 ## v4.3.12
 ### Important changes
