@@ -24,7 +24,7 @@
 
 -export([config/3, config_reset/3, configs/3, get_full_config/0]).
 
--export([get_conf_schema/2, gen_schema/1]).
+-export([gen_schema/1]).
 
 -define(PREFIX, "/configs/").
 -define(PREFIX_RESET, "/configs_reset/").
@@ -204,29 +204,12 @@ conf_path_from_querystr(Req) ->
     end.
 
 config_list() ->
-    Exclude = ?EXCLUDES,
     Roots = hocon_schema:roots(emqx_conf_schema),
-    lists:foldl(fun(Key, Acc) -> lists:keydelete(Key, 1, Acc) end, Roots, Exclude).
+    lists:foldl(fun(Key, Acc) -> lists:keydelete(Key, 1, Acc) end, Roots, ?EXCLUDES).
 
 conf_path(Req) ->
     <<"/api/v5", ?PREFIX, Path/binary>> = cowboy_req:path(Req),
     string:lexemes(Path, "/ ").
-
-get_conf_schema(Conf, MaxDepth) ->
-    get_conf_schema([], maps:to_list(Conf), [], MaxDepth).
-
-get_conf_schema(_BasePath, [], Result, _MaxDepth) ->
-    Result;
-get_conf_schema(BasePath, [{Key, Conf} | Confs], Result, MaxDepth) ->
-    Path = BasePath ++ [Key],
-    Depth = length(Path),
-    Result1 = case is_map(Conf) of
-                  true when Depth < MaxDepth ->
-                      get_conf_schema(Path, maps:to_list(Conf), Result, MaxDepth);
-                  true when Depth >= MaxDepth -> Result;
-                  false -> Result
-              end,
-    get_conf_schema(BasePath, Confs, [{Path, gen_schema(Conf)} | Result1], MaxDepth).
 
 %% TODO: generate from hocon schema
 gen_schema(Conf) when is_boolean(Conf) ->
