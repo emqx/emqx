@@ -76,7 +76,8 @@ update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
     AtomKeyPath = [atom(Key) || Key <- ConfKeyPath],
     gen_server:call(?MODULE, {change_config, SchemaModule, AtomKeyPath, UpdateArgs}, infinity).
 
--spec add_handler(emqx_config:config_key_path(), handler_name()) -> ok | {error, {conflict, list()}}.
+-spec add_handler(emqx_config:config_key_path(), handler_name()) ->
+    ok | {error, {conflict, list()}}.
 add_handler(ConfKeyPath, HandlerName) ->
     assert_callback_function(HandlerName),
     gen_server:call(?MODULE, {add_handler, ConfKeyPath, HandlerName}).
@@ -149,6 +150,10 @@ deep_put_handler([Key | KeyPath], Handlers, Mod) ->
     end.
 
 %% Make sure that Specify Key and ?WKEY cannot be on the same level.
+%%
+%% [k1, ?, ?], [k1, ?], [k1] is allow.
+%% [K1, ?, k2], [k1, ?, k3] is allow.
+%% [k1, ?, ?], [k1, ?, k2] is not allow.
 check_handler_conflict(Handlers) ->
     Keys = filter_top_level_handlers(Handlers),
     case lists:member(?WKEY, Keys) of
