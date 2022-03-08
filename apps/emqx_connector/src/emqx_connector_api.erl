@@ -122,13 +122,13 @@ param_path_id() ->
 
 schema("/connectors_test") ->
     #{
-        operationId => '/connectors_test',
+        'operationId' => '/connectors_test',
         post => #{
             tags => [<<"connectors">>],
             description => <<"Test creating a new connector by given Id <br>"
                              "The ID must be of format '{type}:{name}'">>,
             summary => <<"Test creating connector">>,
-            requestBody => post_request_body_schema(),
+            'requestBody' => post_request_body_schema(),
             responses => #{
                 204 => <<"Test connector OK">>,
                 400 => error_schema(['TEST_FAILED'], "connector test failed")
@@ -138,7 +138,7 @@ schema("/connectors_test") ->
 
 schema("/connectors") ->
     #{
-        operationId => '/connectors',
+        'operationId' => '/connectors',
         get => #{
             tags => [<<"connectors">>],
             description => <<"List all connectors">>,
@@ -153,7 +153,7 @@ schema("/connectors") ->
             tags => [<<"connectors">>],
             description => <<"Create a new connector">>,
             summary => <<"Create connector">>,
-            requestBody => post_request_body_schema(),
+            'requestBody' => post_request_body_schema(),
             responses => #{
                 201 => get_response_body_schema(),
                 400 => error_schema(['ALREADY_EXISTS'], "connector already exists")
@@ -163,7 +163,7 @@ schema("/connectors") ->
 
 schema("/connectors/:id") ->
     #{
-        operationId => '/connectors/:id',
+        'operationId' => '/connectors/:id',
         get => #{
             tags => [<<"connectors">>],
             description => <<"Get the connector by Id">>,
@@ -179,7 +179,7 @@ schema("/connectors/:id") ->
             description => <<"Update an existing connector by Id">>,
             summary => <<"Update connector">>,
             parameters => param_path_id(),
-            requestBody => put_request_body_schema(),
+            'requestBody' => put_request_body_schema(),
             responses => #{
                 200 => get_response_body_schema(),
                 404 => error_schema(['NOT_FOUND'], "Connector not found")

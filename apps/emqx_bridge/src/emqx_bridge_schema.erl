@@ -53,7 +53,8 @@ common_bridge_fields() ->
             , desc =>"""
 The connector ID to be used for this bridge. Connector IDs must be of format:
 <code>{type}:{name}</code>.<br>
-In config files, you can find the corresponding config entry for a connector by such path: 'connectors.{type}.{name}'.<br>
+In config files, you can find the corresponding config entry for a connector by such path:
+'connectors.{type}.{name}'.<br>
 """
             })}
     ].
@@ -63,7 +64,7 @@ metrics_status_fields() ->
     , {"node_metrics", mk(hoconsc:array(ref(?MODULE, "node_metrics")),
         #{ desc => "The metrics of the bridge for each node"
          })}
-    , {"status", mk(ref(?MODULE, "status"), #{desc => "The status of the bridge"})}
+    , {"status", mk(status(), #{desc => "The status of the bridge"})}
     , {"node_status", mk(hoconsc:array(ref(?MODULE, "node_status")),
         #{ desc => "The status of the bridge for each node"
          })}
@@ -103,20 +104,13 @@ fields("node_metrics") ->
     , {"metrics", mk(ref(?MODULE, "metrics"), #{})}
     ];
 
-fields("status") ->
-    [ {"matched", mk(integer(), #{desc => "Count of this bridge is queried"})}
-    , {"success", mk(integer(), #{desc => "Count of query success"})}
-    , {"failed", mk(integer(), #{desc => "Count of query failed"})}
-    , {"rate", mk(float(), #{desc => "The rate of matched, times/second"})}
-    , {"rate_max", mk(float(), #{desc => "The max rate of matched, times/second"})}
-    , {"rate_last5m", mk(float(),
-        #{desc => "The average rate of matched in the last 5 minutes, times/second"})}
-    ];
-
 fields("node_status") ->
     [ node_name()
-    , {"status", mk(ref(?MODULE, "status"), #{})}
+    , {"status", mk(status(), #{})}
     ].
+
+status() ->
+    hoconsc:enum([connected, disconnected, connecting]).
 
 node_name() ->
     {"node", mk(binary(), #{desc => "The node name", example => "emqx@127.0.0.1"})}.

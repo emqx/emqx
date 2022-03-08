@@ -55,7 +55,8 @@ init_per_suite(Config) ->
     %% some testcases (may from other app) already get emqx_connector started
     _ = application:stop(emqx_resource),
     _ = application:stop(emqx_connector),
-    ok = emqx_common_test_helpers:start_apps([emqx_bridge, emqx_dashboard], fun set_special_configs/1),
+    ok = emqx_common_test_helpers:start_apps([emqx_bridge, emqx_dashboard],
+            fun set_special_configs/1),
     ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, ?CONF_DEFAULT),
     Config.
 

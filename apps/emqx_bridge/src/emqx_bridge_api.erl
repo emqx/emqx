@@ -134,35 +134,31 @@ info_example(Type, Direction, Method) ->
     maps:merge(info_example_basic(Type, Direction),
                method_example(Type, Direction, Method)).
 
-method_example(Type, Direction, get) ->
+method_example(Type, Direction, Method) when Method == get; Method == post ->
     SType = atom_to_list(Type),
     SDir = atom_to_list(Direction),
     SName = case Type of
         http -> "my_" ++ SType ++ "_bridge";
         _ -> "my_" ++ SDir ++ "_" ++ SType ++ "_bridge"
     end,
-    #{
+    TypeNameExamp = #{
         type => bin(SType),
-        name => bin(SName),
+        name => bin(SName)
+    },
+    maybe_with_metrics_example(TypeNameExamp, Method);
+method_example(_Type, _Direction, put) ->
+    #{}.
+
+maybe_with_metrics_example(TypeNameExamp, get) ->
+    TypeNameExamp#{
         metrics => ?METRICS(0, 0, 0, 0, 0, 0),
         node_metrics => [
             #{node => node(),
-              metrics => ?METRICS(0, 0, 0, 0, 0, 0)}
+                metrics => ?METRICS(0, 0, 0, 0, 0, 0)}
         ]
     };
-method_example(Type, Direction, post) ->
-    SType = atom_to_list(Type),
-    SDir = atom_to_list(Direction),
-    SName = case Type of
-        http -> "my_" ++ SType ++ "_bridge";
-        _ -> "my_" ++ SDir ++ "_" ++ SType ++ "_bridge"
-    end,
-    #{
-        type => bin(SType),
-        name => bin(SName)
-    };
-method_example(_Type, _Direction, put) ->
-    #{}.
+maybe_with_metrics_example(TypeNameExamp, _) ->
+    TypeNameExamp.
 
 info_example_basic(http, _) ->
     #{
@@ -203,7 +199,7 @@ info_example_basic(mqtt, egress) ->
 
 schema("/bridges") ->
     #{
-        operationId => '/bridges',
+        'operationId' => '/bridges',
         get => #{
             tags => [<<"bridges">>],
             summary => <<"List Bridges">>,
@@ -218,7 +214,7 @@ schema("/bridges") ->
             tags => [<<"bridges">>],
             summary => <<"Create Bridge">>,
             description => <<"Create a new bridge by type and name">>,
-            requestBody => emqx_dashboard_swagger:schema_with_examples(
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                             emqx_bridge_schema:post_request(),
                             bridge_info_examples(post)),
             responses => #{
@@ -230,7 +226,7 @@ schema("/bridges") ->
 
 schema("/bridges/:id") ->
     #{
-        operationId => '/bridges/:id',
+        'operationId' => '/bridges/:id',
         get => #{
             tags => [<<"bridges">>],
             summary => <<"Get Bridge">>,
@@ -246,7 +242,7 @@ schema("/bridges/:id") ->
             summary => <<"Update Bridge">>,
             description => <<"Update a bridge by Id">>,
             parameters => [param_path_id()],
-            requestBody => emqx_dashboard_swagger:schema_with_examples(
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                             emqx_bridge_schema:put_request(),
                             bridge_info_examples(put)),
             responses => #{
@@ -268,7 +264,7 @@ schema("/bridges/:id") ->
 
 schema("/bridges/:id/operation/:operation") ->
     #{
-        operationId => '/bridges/:id/operation/:operation',
+        'operationId' => '/bridges/:id/operation/:operation',
         post => #{
             tags => [<<"bridges">>],
             summary => <<"Start/Stop/Restart Bridge">>,
