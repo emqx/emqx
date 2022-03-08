@@ -475,7 +475,7 @@ handle_in(?SN_WILLMSG_MSG(Payload),
     end;
 
 %% TODO: takeover ???
-handle_in(Packet = ?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, ClientId),
+handle_in(?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, ClientId),
           Channel = #channel{
                        clientinfo = #{clientid := ClientId},
                        conn_state = ConnState})
