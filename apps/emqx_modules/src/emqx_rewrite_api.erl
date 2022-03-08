@@ -27,12 +27,6 @@
 
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
 
--import(emqx_mgmt_util, [ object_array_schema/1
-                        , object_array_schema/2
-                        , error_schema/2
-                        , properties/1
-                        ]).
-
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
 
@@ -41,7 +35,7 @@ paths() ->
 
 schema("/mqtt/topic_rewrite") ->
     #{
-        operationId => topic_rewrite,
+        'operationId' => topic_rewrite,
         get => #{
             tags => ?API_TAG_MQTT,
             description => <<"List rewrite topic.">>,
@@ -53,11 +47,13 @@ schema("/mqtt/topic_rewrite") ->
         put => #{
             description => <<"Update rewrite topic">>,
             tags => ?API_TAG_MQTT,
-            requestBody => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),#{}),
+            'requestBody' => hoconsc:mk(hoconsc:array(
+                hoconsc:ref(emqx_modules_schema, "rewrite")),#{}),
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
                     #{desc => <<"Update rewrite topic success.">>}),
-                413 => emqx_dashboard_swagger:error_codes([?EXCEED_LIMIT], <<"Rules count exceed max limit">>)
+                413 => emqx_dashboard_swagger:error_codes([?EXCEED_LIMIT],
+                    <<"Rules count exceed max limit">>)
             }
         }
     }.
@@ -71,6 +67,7 @@ topic_rewrite(put, #{body := Body}) ->
             ok = emqx_rewrite:update(Body),
             {200, emqx_rewrite:list()};
         _ ->
-            Message = iolist_to_binary(io_lib:format("Max rewrite rules count is ~p", [?MAX_RULES_LIMIT])),
+            Message = iolist_to_binary(
+                io_lib:format("Max rewrite rules count is ~p", [?MAX_RULES_LIMIT])),
             {413, #{code => ?EXCEED_LIMIT, message => Message}}
     end.

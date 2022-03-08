@@ -24,24 +24,33 @@
 
 -export([config/3, config_reset/3, configs/3, get_full_config/0]).
 
--export([get_conf_schema/2, gen_schema/1]).
+-export([gen_schema/1]).
 
 -define(PREFIX, "/configs/").
 -define(PREFIX_RESET, "/configs_reset/").
 -define(ERR_MSG(MSG), list_to_binary(io_lib:format("~p", [MSG]))).
 -define(EXCLUDES, [
-    exhook,
-    gateway,
-    plugins,
-    bridges,
-    "rule_engine",
-    "authorization",
-    "authentication",
-    "rpc",
-    "db",
-    "connectors",
-    "slow_subs",
-    "psk_authentication"
+    <<"exhook">>,
+    <<"gateway">>,
+    <<"plugins">>,
+    <<"bridges">>,
+    <<"rule_engine">>,
+    <<"authorization">>,
+    <<"authentication">>,
+    <<"rpc">>,
+    <<"db">>,
+    <<"connectors">>,
+    <<"slow_subs">>,
+    <<"psk_authentication">>,
+    <<"topic_metrics">>,
+    <<"rewrite">>,
+    <<"auto_subscribe">>,
+    <<"retainer">>,
+    <<"statsd">>,
+    <<"delayed">>,
+    <<"event_message">>,
+    <<"prometheus">>,
+    <<"telemetry">>
 ]).
 
 api_spec() ->
@@ -51,7 +60,7 @@ namespace() -> "configuration".
 
 paths() ->
     ["/configs", "/configs_reset/:rootname"] ++
-    lists:map(fun({Name, _Type}) -> ?PREFIX ++ to_list(Name) end, config_list(?EXCLUDES)).
+    lists:map(fun({Name, _Type}) -> ?PREFIX ++ binary_to_list(Name) end, config_list()).
 
 schema("/configs") ->
     #{
@@ -66,15 +75,12 @@ schema("/configs") ->
                         desc =>
  <<"Node's name: If you do not fill in the fields, this node will be used by default.">>})}],
             responses => #{
-                200 => config_list(?EXCLUDES)
+                200 => lists:map(fun({_, Schema}) -> Schema end, config_list())
             }
         }
     };
 schema("/configs_reset/:rootname") ->
-    Paths = lists:map(
-        fun({Path, _})when is_atom(Path) -> Path;
-           ({Path, _}) when is_list(Path) -> list_to_atom(Path)
-        end, config_list(?EXCLUDES)),
+    Paths = lists:map(fun({Path, _}) -> binary_to_atom(Path) end, config_list()),
     #{
         'operationId' => config_reset,
         post => #{
@@ -88,9 +94,9 @@ schema("/configs_reset/:rootname") ->
             %% `conf_path`, it cannot be defined here.
             parameters => [
                 {rootname, hoconsc:mk( hoconsc:enum(Paths)
-                                     , #{in => path, example => <<"authorization">>})},
+                                     , #{in => path, example => <<"sysmon">>})},
                 {conf_path, hoconsc:mk(typerefl:binary(),
-                    #{in => query, required => false, example => <<"cache.enable">>,
+                    #{in => query, required => false, example => <<"os.sysmem_high_watermark">>,
                         desc => <<"The config path separated by '.' character">>})}],
             responses => #{
                 200 => <<"Rest config successfully">>,
@@ -99,13 +105,13 @@ schema("/configs_reset/:rootname") ->
         }
     };
 schema(Path) ->
-    {Root, Schema} = find_schema(Path),
+    {RootKey, {_Root, Schema}} = find_schema(Path),
     #{
         'operationId' => config,
         get => #{
             tags => [conf],
             description => iolist_to_binary([ <<"Get the sub-configurations under *">>
-                                            , Root
+                                            , RootKey
                                             , <<"*">>]),
             responses => #{
                 200 => Schema,
@@ -115,7 +121,7 @@ schema(Path) ->
         put => #{
             tags => [conf],
             description => iolist_to_binary([ <<"Update the sub-configurations under *">>
-                                            , Root
+                                            , RootKey
                                             , <<"*">>]),
             'requestBody' => Schema,
             responses => #{
@@ -127,13 +133,8 @@ schema(Path) ->
 
 find_schema(Path) ->
     [_, _Prefix, Root | _] = string:split(Path, "/", all),
-    Configs = config_list(?EXCLUDES),
-    case lists:keyfind(Root, 1, Configs) of
-        {Root, Schema} -> {Root, Schema};
-        false ->
-            RootAtom = list_to_existing_atom(Root),
-            {Root, element(2, lists:keyfind(RootAtom, 1, Configs))}
-    end.
+    Configs = config_list(),
+    lists:keyfind(list_to_binary(Root), 1, Configs).
 
 %% we load all configs from emqx_conf_schema, some of them are defined as local ref
 %% we need redirect to emqx_conf_schema.
@@ -148,7 +149,8 @@ config(get, _Params, Req) ->
         {ok, Conf} ->
             {200, Conf};
         {not_found, _, _} ->
-            {404, #{code => 'NOT_FOUND', message => <<"Config cannot found">>}}
+            {404, #{code => 'NOT_FOUND',
+                message => <<(list_to_binary(Path))/binary, " not found">>}}
     end;
 
 config(put, #{body := Body}, Req) ->
@@ -201,32 +203,13 @@ conf_path_from_querystr(Req) ->
         Path -> string:lexemes(Path, ". ")
     end.
 
-config_list(Exclude) ->
-    Roots = emqx_conf_schema:roots(),
-    lists:foldl(fun(Key, Acc) -> lists:keydelete(Key, 1, Acc) end, Roots, Exclude).
-
-to_list(L) when is_list(L) -> L;
-to_list(Atom) when is_atom(Atom) -> atom_to_list(Atom).
+config_list() ->
+    Roots = hocon_schema:roots(emqx_conf_schema),
+    lists:foldl(fun(Key, Acc) -> lists:keydelete(Key, 1, Acc) end, Roots, ?EXCLUDES).
 
 conf_path(Req) ->
     <<"/api/v5", ?PREFIX, Path/binary>> = cowboy_req:path(Req),
     string:lexemes(Path, "/ ").
-
-get_conf_schema(Conf, MaxDepth) ->
-    get_conf_schema([], maps:to_list(Conf), [], MaxDepth).
-
-get_conf_schema(_BasePath, [], Result, _MaxDepth) ->
-    Result;
-get_conf_schema(BasePath, [{Key, Conf} | Confs], Result, MaxDepth) ->
-    Path = BasePath ++ [Key],
-    Depth = length(Path),
-    Result1 = case is_map(Conf) of
-                  true when Depth < MaxDepth ->
-                      get_conf_schema(Path, maps:to_list(Conf), Result, MaxDepth);
-                  true when Depth >= MaxDepth -> Result;
-                  false -> Result
-              end,
-    get_conf_schema(BasePath, Confs, [{Path, gen_schema(Conf)} | Result1], MaxDepth).
 
 %% TODO: generate from hocon schema
 gen_schema(Conf) when is_boolean(Conf) ->

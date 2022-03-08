@@ -22,8 +22,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(TRIE, emqx_trie).
-
 all() ->
     [{group, compact},
      {group, not_compact}
