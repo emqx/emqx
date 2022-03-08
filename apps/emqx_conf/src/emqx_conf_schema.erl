@@ -72,23 +72,23 @@ roots() ->
     end,
     emqx_schema_high_prio_roots() ++
     [ {"node",
-       sc(hoconsc:ref("node"),
+       sc(ref("node"),
           #{ desc => "Node name, cookie, config & data directories "
                      "and the Erlang virtual machine (BEAM) boot parameters."
            })}
     , {"cluster",
-       sc(hoconsc:ref("cluster"),
+       sc(ref("cluster"),
           #{ desc => "EMQX nodes can form a cluster to scale up the total capacity.<br>"
                      "Here holds the configs to instruct how individual nodes "
                      "can discover each other."
            })}
     , {"log",
-       sc(hoconsc:ref("log"),
+       sc(ref("log"),
           #{ desc => "Configure logging backends (to console or to file), "
                      "and logging level for each logger backend."
            })}
     , {"rpc",
-       sc(hoconsc:ref("rpc"),
+       sc(ref("rpc"),
           #{ desc => "EMQX uses a library called <code>gen_rpc</code> for "
                      "inter-broker communication.<br/>Most of the time the default config "
                      "should work, but in case you need to do performance "
@@ -315,19 +315,22 @@ a crash dump"
        sc(emqx_schema:duration(),
           #{ mapping => "vm_args.-kernel net_ticktime"
            , default => "2m"
-           , desc => "This is the approximate time an EMQX node may be unresponsive until it is considered down and thereby disconnected."
+           , desc => "This is the approximate time an EMQX node may"
+                     " be unresponsive until it is considered down and thereby disconnected."
            })}
     , {"dist_listen_min",
        sc(range(1024, 65535),
           #{ mapping => "kernel.inet_dist_listen_min"
            , default => 6369
-           , desc => "Lower bound for the port range where EMQX broker listens for peer connections."
+           , desc => "Lower bound for the port range where"
+                     " EMQX broker listens for peer connections."
            })}
     , {"dist_listen_max",
        sc(range(1024, 65535),
           #{ mapping => "kernel.inet_dist_listen_max"
            , default => 6369
-           , desc => "Upper bound for the port range where EMQX broker listens for peer connections."
+           , desc => "Upper bound for the port range "
+                     "where EMQX broker listens for peer connections."
            })}
     , {"backtrace_depth",
        sc(integer(),
@@ -455,7 +458,8 @@ fields("rpc") ->
           #{ mapping => "gen_rpc.port_discovery"
            , default => stateless
            , desc => "<code>manual</code>: discover ports by <code>tcp_server_port</code>.<br/>"
-                     "<code>stateless</code>: discover ports in a stateless manner, using the following algorithm. "
+                     "<code>stateless</code>: discover ports in a stateless manner,"
+                     " using the following algorithm. "
                      "If node name is <code>emqxN@127.0.0.1</code>, where the N is an integer, "
                      "then the listening port will be 5370 + N."
            })}
@@ -464,7 +468,8 @@ fields("rpc") ->
           #{ mapping => "gen_rpc.tcp_server_port"
            , default => 5369
            , desc => "Listening port used by RPC local service.<br/> "
-                     "Note that this config only takes effect when rpc.port_discovery is set to manual."
+                     "Note that this config only takes effect "
+                     "when rpc.port_discovery is set to manual."
            })}
     , {"ssl_server_port",
        sc(integer(),
@@ -497,7 +502,8 @@ fields("rpc") ->
        sc(file(),
           #{ mapping => "gen_rpc.keyfile"
            , desc => "Path to the private key file for the <code>rpc.certfile</code>.<br/>"
-                     "Note: contents of this file are secret, so it's necessary to set permissions to 600."
+                     "Note: contents of this file are secret, so it's necessary to "
+                     "set permissions to 600."
            })}
     , {"cacertfile",
        sc(file(),
@@ -528,7 +534,8 @@ fields("rpc") ->
        sc(emqx_schema:duration_s(),
           #{ mapping => "gen_rpc.socket_keepalive_idle"
            , default => "7200s"
-           , desc => "How long the connections between the brokers should remain open after the last message is sent."
+           , desc => "How long the connections between the brokers should remain open "
+                     "after the last message is sent."
            })}
     , {"socket_keepalive_interval",
        sc(emqx_schema:duration_s(),
@@ -941,7 +948,7 @@ roots(Module) ->
 emqx_schema_high_prio_roots() ->
     Roots = emqx_schema:roots(high),
     Authz = {"authorization",
-             sc(hoconsc:ref("authorization"),
+             sc(hoconsc:ref(?MODULE, "authorization"),
              #{ desc => """
 Authorization a.k.a. ACL.<br>
 In EMQX, MQTT client access control is extremely flexible.<br>

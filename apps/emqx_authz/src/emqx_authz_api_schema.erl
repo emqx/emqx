@@ -19,7 +19,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
--import(hoconsc, [mk/2, ref/1, ref/2, array/1, enum/1]).
+-import(hoconsc, [mk/2, enum/1]).
 -import(emqx_schema, [mk_duration/2]).
 
 -export([fields/1, authz_sources_types/1]).

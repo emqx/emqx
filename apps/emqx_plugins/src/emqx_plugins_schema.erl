@@ -68,7 +68,7 @@ root_fields() ->
     , {install_dir, fun install_dir/1}
     ].
 
-states(type) -> hoconsc:array(hoconsc:ref(state));
+states(type) -> hoconsc:array(hoconsc:ref(?MODULE, state));
 states(required) -> false;
 states(default) -> [];
 states(desc) -> "An array of plugins in the desired states.<br>"

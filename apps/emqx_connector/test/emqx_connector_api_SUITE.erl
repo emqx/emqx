@@ -91,12 +91,14 @@ init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps([emqx_rule_engine, emqx_connector,
         emqx_bridge, emqx_dashboard], fun set_special_configs/1),
     ok = emqx_common_test_helpers:load_config(emqx_connector_schema, <<"connectors: {}">>),
-    ok = emqx_common_test_helpers:load_config(emqx_rule_engine_schema, <<"rule_engine {rules {}}">>),
+    ok = emqx_common_test_helpers:load_config(emqx_rule_engine_schema,
+                                              <<"rule_engine {rules {}}">>),
     ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, ?BRIDGE_CONF_DEFAULT),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_rule_engine, emqx_connector, emqx_bridge, emqx_dashboard]),
+    emqx_common_test_helpers:stop_apps([emqx_rule_engine,
+        emqx_connector, emqx_bridge, emqx_dashboard]),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -113,8 +115,14 @@ set_special_configs(_) ->
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     %% assert we there's no connectors and no bridges at first
-    {ok, 200, <<"[]">>} = request(get, uri(["connectors"]), []),
-    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+    {ok, 200, Connectors} = request(get, uri(["connectors"]), []),
+    lists:foreach(fun(#{<<"id">> := ConnectorID}) ->
+        {ok, 200, <<>>} = request(delete, uri(["connectors", ConnectorID]), [])
+                  end, jsx:decode(Connectors)),
+    {ok, 200, Bridges} = request(get, uri(["bridges"]), []),
+    lists:foreach(fun(#{<<"id">> := BridgeID}) ->
+        {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), [])
+              end,  jsx:decode(Bridges)),
     Config.
 end_per_testcase(_, _Config) ->
     clear_resources(),
