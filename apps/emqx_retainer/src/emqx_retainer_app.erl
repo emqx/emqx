@@ -23,10 +23,8 @@
         ]).
 
 start(_Type, _Args) ->
-    {ok, Sup} = emqx_retainer_sup:start_link(),
-    emqx_retainer_cli:load(),
-    {ok, Sup}.
+    emqx_retainer_sup:start_link().
+
 
 stop(_State) ->
-    emqx_retainer_cli:unload().
-
+    ok.

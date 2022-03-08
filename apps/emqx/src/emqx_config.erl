@@ -256,7 +256,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     init_load(SchemaMod, parse_hocon(Conf));
 init_load(SchemaMod, RawConf) when is_map(RawConf) ->
     ok = save_schema_mod_and_names(SchemaMod),
-    %% Merge environment varialbe overrides on top
+    %% Merge environment variable overrides on top
     RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
     ClusterOverrides = read_override_conf(#{override_to => cluster}),
     LocalOverrides = read_override_conf(#{override_to => local}),
@@ -267,7 +267,7 @@ init_load(SchemaMod, RawConf) when is_map(RawConf) ->
         check_config(SchemaMod, RawConfWithOverrides , #{}),
     RootNames = get_root_names(),
     ok = save_to_config_map(maps:with(get_atom_root_names(), CheckedConf),
-                            maps:with(RootNames, RawConfWithEnvs)).
+                            maps:with(RootNames, RawConfWithOverrides)).
 
 parse_hocon(Conf) ->
     IncDirs = include_dirs(),
@@ -301,7 +301,7 @@ merge_envs(SchemaMod, RawConf) ->
             },
     hocon_tconf:merge_env_overrides(SchemaMod, RawConf, all, Opts).
 
--spec check_config(module(), raw_config()) -> {AppEnvs, CheckedConf}
+-spec check_config(hocon_schema:schema(), raw_config()) -> {AppEnvs, CheckedConf}
     when AppEnvs :: app_envs(), CheckedConf :: config().
 check_config(SchemaMod, RawConf) ->
     check_config(SchemaMod, RawConf, #{}).
@@ -454,7 +454,7 @@ do_get(Type, [], Default) ->
                 AccIn#{conf_key(Type0, RootName) => Conf};
             (_, AccIn) -> AccIn
         end, #{}, persistent_term:get()),
-    case map_size(AllConf) == 0 of
+    case AllConf =:= #{} of
         true -> Default;
         false -> AllConf
     end;

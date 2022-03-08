@@ -160,20 +160,28 @@ t_update_disable(_Config) ->
 
 t_update_re_failed(_Config) ->
     ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE),
+    Re = <<"*^test/*">>,
     Rules = [#{
         <<"source_topic">> => <<"test/#">>,
-        <<"re">> => <<"*^test/*">>,
+        <<"re">> => Re,
         <<"dest_topic">> => <<"test1/$2">>,
         <<"action">> => <<"publish">>
     }],
-    Error = {badmatch,
+    ?assertError({badmatch,
         {error,
-            {emqx_modules_schema,
-                [{validation_error,
-                    #{path => "rewrite.1.re",
-                      reason => {<<"*^test/*">>,{"nothing to repeat",0}},
-                      value => <<"*^test/*">>}}]}}},
-    ?assertError(Error, emqx_rewrite:update(Rules)),
+            {_,
+                [
+                    {validation_error,
+                        #{
+                            path := "root.rewrite.1.re",
+                            reason := {Re, {"nothing to repeat", 0}},
+                            value := Re
+                        }
+                    }
+                ]
+            }
+        }
+    }, emqx_rewrite:update(Rules)),
     ok.
 
 %%--------------------------------------------------------------------

@@ -104,7 +104,7 @@ parameters() ->
                            })}].
 
 fields(message_summary) ->
-    [ {id, mk(binary(), #{desc => <<"Message ID">>})}
+    [ {msgid, mk(binary(), #{desc => <<"Message ID">>})}
     , {topic, mk(binary(), #{desc => "The topic"})}
     , {qos, mk(emqx_schema:qos(), #{desc => "The QoS"})}
     , {publish_at, mk(string(), #{desc => "Publish datetime, in RFC 3339 format"})}
