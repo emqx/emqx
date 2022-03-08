@@ -222,13 +222,14 @@ schema("/authorization/sources/built-in-database/all") ->
             , responses =>
                   #{200 => swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})}
             }
-     , put =>
+     , post =>
            #{ tags => [<<"authorization">>]
-            , description => <<"Set the list of rules for all">>
+            , description => <<"Create/Update the list of rules for all. "
+                               "Set a empty list to clean up rules">>
             , 'requestBody' =>
                   swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})
             , responses =>
-                  #{ 204 => <<"Created">>
+                  #{ 204 => <<"Updated">>
                    , 400 => emqx_dashboard_swagger:error_codes(
                               [?BAD_REQUEST], <<"Bad rule schema">>)
                    }
@@ -383,7 +384,7 @@ all(get, _) ->
                                 } || {Permission, Action, Topic} <- Rules]}
             }
     end;
-all(put, #{body := #{<<"rules">> := Rules}}) ->
+all(post, #{body := #{<<"rules">> := Rules}}) ->
     emqx_authz_mnesia:store_rules(all, format_rules(Rules)),
     {204}.
 
