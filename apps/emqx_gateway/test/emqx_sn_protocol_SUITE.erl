@@ -1108,6 +1108,9 @@ t_delivery_takeover_and_re_register(_) ->
 
     send_disconnect_msg(NSocket, undefined),
     ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(NSocket)),
+
+    _ = emqx_gateway_cm:kick_session(mqttsn, <<"test">>),
+
     gen_udp:close(NSocket).
 
 t_will_case01(_) ->
@@ -1283,626 +1286,636 @@ t_will_case06(_) ->
 
     gen_udp:close(Socket).
 
-%t_asleep_test01_timeout(_) ->
-%    QoS = 1,
-%    Duration = 1,
-%    WillTopic = <<"dead">>,
-%    WillPayload = <<10, 11, 12, 13, 14>>,
-%    {ok, Socket} = gen_udp:open(0, [binary]),
-%
-%    ClientId = ?CLIENTID,
-%    send_connect_msg_with_will(Socket, Duration, ClientId),
-%    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
-%    send_willtopic_msg(Socket, WillTopic, QoS),
-%    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
-%    send_willmsg_msg(Socket, WillPayload),
-%    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-%
-%    send_disconnect_msg(Socket, 1),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    %% asleep timer should get timeout, and device is lost
-%    timer:sleep(3000),
-%
-%    gen_udp:close(Socket).
-%
-%t_asleep_test02_to_awake_and_back(_) ->
-%    QoS = 1,
-%    Keepalive_Duration = 1,
-%    SleepDuration = 5,
-%    WillTopic = <<"dead">>,
-%    WillPayload = <<10, 11, 12, 13, 14>>,
-%    {ok, Socket} = gen_udp:open(0, [binary]),
-%
-%    ClientId = ?CLIENTID,
-%    send_connect_msg_with_will(Socket, Keepalive_Duration, ClientId),
-%    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
-%    send_willtopic_msg(Socket, WillTopic, QoS),
-%    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
-%    send_willmsg_msg(Socket, WillPayload),
-%    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-%
-%    % goto asleep state
-%    send_disconnect_msg(Socket, SleepDuration),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    timer:sleep(4500),
-%
-%    % goto awake state and back
-%    send_pingreq_msg(Socket, ClientId),
-%    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
-%
-%    timer:sleep(4500),
-%
-%    % goto awake state and back
-%    send_pingreq_msg(Socket, ClientId),
-%    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
-%
-%    %% during above procedure, mqtt keepalive timer should not terminate mqtt-sn process
-%
-%    %% asleep timer should get timeout, and device should get lost
-%    timer:sleep(8000),
-%
-%    gen_udp:close(Socket).
-%
-%t_asleep_test03_to_awake_qos1_dl_msg(_) ->
-%    QoS = 1,
-%    Duration = 5,
-%    WillTopic = <<"dead">>,
-%    WillPayload = <<10, 11, 12, 13, 14>>,
-%    MsgId = 1000,
-%    {ok, Socket} = gen_udp:open(0, [binary]),
-%    ClientId = ?CLIENTID,
-%    send_connect_msg_with_will(Socket, Duration, ClientId),
-%    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
-%    send_willtopic_msg(Socket, WillTopic, QoS),
-%    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
-%    send_willmsg_msg(Socket, WillPayload),
-%    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-%
-%    % subscribe
-%    TopicName1 = <<"abc">>,
-%    MsgId1 = 25,
-%    TopicId1 = ?MAX_PRED_TOPIC_ID + 1,
-%    WillBit = 0,
-%    Dup = 0,
-%    Retain = 0,
-%    CleanSession = 0,
-%    ReturnCode = 0,
-%    Payload1 = <<55, 66, 77, 88, 99>>,
-%    MsgId2 = 87,
-%
-%    send_register_msg(Socket, TopicName1, MsgId1),
-%    ?assertEqual(<<7, ?SN_REGACK, TopicId1:16, MsgId1:16, 0:8>>, receive_response(Socket)),
-%    send_subscribe_msg_predefined_topic(Socket, QoS, TopicId1, MsgId),
-%    ?assertEqual(
-%       <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1,
-%         WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
-%         TopicId1:16, MsgId:16, ReturnCode>>,
-%       receive_response(Socket)
-%      ),
-%
-%    % goto asleep state
-%    send_disconnect_msg(Socket, 1),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    timer:sleep(300),
-%
-%    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    %% send downlink data in asleep state. This message should be send to device once it wake up
-%    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    send_publish_msg_predefined_topic(Socket, QoS, MsgId2, TopicId1, Payload1),
-%
-%    {ok, C} = emqtt:start_link(),
-%    {ok, _} = emqtt:connect(C),
-%    {ok, _} = emqtt:publish(C, TopicName1, Payload1, QoS),
-%    timer:sleep(100),
-%    ok = emqtt:disconnect(C),
-%
-%    timer:sleep(50),
-%
-%    % goto awake state, receive downlink messages, and go back to asleep
-%    send_pingreq_msg(Socket, ClientId),
-%
-%    %% the broker should sent dl msgs to the awake client before sending the pingresp
-%    UdpData = receive_response(Socket),
-%    MsgId_udp = check_publish_msg_on_udp(
-%                  {Dup, QoS, Retain, WillBit, CleanSession,
-%                   ?SN_NORMAL_TOPIC, TopicId1, Payload1}, UdpData),
-%    send_puback_msg(Socket, TopicId1, MsgId_udp),
-%
-%    %% check the pingresp is received at last
-%    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
-%
-%    gen_udp:close(Socket).
-%
-%t_asleep_test04_to_awake_qos1_dl_msg(_) ->
-%    QoS = 1,
-%    Duration = 5,
-%    WillTopic = <<"dead">>,
-%    WillPayload = <<10, 11, 12, 13, 14>>,
-%    {ok, Socket} = gen_udp:open(0, [binary]),
-%    ClientId = ?CLIENTID,
-%    send_connect_msg_with_will(Socket, Duration, ClientId),
-%    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
-%    send_willtopic_msg(Socket, WillTopic, QoS),
-%    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
-%    send_willmsg_msg(Socket, WillPayload),
-%    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-%
-%    % subscribe
-%    TopicName1 = <<"a/+/c">>,
-%    MsgId1 = 25,
-%    TopicId0 = 0,
-%    WillBit = 0,
-%    Dup = 0,
-%    Retain = 0,
-%    CleanSession = 0,
-%    ReturnCode = 0,
-%    send_subscribe_msg_normal_topic(Socket, QoS, TopicName1, MsgId1),
-%    ?assertEqual(
-%       <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1,
-%         WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
-%         TopicId0:16, MsgId1:16, ReturnCode>>,
-%       receive_response(Socket)
-%      ),
-%
-%    % goto asleep state
-%    send_disconnect_msg(Socket, 1),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    timer:sleep(300),
-%
-%    %% send downlink data in asleep state. This message should be send to device once it wake up
-%    Payload1 = <<55, 66, 77, 88, 99>>,
-%    Payload2 = <<55, 66, 77, 88, 100>>,
-%
-%    {ok, C} = emqtt:start_link(),
-%    {ok, _} = emqtt:connect(C),
-%    {ok, _} = emqtt:publish(C, <<"a/b/c">>, Payload1, QoS),
-%    {ok, _} = emqtt:publish(C, <<"a/b/c">>, Payload2, QoS),
-%    timer:sleep(100),
-%    ok = emqtt:disconnect(C),
-%
-%    timer:sleep(300),
-%
-%    % goto awake state, receive downlink messages, and go back to asleep
-%    send_pingreq_msg(Socket, ClientId),
-%
-%    %% 1. get REGISTER first, since this topic has never been registered
-%    UdpData1 = receive_response(Socket),
-%    {TopicIdNew, MsgId3} = check_register_msg_on_udp(<<"a/b/c">>, UdpData1),
-%
-%    %% 2. but before we reply the REGACK, the sn-gateway should not send any PUBLISH
-%    ?assertError(_, receive_publish(Socket)),
-%
-%    send_regack_msg(Socket, TopicIdNew, MsgId3),
-%
-%    UdpData2 = receive_response(Socket),
-%    MsgId_udp2 = check_publish_msg_on_udp(
-%                   {Dup, QoS, Retain, WillBit, CleanSession,
-%                    ?SN_NORMAL_TOPIC, TopicIdNew, Payload1}, UdpData2),
-%    send_puback_msg(Socket, TopicIdNew, MsgId_udp2),
-%
-%    UdpData3 = receive_response(Socket),
-%    MsgId_udp3 = check_publish_msg_on_udp(
-%                   {Dup, QoS, Retain, WillBit, CleanSession,
-%                    ?SN_NORMAL_TOPIC, TopicIdNew, Payload2}, UdpData3),
-%    send_puback_msg(Socket, TopicIdNew, MsgId_udp3),
-%
-%    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
-%
-%    gen_udp:close(Socket).
+t_asleep_test01_timeout(_) ->
+    QoS = 1,
+    Duration = 1,
+    WillTopic = <<"dead">>,
+    WillPayload = <<10, 11, 12, 13, 14>>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+
+    ClientId = ?CLIENTID,
+    send_connect_msg_with_will(Socket, Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+    send_willmsg_msg(Socket, WillPayload),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    send_disconnect_msg(Socket, 1),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    %% asleep timer should get timeout, and device is lost
+    timer:sleep(3000),
+
+    ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
+
+    gen_udp:close(Socket).
+
+t_asleep_test02_to_awake_and_back(_) ->
+    QoS = 1,
+    Keepalive_Duration = 1,
+    SleepDuration = 5,
+    WillTopic = <<"dead">>,
+    WillPayload = <<10, 11, 12, 13, 14>>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+
+    ClientId = ?CLIENTID,
+    send_connect_msg_with_will(Socket, Keepalive_Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+    send_willmsg_msg(Socket, WillPayload),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    % goto asleep state
+    send_disconnect_msg(Socket, SleepDuration),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    timer:sleep(4500),
+
+    % goto awake state and back
+    send_pingreq_msg(Socket, ClientId),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+    timer:sleep(4500),
+
+    % goto awake state and back
+    send_pingreq_msg(Socket, ClientId),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+    %% during above procedure, mqtt keepalive timer should not terminate mqtt-sn process
+
+    %% asleep timer should get timeout, and device should get lost
+    timer:sleep(8000),
+
+    ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
+
+    gen_udp:close(Socket).
+
+t_asleep_test03_to_awake_qos1_dl_msg(_) ->
+    QoS = 1,
+    Duration = 5,
+    WillTopic = <<"dead">>,
+    WillPayload = <<10, 11, 12, 13, 14>>,
+    MsgId = 1000,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg_with_will(Socket, Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+    send_willmsg_msg(Socket, WillPayload),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    % subscribe
+    TopicName1 = <<"abc">>,
+    MsgId1 = 25,
+    TopicId1 = ?MAX_PRED_TOPIC_ID + 1,
+    WillBit = 0,
+    Dup = 0,
+    Retain = 0,
+    CleanSession = 0,
+    ReturnCode = 0,
+    Payload1 = <<55, 66, 77, 88, 99>>,
+
+    send_register_msg(Socket, TopicName1, MsgId1),
+    ?assertEqual(<<7, ?SN_REGACK, TopicId1:16, MsgId1:16, 0:8>>, receive_response(Socket)),
+    send_subscribe_msg_predefined_topic(Socket, QoS, TopicId1, MsgId),
+    ?assertEqual(
+       <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1,
+         WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+         TopicId1:16, MsgId:16, ReturnCode>>,
+       receive_response(Socket)
+      ),
+
+    % goto asleep state
+    send_disconnect_msg(Socket, 1),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    timer:sleep(300),
+
+    emqx_broker:publish(
+      emqx_message:make(<<"ct">>, QoS, TopicName1, Payload1)),
+
+    timer:sleep(50),
+
+    % goto awake state, receive downlink messages, and go back to asleep
+    send_pingreq_msg(Socket, ClientId),
+
+    %% the broker should sent dl msgs to the awake client before sending the pingresp
+    UdpData = receive_response(Socket),
+    MsgId_udp = check_publish_msg_on_udp(
+                  {Dup, QoS, Retain, WillBit, CleanSession,
+                   ?SN_NORMAL_TOPIC, TopicId1, Payload1}, UdpData),
+    send_puback_msg(Socket, TopicId1, MsgId_udp),
+
+    %% check the pingresp is received at last
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+    timer:sleep(5000),
+
+    ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
+
+    gen_udp:close(Socket).
+
+t_asleep_test04_to_awake_qos1_dl_msg(_) ->
+    QoS = 1,
+    Duration = 5,
+    WillTopic = <<"dead">>,
+    WillPayload = <<10, 11, 12, 13, 14>>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg_with_will(Socket, Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+    send_willmsg_msg(Socket, WillPayload),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    % subscribe
+    TopicName1 = <<"a/+/c">>,
+    MsgId1 = 25,
+    TopicId0 = 0,
+    WillBit = 0,
+    Dup = 0,
+    Retain = 0,
+    CleanSession = 0,
+    ReturnCode = 0,
+    send_subscribe_msg_normal_topic(Socket, QoS, TopicName1, MsgId1),
+    ?assertEqual(
+       <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1,
+         WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+         TopicId0:16, MsgId1:16, ReturnCode>>,
+       receive_response(Socket)
+      ),
+
+    % goto asleep state
+    send_disconnect_msg(Socket, 1),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    timer:sleep(300),
+
+    %% send downlink data in asleep state. This message should be send to device once it wake up
+    Payload1 = <<55, 66, 77, 88, 99>>,
+    Payload2 = <<55, 66, 77, 88, 100>>,
+
+    {ok, C} = emqtt:start_link(),
+    {ok, _} = emqtt:connect(C),
+    {ok, _} = emqtt:publish(C, <<"a/b/c">>, Payload1, QoS),
+    {ok, _} = emqtt:publish(C, <<"a/b/c">>, Payload2, QoS),
+    timer:sleep(100),
+    ok = emqtt:disconnect(C),
+
+    timer:sleep(300),
+
+    % goto awake state, receive downlink messages, and go back to asleep
+    send_pingreq_msg(Socket, ClientId),
+
+    %% 1. get REGISTER first, since this topic has never been registered
+    UdpData1 = receive_response(Socket),
+    {TopicIdNew, MsgId3} = check_register_msg_on_udp(<<"a/b/c">>, UdpData1),
+
+    %% 2. but before we reply the REGACK, the sn-gateway should not send any PUBLISH
+    ?assertError(_, receive_publish(Socket)),
+
+    send_regack_msg(Socket, TopicIdNew, MsgId3),
+
+    UdpData2 = receive_response(Socket),
+    MsgId_udp2 = check_publish_msg_on_udp(
+                   {Dup, QoS, Retain, WillBit, CleanSession,
+                    ?SN_NORMAL_TOPIC, TopicIdNew, Payload1}, UdpData2),
+    send_puback_msg(Socket, TopicIdNew, MsgId_udp2),
+
+    UdpData3 = receive_response(Socket),
+    MsgId_udp3 = check_publish_msg_on_udp(
+                   {Dup, QoS, Retain, WillBit, CleanSession,
+                    ?SN_NORMAL_TOPIC, TopicIdNew, Payload2}, UdpData3),
+    send_puback_msg(Socket, TopicIdNew, MsgId_udp3),
+
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+    timer:sleep(8000),
+
+    ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
+
+    gen_udp:close(Socket).
 
 receive_publish(Socket) ->
     UdpData3 = receive_response(Socket, 1000),
     <<HeaderUdp:5/binary, _:16, _/binary>> = UdpData3,
     <<_:8, ?SN_PUBLISH, _/binary>> = HeaderUdp.
 
-%t_asleep_test05_to_awake_qos1_dl_msg(_) ->
-%    QoS = 1,
-%    Duration = 5,
-%    WillTopic = <<"dead">>,
-%    WillPayload = <<10, 11, 12, 13, 14>>,
-%    {ok, Socket} = gen_udp:open(0, [binary]),
-%    ClientId = ?CLIENTID,
-%    send_connect_msg_with_will(Socket, Duration, ClientId),
-%    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
-%    send_willtopic_msg(Socket, WillTopic, QoS),
-%    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
-%    send_willmsg_msg(Socket, WillPayload),
-%    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-%
-%    % subscribe
-%    TopicName1 = <<"u/+/w">>,
-%    MsgId1 = 25,
-%    TopicId0 = 0,
-%    WillBit = 0,
-%    Dup = 0,
-%    Retain = 0,
-%    CleanSession = 0,
-%    ReturnCode = 0,
-%    send_subscribe_msg_normal_topic(Socket, QoS, TopicName1, MsgId1),
-%    ?assertEqual(
-%       <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1,
-%         WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
-%         TopicId0:16, MsgId1:16, ReturnCode>>,
-%       receive_response(Socket)
-%      ),
-%
-%    % goto asleep state
-%    SleepDuration = 30,
-%    send_disconnect_msg(Socket, SleepDuration),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    timer:sleep(300),
-%
-%    %% send downlink data in asleep state. This message should be send to device once it wake up
-%    Payload2 = <<55, 66, 77, 88, 99>>,
-%    Payload3 = <<61, 71, 81>>,
-%    Payload4 = <<100, 101, 102, 103, 104, 105, 106, 107>>,
-%    TopicName_test5 = <<"u/v/w">>,
-%    {ok, C} = emqtt:start_link(),
-%    {ok, _} = emqtt:connect(C),
-%    {ok, _} = emqtt:publish(C, TopicName_test5, Payload2, QoS),
-%    timer:sleep(100),
-%    {ok, _} = emqtt:publish(C, TopicName_test5, Payload3, QoS),
-%    timer:sleep(100),
-%    {ok, _} = emqtt:publish(C, TopicName_test5, Payload4, QoS),
-%    timer:sleep(200),
-%    ok = emqtt:disconnect(C),
-%    timer:sleep(50),
-%
-%    % goto awake state, receive downlink messages, and go back to asleep
-%    send_pingreq_msg(Socket, ClientId),
-%
-%    UdpData_reg = receive_response(Socket),
-%    {TopicIdNew, MsgId_reg} = check_register_msg_on_udp(TopicName_test5, UdpData_reg),
-%    send_regack_msg(Socket, TopicIdNew, MsgId_reg),
-%
-%    UdpData2 = receive_response(Socket),
-%    MsgId2 = check_publish_msg_on_udp(
-%               {Dup, QoS, Retain, WillBit, CleanSession,
-%                ?SN_NORMAL_TOPIC, TopicIdNew, Payload2}, UdpData2),
-%    send_puback_msg(Socket, TopicIdNew, MsgId2),
-%    timer:sleep(50),
-%
-%    UdpData3 = wrap_receive_response(Socket),
-%    MsgId3 = check_publish_msg_on_udp(
-%               {Dup, QoS, Retain, WillBit, CleanSession,
-%                ?SN_NORMAL_TOPIC, TopicIdNew, Payload3}, UdpData3),
-%    send_puback_msg(Socket, TopicIdNew, MsgId3),
-%    timer:sleep(50),
-%
-%    case receive_response(Socket) of
-%        <<2,23>> -> ok;
-%        UdpData4 ->
-%            MsgId4 = check_publish_msg_on_udp({Dup, QoS, Retain, WillBit,
-%                                               CleanSession, ?SN_NORMAL_TOPIC,
-%                                               TopicIdNew, Payload4}, UdpData4),
-%            send_puback_msg(Socket, TopicIdNew, MsgId4)
-%    end,
-%    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
-%    gen_udp:close(Socket).
-%
-%t_asleep_test06_to_awake_qos2_dl_msg(_) ->
-%    QoS = 2,
-%    Duration = 1,
-%    WillTopic = <<"dead">>,
-%    WillPayload = <<10, 11, 12, 13, 14>>,
-%    {ok, Socket} = gen_udp:open(0, [binary]),
-%    ClientId = ?CLIENTID,
-%    send_connect_msg_with_will(Socket, Duration, ClientId),
-%    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
-%    send_willtopic_msg(Socket, WillTopic, QoS),
-%    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
-%    send_willmsg_msg(Socket, WillPayload),
-%    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-%
-%    % subscribe
-%    TopicName_tom = <<"tom">>,
-%    MsgId1 = 25,
-%    WillBit = 0,
-%    Dup = 0,
-%    Retain = 0,
-%    CleanSession = 0,
-%    ReturnCode = 0,
-%    send_register_msg(Socket, TopicName_tom, MsgId1),
-%    timer:sleep(50),
-%    TopicId_tom = check_regack_msg_on_udp(MsgId1, receive_response(Socket)),
-%    send_subscribe_msg_predefined_topic(Socket, QoS, TopicId_tom, MsgId1),
-%    ?assertEqual(<<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1,
-%                   ?SN_NORMAL_TOPIC:2, TopicId_tom:16, MsgId1:16, ReturnCode>>,
-%                 receive_response(Socket)),
-%
-%    % goto asleep state
-%    SleepDuration = 11,
-%    send_disconnect_msg(Socket, SleepDuration),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    timer:sleep(100),
-%
-%    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    %% send downlink data in asleep state. This message should be send to device once it wake up
-%    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    Payload1 = <<55, 66, 77, 88, 99>>,
-%    {ok, C} = emqtt:start_link(),
-%    {ok, _} = emqtt:connect(C),
-%    {ok, _} = emqtt:publish(C, TopicName_tom, Payload1, QoS),
-%    timer:sleep(100),
-%    ok = emqtt:disconnect(C),
-%    timer:sleep(300),
-%
-%    % goto awake state, receive downlink messages, and go back to asleep
-%    send_pingreq_msg(Socket, ClientId),
-%
-%    UdpData = wrap_receive_response(Socket),
-%    MsgId_udp = check_publish_msg_on_udp(
-%                  {Dup, QoS, Retain, WillBit, CleanSession,
-%                   ?SN_NORMAL_TOPIC, TopicId_tom, Payload1}, UdpData),
-%    send_pubrec_msg(Socket, MsgId_udp),
-%    ?assertMatch(<<_:8, ?SN_PUBREL:8, _/binary>>, receive_response(Socket)),
-%    send_pubcomp_msg(Socket, MsgId_udp),
-%
-%    %% verify the pingresp is received after receiving all the buffered qos2 msgs
-%    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
-%    gen_udp:close(Socket).
-%
-%t_asleep_test07_to_connected(_) ->
-%    QoS = 1,
-%    Keepalive_Duration = 10,
-%    SleepDuration = 1,
-%    WillTopic = <<"dead">>,
-%    WillPayload = <<10, 11, 12, 13, 14>>,
-%    {ok, Socket} = gen_udp:open(0, [binary]),
-%    ClientId = ?CLIENTID,
-%    send_connect_msg_with_will(Socket, Keepalive_Duration, ClientId),
-%    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
-%    send_willtopic_msg(Socket, WillTopic, QoS),
-%    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
-%    send_willmsg_msg(Socket, WillPayload),
-%    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-%
-%    % subscribe
-%    TopicName_tom = <<"tom">>,
-%    MsgId1 = 25,
-%    WillBit = 0,
-%    Dup = 0,
-%    Retain = 0,
-%    CleanSession = 0,
-%    ReturnCode = 0,
-%    send_register_msg(Socket, TopicName_tom, MsgId1),
-%    TopicId_tom = check_regack_msg_on_udp(MsgId1, receive_response(Socket)),
-%    send_subscribe_msg_predefined_topic(Socket, QoS, TopicId_tom, MsgId1),
-%    ?assertEqual(
-%       <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1,
-%         WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
-%         TopicId_tom:16, MsgId1:16, ReturnCode>>,
-%       receive_response(Socket)
-%      ),
-%
-%    % goto asleep state
-%    send_disconnect_msg(Socket, SleepDuration),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    timer:sleep(100),
-%
-%    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    %% send connect message, and goto connected state
-%    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    send_connect_msg(Socket, ClientId),
-%    ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
-%
-%    timer:sleep(1500),
-%    % asleep timer should get timeout, without any effect
-%
-%    timer:sleep(4000),
-%    % keepalive timer should get timeout
-%
-%    gen_udp:close(Socket).
-%
-%t_asleep_test08_to_disconnected(_) ->
-%    QoS = 1,
-%    Keepalive_Duration = 3,
-%    SleepDuration = 1,
-%    WillTopic = <<"dead">>,
-%    WillPayload = <<10, 11, 12, 13, 14>>,
-%    {ok, Socket} = gen_udp:open(0, [binary]),
-%    ClientId = ?CLIENTID,
-%    send_connect_msg_with_will(Socket, Keepalive_Duration, ClientId),
-%    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
-%    send_willtopic_msg(Socket, WillTopic, QoS),
-%    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
-%    send_willmsg_msg(Socket, WillPayload),
-%    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-%
-%    % goto asleep state
-%    send_disconnect_msg(Socket, SleepDuration),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    timer:sleep(100),
-%
-%    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    %% send disconnect message, and goto disconnected state
-%    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    send_disconnect_msg(Socket, undefined),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    timer:sleep(100),
-%    % it is a normal termination, without will message
-%
-%    gen_udp:close(Socket).
-%
-%t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
-%    QoS = 1,
-%    Duration = 5,
-%    WillTopic = <<"dead">>,
-%    WillPayload = <<10, 11, 12, 13, 14>>,
-%    {ok, Socket} = gen_udp:open(0, [binary]),
-%    ClientId = ?CLIENTID,
-%    send_connect_msg_with_will(Socket, Duration, ClientId),
-%    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
-%    send_willtopic_msg(Socket, WillTopic, QoS),
-%    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
-%    send_willmsg_msg(Socket, WillPayload),
-%    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-%
-%    % subscribe
-%    TopicName1 = <<"u/+/k">>,
-%    MsgId1 = 25,
-%    TopicId0 = 0,
-%    WillBit = 0,
-%    Dup = 0,
-%    Retain = 0,
-%    CleanSession = 0,
-%    ReturnCode = 0,
-%    send_subscribe_msg_normal_topic(Socket, QoS, TopicName1, MsgId1),
-%    ?assertEqual(
-%       <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1,
-%         WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
-%         TopicId0:16, MsgId1:16, ReturnCode>>,
-%       receive_response(Socket)
-%      ),
-%    % goto asleep state
-%    SleepDuration = 30,
-%    send_disconnect_msg(Socket, SleepDuration),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    timer:sleep(1000),
-%
-%    %% send downlink data in asleep state. This message should be send to device once it wake up
-%    Payload2 = <<55, 66, 77, 88, 99>>,
-%    Payload3 = <<61, 71, 81>>,
-%    Payload4 = <<100, 101, 102, 103, 104, 105, 106, 107>>,
-%    TopicName_test9 = <<"u/v/k">>,
-%    {ok, C} = emqtt:start_link(),
-%    {ok, _} = emqtt:connect(C),
-%    {ok, _} = emqtt:publish(C, TopicName_test9, Payload2, QoS),
-%    timer:sleep(100),
-%    {ok, _} = emqtt:publish(C, TopicName_test9, Payload3, QoS),
-%    timer:sleep(100),
-%    {ok, _} = emqtt:publish(C, TopicName_test9, Payload4, QoS),
-%    timer:sleep(1000),
-%    ok = emqtt:disconnect(C),
-%
-%    % goto awake state, receive downlink messages, and go back to asleep
-%    send_pingreq_msg(Socket, ClientId),
-%
-%    UdpData_reg = receive_response(Socket),
-%    {TopicIdNew, MsgId_reg} = check_register_msg_on_udp(TopicName_test9, UdpData_reg),
-%    send_regack_msg(Socket, TopicIdNew, MsgId_reg),
-%
-%    case wrap_receive_response(Socket) of
-%        udp_receive_timeout ->
-%            ok;
-%        UdpData2 ->
-%            MsgId2 = check_publish_msg_on_udp(
-%                       {Dup, QoS, Retain, WillBit, CleanSession,
-%                        ?SN_NORMAL_TOPIC, TopicIdNew, Payload2}, UdpData2),
-%            send_puback_msg(Socket, TopicIdNew, MsgId2)
-%    end,
-%    timer:sleep(100),
-%
-%    case wrap_receive_response(Socket) of
-%        udp_receive_timeout ->
-%            ok;
-%        UdpData3 ->
-%            MsgId3 = check_publish_msg_on_udp(
-%                       {Dup, QoS, Retain, WillBit, CleanSession,
-%                        ?SN_NORMAL_TOPIC, TopicIdNew, Payload3}, UdpData3),
-%            send_puback_msg(Socket, TopicIdNew, MsgId3)
-%    end,
-%    timer:sleep(100),
-%
-%    case wrap_receive_response(Socket) of
-%        udp_receive_timeout ->
-%            ok;
-%        UdpData4 ->
-%            MsgId4 = check_publish_msg_on_udp({Dup, QoS, Retain, WillBit,
-%                                       CleanSession, ?SN_NORMAL_TOPIC,
-%                                       TopicIdNew, Payload4}, UdpData4),
-%            send_puback_msg(Socket, TopicIdNew, MsgId4)
-%    end,
-%    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
-%
-%    %% send PINGREQ again to enter awake state
-%    send_pingreq_msg(Socket, ClientId),
-%    %% will not receive any buffered PUBLISH messages buffered before last
-%    %% awake, only receive PINGRESP here
-%    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
-%
-%    gen_udp:close(Socket).
-%
-%t_awake_test01_to_connected(_) ->
-%    QoS = 1,
-%    Keepalive_Duration = 3,
-%    SleepDuration = 1,
-%    WillTopic = <<"dead">>,
-%    WillPayload = <<10, 11, 12, 13, 14>>,
-%    {ok, Socket} = gen_udp:open(0, [binary]),
-%    ClientId = ?CLIENTID,
-%    send_connect_msg_with_will(Socket, Keepalive_Duration, ClientId),
-%    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
-%    send_willtopic_msg(Socket, WillTopic, QoS),
-%    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
-%    send_willmsg_msg(Socket, WillPayload),
-%    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-%
-%    % goto asleep state
-%    send_disconnect_msg(Socket, SleepDuration),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    timer:sleep(100),
-%
-%    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    %% send connect message, and goto connected state
-%    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    send_connect_msg(Socket, ClientId),
-%    ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
-%
-%    timer:sleep(1500),
-%    % asleep timer should get timeout
-%
-%    timer:sleep(4000),
-%    % keepalive timer should get timeout
-%    gen_udp:close(Socket).
-%
-%t_awake_test02_to_disconnected(_) ->
-%    QoS = 1,
-%    Keepalive_Duration = 3,
-%    SleepDuration = 1,
-%    WillTopic = <<"dead">>,
-%    WillPayload = <<10, 11, 12, 13, 14>>,
-%    {ok, Socket} = gen_udp:open(0, [binary]),
-%    ClientId = ?CLIENTID,
-%    send_connect_msg_with_will(Socket, Keepalive_Duration, ClientId),
-%    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
-%    send_willtopic_msg(Socket, WillTopic, QoS),
-%    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
-%    send_willmsg_msg(Socket, WillPayload),
-%    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-%
-%
-%    % goto asleep state
-%    send_disconnect_msg(Socket, SleepDuration),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    timer:sleep(100),
-%
-%    % goto awake state
-%    send_pingreq_msg(Socket, ClientId),
-%    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
-%
-%    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    %% send disconnect message, and goto disconnected state
-%    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    send_disconnect_msg(Socket, undefined),
-%    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-%
-%    timer:sleep(100),
-%    % it is a normal termination, no will message will be send
-%
-%    gen_udp:close(Socket).
+t_asleep_test05_to_awake_qos1_dl_msg(_) ->
+    QoS = 1,
+    Duration = 5,
+    WillTopic = <<"dead">>,
+    WillPayload = <<10, 11, 12, 13, 14>>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg_with_will(Socket, Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+    send_willmsg_msg(Socket, WillPayload),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    % subscribe
+    TopicName1 = <<"u/+/w">>,
+    MsgId1 = 25,
+    TopicId0 = 0,
+    WillBit = 0,
+    Dup = 0,
+    Retain = 0,
+    CleanSession = 0,
+    ReturnCode = 0,
+    send_subscribe_msg_normal_topic(Socket, QoS, TopicName1, MsgId1),
+    ?assertEqual(
+       <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1,
+         WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+         TopicId0:16, MsgId1:16, ReturnCode>>,
+       receive_response(Socket)
+      ),
+
+    % goto asleep state
+    SleepDuration = 5,
+    send_disconnect_msg(Socket, SleepDuration),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    timer:sleep(300),
+
+    %% send downlink data in asleep state. This message should be send to device once it wake up
+    Payload2 = <<55, 66, 77, 88, 99>>,
+    Payload3 = <<61, 71, 81>>,
+    Payload4 = <<100, 101, 102, 103, 104, 105, 106, 107>>,
+    TopicName_test5 = <<"u/v/w">>,
+    {ok, C} = emqtt:start_link(),
+    {ok, _} = emqtt:connect(C),
+    {ok, _} = emqtt:publish(C, TopicName_test5, Payload2, QoS),
+    timer:sleep(100),
+    {ok, _} = emqtt:publish(C, TopicName_test5, Payload3, QoS),
+    timer:sleep(100),
+    {ok, _} = emqtt:publish(C, TopicName_test5, Payload4, QoS),
+    timer:sleep(200),
+    ok = emqtt:disconnect(C),
+    timer:sleep(50),
+
+    % goto awake state, receive downlink messages, and go back to asleep
+    send_pingreq_msg(Socket, ClientId),
+
+    UdpData_reg = receive_response(Socket),
+    {TopicIdNew, MsgId_reg} = check_register_msg_on_udp(TopicName_test5, UdpData_reg),
+    send_regack_msg(Socket, TopicIdNew, MsgId_reg),
+
+    UdpData2 = receive_response(Socket),
+    MsgId2 = check_publish_msg_on_udp(
+               {Dup, QoS, Retain, WillBit, CleanSession,
+                ?SN_NORMAL_TOPIC, TopicIdNew, Payload2}, UdpData2),
+    send_puback_msg(Socket, TopicIdNew, MsgId2),
+    timer:sleep(50),
+
+    UdpData3 = wrap_receive_response(Socket),
+    MsgId3 = check_publish_msg_on_udp(
+               {Dup, QoS, Retain, WillBit, CleanSession,
+                ?SN_NORMAL_TOPIC, TopicIdNew, Payload3}, UdpData3),
+    send_puback_msg(Socket, TopicIdNew, MsgId3),
+    timer:sleep(50),
+
+    case receive_response(Socket) of
+        <<2,23>> -> ok;
+        UdpData4 ->
+            MsgId4 = check_publish_msg_on_udp({Dup, QoS, Retain, WillBit,
+                                               CleanSession, ?SN_NORMAL_TOPIC,
+                                               TopicIdNew, Payload4}, UdpData4),
+            send_puback_msg(Socket, TopicIdNew, MsgId4)
+    end,
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+    timer:sleep(8000),
+    ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
+
+    gen_udp:close(Socket).
+
+t_asleep_test06_to_awake_qos2_dl_msg(_) ->
+    QoS = 2,
+    Duration = 1,
+    WillTopic = <<"dead">>,
+    WillPayload = <<10, 11, 12, 13, 14>>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg_with_will(Socket, Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+    send_willmsg_msg(Socket, WillPayload),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    % subscribe
+    TopicName_tom = <<"tom">>,
+    MsgId1 = 25,
+    WillBit = 0,
+    Dup = 0,
+    Retain = 0,
+    CleanSession = 0,
+    ReturnCode = 0,
+    send_register_msg(Socket, TopicName_tom, MsgId1),
+    timer:sleep(50),
+    TopicId_tom = check_regack_msg_on_udp(MsgId1, receive_response(Socket)),
+    send_subscribe_msg_predefined_topic(Socket, QoS, TopicId_tom, MsgId1),
+    ?assertEqual(<<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1,
+                   ?SN_NORMAL_TOPIC:2, TopicId_tom:16, MsgId1:16, ReturnCode>>,
+                 receive_response(Socket)),
+
+    % goto asleep state
+    SleepDuration = 5,
+    send_disconnect_msg(Socket, SleepDuration),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    timer:sleep(100),
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %% send downlink data in asleep state. This message should be send to device once it wake up
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    Payload1 = <<55, 66, 77, 88, 99>>,
+    {ok, C} = emqtt:start_link(),
+    {ok, _} = emqtt:connect(C),
+    {ok, _} = emqtt:publish(C, TopicName_tom, Payload1, QoS),
+    timer:sleep(100),
+    ok = emqtt:disconnect(C),
+    timer:sleep(300),
+
+    % goto awake state, receive downlink messages, and go back to asleep
+    send_pingreq_msg(Socket, ClientId),
+
+    UdpData = wrap_receive_response(Socket),
+    MsgId_udp = check_publish_msg_on_udp(
+                  {Dup, QoS, Retain, WillBit, CleanSession,
+                   ?SN_NORMAL_TOPIC, TopicId_tom, Payload1}, UdpData),
+    send_pubrec_msg(Socket, MsgId_udp),
+    ?assertMatch(<<_:8, ?SN_PUBREL:8, _/binary>>, receive_response(Socket)),
+    send_pubcomp_msg(Socket, MsgId_udp),
+
+    %% verify the pingresp is received after receiving all the buffered qos2 msgs
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+    timer:sleep(8000),
+    ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
+
+    gen_udp:close(Socket).
+
+t_asleep_test07_to_connected(_) ->
+    QoS = 1,
+    Keepalive_Duration = 10,
+    SleepDuration = 1,
+    WillTopic = <<"dead">>,
+    WillPayload = <<10, 11, 12, 13, 14>>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg_with_will(Socket, Keepalive_Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+    send_willmsg_msg(Socket, WillPayload),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    % subscribe
+    TopicName_tom = <<"tom">>,
+    MsgId1 = 25,
+    WillBit = 0,
+    Dup = 0,
+    Retain = 0,
+    CleanSession = 0,
+    ReturnCode = 0,
+    send_register_msg(Socket, TopicName_tom, MsgId1),
+    TopicId_tom = check_regack_msg_on_udp(MsgId1, receive_response(Socket)),
+    send_subscribe_msg_predefined_topic(Socket, QoS, TopicId_tom, MsgId1),
+    ?assertEqual(
+       <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1,
+         WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+         TopicId_tom:16, MsgId1:16, ReturnCode>>,
+       receive_response(Socket)
+      ),
+
+    % goto asleep state
+    send_disconnect_msg(Socket, SleepDuration),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    timer:sleep(100),
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %% send connect message, and goto connected state
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+
+    timer:sleep(1500),
+    % asleep timer should get timeout, without any effect
+    ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
+    gen_udp:close(Socket).
+
+t_asleep_test08_to_disconnected(_) ->
+    QoS = 1,
+    Keepalive_Duration = 3,
+    SleepDuration = 1,
+    WillTopic = <<"dead">>,
+    WillPayload = <<10, 11, 12, 13, 14>>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg_with_will(Socket, Keepalive_Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+    send_willmsg_msg(Socket, WillPayload),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    % goto asleep state
+    send_disconnect_msg(Socket, SleepDuration),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    timer:sleep(100),
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %% send disconnect message, and goto disconnected state
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    timer:sleep(8000),
+    % it is a normal termination, without will message
+    ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
+
+    gen_udp:close(Socket).
+
+t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
+    QoS = 1,
+    Duration = 5,
+    WillTopic = <<"dead">>,
+    WillPayload = <<10, 11, 12, 13, 14>>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg_with_will(Socket, Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+    send_willmsg_msg(Socket, WillPayload),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    % subscribe
+    TopicName1 = <<"u/+/k">>,
+    MsgId1 = 25,
+    TopicId0 = 0,
+    WillBit = 0,
+    Dup = 0,
+    Retain = 0,
+    CleanSession = 0,
+    ReturnCode = 0,
+    send_subscribe_msg_normal_topic(Socket, QoS, TopicName1, MsgId1),
+    ?assertEqual(
+       <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1,
+         WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+         TopicId0:16, MsgId1:16, ReturnCode>>,
+       receive_response(Socket)
+      ),
+    % goto asleep state
+    SleepDuration = 10,
+    send_disconnect_msg(Socket, SleepDuration),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    timer:sleep(1000),
+
+    %% send downlink data in asleep state. This message should be send to device once it wake up
+    Payload2 = <<55, 66, 77, 88, 99>>,
+    Payload3 = <<61, 71, 81>>,
+    Payload4 = <<100, 101, 102, 103, 104, 105, 106, 107>>,
+    TopicName_test9 = <<"u/v/k">>,
+    {ok, C} = emqtt:start_link(),
+    {ok, _} = emqtt:connect(C),
+    {ok, _} = emqtt:publish(C, TopicName_test9, Payload2, QoS),
+    timer:sleep(100),
+    {ok, _} = emqtt:publish(C, TopicName_test9, Payload3, QoS),
+    timer:sleep(100),
+    {ok, _} = emqtt:publish(C, TopicName_test9, Payload4, QoS),
+    timer:sleep(1000),
+    ok = emqtt:disconnect(C),
+
+    % goto awake state, receive downlink messages, and go back to asleep
+    send_pingreq_msg(Socket, ClientId),
+
+    UdpData_reg = receive_response(Socket),
+    {TopicIdNew, MsgId_reg} = check_register_msg_on_udp(TopicName_test9, UdpData_reg),
+    send_regack_msg(Socket, TopicIdNew, MsgId_reg),
+
+    case wrap_receive_response(Socket) of
+        udp_receive_timeout ->
+            ok;
+        UdpData2 ->
+            MsgId2 = check_publish_msg_on_udp(
+                       {Dup, QoS, Retain, WillBit, CleanSession,
+                        ?SN_NORMAL_TOPIC, TopicIdNew, Payload2}, UdpData2),
+            send_puback_msg(Socket, TopicIdNew, MsgId2)
+    end,
+    timer:sleep(100),
+
+    case wrap_receive_response(Socket) of
+        udp_receive_timeout ->
+            ok;
+        UdpData3 ->
+            MsgId3 = check_publish_msg_on_udp(
+                       {Dup, QoS, Retain, WillBit, CleanSession,
+                        ?SN_NORMAL_TOPIC, TopicIdNew, Payload3}, UdpData3),
+            send_puback_msg(Socket, TopicIdNew, MsgId3)
+    end,
+    timer:sleep(100),
+
+    case wrap_receive_response(Socket) of
+        udp_receive_timeout ->
+            ok;
+        UdpData4 ->
+            MsgId4 = check_publish_msg_on_udp({Dup, QoS, Retain, WillBit,
+                                       CleanSession, ?SN_NORMAL_TOPIC,
+                                       TopicIdNew, Payload4}, UdpData4),
+            send_puback_msg(Socket, TopicIdNew, MsgId4)
+    end,
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+    %% send PINGREQ again to enter awake state
+    send_pingreq_msg(Socket, ClientId),
+    %% will not receive any buffered PUBLISH messages buffered before last
+    %% awake, only receive PINGRESP here
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+    timer:sleep(10000),
+    ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
+
+    gen_udp:close(Socket).
+
+t_awake_test01_to_connected(_) ->
+    QoS = 1,
+    Keepalive_Duration = 3,
+    SleepDuration = 1,
+    WillTopic = <<"dead">>,
+    WillPayload = <<10, 11, 12, 13, 14>>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg_with_will(Socket, Keepalive_Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+    send_willmsg_msg(Socket, WillPayload),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    % goto asleep state
+    send_disconnect_msg(Socket, SleepDuration),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    timer:sleep(100),
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %% send connect message, and goto connected state
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+
+    timer:sleep(1500),
+    % asleep timer should get timeout
+    ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
+    gen_udp:close(Socket).
+
+t_awake_test02_to_disconnected(_) ->
+    QoS = 1,
+    Keepalive_Duration = 3,
+    SleepDuration = 1,
+    WillTopic = <<"dead">>,
+    WillPayload = <<10, 11, 12, 13, 14>>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg_with_will(Socket, Keepalive_Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+    send_willmsg_msg(Socket, WillPayload),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    % goto asleep state
+    send_disconnect_msg(Socket, SleepDuration),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    timer:sleep(100),
+
+    % goto awake state
+    send_pingreq_msg(Socket, ClientId),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %% send disconnect message, and goto disconnected state
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+    %% asleep timeout
+    timer:sleep(8000),
+    ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
+
+    gen_udp:close(Socket).
 
 t_broadcast_test1(_) ->
     {ok, Socket} = gen_udp:open( 0, [binary]),
@@ -2287,17 +2300,6 @@ receive_response(Socket, Timeout) ->
             receive_response(Socket)
     after Timeout ->
         udp_receive_timeout
-    end.
-
-receive_emqttc_response() ->
-    receive
-        {mqttc, _From, Data2} ->
-            Data2;
-        {publish, Topic, Payload} ->
-            {publish, Topic, Payload};
-        Other -> {unexpected_emqttc_data, Other}
-    after 2000 ->
-        emqttc_receive_timeout
     end.
 
 check_dispatched_message(Dup, QoS, Retain, TopicIdType, TopicId, Payload, Socket) ->
