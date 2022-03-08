@@ -47,7 +47,6 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(TRIE, emqx_trie).
 -define(SESSION_DISC_TRIE, emqx_session_trie_disc).
 -define(SESSION_RAM_TRIE, emqx_session_trie_ram).
 -define(PREFIX(Prefix), {Prefix, 0}).

@@ -164,7 +164,7 @@ to_rfc3339(Timestamp) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = mria:wait_for_tables([?ACTIVATED_ALARM, ?DEACTIVATED_ALARM]),
+    ok = mria:wait_for_tables([?ACTIVATED_ALARM, ?DEACTIVATED_ALARM, ?TRIE]),
     deactivate_all_alarms(),
     {ok, #{}, get_validity_period()}.
 

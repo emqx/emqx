@@ -27,12 +27,6 @@
 
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
 
--import(emqx_mgmt_util, [ object_array_schema/1
-                        , object_array_schema/2
-                        , error_schema/2
-                        , properties/1
-                        ]).
-
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
 

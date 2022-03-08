@@ -53,6 +53,7 @@
 %%--------------------------------------------------------------------
 -define(ACTIVATED_ALARM, emqx_activated_alarm).
 -define(DEACTIVATED_ALARM, emqx_deactivated_alarm).
+-define(TRIE, emqx_trie).
 
 %%--------------------------------------------------------------------
 %% Message and Delivery
