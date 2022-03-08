@@ -24,9 +24,11 @@ fields("egress") ->
 
 fields("post_ingress") ->
     [ type_field()
+    , name_field()
     ] ++ proplists:delete(enable, fields("ingress"));
 fields("post_egress") ->
     [ type_field()
+    , name_field()
     ] ++ proplists:delete(enable, fields("egress"));
 
 fields("put_ingress") ->
@@ -35,15 +37,19 @@ fields("put_egress") ->
     proplists:delete(enable, fields("egress"));
 
 fields("get_ingress") ->
-    [ id_field()
-    ] ++ emqx_bridge_schema:metrics_status_fields() ++ fields("post_ingress");
+    emqx_bridge_schema:metrics_status_fields() ++ fields("post_ingress");
 fields("get_egress") ->
-    [ id_field()
-    ] ++ emqx_bridge_schema:metrics_status_fields() ++ fields("post_egress").
+    emqx_bridge_schema:metrics_status_fields() ++ fields("post_egress").
 
 %%======================================================================================
-id_field() ->
-    {id, mk(binary(), #{desc => "The bridge ID", example => "mqtt:my_mqtt_bridge"})}.
-
 type_field() ->
-    {type, mk(mqtt, #{desc => "The bridge type"})}.
+    {type, mk(mqtt,
+        #{ required => true
+         , desc => "The bridge type."
+         })}.
+
+name_field() ->
+    {name, mk(binary(),
+        #{ required => true
+         , desc => "Bridge name, used as a human-readable description of the bridge."
+         })}.

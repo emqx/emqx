@@ -54,11 +54,7 @@ fields("config") ->
     emqx_connector_mqtt_schema:fields("config");
 
 fields("get") ->
-    [ {id, mk(binary(),
-        #{ desc => "The connector Id"
-         , example => <<"mqtt:my_mqtt_connector">>
-         })}
-    , {num_of_bridges, mk(integer(),
+    [ {num_of_bridges, mk(integer(),
         #{ desc => "The current number of bridges that are using this connector"
          })}
     ] ++ fields("post");
@@ -67,7 +63,14 @@ fields("put") ->
     emqx_connector_mqtt_schema:fields("connector");
 
 fields("post") ->
-    [ {type, mk(mqtt, #{desc => "The Connector Type"})}
+    [ {type, mk(mqtt,
+        #{ required => true
+         , desc => "The Connector Type"
+         })}
+    , {name, mk(binary(),
+        #{ required => true
+         , desc => "Connector name, used as a human-readable description of the connector."
+         })}
     ] ++ fields("put").
 
 %% ===================================================================

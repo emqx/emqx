@@ -68,7 +68,7 @@ schema("/banned") ->
             responses => #{
                 200 => [{data, hoconsc:mk(hoconsc:array(hoconsc:ref(ban)), #{})}],
                 400 => emqx_dashboard_swagger:error_codes(
-                           ['ALREADY_EXISTED', 'BAD_REQUEST'],
+                           ['ALREADY_EXISTS', 'BAD_REQUEST'],
                             <<"Banned already existed, or bad args">>)
             }
         }
@@ -141,7 +141,7 @@ banned(post, #{body := Body}) ->
             case emqx_banned:create(Ban) of
                 {ok, Banned} -> {200, format(Banned)};
                 {error, {already_exist, Old}} ->
-                    {400, 'ALREADY_EXISTED', format(Old)}
+                    {400, 'ALREADY_EXISTS', format(Old)}
             end
     end.
 

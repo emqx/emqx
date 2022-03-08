@@ -40,16 +40,15 @@ config_key_path() ->
 -dialyzer([{nowarn_function, [post_config_update/5]}, error_handling]).
 post_config_update([connectors, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
     ConnId = connector_id(Type, Name),
-    try foreach_linked_bridges(ConnId, fun(#{id := BId}) ->
-            throw({dependency_bridges_exist, BId})
+    try foreach_linked_bridges(ConnId, fun(#{type := BType, name := BName}) ->
+            throw({dependency_bridges_exist, emqx_bridge:bridge_id(BType, BName)})
         end)
     catch throw:Error -> {error, Error}
     end;
 post_config_update([connectors, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
     ConnId = connector_id(Type, Name),
     foreach_linked_bridges(ConnId,
-        fun(#{id := BId}) ->
-            {BType, BName} = emqx_bridge:parse_bridge_id(BId),
+        fun(#{type := BType, name := BName}) ->
             BridgeConf = emqx:get_config([bridges, BType, BName]),
             case emqx_bridge:update(BType, BName, {BridgeConf#{connector => OldConf},
                     BridgeConf#{connector => NewConf}}) of
@@ -72,7 +71,7 @@ parse_connector_id(ConnectorId) ->
 list() ->
     lists:foldl(fun({Type, NameAndConf}, Connectors) ->
             lists:foldl(fun({Name, RawConf}, Acc) ->
-                   [RawConf#{<<"id">> => connector_id(Type, Name)} | Acc]
+                   [RawConf#{<<"type">> => Type, <<"name">> => Name} | Acc]
                 end, Connectors, maps:to_list(NameAndConf))
         end, [], maps:to_list(emqx:get_raw_config(config_key_path(), #{}))).
 
@@ -81,10 +80,9 @@ lookup(Id) when is_binary(Id) ->
     lookup(Type, Name).
 
 lookup(Type, Name) ->
-    Id = connector_id(Type, Name),
     case emqx:get_raw_config(config_key_path() ++ [Type, Name], not_found) of
         not_found -> {error, not_found};
-        Conf -> {ok, Conf#{<<"id">> => Id}}
+        Conf -> {ok, Conf#{<<"type">> => Type, <<"name">> => Name}}
     end.
 
 create_dry_run(Type, Conf) ->

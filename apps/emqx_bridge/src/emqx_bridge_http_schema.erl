@@ -10,7 +10,7 @@
 %% Hocon Schema Definitions
 roots() -> [].
 
-fields("bridge") ->
+fields("config") ->
     basic_config() ++
     [ {url, mk(binary(),
           #{ required => true
@@ -27,8 +27,9 @@ is not allowed.
           #{ desc =>"""
 The MQTT topic filter to be forwarded to the HTTP server. All MQTT 'PUBLISH' messages with the topic
 matching the local_topic will be forwarded.<br/>
-NOTE: if this bridge is used as the output of a rule (EMQX rule engine), and also local_topic is configured, then both the data got from the rule and the MQTT messages that match
-local_topic will be forwarded.
+NOTE: if this bridge is used as the output of a rule (EMQX rule engine), and also local_topic is
+configured, then both the data got from the rule and the MQTT messages that match local_topic
+will be forwarded.
 """
            })}
     , {method, mk(method(),
@@ -68,14 +69,14 @@ How long will the HTTP request timeout.
 
 fields("post") ->
     [ type_field()
-    ] ++ fields("bridge");
+    , name_field()
+    ] ++ fields("config");
 
 fields("put") ->
-    fields("bridge");
+    fields("config");
 
 fields("get") ->
-    [ id_field()
-    ] ++ emqx_bridge_schema:metrics_status_fields() ++ fields("post").
+    emqx_bridge_schema:metrics_status_fields() ++ fields("post").
 
 basic_config() ->
     [ {enable,
@@ -83,10 +84,6 @@ basic_config() ->
            #{ desc => "Enable or disable this bridge"
             , default => true
             })}
-    , {name,
-       mk(binary(),
-          #{ desc => "Bridge name, used as a human-readable description of the bridge."
-           })}
     , {direction,
         mk(egress,
            #{ desc => "The direction of this bridge, MUST be 'egress'"
@@ -96,11 +93,18 @@ basic_config() ->
     ++ proplists:delete(base_url, emqx_connector_http:fields(config)).
 
 %%======================================================================================
-id_field() ->
-    {id, mk(binary(), #{desc => "The Bridge ID", example => "http:my_http_bridge"})}.
 
 type_field() ->
-    {type, mk(http, #{desc => "The Bridge Type"})}.
+    {type, mk(http,
+        #{ required => true
+         , desc => "The Bridge Type"
+         })}.
+
+name_field() ->
+    {name, mk(binary(),
+        #{ required => true
+         , desc => "Bridge name, used as a human-readable description of the bridge."
+         })}.
 
 method() ->
     enum([post, put, get, delete]).

@@ -264,7 +264,7 @@ trace(post, #{body := Param}) ->
         {ok, Trace0} -> {200, format_trace(Trace0)};
         {error, {already_existed, Name}} ->
             {400, #{
-                code => 'ALREADY_EXISTED',
+                code => 'ALREADY_EXISTS',
                 message => ?TO_BIN([Name, " Already Exists"])
             }};
         {error, {duplicate_condition, Name}} ->
@@ -343,7 +343,8 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
                     _ -> Acc
                 end;
             {error, Node, Reason} ->
-                ?SLOG(error, #{msg => "download_trace_log_error", node => Node, log => TraceLog, reason => Reason}),
+                ?SLOG(error, #{msg => "download_trace_log_error", node => Node,
+                               log => TraceLog, reason => Reason}),
                 Acc
         end
                 end, [], TraceFiles).
@@ -375,7 +376,8 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
                     {200, #{meta => Meta, items => <<"">>}};
                 {error, Reason} ->
                     ?SLOG(error, #{msg => "read_file_failed",
-                        node => Node, name => Name, reason => Reason, position => Position, bytes => Bytes}),
+                        node => Node, name => Name, reason => Reason,
+                        position => Position, bytes => Bytes}),
                     {400, #{code => 'READ_FILE_ERROR', message => Reason}};
                 {badrpc, nodedown} ->
                     {400, #{code => 'RPC_ERROR', message => "BadRpc node down"}}

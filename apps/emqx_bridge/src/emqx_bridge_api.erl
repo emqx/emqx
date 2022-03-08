@@ -88,16 +88,18 @@ get_response_body_schema() ->
         bridge_info_examples(get)).
 
 param_path_operation() ->
-    path_param(operation, enum([start, stop, restart]), <<"start">>).
-
-param_path_id() ->
-    path_param(id, binary(), <<"http:my_http_bridge">>).
-
-path_param(Name, Type, Example) ->
-    {Name, mk(Type,
+    {operation, mk(enum([start, stop, restart]),
         #{ in => path
          , required => true
-         , example => Example
+         , example => <<"start">>
+         })}.
+
+param_path_id() ->
+    {id, mk(binary(),
+        #{ in => path
+         , required => true
+         , example => <<"http:my_http_bridge">>
+         , desc => <<"The bridge Id. Must be of format {type}:{name}">>
          })}.
 
 bridge_info_array_example(Method) ->
@@ -132,36 +134,31 @@ info_example(Type, Direction, Method) ->
     maps:merge(info_example_basic(Type, Direction),
                method_example(Type, Direction, Method)).
 
-method_example(Type, Direction, get) ->
+method_example(Type, Direction, Method) when Method == get; Method == post ->
     SType = atom_to_list(Type),
     SDir = atom_to_list(Direction),
     SName = case Type of
         http -> "my_" ++ SType ++ "_bridge";
         _ -> "my_" ++ SDir ++ "_" ++ SType ++ "_bridge"
     end,
-    #{
-        id => bin(SType ++ ":" ++ SName),
+    TypeNameExamp = #{
         type => bin(SType),
-        name => bin(SName),
+        name => bin(SName)
+    },
+    maybe_with_metrics_example(TypeNameExamp, Method);
+method_example(_Type, _Direction, put) ->
+    #{}.
+
+maybe_with_metrics_example(TypeNameExamp, get) ->
+    TypeNameExamp#{
         metrics => ?METRICS(0, 0, 0, 0, 0, 0),
         node_metrics => [
             #{node => node(),
-              metrics => ?METRICS(0, 0, 0, 0, 0, 0)}
+                metrics => ?METRICS(0, 0, 0, 0, 0, 0)}
         ]
     };
-method_example(Type, Direction, post) ->
-    SType = atom_to_list(Type),
-    SDir = atom_to_list(Direction),
-    SName = case Type of
-        http -> "my_" ++ SType ++ "_bridge";
-        _ -> "my_" ++ SDir ++ "_" ++ SType ++ "_bridge"
-    end,
-    #{
-        type => bin(SType),
-        name => bin(SName)
-    };
-method_example(_Type, _Direction, put) ->
-    #{}.
+maybe_with_metrics_example(TypeNameExamp, _) ->
+    TypeNameExamp.
 
 info_example_basic(http, _) ->
     #{
@@ -202,7 +199,7 @@ info_example_basic(mqtt, egress) ->
 
 schema("/bridges") ->
     #{
-        operationId => '/bridges',
+        'operationId' => '/bridges',
         get => #{
             tags => [<<"bridges">>],
             summary => <<"List Bridges">>,
@@ -216,8 +213,8 @@ schema("/bridges") ->
         post => #{
             tags => [<<"bridges">>],
             summary => <<"Create Bridge">>,
-            description => <<"Create a new bridge">>,
-            requestBody => emqx_dashboard_swagger:schema_with_examples(
+            description => <<"Create a new bridge by type and name">>,
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                             emqx_bridge_schema:post_request(),
                             bridge_info_examples(post)),
             responses => #{
@@ -229,7 +226,7 @@ schema("/bridges") ->
 
 schema("/bridges/:id") ->
     #{
-        operationId => '/bridges/:id',
+        'operationId' => '/bridges/:id',
         get => #{
             tags => [<<"bridges">>],
             summary => <<"Get Bridge">>,
@@ -243,9 +240,9 @@ schema("/bridges/:id") ->
         put => #{
             tags => [<<"bridges">>],
             summary => <<"Update Bridge">>,
-            description => <<"Update a bridge">>,
+            description => <<"Update a bridge by Id">>,
             parameters => [param_path_id()],
-            requestBody => emqx_dashboard_swagger:schema_with_examples(
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                             emqx_bridge_schema:put_request(),
                             bridge_info_examples(put)),
             responses => #{
@@ -257,7 +254,7 @@ schema("/bridges/:id") ->
         delete => #{
             tags => [<<"bridges">>],
             summary => <<"Delete Bridge">>,
-            description => <<"Delete a bridge">>,
+            description => <<"Delete a bridge by Id">>,
             parameters => [param_path_id()],
             responses => #{
                 204 => <<"Bridge deleted">>
@@ -267,11 +264,11 @@ schema("/bridges/:id") ->
 
 schema("/bridges/:id/operation/:operation") ->
     #{
-        operationId => '/bridges/:id/operation/:operation',
+        'operationId' => '/bridges/:id/operation/:operation',
         post => #{
             tags => [<<"bridges">>],
             summary => <<"Start/Stop/Restart Bridge">>,
-            description => <<"Start/Stop/Restart bridges on a specific node">>,
+            description => <<"Start/Stop/Restart bridges on a specific node.">>,
             parameters => [
                 param_path_id(),
                 param_path_operation()
@@ -283,9 +280,8 @@ schema("/bridges/:id/operation/:operation") ->
         }
     }.
 
-'/bridges'(post, #{body := #{<<"type">> := BridgeType} = Conf0}) ->
+'/bridges'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
     Conf = filter_out_request_body(Conf0),
-    BridgeName = emqx_misc:gen_id(),
     case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, _} ->
             {400, error_msg('ALREADY_EXISTS', <<"bridge already exists">>)};
@@ -323,7 +319,7 @@ schema("/bridges/:id/operation/:operation") ->
                 #{override_to => cluster}) of
             {ok, _} -> {204};
             {error, Reason} ->
-                {500, error_msg('UNKNOWN_ERROR', Reason)}
+                {500, error_msg('INTERNAL_ERROR', Reason)}
         end).
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
@@ -334,7 +330,7 @@ lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
         {ok, [{error, not_found} | _]} ->
             {404, error_msg('NOT_FOUND', <<"not_found">>)};
         {error, ErrL} ->
-            {500, error_msg('UNKNOWN_ERROR', ErrL)}
+            {500, error_msg('INTERNAL_ERROR', ErrL)}
     end.
 
 lookup_from_local_node(BridgeType, BridgeName) ->
@@ -354,7 +350,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                 {error, {pre_config_update, _, bridge_not_found}} ->
                     {404, error_msg('NOT_FOUND', <<"bridge not found">>)};
                 {error, Reason} ->
-                    {500, error_msg('UNKNOWN_ERROR', Reason)}
+                    {500, error_msg('INTERNAL_ERROR', Reason)}
             end
     end).
 
@@ -372,17 +368,19 @@ ensure_bridge_created(BridgeType, BridgeName, Conf) ->
     end.
 
 zip_bridges([BridgesFirstNode | _] = BridgesAllNodes) ->
-    lists:foldl(fun(#{id := Id}, Acc) ->
-            Bridges = pick_bridges_by_id(Id, BridgesAllNodes),
+    lists:foldl(fun(#{type := Type, name := Name}, Acc) ->
+            Bridges = pick_bridges_by_id(Type, Name, BridgesAllNodes),
             [format_bridge_info(Bridges) | Acc]
         end, [], BridgesFirstNode).
 
-pick_bridges_by_id(Id, BridgesAllNodes) ->
+pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
     lists:foldl(fun(BridgesOneNode, Acc) ->
-            case [Bridge || Bridge = #{id := Id0} <- BridgesOneNode, Id0 == Id] of
+            case [Bridge || Bridge = #{type := Type0, name := Name0} <- BridgesOneNode,
+                    Type0 == Type, Name0 == Name] of
                 [BridgeInfo] -> [BridgeInfo | Acc];
                 [] ->
-                    ?SLOG(warning, #{msg => "bridge_inconsistent_in_cluster", bridge => Id}),
+                    ?SLOG(warning, #{msg => "bridge_inconsistent_in_cluster",
+                                     bridge => emqx_bridge:bridge_id(Type, Name)}),
                     Acc
             end
         end, [], BridgesAllNodes).
@@ -420,11 +418,9 @@ aggregate_metrics(AllMetrics) ->
                      Rate1 + Rate0, Rate5m1 + Rate5m0, RateMax1 + RateMax0)
         end, InitMetrics, AllMetrics).
 
-format_resp(#{id := Id, raw_config := RawConf,
+format_resp(#{type := Type, name := BridgeName, raw_config := RawConf,
               resource_data := #{status := Status, metrics := Metrics}}) ->
-    {Type, BridgeName} = emqx_bridge:parse_bridge_id(Id),
     RawConf#{
-        id => Id,
         type => Type,
         name => maps:get(<<"name">>, RawConf, BridgeName),
         node => node(),
@@ -447,7 +443,7 @@ is_ok(ResL) ->
     end.
 
 filter_out_request_body(Conf) ->
-    ExtraConfs = [<<"id">>, <<"type">>, <<"status">>, <<"node_status">>,
+    ExtraConfs = [<<"id">>, <<"type">>, <<"name">>, <<"status">>, <<"node_status">>,
         <<"node_metrics">>, <<"metrics">>, <<"node">>],
     maps:without(ExtraConfs, Conf).
 

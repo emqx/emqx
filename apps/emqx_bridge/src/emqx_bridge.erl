@@ -31,6 +31,7 @@
         , bridge_type/1
         , resource_id/1
         , resource_id/2
+        , bridge_id/2
         , parse_bridge_id/1
         ]).
 
@@ -46,7 +47,7 @@
         , recreate/3
         , create_dry_run/2
         , remove/1
-        , remove/3
+        , remove/2
         , update/2
         , update/3
         , start/2
@@ -202,8 +203,9 @@ lookup(Type, Name) ->
 lookup(Type, Name, RawConf) ->
     case emqx_resource:get_instance(resource_id(Type, Name)) of
         {error, not_found} -> {error, not_found};
-        {ok, _, Data} -> {ok, #{id => bridge_id(Type, Name), resource_data => Data,
-                             raw_config => RawConf}}
+        {ok, _, Data} ->
+            {ok, #{type => Type, name => Name, resource_data => Data,
+                   raw_config => RawConf}}
     end.
 
 start(Type, Name) ->
@@ -222,7 +224,8 @@ create(BridgeId, Conf) ->
 create(Type, Name, Conf) ->
     ?SLOG(info, #{msg => "create bridge", type => Type, name => Name,
         config => Conf}),
-    case emqx_resource:create_local(resource_id(Type, Name), <<"emqx_bridge">>, emqx_bridge:resource_type(Type),
+    case emqx_resource:create_local(resource_id(Type, Name), <<"emqx_bridge">>,
+                emqx_bridge:resource_type(Type),
             parse_confs(Type, Name, Conf), #{async_create => true}) of
         {ok, already_created} -> maybe_disable_bridge(Type, Name, Conf);
         {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
@@ -284,6 +287,10 @@ remove(BridgeId) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
     remove(BridgeType, BridgeName, #{}).
 
+remove(Type, Name) ->
+    remove(Type, Name, undefined).
+
+%% just for perform_bridge_changes/1
 remove(Type, Name, _Conf) ->
     ?SLOG(info, #{msg => "remove_bridge", type => Type, name => Name}),
     case emqx_resource:remove_local(resource_id(Type, Name)) of
