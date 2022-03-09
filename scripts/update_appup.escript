@@ -272,8 +272,9 @@ do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
     New = New0 -- AlreadyHandled,
     Changed = Changed0 -- AlreadyHandled,
     Deleted = Deleted0 -- AlreadyHandled,
+    HasRestart = contains_restart_application(App, OldActions),
     Actions =
-        case contains_restart_application(App, OldActions) of
+        case HasRestart of
             true ->
                 [];
             false ->
@@ -285,7 +286,12 @@ do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
     OldActionsWithStop ++
         Actions ++
         OldActionsAfterStop ++
-        [{delete_module, M} || M <- Deleted] ++
+        case HasRestart of
+            true ->
+                [];
+            false ->
+                [{delete_module, M} || M <- Deleted]
+        end ++
         AppSpecific.
 
 %% If an entry restarts an application, there's no need to use
