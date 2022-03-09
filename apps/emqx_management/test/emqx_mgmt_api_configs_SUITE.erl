@@ -35,7 +35,7 @@ t_get(_Config) ->
     maps:map(fun(Name, Value) ->
         {ok, Config} = get_config(Name),
         ?assertEqual(Value, Config)
-    end, Configs),
+    end, maps:remove(<<"license">>, Configs)),
     ok.
 
 t_update(_Config) ->

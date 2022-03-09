@@ -26,6 +26,7 @@
 -export([remove/2, remove/3]).
 -export([reset/2, reset/3]).
 -export([dump_schema/1, dump_schema/2]).
+-export([schema_module/0]).
 
 %% for rpc
 -export([get_node_and_config/1]).
@@ -144,6 +145,14 @@ dump_schema(Dir, SchemaModule) ->
     io:format(user, "===< Generating: ~s~n", [HotConfigSchemaFile]),
     ok = gen_hot_conf_schema(HotConfigSchemaFile),
     ok.
+
+%% @doc return the root schema module.
+-spec schema_module() -> module().
+schema_module() ->
+    case os:getenv("SCHEMA_MOD") of
+        false -> emqx_conf_schema;
+        Value -> list_to_existing_atom(Value)
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions

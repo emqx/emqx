@@ -41,7 +41,7 @@ description() ->
 
 %% @doc Return EMQX edition info.
 %% Read info from persistent_term at runtime.
-%% Or meck this function to run tests for another eidtion.
+%% Or meck this function to run tests for another edition.
 -spec edition() -> ce | ee | edge.
 -ifdef(EMQX_RELEASE_EDITION).
 edition() -> ?EMQX_RELEASE_EDITION.

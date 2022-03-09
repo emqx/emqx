@@ -35,14 +35,8 @@ stop(_State) ->
 init_conf() ->
     {ok, TnxId} = copy_override_conf_from_core_node(),
     emqx_app:set_init_tnx_id(TnxId),
-    emqx_config:init_load(schema_module()),
+    emqx_config:init_load(emqx_conf:schema_module()),
     emqx_app:set_init_config_load_done().
-
-schema_module() ->
-    case os:getenv("SCHEMA_MOD") of
-        false -> emqx_conf_schema;
-        Value -> list_to_existing_atom(Value)
-    end.
 
 copy_override_conf_from_core_node() ->
     case nodes() of
