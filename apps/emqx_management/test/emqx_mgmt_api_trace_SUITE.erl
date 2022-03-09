@@ -163,7 +163,8 @@ t_download_log(_Config) ->
     Header = auth_header_(),
     {ok, Binary} = request_api(get, api_path("trace/test_client_id/download"), Header),
     {ok, [_Comment,
-        #zip_file{name = ZipName, info = #file_info{size = Size, type = regular, access = read_write}}]}
+        #zip_file{name = ZipName,
+            info = #file_info{size = Size, type = regular, access = read_write}}]}
         = zip:table(Binary),
     ?assert(Size > 0),
     ZipNamePrefix = lists:flatten(io_lib:format("~s-trace_~s", [node(), Name])),

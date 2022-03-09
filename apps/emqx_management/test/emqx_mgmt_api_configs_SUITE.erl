@@ -93,7 +93,8 @@ update_config(Name, Change) ->
 
 reset_config(Name, Key) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Path = binary_to_list(iolist_to_binary(emqx_mgmt_api_test_util:api_path(["configs_reset", Name]))),
+    Path = binary_to_list(iolist_to_binary(
+        emqx_mgmt_api_test_util:api_path(["configs_reset", Name]))),
     case emqx_mgmt_api_test_util:request_api(post, Path, Key, AuthHeader, []) of
         {ok, []} -> ok;
         Error -> Error

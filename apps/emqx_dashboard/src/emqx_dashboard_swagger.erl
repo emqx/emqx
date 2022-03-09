@@ -345,7 +345,8 @@ response(Status, ?R_REF(_Mod, _Name) = RRef, {Acc, RefsAcc, Module, Options}) ->
     SchemaToSpec = schema_converter(Options),
     {Spec, Refs} = SchemaToSpec(RRef, Module),
     Content = content(Spec),
-    {Acc#{integer_to_binary(Status) => #{<<"content">> => Content}}, Refs ++ RefsAcc, Module, Options};
+    {Acc#{integer_to_binary(Status) =>
+    #{<<"content">> => Content}}, Refs ++ RefsAcc, Module, Options};
 response(Status, Schema, {Acc, RefsAcc, Module, Options}) ->
     case hoconsc:is_schema(Schema) of
         true ->
@@ -459,7 +460,8 @@ typename_to_spec("duration_ms()", _Mod) -> #{type => string, example => <<"32s">
 typename_to_spec("percent()", _Mod) -> #{type => number, example => <<"12%">>};
 typename_to_spec("file()", _Mod) -> #{type => string, example => <<"/path/to/file">>};
 typename_to_spec("ip_port()", _Mod) -> #{type => string, example => <<"127.0.0.1:80">>};
-typename_to_spec("ip_ports()", _Mod) -> #{type => string, example => <<"127.0.0.1:80, 127.0.0.2:80">>};
+typename_to_spec("ip_ports()", _Mod) ->
+    #{type => string, example => <<"127.0.0.1:80, 127.0.0.2:80">>};
 typename_to_spec("url()", _Mod) -> #{type => string, example => <<"http://127.0.0.1">>};
 typename_to_spec("connect_timeout()", Mod) -> typename_to_spec("timeout()", Mod);
 typename_to_spec("timeout()", _Mod) -> #{<<"oneOf">> => [#{type => string, example => infinity},
