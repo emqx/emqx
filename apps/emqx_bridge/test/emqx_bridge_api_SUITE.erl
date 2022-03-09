@@ -239,6 +239,11 @@ t_http_crud_apis(_) ->
     ok.
 
 t_start_stop_bridges(_) ->
+    lists:foreach(fun(Type) ->
+            do_start_stop_bridges(Type)
+        end, [node, cluster]).
+
+do_start_stop_bridges(Type) ->
     %% assert we there's no bridges at first
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
@@ -249,7 +254,7 @@ t_start_stop_bridges(_) ->
     %ct:pal("the bridge ==== ~p", [Bridge]),
     #{ <<"type">> := ?BRIDGE_TYPE
      , <<"name">> := ?BRIDGE_NAME
-     , <<"status">> := _
+     , <<"status">> := <<"connected">>
      , <<"node_status">> := [_|_]
      , <<"metrics">> := _
      , <<"node_metrics">> := [_|_]
@@ -257,24 +262,24 @@ t_start_stop_bridges(_) ->
      } = jsx:decode(Bridge),
     BridgeID = emqx_bridge:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
     %% stop it
-    {ok, 200, <<>>} = request(post, operation_path(stop, BridgeID), <<"">>),
+    {ok, 200, <<>>} = request(post, operation_path(Type, stop, BridgeID), <<"">>),
     {ok, 200, Bridge2} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{ <<"status">> := <<"disconnected">>
                   }, jsx:decode(Bridge2)),
     %% start again
-    {ok, 200, <<>>} = request(post, operation_path(start, BridgeID), <<"">>),
+    {ok, 200, <<>>} = request(post, operation_path(Type, restart, BridgeID), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{ <<"status">> := <<"connected">>
                   }, jsx:decode(Bridge3)),
     %% restart an already started bridge
-    {ok, 200, <<>>} = request(post, operation_path(restart, BridgeID), <<"">>),
+    {ok, 200, <<>>} = request(post, operation_path(Type, restart, BridgeID), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{ <<"status">> := <<"connected">>
                   }, jsx:decode(Bridge3)),
     %% stop it again
-    {ok, 200, <<>>} = request(post, operation_path(stop, BridgeID), <<"">>),
+    {ok, 200, <<>>} = request(post, operation_path(Type, stop, BridgeID), <<"">>),
     %% restart a stopped bridge
-    {ok, 200, <<>>} = request(post, operation_path(restart, BridgeID), <<"">>),
+    {ok, 200, <<>>} = request(post, operation_path(Type, restart, BridgeID), <<"">>),
     {ok, 200, Bridge4} = request(get, uri(["bridges", BridgeID]), []),
     ?assertMatch(#{ <<"status">> := <<"connected">>
                   }, jsx:decode(Bridge4)),
@@ -307,7 +312,7 @@ request(Method, Url, Body) ->
 uri() -> uri([]).
 uri(Parts) when is_list(Parts) ->
     NParts = [E || E <- Parts],
-    ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION | NParts]).
+    ?HOST ++ str(filename:join([?BASE_PATH, ?API_VERSION | NParts])).
 
 auth_header_() ->
     Username = <<"bridge_admin">>,
@@ -315,5 +320,10 @@ auth_header_() ->
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
-operation_path(Oper, BridgeID) ->
+operation_path(node, Oper, BridgeID) ->
+    uri(["nodes", node(), "bridges", BridgeID, "operation", Oper]);
+operation_path(cluster, Oper, BridgeID) ->
     uri(["bridges", BridgeID, "operation", Oper]).
+
+str(S) when is_list(S) -> S;
+str(S) when is_binary(S) -> binary_to_list(S).
