@@ -14,7 +14,7 @@ on:
   pull_request:
 
 jobs:
-    run_proper_test:
+    eunit_and_proper:
         strategy:
           matrix:
             otp:
@@ -48,8 +48,18 @@ jobs:
             path: source/_build/default/lib/quicer/
             key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
+          # produces eunit.coverdata
+        - name: eunit
+          run: make eunit
+
+          # produces proper.coverdata
         - name: proper
           run: make proper
+
+        - uses: actions/upload-artifact@v2
+          with:
+            name: coverdata
+            path: _build/test/cover
 
     run_common_test:
         strategy:
@@ -81,32 +91,77 @@ jobs:
                 -f .ci/docker-compose-file/docker-compose-redis-single-tls.yaml \
                 -f .ci/docker-compose-file/docker-compose.yaml \
                 up -d --build
-        - name: run eunit
-          run: |
-            docker exec -i ${{ matrix.otp_release }} bash -c "make eunit"
+          # produces ct.coverdata
         - name: run common test
           run: |
             docker exec -i ${{ matrix.otp_release }} bash -c "make ct"
-        - name: run cover
-          run: |
-            printenv > .env
-            docker exec -i ${{ matrix.otp_release }} bash -c "DIAGNOSTIC=1 make cover"
-            docker exec --env-file .env -i ${{ matrix.otp_release }} bash -c "DIAGNOSTIC=1 make coveralls"
-        - name: cat rebar.crashdump
-          if: failure()
-          run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump'; fi
         - uses: actions/upload-artifact@v1
-          if: failure()
+          if: matrix.otp_release == 'erlang24'
           with:
-            name: logs_${{ matrix.otp_release }}
-            path: _build/test/logs
-        - uses: actions/upload-artifact@v1
-          with:
-            name: cover_${{ matrix.otp_release }}
+            name: coverdata
             path: _build/test/cover
 
+    make_cover:
+      needs:
+        - eunit_and_proper
+        - run_common_test
+      strategy:
+        matrix:
+          otp:
+            - 24.2.1-1
+          elixir:
+            - 1.13.3
+          os:
+            - ubuntu20.04
+          arch:
+            - amd64
+
+      runs-on: ubuntu-20.04
+      container: "ghcr.io/emqx/emqx-builder/5.0-8:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+      steps:
+      - uses: actions/checkout@v2
+
+      - name: Get deps git refs for cache
+        id: deps-refs
+        run: |
+          scripts/get-dep-refs.sh
+          make clean-all
+      - name: load rocksdb cache
+        uses: actions/cache@v2
+        with:
+          path: source/_build/default/lib/rocksdb/
+          key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
+      - name: load quicer cache
+        uses: actions/cache@v2
+        with:
+          path: source/_build/default/lib/quicer/
+          key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+
+      - name: compile test profile
+        run: |
+          DIAGNOSTIC=1 make cover
+
+      - uses: actions/download-artifact@v2
+        name: download coverdata
+        with:
+          name: coverdata
+          path: _build/test/cover
+
+      - name: make cover and send to coveralls
+        run: |
+          DIAGNOSTIC=1 make cover
+          DIAGNOSTIC=1 make coveralls
+      - name: cat rebar.crashdump
+        if: failure()
+        run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump'; fi
+      - uses: actions/upload-artifact@v1
+        if: failure()
+        with:
+          name: logs_${{ matrix.otp_release }}
+          path: _build/test/logs
+
     finish:
-      needs: run_common_test
+      needs: make_cover
       runs-on: ubuntu-20.04
       steps:
         - name: Coveralls Finished
