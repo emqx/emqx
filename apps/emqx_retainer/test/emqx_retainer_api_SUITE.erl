@@ -93,10 +93,13 @@ t_messages(_) ->
            end,
 
     lists:foreach(Each, lists:seq(1, 5)),
+    timer:sleep(500),
 
     {ok, MsgsJson} = request_api(get, api_path(["mqtt", "retainer", "messages"])),
     Msgs = decode_json(MsgsJson),
-    ?assert(erlang:length(Msgs) >= 5), %% maybe has $SYS messages
+    MsgLen = erlang:length(Msgs),
+    ?assert(MsgLen >= 5,
+            io_lib:format("message length is:~p~n", [MsgLen])), %% maybe has $SYS messages
 
     [First | _] = Msgs,
     ?assertMatch(#{msgid := _, topic := _, qos := _,
@@ -111,9 +114,10 @@ t_lookup_and_delete(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqx_retainer:clean(),
-    timer:sleep(500),
+    timer:sleep(300),
 
     emqtt:publish(C1, <<"retained/api">>, <<"retained">>, [{qos, 0}, {retain, true}]),
+    timer:sleep(300),
 
     API = api_path(["mqtt", "retainer", "message", "retained%2Fapi"]),
     {ok, LookupJson} = request_api(get, API),
