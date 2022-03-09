@@ -315,22 +315,22 @@ a crash dump"
        sc(emqx_schema:duration(),
           #{ mapping => "vm_args.-kernel net_ticktime"
            , default => "2m"
-           , desc => "This is the approximate time an EMQX node may"
-                     " be unresponsive until it is considered down and thereby disconnected."
+           , desc => "This is the approximate time an EMQX node may be unresponsive "
+                     "until it is considered down and thereby disconnected."
            })}
     , {"dist_listen_min",
        sc(range(1024, 65535),
           #{ mapping => "kernel.inet_dist_listen_min"
            , default => 6369
-           , desc => "Lower bound for the port range where"
-                     " EMQX broker listens for peer connections."
+           , desc => "Lower bound for the port range where EMQX broker "
+                     "listens for peer connections."
            })}
     , {"dist_listen_max",
        sc(range(1024, 65535),
           #{ mapping => "kernel.inet_dist_listen_max"
            , default => 6369
-           , desc => "Upper bound for the port range "
-                     "where EMQX broker listens for peer connections."
+           , desc => "Upper bound for the port range where EMQX broker "
+                     "listens for peer connections."
            })}
     , {"backtrace_depth",
        sc(integer(),
@@ -362,11 +362,12 @@ fields("db") ->
     [ {"backend",
        sc(hoconsc:enum([mnesia, rlog]),
           #{ mapping => "mria.db_backend"
-           , default => mnesia
+           , default => rlog
            , desc => """
 Select the backend for the embedded database.<br/>
-<code>mnesia</code> is the default backend, that offers decent performance in small clusters.<br/>
-<code>rlog</code> is a new experimental backend that is suitable for very large clusters.
+<code>rlog</code> is the default backend, a new experimental backend
+that is suitable for very large clusters.<br/>
+<code>mnesia</code> is a backend that offers decent performance in small clusters.
 """
            })}
     , {"role",
@@ -391,7 +392,10 @@ to <code>rlog</code>.
            , desc => """
 List of core nodes that the replicant will connect to.<br/>
 Note: this parameter only takes effect when the <code>backend</code> is set
-to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.
+to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.<br/>
+This values needs to be defined for manual or static cluster discovery mechanisms.<br/>
+If an automatic cluster discovery mechanism is being used (such as <code>etcd</code>),
+there is no need to set this value.
 """
            })}
     , {"rpc_module",
@@ -458,8 +462,8 @@ fields("rpc") ->
           #{ mapping => "gen_rpc.port_discovery"
            , default => stateless
            , desc => "<code>manual</code>: discover ports by <code>tcp_server_port</code>.<br/>"
-                     "<code>stateless</code>: discover ports in a stateless manner,"
-                     " using the following algorithm. "
+                     "<code>stateless</code>: discover ports in a stateless manner, "
+                     "using the following algorithm. "
                      "If node name is <code>emqxN@127.0.0.1</code>, where the N is an integer, "
                      "then the listening port will be 5370 + N."
            })}
@@ -468,8 +472,8 @@ fields("rpc") ->
           #{ mapping => "gen_rpc.tcp_server_port"
            , default => 5369
            , desc => "Listening port used by RPC local service.<br/> "
-                     "Note that this config only takes effect "
-                     "when rpc.port_discovery is set to manual."
+                     "Note that this config only takes effect when rpc.port_discovery "
+                     "is set to manual."
            })}
     , {"ssl_server_port",
        sc(integer(),
@@ -502,8 +506,8 @@ fields("rpc") ->
        sc(file(),
           #{ mapping => "gen_rpc.keyfile"
            , desc => "Path to the private key file for the <code>rpc.certfile</code>.<br/>"
-                     "Note: contents of this file are secret, so it's necessary to "
-                     "set permissions to 600."
+                     "Note: contents of this file are secret, so "
+                     "it's necessary to set permissions to 600."
            })}
     , {"cacertfile",
        sc(file(),
@@ -534,8 +538,8 @@ fields("rpc") ->
        sc(emqx_schema:duration_s(),
           #{ mapping => "gen_rpc.socket_keepalive_idle"
            , default => "7200s"
-           , desc => "How long the connections between the brokers should remain open "
-                     "after the last message is sent."
+           , desc => "How long the connections between the brokers "
+                     "should remain open after the last message is sent."
            })}
     , {"socket_keepalive_interval",
        sc(emqx_schema:duration_s(),
