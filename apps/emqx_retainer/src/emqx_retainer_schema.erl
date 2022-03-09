@@ -5,6 +5,13 @@
 
 -export([roots/0, fields/1, desc/1, namespace/0]).
 
+-define(DEFAULT_INDICES, [
+    [1, 2, 3],
+    [1, 3],
+    [2, 3],
+    [3]
+]).
+
 namespace() -> "retainer".
 
 roots() -> ["retainer"].
@@ -54,7 +61,8 @@ fields(mnesia_config) ->
                 max_retained_messages,
                 0,
                 fun is_pos_integer/1
-            )}
+            )},
+        {index_specs, fun retainer_indices/1}
     ];
 fields(flow_control) ->
     [
@@ -113,3 +121,36 @@ backend_config() ->
         backend,
         mnesia_config
     ).
+
+retainer_indices(type) ->
+    list(list(integer()));
+retainer_indices(desc) ->
+    "Retainer index specifications: list of arrays of positive ascending integers. "
+    "Each array specifies an index. Numbers in an index specification are 1-based "
+    "word positions in topics. Words from specified positions will be used for indexing.<br>"
+    "For example, it is good to have <code>[2, 4]</code> index to optimize "
+    "<code>+/X/+/Y/...</code> topic wildcard subscriptions.";
+retainer_indices(example) ->
+    [[2, 4], [1, 3]];
+retainer_indices(default) ->
+    ?DEFAULT_INDICES;
+retainer_indices(validator) ->
+    fun is_valid_index_specs/1;
+retainer_indices(_) ->
+    undefined.
+
+is_valid_index_specs(IndexSpecs) ->
+    case lists:all(fun is_valid_index_spec/1, IndexSpecs) of
+        true ->
+            case length(IndexSpecs) =:= ordsets:size(ordsets:from_list(IndexSpecs)) of
+                true -> ok;
+                false -> {error, duplicate_index_specs}
+            end;
+        false ->
+            {error, invalid_index_spec}
+    end.
+
+is_valid_index_spec(IndexSpec) ->
+    length(IndexSpec) > 0 andalso
+        lists:all(fun(Idx) -> Idx > 0 end, IndexSpec) andalso
+        IndexSpec =:= ordsets:to_list(ordsets:from_list(IndexSpec)).

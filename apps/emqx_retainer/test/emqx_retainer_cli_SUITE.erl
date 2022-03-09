@@ -19,21 +19,54 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx_retainer.hrl").
+
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
-init_per_testcase(_TestCase, Config) ->
+init_per_suite(Config) ->
+    emqx_retainer_SUITE:load_base_conf(),
+    %% Start Apps
+    emqx_common_test_helpers:start_apps([emqx_retainer]),
     Config.
 
-end_per_testcase(_TestCase, Config) ->
-    Config.
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:stop_apps([emqx_retainer]).
 
-% t_cmd(_) ->
-%     error('TODO').
+t_reindex_status(_Config) ->
+    ok = emqx_retainer_mnesia_cli:retainer(["reindex", "status"]).
 
-% t_unload(_) ->
-%     error('TODO').
+t_reindex(_Config) ->
+    {ok, C} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C),
 
-% t_load(_) ->
-%     error('TODO').
+    ok = emqx_retainer:clean(),
+
+    ?check_trace(
+        ?wait_async_action(
+            lists:foreach(
+                fun(N) ->
+                    emqtt:publish(
+                        C,
+                        erlang:iolist_to_binary([
+                            <<"retained/">>,
+                            io_lib:format("~5..0w", [N])
+                        ]),
+                        <<"this is a retained message">>,
+                        [{qos, 0}, {retain, true}]
+                    )
+                end,
+                lists:seq(1, 1000)
+            ),
+            #{?snk_kind := message_retained, topic := <<"retained/01000">>},
+            1000
+        ),
+        []
+    ),
+
+    emqx_config:put([retainer, backend, index_specs], [[4, 5]]),
+    ok = emqx_retainer_mnesia_cli:retainer(["reindex", "start"]),
+
+    ?assertEqual(1000, mnesia:table_info(?TAB_INDEX, size)).

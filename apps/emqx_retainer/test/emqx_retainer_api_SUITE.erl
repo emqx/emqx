@@ -21,6 +21,7 @@
 -include("emqx_retainer.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
@@ -89,7 +90,6 @@ t_messages(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqx_retainer:clean(),
-    timer:sleep(500),
 
     Each = fun(I) ->
         emqtt:publish(
@@ -100,8 +100,14 @@ t_messages(_) ->
         )
     end,
 
-    lists:foreach(Each, lists:seq(1, 5)),
-    timer:sleep(500),
+    ?check_trace(
+        ?wait_async_action(
+            lists:foreach(Each, lists:seq(1, 5)),
+            #{?snk_kind := message_retained, topic := <<"retained/A">>},
+            500
+        ),
+        []
+    ),
 
     {ok, MsgsJson} = request_api(get, api_path(["mqtt", "retainer", "messages"])),
     Msgs = decode_json(MsgsJson),
