@@ -30,6 +30,7 @@
         , emqx_stats
         , emqx_broker
         , mria_mnesia
+        , emqx_hooks
         ]).
 
 -define(ALL(Vars, Types, Exprs),
@@ -59,8 +60,11 @@ prop_sys() ->
 
 do_setup() ->
     ok = emqx_logger:set_log_level(emergency),
-    emqx_config:put([broker, sys_msg_interval], 60000),
-    emqx_config:put([broker, sys_heartbeat_interval], 30000),
+    emqx_config:put([sys_topics, sys_msg_interval], 60000),
+    emqx_config:put([sys_topics, sys_heartbeat_interval], 30000),
+    emqx_config:put([sys_topics, sys_event_messages],
+                    #{client_connected => true, client_disconnected => true,
+                      client_subscribed => true, client_unsubscribed => true}),
     [mock(Mod) || Mod <- ?mock_modules],
     ok.
 
@@ -83,7 +87,10 @@ do_mock(emqx_stats) ->
 do_mock(mria_mnesia) ->
     meck:expect(mria_mnesia, running_nodes, fun() -> [node()] end);
 do_mock(emqx_metrics) ->
-    meck:expect(emqx_metrics, all, fun() -> [{hello, 3}] end).
+    meck:expect(emqx_metrics, all, fun() -> [{hello, 3}] end);
+do_mock(emqx_hooks) ->
+    meck:expect(emqx_hooks, put, fun(_HookPoint, _MFA) -> ok end),
+    meck:expect(emqx_hooks, del, fun(_HookPoint, _MF) -> ok end).
 
 %%--------------------------------------------------------------------
 %% MODEL

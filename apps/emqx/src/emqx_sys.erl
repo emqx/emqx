@@ -43,6 +43,12 @@
         , terminate/2
         ]).
 
+-export([ on_client_connected/2
+        , on_client_disconnected/3
+        , on_client_subscribed/3
+        , on_client_unsubscribed/3
+        ]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -67,9 +73,9 @@
         , sysdescr % Broker description
         ]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
 start_link() ->
@@ -101,10 +107,13 @@ datetime() ->
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
 
 sys_interval() ->
-    emqx:get_config([broker, sys_msg_interval]).
+    emqx:get_config([sys_topics, sys_msg_interval]).
 
 sys_heatbeat_interval() ->
-    emqx:get_config([broker, sys_heartbeat_interval]).
+    emqx:get_config([sys_topics, sys_heartbeat_interval]).
+
+sys_event_messages() ->
+    emqx:get_config([sys_topics, sys_event_messages]).
 
 %% @doc Get sys info
 -spec(info() -> list(tuple())).
@@ -114,18 +123,27 @@ info() ->
      {uptime, uptime()},
      {datetime, datetime()}].
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% gen_server callbacks
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init([]) ->
     State = #state{sysdescr   = iolist_to_binary(sysdescr())},
+    load_event_hooks(),
     {ok, heartbeat(tick(State))}.
 
 heartbeat(State) ->
     State#state{heartbeat = start_timer(sys_heatbeat_interval(), heartbeat)}.
 tick(State) ->
     State#state{ticker = start_timer(sys_interval(), tick)}.
+
+load_event_hooks() ->
+    lists:foreach(
+      fun({_, false}) -> ok;
+         ({K, true}) ->
+            {HookPoint, Fun} = hook_and_fun(K),
+            emqx_hooks:put(HookPoint, {?MODULE, Fun, []})
+      end, maps:to_list(sys_event_messages())).
 
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -153,11 +171,81 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{heartbeat = TRef1, ticker = TRef2}) ->
+    unload_event_hooks(),
     lists:foreach(fun emqx_misc:cancel_timer/1, [TRef1, TRef2]).
 
-%%-----------------------------------------------------------------------------
+unload_event_hooks() ->
+    lists:foreach(fun({K, _}) ->
+        {HookPoint, Fun} = hook_and_fun(K),
+        emqx_hooks:del(HookPoint, {?MODULE, Fun})
+    end, maps:to_list(sys_event_messages())).
+
+%%--------------------------------------------------------------------
+%% hook callbacks
+%%--------------------------------------------------------------------
+
+on_client_connected(ClientInfo, ConnInfo) ->
+    Payload0 = common_infos(ClientInfo, ConnInfo),
+    Payload = Payload0#{
+                keepalive       => maps:get(keepalive, ConnInfo, 0),
+                clean_start     => maps:get(clean_start, ConnInfo, true),
+                expiry_interval => maps:get(expiry_interval, ConnInfo, 0)
+               },
+    publish(connected, Payload).
+
+on_client_disconnected(ClientInfo, Reason,
+                       ConnInfo = #{disconnected_at := DisconnectedAt}) ->
+
+    Payload0 = common_infos(ClientInfo, ConnInfo),
+    Payload = Payload0#{
+                reason => reason(Reason),
+                disconnected_at => DisconnectedAt
+               },
+    publish(disconnected, Payload).
+
+-compile({inline, [reason/1]}).
+reason(Reason) when is_atom(Reason) -> Reason;
+reason({shutdown, Reason}) when is_atom(Reason) -> Reason;
+reason({Error, _}) when is_atom(Error) -> Error;
+reason(_) -> internal_error.
+
+on_client_subscribed(_ClientInfo = #{clientid := ClientId,
+                                     username := Username,
+                                     protocol := Protocol},
+                     Topic, SubOpts) ->
+    Payload = #{clientid => ClientId,
+                username => Username,
+                protocol => Protocol,
+                topic => Topic,
+                subopts => SubOpts,
+                ts => erlang:system_time(millisecond)
+               },
+    publish(subscribed, Payload).
+
+on_client_unsubscribed(_ClientInfo = #{clientid := ClientId,
+                                       username := Username,
+                                       protocol := Protocol},
+                       Topic, _SubOpts) ->
+    Payload = #{clientid => ClientId,
+                username => Username,
+                protocol => Protocol,
+                topic => Topic,
+                ts => erlang:system_time(millisecond)
+               },
+    publish(unsubscribed, Payload).
+
+%%--------------------------------------------------------------------
 %% Internal functions
-%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+
+hook_and_fun(client_connected) ->
+    {'client.connected', on_client_connected};
+hook_and_fun(client_disconnected) ->
+    {'client.disconnected', on_client_disconnected};
+hook_and_fun(client_subscribed) ->
+    {'session.subscribed', on_client_subscribed};
+hook_and_fun(client_unsubscribed) ->
+    {'session.unsubscribed', on_client_unsubscribed}.
 
 publish_any(Name, Value) ->
     _ = publish(Name, Value),
@@ -179,7 +267,11 @@ publish(stats, Stats) ->
      || {Stat, Val} <- Stats, is_atom(Stat), is_integer(Val)];
 publish(metrics, Metrics) ->
     [safe_publish(systop(metric_topic(Name)), integer_to_binary(Val))
-     || {Name, Val} <- Metrics, is_atom(Name), is_integer(Val)].
+     || {Name, Val} <- Metrics, is_atom(Name), is_integer(Val)];
+publish(Event, Payload) when Event == connected; Event == disconnected;
+                             Event == subscribed; Event == unsubscribed ->
+    Topic = event_topic(Event, Payload),
+    safe_publish(Topic, emqx_json:encode(Payload)).
 
 metric_topic(Name) ->
     lists:concat(["metrics/", string:replace(atom_to_list(Name), ".", "/", all)]).
@@ -191,3 +283,39 @@ safe_publish(Topic, Flags, Payload) ->
       emqx_message:set_flags(
         maps:merge(#{sys => true}, Flags),
         emqx_message:make(?SYS, Topic, iolist_to_binary(Payload)))).
+
+common_infos(
+  _ClientInfo = #{clientid := ClientId,
+                  username := Username,
+                  peerhost := PeerHost,
+                  sockport := SockPort,
+                  protocol := Protocol
+                 },
+  _ConnInfo = #{proto_name := ProtoName,
+                proto_ver := ProtoVer,
+                connected_at := ConnectedAt
+               }) ->
+    #{clientid => ClientId,
+      username => Username,
+      ipaddress => ntoa(PeerHost),
+      sockport => SockPort,
+      protocol => Protocol,
+      proto_name => ProtoName,
+      proto_ver => ProtoVer,
+      connected_at => ConnectedAt,
+      ts => erlang:system_time(millisecond)
+     }.
+
+ntoa(undefined) -> undefined;
+ntoa({IpAddr, Port}) ->
+    iolist_to_binary([inet:ntoa(IpAddr), ":", integer_to_list(Port)]);
+ntoa(IpAddr) ->
+    iolist_to_binary(inet:ntoa(IpAddr)).
+
+event_topic(Event, #{clientid := ClientId, protocol := mqtt}) ->
+    iolist_to_binary(
+      [systop("clients"), "/", ClientId, "/", atom_to_binary(Event)]);
+event_topic(Event, #{clientid := ClientId, protocol := GwName}) ->
+    iolist_to_binary(
+      [systop("gateway"), "/", atom_to_binary(GwName),
+       "/clients/", ClientId, "/", atom_to_binary(Event)]).

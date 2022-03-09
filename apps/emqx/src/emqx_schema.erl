@@ -144,6 +144,9 @@ roots(medium) ->
     [ {"broker",
        sc(ref("broker"),
          #{})}
+    , {"sys_topics",
+       sc(ref("sys_topics"),
+          #{})}
     , {"rate_limit",
        sc(ref("rate_limit"),
           #{})}
@@ -857,17 +860,7 @@ fields("deflate_opts") ->
     ];
 
 fields("broker") ->
-    [ {"sys_msg_interval",
-       sc(hoconsc:union([disabled, duration()]),
-          #{ default => "1m"
-           })
-      }
-    , {"sys_heartbeat_interval",
-       sc(hoconsc:union([disabled, duration()]),
-          #{ default => "30s"
-           })
-      }
-    , {"enable_session_registry",
+    [ {"enable_session_registry",
        sc(boolean(),
           #{ default => true
            })
@@ -907,6 +900,55 @@ fields("broker_perf") ->
        sc(boolean(),
           #{ default => true
            })}
+    ];
+
+fields("sys_topics") ->
+    [ {"sys_msg_interval",
+       sc(hoconsc:union([disabled, duration()]),
+          #{ default => "1m"
+           })
+      }
+    , {"sys_heartbeat_interval",
+       sc(hoconsc:union([disabled, duration()]),
+          #{ default => "30s"
+           })
+      }
+    , {"sys_event_messages",
+       sc(ref("event_names"),
+          #{ desc =>
+           """Whether to enable Client lifecycle event messages publish.<br/>
+The following options are not only for enabling MQTT client event messages
+publish but also for Gateway clients. However, these kinds of clients type
+are distinguished by the Topic prefix:
+- For the MQTT client, its event topic format is:<br/>
+  <code>$SYS/broker/<node>/clients/<clientid>/<event></code><br/>
+- For the Gateway client, it is
+  <code>$SYS/broker/<node>/gateway/<gateway-name>/clients/<clientid>/<event></code>"""
+           })
+      }
+    ];
+
+fields("event_names") ->
+    [ {"client_connected",
+       sc(boolean(),
+          #{default => true
+           })
+      }
+    , {"client_disconnected",
+       sc(boolean(),
+          #{default => true
+           })
+      }
+    , {"client_subscribed",
+       sc(boolean(),
+          #{default => false
+           })
+      }
+    , {"client_unsubscribed",
+       sc(boolean(),
+          #{default => false
+           })
+      }
     ];
 
 fields("sysmon") ->
