@@ -1776,11 +1776,11 @@ t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
        receive_response(Socket)
       ),
     % goto asleep state
-    SleepDuration = 10,
+    SleepDuration = 5,
     send_disconnect_msg(Socket, SleepDuration),
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
-    timer:sleep(1000),
+    timer:sleep(200),
 
     %% send downlink data in asleep state. This message should be send to device once it wake up
     Payload2 = <<55, 66, 77, 88, 99>>,
@@ -1794,7 +1794,7 @@ t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
     {ok, _} = emqtt:publish(C, TopicName_test9, Payload3, QoS),
     timer:sleep(100),
     {ok, _} = emqtt:publish(C, TopicName_test9, Payload4, QoS),
-    timer:sleep(1000),
+    timer:sleep(200),
     ok = emqtt:disconnect(C),
 
     % goto awake state, receive downlink messages, and go back to asleep
