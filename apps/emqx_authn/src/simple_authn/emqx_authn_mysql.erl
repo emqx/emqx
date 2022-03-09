@@ -81,7 +81,11 @@ create(#{password_hash_algorithm := Algorithm,
               placeholders => PlaceHolders,
               query_timeout => QueryTimeout,
               resource_id => ResourceId},
-    case emqx_resource:create_local(ResourceId, ?RESOURCE_GROUP, emqx_connector_mysql, Config) of
+    case emqx_resource:create_local(ResourceId,
+                                    ?RESOURCE_GROUP,
+                                    emqx_connector_mysql,
+                                    Config,
+                                    #{waiting_connect_complete => 5000}) of
         {ok, already_created} ->
             {ok, State};
         {ok, _} ->

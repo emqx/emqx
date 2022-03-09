@@ -60,7 +60,7 @@
 -export([ restart/1  %% restart the instance.
         , restart/2
         , health_check/1 %% verify if the resource is working normally
-        , set_resource_status_disconnected/1 %% set resource status to disconnected
+        , set_resource_status_connecting/1 %% set resource status to disconnected
         , stop/1   %% stop the instance
         , query/2  %% query the instance
         , query/3  %% query the instance with after_query()
@@ -147,7 +147,11 @@ create(InstId, Group, ResourceType, Config, Opts) ->
 create_local(InstId, Group, ResourceType, Config) ->
     create_local(InstId, Group, ResourceType, Config, #{}).
 
--spec create_local(instance_id(), resource_group(), resource_type(), resource_config(), create_opts()) ->
+-spec create_local(instance_id(),
+                   resource_group(),
+                   resource_type(),
+                   resource_config(),
+                   create_opts()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create_local(InstId, Group, ResourceType, Config, Opts) ->
     call_instance(InstId, {create, InstId, Group, ResourceType, Config, Opts}).
@@ -225,10 +229,11 @@ stop(InstId) ->
 health_check(InstId) ->
     call_instance(InstId, {health_check, InstId}).
 
-set_resource_status_disconnected(InstId) ->
-    call_instance(InstId, {set_resource_status_disconnected, InstId}).
+set_resource_status_connecting(InstId) ->
+    call_instance(InstId, {set_resource_status_connecting, InstId}).
 
--spec get_instance(instance_id()) -> {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
+-spec get_instance(instance_id()) ->
+    {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
 get_instance(InstId) ->
     emqx_resource_instance:lookup(InstId).
 
@@ -273,35 +278,54 @@ call_stop(InstId, Mod, ResourceState) ->
 check_config(ResourceType, Conf) ->
     emqx_hocon:check(ResourceType, Conf).
 
--spec check_and_create(instance_id(), resource_group(), resource_type(), raw_resource_config()) ->
+-spec check_and_create(instance_id(),
+                       resource_group(),
+                       resource_type(),
+                       raw_resource_config()) ->
     {ok, resource_data() | 'already_created'} | {error, term()}.
 check_and_create(InstId, Group, ResourceType, RawConfig) ->
     check_and_create(InstId, Group, ResourceType, RawConfig, #{}).
 
--spec check_and_create(instance_id(), resource_group(), resource_type(), raw_resource_config(), create_opts()) ->
+-spec check_and_create(instance_id(),
+                       resource_group(),
+                       resource_type(),
+                       raw_resource_config(),
+                       create_opts()) ->
     {ok, resource_data() | 'already_created'} | {error, term()}.
 check_and_create(InstId, Group, ResourceType, RawConfig, Opts) ->
     check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> create(InstId, Group, ResourceType, InstConf, Opts) end).
 
--spec check_and_create_local(instance_id(), resource_group(), resource_type(), raw_resource_config()) ->
+-spec check_and_create_local(instance_id(),
+                             resource_group(),
+                             resource_type(),
+                             raw_resource_config()) ->
     {ok, resource_data()} | {error, term()}.
 check_and_create_local(InstId, Group, ResourceType, RawConfig) ->
     check_and_create_local(InstId, Group, ResourceType, RawConfig, #{}).
 
--spec check_and_create_local(instance_id(), resource_group(), resource_type(), raw_resource_config(),
+-spec check_and_create_local(instance_id(),
+                             resource_group(),
+                             resource_type(),
+                             raw_resource_config(),
     create_opts()) -> {ok, resource_data()} | {error, term()}.
 check_and_create_local(InstId, Group, ResourceType, RawConfig, Opts) ->
     check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> create_local(InstId, Group, ResourceType, InstConf, Opts) end).
 
--spec check_and_recreate(instance_id(), resource_type(), raw_resource_config(), create_opts()) ->
+-spec check_and_recreate(instance_id(),
+                         resource_type(),
+                         raw_resource_config(),
+                         create_opts()) ->
     {ok, resource_data()} | {error, term()}.
 check_and_recreate(InstId, ResourceType, RawConfig, Opts) ->
     check_and_do(ResourceType, RawConfig,
         fun(InstConf) -> recreate(InstId, ResourceType, InstConf, Opts) end).
 
--spec check_and_recreate_local(instance_id(), resource_type(), raw_resource_config(), create_opts()) ->
+-spec check_and_recreate_local(instance_id(),
+                               resource_type(),
+                               raw_resource_config(),
+                               create_opts()) ->
     {ok, resource_data()} | {error, term()}.
 check_and_recreate_local(InstId, ResourceType, RawConfig, Opts) ->
     check_and_do(ResourceType, RawConfig,

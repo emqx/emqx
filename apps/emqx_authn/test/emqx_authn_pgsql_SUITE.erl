@@ -27,6 +27,7 @@
 
 -define(PGSQL_HOST, "pgsql").
 -define(PGSQL_RESOURCE, <<"emqx_authn_pgsql_SUITE">>).
+-define(ResourceID, <<"password-based:postgresql">>).
 
 -define(PATH, [authentication]).
 
@@ -62,7 +63,8 @@ init_per_suite(Config) ->
               ?PGSQL_RESOURCE,
               ?RESOURCE_GROUP,
               emqx_connector_pgsql,
-              pgsql_config()),
+              pgsql_config(),
+              #{waiting_connect_complete => 5000}),
             Config;
         false ->
             {skip, no_pgsql}
@@ -87,7 +89,8 @@ t_create(_Config) ->
                 ?PATH,
                 {create_authenticator, ?GLOBAL, AuthConfig}),
 
-    {ok, [#{provider := emqx_authn_pgsql}]} = emqx_authentication:list_authenticators(?GLOBAL).
+    {ok, [#{provider := emqx_authn_pgsql}]} = emqx_authentication:list_authenticators(?GLOBAL),
+    emqx_authn_test_lib:delete_config(?ResourceID).
 
 t_create_invalid(_Config) ->
     AuthConfig = raw_pgsql_auth_config(),
@@ -102,10 +105,10 @@ t_create_invalid(_Config) ->
 
     lists:foreach(
       fun(Config) ->
-              {error, _} = emqx:update_config(
+              {ok, _} = emqx:update_config(
                              ?PATH,
                              {create_authenticator, ?GLOBAL, Config}),
-
+              emqx_authn_test_lib:delete_config(?ResourceID),
               {ok, []} = emqx_authentication:list_authenticators(?GLOBAL)
       end,
       InvalidConfigs).

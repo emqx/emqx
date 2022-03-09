@@ -45,7 +45,8 @@ init_per_suite(Config) ->
               ?REDIS_RESOURCE,
               ?RESOURCE_GROUP,
               emqx_connector_redis,
-              redis_config()),
+              redis_config(),
+              #{waiting_connect_complete => 5000}),
             Config;
         false ->
             {skip, no_redis}
@@ -151,8 +152,8 @@ t_create_invalid(_Config) ->
 
     lists:foreach(
       fun(Config) ->
-            {error, _} = emqx_authz:update(?CMD_REPLACE, [Config]),
-            [] = emqx_authz:lookup()
+            {ok, _} = emqx_authz:update(?CMD_REPLACE, [Config]),
+            [_] = emqx_authz:lookup()
 
       end,
       InvalidConfigs).

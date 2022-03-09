@@ -35,7 +35,10 @@
 
 create_resource(Module, Config) ->
     ResourceID = make_resource_id(Module),
-    case emqx_resource:create_local(ResourceID, ?RESOURCE_GROUP, Module, Config) of
+    case emqx_resource:create_local(ResourceID,
+                                    ?RESOURCE_GROUP,
+                                    Module, Config,
+                                    #{waiting_connect_complete => 5000}) of
         {ok, already_created} -> {ok, ResourceID};
         {ok, _} -> {ok, ResourceID};
         {error, Reason} -> {error, Reason}

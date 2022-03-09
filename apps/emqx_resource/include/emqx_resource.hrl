@@ -30,10 +30,9 @@
 }.
 -type resource_group() :: binary().
 -type create_opts() :: #{
-        %% The emqx_resource:create/4 will return OK event if the Mod:on_start/2 fails,
-        %% the 'status' of the resource will be 'stopped' in this case.
-        %% Defaults to 'false'
-        async_create => boolean()
+        health_check_interval => integer(),
+        health_check_timeout => integer(),
+        waiting_connect_complete  => integer()
     }.
 -type after_query() :: {[OnSuccess :: after_query_fun()], [OnFailed :: after_query_fun()]} |
     undefined.

@@ -90,9 +90,9 @@ list_all() ->
     end.
 
 -spec list_group(resource_group()) -> [instance_id()].
-list_group(Group) -> 
+list_group(Group) ->
     List = ets:match(emqx_resource_instance, {'$1', Group, '_'}),
-    lists:map(fun([A|_]) -> A end, List).
+    lists:map(fun([A | _]) -> A end, List).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -126,8 +126,8 @@ handle_call({stop, InstId}, _From, State) ->
 handle_call({health_check, InstId}, _From, State) ->
     {reply, do_health_check(InstId), State};
 
-handle_call({set_resource_status_disconnected, InstId}, _From, State) ->
-    {reply, do_set_resource_status_disconnected(InstId), State};
+handle_call({set_resource_status_connecting, InstId}, _From, State) ->
+    {reply, do_set_resource_status_connecting(InstId), State};
 
 handle_call(Req, _From, State) ->
     logger:error("Received unexpected call: ~p", [Req]),
@@ -178,6 +178,16 @@ do_recreate(InstId, ResourceType, NewConfig, Opts) ->
             {error, not_found}
     end.
 
+wait_for_resource_ready(InstId, 0) ->
+    force_lookup(InstId);
+wait_for_resource_ready(InstId, Retry) ->
+    case force_lookup(InstId) of
+        #{status := connected} = Data -> Data;
+        _ ->
+            timer:sleep(100),
+            wait_for_resource_ready(InstId, Retry-1)
+    end.
+
 do_create(InstId, Group, ResourceType, Config, Opts) ->
     case lookup(InstId) of
         {ok,_, _} ->
@@ -187,7 +197,8 @@ do_create(InstId, Group, ResourceType, Config, Opts) ->
                 ok ->
                     ok = emqx_plugin_libs_metrics:create_metrics(resource_metrics, InstId,
                             [matched, success, failed, exception], [matched]),
-                    {ok, force_lookup(InstId)};
+                    WaitTime = maps:get(waiting_connect_complete , Opts, 0),
+                    {ok, wait_for_resource_ready(InstId, WaitTime div 100)};
                 Error ->
                     Error
             end
@@ -238,28 +249,17 @@ do_start(InstId, Group, ResourceType, Config, Opts) when is_binary(InstId) ->
                  status => connecting, state => undefined},
     %% The `emqx_resource:call_start/3` need the instance exist beforehand
     ets:insert(emqx_resource_instance, {InstId, Group, InitData}),
-    case maps:get(async_create, Opts, false) of
-        false ->
-            start_and_check(InstId, Group, ResourceType, Config, Opts, InitData);
-        true ->
-            spawn(fun() ->
-                    start_and_check(InstId, Group, ResourceType, Config, Opts, InitData)
-                end),
-            ok
-    end.
+    spawn(fun() ->
+            start_and_check(InstId, Group, ResourceType, Config, Opts, InitData)
+        end),
+    ok.
 
 start_and_check(InstId, Group, ResourceType, Config, Opts, Data) ->
     case emqx_resource:call_start(InstId, ResourceType, Config) of
         {ok, ResourceState} ->
-            Data2 = Data#{state => ResourceState},
+            Data2 = Data#{state => ResourceState, status => connected},
             ets:insert(emqx_resource_instance, {InstId, Group, Data2}),
-            case maps:get(async_create, Opts, false) of
-                false -> case do_health_check(Group, Data2) of
-                            ok -> create_default_checker(InstId, Opts);
-                            {error, Reason} -> {error, Reason}
-                         end;
-                true -> create_default_checker(InstId, Opts)
-            end;
+            create_default_checker(InstId, Opts);
         {error, Reason} ->
             ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => disconnected}}),
             {error, Reason}
@@ -295,15 +295,15 @@ do_health_check(Group, #{id := InstId, mod := Mod, state := ResourceState0} = Da
         {error, Reason, ResourceState1} ->
             logger:error("health check for ~p failed: ~p", [InstId, Reason]),
             ets:insert(emqx_resource_instance,
-                {InstId, Group, Data#{status => disconnected, state => ResourceState1}}),
+                {InstId, Group, Data#{status => connecting, state => ResourceState1}}),
             {error, Reason}
     end.
 
-do_set_resource_status_disconnected(InstId) ->
+do_set_resource_status_connecting(InstId) ->
     case emqx_resource_instance:lookup(InstId) of
         {ok, Group, #{id := InstId} = Data} ->
             logger:error("health check for ~p failed: timeout", [InstId]),
-            ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => disconnected}});
+            ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => connecting}});
         Error -> {error, Error}
     end.
 

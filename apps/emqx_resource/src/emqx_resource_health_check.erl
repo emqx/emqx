@@ -54,7 +54,7 @@ delete_checker(Name) ->
     case supervisor:terminate_child(?SUP, ?ID(Name)) of
         ok -> supervisor:delete_child(?SUP, ?ID(Name));
         Error -> Error
-	end.
+        end.
 
 start_health_check(Name, Sleep, Timeout) ->
     Pid = self(),
@@ -83,7 +83,7 @@ health_check_timeout_checker(Pid, Name, SleepTime, Timeout) ->
     after Timeout ->
         emqx_alarm:activate(Name, #{name => Name},
                         <<Name/binary, " health check timeout">>),
-        emqx_resource:set_resource_status_disconnected(Name),
+        emqx_resource:set_resource_status_connecting(Name),
         receive
             health_check_finish -> timer:sleep(SleepTime)
         end

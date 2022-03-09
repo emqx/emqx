@@ -77,7 +77,7 @@ t_create(_Config) ->
 t_create_invalid(_Config) ->
     %% invalid server_name
     ?assertMatch(
-       {error, _},
+       {ok, _},
        create_redis_auth_with_ssl_opts(
          #{<<"server_name_indication">> => <<"authn-server-unknown-host">>,
            <<"verify">> => <<"verify_peer">>,

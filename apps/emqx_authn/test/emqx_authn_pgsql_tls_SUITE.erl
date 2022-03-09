@@ -27,6 +27,7 @@
 -define(PGSQL_HOST, "pgsql-tls").
 
 -define(PATH, [authentication]).
+-define(ResourceID, <<"password-based:postgresql">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -80,22 +81,22 @@ t_create_invalid(_Config) ->
 
     %% invalid server_name
     ?assertMatch(
-       {error, _},
+       {ok, _},
        create_pgsql_auth_with_ssl_opts(
          #{<<"server_name_indication">> => <<"authn-server-unknown-host">>,
            <<"verify">> => <<"verify_peer">>})),
-
+    emqx_authn_test_lib:delete_config(?ResourceID),
     %% incompatible versions
     ?assertMatch(
-       {error, _},
+       {ok, _},
        create_pgsql_auth_with_ssl_opts(
          #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,
            <<"versions">> => [<<"tlsv1.1">>]})),
-
+    emqx_authn_test_lib:delete_config(?ResourceID),
     %% incompatible ciphers
     ?assertMatch(
-       {error, _},
+       {ok, _},
        create_pgsql_auth_with_ssl_opts(
          #{<<"server_name_indication">> => <<"authn-server">>,
            <<"verify">> => <<"verify_peer">>,

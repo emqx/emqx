@@ -44,6 +44,7 @@ end_per_suite(_Config) ->
                 #{<<"no_match">> => <<"allow">>,
                   <<"cache">> => #{<<"enable">> => <<"true">>},
                   <<"sources">> => []}),
+    ok = stop_apps([emqx_resource, emqx_connector]),
     emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf]),
     ok.
 
@@ -131,3 +132,6 @@ auth_header_() ->
     Password = <<"public">>,
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
+stop_apps(Apps) ->
+    lists:foreach(fun application:stop/1, Apps).

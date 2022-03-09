@@ -28,6 +28,7 @@
 -define(MYSQL_RESOURCE, <<"emqx_authn_mysql_SUITE">>).
 
 -define(PATH, [authentication]).
+-define(ResourceID, <<"password-based:mysql">>).
 
 all() ->
     [{group, require_seeds}, t_create, t_create_invalid].
@@ -61,7 +62,8 @@ init_per_suite(Config) ->
               ?MYSQL_RESOURCE,
               ?RESOURCE_GROUP,
               emqx_connector_mysql,
-              mysql_config()),
+              mysql_config(),
+              #{waiting_connect_complete => 5000}),
             Config;
         false ->
             {skip, no_mysql}
@@ -86,7 +88,8 @@ t_create(_Config) ->
                 ?PATH,
                 {create_authenticator, ?GLOBAL, AuthConfig}),
 
-    {ok, [#{provider := emqx_authn_mysql}]} = emqx_authentication:list_authenticators(?GLOBAL).
+    {ok, [#{provider := emqx_authn_mysql}]} = emqx_authentication:list_authenticators(?GLOBAL),
+    emqx_authn_test_lib:delete_config(?ResourceID).
 
 t_create_invalid(_Config) ->
     AuthConfig = raw_mysql_auth_config(),
@@ -101,11 +104,11 @@ t_create_invalid(_Config) ->
 
     lists:foreach(
       fun(Config) ->
-              {error, _} = emqx:update_config(
+              {ok, _} = emqx:update_config(
                              ?PATH,
                              {create_authenticator, ?GLOBAL, Config}),
-
-              {ok, []} = emqx_authentication:list_authenticators(?GLOBAL)
+              emqx_authn_test_lib:delete_config(?ResourceID),
+              {ok, _} = emqx_authentication:list_authenticators(?GLOBAL)
       end,
       InvalidConfigs).
 

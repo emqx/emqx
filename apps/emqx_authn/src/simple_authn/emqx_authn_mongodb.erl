@@ -112,7 +112,11 @@ create(#{selector := Selector} = Config) ->
     NState = State#{
                selector_template => SelectorTemplate,
                resource_id => ResourceId},
-    case emqx_resource:create_local(ResourceId, ?RESOURCE_GROUP, emqx_connector_mongo, Config) of
+    case emqx_resource:create_local(ResourceId,
+                                    ?RESOURCE_GROUP,
+                                    emqx_connector_mongo,
+                                    Config,
+                                    #{waiting_connect_complete => 5000}) of
         {ok, already_created} ->
             {ok, NState};
         {ok, _} ->

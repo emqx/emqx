@@ -46,6 +46,7 @@ end_per_suite(_Config) ->
                 #{<<"no_match">> => <<"allow">>,
                   <<"cache">> => #{<<"enable">> => <<"true">>},
                   <<"sources">> => []}),
+    ok = stop_apps([emqx_resource]),
     emqx_common_test_helpers:stop_apps([emqx_authz, emqx_conf]),
     meck:unload(emqx_resource),
     ok.
@@ -222,3 +223,6 @@ t_move_source(_) ->
                  ], emqx_authz:lookup()),
 
     ok.
+
+stop_apps(Apps) ->
+    lists:foreach(fun application:stop/1, Apps).
