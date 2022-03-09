@@ -78,7 +78,6 @@ jobs:
             MYSQL_TAG: 8
             PGSQL_TAG: 13
             REDIS_TAG: 6
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           run: |
             docker-compose \
                 -f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
@@ -100,6 +99,12 @@ jobs:
           with:
             name: coverdata
             path: _build/test/cover
+        - uses: actions/upload-artifact@v1
+          if: failure()
+          with:
+            name: logs_${{ matrix.otp_release }}
+            path: _build/test/logs
+
 
     make_cover:
       needs:
@@ -137,29 +142,21 @@ jobs:
           path: source/_build/default/lib/quicer/
           key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
-      - name: compile test profile
-        run: |
-          DIAGNOSTIC=1 make cover
-
       - uses: actions/download-artifact@v2
         name: download coverdata
         with:
           name: coverdata
           path: _build/test/cover
 
-      - name: make cover and send to coveralls
-        run: |
-          DIAGNOSTIC=1 make cover
-          DIAGNOSTIC=1 make coveralls
-      - name: cat rebar.crashdump
-        if: failure()
-        run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump'; fi
-      - uses: actions/upload-artifact@v1
-        if: failure()
-        with:
-          name: logs_${{ matrix.otp_release }}
-          path: _build/test/logs
+      - name: make cover
+        run: make cover
 
+      - name: send to coveralls
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: make coveralls
+
+    # do this in a separate job
     finish:
       needs: make_cover
       runs-on: ubuntu-20.04
