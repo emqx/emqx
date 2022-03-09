@@ -256,14 +256,15 @@ typename_to_spec("percent()", _Mod) -> #{type => percent};
 typename_to_spec("file()", _Mod) -> #{type => string};
 typename_to_spec("ip_port()", _Mod) -> #{type => ip_port};
 typename_to_spec("url()", _Mod) -> #{type => url};
-typename_to_spec("bytesize()", _Mod) -> #{type => byteSize};
-typename_to_spec("wordsize()", _Mod) -> #{type => byteSize};
+typename_to_spec("bytesize()", _Mod) -> #{type => 'byteSize'};
+typename_to_spec("wordsize()", _Mod) -> #{type => 'byteSize'};
 typename_to_spec("qos()", _Mod) -> #{type => enum, symbols => [0, 1, 2]};
 typename_to_spec("comma_separated_list()", _Mod) -> #{type => comma_separated_string};
 typename_to_spec("comma_separated_atoms()", _Mod) -> #{type => comma_separated_string};
 typename_to_spec("pool_type()", _Mod) -> #{type => enum, symbols => [random, hash]};
 typename_to_spec("log_level()", _Mod) ->
-    #{type => enum, symbols => [debug, info, notice, warning, error, critical, alert, emergency, all]};
+    #{type => enum, symbols => [debug, info, notice, warning, error,
+        critical, alert, emergency, all]};
 typename_to_spec("rate()", _Mod) -> #{type => string};
 typename_to_spec("capacity()", _Mod) -> #{type => string};
 typename_to_spec("burst_rate()", _Mod) -> #{type => string};
