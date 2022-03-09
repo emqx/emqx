@@ -493,6 +493,8 @@ typename_to_spec("failure_strategy()", _Mod) ->
     #{type => string, example => <<"force">>};
 typename_to_spec("initial()", _Mod) ->
     #{type => string, example => <<"0M">>};
+typename_to_spec("bucket_path()", _Mod) ->
+    #{type => string, example => <<"groupName.bucketName">>};
 typename_to_spec(Name, Mod) ->
     Spec = range(Name),
     Spec1 = remote_module_type(Spec, Name, Mod),

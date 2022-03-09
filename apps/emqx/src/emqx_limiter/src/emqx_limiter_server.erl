@@ -1,4 +1,4 @@
-%%--------------------------------------------------------------------
+%--------------------------------------------------------------------
 %% Copyright (c) 2021-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -53,7 +53,9 @@
 
 -type bucket() :: #{ id := node_id()
                    , name := bucket_name()
-                   , zone := zone_name()               %% pointer to zone node, use for burst
+                     %% pointer to zone node, use for burst
+                     %% it also can use nodeId, nodeId is more direct, but nodeName is clearer
+                   , zone := zone_name()
                    , rate := rate()
                    , obtained := non_neg_integer()
                    , correction := emqx_limiter_decimal:zero_or_float() %% token correction value
@@ -82,9 +84,11 @@
 -type capacity() :: decimal().
 -type decimal() :: emqx_limiter_decimal:decimal().
 -type index() :: pos_integer().
+-type bucket_path() :: emqx_limiter_schema:bucket_path().
 
 -define(CALL(Type), gen_server:call(name(Type), ?FUNCTION_NAME)).
 -define(OVERLOAD_MIN_ALLOC, 0.3).  %% minimum coefficient for overloaded limiter
+-define(CURRYING(X, Fun2), fun(Y) -> Fun2(X, Y) end).
 
 -export_type([index/0]).
 -import(emqx_limiter_decimal, [add/2, sub/2, mul/2, put_to_counter/3]).
@@ -95,17 +99,28 @@
 %% API
 %%--------------------------------------------------------------------
 -spec connect(limiter_type(),
-              bucket_name() | #{limiter_type() => bucket_name()}) -> emqx_htb_limiter:limiter().
-connect(Type, BucketName) when is_atom(BucketName) ->
-    Path = [limiter, Type, bucket, BucketName],
-    case emqx:get_config(Path, undefined) of
-        undefined ->
-            ?SLOG(error, #{msg => "bucket_config_not_found", path => Path}),
-            throw("bucket's config not found");
-        #{zone := Zone,
-          aggregated := #{rate := AggrRate, capacity := AggrSize},
-          per_client := #{rate := CliRate, capacity := CliSize} = Cfg} ->
-            case emqx_limiter_manager:find_bucket(Type, Zone, BucketName) of
+              bucket_path() | #{limiter_type() => bucket_path() | undefined}) ->
+          emqx_htb_limiter:limiter().
+%% If no bucket path is set in config, there will be no limit
+connect(_Type, undefined) ->
+    emqx_htb_limiter:make_infinity_limiter(undefined);
+
+%% Shared type can use bucket name directly
+connect(shared, BucketName) when is_atom(BucketName) ->
+    connect(shared, [BucketName]);
+
+connect(Type, BucketPath) when is_list(BucketPath) ->
+    FullPath = get_bucket_full_cfg_path(Type, BucketPath),
+    case emqx:get_config(FullPath, undefined) of
+                       undefined ->
+                           io:format(">>>>> config:~p~n fullpath:~p~n", [emqx:get_config([limiter]), FullPath]),
+                           io:format(">>>>> ets:~p~n", [ets:tab2list(emqx_limiter_counters)]),
+                           ?SLOG(error, #{msg => "bucket_config_not_found", path => BucketPath}),
+                           throw("bucket's config not found");
+                       #{rate := AggrRate,
+                         capacity := AggrSize,
+                         per_client := #{rate := CliRate, capacity := CliSize} = Cfg} ->
+                           case emqx_limiter_manager:find_bucket(Type, BucketPath) of
                 {ok, Bucket} ->
                     if CliRate < AggrRate orelse CliSize < AggrSize ->
                             emqx_htb_limiter:make_token_bucket_limiter(Cfg, Bucket);
@@ -115,13 +130,14 @@ connect(Type, BucketName) when is_atom(BucketName) ->
                             emqx_htb_limiter:make_ref_limiter(Cfg, Bucket)
                     end;
                 undefined ->
-                    ?SLOG(error, #{msg => "bucket_not_found", path => Path}),
+                    io:format(">>>>> ets:~p~n", [ets:tab2list(emqx_limiter_counters)]),
+                    ?SLOG(error, #{msg => "bucket_not_found", path => BucketPath}),
                     throw("invalid bucket")
             end
     end;
 
-connect(Type, Names) ->
-    connect(Type, maps:get(Type, Names, default)).
+connect(Type, Paths) ->
+    connect(Type, maps:get(Type, Paths, undefined)).
 
 -spec info(limiter_type()) -> state().
 info(Type) ->
@@ -374,6 +390,7 @@ maybe_burst(#{buckets := Buckets,
               nodes := Nodes} = State) when Burst > 0 ->
     %% find empty buckets and group by zone name
     GroupFun = fun(Id, Groups) ->
+                       %% TODO filter undefined counter
                        #{counter := Counter,
                          index := Index,
                          zone := Zone} = maps:get(Id, Nodes),
@@ -426,7 +443,8 @@ dispatch_burst(GroupL,
                            0 -> NodeAcc;
                            ZoneFlow ->
                                EachFlow = ZoneFlow / erlang:length(Childs),
-                               {Alloced, NodeAcc2} = dispatch_burst_to_buckets(Childs, EachFlow, 0, NodeAcc),
+                               {Alloced, NodeAcc2} =
+                                   dispatch_burst_to_buckets(Childs, EachFlow, 0, NodeAcc),
                                Zone2 = Zone#{obtained := Obtained + Alloced},
                                NodeAcc2#{ZoneId := Zone2}
                        end
@@ -434,7 +452,8 @@ dispatch_burst(GroupL,
     State#{nodes := lists:foldl(Dispatch, Nodes, GroupL)}.
 
 -spec dispatch_burst_to_buckets(list(node_id()),
-                                float(), non_neg_integer(), nodes()) -> {non_neg_integer(), nodes()}.
+                                float(),
+                                non_neg_integer(), nodes()) -> {non_neg_integer(), nodes()}.
 dispatch_burst_to_buckets([ChildId | T], InFlow, Alloced, Nodes) ->
     #{counter := Counter,
       index := Index,
@@ -451,76 +470,91 @@ dispatch_burst_to_buckets([], _, Alloced, Nodes) ->
 
 -spec init_tree(emqx_limiter_schema:limiter_type(), state()) -> state().
 init_tree(Type, State) ->
-    case emqx:get_config([limiter, Type]) of
-        #{global := Global,
-          zone := Zone,
-          bucket := Bucket} -> ok;
-        #{bucket := Bucket} ->
-            Global = default_rate_burst_cfg(),
-            Zone = #{default => default_rate_burst_cfg()},
+    Cfg = emqx:get_config([limiter, Type]),
+    GlobalCfg = maps:merge(#{rate => infinity, burst => 0}, Cfg),
+    case GlobalCfg of
+        #{group := Group} -> ok;
+        #{bucket := _} ->
+            Group = make_shared_default_group(GlobalCfg),
             ok
     end,
-    {Factor, Root} = make_root(Global, Zone),
-    State2 = State#{root := Root},
-    {NodeId, State3} = make_zone(maps:to_list(Zone), Factor, 1, State2),
-    State4 = State3#{counter := counters:new(maps:size(Bucket),
-                                             [write_concurrency])},
-    make_bucket(maps:to_list(Bucket), Global, Zone, Factor, NodeId, [], State4).
 
--spec make_root(hocons:confg(), hocon:config()) -> {number(), root()}.
-make_root(#{rate := Rate, burst := Burst}, Zone) ->
-    ZoneNum = maps:size(Zone),
-    Childs = lists:seq(1, ZoneNum),
+    {Factor, Root} = make_root(GlobalCfg),
+    {Zones, Nodes, DelayBuckets} = make_zone(maps:to_list(Group), Type,
+                                             GlobalCfg, Factor, 1, #{}, #{}, #{}),
+
+    State2 = State#{root := Root#{childs := maps:values(Zones)},
+                    zones := Zones,
+                    nodes := Nodes,
+                    buckets := maps:keys(DelayBuckets),
+                    counter := counters:new(maps:size(DelayBuckets), [write_concurrency])
+                   },
+
+    lists:foldl(fun(F, Acc) -> F(Acc) end, State2, maps:values(DelayBuckets)).
+
+-spec make_root(hocons:confg()) -> {number(), root()}.
+make_root(#{rate := Rate, burst := Burst}) ->
     MiniPeriod = emqx_limiter_schema:minimum_period(),
     if Rate >= 1 ->
             {1, #{rate => Rate,
                   burst => Burst,
                   period => MiniPeriod,
-                  childs => Childs,
+                  childs => [],
                   consumed => 0}};
        true ->
             Factor = 1 / Rate,
             {Factor, #{rate => 1,
                        burst => Burst * Factor,
                        period => erlang:floor(Factor * MiniPeriod),
-                       childs => Childs,
+                       childs => [],
                        consumed => 0}}
     end.
 
-make_zone([{Name, ZoneCfg} | T], Factor, NodeId, State) ->
-    #{rate := Rate, burst := Burst} = ZoneCfg,
-    #{zones := Zones, nodes := Nodes} = State,
+make_zone([{Name, ZoneCfg} | T], Type, GlobalCfg, Factor, NodeId, Zones, Nodes, DelayBuckets) ->
+    #{rate := Rate, burst := Burst, bucket := BucketMap} = ZoneCfg,
+    BucketCfgs = maps:to_list(BucketMap),
+
+    FirstChildId = NodeId + 1,
+    Buckets = make_bucket(BucketCfgs, Type, GlobalCfg, Name, ZoneCfg, Factor, FirstChildId, #{}),
+    ChildNum = maps:size(Buckets),
+    NextZoneId = FirstChildId + ChildNum,
+
     Zone = #{id => NodeId,
              name => Name,
              rate => mul(Rate, Factor),
              burst => Burst,
              obtained => 0,
-             childs => []},
-    State2 = State#{zones := Zones#{Name => NodeId},
-                    nodes := Nodes#{NodeId => Zone}},
-    make_zone(T, Factor, NodeId + 1, State2);
+             childs => maps:keys(Buckets)
+            },
 
-make_zone([], _, NodeId, State2) ->
-    {NodeId, State2}.
+    make_zone(T, Type, GlobalCfg, Factor, NextZoneId,
+              Zones#{Name => NodeId}, Nodes#{NodeId => Zone}, maps:merge(DelayBuckets, Buckets)
+             );
 
-make_bucket([{Name, Conf} | T], Global, Zone, Factor, Id, Buckets, #{type := Type} = State) ->
-    #{zone := ZoneName,
-      aggregated := Aggregated} = Conf,
+make_zone([], _Type, _Global, _Factor, _NodeId, Zones, Nodes, DelayBuckets) ->
+    {Zones, Nodes, DelayBuckets}.
+
+make_bucket([{Name, Conf} | T], Type, GlobalCfg, ZoneName, ZoneCfg, Factor, Id, DelayBuckets) ->
     Path = emqx_limiter_manager:make_path(Type, ZoneName, Name),
-    case get_counter_rate(Conf, Zone, Global) of
-          infinity ->
-              State2 = State,
-              Rate = infinity,
-              Capacity = infinity,
-              Counter = undefined,
-              Index = undefined,
-              Ref = emqx_limiter_bucket_ref:new(Counter, Index, Rate),
-              emqx_limiter_manager:insert_bucket(Path, Ref);
+    case get_counter_rate(Conf, ZoneCfg, GlobalCfg) of
+        infinity ->
+            Rate = infinity,
+            Capacity = infinity,
+            Ref = emqx_limiter_bucket_ref:new(undefined, undefined, Rate),
+            emqx_limiter_manager:insert_bucket(Path, Ref),
+            InitFun = fun(#{id := NodeId} = Node, #{nodes := Nodes} = State) ->
+                              State#{nodes := Nodes#{NodeId => Node}}
+                      end;
         RawRate ->
-            #{capacity := Capacity} = Aggregated,
-            Initial = get_initial_val(Aggregated),
-            {Counter, Index, State2} = alloc_counter(Path, RawRate, Initial, State),
-            Rate = mul(RawRate, Factor)
+            #{capacity := Capacity} = Conf,
+            Initial = get_initial_val(Conf),
+            Rate = mul(RawRate, Factor),
+
+            InitFun = fun(#{id := NodeId} = Node, #{nodes := Nodes} = State) ->
+                              {Counter, Idx, State2} = alloc_counter(Path, RawRate, Initial, State),
+                              Node2 = Node#{counter := Counter, index := Idx},
+                              State2#{nodes := Nodes#{NodeId => Node2}}
+                      end
     end,
 
     Node = #{ id => Id
@@ -530,14 +564,16 @@ make_bucket([{Name, Conf} | T], Global, Zone, Factor, Id, Buckets, #{type := Typ
             , obtained => 0
             , correction => 0
             , capacity => Capacity
-            , counter => Counter
-            , index => Index},
+            , counter => undefined
+            , index => undefined},
 
-    State3 = add_zone_child(Id, Node, ZoneName, State2),
-    make_bucket(T, Global, Zone, Factor, Id + 1, [Id | Buckets], State3);
+    DelayInit = ?CURRYING(Node, InitFun),
 
-make_bucket([], _, _, _, _, Buckets, State) ->
-    State#{buckets := Buckets}.
+    make_bucket(T,
+                Type, GlobalCfg, ZoneName, ZoneCfg, Factor, Id + 1, DelayBuckets#{Id => DelayInit});
+
+make_bucket([], _Type, _Global, _ZoneName, _Zone, _Factor, _Id, DelayBuckets) ->
+    DelayBuckets.
 
 -spec alloc_counter(emqx_limiter_manager:path(), rate(), capacity(), state()) ->
           {counters:counters_ref(), pos_integer(), state()}.
@@ -558,20 +594,10 @@ init_counter(Path, Counter, Index, Rate, Initial, State) ->
     emqx_limiter_manager:insert_bucket(Path, Ref),
     {Counter, Index, State}.
 
--spec add_zone_child(node_id(), bucket(), zone_name(), state()) -> state().
-add_zone_child(NodeId, Bucket, Name, #{zones := Zones, nodes := Nodes} = State) ->
-    ZoneId = maps:get(Name, Zones),
-    #{childs := Childs} = Zone = maps:get(ZoneId, Nodes),
-    Nodes2 = Nodes#{ZoneId => Zone#{childs := [NodeId | Childs]},
-                    NodeId => Bucket},
-    State#{nodes := Nodes2}.
-
 %% @doc find first limited node
-get_counter_rate(#{zone := ZoneName,
-                   aggregated := Cfg}, ZoneCfg, Global) ->
-    Zone = maps:get(ZoneName, ZoneCfg),
+get_counter_rate(BucketCfg, ZoneCfg, GlobalCfg) ->
     Search = lists:search(fun(E) -> is_limited(E) end,
-                          [Cfg, Zone, Global]),
+                          [BucketCfg, ZoneCfg, GlobalCfg]),
     case Search of
         {value, #{rate := Rate}} ->
             Rate;
@@ -585,6 +611,7 @@ is_limited(#{rate := Rate, capacity := Capacity}) ->
 is_limited(#{rate := Rate}) ->
     Rate =/= infinity.
 
+-spec get_initial_val(hocons:config()) -> decimal().
 get_initial_val(#{initial := Initial,
                   rate := Rate,
                   capacity := Capacity}) ->
@@ -599,5 +626,14 @@ get_initial_val(#{initial := Initial,
             0
     end.
 
-default_rate_burst_cfg() ->
-    #{rate => infinity, burst => 0}.
+-spec make_shared_default_group(hocons:config()) -> honcs:config().
+make_shared_default_group(Cfg) ->
+    GroupName = emqx_limiter_schema:default_group_name(),
+    #{GroupName => Cfg#{rate => infinity, burst => 0}}.
+
+-spec get_bucket_full_cfg_path(limiter_type(), bucket_path()) -> list(atom()).
+get_bucket_full_cfg_path(shared, [BucketName]) ->
+    [limiter, shared, bucket, BucketName];
+
+get_bucket_full_cfg_path(Type, [GroupName, BucketName]) ->
+    [limiter, Type, group, GroupName, bucket, BucketName].
