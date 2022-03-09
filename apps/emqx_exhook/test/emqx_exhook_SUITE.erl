@@ -146,7 +146,9 @@ t_error_update_conf(_) ->
     ErrorAnd = #{<<"name">> => Name, <<"url">> => <<"http://127.0.0.1:9001">>},
     {ok, _} = emqx_exhook_mgr:update_config(Path, {add, ErrorAnd}),
 
-    DisableAnd = #{<<"name">> => Name, <<"url">> => <<"http://127.0.0.1:9001">>, <<"enable">> => false},
+    DisableAnd = #{<<"name">> => Name,
+                   <<"url">> => <<"http://127.0.0.1:9001">>,
+                   <<"enable">> => false},
     {ok, _} = emqx_exhook_mgr:update_config(Path, {add, DisableAnd}),
 
     {ok, _} = emqx_exhook_mgr:update_config(Path, {delete, <<"error">>}),
