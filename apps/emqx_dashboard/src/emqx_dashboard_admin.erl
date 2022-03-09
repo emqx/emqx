@@ -70,7 +70,19 @@ mnesia(boot) ->
 -spec(add_user(binary(), binary(), binary()) -> {ok, map()} | {error, any()}).
 add_user(Username, Password, Desc)
   when is_binary(Username), is_binary(Password) ->
-    return(mria:transaction(?DASHBOARD_SHARD, fun add_user_/3, [Username, Password, Desc])).
+    case legal_username(Username) of
+        true ->
+            return(
+                mria:transaction(?DASHBOARD_SHARD, fun add_user_/3, [Username, Password, Desc]));
+        false ->
+            {error, <<"Bad Username."
+                    " Only upper and lower case letters, numbers and underscores are supported">>}
+    end.
+
+%% 0 - 9 or A -Z or a - z or $_
+legal_username(<<>>) -> false;
+legal_username(UserName) ->
+    nomatch /= re:run(UserName, "^[_a-zA-Z0-9]*$").
 
 %% black-magic: force overwrite a user
 force_add_user(Username, Password, Desc) ->
