@@ -126,6 +126,11 @@ t_api(_) ->
         request( get
                , uri(["authorization", "sources", "built-in-database", "username", "user1"])
                , []),
+    {ok, 404, _} =
+        request( delete
+               , uri(["authorization", "sources", "built-in-database", "username", "user1"])
+               , []),
+
 
     {ok, 204, _} =
         request( post
@@ -164,9 +169,14 @@ t_api(_) ->
         request( get
                , uri(["authorization", "sources", "built-in-database", "clientid", "client1"])
                , []),
+    {ok, 404, _} =
+        request( delete
+               , uri(["authorization", "sources", "built-in-database", "clientid", "client1"])
+               , []),
+
 
     {ok, 204, _} =
-        request( put
+        request( post
                , uri(["authorization", "sources", "built-in-database", "all"])
                , ?ALL_RULES_EXAMPLE),
     {ok, 200, Request7} =
@@ -177,8 +187,9 @@ t_api(_) ->
     ?assertEqual(3, length(Rules5)),
 
     {ok, 204, _} =
-        request( put
+        request( post
                , uri(["authorization", "sources", "built-in-database", "all"])
+
                , ?ALL_RULES_EXAMPLE#{rules => []}),
     {ok, 200, Request8} =
         request( get
