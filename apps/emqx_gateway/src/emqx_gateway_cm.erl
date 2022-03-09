@@ -164,21 +164,20 @@ insert_channel_info(GwName, ClientId, Info, Stats) ->
 
 %% @doc Get info of a channel.
 -spec get_chan_info(gateway_name(), emqx_types:clientid())
-      -> emqx_types:infos() | undefined.
+    -> emqx_types:infos() | undefined.
 get_chan_info(GwName, ClientId) ->
     with_channel(GwName, ClientId,
         fun(ChanPid) ->
             get_chan_info(GwName, ClientId, ChanPid)
         end).
 
--spec do_lookup_by_clientid(gateway_name(), emqx_types:clientid()) ->
-          [pid()].
+-spec do_lookup_by_clientid(gateway_name(), emqx_types:clientid()) -> [pid()].
 do_lookup_by_clientid(GwName, ClientId) ->
     ChanTab = emqx_gateway_cm:tabname(chan, GwName),
     [Pid || {_, Pid} <- ets:lookup(ChanTab, ClientId)].
 
 -spec do_get_chan_info(gateway_name(), emqx_types:clientid(), pid())
-      -> emqx_types:infos() | undefined.
+    -> emqx_types:infos() | undefined.
 do_get_chan_info(GwName, ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
     try
@@ -189,15 +188,17 @@ do_get_chan_info(GwName, ClientId, ChanPid) ->
     end.
 
 -spec get_chan_info(gateway_name(), emqx_types:clientid(), pid())
-      -> emqx_types:infos() | undefined.
+    -> emqx_types:infos() | undefined.
 get_chan_info(GwName, ClientId, ChanPid) ->
-    wrap_rpc(emqx_gateway_cm_proto_v1:get_chan_info(GwName, ClientId, ChanPid)).
+    wrap_rpc(
+      emqx_gateway_cm_proto_v1:get_chan_info(GwName, ClientId, ChanPid)
+     ).
 
--spec lookup_by_clientid(gateway_name(), emqx_types:clientid()) ->
-          [pid()].
+-spec lookup_by_clientid(gateway_name(), emqx_types:clientid()) -> [pid()].
 lookup_by_clientid(GwName, ClientId) ->
     Nodes = mria_mnesia:running_nodes(),
-    case emqx_gateway_cm_proto_v1:lookup_by_clientid(Nodes, GwName, ClientId) of
+    case emqx_gateway_cm_proto_v1:lookup_by_clientid(
+           Nodes, GwName, ClientId) of
         {Pids, []} ->
             lists:append(Pids);
         {_, _BadNodes} ->
@@ -565,41 +566,54 @@ do_get_chann_conn_mod(GwName, ClientId, ChanPid) ->
 get_chann_conn_mod(GwName, ClientId, ChanPid) ->
     wrap_rpc(emqx_gateway_cm_proto_v1:get_chann_conn_mod(GwName, ClientId, ChanPid)).
 
--spec call(gateway_name(), emqx_types:clientid(), term()) -> term().
+-spec call(gateway_name(), emqx_types:clientid(), term())
+    -> undefined | term().
 call(GwName, ClientId, Req) ->
-    with_channel(GwName, ClientId, fun(ChanPid) ->
-                                           wrap_rpc(emqx_gateway_cm_proto_v1:call(GwName, ClientId, ChanPid, Req))
-                                   end).
+    with_channel(
+      GwName, ClientId,
+      fun(ChanPid) ->
+          wrap_rpc(
+            emqx_gateway_cm_proto_v1:call(GwName, ClientId, ChanPid, Req)
+          )
+      end).
 
--spec call(gateway_name(), emqx_types:clientid(), term(), timeout()) -> term().
+-spec call(gateway_name(), emqx_types:clientid(), term(), timeout())
+    -> undefined | term().
 call(GwName, ClientId, Req, Timeout) ->
-    with_channel(GwName, ClientId, fun(ChanPid) ->
-                                           wrap_rpc(
-                                             emqx_gateway_cm_proto_v1:call(
-                                               GwName, ClientId, ChanPid, Req, Timeout))
-                                   end).
+    with_channel(
+      GwName, ClientId,
+      fun(ChanPid) ->
+          wrap_rpc(
+            emqx_gateway_cm_proto_v1:call(
+              GwName, ClientId, ChanPid, Req, Timeout)
+           )
+      end).
 
 do_call(GwName, ClientId, ChanPid, Req) ->
     case do_get_chann_conn_mod(GwName, ClientId, ChanPid) of
-        undefined -> error(noproc);
+        undefined -> throw(noproc);
         ConnMod -> ConnMod:call(ChanPid, Req)
     end.
 
 do_call(GwName, ClientId, ChanPid, Req, Timeout) ->
     case do_get_chann_conn_mod(GwName, ClientId, ChanPid) of
-        undefined -> error(noproc);
+        undefined -> throw(noproc);
         ConnMod -> ConnMod:call(ChanPid, Req, Timeout)
     end.
 
--spec cast(gateway_name(), emqx_types:clientid(), term()) -> term().
+-spec cast(gateway_name(), emqx_types:clientid(), term()) -> ok.
 cast(GwName, ClientId, Req) ->
-    with_channel(GwName, ClientId, fun(ChanPid) ->
-                                           wrap_rpc(emqx_gateway_cm_proto_v1:cast(GwName, ClientId, ChanPid, Req))
-                                   end).
+    with_channel(
+      GwName, ClientId,
+      fun(ChanPid) ->
+          wrap_rpc(
+            emqx_gateway_cm_proto_v1:cast(GwName, ClientId, ChanPid, Req))
+      end),
+    ok.
 
 do_cast(GwName, ClientId, ChanPid, Req) ->
     case do_get_chann_conn_mod(GwName, ClientId, ChanPid) of
-        undefined -> error(noproc);
+        undefined -> throw(noproc);
         ConnMod -> ConnMod:cast(ChanPid, Req)
     end.
 
@@ -625,7 +639,7 @@ locker_unlock(Locker, ClientId) ->
 %% @private
 wrap_rpc(Ret) ->
     case Ret of
-        {badrpc, Reason} -> error(Reason);
+        {badrpc, Reason} -> throw({badrpc, Reason});
         Res -> Res
     end.
 
