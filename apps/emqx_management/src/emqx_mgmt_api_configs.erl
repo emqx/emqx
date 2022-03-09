@@ -145,13 +145,8 @@ fields(Field) -> emqx_conf_schema:fields(Field).
 %% HTTP API Callbacks
 config(get, _Params, Req) ->
     Path = conf_path(Req),
-    case emqx_map_lib:deep_find(Path, get_full_config()) of
-        {ok, Conf} ->
-            {200, Conf};
-        {not_found, _, _} ->
-            {404, #{code => 'NOT_FOUND',
-                message => <<(list_to_binary(Path))/binary, " not found">>}}
-    end;
+    {ok, Conf} = emqx_map_lib:deep_find(Path, get_full_config()),
+    {200, Conf};
 
 config(put, #{body := Body}, Req) ->
     Path = conf_path(Req),
@@ -195,7 +190,9 @@ conf_path_reset(Req) ->
     string:lexemes(Path, "/ ").
 
 get_full_config() ->
-        emqx_config:fill_defaults(emqx:get_raw_config([])).
+        emqx_config:fill_defaults(
+            maps:without(?EXCLUDES,
+                emqx:get_raw_config([]))).
 
 conf_path_from_querystr(Req) ->
     case proplists:get_value(<<"conf_path">>, cowboy_req:parse_qs(Req)) of

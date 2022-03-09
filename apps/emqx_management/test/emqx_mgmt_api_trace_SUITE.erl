@@ -80,6 +80,8 @@ t_http_test(_Config) ->
     ?assertEqual(#{<<"enable">> => false,
         <<"name">> => <<"test-name">>}, json(Update)),
 
+    ?assertMatch({error, {"HTTP/1.1", 404, _}, _},
+        request_api(put, api_path("trace/test-name-not-found/stop"), Header, #{})),
     {ok, List1} = request_api(get, api_path("trace"), Header),
     [Data1] = json(List1),
     Node = atom_to_binary(node()),
@@ -113,6 +115,39 @@ t_http_test(_Config) ->
     ?assertEqual(<<>>, Clear),
 
     unload(),
+    ok.
+
+t_create_failed(_Config) ->
+    load(),
+    Header = auth_header_(),
+    Trace = [{<<"type">>, <<"topic">>}, {<<"topic">>, <<"/x/y/z">>}],
+
+    BadName1 = {<<"name">>, <<"test/bad">>},
+    ?assertMatch({error, {"HTTP/1.1", 400, _}, _},
+        request_api(post, api_path("trace"), Header, [BadName1 | Trace])),
+    BadName2 = {<<"name">>, list_to_binary(lists:duplicate(257, "t"))},
+    ?assertMatch({error, {"HTTP/1.1", 400, _}, _},
+        request_api(post, api_path("trace"), Header, [BadName2 | Trace])),
+
+    %% already_exist
+    GoodName = {<<"name">>, <<"test-name-0">>},
+    {ok, Create} = request_api(post, api_path("trace"), Header, [GoodName | Trace]),
+    ?assertMatch(#{<<"name">> := <<"test-name-0">>}, json(Create)),
+    ?assertMatch({error, {"HTTP/1.1", 400, _}, _},
+        request_api(post, api_path("trace"), Header, [GoodName | Trace])),
+
+    %% MAX Limited
+    lists:map(fun(Seq) ->
+        Name0 = list_to_binary("name" ++ integer_to_list(Seq)),
+        Trace0 = [{name, Name0}, {type, topic},
+            {topic, list_to_binary("/x/y/" ++ integer_to_list(Seq))}],
+        {ok, _} = emqx_trace:create(Trace0)
+              end, lists:seq(1, 30 - ets:info(emqx_trace, size))),
+    GoodName1 = {<<"name">>, <<"test-name-1">>},
+    ?assertMatch({error, {"HTTP/1.1", 400, _}, _},
+        request_api(post, api_path("trace"), Header, [GoodName1 | Trace])),
+    unload(),
+    emqx_trace:clear(),
     ok.
 
 t_download_log(_Config) ->

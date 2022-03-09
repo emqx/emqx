@@ -38,6 +38,7 @@ start_link(MaxHistory, CleanupMs) ->
 %%%===================================================================
 
 init([State]) ->
+    erlang:process_flag(trap_exit, true),
     {ok, ensure_timer(State)}.
 
 handle_call(Req, _From, State) ->
