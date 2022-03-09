@@ -103,6 +103,8 @@
 -define(T_TAKEOVER, 15000).
 -define(DEFAULT_BATCH_SIZE, 10000).
 
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -391,7 +393,7 @@ takeover_session(GwName, ClientId) ->
         [ChanPid] ->
             do_takeover_session(GwName, ClientId, ChanPid);
         ChanPids ->
-            [ChanPid|StalePids] = lists:reverse(ChanPids),
+            [ChanPid | StalePids] = lists:reverse(ChanPids),
             ?SLOG(warning, #{ msg => "more_than_one_channel_found"
                             , chan_pids => ChanPids
                             }),
@@ -656,7 +658,7 @@ init(Options) ->
     TabOpts = [public, {write_concurrency, true}],
 
     {ChanTab, ConnTab, InfoTab} = cmtabs(GwName),
-    ok = emqx_tables:new(ChanTab, [bag, {read_concurrency, true}|TabOpts]),
+    ok = emqx_tables:new(ChanTab, [bag, {read_concurrency, true} | TabOpts]),
     ok = emqx_tables:new(ConnTab, [bag | TabOpts]),
     ok = emqx_tables:new(InfoTab, [set, compressed | TabOpts]),
 
