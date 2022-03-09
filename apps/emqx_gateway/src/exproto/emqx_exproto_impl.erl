@@ -127,10 +127,14 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
                  services => #{
                    'emqx.exproto.v1.ConnectionAdapter' => emqx_exproto_gsvr}
                 },
-    SvrOptions = case maps:to_list(maps:get(ssl, Options, #{})) of
-                  [] -> [];
-                  SslOpts ->
-                      [{ssl_options, SslOpts}]
+    SvrOptions = case emqx_map_lib:deep_get([ssl, enable], Options, false) of
+                  false -> [];
+                  true ->
+                      [{ssl_options,
+                        maps:to_list(
+                          maps:without([enable], maps:get(ssl, Options, #{}))
+                         )
+                       }]
               end,
     case grpc:start_server(GwName, ListenOn, Services, SvrOptions) of
         {ok, _SvrPid} ->
