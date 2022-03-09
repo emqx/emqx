@@ -287,6 +287,50 @@ do_start_stop_bridges(Type) ->
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []).
 
+t_enable_disable_bridges(_) ->
+    %% assert we there's no bridges at first
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    Port = start_http_server(fun handle_fun_200_ok/2),
+    URL1 = ?URL(Port, "abc"),
+    {ok, 201, Bridge} = request(post, uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, ?BRIDGE_NAME)),
+    %ct:pal("the bridge ==== ~p", [Bridge]),
+    #{ <<"type">> := ?BRIDGE_TYPE
+     , <<"name">> := ?BRIDGE_NAME
+     , <<"status">> := <<"connected">>
+     , <<"node_status">> := [_|_]
+     , <<"metrics">> := _
+     , <<"node_metrics">> := [_|_]
+     , <<"url">> := URL1
+     } = jsx:decode(Bridge),
+    BridgeID = emqx_bridge:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    %% disable it
+    {ok, 200, <<>>} = request(post, operation_path(cluster, disable, BridgeID), <<"">>),
+    {ok, 200, Bridge2} = request(get, uri(["bridges", BridgeID]), []),
+    ?assertMatch(#{ <<"status">> := <<"disconnected">>
+                  }, jsx:decode(Bridge2)),
+    %% enable again
+    {ok, 200, <<>>} = request(post, operation_path(cluster, enable, BridgeID), <<"">>),
+    {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
+    ?assertMatch(#{ <<"status">> := <<"connected">>
+                  }, jsx:decode(Bridge3)),
+    %% enable an already started bridge
+    {ok, 200, <<>>} = request(post, operation_path(cluster, enable, BridgeID), <<"">>),
+    {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
+    ?assertMatch(#{ <<"status">> := <<"connected">>
+                  }, jsx:decode(Bridge3)),
+    %% disable it again
+    {ok, 200, <<>>} = request(post, operation_path(cluster, disable, BridgeID), <<"">>),
+    %% enable a stopped bridge
+    {ok, 200, <<>>} = request(post, operation_path(cluster, enable, BridgeID), <<"">>),
+    {ok, 200, Bridge4} = request(get, uri(["bridges", BridgeID]), []),
+    ?assertMatch(#{ <<"status">> := <<"connected">>
+                  }, jsx:decode(Bridge4)),
+    %% delete the bridge
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []).
+
 %%--------------------------------------------------------------------
 %% HTTP Request
 %%--------------------------------------------------------------------
