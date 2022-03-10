@@ -28,7 +28,7 @@ services:
       - ssl_ca_file=/var/lib/postgresql/root.crt
       - -c
       - hba_file=/var/lib/postgresql/pg_hba.conf
-      - -c
-      - ssl_min_protocol_version=TLSv1.2
+#      - -c
+#      - ssl_min_protocol_version=TLSv1.2
     networks:
       - emqx_bridge
